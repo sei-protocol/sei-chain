@@ -1242,21 +1242,45 @@ func (d *DiskTable) IteratorAt(key []byte, reverse bool) (litt.Iterator, bool, e
 			"cannot process IteratorAt() request, DB is in panicked state due to error: %w", err)
 	}
 
-	// Locate the segment that holds key via the keymap, exactly as Get does. The keymap is the index
-	// whose job is this lookup; we trust it to identify the segment and do not cross-check it against
-	// the other segments in the snapshot. A key still present in the keymap has a live entry, so its
-	// segment cannot be garbage collected out from under the snapshot opened below.
-	address, ok, err := d.keymap.Get(key)
+	// Existence check, cache before keymap — the same oracle Get uses. The keymap lags writes: a key
+	// lives in the unflushed data cache from Put until its keymap entry is durable, and is pruned from
+	// the cache only after the keymap put succeeds, so a key absent from both is genuinely absent. This
+	// keeps the not-found case cheap: no segment is sealed and no barrier is paid for a key that was
+	// never written. A key present in the keymap has a live entry, so its segment cannot be garbage
+	// collected out from under the snapshot opened below.
+	_, inCache := d.unflushedDataCache.Load(util.UnsafeBytesToString(key))
+	address, inKeymap, err := d.keymap.Get(key)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to look up key address: %w", err)
 	}
-	if !ok {
+	if !inKeymap && !inCache {
 		return nil, false, nil
 	}
 
 	segs, err := d.openSnapshot()
 	if err != nil {
 		return nil, false, err
+	}
+
+	if !inKeymap {
+		// The key is in the unflushed data cache but not yet in the keymap. openSnapshot sealed the
+		// mutable segment, which handed every pending key to the keymap manager before returning, so
+		// draining the manager's buffered puts makes the keymap lookup authoritative. A miss after the
+		// barrier means the key was deleted concurrently.
+		if err = d.keymapManager.syncPuts(); err != nil {
+			return nil, false, errors.Join(
+				fmt.Errorf("failed to sync keymap manager puts: %w", err),
+				d.abandonSnapshot(segs))
+		}
+		address, inKeymap, err = d.keymap.Get(key)
+		if err != nil {
+			return nil, false, errors.Join(
+				fmt.Errorf("failed to look up key address: %w", err),
+				d.abandonSnapshot(segs))
+		}
+		if !inKeymap {
+			return nil, false, d.abandonSnapshot(segs)
+		}
 	}
 
 	// Find the snapshot position of the keymap-identified segment. segs is ordered by ascending segment

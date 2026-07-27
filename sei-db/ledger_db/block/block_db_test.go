@@ -946,43 +946,49 @@ func recoverLastQC(t *testing.T, db types.BlockDB) (*types.CommitQC, bool) {
 // testBlocksAt asserts that BlocksAt positions the iterator at a given height: forward yields the start
 // block and every higher one (ascending); reverse yields the start block and every lower one (descending);
 // a start past the tip yields nothing; and a start below the watermark clamps up to the watermark. The
-// store is restarted before positioning so the backing index is current (the intended resume use case).
+// positioning assertions run twice: on the live store right after the writes (consensus reads the tip
+// while writing) and again after a restart (the resume use case, where the backing index is rebuilt).
 func testBlocksAt(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db, o := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 	writeAll(t, db, batches)
-	db = restart(t, o, db)
 
 	all := collectBlockNumbers(t, db)
 	require.GreaterOrEqual(t, len(all), 4, "need enough blocks to pick a middle start")
 	start := all[len(all)/2]
 
-	// Forward: exactly the blocks >= start, ascending, starting at start.
-	var wantFwd []types.GlobalBlockNumber
-	for _, n := range all {
-		if n >= start {
-			wantFwd = append(wantFwd, n)
+	assertPositions := func() {
+		// Forward: exactly the blocks >= start, ascending, starting at start.
+		var wantFwd []types.GlobalBlockNumber
+		for _, n := range all {
+			if n >= start {
+				wantFwd = append(wantFwd, n)
+			}
 		}
-	}
-	gotFwd := blocksAtNumbers(t, db, start, false)
-	require.Equal(t, wantFwd, gotFwd)
-	require.Equal(t, start, gotFwd[0], "forward BlocksAt must begin at the requested height")
+		gotFwd := blocksAtNumbers(t, db, start, false)
+		require.Equal(t, wantFwd, gotFwd)
+		require.Equal(t, start, gotFwd[0], "forward BlocksAt must begin at the requested height")
 
-	// Reverse: exactly the blocks <= start, descending, starting at start.
-	var wantRev []types.GlobalBlockNumber
-	for i := len(all) - 1; i >= 0; i-- {
-		if all[i] <= start {
-			wantRev = append(wantRev, all[i])
+		// Reverse: exactly the blocks <= start, descending, starting at start.
+		var wantRev []types.GlobalBlockNumber
+		for i := len(all) - 1; i >= 0; i-- {
+			if all[i] <= start {
+				wantRev = append(wantRev, all[i])
+			}
 		}
-	}
-	gotRev := blocksAtNumbers(t, db, start, true)
-	require.Equal(t, wantRev, gotRev)
-	require.Equal(t, start, gotRev[0], "reverse BlocksAt must begin at the requested height")
+		gotRev := blocksAtNumbers(t, db, start, true)
+		require.Equal(t, wantRev, gotRev)
+		require.Equal(t, start, gotRev[0], "reverse BlocksAt must begin at the requested height")
 
-	// A start past the last block yields nothing.
-	require.Empty(t, blocksAtNumbers(t, db, all[len(all)-1]+100, false))
+		// A start past the last block yields nothing.
+		require.Empty(t, blocksAtNumbers(t, db, all[len(all)-1]+100, false))
+	}
+
+	assertPositions()
+	db = restart(t, o, db)
+	assertPositions()
 
 	// A start below the watermark clamps up to the watermark.
 	watermark := batches[1].first
@@ -999,43 +1005,49 @@ func testBlocksAt(t *testing.T, build builder) {
 // the height falls in the middle of a QC's range, in which case the covering QC is yielded whole. Forward
 // yields the covering QC and every later QC (ascending by First); reverse yields the covering QC and every
 // earlier QC (descending); a start past the last QC yields nothing; and a start below the watermark clamps.
+// The positioning assertions run twice: on the live store right after the writes and again after a restart.
 func testQCsAt(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db, o := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 	writeAll(t, db, batches)
-	db = restart(t, o, db)
 
 	// Pick a start strictly inside a middle QC's range to exercise covering-QC positioning.
 	mid := batches[len(batches)/2]
 	require.Greater(t, mid.next, mid.first+1, "need a multi-block QC range")
 	start := mid.first + 1
 
-	// Forward: the covering QC (upper > start) and every later QC, ascending by First.
-	var wantFwd []types.GlobalBlockNumber
-	for _, b := range batches {
-		if b.next > start {
-			wantFwd = append(wantFwd, b.first)
+	assertPositions := func() {
+		// Forward: the covering QC (upper > start) and every later QC, ascending by First.
+		var wantFwd []types.GlobalBlockNumber
+		for _, b := range batches {
+			if b.next > start {
+				wantFwd = append(wantFwd, b.first)
+			}
 		}
-	}
-	gotFwd := qcsAtFirsts(t, db, start, false)
-	require.Equal(t, wantFwd, gotFwd)
-	require.Equal(t, mid.first, gotFwd[0], "QCsAt mid-range must yield the covering QC first")
+		gotFwd := qcsAtFirsts(t, db, start, false)
+		require.Equal(t, wantFwd, gotFwd)
+		require.Equal(t, mid.first, gotFwd[0], "QCsAt mid-range must yield the covering QC first")
 
-	// Reverse: the covering QC (lower <= start) and every earlier QC, descending by First.
-	var wantRev []types.GlobalBlockNumber
-	for i := len(batches) - 1; i >= 0; i-- {
-		if batches[i].first <= start {
-			wantRev = append(wantRev, batches[i].first)
+		// Reverse: the covering QC (lower <= start) and every earlier QC, descending by First.
+		var wantRev []types.GlobalBlockNumber
+		for i := len(batches) - 1; i >= 0; i-- {
+			if batches[i].first <= start {
+				wantRev = append(wantRev, batches[i].first)
+			}
 		}
-	}
-	gotRev := qcsAtFirsts(t, db, start, true)
-	require.Equal(t, wantRev, gotRev)
-	require.Equal(t, mid.first, gotRev[0], "reverse QCsAt must begin at the covering QC")
+		gotRev := qcsAtFirsts(t, db, start, true)
+		require.Equal(t, wantRev, gotRev)
+		require.Equal(t, mid.first, gotRev[0], "reverse QCsAt must begin at the covering QC")
 
-	// A start past the last QC yields nothing.
-	require.Empty(t, qcsAtFirsts(t, db, batches[len(batches)-1].next+100, false))
+		// A start past the last QC yields nothing.
+		require.Empty(t, qcsAtFirsts(t, db, batches[len(batches)-1].next+100, false))
+	}
+
+	assertPositions()
+	db = restart(t, o, db)
+	assertPositions()
 
 	// A start below the watermark clamps up to the covering QC at the watermark.
 	watermark := batches[1].first

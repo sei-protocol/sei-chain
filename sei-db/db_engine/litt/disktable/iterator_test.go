@@ -858,17 +858,116 @@ func TestReadsAndWritesDuringOpenIterator(t *testing.T) {
 	require.Equal(t, []string{"k0", "k1", "k2", "k3", "k4"}, entryKeys(drainIterator(t, it2)))
 }
 
-// refreshKeymap flushes the table and then synchronizes the keymap manager, so the keymap reflects every
-// write issued so far. IteratorAt locates a key's segment via the keymap (unlike Get, which first checks
-// the unflushed-data cache), and Flush only schedules the keymap write asynchronously — so a test must
-// force the keymap current before positioning at a just-written key. (In production this is satisfied at
-// startup, where the keymap is rebuilt from the segment key files before the table serves reads.)
-func refreshKeymap(t *testing.T, table litt.ManagedTable) {
+// buildKeymapLagIterTable builds a mem-keymap disk table whose keymap manager buffers puts indefinitely
+// (huge batch size, huge byte bound, hour-long flush interval), so a written key stays out of the keymap
+// until a barrier applies it. Used to pin the window between a write and its keymap entry
+// deterministically. Like buildIterTable, it seals a segment after exactly maxSegmentKeyCount keys and
+// disables background GC.
+func buildKeymapLagIterTable(
+	t *testing.T,
+	name string,
+	path string,
+	maxSegmentKeyCount uint32,
+) litt.ManagedTable {
 	t.Helper()
+
+	logger := slog.Default()
+
+	keymapPath := filepath.Join(path, keymap.KeymapDirectoryName)
+	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
+	require.NoError(t, err)
+
+	keys, _, err := keymap.NewMemKeymap(logger, "", true)
+	require.NoError(t, err)
+
+	config, err := litt.DefaultConfig(path)
+	require.NoError(t, err)
+
+	config.TargetSegmentFileSize = math.MaxUint32
+	config.MaxSegmentKeyCount = maxSegmentKeyCount
+	config.GCPeriod = time.Hour
+	config.Fsync = false
+	config.KeymapManagerMaxBatchSize = math.MaxInt
+	config.KeymapManagerMaxBatchBytes = math.MaxUint64
+	config.KeymapManagerMaxInterval = time.Hour
+
+	tableConfig := litt.DefaultTableConfig(name)
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Logger = logger
+
+	table, err := NewDiskTable(
+		config,
+		runtimeConfig,
+		name,
+		tableConfig,
+		keys,
+		keymapPath,
+		keymapTypeFile,
+		[]string{path},
+		true,
+		nil)
+	require.NoError(t, err)
+
+	return table
+}
+
+// TestIteratorAtUnflushedKeys pins the keymap-lag window: keys are written and their keymap puts sit
+// buffered in the keymap manager (which never applies them on its own here), so the keymap has none of
+// them when IteratorAt runs. IteratorAt must still find every key — matching Get, which serves them from
+// the unflushed-data cache — while a never-written key must still report found=false without sealing the
+// mutable segment.
+func TestIteratorAtUnflushedKeys(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	// Seal every 2 keys: seg0[k0,k1], seg1[k2,k3], seg2(mutable)[k4].
+	table := buildKeymapLagIterTable(t, "atlag", directory, 2)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	keyOrder := []string{"k0", "k1", "k2", "k3", "k4"}
+	for _, k := range keyOrder {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+
+	// Flush makes the data durable and hands the keys to the keymap manager, where they stay buffered:
+	// Get serves every key, while the keymap itself has none of them.
 	require.NoError(t, table.Flush())
 	dt, ok := table.(*DiskTable)
 	require.True(t, ok, "expected *DiskTable")
-	require.NoError(t, dt.keymapManager.sync())
+	for _, k := range keyOrder {
+		_, inKeymap, err := dt.keymap.Get([]byte(k))
+		require.NoError(t, err)
+		require.False(t, inKeymap, "expected key %q to still be absent from the keymap", k)
+		_, found, err := table.Get([]byte(k))
+		require.NoError(t, err)
+		require.True(t, found)
+	}
+
+	// A never-written key is reported absent without sealing the mutable segment.
+	segmentsBefore := countSegmentsOnDisk(t, directory)
+	it, found, err := table.IteratorAt([]byte("kX"), false)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Nil(t, it)
+	require.Equal(t, segmentsBefore, countSegmentsOnDisk(t, directory))
+
+	// A written key is found and iterates from the right position. This first call takes the
+	// keymap-lag path: seal, drain the manager's buffered puts, then locate via the keymap.
+	fwd := openIteratorAt(t, table, "k2", false)
+	entries := drainIterator(t, fwd)
+	require.NoError(t, fwd.Close())
+	require.Equal(t, []string{"k2", "k3", "k4"}, entryKeys(entries))
+	for _, e := range entries {
+		require.Equal(t, "value-"+e.key, e.value)
+	}
+
+	// The drain above made the keymap current, so this call takes the ordinary keymap-hit path.
+	rev := openIteratorAt(t, table, "k2", true)
+	entries = drainIterator(t, rev)
+	require.NoError(t, rev.Close())
+	require.Equal(t, []string{"k2", "k1", "k0"}, entryKeys(entries))
 }
 
 // openIteratorAt opens an IteratorAt positioned at key, requiring the key to be found.
@@ -899,7 +998,6 @@ func TestIteratorAtForward(t *testing.T) {
 			for _, k := range keyOrder {
 				require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
 			}
-			refreshKeymap(t, table)
 
 			cases := []struct {
 				start    string
@@ -941,7 +1039,6 @@ func TestIteratorAtReverse(t *testing.T) {
 			for _, k := range keyOrder {
 				require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
 			}
-			refreshKeymap(t, table)
 
 			cases := []struct {
 				start    string
@@ -983,7 +1080,6 @@ func TestIteratorAtNotFound(t *testing.T) {
 	for _, k := range []string{"k0", "k1", "k2"} {
 		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
 	}
-	refreshKeymap(t, table)
 
 	// A key that was never written is absent.
 	it, found, err = table.IteratorAt([]byte("kX"), false)
@@ -1005,7 +1101,6 @@ func TestIteratorAtExcludesConcurrentWrites(t *testing.T) {
 	for _, k := range []string{"k0", "k1", "k2"} {
 		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
 	}
-	refreshKeymap(t, table)
 
 	it := openIteratorAt(t, table, "k1", false)
 	defer func() { require.NoError(t, it.Close()) }()
@@ -1036,7 +1131,6 @@ func TestIteratorAtSecondaryKey(t *testing.T) {
 		&types.SecondaryKey{Key: []byte("s0b"), Offset: 0, Length: 6}, // "abcdef"
 	))
 	require.NoError(t, table.Put([]byte("p1"), []byte("xyz")))
-	refreshKeymap(t, table)
 
 	// Insertion order of records is [p0, s0a, s0b, p1]; positioning at s0a yields [s0a, s0b, p1].
 	it := openIteratorAt(t, table, "s0a", false)
