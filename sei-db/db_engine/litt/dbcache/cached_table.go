@@ -115,28 +115,49 @@ func (c *cachedTable) Get(key []byte) (value []byte, exists bool, err error) {
 
 // GetSubrange reads only the [offset, offset+length) byte range of the value stored under key.
 //
-// Cache policy — subrange reads intentionally bypass BOTH caches:
+// Cache policy — subrange reads consult both caches, but never populate them:
 //
-//   - The read and write caches are keyed by the full key and store the full value. A subrange read cannot
-//     safely populate them (it would store a partial value under a key that Get is entitled to treat as the
-//     whole value), and it does not consult them either: even on a cache hit the whole point of a subrange
-//     read is to avoid materializing the full value, and slicing a cached full value would defeat the I/O
-//     savings the base implementation provides.
-//   - A more elaborate scheme could cache sub-ranges under specially structured keys, but that adds
-//     complexity we do not yet know we need. We start simple by skipping the cache and documenting it here,
-//     with the intent to revisit if profiling shows subrange reads are hot enough that the missing cache
-//     hurts. Until then, every GetSubrange goes straight to the base table.
+//   - Populating would be unsafe. Both caches are keyed by the full key and hold the full value, so
+//     storing a sub-range under that key would hand a later Get a partial value it is entitled to treat
+//     as the whole thing.
+//   - Consulting is safe, because every path agrees that a key's offsets are relative to that key's own
+//     logical value. Put stores value[sk.Offset:sk.Offset+sk.Length] under a secondary key, the base table
+//     addresses that secondary at the same aliased region on disk, and readCache holds whatever Get
+//     returned. A cache hit therefore slices exactly the bytes the base table would have read.
+//   - Consulting is also strictly cheaper. A hit means the value is already materialized in memory, so
+//     slicing it costs no I/O at all, where the base table would pay a keymap lookup plus a disk read.
+//     Bypassing the caches would make GetSubrange slower than plain Get for precisely the hot,
+//     recently-written values a subrange read is meant to serve.
 //
-// This still reports the read to metrics (as a cold read), for parity with Get.
+// Because hits come from the same caches Get uses, the two agree on whether a key exists — including for
+// a key already reclaimed from the base table by GC or TTL expiry but still resident in a cache.
+//
+// Caching sub-ranges themselves, under specially structured keys, would speed up misses as well, but that
+// adds complexity we do not yet know we need. Revisit if profiling shows subrange misses are hot enough to
+// justify it.
 func (c *cachedTable) GetSubrange(key []byte, offset uint32, length uint32) (value []byte, exists bool, err error) {
+	// hot tracks whether the value was served from one of this table's caches (a "hot" read) for metrics.
+	var hot bool
 	if c.metrics != nil {
 		start := time.Now()
 		defer func() {
 			if exists && value != nil {
-				// hot is always false: subrange reads never come from a cache (see the cache policy above).
-				c.metrics.ReportReadOperation(c.Name(), time.Since(start), uint64(len(value)), false)
+				c.metrics.ReportReadOperation(c.Name(), time.Since(start), uint64(len(value)), hot)
 			}
 		}()
+	}
+
+	stringKey := util.UnsafeBytesToString(key)
+
+	if cached, ok := c.writeCache.Get(stringKey); ok {
+		// The value was recently written.
+		hot = true
+		return subrangeOf(cached, offset, length)
+	}
+	if cached, ok := c.readCache.Get(stringKey); ok {
+		// The value was recently read in full.
+		hot = true
+		return subrangeOf(cached, offset, length)
 	}
 
 	value, exists, err = c.base.GetSubrange(key, offset, length)
@@ -144,6 +165,17 @@ func (c *cachedTable) GetSubrange(key []byte, offset uint32, length uint32) (val
 		return value, exists, fmt.Errorf("failed to get subrange from base table: %w", err)
 	}
 	return value, exists, nil
+}
+
+// subrangeOf slices a cached full value, applying the same bounds check (and reporting it the same way)
+// as the base table, so a cache hit and a cache miss are indistinguishable to the caller.
+func subrangeOf(value []byte, offset uint32, length uint32) ([]byte, bool, error) {
+	end := uint64(offset) + uint64(length)
+	if end > uint64(len(value)) {
+		return nil, false, fmt.Errorf(
+			"subrange [%d, %d) is out of bounds for value of length %d", offset, end, len(value))
+	}
+	return value[offset:end], true, nil
 }
 
 func (c *cachedTable) Exists(key []byte) (exists bool, err error) {

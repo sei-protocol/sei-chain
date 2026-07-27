@@ -93,9 +93,11 @@ type Table interface {
 	// The requested range must be within the value: if offset+length exceeds the value's length, an error
 	// is returned. A zero-length range is valid and returns an empty (non-nil) slice when the key exists.
 	//
-	// Caching note: unlike Get, GetSubrange deliberately does not consult or populate the read/write value
-	// caches (see the cachedTable implementation for the rationale). Every GetSubrange therefore reaches the
-	// base table.
+	// Caching note: for a table with caching enabled, GetSubrange consults the read/write value caches
+	// like Get does — a cached value is already in memory, so slicing it is cheaper than any disk read —
+	// but unlike Get it never populates them, since a sub-range stored under the full key would corrupt a
+	// later Get. A subrange read of an uncached key therefore always reaches the base table (see the
+	// cachedTable implementation for the full rationale).
 	//
 	// As with Get, the returned data is NOT safe to mutate, and the key byte slice must not be modified
 	// after it is passed to this method.
