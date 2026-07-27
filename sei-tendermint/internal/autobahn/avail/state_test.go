@@ -1018,7 +1018,7 @@ func TestPushAppVoteFutureWaitsForCommitQC(t *testing.T) {
 	require.NoError(t, err)
 
 	// AppVote for Current's first road while CommitQC tip is still behind:
-	// after VerifySig, PushAppVote blocks in waitForCommitQC (not on the epoch window).
+	// PushAppVote parks in waitForCommitQC (not on the epoch window).
 	epM := utils.OrPanic1(registry.EpochAt(epoch.FirstRoad(m)))
 	proposal := types.NewAppProposal(
 		epM.FirstBlock(), epM.RoadRange().First, types.GenAppHash(rng), epM.EpochIndex())
@@ -1029,9 +1029,9 @@ func TestPushAppVoteFutureWaitsForCommitQC(t *testing.T) {
 	require.ErrorIs(t, state.PushAppVote(ctx, vote), context.Canceled)
 }
 
-// TestPushAppVoteUnregisteredRoadRejectsBeforeWait: a far-future RoadIndex whose
-// epoch is not seeded must fail EpochAt immediately — not park in waitForCommitQC.
-func TestPushAppVoteUnregisteredRoadRejectsBeforeWait(t *testing.T) {
+// TestPushAppVoteFarFutureParks: an unregistered far-future RoadIndex parks
+// (waitForCommitQC) rather than failing EpochAt up front.
+func TestPushAppVoteFarFutureParks(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, m := epoch.GenRegistryTip(rng, 4)
 	ds := newTestDataState(&data.Config{Registry: registry})
@@ -1042,16 +1042,13 @@ func TestPushAppVoteUnregisteredRoadRejectsBeforeWait(t *testing.T) {
 	proposal := types.NewAppProposal(0, far, types.GenAppHash(rng), m+10)
 	vote := types.Sign(keys[0], types.NewAppVote(proposal))
 	ctx, cancel := context.WithCancel(t.Context())
-	cancel() // would surface as Canceled if we waited first
+	cancel()
 
-	err = state.PushAppVote(ctx, vote)
-	require.Error(t, err)
-	require.NotErrorIs(t, err, context.Canceled)
-	require.Contains(t, err.Error(), "EpochAt")
+	require.ErrorIs(t, state.PushAppVote(ctx, vote), context.Canceled)
 }
 
 // TestWaitCurrentForRoadPrevNotAdmitted: a road in Prev is too late for
-// Current-only admission (CommitQC), even though waitEpochForRoad would
+// Current-only admission (CommitQC), even though waitForEpoch would
 // still resolve it.
 func TestWaitCurrentForRoadPrevNotAdmitted(t *testing.T) {
 	rng := utils.TestRng()
@@ -1063,7 +1060,7 @@ func TestWaitCurrentForRoadPrevNotAdmitted(t *testing.T) {
 	registerDuoAtEpoch(state, m) // Prev=M-1|Current=M
 
 	roadInPrev := epoch.FirstRoad(m - 1)
-	duoWin, err := state.waitEpochForRoad(t.Context(), roadInPrev)
+	duoWin, err := state.waitForEpoch(t.Context(), roadInPrev)
 	require.NoError(t, err)
 	require.True(t, duoWin.IsPresent(), "Prev|Current window still covers Prev roads")
 

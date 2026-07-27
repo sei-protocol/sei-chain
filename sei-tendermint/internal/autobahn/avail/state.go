@@ -257,8 +257,8 @@ func (s *State) waitRoadInWindow(
 	return utils.None[types.EpochDuo](), nil
 }
 
-// waitEpochForRoad: too early waits; behind window → None (stale).
-func (s *State) waitEpochForRoad(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[types.EpochDuo], error) {
+// waitForEpoch: too early waits until road is in Prev|Current; behind window → None (stale).
+func (s *State) waitForEpoch(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[types.EpochDuo], error) {
 	return s.waitRoadInWindow(ctx, roadIdx,
 		func(duo types.EpochDuo) utils.Option[*types.Epoch] {
 			if ep, err := duo.EpochForRoad(roadIdx); err == nil {
@@ -407,7 +407,6 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 // then tip-interlock leashes when sealing (last road of Current).
 //
 // Admit-then-verify is intentional backpressure for ahead-of-window QCs.
-// Do not add EpochAt-before-wait — that is PushAppVote's path only.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	idx := qc.Proposal().Index()
 	if idx > 0 {
@@ -458,32 +457,16 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 }
 
 // PushAppVote pushes an AppVote to the state.
+// Same admit-then-verify as PushAppQC: far-future roads park until the duo
+// and CommitQC tip catch up (one stream goroutine; does not block others).
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
 	idx := v.Msg().Proposal().RoadIndex()
-	// Authenticate before waitForCommitQC — a far-future RoadIndex on an
-	// unverified vote would otherwise park this goroutine until ctx cancel.
-	// EpochAt only rejects roads outside the registry; placeholder epochs
-	// (SetupInitialDuo / AdvanceIfNeeded lookahead) still admit a signed vote
-	// that then waits. PushCommitQC/PushAppQC intentionally wait via
-	// admitRoadOrDrop instead; votes use Registry.EpochAt because they are not
-	// duo-gated the same way.
-	ep, err := s.data.Registry().EpochAt(idx)
-	if err != nil {
-		return fmt.Errorf("EpochAt(%d): %w", idx, err)
-	}
-	if got, want := v.Msg().Proposal().EpochIndex(), ep.EpochIndex(); got != want {
-		return fmt.Errorf("appVote epoch_index %d, want %d", got, want)
-	}
-	committee := ep.Committee()
-	if err := v.VerifySig(committee); err != nil {
-		return fmt.Errorf("v.VerifySig(): %w", err)
-	}
 	// A vote may arrive before its CommitQC advances the tip.
 	if err := s.waitForCommitQC(ctx, idx); err != nil {
 		return err
 	}
 	// Too-early roads (ahead of Prev|Current) backpressure; too-late are dropped.
-	duoOpt, err := s.admitRoadOrDrop(ctx, idx, "AppVote", s.waitEpochForRoad)
+	duoOpt, err := s.admitRoadOrDrop(ctx, idx, "AppVote", s.waitForEpoch)
 	if err != nil {
 		return err
 	}
@@ -491,8 +474,14 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	if !ok {
 		return nil
 	}
-	ep = utils.OrPanic1(duo.EpochForRoad(idx))
-	committee = ep.Committee()
+	ep := utils.OrPanic1(duo.EpochForRoad(idx))
+	if got, want := v.Msg().Proposal().EpochIndex(), ep.EpochIndex(); got != want {
+		return fmt.Errorf("appVote epoch_index %d, want %d", got, want)
+	}
+	committee := ep.Committee()
+	if err := v.VerifySig(committee); err != nil {
+		return fmt.Errorf("v.VerifySig(): %w", err)
+	}
 	for inner, ctrl := range s.inner.Lock() {
 		// Early exit if not useful (we collect <=1 AppQC per road index).
 		if idx < types.NextOpt(inner.latestAppQC) {
@@ -527,8 +516,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 // PushAppQC requires a justifying CommitQC; tipcut insert uses the same
 // sealing leashes as PushCommitQC.
 //
-// Same admit-then-verify as PushCommitQC. Do not mirror PushAppVote's
-// EpochAt-before-wait — pair checks below do not bound how far ahead idx may be.
+// Same admit-then-verify as PushCommitQC.
 func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *types.CommitQC) error {
 	// Check whether it is needed before verifying.
 	for inner := range s.inner.Lock() {
@@ -547,7 +535,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	idx := commitQC.Proposal().Index()
-	duoOpt, err := s.admitRoadOrDrop(ctx, idx, "AppQC", s.waitEpochForRoad)
+	duoOpt, err := s.admitRoadOrDrop(ctx, idx, "AppQC", s.waitForEpoch)
 	if err != nil {
 		return err
 	}
