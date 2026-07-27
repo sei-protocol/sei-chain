@@ -339,6 +339,11 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 	if err != nil {
 		return nil, fmt.Errorf("convertFlatKVNodes failed: %w", err)
 	}
+	if moduleName == "" {
+		// Same guard as classifyAndPrefix and routePhysicalKey: an empty
+		// module would produce a StoreKey the SS importer silently drops.
+		return nil, fmt.Errorf("flatkv: empty module name in physical key %q", node.Key)
+	}
 
 	// Only keys under the EVM module carry EVM kind prefixes. Legacy module
 	// keys are opaque bytes: a staking/bank/... key can coincidentally start
