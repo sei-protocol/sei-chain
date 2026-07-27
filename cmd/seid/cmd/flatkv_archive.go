@@ -24,6 +24,12 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	tmstatesync "github.com/sei-protocol/sei-chain/sei-tendermint/statesync"
 	"github.com/spf13/cast"
@@ -136,35 +142,56 @@ func flatKVArchiveCreateCmd() *cobra.Command {
 				stateStoreDir = filepath.Join(homeDir, "data", "state_store")
 			}
 
-			// Pair an immutable FlatKV snapshot with an immutable state-store
-			// checkpoint. The state-store checkpoint must be labeled >= the
-			// FlatKV height H so the restored node has every version <= H;
-			// holes above H are refilled by block replay from H+1. Only when
-			// no online checkpoint exists do we fall back to packing the live
-			// state_store directory, which is racy unless the donor process
-			// is stopped.
-			ssSource, ssSnapshotName, ssVersion, err := selectStateStoreSource(stateStoreDir)
+			includeSS, err := cmd.Flags().GetBool("include-state-store")
 			if err != nil {
-				return err
+				return fmt.Errorf("get include-state-store flag: %w", err)
 			}
+			includeWasm, err := cmd.Flags().GetBool("include-wasm")
+			if err != nil {
+				return fmt.Errorf("get include-wasm flag: %w", err)
+			}
+			if !includeWasm {
+				wasmDir = ""
+			}
+
+			// Default archive shape is SC-only: the FlatKV checkpoint is the
+			// single source of truth and restore rebuilds state_store from it.
+			// --include-state-store keeps the legacy copy path, pairing an
+			// immutable FlatKV snapshot with an immutable state-store
+			// checkpoint labeled >= the FlatKV height H so the restored node
+			// has every version <= H; holes above H are refilled by block
+			// replay from H+1.
+			var ssSource, ssSnapshotName string
 			var snapshotDir, snapshotName string
 			var height int64
-			if ssSnapshotName != "" {
-				snapshotDir, snapshotName, height, err = selectFlatKVSnapshotAtMost(flatKVRoot, ssVersion)
+			if includeSS {
+				var ssVersion int64
+				ssSource, ssSnapshotName, ssVersion, err = selectStateStoreSource(stateStoreDir)
 				if err != nil {
 					return err
 				}
-				fmt.Printf("Using state-store checkpoint %s (version %d) with FlatKV snapshot %s\n",
-					ssSnapshotName, ssVersion, snapshotName)
+				if ssSnapshotName != "" {
+					snapshotDir, snapshotName, height, err = selectFlatKVSnapshotAtMost(flatKVRoot, ssVersion)
+					if err != nil {
+						return err
+					}
+					fmt.Printf("Using state-store checkpoint %s (version %d) with FlatKV snapshot %s\n",
+						ssSnapshotName, ssVersion, snapshotName)
+				} else {
+					snapshotDir, snapshotName, height, err = selectFlatKVSnapshot(flatKVRoot)
+					if err != nil {
+						return err
+					}
+					if info, statErr := os.Stat(ssSource); statErr == nil && info.IsDir() {
+						fmt.Println("WARNING: no online state-store checkpoint found; packing the live " +
+							"state_store directory. This is only safe when the donor process is stopped. " +
+							"Enable state-store.ss-checkpoint-interval to archive from a live node.")
+					}
+				}
 			} else {
 				snapshotDir, snapshotName, height, err = selectFlatKVSnapshot(flatKVRoot)
 				if err != nil {
 					return err
-				}
-				if info, statErr := os.Stat(ssSource); statErr == nil && info.IsDir() {
-					fmt.Println("WARNING: no online state-store checkpoint found; packing the live " +
-						"state_store directory. This is only safe when the donor process is stopped. " +
-						"Enable state-store.ss-checkpoint-interval to archive from a live node.")
 				}
 			}
 			chainID, appHash, err := queryArchivedAppHash(cmd.Context(), rpc, height)
@@ -202,8 +229,10 @@ func flatKVArchiveCreateCmd() *cobra.Command {
 	cmd.Flags().String("out", "", "Output archive path (default ./flatkv-archive-<chain-id>-<height>.tar.zst)")
 	cmd.Flags().String("upload", "", "Optional s3://bucket/key destination")
 	cmd.Flags().String("flatkv-dir", "", "FlatKV root directory (default <home>/data/state_commit/flatkv)")
-	cmd.Flags().String("wasm-dir", "", "Wasm directory to include if present (default <home>/wasm)")
-	cmd.Flags().String("state-store-dir", "", "State-store query directory to include if present (default <home>/data/state_store)")
+	cmd.Flags().String("wasm-dir", "", "Wasm directory (default <home>/wasm; only used with --include-wasm)")
+	cmd.Flags().String("state-store-dir", "", "State-store query directory (default <home>/data/state_store; only used with --include-state-store)")
+	cmd.Flags().Bool("include-state-store", false, "Also pack state_store into the archive instead of relying on restore-side rebuild from FlatKV")
+	cmd.Flags().Bool("include-wasm", false, "Also pack the wasm directory into the archive")
 	cmd.Flags().String(flags.FlagChainID, "", "Expected network chain ID")
 	return cmd
 }
@@ -314,6 +343,40 @@ func flatKVArchiveRestoreCmd() *cobra.Command {
 			}
 			fmt.Printf("Restored FlatKV archive height=%d app_hash=%s into %s and bootstrapped Tendermint state\n",
 				manifest.Height, manifest.AppHash, flatKVRoot)
+
+			// The FlatKV checkpoint is the single source of truth: when the
+			// archive carries no state_store payload, rebuild the query store
+			// locally by iterating the verified checkpoint. Runs after
+			// light-client verification so a bad archive fails before the
+			// (long) rebuild, and only when this node has state-store enabled.
+			rebuildSS, err := cmd.Flags().GetBool("rebuild-state-store")
+			if err != nil {
+				return fmt.Errorf("get rebuild-state-store flag: %w", err)
+			}
+			ssConfig := app.ParseSSConfigs(appOpts)
+			switch {
+			case !rebuildSS || !ssConfig.Enable:
+				// Nothing to do: rebuild disabled or node runs without SS.
+			case archiveHasStateStore(manifest):
+				// Legacy archive shape: state_store was installed from the
+				// archive payload above.
+			default:
+				if _, statErr := os.Lstat(stateStoreDir); statErr == nil {
+					if !force {
+						return fmt.Errorf("destination state-store dir %s exists (use --force to replace)", stateStoreDir)
+					}
+					if err := os.RemoveAll(stateStoreDir); err != nil {
+						return fmt.Errorf("remove existing state-store dir: %w", err)
+					}
+				}
+				start := time.Now()
+				entries, err := rebuildStateStoreFromFlatKV(cmd.Context(), homeDir, flatKVRoot, manifest.Height, ssConfig)
+				if err != nil {
+					return fmt.Errorf("rebuild state_store from FlatKV: %w", err)
+				}
+				fmt.Printf("Rebuilt state_store at height %d from the FlatKV checkpoint (%d entries) in %s\n",
+					manifest.Height, entries, time.Since(start).Round(time.Second))
+			}
 			return nil
 		},
 	}
@@ -324,7 +387,8 @@ func flatKVArchiveRestoreCmd() *cobra.Command {
 	cmd.Flags().Bool("force", false, "Replace existing FlatKV snapshot/current and wasm directories")
 	cmd.Flags().String("flatkv-dir", "", "FlatKV root directory (default <home>/data/state_commit/flatkv)")
 	cmd.Flags().String("wasm-dir", "", "Wasm directory to restore if archived (default <home>/wasm)")
-	cmd.Flags().String("state-store-dir", "", "State-store query directory to restore if archived (default <home>/data/state_store)")
+	cmd.Flags().String("state-store-dir", "", "State-store query directory to restore or rebuild (default <home>/data/state_store)")
+	cmd.Flags().Bool("rebuild-state-store", true, "Rebuild state_store at the archive height by iterating the restored FlatKV checkpoint (skipped when the archive carries a state_store payload or state-store is disabled)")
 	cmd.Flags().String(flags.FlagChainID, "", "Expected network chain ID")
 	_ = cmd.MarkFlagRequired("from")
 	_ = cmd.MarkFlagRequired("trust-height")
@@ -340,6 +404,107 @@ func requireFlatKVOnly(writeMode, autoMode interface{}) error {
 		return fmt.Errorf("flatkv-archive requires %s=flatkv_only, got %q", app.FlagSCWriteMode, cast.ToString(writeMode))
 	}
 	return nil
+}
+
+// archiveHasStateStore reports whether the manifest carries a state_store
+// payload (legacy full-archive shape).
+func archiveHasStateStore(manifest *flatKVArchiveManifest) bool {
+	for _, f := range manifest.Files {
+		if strings.HasPrefix(f.Path, "state_store/") {
+			return true
+		}
+	}
+	return false
+}
+
+// rebuildStateStoreFromFlatKV populates a fresh state_store at the archive
+// height by iterating every committed physical row of the restored FlatKV
+// checkpoint and feeding it through the same FlatKV-node conversion path the
+// state sync SS importer uses. The resulting query store has exactly one
+// version (the archive height); history accumulates from there as the node
+// block-syncs forward.
+func rebuildStateStoreFromFlatKV(
+	ctx context.Context,
+	homeDir string,
+	flatKVRoot string,
+	height int64,
+	ssConfig seidbconfig.StateStoreConfig,
+) (int64, error) {
+	fcfg := flatkvconfig.DefaultConfig()
+	fcfg.DataDir = flatKVRoot
+	base, err := flatkv.NewCommitStore(ctx, fcfg)
+	if err != nil {
+		return 0, fmt.Errorf("open flatkv store: %w", err)
+	}
+	loaded, err := base.LoadVersion(0, true)
+	if err != nil {
+		_ = base.Close()
+		return 0, fmt.Errorf("load flatkv version: %w", err)
+	}
+	store, ok := loaded.(*flatkv.CommitStore)
+	if !ok {
+		_ = base.Close()
+		return 0, fmt.Errorf("unexpected flatkv store type %T", loaded)
+	}
+	defer func() { _ = store.Close() }()
+	if v := store.Version(); v != height {
+		return 0, fmt.Errorf("restored flatkv version %d does not match archive height %d", v, height)
+	}
+
+	ssStore, err := ss.NewStateStore(homeDir, ssConfig)
+	if err != nil {
+		return 0, fmt.Errorf("open state store: %w", err)
+	}
+
+	var entries int64
+	ch := make(chan dbtypes.SnapshotNode, 10000)
+	iterDone := make(chan error, 1)
+	go func() {
+		defer close(ch)
+		iter, err := store.RawGlobalIterator()
+		if err != nil {
+			iterDone <- fmt.Errorf("flatkv raw iterator: %w", err)
+			return
+		}
+		defer func() { _ = iter.Close() }()
+		for ; iter.Valid(); iter.Next() {
+			// Emit under the FlatKV module header so the composite SS
+			// importer runs its physical->logical conversion, exactly as it
+			// does for a FlatKV-only state sync stream.
+			ch <- dbtypes.SnapshotNode{
+				StoreKey: keys.FlatKVStoreKey,
+				Key:      append([]byte(nil), iter.Key()...),
+				Value:    append([]byte(nil), iter.Value()...),
+			}
+			entries++
+		}
+		iterDone <- iter.Error()
+	}()
+
+	importErr := ssStore.Import(height, ch)
+	iterErr := <-iterDone
+	if importErr != nil {
+		_ = ssStore.Close()
+		return entries, fmt.Errorf("state store import: %w", importErr)
+	}
+	if iterErr != nil {
+		_ = ssStore.Close()
+		return entries, iterErr
+	}
+	// Mirror the state sync restore path: stamp the version watermarks so the
+	// store reports the archive height instead of 0 until the first commit.
+	if err := ssStore.SetEarliestVersion(height, false); err != nil {
+		_ = ssStore.Close()
+		return entries, fmt.Errorf("set earliest version: %w", err)
+	}
+	if err := ssStore.SetLatestVersion(height); err != nil {
+		_ = ssStore.Close()
+		return entries, fmt.Errorf("set latest version: %w", err)
+	}
+	if err := ssStore.Close(); err != nil {
+		return entries, fmt.Errorf("close state store: %w", err)
+	}
+	return entries, nil
 }
 
 // selectStateStoreSource picks the newest online state-store checkpoint under

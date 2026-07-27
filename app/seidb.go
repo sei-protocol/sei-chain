@@ -195,6 +195,13 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	return scConfig
 }
 
+// ParseSSConfigs exposes the app's state-store config parsing to CLI commands
+// (e.g. flatkv-archive restore) that need to open the state store the same way
+// the node does.
+func ParseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
+	return parseSSConfigs(appOpts)
+}
+
 func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Enable = cast.ToBool(appOpts.Get(FlagSSEnable))
