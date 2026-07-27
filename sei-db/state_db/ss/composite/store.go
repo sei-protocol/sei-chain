@@ -352,6 +352,14 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 		// module would produce a StoreKey the SS importer silently drops.
 		return nil, fmt.Errorf("flatkv: empty module name in physical key %q", node.Key)
 	}
+	if len(innerKey) == 0 {
+		// A bare "module/" key cannot be produced by a healthy writer (the
+		// SDK rejects empty keys before they reach a changeset), so seeing
+		// one during import signals corruption. Reject it explicitly: the
+		// misc path would emit an empty-key node that the SS importer
+		// silently skips, hiding the problem.
+		return nil, fmt.Errorf("flatkv: empty inner key in physical key %q", node.Key)
+	}
 
 	// Only keys under the EVM module carry EVM kind prefixes. Legacy module
 	// keys are opaque bytes: a staking/bank/... key can coincidentally start
