@@ -315,3 +315,38 @@ times would be ~8.5m create / ~5.6m restore): state_store and wasm carry most
 of the archive's file count, so per-file overhead (SHA-256 stream setup, tar
 headers, small-file IO) drops disproportionately. Node-bootstrap-to-consensus
 in under 10 minutes total is achievable today for validator-shaped restores.
+
+## Single source of truth: SC-only archive + restore-side SS rebuild (2026-07-27)
+
+Design confirmed with the team: archives carry only the FlatKV checkpoint (no
+`state_store`, no `wasm` — CosmWasm is fully deprecated before FlatKV-only).
+The target rebuilds `state_store` at the archive height H by iterating the
+verified checkpoint through the state sync SS import path
+(`convertFlatKVNodes`), so the query layer is derived from
+light-client-verified bytes.
+
+End-to-end run (same SC-only archive at height 220090000, gp3-10k-1000
+victim, `ss-import-num-workers = 8`):
+
+- **Restore total: 20m59s** — download+extract+verify+install+light
+  client+TM bootstrap ~3m22s, then **SS rebuild 17m37s** for
+  **1,003,795,438 entries** (~950K entries/s).
+- Victim block-synced ~30,000 blocks to head, `catching_up=false`.
+- Correctness: `bank total --height 220090000` byte-identical between the
+  rebuilt victim and a donor cluster node; staking params and tokenfactory
+  supply queries at H all served from the rebuilt SS.
+
+### Production-scale bug found by the first rebuild attempt
+
+The first rebuild failed 17 minutes in:
+`DeserializeStorageData: data length at version 0 should be 41, got 58`.
+Root cause: `convertFlatKVNodes` ran `ParseEVMKey` on every module's keys. A
+legacy module key (e.g. staking) that happens to start with the EVM storage
+prefix byte and match the prefix+20+32 length check was deserialized as
+StorageData when it is actually MiscData. The write side
+(`classifyAndPrefix`) and read routing (`routePhysicalKey`) both gate EVM
+parsing on module == "evm"; the converter now does too. This code path is
+shared with FlatKV-only state sync, so the bug would have corrupted regular
+state sync restores at production scale as well — small-fixture tests cannot
+produce the key-shape collision (probability per key is tiny; at 10^9 keys it
+is near-certain).

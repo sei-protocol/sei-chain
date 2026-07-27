@@ -416,17 +416,36 @@ and all validators reported `catching_up=false`.
 | Restore + bootstrap, round 2 | gp3, 10k IOPS / 1000 MiB/s | 12m02s |
 | Restore + bootstrap (live-donor archive) | gp3, 10k IOPS / 1000 MiB/s | 12m47s |
 | SC-only create + upload (live donor, no `state_store`/`wasm`) | donor on default gp3 | 4m08s |
-| SC-only restore + bootstrap | gp3, 10k IOPS / 1000 MiB/s | 4m10s |
+| SC-only restore + bootstrap (no rebuild, SS-disabled shape) | gp3, 10k IOPS / 1000 MiB/s | 4m10s |
+| SC-only restore + bootstrap + `state_store` rebuild | gp3, 10k IOPS / 1000 MiB/s | 20m59s |
+| — of which `state_store` rebuild (1,003,795,438 entries, 8 workers) | same | 17m37s |
 | Light-client verify + Tendermint bootstrap | included above | ~10-12s |
 
-The SC-only run packs just the FlatKV checkpoint (37.6 GiB archive, 10,113
-files vs 81.4 GiB / 23,425 files for the full archive) — the shape a
-validator-focused archive would take. It is faster than its byte share
-predicts because `state_store` and `wasm` contribute most of the archive's
-file count, and per-file overhead (hashing setup, tar headers) is significant.
-The restored node block-synced ~9,700 blocks and reached the chain head about
-2.5 minutes after starting; a node restored this way serves consensus and
-latest-state queries but has no historical query layer.
+The SC-only archive packs just the FlatKV checkpoint (37.6 GiB archive,
+10,113 files vs 81.4 GiB / 23,425 files for the full archive). Create is
+faster than its byte share predicts because `state_store` and `wasm`
+contribute most of the archive's file count, and per-file overhead (hashing
+setup, tar headers) is significant.
+
+On the restore side the same archive serves both node shapes:
+
+- **Validator shape (SS disabled)**: restore is done in 4m10s; the node
+  serves consensus and latest-state queries with no rebuild cost.
+- **RPC shape (SS enabled)**: restore rebuilds `state_store` at the archive
+  height by iterating the verified checkpoint — 1.0 billion logical entries
+  imported in 17m37s (~950K entries/s with
+  `ss-import-num-workers = 8`), 20m59s end to end. The restored node then
+  block-synced ~30,000 blocks to the live head. A height-parameterized query
+  at the archive height (`bank total --height H`) returned byte-identical
+  results on the rebuilt node and a donor cluster node.
+
+The production-scale rebuild also surfaced a real conversion bug that
+small-fixture tests cannot hit: `convertFlatKVNodes` applied EVM key-kind
+parsing to every module, so a legacy module key that coincidentally started
+with an EVM prefix byte and matched its length check was deserialized as the
+wrong value type. The fix gates EVM parsing on the `evm` module, mirroring
+the write side (`classifyAndPrefix`) and read routing (`routePhysicalKey`);
+this path is shared with FlatKV-only state sync, so the fix hardens both.
 
 The live-donor run is the end-to-end validation of the online state-store
 checkpoint design:
