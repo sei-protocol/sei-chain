@@ -126,7 +126,7 @@ func (v View) Next() View {
 }
 
 // ViewSpec is the local context for starting a view: justification QCs plus a
-// Prev|Current EpochDuo. Tipcut AppQC may be Current or Current-1 (Prev lag).
+// Prev|Current EpochDuo. Attached AppQC may be Current or Current-1 (Prev lag).
 type ViewSpec struct {
 	// WARNING: currently we have implicit assumption that
 	// TimeoutQC.View().Index == CommitQC.Index.Next(),
@@ -357,8 +357,8 @@ func buildProposal(
 		appQC = utils.None[*AppQC]()
 	}
 	// If the new appProposal is from the future (which may happen if this node is
-	// behind), drop it and fall back to the previous CommitQC's app — same as the
-	// road/epoch guards below — so Verify never sees App < previous CommitQC.
+	// behind), drop it and fall back to the previous CommitQC's app so Verify
+	// never sees App < previous CommitQC.
 	if a, ok := app.Get(); ok && a.GlobalNumber() >= viewSpec.NextGlobalBlock() {
 		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 		appQC = utils.None[*AppQC]()
@@ -369,8 +369,8 @@ func buildProposal(
 		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 		appQC = utils.None[*AppQC]()
 	}
-	// Tipcut AppQC may lag one epoch (Current or Current-1 with Prev present).
-	// Outside that window, fall back to the previous CommitQC's app.
+	// AppQC must be Current or Current-1 (Prev present). Outside that window,
+	// drop the candidate and keep the prior CommitQC App (no new appQC).
 	if a, ok := app.Get(); ok {
 		appEp, cur := a.EpochIndex(), viewSpec.Epoch().EpochIndex()
 		keep := appEp == cur ||
@@ -435,7 +435,7 @@ func (m *FullProposal) TimeoutQC() utils.Option[*TimeoutQC] {
 }
 
 // Verify verifies the FullProposal against the current view.
-// Tipcut AppQC may be Current or Current-1 (Prev lag for unfinished AppQC).
+// Attached AppQC may be Current or Current-1 (Prev lag for unfinished AppQC).
 func (m *FullProposal) Verify(vs ViewSpec) error {
 	c := vs.Epoch().Committee()
 	return scope.Parallel(func(s scope.ParallelScope) error {

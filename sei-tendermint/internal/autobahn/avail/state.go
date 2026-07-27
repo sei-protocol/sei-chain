@@ -376,6 +376,21 @@ func (s *State) LastAppQC() utils.Option[*types.AppQC] {
 	panic("unreachable")
 }
 
+// LastAppQCInEpochDuo returns LastAppQC when its epoch is usable for a tipcut
+// in want (want or want-1). Otherwise None so the proposer omits a new AppQC
+// and keeps the prior CommitQC App — including when AppQC is ahead of want.
+func (s *State) LastAppQCInEpochDuo(want types.EpochIndex) utils.Option[*types.AppQC] {
+	appQC, ok := s.LastAppQC().Get()
+	if !ok {
+		return utils.None[*types.AppQC]()
+	}
+	appEp := appQC.Proposal().EpochIndex()
+	if appEp == want || (want > 0 && appEp == want-1) {
+		return utils.Some(appQC)
+	}
+	return utils.None[*types.AppQC]()
+}
+
 // WaitForAppQC waits until there is an AppQC for the given index or higher.
 // Returns this AppQC and the corresponding CommitQC.
 // Together they provide enough information to prune the availability state.
