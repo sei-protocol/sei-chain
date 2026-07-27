@@ -1033,15 +1033,16 @@ func erc20BalanceSlot(owner common.Address) common.Hash {
 
 func blockContext(cfg config, number uint64) evmonly.BlockContext {
 	return evmonly.BlockContext{
-		Number:     number,
-		Time:       uint64(time.Now().Unix()),
-		GasLimit:   cfg.blockGasLimit,
-		ChainID:    new(big.Int).Set(cfg.chainID),
-		BaseFee:    big.NewInt(0),
-		Coinbase:   cfg.coinbase,
-		ParentHash: hashFromSeed("sei-evmonly-loadtest-parent", number-1),
-		BlockHash:  hashFromSeed("sei-evmonly-loadtest-block", number),
-		PrevRandao: hashFromSeed("sei-evmonly-loadtest-randao", number),
+		Number:      number,
+		Time:        uint64(time.Now().Unix()),
+		GasLimit:    cfg.blockGasLimit,
+		ChainID:     new(big.Int).Set(cfg.chainID),
+		BaseFee:     big.NewInt(0),
+		BlobBaseFee: big.NewInt(0),
+		Coinbase:    cfg.coinbase,
+		ParentHash:  hashFromSeed("sei-evmonly-loadtest-parent", number-1),
+		BlockHash:   hashFromSeed("sei-evmonly-loadtest-block", number),
+		PrevRandao:  hashFromSeed("sei-evmonly-loadtest-randao", number),
 	}
 }
 
