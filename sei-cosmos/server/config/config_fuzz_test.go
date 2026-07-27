@@ -325,13 +325,32 @@ func FuzzGetConfigGuardedKeysPreserveDefaults(f *testing.F) {
 		}
 
 		if !present {
-			if row.DefaultIsZero {
-				return // zero is the correct absent-key value for this row
+			// Whether the guard is doing anything is decided by comparing an absent key
+			// against an explicit zero, not against a synthesized zero literal. A
+			// synthesized one has to guess the field's Go type, and guessing wrong makes
+			// the comparison unsatisfiable and the assertion vacuous — which is exactly
+			// what an int-typed literal did for every uint, uint32 and float64 row here,
+			// including both gRPC connection bounds. Reading the reader twice needs no
+			// type knowledge at all.
+			explicitZero, zeroErr := GetConfig(newAppViper(t, map[string]any{row.Key: 0}))
+			if zeroErr != nil {
+				t.Fatalf("%s = 0 must parse, got %v", row.Key, zeroErr)
 			}
-			// The default the reader started from, not viper's zero.
-			if absentLeaf == configtest.DumpAt(row.Path, 0) {
-				t.Fatalf("%s is absent and resolved to the zero value (%s); the guard that "+
-					"preserves the in-code default is gone", row.Key, absentLeaf)
+			zeroLeaf, ok := configtest.LeafAt(configtest.Dump(explicitZero), row.Path)
+			if !ok {
+				t.Fatalf("%s resolves into %q, which is not in the parsed config", row.Key, row.Path)
+			}
+
+			if row.DefaultIsZero {
+				if absentLeaf != zeroLeaf {
+					t.Fatalf("%s is marked DefaultIsZero but an absent key (%s) resolves differently "+
+						"from an explicit 0 (%s)", row.Key, absentLeaf, zeroLeaf)
+				}
+				return
+			}
+			if absentLeaf == zeroLeaf {
+				t.Fatalf("%s is absent and resolved to the same value as an explicit 0 (%s); the "+
+					"guard that preserves the in-code default is gone", row.Key, absentLeaf)
 			}
 			return
 		}
@@ -358,24 +377,39 @@ func FuzzGetConfigGuardedKeysPreserveDefaults(f *testing.F) {
 // non-zero whose default moves to zero would make its clobber check meaningless;
 // a key marked zero whose default becomes non-zero would leave a real clobber
 // unchecked. Either way the manifest, not the assertion, is what needs updating.
+//
+// "Is the default zero" is answered by resolving the key explicitly as 0 and
+// comparing, for the same reason the target above does it that way: a literal 0
+// carries Go's int type and would never compare equal to a uint or float64 leaf.
 func TestGetConfigGuardedKeyDefaultsMatchTheManifest(t *testing.T) {
-	cfg, err := GetConfig(newAppViper(t, nil))
+	absent, err := GetConfig(newAppViper(t, nil))
 	if err != nil {
 		t.Fatalf("GetConfig: %v", err)
 	}
-	dump := configtest.Dump(cfg)
+	absentDump := configtest.Dump(absent)
+
 	for _, row := range guardedKeys {
-		leaf, ok := configtest.LeafAt(dump, row.Path)
+		absentLeaf, ok := configtest.LeafAt(absentDump, row.Path)
 		if !ok {
 			t.Errorf("%s: %q is not in the parsed config", row.Key, row.Path)
 			continue
 		}
-		isZero := leaf == configtest.DumpAt(row.Path, 0) ||
-			leaf == configtest.DumpAt(row.Path, false)
-		if isZero != row.DefaultIsZero {
-			t.Errorf("%s resolves to %s with no key set, but the manifest says DefaultIsZero=%v; "+
-				"update the row so its guard assertion still means something",
-				row.Key, leaf, row.DefaultIsZero)
+		explicitZero, zeroErr := GetConfig(newAppViper(t, map[string]any{row.Key: 0}))
+		if zeroErr != nil {
+			t.Errorf("%s = 0 must parse, got %v", row.Key, zeroErr)
+			continue
+		}
+		zeroLeaf, ok := configtest.LeafAt(configtest.Dump(explicitZero), row.Path)
+		if !ok {
+			t.Errorf("%s: %q is not in the parsed config", row.Key, row.Path)
+			continue
+		}
+
+		if isZero := absentLeaf == zeroLeaf; isZero != row.DefaultIsZero {
+			t.Errorf("%s resolves to %s with no key set and %s with an explicit 0, so "+
+				"DefaultIsZero is %v while the manifest says %v; update the row so its guard "+
+				"assertion still means something",
+				row.Key, absentLeaf, zeroLeaf, isZero, row.DefaultIsZero)
 		}
 	}
 }

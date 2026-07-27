@@ -46,10 +46,11 @@ func FuzzResolveAndCreateDirTildeExpansion(f *testing.F) {
 			return
 		}
 		home := configtest.Isolate(t)
-		work := t.TempDir()
-		if err := os.Chdir(work); err != nil {
-			t.Skipf("chdir: %v", err)
-		}
+		// t.Chdir rather than os.Chdir: it restores the working directory on cleanup.
+		// A bare os.Chdir into a t.TempDir leaves later tests in this package running
+		// with a deleted CWD once the fixture is removed, which turns relative-path
+		// resolution into an order-dependent failure.
+		t.Chdir(t.TempDir())
 
 		got, err := utils.ResolveAndCreateDir(dir)
 		if err != nil {
@@ -93,10 +94,7 @@ func FuzzResolveAndCreateDirTildeExpansion(f *testing.F) {
 // between managers.
 func TestResolveAndCreateDirFollowsHomeAtOpenTime(t *testing.T) {
 	first := configtest.Isolate(t)
-	work := t.TempDir()
-	if err := os.Chdir(work); err != nil {
-		t.Skipf("chdir: %v", err)
-	}
+	t.Chdir(t.TempDir())
 
 	fromFirst, err := utils.ResolveAndCreateDir("~/sei-state")
 	if err != nil {
