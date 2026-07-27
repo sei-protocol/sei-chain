@@ -34,29 +34,31 @@ func FuzzResolveAndCreateDirTildeExpansion(f *testing.F) {
 	f.Add("~/sei/data")
 	f.Add("~alice/data") // not a home reference
 	f.Add("sei/data")    // plain relative
+	f.Add("/sei")        // absolute, remapped under the fixture
 	f.Add("")            // empty: resolved, not created
 	f.Add("./sei")
 	f.Add("~~")
 
 	f.Fuzz(func(t *testing.T, dir string) {
-		// The resolver creates directories as a side effect, so the input has to be one
-		// that cannot escape the fixture. An absolute path would be MkdirAll'd on the
-		// real filesystem wherever it points, so absolute inputs are out of scope here
-		// and TestResolveAndCreateDirCreatesATypo covers that case against a path built
-		// under t.TempDir(). A tilde reference is safe because Isolate has repointed
-		// $HOME at a scratch directory.
+		// The resolver creates directories as a side effect, so an input that escapes the
+		// fixture would provision real directories wherever it points. Absolutes are
+		// remapped under the scratch tree rather than dropped, so the absolute branch
+		// stays covered. Relative paths are contained by t.Chdir below, and tilde
+		// references by Isolate having repointed $HOME.
 		if strings.ContainsRune(dir, 0) || len(dir) > 128 {
 			return
 		}
-		if filepath.IsAbs(dir) {
-			return
-		}
 		home := configtest.Isolate(t)
+		scratch := t.TempDir()
 		// t.Chdir rather than os.Chdir: it restores the working directory on cleanup.
 		// A bare os.Chdir into a t.TempDir leaves later tests in this package running
 		// with a deleted CWD once the fixture is removed, which turns relative-path
 		// resolution into an order-dependent failure.
-		t.Chdir(t.TempDir())
+		t.Chdir(scratch)
+
+		if filepath.IsAbs(dir) {
+			dir = filepath.Join(scratch, dir)
+		}
 
 		got, err := utils.ResolveAndCreateDir(dir)
 		if err != nil {

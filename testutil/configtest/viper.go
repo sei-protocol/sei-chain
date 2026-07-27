@@ -28,7 +28,7 @@ func DumpViper(v *viper.Viper) string {
 	keys := v.AllKeys()
 	sort.Strings(keys)
 
-	var lines []string
+	lines := make([]string, 0, len(keys))
 	for _, k := range keys {
 		lines = append(lines, DumpAt(k, v.Get(k)))
 	}
@@ -43,7 +43,7 @@ func DumpViperKeys(v *viper.Viper, keys ...string) string {
 	if v == nil {
 		return "<nil-viper>"
 	}
-	var lines []string
+	lines := make([]string, 0, len(keys))
 	for _, k := range keys {
 		lines = append(lines, DumpAt(k, v.Get(k)))
 	}

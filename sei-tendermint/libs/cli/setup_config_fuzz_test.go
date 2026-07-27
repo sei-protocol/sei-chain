@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
+	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
 // This is the third of seid's viper universes: the process-global singleton
@@ -171,6 +172,11 @@ func FuzzGlobalViperBareEnvVarsBecomeConfigSources(f *testing.F) {
 // viper answer for" an unanswerable question.
 func TestInitEnvDuplicatesTheEnvironmentUnderAnEmptyPrefix(t *testing.T) {
 	withGlobalViper(t)
+	// InitEnv re-exports the whole environment through os.Setenv and restores nothing.
+	// Isolate snapshots and restores it, which keeps the duplicates out of every later
+	// test in this binary and stops the assertion below going vacuous under -count=2,
+	// where a surviving marker would pass even if the duplication had stopped.
+	configtest.Isolate(t)
 	t.Setenv("SEI_CONFIGTEST_MARKER", "present")
 
 	cli.InitEnv("")

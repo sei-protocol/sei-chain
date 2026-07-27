@@ -84,14 +84,29 @@ func FuzzGenesisDocFromJSONTimeCompletion(f *testing.F) {
 func TestGenesisDocWithoutTimeIsNotReproducible(t *testing.T) {
 	raw := []byte(`{"chain_id":"sei-test","validators":[],"app_hash":""}`)
 
+	// Bracketing each read rather than sleeping between them: the repo's conventions ask
+	// tests not to sleep, and the interval assertion is stronger anyway because it does
+	// not lean on clock resolution to make the two values differ.
+	beforeFirst := time.Now()
 	first, err := types.GenesisDocFromJSON(raw)
 	if err != nil {
 		t.Fatalf("first read: %v", err)
 	}
-	time.Sleep(2 * time.Millisecond)
+	afterFirst := time.Now()
+
 	second, err := types.GenesisDocFromJSON(raw)
 	if err != nil {
 		t.Fatalf("second read: %v", err)
+	}
+	afterSecond := time.Now()
+
+	if first.GenesisTime.Before(beforeFirst) || first.GenesisTime.After(afterFirst) {
+		t.Fatalf("the first read's completed time %v falls outside the interval it ran in",
+			first.GenesisTime)
+	}
+	if second.GenesisTime.Before(beforeFirst) || second.GenesisTime.After(afterSecond) {
+		t.Fatalf("the second read's completed time %v falls outside the interval it ran in",
+			second.GenesisTime)
 	}
 
 	if first.GenesisTime.Equal(second.GenesisTime) {

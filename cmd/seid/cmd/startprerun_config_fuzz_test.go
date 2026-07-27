@@ -3,8 +3,10 @@ package cmd
 import (
 	"context"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -94,10 +96,10 @@ func FuzzStartPreRunPruningFailsFast(f *testing.F) {
 			flagValues[server.FlagPruning] = strategy
 		}
 		if keepRecent != 0 {
-			flagValues[server.FlagPruningKeepRecent] = itoa(keepRecent)
+			flagValues[server.FlagPruningKeepRecent] = strconv.FormatUint(keepRecent, 10)
 		}
 		if interval != 0 {
-			flagValues[server.FlagPruningInterval] = itoa(interval)
+			flagValues[server.FlagPruningInterval] = strconv.FormatUint(interval, 10)
 		}
 
 		cmd, serverCtx := newStartCmd(t, home, flagValues)
@@ -210,8 +212,20 @@ func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 		t.Fatal("the fixture must carry no genesis.json for this row to reach the discarded error")
 	}
 
-	defer func() {
-		r := recover()
+	// RunE is called on a goroutine with a bounded wait rather than inline. Reaching the
+	// nil-deref is what stops it today, and this test must not depend on that: if the
+	// discarded error is ever handled, RunE continues into startInProcess, opens the state
+	// databases, binds the listeners and never returns. The timeout turns that into a
+	// legible failure instead of a hang to the 10-minute panic.
+	outcome := make(chan any, 1)
+	go func() {
+		defer func() { outcome <- recover() }()
+		_ = cmd.RunE(cmd, nil)
+		outcome <- nil
+	}()
+
+	select {
+	case r := <-outcome:
 		if r == nil {
 			t.Fatal("with no genesis.json the discarded GenesisDocFromFile error must surface as a " +
 				"nil-pointer dereference; if the error is returned now, that is a fix and this row " +
@@ -228,21 +242,10 @@ func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 			!strings.Contains(err.Error(), "invalid memory") {
 			t.Fatalf("expected a nil-pointer dereference past the chain-id comparison, got %v", err)
 		}
-	}()
-	_ = cmd.RunE(cmd, nil)
-}
-
-func itoa(v uint64) string {
-	const digits = "0123456789"
-	if v == 0 {
-		return "0"
+	case <-time.After(20 * time.Second):
+		t.Fatal("RunE neither returned nor panicked within 20s, which means it got past the " +
+			"genesis cross-check and into startInProcess. The discarded GenesisDocFromFile error " +
+			"was presumably fixed; this row needs rewriting, and a node is now running in the " +
+			"background of this test binary")
 	}
-	var buf [20]byte
-	i := len(buf)
-	for v > 0 {
-		i--
-		buf[i] = digits[v%10]
-		v /= 10
-	}
-	return string(buf[i:])
 }
