@@ -89,6 +89,7 @@ func ValidateChanges(changes []ParamChange) error {
 		return ErrEmptyChanges
 	}
 
+	hasBaseapp := false
 	for _, pc := range changes {
 		if len(pc.Subspace) == 0 {
 			return ErrEmptySubspace
@@ -99,14 +100,19 @@ func ValidateChanges(changes []ParamChange) error {
 		if len(pc.Value) == 0 {
 			return ErrEmptyValue
 		}
-		// We need to verify ConsensusParams since they are only validated once the proposal passes.
-		// If any of them are invalid at time of passing, this will cause a chain halt since validation is done during
-		// ApplyBlock: https://github.com/sei-protocol/sei-tendermint/blob/d426f1fe475eb0c406296770ff5e9f8869b3887e/internal/state/execution.go#L320
-		// Therefore, we validate when we get a param-change msg for ConsensusParams
 		if pc.Subspace == "baseapp" {
-			if err := verifyConsensusParamsUsingDefault(changes); err != nil {
-				return err
-			}
+			hasBaseapp = true
+		}
+	}
+
+	// Verify ConsensusParams once for the whole change set. Calling this inside
+	// the loop above is O(N^2) for N baseapp entries (each call re-scans and
+	// unmarshals all changes). ConsensusParams are otherwise only validated
+	// once the proposal passes; invalid values cause a chain halt in ApplyBlock:
+	// https://github.com/sei-protocol/sei-tendermint/blob/d426f1fe475eb0c406296770ff5e9f8869b3887e/internal/state/execution.go#L320
+	if hasBaseapp {
+		if err := verifyConsensusParamsUsingDefault(changes); err != nil {
+			return err
 		}
 	}
 
