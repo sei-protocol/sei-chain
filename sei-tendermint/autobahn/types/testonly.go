@@ -12,6 +12,27 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// EpochDuoForTest builds a valid Prev|Current duo for tests. Prev is absent
+// iff Current is epoch 0; otherwise a synthetic contiguous Prev is created.
+func EpochDuoForTest(current *Epoch) EpochDuo {
+	if current.EpochIndex() == 0 {
+		return NewEpochDuo(current, utils.None[*Epoch]())
+	}
+	first := current.RoadRange().First
+	if first == 0 {
+		panic(fmt.Sprintf("EpochDuoForTest: epoch %d with RoadRange.First==0 cannot host Prev",
+			current.EpochIndex()))
+	}
+	prev := NewEpoch(
+		current.EpochIndex()-1,
+		RoadRange{First: 0, Next: first},
+		time.Time{},
+		current.Committee(),
+		1,
+	)
+	return NewEpochDuo(current, utils.Some(prev))
+}
+
 // BuildCommitQC builds a valid CommitQC from explicit lane QCs and an optional app QC.
 // If laneQCs is empty, a single 1-block LaneQC is synthesized so the tipcut is
 // non-empty (empty tipcuts are rejected by Proposal.Verify).
@@ -23,7 +44,7 @@ func BuildCommitQC(
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
 ) *CommitQC {
-	vs := ViewSpec{CommitQC: prev, Epochs: NewEpochDuo(epoch, utils.None[*Epoch]())}
+	vs := ViewSpec{CommitQC: prev, Epochs: EpochDuoForTest(epoch)}
 	if len(laneQCs) == 0 {
 		laneQCs = oneBlockLaneQCMap(vs, keys)
 	}
@@ -291,10 +312,15 @@ func GenEpochIndex(rng utils.Rng) EpochIndex {
 // GenEpochWithCommittee returns a random Epoch wrapping committee.
 // epochIndex, firstBlock, timestamp, and Roads.First are randomized so that tests
 // exercise epoch-binding checks rather than silently passing on zero values.
+// When epochIndex > 0, First is at least 1 so EpochDuoForTest can place Prev.
 func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
+	idx := GenEpochIndex(rng)
 	first := RoadIndex(rng.Uint64() % 1000)
+	if idx > 0 && first == 0 {
+		first = RoadIndex(rng.Uint64()%999) + 1
+	}
 	return NewEpoch(
-		GenEpochIndex(rng),
+		idx,
 		RoadRange{First: first, Next: first + RoadIndex(rng.Uint64()%10000) + 11},
 		utils.GenTimestamp(rng),
 		committee,

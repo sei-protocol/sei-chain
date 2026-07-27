@@ -15,13 +15,20 @@ type EpochDuo struct {
 	Current *Epoch
 }
 
-// NewEpochDuo builds a Prev|Current window. Panics if Prev is present but not
+// NewEpochDuo builds a Prev|Current window. Panics unless
+// prev≠None ⇔ current.EpochIndex()>0, and when Prev is present it must be
 // contiguous with Current.
 func NewEpochDuo(current *Epoch, prev utils.Option[*Epoch]) EpochDuo {
-	if p, ok := prev.Get(); ok {
-		if want := current.EpochIndex(); p.EpochIndex()+1 != want {
+	cur := current.EpochIndex()
+	p, hasPrev := prev.Get()
+	if hasPrev != (cur > 0) {
+		panic(fmt.Sprintf("NewEpochDuo: Prev present=%v but Current epoch %d (want Prev iff Current>0)",
+			hasPrev, cur))
+	}
+	if hasPrev {
+		if p.EpochIndex()+1 != cur {
 			panic(fmt.Sprintf("NewEpochDuo: Prev epoch %d not contiguous with Current %d",
-				p.EpochIndex(), want))
+				p.EpochIndex(), cur))
 		}
 		if got, want := p.RoadRange().Next, current.RoadRange().First; got != want {
 			panic(fmt.Sprintf("NewEpochDuo: Prev roads end at %d, Current starts at %d", got, want))

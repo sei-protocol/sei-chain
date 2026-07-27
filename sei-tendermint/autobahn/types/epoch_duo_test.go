@@ -50,10 +50,35 @@ func TestNewEpochDuo_PanicsOnNonContiguousRoads(t *testing.T) {
 	_ = types.NewEpochDuo(current, utils.Some(prev))
 }
 
+func TestNewEpochDuo_PanicsOnPrevCurrentMismatch(t *testing.T) {
+	prev, current := testDuoEpochs(t)
+	t.Run("prev_absent_with_current_gt_0", func(t *testing.T) {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("expected panic")
+			}
+		}()
+		_ = types.NewEpochDuo(current, utils.None[*types.Epoch]())
+	})
+	t.Run("prev_present_with_epoch_0", func(t *testing.T) {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("expected panic")
+			}
+		}()
+		_ = types.NewEpochDuo(prev, utils.Some(prev))
+	})
+}
+
 func TestEpochForRoad(t *testing.T) {
 	prev, current := testDuoEpochs(t)
+	rng := utils.TestRng()
+	weights := map[types.PublicKey]uint64{types.GenSecretKey(rng).Public(): 1}
+	committee := utils.OrPanic1(types.NewCommittee(weights))
+	// Prev absent only for epoch 0.
+	ep0 := types.NewEpoch(0, types.RoadRange{First: 0, Next: 100}, utils.GenTimestamp(rng), committee, 1)
 
-	currentOnly := types.NewEpochDuo(current, utils.None[*types.Epoch]())
+	currentOnly := types.NewEpochDuo(ep0, utils.None[*types.Epoch]())
 	withPrev := types.NewEpochDuo(current, utils.Some(prev))
 
 	for _, tc := range []struct {
@@ -63,9 +88,8 @@ func TestEpochForRoad(t *testing.T) {
 		want *types.Epoch
 		err  error
 	}{
-		{"current_hit", currentOnly, 150, current, nil},
-		{"current_before", currentOnly, 50, nil, types.ErrRoadBeforeWindow},
-		{"current_after", currentOnly, 999, nil, types.ErrRoadAfterWindow},
+		{"ep0_hit", currentOnly, 50, ep0, nil},
+		{"ep0_after", currentOnly, 100, nil, types.ErrRoadAfterWindow},
 		{"prev_hit", withPrev, 50, prev, nil},
 		{"duo_current_hit", withPrev, 150, current, nil},
 		{"duo_after", withPrev, 200, nil, types.ErrRoadAfterWindow},

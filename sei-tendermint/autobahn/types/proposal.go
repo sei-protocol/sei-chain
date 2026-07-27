@@ -369,13 +369,11 @@ func buildProposal(
 		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 		appQC = utils.None[*AppQC]()
 	}
-	// AppQC must be Current or Current-1 (Prev present). Outside that window,
-	// drop the candidate and keep the prior CommitQC App (no new appQC).
+	// AppQC must be Current or Current-1. Outside that window, drop the
+	// candidate and keep the prior CommitQC App (no new appQC).
 	if a, ok := app.Get(); ok {
 		appEp, cur := a.EpochIndex(), viewSpec.Epoch().EpochIndex()
-		keep := appEp == cur ||
-			(cur > 0 && appEp == cur-1 && viewSpec.Epochs.Prev.IsPresent())
-		if !keep {
+		if appEp != cur && appEp+1 != cur {
 			app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 			appQC = utils.None[*AppQC]()
 		}
@@ -526,7 +524,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			appEpoch := app.EpochIndex()
 			cur := vs.Epoch().EpochIndex()
 			// Allow Current or Current-1 (Prev lag). Reject anything else.
-			if appEpoch != cur && (cur == 0 || appEpoch != cur-1) {
+			if appEpoch != cur && appEpoch+1 != cur {
 				return fmt.Errorf("app epoch_index %d not Current (%d) or Current-1", appEpoch, cur)
 			}
 			appQC, ok := m.appQC.Get()
@@ -541,7 +539,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 				if appEpoch != cur {
 					prev, ok := vs.Epochs.Prev.Get()
 					if !ok {
-						return fmt.Errorf("appQC epoch %d needs Prev, but Prev is absent", appEpoch)
+						panic(fmt.Sprintf("appQC epoch %d needs Prev, but Prev is absent (Current %d)", appEpoch, cur))
 					}
 					ep = prev
 				}
