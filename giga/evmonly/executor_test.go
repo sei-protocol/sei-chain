@@ -191,6 +191,83 @@ func TestExecutorCloseDisablesOCC(t *testing.T) {
 	require.False(t, result.OCCStats.Attempted)
 }
 
+type overlapDetectingStateReader struct {
+	mu        sync.Mutex
+	active    int
+	maxActive int
+	delay     time.Duration
+}
+
+func (s *overlapDetectingStateReader) GetBalance(common.Address) *big.Int {
+	done := s.enter()
+	defer done()
+	return new(big.Int)
+}
+
+func (s *overlapDetectingStateReader) GetNonce(common.Address) uint64 {
+	done := s.enter()
+	defer done()
+	return 0
+}
+
+func (s *overlapDetectingStateReader) GetCode(common.Address) []byte {
+	done := s.enter()
+	defer done()
+	return nil
+}
+
+func (s *overlapDetectingStateReader) GetState(common.Address, common.Hash) common.Hash {
+	done := s.enter()
+	defer done()
+	return common.Hash{}
+}
+
+func (s *overlapDetectingStateReader) enter() func() {
+	s.mu.Lock()
+	s.active++
+	if s.active > s.maxActive {
+		s.maxActive = s.active
+	}
+	s.mu.Unlock()
+	time.Sleep(s.delay)
+	return func() {
+		s.mu.Lock()
+		s.active--
+		s.mu.Unlock()
+	}
+}
+
+func (s *overlapDetectingStateReader) maxActiveReads() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.maxActive
+}
+
+func TestWithStateSerializesNonConcurrentReader(t *testing.T) {
+	reader := &overlapDetectingStateReader{delay: 2 * time.Millisecond}
+	executor := NewExecutor(Config{}, WithState(reader))
+	_, locked := executor.state.(*lockedStateReader)
+	require.True(t, locked)
+	_, concurrent := executor.state.(ConcurrentStateReader)
+	require.True(t, concurrent)
+	require.True(t, executor.state == parallelSafeStateReader(executor.state))
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_ = executor.state.GetBalance(testAddress(0xef))
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	require.Equal(t, 1, reader.maxActiveReads())
+}
+
 func TestOCCWorkerPoolCloseWaitsForInFlightRun(t *testing.T) {
 	pool := newOCCWorkerPool(2)
 	started := make(chan struct{})

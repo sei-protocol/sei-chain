@@ -34,7 +34,7 @@ type Option func(*Executor)
 func WithState(state StateReader) Option {
 	return func(e *Executor) {
 		if state != nil {
-			e.state = state
+			e.state = parallelSafeStateReader(state)
 		}
 	}
 }

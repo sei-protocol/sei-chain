@@ -7,9 +7,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// StateReader supplies EVM-native state to an executor. Implementations may be
-// called concurrently during optimistic execution; if they do not advertise
-// ConcurrentStateReader, the executor serializes parallel reads with a lock.
+// StateReader supplies EVM-native state to an executor. Implementations passed
+// through WithState do not need to be goroutine-safe; the executor serializes
+// reads unless the implementation advertises ConcurrentStateReader. GetBalance
+// and GetCode return mutable values, so concurrent readers must return
+// caller-owned copies.
 type StateReader interface {
 	GetBalance(common.Address) *big.Int
 	GetNonce(common.Address) uint64
@@ -17,8 +19,8 @@ type StateReader interface {
 	GetState(common.Address, common.Hash) common.Hash
 }
 
-// ConcurrentStateReader marks a StateReader implementation as safe for
-// concurrent reads without executor-side locking.
+// ConcurrentStateReader marks a StateReader implementation as safe for parallel
+// executor reads without executor-side locking.
 type ConcurrentStateReader interface {
 	StateReader
 	ConcurrentReads()
@@ -197,6 +199,8 @@ type lockedStateReader struct {
 	source StateReader
 }
 
+func (s *lockedStateReader) ConcurrentReads() {}
+
 func parallelSafeStateReader(source StateReader) StateReader {
 	if source == nil {
 		return NewMemoryState()
@@ -210,7 +214,7 @@ func parallelSafeStateReader(source StateReader) StateReader {
 func (s *lockedStateReader) GetBalance(addr common.Address) *big.Int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.source.GetBalance(addr)
+	return cloneBig(s.source.GetBalance(addr))
 }
 
 func (s *lockedStateReader) GetNonce(addr common.Address) uint64 {
@@ -222,7 +226,7 @@ func (s *lockedStateReader) GetNonce(addr common.Address) uint64 {
 func (s *lockedStateReader) GetCode(addr common.Address) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.source.GetCode(addr)
+	return cloneBytes(s.source.GetCode(addr))
 }
 
 func (s *lockedStateReader) GetState(addr common.Address, key common.Hash) common.Hash {

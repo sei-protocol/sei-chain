@@ -71,8 +71,10 @@ returns the state writes and receipts produced by that block. The caller owns
 durable persistence, state commitment, block indexing, and receipt publication.
 The concrete `Executor` accepts a `StateReader` backend through `WithState(...)`;
 callers can persist the returned `ChangeSet` with a matching `StateWriter`.
-When OCC is enabled, `StateReader` may be read concurrently; backends can
-implement `ConcurrentStateReader` to opt out of executor-side read locking.
+`StateReader` implementations passed to `WithState` do not need to be safe for
+parallel reads: the executor serializes reads for arbitrary backends. Backends
+that are already read-concurrent can implement `ConcurrentStateReader` to opt out
+of executor-side locking.
 Call `Close()` to disable future OCC execution on an executor.
 
 A non-nil `error` means block validation failed and the caller must not commit a
