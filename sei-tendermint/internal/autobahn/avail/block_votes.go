@@ -53,17 +53,21 @@ func (bv *blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVo
 	}
 	bv.byKey[k] = vote
 
-	// One QC per block: still retain the vote for reweight, but stop growing sets.
-	if bv.qc.IsPresent() {
-		return utils.None[*types.LaneQC]()
-	}
-
+	// Always index the header in byHash so headers() can reconstruct committed
+	// chains even if this vote arrives after a LaneQC for a competing hash.
 	h := vote.Msg().Header().Hash()
 	set, ok := bv.byHash[h]
 	if !ok {
 		set = &laneVoteSet{header: vote.Msg().Header()}
 		bv.byHash[h] = set
 	}
+
+	// One QC per block: keep byKey/byHash for reweight and header lookup, but
+	// do not form or replace a second LaneQC.
+	if bv.qc.IsPresent() {
+		return utils.None[*types.LaneQC]()
+	}
+
 	if !set.add(w, ep.Committee().LaneQuorum(), vote) {
 		return utils.None[*types.LaneQC]()
 	}

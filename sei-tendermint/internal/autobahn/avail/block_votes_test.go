@@ -178,13 +178,15 @@ func TestPushVote_OneQCPerBlockVotes(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, header1.Hash(), got.Header().Hash())
 
-	// Competing hash is retained in byKey for reweight but must not grow byHash
-	// or replace the single QC.
+	// Competing hash is indexed in byHash (headers() reconstruction) and byKey
+	// (reweight), but must not replace the single LaneQC.
 	require.False(t, bv.pushVote(ep, types.Sign(keyC, types.NewLaneVote(header2))).IsPresent())
 	require.False(t, bv.pushVote(ep, types.Sign(keyD, types.NewLaneVote(header2))).IsPresent())
 	require.Contains(t, bv.byKey, keyC.Public())
 	require.Contains(t, bv.byKey, keyD.Public())
-	require.NotContains(t, bv.byHash, header2.Hash())
+	require.Contains(t, bv.byHash, header2.Hash())
+	require.Equal(t, header2, bv.byHash[header2.Hash()].header)
+	require.Empty(t, bv.byHash[header2.Hash()].votes, "post-QC competing votes are not credited toward a second QC")
 	got, ok = bv.qc.Get()
 	require.True(t, ok)
 	require.Equal(t, header1.Hash(), got.Header().Hash())
