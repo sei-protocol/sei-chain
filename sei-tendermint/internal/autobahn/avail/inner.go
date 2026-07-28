@@ -224,6 +224,22 @@ func (i *inner) advanceEpoch(nextDuo types.EpochDuo) {
 	i.epochDuo.Store(nextDuo)
 }
 
+// insertCommitQCAtTip inserts qc at commitQCs.next. If nextDuo is set and idx
+// still closes live Current, advances the duo first (same order as PushCommitQC /
+// PushAppQC). Returns false if idx is not the tip (race / already applied).
+func (i *inner) insertCommitQCAtTip(qc *types.CommitQC, nextDuo utils.Option[types.EpochDuo]) bool {
+	idx := qc.Proposal().Index()
+	if idx != i.commitQCs.next {
+		return false
+	}
+	if nd, ok := nextDuo.Get(); ok && i.epochDuo.Load().Current.RoadRange().Has(idx) {
+		i.advanceEpoch(nd)
+	}
+	i.commitQCs.pushBack(qc)
+	metrics.ObserveCommitQC(qc)
+	return true
+}
+
 // prune advances watermarks for a new AppQC/CommitQC pair (commitQCs/appVotes/
 // lane queues). It does not insert CommitQCs — callers that tipcut-catch-up
 // must pushBack after prune when next==idx.

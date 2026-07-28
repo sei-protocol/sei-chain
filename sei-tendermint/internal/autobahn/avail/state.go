@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
@@ -475,16 +474,10 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	if err != nil {
 		return err
 	}
-
 	for inner, ctrl := range s.inner.Lock() {
-		if idx != inner.commitQCs.next {
+		if !inner.insertCommitQCAtTip(qc, nextDuo) {
 			return nil
 		}
-		if nd, ok := nextDuo.Get(); ok {
-			inner.advanceEpoch(nd)
-		}
-		inner.commitQCs.pushBack(qc)
-		metrics.ObserveCommitQC(qc)
 		// latestCommitQC advances only after durable persist (or no-op persister).
 		ctrl.Updated()
 		return nil
@@ -601,15 +594,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 			return nil
 		}
 		// prune advances pointers first; only then can pushBack land at idx.
-		if inner.commitQCs.next == idx {
-			// Slide duo before insert when this tipcut closes Current (same
-			// order as PushCommitQC). Skip if Current already moved on.
-			if nd, ok := nextDuo.Get(); ok && inner.epochDuo.Load().Current.RoadRange().Has(idx) {
-				inner.advanceEpoch(nd)
-			}
-			inner.commitQCs.pushBack(commitQC)
-			metrics.ObserveCommitQC(commitQC)
-		}
+		inner.insertCommitQCAtTip(commitQC, nextDuo)
 		ctrl.Updated()
 	}
 	return nil
