@@ -524,6 +524,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			app, _ := m.proposal.Msg().App().Get()
 			appEpoch := app.EpochIndex()
 			cur := vs.Epoch()
+			// Allow Current or Current-1 (Prev lag). Reject anything else.
 			if !cur.AcceptsAppEpoch(appEpoch) {
 				return fmt.Errorf("app epoch_index %d not Current (%d) or Current-1", appEpoch, cur.EpochIndex())
 			}

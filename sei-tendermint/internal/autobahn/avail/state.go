@@ -263,8 +263,7 @@ func (s *State) waitForRoad(ctx context.Context, roadIdx types.RoadIndex, curren
 }
 
 // sealNextDuoIfLastRoad runs AppQC + WaitForDuo leashes when idx closes ep.
-// incoming is passed to waitForAppQC (None for CommitQC-only seal). Same call
-// path as Push*; not an async seal thread.
+// incoming is passed to waitForAppQC (None for CommitQC-only seal).
 func (s *State) sealNextDuoIfLastRoad(
 	ctx context.Context,
 	ep *types.Epoch,
@@ -329,37 +328,34 @@ func (s *State) LastAppQC() utils.Option[*types.AppQC] {
 	panic("unreachable")
 }
 
-// LastAppQCInEpochDuo returns LastAppQC when its epoch is usable for a tipcut
-// whose Current is want. Otherwise None.
-func (s *State) LastAppQCInEpochDuo(want *types.Epoch) utils.Option[*types.AppQC] {
+// tipcutAppQC returns LastAppQC when its epoch is usable for a tipcut whose
+// Current is want (want or want-1). Otherwise None.
+func (s *State) tipcutAppQC(want *types.Epoch) utils.Option[*types.AppQC] {
 	appQC, ok := s.LastAppQC().Get()
-	if !ok {
+	if !ok || !want.AcceptsAppEpoch(appQC.Proposal().EpochIndex()) {
 		return utils.None[*types.AppQC]()
 	}
-	if want.AcceptsAppEpoch(appQC.Proposal().EpochIndex()) {
-		return utils.Some(appQC)
-	}
-	return utils.None[*types.AppQC]()
+	return utils.Some(appQC)
 }
 
-// WaitForAppQCInEpochDuo returns an AppQC usable for a tipcut whose Current is
-// want (want or want-1). For epoch 0, returns LastAppQCInEpochDuo immediately
+// WaitForTipcutAppQC returns an AppQC usable for a tipcut whose Current is
+// want (want or want-1). For epoch 0, returns tipcutAppQC immediately
 // (may be None).
 //
 // For want>0, proposing must not fall back to a CommitQC App older than want-1.
-// If commitQC already carries an in-window App, returns LastAppQCInEpochDuo
-// without waiting (None is fine: tipcut keeps that CommitQC App). Otherwise
-// blocks until latestAppQC is in-window.
-func (s *State) WaitForAppQCInEpochDuo(
+// If commitQC already carries an in-window App, returns tipcutAppQC without
+// waiting (None is fine: tipcut keeps that CommitQC App). Otherwise blocks
+// until latestAppQC is in-window.
+func (s *State) WaitForTipcutAppQC(
 	ctx context.Context,
 	want *types.Epoch,
 	commitQC utils.Option[*types.CommitQC],
 ) (utils.Option[*types.AppQC], error) {
 	if want.EpochIndex() == 0 {
-		return s.LastAppQCInEpochDuo(want), nil
+		return s.tipcutAppQC(want), nil
 	}
 	if old, ok := types.AppOpt(types.ProposalOpt(commitQC)).Get(); ok && want.AcceptsAppEpoch(old.EpochIndex()) {
-		return s.LastAppQCInEpochDuo(want), nil
+		return s.tipcutAppQC(want), nil
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		ready := func() bool {
@@ -375,7 +371,7 @@ func (s *State) WaitForAppQCInEpochDuo(
 		}
 		appQC, ok := inner.latestAppQC.Get()
 		if !ok || !want.AcceptsAppEpoch(appQC.Proposal().EpochIndex()) {
-			return utils.None[*types.AppQC](), fmt.Errorf("WaitForAppQCInEpochDuo: AppQC not in duo after wait")
+			return utils.None[*types.AppQC](), fmt.Errorf("WaitForTipcutAppQC: AppQC not in duo after wait")
 		}
 		return utils.Some(appQC), nil
 	}
