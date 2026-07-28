@@ -24,14 +24,14 @@ func (s *DBImpl) CreateAccount(acc common.Address) {
 }
 
 func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
-	if ov, ok := s.tempState.storageOverrides[addr.Hex()]; ok {
+	if ov, ok := s.tempState.storageOverrides[addr]; ok {
 		return ov.committed[hash.Hex()]
 	}
 	return s.getState(s.snapshottedCtxs[0], addr, hash)
 }
 
 func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
-	if ov, ok := s.tempState.storageOverrides[addr.Hex()]; ok {
+	if ov, ok := s.tempState.storageOverrides[addr]; ok {
 		return ov.current[hash.Hex()]
 	}
 	return s.getState(s.ctx, addr, hash)
@@ -43,7 +43,7 @@ func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash
 }
 
 func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) common.Hash {
-	if ov, ok := s.tempState.storageOverrides[addr.Hex()]; ok {
+	if ov, ok := s.tempState.storageOverrides[addr]; ok {
 		return s.setOverrideState(ov, addr, key, val)
 	}
 	s.k.PrepareReplayedAddr(s.ctx, addr)
@@ -202,9 +202,9 @@ func (s *DBImpl) clearAccountState(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
 	// Drop any simulation-local storage override so a recreated/cleared account
 	// reads empty storage rather than the frozen overlay. Journaled so a revert restores the overlay.
-	if ov, ok := s.tempState.storageOverrides[acc.Hex()]; ok {
+	if ov, ok := s.tempState.storageOverrides[acc]; ok {
 		s.journal = append(s.journal, &storageOverrideRemove{account: acc, prev: ov})
-		delete(s.tempState.storageOverrides, acc.Hex())
+		delete(s.tempState.storageOverrides, acc)
 	}
 	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:]) {
 		s.k.PurgePrefix(s.ctx, types.StateKey(acc))
@@ -242,6 +242,10 @@ func (s *DBImpl) Created(acc common.Address) bool {
 // executes its bytecode (and any accompanying code/nonce override is preserved).
 func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
+	var prev *storageOverride
+	if existing, ok := s.tempState.storageOverrides[addr]; ok {
+		prev = existing.deepCopy()
+	}
 	ov := &storageOverride{
 		committed: make(map[string]common.Hash, len(states)),
 		current:   make(map[string]common.Hash, len(states)),
@@ -250,7 +254,8 @@ func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.H
 		ov.committed[key.Hex()] = val
 		ov.current[key.Hex()] = val
 	}
-	s.tempState.storageOverrides[addr.Hex()] = ov
+	s.tempState.storageOverrides[addr] = ov
+	s.journal = append(s.journal, &storageOverrideInstall{account: addr, prev: prev})
 }
 
 func (s *DBImpl) setOverrideState(ov *storageOverride, addr common.Address, key, val common.Hash) common.Hash {

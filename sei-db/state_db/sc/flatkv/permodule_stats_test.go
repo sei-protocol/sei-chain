@@ -101,7 +101,7 @@ func TestPerModuleStatsAddUpdateDeleteTransitions(t *testing.T) {
 	// Add: one key with a short value. Footprint must exceed the physical key
 	// length (key bytes are always counted, plus a non-empty serialized value).
 	shortVal := []byte{0xAA}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		moduleCS("gov", &proto.KVPair{Key: govKey, Value: shortVal}),
 	}))
 	commitAndCheck(t, s)
@@ -113,7 +113,7 @@ func TestPerModuleStatsAddUpdateDeleteTransitions(t *testing.T) {
 
 	// Update to a longer value: count unchanged, bytes grow by the value delta.
 	longVal := []byte{0xBB, 0xCC, 0xDD, 0xEE}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		moduleCS("gov", &proto.KVPair{Key: govKey, Value: longVal}),
 	}))
 	commitAndCheck(t, s)
@@ -123,7 +123,7 @@ func TestPerModuleStatsAddUpdateDeleteTransitions(t *testing.T) {
 	require.Greater(t, afterUpdate.Bytes, storedShort, "longer value should grow the footprint")
 
 	// Delete: back to an empty module (zeroed working entry).
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		moduleCS("gov", &proto.KVPair{Key: govKey, Delete: true}),
 	}))
 	commitAndCheck(t, s)

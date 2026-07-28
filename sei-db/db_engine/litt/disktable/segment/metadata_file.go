@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -22,15 +23,29 @@ const (
 	// deleted.
 	MetadataSwapExtension = MetadataFileExtension + util.SwapFileExtension
 
-	// V3MetadataSize is the size of the metadata file at the current LatestSegmentVersion (the name
-	// is kept for backwards compatibility; the metadata layout has not actually changed since v3).
+	// V3MetadataSize is the size of a version-3 metadata file. Version 4 appends one byte (see
+	// V4MetadataSize); the first V3MetadataSize bytes of a v4 file are identical to a v3 file, which is
+	// what lets deserialize read both formats.
 	// Layout:
-	//   - 4 bytes for version
-	//   - 1 byte for the sharding factor
-	//   - 8 bytes for lastValueTimestamp
-	//   - 4 bytes for keyCount
-	//   - 1 byte for sealed
+	//   - 4 bytes for version           (offset 0)
+	//   - 1 byte for the sharding factor (offset 4)
+	//   - 8 bytes for lastValueTimestamp (offset 5)
+	//   - 4 bytes for keyCount           (offset 13)
+	//   - 1 byte for sealed              (offset 17)
 	V3MetadataSize = 18
+
+	// V4MetadataSize is the size of a version-4 metadata file: the v3 layout followed by one
+	// compression-algorithm byte (offset 18). This is the size of metadata files written by the current
+	// build.
+	V4MetadataSize = 19
+
+	// MetadataSealedByteOffset is the byte offset of the sealed flag within a metadata file. It is the
+	// same in every version. Exposed so tests can simulate a crash-before-seal by flipping this byte.
+	MetadataSealedByteOffset = 17
+
+	// metadataCompressionByteOffset is the byte offset of the compression-algorithm byte in a v4 metadata
+	// file.
+	metadataCompressionByteOffset = 18
 )
 
 // metadataFile contains metadata about a segment. This file contains metadata about the data segment, such as
@@ -60,6 +75,11 @@ type metadataFile struct {
 	// to this segment. This value is encoded in the file.
 	sealed bool
 
+	// The algorithm used to compress values written to this segment. Values in the segment's value files are
+	// decompressed with this algorithm on read. CompressionNone means values are stored verbatim. This value is
+	// encoded in the file (v4+); a v3 file has no compression byte and is read as CompressionNone.
+	compressionAlgorithm types.CompressionAlgorithm
+
 	// Path data for the segment file. This information is not serialized in the metadata file.
 	segmentPath *SegmentPath
 
@@ -73,14 +93,16 @@ type metadataFile struct {
 func createMetadataFile(
 	index uint32,
 	shardingFactor uint8,
+	compressionAlgorithm types.CompressionAlgorithm,
 	path *SegmentPath,
 	fsync bool,
 ) (*metadataFile, error) {
 
 	file := &metadataFile{
-		index:       index,
-		segmentPath: path,
-		fsync:       fsync,
+		index:                index,
+		segmentPath:          path,
+		fsync:                fsync,
+		compressionAlgorithm: compressionAlgorithm,
 	}
 
 	file.segmentVersion = LatestSegmentVersion
@@ -137,9 +159,15 @@ func getMetadataFileIndex(fileName string) (uint32, error) {
 	return uint32(index), nil //nolint:gosec // segment index fits uint32
 }
 
-// Size returns the size of the metadata file in bytes.
+// Size returns the size of the metadata file in bytes. A metadata file loaded from disk as a legacy v3
+// file (no compression byte) is 18 bytes until it is rewritten; every file written by the current build
+// is v4 (19 bytes). serialize() bumps segmentVersion to LatestSegmentVersion on write, so this reflects
+// the actual on-disk size in both cases.
 func (m *metadataFile) Size() uint64 {
-	return V3MetadataSize
+	if m.segmentVersion == ShardedAddressSegmentVersion {
+		return V3MetadataSize
+	}
+	return V4MetadataSize
 }
 
 // Name returns the file name for this metadata file.
@@ -165,44 +193,65 @@ func (m *metadataFile) seal(now time.Time, keyCount uint32) error {
 	return nil
 }
 
-// serialize serializes the metadata file to a byte array.
+// serialize serializes the metadata file to a byte array. Metadata is always written at
+// LatestSegmentVersion (v4), including the trailing compression-algorithm byte. A file loaded as legacy
+// v3 is therefore promoted to v4 the moment it is rewritten, so segmentVersion is updated to match.
 func (m *metadataFile) serialize() []byte {
-	data := make([]byte, V3MetadataSize)
+	m.segmentVersion = LatestSegmentVersion
+	data := make([]byte, V4MetadataSize)
 
-	binary.BigEndian.PutUint32(data[0:4], uint32(m.segmentVersion))
+	binary.BigEndian.PutUint32(data[0:4], uint32(LatestSegmentVersion))
 	data[4] = m.shardingFactor
 	binary.BigEndian.PutUint64(data[5:13], m.lastValueTimestamp)
 	binary.BigEndian.PutUint32(data[13:17], m.keyCount)
 	if m.sealed {
-		data[17] = 1
+		data[MetadataSealedByteOffset] = 1
 	} else {
-		data[17] = 0
+		data[MetadataSealedByteOffset] = 0
 	}
+	data[metadataCompressionByteOffset] = byte(m.compressionAlgorithm)
 
 	return data
 }
 
-// deserialize deserializes the metadata file from a byte array.
+// deserialize deserializes the metadata file from a byte array. Both version 3 (no compression byte) and
+// version 4 (with a compression byte) are accepted; a v3 file is read as CompressionNone.
 func (m *metadataFile) deserialize(data []byte) error {
 	if len(data) < 4 {
 		return fmt.Errorf("metadata file is not the correct size, expected at least 4 bytes, got %d", len(data))
 	}
 
 	m.segmentVersion = SegmentVersion(binary.BigEndian.Uint32(data[0:4]))
-	if m.segmentVersion != LatestSegmentVersion {
-		return fmt.Errorf("unsupported segment version: %d (only version %d is supported)",
-			m.segmentVersion, LatestSegmentVersion)
+
+	var expectedSize int
+	switch m.segmentVersion {
+	case ShardedAddressSegmentVersion:
+		expectedSize = V3MetadataSize
+	case CompressedSegmentVersion:
+		expectedSize = V4MetadataSize
+	default:
+		return fmt.Errorf("unsupported segment version: %d (only versions %d and %d are supported)",
+			m.segmentVersion, ShardedAddressSegmentVersion, CompressedSegmentVersion)
 	}
 
-	if len(data) != V3MetadataSize {
-		return fmt.Errorf("metadata file is not the correct size, expected %d, got %d",
-			V3MetadataSize, len(data))
+	if len(data) != expectedSize {
+		return fmt.Errorf("metadata file is not the correct size, expected %d for version %d, got %d",
+			expectedSize, m.segmentVersion, len(data))
 	}
 
 	m.shardingFactor = data[4]
 	m.lastValueTimestamp = binary.BigEndian.Uint64(data[5:13])
 	m.keyCount = binary.BigEndian.Uint32(data[13:17])
-	m.sealed = data[17] == 1
+	m.sealed = data[MetadataSealedByteOffset] == 1
+
+	if m.segmentVersion == CompressedSegmentVersion {
+		m.compressionAlgorithm = types.CompressionAlgorithm(data[metadataCompressionByteOffset])
+		if err := m.compressionAlgorithm.Validate(); err != nil {
+			return fmt.Errorf("invalid compression algorithm in metadata file: %w", err)
+		}
+	} else {
+		m.compressionAlgorithm = types.CompressionNone
+	}
 
 	return nil
 }

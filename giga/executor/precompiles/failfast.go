@@ -7,17 +7,25 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/addr"
+	"github.com/sei-protocol/sei-chain/precompiles/auth"
+	"github.com/sei-protocol/sei-chain/precompiles/authz"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
+	"github.com/sei-protocol/sei-chain/precompiles/evidence"
+	"github.com/sei-protocol/sei-chain/precompiles/feegrant"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
+	"github.com/sei-protocol/sei-chain/precompiles/mint"
 	"github.com/sei-protocol/sei-chain/precompiles/oracle"
 	"github.com/sei-protocol/sei-chain/precompiles/p256"
+	"github.com/sei-protocol/sei-chain/precompiles/params"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	"github.com/sei-protocol/sei-chain/precompiles/pointerview"
+	"github.com/sei-protocol/sei-chain/precompiles/slashing"
 	"github.com/sei-protocol/sei-chain/precompiles/solo"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
+	"github.com/sei-protocol/sei-chain/precompiles/upgrade"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 )
 
@@ -35,6 +43,14 @@ var FailFastPrecompileAddresses = []common.Address{
 	common.HexToAddress(pointer.PointerAddress),
 	common.HexToAddress(solo.SoloAddress),
 	common.HexToAddress(p256.P256VerifyAddress),
+	common.HexToAddress(auth.AuthAddress),
+	common.HexToAddress(authz.AuthzAddress),
+	common.HexToAddress(evidence.EvidenceAddress),
+	common.HexToAddress(feegrant.FeegrantAddress),
+	common.HexToAddress(mint.MintAddress),
+	common.HexToAddress(params.ParamsAddress),
+	common.HexToAddress(slashing.SlashingAddress),
+	common.HexToAddress(upgrade.UpgradeAddress),
 }
 
 // InvalidPrecompileCallError is an error type that implements vm.AbortError,

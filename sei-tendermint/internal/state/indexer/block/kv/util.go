@@ -8,57 +8,8 @@ import (
 	"github.com/google/orderedcode"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query/syntax"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
-
-// maxBoundedPrealloc caps how much the bounded fast path preallocates for its
-// result slice, so a very large (or disabled) limit does not eagerly allocate.
-const maxBoundedPrealloc = 4096
-
-// boundedCap returns a sensible initial capacity for a result slice given a
-// limit. A non-positive limit means "unbounded", in which case we let the
-// slice grow on demand.
-func boundedCap(limit int) int {
-	if limit <= 0 {
-		return 0
-	}
-	if limit < maxBoundedPrealloc {
-		return limit
-	}
-	return maxBoundedPrealloc
-}
-
-// heightInRange reports whether height h falls within the (already
-// inclusivity-adjusted) bounds of a numeric block.height query range.
-func heightInRange(h int64, qr indexer.QueryRange) bool {
-	if lower := qr.LowerBoundValue(); lower != nil {
-		if lb, ok := lower.(int64); ok && h < lb {
-			return false
-		}
-	}
-	if upper := qr.UpperBoundValue(); upper != nil {
-		if ub, ok := upper.(int64); ok && h > ub {
-			return false
-		}
-	}
-	return true
-}
-
-// prefixUpperBound returns the exclusive end key for iterating over prefix,
-// i.e. the smallest key strictly greater than every key having the prefix.
-// It returns nil when prefix is empty or all bytes are 0xFF (no upper bound).
-func prefixUpperBound(prefix []byte) []byte {
-	end := make([]byte, len(prefix))
-	copy(end, prefix)
-	for i := len(end) - 1; i >= 0; i-- {
-		if end[i] != 0xFF {
-			end[i]++
-			return end[:i+1]
-		}
-	}
-	return nil
-}
 
 func intInSlice(a int, list []int) bool {
 	for _, b := range list {

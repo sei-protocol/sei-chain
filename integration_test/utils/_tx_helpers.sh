@@ -116,6 +116,67 @@ wait_until_height_exceeds() {
         "[ \$($seidbin status | jq -r .SyncInfo.latest_block_height) -gt $min_height ]"
 }
 
+_get_latest_height() {
+    $seidbin status 2>/dev/null | jq -r '.SyncInfo.latest_block_height // "0"' 2>/dev/null
+}
+
+wait_for_oracle_penalty_success_rate() {
+    local validator_addr="$1"
+    local min_total="${2:-15}"
+    local max_success_percent="${3:-5}"
+    local progress_from_key="$4"
+    local timeout_secs="${5:-120}"
+    local retry_interval_secs="${6:-$TX_WAIT_INTERVAL}"
+    local deadline=$(($(date +%s) + timeout_secs))
+    local last_height=0
+    local last_total=0
+    local last_success=0
+    local last_success_percent=0
+
+    if [ -z "$validator_addr" ] || [ -z "$progress_from_key" ]; then
+        echo "Usage: wait_for_oracle_penalty_success_rate <validator-addr> [min-total] [max-success-percent] <progress-from-key> [timeout-secs] [retry-interval-secs]" >&2
+        return 1
+    fi
+
+    local progress_from_addr; progress_from_addr=$(_get_key_address "$progress_from_key")
+
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        local height
+        height=$($seidbin q block | jq -r ".block.header.height")
+        local raw
+        raw=$($seidbin q oracle vote-penalty-counter "$validator_addr" --height "$height" --output json)
+        local stats
+        stats=$(echo "$raw" | jq -r '
+            [
+                (.vote_penalty_counter.success_count | tonumber),
+                ((.vote_penalty_counter.success_count | tonumber) + (.vote_penalty_counter.abstain_count | tonumber) + (.vote_penalty_counter.miss_count | tonumber))
+            ] | @tsv
+        ') || {
+            sleep "$retry_interval_secs"
+            continue
+        }
+        local success total
+        read -r success total <<<"$stats"
+
+        last_height="$height"
+        last_success="$success"
+        last_total="$total"
+        if [ "$total" -gt 0 ]; then
+            last_success_percent=$((success * 100 / total))
+        fi
+
+        if [ "$total" -ge "$min_total" ] && [ "$last_success_percent" -lt "$max_success_percent" ]; then
+            echo "$height"
+            return 0
+        fi
+        bank_send_and_wait "$progress_from_key" "$progress_from_addr" 1usei >/dev/null || true
+    done
+
+    echo "timed out waiting for oracle penalty success rate < ${max_success_percent}% with at least $min_total samples (last height=$last_height success=$last_success total=$last_total percent=$last_success_percent)" >&2
+    echo "$last_height"
+    return 1
+}
+
 get_proposal_status() {
     $seidbin q gov proposal "$1" --output json 2>/dev/null | jq -r '.status // ""'
 }

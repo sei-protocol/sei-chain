@@ -28,6 +28,12 @@ type controlLoopWriteRequest struct {
 
 	// values is a slice of key-value pairs to write.
 	values []*types.PutRequest
+
+	// compressedValues holds the compressed on-disk representation of each value, populated by the
+	// compression stage when the table has compression enabled. When non-nil it is parallel to values
+	// (compressedValues[i] is the compressed form of values[i].Value) and the control loop writes those
+	// bytes to the value file. When nil, values are written verbatim (the uncompressed path).
+	compressedValues [][]byte
 }
 
 // controlLoopSetShardingFactorRequest is a request to set the sharding factor that is sent to the control loop.

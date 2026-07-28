@@ -36,6 +36,10 @@ func (*parityTxCountTMClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (*parityTxCountTMClient) GenesisInitialHeight() int64 {
+	return 1
+}
+
 func (*parityTxCountTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }

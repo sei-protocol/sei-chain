@@ -54,8 +54,8 @@ func TestEmptyValueSurvivesWALReplay(t *testing.T) {
 		{{Key: []byte("supply"), Value: []byte("S3")}},
 	}
 	for _, pairs := range blocks {
-		require.NoError(t, s.ApplyChangeSets(emptyValueBankCS(pairs...)))
-		_, err := s.Commit()
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, emptyValueBankCS(pairs...)))
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 

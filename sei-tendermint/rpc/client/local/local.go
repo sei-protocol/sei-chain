@@ -141,6 +141,16 @@ func (c *Local) GenesisChunked(ctx context.Context, id uint) (*coretypes.ResultG
 	return c.Environment.GenesisChunked(ctx, &coretypes.RequestGenesisChunked{Chunk: coretypes.Int64(id)}) //nolint:gosec // id is a small genesis chunk index
 }
 
+// GenesisInitialHeight returns the chain's genesis InitialHeight from the node's
+// in-memory genesis doc, or 0 if it is unavailable. This is a field read on the
+// cached GenesisDoc — no RPC and no genesis-size limit.
+func (c *Local) GenesisInitialHeight() int64 {
+	if c.GenDoc == nil {
+		return 0
+	}
+	return c.GenDoc.InitialHeight
+}
+
 func (c *Local) Block(ctx context.Context, height *int64) (*coretypes.ResultBlock, error) {
 	return c.Environment.Block(ctx, &coretypes.RequestBlockInfo{Height: (*coretypes.Int64)(height)})
 }

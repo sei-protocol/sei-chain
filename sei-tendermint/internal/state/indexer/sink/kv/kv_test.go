@@ -23,18 +23,18 @@ import (
 var searchOpts = indexer.SearchOptions{}
 
 func TestType(t *testing.T) {
-	kvSink := NewEventSink(dbm.NewMemDB())
+	kvSink := NewEventSink(dbm.NewMemDB(), nil)
 	assert.Equal(t, indexer.KV, kvSink.Type())
 }
 
 func TestStop(t *testing.T) {
-	kvSink := NewEventSink(dbm.NewMemDB())
+	kvSink := NewEventSink(dbm.NewMemDB(), nil)
 	assert.Nil(t, kvSink.Stop())
 }
 
 func TestBlockFuncs(t *testing.T) {
 	store := dbm.NewPrefixDB(dbm.NewMemDB(), []byte("block_events"))
-	indexer := NewEventSink(store)
+	indexer := NewEventSink(store, nil)
 
 	require.NoError(t, indexer.IndexBlockEvents(types.EventDataNewBlockHeader{
 		Header: types.Header{Height: 1},
@@ -157,7 +157,7 @@ func TestBlockFuncs(t *testing.T) {
 }
 
 func TestTxSearchWithCancelation(t *testing.T) {
-	indexer := NewEventSink(dbm.NewMemDB())
+	indexer := NewEventSink(dbm.NewMemDB(), nil)
 
 	txResult := txResultWithEvents([]abci.Event{
 		{Type: "account", Attributes: []abci.EventAttribute{{Key: []byte("number"), Value: []byte("1"), Index: true}}},
@@ -180,7 +180,7 @@ func TestTxSearchWithCancelation(t *testing.T) {
 
 func TestTxSearchDeprecatedIndexing(t *testing.T) {
 	esdb := dbm.NewMemDB()
-	indexer := NewEventSink(esdb)
+	indexer := NewEventSink(esdb, nil)
 
 	// index tx using events indexing (composite key)
 	txResult1 := txResultWithEvents([]abci.Event{
@@ -258,7 +258,7 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 }
 
 func TestTxSearchOneTxWithMultipleSameTagsButDifferentValues(t *testing.T) {
-	indexer := NewEventSink(dbm.NewMemDB())
+	indexer := NewEventSink(dbm.NewMemDB(), nil)
 
 	txResult := txResultWithEvents([]abci.Event{
 		{Type: "account", Attributes: []abci.EventAttribute{{Key: []byte("number"), Value: []byte("1"), Index: true}}},
@@ -280,7 +280,7 @@ func TestTxSearchOneTxWithMultipleSameTagsButDifferentValues(t *testing.T) {
 }
 
 func TestTxSearchMultipleTxs(t *testing.T) {
-	indexer := NewEventSink(dbm.NewMemDB())
+	indexer := NewEventSink(dbm.NewMemDB(), nil)
 
 	// indexed first, but bigger height (to test the order of transactions)
 	txResult := txResultWithEvents([]abci.Event{

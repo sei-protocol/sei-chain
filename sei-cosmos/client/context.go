@@ -30,6 +30,9 @@ type LocalClient interface {
 	EvmNextPendingNonce(addr common.Address) uint64
 	EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool)
 	EvmProxy(sender common.Address) utils.Option[*url.URL]
+	// GenesisInitialHeight returns the chain's genesis InitialHeight from the
+	// node's in-memory genesis doc, or 0 if it is unavailable.
+	GenesisInitialHeight() int64
 }
 
 type Context struct {

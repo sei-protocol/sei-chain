@@ -15,10 +15,23 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// Commit persists buffered writes and advances the version.
+// CommitBlock applies changesets and commits them at version in one call.
+// Giga-only helper for committing all state changes of a block.
+// TODO: make this async and pipelined
+func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
+	if err := s.ApplyChangeSets(version, changesets); err != nil {
+		return err
+	}
+	if _, err := s.Commit(version); err != nil {
+		return fmt.Errorf("CommitBlock: commit version %d: %w", version, err)
+	}
+	return nil
+}
+
+// Commit persists buffered writes at the given version (block height).
 // Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
 // On crash, catchup replays WAL to recover incomplete commits.
-func (s *CommitStore) Commit() (version int64, err error) {
+func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	start := time.Now()
 
 	// TODO(concurrency): This takes a single coarse write lock for the whole
@@ -52,8 +65,13 @@ func (s *CommitStore) Commit() (version int64, err error) {
 	if s.readOnly {
 		return 0, errReadOnly
 	}
-	// Auto-increment version
-	version = s.committedVersion + 1
+	if version <= s.committedVersion {
+		return 0, fmt.Errorf("flatkv: committing bad version: got %d, current %d", version, s.committedVersion)
+	}
+	if s.pendingBlockHeight != 0 && version != s.pendingBlockHeight {
+		return 0, fmt.Errorf("flatkv: commit version %d does not match applied block height %d",
+			version, s.pendingBlockHeight)
+	}
 
 	// Step 1: Write Changelog (WAL) - source of truth (always sync)
 	s.phaseTimer.SetPhase("commit_write_changelog")
@@ -148,6 +166,7 @@ func (s *CommitStore) clearPendingWrites() {
 	s.storageWrites = make(map[string]*vtype.StorageData, len(s.storageWrites))
 	s.miscWrites = make(map[string]*vtype.MiscData, len(s.miscWrites))
 	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0, len(s.pendingChangeSets))
+	s.pendingBlockHeight = 0
 }
 
 // commitBatches commits pending writes to their respective DBs atomically.

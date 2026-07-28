@@ -47,8 +47,8 @@ func TestDumpFlatKVFromStoreAllBuckets(t *testing.T) {
 		}},
 	}
 
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{evmCS, bankCS}))
-	_, err := store.Commit()
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{evmCS, bankCS}))
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 
 	outDir := t.TempDir()
@@ -111,8 +111,8 @@ func TestDumpFlatKVFromStoreSingleBucket(t *testing.T) {
 			storagePair(addrA, slotN(0x01), 0xAA),
 		}},
 	}
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{evmCS}))
-	_, err := store.Commit()
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{evmCS}))
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 
 	outDir := t.TempDir()
@@ -226,13 +226,13 @@ func TestDumpFlatKVFromStoreSkipsVerifyWhenNotFullState(t *testing.T) {
 	defer func() { require.NoError(t, store.Close()) }()
 
 	addrA := addrN(0x11)
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			storagePair(addrA, slotN(0x01), 0xAA),
 		}},
 	}}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 
 	outDir := t.TempDir()
@@ -246,7 +246,7 @@ func TestDumpFlatKVFromStoreLtHashOnlyWritesNoBucketFiles(t *testing.T) {
 	defer func() { require.NoError(t, store.Close()) }()
 
 	addrA := addrN(0x11)
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(addrA, 1),
@@ -254,7 +254,7 @@ func TestDumpFlatKVFromStoreLtHashOnlyWritesNoBucketFiles(t *testing.T) {
 			storagePair(addrA, slotN(0x01), 0xAA),
 		}},
 	}}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 
 	outDir := filepath.Join(t.TempDir(), "must-not-be-created")

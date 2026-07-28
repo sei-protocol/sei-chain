@@ -1,0 +1,39 @@
+{
+  "name": "sei-precompile-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-contained suite that verifies Sei's EVM precompiles end-to-end against a live Sei chain.",
+  "license": "MIT",
+  "scripts": {
+    "compile": "hardhat compile",
+    "precompile:bootstrap": "mocha --config .mocharc.bootstrap.json",
+    "precompile:run": "mocha --config .mocharc.run.json",
+    "test:precompile": "npm run precompile:bootstrap && npm run precompile:run",
+    "report:merge": "mochawesome-merge \"reports/precompile/*.json\" > reports/merged.json && marge reports/merged.json -o reports/merged -f precompile-tests --reportTitle \"Sei Precompile Tests\" --charts",
+    "precompile:ci": "bash scripts/run-ci.sh"
+  },
+  "dependencies": {
+    "@cosmjs/amino": "^0.32.4",
+    "@cosmjs/crypto": "^0.32.4",
+    "@cosmjs/encoding": "^0.32.4",
+    "@cosmjs/proto-signing": "^0.32.4",
+    "@cosmjs/stargate": "^0.32.4",
+    "@cosmjs/tendermint-rpc": "^0.32.4",
+    "@sei-js/cosmos": "^1.0.6",
+    "ethers": "^6.14.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.7",
+    "@types/node": "^22.5.0",
+    "chai": "^4.4.1",
+    "hardhat": "^2.22.10",
+    "mocha": "^10.7.3",
+    "mochawesome": "^7.1.3",
+    "mochawesome-merge": "^4.3.0",
+    "mochawesome-report-generator": "^6.2.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}

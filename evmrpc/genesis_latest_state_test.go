@@ -32,6 +32,10 @@ func (*freshChainClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (*freshChainClient) GenesisInitialHeight() int64 {
+	return 1
+}
+
 func (*freshChainClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }

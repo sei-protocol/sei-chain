@@ -25,7 +25,14 @@ const (
 	// instance of this codebase has been deployed to production, so there is no compatibility cost to
 	// folding the new format into the same version number rather than bumping it.
 	ShardedAddressSegmentVersion SegmentVersion = 3
+
+	// CompressedSegmentVersion adds a single compression-algorithm byte to the end of the metadata file
+	// (see V4MetadataSize). The key-file and value-file layouts are unchanged from
+	// ShardedAddressSegmentVersion, so a v4 segment written with CompressionNone is byte-compatible with
+	// a v3 segment; the version bump exists only to make the wider metadata format explicit and to keep
+	// reads of pre-existing v3 metadata files working.
+	CompressedSegmentVersion SegmentVersion = 4
 )
 
 // LatestSegmentVersion always refers to the latest version of the segment serialization format.
-const LatestSegmentVersion = ShardedAddressSegmentVersion
+const LatestSegmentVersion = CompressedSegmentVersion

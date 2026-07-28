@@ -101,7 +101,7 @@ func (s *MockState) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) 
 			return nil, err
 		}
 		if inner.first > n {
-			return nil, ErrPruned
+			return nil, types.ErrPruned
 		}
 		return inner.blocks[n], nil
 	}

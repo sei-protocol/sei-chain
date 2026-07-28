@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
@@ -26,6 +27,14 @@ const (
 	WithdrawMultipleDelegationRewardsMethod = "withdrawMultipleDelegationRewards"
 	WithdrawValidatorCommissionMethod       = "withdrawValidatorCommission"
 	RewardsMethod                           = "rewards"
+	ParamsMethod                            = "params"
+	ValidatorOutstandingRewardsMethod       = "validatorOutstandingRewards"
+	ValidatorCommissionMethod               = "validatorCommission"
+	ValidatorSlashesMethod                  = "validatorSlashes"
+	DelegationRewardsMethod                 = "delegationRewards"
+	DelegatorValidatorsMethod               = "delegatorValidators"
+	DelegatorWithdrawAddressMethod          = "delegatorWithdrawAddress"
+	CommunityPoolMethod                     = "communityPool"
 
 	SetWithdrawAddressEvent        = "WithdrawAddressSet"
 	DelegationRewardsEvent         = "DelegationRewardsWithdrawn"
@@ -50,15 +59,24 @@ var (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	distrKeeper utils.DistributionKeeper
-	evmKeeper   utils.EVMKeeper
-	address     common.Address
+	distrKeeper         utils.DistributionKeeper
+	distributionQuerier utils.DistributionQuerier
+	evmKeeper           utils.EVMKeeper
+	address             common.Address
 
 	SetWithdrawAddrID                   []byte
 	WithdrawDelegationRewardsID         []byte
 	WithdrawMultipleDelegationRewardsID []byte
 	WithdrawValidatorCommissionID       []byte
 	RewardsID                           []byte
+	ParamsID                            []byte
+	ValidatorOutstandingRewardsID       []byte
+	ValidatorCommissionID               []byte
+	ValidatorSlashesID                  []byte
+	DelegationRewardsID                 []byte
+	DelegatorValidatorsID               []byte
+	DelegatorWithdrawAddressID          []byte
+	CommunityPoolID                     []byte
 
 	abi abi.ABI
 }
@@ -67,10 +85,11 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		distrKeeper: keepers.DistributionK(),
-		evmKeeper:   keepers.EVMK(),
-		address:     common.HexToAddress(DistrAddress),
-		abi:         newAbi,
+		distrKeeper:         keepers.DistributionK(),
+		distributionQuerier: keepers.DistributionQ(),
+		evmKeeper:           keepers.EVMK(),
+		address:             common.HexToAddress(DistrAddress),
+		abi:                 newAbi,
 	}
 
 	for name, m := range newAbi.Methods {
@@ -85,6 +104,22 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 			p.WithdrawValidatorCommissionID = m.ID
 		case RewardsMethod:
 			p.RewardsID = m.ID
+		case ParamsMethod:
+			p.ParamsID = m.ID
+		case ValidatorOutstandingRewardsMethod:
+			p.ValidatorOutstandingRewardsID = m.ID
+		case ValidatorCommissionMethod:
+			p.ValidatorCommissionID = m.ID
+		case ValidatorSlashesMethod:
+			p.ValidatorSlashesID = m.ID
+		case DelegationRewardsMethod:
+			p.DelegationRewardsID = m.ID
+		case DelegatorValidatorsMethod:
+			p.DelegatorValidatorsID = m.ID
+		case DelegatorWithdrawAddressMethod:
+			p.DelegatorWithdrawAddressID = m.ID
+		case CommunityPoolMethod:
+			p.CommunityPoolID = m.ID
 		}
 	}
 
@@ -94,6 +129,12 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, 0, errors.New("cannot delegatecall distr")
+	}
+	if !p.IsTransaction(method.Name) {
+		// Queries must not mutate state even when the underlying querier has
+		// side effects (the rewards queriers call IncrementValidatorPeriod),
+		// so run every view on a branched context and discard the writes.
+		ctx, _ = ctx.CacheContext()
 	}
 	switch method.Name {
 	case SetWithdrawAddressMethod:
@@ -121,12 +162,39 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return p.withdrawValidatorCommission(ctx, method, caller, evm)
 	case RewardsMethod:
 		return p.rewards(ctx, method, args)
+	case ParamsMethod:
+		return p.params(ctx, method, args, value)
+	case ValidatorOutstandingRewardsMethod:
+		return p.validatorOutstandingRewards(ctx, method, args, value)
+	case ValidatorCommissionMethod:
+		return p.validatorCommission(ctx, method, args, value)
+	case ValidatorSlashesMethod:
+		return p.validatorSlashes(ctx, method, args, value)
+	case DelegationRewardsMethod:
+		return p.delegationRewards(ctx, method, args, value)
+	case DelegatorValidatorsMethod:
+		return p.delegatorValidators(ctx, method, args, value)
+	case DelegatorWithdrawAddressMethod:
+		return p.delegatorWithdrawAddress(ctx, method, args, value)
+	case CommunityPoolMethod:
+		return p.communityPool(ctx, method, args, value)
 	}
 	return
 }
 
 func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
+}
+
+// IsTransaction returns true for methods that mutate state; all other
+// distribution methods are views.
+func (PrecompileExecutor) IsTransaction(method string) bool {
+	switch method {
+	case SetWithdrawAddressMethod, WithdrawDelegationRewardsMethod, WithdrawMultipleDelegationRewardsMethod, WithdrawValidatorCommissionMethod:
+		return true
+	default:
+		return false
+	}
 }
 
 func (p PrecompileExecutor) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
@@ -389,6 +457,304 @@ func getResponseOutput(response *distrtypes.QueryDelegationTotalRewardsResponse)
 		Rewards: rewards,
 		Total:   totalCoins,
 	}
+}
+
+type DistributionParams struct {
+	CommunityTax        string
+	BaseProposerReward  string
+	BonusProposerReward string
+	WithdrawAddrEnabled bool
+}
+
+type Slash struct {
+	ValidatorPeriod uint64
+	Fraction        string
+}
+
+func decCoinsToCoins(decCoins sdk.DecCoins) []Coin {
+	coins := make([]Coin, 0, len(decCoins))
+	for _, coin := range decCoins {
+		coins = append(coins, Coin{
+			Amount:   coin.Amount.BigInt(),
+			Denom:    coin.Denom,
+			Decimals: big.NewInt(sdk.Precision),
+		})
+	}
+	return coins
+}
+
+func (p PrecompileExecutor) params(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := p.validateInput(value, args, 0); err != nil {
+		rerr = err
+		return
+	}
+
+	response, err := p.distributionQuerier.Params(sdk.WrapSDKContext(ctx), &distrtypes.QueryParamsRequest{})
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	params := DistributionParams{
+		CommunityTax:        response.Params.CommunityTax.String(),
+		BaseProposerReward:  response.Params.BaseProposerReward.String(),
+		BonusProposerReward: response.Params.BonusProposerReward.String(),
+		WithdrawAddrEnabled: response.Params.WithdrawAddrEnabled,
+	}
+
+	ret, rerr = method.Outputs.Pack(params)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) validatorOutstandingRewards(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := p.validateInput(value, args, 1); err != nil {
+		rerr = err
+		return
+	}
+
+	req := &distrtypes.QueryValidatorOutstandingRewardsRequest{
+		ValidatorAddress: args[0].(string),
+	}
+	response, err := p.distributionQuerier.ValidatorOutstandingRewards(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(decCoinsToCoins(response.Rewards.Rewards))
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) validatorCommission(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := p.validateInput(value, args, 1); err != nil {
+		rerr = err
+		return
+	}
+
+	req := &distrtypes.QueryValidatorCommissionRequest{
+		ValidatorAddress: args[0].(string),
+	}
+	response, err := p.distributionQuerier.ValidatorCommission(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(decCoinsToCoins(response.Commission.Commission))
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) validatorSlashes(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := p.validateInput(value, args, 4); err != nil {
+		rerr = err
+		return
+	}
+
+	req := &distrtypes.QueryValidatorSlashesRequest{
+		ValidatorAddress: args[0].(string),
+		StartingHeight:   args[1].(uint64),
+		EndingHeight:     args[2].(uint64),
+		Pagination: &query.PageRequest{
+			Key: args[3].([]byte),
+		},
+	}
+	response, err := p.distributionQuerier.ValidatorSlashes(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	slashes := make([]Slash, 0, len(response.Slashes))
+	for _, slash := range response.Slashes {
+		slashes = append(slashes, Slash{
+			ValidatorPeriod: slash.ValidatorPeriod,
+			Fraction:        slash.Fraction.String(),
+		})
+	}
+	var nextKey []byte
+	if response.Pagination != nil {
+		nextKey = response.Pagination.NextKey
+	}
+
+	ret, rerr = method.Outputs.Pack(slashes, nextKey)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) delegationRewards(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := p.validateInput(value, args, 2); err != nil {
+		rerr = err
+		return
+	}
+
+	delegator, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	req := &distrtypes.QueryDelegationRewardsRequest{
+		DelegatorAddress: delegator.String(),
+		ValidatorAddress: args[1].(string),
+	}
+	response, err := p.distributionQuerier.DelegationRewards(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(decCoinsToCoins(response.Rewards))
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) delegatorValidators(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := p.validateInput(value, args, 1); err != nil {
+		rerr = err
+		return
+	}
+
+	delegator, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	req := &distrtypes.QueryDelegatorValidatorsRequest{
+		DelegatorAddress: delegator.String(),
+	}
+	response, err := p.distributionQuerier.DelegatorValidators(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	validators := response.Validators
+	if validators == nil {
+		validators = []string{}
+	}
+
+	ret, rerr = method.Outputs.Pack(validators)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) delegatorWithdrawAddress(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := p.validateInput(value, args, 1); err != nil {
+		rerr = err
+		return
+	}
+
+	delegator, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	req := &distrtypes.QueryDelegatorWithdrawAddressRequest{
+		DelegatorAddress: delegator.String(),
+	}
+	response, err := p.distributionQuerier.DelegatorWithdrawAddress(sdk.WrapSDKContext(ctx), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(response.WithdrawAddress)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) communityPool(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := p.validateInput(value, args, 0); err != nil {
+		rerr = err
+		return
+	}
+
+	response, err := p.distributionQuerier.CommunityPool(sdk.WrapSDKContext(ctx), &distrtypes.QueryCommunityPoolRequest{})
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(decCoinsToCoins(response.Pool))
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
 }
 
 func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method *abi.Method, caller common.Address, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
