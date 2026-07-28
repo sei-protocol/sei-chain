@@ -158,15 +158,25 @@ func TestSeiLogLevelEnvSuppressesTheConfigFileValue(t *testing.T) {
 			"struct even when the override is declined", got.ctx.Config.LogLevel)
 	}
 
-	// And an unparseable value in config.toml *does* fail, when no SEI_LOG_LEVEL
-	// suppresses the override — so the variable's presence is what decides whether
-	// a bad file value is fatal.
+	// The suppression itself: the same unparseable file value, once with the variable set and
+	// once without. Only the pair proves the variable is what decides. Either case alone is
+	// satisfied by an Apply with no suppression branch at all, since a valid file value parses
+	// either way and a bad one fails either way.
+	badFile := []byte("log-level = \"bogus\"\nmode = \"full\"\n")
+
+	suppressed := configtest.NewHome(t)
+	suppressed.WriteConfigTOML(t, badFile)
+	if got := applyWithLogFlags(t, suppressed, "", ""); got.err != nil {
+		t.Fatalf("with SEI_LOG_LEVEL set, Apply must decline to override and never parse the "+
+			"config.toml value, so an unparseable one cannot fail the boot. Got %v", got.err)
+	}
+
 	if err := os.Unsetenv("SEI_LOG_LEVEL"); err != nil {
 		t.Fatalf("unset SEI_LOG_LEVEL: %v", err)
 	}
-	badHome := configtest.NewHome(t)
-	badHome.WriteConfigTOML(t, []byte("log-level = \"bogus\"\nmode = \"full\"\n"))
-	if bad := applyWithLogFlags(t, badHome, "", ""); bad.err == nil {
+	unsuppressed := configtest.NewHome(t)
+	unsuppressed.WriteConfigTOML(t, badFile)
+	if bad := applyWithLogFlags(t, unsuppressed, "", ""); bad.err == nil {
 		t.Fatal("an unparseable config.toml log-level must fail the boot when no SEI_LOG_LEVEL " +
 			"suppresses the override")
 	}

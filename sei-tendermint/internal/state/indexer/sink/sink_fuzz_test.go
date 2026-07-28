@@ -167,8 +167,18 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 // further runs pure race-shard time.
 func TestNullMixedWithAnUnsupportedSinkIsUnspecified(t *testing.T) {
 	const runs = 250
-	booted, failed := 0, 0
-	for range runs {
+	booted, failed := countMixedOutcomes(runs)
+	if booted == 0 || failed == 0 {
+		resolveOneSidedOutcome(t, "boots / boot-failures", runs, booted, failed, countMixedOutcomes)
+		return
+	}
+}
+
+// countMixedOutcomes resolves the ["null", <unknown>] list n times and reports how many runs
+// booted and how many failed. Shared with the escalation path so the larger sample is drawn
+// exactly the same way as the first one.
+func countMixedOutcomes(n int) (booted, failed int) {
+	for range n {
 		cfg := config.DefaultConfig()
 		cfg.TxIndex.Indexer = []string{"null", "definitely-not-a-sink"}
 		if _, err := sink.EventSinksFromConfig(cfg, memDBProvider, "sei-test"); err != nil {
@@ -177,42 +187,65 @@ func TestNullMixedWithAnUnsupportedSinkIsUnspecified(t *testing.T) {
 			booted++
 		}
 	}
-	if booted == 0 || failed == 0 {
-		requireSmallMapRandomization(t, runs, booted, failed)
-		t.Fatalf("over %d runs the mixed list resolved consistently (%d booted, %d failed), so map "+
-			"iteration order no longer decides the outcome. If that was a deliberate fix, checking "+
-			"for null before kv opens a store is exactly what the sibling row argues for, and this "+
-			"row plus TestNullSinkCanOpenAnIndexStoreItThenDiscards should be updated to assert "+
-			"the deterministic outcome. See the diagnosis above before assuming that, since a "+
-			"collapsed split reaches this line too",
-			runs, booted, failed)
-	}
+	return booted, failed
 }
 
-// requireSmallMapRandomization separates the two reasons a null-ordering row can stop
-// seeing both outcomes, and skips only for the one that is not about sei.
+// resolveOneSidedOutcome decides what a one-sided result means and reports accordingly.
 //
-// Both rows characterize nondeterminism, so both rest on a runtime property Go does not
-// promise: map iteration is randomized by design, but nothing guarantees it for a
-// two-element map. That leaves two very different causes for a consistent result. Either
-// sink selection was made deterministic, which is the finding these rows exist to force
-// into the open, or the runtime stopped randomizing, which says nothing about this
-// repository and should not turn a shard red.
+// Both probabilistic rows characterize nondeterminism, so both rest on a runtime property Go
+// does not promise: map iteration is randomized by design, but nothing guarantees it for a
+// two-element map. A one-sided result therefore has three causes, and only one of them is a
+// finding about sei.
 //
-// So the premise is measured rather than assumed. A probe map of the same shape is ranged
-// the same number of times; if its starting key never varies, the mechanism is gone here
-// and the row skips naming that. If it does vary, the runtime still supplies the
-// randomization and a consistent sink result is sei's own change, so the caller's failure
-// stands.
+//  1. Selection became deterministic. That is the finding these rows exist to force into the
+//     open, and it fails.
+//  2. The runtime stopped randomizing maps this small. Nothing to do with sei, so it skips.
+//  3. The split skewed far enough that the sample missed the minority branch. The
+//     characterization still holds, so it passes with the skew reported.
 //
-// The probe detects total loss of randomization, not skew. A split pushed from the observed
-// ~16% down to a fraction of a percent would still show both keys here, so the row would
-// start failing intermittently rather than skipping. The probe's own split is reported for
-// exactly that case: a probe near even alongside a sink result that is nearly one-sided says
-// the skew is in sink selection, not in the runtime.
-func requireSmallMapRandomization(t *testing.T, runs, booted, failed int) {
+// Case 3 is why this escalates rather than judging the first sample. The probe distinguishes
+// 2 from the others, but it cannot separate 1 from 3: at 250 runs a collapsed-but-nonzero
+// split and a deterministic outcome look identical. Drawing a much larger sample separates
+// them, and it costs nothing in the common case because it only runs when a row is about to
+// fail. Without it a split moving from the observed 16% to a fraction of a percent would
+// redden the shard while blaming a change in selection that never happened.
+//
+// label names what the two counts mean, because the callers count different things.
+func resolveOneSidedOutcome(t *testing.T, label string, runs, majority, minority int, resample func(int) (int, int)) {
 	t.Helper()
 
+	if !smallMapIterationVaries(runs) {
+		t.Skipf("this runtime started a two-element map range at the same key in all %d probes, so "+
+			"it no longer randomizes maps this small and the mechanism this row characterizes does "+
+			"not exist here (%s: %d / %d). Sink selection itself is unchanged: rewrite the row "+
+			"against whatever ordering the runtime now guarantees", runs, label, majority, minority)
+	}
+
+	// The runtime still supplies the mechanism, so this is sei's own behavior. Draw a larger
+	// sample before calling it deterministic.
+	const escalated = 20000
+	bigMajority, bigMinority := resample(escalated)
+	if bigMinority > 0 && bigMajority > 0 {
+		t.Logf("%s was one-sided over %d runs (%d / %d) but two-sided over %d (%d / %d), so the "+
+			"outcome is still undetermined by the config and this row's premise holds. The split "+
+			"has skewed well below the roughly 16%% minority observed when the row was written; "+
+			"if it keeps falling, raise the run count rather than treating a miss as a fix",
+			label, runs, majority, minority, escalated, bigMajority, bigMinority)
+		return
+	}
+	t.Errorf("%s stayed one-sided over %d runs (%d / %d) and again over %d (%d / %d). The "+
+		"map-order probe still varies, so the runtime is not the cause and sink selection has "+
+		"become deterministic",
+		label, runs, majority, minority, escalated, bigMajority, bigMinority)
+}
+
+// smallMapIterationVaries reports whether this runtime still starts a two-element map range
+// at a varying key, which is the mechanism both probabilistic rows depend on.
+//
+// The split is not close to even in practice, around 90/10 for a two-element map. That is
+// enough to answer "does the order vary at all", which is all this is asked, and it is not a
+// yardstick for the sink's own split.
+func smallMapIterationVaries(runs int) bool {
 	probe := map[string]struct{}{"a": {}, "b": {}}
 	starts := map[string]int{}
 	for range runs {
@@ -221,32 +254,7 @@ func requireSmallMapRandomization(t *testing.T, runs, booted, failed int) {
 			break // only which key comes first matters
 		}
 	}
-	if len(starts) > 1 {
-		// The probe still yields both keys, so the runtime supplies the mechanism and the
-		// one-sided sink result is sei's own. Two changes produce that and they are
-		// indistinguishable at this run count: selection became deterministic, or its minority
-		// branch collapsed to a probability 250 runs cannot see. Naming both is the diagnosis,
-		// because asserting a deliberate fix would send someone looking for a change that may
-		// not exist.
-		//
-		// The probe's own split is reported rather than characterized. It is not close to even
-		// in practice: a two-element map typically lands around 90/10 here, which is enough to
-		// answer "does the order vary" and not enough to be a yardstick for the sink's split.
-		minority := min(starts["a"], starts["b"])
-		t.Errorf("the map-order probe still yields both keys (%v over %d runs, minority %d), so "+
-			"the runtime is not the cause and this is a change in sink selection. Two readings "+
-			"fit equally at this run count, and they have different fixes: selection became "+
-			"deterministic, or its minority branch collapsed to a probability %d runs cannot "+
-			"see. The sink split when this row was written was roughly 168 booted to 32 failed "+
-			"per 200, against %d booted and %d failed now. Raising the run count separates the "+
-			"two: a collapsed-but-nonzero split eventually shows the minority branch, a "+
-			"deterministic one never does", starts, runs, minority, runs, booted, failed)
-		return
-	}
-	t.Skipf("this runtime started a two-element map range at the same key in all %d probes, so "+
-		"it no longer randomizes maps this small and the mechanism this row characterizes does "+
-		"not exist here (%d booted, %d failed). Sink selection itself is unchanged: rewrite the "+
-		"row against whatever ordering the runtime now guarantees", runs, booted, failed)
+	return len(starts) > 1
 }
 
 // TestEventSinksDistinguishesADuplicateFromAnUnsupportedName pins the diagnostic
@@ -325,34 +333,43 @@ func TestNullSinkAlwaysWinsOverARecognizedSink(t *testing.T) {
 // replacement manager needs to know before it reuses this selection logic.
 func TestNullSinkCanOpenAnIndexStoreItThenDiscards(t *testing.T) {
 	const runs = 250
-	opens := 0
-	for range runs {
-		provider := func(*config.DBContext) (dbm.DB, error) {
-			opens++
-			return dbm.NewMemDB(), nil
-		}
-		cfg := config.DefaultConfig()
-		cfg.TxIndex.Indexer = []string{"null", "kv"}
 
-		sinks, err := sink.EventSinksFromConfig(cfg, provider, "sei-test")
-		if err != nil {
-			t.Fatalf("indexer = [null kv]: %v", err)
+	// countNullKVOpens resolves ["null", "kv"] n times and reports how often the kv branch
+	// opened a store first. It also holds the invariant that must be true on every run,
+	// whichever order the range takes: exactly one sink comes back, and it is the null one.
+	countNullKVOpens := func(n int) (quiet, opened int) {
+		for range n {
+			opens := 0
+			provider := func(*config.DBContext) (dbm.DB, error) {
+				opens++
+				return dbm.NewMemDB(), nil
+			}
+			cfg := config.DefaultConfig()
+			cfg.TxIndex.Indexer = []string{"null", "kv"}
+
+			sinks, err := sink.EventSinksFromConfig(cfg, provider, "sei-test")
+			if err != nil {
+				t.Fatalf("indexer = [null kv]: %v", err)
+			}
+			if len(sinks) != 1 {
+				t.Fatalf("indexer = [null kv] resolved to %d sinks, want the null sink alone", len(sinks))
+			}
+			if opens > 0 {
+				opened++
+			} else {
+				quiet++
+			}
 		}
-		if len(sinks) != 1 {
-			t.Fatalf("indexer = [null kv] resolved to %d sinks, want the null sink alone", len(sinks))
-		}
+		return quiet, opened
 	}
 
-	if opens == 0 || opens == runs {
-		requireSmallMapRandomization(t, runs, runs-opens, opens)
-	}
-	if opens == 0 {
-		t.Fatalf("over %d runs the kv branch never ran before null returned. If the loop now "+
-			"checks for null before opening anything, that removes an orphaned store and is "+
-			"worth recording as the fix it is", runs)
-	}
-	if opens == runs {
-		t.Fatalf("over %d runs the kv branch ran every time; null is supposed to short-circuit "+
-			"whenever the range reaches it first", runs)
+	quiet, opened := countNullKVOpens(runs)
+	if opened == 0 || quiet == 0 {
+		// Both directions are one-sided results of the same coin, so the shared resolver
+		// decides between a deterministic selection, a runtime that stopped randomizing, and a
+		// split that skewed past this sample.
+		resolveOneSidedOutcome(t, "runs without a store opened / runs with one", runs, quiet, opened,
+			countNullKVOpens)
+		return
 	}
 }

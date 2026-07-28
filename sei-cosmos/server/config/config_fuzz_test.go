@@ -154,22 +154,41 @@ var grpcClamps = []grpcClamp{
 // clamped, uniformly across all six keys: zero passes through everywhere, which matters
 // most on the two age keys where gRPC reads zero as "no limit". Distinguishing negative
 // from zero rather than treating both as unset is what this target holds in place.
+//
+// Each value is driven in two shapes, because a typed time.Duration is not a shape any
+// app.toml can produce. A file gives "30s" or a bare integer and an environment variable
+// always gives a string, so the typed form skips the cast.ToDuration step that sits between
+// the file layer and this comparison. The string spelling is the one an operator actually
+// writes, and "-1s" is how they would express the boundary that matters here.
 func FuzzGetConfigGRPCDurationClamps(f *testing.F) {
-	f.Add(uint(0), int64(0))
-	f.Add(uint(0), int64(-1))
-	f.Add(uint(0), int64(int64(30*time.Second)))
-	f.Add(uint(4), int64(0))
-	f.Add(uint(4), int64(-1))
-	f.Add(uint(1), int64(-1000000000))
-	f.Add(uint(2), int64(int64(time.Hour)))
+	f.Add(uint(0), int64(0), false)
+	f.Add(uint(0), int64(-1), false)
+	f.Add(uint(0), int64(int64(30*time.Second)), false)
+	f.Add(uint(4), int64(0), false)
+	f.Add(uint(4), int64(-1), false)
+	f.Add(uint(1), int64(-1000000000), false)
+	f.Add(uint(2), int64(int64(time.Hour)), false)
+	// The same values as an operator would write them.
+	f.Add(uint(0), int64(int64(30*time.Second)), true)
+	f.Add(uint(0), int64(-1000000000), true) // "-1s"
+	f.Add(uint(4), int64(0), true)
+	f.Add(uint(2), int64(int64(time.Hour)), true)
 
-	f.Fuzz(func(t *testing.T, keyIdx uint, nanos int64) {
+	f.Fuzz(func(t *testing.T, keyIdx uint, nanos int64, asString bool) {
 		row := grpcClamps[keyIdx%uint(len(grpcClamps))]
 		d := time.Duration(nanos)
 
-		cfg, err := GetConfig(newAppViper(t, map[string]any{row.Key: d}))
+		// A typed duration and its own String() spelling must resolve identically, since
+		// viper.GetDuration casts the text back. Any divergence is in cast, not in the clamp,
+		// and it belongs to this row because the file layer only ever produces the text.
+		var raw any = d
+		if asString {
+			raw = d.String()
+		}
+
+		cfg, err := GetConfig(newAppViper(t, map[string]any{row.Key: raw}))
 		if err != nil {
-			t.Fatalf("%s = %s must parse, got %v", row.Key, d, err)
+			t.Fatalf("%s = %#v must parse, got %v", row.Key, raw, err)
 		}
 
 		want := d
@@ -181,9 +200,10 @@ func FuzzGetConfigGRPCDurationClamps(f *testing.F) {
 			t.Fatalf("%s resolves into %q, which is not in the parsed config", row.Key, row.Path)
 		}
 		if wantLeaf := configtest.DumpAt(row.Path, want); got != wantLeaf {
-			t.Fatalf("%s = %s resolved wrongly\n got: %s\nwant: %s\n"+
-				"a negative duration falls back to the in-code default; zero passes through",
-				row.Key, d, got, wantLeaf)
+			t.Fatalf("%s = %#v resolved wrongly\n got: %s\nwant: %s\n"+
+				"a negative duration falls back to the in-code default; zero passes through, and "+
+				"the typed and string spellings must agree",
+				row.Key, raw, got, wantLeaf)
 		}
 	})
 }

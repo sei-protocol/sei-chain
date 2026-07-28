@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"runtime/pprof"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,6 +35,32 @@ import (
 // trace-store, the second GetConfig, grpc-only forcing GRPC.Enable, and the
 // api/grpc-web gating all live inside unexported startInProcess, which opens listeners
 // and starts a node. Pinning those needs an integration harness.
+
+// nodeEscapedMarker is a fixed token so CI triage can grep one string for this failure, and
+// nodeEscaped carries it from the row that detected it to TestMain.
+const nodeEscapedMarker = "CONFIGTEST_NODE_ESCAPED"
+
+var nodeEscaped atomic.Bool
+
+// TestMain fails the binary when a node outlived the row that started it.
+//
+// The escape is detected inside runEBounded, which on its own can only fail one test. This
+// turns it into a non-zero exit for the whole package, so a run that left a node holding
+// listeners cannot be read as a pass, while every other test still reports its result. The
+// goroutine dump goes with it, since the first question is what the surviving node is doing.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if nodeEscaped.Load() {
+		fmt.Fprintf(os.Stderr, "\n%s: a node outlived the test that started it and did not stop "+
+			"when its context was cancelled. Failing this binary deliberately; results above are "+
+			"valid up to the point of the escape.\n", nodeEscapedMarker)
+		_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
+		if code == 0 {
+			code = 1
+		}
+	}
+	os.Exit(code)
+}
 
 // newStartCmd resolves the real start command out of a real root and runs the root's
 // PersistentPreRunE against it, so the command arrives in the state seid puts it in:
@@ -355,17 +384,22 @@ func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (rec
 		default:
 		}
 		// Nothing came back, so a node is still holding its listeners and state databases, and
-		// t.Fatal would only unwind this goroutine. Every later test in the binary would then run
-		// alongside a live node, including through configtest.Isolate's cleanup, which clears the
-		// environment and restores it while that node reads it. Panicking is the terminal action:
-		// it fails the binary here rather than leaving a corrupted one to produce results nobody
-		// should trust, and the goroutine dump shows what the node is doing.
-		// The marker is a fixed, unique token so CI triage can grep one string to tell this
-		// deliberate abort apart from an ordinary panic in this package.
-		panic("CONFIGTEST_NODE_ESCAPED: " + diagnosis + ", and it did not stop within " +
-			grace.String() + " of the command context being cancelled. Failing the whole binary " +
-			"deliberately: a live node with bound listeners must not outlive this test and be " +
-			"inherited by the ones after it")
+		// t.Fatal only unwinds this goroutine. Every later test in the binary then runs alongside
+		// a live node, including through configtest.Isolate's cleanup, which clears the
+		// environment and restores it while that node reads it. The binary has to fail as a
+		// whole, not just this row.
+		//
+		// It fails at exit rather than here. Panicking would take the package down at this
+		// instant and destroy every other test's result, and the trigger is a wall-clock bound
+		// rather than proof that a node is running: a wedged RunE that never started one, or a
+		// shard loaded enough to burn the budget, reach this line too. Recording the escape and
+		// letting TestMain force the exit keeps the failure deliberate while still reporting
+		// everything else the run learned.
+		nodeEscaped.Store(true)
+		t.Fatalf("%s: %s, and it did not stop within %s of the command context being cancelled. "+
+			"The binary will be failed at exit: a live node with bound listeners must not outlive "+
+			"this test and be inherited by the ones after it", nodeEscapedMarker, diagnosis, grace)
+		return nil, nil
 	}
 }
 
