@@ -34,18 +34,3 @@ func DumpViper(v *viper.Viper) string {
 	}
 	return strings.Join(lines, "\n")
 }
-
-// DumpViperKeys renders only the named keys, in the order given, via
-// viper.Get. Unlike DumpViper it reaches AutomaticEnv-only keys, because it asks
-// for each key by name instead of enumerating. Use it to pin a specific manifest
-// row; use DumpViper to pin the whole resolved surface.
-func DumpViperKeys(v *viper.Viper, keys ...string) string {
-	if v == nil {
-		return "<nil-viper>"
-	}
-	lines := make([]string, 0, len(keys))
-	for _, k := range keys {
-		lines = append(lines, DumpAt(k, v.Get(k)))
-	}
-	return strings.Join(lines, "\n")
-}

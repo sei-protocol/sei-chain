@@ -166,3 +166,18 @@ func TestReadReceiptConfigAbsentKeysKeepDefaults(t *testing.T) {
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "receipt_store", DefaultReceiptStoreConfig())
 }
+
+// TestManifestNamesEveryField enforces the claim receiptKeys makes about itself: that it names
+// every key the reader looks up. Left as prose the claim can drift, and it is the artifact a
+// replacement implementation reads as this section's contract.
+func TestManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "receipt_store", DefaultReceiptStoreConfig(), receiptKeys,
+		"Backend",     // FuzzReceiptBackend: fail-closed allowlist, not a plain cast
+		"DBDirectory", // FuzzReceiptDBDirectory: the trim is the behavior under test
+		// KeepRecent is tagged mapstructure:"-", so no [receipt-store] key reaches it. The app
+		// layer sets it from min-retain-blocks instead, which is worth recording here: a field
+		// sitting in a config struct that configuration cannot address is exactly the kind of
+		// thing a replacement manager would otherwise try to map a key onto.
+		"KeepRecent",
+	)
+}

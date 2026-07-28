@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -33,7 +34,7 @@ func goldenUpdateRequested() bool {
 }
 
 // CheckDefaults asserts that a section's in-code defaults still match the values recorded
-// in testdata/<name>.golden.
+// in testdata/<section>.golden.
 //
 // This is the anchor CheckAbsent cannot provide. CheckAbsent compares a reader's
 // empty-input result against the package's own default struct, so a change to the reader's
@@ -74,7 +75,7 @@ type DerivedDefault struct {
 }
 
 // CheckDefaults asserts that a section's in-code defaults still match the values recorded
-// in testdata/<name>.golden, with any machine-derived fields checked against their formula
+// in testdata/<section>.golden, with any machine-derived fields checked against their formula
 // instead.
 func CheckDefaults(t testing.TB, name string, defaults any, derived ...DerivedDefault) {
 	t.Helper()
@@ -127,8 +128,9 @@ func CheckDefaults(t testing.TB, name string, defaults any, derived ...DerivedDe
 	}
 	// Tolerant of the trailing newline either way, so an editor that strips or adds one
 	// does not read as a default having changed.
-	want := strings.TrimRight(string(raw), "\n")
-	got = strings.TrimRight(got, "\n")
+	// \r as well as \n, so a CRLF checkout does not read as a changed default.
+	want := strings.TrimRight(string(raw), "\r\n")
+	got = strings.TrimRight(got, "\r\n")
 	if got == want {
 		return
 	}
@@ -177,4 +179,79 @@ func goldenDiff(want, got string) string {
 		return "  (the leaf values agree; the difference is in ordering or formatting)"
 	}
 	return b.String()
+}
+
+// CheckManifestCoversEveryField asserts that every field in a section's resolved view is
+// named by a manifest row, or is explicitly listed as not read from configuration.
+//
+// A section's manifest carries the claim that it lists every key the reader looks up, and
+// that claim is what a replacement implementation will treat as the contract. Left as prose
+// it is unenforced: a key can be added to the reader, rendered into app.toml, and consumed by
+// a node while the table that is supposed to enumerate it stays silent. The reader and the
+// table then disagree, and the table is the one being trusted.
+//
+// The comparison is on fields rather than on key strings, because the fields are what Dump
+// can enumerate without parsing the reader. That makes it a completeness check on the
+// section's struct: a field with no row and no exemption fails, which catches both a key the
+// manifest forgot and a field added later.
+//
+// coveredElsewhere lists Dump paths the table deliberately does not name: a field whose key is
+// driven by a dedicated target in the same file, or one that carries no configuration key at
+// all. Naming it here makes the exclusion a statement someone wrote, which is the difference
+// between a decision and an omission. Each entry should carry a comment saying which it is.
+func CheckManifestCoversEveryField(t testing.TB, name string, defaults any, specs []KeySpec, coveredElsewhere ...string) {
+	t.Helper()
+
+	covered := make(map[string]bool, len(specs))
+	for _, s := range specs {
+		covered[s.Path] = true
+		for _, p := range s.AlsoWrites {
+			covered[p] = true
+		}
+	}
+	exempt := make(map[string]bool, len(coveredElsewhere))
+	for _, p := range coveredElsewhere {
+		exempt[p] = true
+	}
+
+	var missing []string
+	for _, line := range strings.Split(Dump(defaults), "\n") {
+		path, _, ok := strings.Cut(line, " = ")
+		if !ok {
+			continue
+		}
+		// An indexed leaf belongs to its parent field, which is what a row names.
+		if i := strings.IndexByte(path, '['); i >= 0 {
+			path = path[:i]
+		}
+		if covered[path] || exempt[path] {
+			continue
+		}
+		missing = append(missing, path)
+	}
+	missing = dedupeSorted(missing)
+	if len(missing) == 0 {
+		return
+	}
+	t.Fatalf("%s: the manifest claims to name every key the reader looks up, and these fields "+
+		"have no row and no exemption:\n  %s\n"+
+		"Add a KeySpec for each key the reader resolves into them, or pass the path as "+
+		"coveredElsewhere with a comment saying where. A field that is read but unlisted is the "+
+		"case this check exists for: the manifest is what a replacement implementation treats "+
+		"as the contract, so a silent omission tells its authors the key does not exist.",
+		name, strings.Join(missing, "\n  "))
+}
+
+// dedupeSorted returns the distinct entries of s in sorted order.
+func dedupeSorted(s []string) []string {
+	seen := make(map[string]bool, len(s))
+	var out []string
+	for _, v := range s {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

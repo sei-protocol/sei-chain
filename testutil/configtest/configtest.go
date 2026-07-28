@@ -49,16 +49,6 @@ func (o AppOpts) Clone() AppOpts {
 	return out
 }
 
-// Without returns a copy with keys removed. It is how a test states "this key is
-// absent" when deriving from a fully-populated fixture.
-func (o AppOpts) Without(keys ...string) AppOpts {
-	out := o.Clone()
-	for _, k := range keys {
-		delete(out, k)
-	}
-	return out
-}
-
 // With returns a copy with key set to value.
 func (o AppOpts) With(key string, value any) AppOpts {
 	out := o.Clone()

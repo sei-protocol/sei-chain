@@ -50,6 +50,10 @@ var evmKeys = []configtest.KeySpec{
 	{Key: "evm.deny_list", Path: "DenyList", Cast: configtest.CastStringSlice, Checked: true},
 	{Key: "evm.max_log_no_block", Path: "MaxLogNoBlock", Cast: configtest.CastInt64, Checked: true},
 	{Key: "evm.max_blocks_for_log", Path: "MaxBlocksForLog", Cast: configtest.CastInt64, Checked: true},
+	{
+		Key: "evm.max_log_bytes", Path: "MaxLogBytes", Cast: configtest.CastInt64, Checked: true,
+		Why: "bounds the response bytes an eth_getLogs may return, so it caps peak memory per query",
+	},
 	{Key: "evm.max_estimate_gas_calls", Path: "MaxEstimateGasCalls", Cast: configtest.CastInt, Checked: true},
 	{Key: "evm.max_state_override_accounts", Path: "MaxStateOverrideAccounts", Cast: configtest.CastInt, Checked: true},
 	{Key: "evm.max_state_override_slots", Path: "MaxStateOverrideSlots", Cast: configtest.CastInt, Checked: true},
@@ -309,5 +313,21 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 			Path: "WorkerPoolSize", Want: min(config.MaxWorkerPoolSize, runtime.NumCPU()*2),
 			Why: "min(MaxWorkerPoolSize, runtime.NumCPU()*2)",
 		},
+	)
+}
+
+// TestManifestNamesEveryField enforces the claim evmKeys makes about itself.
+//
+// The table says it lists every key ReadConfig looks up, and that claim is what a replacement
+// implementation will read as the contract for this section. Asserting it in prose leaves it
+// able to drift: a key can be added to the reader and rendered into app.toml while the table
+// stays silent, and the table is the artifact being trusted.
+func TestManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "evm", config.DefaultConfig, evmKeys,
+		// Driven by dedicated targets in this file rather than by a table row, because each
+		// needs a shape CheckRow does not express.
+		"TraceAllowedTracers", // FuzzTracerAllowlists
+		"TraceBakeTracers",    // FuzzTracerAllowlists
+		"MaxOpenConnections",  // FuzzMaxOpenConnections
 	)
 }

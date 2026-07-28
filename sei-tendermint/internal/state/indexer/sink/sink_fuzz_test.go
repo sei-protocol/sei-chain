@@ -162,9 +162,11 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 // direction without a decision — and if it is resolved deliberately, this row is where
 // that gets recorded.
 //
-// The run count is sized from the observed split of roughly 168 boots to 32 failures per
-// 200 runs, which puts the odds of never seeing the minority branch below 1e-18 and makes
-// further runs pure race-shard time.
+// The run count is sized so that a minority branch of the order this row was written against
+// is missed with negligible probability, and a one-sided sample escalates rather than failing
+// outright, so the exact split does not have to hold for the row to stay correct. The split
+// measured at authoring was about 16% minority over 200 runs; treat that as the origin of the
+// sizing, not as an invariant the code depends on.
 func TestNullMixedWithAnUnsupportedSinkIsUnspecified(t *testing.T) {
 	const runs = 250
 	booted, failed := countMixedOutcomes(runs)
@@ -228,8 +230,8 @@ func resolveOneSidedOutcome(t *testing.T, label string, runs, majority, minority
 	if bigMinority > 0 && bigMajority > 0 {
 		t.Logf("%s was one-sided over %d runs (%d / %d) but two-sided over %d (%d / %d), so the "+
 			"outcome is still undetermined by the config and this row's premise holds. The split "+
-			"has skewed well below the roughly 16%% minority observed when the row was written; "+
-			"if it keeps falling, raise the run count rather than treating a miss as a fix",
+			"has skewed far below the minority share this row was sized against; if it keeps "+
+			"falling, raise the run count rather than treating a miss as a fix",
 			label, runs, majority, minority, escalated, bigMajority, bigMinority)
 		return
 	}

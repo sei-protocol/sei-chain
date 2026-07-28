@@ -59,3 +59,10 @@ func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "evm_query", querier.DefaultConfig)
 }
+
+// TestManifestNamesEveryField enforces the claim evmQueryKeys makes about itself: that it names
+// every key the reader looks up. Left as prose the claim can drift, and it is the artifact a
+// replacement implementation reads as this section's contract.
+func TestManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "evm_query", querier.DefaultConfig, evmQueryKeys)
+}

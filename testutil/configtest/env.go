@@ -85,6 +85,14 @@ func logDefaultLevel() slog.Level {
 // one fixed name tracks the default for the life of the process and adds one registry
 // entry rather than one per call.
 //
+// Two preconditions this restore rests on, stated because neither is enforced. It assumes no
+// target in the same binary calls seilog.SetDefaultLevel with updateExisting=false or sets a
+// level on the probe's own name, either of which would leave the probe reporting a stale
+// default; the only in-binary writer today is InterceptConfigsPreRunHandler, which passes
+// true. And it does not reset the process-global viper singleton that tmcli's InitEnv builds,
+// so a target depending on a pristine one has to arrange that itself. Nothing depends on
+// either today.
+//
 // What it still does NOT restore is server/config's package-global app.toml template
 // (config.SetConfigTemplate), also written from inside InterceptConfigsPreRunHandler.
 // Nothing asserted today depends on it, but a second manager carrying a different

@@ -120,3 +120,12 @@ func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "admin_server", admin.DefaultConfig)
 }
+
+// TestManifestNamesEveryField enforces the claim adminKeys makes about itself: that it names
+// every key the reader looks up. Left as prose the claim can drift, and it is the artifact a
+// replacement implementation reads as this section's contract.
+func TestManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "admin_server", admin.DefaultConfig, adminKeys,
+		"Address", // FuzzReadConfigAddress: two behaviors layered on one key, past what a row says
+	)
+}

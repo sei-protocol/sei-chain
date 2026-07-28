@@ -92,3 +92,10 @@ func TestTemplateKeyIsInert(t *testing.T) {
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "eth_replay", replay.DefaultConfig)
 }
+
+// TestManifestNamesEveryField enforces the claim ethReplayKeys makes about itself: that it names
+// every key the reader looks up. Left as prose the claim can drift, and it is the artifact a
+// replacement implementation reads as this section's contract.
+func TestManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "eth_replay", replay.DefaultConfig, ethReplayKeys)
+}
