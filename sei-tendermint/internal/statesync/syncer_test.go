@@ -206,7 +206,7 @@ func TestSyncer_SyncAny(t *testing.T) {
 			&abci.RequestApplySnapshotChunk{Index: 2, Chunk: []byte{1, 1, 2}},
 			&abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT},
 		))
-		app.info.Push(mkHandler(&version.RequestInfo, &abci.ResponseInfo{
+		app.info.Push(mkConst(&abci.ResponseInfo{
 			AppVersion:       testAppVersion,
 			LastBlockHeight:  1,
 			LastBlockAppHash: []byte("app_hash"),

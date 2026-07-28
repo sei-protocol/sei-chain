@@ -41,6 +41,7 @@ type Context struct {
 	blockGasMeter      GasMeter
 	checkTx            bool
 	recheckTx          bool // if recheckTx == true, then checkTx must also be true
+	isGenesis          bool
 	minGasPrice        DecCoins
 	consParams         *tmproto.ConsensusParams
 	eventManager       *EventManager
@@ -130,6 +131,10 @@ func (c Context) IsCheckTx() bool {
 
 func (c Context) IsReCheckTx() bool {
 	return c.recheckTx
+}
+
+func (c Context) IsGenesis() bool {
+	return c.isGenesis
 }
 
 func (c Context) IsOCCEnabled() bool {
@@ -376,6 +381,11 @@ func (c Context) WithIsReCheckTx(isRecheckTx bool) Context {
 		c.checkTx = true
 	}
 	c.recheckTx = isRecheckTx
+	return c
+}
+
+func (c Context) WithIsGenesis(isGenesis bool) Context {
+	c.isGenesis = isGenesis
 	return c
 }
 

@@ -35,11 +35,11 @@ func TestStoreNonStorageKeys(t *testing.T) {
 
 	// Write nonce (8 bytes)
 	cs1 := makeChangeSet(nonceKey, []byte{0, 0, 0, 0, 0, 0, 0, 17}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 
 	// Write codehash (32 bytes)
 	cs2 := makeChangeSet(codeHashKey, codeHash[:], false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 	commitAndCheck(t, s)
 
@@ -93,7 +93,7 @@ func TestStoreWriteAllDBs(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Verify all 4 DBs have their LocalMeta updated to version 1 (persisted)
@@ -135,7 +135,7 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: nil},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, s)
 
 	requireAllLocalMetaAt(t, s, 1)
@@ -145,7 +145,7 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	slot := ktype.Slot{0x88}
 	key := evmStorageKey(addr, slot)
 	cs := makeChangeSet(key, padLeft32(0x77), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	requireAllLocalMetaAt(t, s, 2)
@@ -186,7 +186,7 @@ func TestStoreWriteAccountAndCode(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	requireAllLocalMetaAt(t, s, 1)
@@ -247,7 +247,7 @@ func TestStoreWriteDelete(t *testing.T) {
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	// Delete storage and code (actual deletes)
@@ -271,7 +271,7 @@ func TestStoreWriteDelete(t *testing.T) {
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: deletePairs},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	// Verify storage is deleted
@@ -318,7 +318,7 @@ func TestAccountValueStorage(t *testing.T) {
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// AccountValue structure: one entry per address containing both nonce and codehash
 	require.Equal(t, 1, len(s.accountWrites), "should have 1 account write (AccountValue)")
@@ -366,7 +366,7 @@ func TestStoreWriteMiscKeys(t *testing.T) {
 	codeSizeValue := []byte{0x00, 0x10}
 
 	cs := makeChangeSet(codeSizeKey, codeSizeValue, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// Should be in miscWrites pending buffer
 	require.Len(t, s.miscWrites, 1)
@@ -417,7 +417,7 @@ func TestStoreWriteMiscAndOptimizedKeys(t *testing.T) {
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	requireAllLocalMetaAt(t, s, 1)
@@ -438,7 +438,7 @@ func TestStoreWriteDeleteMiscKey(t *testing.T) {
 
 	// Write
 	cs1 := makeChangeSet(miscKey, []byte{0x00, 0x10}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	// Verify exists
@@ -448,7 +448,7 @@ func TestStoreWriteDeleteMiscKey(t *testing.T) {
 
 	// Delete
 	cs2 := makeChangeSet(miscKey, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	// Should not be found
@@ -467,7 +467,7 @@ func TestStoreMiscKeyIncludedInLtHash(t *testing.T) {
 	addr := ktype.Address{0xDD}
 	miscKey := append([]byte{0x09}, addr[:]...)
 	cs := makeChangeSet(miscKey, []byte{0x00, 0x20}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// LtHash should change after applying misc key changeset
 	hash2 := s.RootHash()
@@ -489,7 +489,7 @@ func TestStoreMiscEmptyCommitLocalMeta(t *testing.T) {
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: nil},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, s)
 
 	requireAllLocalMetaAt(t, s, 1)
@@ -528,7 +528,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 
 		// Write and commit with fsync disabled
 		cs := makeChangeSet(key, padLeft32(0xCC), false)
-		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{cs}))
 		commitAndCheck(t, store)
 
 		// Data should be readable
@@ -641,10 +641,10 @@ func TestMultipleApplyChangeSetsBeforeCommit(t *testing.T) {
 	key2 := evmStorageKey(addr, slot2)
 
 	cs1 := makeChangeSet(key1, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 
 	cs2 := makeChangeSet(key2, padLeft32(0x22), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 	commitAndCheck(t, s)
 
@@ -670,11 +670,11 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}
 
 	cs1 := makeChangeSet(nonceKey, []byte{0, 0, 0, 0, 0, 0, 0, 42}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	cs2 := makeChangeSet(codeHashKey, codeHash[:], false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	nonceVal, ok := s.Get(keys.EVMStoreKey, nonceKey)
@@ -721,12 +721,12 @@ func TestLtHashUpdatedByDelete(t *testing.T) {
 	key := evmStorageKey(addr, slot)
 
 	cs1 := makeChangeSet(key, padLeft32(0xFF), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 	hashAfterWrite := s.RootHash()
 
 	cs2 := makeChangeSet(key, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 	hashAfterDelete := s.RootHash()
 
@@ -754,7 +754,7 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	require.Len(t, s.accountWrites, 1, "both nonce and codehash should merge into one AccountValue")
 
@@ -784,7 +784,7 @@ func TestOverwriteSameKeyInSingleBlock(t *testing.T) {
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	v, ok := s.Get(keys.EVMStoreKey, key)
@@ -802,8 +802,8 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 
 	hashBefore := s.RootHash()
 
-	require.NoError(t, s.ApplyChangeSets(nil))
-	v, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, nil))
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v)
 
@@ -901,7 +901,7 @@ func TestDeleteSemanticsCodehashAsymmetry(t *testing.T) {
 		codeHashPair(addr, ch),
 		codePair(addr, []byte{0x60}),
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	delCS := namedCS(
@@ -909,7 +909,7 @@ func TestDeleteSemanticsCodehashAsymmetry(t *testing.T) {
 		codeHashDeletePair(addr),
 		codeDeletePair(addr),
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{delCS}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{delCS}))
 	commitAndCheck(t, s)
 
 	// After deleting all account fields, the row is physically deleted (Account Row GC).
@@ -949,10 +949,10 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 		slot := ktype.Slot{0x01}
 
 		cs1 := namedCS(storagePair(addr, slot, []byte{0xAA}))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 
 		cs2 := namedCS(storageDeletePair(addr, slot))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 		commitAndCheck(t, s)
 
@@ -969,14 +969,14 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 		slot := ktype.Slot{0x02}
 
 		cs0 := namedCS(storagePair(addr, slot, []byte{0x11}))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs0}))
 		commitAndCheck(t, s)
 
 		cs1 := namedCS(storageDeletePair(addr, slot))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 
 		cs2 := namedCS(storagePair(addr, slot, []byte{0xBB}))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 		commitAndCheck(t, s)
 
@@ -995,7 +995,7 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 func TestEmptyCommitWALPayloadsDiffer(t *testing.T) {
 	sNil := setupTestStore(t)
 	defer sNil.Close()
-	require.NoError(t, sNil.ApplyChangeSets(nil))
+	require.NoError(t, sNil.ApplyChangeSets(sNil.Version()+1, nil))
 	commitAndCheck(t, sNil)
 
 	sEmpty := setupTestStore(t)
@@ -1004,7 +1004,7 @@ func TestEmptyCommitWALPayloadsDiffer(t *testing.T) {
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: nil},
 	}
-	require.NoError(t, sEmpty.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
+	require.NoError(t, sEmpty.ApplyChangeSets(sEmpty.Version()+1, []*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, sEmpty)
 
 	nilFirst, _ := sNil.changelog.FirstOffset()
@@ -1052,7 +1052,7 @@ func TestSubDBEntryCount(t *testing.T) {
 		codePair(addr1, []byte{0x60}),
 		codePair(addr2, []byte{0x61}),
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	require.Equal(t, 2, countLiveEntries(t, s.storageDB), "storageDB should have 2 entries")
@@ -1060,17 +1060,17 @@ func TestSubDBEntryCount(t *testing.T) {
 	require.Equal(t, 2, countLiveEntries(t, s.codeDB), "codeDB should have 2 entries")
 
 	cs2 := namedCS(storagePair(addr1, slot1, []byte{0xCC}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 	require.Equal(t, 2, countLiveEntries(t, s.storageDB), "overwrite should not increase count")
 
 	cs3 := namedCS(storageDeletePair(addr1, slot1))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s)
 	require.Equal(t, 1, countLiveEntries(t, s.storageDB), "delete should decrease count")
 
 	cs4 := namedCS(nonceDeletePair(addr1))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs4}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs4}))
 	commitAndCheck(t, s)
 	require.Equal(t, 2, countLiveEntries(t, s.accountDB), "account delete should not decrease count")
 }
@@ -1095,7 +1095,7 @@ func TestApplyChangeSetsInvalidNonceLength(t *testing.T) {
 			},
 		},
 	}
-	err := s.ApplyChangeSets([]*proto.NamedChangeSet{cs})
+	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid nonce value length")
 }
@@ -1116,7 +1116,7 @@ func TestApplyChangeSetsInvalidCodehashLength(t *testing.T) {
 			},
 		},
 	}
-	err := s.ApplyChangeSets([]*proto.NamedChangeSet{cs})
+	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid codehash value length")
 }
@@ -1132,10 +1132,10 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 
 		addr := addrN(0x01)
 		cs1 := namedCS(noncePair(addr, 42))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 
 		cs2 := namedCS(nonceDeletePair(addr))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 		commitAndCheck(t, s)
 
@@ -1151,14 +1151,14 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 
 		addr := addrN(0x02)
 		cs0 := namedCS(noncePair(addr, 10))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs0}))
 		commitAndCheck(t, s)
 
 		cs1 := namedCS(nonceDeletePair(addr))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 
 		cs2 := namedCS(noncePair(addr, 99))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 		commitAndCheck(t, s)
 
@@ -1174,10 +1174,10 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 
 		addr := addrN(0x03)
 		cs1 := namedCS(codeHashPair(addr, codeHashN(0xFF)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 
 		cs2 := namedCS(codeHashDeletePair(addr))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 		commitAndCheck(t, s)
 
@@ -1192,14 +1192,14 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 
 		addr := addrN(0x04)
 		cs0 := namedCS(codeHashPair(addr, codeHashN(0xAA)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs0}))
 		commitAndCheck(t, s)
 
 		cs1 := namedCS(codeHashDeletePair(addr))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 
 		cs2 := namedCS(codeHashPair(addr, codeHashN(0xBB)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 		commitAndCheck(t, s)
 
@@ -1230,7 +1230,7 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 
 	// Step 1: Write nonce only (AccountData always 81 bytes)
 	cs1 := namedCS(noncePair(addr, 7))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	raw1, err := s.accountDB.Get(accountPhysKey(addr))
@@ -1243,7 +1243,7 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 
 	// Step 2: Add codehash
 	cs2 := namedCS(codeHashPair(addr, codeHashN(0xAB)))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	raw2, err := s.accountDB.Get(accountPhysKey(addr))
@@ -1256,7 +1256,7 @@ func TestAccountValueEncodingTransition(t *testing.T) {
 
 	// Step 3: Delete codehash → back to zero codehash
 	cs3 := namedCS(codeHashDeletePair(addr))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s)
 
 	raw3, err := s.accountDB.Get(accountPhysKey(addr))
@@ -1280,12 +1280,12 @@ func TestAccountRowDeletedWhenAllFieldsZero(t *testing.T) {
 	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 	ch := codeHashN(0xBB)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 42), codeHashPair(addr, ch)),
 	}))
 	commitAndCheck(t, s)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
 	}))
 	commitAndCheck(t, s)
@@ -1310,12 +1310,12 @@ func TestAccountRowPersistsWhenPartiallyZero(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	ch := codeHashN(0xCC)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 7), codeHashPair(addr, ch)),
 	}))
 	commitAndCheck(t, s)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(codeHashDeletePair(addr)),
 	}))
 	commitAndCheck(t, s)
@@ -1336,12 +1336,12 @@ func TestAccountRowDeleteThenRecreate(t *testing.T) {
 	addr := addrN(0xA3)
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 10)),
 	}))
 	commitAndCheck(t, s)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(nonceDeletePair(addr)),
 	}))
 	commitAndCheck(t, s)
@@ -1349,7 +1349,7 @@ func TestAccountRowDeleteThenRecreate(t *testing.T) {
 	_, err := s.accountDB.Get(accountPhysKey(addr))
 	require.Error(t, err, "row should be deleted after all-zero")
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 99)),
 	}))
 	commitAndCheck(t, s)
@@ -1378,13 +1378,13 @@ func TestAccountRowGCOnWriteZero(t *testing.T) {
 	addr := addrN(0xA4)
 
 	// Block 1: write nonce = 5
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 5)),
 	}))
 	commitAndCheck(t, s)
 
 	// Block 2: write nonce = 0 (write, not delete)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 0)),
 	}))
 	commitAndCheck(t, s)
@@ -1410,7 +1410,7 @@ func TestAccountRowGCWriteZeroOrderIndependent(t *testing.T) {
 			ch := codeHashN(0xDD)
 
 			// Block 1: nonce=5 + codehash
-			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+			require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 				namedCS(noncePair(addr, 5), codeHashPair(addr, ch)),
 			}))
 			commitAndCheck(t, s)
@@ -1422,7 +1422,7 @@ func TestAccountRowGCWriteZeroOrderIndependent(t *testing.T) {
 			} else {
 				pairs = []*proto.KVPair{noncePair(addr, 0), codeHashDeletePair(addr)}
 			}
-			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
+			require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(pairs...)}))
 			commitAndCheck(t, s)
 
 			_, err := s.accountDB.Get(accountPhysKey(addr))
@@ -1450,7 +1450,7 @@ func TestLtHashExistingAccountNonceUpdate(t *testing.T) {
 
 	// Block 1: create account with nonce=1 (new account — oldAccountRawValues
 	// correctly nil here since nothing exists in DB).
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 1)),
 	}))
 	commitAndCheck(t, s)
@@ -1460,7 +1460,7 @@ func TestLtHashExistingAccountNonceUpdate(t *testing.T) {
 	// encoded(nonce=1). The buggy code sets oldAccountRawValues[addr] = nil
 	// because s.accountWrites is empty after the block-1 commit cleared it.
 	// The correct old value is the DB's encoded(nonce=1).
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 2)),
 	}))
 	commitAndCheck(t, s)
@@ -1497,7 +1497,7 @@ func TestApplyChangeSetsNilInput(t *testing.T) {
 	defer s.Close()
 
 	hashBefore := s.RootHash()
-	require.NoError(t, s.ApplyChangeSets(nil))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, nil))
 	require.Equal(t, hashBefore, s.RootHash(), "nil input should not change hash")
 }
 
@@ -1506,7 +1506,7 @@ func TestApplyChangeSetsEmptySlice(t *testing.T) {
 	defer s.Close()
 
 	hashBefore := s.RootHash()
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{}))
 	require.Equal(t, hashBefore, s.RootHash(), "empty slice should not change hash")
 }
 
@@ -1522,7 +1522,7 @@ func TestApplyChangeSetsNonEVMModuleRoutesToMisc(t *testing.T) {
 			{Key: []byte("some-bank-key"), Value: []byte("some-value")},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	require.NotEqual(t, hashBefore, s.RootHash(), "misc-routed key changes hash")
 	require.Len(t, s.miscWrites, 1)
 	require.Len(t, s.storageWrites, 0)
@@ -1561,7 +1561,7 @@ func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
 		}},
 	}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{evmCS, bankCS}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{evmCS, bankCS}))
 
 	// EVM storage write should exist.
 	require.Len(t, s.storageWrites, 1)
@@ -1594,7 +1594,7 @@ func TestApplyChangeSetsEmptyPairsVsNilPairs(t *testing.T) {
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{}},
 	}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{nilPairsCS, emptyPairsCS}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{nilPairsCS, emptyPairsCS}))
 	require.Len(t, s.storageWrites, 0)
 	require.Len(t, s.accountWrites, 0)
 }
@@ -1605,14 +1605,14 @@ func TestApplyChangeSetsOnReadOnlyStore(t *testing.T) {
 	addr := addrN(0x01)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
 	require.NoError(t, err)
 	defer ro.Close()
 
-	err = ro.ApplyChangeSets([]*proto.NamedChangeSet{cs})
+	err = ro.ApplyChangeSets(ro.Version()+1, []*proto.NamedChangeSet{cs})
 	require.Error(t, err)
 	require.ErrorIs(t, err, errReadOnly)
 	require.NoError(t, s.Close())
@@ -1643,7 +1643,7 @@ func TestApplyChangeSetsInvalidAddressLength(t *testing.T) {
 		}},
 	}
 	// Routed to EVMKeyMisc (not Nonce), so no address validation error.
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	require.Len(t, s.miscWrites, 1, "malformed nonce key should be treated as misc")
 	require.Len(t, s.accountWrites, 0, "should not reach account path")
 }
@@ -1666,14 +1666,14 @@ func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
 		}},
 	}
 
-	err := s.ApplyChangeSets([]*proto.NamedChangeSet{cs})
+	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid nonce value length")
 
 	// The storage write may have been buffered before the error.
 	// Verify the store doesn't panic and can still accept new operations.
 	validCS := makeChangeSet(storageKey, padLeft32(0xBB), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{validCS}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{validCS}))
 }
 
 func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {
@@ -1686,7 +1686,7 @@ func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {
 			{Key: []byte{}, Value: []byte{0xAA}},
 		}},
 	}
-	require.Error(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.Error(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 }
 
 func TestApplyChangeSetsNonPrefixedKeyGoesToMisc(t *testing.T) {
@@ -1702,7 +1702,7 @@ func TestApplyChangeSetsNonPrefixedKeyGoesToMisc(t *testing.T) {
 			{Key: []byte{0xFF, 0x01, 0x02}, Value: []byte{0xAA}},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	require.NotEqual(t, hashBefore, s.RootHash(), "misc key changes hash")
 	require.Len(t, s.miscWrites, 1)
 }
@@ -1713,7 +1713,7 @@ func TestCommitWithoutPriorApply(t *testing.T) {
 
 	hashBefore := s.RootHash()
 
-	v, err := s.Commit()
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v)
 	require.Equal(t, hashBefore, s.RootHash(), "hash should be unchanged after empty commit")
@@ -1726,15 +1726,15 @@ func TestDoubleCommitNoApplyBetween(t *testing.T) {
 	addr := addrN(0x01)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	v1, err := s.Commit()
+	v1, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v1)
 	hashAfterV1 := s.RootHash()
 
 	// Second commit with no new apply.
-	v2, err := s.Commit()
+	v2, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v2)
 	require.Equal(t, hashAfterV1, s.RootHash(), "hash unchanged between commits without apply")
@@ -1746,17 +1746,118 @@ func TestCommitOnReadOnlyStore(t *testing.T) {
 	addr := addrN(0x01)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
 	require.NoError(t, err)
 	defer ro.Close()
 
-	_, err = ro.Commit()
+	_, err = ro.Commit(ro.Version() + 1)
 	require.Error(t, err)
 	require.ErrorIs(t, err, errReadOnly)
 	require.NoError(t, s.Close())
+}
+
+func TestCommitRejectsVersionNotAhead(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	_, err := s.Commit(0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "committing bad version")
+	require.Equal(t, int64(0), s.Version())
+
+	// Empty commits may jump ahead; there are no row stamps to mismatch.
+	v, err := s.Commit(5)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), v)
+
+	_, err = s.Commit(5)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "committing bad version")
+}
+
+func TestCommitRejectsApplyHeightMismatch(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0x01)
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0x11), false)
+	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{cs}))
+
+	_, err := s.Commit(5)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match applied block height")
+	require.Equal(t, int64(0), s.Version(), "rejected commit must not advance version")
+	require.Len(t, s.storageWrites, 1, "rejected commit must leave pending writes intact")
+
+	v, err := s.Commit(1)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), v)
+}
+
+// TestApplyChangeSetsAllowsBatchingMultipleHeightsBeforeCommit is a
+// regression test for a bug where ApplyChangeSets rejected any call whose
+// version did not exactly equal the previous pending call's version. That
+// broke two legitimate patterns: (1) a caller batching several blocks'
+// writes before a single Commit (each call at a strictly higher height),
+// and (2) a caller splitting one block's writes across multiple calls at
+// the same height. Only a version that goes backwards is a bug.
+func TestApplyChangeSetsAllowsBatchingMultipleHeightsBeforeCommit(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0x01)
+	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x02)))
+	key3 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x03)))
+
+	// Same-height repeat: splitting one block's writes across two calls.
+	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x11), false)}))
+	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key2, padLeft32(0x22), false)}))
+
+	// Strictly increasing: a second block batched before the commit.
+	require.NoError(t, s.ApplyChangeSets(2, []*proto.NamedChangeSet{makeChangeSet(key3, padLeft32(0x33), false)}))
+	require.Equal(t, int64(2), s.PendingVersion())
+
+	// Going backwards is rejected.
+	err := s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x44), false)})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "pending writes already stamped up to")
+
+	v, err := s.Commit(2)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), v)
+	require.Equal(t, int64(0), s.PendingVersion())
+
+	for _, k := range []struct {
+		key    []byte
+		height int64
+	}{{key1, 1}, {key2, 1}, {key3, 2}} {
+		height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, k.key)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, k.height, height)
+	}
+}
+
+func TestCommitBlockStampsRowBlockHeight(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0x01)
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0x11), false)
+
+	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
+	require.Equal(t, int64(10), s.Version())
+
+	height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(10), height)
 }
 
 func TestCommitVersionMonotonicAfterMultipleEmptyCommits(t *testing.T) {
@@ -1764,7 +1865,7 @@ func TestCommitVersionMonotonicAfterMultipleEmptyCommits(t *testing.T) {
 	defer s.Close()
 
 	for i := int64(1); i <= 5; i++ {
-		v, err := s.Commit()
+		v, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 		require.Equal(t, i, v)
 	}
@@ -1775,7 +1876,7 @@ func TestNonEVMModuleKeyRoundTrip(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	err := s.ApplyChangeSets([]*proto.NamedChangeSet{
+	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{
 			Name: "bank",
 			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -1791,7 +1892,7 @@ func TestNonEVMModuleKeyRoundTrip(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = s.Commit()
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	got, found := s.Get("bank", []byte("balance_alice"))

@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
@@ -25,11 +26,10 @@ type gigaValidatorRouter struct {
 	validatorKey atypes.PublicKey
 }
 
-func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaValidatorRouter, error) {
-	dataState, err := buildDataState(&cfg.GigaRouterCommonConfig)
-	if err != nil {
-		return nil, err
-	}
+// NewGigaValidatorRouter constructs a validator GigaRouter over an already-built
+// data.State. The caller owns the BlockDB that backs dataState (see BuildDataState);
+// close it if this constructor returns an error.
+func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataState *data.State) (*gigaValidatorRouter, error) {
 	consensusState, err := consensus.NewState(&consensus.Config{
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
@@ -87,11 +87,17 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 }
 
 // EvmProxy on the validator returns None when the sender's shard owner is
-// us (handle locally via mempool, no HTTP round-trip to self).
+// us (handle locally via mempool, no HTTP round-trip to self). For remote
+// shards, we proxy only while the target validator is currently connected;
+// otherwise we keep the tx local as a best-effort availability heuristic.
 func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*url.URL] {
 	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
 	if r.validatorKey == shardValidator {
 		return utils.None[*url.URL]()
 	}
-	return utils.Some(r.cfg.ValidatorAddrs[shardValidator].EVMRPC)
+	target := r.cfg.ValidatorAddrs[shardValidator]
+	if _, ok := r.poolOut.Get(target.Key); !ok {
+		return utils.None[*url.URL]()
+	}
+	return utils.Some(target.EVMRPC)
 }

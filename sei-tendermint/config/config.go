@@ -528,6 +528,13 @@ type RPCConfig struct {
 	// Maximum number of results returned by tx_search and block_search.
 	// 0 disables the cap (not recommended on public nodes).
 	MaxTxSearchResults int `mapstructure:"max-tx-search-results"`
+
+	// Maximum number of KV index entries that all in-flight tx_search and
+	// block_search requests may visit at once. This is a process-wide safety
+	// cap that bounds peak memory (and scan CPU) under broad or highly
+	// concurrent search load: it is shared across requests, not applied per-query.
+	// 0 disables the cap (not recommended on public nodes).
+	MaxSearchScanBudget int `mapstructure:"max-search-scan-budget"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -561,7 +568,8 @@ func DefaultRPCConfig() *RPCConfig {
 		TimeoutReadHeader: 10 * time.Second,
 		TimeoutWrite:      30 * time.Second,
 
-		MaxTxSearchResults: 10_000,
+		MaxTxSearchResults:  10_000,
+		MaxSearchScanBudget: 100_000,
 	}
 }
 
@@ -616,6 +624,9 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	}
 	if cfg.MaxTxSearchResults < 0 {
 		return errors.New("max-tx-search-results can't be negative")
+	}
+	if cfg.MaxSearchScanBudget < 0 {
+		return errors.New("max-search-scan-budget can't be negative")
 	}
 	return nil
 }

@@ -988,7 +988,7 @@ func makeConsensusState(
 		closeFuncs = append(closeFuncs, app.Close)
 
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
-		_, err = app.InitChain(ctx, &abci.RequestInitChain{})
+		_, err = app.InitChain(&abci.RequestInitChain{})
 		require.NoError(t, err)
 		app.SetValidators(vals)
 
@@ -1052,7 +1052,7 @@ func randConsensusNetWithPeers(
 		app := kvstore.NewApplication()
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
 		state.Version.Consensus.App = kvstore.ProtocolVersion
-		_, err = app.InitChain(ctx, &abci.RequestInitChain{})
+		_, err = app.InitChain(&abci.RequestInitChain{})
 		require.NoError(t, err)
 		app.SetValidators(vals)
 		// sm.SaveState(stateDB,state)	//height 1's validatorsInfo already saved in LoadStateFromDBOrGenesisDoc above

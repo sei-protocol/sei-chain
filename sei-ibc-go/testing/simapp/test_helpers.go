@@ -106,12 +106,10 @@ func Setup(isCheckTx bool) *SimApp {
 		}
 
 		// Initialize the chain
-		_, err = app.InitChain(
-			context.Background(),
-			&abci.RequestInitChain{
-				ConsensusParams: DefaultConsensusParams,
-				AppStateBytes:   stateBytes,
-			},
+		_, err = app.InitChain(&abci.RequestInitChain{
+			ConsensusParams: DefaultConsensusParams,
+			AppStateBytes:   stateBytes,
+		},
 		)
 		if err != nil {
 			panic(err)
@@ -186,13 +184,11 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	require.NoError(t, err)
 
 	// init chain will set the validator set and initialize the genesis accounts
-	_, err = app.InitChain(
-		t.Context(),
-		&abci.RequestInitChain{
-			ChainId:         chainID,
-			ConsensusParams: DefaultConsensusParams,
-			AppStateBytes:   stateBytes,
-		},
+	_, err = app.InitChain(&abci.RequestInitChain{
+		ChainId:         chainID,
+		ConsensusParams: DefaultConsensusParams,
+		AppStateBytes:   stateBytes,
+	},
 	)
 	require.NoError(t, err)
 

@@ -71,7 +71,7 @@ func TestExporterStorageKeys(t *testing.T) {
 	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot1))
 	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot2))
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: key1, Value: val1},
 			{Key: key2, Value: val2},
@@ -106,7 +106,7 @@ func TestExporterAccountKeys(t *testing.T) {
 	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[0] = 0xDE
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: nonceKey, Value: nonceVal},
 			{Key: codeHashKey, Value: codeHashVal},
@@ -141,7 +141,7 @@ func TestExporterCodeKeys(t *testing.T) {
 	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
 	codeVal := []byte{0x60, 0x80, 0x60, 0x40}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: codeKey, Value: codeVal},
 		}}},
@@ -180,7 +180,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[31] = 0xAB
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageKey, Value: storageVal},
 			{Key: nonceKey, Value: nonceVal},
@@ -258,7 +258,7 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 1}
 
 	// EOA: only nonce, no codehash
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: nonceKey, Value: nonceVal},
 		}}},
@@ -295,7 +295,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 
-	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, src.ApplyChangeSets(src.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageKey, Value: storageVal},
 			{Key: nonceKey, Value: nonceVal},
@@ -393,7 +393,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	codeHashVal[31] = 0xAB
 	codeVal := []byte{0x60, 0x80}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageA, Value: padLeft32(0x0A)},
 			{Key: storageStale, Value: padLeft32(0x0C)},
@@ -425,7 +425,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	newCodeHashVal[31] = 0xCD
 	newCodeVal := []byte{0x60, 0x40, 0x52}
 
-	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, src.ApplyChangeSets(src.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageA, Value: newStorageVal},
 			{Key: nonceA, Value: newNonceVal},
@@ -537,7 +537,7 @@ func TestImporterOnReadOnlyStore(t *testing.T) {
 		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
 		padLeft32(0x11), false,
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
@@ -720,17 +720,17 @@ func TestExporterAtHistoricalVersion(t *testing.T) {
 
 	// v1: write 0x11
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// v2: write 0x22
 	cs2 := makeChangeSet(key, padLeft32(0x22), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	// v3: write 0x33
 	cs3 := makeChangeSet(key, padLeft32(0x33), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s)
 
 	// Export at v1 (historical).
@@ -792,7 +792,7 @@ func TestExportImportLargerDataset(t *testing.T) {
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: allPairs},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 	originalHash := s.RootHash()
 
@@ -835,7 +835,7 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 			noncePair(addr, 42),
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Corrupt the account value in accountDB with invalid-length data.
@@ -927,7 +927,7 @@ func TestExporterImporterNonEVMMiscRoundTrip(t *testing.T) {
 
 	// Block 1: mixed changeset — non-EVM and EVM in the same commit — so
 	// classifyAndPrefix has to route both kinds in one pass.
-	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, src.ApplyChangeSets(src.Version()+1, []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: bankPairs}},
 		{Name: "staking", Changeset: proto.ChangeSet{Pairs: stakingPairs}},
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -938,7 +938,7 @@ func TestExporterImporterNonEVMMiscRoundTrip(t *testing.T) {
 
 	// Block 2: delete the doomed bank key. MarkDeleted → batch.Delete at
 	// commit time, so the physical row must be gone from the exporter.
-	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, src.ApplyChangeSets(src.Version()+1, []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: deletedBankKey, Delete: true},
 		}}},

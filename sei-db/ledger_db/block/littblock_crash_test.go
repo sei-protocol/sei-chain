@@ -149,8 +149,8 @@ func markSegmentUnsealedOnDisk(t *testing.T, metaPath string) {
 	t.Helper()
 	data, err := os.ReadFile(metaPath)
 	require.NoError(t, err)
-	require.Equal(t, segment.V3MetadataSize, len(data), "unexpected metadata size for %s", metaPath)
-	data[segment.V3MetadataSize-1] = 0
+	require.Equal(t, segment.V4MetadataSize, len(data), "unexpected metadata size for %s", metaPath)
+	data[segment.MetadataSealedByteOffset] = 0
 	require.NoError(t, os.WriteFile(metaPath, data, 0600))
 }
 

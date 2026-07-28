@@ -48,7 +48,7 @@ func NewTestApp(t *testing.T) *App {
 	if err != nil {
 		panic(err)
 	}
-	_, err = a.InitChain(context.Background(), &types.RequestInitChain{
+	_, err = a.InitChain(&types.RequestInitChain{
 		Time:            time.Now(),
 		ChainId:         "tendermint_test",
 		ConsensusParams: &cp,

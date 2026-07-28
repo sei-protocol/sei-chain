@@ -5,6 +5,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
+
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 // Application is an interface that enables any finite, deterministic state machine
@@ -13,7 +15,7 @@ import (
 //go:generate ../../scripts/mockery_generate.sh Application
 type Application interface {
 	// Info/Query Connection
-	Info(context.Context, *RequestInfo) (*ResponseInfo, error)    // Return application info
+	Info() *ResponseInfo                                          // Return application info
 	Query(context.Context, *RequestQuery) (*ResponseQuery, error) // Query for state
 	GetValidators() []ValidatorUpdate
 	// LastBlockHeight returns the height of the most recently committed
@@ -28,7 +30,8 @@ type Application interface {
 	EvmBalance(common.Address, []byte) uint256.Int
 
 	// Consensus Connection
-	InitChain(context.Context, *RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
+	InitChain(*RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
+	InitLastHeader(lastHeader *tmproto.Header)
 	ProcessProposal(context.Context, *RequestProcessProposal) (*ResponseProcessProposal, error)
 	// Commit the state and return the application Merkle root hash
 	Commit(context.Context) (*ResponseCommit, error)
@@ -49,8 +52,8 @@ var _ Application = BaseApplication{}
 
 type BaseApplication struct{}
 
-func (BaseApplication) Info(_ context.Context, req *RequestInfo) (*ResponseInfo, error) {
-	return &ResponseInfo{}, nil
+func (BaseApplication) Info() *ResponseInfo {
+	return &ResponseInfo{}
 }
 func (BaseApplication) GetValidators() []ValidatorUpdate { return nil }
 func (BaseApplication) LastBlockHeight() int64           { return 0 }
@@ -67,7 +70,9 @@ func (BaseApplication) Query(_ context.Context, req *RequestQuery) (*ResponseQue
 	return &ResponseQuery{Code: CodeTypeOK}, nil
 }
 
-func (BaseApplication) InitChain(_ context.Context, req *RequestInitChain) (*ResponseInitChain, error) {
+func (BaseApplication) InitLastHeader(lastHeader *tmproto.Header) {}
+
+func (BaseApplication) InitChain(req *RequestInitChain) (*ResponseInitChain, error) {
 	return &ResponseInitChain{}, nil
 }
 

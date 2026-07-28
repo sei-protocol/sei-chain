@@ -4,7 +4,7 @@ const {uniq} = require("lodash");
 const hre = require('hardhat');
 const { ethers, upgrades } = hre;
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress, waitForBaseFeeToEq, waitForBaseFeeToBeGt} = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, mineTransferBlock, waitForReceipt, waitForCondition } = require("./lib")
 const axios = require("axios");
 const { default: BigNumber } = require("bignumber.js");
 
@@ -198,14 +198,14 @@ describe("EVM Test", function () {
         };
         const result = await ethers.provider.call(tx);
 
-        // wait for block to change
-        while(true){
-          const bn = await ethers.provider.getBlockNumber();
-          if(bn !== currentBlockNumber){
-                break
-          }
-          await sleep(100)
-        }
+        // Force a real block instead of waiting for idle block production.
+        const advanceTx = await owner.sendTransaction({
+          to: owner.address,
+          value: 1n,
+          gasPrice: ethers.parseUnits('100', 'gwei'),
+        });
+        await advanceTx.wait();
+
         const result2 = await ethers.provider.call(tx);
         expect(result).to.equal(result2)
       });
@@ -673,7 +673,7 @@ describe("EVM Test", function () {
 
         it("Check base fee on the right block", async function () {
           await delay()
-          // check if base fee is 1gwei, otherwise wait
+          // Drive real blocks until base fee decays back to 1 gwei.
           let iterations = 0
           while (true) {
             const block = await ethers.provider.getBlock("latest");
@@ -685,10 +685,11 @@ describe("EVM Test", function () {
             if(iterations > 10) {
               throw new Error("base fee hasn't dropped to 1gwei in 10 iterations")
             }
-            await sleep(1000);
+            await mineTransferBlock(owner);
           }
-          // use at least 1000000 gas to increase base fee
-          const txResponse = await evmTester.useGas(1000000, { gasPrice: ethers.parseUnits('100', 'gwei') });
+          // Fill the parent block heavily enough that the next block's base fee
+          // must rise above the 1 gwei floor.
+          const txResponse = await evmTester.useGas(9500000, { gasPrice: ethers.parseUnits('100', 'gwei') });
           const receipt = await txResponse.wait();
           const blockHeight = receipt.blockNumber;
 
@@ -697,15 +698,17 @@ describe("EVM Test", function () {
           const block = await ethers.provider.getBlock(blockHeight);
           const baseFee = Number(block.baseFeePerGas);
           expect(baseFee).to.equal(oneGwei);
-          // wait for the next block
-          while (true) {
-            const bn = await ethers.provider.getBlockNumber();
-            if(bn !== blockHeight){
-              break
-            }
-            await sleep(500)
-          }
-          const nextBlock = await ethers.provider.getBlock(blockHeight + 1);
+          // Progress-only block: the assertion is specifically about child
+          // block H+1 of the heavy tx's block H, so force progress and then
+          // read that exact child block once it exists.
+          const nextReceipt = await mineTransferBlock(owner);
+          expect(nextReceipt.blockNumber).to.be.greaterThan(blockHeight);
+          const nextBlockHeight = blockHeight + 1;
+          await waitForCondition(
+            async () => (await ethers.provider.getBlock(nextBlockHeight)) !== null,
+            `block ${nextBlockHeight} to exist`,
+          );
+          const nextBlock = await ethers.provider.getBlock(nextBlockHeight);
           const nextBaseFee = Number(nextBlock.baseFeePerGas);
           expect(nextBaseFee).to.be.greaterThan(oneGwei);
         });
@@ -983,7 +986,7 @@ describe("EVM Test", function () {
         // stops working once the chain grows past that (notably under
         // Autobahn's faster block production).
         const tx = await evmTester.emitDummyEvent("test", 0, { gasPrice: ethers.parseUnits('100', 'gwei') });
-        const receipt = await tx.wait();
+        const receipt = await waitForReceipt(tx.hash);
         const filter = {
           fromBlock: receipt.blockNumber,
           toBlock: receipt.blockNumber,
@@ -1011,8 +1014,8 @@ describe("EVM Test", function () {
           let blockEnd;
           let numTxs = 5;
           before(async function() {
-            await sleep(5000); // wait for a block to pass so we get a fresh block number
-            blockStart = await ethers.provider.getBlockNumber();
+            const startReceipt = await mineTransferBlock(owner);
+            blockStart = startReceipt.blockNumber;
 
             // Emit an event by making a transaction
             for (let i = 0; i < numTxs; i++) {

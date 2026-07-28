@@ -260,7 +260,7 @@ func (suite *GenTxTestSuite) TestDeliverGenTxs() {
 
 			tc.malleate()
 
-			ctx := suite.app.GetContextForDeliverTx([]byte{})
+			ctx := suite.app.GetContextForDeliverTx([]byte{}).WithIsGenesis(true)
 			if tc.expPass {
 				suite.Require().NotPanics(func() {
 					genutil.DeliverGenTxs(

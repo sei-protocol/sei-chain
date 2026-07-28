@@ -34,6 +34,7 @@ func TestSegmentReadRejectsOutOfRangeShardID(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
+		types.CompressionNone,
 		false,
 		32)
 	require.NoError(t, err)
@@ -47,6 +48,6 @@ func TestSegmentReadRejectsOutOfRangeShardID(t *testing.T) {
 	})
 
 	// Wind down the segment's control-loop goroutines before the test exits.
-	_, err = seg.Seal(time.Now())
+	_, _, err = seg.Seal(time.Now())
 	require.NoError(t, err)
 }

@@ -1,0 +1,149 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "granter",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "grantee",
+        "type": "address"
+      }
+    ],
+    "name": "allowance",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "granter",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "grantee",
+            "type": "string"
+          },
+          {
+            "internalType": "bytes",
+            "name": "allowance",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct IFeegrant.Grant",
+        "name": "grant",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "grantee",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes",
+        "name": "pageKey",
+        "type": "bytes"
+      }
+    ],
+    "name": "allowances",
+    "outputs": [
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "string",
+                "name": "granter",
+                "type": "string"
+              },
+              {
+                "internalType": "string",
+                "name": "grantee",
+                "type": "string"
+              },
+              {
+                "internalType": "bytes",
+                "name": "allowance",
+                "type": "bytes"
+              }
+            ],
+            "internalType": "struct IFeegrant.Grant[]",
+            "name": "allowances",
+            "type": "tuple[]"
+          },
+          {
+            "internalType": "bytes",
+            "name": "nextKey",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct IFeegrant.AllowancesResponse",
+        "name": "response",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "granter",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes",
+        "name": "pageKey",
+        "type": "bytes"
+      }
+    ],
+    "name": "allowancesByGranter",
+    "outputs": [
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "string",
+                "name": "granter",
+                "type": "string"
+              },
+              {
+                "internalType": "string",
+                "name": "grantee",
+                "type": "string"
+              },
+              {
+                "internalType": "bytes",
+                "name": "allowance",
+                "type": "bytes"
+              }
+            ],
+            "internalType": "struct IFeegrant.Grant[]",
+            "name": "allowances",
+            "type": "tuple[]"
+          },
+          {
+            "internalType": "bytes",
+            "name": "nextKey",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct IFeegrant.AllowancesResponse",
+        "name": "response",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
@@ -56,7 +55,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 					for {
 						qc, err := from.CommitQC(ctx, next)
 						if err != nil {
-							if errors.Is(err, data.ErrPruned) {
+							if errors.Is(err, types.ErrPruned) {
 								next = from.FirstCommitQC()
 								continue
 							}

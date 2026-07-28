@@ -758,24 +758,13 @@ EOF"
   done
   echo "Voted yes on proposal $proposal_id from a quorum of validators; waiting for it to pass..."
 
-  # Poll for PASSED rather than a fixed sleep so a slow voting period does
-  # not flake the test (and a rejection fails fast).
-  local elapsed=0
-  local status=""
-  while [ "$elapsed" -lt "$GOV_PASS_TIMEOUT" ]; do
-    status=$(docker exec "sei-node-0" build/seid q gov proposal "$proposal_id" --output json 2>/dev/null \
-      | jq -r '.status // ""' 2>/dev/null || true)
-    if [ "$status" = "PROPOSAL_STATUS_PASSED" ]; then
-      break
-    fi
-    if [ "$status" = "PROPOSAL_STATUS_REJECTED" ] || [ "$status" = "PROPOSAL_STATUS_FAILED" ]; then
-      echo "ERROR: migration param-change proposal $proposal_id ended in status $status" >&2
-      exit 1
-    fi
-    echo "Waiting for proposal $proposal_id to pass (elapsed=${elapsed}s/${GOV_PASS_TIMEOUT}s, status=${status:-unknown})"
-    sleep 5
-    elapsed=$((elapsed + 5))
-  done
+  local status
+	status=$(docker exec "sei-node-0" bash -lc "
+	  cd /sei-protocol/sei-chain
+	  seidbin=build/seid chainid=sei
+	  source integration_test/utils/_tx_helpers.sh
+	  wait_for_proposal_status '$proposal_id' PROPOSAL_STATUS_PASSED admin '$GOV_PASS_TIMEOUT'
+	" 2>/dev/null || true)
   if [ "$status" != "PROPOSAL_STATUS_PASSED" ]; then
     echo "ERROR: migration param-change proposal $proposal_id did not pass within ${GOV_PASS_TIMEOUT}s (last status=$status)" >&2
     exit 1

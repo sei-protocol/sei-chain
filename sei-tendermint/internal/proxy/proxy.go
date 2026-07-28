@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 // Proxy wraps an ABCI application and records ABCI method timings.
@@ -23,9 +24,9 @@ func New(app types.Application) *Proxy {
 	return &Proxy{app: app}
 }
 
-func (app *Proxy) InitChain(ctx context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
+func (app *Proxy) InitChain(req *types.RequestInitChain) (*types.ResponseInitChain, error) {
 	defer addTimeSample(Global.MethodTimingAt("init_chain", "sync"))()
-	return app.app.InitChain(ctx, req)
+	return app.app.InitChain(req)
 }
 
 func (app *Proxy) ProcessProposal(ctx context.Context, req *types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
@@ -80,9 +81,13 @@ func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) 
 	return res, nil
 }
 
-func (app *Proxy) Info(ctx context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {
+func (app *Proxy) InitLastHeader(lastHeader *tmproto.Header) {
+	app.app.InitLastHeader(lastHeader)
+}
+
+func (app *Proxy) Info() *types.ResponseInfo {
 	defer addTimeSample(Global.MethodTimingAt("info", "sync"))()
-	return app.app.Info(ctx, req)
+	return app.app.Info()
 }
 
 func (app *Proxy) Query(ctx context.Context, req *types.RequestQuery) (*types.ResponseQuery, error) {

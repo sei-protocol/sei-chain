@@ -149,13 +149,13 @@ func TestPrepareFlatKVToolingCloneRetriesENOENT(t *testing.T) {
 // dedicated mount point.
 func TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir(t *testing.T) {
 	store, dbDir := newDiskBackedFlatKVStore(t)
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(addrN(0xA1), 1),
 		}},
 	}}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, store.WriteSnapshot(""))
 	require.NoError(t, store.Close())
@@ -179,24 +179,24 @@ func TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir(t *testing.T) {
 func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 	store, dbDir := newDiskBackedFlatKVStore(t)
 
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(addrN(0xA1), 1),
 		}},
 	}}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, store.WriteSnapshot(""))
 
 	for i := byte(2); i <= 5; i++ {
-		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+		require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 			Name: keys.EVMStoreKey,
 			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 				noncePair(addrN(i), uint64(i)),
 			}},
 		}}))
-		_, err := store.Commit()
+		_, err := store.Commit(store.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, store.Close())
@@ -231,23 +231,23 @@ func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 	addrA := addrN(0xA1)
 	addrB := addrN(0xB2)
 
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(addrA, 1),
 		}},
 	}}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, store.WriteSnapshot(""))
 
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(addrB, 2),
 		}},
 	}}))
-	_, err = store.Commit()
+	_, err = store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, store.WriteSnapshot(""))
 	require.NoError(t, store.Close())
@@ -274,13 +274,13 @@ func TestOpenFlatKVReadOnlyAfterSetInitialVersion(t *testing.T) {
 	addr := addrN(0xC3)
 
 	require.NoError(t, store.SetInitialVersion(100))
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			noncePair(addr, 7),
 		}},
 	}}))
-	v, err := store.Commit()
+	v, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), v)
 	require.NoError(t, store.Close())

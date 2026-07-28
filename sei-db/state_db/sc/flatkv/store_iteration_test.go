@@ -149,11 +149,11 @@ func TestMiscIteratorNonEVM(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		bankNamedCS(&proto.KVPair{Key: []byte("alpha"), Value: []byte("A")}),
 	}))
 	commitAndCheck(t, s)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		bankNamedCS(
 			&proto.KVPair{Key: []byte("beta"), Value: []byte("B")},
 			&proto.KVPair{Key: []byte("alpha"), Value: []byte("A2")},
@@ -222,7 +222,7 @@ func TestEvmIteratorSnapshotConcurrentWithWrites(t *testing.T) {
 	defer s.Close()
 
 	base := addrN(0x01)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
 		noncePair(base, 7),
 		codePair(base, []byte{0xaa}),
 		storagePair(base, slotN(0x01), []byte{0xbb}),
@@ -246,13 +246,13 @@ func TestEvmIteratorSnapshotConcurrentWithWrites(t *testing.T) {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
 			a := addrN(byte(0x20 + i))
-			if applyErr := s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(
+			if applyErr := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
 				noncePair(a, uint64(i+1)),
 			)}); applyErr != nil {
 				t.Errorf("ApplyChangeSets: %v", applyErr)
 				return
 			}
-			if _, commitErr := s.Commit(); commitErr != nil {
+			if _, commitErr := s.Commit(s.Version() + 1); commitErr != nil {
 				t.Errorf("Commit: %v", commitErr)
 				return
 			}
@@ -616,9 +616,9 @@ func buildEvmIteratorFixture(t *testing.T, seed int64) *evmIteratorFixture {
 	gen.addMalformedStoragePrefixMiscKey()
 	gen.addMalformedCodePrefixMiscKey()
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(batch1...)}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(batch1...)}))
 	commitAndCheck(t, s)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(batch2...)}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(batch2...)}))
 
 	return &evmIteratorFixture{
 		Seed:           seed,

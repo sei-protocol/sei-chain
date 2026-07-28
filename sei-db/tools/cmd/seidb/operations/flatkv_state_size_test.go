@@ -146,8 +146,8 @@ func TestCollectFlatKVStateSize(t *testing.T) {
 		}},
 	}
 
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{evmCS, bankCS}))
-	_, err := store.Commit()
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{evmCS, bankCS}))
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 
 	result, err := collectFlatKVStateSize(store)

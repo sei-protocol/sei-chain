@@ -88,10 +88,10 @@ func setupTestStoreWithConfig(t *testing.T, cfg *config.Config) *CommitStore {
 	return s
 }
 
-// commitAndCheck commits and asserts no error, returns the version
+// commitAndCheck commits the next sequential version and asserts no error.
 func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 	t.Helper()
-	v, err := s.Commit()
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	return v
 }

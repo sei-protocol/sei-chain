@@ -293,11 +293,11 @@ func NewCounterApplication() *CounterApplication {
 	return &CounterApplication{}
 }
 
-func (app *CounterApplication) Info(_ context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
+func (app *CounterApplication) Info() *abci.ResponseInfo {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
-	return &abci.ResponseInfo{Data: fmt.Sprintf("txs:%v", app.txCount)}, nil
+	return &abci.ResponseInfo{Data: fmt.Sprintf("txs:%v", app.txCount)}
 }
 
 func (app *CounterApplication) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {

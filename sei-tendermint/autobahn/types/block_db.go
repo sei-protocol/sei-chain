@@ -1,41 +1,8 @@
 package types
 
 import (
-	"errors"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
-
-// ErrBlockOutOfOrder is returned by WriteBlock when the supplied
-// GlobalBlockNumber is not strictly greater than every previously written
-// block number. Blocks must be written in strictly ascending order.
-var ErrBlockOutOfOrder = errors.New("block: WriteBlock out of order")
-
-// ErrQCNonContiguous is returned by WriteQC when the QC's GlobalRange().First
-// does not equal the previous QC's GlobalRange().Next. QCs must be written as
-// a contiguous, ascending sequence.
-var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
-
-// ErrBlockMissingQC is returned by WriteBlock when no previously written QC
-// covers the block's GlobalBlockNumber. A QC covering a block must be written
-// before that block (see the BlockDB ordering contract).
-var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
-
-// ErrPruned is returned by the by-number read methods (ReadBlockByNumber and
-// ReadQCByBlockNumber) when the requested GlobalBlockNumber is strictly below
-// the current retention watermark: the record is treated as pruned and is not
-// served while below the watermark. It is distinct from a utils.None result,
-// which means "not present at or above the watermark" and may still be filled
-// by a future write.
-//
-// ErrPruned reflects the watermark's current position, not a permanent verdict.
-// The watermark only advances while a store stays open, so within a single
-// session ErrPruned is terminal — retrying the same n keeps returning it. It is
-// not durable across restarts: the watermark is re-derived on open and
-// reclamation is asynchronous, so an n that returned ErrPruned before a restart
-// may afterward read as present (or as utils.None). Callers should treat
-// ErrPruned as "not currently served," not as a guarantee the record is gone.
-var ErrPruned = errors.New("block: below retention watermark")
 
 // BlockDB is the durable backing store for data.State. It persists the two
 // kinds of finalized records the consensus state machine produces —
@@ -183,6 +150,9 @@ type BlockDB interface {
 	// issuance).
 	Flush() error
 
+	// Status returns a consistent snapshot of the in-memory write tips (no I/O).
+	Status() DBStatus
+
 	// Blocks returns an iterator over every persisted block not yet
 	// pruned, for startup replay. Intended to be called once at
 	// construction by data.State.NewState.
@@ -267,6 +237,20 @@ type BlockDB interface {
 	// no other method may be called on the BlockDB; doing so is
 	// undefined.
 	Close() error
+}
+
+// DBStatus is the in-memory write tips returned by BlockDB.Status.
+// Both fields are exclusive "next to write" cursors (matching data.State's
+// nextQC / nextBlock). Zero means no write of that kind has occurred yet
+// (NextBlock/NextQC are never zero after a successful write: the first
+// written block number N yields NextBlock = N+1 ≥ 1).
+type DBStatus struct {
+	// NextBlock is one past the highest GlobalBlockNumber accepted by WriteBlock
+	// (the next block number that may be written). Zero if no block has been written.
+	NextBlock GlobalBlockNumber
+	// NextQC is the exclusive upper bound of the last WriteQC (the next QC
+	// range must start here). Zero if no QC has been written.
+	NextQC GlobalBlockNumber
 }
 
 // BlockIterator iterates over persisted blocks in GlobalBlockNumber order —

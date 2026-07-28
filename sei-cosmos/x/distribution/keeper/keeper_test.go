@@ -12,8 +12,17 @@ import (
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 )
+
+// coinbaseWithdrawAddr builds an address carrying the reserved "evm_coinbase"
+// prefix that BaseSendKeeper.BlockedAddr rejects. Such an address is not
+// EVM-associated, so CanSendTo still allows it — exactly the gap that let an
+// unpayable withdraw address slip past the distribution checks.
+func coinbaseWithdrawAddr() sdk.AccAddress {
+	return sdk.AccAddress(append(append([]byte{}, bankkeeper.CoinbaseAddressPrefix...), make([]byte, 8)...))
+}
 
 func TestSetWithdrawAddr(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
@@ -136,6 +145,75 @@ func TestAfterValidatorRemovedRoutesToCommunityPoolForUnreceivableValidator(t *t
 	require.Equal(t, communityBefore.Add(sdk.NewDec(10)), communityAfter)
 	require.True(t, app.BankKeeper.GetBalance(ctx, castAddr, "usei").IsZero())
 	require.Equal(t, moduleBalanceBefore, app.BankKeeper.GetBalance(ctx, distrAcc.GetAddress(), "usei"))
+}
+
+// TestSetWithdrawAddrRejectsCoinbaseAddress verifies that a withdraw address
+// carrying the reserved "evm_coinbase" prefix is rejected at set time. Such an
+// address passes CanSendTo (it is not EVM-associated) but is blocked by
+// BlockedAddr, so SendCoinsFromModuleToAccount would fail on it. Rejecting it up
+// front prevents a delegator from parking an unpayable withdraw address that would
+// later panic the force-withdraw in AfterValidatorRemoved during EndBlock.
+func TestSetWithdrawAddrRejectsCoinbaseAddress(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	params := app.DistrKeeper.GetParams(ctx)
+	params.WithdrawAddrEnabled = true
+	app.DistrKeeper.SetParams(ctx, params)
+
+	addr := seiapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(1000000000))
+	coinbaseAddr := coinbaseWithdrawAddr()
+
+	// CanSendTo alone would let this address through; BlockedAddr is what catches it.
+	require.True(t, app.BankKeeper.CanSendTo(ctx, coinbaseAddr))
+	require.True(t, app.BankKeeper.BlockedAddr(coinbaseAddr))
+
+	require.Error(t, app.DistrKeeper.SetWithdrawAddr(ctx, addr[0], coinbaseAddr))
+}
+
+// TestAfterValidatorRemovedFallsBackForCoinbaseWithdrawAddr covers a withdraw
+// address with the reserved "evm_coinbase" prefix already parked in the store —
+// e.g. set before SetWithdrawAddr rejected such addresses. The address passes
+// CanSendTo but BlockedAddr rejects it, so SendCoinsFromModuleToAccount would fail.
+// AfterValidatorRemoved runs during EndBlock, so it must not panic: the withdraw
+// resolves back to the receivable operator address instead of attempting — and
+// panicking on — the send.
+func TestAfterValidatorRemovedFallsBackForCoinbaseWithdrawAddr(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	params := app.DistrKeeper.GetParams(ctx)
+	params.WithdrawAddrEnabled = true
+	app.DistrKeeper.SetParams(ctx, params)
+
+	addr := seiapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(1000000000))
+	valAddr := seiapp.ConvertAddrsToValAddrs(addr[:1])[0]
+	valAccAddr := sdk.AccAddress(valAddr)
+
+	// Park a coinbase-prefixed withdraw address via the low-level setter, bypassing
+	// the SetWithdrawAddr guard to mimic pre-existing state.
+	coinbaseAddr := coinbaseWithdrawAddr()
+	app.DistrKeeper.SetDelegatorWithdrawAddr(ctx, valAccAddr, coinbaseAddr)
+
+	// The stored address cannot receive, so the withdraw resolves back to the operator.
+	require.Equal(t, valAccAddr.String(), app.DistrKeeper.GetDelegatorWithdrawAddr(ctx, valAccAddr).String())
+
+	commission := sdk.DecCoins{sdk.NewDecCoin("usei", sdk.NewInt(10))}
+	coins := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))
+	distrAcc := app.DistrKeeper.GetDistributionAccount(ctx)
+	require.NoError(t, apptesting.FundModuleAccount(app.BankKeeper, ctx, distrAcc.GetName(), coins))
+	app.AccountKeeper.SetModuleAccount(ctx, distrAcc)
+
+	app.DistrKeeper.SetValidatorOutstandingRewards(ctx, valAddr, types.ValidatorOutstandingRewards{Rewards: commission})
+	app.DistrKeeper.SetValidatorAccumulatedCommission(ctx, valAddr, types.ValidatorAccumulatedCommission{Commission: commission})
+
+	balanceBefore := app.BankKeeper.GetBalance(ctx, valAccAddr, "usei")
+	require.NotPanics(t, func() {
+		app.DistrKeeper.Hooks().AfterValidatorRemoved(ctx, sdk.ConsAddress{}, valAddr)
+	})
+	balanceAfter := app.BankKeeper.GetBalance(ctx, valAccAddr, "usei")
+	require.Equal(t, balanceBefore.Amount.Add(sdk.NewInt(10)), balanceAfter.Amount)
+	require.True(t, app.BankKeeper.GetBalance(ctx, coinbaseAddr, "usei").IsZero())
 }
 
 func TestWithdrawValidatorCommission(t *testing.T) {

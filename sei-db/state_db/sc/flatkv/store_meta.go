@@ -332,15 +332,15 @@ func newPerDBModuleStatsMap() map[string]map[string]lthash.ModuleStats {
 	return m
 }
 
-// SetInitialVersion seeds the store so that the next Commit produces
-// initialVersion. Mirrors memiavl.DB.SetInitialVersion: only valid on a
-// truly fresh store (committedVersion == 0 and no prior commits), rejected
-// on read-only stores, and persists durably across restart.
+// SetInitialVersion seeds the store so that Commit(initialVersion) is
+// accepted as the first commit. Mirrors memiavl.DB.SetInitialVersion: only
+// valid on a truly fresh store (committedVersion == 0 and no prior commits),
+// rejected on read-only stores, and persists durably across restart.
 //
 // Implementation notes:
 //   - We persist version = initialVersion - 1 to both the global metadata DB
-//     and every per-DB LocalMeta. Commit() does `version := committedVersion + 1`,
-//     so the next commit will return initialVersion.
+//     and every per-DB LocalMeta, so Commit(initialVersion) is ahead of the
+//     current watermark.
 //   - Write order is "global first, per-DB second" so that any partial-write
 //     crash recovers as "fresh store" (loadGlobalMetadata lowers the global
 //     watermark to the minimum per-DB watermark; per-DB at 0 forces global

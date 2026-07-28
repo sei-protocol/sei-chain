@@ -27,7 +27,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 var m = Global
@@ -165,7 +164,7 @@ func TestReactor_Sync(t *testing.T) {
 		appConn.applySnapshotChunk.Set(func(context.Context, *abci.RequestApplySnapshotChunk) (*abci.ResponseApplySnapshotChunk, error) {
 			return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 		})
-		appConn.info.Push(mkHandler(&version.RequestInfo, &abci.ResponseInfo{
+		appConn.info.Push(mkConst(&abci.ResponseInfo{
 			AppVersion:       testAppVersion,
 			LastBlockHeight:  snapshotHeight,
 			LastBlockAppHash: chain[snapshotHeight+1].AppHash,

@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
@@ -107,7 +106,7 @@ func (x *Service) serverStreamCommitQCs(ctx context.Context, server rpc.Server[A
 		for {
 			qc, err := x.validatorState().Avail().CommitQC(ctx, next)
 			if err != nil {
-				if errors.Is(err, data.ErrPruned) {
+				if errors.Is(err, types.ErrPruned) {
 					next = x.validatorState().Avail().FirstCommitQC()
 					continue
 				}

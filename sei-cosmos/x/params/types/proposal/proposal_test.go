@@ -2,9 +2,9 @@ package proposal
 
 import (
 	"fmt"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,4 +37,21 @@ func TestConsensusParameterChangeProposal(t *testing.T) {
 	pc1 = NewParamChange("baseapp", "BlockParams", fmt.Sprintf("{\"max_bytes\":\"%d\"}", types.MaxBlockSizeBytes+1))
 	pcp = NewParameterChangeProposal("test title", "test description", []ParamChange{pc1}, true)
 	require.Error(t, pcp.ValidateBasic())
+}
+
+func BenchmarkValidateChangesBaseapp(b *testing.B) {
+	value := fmt.Sprintf("{\"max_bytes\":\"%d\"}", types.MaxBlockSizeBytes)
+	for _, n := range []int{10, 100, 1000} {
+		changes := make([]ParamChange, n)
+		for i := 0; i < n; i++ {
+			changes[i] = NewParamChange("baseapp", "BlockParams", value)
+		}
+		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				if err := ValidateChanges(changes); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }

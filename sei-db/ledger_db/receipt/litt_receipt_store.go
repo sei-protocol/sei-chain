@@ -229,10 +229,14 @@ func (s *littReceiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash
 	if !exists {
 		return nil, ErrNotFound
 	}
+	data, err := decodeReceiptData(val)
+	if err != nil {
+		return nil, err
+	}
 	var r types.Receipt
 	// gogoproto Unmarshal copies all byte/string fields, so it is safe over
 	// litt's cache-shared buffer.
-	if err := r.Unmarshal(val); err != nil {
+	if err := r.Unmarshal(data.Body); err != nil {
 		return nil, err
 	}
 	// Enforce the KeepRecent floor: litt expires values lazily via TTL, so a
@@ -292,24 +296,35 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 		return err
 	}
 
-	// The part value is the receipts concatenated; each tx hash is a secondary
-	// key aliasing its receipt's sub-range, which is how every read fetches a
-	// receipt — the value is never read whole, so no framing is needed.
+	// The part value is the (metadata-prefixed) receipts concatenated; each tx
+	// hash is a secondary key aliasing its receipt's sub-range, which is how
+	// every read fetches a receipt — the value is never read whole, so no
+	// framing is needed. Each aliased range is a full receiptData record
+	// ([version][blockNumber][offset][length][body], see codec.go), so a read
+	// recovers both the block-store location of the tx and the receipt body.
 	value := make([]byte, 0)
 	secondaryKeys := make([]*litttypes.SecondaryKey, 0, len(records))
 	for _, record := range records {
-		bz, err := marshaledReceipt(record)
+		body, err := marshaledReceipt(record)
 		if err != nil {
 			return err
 		}
-		offset := uint32(len(value)) //nolint:gosec // block regions fit within uint32
+		bz := encodeReceiptData(receiptData{
+			Header: TxHeader{
+				BlockNumber: blockNumber,
+				Offset:      record.TxOffset,
+				Length:      record.TxLength,
+			},
+			Body: body,
+		})
+		partOffset := uint32(len(value)) //nolint:gosec // block regions fit within uint32
 		value = append(value, bz...)
 
 		txHash := make([]byte, common.HashLength)
 		copy(txHash, record.TxHash[:])
 		secondaryKeys = append(secondaryKeys, &litttypes.SecondaryKey{
 			Key:    txHash,
-			Offset: offset,
+			Offset: partOffset,
 			Length: uint32(len(bz)), //nolint:gosec // receipt sizes fit within uint32
 		})
 	}
@@ -337,11 +352,15 @@ func (s *littReceiptStore) nextPartIndex(blockNumber uint64) (uint32, error) {
 
 // FilterLogs answers eth_getLogs via the tag index. Both bounds inclusive; for
 // a single block set fromBlock == toBlock.
-func (s *littReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (s *littReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error) {
 	if fromBlock > toBlock {
 		return nil, fmt.Errorf("fromBlock (%d) > toBlock (%d)", fromBlock, toBlock)
 	}
-	return s.filterLogsByTags(fromBlock, toBlock, crit)
+	reqCtx := ctx.Context()
+	if reqCtx == nil {
+		reqCtx = context.Background()
+	}
+	return s.filterLogsByTags(reqCtx, fromBlock, toBlock, crit, budget)
 }
 
 // startFlusher bounds litt durability lag to littFlushInterval from a

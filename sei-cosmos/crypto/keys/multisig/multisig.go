@@ -47,7 +47,17 @@ func (m *LegacyAminoPubKey) Bytes() []byte {
 // LegacyAminoPubKey. It's OK to have multiple same keys in the multisig - it will increase
 // the power of the owner of that key - in that case the signer will still need to append
 // multiple same signatures in the right order.
+//
+// Structure is validated once for the whole tree; nested LegacyAminoPubKey recursion skips
+// re-validation.
 func (m *LegacyAminoPubKey) VerifyMultisignature(getSignBytes multisigtypes.GetSignBytesFunc, sig *signing.MultiSignatureData) error {
+	if err := multisigtypes.ValidateSignatureDataStructure(sig); err != nil {
+		return err
+	}
+	return m.verifyMultisignature(getSignBytes, sig)
+}
+
+func (m *LegacyAminoPubKey) verifyMultisignature(getSignBytes multisigtypes.GetSignBytesFunc, sig *signing.MultiSignatureData) error {
 	bitarray := sig.BitArray
 	sigs := sig.Signatures
 	size := bitarray.Count()
@@ -56,18 +66,19 @@ func (m *LegacyAminoPubKey) VerifyMultisignature(getSignBytes multisigtypes.GetS
 	if len(pubKeys) != size {
 		return fmt.Errorf("bit array size is incorrect, expecting: %d", len(pubKeys))
 	}
-	// ensure size of signature list
-	if len(sigs) < int(m.Threshold) || len(sigs) > size {
-		return fmt.Errorf("signature size is incorrect %d", len(sigs))
-	}
+	nSigs := len(sigs)
 	// ensure at least k signatures are set
-	if bitarray.NumTrueBitsBefore(size) < int(m.Threshold) {
-		return fmt.Errorf("not enough signatures set, have %d, expected %d", bitarray.NumTrueBitsBefore(size), int(m.Threshold))
+	if nSigs < int(m.Threshold) {
+		return fmt.Errorf("not enough signatures set, have %d, expected %d", nSigs, int(m.Threshold))
 	}
 	// index in the list of signatures which we are concerned with.
 	sigIndex := 0
 	for i := 0; i < size; i++ {
 		if bitarray.GetIndex(i) {
+			// Redundant with ValidateSignatureDataStructure (len(sigs) == NumTrueBits).
+			if sigIndex >= len(sigs) {
+				return fmt.Errorf("signature size is incorrect %d", len(sigs))
+			}
 			si := sig.Signatures[sigIndex]
 			switch si := si.(type) {
 			case *signing.SingleSignatureData:
@@ -83,7 +94,12 @@ func (m *LegacyAminoPubKey) VerifyMultisignature(getSignBytes multisigtypes.GetS
 				if !ok {
 					return fmt.Errorf("unable to parse pubkey of index %d", i)
 				}
-				if err := nestedMultisigPk.VerifyMultisignature(getSignBytes, si); err != nil {
+				// Prefer same-type recursion without re-validating structure.
+				if nested, ok := nestedMultisigPk.(*LegacyAminoPubKey); ok {
+					if err := nested.verifyMultisignature(getSignBytes, si); err != nil {
+						return err
+					}
+				} else if err := nestedMultisigPk.VerifyMultisignature(getSignBytes, si); err != nil {
 					return err
 				}
 			default:

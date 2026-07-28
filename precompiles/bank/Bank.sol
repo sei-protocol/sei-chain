@@ -50,4 +50,48 @@ interface IBank {
     function supply(
         string memory denom
     ) external view returns (uint256 response);
+
+    function spendableBalances(
+        address acc,
+        bytes memory pageKey
+    ) external view returns (Coin[] memory balances, bytes memory nextKey);
+
+    function totalSupply(
+        bytes memory pageKey
+    ) external view returns (Coin[] memory supply, bytes memory nextKey);
+
+    struct SendEnabled {
+        string denom;
+        bool enabled;
+    }
+
+    struct Params {
+        SendEnabled[] sendEnabled;
+        bool defaultSendEnabled;
+    }
+
+    function params() external view returns (Params memory params);
+
+    struct DenomUnit {
+        string denom;
+        uint32 exponent;
+        string[] aliases;
+    }
+
+    struct Metadata {
+        string description;
+        DenomUnit[] denomUnits;
+        string base;
+        string display;
+        string name;
+        string symbol;
+    }
+
+    function denomMetadata(
+        string memory denom
+    ) external view returns (Metadata memory metadata);
+
+    function denomsMetadata(
+        bytes memory pageKey
+    ) external view returns (Metadata[] memory metadatas, bytes memory nextKey);
 }

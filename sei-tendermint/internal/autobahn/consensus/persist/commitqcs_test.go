@@ -22,28 +22,8 @@ func testCommitQC(
 	laneQCs map[types.LaneID]*types.LaneQC,
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
-	vs := types.ViewSpec{CommitQC: prev, Epoch: types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, committee, 0)}
-	leader := committee.Leader(vs.View())
-	var leaderKey types.SecretKey
-	for _, k := range keys {
-		if k.Public() == leader {
-			leaderKey = k
-			break
-		}
-	}
-	fullProposal := utils.OrPanic1(types.NewProposal(
-		leaderKey,
-		vs,
-		time.Now(),
-		laneQCs,
-		appQC,
-	))
-	vote := types.NewCommitVote(fullProposal.Proposal().Msg())
-	var votes []*types.Signed[*types.CommitVote]
-	for _, k := range keys {
-		votes = append(votes, types.Sign(k, vote))
-	}
-	return types.NewCommitQC(votes)
+	ep := types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, committee, 0)
+	return types.BuildCommitQC(ep, keys, prev, laneQCs, appQC)
 }
 
 func makeSequentialCommitQCs(
