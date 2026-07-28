@@ -70,6 +70,37 @@ func TestEnableWSConcurrentRequestBytes(t *testing.T) {
 	require.Equal(t, json.Number("2"), secondResp.ID)
 }
 
+func TestEnableWSConcurrentBudgetBelowReadLimitAdmitsMaxFrame(t *testing.T) {
+	const pad = 48
+
+	makeMsg := func(id int) string {
+		return fmt.Sprintf(
+			`{"jsonrpc":"2.0","id":%d,"method":"test_sleep","params":[0],"_pad":"%s"}`,
+			id, strings.Repeat("x", pad),
+		)
+	}
+	payload := makeMsg(1)
+	frameSize := int64(len(payload))
+
+	srv := startWSTestServer(t, WsConfig{
+		Origins: []string{"*"},
+		RPCEndpointConfig: RPCEndpointConfig{
+			readLimit:                 frameSize,
+			maxConcurrentRequestBytes: frameSize / 2,
+		},
+	})
+
+	conn := dialWSTestServer(t, srv)
+	defer conn.Close()
+
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(payload)))
+
+	var resp rpcResponse
+	readJSON(t, conn, &resp)
+	require.Equal(t, json.Number("1"), resp.ID)
+	require.Nil(t, resp.Error)
+}
+
 func TestEnableWSReadLimitDefault(t *testing.T) {
 	srv := NewHTTPServer(rpc.DefaultHTTPTimeouts)
 	wsConf := WsConfig{

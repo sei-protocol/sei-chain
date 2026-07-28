@@ -386,6 +386,9 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 		readLimit = math.MaxInt
 	}
 	srv.SetReadLimits(readLimit)
+	// maxConcurrentRequestBytes is passed through raw; rpc.Server.recomputeWSConcurrentBudget
+	// raises it to readLimit when smaller, matching
+	// newRequestSizeLimiter’s max(budget, maxBody) rule on the HTTP plane.
 	srv.SetWSConcurrentRequestBytes(config.maxConcurrentRequestBytes)
 	srv.SetWSAdmissionEventHook(func(reason string) {
 		recordWSAdmissionRejected(context.Background(), reason)
