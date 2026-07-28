@@ -740,10 +740,12 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 				if q.first > lr.First() {
 					return nil, types.ErrPruned
 				}
-				if set, ok := q.q[n].byHash[want]; ok {
-					want = set.header.ParentHash()
-					headers[len(headers)-i-1] = set.header
-					break
+				if bv := q.q[n]; bv != nil {
+					if set, ok := bv.byHash[want]; ok {
+						want = set.header.ParentHash()
+						headers[len(headers)-i-1] = set.header
+						break
+					}
 				}
 				// Otherwise, wait.
 				if err := ctrl.Wait(ctx); err != nil {

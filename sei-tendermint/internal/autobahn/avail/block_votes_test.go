@@ -25,28 +25,22 @@ func TestLaneVoteSet_Add(t *testing.T) {
 	}
 
 	set := &laneVoteSet{}
-	require.False(t, set.add(1, 2, mkVote()).IsPresent())
+	require.False(t, set.add(1, 2, mkVote()))
 	require.Equal(t, uint64(1), set.weight)
 	require.Len(t, set.votes, 1)
-	require.False(t, set.qc.IsPresent())
 
-	qc, ok := set.add(1, 2, mkVote()).Get()
-	require.True(t, ok)
-	got, ok := set.qc.Get()
-	require.True(t, ok)
-	require.Equal(t, got, qc)
+	require.True(t, set.add(1, 2, mkVote()))
 	require.Equal(t, uint64(2), set.weight)
 	require.Len(t, set.votes, 2)
 
-	require.False(t, set.add(1, 2, mkVote()).IsPresent())
-	require.Equal(t, uint64(2), set.weight)
-	require.Len(t, set.votes, 2)
+	require.True(t, set.add(1, 2, mkVote()))
+	require.Equal(t, uint64(3), set.weight)
+	require.Len(t, set.votes, 3)
 
 	heavy := &laneVoteSet{}
-	require.True(t, heavy.add(3, 2, mkVote()).IsPresent())
+	require.True(t, heavy.add(3, 2, mkVote()))
 	require.Equal(t, uint64(3), heavy.weight)
 	require.Len(t, heavy.votes, 1)
-	require.True(t, heavy.qc.IsPresent())
 }
 
 func TestPushVote_ZeroWeightNotRetained(t *testing.T) {
@@ -92,13 +86,13 @@ func TestPushVote_CurrentCommitteeOnly(t *testing.T) {
 	require.False(t, bv.pushVote(ep0, types.Sign(keyA, types.NewLaneVote(header))).IsPresent())
 	qc, ok := bv.pushVote(ep0, types.Sign(keyB, types.NewLaneVote(header))).Get()
 	require.True(t, ok)
-	gotQC, ok := bv.byHash[h].qc.Get()
+	gotQC, ok := bv.qc.Get()
 	require.True(t, ok)
 	require.Equal(t, qc, gotQC)
 
 	// ep1: Faulty=(5-1)/3=1, LaneQuorum=2; A+B still form quorum under new weights.
 	bv.reweight(ep1)
-	require.True(t, bv.byHash[h].qc.IsPresent())
+	require.True(t, bv.qc.IsPresent())
 	require.False(t, bv.pushVote(ep1, types.Sign(keyE, types.NewLaneVote(header))).IsPresent())
 	require.Contains(t, bv.byKey, keyE.Public())
 	require.Equal(t, header, bv.byHash[h].header)
@@ -156,5 +150,43 @@ func TestPushVote_ReweightAfterAdvance(t *testing.T) {
 	require.Equal(t, uint64(1), bv.byHash[h].weight)
 	require.Len(t, bv.byHash[h].votes, 1)
 	require.Equal(t, keyA.Public(), bv.byHash[h].votes[0].Key())
-	require.True(t, bv.byHash[h].qc.IsPresent())
+	require.True(t, bv.qc.IsPresent())
+	require.NotContains(t, bv.byKey, keyB.Public(), "zero-weight signer removed from byKey")
+}
+
+func TestPushVote_OneQCPerBlockVotes(t *testing.T) {
+	rng := utils.TestRng()
+	keyA := types.GenSecretKey(rng)
+	keyB := types.GenSecretKey(rng)
+	keyC := types.GenSecretKey(rng)
+	keyD := types.GenSecretKey(rng)
+
+	// 4×1 → LaneQuorum=2.
+	ep := makeVoteEpoch(0, map[types.PublicKey]uint64{
+		keyA.Public(): 1, keyB.Public(): 1, keyC.Public(): 1, keyD.Public(): 1,
+	})
+
+	lane := keyA.Public()
+	header1 := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
+	header2 := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
+	require.NotEqual(t, header1.Hash(), header2.Hash())
+
+	bv := newBlockVotes()
+	require.False(t, bv.pushVote(ep, types.Sign(keyA, types.NewLaneVote(header1))).IsPresent())
+	require.True(t, bv.pushVote(ep, types.Sign(keyB, types.NewLaneVote(header1))).IsPresent())
+	require.True(t, bv.qc.IsPresent())
+	got, ok := bv.qc.Get()
+	require.True(t, ok)
+	require.Equal(t, header1.Hash(), got.Header().Hash())
+
+	// Competing hash is retained in byKey for reweight but must not grow byHash
+	// or replace the single QC.
+	require.False(t, bv.pushVote(ep, types.Sign(keyC, types.NewLaneVote(header2))).IsPresent())
+	require.False(t, bv.pushVote(ep, types.Sign(keyD, types.NewLaneVote(header2))).IsPresent())
+	require.Contains(t, bv.byKey, keyC.Public())
+	require.Contains(t, bv.byKey, keyD.Public())
+	require.NotContains(t, bv.byHash, header2.Hash())
+	got, ok = bv.qc.Get()
+	require.True(t, ok)
+	require.Equal(t, header1.Hash(), got.Header().Hash())
 }

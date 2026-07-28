@@ -24,7 +24,7 @@ type inner struct {
 // laneState fields share the same lifecycle.
 type laneState struct {
 	blocks *queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
-	votes  *queue[types.BlockNumber, blockVotes]
+	votes  *queue[types.BlockNumber, *blockVotes]
 	// nextBlockToPersist is reconstructed from persisted blocks on restart.
 	//
 	// TODO: consider giving this its own AtomicSend to avoid waking unrelated
@@ -37,7 +37,7 @@ type laneState struct {
 func newLaneState() *laneState {
 	return &laneState{
 		blocks: newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]](),
-		votes:  newQueue[types.BlockNumber, blockVotes](),
+		votes:  newQueue[types.BlockNumber, *blockVotes](),
 	}
 }
 
@@ -196,7 +196,11 @@ func verifyLoadedCommitQC(registry *epoch.Registry, qc *types.CommitQC) error {
 }
 
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*types.LaneQC] {
-	return i.lanes[lane].votes.q[n].laneQC()
+	bv, ok := i.lanes[lane].votes.q[n]
+	if !ok {
+		return utils.None[*types.LaneQC]()
+	}
+	return bv.laneQC()
 }
 
 // advanceEpoch installs nextDuo at a boundary. Adds Current lanes; does not
