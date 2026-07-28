@@ -49,29 +49,19 @@ const (
 	RoadFuture                   // ahead of the window (backpressure wait)
 )
 
-// Contains reports whether roadIdx is in Prev|Current.
-func (w EpochDuo) Contains(roadIdx RoadIndex) bool {
-	_, err := w.EpochForRoad(roadIdx)
-	return err == nil
-}
-
-// ContainsCurrent reports whether roadIdx is in Current only.
-func (w EpochDuo) ContainsCurrent(roadIdx RoadIndex) bool {
-	return w.Current.RoadRange().Has(roadIdx)
-}
-
-// RoadStatus classifies roadIdx for admit waits. If currentOnly, only Current
-// admits (CommitQC tip); otherwise Prev|Current (AppVote/AppQC).
-func (w EpochDuo) RoadStatus(roadIdx RoadIndex, currentOnly bool) RoadStatus {
-	if currentOnly {
-		if w.ContainsCurrent(roadIdx) {
-			return RoadReady
-		}
-		if roadIdx < w.Current.RoadRange().First {
-			return RoadStale
-		}
-		return RoadFuture
+// RoadStatusCurrent classifies roadIdx against Current only (CommitQC tip).
+func (w EpochDuo) RoadStatusCurrent(roadIdx RoadIndex) RoadStatus {
+	if w.Current.RoadRange().Has(roadIdx) {
+		return RoadReady
 	}
+	if roadIdx < w.Current.RoadRange().First {
+		return RoadStale
+	}
+	return RoadFuture
+}
+
+// RoadStatusDuo classifies roadIdx against Prev|Current (AppVote/AppQC).
+func (w EpochDuo) RoadStatusDuo(roadIdx RoadIndex) RoadStatus {
 	_, err := w.EpochForRoad(roadIdx)
 	if err == nil {
 		return RoadReady

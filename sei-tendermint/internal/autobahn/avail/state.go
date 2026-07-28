@@ -229,17 +229,19 @@ func logStaleRoad(what string, roadIdx types.RoadIndex, duo types.EpochDuo) {
 		slog.Uint64("road", uint64(roadIdx)), "duo", duo.String())
 }
 
-// waitForRoad waits until roadIdx is admitted. If currentOnly, only Current
-// counts (CommitQC tip); otherwise Prev|Current (AppVote/AppQC). ErrPruned if
-// the road is behind the relevant window.
-func (s *State) waitForRoad(ctx context.Context, roadIdx types.RoadIndex, currentOnly bool) (types.EpochDuo, error) {
+// waitUntilRoad waits until status is not RoadFuture; RoadStale → ErrPruned.
+func (s *State) waitUntilRoad(
+	ctx context.Context,
+	roadIdx types.RoadIndex,
+	status func(types.EpochDuo) types.RoadStatus,
+) (types.EpochDuo, error) {
 	duo, err := s.epochDuo.Wait(ctx, func(duo types.EpochDuo) bool {
-		return duo.RoadStatus(roadIdx, currentOnly) != types.RoadFuture
+		return status(duo) != types.RoadFuture
 	})
 	if err != nil {
 		return types.EpochDuo{}, err
 	}
-	switch duo.RoadStatus(roadIdx, currentOnly) {
+	switch status(duo) {
 	case types.RoadReady:
 		return duo, nil
 	case types.RoadStale:
@@ -250,16 +252,41 @@ func (s *State) waitForRoad(ctx context.Context, roadIdx types.RoadIndex, curren
 	}
 }
 
-// waitRoadOrDropStale waits until roadIdx is admitted for Push* paths. If the
-// road is behind the window, logs a stale drop and returns None (soft-drop).
-// currentOnly matches waitForRoad: CommitQC tip vs Prev|Current for AppVote/AppQC.
+// waitCurrentRoad waits until roadIdx is in Current (CommitQC tip).
+func (s *State) waitCurrentRoad(ctx context.Context, roadIdx types.RoadIndex) (types.EpochDuo, error) {
+	return s.waitUntilRoad(ctx, roadIdx, func(d types.EpochDuo) types.RoadStatus {
+		return d.RoadStatusCurrent(roadIdx)
+	})
+}
+
+// waitDuoRoad waits until roadIdx is in Prev|Current (AppVote/AppQC).
+func (s *State) waitDuoRoad(ctx context.Context, roadIdx types.RoadIndex) (types.EpochDuo, error) {
+	return s.waitUntilRoad(ctx, roadIdx, func(d types.EpochDuo) types.RoadStatus {
+		return d.RoadStatusDuo(roadIdx)
+	})
+}
+
+// waitCurrentRoadOrDropStale is PushCommitQC admit: wait for Current, soft-drop if stale.
+func (s *State) waitCurrentRoadOrDropStale(
+	ctx context.Context, what string, roadIdx types.RoadIndex,
+) (utils.Option[types.EpochDuo], error) {
+	return s.waitRoadOrDropStale(ctx, what, roadIdx, s.waitCurrentRoad)
+}
+
+// waitDuoRoadOrDropStale is PushAppVote/PushAppQC admit: wait for Prev|Current, soft-drop if stale.
+func (s *State) waitDuoRoadOrDropStale(
+	ctx context.Context, what string, roadIdx types.RoadIndex,
+) (utils.Option[types.EpochDuo], error) {
+	return s.waitRoadOrDropStale(ctx, what, roadIdx, s.waitDuoRoad)
+}
+
 func (s *State) waitRoadOrDropStale(
 	ctx context.Context,
 	what string,
 	roadIdx types.RoadIndex,
-	currentOnly bool,
+	wait func(context.Context, types.RoadIndex) (types.EpochDuo, error),
 ) (utils.Option[types.EpochDuo], error) {
-	duo, err := s.waitForRoad(ctx, roadIdx, currentOnly)
+	duo, err := wait(ctx, roadIdx)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
 			logStaleRoad(what, roadIdx, s.epochDuo.Load())
@@ -430,7 +457,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	admitted, err := s.waitRoadOrDropStale(ctx, "CommitQC", idx, true)
+	admitted, err := s.waitCurrentRoadOrDropStale(ctx, "CommitQC", idx)
 	if err != nil {
 		return err
 	}
@@ -475,7 +502,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		return err
 	}
 	// Too-early roads (ahead of Prev|Current) backpressure; too-late are dropped.
-	admitted, err := s.waitRoadOrDropStale(ctx, "AppVote", idx, false)
+	admitted, err := s.waitDuoRoadOrDropStale(ctx, "AppVote", idx)
 	if err != nil {
 		return err
 	}
@@ -533,7 +560,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 			return nil
 		}
 	}
-	// Pair consistency only; ahead-of-window still waits in waitForRoad.
+	// Pair consistency only; ahead-of-window still waits in waitDuoRoad.
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
@@ -544,7 +571,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	idx := commitQC.Proposal().Index()
-	admitted, err := s.waitRoadOrDropStale(ctx, "AppQC", idx, false)
+	admitted, err := s.waitDuoRoadOrDropStale(ctx, "AppQC", idx)
 	if err != nil {
 		return err
 	}
@@ -559,9 +586,9 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 	if err := commitQC.Verify(ep); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
-	// Same seal leashes as PushCommitQC when this tipcut is Current's last road.
+	// Seal only when this tipcut closes Current (not Prev's last road).
 	// Pass this AppQC as incoming so a tipcut that first enters epoch N can close N.
-	nextDuo, err := s.sealNextDuoIfLastRoad(ctx, ep, idx, utils.Some(appQC))
+	nextDuo, err := s.sealNextDuoIfLastRoad(ctx, duo.Current, idx, utils.Some(appQC))
 	if err != nil {
 		return err
 	}
