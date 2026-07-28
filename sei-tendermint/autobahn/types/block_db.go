@@ -172,10 +172,19 @@ type BlockDB interface {
 	// including on an empty store — the iterator is empty (Next
 	// immediately returns false).
 	//
-	// Unlike a bulk read, the iterator materializes one record at a time,
-	// so a caller can scan an arbitrarily large retention window without
-	// holding it all in memory — and may skip reading the value for
-	// blocks it does not need (see BlockDBIterator.Block).
+	// Returns ErrPruned if a concurrent PruneBefore advances the retention
+	// floor past the clamped start before the iterator can be positioned.
+	// Racing a pruner has no deterministic answer — the floor may move
+	// again before the call returns — so the failure is reported rather
+	// than papered over, and a caller that still wants whatever is retained
+	// may simply call again. Distinct from the corruption error a genuinely
+	// missing record produces.
+	//
+	// A caller may walk an arbitrarily large retention window, and pays to
+	// read a block's value only where it calls Block — Number, QC and
+	// HasBlock come off Position for free (see BlockDBIterator). How much
+	// an implementation holds resident while scanning is its own affair
+	// and is not promised here.
 	//
 	// The iterator captures a snapshot of the records present when it is
 	// created; records written afterward are not observed. It is NOT safe
@@ -268,6 +277,14 @@ type BlockDBIterator interface {
 	// only be corruption). After Next returns ok == false iteration is
 	// complete; after it returns an error the iterator must not be used
 	// further (other than Close).
+	//
+	// The corruption clause binds only implementations that can reach a
+	// corrupt state — durable ones, where a torn write, an out-of-band file
+	// removal or a truncated index can produce records the write path would
+	// have rejected. An implementation holding its records in memory cannot
+	// reach those states at all: the write-order guards above are the only
+	// way records enter it. Such an implementation satisfies this clause
+	// vacuously and correctly never returns an error.
 	Next() (pos Position, ok bool, err error)
 
 	// Block reads and returns the block at the position most recently

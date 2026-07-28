@@ -30,10 +30,11 @@ var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 
 // ErrPruned is returned when a requested record is below the current retention
 // / eviction floor and is not served. Used for BlockDB by-number reads below
-// the store watermark, and for data.State lookups (blocks, QCs, AppProposals)
-// after in-memory eviction. Distinct from utils.None on BlockDB, which means
-// "not present at or above the watermark" and may still be filled by a future
-// write.
+// the store watermark, for BlockDB.Iterator when a concurrent PruneBefore moves
+// the floor past the requested start before the iterator can be positioned, and
+// for data.State lookups (blocks, QCs, AppProposals) after in-memory eviction.
+// Distinct from utils.None on BlockDB, which means "not present at or above the
+// watermark" and may still be filled by a future write.
 //
 // ErrPruned reflects the watermark's current position, not a permanent verdict.
 // The watermark only advances while a store stays open, so within a single

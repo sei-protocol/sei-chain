@@ -206,10 +206,12 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // registry.FirstBlock(); otherwise cursors skipTo the first retained QC start.
 // A single iterator scan restores both record kinds: each yielded number carries
 // its covering QC (inserted when the scan enters the QC's range) and its block
-// when one survives — Block is None only in the trailing positions, where a QC
-// outlived (or preceded) its blocks. Density and QC-coverage consistency are
-// enforced by the iterator itself (see types.BlockDBIterator); a first QC that
-// predates committee genesis is the one inconsistency checked here.
+// when one survives — HasBlock is false only in the trailing positions, where a
+// QC outlived (or preceded) its blocks. Density and QC-coverage consistency hold
+// below this loop, so it does not re-check them: a durable BlockDB reports a
+// violation from Next, and an in-memory one cannot reach one (see
+// types.BlockDBIterator). A first QC that predates committee genesis is the one
+// inconsistency checked here.
 //
 // TODO: Cap how much of BlockDB we replay into RAM (similar to PushQC's
 // blocksCacheSize gate). Deferred to a follow-up PR — today we load the full

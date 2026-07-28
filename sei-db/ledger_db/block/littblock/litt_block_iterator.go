@@ -36,13 +36,9 @@ type blockDBIterator struct {
 	// it is the underlying litt scan; nil for an empty iterator.
 	it littdb.Iterator
 
-	// watermark is the retention floor captured at creation. Records strictly below it are
-	// skipped: blocks may be stranded from their covering QC, and a QC whose whole range is
-	// below the floor serves no number (see blockDB.watermark).
-	watermark uint64
-
-	// startN is the first number the iterator may yield. Block records below it (a
-	// start that lands mid-cohort follows the whole cohort's blocks in the scan) are skipped.
+	// startN is the first number the iterator may yield, and doubles as the retention floor:
+	// blockDB.Iterator clamps it up to the prune watermark, so a block below startN is either
+	// below the start or stranded from a reclaimed QC, and is skipped either way.
 	startN types.GlobalBlockNumber
 
 	// expectStartQC is one-shot state, not a mode: every non-empty iterator is positioned at
@@ -103,20 +99,16 @@ func (l *blockDBIterator) Next() (types.Position, bool, error) {
 			return types.Position{}, false, err
 		}
 		if l.current == nil {
-			if l.heldBlock {
-				// A block record precedes every retained QC. The write path guarantees a
-				// covering QC precedes every block, so this is corruption — the same
-				// condition as the mid-scan check below, reached before any QC is in hand.
-				return types.Position{}, false,
-					fmt.Errorf("corrupt store: block %d has no QC coverage", l.heldNumber)
-			}
-			// No retained QC and no block record: no number is covered.
-			return types.Position{}, false, nil
+			// Unreachable: the scan is positioned at qcKey(startN), so its first record is the
+			// covering QC — fill dispatches it through expectStartQC, which errors if it is not
+			// a QC record, and collectQC always adopts it as current because its range contains
+			// startN. Asserted rather than dereferenced blindly below.
+			return types.Position{}, false,
+				fmt.Errorf("ledger scan at %d established no covering QC", l.startN)
 		}
+		// current's range contains startN (the scan was positioned inside it), so no clamp
+		// up to current.first is needed.
 		next = l.startN
-		if next < l.current.first {
-			next = l.current.first
-		}
 	}
 
 	// Establish coverage for next, promoting across QC range boundaries.
@@ -194,9 +186,10 @@ func (l *blockDBIterator) fill() error {
 			// primary the scan handles elsewhere.
 		case keyKind(key) == kindBlock:
 			number := decodeNumberKey(key)
-			if uint64(number) < l.watermark || number < l.startN {
-				// Below the retention floor (possibly stranded from its covering QC), or below
-				// a start that lands mid-cohort.
+			if number < l.startN {
+				// Below the start: either a start that lands mid-cohort, whose cohort's earlier
+				// blocks still follow the covering QC in the scan, or a block stranded below the
+				// retention floor. startN is never below that floor, so one test covers both.
 				continue
 			}
 			l.heldBlock = true
@@ -213,8 +206,7 @@ func (l *blockDBIterator) fill() error {
 }
 
 // collectQC decodes the QC record at the scan's current position into the covering-QC state: it
-// is dropped when its whole range is below the watermark, becomes current when no current QC is
-// set, and otherwise joins the pending queue.
+// becomes current when no current QC is set, and otherwise joins the pending queue.
 func (l *blockDBIterator) collectQC() error {
 	value, err := l.it.GetValue()
 	if err != nil {
@@ -226,10 +218,6 @@ func (l *blockDBIterator) collectQC() error {
 	}
 	first, next := coveredRange(qc)
 	entry := &coveredQC{qc: qc, first: first, next: next}
-	if uint64(entry.next) <= l.watermark {
-		// The whole range is below the retention floor: none of its numbers are served.
-		return nil
-	}
 	if l.current == nil {
 		l.current = entry
 		return nil

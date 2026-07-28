@@ -1265,8 +1265,15 @@ func (d *DiskTable) IteratorAt(key []byte, reverse bool) (litt.Iterator, bool, e
 	if !inKeymap {
 		// The key is in the unflushed data cache but not yet in the keymap. openSnapshot sealed the
 		// mutable segment, which handed every pending key to the keymap manager before returning, so
-		// draining the manager's buffered puts makes the keymap lookup authoritative. A miss after the
-		// barrier means the key was deleted concurrently.
+		// draining the manager's buffered puts makes the keymap lookup authoritative for everything
+		// that was written before the seal.
+		//
+		// A miss after the barrier is therefore not necessarily a deletion. PutBatch populates the
+		// cache before enqueueing its write, so a concurrent writer's key can be visible to the read
+		// above while its controlLoopWriteRequest still sits behind this reader's own request: the
+		// seal misses it, and no barrier can conjure it. Reporting not-found is correct in that case
+		// as well as for a concurrent delete — treat a miss here as "not in this snapshot", not as a
+		// sign something is wrong.
 		if err = d.keymapManager.syncPuts(); err != nil {
 			return nil, false, errors.Join(
 				fmt.Errorf("failed to sync keymap manager puts: %w", err),
@@ -1318,6 +1325,14 @@ func (d *DiskTable) IteratorAt(key []byte, reverse bool) (litt.Iterator, bool, e
 		return nil, false, d.abandonSnapshot(segs)
 	}
 
+	// Both constructors take the whole snapshot even though a forward iterator never visits
+	// segs[:segPos] and a reverse one never visits segs[segPos+1:], so unreachable segment files
+	// stay on disk until Close. That is deliberate for now, and cheap: GC still collects them
+	// (keymap deletes proceed and the read barrier advances — see gcManager.collectExpiredSegments),
+	// only file deletion waits. Handing a forward iterator segs[segPos:] and releasing the rest
+	// would let those files go sooner; the reverse case would gain nothing, since segments are
+	// deleted strictly oldest-first via chained reservations and the ones it could release are the
+	// newest. Worth revisiting if long-lived mid-history iterators ever appear.
 	if reverse {
 		return newReverseIteratorAt(d, segs, segPos, keys, keyPos), true, nil
 	}

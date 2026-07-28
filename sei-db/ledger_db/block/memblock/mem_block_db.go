@@ -192,6 +192,11 @@ func (s *blockDB) sortedQCsLocked() []qcEntry {
 // iteratorLocked snapshots every covered number from start upward (clamping up to the first
 // covered number when start falls below all coverage), pairing each with its covering QC and
 // (possibly absent) block. Caller holds mu and guarantees some entry's range ends above start.
+//
+// Copying the whole range up front is how this store satisfies the iterator's snapshot
+// guarantee: the records live in maps that later writes and prunes mutate in place, so a
+// lazy walk would observe them. Residency is not something BlockDB.Iterator promises, and a
+// store that already holds every record in memory has nothing to stream anyway.
 func (s *blockDB) iteratorLocked(entries []qcEntry, start types.GlobalBlockNumber) *memBlockDBIterator {
 	it := &memBlockDBIterator{idx: -1}
 	for _, e := range entries {

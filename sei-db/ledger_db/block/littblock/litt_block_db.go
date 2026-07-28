@@ -388,17 +388,27 @@ func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, er
 		return nil, fmt.Errorf("failed to open iterator at %d: %w", start, err)
 	}
 	if !found {
-		// start has been clamped into [oldestQCStart, NextQC), and retained QCs cover that
-		// interval contiguously, so some QC's primary or covered-number alias is stored under
-		// qcKey(start). A miss means a record that must exist does not — a truncated key file,
-		// or a segment missing from the readable snapshot. Refuse rather than fall back to a
-		// full scan: the caller asked to start at a height precisely to avoid reading what lies
-		// below it, and a scan would silently do the opposite.
+		// start was clamped into [oldestQCStart, NextQC) and retained QCs cover that interval
+		// contiguously, so some QC's primary or covered-number alias is stored under qcKey(start)
+		// — unless the retention floor moved past start while we were positioning. Either way we
+		// refuse rather than scanning from the beginning of the table, which would read exactly
+		// the history the caller passed n to skip. Which of the two it was decides the diagnosis,
+		// and getting that wrong is expensive: reporting corruption on a healthy store sends an
+		// operator hunting for damage that isn't there.
+		if s.watermark.Load() > uint64(start) {
+			// A concurrent PruneBefore advanced the floor past start, and GC reclaimed the record
+			// (litt surfaces a prune/GC boundary as not-found — see DiskTable.IteratorAt). GC's
+			// filter only clears a segment once the watermark exceeds every number in it, so a
+			// watermark above start is exactly the condition that makes this benign rather than
+			// corrupt. Racing a pruner has no deterministic answer, so report the floor honestly
+			// and let the caller decide whether to retry.
+			return nil, fmt.Errorf("%w: start %d fell below the retention floor while positioning",
+				types.ErrPruned, start)
+		}
 		return nil, fmt.Errorf("corrupt store: no QC record at %d despite coverage to %d", start, nextQC)
 	}
 	return &blockDBIterator{
 		it:            it,
-		watermark:     watermark,
 		startN:        start,
 		expectStartQC: true,
 	}, nil

@@ -137,6 +137,13 @@ func TestLittblockIteratorMidChainStartNeedsNoScan(t *testing.T) {
 // TestLittblockIteratorMissingStartQCIsCorruption pins that a positioned lookup which misses inside
 // known coverage is an error, not a silent full-scan fallback. The clamp guarantees some QC record
 // is stored under qcKey(start), so a miss means a record that must exist does not.
+//
+// It also pins the negative side of the prune/corruption discriminator: with the retention floor at
+// or below start, the miss must be reported as corruption and NOT relabelled ErrPruned. The positive
+// side (floor above start ⇒ ErrPruned) needs the watermark to advance between Iterator's own
+// watermark load and its positioning call, which no deterministic test can arrange without a
+// production seam — so it is verified by inspection against gcFilter's reclamation condition
+// (littblock's gcFilter clears a key only once the watermark exceeds its number).
 func TestLittblockIteratorMissingStartQCIsCorruption(t *testing.T) {
 	rng := utils.TestRngFromSeed(24)
 	db, err := NewBlockDB(strandingConfig(t, t.TempDir(), 1<<20))
@@ -159,6 +166,8 @@ func TestLittblockIteratorMissingStartQCIsCorruption(t *testing.T) {
 	_, err = db.Iterator(5)
 	require.Error(t, err, "a missing start QC inside claimed coverage must not fall back to a full scan")
 	require.Contains(t, err.Error(), "corrupt store")
+	require.NotErrorIs(t, err, types.ErrPruned,
+		"the floor is at or below start, so this is corruption and must not be excused as pruning")
 }
 
 // TestLittblockIteratorDoesNotServeBlockBelowCoverage pins the start-clamp boundary for a block
