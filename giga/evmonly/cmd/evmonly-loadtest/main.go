@@ -62,38 +62,39 @@ const (
 )
 
 type config struct {
-	blocks              uint64
-	txsPerBlock         int
-	queueSize           int
-	builders            int
-	prepareWorkers      int
-	workers             int
-	executorWorkers     int
-	targetBlocksPerSec  float64
-	reportInterval      time.Duration
-	metricsAddr         string
-	resultSink          string
-	resultPoolSize      int
-	persistDir          string
-	persistSync         bool
-	persistBufferSize   int
-	persistQueueSize    int
-	cpuProfile          string
-	heapProfile         string
-	traceProfile        string
-	workload            string
-	chainID             *big.Int
-	gasPrice            *big.Int
-	minGasPrice         *big.Int
-	senderBalance       *big.Int
-	transferValue       *big.Int
-	txGasLimit          uint64
-	blockGasLimit       uint64
-	coinbase            common.Address
-	erc20Contract       common.Address
-	fixedRecipient      *common.Address
-	disableGasPriceRule bool
-	prebuildBlocks      bool
+	blocks                uint64
+	txsPerBlock           int
+	queueSize             int
+	builders              int
+	prepareWorkers        int
+	workers               int
+	executorWorkers       int
+	targetBlocksPerSec    float64
+	reportInterval        time.Duration
+	metricsAddr           string
+	resultSink            string
+	resultPoolSize        int
+	persistDir            string
+	persistSync           bool
+	persistBufferSize     int
+	persistQueueSize      int
+	cpuProfile            string
+	heapProfile           string
+	traceProfile          string
+	workload              string
+	chainID               *big.Int
+	gasPrice              *big.Int
+	minGasPrice           *big.Int
+	senderBalance         *big.Int
+	transferValue         *big.Int
+	txGasLimit            uint64
+	blockGasLimit         uint64
+	coinbase              common.Address
+	erc20Contract         common.Address
+	fixedRecipient        *common.Address
+	recipientConflictRate float64
+	disableGasPriceRule   bool
+	prebuildBlocks        bool
 }
 
 type blockEnvelope struct {
@@ -131,6 +132,7 @@ func parseConfig(args []string) (config, error) {
 	coinbase := fs.String("coinbase", defaultCoinbaseAddress, "block coinbase address")
 	erc20Contract := fs.String("erc20-contract", defaultERC20Contract, "EVM address for the generated ERC20 transfer contract")
 	recipient := fs.String("recipient", "", "optional fixed transfer recipient; empty creates one recipient per tx")
+	fs.Float64Var(&cfg.recipientConflictRate, "recipient-conflict-rate", 0, "fraction [0,1] of transactions per block paired onto shared recipients; 0 keeps recipients unique")
 
 	fs.Uint64Var(&cfg.blocks, "blocks", 0, "number of blocks to feed; 0 runs until interrupted")
 	fs.IntVar(&cfg.txsPerBlock, "txs-per-block", defaultTxsPerBlock, "transactions generated per block")
@@ -224,6 +226,12 @@ func parseConfig(args []string) (config, error) {
 	}
 	if cfg.targetBlocksPerSec < 0 {
 		return config{}, fmt.Errorf("target-blocks-per-sec must be non-negative")
+	}
+	if cfg.recipientConflictRate < 0 || cfg.recipientConflictRate > 1 {
+		return config{}, fmt.Errorf("recipient-conflict-rate must be between 0 and 1")
+	}
+	if cfg.fixedRecipient != nil && cfg.recipientConflictRate != 0 {
+		return config{}, fmt.Errorf("recipient cannot be combined with recipient-conflict-rate")
 	}
 	if cfg.reportInterval < 0 {
 		return config{}, fmt.Errorf("report-interval must be non-negative")
@@ -870,17 +878,19 @@ func executeBlocks(
 }
 
 type transferWorkload struct {
-	cfg           config
-	state         *generatedState
-	signer        ethtypes.Signer
-	accountCursor atomic.Uint64
+	cfg                  config
+	state                *generatedState
+	signer               ethtypes.Signer
+	conflictParticipants int
+	accountCursor        atomic.Uint64
 }
 
 func newTransferWorkload(cfg config, state *generatedState) *transferWorkload {
 	return &transferWorkload{
-		cfg:    cfg,
-		state:  state,
-		signer: ethtypes.LatestSignerForChainID(cfg.chainID),
+		cfg:                  cfg,
+		state:                state,
+		signer:               ethtypes.LatestSignerForChainID(cfg.chainID),
+		conflictParticipants: recipientConflictParticipants(cfg.txsPerBlock, cfg.recipientConflictRate),
 	}
 }
 
@@ -893,7 +903,8 @@ func (w *transferWorkload) buildBlock(ctx context.Context, number uint64) (evmon
 		default:
 		}
 		accountIndex := w.accountCursor.Add(1)
-		raw, sender, err := w.buildTransferTx(accountIndex)
+		recipient := w.recipient(number, i, accountIndex)
+		raw, sender, err := w.buildTransferTx(accountIndex, recipient)
 		if err != nil {
 			return evmonly.BlockRequest{}, err
 		}
@@ -906,13 +917,12 @@ func (w *transferWorkload) buildBlock(ctx context.Context, number uint64) (evmon
 	}, nil
 }
 
-func (w *transferWorkload) buildTransferTx(accountIndex uint64) ([]byte, common.Address, error) {
+func (w *transferWorkload) buildTransferTx(accountIndex uint64, recipient common.Address) ([]byte, common.Address, error) {
 	key, err := deterministicPrivateKey(accountIndex)
 	if err != nil {
 		return nil, common.Address{}, err
 	}
 	sender := crypto.PubkeyToAddress(key.PublicKey)
-	recipient := w.recipient(accountIndex)
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: new(big.Int).Set(w.cfg.gasPrice),
@@ -931,18 +941,16 @@ func (w *transferWorkload) buildTransferTx(accountIndex uint64) ([]byte, common.
 	return raw, sender, nil
 }
 
-func (w *transferWorkload) recipient(accountIndex uint64) common.Address {
-	if w.cfg.fixedRecipient != nil {
-		return *w.cfg.fixedRecipient
-	}
-	return addressFromSeed("sei-evmonly-loadtest-recipient", accountIndex)
+func (w *transferWorkload) recipient(blockNumber uint64, txIndex int, accountIndex uint64) common.Address {
+	return workloadRecipient(w.cfg, w.conflictParticipants, "sei-evmonly-loadtest-recipient", "sei-evmonly-loadtest-conflict-recipient", blockNumber, txIndex, accountIndex)
 }
 
 type erc20TransferWorkload struct {
-	cfg           config
-	state         *generatedState
-	signer        ethtypes.Signer
-	accountCursor atomic.Uint64
+	cfg                  config
+	state                *generatedState
+	signer               ethtypes.Signer
+	conflictParticipants int
+	accountCursor        atomic.Uint64
 }
 
 var (
@@ -955,9 +963,10 @@ var (
 func newERC20TransferWorkload(cfg config, state *generatedState) *erc20TransferWorkload {
 	state.SetCode(cfg.erc20Contract, erc20TransferRuntimeCode)
 	return &erc20TransferWorkload{
-		cfg:    cfg,
-		state:  state,
-		signer: ethtypes.LatestSignerForChainID(cfg.chainID),
+		cfg:                  cfg,
+		state:                state,
+		signer:               ethtypes.LatestSignerForChainID(cfg.chainID),
+		conflictParticipants: recipientConflictParticipants(cfg.txsPerBlock, cfg.recipientConflictRate),
 	}
 }
 
@@ -970,7 +979,8 @@ func (w *erc20TransferWorkload) buildBlock(ctx context.Context, number uint64) (
 		default:
 		}
 		accountIndex := w.accountCursor.Add(1)
-		raw, sender, err := w.buildTransferTx(accountIndex)
+		recipient := w.recipient(number, i, accountIndex)
+		raw, sender, err := w.buildTransferTx(accountIndex, recipient)
 		if err != nil {
 			return evmonly.BlockRequest{}, err
 		}
@@ -984,13 +994,12 @@ func (w *erc20TransferWorkload) buildBlock(ctx context.Context, number uint64) (
 	}, nil
 }
 
-func (w *erc20TransferWorkload) buildTransferTx(accountIndex uint64) ([]byte, common.Address, error) {
+func (w *erc20TransferWorkload) buildTransferTx(accountIndex uint64, recipient common.Address) ([]byte, common.Address, error) {
 	key, err := deterministicPrivateKey(accountIndex)
 	if err != nil {
 		return nil, common.Address{}, err
 	}
 	sender := crypto.PubkeyToAddress(key.PublicKey)
-	recipient := w.recipient(accountIndex)
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: new(big.Int).Set(w.cfg.gasPrice),
@@ -1010,11 +1019,8 @@ func (w *erc20TransferWorkload) buildTransferTx(accountIndex uint64) ([]byte, co
 	return raw, sender, nil
 }
 
-func (w *erc20TransferWorkload) recipient(accountIndex uint64) common.Address {
-	if w.cfg.fixedRecipient != nil {
-		return *w.cfg.fixedRecipient
-	}
-	return addressFromSeed("sei-evmonly-loadtest-erc20-recipient", accountIndex)
+func (w *erc20TransferWorkload) recipient(blockNumber uint64, txIndex int, accountIndex uint64) common.Address {
+	return workloadRecipient(w.cfg, w.conflictParticipants, "sei-evmonly-loadtest-erc20-recipient", "sei-evmonly-loadtest-erc20-conflict-recipient", blockNumber, txIndex, accountIndex)
 }
 
 func erc20TransferCalldata(recipient common.Address, amount *big.Int) []byte {
@@ -1029,6 +1035,43 @@ func erc20BalanceSlot(owner common.Address) common.Hash {
 	var encoded [64]byte
 	copy(encoded[12:32], owner.Bytes())
 	return crypto.Keccak256Hash(encoded[:])
+}
+
+func workloadRecipient(cfg config, conflictParticipants int, uniquePrefix string, conflictPrefix string, blockNumber uint64, txIndex int, accountIndex uint64) common.Address {
+	if cfg.fixedRecipient != nil {
+		return *cfg.fixedRecipient
+	}
+	if txIndex < conflictParticipants {
+		return blockScopedAddressFromSeed(conflictPrefix, blockNumber, uint64(txIndex/2))
+	}
+	return addressFromSeed(uniquePrefix, accountIndex)
+}
+
+func recipientConflictParticipants(txsPerBlock int, rate float64) int {
+	if rate <= 0 || txsPerBlock < 2 {
+		return 0
+	}
+	if rate >= 1 {
+		if txsPerBlock%2 == 0 {
+			return txsPerBlock
+		}
+		return txsPerBlock - 1
+	}
+	count := int(math.Round(rate * float64(txsPerBlock)))
+	if count < 2 {
+		count = 2
+	}
+	if count > txsPerBlock {
+		count = txsPerBlock
+	}
+	if count%2 != 0 {
+		if count == txsPerBlock {
+			count--
+		} else {
+			count++
+		}
+	}
+	return count
 }
 
 func blockContext(cfg config, number uint64) evmonly.BlockContext {
@@ -1064,6 +1107,14 @@ func deterministicPrivateKey(index uint64) (*ecdsa.PrivateKey, error) {
 
 func addressFromSeed(prefix string, index uint64) common.Address {
 	hash := hashFromSeed(prefix, index)
+	return common.BytesToAddress(hash[12:])
+}
+
+func blockScopedAddressFromSeed(prefix string, blockNumber uint64, index uint64) common.Address {
+	var buf [16]byte
+	binary.BigEndian.PutUint64(buf[:8], blockNumber)
+	binary.BigEndian.PutUint64(buf[8:], index)
+	hash := crypto.Keccak256Hash([]byte(prefix), buf[:])
 	return common.BytesToAddress(hash[12:])
 }
 

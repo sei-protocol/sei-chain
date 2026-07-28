@@ -98,10 +98,48 @@ func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 		key, err := deterministicPrivateKey(i)
 		require.NoError(t, err)
 		sender := crypto.PubkeyToAddress(key.PublicKey)
-		recipient := transferWorkload.recipient(i)
+		recipient := transferWorkload.recipient(1, int(i-1), i)
 		require.Equal(t, common.Hash{}, state.GetState(cfg.erc20Contract, erc20BalanceSlot(sender)))
 		require.Equal(t, common.BigToHash(cfg.transferValue), state.GetState(cfg.erc20Contract, erc20BalanceSlot(recipient)))
 	}
+}
+
+func TestTransferWorkloadRecipientConflictRate(t *testing.T) {
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--txs-per-block=4",
+		"--recipient-conflict-rate=0.5",
+		"--gas-price-wei=0",
+		"--min-gas-price-wei=0",
+	})
+	require.NoError(t, err)
+
+	state := newGeneratedState()
+	workload := newTransferWorkload(cfg, state)
+	request, err := workload.buildBlock(context.Background(), 1)
+	require.NoError(t, err)
+
+	executor := evmonly.NewExecutor(evmonly.Config{
+		MinGasPrice: cfg.minGasPrice,
+		OCCWorkers:  4,
+	}, evmonly.WithState(state))
+	result, err := executor.ExecuteBlock(context.Background(), request)
+	require.NoError(t, err)
+	require.True(t, result.OCCStats.Attempted)
+	require.False(t, result.OCCStats.Fallback)
+	require.Greater(t, result.OCCStats.ConflictCount, uint64(0))
+	require.Greater(t, result.OCCStats.RerunCount, uint64(0))
+
+	conflictRecipient := workload.recipient(1, 0, 1)
+	require.Equal(t, conflictRecipient, workload.recipient(1, 1, 2))
+	require.NotEqual(t, conflictRecipient, workload.recipient(1, 2, 3))
+	require.NotEqual(t, workload.recipient(1, 2, 3), workload.recipient(1, 3, 4))
+
+	applyGeneratedStateChangeSet(state, result.ChangeSet)
+	twoTransfers := new(big.Int).Mul(cfg.transferValue, big.NewInt(2))
+	require.Equal(t, twoTransfers, state.GetBalance(conflictRecipient))
+	require.Equal(t, cfg.transferValue, state.GetBalance(workload.recipient(1, 2, 3)))
+	require.Equal(t, cfg.transferValue, state.GetBalance(workload.recipient(1, 3, 4)))
 }
 
 func applyGeneratedStateChangeSet(state *generatedState, changeSet evmonly.StateChangeSet) {
@@ -132,6 +170,19 @@ func TestPrebuildBlocksRequiresBoundedRun(t *testing.T) {
 		"--prebuild-blocks",
 	})
 	require.ErrorContains(t, err, "prebuild-blocks requires --blocks > 0")
+}
+
+func TestRecipientConflictRateValidation(t *testing.T) {
+	_, err := parseConfig([]string{
+		"--recipient-conflict-rate=1.1",
+	})
+	require.ErrorContains(t, err, "recipient-conflict-rate must be between 0 and 1")
+
+	_, err = parseConfig([]string{
+		"--recipient=0x0000000000000000000000000000000000000001",
+		"--recipient-conflict-rate=0.5",
+	})
+	require.ErrorContains(t, err, "recipient cannot be combined with recipient-conflict-rate")
 }
 
 func TestRunPrebuiltBlocks(t *testing.T) {

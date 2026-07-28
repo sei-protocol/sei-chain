@@ -7,7 +7,9 @@ It currently generates pure EVM legacy transfer transactions and ERC20 transfer
 transactions. Each generated sender account has exactly one nonce-0 transaction
 and is funded in the command's in-memory genesis state before its block is
 queued. Recipients are unique by default so the workloads exercise the optimistic
-no-overlap case; pass `--recipient=0x...` to force a single recipient.
+no-overlap case. Pass `--recipient-conflict-rate=<0..1>` to pair that fraction
+of each block's transactions onto shared recipients, or pass `--recipient=0x...`
+to force all transactions to a single recipient.
 
 Run a bounded test:
 
@@ -35,6 +37,22 @@ go run ./giga/evmonly/cmd/evmonly-loadtest \
   --gas-price-wei=0 \
   --min-gas-price-wei=0 \
   --queue-size=512
+```
+
+Example conflict run:
+
+```bash
+go run ./giga/evmonly/cmd/evmonly-loadtest \
+  --metrics-addr= \
+  --report-interval=5s \
+  --blocks=400 \
+  --txs-per-block=5000 \
+  --builders=16 \
+  --workers=1 \
+  --executor-workers=12 \
+  --gas-price-wei=0 \
+  --min-gas-price-wei=0 \
+  --recipient-conflict-rate=0.10
 ```
 
 To isolate executor throughput from block generation, prebuild a bounded run
@@ -85,6 +103,9 @@ Useful knobs:
 - `--report-interval`: stdout rate reporting interval. The default is `5s`.
 - `--gas-price-wei`, `--min-gas-price-wei`, `--sender-balance-wei`,
   `--transfer-value-wei`: transaction economics for the generated accounts.
+- `--recipient-conflict-rate`: fraction of each block's transactions that are
+  paired onto shared recipients; `0` keeps recipients unique and `1` pairs all
+  possible transactions.
 - `--workload`: workload type, either `transfer` or `erc20-transfer`.
 
 The command reports these saturation signals on stdout and at `/metrics`:
