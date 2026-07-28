@@ -3,13 +3,15 @@
 `evmonly-loadtest` is a standalone executable for feeding synthetic blocks to
 the EVM-only executor without Cosmos SDK state, mempool, RPC, or persistence.
 
-It currently generates pure EVM legacy transfer transactions and ERC20 transfer
-transactions. Each generated sender account has exactly one nonce-0 transaction
-and is funded in the command's in-memory genesis state before its block is
-queued. Recipients are unique by default so the workloads exercise the optimistic
-no-overlap case. Pass `--recipient-conflict-rate=<0..1>` to pair that fraction
-of each block's transactions onto shared recipients, or pass `--recipient=0x...`
-to force all transactions to a single recipient.
+It currently generates pure EVM legacy transfer transactions, ERC20 transfer
+transactions, and a contract-call workload that exercises nested StateDB
+snapshot/revert behavior. Each generated sender account has exactly one nonce-0
+transaction and is funded in the command's in-memory genesis state before its
+block is queued. Recipients are unique by default so the transfer workloads
+exercise the optimistic no-overlap case. Pass
+`--recipient-conflict-rate=<0..1>` to pair that fraction of each block's
+transactions onto shared recipients, or pass `--recipient=0x...` to force all
+transactions to a single recipient.
 
 Run a bounded test:
 
@@ -53,6 +55,22 @@ go run ./giga/evmonly/cmd/evmonly-loadtest \
   --gas-price-wei=0 \
   --min-gas-price-wei=0 \
   --recipient-conflict-rate=0.10
+```
+
+Example snapshot/revert contract-call run:
+
+```bash
+go run ./giga/evmonly/cmd/evmonly-loadtest \
+  --metrics-addr= \
+  --report-interval=5s \
+  --workload=snapshot-revert \
+  --blocks=400 \
+  --txs-per-block=5000 \
+  --builders=16 \
+  --workers=1 \
+  --executor-workers=12 \
+  --gas-price-wei=0 \
+  --min-gas-price-wei=0
 ```
 
 To isolate executor throughput from block generation, prebuild a bounded run
@@ -106,7 +124,10 @@ Useful knobs:
 - `--recipient-conflict-rate`: fraction of each block's transactions that are
   paired onto shared recipients; `0` keeps recipients unique and `1` pairs all
   possible transactions.
-- `--workload`: workload type, either `transfer` or `erc20-transfer`.
+- `--workload`: workload type, either `transfer`, `erc20-transfer`, or
+  `snapshot-revert`.
+- `--snapshot-revert-contract`, `--snapshot-revert-helper`: generated contract
+  addresses used by `--workload=snapshot-revert`.
 
 The command reports these saturation signals on stdout and at `/metrics`:
 
@@ -126,6 +147,6 @@ The executor output is intentionally discarded through mocks:
   executor `StateChangeSet`.
 - `discardReceiptSink` sinks Ethereum receipts.
 
-Future workloads should add another workload builder beside `transferWorkload`
-and `erc20TransferWorkload`, then reuse the same block
-producer/prepare/executor/metrics pipeline.
+Future workloads should add another workload builder beside `transferWorkload`,
+`erc20TransferWorkload`, and `snapshotRevertWorkload`, then reuse the same
+block producer/prepare/executor/metrics pipeline.

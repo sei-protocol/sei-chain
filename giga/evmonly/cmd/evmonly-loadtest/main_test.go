@@ -104,6 +104,58 @@ func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	}
 }
 
+func TestSnapshotRevertWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--workload=snapshot-revert",
+		"--txs-per-block=4",
+		"--gas-price-wei=0",
+		"--min-gas-price-wei=0",
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(defaultSnapshotRevertTxGasLimit), cfg.txGasLimit)
+
+	state := newGeneratedState()
+	workload, err := newWorkload(cfg, state)
+	require.NoError(t, err)
+	request, err := workload.buildBlock(context.Background(), 1)
+	require.NoError(t, err)
+
+	executor := evmonly.NewExecutor(evmonly.Config{
+		MinGasPrice: cfg.minGasPrice,
+		OCCWorkers:  4,
+	}, evmonly.WithState(state))
+	result, err := executor.ExecuteBlock(context.Background(), request)
+	require.NoError(t, err)
+
+	require.Len(t, result.Txs, cfg.txsPerBlock)
+	require.Len(t, result.Receipts, cfg.txsPerBlock)
+	require.True(t, result.OCCStats.Attempted)
+	require.False(t, result.OCCStats.Fallback)
+	require.Zero(t, result.OCCStats.ConflictCount)
+	for _, tx := range result.Txs {
+		require.Equal(t, ethtypes.ReceiptStatusSuccessful, tx.Status)
+		require.NoError(t, tx.Err)
+		require.Greater(t, tx.GasUsed, uint64(21_000))
+	}
+
+	require.Len(t, result.ChangeSet.Storage, cfg.txsPerBlock)
+	for _, change := range result.ChangeSet.Storage {
+		require.Equal(t, cfg.snapshotRevertContract, change.Address)
+		require.Equal(t, common.BigToHash(big.NewInt(1)), change.Value)
+	}
+
+	applyGeneratedStateChangeSet(state, result.ChangeSet)
+	for i := uint64(1); i <= uint64(cfg.txsPerBlock); i++ {
+		key, err := deterministicPrivateKey(i)
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		slot := snapshotRevertStorageSlot(sender)
+		require.Equal(t, common.BigToHash(big.NewInt(1)), state.GetState(cfg.snapshotRevertContract, slot))
+		require.Equal(t, common.Hash{}, state.GetState(cfg.snapshotRevertHelper, slot))
+	}
+}
+
 func TestTransferWorkloadRecipientConflictRate(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
@@ -183,6 +235,27 @@ func TestRecipientConflictRateValidation(t *testing.T) {
 		"--recipient-conflict-rate=0.5",
 	})
 	require.ErrorContains(t, err, "recipient cannot be combined with recipient-conflict-rate")
+}
+
+func TestSnapshotRevertValidation(t *testing.T) {
+	_, err := parseConfig([]string{
+		"--workload=snapshot-revert",
+		"--recipient=0x0000000000000000000000000000000000000001",
+	})
+	require.ErrorContains(t, err, "recipient is not supported with snapshot-revert workload")
+
+	_, err = parseConfig([]string{
+		"--workload=snapshot-revert",
+		"--recipient-conflict-rate=0.5",
+	})
+	require.ErrorContains(t, err, "recipient-conflict-rate is not supported with snapshot-revert workload")
+
+	_, err = parseConfig([]string{
+		"--workload=snapshot-revert",
+		"--snapshot-revert-contract=0x0000000000000000000000000000000000000001",
+		"--snapshot-revert-helper=0x0000000000000000000000000000000000000001",
+	})
+	require.ErrorContains(t, err, "snapshot-revert-contract and snapshot-revert-helper must differ")
 }
 
 func TestRunPrebuiltBlocks(t *testing.T) {

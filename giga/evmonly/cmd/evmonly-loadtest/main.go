@@ -37,64 +37,70 @@ import (
 )
 
 const (
-	defaultChainID         = "713715"
-	defaultGasPriceWei     = "1000000000"
-	defaultMinGasPriceWei  = "1000000000"
-	defaultSenderBalance   = "1000000000000000000"
-	defaultTransferValue   = "1"
-	defaultERC20Contract   = "0x000000000000000000000000000000000000e20c"
-	defaultMetricsAddr     = "127.0.0.1:9698"
-	defaultReportInterval  = 5 * time.Second
-	defaultQueueSize       = 64
-	defaultTxGasLimit      = 21_000
-	defaultERC20TxGasLimit = 100_000
-	defaultTxsPerBlock     = 1_000
-	defaultPersistBuffer   = 4 << 20
-	defaultWorkerCount     = 1
-	defaultCoinbaseAddress = "0x00000000000000000000000000000000000000cb"
-	workloadTransfer       = "transfer"
-	workloadERC20Transfer  = "erc20-transfer"
-	resultSinkDiscard      = "discard"
-	resultSinkFile         = "file"
-	resultSinkBlock        = "block"
-	resultSinkChangeSet    = "changeset"
-	resultSinkReceipts     = "receipts"
+	defaultChainID                  = "713715"
+	defaultGasPriceWei              = "1000000000"
+	defaultMinGasPriceWei           = "1000000000"
+	defaultSenderBalance            = "1000000000000000000"
+	defaultTransferValue            = "1"
+	defaultERC20Contract            = "0x000000000000000000000000000000000000e20c"
+	defaultSnapshotRevertContract   = "0x0000000000000000000000000000000000005a90"
+	defaultSnapshotRevertHelper     = "0x0000000000000000000000000000000000005a91"
+	defaultMetricsAddr              = "127.0.0.1:9698"
+	defaultReportInterval           = 5 * time.Second
+	defaultQueueSize                = 64
+	defaultTxGasLimit               = 21_000
+	defaultERC20TxGasLimit          = 100_000
+	defaultSnapshotRevertTxGasLimit = 100_000
+	defaultTxsPerBlock              = 1_000
+	defaultPersistBuffer            = 4 << 20
+	defaultWorkerCount              = 1
+	defaultCoinbaseAddress          = "0x00000000000000000000000000000000000000cb"
+	workloadTransfer                = "transfer"
+	workloadERC20Transfer           = "erc20-transfer"
+	workloadSnapshotRevert          = "snapshot-revert"
+	resultSinkDiscard               = "discard"
+	resultSinkFile                  = "file"
+	resultSinkBlock                 = "block"
+	resultSinkChangeSet             = "changeset"
+	resultSinkReceipts              = "receipts"
 )
 
 type config struct {
-	blocks                uint64
-	txsPerBlock           int
-	queueSize             int
-	builders              int
-	prepareWorkers        int
-	workers               int
-	executorWorkers       int
-	targetBlocksPerSec    float64
-	reportInterval        time.Duration
-	metricsAddr           string
-	resultSink            string
-	resultPoolSize        int
-	persistDir            string
-	persistSync           bool
-	persistBufferSize     int
-	persistQueueSize      int
-	cpuProfile            string
-	heapProfile           string
-	traceProfile          string
-	workload              string
-	chainID               *big.Int
-	gasPrice              *big.Int
-	minGasPrice           *big.Int
-	senderBalance         *big.Int
-	transferValue         *big.Int
-	txGasLimit            uint64
-	blockGasLimit         uint64
-	coinbase              common.Address
-	erc20Contract         common.Address
-	fixedRecipient        *common.Address
-	recipientConflictRate float64
-	disableGasPriceRule   bool
-	prebuildBlocks        bool
+	blocks                 uint64
+	txsPerBlock            int
+	queueSize              int
+	builders               int
+	prepareWorkers         int
+	workers                int
+	executorWorkers        int
+	targetBlocksPerSec     float64
+	reportInterval         time.Duration
+	metricsAddr            string
+	resultSink             string
+	resultPoolSize         int
+	persistDir             string
+	persistSync            bool
+	persistBufferSize      int
+	persistQueueSize       int
+	cpuProfile             string
+	heapProfile            string
+	traceProfile           string
+	workload               string
+	chainID                *big.Int
+	gasPrice               *big.Int
+	minGasPrice            *big.Int
+	senderBalance          *big.Int
+	transferValue          *big.Int
+	txGasLimit             uint64
+	blockGasLimit          uint64
+	coinbase               common.Address
+	erc20Contract          common.Address
+	snapshotRevertContract common.Address
+	snapshotRevertHelper   common.Address
+	fixedRecipient         *common.Address
+	recipientConflictRate  float64
+	disableGasPriceRule    bool
+	prebuildBlocks         bool
 }
 
 type blockEnvelope struct {
@@ -131,6 +137,8 @@ func parseConfig(args []string) (config, error) {
 	transferValue := fs.String("transfer-value-wei", defaultTransferValue, "wei or token units transferred by each generated transaction")
 	coinbase := fs.String("coinbase", defaultCoinbaseAddress, "block coinbase address")
 	erc20Contract := fs.String("erc20-contract", defaultERC20Contract, "EVM address for the generated ERC20 transfer contract")
+	snapshotRevertContract := fs.String("snapshot-revert-contract", defaultSnapshotRevertContract, "EVM address for the generated snapshot-revert outer contract")
+	snapshotRevertHelper := fs.String("snapshot-revert-helper", defaultSnapshotRevertHelper, "EVM address for the generated snapshot-revert helper contract")
 	recipient := fs.String("recipient", "", "optional fixed transfer recipient; empty creates one recipient per tx")
 	fs.Float64Var(&cfg.recipientConflictRate, "recipient-conflict-rate", 0, "fraction [0,1] of transactions per block paired onto shared recipients; 0 keeps recipients unique")
 
@@ -153,7 +161,7 @@ func parseConfig(args []string) (config, error) {
 	fs.StringVar(&cfg.cpuProfile, "cpu-profile", "", "write Go CPU profile to this file; starts after prebuild when --prebuild-blocks is set")
 	fs.StringVar(&cfg.heapProfile, "heap-profile", "", "write Go heap profile to this file after execution")
 	fs.StringVar(&cfg.traceProfile, "trace-profile", "", "write Go runtime trace to this file; starts after prebuild when --prebuild-blocks is set")
-	fs.StringVar(&cfg.workload, "workload", workloadTransfer, "workload type: transfer or erc20-transfer")
+	fs.StringVar(&cfg.workload, "workload", workloadTransfer, "workload type: transfer, erc20-transfer, or snapshot-revert")
 	fs.Uint64Var(&cfg.txGasLimit, "tx-gas-limit", defaultTxGasLimit, "gas limit for each generated transaction")
 	fs.Uint64Var(&cfg.blockGasLimit, "block-gas-limit", 0, "block gas limit; 0 lets the executor use its maximum")
 	fs.BoolVar(&cfg.disableGasPriceRule, "disable-gas-price-rule", false, "disable the executor min-gas-price validity rule")
@@ -193,8 +201,16 @@ func parseConfig(args []string) (config, error) {
 		return config{}, fmt.Errorf("erc20-contract must be a hex EVM address")
 	}
 	cfg.erc20Contract = common.HexToAddress(*erc20Contract)
+	if !common.IsHexAddress(*snapshotRevertContract) {
+		return config{}, fmt.Errorf("snapshot-revert-contract must be a hex EVM address")
+	}
+	cfg.snapshotRevertContract = common.HexToAddress(*snapshotRevertContract)
+	if !common.IsHexAddress(*snapshotRevertHelper) {
+		return config{}, fmt.Errorf("snapshot-revert-helper must be a hex EVM address")
+	}
+	cfg.snapshotRevertHelper = common.HexToAddress(*snapshotRevertHelper)
 	cfg.workload = strings.ToLower(strings.TrimSpace(cfg.workload))
-	if cfg.workload != workloadTransfer && cfg.workload != workloadERC20Transfer {
+	if cfg.workload != workloadTransfer && cfg.workload != workloadERC20Transfer && cfg.workload != workloadSnapshotRevert {
 		return config{}, fmt.Errorf("unsupported workload %q", cfg.workload)
 	}
 	txGasLimitSet := false
@@ -205,6 +221,9 @@ func parseConfig(args []string) (config, error) {
 	})
 	if cfg.workload == workloadERC20Transfer && !txGasLimitSet {
 		cfg.txGasLimit = defaultERC20TxGasLimit
+	}
+	if cfg.workload == workloadSnapshotRevert && !txGasLimitSet {
+		cfg.txGasLimit = defaultSnapshotRevertTxGasLimit
 	}
 	if cfg.txsPerBlock <= 0 {
 		return config{}, fmt.Errorf("txs-per-block must be positive")
@@ -232,6 +251,15 @@ func parseConfig(args []string) (config, error) {
 	}
 	if cfg.fixedRecipient != nil && cfg.recipientConflictRate != 0 {
 		return config{}, fmt.Errorf("recipient cannot be combined with recipient-conflict-rate")
+	}
+	if cfg.workload == workloadSnapshotRevert && cfg.fixedRecipient != nil {
+		return config{}, fmt.Errorf("recipient is not supported with snapshot-revert workload")
+	}
+	if cfg.workload == workloadSnapshotRevert && cfg.recipientConflictRate != 0 {
+		return config{}, fmt.Errorf("recipient-conflict-rate is not supported with snapshot-revert workload")
+	}
+	if cfg.workload == workloadSnapshotRevert && cfg.snapshotRevertContract == cfg.snapshotRevertHelper {
+		return config{}, fmt.Errorf("snapshot-revert-contract and snapshot-revert-helper must differ")
 	}
 	if cfg.reportInterval < 0 {
 		return config{}, fmt.Errorf("report-interval must be non-negative")
@@ -520,6 +548,8 @@ func newWorkload(cfg config, state *generatedState) (blockWorkload, error) {
 		return newTransferWorkload(cfg, state), nil
 	case workloadERC20Transfer:
 		return newERC20TransferWorkload(cfg, state), nil
+	case workloadSnapshotRevert:
+		return newSnapshotRevertWorkload(cfg, state), nil
 	default:
 		return nil, fmt.Errorf("unsupported workload %q", cfg.workload)
 	}
@@ -1023,6 +1053,80 @@ func (w *erc20TransferWorkload) recipient(blockNumber uint64, txIndex int, accou
 	return workloadRecipient(w.cfg, w.conflictParticipants, "sei-evmonly-loadtest-erc20-recipient", "sei-evmonly-loadtest-erc20-conflict-recipient", blockNumber, txIndex, accountIndex)
 }
 
+type snapshotRevertWorkload struct {
+	cfg           config
+	state         *generatedState
+	signer        ethtypes.Signer
+	accountCursor atomic.Uint64
+}
+
+var (
+	// The outer runtime stores 1 at storage[CALLER], delegatecalls the helper
+	// address encoded in calldata, ignores the helper's reverted status, and
+	// returns successfully.
+	snapshotRevertOuterRuntimeCode = common.FromHex("0x6001335560006000600060006000355af450600160005260206000f3")
+	// The helper runtime runs under DELEGATECALL, overwrites storage[CALLER]
+	// with 2 in the outer storage context, then executes REVERT.
+	snapshotRevertHelperRuntimeCode = common.FromHex("0x6002335560006000fd")
+)
+
+func newSnapshotRevertWorkload(cfg config, state *generatedState) *snapshotRevertWorkload {
+	state.SetCode(cfg.snapshotRevertContract, snapshotRevertOuterRuntimeCode)
+	state.SetCode(cfg.snapshotRevertHelper, snapshotRevertHelperRuntimeCode)
+	return &snapshotRevertWorkload{
+		cfg:    cfg,
+		state:  state,
+		signer: ethtypes.LatestSignerForChainID(cfg.chainID),
+	}
+}
+
+func (w *snapshotRevertWorkload) buildBlock(ctx context.Context, number uint64) (evmonly.BlockRequest, error) {
+	txs := make([][]byte, w.cfg.txsPerBlock)
+	for i := 0; i < w.cfg.txsPerBlock; i++ {
+		select {
+		case <-ctx.Done():
+			return evmonly.BlockRequest{}, ctx.Err()
+		default:
+		}
+		accountIndex := w.accountCursor.Add(1)
+		raw, sender, err := w.buildCallTx(accountIndex)
+		if err != nil {
+			return evmonly.BlockRequest{}, err
+		}
+		w.state.SetBalance(sender, w.cfg.senderBalance)
+		txs[i] = raw
+	}
+	return evmonly.BlockRequest{
+		Context: blockContext(w.cfg, number),
+		Txs:     txs,
+	}, nil
+}
+
+func (w *snapshotRevertWorkload) buildCallTx(accountIndex uint64) ([]byte, common.Address, error) {
+	key, err := deterministicPrivateKey(accountIndex)
+	if err != nil {
+		return nil, common.Address{}, err
+	}
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    0,
+		GasPrice: new(big.Int).Set(w.cfg.gasPrice),
+		Gas:      w.cfg.txGasLimit,
+		To:       &w.cfg.snapshotRevertContract,
+		Value:    new(big.Int),
+		Data:     addressCalldata(w.cfg.snapshotRevertHelper),
+	})
+	signed, err := ethtypes.SignTx(tx, w.signer, key)
+	if err != nil {
+		return nil, common.Address{}, err
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		return nil, common.Address{}, err
+	}
+	return raw, sender, nil
+}
+
 func erc20TransferCalldata(recipient common.Address, amount *big.Int) []byte {
 	data := make([]byte, 4+32+32)
 	copy(data[:4], erc20TransferSelector[:])
@@ -1031,10 +1135,20 @@ func erc20TransferCalldata(recipient common.Address, amount *big.Int) []byte {
 	return data
 }
 
+func addressCalldata(addr common.Address) []byte {
+	data := make([]byte, 32)
+	copy(data[12:], addr.Bytes())
+	return data
+}
+
 func erc20BalanceSlot(owner common.Address) common.Hash {
 	var encoded [64]byte
 	copy(encoded[12:32], owner.Bytes())
 	return crypto.Keccak256Hash(encoded[:])
+}
+
+func snapshotRevertStorageSlot(sender common.Address) common.Hash {
+	return common.BytesToHash(sender.Bytes())
 }
 
 func workloadRecipient(cfg config, conflictParticipants int, uniquePrefix string, conflictPrefix string, blockNumber uint64, txIndex int, accountIndex uint64) common.Address {
