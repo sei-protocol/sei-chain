@@ -110,15 +110,33 @@ func TestClientConfigAutoCreatesWithEmptyChainID(t *testing.T) {
 	}
 
 	ctx := client.Context{}.WithHomeDir(home.Root).WithViper("SEI")
-	got, err := clientconfig.ReadFromClientConfig(ctx)
-	if err != nil {
-		t.Fatalf("ReadFromClientConfig must create the file rather than fail: %v", err)
-	}
+	got, readErr := clientconfig.ReadFromClientConfig(ctx)
+
+	// The file is written before the keyring is opened, so the creation this row is about is
+	// observable whether or not the keyring is. That separation matters: a freshly created
+	// client.toml names the "os" backend, and whether that opens depends on the machine, not
+	// on anything pinned here. Asserting on the returned context alone would let a keyring
+	// failure be reported as a failure to create the file, which is the same mixing
+	// FuzzClientConfigChainIDRoundTrip avoids by not calling this function at all.
 	if !home.Exists("client.toml") {
-		t.Fatal("ReadFromClientConfig must write client.toml when it is absent")
+		t.Fatalf("ReadFromClientConfig must write client.toml when it is absent (returned %v)", readErr)
 	}
-	if got.ChainID != "" {
-		t.Fatalf("a freshly created client.toml must carry an empty chain-id, got %q", got.ChainID)
+
+	// The chain-id comes from the created file, through the reader that does not build a
+	// keyring.
+	conf, err := clientconfig.GetClientConfig(home.ConfigDir(), ctx.Viper)
+	if err != nil {
+		t.Fatalf("GetClientConfig on the created file: %v", err)
+	}
+	if conf.ChainID != "" {
+		t.Fatalf("a freshly created client.toml must carry an empty chain-id, got %q", conf.ChainID)
+	}
+
+	// When the keyring did open, the context it returned has to agree with the file. This is
+	// the part that would otherwise go unchecked once the assertion moved off the context.
+	if readErr == nil && got.ChainID != conf.ChainID {
+		t.Fatalf("ReadFromClientConfig returned chain-id %q while the file it created holds %q",
+			got.ChainID, conf.ChainID)
 	}
 }
 

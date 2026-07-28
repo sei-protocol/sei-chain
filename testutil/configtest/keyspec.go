@@ -353,9 +353,14 @@ func leafAt(dump, path string) (string, bool) {
 // isLeafLine reports whether a rendered line describes path. It is shared by every
 // path-scoped operation so that reading, splicing and dropping a field cannot disagree
 // about which lines belong to it.
+//
+// Three shapes count as the field: its own "path = value" line, the indexed lines a slice
+// or map renders as, and the dotted lines a struct-valued field renders as. The last is
+// what lets an AlsoWrites entry name a whole sub-struct. The prefix is path+"." rather than
+// path, so a sibling named FooBar is not swallowed by a path of Foo.
 func isLeafLine(line, path string) bool {
 	return line == path+" = <nil>" || strings.HasPrefix(line, path+" = ") ||
-		strings.HasPrefix(line, path+"[")
+		strings.HasPrefix(line, path+"[") || strings.HasPrefix(line, path+".")
 }
 
 // leafOf renders a bare value the way Dump renders it at path, minus the path.

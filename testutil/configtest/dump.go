@@ -17,6 +17,18 @@ const maxDumpDepth = 24
 // int64 nanosecond count its Kind reports.
 var durationType = reflect.TypeOf(time.Duration(0))
 
+// mapKeyPath renders a map key for the emitted path. It uses %#v so a key's type survives
+// into the path, keeping the promise the rest of this file makes: the string "1" and the int
+// 1 are different keys and must not both render as path[1]. The ordering key above is
+// type-qualified for the same reason, and the two have to agree or a dump could sort by one
+// distinction and print another.
+func mapKeyPath(k reflect.Value) string {
+	if k.Kind() == reflect.Interface && !k.IsNil() {
+		k = k.Elem()
+	}
+	return fmt.Sprintf("%#v", k.Interface())
+}
+
 // mapKeyOrder renders a map key for ordering, qualified by its dynamic type so two keys
 // with the same text but different types cannot tie.
 func mapKeyOrder(k reflect.Value) string {
@@ -113,7 +125,7 @@ func dumpInto(path string, v reflect.Value, out *[]string, depth int) {
 			return
 		}
 		for _, k := range keys {
-			dumpInto(fmt.Sprintf("%s[%v]", path, k.Interface()), v.MapIndex(k), out, depth+1)
+			dumpInto(path+"["+mapKeyPath(k)+"]", v.MapIndex(k), out, depth+1)
 		}
 
 	case reflect.Slice, reflect.Array:

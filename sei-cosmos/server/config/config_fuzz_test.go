@@ -183,7 +183,16 @@ func FuzzGetConfigGRPCDurationClamps(f *testing.F) {
 		// and it belongs to this row because the file layer only ever produces the text.
 		var raw any = d
 		if asString {
-			raw = d.String()
+			// Only a spelling that parses back to the same duration is a faithful stand-in for
+			// the typed value. Duration.String has not always round-tripped at the int64
+			// boundary, and a spelling the parser rejects would resolve to zero and fail this
+			// row with a message about the clamp rather than about the encoding. Declining is
+			// the same move fuzzing.TOMLScalar makes for values with no faithful text form.
+			spelled := d.String()
+			if back, perr := time.ParseDuration(spelled); perr != nil || back != d {
+				return // no faithful text spelling; the typed shape already covers this value
+			}
+			raw = spelled
 		}
 
 		cfg, err := GetConfig(newAppViper(t, map[string]any{row.Key: raw}))

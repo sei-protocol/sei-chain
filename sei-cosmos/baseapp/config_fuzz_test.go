@@ -8,7 +8,11 @@ import (
 
 	"github.com/spf13/cast"
 
+	"reflect"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
@@ -214,12 +218,59 @@ func TestBaseAppUnknownArchivalDBTypeIsSilentlyIgnored(t *testing.T) {
 		t.Fatal("construction must succeed")
 	}
 
-	// And it is genuinely ignored: the resolved app is indistinguishable from one with
-	// no archival configuration at all.
+	// And it is genuinely ignored: the commit store must carry no archival wiring at all.
+	//
+	// Comparing ChainID proved nothing on its own, since both apps take it from the same
+	// fixture. The archival branch's only effect is to replace the commit multistore with one
+	// built by NewStoreWithArchival, so that is what has to be checked.
 	plain := newTestBaseApp(t, baseOpts())
+	if wired, version := archivalWiring(t, app.cms); wired || version != 0 {
+		t.Fatalf("an unknown archival-db-type produced an archival store (db wired=%v, version=%d). "+
+			"It must be ignored rather than partially wired, or a node names a backend that does "+
+			"not exist and silently gets archival behavior anyway", wired, version)
+	}
+	if wired, version := archivalWiring(t, plain.cms); wired || version != 0 {
+		t.Fatalf("the control app has archival wiring (db wired=%v, version=%d), so this row cannot "+
+			"tell the two apart", wired, version)
+	}
 	if app.ChainID != plain.ChainID {
 		t.Fatalf("unexpected divergence in chain-id: %q vs %q", app.ChainID, plain.ChainID)
 	}
+
+	// A positive control, so the reader above is known to detect wiring rather than to always
+	// report none. Without it the two assertions could both pass on a reader that never sees
+	// anything, which is the shape of the check this replaced.
+	archival := store.NewCommitMultiStoreWithArchival(dbm.NewMemDB(), dbm.NewMemDB(), 100)
+	if wired, version := archivalWiring(t, archival); !wired || version != 100 {
+		t.Fatalf("archivalWiring cannot see a store that is definitely archival (wired=%v, "+
+			"version=%d); the assertions above prove nothing until it can", wired, version)
+	}
+}
+
+// archivalWiring reports whether a commit multistore was built with an archival database,
+// and at what version.
+//
+// rootmulti keeps both on unexported fields and exposes no accessor, so they are read
+// reflectively. Reading is legal on an unexported field even though Interface() is not, and
+// adding an accessor would mean changing production code this PR does not touch. The row
+// above pairs this with a positive control, since a reflective reader that quietly stopped
+// finding the fields would otherwise report "no archival wiring" forever.
+func archivalWiring(t *testing.T, cms sdk.CommitMultiStore) (wired bool, version int64) {
+	t.Helper()
+
+	rs := reflect.ValueOf(cms)
+	if rs.Kind() != reflect.Ptr || rs.IsNil() {
+		t.Fatalf("commit multistore is %T, want a pointer to rootmulti.Store", cms)
+	}
+	rs = rs.Elem()
+
+	db := rs.FieldByName("archivalDb")
+	ver := rs.FieldByName("archivalVersion")
+	if !db.IsValid() || !ver.IsValid() {
+		t.Fatalf("rootmulti.Store no longer has archivalDb/archivalVersion; this reader needs "+
+			"updating before the row above means anything (type %T)", cms)
+	}
+	return !db.IsNil(), ver.Int()
 }
 
 // TestBaseAppArchivalVersionZeroSkipsTheArchivalStore pins the gate: the archival

@@ -48,6 +48,14 @@ func FuzzClientViperDashedKeyHasNoUsableEnvSpelling(f *testing.F) {
 		configtest.Isolate(t)
 		home := configtest.NewHome(t)
 
+		// The fixture names the test keyring backend. ReadFromClientConfig builds a keyring
+		// from whatever the file says, and a file it creates itself names "os", whose success
+		// depends on the machine rather than on anything this row pins. Since this row is about
+		// the env spelling and not about the file being created, writing the file first keeps a
+		// keyring failure from being reported as a chain-id result. An empty chain-id is what a
+		// freshly created file would have carried, so the assertions below are unchanged.
+		home.WriteClientTOML(t, []byte("chain-id = \"\"\nkeyring-backend = \"test\"\n"))
+
 		// The spelling an operator writes.
 		if err := os.Setenv("SEI_CHAIN_ID", envChainID); err != nil {
 			t.Fatalf("set SEI_CHAIN_ID: %v", err)
@@ -65,7 +73,7 @@ func FuzzClientViperDashedKeyHasNoUsableEnvSpelling(f *testing.F) {
 				"purpose, that activates SEI_CHAIN_ID on every node already setting it and "+
 				"needs a migration", got.ChainID, configtest.ClientEnvKey("chain-id"))
 		}
-		// ReadFromClientConfig creates client.toml when absent, with chain-id "".
+		// The fixture's chain-id is empty, so the env value winning would be visible.
 		if got.ChainID != "" {
 			t.Fatalf("chain-id resolved to %q, want the empty value from the freshly created "+
 				"client.toml", got.ChainID)

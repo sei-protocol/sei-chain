@@ -111,8 +111,13 @@ func Isolate(t testing.TB) string {
 		}
 	})
 
-	// Restored with updateExisting=true, matching how InterceptConfigsPreRunHandler sets it,
-	// so a logger the test tuned individually is returned to the baseline too.
+	// Restored with updateExisting=true, matching how InterceptConfigsPreRunHandler sets it.
+	//
+	// The residue is worth stating: this rewrites every registered logger, so a test that had
+	// tuned one individually before calling Isolate does not get that level back. There is no
+	// faithful alternative, because seilog exposes no way to enumerate the registry and the
+	// code under test already clobbers per-logger levels the same way on every applyLegacy.
+	// Restoring with the subject's own semantics is the closest reachable approximation.
 	savedLevel := logDefaultLevel()
 	t.Cleanup(func() { seilog.SetDefaultLevel(savedLevel, true) })
 

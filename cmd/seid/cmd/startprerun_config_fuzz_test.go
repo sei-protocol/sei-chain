@@ -196,26 +196,24 @@ func TestStartChainIDMismatchPanics(t *testing.T) {
 	})
 
 	r, runErr := runEBounded(t, cmd, stop)
-	func() {
-		if r == nil {
-			t.Fatalf("a --chain-id that disagrees with client.toml must panic before the app is "+
-				"built; RunE returned %v instead", runErr)
-		}
-		msg, ok := r.(string)
-		if !ok {
-			t.Fatalf("expected a string panic, got %T: %v", r, r)
-		}
-		if !strings.Contains(msg, "chain-id mismatch") {
-			t.Fatalf("the panic must name the mismatch, got %q", msg)
-		}
-		if !strings.Contains(msg, "from-client-toml") || !strings.Contains(msg, "a-different-chain") {
-			t.Fatalf("the panic must quote both values so an operator can see which is which, got %q", msg)
-		}
-		if !strings.Contains(msg, "~/.sei/config/client.toml") {
-			t.Fatalf("the message no longer hardcodes the default home (%q). Deriving it from --home "+
-				"is a fix, and this row is where that gets recorded rather than skipped past", msg)
-		}
-	}()
+	if r == nil {
+		t.Fatalf("a --chain-id that disagrees with client.toml must panic before the app is "+
+			"built; RunE returned %v instead", runErr)
+	}
+	msg, ok := r.(string)
+	if !ok {
+		t.Fatalf("expected a string panic, got %T: %v", r, r)
+	}
+	if !strings.Contains(msg, "chain-id mismatch") {
+		t.Fatalf("the panic must name the mismatch, got %q", msg)
+	}
+	if !strings.Contains(msg, "from-client-toml") || !strings.Contains(msg, "a-different-chain") {
+		t.Fatalf("the panic must quote both values so an operator can see which is which, got %q", msg)
+	}
+	if !strings.Contains(msg, "~/.sei/config/client.toml") {
+		t.Fatalf("the message no longer hardcodes the default home (%q). Deriving it from --home "+
+			"is a fix, and this row is where that gets recorded rather than skipped past", msg)
+	}
 }
 
 // TestStartAfterChainIDAgreementHitsTheGenesisNilDeref pins what happens immediately
