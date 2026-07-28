@@ -169,20 +169,16 @@ func TestWSAdmissionHookBudgetWaitTimeout(t *testing.T) {
 	_, err := io.WriteString(p2, payload)
 	require.NoError(t, err)
 
-	deadline := time.Now().Add(waitTimeout + 300*time.Millisecond)
-	for {
+	require.Eventually(t, func() bool {
 		mu.Lock()
-		got := append([]string(nil), reasons...)
-		mu.Unlock()
-		if len(got) > 0 {
-			require.Equal(t, rpc.WSAdmissionReasonBudgetWaitTimeout, got[0])
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("expected admission hook to fire on budget wait timeout")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		defer mu.Unlock()
+		return len(reasons) > 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	mu.Lock()
+	got := append([]string(nil), reasons...)
+	mu.Unlock()
+	require.Equal(t, rpc.WSAdmissionReasonBudgetWaitTimeout, got[0])
 }
 
 type rpcResponse struct {
@@ -224,8 +220,8 @@ func readJSON(t *testing.T, conn *websocket.Conn, dest *rpcResponse) {
 
 	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	msgType, data, err := conn.ReadMessage()
-	require.Equal(t, websocket.TextMessage, msgType)
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(data, dest))
+	require.Equal(t, websocket.TextMessage, msgType)
 	_ = conn.SetReadDeadline(time.Time{})
 }
