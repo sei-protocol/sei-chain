@@ -802,6 +802,12 @@ func (s *State) runPersist(ctx context.Context) error {
 		if err := s.blockDB.Flush(); err != nil {
 			return fmt.Errorf("flush BlockDB: %w", err)
 		}
+		t := time.Now()
+		for _, lb := range b.blocks {
+			latency := t.Sub(lb.block.Payload().CreatedAt()).Seconds()
+			s.metrics.Blocks.Persist.Observe(latency)
+			s.metrics.Txs.Persist.ObserveWithWeight(latency, uint64(len(lb.block.Payload().Txs())))
+		}
 		nextToPersistBlock = b.nextBlock
 		for inner, ctrl := range s.inner.Lock() {
 			if nextToPersistBlock > inner.nextBlockToPersist {
