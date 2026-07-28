@@ -371,11 +371,10 @@ func buildProposal(
 	// AppQC must be Current or Current-1. Callers (consensus runPropose) must
 	// wait for an in-window App before constructing a tipcut when Current>0 —
 	// do not silently fall back to a stale CommitQC App.
-	// Use cur-1 (not appEp+1) so uint64 wrap cannot admit MaxUint64 when cur==0.
 	if a, ok := app.Get(); ok {
-		appEp, cur := a.EpochIndex(), viewSpec.Epoch().EpochIndex()
-		if appEp != cur && (cur == 0 || appEp != cur-1) {
-			return nil, appQC, fmt.Errorf("app epoch_index %d not Current (%d) or Current-1", appEp, cur)
+		appEp := a.EpochIndex()
+		if !viewSpec.Epoch().AcceptsAppEpoch(appEp) {
+			return nil, appQC, fmt.Errorf("app epoch_index %d not Current (%d) or Current-1", appEp, viewSpec.Epoch().EpochIndex())
 		}
 	} else if viewSpec.Epoch().EpochIndex() > 0 {
 		return nil, appQC, fmt.Errorf("App required for epoch %d tipcut (need Current or Current-1)", viewSpec.Epoch().EpochIndex())
@@ -524,11 +523,9 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 		} else {
 			app, _ := m.proposal.Msg().App().Get()
 			appEpoch := app.EpochIndex()
-			cur := vs.Epoch().EpochIndex()
-			// Allow Current or Current-1 (Prev lag). Reject anything else.
-			// Use cur-1 (not appEpoch+1) so uint64 wrap cannot admit MaxUint64 when cur==0.
-			if appEpoch != cur && (cur == 0 || appEpoch != cur-1) {
-				return fmt.Errorf("app epoch_index %d not Current (%d) or Current-1", appEpoch, cur)
+			cur := vs.Epoch()
+			if !cur.AcceptsAppEpoch(appEpoch) {
+				return fmt.Errorf("app epoch_index %d not Current (%d) or Current-1", appEpoch, cur.EpochIndex())
 			}
 			appQC, ok := m.appQC.Get()
 			if !ok {
@@ -539,12 +536,12 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			}
 			s.Spawn(func() error {
 				ep := vs.Epochs.Current
-				if appEpoch != cur {
+				if appEpoch != cur.EpochIndex() {
 					prev, ok := vs.Epochs.Prev.Get()
 					if !ok {
 						// NewEpochDuo requires Prev iff Current>0; AppQC at Current-1
 						// with Current>0 must have Prev.
-						panic(fmt.Sprintf("appQC epoch %d needs Prev, but Prev is absent (Current %d)", appEpoch, cur))
+						panic(fmt.Sprintf("appQC epoch %d needs Prev, but Prev is absent (Current %d)", appEpoch, cur.EpochIndex()))
 					}
 					ep = prev
 				}

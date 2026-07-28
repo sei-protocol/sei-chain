@@ -229,9 +229,17 @@ func logStaleRoad(what string, roadIdx types.RoadIndex, duo types.EpochDuo) {
 		slog.Uint64("road", uint64(roadIdx)), "duo", duo.String())
 }
 
-// waitForEpoch waits until roadIdx is in Prev|Current. ErrPruned if behind window.
-func (s *State) waitForEpoch(ctx context.Context, roadIdx types.RoadIndex) (types.EpochDuo, error) {
+// waitForRoad waits until roadIdx is admitted. If currentOnly, only Current
+// counts (CommitQC tip); otherwise Prev|Current (AppVote/AppQC). ErrPruned if
+// the road is behind the relevant window.
+func (s *State) waitForRoad(ctx context.Context, roadIdx types.RoadIndex, currentOnly bool) (types.EpochDuo, error) {
 	duo, err := s.epochDuo.Wait(ctx, func(duo types.EpochDuo) bool {
+		if currentOnly {
+			if duo.Current.RoadRange().Has(roadIdx) {
+				return true
+			}
+			return roadIdx < duo.Current.RoadRange().First
+		}
 		if _, err := duo.EpochForRoad(roadIdx); err == nil {
 			return true
 		}
@@ -244,27 +252,36 @@ func (s *State) waitForEpoch(ctx context.Context, roadIdx types.RoadIndex) (type
 	if err != nil {
 		return types.EpochDuo{}, err
 	}
-	if _, err := duo.EpochForRoad(roadIdx); err == nil {
+	if currentOnly {
+		if duo.Current.RoadRange().Has(roadIdx) {
+			return duo, nil
+		}
+	} else if _, err := duo.EpochForRoad(roadIdx); err == nil {
 		return duo, nil
 	}
 	return types.EpochDuo{}, types.ErrPruned
 }
 
-// waitCurrentForRoad waits until roadIdx is in Current. ErrPruned if behind Current.
-func (s *State) waitCurrentForRoad(ctx context.Context, roadIdx types.RoadIndex) (types.EpochDuo, error) {
-	duo, err := s.epochDuo.Wait(ctx, func(duo types.EpochDuo) bool {
-		if duo.Current.RoadRange().Has(roadIdx) {
-			return true
-		}
-		return roadIdx < duo.Current.RoadRange().First
-	})
+// sealNextDuoIfLastRoad runs AppQC + WaitForDuo leashes when idx closes ep.
+// incoming is passed to waitForAppQC (None for CommitQC-only seal). Same call
+// path as Push*; not an async seal thread.
+func (s *State) sealNextDuoIfLastRoad(
+	ctx context.Context,
+	ep *types.Epoch,
+	idx types.RoadIndex,
+	incoming utils.Option[*types.AppQC],
+) (utils.Option[types.EpochDuo], error) {
+	if !ep.RoadRange().IsLastRoad(idx) {
+		return utils.None[types.EpochDuo](), nil
+	}
+	if err := s.waitForAppQC(ctx, ep.EpochIndex(), incoming); err != nil {
+		return utils.None[types.EpochDuo](), err
+	}
+	nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
 	if err != nil {
-		return types.EpochDuo{}, err
+		return utils.None[types.EpochDuo](), err
 	}
-	if duo.Current.RoadRange().Has(roadIdx) {
-		return duo, nil
-	}
-	return types.EpochDuo{}, types.ErrPruned
+	return utils.Some(nt), nil
 }
 
 // waitForAppQC blocks until latest AppQC is from epochIdx or later.
@@ -312,30 +329,22 @@ func (s *State) LastAppQC() utils.Option[*types.AppQC] {
 	panic("unreachable")
 }
 
-// appEpochInDuo reports whether app's epoch is want or want-1 (Prev lag).
-// want==0 only accepts epoch 0.
-func appEpochInDuo(appEp, want types.EpochIndex) bool {
-	if appEp == want {
-		return true
-	}
-	return want > 0 && appEp == want-1
-}
-
 // LastAppQCInEpochDuo returns LastAppQC when its epoch is usable for a tipcut
-// in want (want or want-1). Otherwise None.
-func (s *State) LastAppQCInEpochDuo(want types.EpochIndex) utils.Option[*types.AppQC] {
+// whose Current is want. Otherwise None.
+func (s *State) LastAppQCInEpochDuo(want *types.Epoch) utils.Option[*types.AppQC] {
 	appQC, ok := s.LastAppQC().Get()
 	if !ok {
 		return utils.None[*types.AppQC]()
 	}
-	if appEpochInDuo(appQC.Proposal().EpochIndex(), want) {
+	if want.AcceptsAppEpoch(appQC.Proposal().EpochIndex()) {
 		return utils.Some(appQC)
 	}
 	return utils.None[*types.AppQC]()
 }
 
-// WaitForAppQCInEpochDuo returns an AppQC usable for a tipcut in want (want or
-// want-1). For want==0, returns LastAppQCInEpochDuo immediately (may be None).
+// WaitForAppQCInEpochDuo returns an AppQC usable for a tipcut whose Current is
+// want (want or want-1). For epoch 0, returns LastAppQCInEpochDuo immediately
+// (may be None).
 //
 // For want>0, proposing must not fall back to a CommitQC App older than want-1.
 // If commitQC already carries an in-window App, returns LastAppQCInEpochDuo
@@ -343,29 +352,29 @@ func (s *State) LastAppQCInEpochDuo(want types.EpochIndex) utils.Option[*types.A
 // blocks until latestAppQC is in-window.
 func (s *State) WaitForAppQCInEpochDuo(
 	ctx context.Context,
-	want types.EpochIndex,
+	want *types.Epoch,
 	commitQC utils.Option[*types.CommitQC],
 ) (utils.Option[*types.AppQC], error) {
-	if want == 0 {
+	if want.EpochIndex() == 0 {
 		return s.LastAppQCInEpochDuo(want), nil
 	}
-	if old, ok := types.AppOpt(types.ProposalOpt(commitQC)).Get(); ok && appEpochInDuo(old.EpochIndex(), want) {
+	if old, ok := types.AppOpt(types.ProposalOpt(commitQC)).Get(); ok && want.AcceptsAppEpoch(old.EpochIndex()) {
 		return s.LastAppQCInEpochDuo(want), nil
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		ready := func() bool {
 			appQC, ok := inner.latestAppQC.Get()
-			return ok && appEpochInDuo(appQC.Proposal().EpochIndex(), want)
+			return ok && want.AcceptsAppEpoch(appQC.Proposal().EpochIndex())
 		}
 		if !ready() {
 			logger.Warn("waiting for AppQC in EpochDuo before proposing",
-				slog.Uint64("want_epoch", uint64(want)))
+				slog.Uint64("want_epoch", uint64(want.EpochIndex())))
 			if err := ctrl.WaitUntil(ctx, ready); err != nil {
 				return utils.None[*types.AppQC](), err
 			}
 		}
 		appQC, ok := inner.latestAppQC.Get()
-		if !ok || !appEpochInDuo(appQC.Proposal().EpochIndex(), want) {
+		if !ok || !want.AcceptsAppEpoch(appQC.Proposal().EpochIndex()) {
 			return utils.None[*types.AppQC](), fmt.Errorf("WaitForAppQCInEpochDuo: AppQC not in duo after wait")
 		}
 		return utils.Some(appQC), nil
@@ -417,7 +426,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	duo, err := s.waitCurrentForRoad(ctx, idx)
+	duo, err := s.waitForRoad(ctx, idx, true)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
 			logStaleRoad("CommitQC", idx, s.epochDuo.Load())
@@ -431,16 +440,9 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	}
 
 	// Boundary: switch to the next epoch on Current's last CommitQC.
-	nextDuo := utils.None[types.EpochDuo]()
-	if ep.RoadRange().IsLastRoad(idx) {
-		if err := s.waitForAppQC(ctx, ep.EpochIndex(), utils.None[*types.AppQC]()); err != nil {
-			return err
-		}
-		nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
-		if err != nil {
-			return err
-		}
-		nextDuo = utils.Some(nt)
+	nextDuo, err := s.sealNextDuoIfLastRoad(ctx, ep, idx, utils.None[*types.AppQC]())
+	if err != nil {
+		return err
 	}
 
 	for inner, ctrl := range s.inner.Lock() {
@@ -469,7 +471,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		return err
 	}
 	// Too-early roads (ahead of Prev|Current) backpressure; too-late are dropped.
-	duo, err := s.waitForEpoch(ctx, idx)
+	duo, err := s.waitForRoad(ctx, idx, false)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
 			logStaleRoad("AppVote", idx, s.epochDuo.Load())
@@ -527,7 +529,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 			return nil
 		}
 	}
-	// Pair consistency only; ahead-of-window still waits in waitForEpoch.
+	// Pair consistency only; ahead-of-window still waits in waitForRoad.
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
@@ -538,7 +540,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	idx := commitQC.Proposal().Index()
-	duo, err := s.waitForEpoch(ctx, idx)
+	duo, err := s.waitForRoad(ctx, idx, false)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
 			logStaleRoad("AppQC", idx, s.epochDuo.Load())
@@ -555,16 +557,9 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 	}
 	// Same seal leashes as PushCommitQC when this tipcut is Current's last road.
 	// Pass this AppQC as incoming so a tipcut that first enters epoch N can close N.
-	nextDuo := utils.None[types.EpochDuo]()
-	if ep.RoadRange().IsLastRoad(idx) {
-		if err := s.waitForAppQC(ctx, ep.EpochIndex(), utils.Some(appQC)); err != nil {
-			return err
-		}
-		nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
-		if err != nil {
-			return err
-		}
-		nextDuo = utils.Some(nt)
+	nextDuo, err := s.sealNextDuoIfLastRoad(ctx, ep, idx, utils.Some(appQC))
+	if err != nil {
+		return err
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		updated, err := inner.prune(appQC, commitQC)

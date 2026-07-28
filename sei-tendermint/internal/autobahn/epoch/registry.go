@@ -110,10 +110,11 @@ func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) erro
 			}
 		}
 		r.EnsureDuoAt(span.Next)
-		// Placeholder +1/+2: simplification while committees are genesis stubs
-		// (unchanged by exec). Covers exec tip ahead of persisted CommitQC (N+1)
-		// and tip at LastRoad(N) without re-exec (N+2). Goes away next PR when
-		// committees are linked to execution.
+		// TODO(autobahn-placeholder-seed): always seed windowLast+1/+2 with
+		// genesis-committee stubs. Needed today because exec tip can sit ahead
+		// of persisted CommitQC (N+1) and tip at LastRoad(N) may need N+2
+		// without re-exec. Drop once real committees are linked to execution
+		// and seed tipcut+1 only.
 		r.EnsureEpoch(windowLast + 1)
 		r.EnsureEpoch(windowLast + 2)
 		return nil

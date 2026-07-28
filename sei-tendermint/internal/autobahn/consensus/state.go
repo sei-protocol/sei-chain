@@ -289,7 +289,7 @@ func (s *State) runPropose(ctx context.Context) error {
 		// For Current>0, do not propose until App is within {Current, Current-1}
 		// (CommitQC App or live AppQC). Omitting an out-of-window AppQC and
 		// falling back to a stale CommitQC App is not allowed.
-		appQC, err := s.avail.WaitForAppQCInEpochDuo(ctx, vs.Epoch().EpochIndex(), vs.CommitQC)
+		appQC, err := s.avail.WaitForAppQCInEpochDuo(ctx, vs.Epoch(), vs.CommitQC)
 		if err != nil {
 			return fmt.Errorf("s.avail.WaitForAppQCInEpochDuo(): %w", err)
 		}
