@@ -269,8 +269,8 @@ func (s *State) Avail() *avail.State { return s.avail }
 // Constructs new proposals.
 func (s *State) runPropose(ctx context.Context) error {
 	return s.myView.Iter(ctx, func(ctx context.Context, vs types.ViewSpec) error {
-		if vs.Epoch().Committee().Leader(vs.View()) != s.cfg.Key.Public() {
-			return nil // not the leader.
+		if !s.shouldPropose(vs) {
+			return nil
 		}
 		// Try repropose.
 		if fullProposal, ok := types.NewReproposal(s.cfg.Key, vs); ok {
@@ -282,25 +282,43 @@ func (s *State) runPropose(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("s.avail.WaitForLaneQCs(): %w", err)
 		}
-		// The avail window may have advanced past the epoch we intend to
-		// propose in; skip and let the next view catch up.
-		if ep.EpochIndex() != vs.Epoch().EpochIndex() {
+		// Waits can outlive this view (timeout / new tipcut / lost leadership).
+		if !s.shouldPropose(vs) || ep.EpochIndex() != vs.Epoch().EpochIndex() {
 			return nil
 		}
-		// Construct a full proposal.
+		// For Current>0, do not propose until App is within {Current, Current-1}
+		// (CommitQC App or live AppQC). Omitting an out-of-window AppQC and
+		// falling back to a stale CommitQC App is not allowed.
+		appQC, err := s.avail.WaitForAppQCInEpochDuo(ctx, vs.Epoch().EpochIndex(), vs.CommitQC)
+		if err != nil {
+			return fmt.Errorf("s.avail.WaitForAppQCInEpochDuo(): %w", err)
+		}
+		if !s.shouldPropose(vs) {
+			return nil
+		}
 		fullProposal, err := types.NewProposal(
 			s.cfg.Key,
 			vs,
 			time.Now(),
 			laneQCsMap,
-			s.avail.LastAppQCInEpochDuo(vs.Epoch().EpochIndex()),
+			appQC,
 		)
 		if err != nil {
-			return fmt.Errorf("s.avail.WaitForProposal(): %w", err)
+			return fmt.Errorf("types.NewProposal(): %w", err)
 		}
 		s.myProposal.Store(utils.Some(fullProposal))
 		return nil
 	})
+}
+
+// shouldPropose is true when vs is still the live view and we are its leader.
+// Re-check after any avail wait: the view may have advanced while we blocked.
+func (s *State) shouldPropose(vs types.ViewSpec) bool {
+	cur := s.myView.Load()
+	if cur.View() != vs.View() {
+		return false
+	}
+	return cur.Epoch().Committee().Leader(cur.View()) == s.cfg.Key.Public()
 }
 
 func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v T) {

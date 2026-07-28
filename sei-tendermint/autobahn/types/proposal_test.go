@@ -724,10 +724,9 @@ func TestProposalVerifyRejectsAppProposalWrongEpoch(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, EpochIndex(0), appPrev.EpochIndex())
 
-	// AppQC outside {Current, Current-1} — cleared; tipcut keeps CommitQC App.
-	fpWrong := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(2))))
-	require.False(t, fpWrong.appQC.IsPresent())
-	require.NoError(t, fpWrong.Verify(vs))
+	// AppQC outside {Current, Current-1} — rejected (no silent fallback).
+	_, err := NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(2)))
+	require.Error(t, err)
 }
 
 func TestProposalFallsBackWhenAppQCFromFuture(t *testing.T) {

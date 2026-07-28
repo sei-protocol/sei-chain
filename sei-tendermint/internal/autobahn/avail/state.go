@@ -312,19 +312,65 @@ func (s *State) LastAppQC() utils.Option[*types.AppQC] {
 	panic("unreachable")
 }
 
+// appEpochInDuo reports whether app's epoch is want or want-1 (Prev lag).
+// want==0 only accepts epoch 0.
+func appEpochInDuo(appEp, want types.EpochIndex) bool {
+	if appEp == want {
+		return true
+	}
+	return want > 0 && appEp == want-1
+}
+
 // LastAppQCInEpochDuo returns LastAppQC when its epoch is usable for a tipcut
-// in want (want or want-1). Otherwise None so the proposer omits a new AppQC
-// and keeps the prior CommitQC App — including when AppQC is ahead of want.
+// in want (want or want-1). Otherwise None.
 func (s *State) LastAppQCInEpochDuo(want types.EpochIndex) utils.Option[*types.AppQC] {
 	appQC, ok := s.LastAppQC().Get()
 	if !ok {
 		return utils.None[*types.AppQC]()
 	}
-	appEp := appQC.Proposal().EpochIndex()
-	if appEp == want || (want > 0 && appEp == want-1) {
+	if appEpochInDuo(appQC.Proposal().EpochIndex(), want) {
 		return utils.Some(appQC)
 	}
 	return utils.None[*types.AppQC]()
+}
+
+// WaitForAppQCInEpochDuo returns an AppQC usable for a tipcut in want (want or
+// want-1). For want==0, returns LastAppQCInEpochDuo immediately (may be None).
+//
+// For want>0, proposing must not fall back to a CommitQC App older than want-1.
+// If commitQC already carries an in-window App, returns LastAppQCInEpochDuo
+// without waiting (None is fine: tipcut keeps that CommitQC App). Otherwise
+// blocks until latestAppQC is in-window.
+func (s *State) WaitForAppQCInEpochDuo(
+	ctx context.Context,
+	want types.EpochIndex,
+	commitQC utils.Option[*types.CommitQC],
+) (utils.Option[*types.AppQC], error) {
+	if want == 0 {
+		return s.LastAppQCInEpochDuo(want), nil
+	}
+	if old, ok := types.AppOpt(types.ProposalOpt(commitQC)).Get(); ok && appEpochInDuo(old.EpochIndex(), want) {
+		return s.LastAppQCInEpochDuo(want), nil
+	}
+	for inner, ctrl := range s.inner.Lock() {
+		ready := func() bool {
+			appQC, ok := inner.latestAppQC.Get()
+			return ok && appEpochInDuo(appQC.Proposal().EpochIndex(), want)
+		}
+		if !ready() {
+			logger.Warn("waiting for AppQC in EpochDuo before proposing",
+				slog.Uint64("want_epoch", uint64(want)))
+			if err := ctrl.WaitUntil(ctx, ready); err != nil {
+				return utils.None[*types.AppQC](), err
+			}
+		}
+		appQC, ok := inner.latestAppQC.Get()
+		if !ok || !appEpochInDuo(appQC.Proposal().EpochIndex(), want) {
+			return utils.None[*types.AppQC](), fmt.Errorf("WaitForAppQCInEpochDuo: AppQC not in duo after wait")
+		}
+		return utils.Some(appQC), nil
+	}
+	panic("unreachable")
 }
 
 // WaitForAppQC waits until there is an AppQC for the given index or higher.

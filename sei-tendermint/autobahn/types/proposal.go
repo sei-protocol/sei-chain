@@ -368,15 +368,17 @@ func buildProposal(
 		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 		appQC = utils.None[*AppQC]()
 	}
-	// AppQC must be Current or Current-1. Outside that window, drop the
-	// candidate and keep the prior CommitQC App (no new appQC).
+	// AppQC must be Current or Current-1. Callers (consensus runPropose) must
+	// wait for an in-window App before constructing a tipcut when Current>0 —
+	// do not silently fall back to a stale CommitQC App.
 	// Use cur-1 (not appEp+1) so uint64 wrap cannot admit MaxUint64 when cur==0.
 	if a, ok := app.Get(); ok {
 		appEp, cur := a.EpochIndex(), viewSpec.Epoch().EpochIndex()
 		if appEp != cur && (cur == 0 || appEp != cur-1) {
-			app = AppOpt(ProposalOpt(viewSpec.CommitQC))
-			appQC = utils.None[*AppQC]()
+			return nil, appQC, fmt.Errorf("app epoch_index %d not Current (%d) or Current-1", appEp, cur)
 		}
+	} else if viewSpec.Epoch().EpochIndex() > 0 {
+		return nil, appQC, fmt.Errorf("App required for epoch %d tipcut (need Current or Current-1)", viewSpec.Epoch().EpochIndex())
 	}
 	// Normalize the creation timestamp.
 	if wantMin := viewSpec.NextTimestamp(); timestamp.Before(wantMin) {
@@ -540,7 +542,9 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 				if appEpoch != cur {
 					prev, ok := vs.Epochs.Prev.Get()
 					if !ok {
-						return fmt.Errorf("appQC epoch %d needs Prev, but Prev is absent (Current %d)", appEpoch, cur)
+						// NewEpochDuo requires Prev iff Current>0; AppQC at Current-1
+						// with Current>0 must have Prev.
+						panic(fmt.Sprintf("appQC epoch %d needs Prev, but Prev is absent (Current %d)", appEpoch, cur))
 					}
 					ep = prev
 				}

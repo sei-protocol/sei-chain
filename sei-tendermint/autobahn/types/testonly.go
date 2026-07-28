@@ -35,6 +35,10 @@ func EpochDuoForTest(current *Epoch) EpochDuo {
 // If laneQCs is empty, a single 1-block LaneQC is synthesized so the tipcut is
 // non-empty (empty tipcuts are rejected by Proposal.Verify).
 // Use BuildFullCommitQC when you want random blocks generated automatically.
+//
+// For epoch>0, NewProposal requires an in-window App (Current or Current-1). If
+// neither appQC nor prev's CommitQC App provides one, a Current-1 AppQC is
+// synthesized on the prior tipcut road so fixtures keep working.
 func BuildCommitQC(
 	epoch *Epoch,
 	keys []SecretKey,
@@ -45,6 +49,16 @@ func BuildCommitQC(
 	vs := ViewSpec{CommitQC: prev, Epochs: EpochDuoForTest(epoch)}
 	if len(laneQCs) == 0 {
 		laneQCs = oneBlockLaneQCMap(vs, keys)
+	}
+	if epoch.EpochIndex() > 0 {
+		have := appInDuoWindow(AppOpt(ProposalOpt(prev)), epoch.EpochIndex())
+		if qc, ok := appQC.Get(); ok {
+			ep := qc.Proposal().EpochIndex()
+			have = have || ep == epoch.EpochIndex() || ep == epoch.EpochIndex()-1
+		}
+		if !have {
+			appQC = utils.Some(synthAppQCForPrevEpoch(epoch, keys, prev))
+		}
 	}
 	leader := epoch.Committee().Leader(vs.View())
 	var leaderKey SecretKey
@@ -60,6 +74,36 @@ func BuildCommitQC(
 		votes = append(votes, Sign(k, NewCommitVote(proposal.Proposal().Msg())))
 	}
 	return NewCommitQC(votes)
+}
+
+func appInDuoWindow(app utils.Option[*AppProposal], want EpochIndex) bool {
+	a, ok := app.Get()
+	if !ok {
+		return false
+	}
+	ep := a.EpochIndex()
+	if ep == want {
+		return true
+	}
+	return want > 0 && ep == want-1
+}
+
+// synthAppQCForPrevEpoch builds a Current-1 AppQC anchored on the prior tipcut
+// (or genesis global 0 when prev is absent).
+func synthAppQCForPrevEpoch(epoch *Epoch, keys []SecretKey, prev utils.Option[*CommitQC]) *AppQC {
+	prevEp := epoch.EpochIndex() - 1
+	var global GlobalBlockNumber
+	var road RoadIndex
+	if cqc, ok := prev.Get(); ok {
+		global = cqc.GlobalRange().Next - 1
+		road = cqc.Proposal().Index()
+	}
+	p := NewAppProposal(global, road, AppHash{}, prevEp)
+	votes := make([]*Signed[*AppVote], 0, len(keys))
+	for _, k := range keys {
+		votes = append(votes, Sign(k, NewAppVote(p)))
+	}
+	return NewAppQC(votes)
 }
 
 // oneBlockLaneQCMap builds a single LaneQC advancing the first committee lane by one block.
