@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -17,10 +18,11 @@ import (
 )
 
 // This file contains the ascending-version MVCC iterator used for legacy DBs
-// that were written by the pre-descending build. It is a verbatim port of the
-// iterator implementation from main and is intentionally kept isolated from
-// the descending fast-path iterator to avoid subtle interactions between the
-// two encoding schemes.
+// that were written by the pre-descending build. It is kept isolated from the
+// descending fast-path iterator to avoid subtle interactions between the two
+// encoding schemes, but mirrors that iterator's structure: positioning walks
+// logical keys iteratively so stack usage stays constant regardless of how many
+// keys a seek has to skip.
 //
 // Archive nodes that cannot migrate will continue to use this path.
 
@@ -80,27 +82,15 @@ func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byt
 	}
 
 	if valid {
-		currKey, currKeyVersion, ok := SplitMVCCKey(itr.source.Key())
+		currKey, _, ok := SplitMVCCKey(itr.source.Key())
 		if !ok {
 			// XXX: This should not happen as that would indicate we have a malformed MVCC key.
 			panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 		}
-
-		curKeyVersionDecoded, err := decodeUint64Ascending(currKeyVersion)
-		if err != nil {
-			itr.valid = false
-			return itr
-		}
-
-		// We need to check whether initial key iterator visits has a version <= requested version
-		// If larger version, call next to find another key which does
-		if curKeyVersionDecoded > itr.version {
-			itr.Next()
+		if reverse {
+			itr.positionAtOrBeforeKey(currKey)
 		} else {
-			// If version is less, seek to the largest version of that key <= requested iterator version
-			// It is guaranteed this won't move the iterator to a key that is invalid since
-			// curKeyVersionDecoded <= requested iterator version, so there exists at least one version of currKey SeekLT may move to
-			itr.valid = itr.source.SeekLT(MVCCEncodeAscending(currKey, itr.version+1))
+			itr.positionAtOrAfterKey(currKey)
 		}
 	}
 
@@ -118,6 +108,115 @@ func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byt
 	}
 
 	return itr
+}
+
+// visibleVersionUpperBound returns the exclusive SeekLT bound that isolates the
+// versions of key which are visible at itr.version. Ascending encoding sorts a
+// key's versions oldest-first, so this bound sits immediately past the newest
+// visible one. A version of exactly math.MaxInt64 cannot be represented as an
+// exclusive bound and is therefore treated as invisible; versions that large do
+// not occur in practice.
+func (itr *ascendingIterator) visibleVersionUpperBound(key []byte) []byte {
+	version := itr.version
+	if version < math.MaxInt64 {
+		version++
+	}
+	return MVCCEncodeAscending(key, version)
+}
+
+// seekVisibleVersionForKey positions the cursor on the newest version of
+// targetKey that is visible at itr.version, reporting whether such a version
+// exists. When it does not, the seek lands on an earlier logical key, so callers
+// must not assume the cursor still refers to targetKey. The version is decoded
+// and re-checked rather than inferred from the seek bound, so an unparsable
+// version is skipped instead of being reported as visible.
+func (itr *ascendingIterator) seekVisibleVersionForKey(targetKey []byte) bool {
+	if !itr.source.SeekLT(itr.visibleVersionUpperBound(targetKey)) {
+		return false
+	}
+	foundKey, foundVersion, ok := SplitMVCCKey(itr.source.Key())
+	if !ok {
+		return false
+	}
+	if !bytes.Equal(foundKey, targetKey) {
+		return false
+	}
+	foundVersionDecoded, err := decodeUint64Ascending(foundVersion)
+	if err != nil {
+		return false
+	}
+	return foundVersionDecoded <= itr.version
+}
+
+// nextLogicalKey returns the first logical key ordered after every version of
+// currKey. It seeks from an explicit bound rather than stepping the cursor, so
+// it does not depend on where a previous failed seek left the cursor.
+func (itr *ascendingIterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
+	seekKey := MVCCEncodeAscending(currKey, math.MaxInt64)
+	for valid := itr.source.SeekGE(seekKey); valid; valid = itr.source.Next() {
+		nextKey, _, ok := SplitMVCCKey(itr.source.Key())
+		if !ok || !bytes.HasPrefix(nextKey, itr.prefix) {
+			return nil, false
+		}
+		// A key stored at exactly math.MaxInt64 lands on currKey itself; step
+		// over any such residual versions.
+		if !bytes.Equal(nextKey, currKey) {
+			return nextKey, true
+		}
+	}
+	return nil, false
+}
+
+// prevLogicalKey returns the logical key ordered immediately before every
+// version of currKey.
+func (itr *ascendingIterator) prevLogicalKey(currKey []byte) ([]byte, bool) {
+	if !itr.source.SeekLT(MVCCEncodeAscending(currKey, 0)) {
+		return nil, false
+	}
+	prevKey, _, ok := SplitMVCCKey(itr.source.Key())
+	if !ok || !bytes.HasPrefix(prevKey, itr.prefix) {
+		return nil, false
+	}
+	return prevKey, true
+}
+
+// positionAtOrAfterKey walks forward from startKey to the first logical key that
+// is visible at itr.version and not tombstoned. The walk is iterative, so stack
+// usage stays constant no matter how many keys must be skipped.
+func (itr *ascendingIterator) positionAtOrAfterKey(startKey []byte) {
+	currentKey := startKey
+	for {
+		itr.valid = itr.seekVisibleVersionForKey(currentKey)
+		if itr.valid && !itr.cursorTombstoned() {
+			return
+		}
+		nextKey, ok := itr.nextLogicalKey(currentKey)
+		if !ok {
+			itr.valid = false
+			return
+		}
+		currentKey = nextKey
+	}
+}
+
+// positionAtOrBeforeKey walks backward from startKey to the first logical key
+// that is visible at itr.version and not tombstoned. A key whose newest version
+// is above itr.version may still have an older visible version, so the whole key
+// must not be skipped on that basis alone.
+func (itr *ascendingIterator) positionAtOrBeforeKey(startKey []byte) {
+	currentKey := startKey
+	for {
+		itr.valid = itr.seekVisibleVersionForKey(currentKey)
+		if itr.valid && !itr.cursorTombstoned() {
+			return
+		}
+		prevKey, ok := itr.prevLogicalKey(currentKey)
+		if !ok {
+			itr.valid = false
+			return
+		}
+		currentKey = prevKey
+	}
 }
 
 // Domain returns the domain of the iterator. The caller must not modify the
@@ -166,80 +265,12 @@ func (itr *ascendingIterator) nextForward() {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
 
-	next := itr.source.NextPrefix()
-
-	// First move the iterator to the next prefix, which may not correspond to the
-	// desired version for that key, e.g. if the key was written at a later version,
-	// so we seek back to the latest desired version, s.t. the version is <= itr.version.
-	if next {
-		nextKey, _, ok := SplitMVCCKey(itr.source.Key())
-		if !ok {
-			// XXX: This should not happen as that would indicate we have a malformed
-			// MVCC key.
-			itr.valid = false
-			return
-		}
-		if !bytes.HasPrefix(nextKey, itr.prefix) {
-			// the next key must have itr.prefix as the prefix
-			itr.valid = false
-			return
-		}
-
-		// Move the iterator to the closest version to the desired version, so we
-		// append the current iterator key to the prefix and seek to that key.
-		itr.valid = itr.source.SeekLT(MVCCEncodeAscending(nextKey, itr.version+1))
-
-		tmpKey, tmpKeyVersion, ok := SplitMVCCKey(itr.source.Key())
-		if !ok {
-			// XXX: This should not happen as that would indicate we have a malformed
-			// MVCC key.
-			itr.valid = false
-			return
-		}
-
-		// There exists cases where the SeekLT() call moved us back to the same key
-		// we started at, so we must move to next key, i.e. two keys forward.
-		if bytes.Equal(tmpKey, currKey) {
-			if itr.source.NextPrefix() {
-				itr.nextForward()
-
-				_, tmpKeyVersion, ok = SplitMVCCKey(itr.source.Key())
-				if !ok {
-					// XXX: This should not happen as that would indicate we have a malformed
-					// MVCC key.
-					itr.valid = false
-					return
-				}
-
-			} else {
-				itr.valid = false
-				return
-			}
-		}
-
-		// We need to verify that every Next call either moves the iterator to a key whose version
-		// is less than or equal to requested iterator version, or exhausts the iterator
-		tmpKeyVersionDecoded, err := decodeUint64Ascending(tmpKeyVersion)
-		if err != nil {
-			itr.valid = false
-			return
-		}
-
-		// If iterator is at a entry whose version is higher than requested version, call nextForward again
-		if tmpKeyVersionDecoded > itr.version {
-			itr.nextForward()
-		}
-
-		// The cursor might now be pointing at a key/value pair that is tombstoned.
-		// If so, we must move the cursor.
-		if itr.valid && itr.cursorTombstoned() {
-			itr.nextForward()
-		}
-
+	nextKey, ok := itr.nextLogicalKey(currKey)
+	if !ok {
+		itr.valid = false
 		return
 	}
-
-	itr.valid = false
+	itr.positionAtOrAfterKey(nextKey)
 }
 
 func (itr *ascendingIterator) nextReverse() {
@@ -255,60 +286,12 @@ func (itr *ascendingIterator) nextReverse() {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
 
-	next := itr.source.SeekLT(MVCCEncodeAscending(currKey, 0))
-
-	// First move the iterator to the next prefix, which may not correspond to the
-	// desired version for that key, e.g. if the key was written at a later version,
-	// so we seek back to the latest desired version, s.t. the version is <= itr.version.
-	if next {
-		nextKey, _, ok := SplitMVCCKey(itr.source.Key())
-		if !ok {
-			// XXX: This should not happen as that would indicate we have a malformed
-			// MVCC key.
-			itr.valid = false
-			return
-		}
-		if !bytes.HasPrefix(nextKey, itr.prefix) {
-			// the next key must have itr.prefix as the prefix
-			itr.valid = false
-			return
-		}
-
-		// Move the iterator to the closest version to the desired version, so we
-		// append the current iterator key to the prefix and seek to that key.
-		itr.valid = itr.source.SeekLT(MVCCEncodeAscending(nextKey, itr.version+1))
-
-		_, tmpKeyVersion, ok := SplitMVCCKey(itr.source.Key())
-		if !ok {
-			// XXX: This should not happen as that would indicate we have a malformed
-			// MVCC key.
-			itr.valid = false
-			return
-		}
-
-		// We need to verify that every Next call either moves the iterator to a key whose version
-		// is less than or equal to requested iterator version, or exhausts the iterator
-		tmpKeyVersionDecoded, err := decodeUint64Ascending(tmpKeyVersion)
-		if err != nil {
-			itr.valid = false
-			return
-		}
-
-		// If iterator is at a entry whose version is higher than requested version, call nextReverse again
-		if tmpKeyVersionDecoded > itr.version {
-			itr.nextReverse()
-		}
-
-		// The cursor might now be pointing at a key/value pair that is tombstoned.
-		// If so, we must move the cursor.
-		if itr.valid && itr.cursorTombstoned() {
-			itr.nextReverse()
-		}
-
+	prevKey, ok := itr.prevLogicalKey(currKey)
+	if !ok {
+		itr.valid = false
 		return
 	}
-
-	itr.valid = false
+	itr.positionAtOrBeforeKey(prevKey)
 }
 
 func (itr *ascendingIterator) Next() {
