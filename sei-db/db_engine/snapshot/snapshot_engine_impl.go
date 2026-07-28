@@ -697,11 +697,11 @@ func (c *snapshotEngine) GetDiffAtVersion(version uint64) (map[string][]byte, er
 }
 
 // requestIterator dispatches an iterator request to the lifecycle goroutine
-// and blocks until the iterator is built. The caller (typically
-// snapshotImpl.Iterator) is responsible for holding a reservation on version
-// across this call so the lifecycle goroutine can't retire it out from under
-// us. See iteratorRequest for why construction is routed through the
-// lifecycle goroutine.
+// and blocks until the iterator is built. A reservation on version must be
+// held across this call so the lifecycle goroutine can't retire it out from
+// under us; that reservation belongs to the engine's client, per the Snapshot
+// contract, and is simply inherited here. See iteratorRequest for why
+// construction is routed through the lifecycle goroutine.
 func (c *snapshotEngine) requestIterator(version uint64) (Iterator, error) {
 	req := iteratorRequest{
 		version:  version,
@@ -1089,7 +1089,7 @@ func (c *snapshotEngine) retireSnapshots(
 	for i, shard := range c.shards {
 		err := shard.DropVersions(firstVersion, lastVersion)
 		if err != nil {
-			return fmt.Errorf("failed to drop versions from shard %d %w", i, err)
+			return fmt.Errorf("failed to drop versions from shard %d: %w", i, err)
 		}
 	}
 

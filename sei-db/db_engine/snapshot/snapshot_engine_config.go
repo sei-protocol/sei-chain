@@ -63,27 +63,29 @@ type SnapshotEngineConfig struct {
 	FlushSync bool
 }
 
-// Default configuration for a production snapshot engine.
-func DefaultSnapshotEngineConfig() *SnapshotEngineConfig {
+// Default configuration for a production snapshot engine. metricsName and hashKey are arguments
+// rather than defaults because neither has a safe one: hashKey is a keyspace decision (see HashKey)
+// and metricsName exists to distinguish instances (see MetricsName).
+func DefaultSnapshotEngineConfig(metricsName string, hashKey string) *SnapshotEngineConfig {
 	return &SnapshotEngineConfig{
 		ShardCount:                   8,
 		MaxSize:                      unit.GB / 2,
 		EstimatedOverheadPerEntry:    256,
+		MetricsName:                  metricsName,
 		MetricsEnabled:               true,
 		MetricsScrapeIntervalSeconds: 10,
 		MaxUnflushedVersions:         4,
 		TargetBytesPerFlush:          unit.MB * 4,
+		HashKey:                      hashKey,
 		FlushSync:                    false,
 	}
 }
 
 // Default configuration for unit tests. Main difference is that allocated space is much smaller by default.
 func DefaultTestSnapshotEngineConfig() *SnapshotEngineConfig {
-	config := DefaultSnapshotEngineConfig()
+	config := DefaultSnapshotEngineConfig("test", "_meta/hash")
 	config.MaxSize = unit.MB * 16
 	config.MetricsEnabled = false
-	config.MetricsName = "test"
-	config.HashKey = "_meta/hash"
 	return config
 }
 

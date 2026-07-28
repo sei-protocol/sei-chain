@@ -91,6 +91,10 @@ type KeyValueDB interface {
 type Batch interface {
 	Set(key, value []byte) error
 	Delete(key []byte) error
+
+	// Commit applies the batch atomically: after a crash it is either fully present or fully absent.
+	// Sequential commits on the same DB become durable in commit order — a crash may lose a suffix of
+	// commits, never an earlier commit while retaining a later one.
 	Commit(opts WriteOptions) error
 
 	// Len returns the current encoded size of the batch in bytes — NOT the number of buffered
