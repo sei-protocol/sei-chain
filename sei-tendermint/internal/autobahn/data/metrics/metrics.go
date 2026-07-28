@@ -11,33 +11,39 @@ const MetricsSubsystem = "internal_autobahn_data"
 type metrics struct {
 	// latency of resource processing up from production to the given stage
 	latency prometheus.HistogramVec `metrics_labels:"resource,stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
+	// Latest height of blocks processed up to the given stage.
+	blockHeight prometheus.GaugeIntVec `metrics_labels:"stage"`
 	// gas used by executed blocks
 	gasUsed prometheus.CounterIntVec
 }
 
-type resourceMetrics struct {
-	Receive *prometheus.Histogram
-	Persist *prometheus.Histogram
-	Execute *prometheus.Histogram
+type stageMetrics struct {
+	TxsLatency    *prometheus.Histogram
+	BlocksLatency *prometheus.Histogram
+	BlockHeight   *prometheus.GaugeInt
 }
 
 type Metrics struct {
-	Blocks  resourceMetrics
-	Txs     resourceMetrics
+	Receive stageMetrics
+	Persist stageMetrics
+	Execute stageMetrics
+	Evict   stageMetrics
 	GasUsed *prometheus.CounterInt
 }
 
 func Get() *Metrics {
-	get := func(resource string) resourceMetrics {
-		return resourceMetrics{
-			Receive: Global.latencyAt(resource, "receive"),
-			Persist: Global.latencyAt(resource, "persist"),
-			Execute: Global.latencyAt(resource, "execute"),
+	get := func(stage string) stageMetrics {
+		return stageMetrics{
+			TxsLatency:    Global.latencyAt("txs", stage),
+			BlocksLatency: Global.latencyAt("blocks", stage),
+			BlockHeight:   Global.blockHeightAt(stage),
 		}
 	}
 	return &Metrics{
-		Blocks:  get("blocks"),
-		Txs:     get("txs"),
+		Receive: get("receive"),
+		Persist: get("persist"),
+		Execute: get("execute"),
+		Evict:   get("evict"),
 		GasUsed: Global.gasUsedAt(),
 	}
 }

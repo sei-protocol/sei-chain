@@ -12,6 +12,7 @@ var Global = newMetrics()
 func init() {
 	prometheus.MustRegister(
 		Global.latency,
+		Global.blockHeight,
 		Global.gasUsed,
 	)
 }
@@ -25,6 +26,12 @@ func newMetrics() *metrics {
 			Help:      "latency of resource processing up from production to the given stage",
 			Buckets:   prometheus.ExponentialBuckets(0.001, 1.5, 30),
 		}, []string{"resource", "stage"}),
+		blockHeight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "block_height",
+			Help:      "Latest height of blocks processed up to the given stage.",
+		}, []string{"stage"}),
 		gasUsed: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -36,6 +43,10 @@ func newMetrics() *metrics {
 
 func (m *metrics) latencyAt(resource string, stage string) *tmprometheus.Histogram {
 	return m.latency.WithLabelValues(resource, stage)
+}
+
+func (m *metrics) blockHeightAt(stage string) *tmprometheus.GaugeInt {
+	return m.blockHeight.WithLabelValues(stage)
 }
 
 func (m *metrics) gasUsedAt() *tmprometheus.CounterInt {

@@ -152,15 +152,19 @@ func (i *inner) insertBlock(n types.GlobalBlockNumber, block *types.Block) error
 
 func (i *inner) updateNextBlock(m *metrics.Metrics) {
 	t := time.Now()
+	oldNextBlock := i.nextBlock
 	for {
 		b, ok := i.blocks[i.nextBlock]
 		if !ok {
-			return
+			break
 		}
 		i.nextBlock += 1
 		latency := t.Sub(b.Payload().CreatedAt()).Seconds()
-		m.Blocks.Receive.Observe(latency)
-		m.Txs.Receive.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+		m.Receive.BlocksLatency.Observe(latency)
+		m.Receive.TxsLatency.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+	}
+	if oldNextBlock < i.nextBlock {
+		m.Receive.BlockHeight.Set(int64(i.nextBlock))
 	}
 }
 
@@ -307,6 +311,10 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 		}
 		// Data loaded from BlockDB was already durably persisted.
 		in.nextBlockToPersist = in.nextBlock
+		s.metrics.Receive.BlockHeight.Set(int64(in.nextBlock))
+		s.metrics.Persist.BlockHeight.Set(int64(in.nextBlockToPersist))
+		s.metrics.Execute.BlockHeight.Set(int64(in.nextAppProposal))
+		s.metrics.Evict.BlockHeight.Set(int64(in.first))
 	}
 	return nil
 }
@@ -386,7 +394,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 		}
 		// Only a newly accepted QC can advance CommitQC.App / the eviction floor.
 		if needQC {
-			evictBelowBound(inner)
+			evictBelowBound(inner, s.metrics)
 		}
 	}
 	return nil
@@ -633,12 +641,13 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		for inner.nextAppProposal <= n {
 			b := inner.blocks[inner.nextAppProposal]
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
-			s.metrics.Blocks.Execute.Observe(latency)
-			s.metrics.Txs.Execute.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+			s.metrics.Execute.BlocksLatency.Observe(latency)
+			s.metrics.Execute.TxsLatency.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 			inner.appProposals[inner.nextAppProposal] = proposal
 			inner.nextAppProposal += 1
 		}
-		evictBelowBound(inner)
+		s.metrics.Execute.BlockHeight.Set(int64(inner.nextAppProposal))
+		evictBelowBound(inner, s.metrics)
 		ctrl.Updated()
 	}
 	return nil
@@ -805,13 +814,14 @@ func (s *State) runPersist(ctx context.Context) error {
 		t := time.Now()
 		for _, lb := range b.blocks {
 			latency := t.Sub(lb.block.Payload().CreatedAt()).Seconds()
-			s.metrics.Blocks.Persist.Observe(latency)
-			s.metrics.Txs.Persist.ObserveWithWeight(latency, uint64(len(lb.block.Payload().Txs())))
+			s.metrics.Persist.BlocksLatency.Observe(latency)
+			s.metrics.Persist.TxsLatency.ObserveWithWeight(latency, uint64(len(lb.block.Payload().Txs())))
 		}
 		nextToPersistBlock = b.nextBlock
 		for inner, ctrl := range s.inner.Lock() {
 			if nextToPersistBlock > inner.nextBlockToPersist {
 				inner.nextBlockToPersist = nextToPersistBlock
+				s.metrics.Persist.BlockHeight.Set(int64(inner.nextBlockToPersist))
 				ctrl.Updated()
 			}
 		}
@@ -849,14 +859,18 @@ func (i *inner) certifiedAppFloor() types.GlobalBlockNumber {
 // any mismatch from data.State.Run() (node-fatal), not from PushQC/PushAppHash —
 // e.g. stash an error on State for a Run monitor, or run eviction as its own
 // Run subtask.
-func evictBelowBound(inner *inner) {
+func evictBelowBound(inner *inner, m *metrics.Metrics) {
 	floor := inner.certifiedAppFloor()
 	bound := min(inner.nextAppProposal, floor)
 	if bound <= inner.first {
 		return
 	}
+	t := time.Now()
 	for n := inner.first; n < bound; n++ {
 		if b, ok := inner.blocks[n]; ok {
+			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
+			m.Evict.BlocksLatency.Observe(latency)
+			m.Evict.TxsLatency.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 			delete(inner.blockHashes, b.Header().Hash())
 			delete(inner.blocks, n)
 		}
@@ -864,6 +878,7 @@ func evictBelowBound(inner *inner) {
 		delete(inner.appProposals, n)
 	}
 	inner.first = bound
+	m.Evict.BlockHeight.Set(int64(inner.first))
 }
 
 // Run starts the background persistence loop.
