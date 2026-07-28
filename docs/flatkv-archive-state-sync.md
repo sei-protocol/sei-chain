@@ -416,6 +416,7 @@ and all validators reported `catching_up=false`.
 | Restore + bootstrap, round 2 | gp3, 10k IOPS / 1000 MiB/s | 12m02s |
 | Restore + bootstrap (live-donor archive) | gp3, 10k IOPS / 1000 MiB/s | 12m47s |
 | SC-only create + upload (live donor, no `state_store`/`wasm`) | donor on default gp3 | 4m08s |
+| — pack / upload split (timestamped rerun of the above) | same | 2m07s / 2m15s |
 | SC-only restore + bootstrap (no rebuild, SS-disabled shape) | gp3, 10k IOPS / 1000 MiB/s | 4m10s |
 | SC-only restore + bootstrap + `state_store` rebuild | gp3, 10k IOPS / 1000 MiB/s | 20m59s |
 | — of which `state_store` rebuild (1,003,795,438 entries, 8 workers) | same | 17m37s |
@@ -425,7 +426,10 @@ The SC-only archive packs just the FlatKV checkpoint (37.6 GiB archive,
 10,113 files vs 81.4 GiB / 23,425 files for the full archive). Create is
 faster than its byte share predicts because `state_store` and `wasm`
 contribute most of the archive's file count, and per-file overhead (hashing
-setup, tar headers) is significant.
+setup, tar headers) is significant. The pack/upload split (~2m07s hashing +
+tar.zst write, ~2m15s S3 multipart upload at ~285 MiB/s cross-region) shows
+the two phases are near-equal; streaming the tar straight into the upload
+(rollout step 5) would collapse create to roughly the longer of the two.
 
 On the restore side the same archive serves both node shapes:
 
@@ -445,7 +449,11 @@ parsing to every module, so a legacy module key that coincidentally started
 with an EVM prefix byte and matched its length check was deserialized as the
 wrong value type. The fix gates EVM parsing on the `evm` module, mirroring
 the write side (`classifyAndPrefix`) and read routing (`routePhysicalKey`);
-this path is shared with FlatKV-only state sync, so the fix hardens both.
+this path is shared with FlatKV-only state sync, so the fix hardens both. It
+is upstreamed separately as
+[PR #3817](https://github.com/sei-protocol/sei-chain/pull/3817), together
+with guards rejecting degenerate physical keys (empty module or inner key)
+that the SS importer would otherwise silently drop.
 
 The live-donor run is the end-to-end validation of the online state-store
 checkpoint design:
