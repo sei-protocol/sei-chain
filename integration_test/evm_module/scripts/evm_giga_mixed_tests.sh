@@ -22,10 +22,10 @@ echo "=== Node 0: GIGA_EXECUTOR=true GIGA_OCC=true, Nodes 1-3: standard V2 ==="
 echo "Stopping default cluster..."
 make docker-cluster-stop || true
 
-# Start mixed-mode cluster (node 0 = giga, nodes 1-3 = V2)
-# build-docker-node is a no-op since the image was already built
+# Start mixed-mode cluster (node 0 = giga, nodes 1-3 = V2), reusing the
+# image already loaded from GHCR by the workflow.
 echo "Starting mixed-mode cluster..."
-DOCKER_DETACH=true make docker-cluster-start-giga-mixed
+DOCKER_DETACH=true make docker-cluster-start-giga-mixed-ci
 
 # Wait for all 4 nodes to be ready
 echo "Waiting for mixed cluster to be ready..."
