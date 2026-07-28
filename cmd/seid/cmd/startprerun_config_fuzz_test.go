@@ -403,6 +403,12 @@ func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (rec
 
 // fixtureAppTOML is the app.toml both RunE rows write before booting.
 //
+// The listener sections are disabled and pinned to port 0 as defense in depth. Both rows are
+// stopped by a panic before startInProcess opens anything, and TestMain fails the binary if a
+// node ever outlives its row, but neither guarantee is worth resting a bound port on: if a row
+// did get through, a default address would collide with a real node or another shard on the
+// same host rather than failing locally.
+//
 // telemetry is disabled deliberately. start's RunE registers prometheus collectors on a
 // process-global registry, so a second invocation in the same binary fails with a
 // duplicate-registration error before reaching either row's subject, and the rows would
@@ -411,4 +417,16 @@ func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (rec
 const fixtureAppTOML = `[telemetry]
 enabled = false
 global-labels = []
+
+[api]
+enable = false
+address = "tcp://127.0.0.1:0"
+
+[grpc]
+enable = false
+address = "127.0.0.1:0"
+
+[grpc-web]
+enable = false
+address = "127.0.0.1:0"
 `

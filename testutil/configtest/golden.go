@@ -33,23 +33,6 @@ func goldenUpdateRequested() bool {
 	return f != nil && f.Value.String() == "true"
 }
 
-// CheckDefaults asserts that a section's in-code defaults still match the values recorded
-// in testdata/<section>.golden.
-//
-// This is the anchor CheckAbsent cannot provide. CheckAbsent compares a reader's
-// empty-input result against the package's own default struct, so a change to the reader's
-// logic moves one side and is caught, while a change to a default's value moves both sides
-// together and is not: that assertion holds for any default, which is exactly why it says
-// nothing about which default is correct. The golden file is a second, independent
-// recording, so moving a default fails here until someone regenerates it.
-//
-// Failing is the point, not a prohibition. A default should be able to change; what should
-// not happen is it changing without the new value appearing in a diff. That is the same
-// pinned-rather-than-fixed posture the rest of this suite takes, and it is the class of
-// drift the config-manager work exists to end: a default moving on one side of the
-// binary/renderer boundary while the other side keeps the old one.
-//
-// Regenerate with `go test ./<pkg>/ -update` once the change is deliberate.
 // DerivedDefault names a default that is computed from the machine rather than written
 // down, together with the value it must equal.
 //
@@ -77,6 +60,21 @@ type DerivedDefault struct {
 // CheckDefaults asserts that a section's in-code defaults still match the values recorded
 // in testdata/<section>.golden, with any machine-derived fields checked against their formula
 // instead.
+//
+// This is the anchor CheckAbsent cannot provide. CheckAbsent compares a reader's
+// empty-input result against the package's own default struct, so a change to the reader's
+// logic moves one side and is caught, while a change to a default's value moves both sides
+// together and is not: that assertion holds for any default, which is exactly why it says
+// nothing about which default is correct. The golden file is a second, independent
+// recording, so moving a default fails here until someone regenerates it.
+//
+// Failing is the point, not a prohibition. A default should be able to change; what should
+// not happen is it changing without the new value appearing in a diff. That is the same
+// pinned-rather-than-fixed posture the rest of this suite takes, and it is the class of
+// drift the config-manager work exists to end: a default moving on one side of the
+// binary/renderer boundary while the other side keeps the old one.
+//
+// Regenerate with `go test ./<pkg>/ -update` once the change is deliberate.
 func CheckDefaults(t testing.TB, name string, defaults any, derived ...DerivedDefault) {
 	t.Helper()
 
