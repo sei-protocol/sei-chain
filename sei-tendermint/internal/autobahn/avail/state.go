@@ -234,32 +234,20 @@ func logStaleRoad(what string, roadIdx types.RoadIndex, duo types.EpochDuo) {
 // the road is behind the relevant window.
 func (s *State) waitForRoad(ctx context.Context, roadIdx types.RoadIndex, currentOnly bool) (types.EpochDuo, error) {
 	duo, err := s.epochDuo.Wait(ctx, func(duo types.EpochDuo) bool {
-		if currentOnly {
-			if duo.Current.RoadRange().Has(roadIdx) {
-				return true
-			}
-			return roadIdx < duo.Current.RoadRange().First
-		}
-		if _, err := duo.EpochForRoad(roadIdx); err == nil {
-			return true
-		}
-		first := duo.Current.RoadRange().First
-		if prev, ok := duo.Prev.Get(); ok {
-			first = prev.RoadRange().First
-		}
-		return roadIdx < first
+		return duo.RoadStatus(roadIdx, currentOnly) != types.RoadFuture
 	})
 	if err != nil {
 		return types.EpochDuo{}, err
 	}
-	if currentOnly {
-		if duo.Current.RoadRange().Has(roadIdx) {
-			return duo, nil
-		}
-	} else if _, err := duo.EpochForRoad(roadIdx); err == nil {
+	switch duo.RoadStatus(roadIdx, currentOnly) {
+	case types.RoadReady:
 		return duo, nil
+	case types.RoadStale:
+		return types.EpochDuo{}, types.ErrPruned
+	default:
+		// Wait returned while still Future — should not happen.
+		return types.EpochDuo{}, types.ErrPruned
 	}
-	return types.EpochDuo{}, types.ErrPruned
 }
 
 // waitRoadOrDropStale waits until roadIdx is admitted for Push* paths. If the

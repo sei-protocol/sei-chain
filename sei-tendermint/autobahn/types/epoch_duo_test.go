@@ -111,3 +111,40 @@ func TestEpochForRoad(t *testing.T) {
 		})
 	}
 }
+
+func TestEpochDuo_RoadStatus(t *testing.T) {
+	prev, current := testDuoEpochs(t)
+	withPrev := types.NewEpochDuo(current, utils.Some(prev))
+	ep0Only := types.NewEpochDuo(prev, utils.None[*types.Epoch]())
+
+	for _, tc := range []struct {
+		name        string
+		w           types.EpochDuo
+		road        types.RoadIndex
+		currentOnly bool
+		want        types.RoadStatus
+	}{
+		{"duo_prev_ready", withPrev, 50, false, types.RoadReady},
+		{"duo_prev_stale_as_current", withPrev, 50, true, types.RoadStale},
+		{"duo_current_ready", withPrev, 150, false, types.RoadReady},
+		{"duo_current_ready_current_only", withPrev, 150, true, types.RoadReady},
+		{"duo_future", withPrev, 200, false, types.RoadFuture},
+		{"duo_future_current_only", withPrev, 200, true, types.RoadFuture},
+		{"ep0_ready", ep0Only, 50, false, types.RoadReady},
+		{"ep0_future", ep0Only, 100, false, types.RoadFuture},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.w.RoadStatus(tc.road, tc.currentOnly); got != tc.want {
+				t.Fatalf("RoadStatus(%d, currentOnly=%v) = %v, want %v",
+					tc.road, tc.currentOnly, got, tc.want)
+			}
+			if tc.currentOnly {
+				if tc.w.ContainsCurrent(tc.road) != (tc.want == types.RoadReady) {
+					t.Fatalf("ContainsCurrent(%d) inconsistent with status %v", tc.road, tc.want)
+				}
+			} else if tc.w.Contains(tc.road) != (tc.want == types.RoadReady) {
+				t.Fatalf("Contains(%d) inconsistent with status %v", tc.road, tc.want)
+			}
+		})
+	}
+}

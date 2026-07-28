@@ -40,6 +40,48 @@ func NewEpochDuo(current *Epoch, prev utils.Option[*Epoch]) EpochDuo {
 var ErrRoadBeforeWindow = errors.New("road before epoch duo window")
 var ErrRoadAfterWindow = errors.New("road after epoch duo window")
 
+// RoadStatus classifies a road relative to a Prev|Current window for admit waits.
+type RoadStatus int
+
+const (
+	RoadReady  RoadStatus = iota // in the admitted window
+	RoadStale                    // behind the window (soft-drop / ErrPruned)
+	RoadFuture                   // ahead of the window (backpressure wait)
+)
+
+// Contains reports whether roadIdx is in Prev|Current.
+func (w EpochDuo) Contains(roadIdx RoadIndex) bool {
+	_, err := w.EpochForRoad(roadIdx)
+	return err == nil
+}
+
+// ContainsCurrent reports whether roadIdx is in Current only.
+func (w EpochDuo) ContainsCurrent(roadIdx RoadIndex) bool {
+	return w.Current.RoadRange().Has(roadIdx)
+}
+
+// RoadStatus classifies roadIdx for admit waits. If currentOnly, only Current
+// admits (CommitQC tip); otherwise Prev|Current (AppVote/AppQC).
+func (w EpochDuo) RoadStatus(roadIdx RoadIndex, currentOnly bool) RoadStatus {
+	if currentOnly {
+		if w.ContainsCurrent(roadIdx) {
+			return RoadReady
+		}
+		if roadIdx < w.Current.RoadRange().First {
+			return RoadStale
+		}
+		return RoadFuture
+	}
+	_, err := w.EpochForRoad(roadIdx)
+	if err == nil {
+		return RoadReady
+	}
+	if errors.Is(err, ErrRoadBeforeWindow) {
+		return RoadStale
+	}
+	return RoadFuture
+}
+
 // EpochForRoad returns the epoch containing roadIdx.
 // Window is [Prev.First or Current.First, Current.Next). Outside →
 // ErrRoadBeforeWindow / ErrRoadAfterWindow. Under contiguous Prev|Current there
