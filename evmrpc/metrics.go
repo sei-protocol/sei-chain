@@ -18,9 +18,9 @@ const (
 	errorClassKey   = "error_class"
 	jsonrpcCodeKey  = "jsonrpc_code"
 	rejectReasonKey = "reason"
-	planeKey        = "plane"
-	planeHTTP       = "http"
-	planeWS         = "ws"
+	protocolKey     = "protocol"
+	protocolHTTP    = "http"
+	protocolWS      = "ws"
 	// reject reason values for requestRejectedCount.
 	rejectReasonOversize = "oversize" // body exceeded max_request_body_bytes
 	rejectReasonBusy     = "busy"     // max_concurrent_request_bytes budget exhausted
@@ -79,7 +79,7 @@ var (
 		)),
 		requestRejectedCount: must(rpcTelemetryMeter.Int64Counter(
 			"evmrpc_requests_rejected_total",
-			metric.WithDescription("Number of JSON-RPC requests rejected by admission control (labeled by plane and reason)"),
+			metric.WithDescription("Number of JSON-RPC requests rejected by admission control (labeled by protocol and reason)"),
 			metric.WithUnit("{count}"),
 		)),
 	}
@@ -172,7 +172,7 @@ func recordHistoricalDebugTraceAttempt(ctx context.Context, endpoint, connection
 func recordRequestRejected(ctx context.Context, reason string) {
 	metrics.requestRejectedCount.Add(ctx, 1,
 		metric.WithAttributes(
-			attribute.String(planeKey, planeHTTP),
+			attribute.String(protocolKey, protocolHTTP),
 			attribute.String(rejectReasonKey, reason),
 		),
 	)
@@ -181,7 +181,7 @@ func recordRequestRejected(ctx context.Context, reason string) {
 func recordWSAdmissionRejected(ctx context.Context, reason string) {
 	metrics.requestRejectedCount.Add(ctx, 1,
 		metric.WithAttributes(
-			attribute.String(planeKey, planeWS),
+			attribute.String(protocolKey, protocolWS),
 			attribute.String(rejectReasonKey, reason),
 		),
 	)

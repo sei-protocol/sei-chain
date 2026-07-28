@@ -259,10 +259,10 @@ type Config struct {
 
 	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP and
 	// WebSocket JSON-RPC request bodies admitted for processing concurrently
-	// (independent budgets per plane). HTTP uses Content-Length weighting and
+	// (independent budgets per protocol). HTTP uses Content-Length weighting and
 	// rejects over-budget requests fast (HTTP 429). WebSocket blocks until
 	// budget frees or WSAdmissionTimeout elapses. Set to 0 to disable the limit
-	// on either plane.
+	// on either protocol.
 	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
 
 	// WSAdmissionTimeout bounds how long a WebSocket connection waits for
@@ -937,9 +937,9 @@ batch_response_max_size = {{ .EVM.BatchResponseMaxSize }}
 max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
 
 # max_concurrent_request_bytes bounds total request bytes admitted concurrently
-# on HTTP (:8545) and WebSocket (:8546) (independent budgets per plane). HTTP
+# on HTTP (:8545) and WebSocket (:8546) (independent budgets per protocol). HTTP
 # rejects over-budget requests fast (HTTP 429); WS blocks until budget frees or
-# ws_admission_timeout elapses. Set to 0 to disable on either plane.
+# ws_admission_timeout elapses. Set to 0 to disable on either protocol.
 max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
 
 # ws_admission_timeout bounds how long a WebSocket connection waits for
