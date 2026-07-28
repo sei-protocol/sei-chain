@@ -262,6 +262,26 @@ func (s *State) waitForRoad(ctx context.Context, roadIdx types.RoadIndex, curren
 	return types.EpochDuo{}, types.ErrPruned
 }
 
+// waitRoadOrDropStale waits until roadIdx is admitted for Push* paths. If the
+// road is behind the window, logs a stale drop and returns None (soft-drop).
+// currentOnly matches waitForRoad: CommitQC tip vs Prev|Current for AppVote/AppQC.
+func (s *State) waitRoadOrDropStale(
+	ctx context.Context,
+	what string,
+	roadIdx types.RoadIndex,
+	currentOnly bool,
+) (utils.Option[types.EpochDuo], error) {
+	duo, err := s.waitForRoad(ctx, roadIdx, currentOnly)
+	if err != nil {
+		if errors.Is(err, types.ErrPruned) {
+			logStaleRoad(what, roadIdx, s.epochDuo.Load())
+			return utils.None[types.EpochDuo](), nil
+		}
+		return utils.None[types.EpochDuo](), err
+	}
+	return utils.Some(duo), nil
+}
+
 // sealNextDuoIfLastRoad runs AppQC + WaitForDuo leashes when idx closes ep.
 // incoming is passed to waitForAppQC (None for CommitQC-only seal).
 func (s *State) sealNextDuoIfLastRoad(
@@ -422,13 +442,13 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	duo, err := s.waitForRoad(ctx, idx, true)
+	admitted, err := s.waitRoadOrDropStale(ctx, "CommitQC", idx, true)
 	if err != nil {
-		if errors.Is(err, types.ErrPruned) {
-			logStaleRoad("CommitQC", idx, s.epochDuo.Load())
-			return nil
-		}
 		return err
+	}
+	duo, ok := admitted.Get()
+	if !ok {
+		return nil
 	}
 	ep := duo.Current
 	if err := qc.Verify(ep); err != nil {
@@ -467,13 +487,13 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		return err
 	}
 	// Too-early roads (ahead of Prev|Current) backpressure; too-late are dropped.
-	duo, err := s.waitForRoad(ctx, idx, false)
+	admitted, err := s.waitRoadOrDropStale(ctx, "AppVote", idx, false)
 	if err != nil {
-		if errors.Is(err, types.ErrPruned) {
-			logStaleRoad("AppVote", idx, s.epochDuo.Load())
-			return nil
-		}
 		return err
+	}
+	duo, ok := admitted.Get()
+	if !ok {
+		return nil
 	}
 	ep := utils.OrPanic1(duo.EpochForRoad(idx))
 	if got, want := v.Msg().Proposal().EpochIndex(), ep.EpochIndex(); got != want {
@@ -536,13 +556,13 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	idx := commitQC.Proposal().Index()
-	duo, err := s.waitForRoad(ctx, idx, false)
+	admitted, err := s.waitRoadOrDropStale(ctx, "AppQC", idx, false)
 	if err != nil {
-		if errors.Is(err, types.ErrPruned) {
-			logStaleRoad("AppQC", idx, s.epochDuo.Load())
-			return nil
-		}
 		return err
+	}
+	duo, ok := admitted.Get()
+	if !ok {
+		return nil
 	}
 	ep := utils.OrPanic1(duo.EpochForRoad(idx))
 	if err := appQC.Verify(ep); err != nil {
