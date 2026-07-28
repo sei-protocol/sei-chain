@@ -627,9 +627,9 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	if p.Key() != h.Lane() {
 		return fmt.Errorf("signer %v does not match lane %v", p.Key(), h.Lane())
 	}
-	// Snapshot Current once for off-lock verify. Unlike PushVote, we do not
-	// re-check membership after WaitUntil — lane proposals are not reweighted
-	// across epoch advances (genesis committees are stable today).
+	// Snapshot Current once for off-lock verify. Unlike PushVote (which parks
+	// until Current accepts the signer), we do not wait for future committees —
+	// lane proposals are not reweighted across epoch advances.
 	duo := s.epochDuo.Load()
 	c := duo.Current.Committee()
 	if err := p.Msg().Verify(c); err != nil {
@@ -679,22 +679,35 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	return nil
 }
 
-// PushVote verifies against Current, then under lock waits for lane capacity and
-// credits with the live duo (drop if Current advanced and signer left).
-// Signers not in Current fail immediately (no park) so a peer stream cannot be
-// wedged on unauthenticated input; future-committee admission is a follow-up
-// once per-epoch committees are real.
+// PushVote parks until Current can accept the vote (signer weight + voted lane),
+// verifies, then under lock waits for capacity and credits with the live duo
+// (drop if Current advanced and signer left).
+//
+// Lane-vote streams are committee-only (giga RunServer/RunClient), so parking a
+// future-epoch signer does not expose an unauthenticated DoS path. No p2p retry:
+// without this wait, async epoch entry would drop the vote permanently.
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
 	h := vote.Msg().Header()
-	duo := s.epochDuo.Load()
-	c := duo.Current.Committee()
-	if err := vote.Msg().Verify(c); err != nil {
+	// Future-epoch voters park (one stream goroutine) until Current includes them.
+	var committee *types.Committee
+	var verifiedEpoch types.EpochIndex
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			c := inner.epochDuo.Load().Current.Committee()
+			return c.Weight(vote.Key()) > 0 && c.HasLane(h.Lane())
+		}); err != nil {
+			return err
+		}
+		duo := inner.epochDuo.Load()
+		committee = duo.Current.Committee()
+		verifiedEpoch = duo.Current.EpochIndex()
+	}
+	if err := vote.Msg().Verify(committee); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
-	if err := vote.VerifySig(c); err != nil {
+	if err := vote.VerifySig(committee); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
-	verifiedEpoch := duo.Current.EpochIndex()
 	for inner, ctrl := range s.inner.Lock() {
 		ls, ok := inner.lanes[h.Lane()]
 		if !ok {
