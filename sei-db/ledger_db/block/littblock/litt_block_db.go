@@ -429,9 +429,13 @@ func (s *blockDB) Close() error {
 	return nil
 }
 
-// GetTxByOffset reads a single transaction's raw bytes out of the block stored at GlobalBlockNumber n,
-// without decoding the block. offset and length identify a byte range within the block's marshalled body —
-// the proto(Block) bytes alone — typically the (offset, length) of one transaction recorded at write time.
+// ReadBlockSubrange reads a byte range out of the block stored at GlobalBlockNumber n, without decoding
+// the block. offset and length identify a range within the block's marshalled body — the proto(Block)
+// bytes alone — typically the (offset, length) of one transaction recorded at write time.
+//
+// The range is returned verbatim, with no interpretation: this method does not know or check whether it
+// delimits a transaction, a field, or the middle of either. Naming a range is the caller's job, so a
+// caller that holds recorded transaction locations is the right place for a tx-shaped wrapper over this.
 //
 // Offsets are body-relative, not value-relative: encodeBlock frames the stored value as
 // [version:1][GlobalBlockNumber:8][proto(Block)], and this method adds that fixed prefix itself. A writer
@@ -459,13 +463,13 @@ func (s *blockDB) Close() error {
 // This lives outside the types.BlockDB interface because the offset space is defined by this
 // implementation's serialization. The result is one of:
 //
-//   - Some(txBytes) with a nil error: the byte range was read.
+//   - Some(bytes) with a nil error: the byte range was read.
 //   - types.ErrPruned: n is strictly below the retention watermark (matches ReadBlockByNumber). A block
 //     below the watermark may be stranded from its covering QC and is never served.
 //   - None with a nil error: no block is present at n (never written, or not yet written).
 //   - a non-nil error: offset is too large to be prefixed without overflowing, the range is out of bounds
 //     for the block value, or the read failed.
-func (s *blockDB) GetTxByOffset(
+func (s *blockDB) ReadBlockSubrange(
 	n types.GlobalBlockNumber,
 	offset uint32,
 	length uint32,

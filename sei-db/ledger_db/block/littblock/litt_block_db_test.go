@@ -22,10 +22,10 @@ func genBlockWithTxs(rng utils.Rng) *types.Block {
 	}
 }
 
-// TestGetTxByOffset covers the block-store sub-range read primitive: it must return exactly the requested
-// byte range of a block's stored value (which is what encodeBlock produced), both before and after a flush,
-// and it must extract a real transaction's bytes when given that transaction's byte range within the value.
-func TestGetTxByOffset(t *testing.T) {
+// TestReadBlockSubrange covers the block-store sub-range read primitive: it must return exactly the
+// requested byte range of a block's marshalled body, both before and after a flush, and it must yield a
+// real transaction's bytes when given that transaction's range within the body.
+func TestReadBlockSubrange(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRngFromSeed(1)
 
@@ -42,7 +42,7 @@ func TestGetTxByOffset(t *testing.T) {
 	require.NoError(t, db.WriteBlock(0, blk))
 
 	// The stored value for the primary block key is exactly encodeBlock's output. Offsets passed to
-	// GetTxByOffset are relative to the marshalled body, i.e. the stored value minus its fixed prefix.
+	// ReadBlockSubrange are relative to the marshalled body, i.e. the stored value minus its fixed prefix.
 	stored := encodeBlock(0, blk)
 	body := stored[blockValuePrefixLen:]
 	bodyLen := uint32(len(body))
@@ -51,7 +51,7 @@ func TestGetTxByOffset(t *testing.T) {
 		t.Helper()
 
 		// The whole body round-trips, proving the method applies the prefix itself.
-		res, err := impl.GetTxByOffset(0, 0, bodyLen)
+		res, err := impl.ReadBlockSubrange(0, 0, bodyLen)
 		require.NoError(t, err, stage)
 		got, ok := res.Get()
 		require.True(t, ok, stage)
@@ -65,7 +65,7 @@ func TestGetTxByOffset(t *testing.T) {
 			idx := bytes.Index(body, tx)
 			require.GreaterOrEqual(t, idx, 0, stage)
 			//nolint:gosec // small test offsets/lengths fit u32
-			res, err := impl.GetTxByOffset(0, uint32(idx), uint32(len(tx)))
+			res, err := impl.ReadBlockSubrange(0, uint32(idx), uint32(len(tx)))
 			require.NoError(t, err, stage)
 			got, ok := res.Get()
 			require.True(t, ok, stage)
@@ -74,7 +74,7 @@ func TestGetTxByOffset(t *testing.T) {
 
 		// Offset 0 addresses the first body byte, never the version byte: a body-relative read can never
 		// reach into the prefix.
-		res, err = impl.GetTxByOffset(0, 0, 1)
+		res, err = impl.ReadBlockSubrange(0, 0, 1)
 		require.NoError(t, err, stage)
 		got, ok = res.Get()
 		require.True(t, ok, stage)
@@ -82,16 +82,16 @@ func TestGetTxByOffset(t *testing.T) {
 
 		// A range past the end of the body is an error, even though those bytes exist in the stored value
 		// ahead of the body.
-		_, err = impl.GetTxByOffset(0, bodyLen-1, 5)
+		_, err = impl.ReadBlockSubrange(0, bodyLen-1, 5)
 		require.Error(t, err, stage)
 
 		// An offset too large to be prefixed without wrapping is rejected rather than read from the
 		// beginning of the block.
-		_, err = impl.GetTxByOffset(0, math.MaxUint32, 1)
+		_, err = impl.ReadBlockSubrange(0, math.MaxUint32, 1)
 		require.Error(t, err, stage)
 
 		// A block that was never written is simply absent (not an error).
-		res, err = impl.GetTxByOffset(1, 0, 1)
+		res, err = impl.ReadBlockSubrange(1, 0, 1)
 		require.NoError(t, err, stage)
 		require.False(t, res.IsPresent(), stage)
 	}
@@ -101,9 +101,9 @@ func TestGetTxByOffset(t *testing.T) {
 	verify("after flush")
 }
 
-// TestGetTxByOffsetPruned verifies that a block below the retention watermark is reported ErrPruned,
+// TestReadBlockSubrangePruned verifies that a block below the retention watermark is reported ErrPruned,
 // matching ReadBlockByNumber, rather than served (it may be stranded from its covering QC).
-func TestGetTxByOffsetPruned(t *testing.T) {
+func TestReadBlockSubrangePruned(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRngFromSeed(2)
 
@@ -115,18 +115,18 @@ func TestGetTxByOffsetPruned(t *testing.T) {
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19; QCs [0,5),[5,10),[10,15),[15,20)
 	require.NoError(t, db.PruneBefore(5))   // watermark to 5: blocks 0..4 are below it
 
-	res, err := impl.GetTxByOffset(2, 0, 1)
+	res, err := impl.ReadBlockSubrange(2, 0, 1)
 	require.ErrorIs(t, err, types.ErrPruned)
 	require.False(t, res.IsPresent())
 
 	// Retention wins over argument shape: a below-watermark block asked for with an unusable offset still
 	// returns ErrPruned, matching ReadBlockByNumber and the documented contract.
-	res, err = impl.GetTxByOffset(2, math.MaxUint32, 1)
+	res, err = impl.ReadBlockSubrange(2, math.MaxUint32, 1)
 	require.ErrorIs(t, err, types.ErrPruned)
 	require.False(t, res.IsPresent())
 
 	// A block at/above the watermark is still served.
-	res, err = impl.GetTxByOffset(5, 0, 1)
+	res, err = impl.ReadBlockSubrange(5, 0, 1)
 	require.NoError(t, err)
 	require.True(t, res.IsPresent())
 }
