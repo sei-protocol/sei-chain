@@ -2,7 +2,6 @@ package types
 
 import (
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -11,7 +10,7 @@ import (
 func TestAppQCVerifyChecksEpochAndRoad(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	ep := NewEpoch(1, RoadRange{First: 100, Next: 200}, time.Time{}, committee, 1)
+	ep := NewEpoch(1, RoadRange{First: 100, Next: 200}, committee)
 
 	ok := makeAppQCFor(keys, 0, 150, GenAppHash(rng), 1)
 	require.NoError(t, ok.Verify(ep))

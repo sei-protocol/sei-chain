@@ -88,7 +88,7 @@ func newInner(firstBlock types.GlobalBlockNumber) *inner {
 }
 
 // skipTo advances all cursors to n, discarding everything before it.
-// Used on recovery when the first loaded QC starts past committee.FirstBlock()
+// Used on recovery when the first loaded QC starts past registry.FirstBlock()
 // (i.e. data before n was pruned in a previous run).
 func (i *inner) skipTo(n types.GlobalBlockNumber) {
 	i.first = n

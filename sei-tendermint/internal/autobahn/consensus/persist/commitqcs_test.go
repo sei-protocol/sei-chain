@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -22,7 +21,7 @@ func testCommitQC(
 	laneQCs map[types.LaneID]*types.LaneQC,
 	appQC utils.Option[*types.AppQC],
 ) *types.CommitQC {
-	ep := types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, committee, 0)
+	ep := types.NewEpoch(0, types.OpenRoadRange(), committee)
 	return types.BuildCommitQC(ep, keys, prev, laneQCs, appQC)
 }
 

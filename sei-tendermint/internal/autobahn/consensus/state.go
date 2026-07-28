@@ -115,11 +115,12 @@ func newState(
 	}
 
 	innerSend := utils.Alloc(utils.NewAtomicSend(initialInner))
+	registry := data.Registry()
 	s := &State{
 		cfg: cfg,
 		// metrics: NewMetrics(),
 		avail:     availState,
-		registry:  data.Registry(),
+		registry:  registry,
 		inner:     utils.NewMutex(innerSend),
 		innerRecv: innerSend.Subscribe(),
 		persister: pers,
@@ -128,7 +129,13 @@ func newState(
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
 		commitVotes:  utils.NewMutex(newCommitVotes()),
 
-		myView:        utils.NewAtomicSend(types.ViewSpec{CommitQC: initialInner.CommitQC, TimeoutQC: initialInner.TimeoutQC, Epochs: initialInner.epochs}),
+		myView: utils.NewAtomicSend(types.ViewSpec{
+			CommitQC:          initialInner.CommitQC,
+			TimeoutQC:         initialInner.TimeoutQC,
+			Epochs:            initialInner.epochs,
+			GenesisFirstBlock: registry.FirstBlock(),
+			GenesisTimestamp:  registry.FirstTimestamp(),
+		}),
 		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
 		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
 		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
@@ -303,6 +310,18 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 	}
 }
 
+// viewSpec builds a ViewSpec for i, taking genesis floors from the registry
+// (used only when CommitQC is None).
+func (s *State) viewSpec(i inner) types.ViewSpec {
+	return types.ViewSpec{
+		CommitQC:          i.CommitQC,
+		TimeoutQC:         i.TimeoutQC,
+		Epochs:            i.epochs,
+		GenesisFirstBlock: s.registry.FirstBlock(),
+		GenesisTimestamp:  s.registry.FirstTimestamp(),
+	}
+}
+
 // Updates the outputs based on the inner state.
 // Persists state to disk before broadcasting votes to ensure votes are durable
 // before dissemination (prevents double-voting on crash).
@@ -310,7 +329,7 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 // timers, neither of which constitutes a vote.
 func (s *State) runOutputs(ctx context.Context) error {
 	return s.innerRecv.Iter(ctx, func(ctx context.Context, i inner) error {
-		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, Epochs: i.epochs}
+		vs := s.viewSpec(i)
 		old := s.myView.Load()
 		if old.View().Less(vs.View()) {
 			s.myView.Store(vs)

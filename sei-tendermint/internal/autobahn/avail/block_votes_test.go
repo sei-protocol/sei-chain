@@ -2,7 +2,6 @@ package avail
 
 import (
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -13,7 +12,7 @@ func makeVoteEpoch(idx types.EpochIndex, weights map[types.PublicKey]uint64) *ty
 	c := utils.OrPanic1(types.NewCommittee(weights))
 	first := types.RoadIndex(uint64(idx) * 108_000)
 	rr := types.RoadRange{First: first, Next: first + 108_000}
-	return types.NewEpoch(idx, rr, time.Time{}, c, 0)
+	return types.NewEpoch(idx, rr, c)
 }
 
 func TestLaneVoteSet_Add(t *testing.T) {

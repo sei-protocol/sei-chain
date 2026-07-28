@@ -184,7 +184,7 @@ func TestDuoAt_ErrorWhenCurrentMissing(t *testing.T) {
 	committee := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
 		types.GenSecretKey(utils.TestRng()).Public(): 1,
 	}))
-	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, time.Time{}, committee, 0)
+	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, committee)
 	bare := &Registry{
 		state: utils.NewRWMutex(&registryState{
 			m: map[types.EpochIndex]*types.Epoch{0: ep},
@@ -201,8 +201,8 @@ func TestDuoAt_ErrorWhenPrevMissing(t *testing.T) {
 	committee := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
 		types.GenSecretKey(utils.TestRng()).Public(): 1,
 	}))
-	ep0 := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, time.Time{}, committee, 0)
-	ep2 := types.NewEpoch(2, types.RoadRange{First: FirstRoad(2), Next: FirstRoad(3)}, time.Time{}, committee, 0)
+	ep0 := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, committee)
+	ep2 := types.NewEpoch(2, types.RoadRange{First: FirstRoad(2), Next: FirstRoad(3)}, committee)
 	// Gap: epoch 2 present without epoch 1.
 	bare := &Registry{
 		state: utils.NewRWMutex(&registryState{

@@ -134,19 +134,23 @@ type ViewSpec struct {
 	CommitQC  utils.Option[*CommitQC]
 	TimeoutQC utils.Option[*TimeoutQC]
 	Epochs    EpochDuo
+	// Genesis floors used only when CommitQC is None (chain start).
+	// Copied from Registry; ignored when CommitQC is present.
+	GenesisFirstBlock GlobalBlockNumber
+	GenesisTimestamp  time.Time
 }
 
 // Epoch is the proposing/voting epoch (Epochs.Current).
 func (vs *ViewSpec) Epoch() *Epoch { return vs.Epochs.Current }
 
 // NextGlobalBlock returns the first global block number expected in the next proposal.
-// CommitQC is None only at global block 0 (genesis), in which case it returns Epoch[0].FirstBlock.
+// CommitQC is None only at chain start, in which case it returns GenesisFirstBlock.
 // For all other views, including the first view of a non-genesis epoch, CommitQC is present and it returns CommitQC.GlobalRange().Next.
 func (vs *ViewSpec) NextGlobalBlock() GlobalBlockNumber {
 	if cQC, ok := vs.CommitQC.Get(); ok {
 		return cQC.GlobalRange().Next
 	}
-	return vs.Epoch().FirstBlock()
+	return vs.GenesisFirstBlock
 }
 
 // View is the view justified by vs.
@@ -163,7 +167,7 @@ func (vs *ViewSpec) NextTimestamp() time.Time {
 	if cQC, ok := vs.CommitQC.Get(); ok {
 		return cQC.Proposal().NextTimestamp()
 	}
-	return vs.Epoch().FirstTimestamp()
+	return vs.GenesisTimestamp
 }
 
 // Proposal is the road tipcut proposal.

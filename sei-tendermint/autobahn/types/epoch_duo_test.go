@@ -16,8 +16,8 @@ func testDuoEpochs(t *testing.T) (prev, current *types.Epoch) {
 		weights[types.GenSecretKey(rng).Public()] = 1
 	}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
-	prev = types.NewEpoch(0, types.RoadRange{First: 0, Next: 100}, utils.GenTimestamp(rng), committee, 1)
-	current = types.NewEpoch(1, types.RoadRange{First: 100, Next: 200}, utils.GenTimestamp(rng), committee, 101)
+	prev = types.NewEpoch(0, types.RoadRange{First: 0, Next: 100}, committee)
+	current = types.NewEpoch(1, types.RoadRange{First: 100, Next: 200}, committee)
 	return prev, current
 }
 
@@ -27,7 +27,7 @@ func TestNewEpochDuo_PanicsOnNonContiguousIndex(t *testing.T) {
 	weights := map[types.PublicKey]uint64{types.GenSecretKey(rng).Public(): 1}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
 	// Roads abut, but index jumps 0 → 2.
-	current := types.NewEpoch(2, types.RoadRange{First: 100, Next: 200}, utils.GenTimestamp(rng), committee, 101)
+	current := types.NewEpoch(2, types.RoadRange{First: 100, Next: 200}, committee)
 	defer func() {
 		if recover() == nil {
 			t.Fatal("NewEpochDuo with non-contiguous indices should panic")
@@ -40,8 +40,8 @@ func TestNewEpochDuo_PanicsOnNonContiguousRoads(t *testing.T) {
 	rng := utils.TestRng()
 	weights := map[types.PublicKey]uint64{types.GenSecretKey(rng).Public(): 1}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
-	prev := types.NewEpoch(0, types.OpenRoadRange(), utils.GenTimestamp(rng), committee, 1)
-	current := types.NewEpoch(1, types.RoadRange{First: 100, Next: 200}, utils.GenTimestamp(rng), committee, 101)
+	prev := types.NewEpoch(0, types.OpenRoadRange(), committee)
+	current := types.NewEpoch(1, types.RoadRange{First: 100, Next: 200}, committee)
 	defer func() {
 		if recover() == nil {
 			t.Fatal("NewEpochDuo with non-abutting roads should panic")
@@ -76,7 +76,7 @@ func TestEpochForRoad(t *testing.T) {
 	weights := map[types.PublicKey]uint64{types.GenSecretKey(rng).Public(): 1}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
 	// Prev absent only for epoch 0.
-	ep0 := types.NewEpoch(0, types.RoadRange{First: 0, Next: 100}, utils.GenTimestamp(rng), committee, 1)
+	ep0 := types.NewEpoch(0, types.RoadRange{First: 0, Next: 100}, committee)
 
 	currentOnly := types.NewEpochDuo(ep0, utils.None[*types.Epoch]())
 	withPrev := types.NewEpochDuo(current, utils.Some(prev))

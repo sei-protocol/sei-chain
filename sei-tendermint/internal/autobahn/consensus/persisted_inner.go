@@ -95,7 +95,12 @@ func (p *persistedInner) validate(commitEp *types.Epoch, viewDuo types.EpochDuo)
 		}
 	}
 
-	vs := types.ViewSpec{CommitQC: p.CommitQC, TimeoutQC: p.TimeoutQC, Epochs: viewDuo}
+	vs := types.ViewSpec{
+		CommitQC:          p.CommitQC,
+		TimeoutQC:         p.TimeoutQC,
+		Epochs:            viewDuo,
+		GenesisFirstBlock: 0, // validate does not use NextGlobalBlock; floors unused here
+	}
 	currentView := vs.View()
 	committee := viewEp.Committee()
 

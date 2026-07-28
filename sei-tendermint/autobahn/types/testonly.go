@@ -26,9 +26,7 @@ func EpochDuoForTest(current *Epoch) EpochDuo {
 	prev := NewEpoch(
 		current.EpochIndex()-1,
 		RoadRange{First: 0, Next: first},
-		time.Time{},
 		current.Committee(),
-		1,
 	)
 	return NewEpochDuo(current, utils.Some(prev))
 }
@@ -310,8 +308,8 @@ func GenEpochIndex(rng utils.Rng) EpochIndex {
 }
 
 // GenEpochWithCommittee returns a random Epoch wrapping committee.
-// epochIndex, firstBlock, timestamp, and Roads.First are randomized so that tests
-// exercise epoch-binding checks rather than silently passing on zero values.
+// epochIndex and Roads.First are randomized so that tests exercise
+// epoch-binding checks rather than silently passing on zero values.
 // When epochIndex > 0, First is at least 1 so EpochDuoForTest can place Prev.
 func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
 	idx := GenEpochIndex(rng)
@@ -322,9 +320,7 @@ func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
 	return NewEpoch(
 		idx,
 		RoadRange{First: first, Next: first + RoadIndex(rng.Uint64()%10000) + 11},
-		utils.GenTimestamp(rng),
 		committee,
-		GlobalBlockNumber(rng.Uint64()%1000000)+1,
 	)
 }
 
@@ -351,22 +347,24 @@ func GenProposalAt(rng utils.Rng, view View) *Proposal {
 // ProposalAt returns a minimal non-empty Proposal at view, consistent with ep.
 // Includes a single 1-block lane range so Proposal.Verify accepts it (empty
 // tipcuts are forbidden). For tests that care about signature weight or epoch
-// binding rather than real lane/app data.
+// binding rather than real lane/app data. GlobalRange starts at 1.
 func ProposalAt(ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	lane := ep.Committee().Lanes().At(0)
 	header := NewBlock(lane, 0, BlockHeaderHash{}, &Payload{}).Header()
-	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}, utils.None[*AppProposal](), ep.FirstBlock())
+	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}, utils.None[*AppProposal](), 1)
 }
 
-// GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,
-// firstBlock, and lane IDs are all consistent with ep. Use in tests that verify
-// QCs against a known Epoch.
+// GenProposalForEpoch generates a Proposal at a specific view whose epochIndex
+// and lane IDs are consistent with ep. Use in tests that verify QCs against a
+// known Epoch. GlobalRange.First is randomized (floors live on ViewSpec/Registry,
+// not Epoch).
 func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	c := ep.Committee()
 	laneRanges := utils.GenSlice(rng, func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
-	return newProposal(view, utils.GenTimestamp(rng), laneRanges, utils.Some(GenAppProposal(rng)), ep.FirstBlock())
+	firstBlock := GlobalBlockNumber(rng.Uint64()%1000000) + 1
+	return newProposal(view, utils.GenTimestamp(rng), laneRanges, utils.Some(GenAppProposal(rng)), firstBlock)
 }
 
 // GenAppHash generates a random AppHash.

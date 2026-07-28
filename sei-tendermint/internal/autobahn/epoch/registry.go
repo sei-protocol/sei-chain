@@ -51,6 +51,9 @@ type registryState struct {
 //     lag data (peer FullCommitQC / async BlockDB flush); catch-up from peers
 //     and avail LastCommitQC in Run closes the gap.
 //   - Placeholders use the genesis committee until real committees are wired.
+//   - Genesis FirstBlock / FirstTimestamp live on Registry (from GenDoc), not
+//     on Epoch — per-epoch floors come from CommitQCs, which the registry does
+//     not store.
 //
 // TODO(autobahn): replace genesis placeholders with epoch info on blocks.
 type Registry struct {
@@ -58,6 +61,10 @@ type Registry struct {
 	// epochGen bumps on every new registration; WaitForDuo waits on it so
 	// filling a gap still wakes waiters.
 	epochGen utils.AtomicSend[uint64]
+	// Genesis floors from GenDoc (InitialHeight / GenesisTime).
+	genesisFirstBlock types.GlobalBlockNumber
+	genesisTimestamp  time.Time
+	genesisCommittee  *types.Committee
 }
 
 // NewRegistry creates a Registry with genesis epoch 0 only.
@@ -67,12 +74,15 @@ func NewRegistry(
 	firstBlock types.GlobalBlockNumber,
 	genesisTimestamp time.Time,
 ) (*Registry, error) {
-	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, genesisTimestamp, committee, firstBlock)
+	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, committee)
 	return &Registry{
 		state: utils.NewRWMutex(&registryState{
 			m: map[types.EpochIndex]*types.Epoch{0: ep},
 		}),
-		epochGen: utils.NewAtomicSend(uint64(0)),
+		epochGen:          utils.NewAtomicSend(uint64(0)),
+		genesisFirstBlock: firstBlock,
+		genesisTimestamp:  genesisTimestamp,
+		genesisCommittee:  committee,
 	}, nil
 }
 
@@ -113,12 +123,14 @@ func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) erro
 	return nil
 }
 
-// FirstBlock returns the first global block number of the genesis epoch.
+// FirstBlock returns the genesis global block floor (GenDoc.InitialHeight).
 func (r *Registry) FirstBlock() types.GlobalBlockNumber {
-	for s := range r.state.RLock() {
-		return s.m[0].FirstBlock()
-	}
-	panic("unreachable")
+	return r.genesisFirstBlock
+}
+
+// FirstTimestamp returns the genesis timestamp (GenDoc.GenesisTime).
+func (r *Registry) FirstTimestamp() time.Time {
+	return r.genesisTimestamp
 }
 
 // EpochAt returns the epoch containing roadIndex.
@@ -137,12 +149,11 @@ func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 // makeEpoch inserts a genesis-committee placeholder at epochIdx.
 // Caller holds the write lock. Overwrites if present. Panics without epoch 0.
 func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) *types.Epoch {
-	genesis, ok := s.m[0]
-	if !ok {
+	if _, ok := s.m[0]; !ok {
 		panic("genesis epoch missing from registry")
 	}
 	firstRoad := FirstRoad(epochIdx)
-	epoch := types.NewEpoch(epochIdx, types.RoadRange{First: firstRoad, Next: FirstRoad(epochIdx + 1)}, genesis.FirstTimestamp(), genesis.Committee(), genesis.FirstBlock())
+	epoch := types.NewEpoch(epochIdx, types.RoadRange{First: firstRoad, Next: FirstRoad(epochIdx + 1)}, r.genesisCommittee)
 	s.m[epochIdx] = epoch
 	r.epochGen.Store(r.epochGen.Load() + 1)
 	return epoch

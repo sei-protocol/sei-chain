@@ -1,8 +1,6 @@
 package types
 
 import (
-	"time"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -26,27 +24,25 @@ func (r RoadRange) IsLastRoad(idx RoadIndex) bool { return idx+1 == r.Next }
 
 // Epoch holds the complete context for a single epoch.
 // Retrieved from the local Registry; never transmitted on the wire.
+//
+// First global block / timestamp floors are not on Epoch: they come from the
+// last CommitQC of the prior epoch (or genesis GenDoc via Registry), and the
+// registry does not store CommitQCs.
 type Epoch struct {
 	utils.ReadOnly
-	epochIndex     EpochIndex
-	roads          RoadRange
-	firstTimestamp time.Time
-	committee      *Committee
-	firstBlock     GlobalBlockNumber
+	epochIndex EpochIndex
+	roads      RoadRange
+	committee  *Committee
 }
 
-func NewEpoch(index EpochIndex, roads RoadRange, firstTimestamp time.Time, committee *Committee, firstBlock GlobalBlockNumber) *Epoch {
+func NewEpoch(index EpochIndex, roads RoadRange, committee *Committee) *Epoch {
 	return &Epoch{
-		epochIndex:     index,
-		roads:          roads,
-		firstTimestamp: firstTimestamp,
-		committee:      committee,
-		firstBlock:     firstBlock,
+		epochIndex: index,
+		roads:      roads,
+		committee:  committee,
 	}
 }
 
-func (e *Epoch) EpochIndex() EpochIndex        { return e.epochIndex }
-func (e *Epoch) RoadRange() RoadRange          { return e.roads }
-func (e *Epoch) FirstTimestamp() time.Time     { return e.firstTimestamp }
-func (e *Epoch) Committee() *Committee         { return e.committee }
-func (e *Epoch) FirstBlock() GlobalBlockNumber { return e.firstBlock }
+func (e *Epoch) EpochIndex() EpochIndex { return e.epochIndex }
+func (e *Epoch) RoadRange() RoadRange   { return e.roads }
+func (e *Epoch) Committee() *Committee  { return e.committee }

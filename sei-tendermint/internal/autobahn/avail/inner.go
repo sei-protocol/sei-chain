@@ -103,7 +103,7 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 		if startEpochDuo.Current.EpochIndex() > 0 {
 			return nil, fmt.Errorf("prune anchor required for epoch %d", startEpochDuo.Current.EpochIndex())
 		}
-		i.appVotes.prune(startEpochDuo.Current.FirstBlock())
+		i.appVotes.prune(registry.FirstBlock())
 		return i, nil
 	}
 
@@ -131,9 +131,9 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 			ls.persistedBlockStart = anchor.CommitQC.LaneRange(lane).First()
 		}
 	} else if startEpochDuo.Current.EpochIndex() == 0 {
-		// No anchor: don't raise appVotes to a tip epoch's FirstBlock — live
-		// advanceEpoch also leaves appVotes at the genesis floor.
-		i.appVotes.prune(startEpochDuo.Current.FirstBlock())
+		// No anchor: floor appVotes at genesis (registry), not tip Current —
+		// live advanceEpoch also leaves appVotes at the genesis floor.
+		i.appVotes.prune(registry.FirstBlock())
 	} else {
 		return nil, fmt.Errorf("prune anchor required for epoch %d", startEpochDuo.Current.EpochIndex())
 	}

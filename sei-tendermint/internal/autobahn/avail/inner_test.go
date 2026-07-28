@@ -856,8 +856,8 @@ func TestNewInnerPruneAnchorCommitQCUsedForPrune(t *testing.T) {
 }
 
 // TestNewInnerAppVotesFloorFromAnchorNotTipFirstBlock covers tip-based restart:
-// appVotes must be floored by the prune-anchor CommitQC, not tip Current.FirstBlock
-// (queue.prune only advances; a too-high bootstrap would stick).
+// appVotes must be floored by the prune-anchor CommitQC, not registry genesis
+// FirstBlock (queue.prune only advances; a too-high bootstrap would stick).
 func TestNewInnerAppVotesFloorFromAnchorNotTipFirstBlock(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistryAt(rng, 4, 0)
@@ -885,8 +885,8 @@ func TestNewInnerAppVotesFloorFromAnchorNotTipFirstBlock(t *testing.T) {
 	inner, err := newInner(registry, loaded.nextCommitQC(), utils.Some(loaded))
 	require.NoError(t, err)
 	require.Equal(t, wantAppFirst, inner.appVotes.first,
-		"appVotes must follow prune-anchor GlobalRange, not tip Current.FirstBlock")
-	require.NotEqual(t, inner.epochDuo.Load().Current.FirstBlock(), inner.appVotes.first)
+		"appVotes must follow prune-anchor GlobalRange, not registry.FirstBlock")
+	require.NotEqual(t, registry.FirstBlock(), inner.appVotes.first)
 }
 
 func TestAdvanceEpoch_AddsLanesKeepsOld(t *testing.T) {

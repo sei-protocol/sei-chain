@@ -379,7 +379,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 
 	// Helper to create a CommitQC for a specific index
 	makeQC := func(prev utils.Option[*types.CommitQC], laneQCs map[types.LaneID]*types.LaneQC) *types.CommitQC {
-		vs := types.ViewSpec{CommitQC: prev, Epochs: types.NewEpochDuo(types.NewEpoch(0, types.OpenRoadRange(), time.Time{}, committee, initialBlock), utils.None[*types.Epoch]())}
+		vs := types.ViewSpec{CommitQC: prev, Epochs: types.NewEpochDuo(types.NewEpoch(0, types.OpenRoadRange(), committee), utils.None[*types.Epoch]())}
 		fullProposal := utils.OrPanic1(types.NewProposal(
 			leaderKey(committee, keys, vs.View()),
 			vs,
@@ -484,8 +484,7 @@ func TestPushVote_DropsSignerAfterEpochAdvance(t *testing.T) {
 		for _, k := range keys[1:] {
 			weights[k.Public()] = 1000
 		}
-		ep1 := types.NewEpoch(1, types.RoadRange{First: epoch.FirstRoad(1), Next: epoch.FirstRoad(2)},
-			ep0.FirstTimestamp(), utils.OrPanic1(types.NewCommittee(weights)), ep0.FirstBlock())
+		ep1 := types.NewEpoch(1, types.RoadRange{First: epoch.FirstRoad(1), Next: epoch.FirstRoad(2)}, utils.OrPanic1(types.NewCommittee(weights)))
 		duo1 := types.NewEpochDuo(ep1, utils.Some(ep0))
 
 		errCh := make(chan error, 1)
@@ -525,8 +524,7 @@ func TestPushVote_CountsSignerAfterEpochAdvance(t *testing.T) {
 		vote := types.Sign(keys[0], types.NewLaneVote(header))
 
 		weights := map[types.PublicKey]uint64{keys[0].Public(): 1000, keys[1].Public(): 1000}
-		ep1 := types.NewEpoch(1, types.RoadRange{First: epoch.FirstRoad(1), Next: epoch.FirstRoad(2)},
-			ep0.FirstTimestamp(), utils.OrPanic1(types.NewCommittee(weights)), ep0.FirstBlock())
+		ep1 := types.NewEpoch(1, types.RoadRange{First: epoch.FirstRoad(1), Next: epoch.FirstRoad(2)}, utils.OrPanic1(types.NewCommittee(weights)))
 		duo1 := types.NewEpochDuo(ep1, utils.Some(ep0))
 
 		errCh := make(chan error, 1)
@@ -1021,7 +1019,7 @@ func TestPushAppVoteFutureWaitsForCommitQC(t *testing.T) {
 	// PushAppVote parks in waitForCommitQC (not on the epoch window).
 	epM := utils.OrPanic1(registry.EpochAt(epoch.FirstRoad(m)))
 	proposal := types.NewAppProposal(
-		epM.FirstBlock(), epM.RoadRange().First, types.GenAppHash(rng), epM.EpochIndex())
+		registry.FirstBlock(), epM.RoadRange().First, types.GenAppHash(rng), epM.EpochIndex())
 	vote := types.Sign(keys[0], types.NewAppVote(proposal))
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()

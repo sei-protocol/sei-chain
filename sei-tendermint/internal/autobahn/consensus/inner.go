@@ -94,12 +94,14 @@ const innerFile = "inner"
 
 // inner holds no registry: the epoch window is provided from outside (newInner /
 // pushCommitQC on State), and epoch transitions are explicit.
+// Genesis floors for ViewSpec come from State.registry (see State.viewSpec).
 type inner struct {
 	persistedInner
 	epochs types.EpochDuo
 }
 
 // View returns the current view, embedding the epoch's index.
+// Genesis floors are unused here (View only needs CommitQC/TimeoutQC/Epochs).
 func (i inner) View() types.View {
 	vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, Epochs: i.epochs}
 	return vs.View()
