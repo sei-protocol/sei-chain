@@ -391,6 +391,7 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// newRequestSizeLimiter’s max(budget, maxBody) rule on the HTTP plane.
 	srv.SetWSConcurrentRequestBytes(config.maxConcurrentRequestBytes)
 	srv.SetWSAdmissionEventHook(func(reason string) {
+		// Hook carries no request context, and the fork's own connCtx is context.Background() too.
 		recordWSAdmissionRejected(context.Background(), reason)
 	})
 	logger.Info("Registering apis for evm websocket")
