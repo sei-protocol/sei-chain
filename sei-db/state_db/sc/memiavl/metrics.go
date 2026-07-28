@@ -30,13 +30,13 @@ var (
 			"memiavl_restart_latency",
 			metric.WithDescription("Time taken to restart the memiavl database"),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
 		SnapshotRewriteLatency: must(meter.Float64Histogram(
 			"memiavl_snapshot_rewrite_latency",
 			metric.WithDescription("Time taken to write to the new memiavl snapshot"),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
 		NumSnapshotRewriteAttempts: must(meter.Int64Counter(
 			"memiavl_num_snapshot_rewrite_attempts",
@@ -46,7 +46,7 @@ var (
 			"memiavl_snapshot_prune_latency",
 			metric.WithDescription("Time taken to prune memiavl snapshot"),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
 		NumSnapshotPruneAttempts: must(meter.Int64Counter(
 			"memiavl_num_snapshot_prune_attempts",
@@ -57,13 +57,13 @@ var (
 			"memiavl_snapshot_catchup_after_rewrite_latency",
 			metric.WithDescription("Time taken to catchup and replay after snapshot rewrite"),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
 		CatchupBeforeReloadLatency: must(meter.Float64Histogram(
 			"memiavl_snapshot_catchup_before_reload_latency",
 			metric.WithDescription("Time taken to catchup and replay before switch to new snapshot"),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
 		CatchupReplayNumBlocks: must(meter.Int64Counter(
 			"memiavl_snapshot_catchup_replay_num_blocks",

@@ -40,7 +40,7 @@ var (
 			"flatkv_open_latency",
 			metric.WithDescription("Time taken to open the FlatKV store"),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
 		ApplyChangesetsLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_apply_changesets_latency",
@@ -85,7 +85,7 @@ var (
 			"flatkv_catchup_latency",
 			metric.WithDescription("Time taken to replay FlatKV WAL entries"),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
 		CatchupReplayNumBlocks: must(flatkvMeter.Int64Counter(
 			"flatkv_catchup_replay_num_blocks",
@@ -96,13 +96,13 @@ var (
 			"flatkv_snapshot_write_latency",
 			metric.WithDescription("Time taken to write a FlatKV snapshot"),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
 		SnapshotPruneLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_snapshot_prune_latency",
 			metric.WithDescription("Time taken to prune FlatKV snapshots"),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
 		SnapshotPruneAttempts: must(flatkvMeter.Int64Counter(
 			"flatkv_snapshot_prune_attempts",
@@ -118,13 +118,13 @@ var (
 			"flatkv_rollback_latency",
 			metric.WithDescription("Time taken to rollback FlatKV state"),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
 		ImportLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_import_latency",
 			metric.WithDescription("Time taken to import FlatKV snapshot data"),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
 		ImportKVPairs: must(flatkvMeter.Int64Counter(
 			"flatkv_import_kv_pairs",
