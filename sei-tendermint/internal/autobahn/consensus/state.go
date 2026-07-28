@@ -140,7 +140,7 @@ func newState(
 	// lag data; Run() catch-up from avail closes that gap.
 	//
 	// avail < cons is not auto-repaired (see ErrAvailBehindConsensus).
-	if availTip, consTip := availState.CommitTipCut(), s.CommitTipCut(); availTip < consTip {
+	if availTip, consTip := availState.NextCommitQC(), s.CommitTipCut(); availTip < consTip {
 		return nil, fmt.Errorf("%w: avail tipcut %d < consensus tipcut %d", ErrAvailBehindConsensus, availTip, consTip)
 	}
 	return s, nil

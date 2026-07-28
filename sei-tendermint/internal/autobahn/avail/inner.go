@@ -21,7 +21,6 @@ type inner struct {
 	lanes          map[types.LaneID]*laneState
 }
 
-// laneState fields share the same lifecycle.
 type laneState struct {
 	blocks *queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes  *queue[types.BlockNumber, *blockVotes]
@@ -30,7 +29,9 @@ type laneState struct {
 	// TODO: consider giving this its own AtomicSend to avoid waking unrelated
 	// inner waiters (PushVote, PushCommitQC, etc.) on markBlockPersisted calls.
 	nextBlockToPersist types.BlockNumber
-	// persistedBlockStart is the admission watermark from the prune anchor.
+	// persistedBlockStart gates PushBlock/PushVote capacity (start+BlocksPerLane).
+	// Set from the prune-anchor LaneRange on load / after durable anchor write.
+	// TODO: revisit whether in-mem tipcut alone is enough (side note for another PR).
 	persistedBlockStart types.BlockNumber
 }
 
@@ -76,7 +77,11 @@ func (ls *loadedAvailState) nextCommitQC() types.RoadIndex {
 	return tip
 }
 
-func newInner(registry *epoch.Registry, startEpochDuo types.EpochDuo, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+	startEpochDuo, err := registry.DuoAt(commitTip)
+	if err != nil {
+		return nil, fmt.Errorf("DuoAt(%d): %w", commitTip, err)
+	}
 	lanes := map[types.LaneID]*laneState{}
 	// TODO(lane-id): also seed Prev lanes before prune so restart applies the
 	// anchor watermark to them (today only Current is pre-created; Prev lanes
@@ -111,7 +116,7 @@ func newInner(registry *epoch.Registry, startEpochDuo types.EpochDuo, loaded uti
 			slog.Uint64("roadIndex", uint64(anchor.AppQC.Proposal().RoadIndex())),
 			slog.Uint64("globalNumber", uint64(anchor.AppQC.Proposal().GlobalNumber())),
 		)
-		if err := verifyLoadedCommitQC(registry, anchor.CommitQC); err != nil {
+		if err := verifyCommitQCInDuo(startEpochDuo, anchor.CommitQC); err != nil {
 			return nil, fmt.Errorf("load prune-anchor CommitQC: %w", err)
 		}
 		if _, err := i.prune(anchor.AppQC, anchor.CommitQC); err != nil {
@@ -141,7 +146,7 @@ func newInner(registry *epoch.Registry, startEpochDuo types.EpochDuo, loaded uti
 		if lqc.Index != i.commitQCs.next {
 			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", i.commitQCs.next, lqc.Index)
 		}
-		if err := verifyLoadedCommitQC(registry, lqc.QC); err != nil {
+		if err := verifyCommitQCInDuo(startEpochDuo, lqc.QC); err != nil {
 			return nil, fmt.Errorf("load CommitQC %d: %w", lqc.Index, err)
 		}
 		i.commitQCs.pushBack(lqc.QC)
@@ -182,10 +187,9 @@ func newInner(registry *epoch.Registry, startEpochDuo types.EpochDuo, loaded uti
 	return i, nil
 }
 
-// verifyLoadedCommitQC resolves the QC's epoch from the registry and verifies
-// signatures. Hard-errors if the epoch is not registered.
-func verifyLoadedCommitQC(registry *epoch.Registry, qc *types.CommitQC) error {
-	ep, err := registry.EpochAt(qc.Proposal().Index())
+// verifyCommitQCInDuo verifies qc against startEpochDuo (Prev|Current at restore).
+func verifyCommitQCInDuo(duo types.EpochDuo, qc *types.CommitQC) error {
+	ep, err := duo.EpochForRoad(qc.Proposal().Index())
 	if err != nil {
 		return fmt.Errorf("epoch lookup: %w", err)
 	}
@@ -203,8 +207,10 @@ func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*typ
 	return bv.laneQC()
 }
 
-// advanceEpoch installs nextDuo at a boundary. Adds Current lanes; does not
-// delete old lanes (TODO(lane-expiry)).
+// advanceEpoch installs nextDuo at a boundary. Caller must ensure nextDuo is
+// the next epoch after Current and that seal leashes (waitForAppQC, registry
+// WaitForDuo) are already satisfied. Adds Current lanes; does not delete old
+// lanes (TODO(lane-expiry)).
 func (i *inner) advanceEpoch(nextDuo types.EpochDuo) {
 	current := nextDuo.Current
 	for lane := range current.Committee().Lanes().All() {

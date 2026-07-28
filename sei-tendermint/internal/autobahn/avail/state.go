@@ -38,6 +38,10 @@ type State struct {
 	// persisters groups all disk persistence components.
 	// Always initialized: real when stateDir is set, no-op otherwise.
 	persisters persisters
+
+	// startupWALPrune, if set, is the prune-anchor CommitQC used once at the
+	// start of runPersist to truncate WAL entries filtered out of memory at load.
+	startupWALPrune utils.Option[*types.CommitQC]
 }
 
 func (s *State) PublicKey() types.PublicKey {
@@ -156,45 +160,31 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		return nil, err
 	}
 
-	// DuoAt(CommitQC tipcut). Seeding is data.SetupInitialDuo; missing epoch hard-fails.
+	// DuoAt(CommitQC tipcut) happens inside newInner. Seeding is
+	// data.SetupInitialDuo; missing epoch hard-fails.
 	// Tip order: consensus.NewState requires avail ≥ consensus; avail/consensus
 	// may lag data and catch up in Run.
 	commitTip := types.RoadIndex(0)
+	startupWALPrune := utils.None[*types.CommitQC]()
 	if ls, ok := loaded.Get(); ok {
 		commitTip = ls.nextCommitQC()
+		if anchor, ok := ls.pruneAnchor.Get(); ok {
+			// Disk truncate of filtered-out WAL entries runs once in runPersist.
+			startupWALPrune = utils.Some(anchor.CommitQC)
+		}
 	}
-	startDuo, err := data.Registry().DuoAt(commitTip)
-	if err != nil {
-		return nil, fmt.Errorf("DuoAt(%d): %w", commitTip, err)
-	}
-	inner, err := newInner(data.Registry(), startDuo, loaded)
+	inner, err := newInner(data.Registry(), commitTip, loaded)
 	if err != nil {
 		return nil, err
 	}
 
-	// Truncate WAL entries below the prune anchor that were filtered out by
-	// loadPersistedState. Lanes come from the operating (tip) duo.
-	// TODO(lane-id): also prune Prev committee lanes on restart (same as
-	// newInner Prev-lane seeding). Next Lane ID PR.
-	if ls, ok := loaded.Get(); ok {
-		if anchor, ok := ls.pruneAnchor.Get(); ok {
-			for lane := range startDuo.Current.Committee().Lanes().All() {
-				if err := pers.blocks.MaybePruneAndPersistLane(lane, utils.Some(anchor.CommitQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
-					return nil, fmt.Errorf("prune stale block WAL entries: %w", err)
-				}
-			}
-			if err := pers.commitQCs.MaybePruneAndPersist(utils.Some(anchor.CommitQC), nil, utils.None[func(*types.CommitQC)]()); err != nil {
-				return nil, fmt.Errorf("prune stale commitQC WAL entries: %w", err)
-			}
-		}
-	}
-
 	return &State{
-		key:        key,
-		data:       data,
-		inner:      utils.NewWatch(inner),
-		epochDuo:   inner.epochDuo.Subscribe(),
-		persisters: pers,
+		key:             key,
+		data:            data,
+		inner:           utils.NewWatch(inner),
+		epochDuo:        inner.epochDuo.Subscribe(),
+		persisters:      pers,
+		startupWALPrune: startupWALPrune,
 	}, nil
 }
 
@@ -205,8 +195,8 @@ func (s *State) FirstCommitQC() types.RoadIndex {
 	panic("unreachable")
 }
 
-// CommitTipCut is the next CommitQC road after restore/admit (commitQCs.next).
-func (s *State) CommitTipCut() types.RoadIndex {
+// NextCommitQC is the next CommitQC road after restore/admit (commitQCs.next).
+func (s *State) NextCommitQC() types.RoadIndex {
 	for inner := range s.inner.Lock() {
 		return inner.commitQCs.next
 	}
@@ -233,85 +223,52 @@ func (s *State) waitForCommitQC(ctx context.Context, idx types.RoadIndex) error 
 	return err
 }
 
-// waitRoadInWindow blocks while roadIdx is ahead of the admitted window
-// (too early / backpressure). Returns Some(duo) when lookup admits the road,
-// or None when roadIdx has fallen behind windowFirst (too late / stale).
-func (s *State) waitRoadInWindow(
-	ctx context.Context,
-	roadIdx types.RoadIndex,
-	lookup func(types.EpochDuo) utils.Option[*types.Epoch],
-	windowFirst func(types.EpochDuo) types.RoadIndex,
-) (utils.Option[types.EpochDuo], error) {
+func logStaleRoad(what string, roadIdx types.RoadIndex, duo types.EpochDuo) {
+	// Debug: Info is too chatty at epoch boundaries (many peers a road behind).
+	logger.Debug("dropping stale "+what+": road behind window",
+		slog.Uint64("road", uint64(roadIdx)), "duo", duo.String())
+}
+
+// waitForEpoch waits until roadIdx is in Prev|Current. ErrPruned if behind window.
+func (s *State) waitForEpoch(ctx context.Context, roadIdx types.RoadIndex) (types.EpochDuo, error) {
 	duo, err := s.epochDuo.Wait(ctx, func(duo types.EpochDuo) bool {
-		if lookup(duo).IsPresent() {
+		if _, err := duo.EpochForRoad(roadIdx); err == nil {
 			return true
 		}
-		return roadIdx < windowFirst(duo)
+		first := duo.Current.RoadRange().First
+		if prev, ok := duo.Prev.Get(); ok {
+			first = prev.RoadRange().First
+		}
+		return roadIdx < first
 	})
 	if err != nil {
-		return utils.None[types.EpochDuo](), err
+		return types.EpochDuo{}, err
 	}
-	if lookup(duo).IsPresent() {
-		return utils.Some(duo), nil
+	if _, err := duo.EpochForRoad(roadIdx); err == nil {
+		return duo, nil
 	}
-	return utils.None[types.EpochDuo](), nil
+	return types.EpochDuo{}, types.ErrPruned
 }
 
-// waitForEpoch: too early waits until road is in Prev|Current; behind window → None (stale).
-func (s *State) waitForEpoch(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[types.EpochDuo], error) {
-	return s.waitRoadInWindow(ctx, roadIdx,
-		func(duo types.EpochDuo) utils.Option[*types.Epoch] {
-			if ep, err := duo.EpochForRoad(roadIdx); err == nil {
-				return utils.Some(ep)
-			}
-			return utils.None[*types.Epoch]()
-		},
-		func(duo types.EpochDuo) types.RoadIndex {
-			if prev, ok := duo.Prev.Get(); ok {
-				return prev.RoadRange().First
-			}
-			return duo.Current.RoadRange().First
-		},
-	)
-}
-
-// waitCurrentForRoad: too early waits on Current; behind Current → None (stale).
-func (s *State) waitCurrentForRoad(ctx context.Context, roadIdx types.RoadIndex) (utils.Option[types.EpochDuo], error) {
-	return s.waitRoadInWindow(ctx, roadIdx,
-		func(duo types.EpochDuo) utils.Option[*types.Epoch] {
-			if duo.Current.RoadRange().Has(roadIdx) {
-				return utils.Some(duo.Current)
-			}
-			return utils.None[*types.Epoch]()
-		},
-		func(duo types.EpochDuo) types.RoadIndex { return duo.Current.RoadRange().First },
-	)
-}
-
-// admitRoadOrDrop waits for window admission. On stale it logs and returns
-// None so Push* callers can drop without repeating the boilerplate.
-// what is a short label for the log line (e.g. "CommitQC", "AppVote").
-func (s *State) admitRoadOrDrop(
-	ctx context.Context,
-	roadIdx types.RoadIndex,
-	what string,
-	wait func(context.Context, types.RoadIndex) (utils.Option[types.EpochDuo], error),
-) (utils.Option[types.EpochDuo], error) {
-	duoOpt, err := wait(ctx, roadIdx)
+// waitCurrentForRoad waits until roadIdx is in Current. ErrPruned if behind Current.
+func (s *State) waitCurrentForRoad(ctx context.Context, roadIdx types.RoadIndex) (types.EpochDuo, error) {
+	duo, err := s.epochDuo.Wait(ctx, func(duo types.EpochDuo) bool {
+		if duo.Current.RoadRange().Has(roadIdx) {
+			return true
+		}
+		return roadIdx < duo.Current.RoadRange().First
+	})
 	if err != nil {
-		return utils.None[types.EpochDuo](), err
+		return types.EpochDuo{}, err
 	}
-	if !duoOpt.IsPresent() {
-		// Debug: Info is too chatty at epoch boundaries (many peers a road behind).
-		logger.Debug("dropping stale "+what+": road behind window",
-			slog.Uint64("road", uint64(roadIdx)), "duo", s.epochDuo.Load().String())
-		return utils.None[types.EpochDuo](), nil
+	if duo.Current.RoadRange().Has(roadIdx) {
+		return duo, nil
 	}
-	return duoOpt, nil
+	return types.EpochDuo{}, types.ErrPruned
 }
 
-// waitPruneLeash blocks until latest AppQC is from epochIdx or later.
-// incoming, if present, counts before latestAppQC is updated.
+// waitForAppQC blocks until latest AppQC is from epochIdx or later.
+// incoming, if present, is checked off-mutex before waiting on latestAppQC.
 //
 // Called only when sealing epoch N (last road). Epoch 0 is not special-cased:
 // seal is {∅,0}→{0,1} (no Prev drop), but the leash still runs so leaving 0
@@ -319,12 +276,12 @@ func (s *State) admitRoadOrDrop(
 // reintroduce an epochIdx==0 skip: BlocksPerLane only caps local production;
 // peers can PushCommitQC LastRoad(0) (then mid-epoch-1 QCs) with no local
 // AppQC, which would otherwise restart without an anchor.
-func (s *State) waitPruneLeash(ctx context.Context, epochIdx types.EpochIndex, incoming utils.Option[*types.AppQC]) error {
+func (s *State) waitForAppQC(ctx context.Context, epochIdx types.EpochIndex, incoming utils.Option[*types.AppQC]) error {
+	if c, ok := incoming.Get(); ok && c.Proposal().EpochIndex() >= epochIdx {
+		return nil
+	}
 	for inner, ctrl := range s.inner.Lock() {
 		ready := func() bool {
-			if c, ok := incoming.Get(); ok && c.Proposal().EpochIndex() >= epochIdx {
-				return true
-			}
 			appQC, ok := inner.latestAppQC.Get()
 			if !ok {
 				return false
@@ -414,13 +371,13 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	duoOpt, err := s.admitRoadOrDrop(ctx, idx, "CommitQC", s.waitCurrentForRoad)
+	duo, err := s.waitCurrentForRoad(ctx, idx)
 	if err != nil {
+		if errors.Is(err, types.ErrPruned) {
+			logStaleRoad("CommitQC", idx, s.epochDuo.Load())
+			return nil
+		}
 		return err
-	}
-	duo, ok := duoOpt.Get()
-	if !ok {
-		return nil
 	}
 	ep := duo.Current
 	if err := qc.Verify(ep); err != nil {
@@ -430,7 +387,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	// Boundary: switch to the next epoch on Current's last CommitQC.
 	nextDuo := utils.None[types.EpochDuo]()
 	if ep.RoadRange().IsLastRoad(idx) {
-		if err := s.waitPruneLeash(ctx, ep.EpochIndex(), utils.None[*types.AppQC]()); err != nil {
+		if err := s.waitForAppQC(ctx, ep.EpochIndex(), utils.None[*types.AppQC]()); err != nil {
 			return err
 		}
 		nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
@@ -466,13 +423,13 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		return err
 	}
 	// Too-early roads (ahead of Prev|Current) backpressure; too-late are dropped.
-	duoOpt, err := s.admitRoadOrDrop(ctx, idx, "AppVote", s.waitForEpoch)
+	duo, err := s.waitForEpoch(ctx, idx)
 	if err != nil {
+		if errors.Is(err, types.ErrPruned) {
+			logStaleRoad("AppVote", idx, s.epochDuo.Load())
+			return nil
+		}
 		return err
-	}
-	duo, ok := duoOpt.Get()
-	if !ok {
-		return nil
 	}
 	ep := utils.OrPanic1(duo.EpochForRoad(idx))
 	if got, want := v.Msg().Proposal().EpochIndex(), ep.EpochIndex(); got != want {
@@ -524,7 +481,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 			return nil
 		}
 	}
-	// Pair consistency only; ahead-of-window still waits in admitRoadOrDrop.
+	// Pair consistency only; ahead-of-window still waits in waitForEpoch.
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
@@ -535,13 +492,13 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	idx := commitQC.Proposal().Index()
-	duoOpt, err := s.admitRoadOrDrop(ctx, idx, "AppQC", s.waitForEpoch)
+	duo, err := s.waitForEpoch(ctx, idx)
 	if err != nil {
+		if errors.Is(err, types.ErrPruned) {
+			logStaleRoad("AppQC", idx, s.epochDuo.Load())
+			return nil
+		}
 		return err
-	}
-	duo, ok := duoOpt.Get()
-	if !ok {
-		return nil
 	}
 	ep := utils.OrPanic1(duo.EpochForRoad(idx))
 	if err := appQC.Verify(ep); err != nil {
@@ -554,7 +511,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 	// Pass this AppQC as incoming so a tipcut that first enters epoch N can close N.
 	nextDuo := utils.None[types.EpochDuo]()
 	if ep.RoadRange().IsLastRoad(idx) {
-		if err := s.waitPruneLeash(ctx, ep.EpochIndex(), utils.Some(appQC)); err != nil {
+		if err := s.waitForAppQC(ctx, ep.EpochIndex(), utils.Some(appQC)); err != nil {
 			return err
 		}
 		nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
@@ -937,6 +894,21 @@ func (s *State) Run(ctx context.Context) error {
 // TODO: use a single WAL for anchor and CommitQCs to make
 // this atomic rather than relying on write order.
 func (s *State) runPersist(ctx context.Context, pers persisters) error {
+	// Truncate WAL entries filtered out of memory at load (once).
+	// TODO(lane-id): also prune Prev committee lanes on restart (same as
+	// newInner Prev-lane seeding). Next Lane ID PR.
+	if anchorQC, ok := s.startupWALPrune.Get(); ok {
+		s.startupWALPrune = utils.None[*types.CommitQC]()
+		for lane := range s.epochDuo.Load().Current.Committee().Lanes().All() {
+			if err := pers.blocks.MaybePruneAndPersistLane(lane, utils.Some(anchorQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
+				return fmt.Errorf("prune stale block WAL entries: %w", err)
+			}
+		}
+		if err := pers.commitQCs.MaybePruneAndPersist(utils.Some(anchorQC), nil, utils.None[func(*types.CommitQC)]()); err != nil {
+			return fmt.Errorf("prune stale commitQC WAL entries: %w", err)
+		}
+	}
+
 	var lastPersistedAppQCNext types.RoadIndex
 	for {
 		batch, err := s.collectPersistBatch(ctx, lastPersistedAppQCNext)

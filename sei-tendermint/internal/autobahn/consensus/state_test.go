@@ -435,7 +435,7 @@ func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
 	require.NoError(t, err)
 
 	consTip := cs.CommitTipCut()
-	availTip := cs.Avail().CommitTipCut()
+	availTip := cs.Avail().NextCommitQC()
 	require.Equal(t, leadTip, consTip)
 	require.Equal(t, leadTip, availTip)
 	require.Equal(t, nPlus1, epoch.IndexForRoad(consTip))
