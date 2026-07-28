@@ -28,9 +28,12 @@ for converting to a RW lock:
 	  like we currently handle in the current implementation.
 */
 
-// readCache is a read-through cache over the backing DB with permanent failure latching. It
-// knows nothing about versions or snapshots; the shard resolves versioned data first and
-// consults the cache only for keys with no in-memory override.
+// readCache is a read-through cache over the backing DB. It knows nothing about versions or
+// snapshots; the shard resolves versioned data first and consults the cache only for keys with no
+// in-memory override.
+//
+// A failed DB read is fatal: the cache bricks the engine, which takes every shard out of service so
+// no further reads are served (see outOfServiceErr).
 //
 // The cache is a passive component of its shard and shares the shard's mutex: it holds no lock
 // of its own. Methods with the Locked postfix require the shared lock to be held and never
@@ -57,6 +60,17 @@ type readCache struct {
 	// error released to such callers to wrap ErrEngineClosed or the fatal error.
 	shutdownError func() error
 
+	// Reports a failed DB read to the engine, which bricks and stops serving reads. Called
+	// without the shard lock held, since it acquires the engine's versionLock.
+	reportReadFailure func(error)
+
+	// The failure that took this cache out of service, or nil while it is healthy. Set when the
+	// engine bricks — for any reason, not only a failed read of this shard — after which the shard
+	// refuses reads rather than serving data the engine can no longer vouch for.
+	//
+	// Guarded by the shared lock.
+	outOfServiceErr error
+
 	// SnapshotEngine-level metrics. Nil-safe; if nil, no metrics are recorded.
 	metrics *SnapshotEngineMetrics
 
@@ -70,8 +84,8 @@ type readCache struct {
 	entries map[string]*cacheEntry
 
 	// Organizes entries for LRU eviction. Only entries in a terminal data state
-	// (available/deleted) are in the queue; scheduled and failed entries are deliberately
-	// unevictable (see statusFailed).
+	// (available/deleted) are in the queue: scheduled entries have no value yet, and failed
+	// entries have no value to serve.
 	gcQueue *structures.LRUQueue
 }
 
@@ -93,10 +107,10 @@ const (
 	statusAvailable valueStatus = 3
 	// We are aware that the value is deleted (special case of data being available).
 	statusDeleted valueStatus = 4
-	// A read of this value from the DB failed. The failure is permanent: the entry is never
-	// retried and never enters the LRU queue (so it cannot be evicted and re-read), and all
-	// future reads of the key deterministically observe the error. A retry that succeeded after
-	// the original failure was propagated could fork the chain.
+	// A read of this value from the DB failed. This is a terminal state so that readers already
+	// waiting on the entry are never stranded; it is not the mechanism that keeps the failure from
+	// being papered over. A failed read bricks the engine and takes the cache out of service (see
+	// readCache.outOfServiceErr), so the entry is never consulted again.
 	statusFailed valueStatus = 5
 )
 
@@ -110,9 +124,6 @@ type cacheEntry struct {
 
 	// The value, if known.
 	value []byte
-
-	// The error that permanently failed this entry. Non-nil if and only if status is statusFailed.
-	err error
 
 	// If the value is not available when we request it,
 	// it will be written to this channel when it is available.
@@ -130,10 +141,12 @@ type pendingRead struct {
 }
 
 // lookupOutcome is the result of classifying a single read under the lock: either an immediate
-// terminal result, or a wait plan that resolve completes outside the lock.
+// terminal result, or a wait plan that resolve completes outside the lock. Classification never
+// fails — a cache that has seen a read failure is out of service and the shard refuses the read
+// before classifying it.
 type lookupOutcome struct {
-	// True when the read was resolved from the cache without waiting; value/found/err below
-	// carry the result.
+	// True when the read was resolved from the cache without waiting; value/found below carry the
+	// result.
 	immediate bool
 
 	// The value, when immediate and found.
@@ -141,9 +154,6 @@ type lookupOutcome struct {
 
 	// Whether the key was found, when immediate.
 	found bool
-
-	// The latched failure for this key, when immediate. Nil otherwise.
-	err error
 
 	// The channel carrying the read result, when not immediate.
 	valueChan chan readResult
@@ -172,17 +182,42 @@ func newReadCache(
 	overheadPerEntry uint64,
 	// Maps the context cancellation observed by a blocked read to the engine's shutdown error.
 	shutdownError func() error,
+	// Reports a failed DB read to the engine, which bricks and stops serving reads.
+	reportReadFailure func(error),
 ) *readCache {
 	return &readCache{
-		ctx:              ctx,
-		db:               db,
-		readPool:         readPool,
-		lock:             lock,
-		shutdownError:    shutdownError,
-		overheadPerEntry: overheadPerEntry,
-		maxSize:          maxSize,
-		entries:          make(map[string]*cacheEntry),
-		gcQueue:          structures.NewLRUQueue(),
+		ctx:               ctx,
+		db:                db,
+		readPool:          readPool,
+		lock:              lock,
+		shutdownError:     shutdownError,
+		reportReadFailure: reportReadFailure,
+		overheadPerEntry:  overheadPerEntry,
+		maxSize:           maxSize,
+		entries:           make(map[string]*cacheEntry),
+		gcQueue:           structures.NewLRUQueue(),
+	}
+}
+
+// outOfServiceLocked returns a second-hand error if this cache has been taken out of service, or nil
+// while it is healthy. The error is inherited from the earlier failure rather than produced by the
+// caller's own read.
+//
+// The Locked postfix indicates that the caller must hold the shared lock.
+func (c *readCache) outOfServiceLocked() error {
+	if c.outOfServiceErr == nil {
+		return nil
+	}
+	return fmt.Errorf("shard is not serving reads: %w", c.outOfServiceErr)
+}
+
+// takeOutOfServiceLocked records the failure that stops this cache from serving reads. The first
+// failure wins; later ones are dropped so the reported cause is the original one.
+//
+// The Locked postfix indicates that the caller must hold the shared lock.
+func (c *readCache) takeOutOfServiceLocked(err error) {
+	if c.outOfServiceErr == nil {
+		c.outOfServiceErr = err
 	}
 }
 
@@ -231,12 +266,6 @@ func (c *readCache) lookupLocked(
 			c.gcQueue.Touch(key)
 		}
 		return lookupOutcome{immediate: true}
-	case statusFailed:
-		// The failure is permanent (see statusFailed).
-		return lookupOutcome{
-			immediate: true,
-			err:       fmt.Errorf("an earlier read of this key failed: %w", entry.err),
-		}
 	case statusScheduled:
 		return lookupOutcome{valueChan: entry.valueChan, entry: entry}
 	case statusUnknown:
@@ -244,6 +273,10 @@ func (c *readCache) lookupLocked(
 		entry.valueChan = make(chan readResult, 1)
 		return lookupOutcome{valueChan: entry.valueChan, entry: entry, needsSchedule: true}
 	default:
+		// statusFailed lands here, and that is intended: an entry becomes statusFailed only in the
+		// same critical section that takes the cache out of service, and the shard checks that under
+		// the same lock before classifying, so reaching this is an invariant violation rather than a
+		// state to serve.
 		panic(fmt.Sprintf("unexpected status: %#v", entry.status))
 	}
 }
@@ -253,9 +286,6 @@ func (c *readCache) lookupLocked(
 // read completes.
 func (c *readCache) resolve(key []byte, outcome lookupOutcome) ([]byte, bool, error) {
 	if outcome.immediate {
-		if outcome.err != nil {
-			return nil, false, outcome.err
-		}
 		c.metrics.reportCacheHits(1)
 		return outcome.value, outcome.found, nil
 	}
@@ -290,13 +320,14 @@ func (c *readCache) resolve(key []byte, outcome lookupOutcome) ([]byte, bool, er
 // reads and blocks until every pending read completes, then applies the terminal cache states
 // asynchronously (bulkInjectValues).
 //
-// firstErr carries the caller's classification error (a latched statusFailed key), preserving
-// error precedence: it is returned after the full drain unless the engine shuts down first.
-// A non-nil return means the whole batch failed.
-func (c *readCache) resolveBatch(pending []pendingRead, results map[string][]byte, firstErr error) error {
+// A non-nil return means the whole batch failed. The first read error is returned after the full
+// drain, unless the engine shuts down first.
+func (c *readCache) resolveBatch(pending []pendingRead, results map[string][]byte) error {
 	if len(pending) == 0 {
-		return firstErr
+		return nil
 	}
+
+	var firstErr error
 
 	c.metrics.reportCacheMisses(int64(len(pending)))
 	startTime := time.Now()
@@ -351,11 +382,10 @@ func (e *cacheEntry) injectValue(key []byte, result readResult) {
 
 	if e.status == statusScheduled {
 		if result.err != nil {
-			// Latch the failure permanently (see statusFailed): the error has been propagated
-			// to a caller, and a later retry that succeeded would be a fork risk. The entry is
-			// deliberately kept out of the LRU queue so it can never be evicted and re-read.
+			// Terminal state so readers already waiting on this entry are not stranded. The engine
+			// is bricked below, so the entry is never consulted again — the error reaches the waiter
+			// over valueChan, not from the entry.
 			e.status = statusFailed
-			e.err = result.err
 		} else if result.value == nil {
 			e.status = statusDeleted
 			e.value = nil
@@ -371,26 +401,44 @@ func (e *cacheEntry) injectValue(key []byte, result readResult) {
 		}
 	}
 
+	// Take the cache out of service regardless of the entry's status: the DB read failed, which is
+	// fatal whether or not this entry was still the one waiting on it.
+	if result.err != nil {
+		c.takeOutOfServiceLocked(result.err)
+	}
+
 	c.lock.Unlock()
 
+	// Release the waiter before bricking. reportReadFailure acquires the engine's versionLock, and
+	// nobody may be blocked on us while we wait for it.
 	e.valueChan <- result
+
+	if result.err != nil {
+		c.reportReadFailure(result.err)
+	}
 }
 
 // Applies deferred cache updates for a batch of reads under a single lock acquisition.
 func (c *readCache) bulkInjectValues(reads []pendingRead) {
 	c.lock.Lock()
+	var failure error
 	for i := range reads {
+		// Recorded before the status check below: a failed DB read is fatal whether or not this
+		// entry was still the one waiting on it.
+		if reads[i].result.err != nil && failure == nil {
+			failure = reads[i].result.err
+		}
+
 		entry := reads[i].entry
 		if entry.status != statusScheduled {
 			continue
 		}
 		result := reads[i].result
 		if result.err != nil {
-			// Latch the failure permanently (see statusFailed): the error has been propagated
-			// to a caller, and a later retry that succeeded would be a fork risk. The entry is
-			// deliberately kept out of the LRU queue so it can never be evicted and re-read.
+			// Terminal state so readers already waiting on this entry are not stranded. The engine
+			// is bricked below, so the entry is never consulted again — the error reaches the waiter
+			// over valueChan, not from the entry.
 			entry.status = statusFailed
-			entry.err = result.err
 		} else if result.value == nil {
 			entry.status = statusDeleted
 			entry.value = nil
@@ -403,8 +451,17 @@ func (c *readCache) bulkInjectValues(reads []pendingRead) {
 			c.gcQueue.Push([]byte(reads[i].key), size)
 		}
 	}
+	if failure != nil {
+		c.takeOutOfServiceLocked(failure)
+	}
 	c.evictLocked()
 	c.lock.Unlock()
+
+	// The waiters for this batch were already released by resolveBatch, so there is nobody blocked
+	// on us while reportReadFailure acquires the engine's versionLock.
+	if failure != nil {
+		c.reportReadFailure(failure)
+	}
 }
 
 // Get a cache entry for a given key.
@@ -452,9 +509,6 @@ func (c *readCache) setRetiredLocked(key []byte, value []byte) {
 	entry := c.entryLocked(key, true)
 	entry.status = statusAvailable
 	entry.value = value
-	// Overwriting a failed entry is deliberate: this data comes from the engine's own retired
-	// writes, not from the failed DB read, and the original error has already been propagated.
-	entry.err = nil
 
 	size := uint64(len(key)) + uint64(len(value)) + c.overheadPerEntry
 	c.gcQueue.Push(key, size)
@@ -471,10 +525,6 @@ func (c *readCache) deleteRetiredLocked(key []byte) {
 	}
 	entry.status = statusDeleted
 	entry.value = nil
-	// Overwriting a failed entry is deliberate: this tombstone comes from the engine's own
-	// retired writes, not from the failed DB read, and the original error has already been
-	// propagated.
-	entry.err = nil
 
 	size := uint64(len(key)) + c.overheadPerEntry
 	c.gcQueue.Push(key, size)

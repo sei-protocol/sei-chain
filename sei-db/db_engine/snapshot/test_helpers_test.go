@@ -300,8 +300,11 @@ func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
 	t.Helper()
 	config := DefaultTestSnapshotEngineConfig()
 	config.EstimatedOverheadPerEntry = 0
+	// A standalone shard has no engine to brick, and it takes itself out of service on a failed read
+	// without help, so reporting is a no-op here.
 	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize,
-		func() error { return ErrEngineClosed })
+		func() error { return ErrEngineClosed },
+		func(error) {})
 	require.NoError(t, err)
 	return s
 }

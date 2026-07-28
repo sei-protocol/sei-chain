@@ -244,7 +244,8 @@ func NewSnapshotEngine(
 	// cancellation — see the Close contract on SnapshotEngine.
 	shards := make([]*shard, config.ShardCount)
 	for i := uint64(0); i < config.ShardCount; i++ {
-		shards[i], err = NewShard(childCtx, config, db, readPool, sizePerShard, c.shutdownError)
+		shards[i], err = NewShard(
+			childCtx, config, db, readPool, sizePerShard, c.shutdownError, c.reportReadFailure)
 		if err != nil {
 			cancel()
 			return nil, fmt.Errorf("failed to create shard: %w", err)
@@ -380,6 +381,12 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
+	// A bricked engine does no more work. Free to check here: versionLock, which guards fatalErr,
+	// is already held.
+	if c.fatalErr != nil {
+		return nil, fmt.Errorf("cannot create snapshot: %w", c.shutdownErrorLocked())
+	}
+
 	c.metrics.setSnapshotPhase("lifecycle_backpressure")
 
 	err := c.lifecycleBackpressureLocked()
@@ -507,7 +514,17 @@ func (c *snapshotEngine) DecrementReferenceCount(version uint64) error {
 	}
 
 	if counter.referenceCount == 1 && counter.hash == nil {
-		return fmt.Errorf("version (%d) was fully released without first being hashed", version)
+		// Releasing the last reservation without a hash is fatal (see the hashing-duty contract on
+		// Snapshot). This snapshot can now never make progress: determineVersionsToFlushLocked skips
+		// unhashed versions, retirement requires a flush, and the hash will never arrive because the
+		// caller has spent its Release. Every later version stalls behind it with its in-memory data
+		// accumulating. Note the reference count is not what traps it — decrementing would not help.
+		//
+		// The sibling errors in this method deliberately do not brick: those reject a bogus version
+		// and leave engine state untouched, so that caller can retry with the right one.
+		err := fmt.Errorf("version (%d) was fully released without first being hashed", version)
+		c.brickLocked(err)
+		return err
 	}
 
 	counter.referenceCount--
@@ -802,8 +819,21 @@ func (c *snapshotEngine) brick(err error) {
 	c.versionLock.Unlock()
 }
 
-// brickLocked latches the fatal error, cancels the engine context, and wakes backpressure
-// waiters, so callers observe the failure immediately rather than waiting for Close.
+// reportReadFailure handles a failed DB read by bricking the engine.
+//
+// Halting is the caller's responsibility, not ours (see the SnapshotEngine doc). This exists so that
+// a caller which ignores the failure gets nowhere, not to police it: reads racing this call may still
+// succeed, and no promise is made about when they stop.
+//
+// Must be called without the shard lock held: it acquires versionLock, and the established order is
+// versionLock before any shard lock.
+func (c *snapshotEngine) reportReadFailure(err error) {
+	c.brick(fmt.Errorf("failed to read from the underlying database: %w", err))
+}
+
+// brickLocked latches the fatal error, cancels the engine context, wakes backpressure waiters, and
+// takes every shard out of service, so callers observe the failure immediately rather than waiting
+// for Close.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
 func (c *snapshotEngine) brickLocked(err error) {
@@ -812,6 +842,17 @@ func (c *snapshotEngine) brickLocked(err error) {
 	}
 	c.cancel()
 	c.lifecycleBackpressureCond.Broadcast()
+
+	// Stop serving reads, on every shard rather than only one that may have failed: the engine has
+	// failed, so no shard can vouch for its data. Cancelling the context alone would not do it —
+	// only reads that block observe the context.
+	//
+	// Taking shard locks here is sound: versionLock is held and versionLock-before-shard-lock is the
+	// established order (see Commit), and nothing acquires versionLock while holding a shard lock
+	// (see the cache field on shard).
+	for _, s := range c.shards {
+		s.takeOutOfService(err)
+	}
 }
 
 // Flushes and retires snapshots. Continues running until there is no more work, then returns.

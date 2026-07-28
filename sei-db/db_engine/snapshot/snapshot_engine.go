@@ -21,11 +21,16 @@ var ErrEngineClosed = errors.New("snapshot engine closed")
 // Warning: it is not safe to mutate byte slices (keys or values) passed to or received from the engine.
 // The engine is not required to make defensive copies, and so these slices must be treated as immutable.
 //
-// There are no recoverable SnapshotEngine errors. Any error returned by the engine is fatal: the
-// engine is in a failed state, will continue to return errors indefinitely, and the caller is
-// expected to halt. In particular, a failed DB read permanently fails the affected key — the
-// engine never retries, since a retry that succeeded after the failure was propagated could fork
-// the chain.
+// There are no recoverable SnapshotEngine errors. Any error returned by the engine is fatal, and
+// halting is the caller's responsibility: on the first error the caller is expected to stop, because
+// continuing on top of state the engine could not vouch for risks forking the chain.
+//
+// A caller that ignores an error gets nowhere. After the first failure the engine will eventually
+// begin returning errors for all future calls, and calls made concurrently with the original failure
+// may go either way: a real response, or a second-hand error inherited from that earlier failure.
+// This is a consequence of failing, not a service the engine offers — there is no deadline by which
+// it converges and no promise about which error any particular call receives. Do not treat it as a
+// safety net for skipping the halt.
 //
 // The configured metadata hash key is reserved for the engine; it must not be written or read
 // through the engine's key-value methods (see SnapshotEngineConfig.HashKey).

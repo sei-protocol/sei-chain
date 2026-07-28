@@ -121,6 +121,63 @@ func TestBackpressureWaiterUnblocksOnBrick(t *testing.T) {
 	}
 }
 
+// Releasing the final reservation without a hash is a contract violation the engine cannot recover
+// from: the snapshot can never be flushed (flush skips unhashed versions) and so never retired, and
+// the caller has spent its Release, so every later version would stall behind it forever with its
+// in-memory data accumulating. It must brick rather than return an error and wedge quietly.
+func TestFinalReleaseWithoutHashBricks(t *testing.T) {
+	db := newTestDB(map[string][]byte{"k": []byte("v")})
+	engine := newTestEngineWithDB(t, db, 1, 1<<20)
+	e := engine.(*snapshotEngine)
+
+	// Warm the cache, so the refused read below cannot be explained by a DB read.
+	v, found, err := engine.Get([]byte("k"), true)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []byte("v"), v)
+
+	snap, err := engine.Commit()
+	require.NoError(t, err)
+
+	// Release the reservation Commit handed us, without ever setting a hash.
+	require.ErrorContains(t, snap.Release(), "without first being hashed")
+
+	// This brick is synchronous (DecrementReferenceCount already holds versionLock), so unlike a
+	// read failure there is nothing to wait for.
+	require.Error(t, e.ctx.Err(), "the unhashed release must cancel the engine context")
+
+	_, err = engine.Commit()
+	require.ErrorContains(t, err, "without first being hashed", "Commit must report the latched cause")
+
+	_, _, err = engine.Get([]byte("k"), true)
+	require.ErrorContains(t, err, "without first being hashed", "reads must stop once the engine bricks")
+
+	_, err = engine.BatchGet([][]byte{[]byte("k")})
+	require.ErrorContains(t, err, "without first being hashed", "batch reads must stop too")
+
+	require.ErrorContains(t, engine.Close(), "without first being hashed")
+}
+
+// The counterpart to the above: a reference-count call naming a bogus version leaves engine state
+// untouched, so it must report a plain error and leave the engine usable — that caller can retry
+// with the right version.
+func TestBadVersionReferenceCountErrorsDoNotBrick(t *testing.T) {
+	db := newTestDB(map[string][]byte{"k": []byte("v")})
+	engine := newTestEngineWithDB(t, db, 1, 1<<20)
+	e := engine.(*snapshotEngine)
+
+	require.Error(t, e.IncrementReferenceCount(9999))
+	require.Error(t, e.DecrementReferenceCount(9999))
+	require.NoError(t, e.ctx.Err(), "a bogus version must not brick the engine")
+
+	// Still fully usable: reads serve, and a snapshot completes its whole lifecycle.
+	v, found, err := engine.Get([]byte("k"), true)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []byte("v"), v)
+	commitAndHashRelease(t, engine)
+}
+
 // Close must tear down everything the engine owns, even when the caller's context stays live:
 // shard contexts (which gate in-flight read waits) and the metrics scrape loop.
 

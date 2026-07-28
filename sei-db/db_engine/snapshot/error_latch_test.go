@@ -9,8 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A DB read error must fail the key permanently: a retry that succeeded after the error was
-// propagated could fork the chain. These tests pin the latch semantics for every read path.
+// A DB read error is fatal: it bricks the engine and takes every shard out of service, so no read
+// succeeds afterwards. These tests pin that for every read path, plus the internal coherence the
+// read paths must leave behind (no entry stranded in statusScheduled, a failing key read from the DB
+// exactly once).
+//
+// They deliberately do not pin *when* reads stop. Convergence is the guarantee; reads racing the
+// original failure may legitimately go either way.
 
 func TestSingleGetErrorIsPermanent(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
@@ -41,8 +46,9 @@ func TestBatchGetErrorIsPermanent(t *testing.T) {
 	require.ErrorContains(t, err, "io boom", "the latch must also fail subsequent batch reads")
 }
 
-// A batch where one key fails must still drain and cache the surviving reads, latch the failed
-// key, and leave no entry stranded in statusScheduled.
+// A batch where one key fails must still drain every read it started and leave each entry in a
+// terminal state, with nothing stranded in statusScheduled. The surviving values are cached but never
+// served: the failure has taken the shard out of service.
 func TestBatchGetPartialFailureLeavesCoherentState(t *testing.T) {
 	db := newTestDB(map[string][]byte{
 		"k1": []byte("v1"),
@@ -75,71 +81,94 @@ func TestBatchGetPartialFailureLeavesCoherentState(t *testing.T) {
 		return true
 	}, 2*time.Second, time.Millisecond, "batch entries did not reach their terminal states")
 
-	// Survivors read back correctly; the failed key stays failed even though the fault cleared.
-	v, found, err := engine.Get([]byte("k1"), true)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, []byte("v1"), v)
-
-	v, found, err = engine.Get([]byte("k3"), true)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, []byte("v3"), v)
-
-	_, _, err = engine.Get([]byte("k2"), true)
-	require.ErrorContains(t, err, "io boom")
+	// The survivors were cached successfully, but one key's failure poisons the whole shard: reads of
+	// keys that never failed are refused too, and the fault having cleared changes nothing.
+	for _, key := range []string{"k1", "k2", "k3"} {
+		_, _, err = engine.Get([]byte(key), true)
+		require.ErrorContains(t, err, "io boom",
+			"read of %q must be refused after another key's read failed", key)
+	}
 }
 
-// A key already latched as statusFailed must not abort BatchGet classification early: keys earlier
-// in the batch that were flipped to statusScheduled must still be scheduled, drained, and cached.
-// Regression test: returning early stranded those entries with no producer, hanging every future
-// reader of those keys.
-func TestBatchGetWithLatchedKeyLeavesNoStrandedEntries(t *testing.T) {
+// A BatchGet issued after a read has failed is refused before any classification happens, so it
+// cannot start reads it will not drain and cannot create entries it will not resolve.
+//
+// This replaces a regression test for a stranding bug in BatchGet's classification loop (returning
+// early on an already-failed key stranded preceding keys in statusScheduled). That path is no longer
+// reachable: an entry only becomes statusFailed in the same critical section that takes the shard out
+// of service, so a batch that would encounter one is refused first. Live stranding coverage is now in
+// TestBatchGetPartialFailureLeavesCoherentState, where the failure happens mid-batch.
+func TestBatchGetAfterFailureIsRefusedBeforeClassifying(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k1": []byte("v1")})
 	engine := newTestEngineWithDB(t, db, 1, 1<<20)
 	shard := engine.(*snapshotEngine).shards[0]
 
-	// Latch k2 as permanently failed.
 	db.getErrKeys = map[string]error{"k2": errors.New("io boom")}
 	_, _, err := engine.Get([]byte("k2"), true)
 	require.ErrorContains(t, err, "io boom")
 	db.getErrKeys = nil
 
-	// k1 is uncached and precedes the latched key, so classification flips it to statusScheduled
-	// before the batch observes k2's latched failure. The batch must still fail with k2's error.
-	_, err = engine.BatchGet([][]byte{[]byte("k1"), []byte("k2")})
-	require.ErrorContains(t, err, "io boom")
-
-	// bulkInjectValues runs asynchronously; k1 must reach a terminal state, not stay scheduled.
-	require.Eventually(t, func() bool {
-		shard.lock.Lock()
-		defer shard.lock.Unlock()
-		entry, ok := shard.cache.entries["k1"]
-		return ok && entry.status == statusAvailable
-	}, 2*time.Second, time.Millisecond, "k1 was left stranded in a non-terminal state")
-
-	// k1 must read back promptly (this blocked forever before the fix).
-	var v []byte
-	var found bool
-	var getErr error
+	// k1 is uncached and precedes the failed key. The batch must be refused, and must return promptly
+	// rather than blocking on anything.
 	done := make(chan struct{})
+	var batchErr error
 	go func() {
 		defer close(done)
-		v, found, getErr = engine.Get([]byte("k1"), true)
+		_, batchErr = engine.BatchGet([][]byte{[]byte("k1"), []byte("k2")})
 	}()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Get(k1) hung on a stranded statusScheduled entry")
+		t.Fatal("BatchGet hung instead of being refused")
 	}
-	require.NoError(t, getErr)
-	require.True(t, found)
-	require.Equal(t, []byte("v1"), v)
+	require.ErrorContains(t, batchErr, "io boom")
+
+	// k1 was never classified, so it has no entry at all — in particular none stranded in
+	// statusScheduled holding a channel no producer will ever write to.
+	shard.lock.Lock()
+	_, ok := shard.cache.entries["k1"]
+	shard.lock.Unlock()
+	require.False(t, ok, "a refused batch must not create cache entries")
 }
 
-// Two goroutines racing on one failing key: both must observe the error, the key must be read
-// from the DB exactly once (the failure latch is what guarantees a failed read is never retried,
-// on any interleaving), and the entry must end latched as statusFailed.
+// A failed DB read must stop the engine, not just the key that failed. Halting is the caller's job;
+// this pins that a caller which ignores the error gets nowhere.
+func TestReadFailureStopsTheEngine(t *testing.T) {
+	db := newTestDB(map[string][]byte{"k1": []byte("v1"), "k2": []byte("v2")})
+	// Several shards, so the read that fails and the reads that must stop land in different ones.
+	engine := newTestEngineWithDB(t, db, 4, 1<<20)
+
+	// Warm k2 into its shard's cache, so refusing it later cannot be explained by a DB read.
+	v, found, err := engine.Get([]byte("k2"), true)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []byte("v2"), v)
+
+	db.getErrKeys = map[string]error{"k1": errors.New("io boom")}
+	_, _, err = engine.Get([]byte("k1"), true)
+	require.ErrorContains(t, err, "io boom")
+	db.getErrKeys = nil
+
+	// Convergence, not immediacy: the brick is fired after the failing read is released, so allow it
+	// to land. Every shard must stop, including the one that never saw a failure.
+	require.Eventually(t, func() bool {
+		_, _, readErr := engine.Get([]byte("k2"), true)
+		return readErr != nil
+	}, 2*time.Second, time.Millisecond, "a cached read in an unaffected shard was still served")
+
+	_, err = engine.BatchGet([][]byte{[]byte("k2")})
+	require.Error(t, err, "BatchGet must be refused too")
+
+	_, err = engine.Commit()
+	require.Error(t, err, "Commit must be refused once the engine is bricked")
+
+	// Close surfaces the original cause rather than a bare ErrEngineClosed.
+	require.ErrorContains(t, engine.Close(), "io boom")
+}
+
+// Two goroutines racing on one failing key: both must observe the error, and the key must be read
+// from the DB exactly once on any interleaving (a failed read is never retried). The entry must end
+// in the statusFailed terminal state so neither reader is stranded.
 func TestConcurrentReadersOfFailingKeyBothError(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 1<<20)

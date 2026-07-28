@@ -28,8 +28,10 @@ type shard struct {
 
 	// The read-through DB cache backing this shard. A passive component sharing this shard's
 	// lock: its xxxLocked methods require the lock held, while its resolve methods and background
-	// read-completion paths manage their own synchronization. The cache never calls back into the
-	// shard, so nesting cache calls under the shard lock cannot deadlock. See readCache.
+	// read-completion paths manage their own synchronization. The cache never calls outward while
+	// holding the lock — it never calls into the shard at all, and its one call into the engine
+	// (reportReadFailure, which acquires versionLock) is made only after releasing the lock — so
+	// nesting cache calls under the shard lock cannot deadlock. See readCache.
 	cache *readCache
 
 	// SnapshotEngine-level metrics. Nil-safe; if nil, no metrics are recorded.
@@ -66,6 +68,8 @@ func NewShard(
 	// (the latched fatal error, or ErrEngineClosed on a clean close). Called only after ctx has
 	// been cancelled.
 	shutdownError func() error,
+	// Reports a failed DB read to the engine, which bricks and stops serving reads.
+	reportReadFailure func(error),
 ) (*shard, error) {
 
 	if maxSize == 0 {
@@ -73,6 +77,11 @@ func NewShard(
 	}
 	if shutdownError == nil {
 		return nil, fmt.Errorf("shutdownError must be non-nil")
+	}
+	if reportReadFailure == nil {
+		// A shard that cannot report a read failure would serve reads after one, which is the
+		// failure mode this reporting exists to prevent.
+		return nil, fmt.Errorf("reportReadFailure must be non-nil")
 	}
 
 	versionDiffs := make(map[uint64]map[string][]byte)
@@ -84,8 +93,17 @@ func NewShard(
 		currentVersion: 1, // important: versions start at 1, not 0, to allow (version - 1) without underflow
 		oldestVersion:  1,
 	}
-	s.cache = newReadCache(ctx, db, readPool, &s.lock, maxSize, config.EstimatedOverheadPerEntry, shutdownError)
+	s.cache = newReadCache(
+		ctx, db, readPool, &s.lock, maxSize, config.EstimatedOverheadPerEntry, shutdownError, reportReadFailure)
 	return s, nil
+}
+
+// takeOutOfService stops this shard from serving reads, reporting err as the cause. Called on every
+// shard when the engine bricks, so a failure anywhere stops reads everywhere.
+func (s *shard) takeOutOfService(err error) {
+	s.lock.Lock()
+	s.cache.takeOutOfServiceLocked(err)
+	s.lock.Unlock()
 }
 
 // Get returns the value for the given key, or (nil, false, nil) if not found at the given version.
@@ -100,6 +118,13 @@ func (s *shard) Get(
 	updateLru bool,
 ) ([]byte, bool, error) {
 	s.lock.Lock()
+
+	// Checked ahead of the versioned data so that a shard taken out of service refuses every read,
+	// not just those that would have reached the DB.
+	if err := s.cache.outOfServiceLocked(); err != nil {
+		s.lock.Unlock()
+		return nil, false, err
+	}
 
 	if err := s.validateVersionLocked(version); err != nil {
 		s.lock.Unlock()
@@ -167,9 +192,15 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 	results := make(map[string][]byte, len(keys))
 	pending := make([]pendingRead, 0, len(keys))
 	var hits int64
-	var firstErr error
 
 	s.lock.Lock()
+
+	// Checked ahead of the versioned data so that a shard taken out of service refuses every read,
+	// not just those that would have reached the DB.
+	if err := s.cache.outOfServiceLocked(); err != nil {
+		s.lock.Unlock()
+		return nil, err
+	}
 
 	if err := s.validateVersionLocked(version); err != nil {
 		s.lock.Unlock()
@@ -189,30 +220,20 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 
 		// The batch path never touches the LRU queue on hits, hence updateLru=false.
 		outcome := s.cache.lookupLocked(key, false)
-		switch {
-		case outcome.immediate && outcome.err != nil:
-			if firstErr == nil {
-				// Latch the error but keep classifying: earlier keys in this batch may already
-				// have been flipped to statusScheduled, and their reads must still be scheduled
-				// and drained by resolveBatch so every touched entry reaches a terminal state.
-				// Returning here would strand those entries in statusScheduled with no producer,
-				// hanging all future readers of those keys.
-				firstErr = outcome.err
-			}
-		case outcome.immediate:
+		if outcome.immediate {
 			// Resolved from cache. A not-found (deleted) key counts as a hit but is not a result.
 			if outcome.found {
 				results[keyStr] = outcome.value
 			}
 			hits++
-		default:
-			pending = append(pending, pendingRead{
-				key:           keyStr,
-				entry:         outcome.entry,
-				valueChan:     outcome.valueChan,
-				needsSchedule: outcome.needsSchedule,
-			})
+			continue
 		}
+		pending = append(pending, pendingRead{
+			key:           keyStr,
+			entry:         outcome.entry,
+			valueChan:     outcome.valueChan,
+			needsSchedule: outcome.needsSchedule,
+		})
 	}
 	s.lock.Unlock()
 
@@ -220,7 +241,7 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 		s.metrics.reportCacheHits(hits)
 	}
 
-	if err := s.cache.resolveBatch(pending, results, firstErr); err != nil {
+	if err := s.cache.resolveBatch(pending, results); err != nil {
 		// DB errors are fatal; fail the whole batch.
 		return nil, err
 	}
