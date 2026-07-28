@@ -78,6 +78,13 @@ type DerivedDefault struct {
 func CheckDefaults(t testing.TB, name string, defaults any, derived ...DerivedDefault) {
 	t.Helper()
 
+	// A section name is written at the call site and names a TOML section, so it must not be
+	// able to steer the path. Checked rather than assumed, because the gosec suppression on the
+	// read below rests on it: with this, the only reachable path is testdata/<name>.golden.
+	if name == "" || !filepath.IsLocal(name) {
+		t.Fatalf("section name %q must be a bare name, not a path", name)
+	}
+
 	got := Dump(defaults)
 
 	// Machine-derived fields are verified against their derivation, then replaced by a stable
@@ -118,7 +125,7 @@ func CheckDefaults(t testing.TB, name string, defaults any, derived ...DerivedDe
 		return
 	}
 
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // testdata/<section>.golden; name validated above
 	if err != nil {
 		t.Fatalf("%s: cannot read %s (%v).\nIf this section is new, create it with "+
 			"`go test ./<pkg>/ -update` and review the recorded values as part of the change.",
