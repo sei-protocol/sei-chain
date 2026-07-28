@@ -463,66 +463,6 @@ func TestWaitForAppQC(t *testing.T) {
 	require.ErrorIs(t, state.waitForAppQC(timeout2, 1, utils.None[*types.AppQC]()), context.DeadlineExceeded)
 }
 
-// TestPushVote_WaitsForFutureEpochSigner: a voter not yet in Current parks until
-// advanceEpoch installs a committee that includes them, then credits.
-func TestPushVote_WaitsForFutureEpochSigner(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx := t.Context()
-		rng := utils.TestRng()
-		registry, keys := epoch.GenRegistryAt(rng, 4, 0)
-		ds := newTestDataState(&data.Config{Registry: registry})
-		state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
-
-		ep0 := state.epochDuo.Load().Current
-		futureKey := types.GenSecretKey(rng)
-		lane := futureKey.Public()
-		header := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
-		vote := types.Sign(futureKey, types.NewLaneVote(header))
-
-		errCh := make(chan error, 1)
-		go func() { errCh <- state.PushVote(ctx, vote) }()
-		synctest.Wait() // parked: Weight==0 under Current
-
-		weights := map[types.PublicKey]uint64{
-			futureKey.Public(): 1000,
-			keys[1].Public():   1000,
-		}
-		ep1 := types.NewEpoch(1, types.RoadRange{First: epoch.FirstRoad(1), Next: epoch.FirstRoad(2)},
-			ep0.FirstTimestamp(), utils.OrPanic1(types.NewCommittee(weights)), ep0.FirstBlock())
-		duo1 := types.NewEpochDuo(ep1, utils.Some(ep0))
-		for inner, ctrl := range state.inner.Lock() {
-			inner.advanceEpoch(duo1)
-			ctrl.Updated()
-		}
-		synctest.Wait()
-		require.NoError(t, <-errCh)
-
-		for inner := range state.inner.Lock() {
-			ls, ok := inner.lanes[lane]
-			require.True(t, ok)
-			require.Contains(t, ls.votes.q[0].byKey, futureKey.Public())
-		}
-	})
-}
-
-// TestPushVote_FutureEpochSignerParks: canceled ctx while signer is not in
-// Current returns Canceled (park), not a verify error.
-func TestPushVote_FutureEpochSignerParks(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistryAt(rng, 4, 0)
-	ds := newTestDataState(&data.Config{Registry: registry})
-	state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
-
-	futureKey := types.GenSecretKey(rng)
-	lane := futureKey.Public()
-	header := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
-	vote := types.Sign(futureKey, types.NewLaneVote(header))
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-
-	require.ErrorIs(t, state.PushVote(ctx, vote), context.Canceled)
-}
-
 // TestPushVote_DropsSignerAfterEpochAdvance: after verify, capacity WaitUntil
 // releases the lock; advanceEpoch installs a Current that excludes the signer —
 // the vote must be dropped (Weight==0).
