@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
@@ -217,11 +218,27 @@ func TestCosmosStatelessChecksRejectsInvalidNestedMultisigKey(t *testing.T) {
 			ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
 			signedTx, _ := buildNestedMultisigTx(t, ctx, tc.malformedChild)
 
-			_, err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams())
+			_, err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "invalid secp256k1 public key")
 		})
 	}
+}
+
+func TestCosmosStatelessChecksRejectsOversizedMultisigBeforePubKeyValidation(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+
+	malformedChildren := make([]cryptotypes.PubKey, authtypes.DefaultTxSigLimit)
+	for i := range malformedChildren {
+		malformedChildren[i] = &secp256k1.PubKey{Key: append([]byte{0x02}, bytes.Repeat([]byte{0xff}, secp256k1.PubKeySize-1)...)}
+	}
+	signedTx, _ := buildNestedMultisigTx(t, ctx, malformedChildren...)
+
+	_, err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	require.Error(t, err)
+	require.ErrorIs(t, err, sdkerrors.ErrTooManySignatures)
+	require.NotContains(t, err.Error(), "invalid secp256k1 public key")
 }
 
 func TestCheckPubKeysRejectsInvalidNestedMultisigKey(t *testing.T) {
@@ -258,14 +275,14 @@ func TestCheckPubKeysRejectsInvalidNestedMultisigKey(t *testing.T) {
 	}
 }
 
-func buildNestedMultisigTx(t *testing.T, ctx sdk.Context, malformedPubKey cryptotypes.PubKey) (sdk.Tx, sdk.AccAddress) {
+func buildNestedMultisigTx(t *testing.T, ctx sdk.Context, malformedPubKeys ...cryptotypes.PubKey) (sdk.Tx, sdk.AccAddress) {
 	t.Helper()
 
 	txConfig := app.MakeEncodingConfig().TxConfig
 	txBuilder := txConfig.NewTxBuilder()
 
 	priv, pubKey, _ := testdata.KeyTestPubAddr()
-	pubKeys := []cryptotypes.PubKey{pubKey, malformedPubKey}
+	pubKeys := append([]cryptotypes.PubKey{pubKey}, malformedPubKeys...)
 	multisigPubKey := kmultisig.NewLegacyAminoPubKey(1, pubKeys)
 	addr := sdk.AccAddress(multisigPubKey.Address())
 

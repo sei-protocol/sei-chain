@@ -74,7 +74,9 @@ func CosmosCheckTxAnte(
 	feegrantKeeper *feegrantkeeper.Keeper,
 	ibcKeeper *ibckeeper.Keeper,
 ) (returnCtx sdk.Context, returnErr error) {
-	oracleVote, err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams())
+	authParams := accountKeeper.GetParams(ctx)
+
+	oracleVote, err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams(), authParams)
 	if err != nil {
 		return SetGasMeter(ctx, 0, pk), err
 	}
@@ -92,8 +94,6 @@ func CosmosCheckTxAnte(
 	if !isGasless {
 		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 	}
-
-	authParams := accountKeeper.GetParams(ctx)
 
 	if err := CheckMemoLength(tx, authParams); err != nil {
 		return ctx, err
@@ -136,7 +136,7 @@ func HandleOutofGas(recoveredErr any, gasLimit uint64, gasConsumed uint64) error
 	}
 }
 
-func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.ConsensusParams) (
+func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.ConsensusParams, authParams authtypes.Params) (
 	isOracleVote bool, err error,
 ) {
 	gasTx, ok := tx.(GasTx)
@@ -212,12 +212,13 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 		return oracleVote, err
 	}
 	// Validate all provided public keys before deriving addresses from them below.
+	remainingSigCount := authParams.TxSigLimit
 	for _, pk := range pubkeys {
 		// PublicKey was omitted from slice since it has already been set in context
 		if pk == nil {
 			continue
 		}
-		if err := validatePubKey(pk); err != nil {
+		if err := validatePubKey(pk, &remainingSigCount); err != nil {
 			return oracleVote, err
 		}
 	}
@@ -252,7 +253,7 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 	return oracleVote, nil
 }
 
-func validatePubKey(pubKey cryptotypes.PubKey) (err error) {
+func validatePubKey(pubKey cryptotypes.PubKey, remainingSigCount *uint64) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "invalid public key: %v", r)
@@ -267,17 +268,27 @@ func validatePubKey(pubKey cryptotypes.PubKey) (err error) {
 			return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "missing multisig public key")
 		}
 
-		pubKeys := pk.GetPubKeys()
+		pubKeyCount := len(pk.PubKeys)
 		threshold := pk.GetThreshold()
 		if threshold == 0 {
 			return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "multisig threshold must be positive")
 		}
-		if threshold > uint(len(pubKeys)) {
-			return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "multisig threshold %d exceeds public key count %d", threshold, len(pubKeys))
+		if threshold > uint(pubKeyCount) {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "multisig threshold %d exceeds public key count %d", threshold, pubKeyCount)
+		}
+		if remainingSigCount != nil && *remainingSigCount < uint64(pubKeyCount) { //nolint:gosec // pubKeyCount is bounded by tx size and compared to tx sig limit.
+			return sdkerrors.Wrapf(sdkerrors.ErrTooManySignatures, "signatures exceed limit %d", *remainingSigCount)
 		}
 
-		for i, child := range pubKeys {
-			if err := validatePubKey(child); err != nil {
+		for i, packedKey := range pk.PubKeys {
+			if packedKey == nil {
+				return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "missing multisig public key at index %d", i)
+			}
+			child, ok := packedKey.GetCachedValue().(cryptotypes.PubKey)
+			if !ok {
+				return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "invalid multisig public key at index %d", i)
+			}
+			if err := validatePubKey(child, remainingSigCount); err != nil {
 				return sdkerrors.Wrapf(err, "invalid multisig public key at index %d", i)
 			}
 		}
@@ -290,6 +301,12 @@ func validatePubKey(pubKey cryptotypes.PubKey) (err error) {
 		if pk == nil {
 			return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "missing secp256k1 public key")
 		}
+		if remainingSigCount != nil {
+			if *remainingSigCount == 0 {
+				return sdkerrors.Wrap(sdkerrors.ErrTooManySignatures, "signatures exceed limit")
+			}
+			*remainingSigCount--
+		}
 		if len(pk.Key) != secp256k1.PubKeySize {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "invalid secp256k1 public key size %d", len(pk.Key))
 		}
@@ -298,6 +315,12 @@ func validatePubKey(pubKey cryptotypes.PubKey) (err error) {
 		}
 		return nil
 	default:
+		if remainingSigCount != nil {
+			if *remainingSigCount == 0 {
+				return sdkerrors.Wrap(sdkerrors.ErrTooManySignatures, "signatures exceed limit")
+			}
+			*remainingSigCount--
+		}
 		if len(pubKey.Address()) == 0 {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "invalid public key type: %T", pubKey)
 		}
@@ -434,7 +457,7 @@ func CheckPubKeys(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKe
 		// Normal CheckTx/DeliverTx callers already validate provided pubkeys in
 		// CosmosStatelessChecks. Revalidate here as a defensive guard because the
 		// next step persists this pubkey to account state.
-		if err := validatePubKey(pk); err != nil {
+		if err := validatePubKey(pk, nil); err != nil {
 			return nil, err
 		}
 		err = acc.SetPubKey(pk)
