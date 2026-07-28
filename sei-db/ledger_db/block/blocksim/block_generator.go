@@ -168,7 +168,15 @@ func (g *BlockGenerator) buildFullCommitQC() (*types.FullCommitQC, []*types.Bloc
 		}
 	}
 
-	viewSpec := types.ViewSpec{CommitQC: prev, Epochs: types.NewEpochDuo(types.NewEpoch(0, types.OpenRoadRange(), genesisTime, committee, 0), utils.None[*types.Epoch]())}
+	viewSpec := types.ViewSpec{
+		CommitQC: prev,
+		Epochs: types.NewEpochDuo(
+			types.NewEpoch(0, types.OpenRoadRange(), committee),
+			utils.None[*types.Epoch](),
+		),
+		GenesisFirstBlock: 0,
+		GenesisTimestamp:  genesisTime,
+	}
 	leader := committee.Leader(viewSpec.View())
 	// AppQC certifies the prior tipcut (road == prev.Index), not the tipcut
 	// being built (View.Index). buildProposal clears road >= view.
