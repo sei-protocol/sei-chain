@@ -291,3 +291,13 @@ func FuzzMaxOpenConnections(f *testing.F) {
 func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
 	configtest.CheckAbsent(t, "evm", readEVM, config.DefaultConfig)
 }
+
+// TestDefaultsMatchTheRecordedValues pins the evm defaults themselves.
+//
+// The absent-keys row above proves the reader returns the declared defaults; it cannot prove
+// which values those are, because both sides of that comparison come from this package. This
+// compares them against testdata/evm.golden, an independent recording, so a default that
+// moves shows the new value in a diff instead of passing silently.
+func TestDefaultsMatchTheRecordedValues(t *testing.T) {
+	configtest.CheckDefaults(t, "evm", config.DefaultConfig)
+}

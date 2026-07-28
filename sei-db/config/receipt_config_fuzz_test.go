@@ -155,3 +155,14 @@ func FuzzReceiptMisnamedBackendKey(f *testing.F) {
 func TestReadReceiptConfigAbsentKeysKeepDefaults(t *testing.T) {
 	configtest.CheckAbsent(t, "receipt-store", readReceipt, DefaultReceiptStoreConfig())
 }
+
+// TestDefaultsMatchTheRecordedValues pins the receipt_store defaults themselves.
+//
+// The absent-keys coverage in this file proves the reader returns the declared defaults; it
+// cannot prove which values those are, because both sides of that comparison come from the
+// same package. This compares them against testdata/receipt_store.golden, an independent
+// recording, so a default that moves shows the new value in a diff instead of passing
+// silently.
+func TestDefaultsMatchTheRecordedValues(t *testing.T) {
+	configtest.CheckDefaults(t, "receipt_store", DefaultReceiptStoreConfig())
+}

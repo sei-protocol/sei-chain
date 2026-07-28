@@ -59,3 +59,13 @@ func FuzzReadConfig(f *testing.F) {
 func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
 	configtest.CheckAbsent(t, "giga_executor", readGiga, config.DefaultConfig)
 }
+
+// TestDefaultsMatchTheRecordedValues pins the giga_executor defaults themselves.
+//
+// The absent-keys row above proves the reader returns the declared defaults; it cannot prove
+// which values those are, because both sides of that comparison come from this package. This
+// compares them against testdata/giga_executor.golden, an independent recording, so a default that
+// moves shows the new value in a diff instead of passing silently.
+func TestDefaultsMatchTheRecordedValues(t *testing.T) {
+	configtest.CheckDefaults(t, "giga_executor", config.DefaultConfig)
+}

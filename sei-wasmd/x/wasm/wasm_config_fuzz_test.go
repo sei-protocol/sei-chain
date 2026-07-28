@@ -178,3 +178,14 @@ func FuzzWasmSimulationGasLimit(f *testing.F) {
 		}
 	})
 }
+
+// TestDefaultsMatchTheRecordedValues pins the wasm defaults themselves.
+//
+// The absent-keys coverage in this file proves the reader returns the declared defaults; it
+// cannot prove which values those are, because both sides of that comparison come from the
+// same package. This compares them against testdata/wasm.golden, an independent
+// recording, so a default that moves shows the new value in a diff instead of passing
+// silently.
+func TestDefaultsMatchTheRecordedValues(t *testing.T) {
+	configtest.CheckDefaults(t, "wasm", types.DefaultWasmConfig())
+}

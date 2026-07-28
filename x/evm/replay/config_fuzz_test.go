@@ -82,3 +82,13 @@ func TestTemplateKeyIsInert(t *testing.T) {
 			"if the read site was renamed on purpose, update this test and ship a migration")
 	}
 }
+
+// TestDefaultsMatchTheRecordedValues pins the eth_replay defaults themselves.
+//
+// The absent-keys row above proves the reader returns the declared defaults; it cannot prove
+// which values those are, because both sides of that comparison come from this package. This
+// compares them against testdata/eth_replay.golden, an independent recording, so a default that
+// moves shows the new value in a diff instead of passing silently.
+func TestDefaultsMatchTheRecordedValues(t *testing.T) {
+	configtest.CheckDefaults(t, "eth_replay", replay.DefaultConfig)
+}
