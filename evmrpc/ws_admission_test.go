@@ -224,7 +224,7 @@ func readJSON(t *testing.T, conn *websocket.Conn, dest *rpcResponse) {
 
 	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	msgType, data, err := conn.ReadMessage()
-	require.IsType(t, websocket.TextMessage, msgType)
+	require.Equal(t, websocket.TextMessage, msgType)
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(data, dest))
 	_ = conn.SetReadDeadline(time.Time{})
