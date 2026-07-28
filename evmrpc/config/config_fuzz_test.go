@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -299,5 +300,14 @@ func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
 // compares them against testdata/evm.golden, an independent recording, so a default that
 // moves shows the new value in a diff instead of passing silently.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
-	configtest.CheckDefaults(t, "evm", config.DefaultConfig)
+	configtest.CheckDefaults(t, "evm", config.DefaultConfig,
+		configtest.DerivedDefault{
+			Path: "MaxConcurrentSimulationCalls", Want: runtime.NumCPU(),
+			Why: "runtime.NumCPU()",
+		},
+		configtest.DerivedDefault{
+			Path: "WorkerPoolSize", Want: min(config.MaxWorkerPoolSize, runtime.NumCPU()*2),
+			Why: "min(MaxWorkerPoolSize, runtime.NumCPU()*2)",
+		},
+	)
 }

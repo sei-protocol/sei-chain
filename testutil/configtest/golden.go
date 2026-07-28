@@ -8,8 +8,12 @@ import (
 	"testing"
 )
 
-// -update rewrites the recorded defaults instead of comparing against them, so one
-// invocation regenerates every section: `go test ./... -update`.
+// -update rewrites the recorded defaults instead of comparing against them.
+//
+// Invoked per package, not tree-wide: the flag is only registered in binaries that link this
+// helper, so `go test ./... -update` makes every other package exit with "flag provided but
+// not defined". Regenerating several sections means naming them, or passing the list of
+// packages that carry goldens.
 //
 // Registered defensively. sei-tendermint/internal/p2p/conn already defines a flag of the
 // same name for its own golden files, and a second registration in one binary panics at
@@ -45,10 +49,61 @@ func goldenUpdateRequested() bool {
 // binary/renderer boundary while the other side keeps the old one.
 //
 // Regenerate with `go test ./<pkg>/ -update` once the change is deliberate.
-func CheckDefaults(t testing.TB, name string, defaults any) {
+// DerivedDefault names a default that is computed from the machine rather than written
+// down, together with the value it must equal.
+//
+// Such a field cannot sit in a golden file as a literal: runtime.NumCPU() makes the recorded
+// value true only of the machine that generated it, so a ten-core laptop would record 20
+// where a four-core runner produces 8. Recording it would turn every CI run into a false
+// report of a changed default, which is the opposite of what these files are for.
+//
+// It is masked rather than dropped, and the formula is asserted in its place. So the field
+// stays covered, just against its derivation instead of against a constant: the golden holds
+// a stable marker, and Want carries the expression the value has to match. A change to the
+// formula fails, a change to the machine does not, and the field disappearing still shows up
+// as a removed line.
+type DerivedDefault struct {
+	// Path is the Dump path of the field, e.g. "WorkerPoolSize".
+	Path string
+	// Want is the value the derivation must currently produce, computed the same way the
+	// production code computes it.
+	Want any
+	// Why records the derivation in the golden file itself, so a reader sees what the field
+	// depends on without going to the source.
+	Why string
+}
+
+// CheckDefaults asserts that a section's in-code defaults still match the values recorded
+// in testdata/<name>.golden, with any machine-derived fields checked against their formula
+// instead.
+func CheckDefaults(t testing.TB, name string, defaults any, derived ...DerivedDefault) {
 	t.Helper()
 
 	got := Dump(defaults)
+
+	// Machine-derived fields are verified against their derivation, then replaced by a stable
+	// marker so the golden means the same thing on every machine.
+	for _, d := range derived {
+		leaf, ok := leafAt(got, d.Path)
+		if !ok {
+			t.Fatalf("%s: %q is declared machine-derived but is not present in the resolved "+
+				"defaults. If the field was removed, drop it from the derived list; if it was "+
+				"renamed, update the path", name, d.Path)
+		}
+		if want := DumpAt(d.Path, d.Want); leaf != want {
+			t.Fatalf("%s: %s no longer matches its derivation (%s)\n got: %s\nwant: %s\n"+
+				"This field is computed rather than written down, so the assertion is on the "+
+				"formula. Either the formula changed, in which case update it here and say so, "+
+				"or the field stopped being derived and belongs in the golden as a literal",
+				name, d.Path, d.Why, leaf, want)
+		}
+		marker := d.Path + " = <derived: " + d.Why + ">"
+		spliced, ok := spliceLeaf(got, d.Path, marker)
+		if !ok {
+			t.Fatalf("%s: could not mask %q in the resolved defaults", name, d.Path)
+		}
+		got = spliced
+	}
 	path := filepath.Join("testdata", name+".golden")
 
 	if goldenUpdateRequested() {
@@ -67,7 +122,7 @@ func CheckDefaults(t testing.TB, name string, defaults any) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("%s: cannot read %s (%v).\nIf this section is new, create it with "+
-			"`go test ./... -update` and review the recorded values as part of the change.",
+			"`go test ./<pkg>/ -update` and review the recorded values as part of the change.",
 			name, path, err)
 	}
 	// Tolerant of the trailing newline either way, so an editor that strips or adds one
@@ -80,7 +135,7 @@ func CheckDefaults(t testing.TB, name string, defaults any) {
 	t.Fatalf("%s: the in-code defaults no longer match %s.\n%s\n"+
 		"A default changing is a change every node inherits without editing its app.toml, so it "+
 		"is recorded rather than followed. If the new values are intended, regenerate with "+
-		"`go test ./... -update` and keep the diff in the review.",
+		"`go test ./<pkg>/ -update` and keep the diff in the review.",
 		name, path, goldenDiff(want, got))
 }
 

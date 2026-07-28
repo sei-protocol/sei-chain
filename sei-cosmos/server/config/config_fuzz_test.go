@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -163,16 +164,16 @@ var grpcClamps = []grpcClamp{
 func FuzzGetConfigGRPCDurationClamps(f *testing.F) {
 	f.Add(uint(0), int64(0), false)
 	f.Add(uint(0), int64(-1), false)
-	f.Add(uint(0), int64(int64(30*time.Second)), false)
+	f.Add(uint(0), int64((30 * time.Second)), false)
 	f.Add(uint(4), int64(0), false)
 	f.Add(uint(4), int64(-1), false)
 	f.Add(uint(1), int64(-1000000000), false)
-	f.Add(uint(2), int64(int64(time.Hour)), false)
+	f.Add(uint(2), int64((time.Hour)), false)
 	// The same values as an operator would write them.
-	f.Add(uint(0), int64(int64(30*time.Second)), true)
+	f.Add(uint(0), int64((30 * time.Second)), true)
 	f.Add(uint(0), int64(-1000000000), true) // "-1s"
 	f.Add(uint(4), int64(0), true)
-	f.Add(uint(2), int64(int64(time.Hour)), true)
+	f.Add(uint(2), int64((time.Hour)), true)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, nanos int64, asString bool) {
 		row := grpcClamps[keyIdx%uint(len(grpcClamps))]
@@ -541,5 +542,10 @@ func FuzzConfigValidateBasic(f *testing.F) {
 // recording, so a default that moves shows the new value in a diff instead of passing
 // silently.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
-	configtest.CheckDefaults(t, "server_config", DefaultConfig())
+	configtest.CheckDefaults(t, "server_config", DefaultConfig(),
+		configtest.DerivedDefault{
+			Path: "ConcurrencyWorkers", Want: max(10, min(runtime.NumCPU()*2, 128)),
+			Why: "max(10, min(runtime.NumCPU()*2, 128))",
+		},
+	)
 }

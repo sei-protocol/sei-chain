@@ -45,9 +45,15 @@ func TestCastZeroMatchesTheUncheckedCastOfNil(t *testing.T) {
 	}
 
 	// Every declared kind is covered, so adding one to the enum cannot skip this check.
-	for k := CastKind(0); k < CastKind(len(unchecked)); k++ {
+	//
+	// Bounded by the enum's own sentinel rather than by len(unchecked), which was the earlier
+	// form and could not fail: adding a kind without adding a map entry left the bound equal to
+	// the number of entries, so the loop only ever visited kinds that were present.
+	for k := CastKind(0); k < castKindCount; k++ {
 		if _, ok := unchecked[k]; !ok {
-			t.Errorf("CastKind %s has no entry here; add it so the invariant stays enforced", k)
+			t.Errorf("CastKind %s (%d) has no entry here. A kind added without a zero() case "+
+				"silently falls through to nil, and every unguarded nil-value row for it would "+
+				"then compare against <nil>, so add it here and to zero()", k, int(k))
 		}
 	}
 }

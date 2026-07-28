@@ -1,14 +1,9 @@
 package baseapp
 
 import (
+	"reflect"
 	"strings"
 	"testing"
-
-	dbm "github.com/tendermint/tm-db"
-
-	"github.com/spf13/cast"
-
-	"reflect"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
@@ -16,6 +11,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
+	"github.com/spf13/cast"
+	dbm "github.com/tendermint/tm-db"
 )
 
 // BaseApp reads four keys straight out of appOpts during construction, after every

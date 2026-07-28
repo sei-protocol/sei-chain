@@ -27,6 +27,11 @@ const (
 	CastDuration
 	CastStringSlice
 	CastIntSlice
+
+	// castKindCount bounds the enum. It exists so a coverage check can iterate every declared
+	// kind rather than counting whatever it was handed, which is the difference between
+	// noticing a new kind and agreeing with itself.
+	castKindCount
 )
 
 func (k CastKind) String() string {
