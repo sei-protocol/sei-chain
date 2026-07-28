@@ -108,6 +108,12 @@ func TestGetTxByOffsetPruned(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrPruned)
 	require.False(t, res.IsPresent())
 
+	// Retention wins over argument shape: a below-watermark block asked for with an offset inside the
+	// prefix still returns ErrPruned, matching ReadBlockByNumber and the documented contract.
+	res, err = impl.GetTxByOffset(2, 0, 1)
+	require.ErrorIs(t, err, types.ErrPruned)
+	require.False(t, res.IsPresent())
+
 	// A block at/above the watermark is still served.
 	res, err = impl.GetTxByOffset(5, blockValuePrefixLen, 1)
 	require.NoError(t, err)

@@ -201,6 +201,31 @@ func buildCachedMemKeyDiskTable(
 	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
+// buildCacheDisabledMemKeyDiskTable wraps a base table in cachedTable with caches that can never hold an
+// entry (max weight 0, which is what DefaultTableConfig configures and therefore what every table in this
+// repo runs with today). Every read must fall through to the base table, so this covers the wrapper's
+// delegation path — which the builders above cannot, since their caches are large enough that a written
+// value is always still resident.
+func buildCacheDisabledMemKeyDiskTable(
+	clock func() time.Time,
+	name string,
+	path string) (litt.ManagedTable, error) {
+
+	baseTable, err := buildMemKeyDiskTable(clock, name, path)
+	if err != nil {
+		return nil, err
+	}
+
+	writeCache := util.NewFIFOCache[string, []byte](0, func(k string, v []byte) uint64 {
+		return uint64(len(k) + len(v))
+	}, nil)
+	readCache := util.NewFIFOCache[string, []byte](0, func(k string, v []byte) uint64 {
+		return uint64(len(k) + len(v))
+	}, nil)
+
+	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
+}
+
 func buildCachedPebbleDBKeyDiskTable(
 	clock func() time.Time,
 	name string,
@@ -618,6 +643,13 @@ func getSubrangeParityTest(t *testing.T, tb *tableBuilder) {
 		_, _, err = table.GetSubrange(sk.Key, 0, sk.Length+1)
 		require.Error(t, err, stage)
 
+		// A key that was never written misses both caches and must report not-found from the base table,
+		// without an error.
+		got, ok, err = table.GetSubrange([]byte("does-not-exist"), 0, 1)
+		require.NoError(t, err, stage)
+		require.False(t, ok, stage)
+		require.Nil(t, got, stage)
+
 		// A subrange read must never be cached under the key it was read from: a later Get still sees
 		// the whole value.
 		got, ok, err = table.Get(primary)
@@ -635,7 +667,18 @@ func getSubrangeParityTest(t *testing.T, tb *tableBuilder) {
 
 func TestGetSubrangeParity(t *testing.T) {
 	t.Parallel()
-	for _, tb := range tableBuilders {
+
+	// tableBuilders' cached entries hold every written value for the life of the test, so on their own
+	// they only ever exercise cache hits. Add a cache-disabled wrapper so the same assertions also run
+	// against the wrapper's fall-through to the base table.
+	builders := make([]*tableBuilder, 0, len(tableBuilders)+1)
+	builders = append(builders, tableBuilders...)
+	builders = append(builders, &tableBuilder{
+		"cache-disabled mem keymap disk table",
+		buildCacheDisabledMemKeyDiskTable,
+	})
+
+	for _, tb := range builders {
 		tb := tb
 		t.Run(tb.name, func(t *testing.T) {
 			t.Parallel()

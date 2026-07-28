@@ -464,6 +464,13 @@ func (s *blockDB) GetTxByOffset(
 	offset uint32,
 	length uint32,
 ) (utils.Option[[]byte], error) {
+	// Refuse below-watermark blocks first: they may be stranded (covering QC reclaimed). Mirrors
+	// ReadBlockByNumber, and keeps ErrPruned the outcome a caller observes for a pruned n regardless of
+	// whether the offset is also malformed.
+	if uint64(n) < s.watermark.Load() {
+		return utils.None[[]byte](), types.ErrPruned
+	}
+
 	// A transaction lives in the proto body, never in the fixed prefix, so an offset inside the prefix
 	// means the caller measured against the wrong frame — most likely the body instead of the whole stored
 	// value. Reject it rather than return plausible-looking but shifted bytes. A change to the value
@@ -472,11 +479,6 @@ func (s *blockDB) GetTxByOffset(
 		return utils.None[[]byte](), fmt.Errorf(
 			"tx offset %d is inside the %d-byte block value prefix: offsets are measured from the start of "+
 				"the stored value, not of the proto body", offset, blockValuePrefixLen)
-	}
-
-	// Refuse below-watermark blocks: they may be stranded (covering QC reclaimed). Mirrors ReadBlockByNumber.
-	if uint64(n) < s.watermark.Load() {
-		return utils.None[[]byte](), types.ErrPruned
 	}
 
 	value, exists, err := s.table.GetSubrange(blockKey(n), offset, length)
