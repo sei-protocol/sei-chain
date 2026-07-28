@@ -2,7 +2,6 @@ package snapshot
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -80,10 +79,11 @@ func newSnapshotEngineMetrics(
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(metrics.LatencyBuckets...),
 	)
-	snapshotPhaseTimer := metrics.NewPhaseTimer(meter, fmt.Sprintf("snapshot_engine_snapshot_%s", cacheName))
+	cacheAttr := attribute.String("cache", cacheName)
+	snapshotPhaseTimer := metrics.NewPhaseTimer(meter, "snapshot_engine_snapshot", cacheAttr)
 
 	cm := &SnapshotEngineMetrics{
-		attrs:              metric.WithAttributes(attribute.String("cache", cacheName)),
+		attrs:              metric.WithAttributes(cacheAttr),
 		sizeBytes:          sizeBytes,
 		sizeEntries:        sizeEntries,
 		hits:               hits,
