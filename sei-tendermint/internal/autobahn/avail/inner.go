@@ -204,7 +204,7 @@ func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*typ
 	if !ok {
 		return utils.None[*types.LaneQC]()
 	}
-	return bv.laneQC()
+	return bv.laneQC(i.epochDuo.Load().Current.Committee().LaneQuorum())
 }
 
 // advanceEpoch installs nextDuo at a boundary. Caller must ensure nextDuo is

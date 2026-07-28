@@ -17,20 +17,33 @@ func (s *laneVoteSet) reset() {
 	s.votes = s.votes[:0]
 }
 
-// add credits vote weight. Returns true if weight reached quorum (may already
-// have been at/above quorum from a prior add).
-func (s *laneVoteSet) add(weight, quorum uint64, vote *types.Signed[*types.LaneVote]) bool {
+// add credits vote weight until quorum. Returns a newly formed LaneQC iff this
+// vote crosses quorum (built from votes; not cached on the set).
+func (s *laneVoteSet) add(weight, quorum uint64, vote *types.Signed[*types.LaneVote]) utils.Option[*types.LaneQC] {
+	if s.weight >= quorum {
+		return utils.None[*types.LaneQC]()
+	}
 	s.weight += weight
 	s.votes = append(s.votes, vote)
-	return s.weight >= quorum
+	if s.weight < quorum {
+		return utils.None[*types.LaneQC]()
+	}
+	return utils.Some(types.NewLaneQC(s.votes))
+}
+
+// laneQC returns a LaneQC built from votes if weight has reached quorum.
+func (s *laneVoteSet) laneQC(quorum uint64) utils.Option[*types.LaneQC] {
+	if s.weight < quorum {
+		return utils.None[*types.LaneQC]()
+	}
+	return utils.Some(types.NewLaneQC(s.votes))
 }
 
 // blockVotes credits lane votes under the Current committee only.
-// At most one LaneQC is retained for the block (not one per header hash).
+// Each header hash may form its own LaneQC.
 type blockVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.LaneVote]
 	byHash map[types.BlockHeaderHash]*laneVoteSet
-	qc     utils.Option[*types.LaneQC]
 }
 
 func newBlockVotes() *blockVotes {
@@ -53,26 +66,13 @@ func (bv *blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVo
 	}
 	bv.byKey[k] = vote
 
-	// Always index the header in byHash so headers() can reconstruct committed
-	// chains even if this vote arrives after a LaneQC for a competing hash.
 	h := vote.Msg().Header().Hash()
 	set, ok := bv.byHash[h]
 	if !ok {
 		set = &laneVoteSet{header: vote.Msg().Header()}
 		bv.byHash[h] = set
 	}
-
-	// One QC per block: keep byKey/byHash for reweight and header lookup, but
-	// do not form or replace a second LaneQC.
-	if bv.qc.IsPresent() {
-		return utils.None[*types.LaneQC]()
-	}
-
-	if !set.add(w, ep.Committee().LaneQuorum(), vote) {
-		return utils.None[*types.LaneQC]()
-	}
-	bv.qc = utils.Some(types.NewLaneQC(set.votes))
-	return bv.qc
+	return set.add(w, ep.Committee().LaneQuorum(), vote)
 }
 
 // reweight recomputes already-stored votes under new Current after advanceEpoch.
@@ -80,7 +80,6 @@ func (bv *blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVo
 // ctrl.Updated() after advanceEpoch (not via a return flag).
 func (bv *blockVotes) reweight(newEpoch *types.Epoch) {
 	c := newEpoch.Committee()
-	bv.qc = utils.None[*types.LaneQC]()
 	for _, set := range bv.byHash {
 		set.reset()
 	}
@@ -96,12 +95,15 @@ func (bv *blockVotes) reweight(newEpoch *types.Epoch) {
 			set = &laneVoteSet{header: vote.Msg().Header()}
 			bv.byHash[h] = set
 		}
-		if set.add(w, c.LaneQuorum(), vote) && !bv.qc.IsPresent() {
-			bv.qc = utils.Some(types.NewLaneQC(set.votes))
-		}
+		set.add(w, c.LaneQuorum(), vote)
 	}
 }
 
-func (bv *blockVotes) laneQC() utils.Option[*types.LaneQC] {
-	return bv.qc
+func (bv *blockVotes) laneQC(quorum uint64) utils.Option[*types.LaneQC] {
+	for _, set := range bv.byHash {
+		if qc, ok := set.laneQC(quorum).Get(); ok {
+			return utils.Some(qc)
+		}
+	}
+	return utils.None[*types.LaneQC]()
 }
