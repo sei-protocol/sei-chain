@@ -196,11 +196,6 @@ type Config struct {
 	// resolving the client IP for rate limiting. Empty means trust no proxy.
 	TrustedProxyCIDRs []string `mapstructure:"trusted_proxy_cidrs"`
 
-	// RateLimitProbeBytes bounds how far the rate limiter's MethodParser reads into
-	// a request body to extract the JSON-RPC method name. Independent of
-	// max_request_body_bytes. Zero uses the ratelimiter default (1 MiB).
-	RateLimitProbeBytes int64 `mapstructure:"rate_limit_probe_bytes"`
-
 	// BatchRequestLimit is the maximum number of requests allowed in a single
 	// JSON-RPC batch (HTTP and WebSocket). Set to 0 to disable the limit.
 	BatchRequestLimit int `mapstructure:"batch_request_limit"`
@@ -211,8 +206,8 @@ type Config struct {
 
 	// MaxRequestBodyBytes is the maximum size, in bytes, of a single HTTP
 	// JSON-RPC request body. Requests larger than this are rejected (HTTP 413)
-	// before the body is buffered or JSON-decoded. 0 uses the go-ethereum
-	// default (5 MiB).
+	// before the body is buffered or JSON-decoded, including at the rate limiter
+	// method-extraction layer. 0 uses the go-ethereum default (5 MiB).
 	MaxRequestBodyBytes int64 `mapstructure:"max_request_body_bytes"`
 
 	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP
@@ -280,7 +275,6 @@ var DefaultConfig = Config{
 	IPRateLimitBurst:          400,
 	RateLimitingEnabled:       true,
 	TrustedProxyCIDRs:         nil,
-	RateLimitProbeBytes:       ratelimiter.DefaultMaxProbeBytes,
 	BatchRequestLimit:         1000,
 	BatchResponseMaxSize:      25 * 1000 * 1000,  // 25MB
 	MaxRequestBodyBytes:       5 * 1024 * 1024,   // 5 MiB (matches go-ethereum rpc default body limit)
@@ -335,7 +329,6 @@ const (
 	flagIPRateLimitBurst             = "evm.ip_rate_limit_burst"
 	flagRateLimitingEnabled          = "evm.rate_limiting_enabled"
 	flagTrustedProxyCIDRs            = "evm.trusted_proxy_cidrs"
-	flagRateLimitProbeBytes          = "evm.rate_limit_probe_bytes"
 	flagBatchRequestLimit            = "evm.batch_request_limit"
 	flagBatchResponseMaxSize         = "evm.batch_response_max_size"
 	flagMaxRequestBodyBytes          = "evm.max_request_body_bytes"
@@ -573,11 +566,6 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagTrustedProxyCIDRs); v != nil {
 		if cfg.TrustedProxyCIDRs, err = cast.ToStringSliceE(v); err != nil {
-			return cfg, err
-		}
-	}
-	if v := opts.Get(flagRateLimitProbeBytes); v != nil {
-		if cfg.RateLimitProbeBytes, err = cast.ToInt64E(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -842,11 +830,6 @@ rate_limiting_enabled = {{ .EVM.RateLimitingEnabled }}
 # your own controlled infrastructure.
 trusted_proxy_cidrs = [{{- range $i, $c := .EVM.TrustedProxyCIDRs }}{{- if $i }}, {{ end }}"{{ $c }}"{{- end }}]
 
-# rate_limit_probe_bytes bounds how far the rate limiter reads into a request
-# body to extract the JSON-RPC method name (default 1 MiB). Independent of
-# max_request_body_bytes below.
-rate_limit_probe_bytes = {{ .EVM.RateLimitProbeBytes }}
-
 # batch_request_limit is the maximum number of requests allowed in a single
 # JSON-RPC batch (HTTP and WebSocket). Set to 0 to disable the limit.
 batch_request_limit = {{ .EVM.BatchRequestLimit }}
@@ -857,7 +840,8 @@ batch_response_max_size = {{ .EVM.BatchResponseMaxSize }}
 
 # max_request_body_bytes is the maximum size, in bytes, of a single HTTP
 # JSON-RPC request body. Larger requests are rejected (HTTP 413) before the body
-# is buffered or JSON-decoded. Set to 0 to use the default (5 MiB).
+# is buffered or JSON-decoded, including at the rate limiter method-extraction
+# layer. Set to 0 to use the default (5 MiB).
 max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
 
 # max_concurrent_request_bytes bounds the total size, in bytes, of HTTP JSON-RPC

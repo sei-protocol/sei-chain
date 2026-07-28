@@ -22,7 +22,7 @@ const (
 	rejectReasonOversize    = "oversize"     // body exceeded max_request_body_bytes
 	rejectReasonBusy        = "busy"         // max_concurrent_request_bytes budget exhausted
 	rejectReasonRateLimited = "rate_limited" // per-IP token bucket exhausted
-	rejectReasonUnparseable = "unparseable"  // rate-limit probe could not parse JSON-RPC method(s)
+	rejectReasonUnparseable = "unparseable"  // rate-limit method parse failed (malformed JSON-RPC)
 	// error_class values; empty string ("") means success.
 	errorClassPanic              = "panic"
 	errorClassExecutionReverted  = "execution_reverted"

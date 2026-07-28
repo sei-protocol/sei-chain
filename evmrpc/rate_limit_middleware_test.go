@@ -120,31 +120,22 @@ func TestRateLimitMiddleware_BatchCountsAllMethods(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
 }
 
-func TestRateLimitMiddleware_ProbeLimitChargesToken(t *testing.T) {
-	reg := mustRateLimitRegistry(t, 0.001, 1)
+func TestRateLimitMiddleware_ProbeLimitRejected413(t *testing.T) {
+	reg := mustRateLimitRegistry(t, 100, 10)
 	gate := NewRateLimitGate(reg, 64, true, "evm")
 
 	padding := strings.Repeat(" ", 50)
 	body := `{"params":[` + padding + `],"method":"eth_call","id":1}`
 
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.ReadAll(r.Body)
-		w.WriteHeader(http.StatusOK)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner should not be called")
 	})
 	h := newRateLimitMiddleware(inner, gate)
 
-	req1 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-	req1.RemoteAddr = "10.0.0.9:1"
-	rec1 := httptest.NewRecorder()
-	h.ServeHTTP(rec1, req1)
-	require.Equal(t, http.StatusOK, rec1.Code)
-
-	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-	req2.RemoteAddr = "10.0.0.9:1"
-	rec2 := httptest.NewRecorder()
-	h.ServeHTTP(rec2, req2)
-	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
-	require.Contains(t, rec2.Body.String(), "too many requests")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	require.Contains(t, rec.Body.String(), "request body too large")
 }
 
 func TestRateLimitMiddleware_ParseErrorRejected(t *testing.T) {
@@ -225,10 +216,10 @@ func TestComposedStack_RateLimitDistinctFromSizeBudget(t *testing.T) {
 	require.Contains(t, rec2.Body.String(), "too many requests")
 }
 
-func TestNewRateLimitGate_MaxInt64ProbeLimitClamped(t *testing.T) {
+func TestNewRateLimitGate_MaxInt64BodyLimitClamped(t *testing.T) {
 	reg := mustRateLimitRegistry(t, 100, 10)
 	gate := NewRateLimitGate(reg, math.MaxInt64, true, "evm")
-	require.Equal(t, int64(math.MaxInt64-1), gate.maxProbeBytes)
+	require.Equal(t, int64(math.MaxInt64-1), gate.maxBodyBytes)
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[]}`
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
@@ -281,19 +272,15 @@ func TestRateLimitGate_Check(t *testing.T) {
 	require.Equal(t, "eth_getBalance", rejectMethod)
 }
 
-func TestRateLimitGate_CheckProbeLimitChargesToken(t *testing.T) {
-	reg := mustRateLimitRegistry(t, 0.001, 1)
+func TestRateLimitGate_CheckProbeLimitRejected(t *testing.T) {
+	reg := mustRateLimitRegistry(t, 100, 10)
 	gate := NewRateLimitGate(reg, 64, true, "evm")
 
 	padding := strings.Repeat(" ", 50)
 	body := `{"params":[` + padding + `],"method":"eth_call","id":1}`
 
-	allowed, _, err := gate.Check(t.Context(), "1.2.3.4", strings.NewReader(body))
-	require.NoError(t, err)
-	require.True(t, allowed)
-
 	allowed, rejectMethod, err := gate.Check(t.Context(), "1.2.3.4", strings.NewReader(body))
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ratelimiter.ErrProbeLimit)
 	require.False(t, allowed)
 	require.Empty(t, rejectMethod)
 }
@@ -394,15 +381,20 @@ func TestRateLimitMiddleware_RejectionDrainsAndClosesBody(t *testing.T) {
 	})
 }
 
-func TestRestoredBody_CloseDrainsRemainder(t *testing.T) {
-	orig := &trackedBody{Reader: strings.NewReader("tail-bytes")}
-	body := restoreBody([]byte("prefix-"), orig)
+func TestReadBoundedBody_RejectsOversize(t *testing.T) {
+	t.Run("exact limit ok", func(t *testing.T) {
+		body := `{"method":"eth_call","id":1}`
+		buf, err := readBoundedBody(io.NopCloser(strings.NewReader(body)), int64(len(body)))
+		require.NoError(t, err)
+		require.Equal(t, body, string(buf))
+	})
 
-	buf, err := io.ReadAll(body)
-	require.NoError(t, err)
-	require.Equal(t, "prefix-tail-bytes", string(buf))
-
-	require.NoError(t, body.Close())
-	require.True(t, orig.closed)
-	require.Equal(t, int64(len("tail-bytes")), orig.drained)
+	t.Run("one byte over limit", func(t *testing.T) {
+		body := `{"method":"eth_call","id":1}`
+		tracked := &trackedBody{Reader: strings.NewReader(body)}
+		_, err := readBoundedBody(tracked, int64(len(body)-1))
+		require.ErrorIs(t, err, errBodyTooLarge)
+		require.True(t, tracked.closed)
+		require.Equal(t, int64(len(body)), tracked.drained)
+	})
 }

@@ -2,9 +2,14 @@ package evmrpc
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
+
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 )
+
+var errBodyTooLarge = errors.New("request body too large")
 
 type rateLimitMiddleware struct {
 	inner http.Handler
@@ -25,25 +30,31 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 
 	ip := m.gate.registry.IPFromHTTPRequest(r)
-	origBody := r.Body
-	prefix, err := readProbePrefix(origBody, m.gate.maxProbeBytes)
+	body, err := readBoundedBody(r.Body, m.gate.maxBodyBytes)
 	if err != nil {
-		discardAndCloseBody(origBody)
+		if errors.Is(err, errBodyTooLarge) {
+			recordRequestRejected(r.Context(), rejectReasonOversize)
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		recordRequestRejected(r.Context(), rejectReasonUnparseable)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	r.Body = restoreBody(prefix, origBody)
+	r.Body = io.NopCloser(bytes.NewReader(body))
 
-	allowed, _, checkErr := m.gate.Check(r.Context(), ip, bytes.NewReader(prefix))
+	allowed, _, checkErr := m.gate.Check(r.Context(), ip, bytes.NewReader(body))
 	if checkErr != nil {
-		discardAndCloseBody(r.Body)
+		if ratelimiter.IsBodyTooLarge(checkErr) {
+			recordRequestRejected(r.Context(), rejectReasonOversize)
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		recordRequestRejected(r.Context(), rejectReasonUnparseable)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	if !allowed {
-		discardAndCloseBody(r.Body)
 		recordRequestRejected(r.Context(), rejectReasonRateLimited)
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
 		return
@@ -52,36 +63,24 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	m.inner.ServeHTTP(w, r)
 }
 
-// readProbePrefix reads up to maxProbeBytes plus one byte from body.
-func readProbePrefix(body io.ReadCloser, maxProbeBytes int64) ([]byte, error) {
-	lr := &io.LimitedReader{R: body, N: maxProbeBytes + 1}
-	return io.ReadAll(lr)
-}
-
-// restoredBody replays a bounded prefix then the unread remainder of the
-// original body. Close drains any leftover bytes and closes the original so
-// rejected requests do not leave connections undrained.
-type restoredBody struct {
-	io.Reader
-	orig io.ReadCloser
-}
-
-func restoreBody(prefix []byte, orig io.ReadCloser) io.ReadCloser {
-	return &restoredBody{
-		Reader: io.MultiReader(bytes.NewReader(prefix), orig),
-		orig:   orig,
-	}
-}
-
-func (b *restoredBody) Close() error {
-	_, _ = io.Copy(io.Discard, b.Reader)
-	return b.orig.Close()
-}
-
-func discardAndCloseBody(body io.ReadCloser) {
+// readBoundedBody reads the entire request body, rejecting when it exceeds
+// maxBytes. The original body is always drained and closed.
+func readBoundedBody(body io.ReadCloser, maxBytes int64) ([]byte, error) {
 	if body == nil {
-		return
+		return nil, errors.New("missing request body")
 	}
-	_, _ = io.Copy(io.Discard, body)
-	_ = body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	lr := &io.LimitedReader{R: body, N: maxBytes + 1}
+	buf, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(buf)) > maxBytes {
+		return nil, errBodyTooLarge
+	}
+	return buf, nil
 }

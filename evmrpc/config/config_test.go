@@ -45,7 +45,6 @@ type opts struct {
 	ipRateLimitBurst             interface{}
 	rateLimitingEnabled          interface{}
 	trustedProxyCIDRs            interface{}
-	rateLimitProbeBytes          interface{}
 	batchRequestLimit            interface{}
 	batchResponseMaxSize         interface{}
 	maxRequestBodyBytes          interface{}
@@ -177,9 +176,6 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.trusted_proxy_cidrs" {
 		return o.trustedProxyCIDRs
 	}
-	if k == "evm.rate_limit_probe_bytes" {
-		return o.rateLimitProbeBytes
-	}
 	if k == "evm.batch_request_limit" {
 		return o.batchRequestLimit
 	}
@@ -244,7 +240,6 @@ func getDefaultOpts() opts {
 		1000,
 		200.0,
 		400,
-		nil,
 		nil,
 		nil,
 		1000,
@@ -560,19 +555,16 @@ func TestReadConfigRateLimiting(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, cfg.RateLimitingEnabled)
 	require.Nil(t, cfg.TrustedProxyCIDRs)
-	require.Equal(t, config.DefaultConfig.RateLimitProbeBytes, cfg.RateLimitProbeBytes)
 	require.Equal(t, config.DefaultConfig.IPRateLimitRPS, cfg.IPRateLimitRPS)
 	require.Equal(t, config.DefaultConfig.IPRateLimitBurst, cfg.IPRateLimitBurst)
 
 	o := getDefaultOpts()
 	o.rateLimitingEnabled = false
 	o.trustedProxyCIDRs = []string{"10.0.0.0/8", "203.0.113.0/24"}
-	o.rateLimitProbeBytes = int64(2048)
 	cfg, err = config.ReadConfig(&o)
 	require.NoError(t, err)
 	require.False(t, cfg.RateLimitingEnabled)
 	require.Equal(t, []string{"10.0.0.0/8", "203.0.113.0/24"}, cfg.TrustedProxyCIDRs)
-	require.Equal(t, int64(2048), cfg.RateLimitProbeBytes)
 
 	rlCfg := cfg.RateLimiterConfig()
 	require.Equal(t, cfg.IPRateLimitRPS, rlCfg.RPS)

@@ -354,7 +354,7 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	// maxRequestBodyBytes feeds all three body-cap layers (requestSizeLimiter, the gate, and
 	// srv.SetHTTPBodyLimit above) so they agree; change the cap via the config value, not one layer.
 	// requestSizeLimiter is outermost so declared oversize bodies are rejected from Content-Length
-	// before the rate limiter reads the probe prefix.
+	// before the rate limiter reads the full body (bounded by max_request_body_bytes).
 	handler := newRateLimitMiddleware(
 		wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
 		config.rateLimitGate,

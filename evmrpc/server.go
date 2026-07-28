@@ -242,7 +242,7 @@ func NewEVMHTTPServer(
 	httpServer.rateLimitRegistry = rateLimitRegistry
 	httpConfig.rateLimitGate = NewRateLimitGate(
 		rateLimitRegistry,
-		config.RateLimitProbeBytes,
+		config.MaxRequestBodyBytes,
 		config.RateLimitingEnabled,
 		"evm",
 	)

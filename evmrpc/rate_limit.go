@@ -2,58 +2,51 @@ package evmrpc
 
 import (
 	"context"
-	"errors"
 	"io"
 	"math"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 )
 
-// RateLimitGate applies per-IP token-bucket rate limiting using a partial JSON
-// read to extract JSON-RPC method names before full body decode.
+// RateLimitGate applies per-IP token-bucket rate limiting after extracting JSON-RPC
+// method names from the entire request body (bounded by max_request_body_bytes).
 type RateLimitGate struct {
-	registry      *ratelimiter.Registry
-	parser        *ratelimiter.MethodParser
-	maxProbeBytes int64
-	enabled       bool
-	plane         string
+	registry     *ratelimiter.Registry
+	parser       *ratelimiter.MethodParser
+	maxBodyBytes int64
+	enabled      bool
+	plane        string
 }
 
 // NewRateLimitGate returns a gate for the given plane ("evm"). registry must be non-nil.
-func NewRateLimitGate(registry *ratelimiter.Registry, probeBytes int64, enabled bool, plane string) *RateLimitGate {
-	if probeBytes <= 0 {
-		probeBytes = ratelimiter.DefaultMaxProbeBytes
+// maxBodyBytes is the same cap as max_request_body_bytes; non-positive values use
+// defaultMaxRequestBodyBytes.
+func NewRateLimitGate(registry *ratelimiter.Registry, maxBodyBytes int64, enabled bool, plane string) *RateLimitGate {
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = defaultMaxRequestBodyBytes
 	}
-	if probeBytes == math.MaxInt64 {
-		probeBytes = math.MaxInt64 - 1
+	if maxBodyBytes == math.MaxInt64 {
+		maxBodyBytes = math.MaxInt64 - 1
 	}
 	return &RateLimitGate{
-		registry:      registry,
-		parser:        ratelimiter.NewMethodParser(probeBytes),
-		maxProbeBytes: probeBytes,
-		enabled:       enabled,
-		plane:         plane,
+		registry:     registry,
+		parser:       ratelimiter.NewMethodParser(maxBodyBytes),
+		maxBodyBytes: maxBodyBytes,
+		enabled:      enabled,
+		plane:        plane,
 	}
 }
 
 // Check parses body for JSON-RPC method names and applies per-IP rate limits.
 // rejectMethod is the method that exhausted the bucket when allowed=false.
+// Any Parse error, including ErrProbeLimit, is returned to the caller for rejection.
 func (g *RateLimitGate) Check(ctx context.Context, ip string, body io.Reader) (allowed bool, rejectMethod string, err error) {
 	if !g.enabled {
 		return true, "", nil
 	}
 
 	methods, _, parseErr := g.parser.Parse(body)
-	switch {
-	case errors.Is(parseErr, ratelimiter.ErrProbeLimit):
-		// Body exceeded the probe budget without yielding a method (e.g. attacker
-		// padded params ahead of method). Charge a token anyway so large bodies
-		// can't dodge rate limiting by pushing method past the probe window.
-		if !g.registry.Allow(ctx, ip, g.plane, "") {
-			return false, "", nil
-		}
-		return true, "", nil
-	case parseErr != nil:
+	if parseErr != nil {
 		return false, "", parseErr
 	}
 
