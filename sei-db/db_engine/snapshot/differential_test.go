@@ -137,7 +137,8 @@ func checkSnapshot(t *testing.T, snap Snapshot, model *modelEngine, ver uint64, 
 	require.NoError(t, err, "%s GetDiff", label)
 	require.Equal(t, model.DiffAt(ver), gotDiff, "%s diff mismatch", label)
 
-	it := snap.Iterator()
+	it, err := snap.Iterator()
+	require.NoError(t, err, "%s Iterator", label)
 	compareIterator(t, label, it, model.IterateAt(ver))
 }
 

@@ -175,15 +175,20 @@ type Snapshot interface {
 	// safely block on this.
 	AwaitHash(ctx context.Context) ([]byte, error)
 
-	// Returns an iterator over the snapshot's data. Iterator walks data in ascending lexographical order of keys.
+	// Returns an iterator over the snapshot's data. Iterator walks data in ascending
+	// lexicographical order of keys.
 	//
 	// The engine's reserved metadata hash key (see SnapshotEngineConfig.HashKey) is excluded
 	// from iteration: iterator output is exactly the user data at this snapshot's version.
 	// Consumers that need the snapshot's hash should use AwaitHash, which is guaranteed to
 	// match the iterated data.
 	//
+	// Returns an error if the iterator cannot be constructed, for example because the engine has
+	// shut down or the underlying DB failed. No iterator is returned in that case, so there is
+	// nothing for the caller to close.
+	//
 	// WARNING: failure to close the iterator may lead to a fatal leak.
-	Iterator() Iterator
+	Iterator() (Iterator, error)
 
 	// AwaitFlush blocks until the snapshot's data has been written to disk, returning nil once
 	// the flush has completed. Returns an error if ctx is cancelled or the engine shuts down
@@ -201,7 +206,7 @@ type Snapshot interface {
 }
 
 // Iterator provides ordered iteration over a snapshot's data. Multiplexes on-disk data with in-memory data.
-// Data is traversed in ascending lexographical order of keys. Forward-only; there is no Prev or Seek.
+// Data is traversed in ascending lexicographical order of keys. Forward-only; there is no Prev or Seek.
 //
 // Iterators are not thread-safe. A single iterator must not be shared across goroutines.
 type Iterator interface {

@@ -164,7 +164,12 @@ func checkConcurrentSnapshot(t *testing.T, snap Snapshot, ver *modelVersion, key
 		}
 	}
 
-	got, err := drainIterator(snap.Iterator())
+	it, err := snap.Iterator()
+	if err != nil {
+		t.Errorf("concurrent iterator construction: %v", err)
+		return
+	}
+	got, err := drainIterator(it)
 	if err != nil {
 		t.Errorf("concurrent iterate: %v", err)
 		return

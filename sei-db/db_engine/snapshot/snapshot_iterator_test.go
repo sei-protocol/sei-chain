@@ -17,7 +17,9 @@ func iterateUserData(t *testing.T, engine SnapshotEngine) []kvPair {
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap.SetHash(testHash))
-	out := collectIterator(t, snap.Iterator())
+	it, err := snap.Iterator()
+	require.NoError(t, err)
+	out := collectIterator(t, it)
 	require.NoError(t, snap.Release())
 	return out
 }
@@ -102,7 +104,9 @@ func TestIteratorExcludesHashKey(t *testing.T) {
 	snap2, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap2.SetHash(testHash))
-	all := collectIterator(t, snap2.Iterator())
+	it, err := snap2.Iterator()
+	require.NoError(t, err)
+	all := collectIterator(t, it)
 	require.NoError(t, snap2.Release())
 
 	for _, kv := range all {
@@ -134,13 +138,14 @@ func TestIteratorCloseIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, snap.SetHash(testHash))
 
-	it := snap.Iterator()
+	it, err := snap.Iterator()
+	require.NoError(t, err)
 	require.NoError(t, it.Close())
 	require.NoError(t, it.Close())
 	require.NoError(t, snap.Release())
 }
 
-func TestIteratorAfterEngineShutdownSurfacesError(t *testing.T) {
+func TestIteratorAfterEngineShutdownFails(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 1<<20)
 	engine.Set([]byte("k"), []byte("v"))
@@ -150,9 +155,8 @@ func TestIteratorAfterEngineShutdownSurfacesError(t *testing.T) {
 
 	require.NoError(t, engine.Close())
 
-	it := snap.Iterator()
-	_, _, _, err = it.Next()
+	it, err := snap.Iterator()
 	require.ErrorIs(t, err, ErrEngineClosed,
-		"an iterator requested after a clean shutdown must report ErrEngineClosed, per the Close contract")
-	require.NoError(t, it.Close())
+		"requesting an iterator after a clean shutdown must fail with ErrEngineClosed, per the Close contract")
+	require.Nil(t, it, "a failed construction must not return an iterator for the caller to close")
 }

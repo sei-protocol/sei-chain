@@ -62,12 +62,12 @@ func (s *snapshotImpl) AwaitHash(ctx context.Context) ([]byte, error) {
 	return s.parentEngine.AwaitSnapshotHash(ctx, s.version)
 }
 
-func (s *snapshotImpl) Iterator() Iterator {
+func (s *snapshotImpl) Iterator() (Iterator, error) {
 	iter, err := s.parentEngine.requestIterator(s.version)
 	if err != nil {
-		return &errIterator{err: fmt.Errorf("failed to build snapshot iterator: %w", err)}
+		return nil, fmt.Errorf("failed to build snapshot iterator: %w", err)
 	}
-	return iter
+	return iter, nil
 }
 
 func (s *snapshotImpl) AwaitFlush(ctx context.Context) error {

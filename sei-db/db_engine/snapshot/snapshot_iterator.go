@@ -8,10 +8,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-var (
-	_ Iterator = (*snapshotIterator)(nil)
-	_ Iterator = (*errIterator)(nil)
-)
+var _ Iterator = (*snapshotIterator)(nil)
 
 // errIteratorClosed is returned by Next when invoked on an already-closed iterator.
 var errIteratorClosed = errors.New("iterator is closed")
@@ -244,21 +241,6 @@ func (it *snapshotIterator) closeDBIter() error {
 	if err := it.dbIter.Close(); err != nil {
 		return fmt.Errorf("failed to close db iterator: %w", err)
 	}
-	return nil
-}
-
-// errIterator is a no-op iterator that surfaces a single error on the first call
-// to Next. It is used when iterator construction fails but the Iterator()
-// interface signature cannot return an error directly.
-type errIterator struct {
-	err error
-}
-
-func (e *errIterator) Next() (bool, []byte, []byte, error) {
-	return false, nil, nil, e.err
-}
-
-func (e *errIterator) Close() error {
 	return nil
 }
 
