@@ -2,6 +2,7 @@ package littblock
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 
@@ -429,10 +430,14 @@ func (s *blockDB) Close() error {
 }
 
 // GetTxByOffset reads a single transaction's raw bytes out of the block stored at GlobalBlockNumber n,
-// without decoding the block. offset and length identify a byte range within the block's stored value —
-// the exact bytes encodeBlock produced: [version:1][GlobalBlockNumber:8][proto(Block)] — typically the
-// (offset, length) of one transaction recorded at write time. Offset is measured from the start of that stored value (i.e. it includes
-// the fixed prefix), matching the coordinates a writer computes against the bytes it persists.
+// without decoding the block. offset and length identify a byte range within the block's marshalled body —
+// the proto(Block) bytes alone — typically the (offset, length) of one transaction recorded at write time.
+//
+// Offsets are body-relative, not value-relative: encodeBlock frames the stored value as
+// [version:1][GlobalBlockNumber:8][proto(Block)], and this method adds that fixed prefix itself. A writer
+// locating each transaction inside the marshalled body therefore records exactly what it computed, with no
+// conversion step to forget, and the framing stays a private detail of this package rather than something
+// baked into every offset persisted elsewhere (e.g. a receipt's stored tx location).
 //
 // It reads only the requested bytes via LittDB's GetSubrange, skipping both the full-block disk read and
 // the protobuf unmarshal that ReadBlockByNumber performs. The I/O savings apply while the ledger table is
@@ -445,10 +450,11 @@ func (s *blockDB) Close() error {
 // Writing through it would corrupt the block for every later reader. Copy the bytes first if they must be
 // modified or must outlive the read.
 //
-// A recorded (offset, length) is only meaningful against the block value it was computed from. The pair
-// and the value are written together and neither moves afterward, so a later bump to
-// blockSerializationVersion cannot retroactively shift an already-recorded pair; what it would break is
-// anything that rewrites stored block values in place, which must re-record the offsets pointing into them.
+// A recorded (offset, length) is meaningful only against the marshalled body it was computed from. Being
+// body-relative, it survives a change to the value framing — the prefix is applied here, at read time,
+// from the same constant encodeBlock uses — but not a change to how the body itself is marshalled, which
+// moves the transactions within it. Should the prefix width ever vary by block version, this method is
+// where the block's version would have to be resolved to pick the right one.
 //
 // This lives outside the types.BlockDB interface because the offset space is defined by this
 // implementation's serialization. The result is one of:
@@ -457,8 +463,8 @@ func (s *blockDB) Close() error {
 //   - types.ErrPruned: n is strictly below the retention watermark (matches ReadBlockByNumber). A block
 //     below the watermark may be stranded from its covering QC and is never served.
 //   - None with a nil error: no block is present at n (never written, or not yet written).
-//   - a non-nil error: offset lands inside the fixed prefix, the range is out of bounds for the block
-//     value, or the read failed.
+//   - a non-nil error: offset is too large to be prefixed without overflowing, the range is out of bounds
+//     for the block value, or the read failed.
 func (s *blockDB) GetTxByOffset(
 	n types.GlobalBlockNumber,
 	offset uint32,
@@ -471,20 +477,19 @@ func (s *blockDB) GetTxByOffset(
 		return utils.None[[]byte](), types.ErrPruned
 	}
 
-	// A transaction lives in the proto body, never in the fixed prefix, so an offset inside the prefix
-	// means the caller measured against the wrong frame — most likely the body instead of the whole stored
-	// value. Reject it rather than return plausible-looking but shifted bytes. A change to the value
-	// layout has to revisit this bound along with encodeBlock/decodeBlock.
-	if offset < blockValuePrefixLen {
+	// Translate the body-relative offset into the stored value's frame. The addition is checked: an offset
+	// near the top of the uint32 range would otherwise wrap to a small value and quietly read bytes from
+	// the start of the block instead of failing.
+	if offset > math.MaxUint32-blockValuePrefixLen {
 		return utils.None[[]byte](), fmt.Errorf(
-			"tx offset %d is inside the %d-byte block value prefix: offsets are measured from the start of "+
-				"the stored value, not of the proto body", offset, blockValuePrefixLen)
+			"tx offset %d is too large to address within a block value", offset)
 	}
+	valueOffset := offset + blockValuePrefixLen
 
-	value, exists, err := s.table.GetSubrange(blockKey(n), offset, length)
+	value, exists, err := s.table.GetSubrange(blockKey(n), valueOffset, length)
 	if err != nil {
 		return utils.None[[]byte](), fmt.Errorf(
-			"failed to read tx range [%d, %d) in block %d: %w", offset, uint64(offset)+uint64(length), n, err)
+			"failed to read tx range [%d, %d) of block %d's body: %w", offset, uint64(offset)+uint64(length), n, err)
 	}
 	if !exists {
 		return utils.None[[]byte](), nil
