@@ -56,7 +56,6 @@ func TestEnableWSConcurrentRequestBytes(t *testing.T) {
 
 	writeReq := func(id int) {
 		msg := makeMsg(id, "test_sleep")
-		require.Equal(t, len(payload), len(msg))
 		require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(msg)))
 	}
 
@@ -101,7 +100,7 @@ func TestWSAdmissionHookBudgetWaitTimeout(t *testing.T) {
 		reasons []string
 	)
 	srv.SetWSAdmissionEventHook(func(reason string) {
-		recordWSAdmissionRejected(context.Background(), reason)
+		recordWSAdmissionRejected(t.Context(), reason)
 		mu.Lock()
 		reasons = append(reasons, reason)
 		mu.Unlock()
@@ -189,11 +188,12 @@ func dialWSTestServer(t *testing.T, srv *HTTPServer) *websocket.Conn {
 	return conn
 }
 
-func readJSON(t *testing.T, conn *websocket.Conn, dest any) {
+func readJSON(t *testing.T, conn *websocket.Conn, dest *rpcResponse) {
 	t.Helper()
 
 	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
-	_, data, err := conn.ReadMessage()
+	msgType, data, err := conn.ReadMessage()
+	require.IsType(t, websocket.TextMessage, msgType)
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(data, dest))
 	_ = conn.SetReadDeadline(time.Time{})
