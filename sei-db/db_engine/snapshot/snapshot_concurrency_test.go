@@ -17,7 +17,9 @@ func TestSnapshotIsolationUnderConcurrentMutation(t *testing.T) {
 	const nKeys = 16
 	keyAt := func(i int) []byte { return []byte{byte(i)} }
 	for i := 0; i < nKeys; i++ {
-		engine.Set(keyAt(i), []byte("base"))
+		if err := engine.Set(keyAt(i), []byte("base")); err != nil {
+			t.Fatalf("seed set: %v", err)
+		}
 	}
 
 	snap, err := engine.Commit()
@@ -58,7 +60,10 @@ func TestSnapshotIsolationUnderConcurrentMutation(t *testing.T) {
 			defer wg.Done()
 			for iter := 0; iter < 200; iter++ {
 				for i := 0; i < nKeys; i++ {
-					engine.Set(keyAt(i), []byte("mutated"))
+					if err := engine.Set(keyAt(i), []byte("mutated")); err != nil {
+						t.Errorf("concurrent set: %v", err)
+						return
+					}
 				}
 			}
 		}()
@@ -108,11 +113,15 @@ func TestConcurrentDifferential(t *testing.T) {
 		switch pickOp(rng) {
 		case opSet:
 			k, v := pick(rng, keys), randVal(rng)
-			engine.Set(k, v)
+			if err := engine.Set(k, v); err != nil {
+				t.Fatalf("set: %v", err)
+			}
 			model.Set(k, v)
 		case opDelete:
 			k := pick(rng, keys)
-			engine.Delete(k)
+			if err := engine.Delete(k); err != nil {
+				t.Fatalf("delete: %v", err)
+			}
 			model.Delete(k)
 		case opBatch:
 			muts := randMuts(rng, keys)
@@ -144,8 +153,12 @@ func TestConcurrentDifferential(t *testing.T) {
 	readers.Wait()
 }
 
-// checkConcurrentSnapshot validates a snapshot's reads and iteration against its immutable oracle
-// version. Goroutine-safe: reports via t.Errorf rather than asserting.
+// checkConcurrentSnapshot validates a snapshot's reads against its immutable oracle version.
+// Goroutine-safe: reports via t.Errorf rather than asserting.
+//
+// Iteration is deliberately not checked here. Iterators now cover only the engine's mutable version,
+// which has no pinned oracle to compare against while writers are running; live iteration is covered
+// sequentially in differential_test.go instead.
 func checkConcurrentSnapshot(t *testing.T, snap Snapshot, ver *modelVersion, keys [][]byte) {
 	for _, k := range keys {
 		v, found, err := snap.Get(k, false)
@@ -164,25 +177,4 @@ func checkConcurrentSnapshot(t *testing.T, snap Snapshot, ver *modelVersion, key
 		}
 	}
 
-	it, err := snap.Iterator()
-	if err != nil {
-		t.Errorf("concurrent iterator construction: %v", err)
-		return
-	}
-	got, err := drainIterator(it)
-	if err != nil {
-		t.Errorf("concurrent iterate: %v", err)
-		return
-	}
-	exp := sortedEntries(ver.full)
-	if len(got) != len(exp) {
-		t.Errorf("concurrent iterator length: exp=%d got=%d", len(exp), len(got))
-		return
-	}
-	for i := range exp {
-		if !bytes.Equal(exp[i].key, got[i].key) || !bytes.Equal(exp[i].value, got[i].value) {
-			t.Errorf("concurrent iterator mismatch at %d", i)
-			return
-		}
-	}
 }

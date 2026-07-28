@@ -70,13 +70,13 @@ func TestNewSnapshotEngineRejectsInvalidConfig(t *testing.T) {
 func TestEngineSetGetDelete(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 4, 1<<20)
 
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	val, found, err := engine.Get([]byte("k"), true)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, []byte("v"), val)
 
-	engine.Delete([]byte("k"))
+	require.NoError(t, engine.Delete([]byte("k")))
 	_, found, err = engine.Get([]byte("k"), true)
 	require.NoError(t, err)
 	require.False(t, found)
@@ -84,7 +84,7 @@ func TestEngineSetGetDelete(t *testing.T) {
 
 func TestEngineSetNilIsDelete(t *testing.T) {
 	engine, _ := newTestEngine(t, map[string][]byte{"k": []byte("v")}, 1, 1<<20)
-	engine.Set([]byte("k"), nil)
+	require.NoError(t, engine.Set([]byte("k"), nil))
 	_, found, err := engine.Get([]byte("k"), true)
 	require.NoError(t, err)
 	require.False(t, found)
@@ -149,7 +149,7 @@ func TestFlushSyncTrueStillRoundTrips(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithConfig(t, cfg, db)
 
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap.SetHash(testHash))
@@ -170,7 +170,7 @@ func TestMetricsEnabledDoesNotBreakEngine(t *testing.T) {
 	engine := newTestEngineWithConfig(t, cfg, newTestDB(nil))
 
 	for i := 0; i < 20; i++ {
-		engine.Set([]byte{byte(i)}, []byte("v"))
+		require.NoError(t, engine.Set([]byte{byte(i)}, []byte("v")))
 	}
 	commitAndHashRelease(t, engine)
 	time.Sleep(10 * time.Millisecond) // let the metrics scrape loop fire at least once
@@ -189,7 +189,7 @@ func TestEngineConcurrentSetGet(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			k := []byte{byte(i)}
-			engine.Set(k, k)
+			require.NoError(t, engine.Set(k, k))
 			_, _, err := engine.Get(k, true)
 			require.NoError(t, err)
 		}(i)

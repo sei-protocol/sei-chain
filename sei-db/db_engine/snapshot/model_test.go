@@ -100,9 +100,9 @@ func (m *modelEngine) DiffAt(version uint64) map[string][]byte {
 	return m.versions[version].diff
 }
 
-// IterateAt returns the ascending, tombstone-free key/value pairs of the given sealed version.
-func (m *modelEngine) IterateAt(version uint64) []kvPair {
-	return sortedEntries(m.versions[version].full)
+// IterateLive returns the ascending, tombstone-free key/value pairs of the live (mutable) version.
+func (m *modelEngine) IterateLive() []kvPair {
+	return sortedEntries(m.current)
 }
 
 func sortedEntries(store map[string][]byte) []kvPair {

@@ -22,7 +22,7 @@ func TestCloseWaitsForLifecycleMidCommit(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 4096)
 
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 
@@ -209,7 +209,7 @@ func TestCloseLeavesNoEngineGoroutines(t *testing.T) {
 		engine, err := NewSnapshotEngine(cfg, db, pool, pool)
 		require.NoError(t, err)
 
-		engine.Set([]byte("k"), []byte("v"))
+		require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 		_, _, err = engine.Get([]byte("seeded"), true) // read-through miss
 		require.NoError(t, err)
 		_, err = engine.BatchGet([][]byte{[]byte("seeded"), []byte("k")})

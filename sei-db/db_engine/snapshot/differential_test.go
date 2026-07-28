@@ -80,11 +80,11 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 		switch pickOp(rng) {
 		case opSet:
 			k, v := pick(rng, keys), randVal(rng)
-			engine.Set(k, v)
+			require.NoError(t, engine.Set(k, v))
 			model.Set(k, v)
 		case opDelete:
 			k := pick(rng, keys)
-			engine.Delete(k)
+			require.NoError(t, engine.Delete(k))
 			model.Delete(k)
 		case opBatch:
 			muts := randMuts(rng, keys)
@@ -104,9 +104,11 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 		}
 
 		// The live (mutable) version must agree on every operation.
-		compareReads(t, fmt.Sprintf("live@i=%d", i),
+		liveLabel := fmt.Sprintf("live@i=%d", i)
+		compareReads(t, liveLabel,
 			func(k []byte) ([]byte, bool, error) { return engine.Get(k, true) },
 			model.GetLive, keys)
+		checkLiveIteration(t, liveLabel, engine, model)
 
 		// Periodically deep-check every held snapshot.
 		if i%10 == 0 {
@@ -136,10 +138,14 @@ func checkSnapshot(t *testing.T, snap Snapshot, model *modelEngine, ver uint64, 
 	gotDiff, err := snap.GetDiff()
 	require.NoError(t, err, "%s GetDiff", label)
 	require.Equal(t, model.DiffAt(ver), gotDiff, "%s diff mismatch", label)
+}
 
-	it, err := snap.Iterator()
+// checkLiveIteration compares the engine's mutable-version iterator against the oracle. The iterator
+// must be closed before the caller writes again, since the engine refuses writes while one is open.
+func checkLiveIteration(t *testing.T, label string, engine SnapshotEngine, model *modelEngine) {
+	it, err := engine.Iterator()
 	require.NoError(t, err, "%s Iterator", label)
-	compareIterator(t, label, it, model.IterateAt(ver))
+	compareIterator(t, label, it, model.IterateLive())
 }
 
 func compareReads(t *testing.T, label string, get func(key []byte) ([]byte, bool, error),
@@ -170,8 +176,7 @@ func compareBatchGet(t *testing.T, label string, batchGet func([][]byte) (map[st
 }
 
 func compareIterator(t *testing.T, label string, it Iterator, expected []kvPair) {
-	got := collectIterator(t, it)
-	require.NoError(t, it.Close(), "%s iterator close", label)
+	got := collectIterator(t, it) // closes it, which is what releases the engine's write block
 	require.Equal(t, len(expected), len(got), "%s iterator length", label)
 	for i := range expected {
 		require.True(t, bytes.Equal(expected[i].key, got[i].key), "%s iterator key at %d", label, i)

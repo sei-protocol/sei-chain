@@ -1,34 +1,32 @@
 package snapshot
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// iterateUserData snapshots the engine, hashes it, collects the full iteration (which the engine
-// guarantees is exactly the user data — the metadata hash key is filtered internally), and
-// releases. Returns the pairs in iteration order.
+// iterateUserData collects the full iteration of the engine's mutable version, which the engine
+// guarantees is exactly the user data — the metadata hash key is filtered internally. Returns the
+// pairs in iteration order.
 func iterateUserData(t *testing.T, engine SnapshotEngine) []kvPair {
 	t.Helper()
-	snap, err := engine.Commit()
+	it, err := engine.Iterator()
 	require.NoError(t, err)
-	require.NoError(t, snap.SetHash(testHash))
-	it, err := snap.Iterator()
-	require.NoError(t, err)
-	out := collectIterator(t, it)
-	require.NoError(t, snap.Release())
-	return out
+	return collectIterator(t, it)
 }
 
 func TestIteratorInMemoryAscending(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 4, 1<<20)
-	engine.Set([]byte("c"), []byte("3"))
-	engine.Set([]byte("a"), []byte("1"))
-	engine.Set([]byte("b"), []byte("2"))
+	require.NoError(t, engine.Set([]byte("c"), []byte("3")))
+	require.NoError(t, engine.Set([]byte("a"), []byte("1")))
+	require.NoError(t, engine.Set([]byte("b"), []byte("2")))
 
 	got := iterateUserData(t, engine)
 	require.Equal(t, []kvPair{
@@ -40,7 +38,7 @@ func TestIteratorInMemoryAscending(t *testing.T) {
 
 func TestIteratorOverrideShadowsDB(t *testing.T) {
 	engine, _ := newTestEngine(t, map[string][]byte{"k": []byte("old")}, 1, 1<<20)
-	engine.Set([]byte("k"), []byte("new"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("new")))
 
 	got := iterateUserData(t, engine)
 	require.Equal(t, []kvPair{{key: []byte("k"), value: []byte("new")}}, got)
@@ -48,7 +46,7 @@ func TestIteratorOverrideShadowsDB(t *testing.T) {
 
 func TestIteratorTombstoneSuppressesDBKey(t *testing.T) {
 	engine, _ := newTestEngine(t, map[string][]byte{"gone": []byte("v"), "keep": []byte("v")}, 1, 1<<20)
-	engine.Delete([]byte("gone"))
+	require.NoError(t, engine.Delete([]byte("gone")))
 
 	got := iterateUserData(t, engine)
 	require.Equal(t, []kvPair{{key: []byte("keep"), value: []byte("v")}}, got)
@@ -56,8 +54,8 @@ func TestIteratorTombstoneSuppressesDBKey(t *testing.T) {
 
 func TestIteratorMergesMemoryAndDB(t *testing.T) {
 	engine, _ := newTestEngine(t, map[string][]byte{"a": []byte("1"), "c": []byte("3")}, 4, 1<<20)
-	engine.Set([]byte("b"), []byte("2"))
-	engine.Set([]byte("d"), []byte("4"))
+	require.NoError(t, engine.Set([]byte("b"), []byte("2")))
+	require.NoError(t, engine.Set([]byte("d"), []byte("4")))
 
 	got := iterateUserData(t, engine)
 	require.Equal(t, []kvPair{
@@ -74,7 +72,7 @@ func TestIteratorMergesAcrossShards(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		k := []byte(fmt.Sprintf("key-%02d", i))
 		v := []byte(fmt.Sprintf("val-%02d", i))
-		engine.Set(k, v)
+		require.NoError(t, engine.Set(k, v))
 		want = append(want, kvPair{key: k, value: v})
 	}
 	sort.Slice(want, func(i, j int) bool { return string(want[i].key) < string(want[j].key) })
@@ -92,7 +90,7 @@ func TestIteratorExcludesHashKey(t *testing.T) {
 	hashKey := engine.(*snapshotEngine).config.HashKey
 
 	// Flush snap1 so the hash key lands in the DB.
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap1, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap1.SetHash(testHash))
@@ -100,14 +98,8 @@ func TestIteratorExcludesHashKey(t *testing.T) {
 	require.NoError(t, snap1.Release())
 	require.True(t, db.has(hashKey), "the flush must have written the hash key to the DB")
 
-	// snap2's iteration reads through to the DB, where the hash key now lives; it must be filtered.
-	snap2, err := engine.Commit()
-	require.NoError(t, err)
-	require.NoError(t, snap2.SetHash(testHash))
-	it, err := snap2.Iterator()
-	require.NoError(t, err)
-	all := collectIterator(t, it)
-	require.NoError(t, snap2.Release())
+	// Iteration reads through to the DB, where the hash key now lives; it must be filtered.
+	all := iterateUserData(t, engine)
 
 	for _, kv := range all {
 		require.NotEqual(t, hashKey, string(kv.key), "iteration must not expose the metadata hash key")
@@ -133,30 +125,83 @@ func TestIteratorNormalizesNilDBValueToEmpty(t *testing.T) {
 
 func TestIteratorCloseIsIdempotent(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 1<<20)
-	engine.Set([]byte("k"), []byte("v"))
-	snap, err := engine.Commit()
-	require.NoError(t, err)
-	require.NoError(t, snap.SetHash(testHash))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 
-	it, err := snap.Iterator()
+	it, err := engine.Iterator()
 	require.NoError(t, err)
 	require.NoError(t, it.Close())
 	require.NoError(t, it.Close())
-	require.NoError(t, snap.Release())
 }
 
-func TestIteratorAfterEngineShutdownFails(t *testing.T) {
-	db := newTestDB(nil)
-	engine := newTestEngineWithDB(t, db, 1, 1<<20)
-	engine.Set([]byte("k"), []byte("v"))
-	snap, err := engine.Commit()
+// An open iterator must block every write path, so its view cannot shift beneath it, and closing it
+// must release them all.
+func TestOpenIteratorBlocksWrites(t *testing.T) {
+	engine := newTestEngineWithDB(t, newTestDB(nil), 4, 1<<20)
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
+
+	it, err := engine.Iterator()
 	require.NoError(t, err)
-	require.NoError(t, snap.SetHash(testHash)) // held (not released) across Close
 
-	require.NoError(t, engine.Close())
+	require.ErrorContains(t, engine.Set([]byte("k"), []byte("v2")), "iterator",
+		"Set must be refused while an iterator is open")
+	require.ErrorContains(t, engine.Delete([]byte("k")), "iterator",
+		"Delete must be refused while an iterator is open")
+	require.ErrorContains(t, engine.BatchSet([]*proto.KVPair{{Key: []byte("k"), Value: []byte("v3")}}),
+		"iterator", "BatchSet must be refused while an iterator is open")
+	_, err = engine.Commit()
+	require.ErrorContains(t, err, "iterator", "Commit must be refused while an iterator is open")
 
-	it, err := snap.Iterator()
-	require.ErrorIs(t, err, ErrEngineClosed,
-		"requesting an iterator after a clean shutdown must fail with ErrEngineClosed, per the Close contract")
-	require.Nil(t, it, "a failed construction must not return an iterator for the caller to close")
+	require.NoError(t, it.Close())
+
+	// Every path is writable again.
+	require.NoError(t, engine.Set([]byte("k"), []byte("v2")))
+	require.NoError(t, engine.Delete([]byte("gone")))
+	require.NoError(t, engine.BatchSet([]*proto.KVPair{{Key: []byte("k"), Value: []byte("v3")}}))
+	_, err = engine.Commit()
+	require.NoError(t, err)
+}
+
+// Two iterators open at once must both have to be closed before writes resume — the block is counted,
+// not a flag.
+func TestWriteBlockIsCountedAcrossIterators(t *testing.T) {
+	engine := newTestEngineWithDB(t, newTestDB(nil), 2, 1<<20)
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
+
+	first, err := engine.Iterator()
+	require.NoError(t, err)
+	second, err := engine.Iterator()
+	require.NoError(t, err)
+
+	require.NoError(t, first.Close())
+	require.ErrorContains(t, engine.Set([]byte("k"), []byte("v2")), "iterator",
+		"the second iterator must still block writes")
+
+	// Closing is idempotent and must not double-release the block.
+	require.NoError(t, first.Close())
+	require.ErrorContains(t, engine.Set([]byte("k"), []byte("v2")), "iterator",
+		"a repeat Close must not release another iterator's block")
+
+	require.NoError(t, second.Close())
+	require.NoError(t, engine.Set([]byte("k"), []byte("v2")))
+}
+
+// A bricked engine must refuse to build iterators, for the same reason it refuses reads: it can no
+// longer vouch for its data.
+func TestIteratorAfterBrickFails(t *testing.T) {
+	db := newTestDB(map[string][]byte{"k": []byte("v")})
+	engine := newTestEngineWithDB(t, db, 1, 1<<20)
+
+	db.getErrKeys = map[string]error{"k": errors.New("io boom")}
+	_, _, err := engine.Get([]byte("k"), true)
+	require.ErrorContains(t, err, "io boom")
+	db.getErrKeys = nil
+
+	require.Eventually(t, func() bool {
+		it, iterErr := engine.Iterator()
+		if iterErr == nil {
+			require.NoError(t, it.Close())
+			return false
+		}
+		return true
+	}, 2*time.Second, time.Millisecond, "a bricked engine must stop building iterators")
 }

@@ -51,7 +51,7 @@ func TestSnapshotDoubleReleaseFails(t *testing.T) {
 
 func TestSnapshotReserveExtendsLifetime(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 
@@ -124,7 +124,7 @@ func TestSnapshotSetHashGatesFlush(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
 	db := engine.(*snapshotEngine).db.(*testDB)
 
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 
@@ -147,7 +147,7 @@ func TestSnapshotAwaitFlushContextCancelled(t *testing.T) {
 	defer close(db.commitBlock)
 
 	engine := newTestEngineWithDB(t, db, 1, 4096)
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap.SetHash(testHash))
@@ -161,7 +161,7 @@ func TestSnapshotAwaitFlushContextCancelled(t *testing.T) {
 
 func TestAwaitFlushRetiredVersionWithCancelledCtx(t *testing.T) {
 	engine, _ := newTestEngine(t, nil, 1, 1<<20)
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	ver := snap.(*snapshotImpl).version
@@ -223,7 +223,7 @@ func TestHeldReservationDoesNotTriggerCommitBackpressure(t *testing.T) {
 
 	// v1 is hashed and flushed but never released: it cannot retire, so no later version can
 	// flush until it is released.
-	engine.Set([]byte("k1"), []byte("v1"))
+	require.NoError(t, engine.Set([]byte("k1"), []byte("v1")))
 	snap1, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap1.SetHash(testHash))
@@ -265,11 +265,11 @@ func TestCloseDoesNotFlush(t *testing.T) {
 
 	// v1 is never hashed, which deterministically keeps the background flusher away from v2:
 	// the flush frontier stops at the first unhashed version.
-	engine.Set([]byte("k1"), []byte("v1"))
+	require.NoError(t, engine.Set([]byte("k1"), []byte("v1")))
 	_, err := engine.Commit()
 	require.NoError(t, err)
 
-	engine.Set([]byte("k2"), []byte("v2"))
+	require.NoError(t, engine.Set([]byte("k2"), []byte("v2")))
 	snap2, err := engine.Commit()
 	require.NoError(t, err)
 	hashAndRelease(t, snap2)
@@ -290,7 +290,7 @@ func TestCloseIsIdempotent(t *testing.T) {
 func TestCloseSkipsUnhashedSnapshot(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 4096)
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	_, err := engine.Commit()
 	require.NoError(t, err)
 	// Never hashed.

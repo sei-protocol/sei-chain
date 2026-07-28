@@ -355,9 +355,9 @@ func isTracked(engine SnapshotEngine, version uint64) bool {
 	return ok
 }
 
-// collectIterator drains an Iterator into cloned key/value pairs in iteration order.
 // drainIterator drains an Iterator into cloned key/value pairs in iteration order. It returns any
-// error instead of asserting, so it is safe to call from non-test goroutines.
+// error instead of asserting, so it is safe to call from non-test goroutines. It does NOT close the
+// iterator; the caller must, or the engine stays unwritable.
 func drainIterator(it Iterator) ([]kvPair, error) {
 	var out []kvPair
 	for {
@@ -372,9 +372,12 @@ func drainIterator(it Iterator) ([]kvPair, error) {
 	}
 }
 
+// collectIterator drains an Iterator into cloned key/value pairs in iteration order, then closes it.
+// Closing matters: an open iterator makes the engine refuse writes.
 func collectIterator(t *testing.T, it Iterator) []kvPair {
 	t.Helper()
 	out, err := drainIterator(it)
 	require.NoError(t, err)
+	require.NoError(t, it.Close())
 	return out
 }

@@ -8,9 +8,9 @@ import (
 
 func TestShardVersionedReads(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	s.Set([]byte("k"), []byte("v1"))
+	require.NoError(t, s.Set([]byte("k"), []byte("v1")))
 	require.Equal(t, uint64(2), s.Commit()) // seals v1, live -> v2
-	s.Set([]byte("k"), []byte("v2"))
+	require.NoError(t, s.Set([]byte("k"), []byte("v2")))
 
 	for _, tc := range []struct {
 		version uint64
@@ -25,10 +25,10 @@ func TestShardVersionedReads(t *testing.T) {
 
 func TestShardGetMostRecentValueAtOrBelowVersion(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	s.Set([]byte("k"), []byte("v1"))
+	require.NoError(t, s.Set([]byte("k"), []byte("v1")))
 	_ = s.Commit() // v2
 	_ = s.Commit() // v3; no write at v2
-	s.Set([]byte("k"), []byte("v3"))
+	require.NoError(t, s.Set([]byte("k"), []byte("v3")))
 
 	// Reading at v2 (no write there) returns v1 (highest version <= 2).
 	val, found, err := s.Get([]byte("k"), 2, false)
@@ -51,9 +51,9 @@ func TestShardValidateVersionOverflow(t *testing.T) {
 
 func TestShardGetDiffsForVersions(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	s.Set([]byte("a"), []byte("1"))
+	require.NoError(t, s.Set([]byte("a"), []byte("1")))
 	_ = s.Commit() // seals v1, live -> v2
-	s.Set([]byte("b"), []byte("2"))
+	require.NoError(t, s.Set([]byte("b"), []byte("2")))
 	_ = s.Commit() // seals v2, live -> v3 (GetDiffs only covers sealed versions)
 
 	diffs, err := s.GetDiffsForVersions(1, 3) // [1, 3) => versions 1 and 2
@@ -76,8 +76,8 @@ func TestShardGetDiffsForVersionsRejectsBadRange(t *testing.T) {
 
 func TestShardDeleteWritesTombstone(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	s.Set([]byte("k"), []byte("v"))
-	s.Delete([]byte("k"))
+	require.NoError(t, s.Set([]byte("k"), []byte("v")))
+	require.NoError(t, s.Delete([]byte("k")))
 
 	// Delete in the same version overwrites the value with a tombstone (nil).
 	val, found, err := s.Get([]byte("k"), s.currentVersion, false)
@@ -88,9 +88,9 @@ func TestShardDeleteWritesTombstone(t *testing.T) {
 
 func TestShardDropVersionsPushesLatestToDB(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	s.Set([]byte("k"), []byte("v1"))
+	require.NoError(t, s.Set([]byte("k"), []byte("v1")))
 	_ = s.Commit() // v2
-	s.Set([]byte("k"), []byte("v2"))
+	require.NoError(t, s.Set([]byte("k"), []byte("v2")))
 	_ = s.Commit() // v3
 
 	// Drop versions [1, 3): their data collapses into the dbCache, latest value winning.

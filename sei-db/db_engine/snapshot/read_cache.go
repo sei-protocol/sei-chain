@@ -14,7 +14,7 @@ import (
 )
 
 /*
-This implementation currently uses a single exlusive lock, as opposed to a RW lock. This is a lot simpler than
+This implementation currently uses a single exclusive lock, as opposed to a RW lock. This is a lot simpler than
 using a RW lock, but it comes at higher risk of contention under certain workloads. If this contention ever
 becomes a problem, we might consider switching to a RW lock. Below is a potential implementation strategy
 for converting to a RW lock:

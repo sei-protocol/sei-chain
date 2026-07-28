@@ -50,11 +50,13 @@ type SnapshotEngine interface {
 	// recoverable. It is not safe to mutate the returned key or value slices.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
-	// Set writes the value for the given key into the current (mutable) version.
-	Set(key []byte, value []byte)
+	// Set writes the value for the given key into the current (mutable) version. Returns an error if
+	// an iterator is open (see Iterator).
+	Set(key []byte, value []byte) error
 
-	// Delete removes the given key from the current (mutable) version.
-	Delete(key []byte)
+	// Delete removes the given key from the current (mutable) version. Returns an error if an
+	// iterator is open (see Iterator).
+	Delete(key []byte) error
 
 	// BatchSet applies the given changeset pairs to the current (mutable) version. A pair with
 	// Delete set removes the key; otherwise its Value is written (an empty, non-nil Value is a
@@ -74,6 +76,18 @@ type SnapshotEngine interface {
 	// or unreleased snapshots, each of which is retained in memory; the caller is responsible
 	// for pausing execution when hashing or release falls behind.
 	Commit() (Snapshot, error)
+
+	// Iterator returns an iterator over the engine's current (mutable) version, walking data in
+	// ascending lexicographical order of keys. The engine's reserved metadata hash key is excluded
+	// (see SnapshotEngineConfig.HashKey).
+	//
+	// An iterator must be closed before the engine is next written: while one is open, Set, Delete,
+	// BatchSet, and Commit all return an error. A leaked iterator leaves the engine permanently
+	// unwritable.
+	//
+	// Returns an error if the iterator cannot be constructed, in which case no iterator is returned
+	// and there is nothing to close.
+	Iterator() (Iterator, error)
 
 	// InitialHash returns the most recently flushed hash as read from the underlying DB when the
 	// engine was opened, or nil if the DB had never been flushed. It lets a consumer recover the
@@ -180,21 +194,6 @@ type Snapshot interface {
 	// safely block on this.
 	AwaitHash(ctx context.Context) ([]byte, error)
 
-	// Returns an iterator over the snapshot's data. Iterator walks data in ascending
-	// lexicographical order of keys.
-	//
-	// The engine's reserved metadata hash key (see SnapshotEngineConfig.HashKey) is excluded
-	// from iteration: iterator output is exactly the user data at this snapshot's version.
-	// Consumers that need the snapshot's hash should use AwaitHash, which is guaranteed to
-	// match the iterated data.
-	//
-	// Returns an error if the iterator cannot be constructed, for example because the engine has
-	// shut down or the underlying DB failed. No iterator is returned in that case, so there is
-	// nothing for the caller to close.
-	//
-	// WARNING: failure to close the iterator may lead to a fatal leak.
-	Iterator() (Iterator, error)
-
 	// AwaitFlush blocks until the snapshot's data has been written to disk, returning nil once
 	// the flush has completed. Returns an error if ctx is cancelled or the engine shuts down
 	// first.
@@ -232,8 +231,9 @@ type Iterator interface {
 		err error,
 	)
 
-	// Closes the iterator, releasing held resources. Idempotent.
+	// Closes the iterator, releasing held resources and unblocking writes to the engine. Idempotent.
 	//
-	// WARNING: failure to close the iterator may lead to a fatal leak.
+	// WARNING: an iterator that is never closed leaks resources and leaves the engine permanently
+	// unwritable (see SnapshotEngine.Iterator).
 	Close() error
 }

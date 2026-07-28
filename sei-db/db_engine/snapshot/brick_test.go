@@ -19,7 +19,7 @@ func TestFlushFailureBricksEngineCleanly(t *testing.T) {
 	engine := newTestEngineWithDB(t, db, 1, 4096)
 	e := engine.(*snapshotEngine)
 
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap1, err := engine.Commit()
 	require.NoError(t, err)
 
@@ -63,7 +63,7 @@ func TestCloseAfterBrickReportsFatalError(t *testing.T) {
 	engine := newTestEngineWithDB(t, db, 1, 4096)
 	e := engine.(*snapshotEngine)
 
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	commitAndHashRelease(t, engine)
 
 	select {

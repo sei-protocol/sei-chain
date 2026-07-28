@@ -12,8 +12,8 @@ func TestFlushPersistsSetsDeletesAndHashToDB(t *testing.T) {
 	engine, db := newTestEngine(t, map[string][]byte{"del": []byte("x")}, 1, 1<<20)
 	hashKey := engine.(*snapshotEngine).config.HashKey
 
-	engine.Set([]byte("k"), []byte("v"))
-	engine.Delete([]byte("del"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
+	require.NoError(t, engine.Delete([]byte("del")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	require.NoError(t, snap.SetHash([]byte("the-hash")))
@@ -32,13 +32,13 @@ func TestFlushPersistsSetsDeletesAndHashToDB(t *testing.T) {
 func TestFlushLatestValueWinsAcrossVersions(t *testing.T) {
 	engine, db := newTestEngine(t, nil, 1, 1<<20)
 
-	engine.Set([]byte("k"), []byte("v1"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v1")))
 	snap1, err := engine.Commit()
 	require.NoError(t, err)
 	hashAndRelease(t, snap1)
 	awaitFlushed(t, snap1, time.Second)
 
-	engine.Set([]byte("k"), []byte("v2"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v2")))
 	snap2, err := engine.Commit()
 	require.NoError(t, err)
 	hashAndRelease(t, snap2)
@@ -51,7 +51,7 @@ func TestFlushLatestValueWinsAcrossVersions(t *testing.T) {
 
 func TestFlushRacesAheadOfRelease(t *testing.T) {
 	engine, db := newTestEngine(t, nil, 1, 1<<20)
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 
@@ -66,11 +66,11 @@ func TestFlushRacesAheadOfRelease(t *testing.T) {
 func TestFlushBlockedByUnhashedEarlierSnapshot(t *testing.T) {
 	engine, db := newTestEngine(t, nil, 1, 1<<20)
 
-	engine.Set([]byte("a"), []byte("1"))
+	require.NoError(t, engine.Set([]byte("a"), []byte("1")))
 	snap1, err := engine.Commit()
 	require.NoError(t, err)
 
-	engine.Set([]byte("b"), []byte("2"))
+	require.NoError(t, engine.Set([]byte("b"), []byte("2")))
 	snap2, err := engine.Commit()
 	require.NoError(t, err)
 
@@ -87,10 +87,10 @@ func TestFlushBlockedByUnhashedEarlierSnapshot(t *testing.T) {
 func TestOutOfOrderReleaseDoesNotRetireNewer(t *testing.T) {
 	engine, _ := newTestEngine(t, nil, 1, 1<<20)
 
-	engine.Set([]byte("a"), []byte("1"))
+	require.NoError(t, engine.Set([]byte("a"), []byte("1")))
 	snap1, err := engine.Commit() // version 1
 	require.NoError(t, err)
-	engine.Set([]byte("b"), []byte("2"))
+	require.NoError(t, engine.Set([]byte("b"), []byte("2")))
 	snap2, err := engine.Commit() // version 2
 	require.NoError(t, err)
 
@@ -117,8 +117,8 @@ func TestTargetBytesPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 	const versions = 5
 	snaps := make([]Snapshot, versions)
 	for i := 0; i < versions; i++ {
-		engine.Set([]byte{byte('a' + i), '1'}, []byte("v"))
-		engine.Set([]byte{byte('a' + i), '2'}, []byte("v"))
+		require.NoError(t, engine.Set([]byte{byte('a' + i), '1'}, []byte("v")))
+		require.NoError(t, engine.Set([]byte{byte('a' + i), '2'}, []byte("v")))
 		s, err := engine.Commit()
 		require.NoError(t, err)
 		snaps[i] = s
@@ -150,7 +150,7 @@ func TestFlushClosesEveryBatch(t *testing.T) {
 
 	const versions = 5
 	for i := 0; i < versions; i++ {
-		engine.Set([]byte{byte('a' + i)}, []byte("v"))
+		require.NoError(t, engine.Set([]byte{byte('a' + i)}, []byte("v")))
 		commitAndHashRelease(t, engine)
 	}
 	awaitRetired(t, engine, versions) // last version retired => everything flushed
@@ -162,7 +162,7 @@ func TestFlushClosesEveryBatch(t *testing.T) {
 
 func TestReserveAfterRetirementFails(t *testing.T) {
 	engine, _ := newTestEngine(t, nil, 1, 1<<20)
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	ver := snap.(*snapshotImpl).version
@@ -174,7 +174,7 @@ func TestReserveAfterRetirementFails(t *testing.T) {
 
 func TestAwaitHashAfterRetirementFails(t *testing.T) {
 	engine, _ := newTestEngine(t, nil, 1, 1<<20)
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	ver := snap.(*snapshotImpl).version
@@ -187,7 +187,7 @@ func TestAwaitHashAfterRetirementFails(t *testing.T) {
 
 func TestAwaitFlushAfterRetirementFails(t *testing.T) {
 	engine, _ := newTestEngine(t, nil, 1, 1<<20)
-	engine.Set([]byte("k"), []byte("v"))
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	ver := snap.(*snapshotImpl).version

@@ -95,12 +95,6 @@ type snapshotEngine struct {
 	// eligible for retirement. The lifecycle runner selects on this to wake up.
 	lifecycleWake chan struct{}
 
-	// Iterator construction is dispatched here so it runs serialized with flush
-	// and retire on the lifecycle goroutine — see iteratorRequest for the full
-	// rationale. Unbuffered so callers naturally backpressure when the
-	// lifecycle goroutine is busy.
-	iteratorRequests chan iteratorRequest
-
 	// A struct{} is sent on this channel when the lifecycle runner should exit. The lifecycle goroutine
 	// signals that it has exited by closing lifecycleExited (below), which Close waits on.
 	lifecycleExit chan struct{}
@@ -150,30 +144,6 @@ type snapshotReferenceCounter struct {
 	// flushedToDisk. Used as a synchronization handle for AwaitFlush waiters; a closed channel is
 	// immediately selectable, so the "already flushed at call time" case requires no special path.
 	flushCompleted chan struct{}
-}
-
-// iteratorRequest is sent by snapshotImpl.Iterator() to the lifecycle
-// goroutine, which builds the iterator and replies on response.
-//
-// Iterator construction is routed through the lifecycle goroutine so that
-// materializing in-memory overrides and opening the DB iterator happen
-// serialized with flush and retire. Without serialization, data that moves
-// from versionedData into the DB between the two halves could be lost. The
-// lifecycle goroutine is the only thing that performs flush/retire, so doing
-// the work there guarantees consistency without extra locks.
-//
-// Iteration cost is already dominated by the DB iterator itself, so it is
-// acceptable for an Iterator() call to wait behind an in-progress flush.
-type iteratorRequest struct {
-	version  uint64
-	response chan iteratorResponse
-}
-
-// iteratorResponse carries the result of snapshotEngine.buildIterator back to the
-// caller. Exactly one of iter / err is non-nil.
-type iteratorResponse struct {
-	iter Iterator
-	err  error
 }
 
 // Creates a new SnapshotEngine. The database and pools are injected and remain owned by the
@@ -234,7 +204,6 @@ func NewSnapshotEngine(
 		versionLock:               versionLock,
 		lifecycleBackpressureCond: lifecycleBackpressureCond,
 		lifecycleWake:             make(chan struct{}, 1),
-		iteratorRequests:          make(chan iteratorRequest),
 		lifecycleExit:             make(chan struct{}, 1),
 		lifecycleExited:           make(chan struct{}),
 	}
@@ -285,17 +254,30 @@ func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
 		shardMap[idx] = append(shardMap[idx], updates[i])
 	}
 
-	// Fan out to shards.
+	// Fan out to shards. A shard refusing the write (an iterator is open) fails the whole call; the
+	// shards that accepted it have already applied their entries, so the batch is not atomic across
+	// shards in that case. That is acceptable because it can only happen on caller misuse, and the
+	// engine contract makes any error fatal.
 	var wg sync.WaitGroup
-	for shardIndex, shardEntries := range shardMap {
+	shardIndices := make([]uint64, 0, len(shardMap))
+	for shardIndex := range shardMap {
+		shardIndices = append(shardIndices, shardIndex)
+	}
+	errs := make([]error, len(shardIndices))
+	for i, shardIndex := range shardIndices {
 		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			c.shards[shardIndex].BatchSet(shardEntries)
+			errs[i] = c.shards[shardIndex].BatchSet(shardMap[shardIndex])
 		})
 	}
 	wg.Wait()
 
+	for i := range errs {
+		if errs[i] != nil {
+			return fmt.Errorf("failed to batch set in shard: %w", errs[i])
+		}
+	}
 	return nil
 }
 
@@ -343,10 +325,13 @@ func (c *snapshotEngine) BatchGetAtVersion(keys [][]byte, version uint64) (map[s
 	return merged, nil
 }
 
-func (c *snapshotEngine) Delete(key []byte) {
+func (c *snapshotEngine) Delete(key []byte) error {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
-	shard.Delete(key)
+	if err := shard.Delete(key); err != nil {
+		return fmt.Errorf("failed to delete key in shard: %w", err)
+	}
+	return nil
 }
 
 func (c *snapshotEngine) Get(key []byte, updateLru bool) ([]byte, bool, error) {
@@ -367,10 +352,13 @@ func (c *snapshotEngine) GetAtVersion(key []byte, version uint64, updateLru bool
 	return value, ok, nil
 }
 
-func (c *snapshotEngine) Set(key []byte, value []byte) {
+func (c *snapshotEngine) Set(key []byte, value []byte) error {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
-	shard.Set(key, value)
+	if err := shard.Set(key, value); err != nil {
+		return fmt.Errorf("failed to set key in shard: %w", err)
+	}
+	return nil
 }
 
 func (c *snapshotEngine) Commit() (Snapshot, error) {
@@ -385,6 +373,17 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 	// is already held.
 	if c.fatalErr != nil {
 		return nil, fmt.Errorf("cannot create snapshot: %w", c.shutdownErrorLocked())
+	}
+
+	// Sealing the version under an open iterator is refused for the same reason writes are: the
+	// iterator's view must not shift beneath it.
+	for i, s := range c.shards {
+		s.lock.Lock()
+		err := s.writableLocked()
+		s.lock.Unlock()
+		if err != nil {
+			return nil, fmt.Errorf("cannot create snapshot, shard %d: %w", i, err)
+		}
 	}
 
 	c.metrics.setSnapshotPhase("lifecycle_backpressure")
@@ -696,51 +695,14 @@ func (c *snapshotEngine) GetDiffAtVersion(version uint64) (map[string][]byte, er
 	return diff, nil
 }
 
-// requestIterator dispatches an iterator request to the lifecycle goroutine
-// and blocks until the iterator is built. A reservation on version must be
-// held across this call so the lifecycle goroutine can't retire it out from
-// under us; that reservation belongs to the engine's client, per the Snapshot
-// contract, and is simply inherited here. See iteratorRequest for why
-// construction is routed through the lifecycle goroutine.
-func (c *snapshotEngine) requestIterator(version uint64) (Iterator, error) {
-	req := iteratorRequest{
-		version:  version,
-		response: make(chan iteratorResponse, 1),
-	}
-	select {
-	case c.iteratorRequests <- req:
-	case <-c.ctx.Done():
-		return nil, fmt.Errorf(
-			"snapshot engine shut down before iterator request could be dispatched: %w", c.shutdownError())
-	}
-	// The lifecycle goroutine has accepted the request (the request channel is unbuffered) and
-	// always replies (the response channel is buffered, so its send cannot block). Racing
-	// ctx.Done() here could abandon a successfully built iterator, leaking its DB iterator into
-	// engine shutdown, so wait unconditionally.
-	resp := <-req.response
-	return resp.iter, resp.err
-}
-
-// buildIterator constructs an Iterator over the snapshot at version. Must run
-// on the lifecycle goroutine — see iteratorRequest for why.
-//
-// Order matters: we materialize the in-memory overrides BEFORE opening the
-// DB iterator. The reverse order would let a concurrent flush+retire move
-// data from versionedData into the DB *after* dbIter's point-in-time snapshot
-// is taken, dropping those keys entirely. (Lifecycle-goroutine serialization
-// already prevents this race today, but the order is a cheap belt to go with
-// the suspenders.)
-//
-// The returned iterator excludes the engine's metadata hash key (see
-// SnapshotEngineConfig.HashKey). The value stored under that key in the DB is
-// the most recently *flushed* hash, which is generally stale relative to this
-// snapshot and varies with flush timing; exposing it would let a consumer pair
-// data-at-V with hash-at-W. Consumers that need the snapshot's hash should use
-// Snapshot.AwaitHash, which is guaranteed to match the iterated data.
-func (c *snapshotEngine) buildIterator(version uint64) (Iterator, error) {
-	overrides, err := c.materializeOverridesAtVersion(version)
+func (c *snapshotEngine) Iterator() (Iterator, error) {
+	// Overrides first, DB iterator second, and the order is load-bearing: a concurrent flush+retire
+	// that moved data out of versionedData and into the DB between the two steps would drop those
+	// keys entirely if the DB snapshot were taken first. In this order the same race can only yield a
+	// key twice, which the merge resolves in favor of the override.
+	overrides, err := c.materializeCurrentOverrides()
 	if err != nil {
-		return nil, fmt.Errorf("failed to materialize overrides at version (%d): %w", version, err)
+		return nil, fmt.Errorf("failed to materialize current overrides: %w", err)
 	}
 
 	dbIter, err := c.db.NewIter(nil)
@@ -753,17 +715,40 @@ func (c *snapshotEngine) buildIterator(version uint64) (Iterator, error) {
 		return nil, fmt.Errorf("failed to create snapshot iterator: %w", err)
 	}
 
-	return iter, nil
+	// Block writes only now that construction has fully succeeded, so a failed construction cannot
+	// leave the engine permanently unwritable.
+	for _, s := range c.shards {
+		s.iteratorOpened()
+	}
+	return &writeBlockingIterator{Iterator: iter, engine: c}, nil
 }
 
-// materializeOverridesAtVersion gathers in-memory overrides visible at
-// version from every shard and returns them sorted ascending by key. Each
-// shard is responsible for its own locking; here we just stitch the results
-// together.
-func (c *snapshotEngine) materializeOverridesAtVersion(version uint64) ([]kvPair, error) {
+// writeBlockingIterator releases the engine's write block when the underlying iterator is closed.
+// Close is idempotent, so the release happens exactly once no matter how often it is called.
+type writeBlockingIterator struct {
+	Iterator
+	engine *snapshotEngine
+	closed bool
+}
+
+func (w *writeBlockingIterator) Close() error {
+	if w.closed {
+		return nil
+	}
+	w.closed = true
+	for _, s := range w.engine.shards {
+		s.iteratorClosed()
+	}
+	return w.Iterator.Close()
+}
+
+// materializeCurrentOverrides gathers the in-memory overrides at the current version from every
+// shard and returns them sorted ascending by key. Each shard is responsible for its own locking;
+// here we just stitch the results together, and the sort runs without any shard lock held.
+func (c *snapshotEngine) materializeCurrentOverrides() ([]kvPair, error) {
 	var all []kvPair
 	for i, s := range c.shards {
-		shardOverrides, err := s.materializeOverridesAtVersion(version)
+		shardOverrides, err := s.materializeCurrentOverrides()
 		if err != nil {
 			return nil, fmt.Errorf("shard %d: %w", i, err)
 		}
@@ -791,13 +776,6 @@ func (c *snapshotEngine) lifecycleRunner() {
 			// no longer trustworthy, so stop doing lifecycle work. Close cancels the context only
 			// after this goroutine has exited, so this case never fires on a clean shutdown.
 			return
-		case req := <-c.iteratorRequests:
-			// Build the iterator inline. The single-threaded lifecycle goroutine
-			// guarantees no concurrent flush or retire can race with the
-			// materialization, which is the whole point of routing through here.
-			iter, err := c.buildIterator(req.version)
-			req.response <- iteratorResponse{iter: iter, err: err}
-			continue
 		case <-c.lifecycleWake:
 		}
 

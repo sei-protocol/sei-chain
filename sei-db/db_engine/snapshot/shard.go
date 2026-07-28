@@ -16,6 +16,9 @@ import (
 // fall through to the shard's read-through DB cache (see readCache).
 type shard struct {
 	// A lock to protect the shard's data. Shared with the read cache (see the cache field).
+	//
+	// TODO: this is a single exclusive lock. If it becomes a contention bottleneck, consider an RW
+	// lock — see the conversion strategy at the top of read_cache.go.
 	lock sync.Mutex
 
 	// Data at various versions. This is for data that has not yet been flushed down into the DB.
@@ -42,6 +45,12 @@ type shard struct {
 
 	// The oldest version number kept in versionedData.
 	oldestVersion uint64
+
+	// The number of iterators currently reading this shard. Writes are refused while it is non-zero,
+	// so an iterator's view cannot change under it (see SnapshotEngine.Iterator).
+	//
+	// Guarded by lock.
+	openIterators uint64
 }
 
 // A single value at a specific version.
@@ -255,11 +264,42 @@ func (s *shard) getSizeInfo() (bytes uint64, entries uint64) {
 	return s.cache.sizeInfoLocked()
 }
 
-// Set sets the value for the given key at the current version.
-func (s *shard) Set(key []byte, value []byte) {
+// iteratorOpened records that an iterator is reading this shard, which blocks writes until it is
+// closed. Balanced by exactly one iteratorClosed.
+func (s *shard) iteratorOpened() {
 	s.lock.Lock()
-	s.setLocked(key, value)
+	s.openIterators++
 	s.lock.Unlock()
+}
+
+// iteratorClosed records that an iterator reading this shard has been closed.
+func (s *shard) iteratorClosed() {
+	s.lock.Lock()
+	s.openIterators--
+	s.lock.Unlock()
+}
+
+// writableLocked reports whether a write may proceed, returning an error while an iterator is open.
+//
+// The Locked postfix indicates that the caller must hold the shard lock.
+func (s *shard) writableLocked() error {
+	if s.openIterators > 0 {
+		return fmt.Errorf("cannot write while %d iterator(s) are open; close them first",
+			s.openIterators)
+	}
+	return nil
+}
+
+// Set sets the value for the given key at the current version.
+func (s *shard) Set(key []byte, value []byte) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if err := s.writableLocked(); err != nil {
+		return err
+	}
+	s.setLocked(key, value)
+	return nil
 }
 
 // setLocked writes a value to the versioned data structures at the current version.
@@ -283,8 +323,15 @@ func (s *shard) setLocked(key []byte, value []byte) {
 }
 
 // BatchSet sets the values for a batch of keys at the current version.
-func (s *shard) BatchSet(entries []*proto.KVPair) {
+func (s *shard) BatchSet(entries []*proto.KVPair) error {
 	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	// Checked once for the whole batch rather than per key: the count cannot change while we hold
+	// the lock.
+	if err := s.writableLocked(); err != nil {
+		return err
+	}
 	for i := range entries {
 		if entries[i].Delete {
 			// A delete is stored as a nil-valued (tombstone) entry at the current version.
@@ -293,12 +340,12 @@ func (s *shard) BatchSet(entries []*proto.KVPair) {
 			s.setLocked(entries[i].Key, entries[i].Value)
 		}
 	}
-	s.lock.Unlock()
+	return nil
 }
 
 // Delete deletes the value for the given key.
-func (s *shard) Delete(key []byte) {
-	s.Set(key, nil)
+func (s *shard) Delete(key []byte) error {
+	return s.Set(key, nil)
 }
 
 // Commit seals the current version; all future updates will be applied to the next version.
@@ -349,28 +396,29 @@ func (s *shard) GetDiffsForVersions(
 	return diffs, nil
 }
 
-// materializeOverridesAtVersion returns every in-memory override visible to this shard
-// at the given version. The result is unsorted.
+// materializeCurrentOverrides returns every in-memory override in this shard at the current
+// version. The result is unsorted.
 //
-// Keys whose most recent entry is at a version greater than version are
-// skipped (the key did not yet exist in the cache at that version).
-func (s *shard) materializeOverridesAtVersion(version uint64) ([]kvPair, error) {
+// Because the target is always the current version, each key resolves to the back of its deque —
+// no version scan is needed, unlike lookupVersionedLocked, which serves reads at older versions.
+func (s *shard) materializeCurrentOverrides() ([]kvPair, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	if err := s.validateVersionLocked(version); err != nil {
+	// Same reason the read paths check it: a shard taken out of service cannot vouch for its data,
+	// and an iterator is just a bulk read.
+	if err := s.cache.outOfServiceLocked(); err != nil {
 		return nil, err
 	}
 
 	out := make([]kvPair, 0, len(s.versionedData))
-	for key := range s.versionedData {
-		value, found := s.lookupVersionedLocked(key, version)
-		if !found {
+	for key, deque := range s.versionedData {
+		if deque.IsEmpty() {
 			continue
 		}
 		out = append(out, kvPair{
 			key:   []byte(key),
-			value: value,
+			value: deque.PeekBack().value,
 		})
 	}
 	return out, nil
