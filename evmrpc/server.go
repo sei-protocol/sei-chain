@@ -340,6 +340,7 @@ func NewEVMWebSocketServer(
 	wsConfig := WsConfig{Origins: strings.Split(config.WSOrigins, ",")}
 	wsConfig.readLimit = config.MaxRequestBodyBytes
 	wsConfig.maxConcurrentRequestBytes = config.MaxConcurrentRequestBytes
+	wsConfig.wsAdmissionTimeout = config.WSAdmissionTimeout
 	wsConfig.batchItemLimit = config.BatchRequestLimit
 	wsConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
 	if err := httpServer.EnableWS(apis, wsConfig); err != nil {

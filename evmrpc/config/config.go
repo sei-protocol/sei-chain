@@ -261,8 +261,14 @@ type Config struct {
 	// WebSocket JSON-RPC request bodies admitted for processing concurrently
 	// (independent budgets per plane). HTTP uses Content-Length weighting and
 	// rejects over-budget requests fast (HTTP 429). WebSocket blocks until
-	// budget frees or times out. Set to 0 to disable the limit on either plane.
+	// budget frees or WSAdmissionTimeout elapses. Set to 0 to disable the limit
+	// on either plane.
 	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
+
+	// WSAdmissionTimeout bounds how long a WebSocket connection waits for
+	// concurrent-byte budget to free before the next frame is read or committed.
+	// Zero or negative values use the go-ethereum default (30s).
+	WSAdmissionTimeout time.Duration `mapstructure:"ws_admission_timeout"`
 
 	// MaxOpenConnections caps the number of simultaneously accepted connections
 	// on the EVM HTTP and WebSocket listeners. The limit is applied per listener
@@ -327,6 +333,7 @@ var DefaultConfig = Config{
 	BatchResponseMaxSize:      25 * 1000 * 1000,  // 25MB
 	MaxRequestBodyBytes:       5 * 1024 * 1024,   // 5 MiB (matches go-ethereum rpc default body limit)
 	MaxConcurrentRequestBytes: 128 * 1024 * 1024, // 128 MiB of request bodies admitted concurrently
+	WSAdmissionTimeout:        30 * time.Second,  // matches go-ethereum rpc defaultWSAdmissionTimeout
 	MaxOpenConnections:        2000,
 }
 
@@ -382,6 +389,7 @@ const (
 	flagBatchResponseMaxSize         = "evm.batch_response_max_size"
 	flagMaxRequestBodyBytes          = "evm.max_request_body_bytes"
 	flagMaxConcurrentRequestBytes    = "evm.max_concurrent_request_bytes"
+	flagWSAdmissionTimeout           = "evm.ws_admission_timeout"
 	flagMaxOpenConnections           = "evm.max_open_connections"
 )
 
@@ -649,6 +657,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxConcurrentRequestBytes); v != nil {
 		if cfg.MaxConcurrentRequestBytes, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagWSAdmissionTimeout); v != nil {
+		if cfg.WSAdmissionTimeout, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -926,8 +939,13 @@ max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
 # max_concurrent_request_bytes bounds total request bytes admitted concurrently
 # on HTTP (:8545) and WebSocket (:8546) (independent budgets per plane). HTTP
 # rejects over-budget requests fast (HTTP 429); WS blocks until budget frees or
-# times out. Set to 0 to disable on either plane.
+# ws_admission_timeout elapses. Set to 0 to disable on either plane.
 max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
+
+# ws_admission_timeout bounds how long a WebSocket connection waits for
+# concurrent-byte budget before the next frame is read or committed. Zero or
+# negative values use the go-ethereum default (30s).
+ws_admission_timeout = "{{ .EVM.WSAdmissionTimeout }}"
 
 # max_open_connections caps the number of simultaneously accepted connections on
 # the EVM HTTP and WebSocket listeners. Set to 0 to disable the limit.

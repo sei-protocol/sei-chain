@@ -48,6 +48,7 @@ type opts struct {
 	batchResponseMaxSize         interface{}
 	maxRequestBodyBytes          interface{}
 	maxConcurrentRequestBytes    interface{}
+	wsAdmissionTimeout           interface{}
 	maxOpenConnections           interface{}
 	maxTraceStructLogBytes       interface{}
 	traceAllowedTracers          interface{}
@@ -189,6 +190,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_concurrent_request_bytes" {
 		return o.maxConcurrentRequestBytes
 	}
+	if k == "evm.ws_admission_timeout" {
+		return o.wsAdmissionTimeout
+	}
 	if k == "evm.max_open_connections" {
 		return o.maxOpenConnections
 	}
@@ -252,6 +256,7 @@ func getDefaultOpts() opts {
 		25 * 1000 * 1000,
 		int64(5 * 1024 * 1024),
 		int64(128 * 1024 * 1024),
+		30 * time.Second,
 		2000,
 		uint64(256 * 1024 * 1024),
 		[]string{"callTracer", "prestateTracer"},
@@ -519,15 +524,18 @@ func TestReadConfigRequestSizeLimits(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, config.DefaultConfig.MaxRequestBodyBytes, cfg.MaxRequestBodyBytes)
 	require.Equal(t, config.DefaultConfig.MaxConcurrentRequestBytes, cfg.MaxConcurrentRequestBytes)
+	require.Equal(t, config.DefaultConfig.WSAdmissionTimeout, cfg.WSAdmissionTimeout)
 
 	// Custom values (including 0 to use default / disable) flow through.
 	o := getDefaultOpts()
 	o.maxRequestBodyBytes = int64(1024)
 	o.maxConcurrentRequestBytes = int64(0)
+	o.wsAdmissionTimeout = 10 * time.Second
 	cfg, err = config.ReadConfig(&o)
 	require.NoError(t, err)
 	require.Equal(t, int64(1024), cfg.MaxRequestBodyBytes)
 	require.Equal(t, int64(0), cfg.MaxConcurrentRequestBytes)
+	require.Equal(t, 10*time.Second, cfg.WSAdmissionTimeout)
 }
 
 func TestReadConfigMaxOpenConnections(t *testing.T) {

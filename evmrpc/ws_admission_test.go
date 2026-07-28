@@ -116,6 +116,46 @@ func TestEnableWSReadLimitDefault(t *testing.T) {
 	require.Equal(t, defaultMaxRequestBodyBytes, effectiveMaxRequestBodyBytes(wsConf.readLimit))
 }
 
+func TestEnableWSAdmissionTimeout(t *testing.T) {
+	const (
+		sleepDuration = 200 * time.Millisecond
+		pad           = 48
+		waitTimeout   = 50 * time.Millisecond
+	)
+
+	makeMsg := func(id int) string {
+		return fmt.Sprintf(
+			`{"jsonrpc":"2.0","id":%d,"method":"test_sleep","params":[%d],"_pad":"%s"}`,
+			id, sleepDuration.Nanoseconds(), strings.Repeat("x", pad),
+		)
+	}
+	payload := makeMsg(1)
+	frameSize := int64(len(payload))
+
+	srv := startWSTestServer(t, WsConfig{
+		Origins:            []string{"*"},
+		wsAdmissionTimeout: waitTimeout,
+		RPCEndpointConfig: RPCEndpointConfig{
+			readLimit:                 frameSize,
+			maxConcurrentRequestBytes: frameSize,
+		},
+	})
+
+	conn := dialWSTestServer(t, srv)
+	defer conn.Close()
+
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(payload)))
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+	}
+	t.Fatal("expected websocket connection to close after admission timeout")
+}
+
 func TestWSAdmissionHookBudgetWaitTimeout(t *testing.T) {
 	const (
 		sleepDuration = 200 * time.Millisecond
