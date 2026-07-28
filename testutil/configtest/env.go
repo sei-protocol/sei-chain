@@ -1,12 +1,15 @@
 package configtest
 
 import (
+	"log/slog"
 	"os"
 	"path"
 	"strings"
 	"testing"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/sei-protocol/seilog"
 )
 
 // envAllowlist names the variables Isolate preserves. Everything outside it is
@@ -41,6 +44,22 @@ var envAllowlist = map[string]bool{
 	"LD_LIBRARY_PATH":   true,
 }
 
+// logProbeName is the one registry entry this package adds, used only to read a value
+// seilog does not otherwise expose.
+const logProbeName = "configtest"
+
+// logDefaultLevel reports seilog's current default level.
+//
+// seilog has SetDefaultLevel and no matching getter, so the value is read through a probe
+// logger. NewLogger returns the existing registry entry for a name it has seen before, and
+// SetDefaultLevel(_, true) writes every registered entry, so this one name follows the
+// default rather than freezing at whatever it was when first created.
+func logDefaultLevel() slog.Level {
+	seilog.NewLogger(logProbeName, "isolate")
+	level, _ := seilog.GetLevel(logProbeName + "/isolate")
+	return level
+}
+
 // Isolate pins the process environment for the duration of the test: every
 // variable outside envAllowlist is unset, $HOME is repointed at a scratch
 // directory, and the original environment is restored on cleanup.
@@ -53,13 +72,24 @@ var envAllowlist = map[string]bool{
 // both, which is what lets a characterization assertion mean the same thing on a
 // laptop and in CI.
 //
-// What it does NOT restore, because the legacy read path mutates more than the
-// environment: server/config's package-global app.toml template
-// (config.SetConfigTemplate) and seilog's default level (seilog.SetDefaultLevel),
-// both written from inside InterceptConfigsPreRunHandler. Nothing asserted today
-// depends on either, but a target that asserts on log level, or a second manager
-// carrying a different template, becomes execution-order dependent — so such a
-// target needs its own save/restore rather than assuming this function covers it.
+// The seilog default level IS restored, because this suite writes it constantly.
+// InterceptConfigsPreRunHandler calls seilog.SetDefaultLevel whenever a log level
+// resolves, so every applyLegacy call in cmd/seid/cmd moves a process global, and
+// TestSeiLogLevelEnvSuppressesTheConfigFileValue moves it on purpose. Nothing asserts
+// on log level today, so the leak was inert, but leaving it would make the first row
+// that does assert on it depend on execution order.
+//
+// Reading it back needs a detour: seilog exports SetDefaultLevel but no getter. A
+// single probe logger stands in. SetDefaultLevel(_, true) updates every registered
+// logger, and NewLogger reuses the registry entry for a name it has already seen, so
+// one fixed name tracks the default for the life of the process and adds one registry
+// entry rather than one per call.
+//
+// What it still does NOT restore is server/config's package-global app.toml template
+// (config.SetConfigTemplate), also written from inside InterceptConfigsPreRunHandler.
+// Nothing asserted today depends on it, but a second manager carrying a different
+// template would become execution-order dependent, so such a target needs its own
+// save/restore rather than assuming this function covers it.
 //
 // It returns the scratch $HOME. A test using Isolate cannot call t.Parallel:
 // the environment is process-global, and the t.Setenv below makes the testing
@@ -80,6 +110,11 @@ func Isolate(t testing.TB) string {
 			}
 		}
 	})
+
+	// Restored with updateExisting=true, matching how InterceptConfigsPreRunHandler sets it,
+	// so a logger the test tuned individually is returned to the baseline too.
+	savedLevel := logDefaultLevel()
+	t.Cleanup(func() { seilog.SetDefaultLevel(savedLevel, true) })
 
 	for _, kv := range saved {
 		k, _, ok := strings.Cut(kv, "=")

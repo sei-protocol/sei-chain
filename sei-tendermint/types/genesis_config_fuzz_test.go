@@ -120,7 +120,13 @@ func TestGenesisDocWithoutTimeIsNotReproducible(t *testing.T) {
 	// what is pinned is that the value is invented per read, not that any two given reads
 	// differ. A completion that is genuinely deterministic never separates, however many
 	// attempts it gets.
-	const attempts = 1000
+	//
+	// The cap is small on purpose. A retry loop is active polling, which the guide asks tests
+	// to avoid, so it is sized as insurance rather than as a strategy: on a nanosecond clock
+	// the first pair separates and the loop never runs, and on a coarse clock a few dozen
+	// parses cross a tick boundary. A larger cap would only spend more work reaching the same
+	// verdict.
+	const attempts = 32
 	distinct := !first.GenesisTime.Equal(second.GenesisTime)
 	for i := 0; i < attempts && !distinct; i++ {
 		a, aErr := types.GenesisDocFromJSON(raw)

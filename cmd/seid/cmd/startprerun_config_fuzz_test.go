@@ -293,15 +293,22 @@ func runEWaits(t *testing.T) (bound, grace time.Duration) {
 	if !ok {
 		return bound, grace
 	}
-	budget := time.Until(deadline) * 3 / 4
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		// Already past the deadline. Return the smallest useful waits so the diagnostic still
+		// runs, rather than a floor that would guarantee the timeout wins.
+		return time.Millisecond, time.Millisecond
+	}
+	// A quarter of what is left is held back for the failure to be written.
+	budget := remaining * 3 / 4
 	if budget >= bound+grace {
 		return bound, grace
 	}
-	// A floor, so a nearly-expired deadline still gives RunE a moment rather than declaring
-	// an escape the instant the row starts.
-	if budget < 2*time.Second {
-		budget = 2 * time.Second
-	}
+	// Split the budget, never exceeding it. There is deliberately no floor: raising the waits
+	// above the time actually left would let go test's timeout kill the binary before the
+	// terminal branch reports anything, which is the failure this whole function exists to
+	// avoid. A deadline too short to wait out is a deadline too short, and saying so quickly
+	// beats saying nothing.
 	return budget * 3 / 4, budget / 4
 }
 
@@ -353,9 +360,12 @@ func runEBounded(t *testing.T, cmd *cobra.Command, stop context.CancelFunc) (rec
 		// environment and restores it while that node reads it. Panicking is the terminal action:
 		// it fails the binary here rather than leaving a corrupted one to produce results nobody
 		// should trust, and the goroutine dump shows what the node is doing.
-		panic(diagnosis + ", and it did not stop within " + grace.String() + " of the command " +
-			"context being cancelled. Failing the whole binary deliberately: a live node with bound " +
-			"listeners must not outlive this test and be inherited by the ones after it")
+		// The marker is a fixed, unique token so CI triage can grep one string to tell this
+		// deliberate abort apart from an ordinary panic in this package.
+		panic("CONFIGTEST_NODE_ESCAPED: " + diagnosis + ", and it did not stop within " +
+			grace.String() + " of the command context being cancelled. Failing the whole binary " +
+			"deliberately: a live node with bound listeners must not outlive this test and be " +
+			"inherited by the ones after it")
 	}
 }
 

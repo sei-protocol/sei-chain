@@ -518,7 +518,13 @@ func FuzzApplyEnvReachesTheStructOnlyForStructurallyKnownKeys(f *testing.F) {
 		if !ok {
 			t.Fatalf("%q is not present in the resolved Tendermint config", path)
 		}
-		if secondLeaf != fromEnv {
+		// The first boot wrote the template default into config.toml, so when the environment
+		// carries that same value the file and the environment agree and secondLeaf matches
+		// whichever one won. That says nothing about the restart property, so it is not
+		// asserted here. TestFlaglessEnvKeyTakesEffectOnlyAfterTheFirstBoot covers the
+		// property with a value chosen to differ, so the coverage does not depend on what the
+		// fuzzer generates.
+		if fromEnv != defaultLeaf && secondLeaf != fromEnv {
 			t.Fatalf("on a materialized home the environment must reach serverCtx.Config\n got: %s\nwant: %s",
 				secondLeaf, fromEnv)
 		}
@@ -574,6 +580,65 @@ func FuzzApplyMalformedConfigTOML(f *testing.F) {
 			t.Fatalf("serverCtx.Config.RootDir = %q, want the resolved home %q", got.ctx.Config.RootDir, home.Root)
 		}
 	})
+}
+
+// TestFlaglessEnvKeyTakesEffectOnlyAfterTheFirstBoot pins the restart asymmetry with a
+// value chosen to differ from the template default, so the property is exercised on every
+// run rather than only when the fuzzer happens to generate a non-default value.
+//
+// The fuzz target above covers the same key across arbitrary values, but its second-boot
+// assertion has to stand down when the generated value equals the default: the first boot
+// writes that default into config.toml, so file and environment agree and the resolved value
+// no longer says which one won. This row removes that dependence.
+func TestFlaglessEnvKeyTakesEffectOnlyAfterTheFirstBoot(t *testing.T) {
+	configtest.Isolate(t)
+
+	const key = "p2p.queue-type"
+	const path = "P2P.QueueType"
+
+	defaultLeaf, ok := configtest.LeafAt(configtest.Dump(*tmcfg.DefaultConfig()), path)
+	if !ok {
+		t.Fatalf("%q is not present in the default Tendermint config", path)
+	}
+	// Two legal queue types, so whichever is the default the probe differs from it.
+	value := "fifo"
+	if configtest.DumpAt(path, value) == defaultLeaf {
+		value = "priority"
+	}
+	fromEnv := configtest.DumpAt(path, value)
+	if fromEnv == defaultLeaf {
+		t.Fatalf("both probe values match the default (%s); pick another", defaultLeaf)
+	}
+
+	home := configtest.NewHome(t)
+	setServerEnv(t, key, value)
+
+	first := applyLegacy(t, home, nil)
+	if first.err != nil {
+		t.Fatalf("first Apply: %v", first.err)
+	}
+	firstLeaf, ok := configtest.LeafAt(configtest.Dump(*first.ctx.Config), path)
+	if !ok {
+		t.Fatalf("%q is not present in the resolved Tendermint config", path)
+	}
+	if firstLeaf != defaultLeaf {
+		t.Fatalf("on a fresh home a flag-less key must resolve its default, not the environment\n"+
+			" got: %s\nwant: %s", firstLeaf, defaultLeaf)
+	}
+
+	second := applyLegacy(t, home, nil)
+	if second.err != nil {
+		t.Fatalf("second Apply: %v", second.err)
+	}
+	secondLeaf, ok := configtest.LeafAt(configtest.Dump(*second.ctx.Config), path)
+	if !ok {
+		t.Fatalf("%q is not present in the resolved Tendermint config", path)
+	}
+	if secondLeaf != fromEnv {
+		t.Fatalf("on a restart the same SEID_* variable must reach serverCtx.Config. This is the "+
+			"asymmetry the row exists for: inert on first start, effective on every one after\n"+
+			" got: %s\nwant: %s", secondLeaf, fromEnv)
+	}
 }
 
 // TestApplyDoesNotValidateAPreExistingConfigFile records the validation gap the

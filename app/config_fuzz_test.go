@@ -441,5 +441,8 @@ func panicMessage(r any) string {
 	if s, ok := r.(string); ok {
 		return s
 	}
-	return ""
+	// Anything else is rendered rather than dropped. Returning "" here would discard the
+	// payload at the one moment it matters, leaving the caller to report that it expected a
+	// message and got nothing.
+	return fmt.Sprint(r)
 }

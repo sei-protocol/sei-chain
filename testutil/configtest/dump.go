@@ -17,6 +17,15 @@ const maxDumpDepth = 24
 // int64 nanosecond count its Kind reports.
 var durationType = reflect.TypeOf(time.Duration(0))
 
+// mapKeyOrder renders a map key for ordering, qualified by its dynamic type so two keys
+// with the same text but different types cannot tie.
+func mapKeyOrder(k reflect.Value) string {
+	if k.Kind() == reflect.Interface && !k.IsNil() {
+		k = k.Elem()
+	}
+	return fmt.Sprintf("%s\x00%v", k.Type().String(), k.Interface())
+}
+
 // Dump renders a resolved configuration view as deterministic, diff-friendly
 // text: one `path = type(value)` line per leaf, struct fields in declaration
 // order, map keys sorted.
@@ -90,8 +99,14 @@ func dumpInto(path string, v reflect.Value, out *[]string, depth int) {
 			return
 		}
 		keys := v.MapKeys()
-		sort.Slice(keys, func(i, j int) bool {
-			return fmt.Sprintf("%v", keys[i].Interface()) < fmt.Sprintf("%v", keys[j].Interface())
+		// SliceStable with a type-qualified key, because this dump is the harness's definition
+		// of "the same result". %v alone renders the int 1 and the string "1" identically, so a
+		// map holding both would tie, and an unstable sort would break that tie by whatever
+		// order the map happened to yield. It would surface as a CheckDeterministic failure in
+		// the one component whose job is determinism. Config maps are map[string]any in
+		// practice, so this is structural rather than a fix for something observed.
+		sort.SliceStable(keys, func(i, j int) bool {
+			return mapKeyOrder(keys[i]) < mapKeyOrder(keys[j])
 		})
 		if len(keys) == 0 {
 			*out = append(*out, path+" = <empty-map>")
