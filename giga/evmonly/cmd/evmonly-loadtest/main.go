@@ -1083,6 +1083,7 @@ type generatedState struct {
 }
 
 var _ evmonly.StateReader = (*generatedState)(nil)
+var _ evmonly.ConcurrentStateReader = (*generatedState)(nil)
 
 var frozenZeroBalance = new(big.Int)
 
@@ -1098,6 +1099,8 @@ func newGeneratedState() *generatedState {
 func (s *generatedState) Freeze() {
 	s.frozen.Store(true)
 }
+
+func (s *generatedState) ConcurrentReads() {}
 
 func (s *generatedState) GetBalance(addr common.Address) *big.Int {
 	if s.frozen.Load() {
