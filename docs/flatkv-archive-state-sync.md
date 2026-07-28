@@ -14,7 +14,9 @@ The archive carries exactly one payload: the FlatKV checkpoint. It is the
 single source of truth. The target node rebuilds its query layer
 (`state_store`) locally by iterating the verified checkpoint, so the archive
 never has to keep two databases consistent with each other, and every byte a
-node trusts traces back to one light-client-verified AppHash.
+node trusts traces back to one light-client-verified AppHash — including the
+installed content itself, which restore re-hashes in full against the
+checkpoint's LtHash commitment (see Trust Model).
 
 The design relies on a FlatKV-only invariant: once all modules have migrated to
 FlatKV, the FlatKV checkpoint is the complete consensus commit-store state for
@@ -30,8 +32,14 @@ download snapshot chunks -> protobuf decode -> per-key FlatKV import -> Pebble L
 with:
 
 ```text
-download archive -> verify file hashes -> install Pebble checkpoint files -> verify AppHash with light client -> block sync
+download archive -> verify manifest hashes -> install Pebble checkpoint files -> verify AppHash with light client -> full LtHash re-scan of installed content -> block sync
 ```
+
+Note that the old path's "LtHash recomputation" is not incidental cost: it is
+what binds the imported content to the verified AppHash. The archive path
+keeps that binding — it performs the equivalent content verification as one
+sequential re-scan of the installed checkpoint, priced separately in the
+timing table — rather than silently trading it away for speed.
 
 The rest of this document covers the archive format, create and restore flows,
 trust model, validation methodology, measured performance, and rollout risks.
@@ -48,8 +56,11 @@ trust model, validation methodology, measured performance, and rollout risks.
   FlatKV.
 - Avoid per-key state reconstruction of the consensus store during restore.
 - Preserve the existing state sync trust model: object storage is an untrusted
-  transport, while the restored application hash is verified against trusted
-  Tendermint headers.
+  transport; the archived AppHash is verified against trusted Tendermint
+  headers, and the installed content is bound to that AppHash through the
+  FlatKV LtHash commitment (a full re-scan at restore plus the first-start
+  handshake), matching the content-level guarantee the in-protocol restore
+  path gets from recomputing the LtHash during import.
 - Support RPC-capable nodes, not only validators, by restoring the query state
   required for latest and historical RPC queries.
 - Keep the first implementation operationally simple and out-of-band from the
@@ -206,8 +217,9 @@ its logical content is exactly the key/value set committed in the FlatKV
 store at H. The design exploits that: instead of shipping the donor's SS,
 restore regenerates it.
 
-After the FlatKV checkpoint is installed and its AppHash passes light-client
-verification, restore iterates every committed physical row of the checkpoint
+After the FlatKV checkpoint is installed, its AppHash passes light-client
+verification, and its content passes the full LtHash re-scan, restore
+iterates every committed physical row of the checkpoint
 and feeds it through the same FlatKV-node conversion path the state sync SS
 importer uses (`convertFlatKVNodes`): module-prefixed rows route back to
 their Cosmos store keys, merged EVM account rows split into nonce and
@@ -218,17 +230,22 @@ version watermarks are stamped exactly as the state sync restore path does.
 Properties:
 
 - **Single source of truth.** The SS content is derived from bytes that were
-  just verified against a trusted header. There is no second database in the
-  archive whose consistency with the first must be trusted or checked.
+  just content-verified against the checkpoint's commitment (and, through the
+  first-start handshake, against a trusted header). There is no second
+  database in the archive whose consistency with the first must be trusted or
+  checked.
 - **One version at H.** The rebuilt SS has no history below the archive
   height; history accumulates from H forward as the node block-syncs. A node
   that needs deep historical query coverage must bootstrap from an archive
   old enough, replay forward, or (legacy) copy a donor's SS with
   `--include-state-store`.
-- **Ordering.** Rebuild runs after light-client verification so a bad archive
-  fails in seconds, before the rebuild cost is paid. It is skipped when the
-  node runs without SS (validators) or when the archive carries a legacy SS
-  payload.
+- **Ordering.** Rebuild runs after light-client verification (a bad manifest
+  fails in seconds) and after the content re-scan (poisoned content fails
+  before the rebuild cost is paid).
+- **Skip conditions.** Rebuild is skipped in three cases: the node runs
+  without SS (validators), the archive carries a legacy SS payload, or the
+  operator passes `--rebuild-state-store=false` (for example to defer the
+  rebuild to a separate maintenance step).
 - **Tuning.** The import parallelism follows `state-store.ss-import-num-workers`.
 
 ### Online State-Store Checkpoints (legacy copy shape)
@@ -309,10 +326,11 @@ sequenceDiagram
 
     Operator->>ArchiveCLI: seid flatkv-archive restore
     ArchiveCLI->>ObjectStore: download archive
-    ArchiveCLI->>ArchiveCLI: extract and verify SHA-256 for every file
+    ArchiveCLI->>ArchiveCLI: extract; verify SHA-256 for every file; reject entries the manifest does not list
     ArchiveCLI->>TargetNode: install FlatKV checkpoint
     ArchiveCLI->>TrustedRPC: verify archived AppHash via light client
     ArchiveCLI->>TargetNode: bootstrap Tendermint state at archived height
+    ArchiveCLI->>TargetNode: full LtHash re-scan of installed content vs checkpoint commitment
     ArchiveCLI->>TargetNode: rebuild state_store at H from the checkpoint
     TargetNode->>BlockPeers: start normally and block-sync remaining blocks
 ```
@@ -321,13 +339,21 @@ Restore must install the checkpoint under the target FlatKV root and atomically
 activate the `current` symlink. With `--force`, restore replaces existing
 archive-managed state directories.
 
+Manifest verification is bidirectional: every manifest entry must be present
+with a matching SHA-256, and every archive entry must be listed in the
+manifest. Without the second direction, an unlisted file smuggled into the
+archive would be extracted and installed (installation renames whole
+directories) without any hash covering it.
+
 After installing files, restore performs light-client verification using at
 least two RPC endpoints plus a trusted height/hash. If the verified header's
 AppHash does not match the archive manifest, restore fails. If verification
 succeeds, restore bootstraps Tendermint state, block metadata, and finalize
 block response data sufficient for the node to start from the archived
-height, then rebuilds `state_store` from the verified checkpoint (skipped for
-SS-disabled nodes and legacy archives that carry an SS payload).
+height. It then re-scans the installed checkpoint content against its LtHash
+commitment (see Trust Model; `--skip-content-verification` opts out with a
+loud warning), and finally rebuilds `state_store` from the verified
+checkpoint (skip conditions listed above).
 
 ### Online Chain Compatibility
 
@@ -344,7 +370,10 @@ There are three separate online/offline concerns:
 - The **target node** must be offline during restore. Restore replaces
   archive-managed local state directories (`flatkv`, `state_store`, and `wasm`)
   and bootstraps Tendermint state. The target process should start only after
-  restore and light-client verification succeed.
+  restore and light-client verification succeed. This is an operational
+  convention, not enforced by code: the CLI does not check for a running
+  `seid` process before replacing directories under `--force`. Running
+  restore against a live target corrupts it.
 - The **archive donor** keeps producing blocks during archive creation. The
   archive source — the FlatKV snapshot — is an immutable directory on the
   donor, so `create` can hash and pack it while the donor validates, signs,
@@ -360,24 +389,48 @@ restored victim node then block-synced to the live head.
 ## Trust Model
 
 The object store is not trusted. It can be unavailable, stale, or malicious.
-The archive has two layers of protection:
+The design's obligation is a complete chain from the installed bytes to a
+consensus-verified AppHash, built from four checks. Each check binds one
+specific link, and it matters to be precise about which:
 
-1. The manifest's per-file SHA-256 entries detect corruption inside the archive
-   extraction and installation process.
-2. Tendermint light-client verification authenticates the archived AppHash
-   against a trusted header and validator set path, which is the same trust
-   anchor model as existing state sync.
+1. **Manifest SHA-256 (bidirectional).** Every manifest entry must match its
+   extracted file, and every archive entry must be listed in the manifest.
+   This detects transport/extraction corruption and rejects smuggled files.
+   It is *not* a consensus proof: the hashes are producer-computed, so a
+   malicious producer can ship a self-consistent manifest for bad state.
+2. **Light-client verification.** The manifest's claimed AppHash is verified
+   against a trusted header and validator-set path — the same trust anchor as
+   in-protocol state sync. This authenticates the archive's *metadata*
+   (height, AppHash). By itself it never reads the installed files.
+3. **Full LtHash re-scan (restore-time content check).** Restore re-hashes
+   every installed physical row and requires the result to equal the
+   checkpoint's persisted LtHash commitment (including the per-DB and
+   per-module decomposition). This is the link the first two checks cannot
+   provide: without it, a producer could pack poisoned rows next to a
+   genuine, copied LtHash metadata file and pass checks 1 and 2, because the
+   persisted commitment is trusted rather than recomputed. The in-protocol
+   restore path gets this binding for free by recomputing the LtHash while
+   importing each key; the archive path must — and now does — pay for it
+   explicitly. `--skip-content-verification` disables this check and is only
+   appropriate when the producer is trusted end to end (e.g. restoring your
+   own node's archive); the CLI warns loudly.
+4. **First-start ABCI handshake.** The application derives its reported hash
+   from the same persisted LtHash metadata that check 3 just validated, and
+   Tendermint compares it against the light-client-bootstrapped
+   `state.AppHash`. This closes the final link — commitment metadata to
+   consensus — so a producer that forges the metadata to match poisoned
+   content (defeating check 3's reference) produces a different AppHash and
+   is refused at startup, before the node serves anything.
 
-The SHA-256 manifest alone is not a consensus proof. A malicious archive
-producer can produce a self-consistent manifest for bad state. The restored
-state is trusted only after the FlatKV checkpoint's AppHash is verified against
-the trusted chain.
+Together: bytes on disk ↔ (3) ↔ LtHash commitment ↔ (4) ↔ verified AppHash ↔
+(2) ↔ trusted headers. Every byte a node trusts traces back to consensus.
 
-The single-source-of-truth shape strengthens this model: because `state_store`
-is rebuilt locally from the verified checkpoint rather than shipped alongside
-it, the query layer inherits the checkpoint's verification. A legacy archive
-that carries an SS payload cannot make that claim — its SS bytes are only
-integrity-checked (SHA-256), not consensus-verified.
+The single-source-of-truth shape extends this to the query layer: because
+`state_store` is rebuilt locally from the content-verified checkpoint rather
+than shipped alongside it, the query layer inherits the checkpoint's
+verification. A legacy archive that carries an SS payload cannot make that
+claim — its SS bytes are only integrity-checked (SHA-256), not
+consensus-verified.
 
 ## Operational Validation
 
@@ -399,8 +452,9 @@ pacific-1 validator private keys or joining pacific-1 consensus.
   - `state_store`: 38 GiB
   - `wasm`: 12 GiB
   - total: approximately 89 GiB
-- Archive: 81.4 GiB tar.zst, 23,847 files. Pebble SST files are already
-  compressed, so zstd gains little.
+- Archive: 81.4 GiB tar.zst. The quiesced-donor archive (height 219,130,000)
+  carried 23,847 files; the live-donor archive (height 219,950,000) carried
+  23,425. Pebble SST files are already compressed, so zstd gains little.
 
 The four-node forked cluster continued producing blocks stably. During the
 validation window, it advanced from roughly 219,060,002 to beyond 219,344,000,
@@ -415,15 +469,34 @@ and all validators reported `catching_up=false`.
 | Restore + bootstrap, round 1 | default gp3, 3000 IOPS / 125 MiB/s | 32m35s |
 | Restore + bootstrap, round 2 | gp3, 10k IOPS / 1000 MiB/s | 12m02s |
 | Restore + bootstrap (live-donor archive) | gp3, 10k IOPS / 1000 MiB/s | 12m47s |
-| SC-only create + upload (live donor, no `state_store`/`wasm`) | donor on default gp3 | 4m08s |
+| SC-only create + upload (live donor, no `state_store`/`wasm`) | donor on default gp3 | 4m08s (reproduced: 4m13s at height 220,290,000) |
 | — pack / upload split (timestamped rerun of the above) | same | 2m07s / 2m15s |
-| SC-only restore + bootstrap (no rebuild, SS-disabled shape) | gp3, 10k IOPS / 1000 MiB/s | 4m10s |
-| SC-only restore + bootstrap + `state_store` rebuild | gp3, 10k IOPS / 1000 MiB/s | 20m59s |
+| SC-only restore + bootstrap (no rebuild, SS-disabled shape, pre-content-check) | gp3, 10k IOPS / 1000 MiB/s | 4m10s |
+| SC-only restore + bootstrap + `state_store` rebuild (pre-content-check) | gp3, 10k IOPS / 1000 MiB/s | 20m59s |
 | — of which `state_store` rebuild (1,003,795,438 entries, 8 workers) | same | 17m37s |
+| SC-only **verified** restore + bootstrap + rebuild (content check on, height 220,290,000) | gp3, 10k IOPS / 1000 MiB/s | 34m04s |
+| — download + extract + install + light-client bootstrap | same | 3m46s |
+| — content verification (full LtHash re-scan, 39 GiB checkpoint / 1.0B rows) | same | 12m36s |
+| — `state_store` rebuild (1,003,795,371 entries, 8 workers) | same | 17m37s |
 | Light-client verify + Tendermint bootstrap | included above | ~10-12s |
 
+A caveat on comparing the pre-content-check rows with the old path: the old
+path's restore cost *includes* content verification (it recomputes the LtHash
+while importing every key), while the early archive runs did not verify
+installed content at all. Part of the archive path's raw speedup therefore
+came from silently dropping verification work — an unsound trade, now
+corrected: the content re-scan is on by default and priced explicitly above.
+The honest like-for-like comparison is the verified run: 34m04s for the RPC
+shape (vs 34m24s-37m53s for the old path on comparable hardware — parity, not
+a win, when doing equivalent verification and rebuild work), and roughly
+16m22s (3m46s + 12m36s) for the validator shape, where the archive path still
+wins because nothing needs rebuilding. The structural wins are unchanged
+either way: create drops from hours to minutes, and restore scales with
+provisioned IO instead of per-key import cost.
+
 The SC-only archive packs just the FlatKV checkpoint (37.6 GiB archive,
-10,113 files vs 81.4 GiB / 23,425 files for the full archive). Create is
+10,113 files vs 81.4 GiB / 23,425 files for the full live-donor archive).
+Create is
 faster than its byte share predicts because `state_store` and `wasm`
 contribute most of the archive's file count, and per-file overhead (hashing
 setup, tar headers) is significant. The pack/upload split (~2m07s hashing +
@@ -431,17 +504,22 @@ tar.zst write, ~2m15s S3 multipart upload at ~285 MiB/s cross-region) shows
 the two phases are near-equal; streaming the tar straight into the upload
 (rollout step 5) would collapse create to roughly the longer of the two.
 
-On the restore side the same archive serves both node shapes:
+On the restore side the same archive serves both node shapes (times below
+include the default content verification):
 
-- **Validator shape (SS disabled)**: restore is done in 4m10s; the node
-  serves consensus and latest-state queries with no rebuild cost.
-- **RPC shape (SS enabled)**: restore rebuilds `state_store` at the archive
-  height by iterating the verified checkpoint — 1.0 billion logical entries
-  imported in 17m37s (~950K entries/s with
-  `ss-import-num-workers = 8`), 20m59s end to end. The restored node then
-  block-synced ~30,000 blocks to the live head. A height-parameterized query
-  at the archive height (`bank total --height H`) returned byte-identical
-  results on the rebuilt node and a donor cluster node.
+- **Validator shape (SS disabled)**: download through bootstrap in 3m46s plus
+  the 12m36s content re-scan — roughly 16m22s; the node serves consensus and
+  latest-state queries with no rebuild cost.
+- **RPC shape (SS enabled)**: after verification, restore rebuilds
+  `state_store` at the archive height by iterating the verified checkpoint —
+  1.0 billion logical entries imported in 17m37s (~950K entries/s with
+  `ss-import-num-workers = 8`), 34m04s end to end. The rebuild duration
+  reproduced exactly (17m37s) across two runs at different heights. The
+  restored node then started, passed the first-start AppHash handshake, and
+  block-synced to the live head. In the earlier (pre-content-check) run, a
+  height-parameterized query at the archive height (`bank total --height H`)
+  returned byte-identical results on the rebuilt node and a donor cluster
+  node.
 
 The production-scale rebuild also surfaced a real conversion bug that
 small-fixture tests cannot hit: `convertFlatKVNodes` applied EVM key-kind
@@ -495,9 +573,10 @@ linearly with disk throughput:
 | Operation | Existing key-stream state sync | Archive path |
 | --- | --- | --- |
 | Snapshot/create | 2.1-2.5h on EVM-migrated FlatKV; 6.3h on memIAVL-only | 18m38s quiesced / 19m35s live donor, including upload |
-| Restore/import | 55m46s-1h19m on constrained hardware; 34m24s-37m53s on 256 GiB / 10k / 750 MiB/s hardware | 32m35s on default gp3; 12m02s on 10k / 1000 MiB/s gp3 |
-| RPC query state | not transferred by the key-stream commit-store snapshot | included via `state_store/` |
-| Bottleneck | per-key decode/import, LSM rebuild, LtHash recomputation | object-store and disk throughput |
+| Restore/import | 55m46s-1h19m on constrained hardware; 34m24s-37m53s on 256 GiB / 10k / 750 MiB/s hardware | verified SC-only: 34m04s RPC shape / ~16m22s validator shape on 10k / 1000 MiB/s gp3 (earlier pre-content-check full-archive runs: 32m35s default gp3, 12m02s 10k gp3) |
+| Content verification | inherent: LtHash recomputed from every imported key | explicit: one sequential full re-scan of the installed checkpoint |
+| RPC query state | not transferred by the key-stream commit-store snapshot | rebuilt locally at the archive height from the verified checkpoint (legacy `--include-state-store` shape ships `state_store/`) |
+| Bottleneck | per-key decode/import, LSM rebuild, LtHash recomputation | object-store and disk throughput, plus one sequential verification scan |
 
 The key result is not only that the archive path is faster in these runs. It is
 that it changes what must be optimized: the restore path becomes a file IO
