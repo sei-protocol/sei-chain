@@ -17,9 +17,11 @@ import (
 // stores with uncommitted ApplyChangeSets writes are rejected (the on-disk scan
 // cannot see them).
 //
-// Buffers one DB's worth of KVs in memory at a time and is not cancellable.
-// Intended for tests and offline maintenance / migration checks; not suitable
-// for online verification of production-sized state.
+// Memory is bounded: the scan folds fixed-size chunks into per-module running
+// hashes (LtHash mixing is commutative and associative, so chunked folding
+// yields the same result as a single pass). Suitable for offline verification
+// of production-sized state — e.g. the flatkv-archive restore content check —
+// at the cost of a full sequential read of every data DB. Not cancellable.
 func VerifyLtHash(s Store) error {
 	cs, ok := s.(*CommitStore)
 	if !ok {
@@ -73,12 +75,43 @@ func verifyLtHashInternal(cs *CommitStore) error {
 	return nil
 }
 
+// scanChunkPairs / scanChunkBytes bound how many cloned KV pairs a module
+// accumulates before its chunk is folded into the module's running LtHash.
+// Whichever limit is hit first triggers the fold, keeping peak memory
+// proportional to the chunk size (times live modules) instead of the DB size.
+const (
+	scanChunkPairs = 1 << 16
+	scanChunkBytes = 64 << 20
+)
+
+// moduleScanAcc accumulates one module's scan state: a running LtHash plus the
+// current unfolded chunk of KV pairs.
+type moduleScanAcc struct {
+	hash     *lthash.LtHash
+	buf      []lthash.KVPairWithLastValue
+	bufBytes int64
+}
+
+// fold mixes the buffered chunk into the running hash and resets the buffer.
+// LtHash mixing is commutative and associative, so folding in chunks produces
+// the same hash as a single fold over all pairs.
+func (m *moduleScanAcc) fold() {
+	if len(m.buf) == 0 {
+		return
+	}
+	m.hash, _ = lthash.ComputeLtHash(m.hash, m.buf)
+	m.buf = m.buf[:0]
+	m.bufBytes = 0
+}
+
 // scanDBByModule full-scans one data DB and returns, per module, the LtHash of
 // its keys and their key-count / byte footprint. Meta keys are skipped. Only
 // rows with a non-empty key and non-empty value are counted — the same
 // membership predicate foldChunk / serializeKV use for LtHash MixIn — so the
 // scan is directly comparable to the maintained per-module metadata. Module
-// membership uses the same physical-key routing the write path uses.
+// membership uses the same physical-key routing the write path uses. Pairs are
+// folded into per-module running hashes in bounded chunks, so memory does not
+// grow with DB size.
 func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[string]lthash.ModuleStats, error) {
 	iter, err := db.NewIter(&seidbtypes.IterOptions{})
 	if err != nil {
@@ -86,7 +119,7 @@ func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[st
 	}
 	defer func() { _ = iter.Close() }()
 
-	byModule := make(map[string][]lthash.KVPairWithLastValue)
+	accs := make(map[string]*moduleScanAcc)
 	stats := make(map[string]lthash.ModuleStats)
 	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
@@ -101,10 +134,19 @@ func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[st
 		if err != nil {
 			return nil, nil, fmt.Errorf("route key %x: %w", iter.Key(), err)
 		}
-		byModule[module] = append(byModule[module], lthash.KVPairWithLastValue{
+		acc := accs[module]
+		if acc == nil {
+			acc = &moduleScanAcc{}
+			accs[module] = acc
+		}
+		acc.buf = append(acc.buf, lthash.KVPairWithLastValue{
 			Key:   bytes.Clone(iter.Key()),
 			Value: bytes.Clone(iter.Value()),
 		})
+		acc.bufBytes += int64(len(iter.Key())) + int64(len(iter.Value()))
+		if len(acc.buf) >= scanChunkPairs || acc.bufBytes >= scanChunkBytes {
+			acc.fold()
+		}
 		st := stats[module]
 		st.KeyCount++
 		st.Bytes += int64(len(iter.Key())) + int64(len(iter.Value()))
@@ -114,13 +156,13 @@ func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[st
 		return nil, nil, fmt.Errorf("iterator error: %w", err)
 	}
 
-	hashes := make(map[string]*lthash.LtHash, len(byModule))
-	for module, pairs := range byModule {
-		h, _ := lthash.ComputeLtHash(nil, pairs)
-		if h == nil {
-			h = lthash.New()
+	hashes := make(map[string]*lthash.LtHash, len(accs))
+	for module, acc := range accs {
+		acc.fold()
+		if acc.hash == nil {
+			acc.hash = lthash.New()
 		}
-		hashes[module] = h
+		hashes[module] = acc.hash
 	}
 	return hashes, stats, nil
 }

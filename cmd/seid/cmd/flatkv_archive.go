@@ -344,23 +344,59 @@ func flatKVArchiveRestoreCmd() *cobra.Command {
 			fmt.Printf("Restored FlatKV archive height=%d app_hash=%s into %s and bootstrapped Tendermint state\n",
 				manifest.Height, manifest.AppHash, flatKVRoot)
 
-			// The FlatKV checkpoint is the single source of truth: when the
-			// archive carries no state_store payload, rebuild the query store
-			// locally by iterating the verified checkpoint. Runs after
-			// light-client verification so a bad archive fails before the
-			// (long) rebuild, and only when this node has state-store enabled.
+			skipVerify, err := cmd.Flags().GetBool("skip-content-verification")
+			if err != nil {
+				return fmt.Errorf("get skip-content-verification flag: %w", err)
+			}
 			rebuildSS, err := cmd.Flags().GetBool("rebuild-state-store")
 			if err != nil {
 				return fmt.Errorf("get rebuild-state-store flag: %w", err)
 			}
 			ssConfig := app.ParseSSConfigs(appOpts)
-			switch {
-			case !rebuildSS || !ssConfig.Enable:
-				// Nothing to do: rebuild disabled or node runs without SS.
-			case archiveHasStateStore(manifest):
-				// Legacy archive shape: state_store was installed from the
-				// archive payload above.
-			default:
+			// Rebuild only when the archive carries no state_store payload
+			// (SC-only shape) and this node runs with state-store enabled.
+			needRebuild := rebuildSS && ssConfig.Enable && !archiveHasStateStore(manifest)
+
+			if skipVerify {
+				fmt.Println("WARNING: --skip-content-verification set; installed FlatKV content was NOT " +
+					"re-hashed against the checkpoint's committed LtHash. Content integrity now rests " +
+					"entirely on the archive producer.")
+			}
+			if skipVerify && !needRebuild {
+				return nil
+			}
+
+			store, err := openRestoredFlatKV(cmd.Context(), flatKVRoot, manifest.Height)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = store.Close() }()
+
+			// Content verification: recompute the LtHash from every installed
+			// physical row and check it against the checkpoint's persisted
+			// LtHash metadata. The manifest SHA-256s and the light-client
+			// AppHash check above only cover metadata self-consistency; this
+			// full scan is what binds the installed bytes to the commitment.
+			// The remaining link — persisted LtHash to the light-client
+			// verified AppHash — is enforced by the ABCI handshake on first
+			// start (the app derives its reported hash from this same
+			// metadata and Tendermint compares it to the bootstrapped
+			// state.AppHash), so a mismatch on either link refuses to serve.
+			if !skipVerify {
+				start := time.Now()
+				fmt.Println("Verifying installed FlatKV content against the checkpoint's committed LtHash (full scan)...")
+				if err := flatkv.VerifyLtHash(store); err != nil {
+					return fmt.Errorf("FlatKV content verification failed; the installed archive does not match "+
+						"its own commitment metadata and must not be used: %w", err)
+				}
+				fmt.Printf("Verified FlatKV content (full LtHash re-scan) in %s\n", time.Since(start).Round(time.Second))
+			}
+
+			// The FlatKV checkpoint is the single source of truth: rebuild
+			// the query store locally by iterating the now-verified
+			// checkpoint. Runs after content verification so a bad archive
+			// fails before the (long) rebuild.
+			if needRebuild {
 				if _, statErr := os.Lstat(stateStoreDir); statErr == nil {
 					if !force {
 						return fmt.Errorf("destination state-store dir %s exists (use --force to replace)", stateStoreDir)
@@ -370,7 +406,7 @@ func flatKVArchiveRestoreCmd() *cobra.Command {
 					}
 				}
 				start := time.Now()
-				entries, err := rebuildStateStoreFromFlatKV(cmd.Context(), homeDir, flatKVRoot, manifest.Height, ssConfig)
+				entries, err := rebuildStateStoreFromFlatKV(homeDir, store, manifest.Height, ssConfig)
 				if err != nil {
 					return fmt.Errorf("rebuild state_store from FlatKV: %w", err)
 				}
@@ -389,6 +425,7 @@ func flatKVArchiveRestoreCmd() *cobra.Command {
 	cmd.Flags().String("wasm-dir", "", "Wasm directory to restore if archived (default <home>/wasm)")
 	cmd.Flags().String("state-store-dir", "", "State-store query directory to restore or rebuild (default <home>/data/state_store)")
 	cmd.Flags().Bool("rebuild-state-store", true, "Rebuild state_store at the archive height by iterating the restored FlatKV checkpoint (skipped when the archive carries a state_store payload or state-store is disabled)")
+	cmd.Flags().Bool("skip-content-verification", false, "Skip the full LtHash re-scan that binds installed FlatKV content to the checkpoint's commitment (NOT recommended: content integrity then rests on the archive producer)")
 	cmd.Flags().String(flags.FlagChainID, "", "Expected network chain ID")
 	_ = cmd.MarkFlagRequired("from")
 	_ = cmd.MarkFlagRequired("trust-height")
@@ -417,6 +454,32 @@ func archiveHasStateStore(manifest *flatKVArchiveManifest) bool {
 	return false
 }
 
+// openRestoredFlatKV opens the restored FlatKV checkpoint readonly and checks
+// it loads at the archive height. The caller owns closing the returned store.
+func openRestoredFlatKV(ctx context.Context, flatKVRoot string, height int64) (*flatkv.CommitStore, error) {
+	fcfg := flatkvconfig.DefaultConfig()
+	fcfg.DataDir = flatKVRoot
+	base, err := flatkv.NewCommitStore(ctx, fcfg)
+	if err != nil {
+		return nil, fmt.Errorf("open flatkv store: %w", err)
+	}
+	loaded, err := base.LoadVersion(0, true)
+	if err != nil {
+		_ = base.Close()
+		return nil, fmt.Errorf("load flatkv version: %w", err)
+	}
+	store, ok := loaded.(*flatkv.CommitStore)
+	if !ok {
+		_ = base.Close()
+		return nil, fmt.Errorf("unexpected flatkv store type %T", loaded)
+	}
+	if v := store.Version(); v != height {
+		_ = store.Close()
+		return nil, fmt.Errorf("restored flatkv version %d does not match archive height %d", v, height)
+	}
+	return store, nil
+}
+
 // rebuildStateStoreFromFlatKV populates a fresh state_store at the archive
 // height by iterating every committed physical row of the restored FlatKV
 // checkpoint and feeding it through the same FlatKV-node conversion path the
@@ -424,33 +487,11 @@ func archiveHasStateStore(manifest *flatKVArchiveManifest) bool {
 // version (the archive height); history accumulates from there as the node
 // block-syncs forward.
 func rebuildStateStoreFromFlatKV(
-	ctx context.Context,
 	homeDir string,
-	flatKVRoot string,
+	store *flatkv.CommitStore,
 	height int64,
 	ssConfig seidbconfig.StateStoreConfig,
 ) (int64, error) {
-	fcfg := flatkvconfig.DefaultConfig()
-	fcfg.DataDir = flatKVRoot
-	base, err := flatkv.NewCommitStore(ctx, fcfg)
-	if err != nil {
-		return 0, fmt.Errorf("open flatkv store: %w", err)
-	}
-	loaded, err := base.LoadVersion(0, true)
-	if err != nil {
-		_ = base.Close()
-		return 0, fmt.Errorf("load flatkv version: %w", err)
-	}
-	store, ok := loaded.(*flatkv.CommitStore)
-	if !ok {
-		_ = base.Close()
-		return 0, fmt.Errorf("unexpected flatkv store type %T", loaded)
-	}
-	defer func() { _ = store.Close() }()
-	if v := store.Version(); v != height {
-		return 0, fmt.Errorf("restored flatkv version %d does not match archive height %d", v, height)
-	}
-
 	ssStore, err := ss.NewStateStore(homeDir, ssConfig)
 	if err != nil {
 		return 0, fmt.Errorf("open state store: %w", err)
@@ -868,13 +909,24 @@ func extractFlatKVArchive(path string, dest string) (*flatKVArchiveManifest, err
 	if manifest.FormatVersion != flatKVArchiveFormatVersion {
 		return nil, fmt.Errorf("unsupported archive format version %d", manifest.FormatVersion)
 	}
+	listed := make(map[string]struct{}, len(manifest.Files))
 	for _, file := range manifest.Files {
+		listed[file.Path] = struct{}{}
 		hw, ok := hashes[file.Path]
 		if !ok {
 			return nil, fmt.Errorf("archive missing manifest file %s", file.Path)
 		}
 		if got := hex.EncodeToString(hw.h.Sum(nil)); got != strings.ToLower(file.SHA256) {
 			return nil, fmt.Errorf("sha256 mismatch for %s: got %s want %s", file.Path, got, file.SHA256)
+		}
+	}
+	// Verification must be bidirectional: an entry present in the archive but
+	// absent from the manifest would otherwise be extracted and installed
+	// (the install step renames whole directories) without any hash covering
+	// it. Reject unlisted entries outright.
+	for name := range hashes {
+		if _, ok := listed[name]; !ok {
+			return nil, fmt.Errorf("archive entry %s is not listed in the manifest", name)
 		}
 	}
 	return manifest, nil

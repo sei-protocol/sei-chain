@@ -1,11 +1,17 @@
 package cmd
 
 import (
+	"archive/tar"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -121,13 +127,22 @@ func TestRebuildStateStoreFromFlatKV(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	ssConfig := seidbconfig.DefaultStateStoreConfig()
-	entries, err := rebuildStateStoreFromFlatKV(t.Context(), home, flatKVRoot, height, ssConfig)
+
+	// A height mismatch must refuse to open rather than mislabel versions.
+	_, err = openRestoredFlatKV(t.Context(), flatKVRoot, height+1)
+	require.Error(t, err)
+
+	restored, err := openRestoredFlatKV(t.Context(), flatKVRoot, height)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, restored.Close()) }()
+
+	// The restore-time content check: the full re-scan of the installed rows
+	// must reproduce the checkpoint's committed LtHash.
+	require.NoError(t, flatkv.VerifyLtHash(restored))
+
+	entries, err := rebuildStateStoreFromFlatKV(home, restored, height, ssConfig)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), entries)
-
-	// A height mismatch must refuse to rebuild rather than mislabel versions.
-	_, err = rebuildStateStoreFromFlatKV(t.Context(), home, flatKVRoot, height+1, ssConfig)
-	require.Error(t, err)
 
 	ssStore, err := ss.NewStateStore(home, ssConfig)
 	require.NoError(t, err)
@@ -145,6 +160,76 @@ func TestRebuildStateStoreFromFlatKV(t *testing.T) {
 
 	require.Equal(t, height, ssStore.GetLatestVersion())
 	require.Equal(t, height, ssStore.GetEarliestVersion())
+}
+
+// writeTestArchive hand-rolls a tar.zst with the given manifest and raw
+// entries so tests can construct shapes writeFlatKVArchive would never
+// produce (e.g. entries the manifest does not list).
+func writeTestArchive(t *testing.T, path string, manifest *flatKVArchiveManifest, entries map[string][]byte) {
+	t.Helper()
+	out, err := os.Create(path)
+	require.NoError(t, err)
+	zw, err := zstd.NewWriter(out)
+	require.NoError(t, err)
+	tw := tar.NewWriter(zw)
+
+	manifestBytes, err := json.Marshal(manifest)
+	require.NoError(t, err)
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name: flatKVArchiveManifestName, Mode: 0o644, Size: int64(len(manifestBytes)),
+	}))
+	_, err = tw.Write(manifestBytes)
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(entries))
+	for name := range entries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		require.NoError(t, tw.WriteHeader(&tar.Header{
+			Name: name, Mode: 0o644, Size: int64(len(entries[name])),
+		}))
+		_, err = tw.Write(entries[name])
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	require.NoError(t, zw.Close())
+	require.NoError(t, out.Close())
+}
+
+// TestExtractFlatKVArchiveRejectsUnlistedEntries pins the bidirectional
+// manifest check: an archive entry the manifest does not list would otherwise
+// be extracted and installed (the install step renames whole directories)
+// without any hash covering it.
+func TestExtractFlatKVArchiveRejectsUnlistedEntries(t *testing.T) {
+	listedName := "flatkv/snapshot-00000000000000000001/misc/000001.sst"
+	listedBody := []byte("listed-content")
+	sum := sha256.Sum256(listedBody)
+	manifest := &flatKVArchiveManifest{
+		FormatVersion: flatKVArchiveFormatVersion,
+		ChainID:       "test-chain",
+		Height:        1,
+		SnapshotName:  "snapshot-00000000000000000001",
+		Files: []flatKVArchiveFileEntry{
+			{Path: listedName, Size: int64(len(listedBody)), Mode: 0o644, SHA256: hex.EncodeToString(sum[:])},
+		},
+	}
+
+	// Positive control: an archive matching its manifest extracts cleanly.
+	goodPath := filepath.Join(t.TempDir(), "good.tar.zst")
+	writeTestArchive(t, goodPath, manifest, map[string][]byte{listedName: listedBody})
+	_, err := extractFlatKVArchive(goodPath, t.TempDir())
+	require.NoError(t, err)
+
+	// The same archive with one extra, unlisted entry must be rejected.
+	badPath := filepath.Join(t.TempDir(), "bad.tar.zst")
+	writeTestArchive(t, badPath, manifest, map[string][]byte{
+		listedName: listedBody,
+		"flatkv/snapshot-00000000000000000001/misc/999999.sst": []byte("smuggled"),
+	})
+	_, err = extractFlatKVArchive(badPath, t.TempDir())
+	require.ErrorContains(t, err, "not listed in the manifest")
 }
 
 func TestArchiveHasStateStore(t *testing.T) {
