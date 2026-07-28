@@ -100,6 +100,16 @@ func readEVM(opts configtest.AppOpts) (any, error) { return config.ReadConfig(op
 // FuzzReadConfig drives every plain [evm] key through arbitrary raw values,
 // holding each to the cast its manifest row declares.
 func FuzzReadConfig(f *testing.F) {
+	// Every row gets a nil and a malformed seed, so the two properties this table exists to
+	// state hold for every key on an ordinary `go test` run rather than only under -fuzz. A
+	// plain run replays seeds and nothing else, so a row with no seed is a row whose guard
+	// could be dropped without CI noticing. Same loop as
+	// FuzzGetConfigGuardedKeysPreserveDefaults in sei-cosmos/server/config.
+	for i := range len(evmKeys) {
+		f.Add(uint(i), uint8(0), "", int64(0), false)            // nil: a guarded read keeps the default
+		f.Add(uint(i), uint8(1), "not-a-value", int64(0), false) // malformed: a checked read must refuse it
+	}
+
 	// Seeds span the shapes an operator produces from the three layers that reach
 	// this reader: TOML scalars, environment strings (always strings, never
 	// typed), and cobra flag values.

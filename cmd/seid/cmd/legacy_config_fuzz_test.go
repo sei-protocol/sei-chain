@@ -350,6 +350,21 @@ var appKeys = []appKey{
 // the same value from app.toml is a typed TOML scalar, and every downstream
 // cast.To* sees the difference.
 func FuzzApplyPrecedenceApp(f *testing.F) {
+	// Every row across every layer combination, so no row's precedence depends on the fuzzer
+	// being run by hand. Index 6 (concurrency-workers) is the reason this matters beyond
+	// coverage: it is the only row declaring WantGoType "int", so it is the whole contrast that
+	// makes the type assertion meaningful. Every other row expects "string", which a build that
+	// ignored the flag's declared type would also satisfy.
+	for i := range len(appKeys) {
+		for _, inFile := range []bool{false, true} {
+			for _, inEnv := range []bool{false, true} {
+				for _, inFlag := range []bool{false, true} {
+					f.Add(uint(i), inFile, inEnv, inFlag)
+				}
+			}
+		}
+	}
+
 	f.Add(uint(0), false, false, false)
 	f.Add(uint(0), true, false, false)
 	f.Add(uint(0), false, true, false)

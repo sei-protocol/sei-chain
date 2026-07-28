@@ -21,6 +21,12 @@ import (
 // init, which would break any test binary that ever linked both. Reusing the existing flag
 // is safe because the two mean the same thing, and reading it through Lookup at call time
 // avoids caring which package won the registration.
+//
+// Registering from a library file is the wrong shape in general, since importing a package
+// should not install a process-global flag. It stays here because it cannot move: the only
+// consumer is CheckDefaults, which is exported for other packages' tests and therefore has to
+// live in a non-test file, and a non-test file cannot reference a symbol declared in a
+// _test.go one. Only test binaries import this package, so the exposure is bounded.
 func init() {
 	if flag.Lookup("update") == nil {
 		flag.Bool("update", false, "rewrite golden files with current values")

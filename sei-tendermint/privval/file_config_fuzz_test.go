@@ -1,6 +1,7 @@
 package privval_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -136,5 +137,60 @@ func TestLoadFilePVRequiresBothFiles(t *testing.T) {
 	}
 	if _, err := privval.LoadOrGenFilePV(keyFile, stateFile); err != nil {
 		t.Fatalf("with both files absent, generation must succeed: %v", err)
+	}
+}
+
+// TestLoadOrGenFilePVOverwritesASurvivingStateFile pins the destructive half of that
+// asymmetry, on its own fixture so it does not inherit the removals above.
+//
+// LoadOrGenFilePV branches only on whether the key file exists. With the key gone it calls
+// GenFilePV and then Save(), and Save() writes the state file as well as the key, so a
+// surviving signing history is replaced by a zeroed one belonging to a brand-new identity.
+// Nothing reports it. An operator who then restores the key from backup has already lost the
+// double-sign protection that key needs, which is why the file header calls this the most
+// consequential silent behavior on the configuration surface.
+func TestLoadOrGenFilePVOverwritesASurvivingStateFile(t *testing.T) {
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "priv_validator_key.json")
+	stateFile := filepath.Join(dir, "priv_validator_state.json")
+
+	original, err := privval.LoadOrGenFilePV(keyFile, stateFile)
+	if err != nil {
+		t.Fatalf("seed generation: %v", err)
+	}
+	// A non-zero height, so an overwrite is visible as lost history rather than as a rewrite of
+	// something already empty.
+	original.LastSignState.Height = 42
+	if err := original.LastSignState.Save(); err != nil {
+		t.Fatalf("save sign state: %v", err)
+	}
+	before, err := os.ReadFile(stateFile) //nolint:gosec // fixture path under the test's temp dir
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+
+	if err := os.Remove(keyFile); err != nil {
+		t.Fatalf("remove key file: %v", err)
+	}
+	regenerated, err := privval.LoadOrGenFilePV(keyFile, stateFile)
+	if err != nil {
+		t.Fatalf("with the key absent, generation must succeed: %v", err)
+	}
+	if regenerated.GetAddress().String() == original.GetAddress().String() {
+		t.Fatal("a missing key file must mint a new identity rather than recover the old one")
+	}
+
+	after, err := os.ReadFile(stateFile) //nolint:gosec // fixture path under the test's temp dir
+	if err != nil {
+		t.Fatalf("read state file after regeneration: %v", err)
+	}
+	if bytes.Equal(before, after) {
+		t.Fatal("the surviving state file was left intact. If Save() no longer writes the state " +
+			"alongside the key, a restored key keeps its signing history, and that is an " +
+			"improvement this row should be rewritten to assert rather than a silent loss")
+	}
+	if h := regenerated.LastSignState.Height; h != 0 {
+		t.Fatalf("the regenerated state carries height %d, want 0. The recorded behavior is that "+
+			"the old history is replaced by an empty one, not merged with it", h)
 	}
 }

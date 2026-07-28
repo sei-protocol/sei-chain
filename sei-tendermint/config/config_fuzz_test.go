@@ -104,6 +104,18 @@ func TestValidateBasicDistinguishesAnAbsentModeFromAnUnknownOne(t *testing.T) {
 		t.Fatalf("an absent mode and a misspelled one now report the same failure (%v), so an "+
 			"operator cannot tell whether the key is missing or wrong", absentErr)
 	}
+	// Inequality alone is a proxy: two messages built from one template that merely
+	// interpolates the offending value would differ while carrying the same diagnosis. The
+	// asymmetry that actually tells the two mistakes apart is that a misspelled mode has a value
+	// to quote and an absent one does not, so that is what is asserted. It is a property of the
+	// information each message carries rather than of its phrasing, so it survives a rewrite.
+	if !strings.Contains(unknownErr.Error(), unknown.Mode) {
+		t.Fatalf("the unknown-mode failure (%v) does not name the value the operator wrote (%q); "+
+			"without it they cannot tell a typo from a missing key", unknownErr, unknown.Mode)
+	}
+	if strings.Contains(absentErr.Error(), unknown.Mode) {
+		t.Fatalf("the absent-mode failure (%v) quotes a value that was never set", absentErr)
+	}
 }
 
 // FuzzRootScopeKeysRequireRootScope pins the placement trap on the two root-scope

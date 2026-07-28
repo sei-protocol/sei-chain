@@ -123,6 +123,16 @@ func readSS(opts configtest.AppOpts) (any, error) { return parseSSConfigs(opts),
 // FuzzParseSCConfigs drives every plain [state-commit] key through arbitrary raw
 // values, holding each to its declared cast and guard.
 func FuzzParseSCConfigs(f *testing.F) {
+	// Every row gets a nil and a malformed seed, so the two properties this table exists to
+	// state hold for every key on an ordinary `go test` run rather than only under -fuzz. A
+	// plain run replays seeds and nothing else, so a row with no seed is a row whose guard
+	// could be dropped without CI noticing. Same loop as
+	// FuzzGetConfigGuardedKeysPreserveDefaults in sei-cosmos/server/config.
+	for i := range len(scKeys) {
+		f.Add(uint(i), uint8(0), "", int64(0), false)            // nil: a guarded read keeps the default
+		f.Add(uint(i), uint8(1), "not-a-value", int64(0), false) // malformed: a checked read must refuse it
+	}
+
 	f.Add(uint(0), uint8(2), "", int64(0), true)      // sc-enable as a TOML bool
 	f.Add(uint(0), uint8(8), "", int64(0), false)     // sc-enable as the string "false"
 	f.Add(uint(2), uint8(3), "", int64(100), false)   // async-commit-buffer
@@ -145,6 +155,16 @@ func FuzzParseSCConfigs(f *testing.F) {
 // value is the clobber itself: the resolved field must equal the cast's zero, not
 // the in-code default.
 func FuzzParseSSConfigs(f *testing.F) {
+	// Every row gets a nil and a malformed seed, so the two properties this table exists to
+	// state hold for every key on an ordinary `go test` run rather than only under -fuzz. A
+	// plain run replays seeds and nothing else, so a row with no seed is a row whose guard
+	// could be dropped without CI noticing. Same loop as
+	// FuzzGetConfigGuardedKeysPreserveDefaults in sei-cosmos/server/config.
+	for i := range len(ssKeys) {
+		f.Add(uint(i), uint8(0), "", int64(0), false)            // nil: a guarded read keeps the default
+		f.Add(uint(i), uint8(1), "not-a-value", int64(0), false) // malformed: a checked read must refuse it
+	}
+
 	f.Add(uint(0), uint8(2), "", int64(0), true)
 	f.Add(uint(0), uint8(0), "", int64(0), false) // nil clobbers Enable to false
 	f.Add(uint(1), uint8(1), "pebbledb", int64(0), false)

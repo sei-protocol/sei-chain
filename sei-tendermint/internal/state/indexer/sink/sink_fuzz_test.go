@@ -172,7 +172,6 @@ func TestNullMixedWithAnUnsupportedSinkIsUnspecified(t *testing.T) {
 	booted, failed := countMixedOutcomes(runs)
 	if booted == 0 || failed == 0 {
 		resolveOneSidedOutcome(t, "boots / boot-failures", runs, booted, failed, countMixedOutcomes)
-		return
 	}
 }
 
@@ -279,6 +278,18 @@ func TestEventSinksDistinguishesADuplicateFromAnUnsupportedName(t *testing.T) {
 	if duplicateErr == nil || unsupportedErr == nil {
 		t.Fatalf("both a duplicate and an unsupported name must be rejected, got %v and %v",
 			duplicateErr, unsupportedErr)
+	}
+	// Inequality alone is a proxy, for the same reason as the mode rows: one template
+	// interpolating the offending name would satisfy it while collapsing the diagnosis. Until
+	// PLT-855 adds sentinels there is no identity to match on, so the two reasons are pinned by
+	// the one word each has to carry. That is narrower than wording-matching and it is the
+	// distinction an operator acts on: remove a line, or fix a spelling.
+	if !strings.Contains(duplicateErr.Error(), "duplicat") {
+		t.Fatalf("the duplicate-sink failure (%v) no longer says the name was repeated", duplicateErr)
+	}
+	if !strings.Contains(unsupportedErr.Error(), "unsupported") {
+		t.Fatalf("the unsupported-sink failure (%v) no longer says the name was unrecognized",
+			unsupportedErr)
 	}
 	if duplicateErr.Error() == unsupportedErr.Error() {
 		t.Fatalf("a repeated sink and an unrecognized one now report the same failure (%v), so an "+
