@@ -434,9 +434,9 @@ func TestWaitForAppQC(t *testing.T) {
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
 
-	timeout, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
-	defer cancel()
-	require.ErrorIs(t, state.waitForAppQC(timeout, 0, utils.None[*types.AppQC]()), context.DeadlineExceeded)
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	require.ErrorIs(t, state.waitForAppQC(canceled, 0, utils.None[*types.AppQC]()), context.Canceled)
 
 	lane := keys[0].Public()
 	b, err := state.ProduceLocalBlock(state.NextBlock(lane), types.GenPayload(rng))
@@ -458,9 +458,9 @@ func TestWaitForAppQC(t *testing.T) {
 	require.NoError(t, <-done)
 	require.NoError(t, state.waitForAppQC(ctx, 0, utils.None[*types.AppQC]()))
 
-	timeout2, cancel2 := context.WithTimeout(ctx, 50*time.Millisecond)
-	defer cancel2()
-	require.ErrorIs(t, state.waitForAppQC(timeout2, 1, utils.None[*types.AppQC]()), context.DeadlineExceeded)
+	canceled2, cancel2 := context.WithCancel(ctx)
+	cancel2()
+	require.ErrorIs(t, state.waitForAppQC(canceled2, 1, utils.None[*types.AppQC]()), context.Canceled)
 }
 
 // TestPushVote_WaitsForFutureEpochSigner: a voter not yet in Current parks until

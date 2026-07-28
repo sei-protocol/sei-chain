@@ -520,6 +520,13 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			if m.appQC.IsPresent() {
 				return errors.New("unnecessary appQC")
 			}
+			// Carried-forward App (no attached AppQC) must still be in-window.
+			if app, ok := m.proposal.Msg().App().Get(); ok {
+				if !vs.Epoch().AcceptsAppEpoch(app.EpochIndex()) {
+					return fmt.Errorf("app epoch_index %d not Current (%d) or Current-1",
+						app.EpochIndex(), vs.Epoch().EpochIndex())
+				}
+			}
 		} else {
 			app, _ := m.proposal.Msg().App().Get()
 			appEpoch := app.EpochIndex()

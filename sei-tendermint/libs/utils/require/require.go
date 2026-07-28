@@ -26,6 +26,9 @@ var NotZero = require.NotZero
 // Contains .
 var Contains = require.Contains
 
+// NotContains .
+var NotContains = require.NotContains
+
 func ElementsMatch[T any](t TestingT, a []T, b []T, msgAndArgs ...any) {
 	require.ElementsMatch(t, a, b, msgAndArgs...)
 }

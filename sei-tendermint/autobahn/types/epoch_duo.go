@@ -92,7 +92,8 @@ func (w EpochDuo) EpochForRoad(roadIdx RoadIndex) (*Epoch, error) {
 func (w EpochDuo) String() string {
 	s := "epochs ["
 	sep := ""
-	for _, oep := range [2]utils.Option[*Epoch]{utils.Some(w.Current), w.Prev} {
+	// Prev then Current so a window {4,5} prints as "epochs [4, 5]".
+	for _, oep := range [2]utils.Option[*Epoch]{w.Prev, utils.Some(w.Current)} {
 		if ep, ok := oep.Get(); ok {
 			s += fmt.Sprintf("%s%d", sep, ep.EpochIndex())
 			sep = ", "

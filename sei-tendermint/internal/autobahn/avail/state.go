@@ -228,7 +228,8 @@ func logStaleRoad(what string, roadIdx types.RoadIndex, duo types.EpochDuo) {
 		slog.Uint64("road", uint64(roadIdx)), "duo", duo.String())
 }
 
-// waitUntilRoad waits until status is not RoadFuture; RoadStale → ErrPruned.
+// waitUntilRoad waits until status is not RoadFuture; RoadStale → ErrPruned
+// with the deciding duo still returned for logging.
 func (s *State) waitUntilRoad(
 	ctx context.Context,
 	roadIdx types.RoadIndex,
@@ -244,10 +245,10 @@ func (s *State) waitUntilRoad(
 	case types.RoadReady:
 		return duo, nil
 	case types.RoadStale:
-		return types.EpochDuo{}, types.ErrPruned
+		return duo, types.ErrPruned
 	default:
-		// Wait returned while still Future — should not happen.
-		return types.EpochDuo{}, types.ErrPruned
+		// Wait predicate forbids Future; hitting it is an internal bug.
+		panic(fmt.Sprintf("waitUntilRoad: unexpected RoadFuture for road %d after Wait", roadIdx))
 	}
 }
 
@@ -288,7 +289,7 @@ func (s *State) waitRoadOrDropStale(
 	duo, err := wait(ctx, roadIdx)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
-			logStaleRoad(what, roadIdx, s.epochDuo.Load())
+			logStaleRoad(what, roadIdx, duo)
 			return utils.None[types.EpochDuo](), nil
 		}
 		return utils.None[types.EpochDuo](), err
