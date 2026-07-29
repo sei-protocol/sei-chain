@@ -568,6 +568,7 @@ func TestBlockByHashOrNullForJSONRPC(t *testing.T) {
 		// A non-sentinel error from the TM client (e.g. RPC transport
 		// failure) must NOT be silently swallowed into null.
 		c := &fakeTMClient{status: stat, blockByHashErr: io.ErrUnexpectedEOF}
+		wm := newTestWatermarkManager(c, 100, nil, 100)
 		_, err := blockByHashOrNullForJSONRPC(t.Context(), c, wm, []byte{0xdd}, 0)
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	})

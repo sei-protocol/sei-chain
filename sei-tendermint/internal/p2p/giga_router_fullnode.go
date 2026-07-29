@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"math/rand/v2"
 	"slices"

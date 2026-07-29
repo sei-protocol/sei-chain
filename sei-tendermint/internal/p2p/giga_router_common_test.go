@@ -17,9 +17,8 @@ func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator a
 	client, err := ethrpc.DialContext(t.Context(), rpcURL.String())
 	require.NoError(t, err)
 	t.Cleanup(client.Close)
-	for proxies, ctrl := range router.proxies.Lock() {
+	for proxies := range router.proxies.Lock() {
 		proxies[validator] = client
-		ctrl.Updated()
 	}
 	return client
 }

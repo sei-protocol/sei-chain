@@ -254,12 +254,12 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 // manages lifecycle of evmrpc connections to validators.
 func (r *gigaRouterCommon) runEvmProxies(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		for validator,addr := range r.cfg.ValidatorAddrs {
+		for validator, addr := range r.cfg.ValidatorAddrs {
 			s.SpawnNamed(addr.String(), func() error {
 				for {
-					client, err := ethrpc.DialContext(ctx, addr.String())
+					client, err := ethrpc.DialContext(ctx, addr.EVMRPC.String())
 					if err != nil {
-						logger.Info("evm proxy dial failed", "url", addr, "err", err)
+						logger.Info("evm proxy dial failed", "url", addr.EVMRPC, "err", err)
 						if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
 							return err
 						}
@@ -276,7 +276,7 @@ func (r *gigaRouterCommon) runEvmProxies(ctx context.Context) error {
 							delete(proxies, validator)
 						}
 					}
-					return ctx.Err() 
+					return ctx.Err()
 				}
 			})
 		}
