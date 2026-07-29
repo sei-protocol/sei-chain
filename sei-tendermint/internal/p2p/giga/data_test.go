@@ -98,30 +98,63 @@ func TestDataClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 2)
-	env := newTestEnv(registry)
-	server := env.AddNode(keys[0])
-	client := env.AddNode(keys[1])
-	firstBlock := server.data.Registry().FirstBlock()
+	serverData, err := data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientData, err := data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverService := NewBlockSyncService(serverData)
+	clientService := NewBlockSyncService(clientData)
+	firstBlock := serverData.Registry().FirstBlock()
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error { return env.Run(ctx) })
+		serverConn, clientConn := conn.NewTestConn()
+		serverRPC := rpc.NewServer[API]()
+		clientRPC := rpc.NewClient[API]()
+		s.SpawnBgNamed("server data", func() error {
+			return utils.IgnoreAfterCancel(ctx, serverData.Run(ctx))
+		})
+		s.SpawnBgNamed("client data", func() error {
+			return utils.IgnoreAfterCancel(ctx, clientData.Run(ctx))
+		})
+		s.SpawnBgNamed("server service", func() error {
+			return utils.IgnoreAfterCancel(ctx, serverService.Run(ctx))
+		})
+		s.SpawnBgNamed("client service", func() error {
+			return utils.IgnoreAfterCancel(ctx, clientService.Run(ctx))
+		})
+		s.SpawnBgNamed("mux server", func() error {
+			return utils.IgnoreAfterCancel(ctx, serverRPC.Run(ctx, serverConn))
+		})
+		s.SpawnBgNamed("mux client", func() error {
+			return utils.IgnoreAfterCancel(ctx, clientRPC.Run(ctx, clientConn))
+		})
+		s.SpawnBgNamed("block sync server", func() error {
+			return utils.IgnoreAfterCancel(ctx, serverService.RunBlockSyncServer(ctx, serverRPC))
+		})
+		s.SpawnBgNamed("block sync client", func() error {
+			return utils.IgnoreAfterCancel(ctx, clientService.RunBlockSyncClient(ctx, clientRPC))
+		})
 
 		t.Logf("push data")
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := data.TestCommitQC(rng, server.data.Registry().EpochAtTip(prev), keys, prev)
-			if err := server.data.PushQC(ctx, qc, blocks); err != nil {
+			qc, blocks := data.TestCommitQC(rng, serverData.Registry().EpochAtTip(prev), keys, prev)
+			if err := serverData.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("serverState.PushQC(): %w", err)
 			}
 			prev = utils.Some(qc.QC())
 		}
 		t.Logf("wait for replication")
-		for n := firstBlock; n < server.data.NextBlock(); n++ {
-			want, err := server.data.GlobalBlock(ctx, n)
+		for n := firstBlock; n < serverData.NextBlock(); n++ {
+			want, err := serverData.GlobalBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("serverState.FinalBlock(): %w", err)
 			}
-			got, err := client.data.GlobalBlock(ctx, n)
+			got, err := clientData.GlobalBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("clientState.FinalBlock(): %w", err)
 			}
@@ -129,11 +162,11 @@ func TestDataClientServer(t *testing.T) {
 				return err
 			}
 
-			wantQC, err := server.data.QC(ctx, n)
+			wantQC, err := serverData.QC(ctx, n)
 			if err != nil {
 				return fmt.Errorf("serverState.CommitQC(): %w", err)
 			}
-			gotQC, err := client.data.QC(ctx, n)
+			gotQC, err := clientData.QC(ctx, n)
 			if err != nil {
 				return fmt.Errorf("clientState.CommitQC(): %w", err)
 			}
