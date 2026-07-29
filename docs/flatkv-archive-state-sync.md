@@ -367,11 +367,16 @@ There are three separate online/offline concerns:
   is created, uploaded, downloaded, restored, and later block-synced by the
   target node. The restored node starts from the archived height and catches up
   to the live head through normal block sync.
-- The **target node** must be offline during restore. Restore replaces
-  archive-managed local state directories (`flatkv`, `state_store`, and `wasm`)
-  and bootstraps Tendermint state. The target process should start only after
-  restore and light-client verification succeed. This is an operational
-  convention, not enforced by code: the CLI does not check for a running
+- The **target node** must be offline during restore, and its Tendermint
+  databases must be clean. Restore replaces archive-managed local state
+  directories (`flatkv`, `state_store`, and `wasm`) and bootstraps Tendermint
+  state, but it does not wipe an existing blockstore: bootstrapping onto a
+  home whose blockstore already holds blocks (at any height, above or below
+  the archive height) fails with a non-contiguous-blocks panic. Restoring
+  onto a previously used home therefore requires removing the Tendermint
+  block/state databases first; a fresh home has no such issue. Both the
+  offline requirement and the clean-database requirement are operational
+  conventions, not enforced by code: the CLI does not check for a running
   `seid` process before replacing directories under `--force`. Running
   restore against a live target corrupts it.
 - The **archive donor** keeps producing blocks during archive creation. The
@@ -456,8 +461,8 @@ pacific-1 validator private keys or joining pacific-1 consensus.
   carried 23,847 files; the live-donor archive (height 219,950,000) carried
   23,425. Pebble SST files are already compressed, so zstd gains little.
 
-The four-node forked cluster continued producing blocks stably. During the
-validation window, it advanced from roughly 219,060,002 to beyond 219,344,000,
+The four-node forked cluster continued producing blocks stably. Across the
+validation window, it advanced from roughly 219,060,002 to beyond 220,490,000,
 and all validators reported `catching_up=false`.
 
 ### Timing Results
@@ -478,7 +483,13 @@ and all validators reported `catching_up=false`.
 | — download + extract + install + light-client bootstrap | same | 3m46s |
 | — content verification (full LtHash re-scan, 39 GiB checkpoint / 1.0B rows) | same | 12m36s |
 | — `state_store` rebuild (1,003,795,371 entries, 8 workers) | same | 17m37s |
+| SC-only **verified** restore, full-flow rerun next day (height 220,490,000) | gp3, 10k IOPS / 1000 MiB/s | 35m30s (bootstrap 3m41s, verify 13m42s, rebuild 18m04s; create 4m07s) |
 | Light-client verify + Tendermint bootstrap | included above | ~10-12s |
+
+The verified flow was re-run end to end the next day against a fresh archive
+(create on the live donor through restore, first start, and catch-up on the
+same victim), landing within minutes of the first run on every phase — the
+numbers above are reproducible, not one-off.
 
 A caveat on comparing the pre-content-check rows with the old path: the old
 path's restore cost *includes* content verification (it recomputes the LtHash
@@ -513,13 +524,14 @@ include the default content verification):
 - **RPC shape (SS enabled)**: after verification, restore rebuilds
   `state_store` at the archive height by iterating the verified checkpoint —
   1.0 billion logical entries imported in 17m37s (~950K entries/s with
-  `ss-import-num-workers = 8`), 34m04s end to end. The rebuild duration
-  reproduced exactly (17m37s) across two runs at different heights. The
-  restored node then started, passed the first-start AppHash handshake, and
-  block-synced to the live head. In the earlier (pre-content-check) run, a
+  `ss-import-num-workers = 8`), 34m04s end to end (35m30s on the rerun; the
+  rebuild reproduced within seconds across three runs at different heights).
+  The restored node then started, passed the first-start AppHash handshake,
+  and block-synced to the live head. On the fully verified rerun, a
   height-parameterized query at the archive height (`bank total --height H`)
   returned byte-identical results on the rebuilt node and a donor cluster
-  node.
+  node — the query layer's inheritance of the checkpoint's verification,
+  demonstrated under the complete trust chain.
 
 The production-scale rebuild also surfaced a real conversion bug that
 small-fixture tests cannot hit: `convertFlatKVNodes` applied EVM key-kind
