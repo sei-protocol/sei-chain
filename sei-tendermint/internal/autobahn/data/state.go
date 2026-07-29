@@ -446,7 +446,9 @@ func (s *State) insertBlocksByHash(inner *inner, gr types.GlobalRange, byHash ma
 // waits for the boundary slide (rather than ErrRoadAfterWindow). Epoch via
 // epochDuo only (not Registry). Before-window on a still-needed QC hard-fails;
 // if needQC is false the QC is already applied and a before-window miss is a
-// no-op (stale peer redelivery after the duo slid — do not soft-admit via Registry).
+// no-op. The 4k-block ingest leash is far shorter than the two-epoch window, so
+// blocks accompanying such a stale redelivery are already outside the backfill
+// horizon; do not soft-admit them via Registry.
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
 	gr := qc.QC().GlobalRange()
 	needQC, err := func() (bool, error) {

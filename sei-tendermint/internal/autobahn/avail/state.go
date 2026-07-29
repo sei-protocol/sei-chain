@@ -599,7 +599,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	if err := p.VerifySig(c); err != nil {
-		return fmt.Errorf("block.Verify(): %w", err)
+		return fmt.Errorf("block.VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		ls, ok := inner.lanes[h.Lane()]

@@ -197,7 +197,7 @@ func (x *Service) clientStreamCommitQCs(ctx context.Context, c rpc.Client[API]) 
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
 		if err := x.validatorState().Avail().PushCommitQC(ctx, qc); err != nil {
-			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
+			return fmt.Errorf("s.PushCommitQC(): %w", err)
 		}
 	}
 }
@@ -245,7 +245,7 @@ func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) err
 			return fmt.Errorf("StreamAppQCsRespConv.Decode(): %w", err)
 		}
 		if err := x.validatorState().Avail().PushAppQC(ctx, msg.AppQC, msg.CommitQC); err != nil {
-			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
+			return fmt.Errorf("s.PushAppQC(): %w", err)
 		}
 	}
 }

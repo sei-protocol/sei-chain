@@ -8,9 +8,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-func testDuoEpochs(t *testing.T) (prev, current *types.Epoch) {
+func testDuoEpochs(t *testing.T, rng utils.Rng) (prev, current *types.Epoch) {
 	t.Helper()
-	rng := utils.TestRng()
 	weights := map[types.PublicKey]uint64{}
 	for range 3 {
 		weights[types.GenSecretKey(rng).Public()] = 1
@@ -22,8 +21,8 @@ func testDuoEpochs(t *testing.T) (prev, current *types.Epoch) {
 }
 
 func TestNewEpochDuo_PanicsOnNonContiguousIndex(t *testing.T) {
-	prev, _ := testDuoEpochs(t)
 	rng := utils.TestRng()
+	prev, _ := testDuoEpochs(t, rng)
 	weights := map[types.PublicKey]uint64{types.GenSecretKey(rng).Public(): 1}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
 	// Roads abut, but index jumps 0 → 2.
@@ -51,7 +50,8 @@ func TestNewEpochDuo_PanicsOnNonContiguousRoads(t *testing.T) {
 }
 
 func TestNewEpochDuo_PanicsOnPrevCurrentMismatch(t *testing.T) {
-	prev, current := testDuoEpochs(t)
+	rng := utils.TestRng()
+	prev, current := testDuoEpochs(t, rng)
 	t.Run("prev_absent_with_current_gt_0", func(t *testing.T) {
 		defer func() {
 			if recover() == nil {
@@ -71,8 +71,8 @@ func TestNewEpochDuo_PanicsOnPrevCurrentMismatch(t *testing.T) {
 }
 
 func TestEpochForRoad(t *testing.T) {
-	prev, current := testDuoEpochs(t)
 	rng := utils.TestRng()
+	prev, current := testDuoEpochs(t, rng)
 	weights := map[types.PublicKey]uint64{types.GenSecretKey(rng).Public(): 1}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
 	// Prev absent only for epoch 0.
@@ -113,7 +113,8 @@ func TestEpochForRoad(t *testing.T) {
 }
 
 func TestEpochDuo_RoadStatus(t *testing.T) {
-	prev, current := testDuoEpochs(t)
+	rng := utils.TestRng()
+	prev, current := testDuoEpochs(t, rng)
 	withPrev := types.NewEpochDuo(current, utils.Some(prev))
 	ep0Only := types.NewEpochDuo(prev, utils.None[*types.Epoch]())
 
