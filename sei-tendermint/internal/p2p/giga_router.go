@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	rpc "github.com/ethereum/go-ethereum/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -72,6 +73,6 @@ type GigaRouter interface {
 	MaxGasEstimatedPerBlock() uint64
 	BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)
-	EvmProxy(sender common.Address) utils.Option[*url.URL]
+	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	Mempool() utils.Option[*producer.State]
 }

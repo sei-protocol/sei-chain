@@ -2,13 +2,27 @@ package p2p
 
 import (
 	"context"
+	"net/url"
 	"testing"
 
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
+
+func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator atypes.PublicKey, rpcURL *url.URL) *ethrpc.Client {
+	t.Helper()
+	client, err := ethrpc.DialContext(t.Context(), rpcURL.String())
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+	for proxies, ctrl := range router.proxies.Lock() {
+		proxies[validator] = client
+		ctrl.Updated()
+	}
+	return client
+}
 
 // newSeededVault returns a durable Pebble vault rooted in a temp dir with hash committed at height.
 func newSeededVault(t *testing.T, height atypes.GlobalBlockNumber, hash []byte) hashvault.HashVault {

@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"math/big"
-	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -153,8 +153,8 @@ func (c *rangeCapTMClient) EvmNextPendingNonce(common.Address) uint64 { return 0
 
 func (c *rangeCapTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) { return nil, false }
 
-func (c *rangeCapTMClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	return utils.None[*url.URL]()
+func (c *rangeCapTMClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	return utils.None[*rpc.Client]()
 }
 
 func (c *rangeCapTMClient) Block(_ context.Context, _ *int64) (*coretypes.ResultBlock, error) {

@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rpc"
 	legacyabci "github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -29,7 +29,7 @@ import (
 
 type sendProxyClient struct {
 	*MockClient
-	proxyURL *url.URL
+	proxyClient *rpc.Client
 }
 
 type sendCaptureClient struct {
@@ -37,11 +37,11 @@ type sendCaptureClient struct {
 	tx tmtypes.Tx
 }
 
-func (c *sendProxyClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	if c.proxyURL == nil {
-		return utils.None[*url.URL]()
+func (c *sendProxyClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	if c.proxyClient == nil {
+		return utils.None[*rpc.Client]()
 	}
-	return utils.Some(c.proxyURL)
+	return utils.Some(c.proxyClient)
 }
 
 func (c *sendCaptureClient) BroadcastTx(_ context.Context, tx tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
@@ -136,11 +136,12 @@ func TestSendRawTransactionUsesProxy(t *testing.T) {
 	}))
 	defer server.Close()
 
-	proxyURL, err := url.Parse(server.URL)
+	proxyClient, err := rpc.DialContext(t.Context(), server.URL)
 	require.NoError(t, err)
+	t.Cleanup(proxyClient.Close)
 
 	sendAPI := evmrpc.NewSendAPI(
-		&sendProxyClient{MockClient: &MockClient{}, proxyURL: proxyURL},
+		&sendProxyClient{MockClient: &MockClient{}, proxyClient: proxyClient},
 		func(int64) client.TxConfig { return TxConfig },
 		&evmrpc.SendConfig{},
 		EVMKeeper,

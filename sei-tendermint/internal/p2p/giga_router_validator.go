@@ -3,9 +3,9 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"net/url"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -48,6 +48,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			service:            giga.NewService(consensusState),
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			proxies:            utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			app:                cfg.App,
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
@@ -82,25 +83,26 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
+		s.SpawnNamed("evmProxies", func() error { return r.runEvmProxies(ctx) })
 		return nil
 	})
 }
 
 // EvmProxy on the validator returns None when the sender's shard owner is
-// us (handle locally via mempool, no HTTP round-trip to self). For remote
+// us (handle locally via mempool). For remote
 // shards, we proxy only while the target validator is currently connected;
 // otherwise we keep the tx local as a best-effort availability heuristic.
-func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*url.URL] {
+func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
 	if !r.cfg.EnableEvmProxy {
-		return utils.None[*url.URL]()
+		return utils.None[*ethrpc.Client]()
 	}
-	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
-	if r.validatorKey == shardValidator {
-		return utils.None[*url.URL]()
+	validator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
+	if r.validatorKey == validator {
+		return utils.None[*ethrpc.Client]()
 	}
-	target := r.cfg.ValidatorAddrs[shardValidator]
+	target := r.cfg.ValidatorAddrs[validator]
 	if _, ok := r.poolOut.Get(target.Key); !ok {
-		return utils.None[*url.URL]()
+		return utils.None[*ethrpc.Client]()
 	}
-	return utils.Some(target.EVMRPC)
+	return r.evmProxy(validator)
 }

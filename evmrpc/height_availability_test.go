@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"encoding/hex"
-	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -42,8 +41,8 @@ func (*heightTestClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (*heightTestClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	return utils.None[*url.URL]()
+func (*heightTestClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	return utils.None[*rpc.Client]()
 }
 
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {
