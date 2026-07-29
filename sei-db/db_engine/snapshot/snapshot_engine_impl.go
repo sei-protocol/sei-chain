@@ -1015,10 +1015,9 @@ func (c *snapshotEngine) flushSnapshots(
 			if closeErr != nil {
 				return fmt.Errorf("flush failed to close batch: %w", closeErr)
 			}
-			c.versionLock.Lock()
-			c.unflushedCount -= versionsInBatch
-			c.versionLock.Unlock()
-			c.lifecycleBackpressureCond.Signal()
+			if err := c.recordFlushedVersions(versionsInBatch); err != nil {
+				return fmt.Errorf("flush failed to record flushed versions: %w", err)
+			}
 			versionsInBatch = 0
 		}
 	}
@@ -1032,10 +1031,9 @@ func (c *snapshotEngine) flushSnapshots(
 		if closeErr != nil {
 			return fmt.Errorf("flush failed to close batch: %w", closeErr)
 		}
-		c.versionLock.Lock()
-		c.unflushedCount -= versionsInBatch
-		c.versionLock.Unlock()
-		c.lifecycleBackpressureCond.Signal()
+		if err := c.recordFlushedVersions(versionsInBatch); err != nil {
+			return fmt.Errorf("flush failed to record flushed versions: %w", err)
+		}
 	}
 
 	// Mark the flushed versions as having been flushed.
@@ -1047,6 +1045,25 @@ func (c *snapshotEngine) flushSnapshots(
 	}
 	c.versionLock.Unlock()
 
+	return nil
+}
+
+// recordFlushedVersions debits versionCount from the unflushed version count and releases any Commit
+// blocked on lifecycle backpressure. Returns an error if versionCount exceeds the number of versions
+// currently believed to be unflushed, which means the flush and eligibility scans have disagreed
+// about the flush set: an unsigned underflow here would wedge every future Commit in backpressure
+// with no error, so the disagreement is reported instead.
+func (c *snapshotEngine) recordFlushedVersions(versionCount uint64) error {
+	c.versionLock.Lock()
+	if versionCount > c.unflushedCount {
+		c.versionLock.Unlock()
+		return fmt.Errorf("flushed version count (%d) exceeds the unflushed version count (%d)",
+			versionCount, c.unflushedCount)
+	}
+	c.unflushedCount -= versionCount
+	c.versionLock.Unlock()
+
+	c.lifecycleBackpressureCond.Signal()
 	return nil
 }
 
@@ -1121,6 +1138,13 @@ func (c *snapshotEngine) closeInternal() error {
 	// wakeup.
 	c.versionLock.Lock()
 	c.cancel()
+
+	// Stop serving reads and accepting writes, the same as a brick does: the runner is gone, so any
+	// write accepted from here on could never be flushed. First failure wins inside the shard, so a
+	// brick that already ran keeps reporting its own cause rather than ErrEngineClosed.
+	for _, s := range c.shards {
+		s.takeOutOfService(ErrEngineClosed)
+	}
 	c.versionLock.Unlock()
 	c.lifecycleBackpressureCond.Broadcast()
 

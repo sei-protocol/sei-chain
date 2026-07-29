@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // Shutdown contract under test: when Close returns, the engine's own goroutines have exited;
@@ -194,6 +195,18 @@ func TestMethodsAfterCloseReportEngineClosed(t *testing.T) {
 	require.ErrorIs(t, err, ErrEngineClosed)
 
 	err = snap.AwaitFlush(context.Background())
+	require.ErrorIs(t, err, ErrEngineClosed)
+
+	// Writes must be refused rather than accepted into data that no lifecycle runner remains to
+	// flush, and reads must not keep serving from a closed engine.
+	require.ErrorIs(t, engine.Set([]byte("k"), []byte("v")), ErrEngineClosed)
+	require.ErrorIs(t, engine.Delete([]byte("k")), ErrEngineClosed)
+	require.ErrorIs(t, engine.BatchSet([]*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}}), ErrEngineClosed)
+
+	_, _, err = engine.Get([]byte("k"), true)
+	require.ErrorIs(t, err, ErrEngineClosed)
+
+	_, err = engine.BatchGet([][]byte{[]byte("k")})
 	require.ErrorIs(t, err, ErrEngineClosed)
 }
 

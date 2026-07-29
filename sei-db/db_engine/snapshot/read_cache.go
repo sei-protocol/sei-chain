@@ -201,14 +201,14 @@ func newReadCache(
 
 // outOfServiceLocked returns a second-hand error if this cache has been taken out of service, or nil
 // while it is healthy. The error is inherited from the earlier failure rather than produced by the
-// caller's own read.
+// caller's own operation.
 //
 // The Locked postfix indicates that the caller must hold the shared lock.
 func (c *readCache) outOfServiceLocked() error {
 	if c.outOfServiceErr == nil {
 		return nil
 	}
-	return fmt.Errorf("shard is not serving reads: %w", c.outOfServiceErr)
+	return fmt.Errorf("shard is out of service: %w", c.outOfServiceErr)
 }
 
 // takeOutOfServiceLocked records the failure that stops this cache from serving reads. The first

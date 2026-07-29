@@ -107,8 +107,8 @@ func NewShard(
 	return s, nil
 }
 
-// takeOutOfService stops this shard from serving reads, reporting err as the cause. Called on every
-// shard when the engine bricks, so a failure anywhere stops reads everywhere.
+// takeOutOfService stops this shard from serving reads and accepting writes, reporting err as the
+// cause. Called on every shard when the engine shuts down, so a failure anywhere stops every shard.
 func (s *shard) takeOutOfService(err error) {
 	s.lock.Lock()
 	s.cache.takeOutOfServiceLocked(err)
@@ -279,10 +279,16 @@ func (s *shard) iteratorClosed() {
 	s.lock.Unlock()
 }
 
-// writableLocked reports whether a write may proceed, returning an error while an iterator is open.
+// writableLocked reports whether a write may proceed, returning an error while an iterator is open or
+// once the shard has been taken out of service (the engine was closed or bricked). Without the
+// out-of-service check a post-shutdown write would be accepted into versioned data that no lifecycle
+// runner remains to flush, silently discarding it.
 //
 // The Locked postfix indicates that the caller must hold the shard lock.
 func (s *shard) writableLocked() error {
+	if err := s.cache.outOfServiceLocked(); err != nil {
+		return err
+	}
 	if s.openIterators > 0 {
 		return fmt.Errorf("cannot write while %d iterator(s) are open; close them first",
 			s.openIterators)
