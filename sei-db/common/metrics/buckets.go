@@ -13,11 +13,14 @@ var LatencyBuckets = []float64{
 	0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, // 100ms–5min
 }
 
-// LongLatencyBuckets covers 100ms to 12 hours for whole-lifecycle operations
+// LongLatencyBuckets covers 10ms to 12 hours for whole-lifecycle operations
 // — store open/restart, snapshot rewrite/write/prune, import, WAL catchup —
 // whose durations run to minutes or hours and overflow LatencyBuckets. On a
-// pacific-1-sized store a memIAVL snapshot rewrite takes 1–7 hours.
+// pacific-1-sized store a memIAVL snapshot rewrite takes 1–7 hours. The
+// sub-100ms boundaries matter because some of these operations are usually
+// cheap: pruning is a directory removal, and WAL catchup is often tens of ms.
 var LongLatencyBuckets = []float64{
+	0.01, 0.025, 0.05, // 10ms–50ms
 	0.1, 0.5, 1, 5, 15, 30, // 100ms–30s
 	60, 120, 300, 600, 1200, 1800, // 1min–30min
 	2700, 3600, 5400, 7200, 10800, 14400, // 45min–4h
