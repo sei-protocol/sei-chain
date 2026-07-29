@@ -388,8 +388,7 @@ func TestRestart_DataTipEpochN_AvailConsensusEpochNPlus1(t *testing.T) {
 	dataRoad := epoch.FirstRoad(n)
 	dataQC := fullCommitQCAtRoad(ep1, keys, dataRoad)
 	db1 := newTestBlockDB(t, dataDir)
-	grQC := dataQC.QC().GlobalRange()
-	require.NoError(t, db1.WriteQC(grQC.First, grQC.Next, dataQC))
+	require.NoError(t, db1.WriteQC(dataQC))
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 

@@ -233,40 +233,38 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // commitQCSpan returns the half-open [First, Next) of retained CommitQC roads,
 // or None when the store holds no QCs. Used to seed SetupInitialDuo.
 func commitQCSpan(blockDB types.BlockDB) (utils.Option[types.RoadRange], error) {
-	first, ok, err := boundaryQCRoad(blockDB, false)
-	if err != nil || !ok {
-		return utils.None[types.RoadRange](), err
-	}
-	last, ok, err := boundaryQCRoad(blockDB, true)
+	it, err := blockDB.Iterator(0)
 	if err != nil {
-		return utils.None[types.RoadRange](), err
-	}
-	if !ok {
-		return utils.None[types.RoadRange](), fmt.Errorf("CommitQC span: first present but last missing")
-	}
-	if last < first {
-		return utils.None[types.RoadRange](), fmt.Errorf("CommitQC span: last road %d < first %d", last, first)
-	}
-	return utils.Some(types.RoadRange{First: first, Next: last + 1}), nil
-}
-
-// boundaryQCRoad returns the proposal road of the first (reverse=false) or last
-// (reverse=true) retained CommitQC, or ok=false when the store holds no QCs.
-func boundaryQCRoad(blockDB types.BlockDB, reverse bool) (types.RoadIndex, bool, error) {
-	it, err := blockDB.QCs(reverse)
-	if err != nil {
-		return 0, false, fmt.Errorf("open QC iterator: %w", err)
+		return utils.None[types.RoadRange](), fmt.Errorf("open BlockDB iterator: %w", err)
 	}
 	defer func() { _ = it.Close() }()
-	ok, err := it.Next()
-	if err != nil || !ok {
-		return 0, false, err
+
+	var first, last types.RoadIndex
+	var previous *types.FullCommitQC
+	present := false
+	for {
+		pos, ok, err := it.Next()
+		if err != nil {
+			return utils.None[types.RoadRange](), fmt.Errorf("advance BlockDB iterator: %w", err)
+		}
+		if !ok {
+			break
+		}
+		if pos.QC == previous {
+			continue
+		}
+		previous = pos.QC
+		idx := pos.QC.QC().Proposal().Index()
+		if !present {
+			first = idx
+			present = true
+		}
+		last = idx
 	}
-	qc, err := it.QC()
-	if err != nil {
-		return 0, false, err
+	if !present {
+		return utils.None[types.RoadRange](), nil
 	}
-	return qc.QC().Proposal().Index(), true, nil
+	return utils.Some(types.RoadRange{First: first, Next: last + 1}), nil
 }
 
 // loadFromBlockDB replays QCs and blocks from blockDB into s.inner.
