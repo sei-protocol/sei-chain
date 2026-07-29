@@ -542,7 +542,10 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 	return s.qcFromDB(n)
 }
 
-// PushBlock requires a covering QC (or n < nextBlock → silent drop).
+// PushBlock pushes block to the state.
+// The QC for n must already be present (guaranteed by PushQC ordering), unless
+// the height is already in the contiguous block prefix (n < nextBlock) — in
+// that case the block is dropped silently (already stored or executed/evicted).
 // Same epochDuo before-window hard-fail as PushQC.
 func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error {
 	var ep *types.Epoch

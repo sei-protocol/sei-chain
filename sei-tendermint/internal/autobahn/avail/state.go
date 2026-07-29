@@ -928,7 +928,8 @@ func (s *State) Run(ctx context.Context) error {
 							continue
 						}
 						if b, ok := ls.blocks.q[h.BlockNumber()]; ok {
-							// No need to check against headers; PushQC filters mismatches.
+							// We don't need to check the blocks against the headers,
+							// as bad blocks will be filtered out by PushQC anyway.
 							blocks = append(blocks, b.Msg().Block())
 						}
 					}

@@ -124,7 +124,8 @@ func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) erro
 	return nil
 }
 
-// FirstBlock returns the genesis global block floor (GenDoc.InitialHeight).
+// FirstBlock returns the first global block number of the genesis epoch.
+// Used as the cold-start default (no WAL, no snapshot); WAL overrides this on restart.
 func (r *Registry) FirstBlock() types.GlobalBlockNumber {
 	return r.genesisFirstBlock
 }

@@ -11,7 +11,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// TODO: add dynamic committee members via getOrInsertLane.
+// TODO: when dynamic committee changes are supported, newly joined members
+// must be added via getOrInsertLane (blocks, votes, nextBlockToPersist, and
+// persistedBlockStart live on laneState). Currently lanes are initialized once
+// in newInner from the start EpochDuo. BlockPersister creates lane WALs lazily
+// inside MaybePruneAndPersistLane, but the new member must also appear in
+// inner.lanes before the next persist cycle.
 type inner struct {
 	latestAppQC    utils.Option[*types.AppQC]
 	latestCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]]
@@ -37,9 +42,11 @@ type laneState struct {
 	// ideal. Only RecvBatch needs to be notified of cursor changes;
 	// collectPersistBatch is in the same goroutine and reads it directly.
 	nextBlockToPersist types.BlockNumber
-	// persistedBlockStart gates PushBlock/PushVote capacity (start+BlocksPerLane).
-	// Set from the prune-anchor LaneRange on load / after durable anchor write.
-	// TODO: revisit whether in-mem tipcut alone is enough (side note for another PR).
+	// persistedBlockStart is the block number derived from the last durably
+	// persisted prune anchor for this lane. Block admission (PushBlock,
+	// ProduceBlock, WaitForCapacity, PushVote) uses persistedBlockStart +
+	// BlocksPerLane as the capacity limit, ensuring we never admit more blocks
+	// than can be recovered after a crash.
 	persistedBlockStart types.BlockNumber
 }
 
@@ -146,7 +153,9 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 		return nil, fmt.Errorf("prune anchor required for epoch %d", startEpochDuo.Current.EpochIndex())
 	}
 
-	// Restore CommitQCs above commitQCs.next. Epoch must already be seeded.
+	// Restore persisted CommitQCs. prune() may have already pushed the
+	// anchor's CommitQC, so skip entries below commitQCs.next.
+	// Epoch must already be seeded.
 	for _, lqc := range l.commitQCs {
 		if lqc.Index < i.commitQCs.next {
 			continue
