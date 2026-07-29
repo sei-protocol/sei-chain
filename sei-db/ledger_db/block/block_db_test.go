@@ -1227,6 +1227,39 @@ func testIteratorBlockRequiresPosition(t *testing.T, build builder) {
 		require.Error(t, err, "Block after exhaustion must report misuse, not repeat the last position")
 	})
 
+	t.Run("AfterCloseOnBlocklessPosition", func(t *testing.T) {
+		// Closing on a block-less position is the shape that slips past AfterClose below, which
+		// deliberately closes on a held block. With no block held there is no record to read
+		// through, so an implementation relying on the read failing has nothing to fail on: Next
+		// must reject the call on its own, and Block must not answer for the position it hands back.
+		blockless, _ := openFresh(t, build)
+		defer func() { _ = blockless.Close() }()
+		b := batches[0]
+		require.NoError(t, blockless.WriteQC(b.qc))
+		require.NoError(t, blockless.WriteBlock(b.first, b.blocks[0]))
+
+		it := openIterator(t, blockless)
+		var pos types.Position
+		for {
+			p, ok, err := it.Next()
+			require.NoError(t, err)
+			require.True(t, ok, "expected to reach a block-less position before exhaustion")
+			if !p.HasBlock {
+				pos = p
+				break
+			}
+		}
+		require.False(t, pos.HasBlock, "must be parked on a block-less position for this case to bite")
+
+		require.NoError(t, it.Close())
+
+		_, ok, err := it.Next()
+		require.NoError(t, err, "Next after Close must not error")
+		require.False(t, ok, "Next after Close must report exhaustion, not yield a fresh position")
+		_, err = it.Block()
+		require.Error(t, err, "Block after Close must report misuse")
+	})
+
 	t.Run("AfterClose", func(t *testing.T) {
 		it := openIterator(t, db)
 		pos, ok, err := it.Next()

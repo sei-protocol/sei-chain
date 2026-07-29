@@ -77,6 +77,12 @@ type blockDBIterator struct {
 
 	// exhausted is true once the underlying scan has no more records.
 	exhausted bool
+
+	// closed is true once Close has been called. Next and Block reject calls made afterward.
+	// Checking it explicitly is what makes that rejection uniform: on a trailing block-less position
+	// the scan holds no record, so Next would otherwise skip fill() entirely and hand back a fresh
+	// position without ever touching the closed cursor.
+	closed bool
 }
 
 func (l *blockDBIterator) Next() (types.Position, bool, error) {
@@ -84,7 +90,7 @@ func (l *blockDBIterator) Next() (types.Position, bool, error) {
 	// subsequent Block() reports misuse rather than answering for a stale position.
 	l.positioned = false
 
-	if l.it == nil {
+	if l.closed || l.it == nil {
 		return types.Position{}, false, nil
 	}
 
@@ -239,6 +245,9 @@ func (l *blockDBIterator) collectQC() error {
 }
 
 func (l *blockDBIterator) Block() (utils.Option[*types.Block], error) {
+	if l.closed {
+		return utils.None[*types.Block](), fmt.Errorf("iterator is closed")
+	}
 	if !l.positioned {
 		return utils.None[*types.Block](), fmt.Errorf("iterator is not positioned on a block number")
 	}
@@ -258,8 +267,9 @@ func (l *blockDBIterator) Block() (utils.Option[*types.Block], error) {
 }
 
 func (l *blockDBIterator) Close() error {
-	// A closed iterator holds no position, so Block() reports misuse rather than
-	// reading through a released snapshot.
+	// A closed iterator holds no position, so Next() reports exhaustion and Block() reports misuse
+	// rather than reading through a released snapshot.
+	l.closed = true
 	l.positioned = false
 	if l.it == nil {
 		return nil
