@@ -297,40 +297,16 @@ func (s *State) waitRoadOrDropStale(
 	return utils.Some(duo), nil
 }
 
-// sealNextDuoIfLastRoad runs AppQC + WaitForDuo leashes when idx closes ep.
-// incoming is passed to waitForAppQC (None for CommitQC-only seal).
-func (s *State) sealNextDuoIfLastRoad(
-	ctx context.Context,
-	ep *types.Epoch,
-	idx types.RoadIndex,
-	incoming utils.Option[*types.AppQC],
-) (utils.Option[types.EpochDuo], error) {
-	if !ep.RoadRange().IsLastRoad(idx) {
-		return utils.None[types.EpochDuo](), nil
-	}
-	if err := s.waitForAppQC(ctx, ep.EpochIndex(), incoming); err != nil {
-		return utils.None[types.EpochDuo](), err
-	}
-	nt, err := s.data.Registry().WaitForDuo(ctx, idx+1)
-	if err != nil {
-		return utils.None[types.EpochDuo](), err
-	}
-	return utils.Some(nt), nil
-}
-
 // waitForAppQC blocks until latest AppQC is from epochIdx or later.
-// incoming, if present, is checked off-mutex before waiting on latestAppQC.
 //
-// Called only when sealing epoch N (last road). Epoch 0 is not special-cased:
-// seal is {∅,0}→{0,1} (no Prev drop), but the leash still runs so leaving 0
-// always writes an AppQC anchor for newInner (Current>0 requires one). Do not
-// reintroduce an epochIdx==0 skip: BlocksPerLane only caps local production;
-// peers can PushCommitQC LastRoad(0) (then mid-epoch-1 QCs) with no local
-// AppQC, which would otherwise restart without an anchor.
-func (s *State) waitForAppQC(ctx context.Context, epochIdx types.EpochIndex, incoming utils.Option[*types.AppQC]) error {
-	if c, ok := incoming.Get(); ok && c.Proposal().EpochIndex() >= epochIdx {
-		return nil
-	}
+// Called from runAdvanceEpoch when sealing epoch N (Current's last CommitQC
+// already admitted). Epoch 0 is not special-cased: seal is {∅,0}→{0,1} (no Prev
+// drop), but the leash still runs so leaving 0 always writes an AppQC anchor for
+// newInner (Current>0 requires one). Do not reintroduce an epochIdx==0 skip:
+// BlocksPerLane only caps local production; peers can PushCommitQC LastRoad(0)
+// (then mid-epoch-1 QCs) with no local AppQC, which would otherwise restart
+// without an anchor.
+func (s *State) waitForAppQC(ctx context.Context, epochIdx types.EpochIndex) error {
 	for inner, ctrl := range s.inner.Lock() {
 		ready := func() bool {
 			appQC, ok := inner.latestAppQC.Get()
@@ -349,7 +325,7 @@ func (s *State) waitForAppQC(ctx context.Context, epochIdx types.EpochIndex, inc
 				slog.Uint64("latest_app_qc_epoch", uint64(appQC.Proposal().EpochIndex())),
 			)
 		}
-		logger.Warn("waiting for AppQC before accepting CommitQC from next epoch", attrs...)
+		logger.Warn("waiting for AppQC before advancing epoch", attrs...)
 		return ctrl.WaitUntil(ctx, ready)
 	}
 	panic("unreachable")
@@ -446,8 +422,9 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 	panic("unreachable")
 }
 
-// PushCommitQC admits qc for Current only (too early waits; stale drops),
-// then tip-interlock leashes when sealing (last road of Current).
+// PushCommitQC admits qc for Current only (too early waits; stale drops).
+// Epoch slide is async in runAdvanceEpoch (tip may sit at Current.Next while
+// Current still N; N+1 CommitQCs park on waitForEpoch until the duo advances).
 //
 // Admit-then-verify is intentional backpressure for ahead-of-window QCs.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
@@ -470,13 +447,8 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 
-	// Boundary: switch to the next epoch on Current's last CommitQC.
-	nextDuo, err := s.sealNextDuoIfLastRoad(ctx, ep, idx, utils.None[*types.AppQC]())
-	if err != nil {
-		return err
-	}
 	for inner, ctrl := range s.inner.Lock() {
-		if !inner.insertCommitQCAtTip(qc, nextDuo) {
+		if !inner.insertCommitQCAtTip(qc) {
 			return nil
 		}
 		// latestCommitQC advances only after durable persist (or no-op persister).
@@ -543,8 +515,9 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	return nil
 }
 
-// PushAppQC requires a justifying CommitQC; tipcut insert uses the same
-// sealing leashes as PushCommitQC.
+// PushAppQC requires a justifying CommitQC. Epoch slide is async in
+// runAdvanceEpoch (same as PushCommitQC). Prune before insert so latestAppQC is
+// visible before the advance task observes the new tip.
 //
 // Same admit-then-verify as PushCommitQC.
 func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *types.CommitQC) error {
@@ -580,12 +553,6 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 	if err := commitQC.Verify(ep); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
-	// Seal only when this tipcut closes Current (not Prev's last road).
-	// Pass this AppQC as incoming so a tipcut that first enters epoch N can close N.
-	nextDuo, err := s.sealNextDuoIfLastRoad(ctx, duo.Current, idx, utils.Some(appQC))
-	if err != nil {
-		return err
-	}
 	for inner, ctrl := range s.inner.Lock() {
 		updated, err := inner.prune(appQC, commitQC)
 		if err != nil {
@@ -595,7 +562,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 			return nil
 		}
 		// prune advances pointers first; only then can pushBack land at idx.
-		inner.insertCommitQCAtTip(commitQC, nextDuo)
+		inner.insertCommitQCAtTip(commitQC)
 		ctrl.Updated()
 	}
 	return nil
@@ -897,7 +864,7 @@ func (s *State) produceLocalBlock(n types.BlockNumber, key types.SecretKey, payl
 // Run runs the background tasks of the state.
 //
 // Goroutines: this method spawns long-lived goroutines via scope.SpawnNamed
-// (the persist loop and the FullCommitQC→data-state pusher). Inside
+// (persist, epoch advance, and the FullCommitQC→data-state pusher). Inside
 // runPersist, scope.Parallel spawns short-lived goroutines for concurrent
 // per-lane block and commit-QC persistence. The persist package itself does
 // not spawn goroutines.
@@ -905,6 +872,9 @@ func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		scope.SpawnNamed("persist", func() error {
 			return s.runPersist(ctx, s.persisters)
+		})
+		scope.SpawnNamed("advanceEpoch", func() error {
+			return s.runAdvanceEpoch(ctx)
 		})
 		// Task inserting FullCommitQCs and local blocks to data state.
 		// ErrPruned jumps n forward (AppQC/window prune during catch-up): skipped
@@ -941,6 +911,46 @@ func (s *State) Run(ctx context.Context) error {
 		})
 		return nil
 	})
+}
+
+// runAdvanceEpoch is the sole post-construction writer of epochDuo. When
+// commitQCs tip passes Current's last road, it waits for AppQC of Current and
+// registry WaitForDuo, then advances. Push* must not slide the duo: tip may sit
+// at Current.Next while Current is still N; N+1 CommitQCs park on waitForEpoch.
+func (s *State) runAdvanceEpoch(ctx context.Context) error {
+	for {
+		duo := s.epochDuo.Load()
+		epochIdx := duo.Current.EpochIndex()
+		last := duo.Current.RoadRange().Next - 1
+
+		for inner, ctrl := range s.inner.Lock() {
+			if err := ctrl.WaitUntil(ctx, func() bool {
+				return inner.commitQCs.next > last
+			}); err != nil {
+				return err
+			}
+		}
+
+		if err := s.waitForAppQC(ctx, epochIdx); err != nil {
+			return err
+		}
+		nextDuo, err := s.data.Registry().WaitForDuo(ctx, last+1)
+		if err != nil {
+			return err
+		}
+
+		for inner, ctrl := range s.inner.Lock() {
+			live := inner.epochDuo.Load()
+			if live.Current.EpochIndex() != epochIdx {
+				break
+			}
+			if inner.commitQCs.next <= last {
+				break
+			}
+			inner.advanceEpoch(nextDuo)
+			ctrl.Updated()
+		}
+	}
 }
 
 // runPersist is the main loop for the persist goroutine.

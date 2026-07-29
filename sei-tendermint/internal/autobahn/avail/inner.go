@@ -224,10 +224,11 @@ func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*typ
 	return bv.laneQC(i.epochDuo.Load().Current.Committee().LaneQuorum())
 }
 
-// advanceEpoch installs nextDuo at a boundary. Caller must ensure nextDuo is
-// the next epoch after Current and that seal leashes (waitForAppQC, registry
-// WaitForDuo) are already satisfied. Adds Current lanes; does not delete old
-// lanes (TODO(lane-expiry)).
+// advanceEpoch installs nextDuo at a boundary. Sole post-construction writer of
+// epochDuo (via runAdvanceEpoch). Caller must ensure nextDuo is the next epoch
+// after Current and that seal leashes (waitForAppQC, registry WaitForDuo) are
+// already satisfied. Adds Current lanes; does not delete old lanes
+// (TODO(lane-expiry)).
 func (i *inner) advanceEpoch(nextDuo types.EpochDuo) {
 	current := nextDuo.Current
 	for lane := range current.Committee().Lanes().All() {
@@ -241,16 +242,13 @@ func (i *inner) advanceEpoch(nextDuo types.EpochDuo) {
 	i.epochDuo.Store(nextDuo)
 }
 
-// insertCommitQCAtTip inserts qc at commitQCs.next. If nextDuo is set and idx
-// still closes live Current, advances the duo first (same order as PushCommitQC /
-// PushAppQC). Returns false if idx is not the tip (race / already applied).
-func (i *inner) insertCommitQCAtTip(qc *types.CommitQC, nextDuo utils.Option[types.EpochDuo]) bool {
+// insertCommitQCAtTip inserts qc at commitQCs.next. Returns false if idx is not
+// the tip (race / already applied). Does not advance epochDuo — runAdvanceEpoch
+// slides the window after tip passes Current's last road (intentional gap).
+func (i *inner) insertCommitQCAtTip(qc *types.CommitQC) bool {
 	idx := qc.Proposal().Index()
 	if idx != i.commitQCs.next {
 		return false
-	}
-	if nd, ok := nextDuo.Get(); ok && i.epochDuo.Load().Current.RoadRange().Has(idx) {
-		i.advanceEpoch(nd)
 	}
 	i.commitQCs.pushBack(qc)
 	metrics.ObserveCommitQC(qc)
