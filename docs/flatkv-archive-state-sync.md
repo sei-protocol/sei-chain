@@ -186,7 +186,7 @@ sequenceDiagram
 
     Operator->>ArchiveCLI: seid flatkv-archive restore
     ArchiveCLI->>ObjectStore: download archive
-    ArchiveCLI->>ArchiveCLI: extract; verify SHA-256 both directions
+    ArchiveCLI->>ArchiveCLI: extract, verify SHA-256 both directions
     ArchiveCLI->>TargetNode: install FlatKV checkpoint
     ArchiveCLI->>TrustedRPC: verify archived AppHash via light client
     ArchiveCLI->>TargetNode: bootstrap Tendermint state at archived height
