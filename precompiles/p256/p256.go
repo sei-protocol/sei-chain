@@ -72,6 +72,12 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 
 	switch method.Name {
 	case VerifyMethod:
+		// Charge the fixed verification cost here, OUTSIDE verify's panic
+		// recovery, so an out-of-gas panic propagates (failing the tx) instead of
+		// being caught and downgraded to a reverted call. This matches the
+		// framework's executor out-of-gas semantics and the sibling
+		// json/pointerview precompiles, which charge their work gas unguarded.
+		ctx.GasMeter().ConsumeGas(P256VerifyGas, "p256Verify")
 		return p.verify(ctx, method, args)
 	}
 	return
@@ -94,9 +100,6 @@ func (p PrecompileExecutor) verify(ctx sdk.Context, method *abi.Method, args []i
 		return
 	}
 	input := args[0].([]byte)
-
-	// Charge the fixed verification cost before performing the crypto work.
-	ctx.GasMeter().ConsumeGas(P256VerifyGas, "p256Verify")
 
 	// Required input length is 160 bytes
 	const p256VerifyInputLength = 160
