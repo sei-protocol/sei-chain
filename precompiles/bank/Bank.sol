@@ -16,6 +16,13 @@ interface IBank {
         uint256 amount
     ) external returns (bool success);
 
+    function multiSend(
+        address fromAddress,
+        address[] memory toAddresses,
+        string memory denom,
+        uint256[] memory amounts
+    ) external returns (bool success);
+
     function sendNative(
         string memory toNativeAddress
     ) payable external returns (bool success);

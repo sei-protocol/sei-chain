@@ -886,6 +886,10 @@ func (tk *TestDistributionKeeper) GetDelegatorWithdrawAddr(ctx sdk.Context, delA
 	return delAddr
 }
 
+func (tk *TestDistributionKeeper) FundCommunityPool(ctx sdk.Context, amount sdk.Coins, sender sdk.AccAddress) error {
+	return nil
+}
+
 func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error) {
 	uatomCoins := 1
 	val1useiCoins := 5
@@ -934,6 +938,10 @@ func (tk *TestEmptyRewardsDistributionKeeper) DelegationTotalRewards(ctx context
 
 func (tk *TestEmptyRewardsDistributionKeeper) GetDelegatorWithdrawAddr(ctx sdk.Context, delAddr sdk.AccAddress) sdk.AccAddress {
 	return delAddr
+}
+
+func (tk *TestEmptyRewardsDistributionKeeper) FundCommunityPool(ctx sdk.Context, amount sdk.Coins, sender sdk.AccAddress) error {
+	return nil
 }
 
 func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
@@ -1609,4 +1617,79 @@ func TestWithdrawValidatorCommission_InputValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFundCommunityPool(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
+	require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
+
+	beforePool := testApp.DistrKeeper.GetFeePoolCommunityCoins(ctx)
+
+	// fund the community pool with 100usei sent as tx value
+	abi := pcommon.MustGetABI(f, "abi.json")
+	args, err := abi.Pack("fundCommunityPool")
+	require.Nil(t, err)
+	addr := common.HexToAddress(distribution.DistrAddress)
+	txData := ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      20000000,
+		To:       &addr,
+		Value:    big.NewInt(100_000_000_000_000),
+		Data:     args,
+		Nonce:    0,
+	}
+	chainID := k.ChainID(ctx)
+	chainCfg := evmtypes.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	msgServer := keeper.NewMsgServerImpl(k)
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
+	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	require.Nil(t, err)
+	require.Empty(t, res.VmError)
+
+	afterPool := testApp.DistrKeeper.GetFeePoolCommunityCoins(ctx)
+	require.Equal(t, sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(100))), afterPool.Sub(beforePool))
+
+	receipt, err := k.GetTransientReceipt(ctx, tx.Hash(), 0)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.Equal(t, distribution.CommunityPoolFundedEventSig, common.HexToHash(receipt.Logs[0].Topics[0]))
+	require.Equal(t, common.BytesToHash(evmAddr.Bytes()), common.HexToHash(receipt.Logs[0].Topics[1]))
+	require.NotEmpty(t, receipt.Logs[0].Data)
+
+	// error cases
+	p, err := distribution.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.Nil(t, err)
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{StateDB: statedb, TxContext: vm.TxContext{Origin: evmAddr}}
+	executor := p.GetExecutor().(*distribution.PrecompileExecutor)
+	// should error because of read only call
+	_, _, err = p.RunAndCalculateGas(&evm, evmAddr, evmAddr, executor.FundCommunityPoolID, 100000, big.NewInt(100), nil, true, false)
+	require.NotNil(t, err)
+	// should error because caller is not associated
+	_, unassociatedEvmAddr := testkeeper.MockAddressPair()
+	_, _, err = p.RunAndCalculateGas(&evm, unassociatedEvmAddr, unassociatedEvmAddr, executor.FundCommunityPoolID, 100000, big.NewInt(100), nil, false, false)
+	require.NotNil(t, err)
+	// should error because value is zero
+	_, _, err = p.RunAndCalculateGas(&evm, evmAddr, evmAddr, executor.FundCommunityPoolID, 100000, big.NewInt(0), nil, false, false)
+	require.NotNil(t, err)
 }

@@ -30,10 +30,11 @@ import (
 )
 
 const (
-	GetSeiAddressMethod = "getSeiAddr"
-	GetEvmAddressMethod = "getEvmAddr"
-	Associate           = "associate"
-	AssociatePubKey     = "associatePubKey"
+	GetSeiAddressMethod      = "getSeiAddr"
+	GetEvmAddressMethod      = "getEvmAddr"
+	Associate                = "associate"
+	AssociatePubKey          = "associatePubKey"
+	AssociateContractAddress = "associateContractAddress"
 )
 
 const (
@@ -47,13 +48,15 @@ var f embed.FS
 
 type PrecompileExecutor struct {
 	evmKeeper     putils.EVMKeeper
+	evmMsgServer  putils.EvmMsgServer
 	bankKeeper    putils.BankKeeper
 	accountKeeper putils.AccountKeeper
 
-	GetSeiAddressID   []byte
-	GetEvmAddressID   []byte
-	AssociateID       []byte
-	AssociatePubKeyID []byte
+	GetSeiAddressID            []byte
+	GetEvmAddressID            []byte
+	AssociateID                []byte
+	AssociatePubKeyID          []byte
+	AssociateContractAddressID []byte
 }
 
 func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
@@ -62,6 +65,7 @@ func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error
 
 	p := &PrecompileExecutor{
 		evmKeeper:     keepers.EVMK(),
+		evmMsgServer:  keepers.EvmMS(),
 		bankKeeper:    keepers.BankK(),
 		accountKeeper: keepers.AccountK(),
 	}
@@ -76,6 +80,8 @@ func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error
 			p.AssociateID = m.ID
 		case AssociatePubKey:
 			p.AssociatePubKeyID = m.ID
+		case AssociateContractAddress:
+			p.AssociateContractAddressID = m.ID
 		}
 	}
 
@@ -84,13 +90,13 @@ func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
-	if bytes.Equal(method.ID, p.AssociateID) || bytes.Equal(method.ID, p.AssociatePubKeyID) {
+	if bytes.Equal(method.ID, p.AssociateID) || bytes.Equal(method.ID, p.AssociatePubKeyID) || bytes.Equal(method.ID, p.AssociateContractAddressID) {
 		return 50000
 	}
 	return pcommon.DefaultGasCost(input, p.IsTransaction(method.Name))
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, _ common.Address, _ common.Address, args []interface{}, value *big.Int, readOnly bool, _ *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, _ common.Address, args []interface{}, value *big.Int, readOnly bool, _ *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	// Needed to catch gas meter panics
 	defer func() {
 		if r := recover(); r != nil {
@@ -112,6 +118,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, _ commo
 			return nil, 0, errors.New("cannot call associate pub key precompile from staticcall")
 		}
 		return p.associatePublicKey(ctx, method, args, value)
+	case AssociateContractAddress:
+		if readOnly {
+			return nil, 0, errors.New("cannot call associate contract address precompile from staticcall")
+		}
+		return p.associateContractAddress(ctx, method, caller, args, value)
 	}
 	return
 }
@@ -254,9 +265,35 @@ func (p PrecompileExecutor) associateAddresses(ctx sdk.Context, method *abi.Meth
 	return ret, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
 }
 
+func (p PrecompileExecutor) associateContractAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, err error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
+
+	msg := &types.MsgAssociateContractAddress{
+		Sender:  p.evmKeeper.GetSeiAddressOrDefault(ctx, caller).String(),
+		Address: args[0].(string),
+	}
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, 0, err
+	}
+
+	if _, err := p.evmMsgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), msg); err != nil {
+		return nil, 0, err
+	}
+
+	seiAddr := sdk.MustAccAddressFromBech32(msg.Address)
+	ret, err = method.Outputs.Pack(seiAddr.String(), common.BytesToAddress(seiAddr))
+	return ret, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+}
+
 func (PrecompileExecutor) IsTransaction(method string) bool {
 	switch method {
-	case Associate, AssociatePubKey:
+	case Associate, AssociatePubKey, AssociateContractAddress:
 		return true
 	default:
 		return false

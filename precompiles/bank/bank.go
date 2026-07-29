@@ -21,6 +21,7 @@ import (
 
 const (
 	SendMethod              = "send"
+	MultiSendMethod         = "multiSend"
 	SendNativeMethod        = "sendNative"
 	BalanceMethod           = "balance"
 	AllBalancesMethod       = "all_balances"
@@ -53,6 +54,7 @@ type PrecompileExecutor struct {
 	address       common.Address
 
 	SendID              []byte
+	MultiSendID         []byte
 	SendNativeID        []byte
 	BalanceID           []byte
 	AllBalancesID       []byte
@@ -116,6 +118,8 @@ func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error
 		switch name {
 		case SendMethod:
 			p.SendID = m.ID
+		case MultiSendMethod:
+			p.MultiSendID = m.ID
 		case SendNativeMethod:
 			p.SendNativeID = m.ID
 		case BalanceMethod:
@@ -167,6 +171,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	switch method.Name {
 	case SendMethod:
 		return p.send(ctx, caller, method, args, value, readOnly)
+	case MultiSendMethod:
+		return p.multiSend(ctx, caller, method, args, value, readOnly)
 	case SendNativeMethod:
 		return p.sendNative(ctx, method, args, caller, callingContract, value, readOnly, hooks, evm)
 	case BalanceMethod:
@@ -241,6 +247,73 @@ func (p PrecompileExecutor) send(ctx sdk.Context, caller common.Address, method 
 	}
 
 	if _, err = p.bankMsgServer.Send(sdk.WrapSDKContext(ctx), msg); err != nil {
+		return nil, 0, err
+	}
+
+	bz, err := method.Outputs.Pack(true)
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+}
+
+func (p PrecompileExecutor) multiSend(ctx sdk.Context, caller common.Address, method *abi.Method, args []interface{}, value *big.Int, readOnly bool) ([]byte, uint64, error) {
+	if readOnly {
+		return nil, 0, errors.New("cannot call multiSend from staticcall")
+	}
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
+		return nil, 0, err
+	}
+	denom := args[2].(string)
+	if denom == "" {
+		return nil, 0, errors.New("invalid denom")
+	}
+	pointer, _, exists := p.evmKeeper.GetERC20NativePointer(ctx, denom)
+	if !exists || pointer.Cmp(caller) != 0 {
+		return nil, 0, fmt.Errorf("only pointer %s can send %s but got %s", pointer.Hex(), denom, caller.Hex())
+	}
+	toAddresses := args[1].([]common.Address)
+	amounts := args[3].([]*big.Int)
+	if len(toAddresses) == 0 || len(toAddresses) != len(amounts) {
+		return nil, 0, errors.New("toAddresses and amounts must be non-empty and of equal length")
+	}
+	senderSeiAddr, err := p.accAddressFromArg(ctx, args[0])
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total := sdk.ZeroInt()
+	outputs := make([]banktypes.Output, 0, len(toAddresses))
+	for i, toAddress := range toAddresses {
+		if amounts[i].Cmp(utils.Big0) == 0 {
+			// zero-amount entries are no-ops, mirroring send's zero short circuit
+			continue
+		}
+		receiverSeiAddr, err := p.accAddressFromArg(ctx, toAddress)
+		if err != nil {
+			return nil, 0, err
+		}
+		amount := sdk.NewIntFromBigInt(amounts[i])
+		total = total.Add(amount)
+		outputs = append(outputs, banktypes.NewOutput(receiverSeiAddr, sdk.NewCoins(sdk.NewCoin(denom, amount))))
+	}
+	if len(outputs) == 0 {
+		// short circuit
+		bz, err := method.Outputs.Pack(true)
+		return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+	}
+
+	msg := banktypes.NewMsgMultiSend(
+		[]banktypes.Input{banktypes.NewInput(senderSeiAddr, sdk.NewCoins(sdk.NewCoin(denom, total)))},
+		outputs,
+	)
+
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, 0, err
+	}
+
+	if _, err := p.bankMsgServer.MultiSend(sdk.WrapSDKContext(ctx), msg); err != nil {
 		return nil, 0, err
 	}
 
@@ -644,6 +717,8 @@ func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) 
 func (PrecompileExecutor) IsTransaction(method string) bool {
 	switch method {
 	case SendMethod:
+		return true
+	case MultiSendMethod:
 		return true
 	case SendNativeMethod:
 		return true

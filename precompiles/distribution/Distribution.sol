@@ -16,6 +16,7 @@ interface IDistr {
     event DelegationRewardsWithdrawn(address indexed delegator, string validator, uint256 amount);
     event MultipleDelegationRewardsWithdrawn(address indexed delegator, string[] validators, uint256[] amounts);
     event ValidatorCommissionWithdrawn(string indexed validator, uint256 amount);
+    event CommunityPoolFunded(address indexed depositor, uint256 amount);
 
     // Transactions
     
@@ -41,6 +42,12 @@ interface IDistr {
     /// @dev Only the validator operator can withdraw their commission
     /// @return success True if commission was withdrawn successfully
     function withdrawValidatorCommission() external returns (bool success);
+
+    /// @notice Funds the community pool with the usei sent as the call's value
+    /// @dev The caller must have a valid associated Sei address; the value must
+    ///      have no non-zero wei remainder (1usei = 10^12 wei)
+    /// @return success True if the community pool was funded successfully
+    function fundCommunityPool() external payable returns (bool success);
 
     // Queries
     
