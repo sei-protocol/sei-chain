@@ -13,9 +13,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// Shutdown contract under test: when Close returns, the engine's own goroutines have exited;
-// no caller is left deadlocked in a method; blocked callers may resolve with either a real
-// value or an error. Close does not flush and does not touch the injected DB or pools.
+// Shutdown contract under test: when Close returns, no engine-owned goroutine will touch the
+// injected DB or pools again; no caller is left deadlocked in a method; blocked callers may resolve
+// with either a real value or an error. Close does not flush and does not touch the injected DB or
+// pools.
 
 // Close must wait for the lifecycle runner to report offline, even when the runner is stalled
 // inside a batch commit.

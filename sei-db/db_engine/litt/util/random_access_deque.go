@@ -10,5 +10,7 @@ type RandomAccessDeque[T any] = structures.Deque[T]
 // NewRandomAccessDeque creates a structures.Deque with the given initial capacity. Retained as a
 // compatibility shim for the former util deque constructor.
 func NewRandomAccessDeque[T any](initialCapacity uint64) *structures.Deque[T] {
-	return structures.NewDequeWithCapacity[T](int(initialCapacity)) //nolint:gosec // capacity fits int
+	// Callers pass lengths or constants. A value that did overflow int would only cost the capacity
+	// hint: the deque falls back to its minimum size and grows on demand.
+	return structures.NewDequeWithCapacity[T](int(initialCapacity)) //nolint:gosec
 }

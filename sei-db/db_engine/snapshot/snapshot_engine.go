@@ -98,16 +98,8 @@ type SnapshotEngine interface {
 	// snapshots are hashed and flushed.
 	InitialHash() []byte
 
-	// Close shuts the engine down. When it returns, the engine's background goroutines have
-	// exited and every caller blocked in an engine or snapshot method has been released with
-	// either a real result or an error wrapping ErrEngineClosed (or the engine's fatal error).
-	// Reads, writes, and Commit issued after Close returns fail the same way; in particular a
-	// write is refused rather than accepted into data that no longer has a runner to flush it.
-	//
-	// Close does not flush (unflushed snapshot data is recovered upstream via WAL replay) and
-	// does not close the injected database or thread pools; the caller owns those and must tear
-	// them down after the engine, pools before the database. Close is idempotent: repeat calls
-	// return the first result, which is the latched fatal error if the engine failed.
+	// Releases every blocked caller and schedules for all resources held to be released. When Close returns
+	// no engine-owned goroutine will touch the low level DB again. Idempotent.
 	Close() error
 }
 
