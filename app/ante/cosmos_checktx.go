@@ -37,7 +37,10 @@ import (
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
-const maxNestedMsgs = 5
+const (
+	maxNestedMsgs    = 5
+	maxNestedPubKeys = 5
+)
 
 var (
 	_ GasTx = (*legacytx.StdTx)(nil) // assert StdTx implements GasTx
@@ -218,7 +221,7 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 		if pk == nil {
 			continue
 		}
-		if err := validatePubKey(pk, &remainingSigCount); err != nil {
+		if err := validatePubKey(pk, &remainingSigCount, 0); err != nil {
 			return oracleVote, err
 		}
 	}
@@ -253,7 +256,7 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 	return oracleVote, nil
 }
 
-func validatePubKey(pubKey cryptotypes.PubKey, remainingSigCount *uint64) (err error) {
+func validatePubKey(pubKey cryptotypes.PubKey, remainingSigCount *uint64, depth int) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "invalid public key: %v", r)
@@ -266,6 +269,9 @@ func validatePubKey(pubKey cryptotypes.PubKey, remainingSigCount *uint64) (err e
 	case *kmultisig.LegacyAminoPubKey:
 		if pk == nil {
 			return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "missing multisig public key")
+		}
+		if depth >= maxNestedPubKeys {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "multisig public key nesting exceeds limit %d", maxNestedPubKeys)
 		}
 
 		pubKeyCount := len(pk.PubKeys)
@@ -288,14 +294,11 @@ func validatePubKey(pubKey cryptotypes.PubKey, remainingSigCount *uint64) (err e
 			if !ok {
 				return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "invalid multisig public key at index %d", i)
 			}
-			if err := validatePubKey(child, remainingSigCount); err != nil {
+			if err := validatePubKey(child, remainingSigCount, depth+1); err != nil {
 				return sdkerrors.Wrapf(err, "invalid multisig public key at index %d", i)
 			}
 		}
 
-		if len(pk.Address()) == 0 {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "invalid multisig public key")
-		}
 		return nil
 	case *secp256k1.PubKey:
 		if pk == nil {
@@ -457,7 +460,7 @@ func CheckPubKeys(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKe
 		// Normal CheckTx/DeliverTx callers already validate provided pubkeys in
 		// CosmosStatelessChecks. Revalidate here as a defensive guard because the
 		// next step persists this pubkey to account state.
-		if err := validatePubKey(pk, nil); err != nil {
+		if err := validatePubKey(pk, nil, 0); err != nil {
 			return nil, err
 		}
 		err = acc.SetPubKey(pk)

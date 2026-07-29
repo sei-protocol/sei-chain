@@ -241,6 +241,22 @@ func TestCosmosStatelessChecksRejectsOversizedMultisigBeforePubKeyValidation(t *
 	require.NotContains(t, err.Error(), "invalid secp256k1 public key")
 }
 
+func TestCosmosStatelessChecksRejectsDeepNestedMultisig(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+
+	_, leafPubKey, _ := testdata.KeyTestPubAddr()
+	nestedPubKey := leafPubKey
+	for i := 0; i < 5; i++ {
+		nestedPubKey = kmultisig.NewLegacyAminoPubKey(1, []cryptotypes.PubKey{nestedPubKey})
+	}
+	signedTx, _ := buildNestedMultisigTx(t, ctx, nestedPubKey)
+
+	_, err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "multisig public key nesting exceeds limit")
+}
+
 func TestCheckPubKeysRejectsInvalidNestedMultisigKey(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
