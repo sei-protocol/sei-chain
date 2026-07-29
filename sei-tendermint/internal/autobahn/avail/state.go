@@ -252,32 +252,32 @@ func (s *State) waitUntilRoad(
 	}
 }
 
-// waitCurrentRoad waits until roadIdx is in Current (CommitQC tip).
-func (s *State) waitCurrentRoad(ctx context.Context, roadIdx types.RoadIndex) (types.EpochDuo, error) {
+// waitForEpoch waits until roadIdx is in Current (CommitQC tip).
+func (s *State) waitForEpoch(ctx context.Context, roadIdx types.RoadIndex) (types.EpochDuo, error) {
 	return s.waitUntilRoad(ctx, roadIdx, func(d types.EpochDuo) types.RoadStatus {
 		return d.RoadStatusCurrent(roadIdx)
 	})
 }
 
-// waitDuoRoad waits until roadIdx is in Prev|Current (AppVote/AppQC).
-func (s *State) waitDuoRoad(ctx context.Context, roadIdx types.RoadIndex) (types.EpochDuo, error) {
+// waitForEpochDuo waits until roadIdx is in Prev|Current (AppVote/AppQC).
+func (s *State) waitForEpochDuo(ctx context.Context, roadIdx types.RoadIndex) (types.EpochDuo, error) {
 	return s.waitUntilRoad(ctx, roadIdx, func(d types.EpochDuo) types.RoadStatus {
 		return d.RoadStatusDuo(roadIdx)
 	})
 }
 
-// waitCurrentRoadOrDropStale is PushCommitQC admit: wait for Current, soft-drop if stale.
-func (s *State) waitCurrentRoadOrDropStale(
+// waitForEpochOrDropStale is PushCommitQC admit: wait for Current, soft-drop if stale.
+func (s *State) waitForEpochOrDropStale(
 	ctx context.Context, what string, roadIdx types.RoadIndex,
 ) (utils.Option[types.EpochDuo], error) {
-	return s.waitRoadOrDropStale(ctx, what, roadIdx, s.waitCurrentRoad)
+	return s.waitRoadOrDropStale(ctx, what, roadIdx, s.waitForEpoch)
 }
 
-// waitDuoRoadOrDropStale is PushAppVote/PushAppQC admit: wait for Prev|Current, soft-drop if stale.
-func (s *State) waitDuoRoadOrDropStale(
+// waitForEpochDuoOrDropStale is PushAppVote/PushAppQC admit: wait for Prev|Current, soft-drop if stale.
+func (s *State) waitForEpochDuoOrDropStale(
 	ctx context.Context, what string, roadIdx types.RoadIndex,
 ) (utils.Option[types.EpochDuo], error) {
-	return s.waitRoadOrDropStale(ctx, what, roadIdx, s.waitDuoRoad)
+	return s.waitRoadOrDropStale(ctx, what, roadIdx, s.waitForEpochDuo)
 }
 
 func (s *State) waitRoadOrDropStale(
@@ -457,7 +457,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	admitted, err := s.waitCurrentRoadOrDropStale(ctx, "CommitQC", idx)
+	admitted, err := s.waitForEpochOrDropStale(ctx, "CommitQC", idx)
 	if err != nil {
 		return err
 	}
@@ -496,7 +496,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		return err
 	}
 	// Too-early roads (ahead of Prev|Current) backpressure; too-late are dropped.
-	admitted, err := s.waitDuoRoadOrDropStale(ctx, "AppVote", idx)
+	admitted, err := s.waitForEpochDuoOrDropStale(ctx, "AppVote", idx)
 	if err != nil {
 		return err
 	}
@@ -554,7 +554,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 			return nil
 		}
 	}
-	// Pair consistency only; ahead-of-window still waits in waitDuoRoad.
+	// Pair consistency only; ahead-of-window still waits in waitForEpochDuo.
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
@@ -565,7 +565,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
 	idx := commitQC.Proposal().Index()
-	admitted, err := s.waitDuoRoadOrDropStale(ctx, "AppQC", idx)
+	admitted, err := s.waitForEpochDuoOrDropStale(ctx, "AppQC", idx)
 	if err != nil {
 		return err
 	}

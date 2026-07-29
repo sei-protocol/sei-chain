@@ -1117,10 +1117,10 @@ func TestWaitCurrentVsDuoRoad(t *testing.T) {
 	registerDuoAtEpoch(state, m) // Prev=M-1|Current=M
 
 	roadInPrev := epoch.FirstRoad(m - 1)
-	_, err = state.waitDuoRoad(t.Context(), roadInPrev)
+	_, err = state.waitForEpochDuo(t.Context(), roadInPrev)
 	require.NoError(t, err, "Prev|Current window still covers Prev roads")
 
-	_, err = state.waitCurrentRoad(t.Context(), roadInPrev)
+	_, err = state.waitForEpoch(t.Context(), roadInPrev)
 	require.ErrorIs(t, err, types.ErrPruned, "Current-only wait must treat Prev roads as too late")
 }
 
@@ -1532,7 +1532,7 @@ func TestPushCommitQCFutureWaitsForCurrent(t *testing.T) {
 	registerDuoAtEpoch(state, m-1)
 
 	// Satisfy waitForCommitQC(FirstRoad(m)-1) without pushing EpochLength QCs.
-	// Current remains M-1, so FirstRoad(m) is too early for waitCurrentRoad.
+	// Current remains M-1, so FirstRoad(m) is too early for waitForEpoch.
 	tipQC := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
 		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(epPrev, types.View{
 			EpochIndex: m - 1,
