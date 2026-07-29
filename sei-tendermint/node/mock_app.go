@@ -194,6 +194,13 @@ func (state *mockAppState) finalizeBlock(req *abci.RequestFinalizeBlock, txs []*
 			}
 			state.nextNonce[tx.EVMSenderAddress]++
 		} else {
+			logger.Warn(
+				"unexpected nonce",
+				"height", req.Header.Height,
+				"addr", tx.EVMSenderAddress,
+				"got", tx.EVMNonce,
+				"want", wantNonce,
+			)
 			err := sdkerrors.ErrWrongSequence
 			txResults[i] = &abci.ExecTxResult{
 				Codespace: err.Codespace(),
