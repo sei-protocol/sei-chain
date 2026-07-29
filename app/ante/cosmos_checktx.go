@@ -77,7 +77,10 @@ func CosmosCheckTxAnte(
 	feegrantKeeper *feegrantkeeper.Keeper,
 	ibcKeeper *ibckeeper.Keeper,
 ) (returnCtx sdk.Context, returnErr error) {
-	authParams := accountKeeper.GetParams(ctx)
+	// Auth params are needed for stateless checks before SetGasMeter installs the
+	// tx meter. Read them on a throwaway meter so this early lookup does not
+	// charge the incoming caller/block meter.
+	authParams := accountKeeper.GetParams(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()))
 
 	oracleVote, err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams(), authParams)
 	if err != nil {
@@ -215,12 +218,15 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 		return oracleVote, err
 	}
 	// Validate all provided public keys before deriving addresses from them below.
-	remainingSigCount := authParams.TxSigLimit
+	// Keep the recursive work budget local to each pubkey: this bounds a single
+	// multisig tree without changing CheckPubKeys' aggregate TxSigLimit behavior
+	// for pubkeys that are persisted to account state.
 	for _, pk := range pubkeys {
 		// PublicKey was omitted from slice since it has already been set in context
 		if pk == nil {
 			continue
 		}
+		remainingSigCount := authParams.TxSigLimit
 		if err := validatePubKey(pk, &remainingSigCount, 0); err != nil {
 			return oracleVote, err
 		}

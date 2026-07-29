@@ -241,6 +241,43 @@ func TestCosmosStatelessChecksRejectsOversizedMultisigBeforePubKeyValidation(t *
 	require.NotContains(t, err.Error(), "invalid secp256k1 public key")
 }
 
+func TestCosmosStatelessChecksDoesNotAggregateTxSigLimitAcrossProvidedPubKeys(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+	txConfig := app.MakeEncodingConfig().TxConfig
+	txBuilder := txConfig.NewTxBuilder()
+
+	multisigPubKeys := make([]cryptotypes.PubKey, authtypes.DefaultTxSigLimit)
+	for i := range multisigPubKeys {
+		_, pubKey, _ := testdata.KeyTestPubAddr()
+		multisigPubKeys[i] = pubKey
+	}
+	multisigPubKey := kmultisig.NewLegacyAminoPubKey(1, multisigPubKeys)
+	multisigAddr := sdk.AccAddress(multisigPubKey.Address())
+	_, singlePubKey, singleAddr := testdata.KeyTestPubAddr()
+
+	require.NoError(t, txBuilder.SetMsgs(testdata.NewTestMsg(multisigAddr, singleAddr)))
+	txBuilder.SetFeeAmount(testdata.NewTestFeeAmount())
+	txBuilder.SetGasLimit(testdata.NewTestGasLimit())
+	require.NoError(t, txBuilder.SetSignatures(
+		signing.SignatureV2{
+			PubKey:   multisigPubKey,
+			Data:     multisig.NewMultisig(len(multisigPubKeys)),
+			Sequence: 0,
+		},
+		signing.SignatureV2{
+			PubKey: singlePubKey,
+			Data: &signing.SingleSignatureData{
+				SignMode: txConfig.SignModeHandler().DefaultMode(),
+			},
+			Sequence: 0,
+		},
+	))
+
+	_, err := anteante.CosmosStatelessChecks(txBuilder.GetTx(), ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	require.NoError(t, err)
+}
+
 func TestCosmosStatelessChecksRejectsDeepNestedMultisig(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
 	ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
