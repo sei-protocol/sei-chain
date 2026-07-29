@@ -50,17 +50,17 @@ type SnapshotEngine interface {
 	// recoverable. It is not safe to mutate the returned key or value slices.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
-	// Set writes the value for the given key into the current (mutable) version. Returns an error if
-	// an iterator is open (see Iterator).
+	// Set writes the value for the given key into the current (mutable) version. Illegal while an
+	// iterator is open (see Iterator).
 	Set(key []byte, value []byte) error
 
-	// Delete removes the given key from the current (mutable) version. Returns an error if an
-	// iterator is open (see Iterator).
+	// Delete removes the given key from the current (mutable) version. Illegal while an iterator is
+	// open (see Iterator).
 	Delete(key []byte) error
 
 	// BatchSet applies the given changeset pairs to the current (mutable) version. A pair with
 	// Delete set removes the key; otherwise its Value is written (an empty, non-nil Value is a
-	// zero-length value, distinct from a delete).
+	// zero-length value, distinct from a delete). Illegal while an iterator is open (see Iterator).
 	BatchSet(updates []*proto.KVPair) error
 
 	// Commit seals the current version as an immutable, point-in-time Snapshot and advances the
@@ -68,8 +68,8 @@ type SnapshotEngine interface {
 	// caller holds a reservation on it; see Snapshot for the full lifecycle contract.
 	//
 	// Commit must not be called concurrently with operations on the current (mutable)
-	// version — Get, BatchGet, Set, Delete, or BatchSet. Reads of previously sealed snapshots
-	// may proceed concurrently with it.
+	// version — Get, BatchGet, Set, Delete, BatchSet, or Iterator. Reads of previously sealed
+	// snapshots may proceed concurrently with it.
 	//
 	// Commit may block for backpressure when the underlying DB cannot keep up with flushing
 	// (see SnapshotEngineConfig.MaxUnflushedVersions). The engine imposes no bound on unhashed
@@ -81,9 +81,12 @@ type SnapshotEngine interface {
 	// ascending lexicographical order of keys. The engine's reserved metadata hash key is excluded
 	// (see SnapshotEngineConfig.HashKey).
 	//
-	// An iterator must be closed before the engine is next written: while one is open, Set, Delete,
-	// BatchSet, and Commit all return an error. A leaked iterator leaves the engine permanently
-	// unwritable.
+	// An iterator must be closed before the engine is next written: writing to the engine while an
+	// iterator is open — via Set, Delete, BatchSet, or Commit — is illegal. The engine makes a
+	// best-effort attempt to detect such a write and return an error from it, but that detection is
+	// inherently race prone and must never be relied upon; it exists to catch the mistake in a
+	// sequential caller, not to synchronize a concurrent one. A leaked iterator leaves the engine
+	// permanently unwritable.
 	//
 	// Returns an error if the iterator cannot be constructed, in which case no iterator is returned
 	// and there is nothing to close.
