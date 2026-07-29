@@ -179,7 +179,8 @@ func (g *BlockGenerator) buildFullCommitQC() (*types.FullCommitQC, []*types.Bloc
 	}
 	leader := committee.Leader(viewSpec.View())
 	// AppQC certifies the prior tipcut (road == prev.Index), not the tipcut
-	// being built (View.Index). buildProposal clears road >= view.
+	// being built. buildProposal drops AppQCs whose block is not finalized;
+	// Verify additionally requires road < view.
 	var appQC utils.Option[*types.AppQC]
 	if cqc, ok := prev.Get(); ok {
 		p := types.NewAppProposal(

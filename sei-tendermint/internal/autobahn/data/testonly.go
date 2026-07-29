@@ -61,7 +61,8 @@ func TestCommitQC(
 	var appQC utils.Option[*types.AppQC]
 	if cqc, ok := prev.Get(); ok {
 		// AppQC certifies the prior tipcut (road == prev.Index), not the tipcut
-		// being built (View.Index). buildProposal clears road >= view.
+		// being built. buildProposal drops AppQCs whose block is not finalized;
+		// Verify additionally requires road < view.
 		p := types.NewAppProposal(
 			cqc.GlobalRange().Next-1,
 			cqc.Proposal().Index(),
