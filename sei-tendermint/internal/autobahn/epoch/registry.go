@@ -89,10 +89,11 @@ func NewRegistry(
 // SetupInitialDuo seeds placeholder epochs on restart. Call only from
 // data.NewState. Idempotent for existing entries.
 //
-// commitQCs is the half-open retained CommitQC range [First, Next). Seeds every
-// epoch covering [First, Next), EnsureDuoAt(Next), then placeholder
-// windowLast+1/+2 (see below). None = empty store → EnsureDuoAt(FirstRoad(1))
-// so {0,1}. Empty range (First >= Next) returns an error.
+// commitQCs is the half-open retained CommitQC range [First, Next). Seeds the
+// duo at First, every epoch covering [First, Next), the duo at Next, then
+// placeholder windowLast+1/+2 (see below). None = empty store → {0,1};
+// execution seeds epoch 2 before sealing epoch 0. Empty range (First >= Next)
+// returns an error.
 func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) error {
 	if span, ok := commitQCs.Get(); ok {
 		if span.First >= span.Next {
@@ -101,6 +102,9 @@ func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) erro
 		windowFirst := IndexForRoad(span.First)
 		windowLast := IndexForRoad(span.Next - 1)
 
+		// Avail WAL and BlockDB prune independently. Avail may restart at the
+		// retained span's first epoch and still need its Prev.
+		r.EnsureDuoAt(span.First)
 		for s := range r.state.Lock() {
 			for idx := windowFirst; idx <= windowLast; idx++ {
 				if _, ok := s.m[idx]; ok {

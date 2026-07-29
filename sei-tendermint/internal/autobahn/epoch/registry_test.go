@@ -146,20 +146,21 @@ func TestSetupInitialDuo_CommitQCClosingSeedsNext(t *testing.T) {
 
 func TestSetupInitialDuo_CommitSpanFromFirst(t *testing.T) {
 	r, _ := makeRegistry(t)
-	// Span mid-2..mid-5 → seed epochs 2..5, then placeholder through windowLast+2 → 7.
+	// Span mid-2..mid-5 → seed the first duo {1,2}, epochs through 5,
+	// then placeholders through windowLast+2 → 7.
 	if err := r.SetupInitialDuo(utils.Some(types.RoadRange{
 		First: midRoad(2),
 		Next:  midRoad(5) + 1,
 	})); err != nil {
 		t.Fatal(err)
 	}
-	for _, idx := range []types.EpochIndex{2, 3, 4, 5, 6, 7} {
+	for _, idx := range []types.EpochIndex{1, 2, 3, 4, 5, 6, 7} {
 		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
 			t.Fatalf("EpochAt(epoch %d) after commit span seeding: %v", idx, err)
 		}
 	}
-	if _, err := r.EpochAt(FirstRoad(1)); err == nil {
-		t.Fatal("EpochAt(epoch 1) should not be present when span.First is in epoch 2")
+	if _, err := r.DuoAt(midRoad(2)); err != nil {
+		t.Fatalf("DuoAt(span.First) after commit span seeding: %v", err)
 	}
 	if _, err := r.EpochAt(FirstRoad(8)); err == nil {
 		t.Fatal("EpochAt(epoch 8) should not be present past placeholder windowLast+2")

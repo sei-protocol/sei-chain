@@ -1016,20 +1016,8 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			for lane := range blocksByLane {
 				batchLanes[lane] = struct{}{}
 			}
-			if anchor, ok := anchorQC.Get(); ok {
-				// Resolve via epochDuo, not the registry: the prune anchor is live
-				// Availability metadata and must remain inside the Prev|Current
-				// operating window (interlock: an epoch leaves that window only
-				// after its AppQC floor has made it obsolete). The registry is
-				// independent of Availability pruning (restart + admission /
-				// execution leash), not the live window.
-				ep, err := s.epochDuo.Load().EpochForRoad(anchor.Proposal().Index())
-				if err != nil {
-					return fmt.Errorf("EpochForRoad(%d): %w", anchor.Proposal().Index(), err)
-				}
-				for lane := range ep.Committee().Lanes().All() {
-					batchLanes[lane] = struct{}{}
-				}
+			for _, lane := range batch.pruneLanes {
+				batchLanes[lane] = struct{}{}
 			}
 			for lane := range batchLanes {
 				proposals := blocksByLane[lane]
@@ -1049,6 +1037,7 @@ type persistBatch struct {
 	blocks      []*types.Signed[*types.LaneProposal]
 	commitQCs   []*types.CommitQC
 	pruneAnchor utils.Option[*PruneAnchor]
+	pruneLanes  []types.LaneID
 }
 
 // advancePersistedBlockStart updates the per-lane block admission watermark
@@ -1132,6 +1121,15 @@ func (s *State) collectPersistBatch(ctx context.Context, lastPersistedAppQCNext 
 						AppQC:    appQC,
 						CommitQC: qc,
 					})
+					// Capture under the same lock as the anchor so an epoch slide
+					// cannot move its committee out of the live duo before I/O.
+					ep, err := inner.epochDuo.Load().EpochForRoad(qc.Proposal().Index())
+					if err != nil {
+						return b, fmt.Errorf("EpochForRoad(%d): %w", qc.Proposal().Index(), err)
+					}
+					for lane := range ep.Committee().Lanes().All() {
+						b.pruneLanes = append(b.pruneLanes, lane)
+					}
 				}
 			}
 		}

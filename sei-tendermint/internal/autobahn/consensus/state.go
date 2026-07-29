@@ -385,8 +385,8 @@ func (s *State) Run(ctx context.Context) error {
 		})
 		scope.SpawnNamed("pushCommitQC", func() error {
 			// Pull the CommitQC tip back from avail after it has been logged and
-			// verified at admit. Tip watch may coalesce; pushCommitQC aligns the
-			// epoch duo to the tipcut without re-verifying or replaying roads.
+			// verified at admit. Tip watch may coalesce; pushCommitQC re-verifies
+			// against the QC's epoch and aligns the duo without replaying roads.
 			return s.avail.LastCommitQC().Iter(ctx, func(ctx context.Context, last utils.Option[*types.CommitQC]) error {
 				if qc, ok := last.Get(); ok {
 					return s.pushCommitQC(qc)
