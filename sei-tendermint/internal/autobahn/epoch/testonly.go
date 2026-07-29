@@ -62,6 +62,8 @@ func GenRegistryAt(rng utils.Rng, size int, startEpoch types.EpochIndex) (*Regis
 		weights[sk.Public()] = 1000 + uint64(rng.Intn(1000)) //nolint:gosec
 	}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
+	// Production genesis starts at global block 0; randomizing this would detach
+	// empty-store CommitQC road 0 from the registry's genesis epoch.
 	const firstBlock types.GlobalBlockNumber = 0
 	return makeRegistryAt(committee, firstBlock, startEpoch), sks
 }

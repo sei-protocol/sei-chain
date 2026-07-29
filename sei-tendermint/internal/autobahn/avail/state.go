@@ -685,7 +685,8 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		// WaitUntil may release the lock; re-check membership under live Current.
 		live := inner.epochDuo.Load()
 		if live.Current.EpochIndex() != verifiedEpoch &&
-			live.Current.Committee().Weight(vote.Key()) == 0 {
+			(live.Current.Committee().Weight(vote.Key()) == 0 ||
+				!live.Current.Committee().HasLane(h.Lane())) {
 			return nil
 		}
 		if h.BlockNumber() < q.first {

@@ -581,6 +581,49 @@ func TestPushVote_DropsSignerAfterEpochAdvance(t *testing.T) {
 	})
 }
 
+// TestPushVote_DropsLaneAfterEpochAdvance: after verify, Current advances to a
+// committee that retains the signer but not the voted lane.
+func TestPushVote_DropsLaneAfterEpochAdvance(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistryAt(rng, 4, 0)
+		ds := newTestDataState(&data.Config{Registry: registry})
+		state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
+
+		ep0 := state.epochDuo.Load().Current
+		lane := keys[1].Public()
+		n := types.BlockNumber(BlocksPerLane)
+		header := types.NewBlock(lane, n, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
+		vote := types.Sign(keys[0], types.NewLaneVote(header))
+
+		weights := map[types.PublicKey]uint64{
+			keys[0].Public(): 1000,
+			keys[2].Public(): 1000,
+		}
+		ep1 := types.NewEpoch(1, types.RoadRange{First: epoch.FirstRoad(1), Next: epoch.FirstRoad(2)},
+			utils.OrPanic1(types.NewCommittee(weights)))
+		duo1 := types.NewEpochDuo(ep1, utils.Some(ep0))
+
+		errCh := make(chan error, 1)
+		go func() { errCh <- state.PushVote(ctx, vote) }()
+		synctest.Wait()
+
+		for inner, ctrl := range state.inner.Lock() {
+			inner.advanceEpoch(duo1)
+			inner.lanes[lane].persistedBlockStart = 1
+			ctrl.Updated()
+		}
+		synctest.Wait()
+		require.NoError(t, <-errCh)
+
+		for inner := range state.inner.Lock() {
+			require.Equal(t, types.BlockNumber(0), inner.lanes[lane].votes.next,
+				"dropped vote must not extend the queue")
+		}
+	})
+}
+
 // TestPushVote_CountsSignerAfterEpochAdvance: same WaitUntil race window, but the
 // new Current still includes the signer — count with live committee weights.
 func TestPushVote_CountsSignerAfterEpochAdvance(t *testing.T) {
