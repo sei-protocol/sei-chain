@@ -10,7 +10,6 @@ import (
 	slashingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/keeper"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 )
 
@@ -19,7 +18,6 @@ type PrecompileKeepers struct {
 	putils.BankMsgServer
 	putils.BankQuerier
 	putils.EVMKeeper
-	putils.EvmMsgServer
 	putils.AccountKeeper
 	putils.AuthQuerier
 	putils.AuthzMsgServer
@@ -56,7 +54,6 @@ func NewPrecompileKeepers(a *App) *PrecompileKeepers {
 		BankMsgServer:       bankkeeper.NewMsgServerImpl(a.BankKeeper),
 		BankQuerier:         a.BankKeeper,
 		EVMKeeper:           &a.EvmKeeper,
-		EvmMsgServer:        evmkeeper.NewMsgServerImpl(&a.EvmKeeper),
 		AccountKeeper:       a.AccountKeeper,
 		AuthQuerier:         a.AccountKeeper,
 		AuthzMsgServer:      a.AuthzKeeper,
@@ -92,7 +89,6 @@ func (pk *PrecompileKeepers) BankK() putils.BankKeeper                 { return 
 func (pk *PrecompileKeepers) BankMS() putils.BankMsgServer             { return pk.BankMsgServer }
 func (pk *PrecompileKeepers) BankQ() putils.BankQuerier                { return pk.BankQuerier }
 func (pk *PrecompileKeepers) EVMK() putils.EVMKeeper                   { return pk.EVMKeeper }
-func (pk *PrecompileKeepers) EvmMS() putils.EvmMsgServer               { return pk.EvmMsgServer }
 func (pk *PrecompileKeepers) AccountK() putils.AccountKeeper           { return pk.AccountKeeper }
 func (pk *PrecompileKeepers) AuthQ() putils.AuthQuerier                { return pk.AuthQuerier }
 func (pk *PrecompileKeepers) AuthzMS() putils.AuthzMsgServer           { return pk.AuthzMsgServer }

@@ -21,11 +21,6 @@ interface IAddr {
         string memory pubKeyHex
     ) external returns (string memory seiAddr, address evmAddr);
 
-    // Associates a CosmWasm contract address with its EVM counterpart
-    function associateContractAddress(
-        string memory cwAddr
-    ) external returns (string memory seiAddr, address evmAddr);
-
     // Queries
     function getSeiAddr(address addr) external view returns (string memory response);
     function getEvmAddr(string memory addr) external view returns (address response);

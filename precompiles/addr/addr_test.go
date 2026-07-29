@@ -5,18 +5,14 @@ import (
 	"fmt"
 	"math/big"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/precompiles/addr"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -407,70 +403,4 @@ func TestGetAddr(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 1, len(unpacked))
 	require.Equal(t, evmAddr, unpacked[0].(common.Address))
-}
-
-func TestAssociateContractAddress(t *testing.T) {
-	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2).WithBlockTime(time.Now())
-	k := &testApp.EvmKeeper
-
-	// a CW->ERC20 pointer is a real wasm contract, which is what
-	// associateContractAddress expects to be pointed at
-	dummySeiAddr, dummyEvmAddr := testkeeper.MockAddressPair()
-	res, err := evmkeeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &evmtypes.MsgRegisterPointer{
-		Sender:      dummySeiAddr.String(),
-		PointerType: evmtypes.PointerType_ERC20,
-		ErcAddress:  dummyEvmAddr.Hex(),
-	})
-	require.Nil(t, err)
-	cwAddr := res.PointerAddress
-
-	callerPrivKey := testkeeper.MockPrivateKey()
-	callerSeiAddress, callerEvmAddress := testkeeper.PrivateKeyToAddresses(callerPrivKey)
-	k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
-
-	pre, err := addr.NewPrecompile(testApp.GetPrecompileKeepers())
-	require.Nil(t, err)
-	executor := pre.GetExecutor().(*addr.PrecompileExecutor)
-	method, err := pre.ABI.MethodById(executor.AssociateContractAddressID)
-	require.Nil(t, err)
-
-	statedb := state.NewDBImpl(ctx, k, true)
-	evm := vm.EVM{StateDB: statedb, TxContext: vm.TxContext{Origin: callerEvmAddress}}
-
-	args, err := method.Inputs.Pack(cwAddr)
-	require.Nil(t, err)
-
-	// should error because of read only call
-	_, _, err = pre.RunAndCalculateGas(&evm, callerEvmAddress, callerEvmAddress, append(executor.AssociateContractAddressID, args...), 100000, nil, nil, true, false)
-	require.NotNil(t, err)
-	// should error because it's not payable
-	_, _, err = pre.RunAndCalculateGas(&evm, callerEvmAddress, callerEvmAddress, append(executor.AssociateContractAddressID, args...), 100000, big.NewInt(1), nil, false, false)
-	require.NotNil(t, err)
-	// should error because the address is not a wasm contract
-	nonContractArgs, err := method.Inputs.Pack(dummySeiAddr.String())
-	require.Nil(t, err)
-	_, _, err = pre.RunAndCalculateGas(&evm, callerEvmAddress, callerEvmAddress, append(executor.AssociateContractAddressID, nonContractArgs...), 100000, nil, nil, false, false)
-	require.NotNil(t, err)
-	// should error because the address is not valid bech32
-	invalidArgs, err := method.Inputs.Pack("not-bech32")
-	require.Nil(t, err)
-	_, _, err = pre.RunAndCalculateGas(&evm, callerEvmAddress, callerEvmAddress, append(executor.AssociateContractAddressID, invalidArgs...), 100000, nil, nil, false, false)
-	require.NotNil(t, err)
-
-	// happy path
-	ret, _, err := pre.RunAndCalculateGas(&evm, callerEvmAddress, callerEvmAddress, append(executor.AssociateContractAddressID, args...), 100000, nil, nil, false, false)
-	require.Nil(t, err)
-	outputs, err := method.Outputs.Unpack(ret)
-	require.Nil(t, err)
-	require.Equal(t, cwAddr, outputs[0].(string))
-	cwSeiAddr := sdk.MustAccAddressFromBech32(cwAddr)
-	require.Equal(t, common.BytesToAddress(cwSeiAddr), outputs[1].(common.Address))
-	associatedEvmAddr, found := k.GetEVMAddress(statedb.Ctx(), cwSeiAddr)
-	require.True(t, found)
-	require.Equal(t, common.BytesToAddress(cwSeiAddr), associatedEvmAddr)
-
-	// re-associating the same contract should fail
-	_, _, err = pre.RunAndCalculateGas(&evm, callerEvmAddress, callerEvmAddress, append(executor.AssociateContractAddressID, args...), 100000, nil, nil, false, false)
-	require.NotNil(t, err)
 }

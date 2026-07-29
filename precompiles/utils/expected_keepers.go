@@ -27,7 +27,6 @@ import (
 	ibctypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/utils"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -37,7 +36,6 @@ type Keepers interface {
 	BankMS() BankMsgServer
 	BankQ() BankQuerier
 	EVMK() EVMKeeper
-	EvmMS() EvmMsgServer
 	AccountK() AccountKeeper
 	AuthQ() AuthQuerier
 	AuthzMS() AuthzMsgServer
@@ -74,7 +72,6 @@ func (ek *EmptyKeepers) BankK() BankKeeper                 { return nil }
 func (ek *EmptyKeepers) BankMS() BankMsgServer             { return nil }
 func (ek *EmptyKeepers) BankQ() BankQuerier                { return nil }
 func (ek *EmptyKeepers) EVMK() EVMKeeper                   { return nil }
-func (ek *EmptyKeepers) EvmMS() EvmMsgServer               { return nil }
 func (ek *EmptyKeepers) AccountK() AccountKeeper           { return nil }
 func (ek *EmptyKeepers) AuthQ() AuthQuerier                { return nil }
 func (ek *EmptyKeepers) AuthzMS() AuthzMsgServer           { return nil }
@@ -121,10 +118,6 @@ type BankKeeper interface {
 type BankMsgServer interface {
 	Send(goCtx context.Context, msg *banktypes.MsgSend) (*banktypes.MsgSendResponse, error)
 	MultiSend(goCtx context.Context, msg *banktypes.MsgMultiSend) (*banktypes.MsgMultiSendResponse, error)
-}
-
-type EvmMsgServer interface {
-	AssociateContractAddress(goCtx context.Context, msg *evmtypes.MsgAssociateContractAddress) (*evmtypes.MsgAssociateContractAddressResponse, error)
 }
 
 type AuthzMsgServer interface {
