@@ -24,10 +24,18 @@ type inner struct {
 type laneState struct {
 	blocks *queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes  *queue[types.BlockNumber, *blockVotes]
-	// nextBlockToPersist is reconstructed from persisted blocks on restart.
+	// nextBlockToPersist tracks how far block persistence has progressed.
+	// RecvBatch only yields blocks below this cursor for voting.
+	// Always initialized (even when persistence is disabled — the no-op persist
+	// goroutine bumps it immediately). Not persisted to disk: on restart it is
+	// reconstructed from the blocks already on disk (see newInner).
 	//
 	// TODO: consider giving this its own AtomicSend to avoid waking unrelated
 	// inner waiters (PushVote, PushCommitQC, etc.) on markBlockPersisted calls.
+	// Now that blocks are persisted concurrently by lane (one notification per
+	// lane per batch, not per block), the frequency is lower, but still not
+	// ideal. Only RecvBatch needs to be notified of cursor changes;
+	// collectPersistBatch is in the same goroutine and reads it directly.
 	nextBlockToPersist types.BlockNumber
 	// persistedBlockStart gates PushBlock/PushVote capacity (start+BlocksPerLane).
 	// Set from the prune-anchor LaneRange on load / after durable anchor write.
