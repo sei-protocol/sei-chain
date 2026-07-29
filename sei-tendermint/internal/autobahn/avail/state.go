@@ -299,13 +299,10 @@ func (s *State) waitRoadOrDropStale(
 
 // waitForAppQC blocks until latest AppQC is from epochIdx or later.
 //
-// Called from runAdvanceEpoch when sealing epoch N (Current's last CommitQC
-// already admitted). Epoch 0 is not special-cased: seal is {∅,0}→{0,1} (no Prev
-// drop), but the leash still runs so leaving 0 always writes an AppQC anchor for
-// newInner (Current>0 requires one). Do not reintroduce an epochIdx==0 skip:
-// BlocksPerLane only caps local production; peers can PushCommitQC LastRoad(0)
-// (then mid-epoch-1 QCs) with no local AppQC, which would otherwise restart
-// without an anchor.
+// Seal prune leash (interlocking doc): Availability admits the last CommitQC of
+// epoch N only after an AppQC for N exists. Also used by runAdvanceEpoch as a
+// no-op once admit already waited. Epoch 0 is not special-cased: leaving 0
+// still needs an AppQC anchor for restart (Current>0 requires one).
 func (s *State) waitForAppQC(ctx context.Context, epochIdx types.EpochIndex) error {
 	for inner, ctrl := range s.inner.Lock() {
 		ready := func() bool {
@@ -325,66 +322,40 @@ func (s *State) waitForAppQC(ctx context.Context, epochIdx types.EpochIndex) err
 				slog.Uint64("latest_app_qc_epoch", uint64(appQC.Proposal().EpochIndex())),
 			)
 		}
-		logger.Warn("waiting for AppQC before advancing epoch", attrs...)
+		logger.Warn("waiting for AppQC before sealing epoch", attrs...)
 		return ctrl.WaitUntil(ctx, ready)
 	}
 	panic("unreachable")
+}
+
+// waitSealLeashes enforces the interlocking-doc seal conditions before admitting
+// the last CommitQC of ep: AppQC for ep (unless incomingAppEpoch already
+// satisfies) and registry WaitForDuo for the next road (execution leash).
+func (s *State) waitSealLeashes(
+	ctx context.Context,
+	ep *types.Epoch,
+	idx types.RoadIndex,
+	incomingAppEpoch utils.Option[types.EpochIndex],
+) error {
+	last := ep.RoadRange().Next - 1
+	if idx != last {
+		return nil
+	}
+	if e, ok := incomingAppEpoch.Get(); !ok || e < ep.EpochIndex() {
+		if err := s.waitForAppQC(ctx, ep.EpochIndex()); err != nil {
+			return err
+		}
+	}
+	if _, err := s.data.Registry().WaitForDuo(ctx, last+1); err != nil {
+		return fmt.Errorf("WaitForDuo(%d): %w", last+1, err)
+	}
+	return nil
 }
 
 // LastAppQC returns the latest observed AppQC.
 func (s *State) LastAppQC() utils.Option[*types.AppQC] {
 	for inner := range s.inner.Lock() {
 		return inner.latestAppQC
-	}
-	panic("unreachable")
-}
-
-// tipcutAppQC returns LastAppQC when its epoch is usable for a tipcut whose
-// Current is want (want or want-1). Otherwise None.
-func (s *State) tipcutAppQC(want *types.Epoch) utils.Option[*types.AppQC] {
-	appQC, ok := s.LastAppQC().Get()
-	if !ok || !want.AcceptsAppEpoch(appQC.Proposal().EpochIndex()) {
-		return utils.None[*types.AppQC]()
-	}
-	return utils.Some(appQC)
-}
-
-// WaitForTipcutAppQC returns an AppQC usable for a tipcut whose Current is
-// want (want or want-1). For epoch 0, returns tipcutAppQC immediately
-// (may be None).
-//
-// For want>0, proposing must not fall back to a CommitQC App older than want-1.
-// If commitQC already carries an in-window App, returns tipcutAppQC without
-// waiting (None is fine: tipcut keeps that CommitQC App). Otherwise blocks
-// until latestAppQC is in-window.
-func (s *State) WaitForTipcutAppQC(
-	ctx context.Context,
-	want *types.Epoch,
-	commitQC utils.Option[*types.CommitQC],
-) (utils.Option[*types.AppQC], error) {
-	if want.EpochIndex() == 0 {
-		return s.tipcutAppQC(want), nil
-	}
-	if old, ok := types.AppOpt(types.ProposalOpt(commitQC)).Get(); ok && want.AcceptsAppEpoch(old.EpochIndex()) {
-		return s.tipcutAppQC(want), nil
-	}
-	for inner, ctrl := range s.inner.Lock() {
-		ready := func() bool {
-			appQC, ok := inner.latestAppQC.Get()
-			return ok && want.AcceptsAppEpoch(appQC.Proposal().EpochIndex())
-		}
-		if !ready() {
-			logger.Warn("waiting for AppQC in EpochDuo before proposing",
-				slog.Uint64("want_epoch", uint64(want.EpochIndex())))
-			if err := ctrl.WaitUntil(ctx, ready); err != nil {
-				return utils.None[*types.AppQC](), err
-			}
-		}
-		appQC, ok := inner.latestAppQC.Get()
-		if !ok || !want.AcceptsAppEpoch(appQC.Proposal().EpochIndex()) {
-			return utils.None[*types.AppQC](), fmt.Errorf("WaitForTipcutAppQC: AppQC not in duo after wait")
-		}
-		return utils.Some(appQC), nil
 	}
 	panic("unreachable")
 }
@@ -426,6 +397,9 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 // Epoch slide is async in runAdvanceEpoch (tip may sit at Current.Next while
 // Current still N; N+1 CommitQCs park on waitForEpoch until the duo advances).
 //
+// Seal (last road of Current): prune + execution leashes before admit
+// (interlocking doc CommitQC admission).
+//
 // Admit-then-verify is intentional backpressure for ahead-of-window QCs.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	idx := qc.Proposal().Index()
@@ -445,6 +419,9 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	ep := duo.Current
 	if err := qc.Verify(ep); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
+	}
+	if err := s.waitSealLeashes(ctx, ep, idx, utils.None[types.EpochIndex]()); err != nil {
+		return err
 	}
 
 	for inner, ctrl := range s.inner.Lock() {
@@ -552,6 +529,13 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 	}
 	if err := commitQC.Verify(ep); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
+	}
+	// Seal CommitQC paired with this AppQC: incoming AppQC satisfies the prune
+	// leash; still wait on the execution leash when idx closes Current.
+	if duo.Current.RoadRange().Next-1 == idx && ep.EpochIndex() == duo.Current.EpochIndex() {
+		if err := s.waitSealLeashes(ctx, duo.Current, idx, utils.Some(appQC.Proposal().EpochIndex())); err != nil {
+			return err
+		}
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		updated, err := inner.prune(appQC, commitQC)
@@ -914,9 +898,10 @@ func (s *State) Run(ctx context.Context) error {
 }
 
 // runAdvanceEpoch is the sole post-construction writer of epochDuo. When
-// commitQCs tip passes Current's last road, it waits for AppQC of Current and
-// registry WaitForDuo, then advances. Push* must not slide the duo: tip may sit
-// at Current.Next while Current is still N; N+1 CommitQCs park on waitForEpoch.
+// commitQCs tip passes Current's last road, seal leashes have already been
+// satisfied at PushCommitQC/PushAppQC admit; this waits for tip, re-checks
+// leashes (no-op if already met), then advances. N+1 CommitQCs park on
+// waitForEpoch until the duo slides.
 func (s *State) runAdvanceEpoch(ctx context.Context) error {
 	for {
 		duo := s.epochDuo.Load()

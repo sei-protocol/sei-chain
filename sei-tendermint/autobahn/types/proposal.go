@@ -355,29 +355,23 @@ func buildProposal(
 		}
 	}
 	app := ProposalOpt(appQC)
-	// If the new appProposal is not later than the previous one, then clear appQC.
+	// Attach AppQC only when newer than the previous tipcut's App; otherwise
+	// carry the CommitQC App forward with no attachment.
 	if old := AppOpt(ProposalOpt(viewSpec.CommitQC)); NextOpt(app) <= NextOpt(old) {
 		app = old
 		appQC = utils.None[*AppQC]()
 	}
-	// If the new appProposal is from the future (which may happen if this node is
-	// behind), drop it and fall back to the previous CommitQC's app so Verify
-	// never sees App < previous CommitQC. Well-formed AppQCs with road ≥ view
-	// have GlobalNumber ≥ NextGlobalBlock, so this also covers that case.
+	// Ahead of this tipcut: do not attach; keep prior CommitQC App (may be None).
 	if a, ok := app.Get(); ok && a.GlobalNumber() >= viewSpec.NextGlobalBlock() {
 		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 		appQC = utils.None[*AppQC]()
 	}
-	// AppQC must be Current or Current-1. Callers (consensus runPropose) must
-	// wait for an in-window App before constructing a tipcut when Current>0 —
-	// do not silently fall back to a stale CommitQC App.
-	if a, ok := app.Get(); ok {
-		appEp := a.EpochIndex()
-		if !viewSpec.Epoch().AcceptsAppEpoch(appEp) {
-			return nil, appQC, fmt.Errorf("app epoch_index %d not Current (%d) or Current-1", appEp, viewSpec.Epoch().EpochIndex())
-		}
-	} else if viewSpec.Epoch().EpochIndex() > 0 {
-		return nil, appQC, fmt.Errorf("App required for epoch %d tipcut (need Current or Current-1)", viewSpec.Epoch().EpochIndex())
+	// Attached App must be Current or Current-1. Out-of-window candidates are
+	// not attached; tipcuts may omit App entirely (doc: may embed). Keep the
+	// CommitQC App when present so App is never lower than the prior tipcut.
+	if a, ok := app.Get(); ok && !viewSpec.Epoch().AcceptsAppEpoch(a.EpochIndex()) {
+		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
+		appQC = utils.None[*AppQC]()
 	}
 	// Normalize the creation timestamp.
 	if wantMin := viewSpec.NextTimestamp(); timestamp.Before(wantMin) {
@@ -520,7 +514,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			if m.appQC.IsPresent() {
 				return errors.New("unnecessary appQC")
 			}
-			// Carried-forward App (no attached AppQC) must still be in-window.
+			// Carried-forward App is optional; if present must stay in-window.
 			if app, ok := m.proposal.Msg().App().Get(); ok {
 				if !vs.Epoch().AcceptsAppEpoch(app.EpochIndex()) {
 					return fmt.Errorf("app epoch_index %d not Current (%d) or Current-1",

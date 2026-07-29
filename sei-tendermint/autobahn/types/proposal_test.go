@@ -724,9 +724,13 @@ func TestProposalVerifyRejectsAppProposalWrongEpoch(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, EpochIndex(0), appPrev.EpochIndex())
 
-	// AppQC outside {Current, Current-1} — rejected (no silent fallback).
-	_, err := NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(2)))
-	require.Error(t, err)
+	// AppQC outside {Current, Current-1} — not attached; keep in-window CommitQC App.
+	fpOut := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(2))))
+	require.False(t, fpOut.appQC.IsPresent())
+	appOut, ok := fpOut.Proposal().Msg().App().Get()
+	require.True(t, ok)
+	require.True(t, vs.Epoch().AcceptsAppEpoch(appOut.EpochIndex()))
+	require.NoError(t, fpOut.Verify(vs))
 }
 
 func TestProposalFallsBackWhenAppQCFromFuture(t *testing.T) {

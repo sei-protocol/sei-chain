@@ -286,22 +286,14 @@ func (s *State) runPropose(ctx context.Context) error {
 		if !s.shouldPropose(vs) || ep.EpochIndex() != vs.Epoch().EpochIndex() {
 			return nil
 		}
-		// For Current>0, do not propose until App is within {Current, Current-1}
-		// (CommitQC App or live AppQC). Omitting an out-of-window AppQC and
-		// falling back to a stale CommitQC App is not allowed.
-		appQC, err := s.avail.WaitForTipcutAppQC(ctx, vs.Epoch(), vs.CommitQC)
-		if err != nil {
-			return fmt.Errorf("s.avail.WaitForTipcutAppQC(): %w", err)
-		}
-		if !s.shouldPropose(vs) {
-			return nil
-		}
+		// AppQC is optional on tipcuts: attach only when LastAppQC is newer and
+		// in-window (buildProposal). Seal AppQC leash is on CommitQC admission.
 		fullProposal, err := types.NewProposal(
 			s.cfg.Key,
 			vs,
 			time.Now(),
 			laneQCsMap,
-			appQC,
+			s.avail.LastAppQC(),
 		)
 		if err != nil {
 			return fmt.Errorf("types.NewProposal(): %w", err)
