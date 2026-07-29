@@ -162,11 +162,16 @@ type BlockDB interface {
 	// Iterator returns an iterator positioned at block number n. Iteration
 	// is forward-only: it steps through consecutive numbers up to the last
 	// persisted QC's coverage, exclusive. The start is clamped up to the
-	// lowest retained number — the retention watermark, or the first
-	// persisted QC's range when n falls below it — so Iterator(0) scans
-	// everything retained (startup replay) while a mid-history n resumes
-	// from that height without scanning what lies below it. See
-	// BlockDBIterator for what each position exposes.
+	// lowest number the store can serve — the retention watermark, the first
+	// retained block, or the first persisted QC's range on a store holding no
+	// block at all — so Iterator(0) scans everything retained (startup replay)
+	// while a mid-history n resumes from that height without scanning what
+	// lies below it. See BlockDBIterator for what each position exposes.
+	//
+	// Clamping to the first retained block is what makes a scan open on a
+	// number that has one: WriteBlock lets the first block start anywhere
+	// inside its covering QC, and the numbers below it were never written, so
+	// they are not part of the iteration.
 	//
 	// If the (clamped) start is past the last persisted QC's coverage —
 	// including on an empty store — the iterator is empty (Next

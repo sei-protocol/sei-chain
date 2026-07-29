@@ -227,9 +227,11 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 	require.Equal(t, gr2.Next, state2.NextBlock())
 }
 
-// TestRecoveryPartialQCPrefix verifies that a QC covering a wider range than
-// the available blocks (block prefix missing) is rejected — we do not normalize
-// by advancing the recovery floor (skipTo) to the first present block.
+// TestRecoveryPartialQCPrefix verifies recovery from a store whose blocks begin partway into
+// their covering QC. The first block may be written anywhere inside that QC (see
+// types.BlockDB.WriteBlock), so BlockDB.Iterator opens on it and the recovery floor follows —
+// landing on the first present block, not on the QC's start. Flooring at the QC start would
+// leave the blockless prefix inside [first, nextBlock), which inner's density invariant forbids.
 func TestRecoveryPartialQCPrefix(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -254,8 +256,27 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 
-	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dir))
-	require.Error(t, err)
+	state2 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, dir))
+
+	// The floor is the first present block, and the contiguous prefix runs from there to the
+	// end of the QC's coverage.
+	require.Equal(t, gr1.Next, state2.NextBlock())
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, mid, inner.first, "floor must be the first present block")
+		require.Equal(t, mid, inner.nextAppProposal)
+		require.Equal(t, gr1.Next, inner.nextQC)
+	}
+
+	// Nothing was ever written below the floor, so those heights are not served.
+	for n := gr1.First; n < mid; n++ {
+		_, err := state2.TryBlock(n)
+		require.ErrorIs(t, err, types.ErrPruned)
+	}
+	for n := mid; n < gr1.Next; n++ {
+		got, err := state2.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
 }
 
 // TestRecoveryAfterPruneNoGC verifies that restarting before async GC reclaims

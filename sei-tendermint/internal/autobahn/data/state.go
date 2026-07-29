@@ -202,10 +202,16 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // Called from NewState before any goroutines are spawned; the lock is acquired
 // only to satisfy the Watch API.
 //
-// The recovery floor is derived from BlockDB: empty store keeps
-// registry.FirstBlock(); otherwise cursors skipTo the first retained QC start.
+// The recovery floor is derived from BlockDB: an empty store keeps
+// registry.FirstBlock(); otherwise cursors skipTo the first number the scan
+// yields. BlockDB.Iterator opens on a block that exists, so that number is the
+// start of the retained block history — which may sit inside its covering QC's
+// range rather than on that range's first number, since the first block is free
+// to start there. Taking the floor from the position rather than from the QC is
+// what keeps blocks dense over [first, nextBlock) as inner requires.
+//
 // A single iterator scan restores both record kinds: each yielded number carries
-// its covering QC (inserted when the scan enters the QC's range) and its block
+// its covering QC (inserted the first time the scan sees that QC) and its block
 // when one survives — HasBlock is false only in the trailing positions, where a
 // QC outlived (or preceded) its blocks. Density and QC-coverage consistency hold
 // below this loop, so it does not re-check them: a durable BlockDB reports a
@@ -224,6 +230,7 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 				return fmt.Errorf("open block db iterator: %w", err)
 			}
 			defer func() { _ = it.Close() }()
+			var lastQC *types.FullCommitQC
 			for {
 				pos, ok, err := it.Next()
 				if err != nil {
@@ -234,20 +241,25 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 				}
 				n, qc := pos.Number, pos.QC
 				gr := qc.QC().GlobalRange()
-				if len(in.qcs) == 0 {
-					// First QC: skipTo its First to advance past any pruned prefix.
-					// Subsequent QCs must be consecutive — insertQC errors on any gap.
+				if lastQC == nil {
+					// First position: skipTo it to advance past any pruned prefix. Nothing has
+					// been inserted yet, which is what makes it legal for skipTo to move first
+					// without deleting. Subsequent QCs must be consecutive — insertQC errors on
+					// any gap.
 					if gr.First < in.nextQC {
-						return fmt.Errorf("QC in BlockDB predates committee genesis %d: got %d", in.nextQC, gr.First)
+						return fmt.Errorf("QC in BlockDB predates committee genesis %d: got %d",
+							in.nextQC, gr.First)
 					}
-					if gr.First > in.nextQC {
-						in.skipTo(gr.First)
+					if n > in.nextQC {
+						in.skipTo(n)
 					}
-					if err := in.insertQC(s.cfg.Registry, qc); err != nil {
-						return fmt.Errorf("load QC from BlockDB: %w", err)
-					}
-				} else if gr.First == n {
-					// The scan entered a new QC's range.
+				}
+				if qc != lastQC {
+					// The scan entered a new QC's range. Position.QC hands back the same pointer
+					// for every number in a range, so identity is the exact test — and unlike
+					// gr.First == n it still fires for the covering QC when the scan opened
+					// inside that QC's range. insertQC clips it to [nextQC, gr.Next).
+					lastQC = qc
 					if err := in.insertQC(s.cfg.Registry, qc); err != nil {
 						return fmt.Errorf("load QC from BlockDB: %w", err)
 					}

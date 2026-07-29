@@ -47,6 +47,12 @@ type blockDB struct {
 	// littblock).
 	latestQCStartBlock types.GlobalBlockNumber
 
+	// firstBlockNumber is the lowest block number written. Iterator clamps its start up to
+	// it so a scan always opens on a block that exists; the first block may land anywhere
+	// inside its covering QC, so this can sit above that QC's start with no block in
+	// between. Meaningful only while hasBlocks.
+	firstBlockNumber types.GlobalBlockNumber
+
 	// watermark is the (clamped) retention floor set by PruneBefore. Reads
 	// strictly below it are refused with types.ErrPruned; because pruned entries
 	// are deleted eagerly, this is the only record of where the floor sits and
@@ -78,6 +84,9 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 	}
 	s.byNumber[n] = blk
 	s.byHash[blk.Header().Hash()] = hashEntry{blk: blk, n: n}
+	if !s.hasBlocks {
+		s.firstBlockNumber = n
+	}
 	s.lastBlockNumber = n
 	s.hasBlocks = true
 	return nil
@@ -170,7 +179,15 @@ func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, er
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	// Clamp up to the lowest number this store can serve: the retention gate, and the start of
+	// the block history so a scan opens on a block that exists rather than on blockless numbers
+	// below it (the first block may land inside its covering QC's range). With no block at all
+	// the per-entry clamp in iteratorLocked governs, so a QC written ahead of its blocks is
+	// still iterable.
 	start := max(n, s.watermark)
+	if s.hasBlocks {
+		start = max(start, s.firstBlockNumber)
+	}
 	entries := s.sortedQCsLocked()
 	if len(entries) == 0 || start >= entries[len(entries)-1].upper {
 		// Nothing is covered at or above the (clamped) start.

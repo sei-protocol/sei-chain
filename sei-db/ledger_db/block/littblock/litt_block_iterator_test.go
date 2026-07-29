@@ -9,6 +9,46 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// TestLittblockIteratorGapAboveMidQCStartIsCorruption pins that clamping the scan's start up to the
+// first existing block does not weaken gap detection above it. A store may legitimately begin partway
+// into its covering QC, but blocks are dense from that point up, so an interior hole above it is still
+// corruption. A clamp that overshot the first block would silently skip past such a hole. This cannot
+// be written against the shared BlockDB contract: producing the hole needs a raw table write that
+// bypasses WriteBlock's contiguity cursor.
+func TestLittblockIteratorGapAboveMidQCStartIsCorruption(t *testing.T) {
+	dir := t.TempDir()
+	rng := utils.TestRngFromSeed(21)
+
+	db, err := NewBlockDB(strandingConfig(t, dir, 1024))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	impl := db.(*blockDB)
+
+	// One QC covering [0,6) whose block history begins at 2, so the scan opens at 2.
+	require.NoError(t, db.WriteQC(types.GenFullCommitQCRange(rng, 0, 6)))
+	require.NoError(t, db.WriteBlock(2, types.GenBlock(rng)))
+	require.NoError(t, db.WriteBlock(3, types.GenBlock(rng)))
+
+	// Corrupt the store above the start: a block at 5 with none at 4.
+	require.NoError(t, impl.table.Put(blockKey(5), encodeBlock(5, types.GenBlock(rng))))
+
+	it, err := db.Iterator(0)
+	require.NoError(t, err)
+	defer func() { _ = it.Close() }()
+
+	for _, want := range []types.GlobalBlockNumber{2, 3} {
+		pos, ok, err := it.Next()
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, want, pos.Number, "the scan must open on the first existing block")
+		require.True(t, pos.HasBlock)
+	}
+
+	// Position 4 has no block while a later one exists: corruption, not a legitimate hole.
+	_, _, err = it.Next()
+	require.ErrorIs(t, err, types.ErrBlockGap)
+}
+
 // TestLittblockIteratorGapIsCorruption pins the iterator's gap detection: blocks are written
 // densely (WriteBlock enforces contiguity), so an interior missing block on disk can only be
 // corruption and must surface as an error rather than a silent None. The gap is injected by
@@ -86,7 +126,7 @@ func TestLittblockIteratorUncoveredBlockIsCorruption(t *testing.T) {
 // TestLittblockIteratorMidChainStartNeedsNoScan pins that a store whose coverage begins above 0 is
 // positioned directly, without the full-scan fallback that used to serve this case. It must behave
 // identically before and after a restart: in the writing session the clamp comes from
-// oldestQCStart, after a reopen recoverReadWatermark derives the same floor into the watermark.
+// oldestQCStart, after a reopen recoverReadFloors derives the same floor into the watermark.
 func TestLittblockIteratorMidChainStartNeedsNoScan(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRngFromSeed(23)

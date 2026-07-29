@@ -1308,6 +1308,22 @@ func (d *DiskTable) IteratorAt(key []byte, reverse bool) (litt.Iterator, bool, e
 	}
 
 	// Scan the located segment's keys (insertion order) for the exact key to fix the start position.
+	//
+	// TODO(perf): positioning is O(keys in segment). The key-file read itself is not wasted — the
+	// iterator walks this same slice — but the scan is pure overhead on top of it. Two ways to get to
+	// O(log n), neither free:
+	//
+	//   - Fix the key size, or enforce a maximum so a key record can occupy a fixed number of bytes.
+	//     Records are variable-stride today (kind, uint16 key length, key, address — see
+	//     keyFile.readKeys), so the file cannot be indexed arithmetically; a fixed stride would allow
+	//     binary searching the file directly. Only sound where insertion order is also key order,
+	//     since the key file is written in insertion order.
+	//   - Build a small per-segment index over the key file, shaped like a binary search tree. Works
+	//     regardless of key ordering, at the cost of another file per segment.
+	//
+	// Both trade one sequential key-file read for random reads, so either needs benchmarking before
+	// adoption. Deferred until there is evidence it matters: if iteration is mostly a startup
+	// activity, reading one segment's key file is noise.
 	keys, err := segs[segPos].GetKeys()
 	if err != nil {
 		return nil, false, errors.Join(

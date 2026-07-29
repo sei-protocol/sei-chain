@@ -28,7 +28,7 @@ type blockDB struct {
 	// watermark is a retention floor, always a QC boundary (a GlobalRange().First):
 	// PruneBefore rounds a requested prune point down to the start of the cohort
 	// containing it, and startup re-derives it as the lowest surviving QC's First
-	// (see cohortStart and recoverReadWatermark). Keeping it on a cohort boundary
+	// (see cohortStart and recoverReadFloors). Keeping it on a cohort boundary
 	// is what makes a QC's blocks change readability atomically — the gate never
 	// splits a cohort.
 	//
@@ -51,10 +51,21 @@ type blockDB struct {
 	// latestQCStartBlock is the most recently written QC's starting block number.
 	latestQCStartBlock types.GlobalBlockNumber
 
+	// firstBlockNumber is the lowest block number this handle has seen. Iterator clamps its
+	// start up to it so a scan always opens on a block that exists: the first block may be
+	// written anywhere inside its covering QC, so this can sit above oldestQCStart with no
+	// block in between. Set when the first block is written and re-derived on open (see
+	// recoverReadFloors).
+	//
+	// Like oldestQCStart it is a floor, not an exact value — pruning may reclaim the block it
+	// names — but by then watermark has advanced past it and Iterator clamps to both.
+	// Meaningful only while hasBlocks.
+	firstBlockNumber types.GlobalBlockNumber
+
 	// oldestQCStart is where the oldest QC this handle has seen begins. Iterator clamps its
 	// start up to it, which is what lets the positioned lookup always land on a retained QC
 	// record: a start below every QC's range has no key to position at. Set when the first QC
-	// is written and re-derived on open (see recoverReadWatermark).
+	// is written and re-derived on open (see recoverReadFloors).
 	//
 	// It is a floor, not an exact value — GC may later reclaim that QC — but by then
 	// PruneBefore has advanced watermark past it, and Iterator clamps to both. Meaningful
@@ -101,9 +112,9 @@ func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to recover write cursors: %w", err)
 	}
-	if err := s.recoverReadWatermark(); err != nil {
+	if err := s.recoverReadFloors(); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("failed to recover read watermark: %w", err)
+		return nil, fmt.Errorf("failed to recover read floors: %w", err)
 	}
 	return s, nil
 }
@@ -158,39 +169,55 @@ func (s *blockDB) recoverCursors() error {
 	return nil
 }
 
-// recoverReadWatermark re-derives a safe read watermark on open. The watermark
-// is in-memory only, so a restart forgets every PruneBefore. That is fine for
-// reclamation (nothing new is deleted), but we must protect against showing un-pruned
-// blocks with pruned QCs.
-func (s *blockDB) recoverReadWatermark() error {
+// recoverReadFloors re-derives the read floors on open: the watermark (with oldestQCStart) from
+// the oldest surviving QC, and firstBlockNumber from the oldest surviving block. Both are
+// in-memory only, so a restart forgets every PruneBefore. That is fine for reclamation (nothing
+// new is deleted), but we must protect against showing un-pruned blocks with pruned QCs.
+//
+// One forward pass serves both. QCs are written before the blocks they cover, so the oldest
+// surviving record is normally a QC and the first block follows shortly after. The block search
+// is skipped when the store holds no blocks — hasBlocks comes from recoverCursors, which runs
+// first — so a QC-only store does not walk the whole table looking for a block that is not there.
+func (s *blockDB) recoverReadFloors() error {
 	it, err := s.table.Iterator(false)
 	if err != nil {
-		return fmt.Errorf("failed to open watermark recovery iterator: %w", err)
+		return fmt.Errorf("failed to open read floor recovery iterator: %w", err)
 	}
 	defer func() { _ = it.Close() }()
 
-	for {
+	needQC, needBlock := true, s.hasBlocks
+	for needQC || needBlock {
 		ok, err := it.Next()
 		if err != nil {
-			return fmt.Errorf("failed to advance watermark recovery iterator: %w", err)
+			return fmt.Errorf("failed to advance read floor recovery iterator: %w", err)
 		}
 		if !ok {
 			break
 		}
 		key, isPrimary, err := it.GetKey()
 		if err != nil {
-			return fmt.Errorf("failed to read watermark recovery key: %w", err)
+			return fmt.Errorf("failed to read read floor recovery key: %w", err)
 		}
-		if !isPrimary || keyKind(key) != kindQC {
+		if !isPrimary {
 			continue
 		}
-		oldest := decodeNumberKey(key)
-		s.watermark.Store(uint64(oldest))
-		s.oldestQCStart = oldest
-		return nil
+		switch keyKind(key) {
+		case kindQC:
+			if needQC {
+				oldest := decodeNumberKey(key)
+				s.watermark.Store(uint64(oldest))
+				s.oldestQCStart = oldest
+				needQC = false
+			}
+		case kindBlock:
+			if needBlock {
+				s.firstBlockNumber = decodeNumberKey(key)
+				needBlock = false
+			}
+		}
 	}
 
-	if s.hasBlocks {
+	if needQC && s.hasBlocks {
 		// No QC survives. The never-empty prune invariant guarantees at least one
 		// (block, QC) pair is always retained, so blocks-without-QC is unreachable
 		// through normal operation — it means the store is corrupt (e.g. a QC WAL
@@ -228,6 +255,9 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 		return fmt.Errorf("failed to put block %d: %w", n, err)
 	}
 
+	if !s.hasBlocks {
+		s.firstBlockNumber = n
+	}
 	s.lastBlockNumber = n
 	s.hasBlocks = true
 	return nil
@@ -362,16 +392,24 @@ func (s *blockDB) Status() types.DBStatus {
 func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
 	watermark := s.watermark.Load()
 	nextQC, oldestQCStart := s.qcCoverage()
+	firstBlock, hasBlocks := s.blockFloor()
 
-	// Clamp up to the lowest number a retained QC covers. Both floors are needed: watermark is
-	// the retention gate, oldestQCStart is where coverage begins on a store that never had data
-	// below it (bootstrapped mid-chain), and either may be the higher of the two.
+	// Clamp up to the lowest number this store can serve. Three floors, any of which may be the
+	// highest: watermark is the retention gate; oldestQCStart is where coverage begins on a store
+	// that never had data below it (bootstrapped mid-chain); firstBlock is where the block history
+	// begins, which can sit inside its covering QC's range because the first block is free to start
+	// there. Clamping to firstBlock is what makes a scan open on a block that exists rather than on
+	// blockless numbers below it. With no block at all the QC floor governs, so a QC written ahead
+	// of its blocks is still iterable.
 	start := n
 	if uint64(start) < watermark {
 		start = types.GlobalBlockNumber(watermark)
 	}
 	if start < oldestQCStart {
 		start = oldestQCStart
+	}
+	if hasBlocks && start < firstBlock {
+		start = firstBlock
 	}
 
 	if start >= nextQC {
@@ -423,6 +461,18 @@ func (s *blockDB) qcCoverage() (nextQC types.GlobalBlockNumber, oldestQCStart ty
 		return 0, 0
 	}
 	return s.lastQCNext, s.oldestQCStart
+}
+
+// blockFloor returns the lowest block number this store can serve, and whether it holds a block at
+// all. The floor is where the block history begins, raised to the retention watermark once pruning
+// has passed it.
+func (s *blockDB) blockFloor() (types.GlobalBlockNumber, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasBlocks {
+		return 0, false
+	}
+	return max(s.firstBlockNumber, types.GlobalBlockNumber(s.watermark.Load())), true
 }
 
 func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {

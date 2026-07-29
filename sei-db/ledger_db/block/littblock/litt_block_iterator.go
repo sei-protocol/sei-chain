@@ -37,8 +37,11 @@ type blockDBIterator struct {
 	it littdb.Iterator
 
 	// startN is the first number the iterator may yield, and doubles as the retention floor:
-	// blockDB.Iterator clamps it up to the prune watermark, so a block below startN is either
-	// below the start or stranded from a reclaimed QC, and is skipped either way.
+	// blockDB.Iterator clamps it up to the prune watermark and to the start of the block history,
+	// so a block below startN is either below the start or stranded from a reclaimed QC, and is
+	// skipped either way. Because of the block-history floor, startN names a block that exists
+	// whenever the store holds one — it may sit inside its covering QC's range rather than on that
+	// range's first number.
 	startN types.GlobalBlockNumber
 
 	// expectStartQC is one-shot state, not a mode: every non-empty iterator is positioned at

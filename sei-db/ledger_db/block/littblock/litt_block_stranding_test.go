@@ -286,7 +286,7 @@ func TestLittblockPruneIntoCohortRoundsDown(t *testing.T) {
 }
 
 // TestLittblockRefusesToOpenWithStrandedBlocks verifies the corruption guard in
-// recoverReadWatermark. The never-empty prune invariant guarantees at least one
+// recoverReadFloors. The never-empty prune invariant guarantees at least one
 // (block, QC) pair is always retained, so a store holding a block with no
 // surviving QC is corrupt (e.g. a QC WAL file removed out of band). Rather than
 // serve blocks it can no longer trust, the store refuses to open.

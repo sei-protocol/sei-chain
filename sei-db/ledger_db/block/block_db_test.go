@@ -88,6 +88,7 @@ func TestBlockDB(t *testing.T) {
 			t.Run("IteratorClampsUpToCoverage", func(t *testing.T) {
 				testIteratorClampsUpToCoverage(t, impl.build)
 			})
+			t.Run("FirstBlockMidQC", func(t *testing.T) { testFirstBlockMidQC(t, impl.build) })
 		})
 	}
 }
@@ -936,6 +937,69 @@ func testIteratorPositioning(t *testing.T, build builder) {
 	for _, e := range clamped {
 		require.GreaterOrEqual(t, e.n, watermark, "Iterator must never yield a position below the watermark")
 	}
+}
+
+// testFirstBlockMidQC asserts that iteration opens on a block that exists. WriteBlock lets the very
+// first block start anywhere inside its covering QC, so a store can hold a QC whose lower numbers
+// carry no block. Iteration must begin at that first block rather than at the QC's start — every
+// yielded position then carries a block, so the leading numbers are simply not part of the scan.
+// The mirror of testIteratorTail, which covers the blockless run at the other end.
+func testFirstBlockMidQC(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, o := openFresh(t, build)
+	closed := false
+	defer func() {
+		if !closed {
+			require.NoError(t, db.Close())
+		}
+	}()
+
+	// One QC, but blocks only from the middle of its range onward.
+	b0 := batches[0]
+	mid := b0.first + (b0.next-b0.first)/2
+	require.Greater(t, mid, b0.first, "need a blockless prefix inside the cohort")
+	require.NoError(t, db.WriteQC(b0.qc))
+	for n := mid; n < b0.next; n++ {
+		require.NoError(t, db.WriteBlock(n, b0.blocks[n-b0.first]))
+	}
+
+	assertOpensOnFirstBlock := func(t *testing.T, db types.BlockDB) {
+		t.Helper()
+		entries := drainIterator(t, openIterator(t, db))
+		require.Equal(t, b0.next-mid, types.GlobalBlockNumber(len(entries)),
+			"the scan must cover exactly [firstBlock, QC end)")
+		require.Equal(t, mid, entries[0].n, "the scan must open on the first block that exists")
+		for i, e := range entries {
+			require.Equal(t, mid+gbn(i), e.n, "positions must be densely ascending")
+			require.NotNil(t, e.blk, "every yielded position must carry a block")
+		}
+
+		// A start below the first block clamps up to it; a start above it is honoured.
+		below := drainIterator(t, mustIteratorAt(t, db, b0.first))
+		require.Equal(t, mid, below[0].n, "a start below the first block clamps up to it")
+		above := drainIterator(t, mustIteratorAt(t, db, mid+1))
+		require.Equal(t, mid+1, above[0].n, "a start above the first block is honoured")
+	}
+
+	assertOpensOnFirstBlock(t, db)
+
+	// Restart: a durable backend must re-derive the same floor on open.
+	require.NoError(t, db.Flush())
+	require.NoError(t, db.Close())
+	closed = true
+	reopened, err := o()
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reopened.Close()) }()
+	assertOpensOnFirstBlock(t, reopened)
+}
+
+// mustIteratorAt opens an iterator at n, failing the test on error.
+func mustIteratorAt(t *testing.T, db types.BlockDB, n types.GlobalBlockNumber) types.BlockDBIterator {
+	t.Helper()
+	it, err := db.Iterator(n)
+	require.NoError(t, err)
+	return it
 }
 
 // testIteratorTail asserts the QC-ahead-of-blocks shape: when a QC is persisted but (some of) its
