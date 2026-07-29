@@ -390,31 +390,41 @@ func (s *blockDB) Status() types.DBStatus {
 }
 
 func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
-	watermark := s.watermark.Load()
-	nextQC, oldestQCStart := s.qcCoverage()
-	firstBlock, hasBlocks := s.blockFloor()
+	// One consistent read of the cursors. The watermark stays on its atomic because the GC goroutine
+	// writes it, but everything else is taken together so the floors below cannot disagree about
+	// which instant they describe.
+	s.mu.Lock()
+	hasQC, nextQC, oldestQCStart := s.hasQC, s.lastQCNext, s.oldestQCStart
+	hasBlocks, firstBlock := s.hasBlocks, s.firstBlockNumber
+	s.mu.Unlock()
+	watermark := types.GlobalBlockNumber(s.watermark.Load())
 
-	// Clamp up to the lowest number this store can serve. Three floors, any of which may be the
-	// highest: watermark is the retention gate; oldestQCStart is where coverage begins on a store
-	// that never had data below it (bootstrapped mid-chain); firstBlock is where the block history
-	// begins, which can sit inside its covering QC's range because the first block is free to start
-	// there. Clamping to firstBlock is what makes a scan open on a block that exists rather than on
-	// blockless numbers below it. With no block at all the QC floor governs, so a QC written ahead
-	// of its blocks is still iterable.
-	start := n
-	if uint64(start) < watermark {
-		start = types.GlobalBlockNumber(watermark)
+	if !hasQC {
+		// An empty store covers nothing.
+		return &blockDBIterator{}, nil
 	}
-	if start < oldestQCStart {
-		start = oldestQCStart
+
+	// Clamp up to the lowest number this store can serve. The watermark is the retention gate and
+	// oldestQCStart is where coverage begins on a store that never had data below it (bootstrapped
+	// mid-chain); either may be the higher.
+	start := max(n, watermark, oldestQCStart)
+
+	if !hasBlocks {
+		// No block has ever been written, so there is no block to open on and the QC floor governs.
+		// This is the one case blockDBIterator cannot serve safely — see simpleIterator.
+		if start >= nextQC {
+			return &blockDBIterator{}, nil
+		}
+		return newSimpleIterator(s.table, start, nextQC)
 	}
-	if hasBlocks && start < firstBlock {
-		start = firstBlock
-	}
+
+	// firstBlock is where the block history begins, which can sit inside its covering QC's range
+	// because the first block is free to start there. Clamping to it is what makes the scan open on a
+	// block that exists rather than on blockless numbers below it.
+	start = max(start, firstBlock)
 
 	if start >= nextQC {
-		// Nothing is covered at or above start. NextQC is zero on an empty store, which this
-		// comparison also classifies as past-coverage.
+		// Nothing is covered at or above start.
 		return &blockDBIterator{}, nil
 	}
 
@@ -450,29 +460,6 @@ func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, er
 		startN:        start,
 		expectStartQC: true,
 	}, nil
-}
-
-// qcCoverage returns the exclusive upper bound of QC coverage and the lowest number a retained
-// QC covers. Both are zero when no QC has been written.
-func (s *blockDB) qcCoverage() (nextQC types.GlobalBlockNumber, oldestQCStart types.GlobalBlockNumber) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.hasQC {
-		return 0, 0
-	}
-	return s.lastQCNext, s.oldestQCStart
-}
-
-// blockFloor returns the lowest block number this store can serve, and whether it holds a block at
-// all. The floor is where the block history begins, raised to the retention watermark once pruning
-// has passed it.
-func (s *blockDB) blockFloor() (types.GlobalBlockNumber, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.hasBlocks {
-		return 0, false
-	}
-	return max(s.firstBlockNumber, types.GlobalBlockNumber(s.watermark.Load())), true
 }
 
 func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {

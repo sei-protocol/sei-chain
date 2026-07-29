@@ -1,6 +1,7 @@
 package littblock
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -8,6 +9,63 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
+
+// TestLittblockIteratorConcurrentFirstBlockIsNotAGap pins the reason simpleIterator exists. A store
+// holding a QC and no blocks has no block for a scan to open on, and the first block may legally land
+// anywhere inside its covering QC. If Iterator opened a table snapshot in that state, a WriteBlock
+// racing it could put a block above the cursor into the snapshot and the scan would report it as a gap
+// — a corruption error on a healthy store. Iterator must therefore take no snapshot until a block
+// exists.
+//
+// The interleaving is not directly forceable, so this hammers the window instead: many rounds of a
+// fresh QC-only store with Iterator and WriteBlock started together. Any ErrBlockGap is a regression.
+func TestLittblockIteratorConcurrentFirstBlockIsNotAGap(t *testing.T) {
+	rng := utils.TestRngFromSeed(31)
+
+	for round := 0; round < 64; round++ {
+		db, err := NewBlockDB(strandingConfig(t, t.TempDir(), 1024))
+		require.NoError(t, err)
+
+		// One QC covering [0,6) and no blocks: the state where the scan has nothing to anchor on.
+		require.NoError(t, db.WriteQC(types.GenFullCommitQCRange(rng, 0, 6)))
+		blk := types.GenBlock(rng)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		var writeErr, iterErr error
+		go func() {
+			defer wg.Done()
+			// The first block, landing mid-QC — permitted by WriteBlock.
+			writeErr = db.WriteBlock(2, blk)
+		}()
+		go func() {
+			defer wg.Done()
+			it, err := db.Iterator(0)
+			if err != nil {
+				iterErr = err
+				return
+			}
+			defer func() { _ = it.Close() }()
+			for {
+				_, ok, err := it.Next()
+				if err != nil {
+					iterErr = err
+					return
+				}
+				if !ok {
+					return
+				}
+			}
+		}()
+		wg.Wait()
+
+		require.NoError(t, writeErr, "round %d: the first block may start anywhere inside its QC", round)
+		require.NotErrorIs(t, iterErr, types.ErrBlockGap,
+			"round %d: a concurrent first block must never read as a gap", round)
+		require.NoError(t, iterErr, "round %d", round)
+		require.NoError(t, db.Close())
+	}
+}
 
 // TestLittblockIteratorGapAboveMidQCStartIsCorruption pins that clamping the scan's start up to the
 // first existing block does not weaken gap detection above it. A store may legitimately begin partway

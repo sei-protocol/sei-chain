@@ -89,6 +89,7 @@ func TestBlockDB(t *testing.T) {
 				testIteratorClampsUpToCoverage(t, impl.build)
 			})
 			t.Run("FirstBlockMidQC", func(t *testing.T) { testFirstBlockMidQC(t, impl.build) })
+			t.Run("QCOnlyStoreIterates", func(t *testing.T) { testQCOnlyStoreIterates(t, impl.build) })
 		})
 	}
 }
@@ -1091,6 +1092,58 @@ func testIteratorClampsUpToCoverage(t *testing.T, build builder) {
 	it, err = db.Iterator(next)
 	require.NoError(t, err)
 	require.Empty(t, drainIterator(t, it))
+}
+
+// testQCOnlyStoreIterates asserts the shape of a store that holds QCs and no blocks at all — what a
+// crash between a QC flush and the first block write leaves behind. Every covered number must still be
+// yielded with its covering QC and no block, so replay can restore those QCs from the same single scan.
+// Distinct from testIteratorTail, where block-less QCs trail a store that does have blocks.
+func testQCOnlyStoreIterates(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	require.GreaterOrEqual(t, len(batches), 2, "need two cohorts to cover a multi-QC walk")
+	db, o := openFresh(t, build)
+	closed := false
+	defer func() {
+		if !closed {
+			require.NoError(t, db.Close())
+		}
+	}()
+
+	// Two QCs, no blocks whatsoever.
+	b0, b1 := batches[0], batches[1]
+	require.NoError(t, db.WriteQC(b0.qc))
+	require.NoError(t, db.WriteQC(b1.qc))
+
+	assertQCOnlyShape := func(t *testing.T, db types.BlockDB) {
+		t.Helper()
+		// drainIterator cross-checks HasBlock against Block() at every position.
+		entries := drainIterator(t, openIterator(t, db))
+		require.Equal(t, b1.next-b0.first, types.GlobalBlockNumber(len(entries)),
+			"every number both QCs cover must be yielded")
+		for i, e := range entries {
+			require.Equal(t, b0.first+gbn(i), e.n, "positions must be densely ascending")
+			require.Nil(t, e.blk, "no block exists anywhere in this store")
+		}
+		require.Equal(t, []types.GlobalBlockNumber{b0.first, b1.first}, qcFirsts(entries),
+			"both QCs must be observed in one pass")
+
+		// A mid-range start is honoured, and a start past coverage yields nothing.
+		mid := drainIterator(t, mustIteratorAt(t, db, b0.first+1))
+		require.Equal(t, b0.first+1, mid[0].n)
+		require.Empty(t, drainIterator(t, mustIteratorAt(t, db, b1.next)))
+	}
+
+	assertQCOnlyShape(t, db)
+
+	// Restart: the shape must survive a reopen, where a durable backend re-derives its cursors.
+	require.NoError(t, db.Flush())
+	require.NoError(t, db.Close())
+	closed = true
+	reopened, err := o()
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reopened.Close()) }()
+	assertQCOnlyShape(t, reopened)
 }
 
 // testWriteBlockRequiresQC asserts the QC-before-block contract: a block may
