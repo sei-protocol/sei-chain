@@ -202,88 +202,78 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // Called from NewState before any goroutines are spawned; the lock is acquired
 // only to satisfy the Watch API.
 //
-// The recovery floor is derived from BlockDB: empty store keeps
-// registry.FirstBlock(); otherwise cursors skipTo the first retained QC start.
-// Inconsistencies (gaps, block without QC, first-block/QC mismatch, etc.) are
-// returned as errors rather than normalized — BlockDB is expected to present a
-// consistent iterator view (see littblock watermark / stranding rules).
+// The recovery floor is derived from BlockDB: an empty store keeps
+// registry.FirstBlock(); otherwise cursors skipTo the first number the scan
+// yields. BlockDB.Iterator opens on a block that exists, so that number is the
+// start of the retained block history — which may sit inside its covering QC's
+// range rather than on that range's first number, since the first block is free
+// to start there. Taking the floor from the position rather than from the QC is
+// what keeps blocks dense over [first, nextBlock) as inner requires.
+//
+// A single iterator scan restores both record kinds: each yielded number carries
+// its covering QC (inserted the first time the scan sees that QC) and its block
+// when one survives — HasBlock is false only in the trailing positions, where a
+// QC outlived (or preceded) its blocks. Density and QC-coverage consistency hold
+// below this loop, so it does not re-check them: a durable BlockDB reports a
+// violation from Next, and an in-memory one cannot reach one (see
+// types.BlockDBIterator). A first QC that predates committee genesis is the one
+// inconsistency checked here.
 //
 // TODO: Cap how much of BlockDB we replay into RAM (similar to PushQC's
 // blocksCacheSize gate). Deferred to a follow-up PR — today we load the full
 // retained store.
-//
-// TODO: Push gap / first-block / QC-coverage consistency checks down into the
-// BlockDB implementation so loadFromBlockDB can assume a consistent view.
 func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 	for in := range s.inner.Lock() {
-		// Restore QCs from BlockDB. On the first QC, skipTo its GlobalRange.First
-		// to advance past any pruned prefix. Subsequent QCs must be consecutive —
-		// insertQC errors on any gap.
 		err := func() error {
-			it, err := blockDB.QCs(false)
+			it, err := blockDB.Iterator(0)
 			if err != nil {
-				return fmt.Errorf("open QC iterator: %w", err)
+				return fmt.Errorf("open block db iterator: %w", err)
 			}
 			defer func() { _ = it.Close() }()
+			var lastQC *types.FullCommitQC
 			for {
-				ok, err := it.Next()
-				if err != nil || !ok {
-					return err
-				}
-				qc, err := it.QC()
+				pos, ok, err := it.Next()
 				if err != nil {
-					return err
+					return fmt.Errorf("advance block db iterator: %w", err)
 				}
-				if len(in.qcs) == 0 {
-					gr := qc.QC().GlobalRange()
+				if !ok {
+					return nil
+				}
+				n, qc := pos.Number, pos.QC
+				gr := qc.QC().GlobalRange()
+				if lastQC == nil {
+					// First position: skipTo it to advance past any pruned prefix. Nothing has
+					// been inserted yet, which is what makes it legal for skipTo to move first
+					// without deleting. Subsequent QCs must be consecutive — insertQC errors on
+					// any gap.
 					if gr.First < in.nextQC {
-						return fmt.Errorf("QC in BlockDB predates committee genesis %d: got %d", in.nextQC, gr.First)
+						return fmt.Errorf("QC in BlockDB predates committee genesis %d: got %d",
+							in.nextQC, gr.First)
 					}
-					if gr.First > in.nextQC {
-						in.skipTo(gr.First)
+					if n > in.nextQC {
+						in.skipTo(n)
 					}
 				}
-				if err := in.insertQC(s.cfg.Registry, qc); err != nil {
-					return fmt.Errorf("load QC from BlockDB: %w", err)
+				if qc != lastQC {
+					// The scan entered a new QC's range. Position.QC hands back the same pointer
+					// for every number in a range, so identity is the exact test — and unlike
+					// gr.First == n it still fires for the covering QC when the scan opened
+					// inside that QC's range. insertQC clips it to [nextQC, gr.Next).
+					lastQC = qc
+					if err := in.insertQC(s.cfg.Registry, qc); err != nil {
+						return fmt.Errorf("load QC from BlockDB: %w", err)
+					}
 				}
-			}
-		}()
-		if err != nil {
-			return err
-		}
-
-		// Restore blocks from BlockDB. First block must align with first QC start
-		// (set by the QC pass); a mismatch is corruption / incomplete store.
-		// After the QC pass with no AppProposals, nextAppProposal is the recovery
-		// floor (registry.FirstBlock() or first retained QC start).
-		err = func() error {
-			it, err := blockDB.Blocks(false)
-			if err != nil {
-				return fmt.Errorf("open block iterator: %w", err)
-			}
-			defer func() { _ = it.Close() }()
-			nextExpect := in.nextAppProposal
-			for {
-				ok, err := it.Next()
-				if err != nil || !ok {
-					return err
+				if !pos.HasBlock {
+					// The iteration tail: the covering QC is persisted but this block is
+					// not (lost in a crash, or written ahead of its blocks).
+					continue
 				}
-				n := it.Number()
-				if n >= in.nextQC {
-					return fmt.Errorf("block %d in BlockDB has no QC coverage (nextQC=%d)", n, in.nextQC)
-				}
-				// updateNextBlock only advances nextBlock through contiguous present
-				// entries, so runPersist always writes [persistedBlock, nextBlock)
-				// fully populated. A gap here means BlockDB corruption.
-				if n != nextExpect {
-					return fmt.Errorf("%w: expected %d, got %d", types.ErrBlockGap, nextExpect, n)
-				}
-				nextExpect++
-				blk, err := it.Block()
+				blkOpt, err := it.Block()
 				if err != nil {
-					return err
+					return fmt.Errorf("read block %d from BlockDB: %w", n, err)
 				}
-				qc := in.qcs[n]
+				blk := blkOpt.OrPanic(fmt.Sprintf("block %d absent at a HasBlock position", n))
 				e, ok := s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
 				if !ok {
 					return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
@@ -780,7 +770,7 @@ func (s *State) runPersist(ctx context.Context) error {
 		// Write QCs first (BlockDB contract: QC must precede covered blocks).
 		for _, qc := range b.qcs {
 			gr := qc.QC().GlobalRange()
-			if err := s.blockDB.WriteQC(gr.First, gr.Next, qc); err != nil {
+			if err := s.blockDB.WriteQC(qc); err != nil {
 				return fmt.Errorf("write QC [%d,%d): %w", gr.First, gr.Next, err)
 			}
 			if gr.Next > nextToPersistQC {

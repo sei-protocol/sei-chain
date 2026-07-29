@@ -38,10 +38,12 @@ import (
 // Writes must be ordered, and the contract is enforced (not merely
 // expected):
 //
-//   - Blocks must be written in strictly ascending GlobalBlockNumber
-//     order. WriteBlock returns ErrBlockOutOfOrder otherwise.
-//   - QCs must be written contiguously — each WriteQC's lowerBound
-//     must equal the previous WriteQC's upperBound. WriteQC returns
+//   - Blocks must be written densely: each block's number must be exactly
+//     one greater than the previously written block's (the first block may
+//     start anywhere its covering QC allows). WriteBlock returns
+//     ErrBlockOutOfOrder otherwise.
+//   - QCs must be written contiguously — each QC's GlobalRange().First
+//     must equal the previous QC's GlobalRange().Next. WriteQC returns
 //     ErrQCNonContiguous otherwise.
 //   - QCs must be written before blocks. A QC covering a block must
 //     be written before that block is written.
@@ -63,10 +65,13 @@ type BlockDB interface {
 	// block for height n may only be written after a QC covering n has
 	// also been written, or else this method returns an error.
 	//
-	// n must be strictly greater than every previously written block
-	// number; otherwise WriteBlock returns ErrBlockOutOfOrder and
-	// persists nothing. Writes are NOT idempotent — re-writing the same
-	// (or any non-ascending) n is rejected with an error.
+	// n must be exactly one greater than the previously written block
+	// number (the first block may start anywhere its covering QC allows);
+	// otherwise WriteBlock returns ErrBlockOutOfOrder and persists
+	// nothing. Writes are NOT idempotent — re-writing the same (or any
+	// other non-contiguous) n is rejected with an error. Density is what
+	// lets BlockDBIterator.Block treat an absent block below the highest
+	// persisted one as corruption.
 	//
 	// May return before the block is on disk. Callers that need crash
 	// durability before some external observable action (e.g.
@@ -78,16 +83,21 @@ type BlockDB interface {
 	// so loss of non-durable data after a crash never leaves gaps.
 	WriteBlock(n GlobalBlockNumber, block *Block) error
 
-	// WriteQC persists a FullCommitQC covering the half-open global block
-	// number range [lowerBound, upperBound) — lowerBound inclusive,
-	// upperBound exclusive (i.e. the QC finalizes lowerBound, lowerBound+1,
-	// ..., upperBound-1).
+	// WriteQC persists a FullCommitQC. The QC carries the range it covers,
+	// so no range is passed alongside it: the covered range is the half-open
+	// interval [First, First+len(Headers())), where First is
+	// qc.QC().GlobalRange().First. FullCommitQC's own invariant makes that
+	// identical to qc.QC().GlobalRange().Next; implementations derive the
+	// bound from the header count because First and Headers are the fields
+	// the wire format carries explicitly, so the persisted range is stable
+	// across an encode/decode round trip. A QC covering no blocks
+	// (len(Headers()) == 0) is rejected.
 	//
-	// Successive WriteQC calls must form a contiguous sequence: each
-	// call's lowerBound must equal the previous call's upperBound (the
-	// first QC may start anywhere). A gap or overlap returns
-	// ErrQCNonContiguous and persists nothing. Writes are NOT idempotent —
-	// re-writing a QC is rejected rather than treated as a no-op.
+	// Successive WriteQC calls must form a contiguous sequence: each QC's
+	// First must equal the previous QC's covered bound (the first QC may
+	// start anywhere). A gap or overlap returns ErrQCNonContiguous and
+	// persists nothing. Writes are NOT idempotent — re-writing a QC is
+	// rejected rather than treated as a no-op.
 	//
 	// May return before the QC is on disk. See the BlockDB type doc for
 	// the two-phase write/flush contract and WriteBlock for the
@@ -95,11 +105,7 @@ type BlockDB interface {
 	//
 	// Writes are made crash durable in write order (both blocks and QCs),
 	// so loss of non-durable data after a crash never leaves gaps.
-	WriteQC(
-		lowerBound GlobalBlockNumber,
-		upperBound GlobalBlockNumber,
-		qc *FullCommitQC,
-	) error
+	WriteQC(qc *FullCommitQC) error
 
 	// PruneBefore advances the retention watermark toward n and removes
 	// everything below it:
@@ -153,41 +159,43 @@ type BlockDB interface {
 	// Status returns a consistent snapshot of the in-memory write tips (no I/O).
 	Status() DBStatus
 
-	// Blocks returns an iterator over every persisted block not yet
-	// pruned, for startup replay. Intended to be called once at
-	// construction by data.State.NewState.
+	// Iterator returns an iterator positioned at block number n. Iteration
+	// is forward-only: it steps through consecutive numbers up to the last
+	// persisted QC's coverage, exclusive. The start is clamped up to the
+	// lowest number the store can serve — the retention watermark, the first
+	// retained block, or the first persisted QC's range on a store holding no
+	// block at all — so Iterator(0) scans everything retained (startup replay)
+	// while a mid-history n resumes from that height without scanning what
+	// lies below it. See BlockDBIterator for what each position exposes.
 	//
-	// If reverse is false the iterator yields blocks in ascending
-	// GlobalBlockNumber order (the efficient direction for a full scan);
-	// if reverse is true it yields them newest-first (descending), so a
-	// caller can read the most recent block without scanning the whole
-	// table. Reverse iteration may incur extra IO when materializing
-	// values (see BlockIterator.Block), so prefer forward for full scans.
+	// Clamping to the first retained block is what makes a scan open on a
+	// number that has one: WriteBlock lets the first block start anywhere
+	// inside its covering QC, and the numbers below it were never written, so
+	// they are not part of the iteration.
 	//
-	// Unlike a bulk read, the iterator materializes one block at a time,
-	// so a caller can scan an arbitrarily large retention window without
-	// holding it all in memory — and may skip reading the value for
-	// blocks it does not need (see BlockIterator.Block).
+	// If the (clamped) start is past the last persisted QC's coverage —
+	// including on an empty store — the iterator is empty (Next
+	// immediately returns false).
 	//
-	// The iterator captures a snapshot of the blocks present when it is
-	// created; blocks written afterward are not observed. It is NOT safe
+	// Returns ErrPruned if a concurrent PruneBefore advances the retention
+	// floor past the clamped start before the iterator can be positioned.
+	// Racing a pruner has no deterministic answer — the floor may move
+	// again before the call returns — so the failure is reported rather
+	// than papered over, and a caller that still wants whatever is retained
+	// may simply call again. Distinct from the corruption error a genuinely
+	// missing record produces.
+	//
+	// A caller may walk an arbitrarily large retention window, and pays to
+	// read a block's value only where it calls Block — Number, QC and
+	// HasBlock come off Position for free (see BlockDBIterator). How much
+	// an implementation holds resident while scanning is its own affair
+	// and is not promised here.
+	//
+	// The iterator captures a snapshot of the records present when it is
+	// created; records written afterward are not observed. It is NOT safe
 	// for concurrent use and MUST be closed when no longer needed (see
-	// BlockIterator.Close).
-	Blocks(reverse bool) (BlockIterator, error)
-
-	// QCs returns an iterator over every persisted FullCommitQC not yet
-	// pruned. If reverse is false the iterator yields QCs in ascending
-	// GlobalRange().First order; if reverse is true it yields them
-	// newest-first (descending), so a caller can read the most recent QC
-	// without scanning the whole table (reverse value reads may incur
-	// extra IO — prefer forward for full scans). Successive forward QCs
-	// cover contiguous ranges; the first QC's First is not required to
-	// equal committee.FirstBlock() (QCs whose entire range is below the
-	// retention watermark have been pruned).
-	//
-	// Same snapshot, single-goroutine, and must-close semantics as
-	// Blocks.
-	QCs(reverse bool) (QCIterator, error)
+	// BlockDBIterator.Close).
+	Iterator(n GlobalBlockNumber) (BlockDBIterator, error)
 
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
 	//
@@ -248,36 +256,51 @@ type DBStatus struct {
 	// NextBlock is one past the highest GlobalBlockNumber accepted by WriteBlock
 	// (the next block number that may be written). Zero if no block has been written.
 	NextBlock GlobalBlockNumber
-	// NextQC is the exclusive upper bound of the last WriteQC (the next QC
-	// range must start here). Zero if no QC has been written.
+	// NextQC is one past the highest GlobalBlockNumber covered by the last QC
+	// accepted by WriteQC (the next QC's range must start here). Zero if no QC
+	// has been written.
 	NextQC GlobalBlockNumber
 }
 
-// BlockIterator iterates over persisted blocks in GlobalBlockNumber order —
-// ascending, or descending if the iterator was created with reverse=true. It
-// is created via BlockDB.Blocks and captures a snapshot of the blocks present
-// at creation time.
+// BlockDBIterator steps through consecutive GlobalBlockNumbers in ascending
+// order, exposing at each position the covering QC (always present) and the
+// block (present unless it did not survive). It is created via BlockDB.Iterator
+// and captures a snapshot of the records present at creation time.
 //
-// A BlockIterator is NOT safe for concurrent use by multiple goroutines.
-type BlockIterator interface {
-	// Next advances the iterator to the next block. It returns false when
-	// the iteration is complete (no more blocks), and returns an error if
-	// advancing failed. After Next returns (false, nil) iteration is
+// The numbers yielded are exactly those covered by a retained QC, so a single
+// pass observes every retained QC (via QC, which changes when the scan crosses
+// a range boundary) and every retained block — including QCs written ahead of
+// their blocks, which appear as trailing positions where Block returns None.
+//
+// A BlockDBIterator is NOT safe for concurrent use by multiple goroutines.
+type BlockDBIterator interface {
+	// Next advances the iterator and returns the position it advanced to. ok
+	// is false when the iteration is complete (no number covered by a
+	// retained QC remains), and Position is then the zero value. It returns
+	// an error if advancing failed or the store is corrupt (a block missing
+	// below the highest persisted block — writes are dense, so a gap can
+	// only be corruption). After Next returns ok == false iteration is
 	// complete; after it returns an error the iterator must not be used
 	// further (other than Close).
-	Next() (bool, error)
+	//
+	// The corruption clause binds only implementations that can reach a
+	// corrupt state — durable ones, where a torn write, an out-of-band file
+	// removal or a truncated index can produce records the write path would
+	// have rejected. An implementation holding its records in memory cannot
+	// reach those states at all: the write-order guards above are the only
+	// way records enter it. Such an implementation satisfies this clause
+	// vacuously and correctly never returns an error.
+	Next() (pos Position, ok bool, err error)
 
-	// Number returns the GlobalBlockNumber of the current block. It is only
-	// valid to call after Next has returned (true, nil). This is cheap and
-	// does not perform IO — a caller can scan numbers and choose which
-	// blocks to materialize via Block.
-	Number() GlobalBlockNumber
-
-	// Block reads and returns the current block. It is only valid to call
-	// after Next has returned (true, nil), and may perform IO (and so
-	// return an error). The Block type does not carry its GlobalBlockNumber;
-	// pair it with Number.
-	Block() (*Block, error)
+	// Block reads and returns the block at the position most recently
+	// returned by Next, or None if no block is persisted there —
+	// equivalently, None exactly when that Position's HasBlock is false.
+	//
+	// This is the one call that may perform IO, which is why it is not a
+	// Position field: a caller that only needs numbers, QCs or presence
+	// never pays for it. Calling it without a preceding Next that returned
+	// ok == true, or after Close, returns an error.
+	Block() (utils.Option[*Block], error)
 
 	// Close releases the resources held by the iterator. MUST be called when
 	// done; failure to close may leak resources in disk-backed
@@ -285,24 +308,24 @@ type BlockIterator interface {
 	Close() error
 }
 
-// QCIterator iterates over persisted FullCommitQCs in GlobalRange().First
-// order — ascending, or descending if the iterator was created with
-// reverse=true. It is created via BlockDB.QCs and captures a snapshot of the
-// QCs present at creation time.
-//
-// A QCIterator is NOT safe for concurrent use by multiple goroutines.
-type QCIterator interface {
-	// Next advances the iterator to the next QC. Same semantics as
-	// BlockIterator.Next.
-	Next() (bool, error)
+// Position is the record at one BlockDBIterator position. Every field is cheap
+// — populating a Position performs no IO — so a caller can scan positions and
+// materialize only the blocks it wants via BlockDBIterator.Block.
+type Position struct {
+	// Number is the GlobalBlockNumber this position covers.
+	Number GlobalBlockNumber
 
-	// QC reads and returns the current FullCommitQC. It is only valid to
-	// call after Next has returned (true, nil), and may perform IO (and so
-	// return an error).
-	QC() (*FullCommitQC, error)
+	// QC is the FullCommitQC covering Number: its GlobalRange contains
+	// Number. Never nil — every yielded number is covered by construction —
+	// and the same pointer is returned for every position in its range. The
+	// value is decoded once per QC, not once per number.
+	QC *FullCommitQC
 
-	// Close releases the resources held by the iterator. MUST be called when
-	// done; failure to close may leak resources in disk-backed
-	// implementations.
-	Close() error
+	// HasBlock reports whether a block is persisted at Number, and so
+	// whether BlockDBIterator.Block will return Some. Because QCs are
+	// written before the blocks they cover and blocks are written densely,
+	// it is false only in the trailing positions of the iteration: numbers
+	// whose covering QC was persisted but whose block was not (e.g. lost in
+	// a crash, or not yet written).
+	HasBlock bool
 }

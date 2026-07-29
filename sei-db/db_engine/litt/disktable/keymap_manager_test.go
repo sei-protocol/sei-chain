@@ -200,6 +200,46 @@ func TestKeymapManagerSyncAppliesThenContinues(t *testing.T) {
 	require.NoError(t, m.drain())
 }
 
+// TestKeymapManagerSyncPutsAppliesPutsOnly verifies the puts-only barrier: it applies every buffered put,
+// signals without stopping the manager, and leaves the delete backlog untouched. A subsequent full sync
+// then applies the backlogged delete. The manager is not started; requests are routed directly.
+func TestKeymapManagerSyncPutsAppliesPutsOnly(t *testing.T) {
+	m, wmChan := buildTestKeymapManager(t, 1024, 1024, 1_000_000, 1024)
+
+	// Buffer puts and a delete of one of the same keys without applying anything.
+	require.False(t, m.routeRequest(&keymapWriteRequest{keys: scopedKeys("p1", "p2", "d1")}))
+	require.False(t, m.routeRequest(&keymapDeleteRequest{keys: scopedKeys("d1"), segment: 1}))
+	assertAbsent(t, m, "p1", "p2", "d1")
+
+	// The puts-only barrier applies the buffered puts — including d1, whose delete stays backlogged.
+	doneChan := make(chan struct{}, 1)
+	require.False(t, m.routeRequest(&keymapManagerSyncPutsRequest{doneChan: doneChan}))
+	require.Len(t, doneChan, 1)
+	assertPresent(t, m, "p1", "p2", "d1")
+	require.Len(t, m.deleteBacklog, 1, "delete backlog must be untouched by the puts-only barrier")
+	require.Equal(t, int64(-1), drainWatermark(wmChan), "no deletion watermark may be published")
+
+	// A full sync barrier then applies the backlogged delete.
+	syncDone := make(chan struct{}, 1)
+	require.False(t, m.routeRequest(&keymapManagerSyncRequest{doneChan: syncDone}))
+	require.Len(t, syncDone, 1)
+	assertAbsent(t, m, "d1")
+	assertPresent(t, m, "p1", "p2")
+	require.Equal(t, int64(1), drainWatermark(wmChan))
+}
+
+// TestKeymapManagerSyncPutsAgainstRunningManager verifies the syncPuts barrier end-to-end (channel send,
+// run-loop dispatch, completion await) against a running manager.
+func TestKeymapManagerSyncPutsAgainstRunningManager(t *testing.T) {
+	m, _ := newTestKeymapManager(t, 1024, 1024, 1_000_000, 1024)
+
+	require.NoError(t, m.scheduleWrite(scopedKeys("k1", "k2"), 0))
+	require.NoError(t, m.syncPuts())
+	assertPresent(t, m, "k1", "k2")
+
+	require.NoError(t, m.drain())
+}
+
 // TestKeymapManagerPendingPutBytesTracksRawSize pins the cache-bound accounting: pendingPutBytes must reflect the
 // raw (pre-compression) value bytes carried on the write request, NOT Address.ValueSize() (which is the compressed
 // on-disk size for a compressed table). This is what keeps maxBatchBytes bounding the raw unflushed-data cache.

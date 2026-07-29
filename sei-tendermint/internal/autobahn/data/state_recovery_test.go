@@ -196,8 +196,8 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 
 	// Write both QCs but only qc1's blocks (simulate crash before qc2 blocks).
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
-	require.NoError(t, db1.WriteQC(gr2.First, gr2.Next, qc2))
+	require.NoError(t, db1.WriteQC(qc1))
+	require.NoError(t, db1.WriteQC(qc2))
 	for i, n := 0, gr1.First; n < gr1.Next; n++ {
 		require.NoError(t, db1.WriteBlock(n, blocks1[i]))
 		i++
@@ -227,9 +227,11 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 	require.Equal(t, gr2.Next, state2.NextBlock())
 }
 
-// TestRecoveryPartialQCPrefix verifies that a QC covering a wider range than
-// the available blocks (block prefix missing) is rejected — we do not normalize
-// by advancing the recovery floor (skipTo) to the first present block.
+// TestRecoveryPartialQCPrefix verifies recovery from a store whose blocks begin partway into
+// their covering QC. The first block may be written anywhere inside that QC (see
+// types.BlockDB.WriteBlock), so BlockDB.Iterator opens on it and the recovery floor follows —
+// landing on the first present block, not on the QC's start. Flooring at the QC start would
+// leave the blockless prefix inside [first, nextBlock), which inner's density invariant forbids.
 func TestRecoveryPartialQCPrefix(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -244,7 +246,7 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 	// Write the QC for the full range, but write blocks only from mid onwards.
 	mid := gr1.First + (gr1.Next-gr1.First)/2
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, db1.WriteQC(qc1))
 	for i, n := 0, gr1.First; n < gr1.Next; n++ {
 		if n >= mid {
 			require.NoError(t, db1.WriteBlock(n, blocks1[i]))
@@ -254,8 +256,27 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 
-	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dir))
-	require.Error(t, err)
+	state2 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, dir))
+
+	// The floor is the first present block, and the contiguous prefix runs from there to the
+	// end of the QC's coverage.
+	require.Equal(t, gr1.Next, state2.NextBlock())
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, mid, inner.first, "floor must be the first present block")
+		require.Equal(t, mid, inner.nextAppProposal)
+		require.Equal(t, gr1.Next, inner.nextQC)
+	}
+
+	// Nothing was ever written below the floor, so those heights are not served.
+	for n := gr1.First; n < mid; n++ {
+		_, err := state2.TryBlock(n)
+		require.ErrorIs(t, err, types.ErrPruned)
+	}
+	for n := mid; n < gr1.Next; n++ {
+		got, err := state2.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
 }
 
 // TestRecoveryAfterPruneNoGC verifies that restarting before async GC reclaims
@@ -316,7 +337,7 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 	gr1 := qc1.QC().GlobalRange()
 
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, db1.WriteQC(qc1))
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 
@@ -351,7 +372,7 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 
 	// First WriteQC on an empty DB may start past genesis (crash / partial retain).
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr2.First, gr2.Next, qc2))
+	require.NoError(t, db1.WriteQC(qc2))
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 
@@ -385,9 +406,12 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 	}))
 }
 
-// TestRecoveryBlockGap verifies that NewState returns an error when blocks in
-// BlockDB are not contiguous. WriteBlock only enforces strictly-ascending and
-// QC coverage, not continuity, so a gap can arise from corruption.
+// TestRecoveryBlockGap verifies that a block gap can never enter BlockDB in the
+// first place: WriteBlock enforces contiguity, so skipping a covered number is
+// rejected at write time. (A gap on disk can therefore only be corruption, which
+// the ledger iterator reports as ErrBlockGap during replay — pinned by
+// littblock's TestLittblockIteratorGapIsCorruption — and loadFromBlockDB
+// propagates.)
 func TestRecoveryBlockGap(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -401,17 +425,27 @@ func TestRecoveryBlockGap(t *testing.T) {
 	mid := gr1.First + (gr1.Next-gr1.First)/2
 
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
-	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		if n != mid {
-			require.NoError(t, db1.WriteBlock(n, blocks1[i]))
-		}
+	defer func() { _ = db1.Close() }()
+	require.NoError(t, db1.WriteQC(qc1))
+
+	// Blocks up to the skip point write normally.
+	i := 0
+	for n := gr1.First; n < mid; n++ {
+		require.NoError(t, db1.WriteBlock(n, blocks1[i]))
 		i++
 	}
-	require.NoError(t, db1.Flush())
-	require.NoError(t, db1.Close())
+	// Skipping mid: every subsequent (non-contiguous) write is rejected.
+	i++
+	for n := mid + 1; n < gr1.Next; n++ {
+		err := db1.WriteBlock(n, blocks1[i])
+		require.ErrorIs(t, err, types.ErrBlockOutOfOrder,
+			"write at %d after skipping %d must be rejected", n, mid)
+		i++
+	}
 
-	db2 := newTestBlockDB(t, dir)
-	_, err := NewState(&Config{Registry: registry}, db2)
-	require.ErrorIs(t, err, types.ErrBlockGap)
+	// The store recovers cleanly: the surviving prefix is contiguous, so replay
+	// sees blocks up to the skip point and QC-only positions after it.
+	state, err := NewState(&Config{Registry: registry}, db1)
+	require.NoError(t, err)
+	require.Equal(t, mid, state.NextBlock(), "replay must resume at the first unfilled number")
 }
