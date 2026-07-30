@@ -239,7 +239,6 @@ func NewEVMHTTPServer(
 	if err != nil {
 		return nil, fmt.Errorf("evm rate limiter: %w", err)
 	}
-	httpServer.rateLimitRegistry = rateLimitRegistry
 	httpConfig.rateLimitGate = NewRateLimitGate(
 		rateLimitRegistry,
 		config.MaxRequestBodyBytes,

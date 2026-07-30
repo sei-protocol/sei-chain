@@ -35,7 +35,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 	"github.com/rs/cors"
-	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"golang.org/x/net/netutil"
 )
 
@@ -103,8 +102,6 @@ type HTTPServer struct {
 	// maxOpenConns caps simultaneous accepted connections on the listener.
 	// Zero (the default) disables the limit.
 	maxOpenConns int
-
-	rateLimitRegistry *ratelimiter.Registry
 
 	handlerNames map[string]string
 }
@@ -364,9 +361,6 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 		config.maxRequestBodyBytes,
 		config.maxConcurrentRequestBytes,
 	)
-	if config.rateLimitGate != nil && h.rateLimitRegistry == nil {
-		h.rateLimitRegistry = config.rateLimitGate.registry
-	}
 	h.httpHandler.Store(&rpcHandler{
 		Handler: handler,
 		server:  srv,
