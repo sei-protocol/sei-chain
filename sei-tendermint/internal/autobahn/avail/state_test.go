@@ -67,8 +67,8 @@ func makeAppVotes(keys []types.SecretKey, proposal *types.AppProposal) []*types.
 
 func TestSubscribeAppVotesJumpsToDataFloor(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	qc, blocks := data.TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
+	qc, blocks := data.TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr := qc.QC().GlobalRange()
 	require.Greater(t, gr.Len(), uint64(2))
 
