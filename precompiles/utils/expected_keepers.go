@@ -50,7 +50,6 @@ type Keepers interface {
 	DistributionK() DistributionKeeper
 	DistributionQ() DistributionQuerier
 	EvidenceQ() EvidenceQuerier
-	FeegrantMS() FeegrantMsgServer
 	FeegrantQ() FeegrantQuerier
 	MintQ() MintQuerier
 	ParamsQ() ParamsQuerier
@@ -87,7 +86,6 @@ func (ek *EmptyKeepers) DistributionQ() DistributionQuerier {
 	return nil
 }
 func (ek *EmptyKeepers) EvidenceQ() EvidenceQuerier    { return nil }
-func (ek *EmptyKeepers) FeegrantMS() FeegrantMsgServer { return nil }
 func (ek *EmptyKeepers) FeegrantQ() FeegrantQuerier    { return nil }
 func (ek *EmptyKeepers) MintQ() MintQuerier            { return nil }
 func (ek *EmptyKeepers) ParamsQ() ParamsQuerier        { return nil }
@@ -115,11 +113,6 @@ type BankKeeper interface {
 
 type BankMsgServer interface {
 	Send(goCtx context.Context, msg *banktypes.MsgSend) (*banktypes.MsgSendResponse, error)
-}
-
-type FeegrantMsgServer interface {
-	GrantAllowance(goCtx context.Context, msg *feegrant.MsgGrantAllowance) (*feegrant.MsgGrantAllowanceResponse, error)
-	RevokeAllowance(goCtx context.Context, msg *feegrant.MsgRevokeAllowance) (*feegrant.MsgRevokeAllowanceResponse, error)
 }
 
 type SlashingMsgServer interface {

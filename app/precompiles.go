@@ -5,7 +5,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
-	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
 	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	slashingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/keeper"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
@@ -32,7 +31,6 @@ type PrecompileKeepers struct {
 	putils.DistributionKeeper
 	putils.DistributionQuerier
 	putils.EvidenceQuerier
-	putils.FeegrantMsgServer
 	putils.FeegrantQuerier
 	putils.MintQuerier
 	putils.ParamsQuerier
@@ -67,7 +65,6 @@ func NewPrecompileKeepers(a *App) *PrecompileKeepers {
 		DistributionKeeper:  a.DistrKeeper,
 		DistributionQuerier: a.DistrKeeper,
 		EvidenceQuerier:     a.EvidenceKeeper,
-		FeegrantMsgServer:   feegrantkeeper.NewMsgServerImpl(a.FeeGrantKeeper),
 		FeegrantQuerier:     a.FeeGrantKeeper,
 		MintQuerier:         mintkeeper.NewQuerier(a.MintKeeper),
 		ParamsQuerier:       a.ParamsKeeper,
@@ -103,7 +100,6 @@ func (pk *PrecompileKeepers) DistributionQ() putils.DistributionQuerier {
 	return pk.DistributionQuerier
 }
 func (pk *PrecompileKeepers) EvidenceQ() putils.EvidenceQuerier    { return pk.EvidenceQuerier }
-func (pk *PrecompileKeepers) FeegrantMS() putils.FeegrantMsgServer { return pk.FeegrantMsgServer }
 func (pk *PrecompileKeepers) FeegrantQ() putils.FeegrantQuerier    { return pk.FeegrantQuerier }
 func (pk *PrecompileKeepers) MintQ() putils.MintQuerier            { return pk.MintQuerier }
 func (pk *PrecompileKeepers) ParamsQ() putils.ParamsQuerier        { return pk.ParamsQuerier }

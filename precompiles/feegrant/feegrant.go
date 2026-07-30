@@ -16,12 +16,9 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	feegranttypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
-	GrantAllowanceMethod      = "grantAllowance"
-	RevokeAllowanceMethod     = "revokeAllowance"
 	AllowanceMethod           = "allowance"
 	AllowancesMethod          = "allowances"
 	AllowancesByGranterMethod = "allowancesByGranter"
@@ -37,13 +34,10 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper         utils.EVMKeeper
-	feegrantMsgServer utils.FeegrantMsgServer
-	feegrantQuerier   utils.FeegrantQuerier
-	cdc               codec.Codec
+	evmKeeper       utils.EVMKeeper
+	feegrantQuerier utils.FeegrantQuerier
+	cdc             codec.Codec
 
-	GrantAllowanceID      []byte
-	RevokeAllowanceID     []byte
 	AllowanceID           []byte
 	AllowancesID          []byte
 	AllowancesByGranterID []byte
@@ -53,18 +47,13 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		evmKeeper:         keepers.EVMK(),
-		feegrantMsgServer: keepers.FeegrantMS(),
-		feegrantQuerier:   keepers.FeegrantQ(),
-		cdc:               keepers.Codec(),
+		evmKeeper:       keepers.EVMK(),
+		feegrantQuerier: keepers.FeegrantQ(),
+		cdc:             keepers.Codec(),
 	}
 
 	for name, m := range newAbi.Methods {
 		switch name {
-		case GrantAllowanceMethod:
-			p.GrantAllowanceID = m.ID
-		case RevokeAllowanceMethod:
-			p.RevokeAllowanceID = m.ID
 		case AllowanceMethod:
 			p.AllowanceID = m.ID
 		case AllowancesMethod:
@@ -104,107 +93,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	case AllowancesByGranterMethod:
 		return p.allowancesByGranter(ctx, method, args, value)
 	}
-
-	// Transaction methods act on behalf of the caller, so they must not be
-	// reachable through delegatecall (which would let a contract act on
-	// behalf of its own caller) or staticcall.
-	if ctx.EVMPrecompileCalledFromDelegateCall() {
-		return nil, 0, errors.New("cannot delegatecall feegrant")
-	}
-	if readOnly {
-		return nil, 0, errors.New("cannot call feegrant precompile from staticcall")
-	}
-	switch method.Name {
-	case GrantAllowanceMethod:
-		return p.grantAllowance(ctx, method, caller, args, value)
-	case RevokeAllowanceMethod:
-		return p.revokeAllowance(ctx, method, caller, args, value)
-	}
 	return
-}
-
-// grantAllowance stores a fee allowance from the caller (granter) to the
-// grantee. The allowance is a protobuf-JSON encoded FeeAllowanceI (the same
-// encoding the query methods return), e.g.
-// {"@type":"/cosmos.feegrant.v1beta1.BasicAllowance","spend_limit":[...],"expiration":null}.
-func (p PrecompileExecutor) grantAllowance(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, 0, err
-	}
-
-	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
-		return nil, 0, err
-	}
-
-	granter, found := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !found {
-		return nil, 0, evmtypes.NewAssociationMissingErr(caller.Hex())
-	}
-
-	grantee, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	var allowance feegranttypes.FeeAllowanceI
-	if err := p.cdc.UnmarshalInterfaceJSON(args[1].([]byte), &allowance); err != nil {
-		return nil, 0, fmt.Errorf("failed to parse allowance JSON: %w", err)
-	}
-
-	msg, err := feegranttypes.NewMsgGrantAllowance(allowance, granter, grantee)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	if err := msg.ValidateBasic(); err != nil {
-		return nil, 0, err
-	}
-
-	if _, err := p.feegrantMsgServer.GrantAllowance(sdk.WrapSDKContext(ctx), msg); err != nil {
-		return nil, 0, err
-	}
-
-	bz, err := method.Outputs.Pack(true)
-	if err != nil {
-		return nil, 0, err
-	}
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
-}
-
-// revokeAllowance removes the caller's fee allowance to the grantee.
-func (p PrecompileExecutor) revokeAllowance(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, 0, err
-	}
-
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, 0, err
-	}
-
-	granter, found := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !found {
-		return nil, 0, evmtypes.NewAssociationMissingErr(caller.Hex())
-	}
-
-	grantee, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	msg := feegranttypes.NewMsgRevokeAllowance(granter, grantee)
-	if err := msg.ValidateBasic(); err != nil {
-		return nil, 0, err
-	}
-
-	if _, err := p.feegrantMsgServer.RevokeAllowance(sdk.WrapSDKContext(ctx), &msg); err != nil {
-		return nil, 0, err
-	}
-
-	bz, err := method.Outputs.Pack(true)
-	if err != nil {
-		return nil, 0, err
-	}
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
 type Grant struct {
@@ -371,13 +260,6 @@ func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
 }
 
-// IsTransaction returns true for methods that mutate state; all other feegrant
-// methods are views.
-func (PrecompileExecutor) IsTransaction(method string) bool {
-	switch method {
-	case GrantAllowanceMethod, RevokeAllowanceMethod:
-		return true
-	default:
-		return false
-	}
+func (PrecompileExecutor) IsTransaction(string) bool {
+	return false
 }
