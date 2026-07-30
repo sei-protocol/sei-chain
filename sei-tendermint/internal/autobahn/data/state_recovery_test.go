@@ -125,7 +125,7 @@ func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
 	lastExecuted := gr2.First + types.GlobalBlockNumber(offset)
 	state := newTestState(t, &Config{
 		Registry:          registry,
-		LastExecutedBlock: lastExecuted,
+		LastExecutedBlock: utils.Some(lastExecuted),
 	}, db)
 
 	require.Equal(t, lastExecuted, db.start)
@@ -159,7 +159,7 @@ func TestRecoveryCapsAppTipAtLastBlockInBlockDB(t *testing.T) {
 
 	state, err := NewState(&Config{
 		Registry:          registry,
-		LastExecutedBlock: gr2.First,
+		LastExecutedBlock: utils.Some(gr2.First),
 	}, db)
 	require.NoError(t, err)
 	require.Equal(t, gr1.Next-1, db.start)
@@ -185,12 +185,12 @@ func TestRecoveryRejectsAppTipBeyondCrashWindow(t *testing.T) {
 
 	_, err := NewState(&Config{
 		Registry:          registry,
-		LastExecutedBlock: lastExecuted,
+		LastExecutedBlock: utils.Some(lastExecuted),
 	}, db)
 	require.ErrorIs(t, err, types.ErrNotFound)
 }
 
-func TestRecoveryStartsAtZeroWhenBlockDBMissingFirstCommittedBlock(t *testing.T) {
+func TestRecoveryStartsAtRegistryFloorWhenBlockDBMissingFirstCommittedBlock(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -202,10 +202,10 @@ func TestRecoveryStartsAtZeroWhenBlockDBMissingFirstCommittedBlock(t *testing.T)
 
 	state, err := NewState(&Config{
 		Registry:          registry,
-		LastExecutedBlock: gr.First,
+		LastExecutedBlock: utils.Some(gr.First),
 	}, db)
 	require.NoError(t, err)
-	require.Equal(t, types.GlobalBlockNumber(0), db.start)
+	require.Equal(t, registry.FirstBlock(), db.start)
 	require.Equal(t, gr.First, state.NextBlock())
 }
 
@@ -216,7 +216,7 @@ func TestRecoveryRejectsEmptyBlockDBAfterFirstCommittedBlock(t *testing.T) {
 
 	_, err := NewState(&Config{
 		Registry:          registry,
-		LastExecutedBlock: lastExecuted,
+		LastExecutedBlock: utils.Some(lastExecuted),
 	}, newTestBlockDB(t, t.TempDir()))
 	require.ErrorIs(t, err, types.ErrNotFound)
 }
@@ -235,7 +235,7 @@ func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
 
 	state, err := NewState(&Config{
 		Registry:          registry,
-		LastExecutedBlock: qc1.QC().GlobalRange().First,
+		LastExecutedBlock: utils.Some(qc1.QC().GlobalRange().First),
 	}, db)
 	require.NoError(t, err)
 	_, err = state.GlobalBlock(t.Context(), qc1.QC().GlobalRange().First)

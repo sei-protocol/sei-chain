@@ -18,15 +18,15 @@ const blocksCacheSize = 4000
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
 	Registry *epoch.Registry
-	// LastExecutedBlock is the app's committed global height. Recovery starts
-	// its BlockDB scan here because runExecute replays this block's AppHash. The
-	// scan start is capped at BlockDB's last stored block because app.Commit
-	// currently precedes the BlockDB durability wait; a crash between them can
-	// legitimately leave the app one block ahead. A larger gap is inconsistent
-	// because PushAppHash waits for each block's durability before execution
-	// proceeds. If BlockDB has no blocks, only the first committed block can be
-	// missing legitimately.
-	LastExecutedBlock types.GlobalBlockNumber
+	// LastExecutedBlock is the app's committed global height, None when the app
+	// has not committed any block yet. Recovery starts its BlockDB scan here
+	// because runExecute replays this block's AppHash. The scan start is capped
+	// at BlockDB's last stored block because app.Commit currently precedes the
+	// BlockDB durability wait; a crash between them can legitimately leave the
+	// app one block ahead. A larger gap is inconsistent because PushAppHash
+	// waits for each block's durability before execution proceeds. If BlockDB
+	// has no blocks, only the first committed block can be missing legitimately.
+	LastExecutedBlock utils.Option[types.GlobalBlockNumber]
 }
 
 // StateAPI is the interface of the State for consuming global blocks
@@ -202,7 +202,7 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 		inner:   utils.NewWatch(newInner(cfg.Registry.FirstBlock())),
 		blockDB: blockDB,
 	}
-	if err := s.loadFromBlockDB(blockDB, cfg.LastExecutedBlock); err != nil {
+	if err := s.loadFromBlockDB(blockDB); err != nil {
 		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
 	}
 	return s, nil
@@ -213,11 +213,12 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // only to satisfy the Watch API.
 //
 // Recovery starts at the app tip capped at BlockDB's last stored block. An empty
-// block store starts at zero. BlockDB.Iterator then clamps that start up to its
-// retained floor; cursors skipTo the first number the scan yields. That number
-// may sit inside its covering QC's range rather than on that range's first
-// number. Taking the floor from the position rather than from the QC is what
-// keeps blocks dense over [first, nextBlock) as inner requires.
+// block store, or an app that has not committed a block, starts at the registry's
+// first block and replays whatever BlockDB retains. BlockDB.Iterator then clamps
+// that start up to its retained floor; cursors skipTo the first number the scan
+// yields. That number may sit inside its covering QC's range rather than on that
+// range's first number. Taking the floor from the position rather than from the
+// QC is what keeps blocks dense over [first, nextBlock) as inner requires.
 //
 // A single iterator scan restores both record kinds: each yielded number carries
 // its covering QC (inserted the first time the scan sees that QC) and its block
@@ -227,27 +228,35 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // violation from Next, and an in-memory one cannot reach one (see
 // types.BlockDBIterator). A first QC that predates committee genesis is the one
 // inconsistency checked here.
-func (s *State) loadFromBlockDB(blockDB types.BlockDB, lastExecutedBlock types.GlobalBlockNumber) error {
+func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 	for in := range s.inner.Lock() {
 		err := func() error {
-			recoveryStart := lastExecutedBlock
+			firstBlock := s.cfg.Registry.FirstBlock()
 			dbNextBlock := blockDB.Status().NextBlock
-			if dbNextBlock == 0 {
-				firstBlock := s.cfg.Registry.FirstBlock()
-				if lastExecutedBlock != 0 && lastExecutedBlock != firstBlock {
+			recoveryStart := firstBlock
+			if lastExecutedBlock, executed := s.cfg.LastExecutedBlock.Get(); executed {
+				switch {
+				case dbNextBlock == 0:
+					// No blocks stored: only the first committed block can be missing,
+					// because PushAppHash waits for durability of every later one.
+					if lastExecutedBlock != firstBlock {
+						return fmt.Errorf(
+							"BlockDB has no blocks for app tip %d; restore matching BlockDB data or state-sync the node: %w",
+							lastExecutedBlock, types.ErrNotFound,
+						)
+					}
+				case lastExecutedBlock > dbNextBlock:
 					return fmt.Errorf(
-						"BlockDB has no blocks for app tip %d; restore matching BlockDB data or state-sync the node: %w",
-						lastExecutedBlock, types.ErrNotFound,
+						"BlockDB next block %d is behind app tip %d by more than the recoverable crash window; restore matching BlockDB data or state-sync the node: %w",
+						dbNextBlock, lastExecutedBlock, types.ErrNotFound,
 					)
+				case lastExecutedBlock == dbNextBlock:
+					// The app.Commit-before-durability crash window: the app tip itself
+					// never reached BlockDB, so resume from the last stored block.
+					recoveryStart = dbNextBlock - 1
+				default:
+					recoveryStart = lastExecutedBlock
 				}
-				recoveryStart = 0
-			} else if recoveryStart > dbNextBlock {
-				return fmt.Errorf(
-					"BlockDB next block %d is behind app tip %d by more than the recoverable crash window; restore matching BlockDB data or state-sync the node: %w",
-					dbNextBlock, lastExecutedBlock, types.ErrNotFound,
-				)
-			} else if recoveryStart == dbNextBlock {
-				recoveryStart = dbNextBlock - 1
 			}
 			it, err := blockDB.Iterator(recoveryStart)
 			if err != nil {

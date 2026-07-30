@@ -36,7 +36,7 @@ func makeAppVotes(keys []types.SecretKey, proposal *types.AppProposal) []*types.
 	return votes
 }
 
-func TestSubscribeAppVotesStartsAtDataFloor(t *testing.T) {
+func TestSubscribeAppVotesJumpsToDataFloor(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc, blocks := data.TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
@@ -54,12 +54,20 @@ func TestSubscribeAppVotesStartsAtDataFloor(t *testing.T) {
 	first := gr.First + types.GlobalBlockNumber(gr.Len()/2)
 	ds, err := data.NewState(&data.Config{
 		Registry:          registry,
-		LastExecutedBlock: first,
+		LastExecutedBlock: utils.Some(first),
 	}, db)
 	require.NoError(t, err)
+	appHash := types.GenAppHash(rng)
+	require.NoError(t, ds.PushAppHash(t.Context(), first, appHash))
 
-	recv := (&State{data: ds}).SubscribeAppVotes()
-	require.Equal(t, first, recv.next)
+	state, err := NewState(keys[0], ds, utils.None[string]())
+	require.NoError(t, err)
+	recv := state.SubscribeAppVotes()
+	require.Equal(t, types.GlobalBlockNumber(0), recv.next)
+
+	vote, err := recv.Recv(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, first, vote.Msg().Proposal().GlobalNumber())
 }
 
 func makeLaneVotes(keys []types.SecretKey, h *types.BlockHeader) []*types.Signed[*types.LaneVote] {

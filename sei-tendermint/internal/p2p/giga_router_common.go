@@ -67,9 +67,13 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
 	}
 	lastExecutedHeight := cfg.App.Info().LastBlockHeight
-	lastExecutedBlock, ok := utils.SafeCast[atypes.GlobalBlockNumber](lastExecutedHeight)
-	if !ok {
-		return nil, fmt.Errorf("invalid App.Info().LastBlockHeight = %v", lastExecutedHeight)
+	lastExecutedBlock := utils.None[atypes.GlobalBlockNumber]()
+	if lastExecutedHeight != 0 {
+		n, ok := utils.SafeCast[atypes.GlobalBlockNumber](lastExecutedHeight)
+		if !ok {
+			return nil, fmt.Errorf("invalid App.Info().LastBlockHeight = %v", lastExecutedHeight)
+		}
+		lastExecutedBlock = utils.Some(n)
 	}
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
