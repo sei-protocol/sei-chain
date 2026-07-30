@@ -242,6 +242,11 @@ func capDiagnostics(diags []string) (shown []string, omitted int) {
 
 // resolveHomeDir resolves --home the same way the legacy handler does
 // (sei-cosmos/server/util.go), so v2 validates the directory the handler reads.
+//
+// TODO: this re-implements ~15 lines of the legacy handler's viper bootstrap
+// (sei-cosmos/server/util.go). Extract an exported server.ResolveHomeDir(cmd) and call
+// it from both sides once the resolver lands and this is load-bearing for more than
+// diagnostics; until then TestResolveHomeDirAgreesWithTheLegacyHandler guards the drift.
 func resolveHomeDir(cmd *cobra.Command) (string, error) {
 	v := viper.New()
 	if err := v.BindPFlags(cmd.Flags()); err != nil {
