@@ -11,7 +11,10 @@ import (
 
 var logger = seilog.NewLogger("db", "management")
 
-// StorageGarbageCollector manages deletion of stored data across a set of state stores and the StateWAL.
+// StorageGarbageCollector manages deletion of stored data across a set of stores. Each store declares its
+// StoreType, which determines both how the collector observes what the store retains and how far the store is
+// allowed to prune: a SnapshotStore retains whole snapshots, while a StreamStore (e.g. the state WAL) retains a
+// contiguous range of blocks that the snapshot stores are replayed from.
 //
 // The StorageGarbageCollector performs state deletion while maintaining the following invariant:
 // "If it's possible to roll back at least config.RollbackWindow blocks, then any state deletion operation
@@ -26,11 +29,8 @@ type StorageGarbageCollector struct {
 	// Configuration for this storage garbage collector.
 	config *StorageGarbageCollectorConfig
 
-	// The stores whose data can be rebuilt by replaying the state WAL.
-	stateStores []SnapshotStore
-
-	// The WAL containing changesets for each block (i.e. the key-value pairs that change each block).
-	stateWAL StreamStore
+	// The stores this collector prunes.
+	stores []PrunableStore
 
 	// Cancelled to signal the run loop to stop.
 	ctx context.Context
@@ -45,20 +45,26 @@ type StorageGarbageCollector struct {
 func NewStorageGarbageCollector(
 	ctx context.Context,
 	config *StorageGarbageCollectorConfig,
-	stateStores []SnapshotStore,
-	stateWAL StreamStore,
+	stores []PrunableStore,
 ) (*StorageGarbageCollector, error) {
 
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid storage garbage collector config: %w", err)
 	}
 
+	for _, store := range stores {
+		switch storeType := store.GetStoreType(); storeType {
+		case SnapshotStore, StreamStore:
+		default:
+			return nil, fmt.Errorf("store %s has unsupported store type %s", store.Name(), storeType)
+		}
+	}
+
 	s := &StorageGarbageCollector{
-		config:      config,
-		stateStores: stateStores,
-		stateWAL:    stateWAL,
-		ctx:         ctx,
-		stopCh:      make(chan struct{}),
+		config: config,
+		stores: stores,
+		ctx:    ctx,
+		stopCh: make(chan struct{}),
 	}
 
 	s.wg.Add(1)
@@ -90,7 +96,7 @@ func (s *StorageGarbageCollector) run() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			if err := prune(s.config.RollbackWindow, s.stateStores, s.stateWAL); err != nil {
+			if err := prune(s.config.RollbackWindow, s.stores); err != nil {
 				logger.Error("prune cycle failed", "err", err)
 			}
 		}
@@ -99,43 +105,50 @@ func (s *StorageGarbageCollector) run() {
 
 // prune performs a single prune cycle: it observes the blocks retained by each managed store, computes how far each
 // store may prune while preserving the rollback window, and issues the prune commands.
-func prune(
-	rollbackWindow uint64,
-	stateStores []SnapshotStore,
-	stateWAL StreamStore,
-) error {
-	stateWALStart, stateWALEnd, stateWALHasData, err := stateWAL.GetStoredBlocks()
+func prune(rollbackWindow uint64, stores []PrunableStore) error {
+	observations, err := observeStores(stores)
 	if err != nil {
-		return fmt.Errorf("failed to read stored blocks from %s: %w", stateWAL.Name(), err)
+		return err
 	}
 
-	stateStoreBlocks := make([][]uint64, len(stateStores))
-	anyStoreEmpty := false
-	for i, store := range stateStores {
-		blocks, err := store.GetStoredBlocks()
-		if err != nil {
-			return fmt.Errorf("failed to read stored blocks from %s: %w", store.Name(), err)
-		}
-		stateStoreBlocks[i] = blocks
-		if len(blocks) == 0 {
-			anyStoreEmpty = true
+	if len(observations) == 0 {
+		return nil
+	}
+
+	allStoresHaveData := true
+	for _, obs := range observations {
+		if !obs.hasData {
+			allStoresHaveData = false
 		}
 	}
 
-	if !stateWALHasData || anyStoreEmpty {
-		// We only prune if the WAL and every provided store has at least some data. An empty store is treated as
-		// unknown rather than empty (a snapshot may be mid-write and take hours), and pruning against it would risk
-		// breaking the primary invariant (i.e. breaking the ability to roll back by the act of deletion).
-		logArgs := []any{"stateWAL", blockRange(stateWALStart, stateWALEnd), "stateWALHasData", stateWALHasData}
-		for i, store := range stateStores {
-			logArgs = append(logArgs, store.Name(), stateStoreBlocks[i])
+	if !allStoresHaveData {
+		// We only prune if every provided store has at least some data. An empty store is treated as unknown rather
+		// than empty (a snapshot may be mid-write and take hours), and pruning against it would risk breaking the
+		// primary invariant (i.e. breaking the ability to roll back by the act of deletion).
+		logArgs := make([]any, 0, 2*len(observations))
+		for _, obs := range observations {
+			logArgs = append(logArgs, obs.store.Name(), obs.describeRetained())
 		}
 		logger.Info("skipping pruning, not all stores have data", logArgs...)
 		return nil
 	}
 
-	// The latest committed block is defined by the head of the state WAL.
-	latestBlock := stateWALEnd
+	latestBlock, highestBlock := committedBlockRange(observations)
+
+	// The lowest head sets the rollback target for every store, so a store trailing the rest by more than the whole
+	// rollback window is throttling how much anything else can prune. That errs toward retention and is safe, but it
+	// usually means the store is stalled or is reporting the wrong height, and it is otherwise invisible: pruning
+	// still looks like it is working, it just stops reclaiming much.
+	if highestBlock-latestBlock > rollbackWindow {
+		logArgs := make([]any, 0, 2+2*len(observations))
+		logArgs = append(logArgs, "rollbackWindow", rollbackWindow)
+		for _, obs := range observations {
+			logArgs = append(logArgs, obs.store.Name()+"Head", obs.latestBlock)
+		}
+		logger.Warn("store heads disagree by more than the rollback window, pruning is limited by the "+
+			"furthest behind store", logArgs...)
+	}
 
 	// The oldest block we must remain able to roll back to.
 	var oldestBlockNeeded uint64
@@ -143,43 +156,152 @@ func prune(
 		oldestBlockNeeded = latestBlock - rollbackWindow
 	}
 
-	floors := make([]uint64, len(stateStores))
-	for i, blocks := range stateStoreBlocks {
-		floors[i] = snapshotPruningFloor(blocks, oldestBlockNeeded)
-	}
-
-	// The WAL retains from the oldest block any state store still needs. With no state stores, nothing depends on the
-	// WAL for rollback, so it retains only the rollback window.
-	stateWALFloor := oldestBlockNeeded
-	for i, floor := range floors {
-		if i == 0 || floor < stateWALFloor {
-			stateWALFloor = floor
-		}
-	}
+	floors := pruningFloors(observations, oldestBlockNeeded)
 
 	logArgs := []any{"latestBlock", latestBlock, "oldestBlockNeeded", oldestBlockNeeded}
-	for i, store := range stateStores {
+	for i, obs := range observations {
 		logArgs = append(logArgs,
-			store.Name()+"Initial", stateStoreBlocks[i],
-			store.Name()+"Final", blocksAtOrAbove(stateStoreBlocks[i], floors[i]),
+			obs.store.Name()+"Initial", obs.describeRetained(),
+			obs.store.Name()+"Final", obs.describeRetainedAfterPruning(floors[i]),
 		)
 	}
-	logArgs = append(logArgs,
-		"stateWALInitial", blockRange(stateWALStart, stateWALEnd),
-		"stateWALFinal", blockRange(stateWALFloor, stateWALEnd),
-	)
 	logger.Info("pruning storage", logArgs...)
 
-	for i, store := range stateStores {
-		if err := store.PruneBelow(floors[i]); err != nil {
-			return fmt.Errorf("failed to prune %s below %d: %w", store.Name(), floors[i], err)
+	for i, obs := range observations {
+		if err := obs.store.PruneBelow(floors[i]); err != nil {
+			return fmt.Errorf("failed to prune %s below %d: %w", obs.store.Name(), floors[i], err)
 		}
-	}
-	if err := stateWAL.PruneBelow(stateWALFloor); err != nil {
-		return fmt.Errorf("failed to prune %s below %d: %w", stateWAL.Name(), stateWALFloor, err)
 	}
 
 	return nil
+}
+
+// observation is what a single prune cycle read back from one store.
+type observation struct {
+	store     PrunableStore
+	storeType StoreType
+
+	// The snapshots held by a SnapshotStore, ascending. Always empty for a StreamStore.
+	snapshots []uint64
+
+	// The inclusive range of blocks held by a StreamStore. Meaningful only when hasData is true.
+	start uint64
+	end   uint64
+
+	// The highest block the store has ingested. Meaningful only when hasData is true.
+	latestBlock uint64
+
+	// Whether the store holds any blocks at all.
+	hasData bool
+}
+
+// observeStores reads what every store currently retains, using the accessor that matches each store's type.
+// Observation happens up front so that a read failure aborts the cycle before anything has been deleted.
+func observeStores(stores []PrunableStore) ([]observation, error) {
+	observations := make([]observation, len(stores))
+	for i, store := range stores {
+		obs := observation{store: store, storeType: store.GetStoreType()}
+
+		switch obs.storeType {
+		case SnapshotStore:
+			snapshots, err := store.GetStoredSnapshots()
+			if err != nil {
+				return nil, fmt.Errorf("failed to read stored snapshots from %s: %w", store.Name(), err)
+			}
+			obs.snapshots = snapshots
+			obs.hasData = len(snapshots) > 0
+		case StreamStore:
+			start, end, hasData, err := store.GetBlockRange()
+			if err != nil {
+				return nil, fmt.Errorf("failed to read block range from %s: %w", store.Name(), err)
+			}
+			obs.start, obs.end, obs.hasData = start, end, hasData
+		default:
+			return nil, fmt.Errorf("store %s has unsupported store type %s", store.Name(), obs.storeType)
+		}
+
+		latestBlock, err := store.GetLastCommittedBlock()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read last committed block from %s: %w", store.Name(), err)
+		}
+		obs.latestBlock = latestBlock
+
+		observations[i] = obs
+	}
+	return observations, nil
+}
+
+// committedBlockRange returns the lowest and highest heads reported across the stores.
+//
+// The lowest head is the head of the chain as the collector understands it, because it bounds what the system can
+// actually serve; treating a lagging store as caught up would place the rollback target above the blocks that store
+// still holds. The highest is reported alongside it so callers can see how far the stores disagree. Callers must have
+// verified that there is at least one store and that every store has data.
+func committedBlockRange(observations []observation) (lowest uint64, highest uint64) {
+	for i, obs := range observations {
+		if i == 0 || obs.latestBlock < lowest {
+			lowest = obs.latestBlock
+		}
+		if i == 0 || obs.latestBlock > highest {
+			highest = obs.latestBlock
+		}
+	}
+	return lowest, highest
+}
+
+// pruningFloors computes the block each store may prune below, indexed in parallel with observations.
+//
+// A snapshot store retains the newest snapshot at or below oldestBlockNeeded, since that is the snapshot a rollback to
+// oldestBlockNeeded would start from. Every stream store retains from the oldest block any snapshot store still needs,
+// because a rollback replays the stream forward from that snapshot. With no snapshot stores nothing depends on the
+// streams for rollback, so they retain only the rollback window.
+//
+// A stream store must not simply retain from oldestBlockNeeded: snapshots land at arbitrary heights, so the newest
+// snapshot at or below oldestBlockNeeded can sit far below it. With snapshots at 80,000 and 92,000 and
+// oldestBlockNeeded of 90,000, the 80,000 snapshot is the only one a rollback to 90,000 can start from, and replaying
+// forward to 90,000 needs stream entries 80,001 onward. Pruning the stream to 90,000 would strand that snapshot.
+func pruningFloors(observations []observation, oldestBlockNeeded uint64) []uint64 {
+	floors := make([]uint64, len(observations))
+
+	streamFloor := oldestBlockNeeded
+	seenSnapshotStore := false
+	for i, obs := range observations {
+		if obs.storeType != SnapshotStore {
+			continue
+		}
+		floors[i] = snapshotPruningFloor(obs.snapshots, oldestBlockNeeded)
+		if !seenSnapshotStore || floors[i] < streamFloor {
+			streamFloor = floors[i]
+		}
+		seenSnapshotStore = true
+	}
+
+	for i, obs := range observations {
+		if obs.storeType == StreamStore {
+			floors[i] = streamFloor
+		}
+	}
+
+	return floors
+}
+
+// describeRetained renders what the store currently holds, for logging.
+func (o observation) describeRetained() string {
+	if !o.hasData {
+		return "empty"
+	}
+	if o.storeType == SnapshotStore {
+		return fmt.Sprintf("%v", o.snapshots)
+	}
+	return blockRange(o.start, o.end)
+}
+
+// describeRetainedAfterPruning renders what the store is expected to hold once PruneBelow(floor) completes.
+func (o observation) describeRetainedAfterPruning(floor uint64) string {
+	if o.storeType == SnapshotStore {
+		return fmt.Sprintf("%v", blocksAtOrAbove(o.snapshots, floor))
+	}
+	return blockRange(floor, o.end)
 }
 
 // Given a list of snapshot block numbers, determine the lowest snapshot we need to keep in order to be able
@@ -187,7 +309,7 @@ func prune(
 //
 // Returns the highest numbered block from snapshotBlocks that is less than or equal to the rollbackTarget. If every
 // snapshot is greater than rollbackTarget, the lowest snapshot is returned, since none can be safely pruned.
-// snapshotBlocks must be non-empty and sorted in ascending order, per the SnapshotStore contract.
+// snapshotBlocks must be non-empty and sorted in ascending order, per the PrunableStore contract.
 func snapshotPruningFloor(
 	// Blocks we have snapshots for, in ascending order. Must be non-empty.
 	snapshotBlocks []uint64,

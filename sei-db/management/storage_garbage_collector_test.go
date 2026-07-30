@@ -12,20 +12,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockSnapshotStore is a hand-written SnapshotStore for tests. It records the last PruneBelow argument and returns
-// canned GetStoredBlocks data or errors.
+// mockSnapshotStore is a hand-written PrunableStore of type SnapshotStore for tests. It records the last PruneBelow
+// argument and returns canned GetStoredSnapshots data or errors.
 type mockSnapshotStore struct {
 	name   string
 	blocks []uint64
-	getErr error
+	// The committed height, which for a snapshot store normally sits above its newest snapshot.
+	latestHeight uint64
+	getErr       error
 
 	pruneBelowCalled bool
 	prunedBelow      uint64
 	pruneErr         error
 }
 
-func (m *mockSnapshotStore) GetStoredBlocks() ([]uint64, error) {
+func (m *mockSnapshotStore) GetStoredSnapshots() ([]uint64, error) {
 	return m.blocks, m.getErr
+}
+
+func (m *mockSnapshotStore) GetLastCommittedBlock() (uint64, error) {
+	return m.latestHeight, m.getErr
+}
+
+func (m *mockSnapshotStore) GetBlockRange() (uint64, uint64, bool, error) {
+	if len(m.blocks) == 0 {
+		return 0, 0, false, m.getErr
+	}
+	return m.blocks[0], m.blocks[len(m.blocks)-1], true, m.getErr
 }
 
 func (m *mockSnapshotStore) PruneBelow(blockNumber uint64) error {
@@ -38,7 +51,11 @@ func (m *mockSnapshotStore) Name() string {
 	return m.name
 }
 
-// mockStreamStore is a hand-written StreamStore for tests.
+func (m *mockSnapshotStore) GetStoreType() StoreType {
+	return SnapshotStore
+}
+
+// mockStreamStore is a hand-written PrunableStore of type StreamStore for tests.
 type mockStreamStore struct {
 	name    string
 	start   uint64
@@ -51,8 +68,16 @@ type mockStreamStore struct {
 	pruneErr         error
 }
 
-func (m *mockStreamStore) GetStoredBlocks() (uint64, uint64, bool, error) {
+func (m *mockStreamStore) GetStoredSnapshots() ([]uint64, error) {
+	return nil, m.getErr
+}
+
+func (m *mockStreamStore) GetBlockRange() (uint64, uint64, bool, error) {
 	return m.start, m.end, m.hasData, m.getErr
+}
+
+func (m *mockStreamStore) GetLastCommittedBlock() (uint64, error) {
+	return m.end, m.getErr
 }
 
 func (m *mockStreamStore) PruneBelow(blockNumber uint64) error {
@@ -65,10 +90,27 @@ func (m *mockStreamStore) Name() string {
 	return m.name
 }
 
-func toStores(s []*mockSnapshotStore) []SnapshotStore {
-	result := make([]SnapshotStore, len(s))
-	for i, store := range s {
-		result[i] = store
+func (m *mockStreamStore) GetStoreType() StoreType {
+	return StreamStore
+}
+
+// mockUnknownStore reports a store type the collector does not understand.
+type mockUnknownStore struct {
+	mockSnapshotStore
+}
+
+func (m *mockUnknownStore) GetStoreType() StoreType {
+	return StoreType(0)
+}
+
+// storeList assembles the single slice prune operates on: the snapshot stores followed by the stream stores.
+func storeList(snapshotStores []*mockSnapshotStore, streamStores ...*mockStreamStore) []PrunableStore {
+	result := make([]PrunableStore, 0, len(snapshotStores)+len(streamStores))
+	for _, store := range snapshotStores {
+		result = append(result, store)
+	}
+	for _, store := range streamStores {
+		result = append(result, store)
 	}
 	return result
 }
@@ -194,13 +236,18 @@ func TestPruneDecisions(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Every snapshot store is caught up with the WAL, so the WAL head decides the latest block.
 			mocks := make([]*mockSnapshotStore, len(tc.storeBlocks))
 			for i, blocks := range tc.storeBlocks {
-				mocks[i] = &mockSnapshotStore{name: fmt.Sprintf("store%d", i), blocks: blocks}
+				mocks[i] = &mockSnapshotStore{
+					name:         fmt.Sprintf("store%d", i),
+					blocks:       blocks,
+					latestHeight: tc.wal.end,
+				}
 			}
 			tc.wal.name = "stateWAL"
 
-			require.NoError(t, prune(tc.rollbackWindow, toStores(mocks), tc.wal))
+			require.NoError(t, prune(tc.rollbackWindow, storeList(mocks, tc.wal)))
 
 			for i, want := range tc.wantStores {
 				if want == nil {
@@ -220,12 +267,82 @@ func TestPruneDecisions(t *testing.T) {
 	}
 }
 
+// TestPruneMultipleStreamStores checks that the lowest stream head defines the latest committed block, and that every
+// stream store is pruned to the floor of the snapshot stores.
+func TestPruneMultipleStreamStores(t *testing.T) {
+	a := &mockSnapshotStore{name: "a", blocks: []uint64{80_000, 90_000}, latestHeight: 100_000}
+	ahead := &mockStreamStore{name: "ahead", start: 1, end: 100_000, hasData: true}
+	behind := &mockStreamStore{name: "behind", start: 1, end: 95_000, hasData: true}
+
+	// latestBlock is the lower head (95,000), so oldestBlockNeeded is 85,000 and the newest snapshot at or below it
+	// is 80,000. Had the higher head won, the snapshot floor would have been 90,000 instead.
+	require.NoError(t, prune(10_000, storeList([]*mockSnapshotStore{a}, ahead, behind)))
+
+	require.Equal(t, uint64(80_000), a.prunedBelow)
+	require.Equal(t, uint64(80_000), ahead.prunedBelow)
+	require.Equal(t, uint64(80_000), behind.prunedBelow)
+}
+
+func TestPruneMultipleStreamStoresOneEmpty(t *testing.T) {
+	a := &mockSnapshotStore{name: "a", blocks: []uint64{80_000}, latestHeight: 100_000}
+	populated := &mockStreamStore{name: "populated", start: 1, end: 100_000, hasData: true}
+	empty := &mockStreamStore{name: "empty", hasData: false}
+
+	require.NoError(t, prune(10_000, storeList([]*mockSnapshotStore{a}, populated, empty)))
+
+	require.False(t, a.pruneBelowCalled)
+	require.False(t, populated.pruneBelowCalled)
+	require.False(t, empty.pruneBelowCalled)
+}
+
+// TestPruneLaggingSnapshotStoreLowersLatestBlock checks that the head comes from every store, not just the streams: a
+// snapshot store that has fallen behind the WAL pulls the rollback target down with it.
+func TestPruneLaggingSnapshotStoreLowersLatestBlock(t *testing.T) {
+	// Caught up with the WAL: oldestBlockNeeded is 90,000, so the 90,000 snapshot is the one to keep.
+	caughtUp := &mockSnapshotStore{name: "caughtUp", blocks: []uint64{80_000, 90_000}, latestHeight: 100_000}
+	require.NoError(t, prune(10_000, storeList(
+		[]*mockSnapshotStore{caughtUp},
+		&mockStreamStore{name: "stateWAL", start: 1, end: 100_000, hasData: true},
+	)))
+	require.Equal(t, uint64(90_000), caughtUp.prunedBelow)
+
+	// Lagging at 95,000 against the same WAL: oldestBlockNeeded drops to 85,000, so 80,000 must be retained.
+	lagging := &mockSnapshotStore{name: "lagging", blocks: []uint64{80_000, 90_000}, latestHeight: 95_000}
+	wal := &mockStreamStore{name: "stateWAL", start: 1, end: 100_000, hasData: true}
+	require.NoError(t, prune(10_000, storeList([]*mockSnapshotStore{lagging}, wal)))
+	require.Equal(t, uint64(80_000), lagging.prunedBelow)
+	require.Equal(t, uint64(80_000), wal.prunedBelow)
+}
+
+// TestPruneWithoutStreamStore checks that a snapshot-only store set still prunes; nothing depends on a stream store
+// being present.
+func TestPruneWithoutStreamStore(t *testing.T) {
+	a := &mockSnapshotStore{name: "a", blocks: []uint64{80_000, 90_000}, latestHeight: 100_000}
+	b := &mockSnapshotStore{name: "b", blocks: []uint64{85_000, 92_000}, latestHeight: 100_000}
+
+	require.NoError(t, prune(10_000, storeList([]*mockSnapshotStore{a, b})))
+
+	require.Equal(t, uint64(90_000), a.prunedBelow)
+	require.Equal(t, uint64(85_000), b.prunedBelow)
+}
+
+// TestPruneStoreOrderDoesNotMatter checks that stores are classified by type rather than by position.
+func TestPruneStoreOrderDoesNotMatter(t *testing.T) {
+	a := &mockSnapshotStore{name: "a", blocks: []uint64{85_000, 92_000}, latestHeight: 100_000}
+	wal := &mockStreamStore{name: "stateWAL", start: 1, end: 100_000, hasData: true}
+
+	require.NoError(t, prune(10_000, []PrunableStore{wal, a}))
+
+	require.Equal(t, uint64(85_000), a.prunedBelow)
+	require.Equal(t, uint64(85_000), wal.prunedBelow)
+}
+
 func TestPruneWALGetError(t *testing.T) {
 	sentinel := errors.New("boom")
-	a := &mockSnapshotStore{name: "a", blocks: []uint64{80_000}}
+	a := &mockSnapshotStore{name: "a", blocks: []uint64{80_000}, latestHeight: 100_000}
 	wal := &mockStreamStore{name: "stateWAL", getErr: sentinel}
 
-	err := prune(10_000, toStores([]*mockSnapshotStore{a}), wal)
+	err := prune(10_000, storeList([]*mockSnapshotStore{a}, wal))
 	require.ErrorIs(t, err, sentinel)
 	require.ErrorContains(t, err, "stateWAL")
 	require.False(t, a.pruneBelowCalled)
@@ -237,7 +354,7 @@ func TestPruneStoreGetError(t *testing.T) {
 	a := &mockSnapshotStore{name: "commitStore", getErr: sentinel}
 	wal := &mockStreamStore{name: "stateWAL", start: 1, end: 100_000, hasData: true}
 
-	err := prune(10_000, toStores([]*mockSnapshotStore{a}), wal)
+	err := prune(10_000, storeList([]*mockSnapshotStore{a}, wal))
 	require.ErrorIs(t, err, sentinel)
 	require.ErrorContains(t, err, "commitStore")
 	require.False(t, wal.pruneBelowCalled)
@@ -246,11 +363,11 @@ func TestPruneStoreGetError(t *testing.T) {
 func TestPruneStorePruneErrorStopsBeforeLaterStoresAndWAL(t *testing.T) {
 	sentinel := errors.New("boom")
 	// The first store fails to prune; later stores and the WAL must be left untouched.
-	a := &mockSnapshotStore{name: "a", blocks: []uint64{80_000}, pruneErr: sentinel}
-	b := &mockSnapshotStore{name: "b", blocks: []uint64{80_000}}
+	a := &mockSnapshotStore{name: "a", blocks: []uint64{80_000}, latestHeight: 100_000, pruneErr: sentinel}
+	b := &mockSnapshotStore{name: "b", blocks: []uint64{80_000}, latestHeight: 100_000}
 	wal := &mockStreamStore{name: "stateWAL", start: 1, end: 100_000, hasData: true}
 
-	err := prune(10_000, toStores([]*mockSnapshotStore{a, b}), wal)
+	err := prune(10_000, storeList([]*mockSnapshotStore{a, b}, wal))
 	require.ErrorIs(t, err, sentinel)
 	require.ErrorContains(t, err, "a")
 	require.True(t, a.pruneBelowCalled)
@@ -261,17 +378,65 @@ func TestPruneStorePruneErrorStopsBeforeLaterStoresAndWAL(t *testing.T) {
 func TestPruneWALPruneError(t *testing.T) {
 	sentinel := errors.New("boom")
 	// All stores prune successfully, then the WAL prune fails.
-	a := &mockSnapshotStore{name: "a", blocks: []uint64{80_000}}
-	b := &mockSnapshotStore{name: "b", blocks: []uint64{85_000}}
+	a := &mockSnapshotStore{name: "a", blocks: []uint64{80_000}, latestHeight: 100_000}
+	b := &mockSnapshotStore{name: "b", blocks: []uint64{85_000}, latestHeight: 100_000}
 	wal := &mockStreamStore{name: "stateWAL", start: 1, end: 100_000, hasData: true, pruneErr: sentinel}
 
-	err := prune(10_000, toStores([]*mockSnapshotStore{a, b}), wal)
+	err := prune(10_000, storeList([]*mockSnapshotStore{a, b}, wal))
 	require.ErrorIs(t, err, sentinel)
 	require.ErrorContains(t, err, "stateWAL")
 	require.ErrorContains(t, err, "80000") // WAL floor = min(store floors)
 	require.True(t, a.pruneBelowCalled)
 	require.True(t, b.pruneBelowCalled)
 	require.True(t, wal.pruneBelowCalled)
+}
+
+func TestCommittedBlockRange(t *testing.T) {
+	observationsWithHeads := func(heads ...uint64) []observation {
+		observations := make([]observation, len(heads))
+		for i, head := range heads {
+			observations[i] = observation{latestBlock: head}
+		}
+		return observations
+	}
+
+	cases := []struct {
+		name        string
+		heads       []uint64
+		wantLowest  uint64
+		wantHighest uint64
+	}{
+		{name: "single store", heads: []uint64{100}, wantLowest: 100, wantHighest: 100},
+		{name: "all agree", heads: []uint64{100, 100, 100}, wantLowest: 100, wantHighest: 100},
+		{name: "lowest first", heads: []uint64{80, 100}, wantLowest: 80, wantHighest: 100},
+		{name: "lowest last", heads: []uint64{100, 80}, wantLowest: 80, wantHighest: 100},
+		{name: "lowest in the middle", heads: []uint64{100, 50, 90}, wantLowest: 50, wantHighest: 100},
+		// A store reporting zero must not be mistaken for a store that was skipped.
+		{name: "a store reports zero", heads: []uint64{0, 100}, wantLowest: 0, wantHighest: 100},
+		{name: "every store reports zero", heads: []uint64{0, 0}, wantLowest: 0, wantHighest: 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lowest, highest := committedBlockRange(observationsWithHeads(tc.heads...))
+			require.Equal(t, tc.wantLowest, lowest, "lowest head")
+			require.Equal(t, tc.wantHighest, highest, "highest head")
+		})
+	}
+}
+
+// TestPruneWithLaggingStoreStillPrunes checks that a head spread wide enough to trigger the warning does not change the
+// outcome: the cycle still prunes, using the lowest head.
+func TestPruneWithLaggingStoreStillPrunes(t *testing.T) {
+	lagging := &mockSnapshotStore{name: "lagging", blocks: []uint64{50_000, 80_000}, latestHeight: 60_000}
+	wal := &mockStreamStore{name: "stateWAL", start: 1, end: 100_000, hasData: true}
+
+	// Heads are 60,000 and 100,000, a spread of 40,000 against a 10,000 window. The lowest head wins, so
+	// oldestBlockNeeded is 50,000 and the 50,000 snapshot is the one retained.
+	require.NoError(t, prune(10_000, storeList([]*mockSnapshotStore{lagging}, wal)))
+
+	require.Equal(t, uint64(50_000), lagging.prunedBelow)
+	require.Equal(t, uint64(50_000), wal.prunedBelow)
 }
 
 func TestSnapshotPruningFloor(t *testing.T) {
@@ -387,21 +552,58 @@ func TestNewStorageGarbageCollectorInvalidConfig(t *testing.T) {
 	sm, err := NewStorageGarbageCollector(
 		context.Background(),
 		&StorageGarbageCollectorConfig{PruneIntervalSeconds: 0},
-		toStores([]*mockSnapshotStore{{name: "a"}}),
-		&mockStreamStore{name: "stateWAL"},
+		storeList([]*mockSnapshotStore{{name: "a"}}, &mockStreamStore{name: "stateWAL"}),
 	)
 	require.Error(t, err)
 	require.Nil(t, sm)
 }
 
+func TestNewStorageGarbageCollectorRejectsUnsupportedStoreType(t *testing.T) {
+	sm, err := NewStorageGarbageCollector(
+		context.Background(),
+		&StorageGarbageCollectorConfig{RollbackWindow: 10, PruneIntervalSeconds: 60},
+		[]PrunableStore{
+			&mockUnknownStore{mockSnapshotStore{name: "mystery"}},
+			&mockStreamStore{name: "stateWAL"},
+		},
+	)
+	require.ErrorContains(t, err, "mystery")
+	require.ErrorContains(t, err, "unsupported store type")
+	require.Nil(t, sm)
+}
+
+func TestNewStorageGarbageCollectorAcceptsAnyMixOfStoreTypes(t *testing.T) {
+	config := &StorageGarbageCollectorConfig{RollbackWindow: 10, PruneIntervalSeconds: 60}
+
+	for _, tc := range []struct {
+		name   string
+		stores []PrunableStore
+	}{
+		{name: "snapshot stores only", stores: storeList([]*mockSnapshotStore{{name: "a", blocks: []uint64{100}}})},
+		{name: "stream stores only", stores: storeList(nil, &mockStreamStore{name: "stateWAL"})},
+		{name: "no stores", stores: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sm, err := NewStorageGarbageCollector(context.Background(), config, tc.stores)
+			require.NoError(t, err)
+			require.NoError(t, sm.Close())
+		})
+	}
+}
+
+func TestStoreTypeString(t *testing.T) {
+	require.Equal(t, "SnapshotStore", SnapshotStore.String())
+	require.Equal(t, "StreamStore", StreamStore.String())
+	require.Equal(t, "UnknownStoreType(0)", StoreType(0).String())
+}
+
 func TestNewStorageGarbageCollectorConstructAndClose(t *testing.T) {
-	a := &mockSnapshotStore{name: "a", blocks: []uint64{100}}
+	a := &mockSnapshotStore{name: "a", blocks: []uint64{100}, latestHeight: 100}
 	wal := &mockStreamStore{name: "stateWAL", start: 1, end: 100, hasData: true}
 	sm, err := NewStorageGarbageCollector(
 		context.Background(),
 		&StorageGarbageCollectorConfig{RollbackWindow: 10, PruneIntervalSeconds: 60},
-		toStores([]*mockSnapshotStore{a}),
-		wal,
+		storeList([]*mockSnapshotStore{a}, wal),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, sm)
