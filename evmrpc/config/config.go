@@ -331,7 +331,7 @@ var DefaultConfig = Config{
 	TraceBakeSnapshotWindow:   64,
 	IPRateLimitRPS:            200,
 	IPRateLimitBurst:          400,
-	RateLimitingEnabled:       true,
+	RateLimitingEnabled:       false,
 	TrustedProxyCIDRs:         nil,
 	BatchRequestLimit:         1000,
 	BatchResponseMaxSize:      25 * 1000 * 1000,  // 25MB

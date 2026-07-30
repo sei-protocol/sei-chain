@@ -646,7 +646,7 @@ func TestReadConfigMaxSubscriptionsLogs(t *testing.T) {
 func TestReadConfigRateLimiting(t *testing.T) {
 	cfg, err := config.ReadConfig(&opts{})
 	require.NoError(t, err)
-	require.True(t, cfg.RateLimitingEnabled)
+	require.False(t, cfg.RateLimitingEnabled)
 	require.Nil(t, cfg.TrustedProxyCIDRs)
 	require.Equal(t, config.DefaultConfig.IPRateLimitRPS, cfg.IPRateLimitRPS)
 	require.Equal(t, config.DefaultConfig.IPRateLimitBurst, cfg.IPRateLimitBurst)
