@@ -195,14 +195,16 @@ func TestPruneDecisions(t *testing.T) {
 			wantPruneBelow: ptr(30_000),
 		},
 		{
-			name:           "a store holding nothing is ignored",
+			name:           "a store holding nothing stalls the whole cycle",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("empty", 100_000),
 				snapshotStore("sc", 100_000, 80_000),
 				contiguousStore("stateWAL", 100_000, true),
 			},
-			wantPruneBelow: ptr(80_000),
+			// empty may be mid-write of a first snapshot below the cut line; pruning the WAL to 80,000 would leave
+			// that snapshot unreplayable once it lands.
+			wantPruneBelow: nil,
 		},
 		{
 			name:           "a head of zero is ignored, the data behind it is not",
