@@ -16,14 +16,6 @@ interface IBank {
         uint256 amount
     ) external returns (bool success);
 
-    // Batch-sends the caller's own coins of the given denom. The caller must
-    // have an associated Sei address.
-    function multiSend(
-        address[] memory toAddresses,
-        string memory denom,
-        uint256[] memory amounts
-    ) external returns (bool success);
-
     function sendNative(
         string memory toNativeAddress
     ) payable external returns (bool success);

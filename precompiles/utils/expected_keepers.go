@@ -115,7 +115,6 @@ type BankKeeper interface {
 
 type BankMsgServer interface {
 	Send(goCtx context.Context, msg *banktypes.MsgSend) (*banktypes.MsgSendResponse, error)
-	MultiSend(goCtx context.Context, msg *banktypes.MsgMultiSend) (*banktypes.MsgMultiSendResponse, error)
 }
 
 type FeegrantMsgServer interface {
