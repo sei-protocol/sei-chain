@@ -10,6 +10,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// epochProgress is the active Prev|Current admission window.
+type epochProgress = utils.AtomicSend[types.EpochDuo]
+
 func logStaleRoad(what string, roadIdx types.RoadIndex, duo types.EpochDuo) {
 	// Debug: Info is too chatty at epoch boundaries (many peers a road behind).
 	logger.Debug("dropping stale "+what+": road behind window",
@@ -168,7 +171,7 @@ func (s *State) runAdvanceEpoch(ctx context.Context) error {
 		}
 
 		for inner, ctrl := range s.inner.Lock() {
-			live := inner.epoch.duo.Load()
+			live := inner.epoch.Load()
 			if live.Current.EpochIndex() != epochIdx {
 				break
 			}

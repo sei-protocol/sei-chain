@@ -929,7 +929,7 @@ func TestAdvanceEpoch_RetainsPrevEpochLanes(t *testing.T) {
 
 	// Collect a lane from Current (will become Prev after advance).
 	var prevLane types.LaneID
-	for l := range i.epoch.duo.Load().Current.Committee().Lanes().All() {
+	for l := range i.epoch.Load().Current.Committee().Lanes().All() {
 		prevLane = l
 		break
 	}

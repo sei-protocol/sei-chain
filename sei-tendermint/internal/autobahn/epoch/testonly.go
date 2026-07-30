@@ -15,7 +15,7 @@ func (r *Registry) LatestEpoch() *types.Epoch {
 	for s := range r.state.RLock() {
 		var best types.EpochIndex
 		var ep *types.Epoch
-		for idx, e := range s.m {
+		for idx, e := range s {
 			if ep == nil || idx > best {
 				best = idx
 				ep = e

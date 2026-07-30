@@ -28,7 +28,7 @@ type State struct {
 	key      types.SecretKey
 	data     *data.State
 	inner    utils.Watch[*inner]
-	epochDuo utils.AtomicRecv[types.EpochDuo] // Load-only view of inner.epoch.duo
+	epochDuo utils.AtomicRecv[types.EpochDuo] // Load-only view of inner.epoch
 
 	// persisters groups all disk persistence components.
 	// Always initialized: real when stateDir is set, no-op otherwise.
@@ -65,7 +65,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		key:        key,
 		data:       data,
 		inner:      utils.NewWatch(inner),
-		epochDuo:   inner.epoch.duo.Subscribe(),
+		epochDuo:   inner.epoch.Subscribe(),
 		persisters: pers,
 	}, nil
 }

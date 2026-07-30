@@ -113,12 +113,12 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	var verifiedEpoch types.EpochIndex
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			c := inner.epoch.duo.Load().Current.Committee()
+			c := inner.epoch.Load().Current.Committee()
 			return c.Weight(vote.Key()) > 0 && c.HasLane(h.Lane())
 		}); err != nil {
 			return err
 		}
-		duo := inner.epoch.duo.Load()
+		duo := inner.epoch.Load()
 		committee = duo.Current.Committee()
 		verifiedEpoch = duo.Current.EpochIndex()
 	}
@@ -140,7 +140,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 			return err
 		}
 		// WaitUntil may release the lock; re-check membership under live Current.
-		live := inner.epoch.duo.Load()
+		live := inner.epoch.Load()
 		if live.Current.EpochIndex() != verifiedEpoch &&
 			(live.Current.Committee().Weight(vote.Key()) == 0 ||
 				!live.Current.Committee().HasLane(h.Lane())) {
@@ -223,7 +223,7 @@ func (s *State) WaitForLaneQCs(
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		for {
-			ep := inner.epoch.duo.Load().Current
+			ep := inner.epoch.Load().Current
 			for lane := range ep.Committee().Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
 				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {

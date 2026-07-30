@@ -281,7 +281,7 @@ func (s *State) collectPersistBatch(ctx context.Context, persistedAnchorNext typ
 					})
 					// Capture under the same lock as the anchor so an epoch slide
 					// cannot move its committee out of the live duo before I/O.
-					ep, err := inner.epoch.duo.Load().EpochForRoad(qc.Proposal().Index())
+					ep, err := inner.epoch.Load().EpochForRoad(qc.Proposal().Index())
 					if err != nil {
 						return b, fmt.Errorf("EpochForRoad(%d): %w", qc.Proposal().Index(), err)
 					}

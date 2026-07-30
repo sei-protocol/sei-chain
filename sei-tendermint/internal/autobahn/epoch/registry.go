@@ -27,9 +27,7 @@ func LastRoad(idx types.EpochIndex) types.RoadIndex {
 	return FirstRoad(idx+1) - 1
 }
 
-type registryState struct {
-	m map[types.EpochIndex]*types.Epoch
-}
+type registryState = map[types.EpochIndex]*types.Epoch
 
 // Registry is the authoritative store of epoch/committee metadata for all
 // layers (consensus, data, avail).
@@ -57,7 +55,7 @@ type registryState struct {
 //
 // TODO(autobahn): replace genesis placeholders with epoch info on blocks.
 type Registry struct {
-	state utils.RWMutex[*registryState]
+	state utils.RWMutex[registryState]
 	// epochGen bumps on every new registration; WaitForDuo waits on it so
 	// filling a gap still wakes waiters.
 	epochGen utils.AtomicSend[uint64]
@@ -76,9 +74,7 @@ func NewRegistry(
 ) (*Registry, error) {
 	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, committee)
 	return &Registry{
-		state: utils.NewRWMutex(&registryState{
-			m: map[types.EpochIndex]*types.Epoch{0: ep},
-		}),
+		state:             utils.NewRWMutex(registryState{0: ep}),
 		epochGen:          utils.NewAtomicSend(uint64(0)),
 		genesisFirstBlock: firstBlock,
 		genesisTimestamp:  genesisTimestamp,
@@ -107,7 +103,7 @@ func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) erro
 		r.EnsureDuoAt(span.First)
 		for s := range r.state.Lock() {
 			for idx := windowFirst; idx <= windowLast; idx++ {
-				if _, ok := s.m[idx]; ok {
+				if _, ok := s[idx]; ok {
 					continue
 				}
 				r.makeEpoch(s, idx)
@@ -144,7 +140,7 @@ func (r *Registry) FirstTimestamp() time.Time {
 func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 	epochIdx := IndexForRoad(roadIndex)
 	for s := range r.state.RLock() {
-		if ep, ok := s.m[epochIdx]; ok {
+		if ep, ok := s[epochIdx]; ok {
 			return ep, nil
 		}
 		return nil, fmt.Errorf("epoch %d (road %d) not registered", epochIdx, roadIndex)
@@ -154,13 +150,13 @@ func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 
 // makeEpoch inserts a genesis-committee placeholder at epochIdx.
 // Caller holds the write lock. Overwrites if present. Panics without epoch 0.
-func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) *types.Epoch {
-	if _, ok := s.m[0]; !ok {
+func (r *Registry) makeEpoch(s registryState, epochIdx types.EpochIndex) *types.Epoch {
+	if _, ok := s[0]; !ok {
 		panic("genesis epoch missing from registry")
 	}
 	firstRoad := FirstRoad(epochIdx)
 	epoch := types.NewEpoch(epochIdx, types.RoadRange{First: firstRoad, Next: FirstRoad(epochIdx + 1)}, r.genesisCommittee)
-	s.m[epochIdx] = epoch
+	s[epochIdx] = epoch
 	r.epochGen.Store(r.epochGen.Load() + 1)
 	return epoch
 }
@@ -168,12 +164,12 @@ func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) *types
 // EnsureEpoch registers a genesis-committee placeholder for idx if missing.
 func (r *Registry) EnsureEpoch(idx types.EpochIndex) {
 	for s := range r.state.RLock() {
-		if _, ok := s.m[idx]; ok {
+		if _, ok := s[idx]; ok {
 			return
 		}
 	}
 	for s := range r.state.Lock() {
-		if _, ok := s.m[idx]; !ok {
+		if _, ok := s[idx]; !ok {
 			r.makeEpoch(s, idx)
 		}
 	}

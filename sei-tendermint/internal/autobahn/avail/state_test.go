@@ -36,7 +36,7 @@ func registerDuoAtEpoch(s *State, n types.EpochIndex) {
 	r.EnsureEpoch(n)
 	duo := utils.OrPanic1(r.DuoAt(epoch.FirstRoad(n)))
 	for inner := range s.inner.Lock() {
-		inner.epoch.duo.Store(duo)
+		inner.epoch.Store(duo)
 	}
 }
 
@@ -574,7 +574,7 @@ func TestPushVote_DropsSignerAfterEpochAdvance(t *testing.T) {
 		require.NoError(t, <-errCh)
 
 		for inner := range state.inner.Lock() {
-			require.Equal(t, types.EpochIndex(1), inner.epoch.duo.Load().Current.EpochIndex())
+			require.Equal(t, types.EpochIndex(1), inner.epoch.Load().Current.EpochIndex())
 			require.Equal(t, types.BlockNumber(0), inner.lanes.byID[lane].votes.next,
 				"dropped vote must not extend the queue")
 		}
@@ -1591,7 +1591,7 @@ func TestPushAppQCBoundaryIncomingAppQC(t *testing.T) {
 	require.NoError(t, state.PushAppQC(t.Context(), appQCLast, qcLast))
 	for inner := range state.inner.Lock() {
 		require.Equal(t, epoch.LastRoad(m)+1, inner.commits.qcs.next)
-		require.Equal(t, m, inner.epoch.duo.Load().Current.EpochIndex())
+		require.Equal(t, m, inner.epoch.Load().Current.EpochIndex())
 	}
 	advanceUntilCurrent(t, state, m+1)
 }

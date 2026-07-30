@@ -64,9 +64,7 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 	}
 
 	i := &inner{
-		epoch: epochProgress{
-			duo: utils.NewAtomicSend(startEpochDuo),
-		},
+		epoch: utils.NewAtomicSend(startEpochDuo),
 		app: appProgress{
 			latestAppQC: utils.None[*types.AppQC](),
 			votes:       newQueue[types.GlobalBlockNumber, appVotes](),
@@ -174,7 +172,7 @@ func verifyCommitQCInDuo(duo types.EpochDuo, qc *types.CommitQC) error {
 }
 
 // advanceEpoch installs nextDuo at a boundary. Sole post-construction writer of
-// epoch.duo (via runAdvanceEpoch). Caller must ensure nextDuo is the next epoch
+// epoch (via runAdvanceEpoch). Caller must ensure nextDuo is the next epoch
 // after Current and that seal leashes (waitForAppQC, registry WaitForDuo) are
 // already satisfied. Adds Current lanes; does not delete old lanes
 // (TODO(lane-expiry)). Touches epoch + lane votes (reweight).
@@ -188,7 +186,7 @@ func (i *inner) advanceEpoch(nextDuo types.EpochDuo) {
 			ls.votes.q[n].reweight(current)
 		}
 	}
-	i.epoch.duo.Store(nextDuo)
+	i.epoch.Store(nextDuo)
 }
 
 // pushPruneAnchor advances queue boundaries for an AppQC and its matching

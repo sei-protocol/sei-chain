@@ -187,9 +187,7 @@ func TestDuoAt_ErrorWhenCurrentMissing(t *testing.T) {
 	}))
 	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, committee)
 	bare := &Registry{
-		state: utils.NewRWMutex(&registryState{
-			m: map[types.EpochIndex]*types.Epoch{0: ep},
-		}),
+		state:    utils.NewRWMutex(registryState{0: ep}),
 		epochGen: utils.NewAtomicSend(uint64(0)),
 	}
 	_, err := bare.DuoAt(FirstRoad(1))
@@ -206,9 +204,7 @@ func TestDuoAt_ErrorWhenPrevMissing(t *testing.T) {
 	ep2 := types.NewEpoch(2, types.RoadRange{First: FirstRoad(2), Next: FirstRoad(3)}, committee)
 	// Gap: epoch 2 present without epoch 1.
 	bare := &Registry{
-		state: utils.NewRWMutex(&registryState{
-			m: map[types.EpochIndex]*types.Epoch{0: ep0, 2: ep2},
-		}),
+		state:    utils.NewRWMutex(registryState{0: ep0, 2: ep2}),
 		epochGen: utils.NewAtomicSend(uint64(0)),
 	}
 	_, err := bare.DuoAt(FirstRoad(2))
