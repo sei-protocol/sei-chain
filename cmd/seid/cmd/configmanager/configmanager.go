@@ -45,36 +45,44 @@ func (LegacyConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate str
 // writes, migrates, or refuses boot.
 type SeiConfigManager struct{}
 
-// Apply runs the advisory validation pass, then re-enters the legacy handler on
-// the operator's original files. Nothing in the validation pass refuses boot.
+// Apply validates the operator's config, re-enters the legacy handler on the original
+// files, then reports what the validation found. Validation runs before re-entry so it
+// reads the files the operator authored rather than the ones the handler generates. The
+// reporting runs after so its lines are emitted at the log level the handler applies
+// (seilog.SetDefaultLevel), not the pre-config default: without this, a node with
+// log_level = "error" still gets the advisory lines and a higher default would drop them,
+// which for a pass whose only output is operator-facing defeats it. The outcome is
+// reported even when the handler errors, so a boot that fails still gets the advisory.
+// Nothing in either step refuses a boot the legacy path would have allowed.
 func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
-	reportAdvisory(cmd)
-	return server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
+	out := validateAdvisory(cmd)
+	err := server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
+	reportAdvisory(out)
+	return err
 }
 
-// reportAdvisory runs the advisory pass and reports what it found, containing a panic
-// from either step.
+// reportAdvisory logs an advisory outcome, containing a panic from the logging itself.
 //
-// The recover has to cover the reporting and not just the pass. Everything here is
-// advisory, so the one promise this manager makes is that it cannot refuse a boot the
-// legacy path would have allowed, and a panic escaping the reporter would do exactly
-// that by propagating out of Apply into PersistentPreRunE. Keeping the pass's own
-// recover and adding none here would leave that hole open, since the pass returns
-// normally and the reporter runs after it.
-func reportAdvisory(cmd *cobra.Command) {
+// Everything here is advisory, so the one promise this manager makes is that it cannot
+// refuse a boot the legacy path would have allowed, and a panic escaping this reporter
+// would do exactly that by propagating out of Apply into PersistentPreRunE. The pass that
+// produced out has its own recover, so the remaining exposure is the log call, which the
+// deferred recover below contains. logAdvisory is proven panic-free on every outcome, so
+// this only fires for a logger broken independent of its arguments.
+func reportAdvisory(out advisoryOutcome) {
 	defer func() {
-		if recover() != nil {
-			// This runs after something already panicked, and the logger is itself a
-			// plausible cause (a broken handler, or a writer panicking on a closed fd),
-			// so guard the report: a second panic here must not escape the deferred
-			// func and refuse a boot the legacy path would have allowed. The message
-			// touches no dynamic value, so this only defends against a logger broken
-			// independent of its arguments.
+		if r := recover(); r != nil {
+			// A second panic, from logging the first, must not escape. The nested recover
+			// makes recording the recovered value and stack safe, and it is worth
+			// recording: a reporter that swallows its own failure blind is the case least
+			// debuggable from a node's logs. This mirrors what the pass captures for a
+			// panic in validateAdvisory.
 			defer func() { _ = recover() }()
-			logger.Error("config validation reporting panicked (advisory; recovered, node will boot)")
+			logger.Error("config validation reporting panicked (advisory; recovered, node will boot)",
+				"panic", r, "stack", string(debug.Stack()))
 		}
 	}()
-	logAdvisory(validateAdvisory(cmd))
+	logAdvisory(out)
 }
 
 // advisoryOutcome is what the validation pass saw. The pass reports rather than logs

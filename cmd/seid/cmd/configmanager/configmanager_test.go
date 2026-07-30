@@ -336,14 +336,17 @@ func TestReadConfigFromDirMissingIsErrNotExist(t *testing.T) {
 func TestReportAdvisoryNeverEscapesWhenTheLoggerPanics(t *testing.T) {
 	configtest.Isolate(t)
 	// A config missing a required field, so the pass produces a diagnostic and
-	// logAdvisory reaches a logger call rather than the quiet fresh-node skip.
+	// logAdvisory reaches a logger call rather than the quiet fresh-node skip. The pass
+	// runs before the logger is swapped, matching production, where it runs before the
+	// handler applies the operator's level and only the reporting runs after.
 	root := writeMinimalHome(t, "mode = \"full\"\n", "")
+	out := validateAdvisory(homeCmd(t, root))
 
 	orig := logger
 	t.Cleanup(func() { logger = orig })
 	logger = slog.New(panickingHandler{})
 
-	require.NotPanics(t, func() { reportAdvisory(homeCmd(t, root)) })
+	require.NotPanics(t, func() { reportAdvisory(out) })
 }
 
 // panickingHandler is a slog.Handler that panics on every record, standing in for a
