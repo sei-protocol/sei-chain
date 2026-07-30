@@ -33,12 +33,12 @@ func readEVMQuery(opts configtest.AppOpts) (any, error) { return querier.ReadCon
 // 0 or a wrapped 2^64. Refusing is the safe direction here — a gas limit of 0
 // would fail every EVM state query on a node that came up clean.
 func FuzzReadConfig(f *testing.F) {
-	f.Add(uint8(3), "", int64(300000), false)
-	f.Add(uint8(7), "", int64(500000), false)
-	f.Add(uint8(3), "", int64(-1), false)
-	f.Add(uint8(1), "not-a-number", int64(0), false)
-	f.Add(uint8(0), "", int64(0), false)
-	f.Add(uint8(6), "", int64(7), false)
+	f.Add(fuzzing.KindInt64, "", int64(300000), false)
+	f.Add(fuzzing.KindNumericString, "", int64(500000), false)
+	f.Add(fuzzing.KindInt64, "", int64(-1), false)
+	f.Add(fuzzing.KindString, "not-a-number", int64(0), false)
+	f.Add(fuzzing.KindNil, "", int64(0), false)
+	f.Add(fuzzing.KindFloat64, "", int64(7), false)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		configtest.CheckRow(t, "evm_query", readEVMQuery, evmQueryKeys[0], fuzzing.ConfigValue(kind, s, n, b))

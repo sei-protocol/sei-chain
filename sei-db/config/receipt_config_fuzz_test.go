@@ -36,13 +36,13 @@ var receiptKeys = []configtest.KeySpec{
 func readReceipt(opts configtest.AppOpts) (any, error) { return ReadReceiptConfig(opts) }
 
 func FuzzReadReceiptConfig(f *testing.F) {
-	f.Add(uint(0), uint8(3), "", int64(100), false)
-	f.Add(uint(0), uint8(3), "", int64(0), false)
-	f.Add(uint(1), uint8(7), "", int64(600), false)
-	f.Add(uint(2), uint8(2), "", int64(0), true)
-	f.Add(uint(3), uint8(3), "", int64(16), false)
-	f.Add(uint(0), uint8(1), "many", int64(0), false)
-	f.Add(uint(1), uint8(0), "", int64(0), false)
+	f.Add(uint(0), fuzzing.KindInt64, "", int64(100), false)
+	f.Add(uint(0), fuzzing.KindInt64, "", int64(0), false)
+	f.Add(uint(1), fuzzing.KindNumericString, "", int64(600), false)
+	f.Add(uint(2), fuzzing.KindBool, "", int64(0), true)
+	f.Add(uint(3), fuzzing.KindInt64, "", int64(16), false)
+	f.Add(uint(0), fuzzing.KindString, "many", int64(0), false)
+	f.Add(uint(1), fuzzing.KindNil, "", int64(0), false)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(receiptKeys, keyIdx)
@@ -121,10 +121,10 @@ func FuzzReceiptDBDirectory(f *testing.F) {
 // so an operator whose app.toml still carries it is told rather than silently
 // running the default engine.
 func FuzzReceiptMisnamedBackendKey(f *testing.F) {
-	f.Add(uint8(1), "pebbledb", int64(0), false)
-	f.Add(uint8(0), "", int64(0), false)
-	f.Add(uint8(2), "", int64(0), true)
-	f.Add(uint8(3), "", int64(0), false)
+	f.Add(fuzzing.KindString, "pebbledb", int64(0), false)
+	f.Add(fuzzing.KindNil, "", int64(0), false)
+	f.Add(fuzzing.KindBool, "", int64(0), true)
+	f.Add(fuzzing.KindInt64, "", int64(0), false)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		value := fuzzing.ConfigValue(kind, s, n, b)

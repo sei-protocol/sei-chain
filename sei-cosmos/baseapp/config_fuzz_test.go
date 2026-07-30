@@ -46,12 +46,12 @@ func baseOpts() configtest.AppOpts {
 // what lets a typo'd chain-id reach consensus, and panicking on empty is what turns a
 // missing client.toml into a crash rather than a default.
 func FuzzBaseAppChainID(f *testing.F) {
-	f.Add(uint8(1), "sei-chain", int64(0), false)
-	f.Add(uint8(1), "", int64(0), false)
-	f.Add(uint8(0), "", int64(0), false)
-	f.Add(uint8(3), "", int64(42), false)
-	f.Add(uint8(2), "", int64(0), true)
-	f.Add(uint8(11), "", int64(0), false)
+	f.Add(fuzzing.KindString, "sei-chain", int64(0), false)
+	f.Add(fuzzing.KindString, "", int64(0), false)
+	f.Add(fuzzing.KindNil, "", int64(0), false)
+	f.Add(fuzzing.KindInt64, "", int64(42), false)
+	f.Add(fuzzing.KindBool, "", int64(0), true)
+	f.Add(fuzzing.KindMap, "", int64(0), false)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		value := fuzzing.ConfigValue(kind, s, n, b)

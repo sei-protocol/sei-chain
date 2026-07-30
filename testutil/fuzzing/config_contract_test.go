@@ -13,10 +13,10 @@ import (
 // added to ConfigValue without a matching name would report itself as "" in exactly the
 // failure message that exists to identify it.
 func TestEveryKindHasAName(t *testing.T) {
-	for k := 0; k < fuzzing.ConfigValueKinds; k++ {
+	for k := 0; k < int(fuzzing.ConfigValueKinds); k++ {
 		if name := fuzzing.ConfigValueKindName(uint8(k)); name == "" {
-			t.Errorf("kind %d has no name. ConfigValueKinds was raised without adding one, so a "+
-				"failure on this kind would say \"kind %d ()\" and identify nothing", k, k)
+			t.Errorf("kind %d has no name. A kind was added to ConfigValue without adding one, "+
+				"so a failure on this kind would say \"kind %d ()\" and identify nothing", k, k)
 		}
 	}
 }

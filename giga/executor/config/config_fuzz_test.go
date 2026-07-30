@@ -40,12 +40,12 @@ func FuzzReadConfig(f *testing.F) {
 	// Seeds cover the shapes an operator can actually produce: a TOML bool, the
 	// string spellings viper hands back from an environment variable, a numeric
 	// spelling cast accepts, and the malformed value that must not become false.
-	f.Add(uint(0), uint8(2), "true", int64(1), true)
-	f.Add(uint(1), uint8(8), "false", int64(0), false)
-	f.Add(uint(0), uint8(1), "maybe", int64(0), false)
-	f.Add(uint(1), uint8(1), "1", int64(1), true)
-	f.Add(uint(0), uint8(0), "", int64(0), false)
-	f.Add(uint(1), uint8(11), "nested", int64(0), false)
+	f.Add(uint(0), fuzzing.KindBool, "true", int64(1), true)
+	f.Add(uint(1), fuzzing.KindBoolString, "false", int64(0), false)
+	f.Add(uint(0), fuzzing.KindString, "maybe", int64(0), false)
+	f.Add(uint(1), fuzzing.KindString, "1", int64(1), true)
+	f.Add(uint(0), fuzzing.KindNil, "", int64(0), false)
+	f.Add(uint(1), fuzzing.KindMap, "nested", int64(0), false)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(gigaKeys, keyIdx)

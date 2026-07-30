@@ -106,24 +106,24 @@ func FuzzReadConfig(f *testing.F) {
 	// could be dropped without CI noticing. Same loop as
 	// FuzzGetConfigGuardedKeysPreserveDefaults in sei-cosmos/server/config.
 	for i := range len(evmKeys) {
-		f.Add(uint(i), uint8(0), "", int64(0), false)            // nil: a guarded read keeps the default
-		f.Add(uint(i), uint8(1), "not-a-value", int64(0), false) // malformed: a checked read must refuse it
+		f.Add(uint(i), fuzzing.KindNil, "", int64(0), false)               // nil: a guarded read keeps the default
+		f.Add(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed: a checked read must refuse it
 	}
 
 	// Seeds span the shapes an operator produces from the three layers that reach
 	// this reader: TOML scalars, environment strings (always strings, never
 	// typed), and cobra flag values.
-	f.Add(uint(0), uint8(2), "true", int64(1), true)                   // TOML bool
-	f.Add(uint(1), uint8(7), "", int64(8545), false)                   // env-style numeric string
-	f.Add(uint(4), uint8(1), "30s", int64(0), false)                   // duration spelling
-	f.Add(uint(4), uint8(3), "", int64(30), false)                     // bare number as a duration (nanoseconds)
-	f.Add(uint(16), uint8(9), "eth_call eth_getLogs", int64(0), false) // whitespace-split slice
-	f.Add(uint(16), uint8(10), "eth_call", int64(1), false)            // []any slice
-	f.Add(uint(8), uint8(3), "", int64(-1), false)                     // negative into an unsigned cast: rejected
-	f.Add(uint(8), uint8(5), "", int64(-1), false)                     // the same bits unsigned, near 2^64: accepted
-	f.Add(uint(10), uint8(11), "", int64(0), false)                    // a table where a scalar belongs
-	f.Add(uint(0), uint8(1), "not-a-bool", int64(0), false)            // must error, never resolve false
-	f.Add(uint(42), uint8(6), "", int64(7), false)                     // float into a float key
+	f.Add(uint(0), fuzzing.KindBool, "true", int64(1), true)                          // TOML bool
+	f.Add(uint(1), fuzzing.KindNumericString, "", int64(8545), false)                 // env-style numeric string
+	f.Add(uint(4), fuzzing.KindString, "30s", int64(0), false)                        // duration spelling
+	f.Add(uint(4), fuzzing.KindInt64, "", int64(30), false)                           // bare number as a duration (nanoseconds)
+	f.Add(uint(16), fuzzing.KindStringSlice, "eth_call eth_getLogs", int64(0), false) // whitespace-split slice
+	f.Add(uint(16), fuzzing.KindAnySlice, "eth_call", int64(1), false)                // []any slice
+	f.Add(uint(8), fuzzing.KindInt64, "", int64(-1), false)                           // negative into an unsigned cast: rejected
+	f.Add(uint(8), fuzzing.KindUint64, "", int64(-1), false)                          // the same bits unsigned, near 2^64: accepted
+	f.Add(uint(10), fuzzing.KindMap, "", int64(0), false)                             // a table where a scalar belongs
+	f.Add(uint(0), fuzzing.KindString, "not-a-bool", int64(0), false)                 // must error, never resolve false
+	f.Add(uint(42), fuzzing.KindFloat64, "", int64(7), false)                         // float into a float key
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(evmKeys, keyIdx)

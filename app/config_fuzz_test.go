@@ -129,20 +129,20 @@ func FuzzParseSCConfigs(f *testing.F) {
 	// could be dropped without CI noticing. Same loop as
 	// FuzzGetConfigGuardedKeysPreserveDefaults in sei-cosmos/server/config.
 	for i := range len(scKeys) {
-		f.Add(uint(i), uint8(0), "", int64(0), false)            // nil: a guarded read keeps the default
-		f.Add(uint(i), uint8(1), "not-a-value", int64(0), false) // malformed: a checked read must refuse it
+		f.Add(uint(i), fuzzing.KindNil, "", int64(0), false)               // nil: a guarded read keeps the default
+		f.Add(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed: a checked read must refuse it
 	}
 
-	f.Add(uint(0), uint8(2), "", int64(0), true)      // sc-enable as a TOML bool
-	f.Add(uint(0), uint8(8), "", int64(0), false)     // sc-enable as the string "false"
-	f.Add(uint(2), uint8(3), "", int64(100), false)   // async-commit-buffer
-	f.Add(uint(2), uint8(0), "", int64(0), false)     // guarded nil must keep 100
-	f.Add(uint(4), uint8(3), "", int64(10000), false) // snapshot-interval
-	f.Add(uint(4), uint8(3), "", int64(-1), false)    // negative into an unchecked unsigned cast: resolves 0
-	f.Add(uint(7), uint8(6), "", int64(2), false)     // prefetch threshold as a float
-	f.Add(uint(1), uint8(1), "/var/lib/sei/sc", int64(0), false)
-	f.Add(uint(13), uint8(1), "not-a-bool", int64(0), false) // unchecked: resolves false, no error
-	f.Add(uint(15), uint8(3), "", int64(0), false)           // explicit 0 taken verbatim
+	f.Add(uint(0), fuzzing.KindBool, "", int64(0), true)        // sc-enable as a TOML bool
+	f.Add(uint(0), fuzzing.KindBoolString, "", int64(0), false) // sc-enable as the string "false"
+	f.Add(uint(2), fuzzing.KindInt64, "", int64(100), false)    // async-commit-buffer
+	f.Add(uint(2), fuzzing.KindNil, "", int64(0), false)        // guarded nil must keep 100
+	f.Add(uint(4), fuzzing.KindInt64, "", int64(10000), false)  // snapshot-interval
+	f.Add(uint(4), fuzzing.KindInt64, "", int64(-1), false)     // negative into an unchecked unsigned cast: resolves 0
+	f.Add(uint(7), fuzzing.KindFloat64, "", int64(2), false)    // prefetch threshold as a float
+	f.Add(uint(1), fuzzing.KindString, "/var/lib/sei/sc", int64(0), false)
+	f.Add(uint(13), fuzzing.KindString, "not-a-bool", int64(0), false) // unchecked: resolves false, no error
+	f.Add(uint(15), fuzzing.KindInt64, "", int64(0), false)            // explicit 0 taken verbatim
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(scKeys, keyIdx)
@@ -161,19 +161,19 @@ func FuzzParseSSConfigs(f *testing.F) {
 	// could be dropped without CI noticing. Same loop as
 	// FuzzGetConfigGuardedKeysPreserveDefaults in sei-cosmos/server/config.
 	for i := range len(ssKeys) {
-		f.Add(uint(i), uint8(0), "", int64(0), false)            // nil: a guarded read keeps the default
-		f.Add(uint(i), uint8(1), "not-a-value", int64(0), false) // malformed: a checked read must refuse it
+		f.Add(uint(i), fuzzing.KindNil, "", int64(0), false)               // nil: a guarded read keeps the default
+		f.Add(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed: a checked read must refuse it
 	}
 
-	f.Add(uint(0), uint8(2), "", int64(0), true)
-	f.Add(uint(0), uint8(0), "", int64(0), false) // nil clobbers Enable to false
-	f.Add(uint(1), uint8(1), "pebbledb", int64(0), false)
-	f.Add(uint(1), uint8(0), "", int64(0), false) // nil clobbers Backend to ""
-	f.Add(uint(2), uint8(3), "", int64(100), false)
-	f.Add(uint(3), uint8(3), "", int64(200000), false)
-	f.Add(uint(3), uint8(0), "", int64(0), false) // nil clobbers KeepRecent to 0
-	f.Add(uint(6), uint8(1), "/var/lib/sei/ss", int64(0), false)
-	f.Add(uint(10), uint8(8), "", int64(0), true)
+	f.Add(uint(0), fuzzing.KindBool, "", int64(0), true)
+	f.Add(uint(0), fuzzing.KindNil, "", int64(0), false) // nil clobbers Enable to false
+	f.Add(uint(1), fuzzing.KindString, "pebbledb", int64(0), false)
+	f.Add(uint(1), fuzzing.KindNil, "", int64(0), false) // nil clobbers Backend to ""
+	f.Add(uint(2), fuzzing.KindInt64, "", int64(100), false)
+	f.Add(uint(3), fuzzing.KindInt64, "", int64(200000), false)
+	f.Add(uint(3), fuzzing.KindNil, "", int64(0), false) // nil clobbers KeepRecent to 0
+	f.Add(uint(6), fuzzing.KindString, "/var/lib/sei/ss", int64(0), false)
+	f.Add(uint(10), fuzzing.KindBoolString, "", int64(0), true)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(ssKeys, keyIdx)
@@ -261,16 +261,16 @@ func FuzzSCWriteMode(f *testing.F) {
 // whether written deliberately or produced by a cast that failed — preserves the
 // 16 MB default instead of yielding a rotation size of zero bytes.
 func FuzzSCHashLoggerTargetFileSize(f *testing.F) {
-	f.Add(uint8(3), "", int64(0), false)
-	f.Add(uint8(3), "", int64(1), false)
-	f.Add(uint8(3), "", int64(-1), false)
-	f.Add(uint8(1), "not-a-size", int64(0), false)
-	f.Add(uint8(7), "", int64(1048576), false)
-	f.Add(uint8(0), "", int64(0), false)
+	f.Add(fuzzing.KindInt64, "", int64(0), false)
+	f.Add(fuzzing.KindInt64, "", int64(1), false)
+	f.Add(fuzzing.KindInt64, "", int64(-1), false)
+	f.Add(fuzzing.KindString, "not-a-size", int64(0), false)
+	f.Add(fuzzing.KindNumericString, "", int64(1048576), false)
+	f.Add(fuzzing.KindNil, "", int64(0), false)
 	// A TOML bool where a byte size belongs. cast.ToUint(true) is 1, which clears
 	// the > 0 filter, so the node rotates its hash log every single byte rather
 	// than falling back to the default. Found by the fuzzer; kept as a seed.
-	f.Add(uint8(2), "", int64(0), true)
+	f.Add(fuzzing.KindBool, "", int64(0), true)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		value := fuzzing.ConfigValue(kind, s, n, b)
@@ -302,11 +302,11 @@ func FuzzSCHashLoggerTargetFileSize(f *testing.F) {
 // and a malformed value fails the boot rather than quietly disabling a
 // money-conservation assertion that panics the node when it is violated.
 func FuzzReadLightInvarianceConfig(f *testing.F) {
-	f.Add(uint8(2), "", int64(0), true)
-	f.Add(uint8(8), "", int64(0), false)
-	f.Add(uint8(0), "", int64(0), false)
-	f.Add(uint8(1), "sometimes", int64(0), false)
-	f.Add(uint8(11), "", int64(0), false)
+	f.Add(fuzzing.KindBool, "", int64(0), true)
+	f.Add(fuzzing.KindBoolString, "", int64(0), false)
+	f.Add(fuzzing.KindNil, "", int64(0), false)
+	f.Add(fuzzing.KindString, "sometimes", int64(0), false)
+	f.Add(fuzzing.KindMap, "", int64(0), false)
 
 	spec := configtest.KeySpec{
 		Key: "light_invariance.supply_enabled", Path: "SupplyEnabled",
@@ -331,12 +331,12 @@ func FuzzReadLightInvarianceConfig(f *testing.F) {
 // integer or a mistyped table in this section takes the node down at boot with no
 // diagnostic pointing at genesis.
 func FuzzReadGenesisImportConfig(f *testing.F) {
-	f.Add(uint8(1), "/var/lib/sei/genesis.json", int64(0), false)
-	f.Add(uint8(0), "", int64(0), false)
-	f.Add(uint8(3), "", int64(1), false)
-	f.Add(uint8(2), "", int64(0), true)
-	f.Add(uint8(9), "a b", int64(0), false)
-	f.Add(uint8(11), "", int64(0), false)
+	f.Add(fuzzing.KindString, "/var/lib/sei/genesis.json", int64(0), false)
+	f.Add(fuzzing.KindNil, "", int64(0), false)
+	f.Add(fuzzing.KindInt64, "", int64(1), false)
+	f.Add(fuzzing.KindBool, "", int64(0), true)
+	f.Add(fuzzing.KindStringSlice, "a b", int64(0), false)
+	f.Add(fuzzing.KindMap, "", int64(0), false)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		value := fuzzing.ConfigValue(kind, s, n, b)
@@ -370,10 +370,10 @@ func FuzzReadGenesisImportConfig(f *testing.F) {
 // FuzzReadGenesisStreamImport pins the stream-import toggle, which is a plain
 // guarded checked cast.
 func FuzzReadGenesisStreamImport(f *testing.F) {
-	f.Add(uint8(2), "", int64(0), true)
-	f.Add(uint8(8), "", int64(0), false)
-	f.Add(uint8(0), "", int64(0), false)
-	f.Add(uint8(1), "stream", int64(0), false)
+	f.Add(fuzzing.KindBool, "", int64(0), true)
+	f.Add(fuzzing.KindBoolString, "", int64(0), false)
+	f.Add(fuzzing.KindNil, "", int64(0), false)
+	f.Add(fuzzing.KindString, "stream", int64(0), false)
 
 	spec := configtest.KeySpec{
 		Key: "genesis.stream-import", Path: "StreamGenesisImport",

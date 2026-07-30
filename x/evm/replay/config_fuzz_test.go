@@ -44,13 +44,13 @@ var ethReplayKeys = []configtest.KeySpec{
 func readETHReplay(opts configtest.AppOpts) (any, error) { return replay.ReadConfig(opts) }
 
 func FuzzReadConfig(f *testing.F) {
-	f.Add(uint(0), uint8(2), "true", int64(1), true)
-	f.Add(uint(1), uint8(1), "http://127.0.0.1:8545", int64(0), false)
-	f.Add(uint(2), uint8(1), "/root/.ethereum/chaindata", int64(0), false)
-	f.Add(uint(3), uint8(8), "", int64(0), true)
-	f.Add(uint(1), uint8(10), "", int64(0), false)
-	f.Add(uint(0), uint8(1), "enabled", int64(0), false)
-	f.Add(uint(2), uint8(0), "", int64(0), false)
+	f.Add(uint(0), fuzzing.KindBool, "true", int64(1), true)
+	f.Add(uint(1), fuzzing.KindString, "http://127.0.0.1:8545", int64(0), false)
+	f.Add(uint(2), fuzzing.KindString, "/root/.ethereum/chaindata", int64(0), false)
+	f.Add(uint(3), fuzzing.KindBoolString, "", int64(0), true)
+	f.Add(uint(1), fuzzing.KindAnySlice, "", int64(0), false)
+	f.Add(uint(0), fuzzing.KindString, "enabled", int64(0), false)
+	f.Add(uint(2), fuzzing.KindNil, "", int64(0), false)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(ethReplayKeys, keyIdx)

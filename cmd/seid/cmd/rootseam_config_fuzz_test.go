@@ -288,11 +288,11 @@ func TestPreRunReadsTheManagerGatePerInvocation(t *testing.T) {
 //
 // Only the refusal is driven here: a valid home sends this straight into app.New.
 func FuzzExportableAppRequiresAHome(f *testing.F) {
-	f.Add(uint8(0), "", int64(0), false)  // absent
-	f.Add(uint8(1), "", int64(0), false)  // empty string
-	f.Add(uint8(3), "", int64(1), false)  // an int where a path belongs
-	f.Add(uint8(2), "", int64(0), true)   // a bool
-	f.Add(uint8(11), "", int64(0), false) // a table
+	f.Add(fuzzing.KindNil, "", int64(0), false)    // absent
+	f.Add(fuzzing.KindString, "", int64(0), false) // empty string
+	f.Add(fuzzing.KindInt64, "", int64(1), false)  // an int where a path belongs
+	f.Add(fuzzing.KindBool, "", int64(0), true)    // a bool
+	f.Add(fuzzing.KindMap, "", int64(0), false)    // a table
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		value := fuzzing.ConfigValue(kind, s, n, b)

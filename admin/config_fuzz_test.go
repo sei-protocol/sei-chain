@@ -28,11 +28,11 @@ func readAdmin(opts configtest.AppOpts) (any, error) { return admin.ReadConfig(o
 // malformed value leaves the admin server off rather than on — which is why it is
 // pinned rather than reported as a defect.
 func FuzzReadConfigEnabled(f *testing.F) {
-	f.Add(uint8(2), "true", int64(1), true)
-	f.Add(uint8(8), "false", int64(0), false)
-	f.Add(uint8(1), "yes-please", int64(0), false)
-	f.Add(uint8(0), "", int64(0), false)
-	f.Add(uint8(11), "", int64(0), false)
+	f.Add(fuzzing.KindBool, "true", int64(1), true)
+	f.Add(fuzzing.KindBoolString, "false", int64(0), false)
+	f.Add(fuzzing.KindString, "yes-please", int64(0), false)
+	f.Add(fuzzing.KindNil, "", int64(0), false)
+	f.Add(fuzzing.KindMap, "", int64(0), false)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		spec := adminKeys[0]

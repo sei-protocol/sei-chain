@@ -187,8 +187,8 @@ func FuzzGetConfigGRPCDurationClamps(f *testing.F) {
 			// Only a spelling that parses back to the same duration is a faithful stand-in for
 			// the typed value. Duration.String has not always round-tripped at the int64
 			// boundary, and a spelling the parser rejects would resolve to zero and fail this
-			// row with a message about the clamp rather than about the encoding. Declining is
-			// the same move fuzzing.TOMLScalar makes for values with no faithful text form.
+			// row with a message about the clamp rather than about the encoding, so a value
+			// with no faithful text form is declined instead.
 			spelled := d.String()
 			if back, perr := time.ParseDuration(spelled); perr != nil || back != d {
 				return // no faithful text spelling; the typed shape already covers this value

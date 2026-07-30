@@ -39,11 +39,11 @@ var ethBlockTestKeys = []configtest.KeySpec{
 func readETHBlockTest(opts configtest.AppOpts) (any, error) { return blocktest.ReadConfig(opts) }
 
 func FuzzReadConfig(f *testing.F) {
-	f.Add(uint(0), uint8(2), "true", int64(1), true)
-	f.Add(uint(1), uint8(1), "~/testdata/", int64(0), false)
-	f.Add(uint(0), uint8(1), "on", int64(0), false)
-	f.Add(uint(1), uint8(10), "", int64(0), false)
-	f.Add(uint(0), uint8(0), "", int64(0), false)
+	f.Add(uint(0), fuzzing.KindBool, "true", int64(1), true)
+	f.Add(uint(1), fuzzing.KindString, "~/testdata/", int64(0), false)
+	f.Add(uint(0), fuzzing.KindString, "on", int64(0), false)
+	f.Add(uint(1), fuzzing.KindAnySlice, "", int64(0), false)
+	f.Add(uint(0), fuzzing.KindNil, "", int64(0), false)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(ethBlockTestKeys, keyIdx)

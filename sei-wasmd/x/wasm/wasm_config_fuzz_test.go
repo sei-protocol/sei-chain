@@ -49,14 +49,14 @@ var wasmKeys = []configtest.KeySpec{
 func readWasm(opts configtest.AppOpts) (any, error) { return wasm.ReadWasmConfig(opts) }
 
 func FuzzReadWasmConfig(f *testing.F) {
-	f.Add(uint(0), uint8(3), "", int64(300000), false)
-	f.Add(uint(0), uint8(7), "", int64(3000000), false)
-	f.Add(uint(0), uint8(3), "", int64(-1), false) // negative into an unsigned cast: rejected
-	f.Add(uint(1), uint8(3), "", int64(256), false)
-	f.Add(uint(2), uint8(2), "", int64(0), true)
-	f.Add(uint(2), uint8(1), "not-a-bool", int64(0), false)
-	f.Add(uint(0), uint8(0), "", int64(0), false)
-	f.Add(uint(1), uint8(11), "", int64(0), false)
+	f.Add(uint(0), fuzzing.KindInt64, "", int64(300000), false)
+	f.Add(uint(0), fuzzing.KindNumericString, "", int64(3000000), false)
+	f.Add(uint(0), fuzzing.KindInt64, "", int64(-1), false) // negative into an unsigned cast: rejected
+	f.Add(uint(1), fuzzing.KindInt64, "", int64(256), false)
+	f.Add(uint(2), fuzzing.KindBool, "", int64(0), true)
+	f.Add(uint(2), fuzzing.KindString, "not-a-bool", int64(0), false)
+	f.Add(uint(0), fuzzing.KindNil, "", int64(0), false)
+	f.Add(uint(1), fuzzing.KindMap, "", int64(0), false)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(wasmKeys, keyIdx)
@@ -133,11 +133,11 @@ func TestLruSizeTemplateKeyIsInert(t *testing.T) {
 // quoted resolve differently. nil means "no simulation limit", so the quoting of the
 // value decides whether a bound exists at all.
 func FuzzWasmSimulationGasLimit(f *testing.F) {
-	f.Add(uint8(1), "500000", int64(0), false) // a string: adopted
-	f.Add(uint8(3), "", int64(500000), false)  // a TOML integer: leaves it nil
-	f.Add(uint8(1), "", int64(0), false)       // an empty string: leaves it nil
-	f.Add(uint8(1), "not-a-number", int64(0), false)
-	f.Add(uint8(0), "", int64(0), false)
+	f.Add(fuzzing.KindString, "500000", int64(0), false) // a string: adopted
+	f.Add(fuzzing.KindInt64, "", int64(500000), false)   // a TOML integer: leaves it nil
+	f.Add(fuzzing.KindString, "", int64(0), false)       // an empty string: leaves it nil
+	f.Add(fuzzing.KindString, "not-a-number", int64(0), false)
+	f.Add(fuzzing.KindNil, "", int64(0), false)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		value := fuzzing.ConfigValue(kind, s, n, b)

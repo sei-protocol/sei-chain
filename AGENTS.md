@@ -14,6 +14,17 @@ progressively the deeper you go. Existing package guides include:
 - `evmrpc/AGENTS.md` — EVM JSON-RPC (`eth_*`, `sei_*`, `sei2_*`, `debug_*`) semantics
 - `x/evm/AGENTS.md` — EVM module: address association, StateDB bridge, precompiles, pointers
 - `sei-tendermint/AGENTS.md` — sei-tendermint module conventions
+- `testutil/configtest/AGENTS.md` — configuration characterization: how to pin a new key, section, or default
+
+## Configuration reads
+
+How a seid node resolves configuration is pinned by the characterization suite in
+`testutil/configtest`, so adding a configuration key, renaming one, changing a
+default, or changing how a value is cast will fail that suite. The failure is the
+review prompt: record the new behavior so the old and new value land in a diff,
+rather than skipping the row or widening the assertion until it passes. Read
+[`testutil/configtest/AGENTS.md`](testutil/configtest/AGENTS.md) before changing a
+configuration read.
 
 ## Code style
 
