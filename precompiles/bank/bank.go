@@ -17,6 +17,7 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -254,33 +255,37 @@ func (p PrecompileExecutor) send(ctx sdk.Context, caller common.Address, method 
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
 }
 
+// multiSend batch-sends the caller's own coins of the given denom to the
+// given receivers. Unlike send, it is not restricted to pointer contracts:
+// the caller can only spend its own funds, so it requires an associated Sei
+// address and rejects delegatecall (which would let a contract spend its own
+// caller's funds).
 func (p PrecompileExecutor) multiSend(ctx sdk.Context, caller common.Address, method *abi.Method, args []interface{}, value *big.Int, readOnly bool) ([]byte, uint64, error) {
 	if readOnly {
 		return nil, 0, errors.New("cannot call multiSend from staticcall")
+	}
+	if ctx.EVMPrecompileCalledFromDelegateCall() {
+		return nil, 0, errors.New("cannot delegatecall multiSend")
 	}
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
 
-	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
 		return nil, 0, err
 	}
-	denom := args[2].(string)
+	denom := args[1].(string)
 	if denom == "" {
 		return nil, 0, errors.New("invalid denom")
 	}
-	pointer, _, exists := p.evmKeeper.GetERC20NativePointer(ctx, denom)
-	if !exists || pointer.Cmp(caller) != 0 {
-		return nil, 0, fmt.Errorf("only pointer %s can send %s but got %s", pointer.Hex(), denom, caller.Hex())
+	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !ok {
+		return nil, 0, evmtypes.NewAssociationMissingErr(caller.Hex())
 	}
-	toAddresses := args[1].([]common.Address)
-	amounts := args[3].([]*big.Int)
+	toAddresses := args[0].([]common.Address)
+	amounts := args[2].([]*big.Int)
 	if len(toAddresses) == 0 || len(toAddresses) != len(amounts) {
 		return nil, 0, errors.New("toAddresses and amounts must be non-empty and of equal length")
-	}
-	senderSeiAddr, err := p.accAddressFromArg(ctx, args[0])
-	if err != nil {
-		return nil, 0, err
 	}
 
 	total := sdk.ZeroInt()

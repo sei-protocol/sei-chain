@@ -363,9 +363,6 @@ func TestMultiSend(t *testing.T) {
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("ufoo", sdk.NewInt(10000000)))))
 	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("ufoo", sdk.NewInt(10000000)))))
 
-	_, pointerAddr := testkeeper.MockAddressPair()
-	k.SetERC20NativePointer(ctx, "ufoo", pointerAddr)
-
 	// One linked receiver, one unlinked receiver
 	receiver1SeiAddr, receiver1EvmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, receiver1SeiAddr, receiver1EvmAddr)
@@ -382,32 +379,37 @@ func TestMultiSend(t *testing.T) {
 
 	multiSend, err := p.ABI.MethodById(executor.MultiSendID)
 	require.Nil(t, err)
-	args, err := multiSend.Inputs.Pack(senderEVMAddr, []common.Address{receiver1EvmAddr, receiver2EvmAddr}, "ufoo", []*big.Int{big.NewInt(100), big.NewInt(200)})
+	args, err := multiSend.Inputs.Pack([]common.Address{receiver1EvmAddr, receiver2EvmAddr}, "ufoo", []*big.Int{big.NewInt(100), big.NewInt(200)})
 	require.Nil(t, err)
 
-	// should error because the caller is not the denom's pointer
-	_, _, err = p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(executor.MultiSendID, args...), 200000, nil, nil, false, false)
-	require.NotNil(t, err)
 	// should error because of read only call
-	_, _, err = p.RunAndCalculateGas(&evm, pointerAddr, pointerAddr, append(executor.MultiSendID, args...), 200000, nil, nil, true, false)
+	_, _, err = p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(executor.MultiSendID, args...), 200000, nil, nil, true, false)
+	require.NotNil(t, err)
+	// should error because of delegatecall
+	_, _, err = p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(executor.MultiSendID, args...), 200000, nil, nil, false, true)
 	require.NotNil(t, err)
 	// should error because it's not payable
-	_, _, err = p.RunAndCalculateGas(&evm, pointerAddr, pointerAddr, append(executor.MultiSendID, args...), 200000, big.NewInt(1), nil, false, false)
+	_, _, err = p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(executor.MultiSendID, args...), 200000, big.NewInt(1), nil, false, false)
+	require.NotNil(t, err)
+	// should error because caller is not associated
+	_, unassociatedEvmAddr := testkeeper.MockAddressPair()
+	_, _, err = p.RunAndCalculateGas(&evm, unassociatedEvmAddr, unassociatedEvmAddr, append(executor.MultiSendID, args...), 200000, nil, nil, false, false)
 	require.NotNil(t, err)
 	// should error because denom is empty
-	invalidDenomArgs, err := multiSend.Inputs.Pack(senderEVMAddr, []common.Address{receiver1EvmAddr}, "", []*big.Int{big.NewInt(100)})
+	invalidDenomArgs, err := multiSend.Inputs.Pack([]common.Address{receiver1EvmAddr}, "", []*big.Int{big.NewInt(100)})
 	require.Nil(t, err)
-	_, _, err = p.RunAndCalculateGas(&evm, pointerAddr, pointerAddr, append(executor.MultiSendID, invalidDenomArgs...), 200000, nil, nil, false, false)
+	_, _, err = p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(executor.MultiSendID, invalidDenomArgs...), 200000, nil, nil, false, false)
 	require.NotNil(t, err)
 	// should error because toAddresses and amounts lengths differ
-	mismatchedArgs, err := multiSend.Inputs.Pack(senderEVMAddr, []common.Address{receiver1EvmAddr}, "ufoo", []*big.Int{big.NewInt(1), big.NewInt(2)})
+	mismatchedArgs, err := multiSend.Inputs.Pack([]common.Address{receiver1EvmAddr}, "ufoo", []*big.Int{big.NewInt(1), big.NewInt(2)})
 	require.Nil(t, err)
-	_, _, err = p.RunAndCalculateGas(&evm, pointerAddr, pointerAddr, append(executor.MultiSendID, mismatchedArgs...), 200000, nil, nil, false, false)
+	_, _, err = p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(executor.MultiSendID, mismatchedArgs...), 200000, nil, nil, false, false)
 	require.NotNil(t, err)
 
-	// success case sends to both linked and unlinked receivers; balances are
-	// checked on the statedb's context since that's where precompile writes land
-	ret, _, err := p.RunAndCalculateGas(&evm, pointerAddr, pointerAddr, append(executor.MultiSendID, args...), 200000, nil, nil, false, false)
+	// success case sends the caller's own coins to both linked and unlinked
+	// receivers; balances are checked on the statedb's context since that's
+	// where precompile writes land
+	ret, _, err := p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(executor.MultiSendID, args...), 200000, nil, nil, false, false)
 	require.Nil(t, err)
 	outputs, err := multiSend.Outputs.Unpack(ret)
 	require.Nil(t, err)
@@ -417,9 +419,9 @@ func TestMultiSend(t *testing.T) {
 	require.Equal(t, int64(9999700), k.BankKeeper().GetBalance(statedb.Ctx(), senderAddr, "ufoo").Amount.Int64())
 
 	// zero amounts short circuit without moving funds
-	zeroArgs, err := multiSend.Inputs.Pack(senderEVMAddr, []common.Address{receiver1EvmAddr}, "ufoo", []*big.Int{big.NewInt(0)})
+	zeroArgs, err := multiSend.Inputs.Pack([]common.Address{receiver1EvmAddr}, "ufoo", []*big.Int{big.NewInt(0)})
 	require.Nil(t, err)
-	ret, _, err = p.RunAndCalculateGas(&evm, pointerAddr, pointerAddr, append(executor.MultiSendID, zeroArgs...), 200000, nil, nil, false, false)
+	ret, _, err = p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(executor.MultiSendID, zeroArgs...), 200000, nil, nil, false, false)
 	require.Nil(t, err)
 	outputs, err = multiSend.Outputs.Unpack(ret)
 	require.Nil(t, err)
