@@ -226,27 +226,16 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 			dbNextBlock := blockDB.Status().NextBlock
 			recoveryStart := firstBlock
 			if lastExecutedBlock, executed := s.cfg.LastExecutedBlock.Get(); executed {
-				switch {
-				case dbNextBlock == 0:
-					// No blocks stored: only the first committed block can be missing,
-					// because PushAppHash waits for durability of every later one.
-					if lastExecutedBlock != firstBlock {
-						return fmt.Errorf(
-							"BlockDB has no blocks for app tip %d; restore matching BlockDB data or state-sync the node: %w",
-							lastExecutedBlock, types.ErrNotFound,
-						)
-					}
-				case lastExecutedBlock > dbNextBlock:
+				if lastExecutedBlock > max(dbNextBlock, firstBlock) {
 					return fmt.Errorf(
 						"BlockDB next block %d is behind app tip %d by more than the recoverable crash window; restore matching BlockDB data or state-sync the node: %w",
 						dbNextBlock, lastExecutedBlock, types.ErrNotFound,
 					)
-				case lastExecutedBlock == dbNextBlock:
-					// The app.Commit-before-durability crash window: the app tip itself
-					// never reached BlockDB, so resume from the last stored block.
+				}
+				recoveryStart = lastExecutedBlock
+				if dbNextBlock != 0 && lastExecutedBlock == dbNextBlock {
+					// app.Commit completed before the app tip became durable.
 					recoveryStart = dbNextBlock - 1
-				default:
-					recoveryStart = lastExecutedBlock
 				}
 			}
 			it, err := blockDB.Iterator(recoveryStart)
