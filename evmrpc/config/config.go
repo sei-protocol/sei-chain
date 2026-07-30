@@ -690,6 +690,14 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the limit), got %d", flagMaxOpenConnections, cfg.MaxOpenConnections)
 		}
 	}
+	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
+		cfg.IPRateLimitBurst < cfg.BatchRequestLimit {
+		return cfg, fmt.Errorf(
+			"%s (%d) must be >= %s (%d): the rate limiter charges one token per batch element, "+
+				"so a lower burst would permanently reject any full-size batch",
+			flagIPRateLimitBurst, cfg.IPRateLimitBurst, flagBatchRequestLimit, cfg.BatchRequestLimit,
+		)
+	}
 	return cfg, nil
 }
 
@@ -948,7 +956,8 @@ ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
 
 # ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
 # Set to 0 to disable per-IP throttling (same effect as ip_rate_limit_rps = 0).
-# Should be at least batch_request_limit (one token is charged per batch element).
+# Must be at least batch_request_limit when both are positive and rate_limiting_enabled
+# is true (one token is charged per batch element) - enforced at startup.
 ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
 
 # rate_limiting_enabled is the master switch for the rate-limit admission

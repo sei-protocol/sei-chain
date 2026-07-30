@@ -665,3 +665,38 @@ func TestReadConfigRateLimiting(t *testing.T) {
 	require.Equal(t, cfg.IPRateLimitBurst, rlCfg.Burst)
 	require.Equal(t, cfg.TrustedProxyCIDRs, rlCfg.TrustedProxyCIDRs)
 }
+
+func TestReadConfigRateLimitingBurstBelowBatchLimitRejected(t *testing.T) {
+	// A burst below batch_request_limit would permanently reject full-size
+	// batches (one token is charged per batch element), so ReadConfig refuses
+	// it outright rather than letting an operator discover it in production.
+	o := getDefaultOpts()
+	o.rateLimitingEnabled = true
+	o.ipRateLimitBurst = 400
+	o.batchRequestLimit = 1000
+	_, err := config.ReadConfig(&o)
+	require.Error(t, err)
+
+	// Equal burst and batch limit is allowed.
+	o.ipRateLimitBurst = 1000
+	_, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+
+	// The check is skipped when rate limiting is disabled...
+	o.rateLimitingEnabled = false
+	o.ipRateLimitBurst = 400
+	_, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+
+	// ...when the token bucket itself is disabled (burst <= 0)...
+	o.rateLimitingEnabled = true
+	o.ipRateLimitBurst = 0
+	_, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+
+	// ...and when the batch limit is unbounded (batch_request_limit <= 0).
+	o.ipRateLimitBurst = 400
+	o.batchRequestLimit = 0
+	_, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+}
