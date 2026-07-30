@@ -2,7 +2,7 @@ name: seidroid-xreview
 
 # Comment `seidroid xreview` on a PR -> trusted-commenter gate -> drive one managed
 # sei-droid omnigent session -> post one sticky verdict -> tear down.
-# Lives in the reviewed repo in each reviewed repo; the heavy lifting
+# Lives in each reviewed repo's .github/workflows/; the heavy lifting
 # is the pinned composite action in sei-protocol/uci at .github/seidroid/xreview/tools.
 on:
   issue_comment:
