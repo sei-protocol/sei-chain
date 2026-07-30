@@ -72,7 +72,7 @@ func writeToBlockDB(t *testing.T, db types.BlockDB, qcs []*types.FullCommitQC, b
 	t.Helper()
 	for i, qc := range qcs {
 		gr := qc.QC().GlobalRange()
-		utils.OrPanic(db.WriteQC(gr.First, gr.Next, qc))
+		utils.OrPanic(db.WriteQC(qc))
 		for j, n := 0, gr.First; n < gr.Next; n++ {
 			utils.OrPanic(db.WriteBlock(n, blockss[i][j]))
 			j++
@@ -609,9 +609,9 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 }
 
 // TestPruningKeepsLastQCRange verifies BlockDB's never-empty prune: asking to
-// prune past the tip still leaves the newest cohort readable. An incomplete
-// BlockDB (QC without a full block prefix) fails NewState; a consistent range
-// recovers from the QC start.
+// prune past the tip still leaves the newest cohort readable. A QC retaining
+// only a suffix of its blocks recovers with the floor on that suffix; a
+// consistent range recovers from the QC start.
 func TestPruningKeepsLastQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -632,17 +632,20 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 		require.NotNil(t, got)
 	}
 
-	// Incomplete store (QC covers a range but only one block is present)
-	// must fail NewState — we do not normalize partial QC prefixes.
+	// A QC covering a range with only its last block present: the first block is free to
+	// start inside its covering QC, so iteration opens there and the recovery floor follows.
 	survivor := gr1.Next - 1
-	dirBad := t.TempDir()
-	dbBad := newTestBlockDB(t, dirBad)
-	require.NoError(t, dbBad.WriteQC(gr1.First, gr1.Next, qc1))
-	require.NoError(t, dbBad.WriteBlock(survivor, blocks1[survivor-gr1.First]))
-	require.NoError(t, dbBad.Flush())
-	require.NoError(t, dbBad.Close())
-	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dirBad))
-	require.Error(t, err)
+	dirSuffix := t.TempDir()
+	dbSuffix := newTestBlockDB(t, dirSuffix)
+	require.NoError(t, dbSuffix.WriteQC(qc1))
+	require.NoError(t, dbSuffix.WriteBlock(survivor, blocks1[survivor-gr1.First]))
+	require.NoError(t, dbSuffix.Flush())
+	require.NoError(t, dbSuffix.Close())
+	suffixState := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, dirSuffix))
+	require.Equal(t, gr1.Next, suffixState.NextBlock())
+	for inner := range suffixState.inner.Lock() {
+		require.Equal(t, survivor, inner.first, "floor must be the surviving block")
+	}
 
 	// Consistent post-GC shape: full QC range of blocks. Restart recovers at QC start.
 	dir := t.TempDir()
@@ -719,16 +722,19 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 		require.Equal(t, n, gb.GlobalNumber)
 	}
 
-	// Incomplete qc2 suffix alone must error.
+	// A lone qc2 suffix: iteration opens on the surviving block and the floor follows.
 	survivor := gr2.Next - 1
-	dirBad := t.TempDir()
-	dbBad := newTestBlockDB(t, dirBad)
-	require.NoError(t, dbBad.WriteQC(gr2.First, gr2.Next, qc2))
-	require.NoError(t, dbBad.WriteBlock(survivor, blocks2[survivor-gr2.First]))
-	require.NoError(t, dbBad.Flush())
-	require.NoError(t, dbBad.Close())
-	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dirBad))
-	require.Error(t, err)
+	dirSuffix := t.TempDir()
+	dbSuffix := newTestBlockDB(t, dirSuffix)
+	require.NoError(t, dbSuffix.WriteQC(qc2))
+	require.NoError(t, dbSuffix.WriteBlock(survivor, blocks2[survivor-gr2.First]))
+	require.NoError(t, dbSuffix.Flush())
+	require.NoError(t, dbSuffix.Close())
+	suffixState := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, dirSuffix))
+	require.Equal(t, gr2.Next, suffixState.NextBlock())
+	for inner := range suffixState.inner.Lock() {
+		require.Equal(t, survivor, inner.first, "floor must be the surviving block")
+	}
 
 	// Consistent retained range: full qc2.
 	dir := t.TempDir()

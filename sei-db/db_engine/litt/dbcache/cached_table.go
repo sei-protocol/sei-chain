@@ -180,6 +180,12 @@ func (c *cachedTable) Iterator(reverse bool) (litt.Iterator, error) {
 	return c.base.Iterator(reverse)
 }
 
+// IteratorAt returns a new iterator positioned at key. Like Iterator, it reads values directly from the
+// base table, bypassing the cache.
+func (c *cachedTable) IteratorAt(key []byte, reverse bool) (litt.Iterator, bool, error) {
+	return c.base.IteratorAt(key, reverse)
+}
+
 func (c *cachedTable) GetOldestKey() (key []byte, exists bool, err error) {
 	return c.base.GetOldestKey()
 }

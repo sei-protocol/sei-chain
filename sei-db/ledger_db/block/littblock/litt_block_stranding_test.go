@@ -35,7 +35,7 @@ func writeSyntheticBatches(t *testing.T, db types.BlockDB, rng utils.Rng, numBat
 		first := types.GlobalBlockNumber(i * perQC) //nolint:gosec // small test indices
 		next := first + types.GlobalBlockNumber(perQC)
 		qc := types.GenFullCommitQCRange(rng, first, next)
-		require.NoError(t, db.WriteQC(first, next, qc))
+		require.NoError(t, db.WriteQC(qc))
 		for j := 0; j < perQC; j++ {
 			require.NoError(t, db.WriteBlock(first+types.GlobalBlockNumber(j), types.GenBlock(rng))) //nolint:gosec
 		}
@@ -120,22 +120,23 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 		require.True(t, qc.IsPresent(), "covering QC for served block %d must be readable", n)
 	}
 
-	// The block iterator never yields a stranded block, and each yielded block
+	// The ledger never yields a stranded position, and every yielded position
 	// has a covering QC.
-	it, err := db3.Blocks(false)
+	it, err := db3.Iterator(0)
 	require.NoError(t, err)
 	defer func() { _ = it.Close() }()
 	for {
-		ok, err := it.Next()
+		pos, ok, err := it.Next()
 		require.NoError(t, err)
 		if !ok {
 			break
 		}
-		n := it.Number()
-		require.GreaterOrEqual(t, uint64(n), uint64(5), "iterator must not yield stranded block %d", n)
-		qc, err := db3.ReadQCByBlockNumber(n)
+		n := pos.Number
+		require.GreaterOrEqual(t, uint64(n), uint64(5), "ledger must not yield stranded position %d", n)
+		require.NotNil(t, pos.QC, "position %d must have a covering QC", n)
+		blkOpt, err := it.Block()
 		require.NoError(t, err)
-		require.True(t, qc.IsPresent(), "iterated block %d must have a covering QC", n)
+		require.True(t, blkOpt.IsPresent(), "position %d must have a block", n)
 	}
 }
 
@@ -285,7 +286,7 @@ func TestLittblockPruneIntoCohortRoundsDown(t *testing.T) {
 }
 
 // TestLittblockRefusesToOpenWithStrandedBlocks verifies the corruption guard in
-// recoverReadWatermark. The never-empty prune invariant guarantees at least one
+// recoverReadFloors. The never-empty prune invariant guarantees at least one
 // (block, QC) pair is always retained, so a store holding a block with no
 // surviving QC is corrupt (e.g. a QC WAL file removed out of band). Rather than
 // serve blocks it can no longer trust, the store refuses to open.
