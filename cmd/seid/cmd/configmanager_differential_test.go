@@ -327,6 +327,72 @@ func TestConfigManagerV2AdvisoryReadErrorMatchesLegacy(t *testing.T) {
 		"v2 must return the same boot error as legacy, not mask or add one")
 }
 
+// FuzzConfigManagerEnvOnlyKeyParity closes the one class the AllSettings comparison
+// cannot reach.
+//
+// AllSettings enumerates only what viper knows structurally, from the files it read,
+// its defaults, overrides and bound flags. A value carried solely by the environment
+// for a key absent from app.toml has no enumerable existence, so it appears in neither
+// AllSettings nor AllKeys, and every comparison above is blind to it. It is not
+// invisible to the node: app.New reads through appOpts.Get, and AutomaticEnv resolves
+// at Get time, so such a value does reach running code.
+//
+// That makes this the sharpest row in the file today, because environment resolution
+// is exactly what the new manager changes. The assertion is therefore on Get rather
+// than on the enumerable map, and it carries a non-vacuity guard: the probe asserts
+// the value actually arrived, so a key that silently resolves to nil on both sides
+// fails here instead of passing as agreement about nothing.
+func FuzzConfigManagerEnvOnlyKeyParity(f *testing.F) {
+	// Keys absent from a generated app.toml, so the environment is their only carrier.
+	f.Add("sei-differential.absent-key", "from-env")
+	f.Add("state-store.ss-absent-probe", "17")
+	f.Add("evm.absent-probe", "true")
+	f.Add("sei-differential.dotted.deeper-probe", "nested")
+
+	f.Fuzz(func(t *testing.T, key, value string) {
+		// A key has to survive the round trip into an environment variable name and
+		// back to be a probe at all. Anything else is out of scope rather than a
+		// finding, the same move the harness makes for values it cannot set.
+		if key == "" || !configtest.EnvValueIsSettable(key) || !configtest.EnvValueIsSettable(value) {
+			return
+		}
+		// An empty value is not a probe. viper's AutomaticEnv cannot tell an empty
+		// environment variable from an unset one, so Get returns nil either way and
+		// there is nothing for the parity assertion to compare.
+		if value == "" {
+			return
+		}
+		configtest.Isolate(t)
+		prefix, err := configtest.ServerEnvPrefix()
+		require.NoError(t, err)
+		envKey := configtest.ServerEnvKey(prefix, key)
+		if envKey == prefix+"_" || strings.ContainsAny(envKey, "= ") {
+			return // not a name the environment can carry
+		}
+		t.Setenv(envKey, value)
+
+		home := seedDefaultConfig(t)
+		legacyCtx := runConfigManager(t, configmanager.LegacyConfigManager{}, home)
+		v2Ctx := runConfigManager(t, configmanager.SeiConfigManager{}, home)
+
+		legacyGot := legacyCtx.Viper.Get(key)
+		v2Got := v2Ctx.Viper.Get(key)
+
+		// Non-vacuity: the probe must actually be live on the legacy side, or the
+		// parity assertion below is two nils agreeing. AutomaticEnv resolves at Get
+		// time, so an env-carried value reaches Get even with the key absent from
+		// every file, which is the property that makes this row worth having.
+		require.Equal(t, value, legacyGot,
+			"the probe is not live: %s did not reach Get(%q) on the legacy path, so the "+
+				"parity assertion below would compare nothing", envKey, key)
+
+		require.Equal(t, legacyGot, v2Got,
+			"env-only key %q resolves differently between legacy and v2 (env %s=%q). This is "+
+				"invisible to the AllSettings comparison, and app.New reads it through "+
+				"appOpts.Get, so it reaches the running node", key, envKey, value)
+	})
+}
+
 // FuzzConfigManagerLegacyVsV2Parity is the exhaustive form of the corpus: it crosses
 // every corpus shape with an arbitrary appended app.toml suffix, and asserts legacy
 // and v2 reach the same outcome — identical channels when both succeed, the identical
