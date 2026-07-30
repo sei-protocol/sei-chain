@@ -28,7 +28,7 @@ type State struct {
 	key      types.SecretKey
 	data     *data.State
 	inner    utils.Watch[*inner]
-	epochDuo utils.AtomicRecv[types.EpochDuo] // Load-only view of inner.epochDuo
+	epochDuo utils.AtomicRecv[types.EpochDuo] // Load-only view of inner.epoch.duo
 
 	// persisters groups all disk persistence components.
 	// Always initialized: real when stateDir is set, no-op otherwise.
@@ -65,22 +65,22 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		key:        key,
 		data:       data,
 		inner:      utils.NewWatch(inner),
-		epochDuo:   inner.epochDuo.Subscribe(),
+		epochDuo:   inner.epoch.duo.Subscribe(),
 		persisters: pers,
 	}, nil
 }
 
 func (s *State) FirstCommitQC() types.RoadIndex {
 	for inner := range s.inner.Lock() {
-		return inner.commitQCs.first
+		return inner.commits.qcs.first
 	}
 	panic("unreachable")
 }
 
-// NextCommitQC is the next CommitQC road after restore/admit (commitQCs.next).
+// NextCommitQC is the next CommitQC road after restore/admit (commits.qcs.next).
 func (s *State) NextCommitQC() types.RoadIndex {
 	for inner := range s.inner.Lock() {
-		return inner.commitQCs.next
+		return inner.commits.qcs.next
 	}
 	panic("unreachable")
 }
@@ -91,9 +91,10 @@ func (s *State) Data() *data.State {
 }
 
 // LastCommitQC returns receiver of the LastCommitQC.
+// The tip is the latest durably persisted CommitQC, not merely the admitted tip.
 func (s *State) LastCommitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
 	for inner := range s.inner.Lock() {
-		return inner.latestCommitQC.Subscribe()
+		return inner.commits.persistedCommitQC.Subscribe()
 	}
 	panic("unreachable")
 }
@@ -130,7 +131,7 @@ func (s *State) Run(ctx context.Context) error {
 				var blocks []*types.Block
 				for inner := range s.inner.Lock() {
 					for _, h := range qc.Headers() {
-						ls, ok := inner.lanes[h.Lane()]
+						ls, ok := inner.lanes.get(h.Lane())
 						if !ok {
 							continue
 						}

@@ -129,9 +129,9 @@ func loadPersistedState(dir utils.Option[string]) (utils.Option[*loadedAvailStat
 // TODO: use a single WAL for anchor and CommitQCs to make
 // this atomic rather than relying on write order.
 func (s *State) runPersist(ctx context.Context, pers persisters) error {
-	var lastPersistedAppQCNext types.RoadIndex
+	var persistedAnchorNext types.RoadIndex
 	for {
-		batch, err := s.collectPersistBatch(ctx, lastPersistedAppQCNext)
+		batch, err := s.collectPersistBatch(ctx, persistedAnchorNext)
 		if err != nil {
 			return err
 		}
@@ -145,7 +145,7 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 				return fmt.Errorf("persist prune anchor: %w", err)
 			}
 			s.advancePersistedBlockStart(anchor.CommitQC)
-			lastPersistedAppQCNext = anchor.CommitQC.Proposal().Index() + 1
+			persistedAnchorNext = anchor.CommitQC.Proposal().Index() + 1
 			anchorQC = utils.Some(anchor.CommitQC)
 		}
 
@@ -203,14 +203,11 @@ type persistBatch struct {
 
 // advancePersistedBlockStart updates the per-lane block admission boundary
 // after durably writing the prune anchor. This unblocks PushBlock/ProduceBlock
-// waiters that are gated on persistedBlockStart + BlocksPerLane.
+// waiters that are gated on persistedBlockFirst + BlocksPerLane.
 func (s *State) advancePersistedBlockStart(commitQC *types.CommitQC) {
 	for inner, ctrl := range s.inner.Lock() {
-		for lane, ls := range inner.lanes {
-			start := commitQC.LaneRange(lane).First()
-			if start > ls.persistedBlockStart {
-				ls.persistedBlockStart = start
-			}
+		for lane, ls := range inner.lanes.byID {
+			ls.durable.advanceFirst(commitQC.LaneRange(lane).First())
 		}
 		ctrl.Updated()
 	}
@@ -222,11 +219,11 @@ func (s *State) advancePersistedBlockStart(commitQC *types.CommitQC) {
 // callers (acquires s.inner lock internally).
 func (s *State) markBlockPersisted(lane types.LaneID, next types.BlockNumber) {
 	for inner, ctrl := range s.inner.Lock() {
-		ls, ok := inner.lanes[lane]
+		ls, ok := inner.lanes.get(lane)
 		if !ok {
 			return
 		}
-		ls.nextBlockToPersist = next
+		ls.durable.advanceNext(next)
 		ctrl.Updated()
 	}
 }
@@ -235,56 +232,56 @@ func (s *State) markBlockPersisted(lane types.LaneID, next types.BlockNumber) {
 // gating consensus from advancing until the QC is durable.
 func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 	for inner, ctrl := range s.inner.Lock() {
-		inner.latestCommitQC.Store(utils.Some(qc))
+		inner.commits.markPersisted(qc)
 		ctrl.Updated()
 	}
 }
 
 // collectPersistBatch waits for new blocks or commitQCs and collects them under lock.
-func (s *State) collectPersistBatch(ctx context.Context, lastPersistedAppQCNext types.RoadIndex) (persistBatch, error) {
+func (s *State) collectPersistBatch(ctx context.Context, persistedAnchorNext types.RoadIndex) (persistBatch, error) {
 	var b persistBatch
 	for inner, ctrl := range s.inner.Lock() {
-		// Derive the CommitQC persist cursor from latestCommitQC. This is
-		// safe because latestCommitQC is only advanced by markCommitQCsPersisted
+		// Derive the CommitQC persist cursor from persistedCommitQC. This is
+		// safe because persistedCommitQC is only advanced by markCommitQCsPersisted
 		// (after disk write) and on startup (from disk). Applying a prune anchor
-		// does not update latestCommitQC, so this always reflects persistence
-		// state. The max clamp with commitQCs.first handles an anchor
+		// does not update persistedCommitQC, so this always reflects persistence
+		// state. The max clamp with commits.qcs.first handles an anchor
 		// fast-forwarding the queue past the cursor.
-		commitQCNext := types.NextIndexOpt(inner.latestCommitQC.Load())
+		commitQCNext := types.NextIndexOpt(inner.commits.persistedCommitQC.Load())
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			if types.NextOpt(inner.latestAppQC) != lastPersistedAppQCNext {
+			if types.NextOpt(inner.app.latestAppQC) != persistedAnchorNext {
 				return true
 			}
-			for _, ls := range inner.lanes {
-				if ls.nextBlockToPersist < ls.blocks.next {
+			for _, ls := range inner.lanes.byID {
+				if ls.durable.persistedBlockNext < ls.blocks.next {
 					return true
 				}
 			}
-			return commitQCNext < inner.commitQCs.next
+			return commitQCNext < inner.commits.qcs.next
 		}); err != nil {
 			return b, err
 		}
-		for _, ls := range inner.lanes {
-			start := max(ls.nextBlockToPersist, ls.blocks.first)
+		for _, ls := range inner.lanes.byID {
+			start := max(ls.durable.persistedBlockNext, ls.blocks.first)
 			for n := start; n < ls.blocks.next; n++ {
 				b.blocks = append(b.blocks, ls.blocks.q[n])
 			}
 		}
-		commitQCNext = max(commitQCNext, inner.commitQCs.first)
-		for n := commitQCNext; n < inner.commitQCs.next; n++ {
-			b.commitQCs = append(b.commitQCs, inner.commitQCs.q[n])
+		commitQCNext = max(commitQCNext, inner.commits.qcs.first)
+		for n := commitQCNext; n < inner.commits.qcs.next; n++ {
+			b.commitQCs = append(b.commitQCs, inner.commits.qcs.q[n])
 		}
-		if types.NextOpt(inner.latestAppQC) != lastPersistedAppQCNext {
-			if appQC, ok := inner.latestAppQC.Get(); ok {
+		if types.NextOpt(inner.app.latestAppQC) != persistedAnchorNext {
+			if appQC, ok := inner.app.latestAppQC.Get(); ok {
 				idx := appQC.Proposal().RoadIndex()
-				if qc, ok := inner.commitQCs.q[idx]; ok {
+				if qc, ok := inner.commits.qcs.q[idx]; ok {
 					b.pruneAnchor = utils.Some(&PruneAnchor{
 						AppQC:    appQC,
 						CommitQC: qc,
 					})
 					// Capture under the same lock as the anchor so an epoch slide
 					// cannot move its committee out of the live duo before I/O.
-					ep, err := inner.epochDuo.Load().EpochForRoad(qc.Proposal().Index())
+					ep, err := inner.epoch.duo.Load().EpochForRoad(qc.Proposal().Index())
 					if err != nil {
 						return b, fmt.Errorf("EpochForRoad(%d): %w", qc.Proposal().Index(), err)
 					}

@@ -12,7 +12,7 @@ import (
 // NextBlock returns the index of the next missing block in local storage for the given lane.
 func (s *State) NextBlock(lane types.LaneID) types.BlockNumber {
 	for inner := range s.inner.Lock() {
-		if ls, ok := inner.lanes[lane]; ok {
+		if ls, ok := inner.lanes.get(lane); ok {
 			return ls.blocks.next
 		}
 	}
@@ -24,7 +24,7 @@ func (s *State) NextBlock(lane types.LaneID) types.BlockNumber {
 // Returns ErrPruned if the block has been already pruned.
 func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumber) (*types.Signed[*types.LaneProposal], error) {
 	for inner, ctrl := range s.inner.Lock() {
-		ls, ok := inner.lanes[lane]
+		ls, ok := inner.lanes.get(lane)
 		if !ok {
 			return nil, ErrBadLane
 		}
@@ -59,13 +59,13 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		return fmt.Errorf("block.VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		ls, ok := inner.lanes[h.Lane()]
+		ls, ok := inner.lanes.get(h.Lane())
 		if !ok {
 			return ErrBadLane
 		}
 		q := ls.blocks
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return h.BlockNumber() <= min(q.next, ls.persistedBlockStart+BlocksPerLane-1)
+			return h.BlockNumber() <= min(q.next, ls.durable.admitLimit()-1)
 		}); err != nil {
 			return err
 		}
@@ -113,12 +113,12 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	var verifiedEpoch types.EpochIndex
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			c := inner.epochDuo.Load().Current.Committee()
+			c := inner.epoch.duo.Load().Current.Committee()
 			return c.Weight(vote.Key()) > 0 && c.HasLane(h.Lane())
 		}); err != nil {
 			return err
 		}
-		duo := inner.epochDuo.Load()
+		duo := inner.epoch.duo.Load()
 		committee = duo.Current.Committee()
 		verifiedEpoch = duo.Current.EpochIndex()
 	}
@@ -129,18 +129,18 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		ls, ok := inner.lanes[h.Lane()]
+		ls, ok := inner.lanes.get(h.Lane())
 		if !ok {
 			return ErrBadLane
 		}
 		q := ls.votes
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return h.BlockNumber() < ls.persistedBlockStart+BlocksPerLane
+			return h.BlockNumber() < ls.durable.admitLimit()
 		}); err != nil {
 			return err
 		}
 		// WaitUntil may release the lock; re-check membership under live Current.
-		live := inner.epochDuo.Load()
+		live := inner.epoch.duo.Load()
 		if live.Current.EpochIndex() != verifiedEpoch &&
 			(live.Current.Committee().Weight(vote.Key()) == 0 ||
 				!live.Current.Committee().HasLane(h.Lane())) {
@@ -168,7 +168,7 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 	want := lr.LastHash()
 	headers := make([]*types.BlockHeader, lr.Next()-lr.First())
 	for inner, ctrl := range s.inner.Lock() {
-		ls, ok := inner.lanes[lr.Lane()]
+		ls, ok := inner.lanes.get(lr.Lane())
 		if !ok {
 			return nil, types.ErrPruned
 		}
@@ -201,12 +201,12 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 func (s *State) WaitForLocalCapacity(ctx context.Context, toProduce types.BlockNumber) error {
 	lane := s.key.Public()
 	for inner, ctrl := range s.inner.Lock() {
-		ls, ok := inner.lanes[lane]
+		ls, ok := inner.lanes.get(lane)
 		if !ok {
 			return ErrBadLane
 		}
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return toProduce < ls.persistedBlockStart+BlocksPerLane
+			return toProduce < ls.durable.admitLimit()
 		}); err != nil {
 			return err
 		}
@@ -223,11 +223,11 @@ func (s *State) WaitForLaneQCs(
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		for {
-			ep := inner.epochDuo.Load().Current
+			ep := inner.epoch.duo.Load().Current
 			for lane := range ep.Committee().Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
 				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
-					if qc, ok := inner.laneQC(lane, first+i).Get(); ok {
+					if qc, ok := inner.lanes.laneQC(lane, first+i).Get(); ok {
 						laneQCs[lane] = qc
 					} else {
 						break
@@ -256,12 +256,12 @@ func (s *State) produceLocalBlock(n types.BlockNumber, key types.SecretKey, payl
 	lane := key.Public()
 	var result *types.Signed[*types.LaneProposal]
 	for inner, ctrl := range s.inner.Lock() {
-		ls, ok := inner.lanes[lane]
+		ls, ok := inner.lanes.get(lane)
 		if !ok {
 			return nil, ErrBadLane
 		}
 		q := ls.blocks
-		if n >= ls.persistedBlockStart+BlocksPerLane {
+		if n >= ls.durable.admitLimit() {
 			return nil, fmt.Errorf("lane full")
 		}
 		if q.next != n {

@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// waitForCommitQC waits until the durable CommitQC tip has advanced past idx.
 func (s *State) waitForCommitQC(ctx context.Context, idx types.RoadIndex) error {
 	_, err := s.LastCommitQC().Wait(ctx, func(qc utils.Option[*types.CommitQC]) bool {
 		return types.NextIndexOpt(qc) > idx
@@ -22,10 +23,10 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 		return nil, err
 	}
 	for inner := range s.inner.Lock() {
-		if idx < inner.commitQCs.first {
+		if idx < inner.commits.qcs.first {
 			return nil, types.ErrPruned
 		}
-		return inner.commitQCs.q[idx], nil
+		return inner.commits.qcs.q[idx], nil
 	}
 	panic("unreachable")
 }
@@ -62,10 +63,10 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	}
 
 	for inner, ctrl := range s.inner.Lock() {
-		if !inner.pushCommitQC(qc) {
+		if !inner.commits.push(qc) {
 			return nil
 		}
-		// latestCommitQC advances only after durable persist (or no-op persister).
+		// persistedCommitQC advances only after durable persist (or no-op persister).
 		ctrl.Updated()
 		return nil
 	}

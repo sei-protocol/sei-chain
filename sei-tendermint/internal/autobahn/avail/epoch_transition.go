@@ -94,7 +94,7 @@ func (s *State) waitRoadOrDropStale(
 func (s *State) waitForAppQC(ctx context.Context, epochIdx types.EpochIndex) error {
 	for inner, ctrl := range s.inner.Lock() {
 		ready := func() bool {
-			appQC, ok := inner.latestAppQC.Get()
+			appQC, ok := inner.app.latestAppQC.Get()
 			if !ok {
 				return false
 			}
@@ -104,7 +104,7 @@ func (s *State) waitForAppQC(ctx context.Context, epochIdx types.EpochIndex) err
 			return nil
 		}
 		attrs := []any{slog.Uint64("want_epoch", uint64(epochIdx))}
-		if appQC, ok := inner.latestAppQC.Get(); ok {
+		if appQC, ok := inner.app.latestAppQC.Get(); ok {
 			attrs = append(attrs,
 				slog.Uint64("latest_app_qc_road", uint64(appQC.Proposal().RoadIndex())),
 				slog.Uint64("latest_app_qc_epoch", uint64(appQC.Proposal().EpochIndex())),
@@ -153,7 +153,7 @@ func (s *State) runAdvanceEpoch(ctx context.Context) error {
 
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return inner.commitQCs.next > last
+				return inner.commits.qcs.next > last
 			}); err != nil {
 				return err
 			}
@@ -168,11 +168,11 @@ func (s *State) runAdvanceEpoch(ctx context.Context) error {
 		}
 
 		for inner, ctrl := range s.inner.Lock() {
-			live := inner.epochDuo.Load()
+			live := inner.epoch.duo.Load()
 			if live.Current.EpochIndex() != epochIdx {
 				break
 			}
-			if inner.commitQCs.next <= last {
+			if inner.commits.qcs.next <= last {
 				break
 			}
 			inner.advanceEpoch(nextDuo)

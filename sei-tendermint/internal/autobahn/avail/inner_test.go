@@ -58,7 +58,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	for inner := range state.inner.Lock() {
 		_, err := inner.pushPruneAnchor(&PruneAnchor{AppQC: makeAppQC(qc1, qc0), CommitQC: qc1})
 		require.Error(t, err, "good range, bad index should fail")
-		require.False(t, inner.latestAppQC.IsPresent(), "latestAppQC should not have been updated")
+		require.False(t, inner.app.latestAppQC.IsPresent(), "latestAppQC should not have been updated")
 		_, err = inner.pushPruneAnchor(&PruneAnchor{AppQC: makeAppQC(qc1, qc1), CommitQC: qc1})
 		require.NoError(t, err, "good range, good index should succeed")
 	}
@@ -84,17 +84,17 @@ func TestNewInnerFreshStart(t *testing.T) {
 			i, err := newInner(registry, 0, tc.loaded)
 			require.NoError(t, err)
 
-			require.False(t, i.latestAppQC.IsPresent())
-			require.NotNil(t, i.lanes)
-			require.Equal(t, types.RoadIndex(0), i.commitQCs.first)
-			require.Equal(t, types.RoadIndex(0), i.commitQCs.next)
-			require.Equal(t, registry.FirstBlock(), i.appVotes.first)
-			require.Equal(t, registry.FirstBlock(), i.appVotes.next)
+			require.False(t, i.app.latestAppQC.IsPresent())
+			require.NotNil(t, i.lanes.byID)
+			require.Equal(t, types.RoadIndex(0), i.commits.qcs.first)
+			require.Equal(t, types.RoadIndex(0), i.commits.qcs.next)
+			require.Equal(t, registry.FirstBlock(), i.app.votes.first)
+			require.Equal(t, registry.FirstBlock(), i.app.votes.next)
 			for lane := range registry.LatestEpoch().Committee().Lanes().All() {
-				require.Equal(t, types.BlockNumber(0), i.lanes[lane].blocks.first)
-				require.Equal(t, types.BlockNumber(0), i.lanes[lane].blocks.next)
-				require.Equal(t, types.BlockNumber(0), i.lanes[lane].votes.first)
-				require.Equal(t, types.BlockNumber(0), i.lanes[lane].votes.next)
+				require.Equal(t, types.BlockNumber(0), i.lanes.byID[lane].blocks.first)
+				require.Equal(t, types.BlockNumber(0), i.lanes.byID[lane].blocks.next)
+				require.Equal(t, types.BlockNumber(0), i.lanes.byID[lane].votes.first)
+				require.Equal(t, types.BlockNumber(0), i.lanes.byID[lane].votes.next)
 			}
 		})
 	}
@@ -150,19 +150,19 @@ func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 	i, err := newInner(registry, 0, utils.Some(loaded))
 	require.NoError(t, err)
 
-	q := i.lanes[lane].blocks
+	q := i.lanes.byID[lane].blocks
 	require.Equal(t, types.BlockNumber(0), q.first)
 	require.Equal(t, types.BlockNumber(3), q.next)
 	for j, b := range bs {
 		require.Equal(t, b.Proposal, q.q[types.BlockNumber(j)])
 	}
 
-	// nextBlockToPersist: loaded lane at q.next, other lanes at 0 (map zero-value).
-	require.NotNil(t, i.lanes)
-	require.Equal(t, types.BlockNumber(3), i.lanes[lane].nextBlockToPersist)
+	// persistedBlockNext: loaded lane at q.next, other lanes at 0 (map zero-value).
+	require.NotNil(t, i.lanes.byID)
+	require.Equal(t, types.BlockNumber(3), i.lanes.byID[lane].durable.persistedBlockNext)
 	for other := range registry.LatestEpoch().Committee().Lanes().All() {
 		if other != lane {
-			require.Equal(t, types.BlockNumber(0), i.lanes[other].nextBlockToPersist)
+			require.Equal(t, types.BlockNumber(0), i.lanes.byID[other].durable.persistedBlockNext)
 		}
 	}
 }
@@ -179,7 +179,7 @@ func TestNewInnerLoadedBlocksEmptySlice(t *testing.T) {
 	i, err := newInner(registry, 0, utils.Some(loaded))
 	require.NoError(t, err)
 
-	q := i.lanes[lane].blocks
+	q := i.lanes.byID[lane].blocks
 	require.Equal(t, types.BlockNumber(0), q.first)
 	require.Equal(t, types.BlockNumber(0), q.next)
 }
@@ -200,7 +200,7 @@ func TestNewInnerLoadedBlocksUnknownLane(t *testing.T) {
 	require.NoError(t, err)
 
 	for lane := range registry.LatestEpoch().Committee().Lanes().All() {
-		q := i.lanes[lane].blocks
+		q := i.lanes.byID[lane].blocks
 		require.Equal(t, types.BlockNumber(0), q.first)
 		require.Equal(t, types.BlockNumber(0), q.next)
 	}
@@ -236,17 +236,17 @@ func TestNewInnerLoadedBlocksMultipleLanes(t *testing.T) {
 	i, err := newInner(registry, 0, utils.Some(loaded))
 	require.NoError(t, err)
 
-	q0 := i.lanes[lane0].blocks
+	q0 := i.lanes.byID[lane0].blocks
 	require.Equal(t, types.BlockNumber(0), q0.first)
 	require.Equal(t, types.BlockNumber(2), q0.next)
 
-	q1 := i.lanes[lane1].blocks
+	q1 := i.lanes.byID[lane1].blocks
 	require.Equal(t, types.BlockNumber(0), q1.first)
 	require.Equal(t, types.BlockNumber(3), q1.next)
 
-	// nextBlockToPersist reflects q.next per loaded lane.
-	require.Equal(t, types.BlockNumber(2), i.lanes[lane0].nextBlockToPersist)
-	require.Equal(t, types.BlockNumber(3), i.lanes[lane1].nextBlockToPersist)
+	// persistedBlockNext reflects q.next per loaded lane.
+	require.Equal(t, types.BlockNumber(2), i.lanes.byID[lane0].durable.persistedBlockNext)
+	require.Equal(t, types.BlockNumber(3), i.lanes.byID[lane1].durable.persistedBlockNext)
 }
 
 func TestNewInnerLoadedCommitQCsNoAppQC(t *testing.T) {
@@ -274,14 +274,14 @@ func TestNewInnerLoadedCommitQCsNoAppQC(t *testing.T) {
 	require.NoError(t, err)
 
 	// Without anchor, commitQCs.first = 0. All 3 should be restored.
-	require.Equal(t, types.RoadIndex(0), inner.commitQCs.first)
-	require.Equal(t, types.RoadIndex(3), inner.commitQCs.next)
+	require.Equal(t, types.RoadIndex(0), inner.commits.qcs.first)
+	require.Equal(t, types.RoadIndex(3), inner.commits.qcs.next)
 	for i, qc := range qcs {
-		require.NoError(t, utils.TestDiff(qc, inner.commitQCs.q[types.RoadIndex(i)]))
+		require.NoError(t, utils.TestDiff(qc, inner.commits.qcs.q[types.RoadIndex(i)]))
 	}
 
-	// latestCommitQC should be set to the last loaded one.
-	latest, ok := inner.latestCommitQC.Load().Get()
+	// persistedCommitQC should be set to the last loaded one.
+	latest, ok := inner.commits.persistedCommitQC.Load().Get()
 	require.True(t, ok)
 	require.NoError(t, utils.TestDiff(qcs[2], latest))
 }
@@ -320,20 +320,20 @@ func TestNewInnerLoadedCommitQCsWithAppQC(t *testing.T) {
 	require.NoError(t, err)
 
 	// latestAppQC should be set by prune.
-	aq, ok := inner.latestAppQC.Get()
+	aq, ok := inner.app.latestAppQC.Get()
 	require.True(t, ok)
 	require.Equal(t, roadIdx, aq.Proposal().RoadIndex())
 
 	// The prune anchor at road 2 sets commitQCs.first = 2.
 	// Indices 2, 3 and 4 remain; earlier ones are pruned.
-	require.Equal(t, types.RoadIndex(2), inner.commitQCs.first)
-	require.Equal(t, types.RoadIndex(5), inner.commitQCs.next)
-	require.NoError(t, utils.TestDiff(qcs[2], inner.commitQCs.q[2]))
-	require.NoError(t, utils.TestDiff(qcs[3], inner.commitQCs.q[3]))
-	require.NoError(t, utils.TestDiff(qcs[4], inner.commitQCs.q[4]))
+	require.Equal(t, types.RoadIndex(2), inner.commits.qcs.first)
+	require.Equal(t, types.RoadIndex(5), inner.commits.qcs.next)
+	require.NoError(t, utils.TestDiff(qcs[2], inner.commits.qcs.q[2]))
+	require.NoError(t, utils.TestDiff(qcs[3], inner.commits.qcs.q[3]))
+	require.NoError(t, utils.TestDiff(qcs[4], inner.commits.qcs.q[4]))
 
-	// latestCommitQC should be the last restored one (index 4).
-	latest, ok := inner.latestCommitQC.Load().Get()
+	// persistedCommitQC should be the last restored one (index 4).
+	latest, ok := inner.commits.persistedCommitQC.Load().Get()
 	require.True(t, ok)
 	require.NoError(t, utils.TestDiff(qcs[4], latest))
 }
@@ -381,22 +381,22 @@ func TestNewInnerLoadedAllThree(t *testing.T) {
 	require.NoError(t, err)
 
 	// AppQC restored.
-	aq, ok := inner.latestAppQC.Get()
+	aq, ok := inner.app.latestAppQC.Get()
 	require.True(t, ok)
 	require.Equal(t, roadIdx, aq.Proposal().RoadIndex())
 
 	// CommitQCs: prune pushed qcs[2], loading skipped it, added 3 and 4.
-	require.Equal(t, types.RoadIndex(2), inner.commitQCs.first)
-	require.Equal(t, types.RoadIndex(5), inner.commitQCs.next)
+	require.Equal(t, types.RoadIndex(2), inner.commits.qcs.first)
+	require.Equal(t, types.RoadIndex(5), inner.commits.qcs.next)
 
 	// Blocks loaded.
-	q := inner.lanes[lane].blocks
+	q := inner.lanes.byID[lane].blocks
 	require.Equal(t, types.BlockNumber(0), q.first)
 	require.Equal(t, types.BlockNumber(3), q.next)
-	require.Equal(t, types.BlockNumber(3), inner.lanes[lane].nextBlockToPersist)
+	require.Equal(t, types.BlockNumber(3), inner.lanes.byID[lane].durable.persistedBlockNext)
 
-	// latestCommitQC is the last loaded one.
-	latest, ok := inner.latestCommitQC.Load().Get()
+	// persistedCommitQC is the last loaded one.
+	latest, ok := inner.commits.persistedCommitQC.Load().Get()
 	require.True(t, ok)
 	require.NoError(t, utils.TestDiff(qcs[4], latest))
 }
@@ -414,10 +414,10 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 	for n := range types.BlockNumber(5) {
 		b := testSignedBlock(keys[0], lane, n, parent, rng)
 		parent = b.Msg().Block().Header().Hash()
-		i.lanes[lane].blocks.pushBack(b)
+		i.lanes.byID[lane].blocks.pushBack(b)
 	}
 	// Simulate partial persistence: only block 0 persisted.
-	i.lanes[lane].nextBlockToPersist = 1
+	i.lanes.byID[lane].durable.persistedBlockNext = 1
 
 	// Build CommitQCs with lane ranges that reference actual blocks.
 	// Each CommitQC covers one block on the lane via a LaneQC.
@@ -425,7 +425,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 	prev := utils.None[*types.CommitQC]()
 	for j := range qcs {
 		bn := types.BlockNumber(j)
-		h := i.lanes[lane].blocks.q[bn].Msg().Block().Header()
+		h := i.lanes.byID[lane].blocks.q[bn].Msg().Block().Header()
 		laneQCs := map[types.LaneID]*types.LaneQC{
 			lane: types.NewLaneQC(makeLaneVotes(
 				types.TestKeysWithWeight(registry.LatestEpoch().Committee(), keys, registry.LatestEpoch().Committee().LaneQuorum()),
@@ -434,7 +434,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 		}
 		qcs[j] = makeCommitQC(registry.EpochAtTip(prev), keys, prev, laneQCs, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[j])
-		i.commitQCs.pushBack(qcs[j])
+		i.commits.qcs.pushBack(qcs[j])
 	}
 
 	// Verify QC@2's lane range actually covers blocks (First > 0).
@@ -450,14 +450,14 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, updated)
 
-	// nextBlockToPersist must have advanced to at least the lane's new first
+	// persistedBlockNext must have advanced to at least the lane's new first
 	// (determined by CommitQC@2's lane range). Without this fix, it would
 	// stay at 1, causing the persist goroutine to busy-loop.
-	laneFirst := i.lanes[lane].blocks.first
+	laneFirst := i.lanes.byID[lane].blocks.first
 	require.Greater(t, laneFirst, types.BlockNumber(1),
 		"prune should have advanced blocks.first past the old cursor")
-	require.GreaterOrEqual(t, i.lanes[lane].nextBlockToPersist, laneFirst,
-		"nextBlockToPersist should advance when prune moves blocks.first past it")
+	require.GreaterOrEqual(t, i.lanes.byID[lane].durable.persistedBlockNext, laneFirst,
+		"persistedBlockNext should advance when prune moves blocks.first past it")
 }
 
 func TestNewInnerLoadedCommitQCsAllBeforeAppQCArePruned(t *testing.T) {
@@ -485,9 +485,9 @@ func TestNewInnerLoadedCommitQCsAllBeforeAppQCArePruned(t *testing.T) {
 	require.NoError(t, err)
 
 	// tipcut insert after prune places the anchor's CommitQC.
-	require.Equal(t, types.RoadIndex(5), inner.commitQCs.first)
-	require.Equal(t, types.RoadIndex(6), inner.commitQCs.next)
-	require.NoError(t, utils.TestDiff(qcs[5], inner.commitQCs.q[5]))
+	require.Equal(t, types.RoadIndex(5), inner.commits.qcs.first)
+	require.Equal(t, types.RoadIndex(6), inner.commits.qcs.next)
+	require.NoError(t, utils.TestDiff(qcs[5], inner.commits.qcs.q[5]))
 }
 
 func TestNewInnerAnchorWithNoCommitQCFiles(t *testing.T) {
@@ -514,19 +514,19 @@ func TestNewInnerAnchorWithNoCommitQCFiles(t *testing.T) {
 	require.NoError(t, err)
 
 	// tipcut insert after prune places the anchor's CommitQC.
-	require.Equal(t, types.RoadIndex(3), inner.commitQCs.first)
-	require.Equal(t, types.RoadIndex(4), inner.commitQCs.next)
-	require.NoError(t, utils.TestDiff(qcs[3], inner.commitQCs.q[3]))
+	require.Equal(t, types.RoadIndex(3), inner.commits.qcs.first)
+	require.Equal(t, types.RoadIndex(4), inner.commits.qcs.next)
+	require.NoError(t, utils.TestDiff(qcs[3], inner.commits.qcs.q[3]))
 
 	// latestAppQC should be set.
-	aq, ok := inner.latestAppQC.Get()
+	aq, ok := inner.app.latestAppQC.Get()
 	require.True(t, ok)
 	require.Equal(t, types.RoadIndex(3), aq.Proposal().RoadIndex())
 
-	// persistedBlockStart should be initialized from the anchor's CommitQC.
+	// persistedBlockFirst should be initialized from the anchor's CommitQC.
 	for lane := range registry.LatestEpoch().Committee().Lanes().All() {
 		expected := qcs[3].LaneRange(lane).First()
-		require.Equal(t, expected, inner.lanes[lane].persistedBlockStart)
+		require.Equal(t, expected, inner.lanes.byID[lane].durable.persistedBlockFirst)
 	}
 }
 
@@ -569,9 +569,9 @@ func TestNewInnerLoadedCommitQCsEmpty(t *testing.T) {
 	inner, err := newInner(registry, 0, utils.Some(loaded))
 	require.NoError(t, err)
 
-	require.Equal(t, types.RoadIndex(0), inner.commitQCs.first)
-	require.Equal(t, types.RoadIndex(0), inner.commitQCs.next)
-	_, ok := inner.latestCommitQC.Load().Get()
+	require.Equal(t, types.RoadIndex(0), inner.commits.qcs.first)
+	require.Equal(t, types.RoadIndex(0), inner.commits.qcs.next)
+	_, ok := inner.commits.persistedCommitQC.Load().Get()
 	require.False(t, ok)
 }
 
@@ -605,16 +605,16 @@ func TestNewInnerLoadedCommitQCsGapWithAppQCAnchor(t *testing.T) {
 	require.NoError(t, err)
 
 	// Only QC@10 loaded.
-	require.Equal(t, types.RoadIndex(10), inner.commitQCs.first)
-	require.Equal(t, types.RoadIndex(11), inner.commitQCs.next)
-	require.NoError(t, utils.TestDiff(qcs[10], inner.commitQCs.q[10]))
+	require.Equal(t, types.RoadIndex(10), inner.commits.qcs.first)
+	require.Equal(t, types.RoadIndex(11), inner.commits.qcs.next)
+	require.NoError(t, utils.TestDiff(qcs[10], inner.commits.qcs.q[10]))
 
-	latest, ok := inner.latestCommitQC.Load().Get()
+	latest, ok := inner.commits.persistedCommitQC.Load().Get()
 	require.True(t, ok)
 	require.NoError(t, utils.TestDiff(qcs[10], latest))
 
 	// AppQC should be applied via prune.
-	aq, ok := inner.latestAppQC.Get()
+	aq, ok := inner.app.latestAppQC.Get()
 	require.True(t, ok)
 	require.Equal(t, types.RoadIndex(10), aq.Proposal().RoadIndex())
 }
@@ -654,9 +654,9 @@ func TestNewInnerLoadedCommitQCsBelowAnchorSkipped(t *testing.T) {
 	require.NoError(t, err)
 
 	// tipcut insert places QC@3 (next=4). Indices 1,2,3 are skipped. 4,5 pushed.
-	require.Equal(t, types.RoadIndex(3), inner.commitQCs.first)
-	require.Equal(t, types.RoadIndex(6), inner.commitQCs.next)
-	latest, ok := inner.latestCommitQC.Load().Get()
+	require.Equal(t, types.RoadIndex(3), inner.commits.qcs.first)
+	require.Equal(t, types.RoadIndex(6), inner.commits.qcs.next)
+	latest, ok := inner.commits.persistedCommitQC.Load().Get()
 	require.True(t, ok)
 	require.NoError(t, utils.TestDiff(qcs[5], latest))
 }
@@ -816,7 +816,7 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	// prune() should advance block queue first to the prune anchor's lane range.
 	for l := range registry.LatestEpoch().Committee().Lanes().All() {
 		expected := pruneQC.LaneRange(l).First()
-		require.Equal(t, expected, i.lanes[l].blocks.first,
+		require.Equal(t, expected, i.lanes.byID[l].blocks.first,
 			"lanes[%v].blocks.first should be advanced by prune to prune anchor lane range", l)
 	}
 }
@@ -850,9 +850,9 @@ func TestNewInnerPruneAnchorCommitQCUsedForPrune(t *testing.T) {
 	require.NoError(t, err)
 
 	// prune(appQC@1, pruneQC@1) should advance commitQCs.first to 1.
-	require.Equal(t, types.RoadIndex(1), i.commitQCs.first)
+	require.Equal(t, types.RoadIndex(1), i.commits.qcs.first)
 	// CommitQCs 1 and 2 should still be loaded.
-	require.Equal(t, types.RoadIndex(3), i.commitQCs.next)
+	require.Equal(t, types.RoadIndex(3), i.commits.qcs.next)
 }
 
 // TestNewInnerAppVotesFloorFromAnchorNotTipFirstBlock covers tip-based restart:
@@ -884,9 +884,9 @@ func TestNewInnerAppVotesFloorFromAnchorNotTipFirstBlock(t *testing.T) {
 
 	inner, err := newInner(registry, loaded.nextCommitQC(), utils.Some(loaded))
 	require.NoError(t, err)
-	require.Equal(t, wantAppFirst, inner.appVotes.first,
+	require.Equal(t, wantAppFirst, inner.app.votes.first,
 		"appVotes must follow prune-anchor GlobalRange, not registry.FirstBlock")
-	require.NotEqual(t, registry.FirstBlock(), inner.appVotes.first)
+	require.NotEqual(t, registry.FirstBlock(), inner.app.votes.first)
 }
 
 func TestAdvanceEpoch_AddsLanesKeepsOld(t *testing.T) {
@@ -899,7 +899,7 @@ func TestAdvanceEpoch_AddsLanesKeepsOld(t *testing.T) {
 
 	// All current lanes are present after construction.
 	for lane := range duo.Current.Committee().Lanes().All() {
-		require.Contains(t, i.lanes, lane, "lane %v missing after newInner", lane)
+		require.Contains(t, i.lanes.byID, lane, "lane %v missing after newInner", lane)
 	}
 
 	// Add a lane not in the duo — until lane-expiry lands, advance must not
@@ -911,11 +911,11 @@ func TestAdvanceEpoch_AddsLanesKeepsOld(t *testing.T) {
 	}
 	bogusSK := types.GenSecretKey(rng)
 	bogusLane := bogusSK.Public()
-	i.lanes[bogusLane] = newLaneState()
+	i.lanes.byID[bogusLane] = newLaneState()
 
 	i.advanceEpoch(duo)
-	require.Contains(t, i.lanes, bogusLane, "old lanes must be retained until lane-expiry")
-	require.Contains(t, i.lanes, realLane, "active lane removed incorrectly")
+	require.Contains(t, i.lanes.byID, bogusLane, "old lanes must be retained until lane-expiry")
+	require.Contains(t, i.lanes.byID, realLane, "active lane removed incorrectly")
 }
 
 func TestAdvanceEpoch_RetainsPrevEpochLanes(t *testing.T) {
@@ -929,15 +929,15 @@ func TestAdvanceEpoch_RetainsPrevEpochLanes(t *testing.T) {
 
 	// Collect a lane from Current (will become Prev after advance).
 	var prevLane types.LaneID
-	for l := range i.epochDuo.Load().Current.Committee().Lanes().All() {
+	for l := range i.epoch.duo.Load().Current.Committee().Lanes().All() {
 		prevLane = l
 		break
 	}
-	require.Contains(t, i.lanes, prevLane, "Current lane missing before reweight")
+	require.Contains(t, i.lanes.byID, prevLane, "Current lane missing before reweight")
 
 	duo1 := utils.OrPanic1(registry.DuoAt(epoch.FirstRoad(1)))
 	i.advanceEpoch(duo1)
 
 	// Prior Current lane is now in Prev — must be retained for boundary QC collection.
-	require.Contains(t, i.lanes, prevLane, "Prev-epoch lane deleted prematurely; fullCommitQC needs it")
+	require.Contains(t, i.lanes.byID, prevLane, "Prev-epoch lane deleted prematurely; fullCommitQC needs it")
 }

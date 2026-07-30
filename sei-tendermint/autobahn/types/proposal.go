@@ -379,7 +379,7 @@ func buildProposal(
 	}
 	if a, ok := app.Get(); ok {
 		cur := viewSpec.Epoch().EpochIndex()
-		if a.EpochIndex() != cur && !(cur > 0 && a.EpochIndex() == cur-1) {
+		if a.EpochIndex() != cur && (cur == 0 || a.EpochIndex() != cur-1) {
 			app = utils.None[*AppProposal]()
 			appQC = utils.None[*AppQC]()
 		}

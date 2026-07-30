@@ -11,7 +11,7 @@ import (
 // LastAppQC returns the latest observed AppQC.
 func (s *State) LastAppQC() utils.Option[*types.AppQC] {
 	for inner := range s.inner.Lock() {
-		return inner.latestAppQC
+		return inner.app.latestAppQC
 	}
 	panic("unreachable")
 }
@@ -22,9 +22,9 @@ func (s *State) LastAppQC() utils.Option[*types.AppQC] {
 func (s *State) WaitForAppQC(ctx context.Context, idx types.RoadIndex) (*types.AppQC, *types.CommitQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		for {
-			if appQC, ok := inner.latestAppQC.Get(); ok {
-				if x := appQC.Proposal().RoadIndex(); x >= idx && inner.commitQCs.next > x {
-					return appQC, inner.commitQCs.q[x], nil
+			if appQC, ok := inner.app.latestAppQC.Get(); ok {
+				if x := appQC.Proposal().RoadIndex(); x >= idx && inner.commits.qcs.next > x {
+					return appQC, inner.commits.qcs.q[x], nil
 				}
 			}
 			if err := ctrl.Wait(ctx); err != nil {
@@ -63,17 +63,17 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		// Early exit if not useful (we collect <=1 AppQC per road index).
-		if idx < types.NextOpt(inner.latestAppQC) {
+		if idx < types.NextOpt(inner.app.latestAppQC) {
 			return nil
 		}
 		// Verify the vote against the CommitQC.
-		qc := inner.commitQCs.q[idx]
+		qc := inner.commits.qcs.q[idx]
 		if err := v.Msg().Proposal().Verify(qc); err != nil {
 			return fmt.Errorf("invalid vote: %w", err)
 		}
 		// Push the vote.
 		n := v.Msg().Proposal().GlobalNumber()
-		q := inner.appVotes
+		q := inner.app.votes
 		for q.next <= n {
 			q.pushBack(newAppVotes())
 		}
@@ -100,7 +100,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *types.CommitQC) error {
 	// Check whether it is needed before verifying.
 	for inner := range s.inner.Lock() {
-		if types.NextOpt(inner.latestAppQC) > appQC.Proposal().RoadIndex() {
+		if types.NextOpt(inner.app.latestAppQC) > appQC.Proposal().RoadIndex() {
 			return nil
 		}
 	}

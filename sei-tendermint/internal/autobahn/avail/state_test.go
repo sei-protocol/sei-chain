@@ -36,7 +36,7 @@ func registerDuoAtEpoch(s *State, n types.EpochIndex) {
 	r.EnsureEpoch(n)
 	duo := utils.OrPanic1(r.DuoAt(epoch.FirstRoad(n)))
 	for inner := range s.inner.Lock() {
-		inner.epochDuo.Store(duo)
+		inner.epoch.duo.Store(duo)
 	}
 }
 
@@ -512,7 +512,7 @@ func TestPushVote_WaitsForFutureEpochSigner(t *testing.T) {
 		require.NoError(t, <-errCh)
 
 		for inner := range state.inner.Lock() {
-			ls, ok := inner.lanes[lane]
+			ls, ok := inner.lanes.byID[lane]
 			require.True(t, ok)
 			require.Contains(t, ls.votes.q[0].byKey, futureKey.Public())
 		}
@@ -550,7 +550,7 @@ func TestPushVote_DropsSignerAfterEpochAdvance(t *testing.T) {
 
 		ep0 := state.epochDuo.Load().Current
 		lane := keys[0].Public()
-		n := types.BlockNumber(BlocksPerLane) // WaitUntil: n >= persistedBlockStart+BlocksPerLane
+		n := types.BlockNumber(BlocksPerLane) // WaitUntil: n >= persistedBlockFirst+BlocksPerLane
 		header := types.NewBlock(lane, n, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
 		vote := types.Sign(keys[0], types.NewLaneVote(header))
 
@@ -567,15 +567,15 @@ func TestPushVote_DropsSignerAfterEpochAdvance(t *testing.T) {
 
 		for inner, ctrl := range state.inner.Lock() {
 			inner.advanceEpoch(duo1)
-			inner.lanes[lane].persistedBlockStart = 1 // unblock: n < 1+BlocksPerLane
+			inner.lanes.byID[lane].durable.persistedBlockFirst = 1 // unblock: n < 1+BlocksPerLane
 			ctrl.Updated()
 		}
 		synctest.Wait()
 		require.NoError(t, <-errCh)
 
 		for inner := range state.inner.Lock() {
-			require.Equal(t, types.EpochIndex(1), inner.epochDuo.Load().Current.EpochIndex())
-			require.Equal(t, types.BlockNumber(0), inner.lanes[lane].votes.next,
+			require.Equal(t, types.EpochIndex(1), inner.epoch.duo.Load().Current.EpochIndex())
+			require.Equal(t, types.BlockNumber(0), inner.lanes.byID[lane].votes.next,
 				"dropped vote must not extend the queue")
 		}
 	})
@@ -611,14 +611,14 @@ func TestPushVote_DropsLaneAfterEpochAdvance(t *testing.T) {
 
 		for inner, ctrl := range state.inner.Lock() {
 			inner.advanceEpoch(duo1)
-			inner.lanes[lane].persistedBlockStart = 1
+			inner.lanes.byID[lane].durable.persistedBlockFirst = 1
 			ctrl.Updated()
 		}
 		synctest.Wait()
 		require.NoError(t, <-errCh)
 
 		for inner := range state.inner.Lock() {
-			require.Equal(t, types.BlockNumber(0), inner.lanes[lane].votes.next,
+			require.Equal(t, types.BlockNumber(0), inner.lanes.byID[lane].votes.next,
 				"dropped vote must not extend the queue")
 		}
 	})
@@ -650,14 +650,14 @@ func TestPushVote_CountsSignerAfterEpochAdvance(t *testing.T) {
 
 		for inner, ctrl := range state.inner.Lock() {
 			inner.advanceEpoch(duo1)
-			inner.lanes[lane].persistedBlockStart = 1
+			inner.lanes.byID[lane].durable.persistedBlockFirst = 1
 			ctrl.Updated()
 		}
 		synctest.Wait()
 		require.NoError(t, <-errCh)
 
 		for inner := range state.inner.Lock() {
-			ls := inner.lanes[lane]
+			ls := inner.lanes.byID[lane]
 			require.Contains(t, ls.votes.q[n].byKey, keys[0].Public())
 			require.Equal(t, uint64(1000), ls.votes.q[n].byHash[header.Hash()].weight)
 		}
@@ -1235,9 +1235,9 @@ func TestFullCommitQCBeforeWindowIsPruned(t *testing.T) {
 
 	// Plant an admitted QC, then slide the duo past it (skip live PushCommitQC).
 	for inner := range state.inner.Lock() {
-		inner.commitQCs.first = epoch.FirstRoad(m)
-		inner.commitQCs.next = epoch.FirstRoad(m) + 1
-		inner.commitQCs.q[epoch.FirstRoad(m)] = qc
+		inner.commits.qcs.first = epoch.FirstRoad(m)
+		inner.commits.qcs.next = epoch.FirstRoad(m) + 1
+		inner.commits.qcs.q[epoch.FirstRoad(m)] = qc
 	}
 	state.markCommitQCsPersisted(qc)
 	registerDuoAtEpoch(state, m+2)
@@ -1271,9 +1271,9 @@ func TestFullCommitQCAfterWindowHardFails(t *testing.T) {
 	require.Equal(t, epoch.FirstRoad(m), qc1.Proposal().Index())
 
 	for inner := range state.inner.Lock() {
-		inner.commitQCs.first = epoch.FirstRoad(m)
-		inner.commitQCs.next = epoch.FirstRoad(m) + 1
-		inner.commitQCs.q[epoch.FirstRoad(m)] = qc1
+		inner.commits.qcs.first = epoch.FirstRoad(m)
+		inner.commits.qcs.next = epoch.FirstRoad(m) + 1
+		inner.commits.qcs.q[epoch.FirstRoad(m)] = qc1
 	}
 	state.markCommitQCsPersisted(qc1)
 
@@ -1308,14 +1308,14 @@ func TestPushCommitQCMidEpochNoExecLeash(t *testing.T) {
 	require.Equal(t, epoch.FirstRoad(m), qc1.Proposal().Index())
 
 	for inner := range state.inner.Lock() {
-		inner.commitQCs.first = epoch.FirstRoad(m)
-		inner.commitQCs.next = epoch.FirstRoad(m)
+		inner.commits.qcs.first = epoch.FirstRoad(m)
+		inner.commits.qcs.next = epoch.FirstRoad(m)
 	}
 	state.markCommitQCsPersisted(prevTip)
 
 	require.NoError(t, state.PushCommitQC(t.Context(), qc1))
 	for inner := range state.inner.Lock() {
-		require.Equal(t, epoch.FirstRoad(m)+1, inner.commitQCs.next)
+		require.Equal(t, epoch.FirstRoad(m)+1, inner.commits.qcs.next)
 	}
 }
 
@@ -1356,9 +1356,9 @@ func TestPushCommitQCWaitsForEpochUnlock(t *testing.T) {
 		require.Equal(t, epoch.LastRoad(m), qcLast.Proposal().Index())
 
 		for inner := range state.inner.Lock() {
-			inner.latestAppQC = utils.Some(appQCM)
-			inner.commitQCs.first = epoch.LastRoad(m)
-			inner.commitQCs.next = epoch.LastRoad(m)
+			inner.app.latestAppQC = utils.Some(appQCM)
+			inner.commits.qcs.first = epoch.LastRoad(m)
+			inner.commits.qcs.next = epoch.LastRoad(m)
 		}
 		state.markCommitQCsPersisted(prevOnLast)
 
@@ -1366,14 +1366,14 @@ func TestPushCommitQCWaitsForEpochUnlock(t *testing.T) {
 		go func() { errCh <- state.PushCommitQC(ctx, qcLast) }()
 		synctest.Wait() // parked on WaitForDuo(M+1)
 		for inner := range state.inner.Lock() {
-			require.Equal(t, epoch.LastRoad(m), inner.commitQCs.next, "not admitted until exec leash")
+			require.Equal(t, epoch.LastRoad(m), inner.commits.qcs.next, "not admitted until exec leash")
 		}
 
 		registry.EnsureEpoch(m + 1)
 		synctest.Wait()
 		require.NoError(t, <-errCh)
 		for inner := range state.inner.Lock() {
-			require.Equal(t, epoch.LastRoad(m)+1, inner.commitQCs.next)
+			require.Equal(t, epoch.LastRoad(m)+1, inner.commits.qcs.next)
 		}
 	})
 }
@@ -1407,8 +1407,8 @@ func TestPushAppQCWaitsForEpochUnlock(t *testing.T) {
 		require.Equal(t, epoch.LastRoad(m), qcLast.Proposal().Index())
 
 		for inner := range state.inner.Lock() {
-			inner.commitQCs.first = epoch.LastRoad(m)
-			inner.commitQCs.next = epoch.LastRoad(m)
+			inner.commits.qcs.first = epoch.LastRoad(m)
+			inner.commits.qcs.next = epoch.LastRoad(m)
 		}
 		state.markCommitQCsPersisted(prevOnLast)
 
@@ -1416,14 +1416,14 @@ func TestPushAppQCWaitsForEpochUnlock(t *testing.T) {
 		go func() { errCh <- state.PushAppQC(ctx, appQCLast, qcLast) }()
 		synctest.Wait()
 		for inner := range state.inner.Lock() {
-			require.Equal(t, epoch.LastRoad(m), inner.commitQCs.next, "not admitted until exec leash")
+			require.Equal(t, epoch.LastRoad(m), inner.commits.qcs.next, "not admitted until exec leash")
 		}
 
 		registry.EnsureEpoch(m + 1)
 		synctest.Wait()
 		require.NoError(t, <-errCh)
 		for inner := range state.inner.Lock() {
-			require.Equal(t, epoch.LastRoad(m)+1, inner.commitQCs.next)
+			require.Equal(t, epoch.LastRoad(m)+1, inner.commits.qcs.next)
 		}
 	})
 }
@@ -1464,9 +1464,9 @@ func TestPushCommitQCBoundaryWaitsForAppQCInEpoch(t *testing.T) {
 		require.Equal(t, epoch.LastRoad(m), qcLast.Proposal().Index())
 
 		for inner := range state.inner.Lock() {
-			inner.latestAppQC = utils.Some(appQCPrev) // only M-1 — not enough to close M
-			inner.commitQCs.first = epoch.LastRoad(m)
-			inner.commitQCs.next = epoch.LastRoad(m)
+			inner.app.latestAppQC = utils.Some(appQCPrev) // only M-1 — not enough to close M
+			inner.commits.qcs.first = epoch.LastRoad(m)
+			inner.commits.qcs.next = epoch.LastRoad(m)
 		}
 		state.markCommitQCsPersisted(prevOnLast)
 
@@ -1474,7 +1474,7 @@ func TestPushCommitQCBoundaryWaitsForAppQCInEpoch(t *testing.T) {
 		go func() { errCh <- state.PushCommitQC(ctx, qcLast) }()
 		synctest.Wait()
 		for inner := range state.inner.Lock() {
-			require.Equal(t, epoch.LastRoad(m), inner.commitQCs.next, "not admitted without AppQC in M")
+			require.Equal(t, epoch.LastRoad(m), inner.commits.qcs.next, "not admitted without AppQC in M")
 		}
 
 		qcM := makeCommitQC(epM, keys, utils.Some(types.NewCommitQC([]*types.Signed[*types.CommitVote]{
@@ -1486,13 +1486,13 @@ func TestPushCommitQCBoundaryWaitsForAppQCInEpoch(t *testing.T) {
 		appQCM := types.NewAppQC(makeAppVotes(keys, types.NewAppProposal(
 			qcM.GlobalRange().First, qcM.Index(), types.GenAppHash(rng), epM.EpochIndex())))
 		for inner, ctrl := range state.inner.Lock() {
-			inner.latestAppQC = utils.Some(appQCM)
+			inner.app.latestAppQC = utils.Some(appQCM)
 			ctrl.Updated()
 		}
 		synctest.Wait()
 		require.NoError(t, <-errCh)
 		for inner := range state.inner.Lock() {
-			require.Equal(t, epoch.LastRoad(m)+1, inner.commitQCs.next)
+			require.Equal(t, epoch.LastRoad(m)+1, inner.commits.qcs.next)
 		}
 	})
 }
@@ -1521,8 +1521,8 @@ func TestPushCommitQCEpoch0SealWaitsForAppQC(t *testing.T) {
 		require.Equal(t, epoch.LastRoad(0), qcLast.Proposal().Index())
 
 		for inner := range state.inner.Lock() {
-			inner.commitQCs.first = epoch.LastRoad(0)
-			inner.commitQCs.next = epoch.LastRoad(0)
+			inner.commits.qcs.first = epoch.LastRoad(0)
+			inner.commits.qcs.next = epoch.LastRoad(0)
 		}
 		state.markCommitQCsPersisted(prevOnLast)
 
@@ -1530,19 +1530,19 @@ func TestPushCommitQCEpoch0SealWaitsForAppQC(t *testing.T) {
 		go func() { errCh <- state.PushCommitQC(ctx, qcLast) }()
 		synctest.Wait()
 		for inner := range state.inner.Lock() {
-			require.Equal(t, epoch.LastRoad(0), inner.commitQCs.next)
+			require.Equal(t, epoch.LastRoad(0), inner.commits.qcs.next)
 		}
 
 		appQC0 := types.NewAppQC(makeAppVotes(keys, types.NewAppProposal(
 			0, 0, types.GenAppHash(rng), 0)))
 		for inner, ctrl := range state.inner.Lock() {
-			inner.latestAppQC = utils.Some(appQC0)
+			inner.app.latestAppQC = utils.Some(appQC0)
 			ctrl.Updated()
 		}
 		synctest.Wait()
 		require.NoError(t, <-errCh)
 		for inner := range state.inner.Lock() {
-			require.Equal(t, epoch.LastRoad(0)+1, inner.commitQCs.next)
+			require.Equal(t, epoch.LastRoad(0)+1, inner.commits.qcs.next)
 		}
 	})
 }
@@ -1582,16 +1582,16 @@ func TestPushAppQCBoundaryIncomingAppQC(t *testing.T) {
 		qcLast.GlobalRange().First, qcLast.Index(), types.GenAppHash(rng), epM.EpochIndex())))
 
 	for inner := range state.inner.Lock() {
-		inner.latestAppQC = utils.Some(appQCPrev) // stale; PushAppQC prune installs appQCLast
-		inner.commitQCs.first = epoch.LastRoad(m)
-		inner.commitQCs.next = epoch.LastRoad(m)
+		inner.app.latestAppQC = utils.Some(appQCPrev) // stale; PushAppQC prune installs appQCLast
+		inner.commits.qcs.first = epoch.LastRoad(m)
+		inner.commits.qcs.next = epoch.LastRoad(m)
 	}
 	state.markCommitQCsPersisted(prevOnLast)
 
 	require.NoError(t, state.PushAppQC(t.Context(), appQCLast, qcLast))
 	for inner := range state.inner.Lock() {
-		require.Equal(t, epoch.LastRoad(m)+1, inner.commitQCs.next)
-		require.Equal(t, m, inner.epochDuo.Load().Current.EpochIndex())
+		require.Equal(t, epoch.LastRoad(m)+1, inner.commits.qcs.next)
+		require.Equal(t, m, inner.epoch.duo.Load().Current.EpochIndex())
 	}
 	advanceUntilCurrent(t, state, m+1)
 }
@@ -1632,9 +1632,9 @@ func TestEpochAdvanceGapHandoff(t *testing.T) {
 		require.Equal(t, epoch.FirstRoad(m+1), qcNext.Proposal().Index())
 
 		for inner := range state.inner.Lock() {
-			inner.latestAppQC = utils.Some(appQCM)
-			inner.commitQCs.first = epoch.FirstRoad(m)
-			inner.commitQCs.next = epoch.LastRoad(m)
+			inner.app.latestAppQC = utils.Some(appQCM)
+			inner.commits.qcs.first = epoch.FirstRoad(m)
+			inner.commits.qcs.next = epoch.LastRoad(m)
 		}
 		state.markCommitQCsPersisted(prevOnLast)
 
