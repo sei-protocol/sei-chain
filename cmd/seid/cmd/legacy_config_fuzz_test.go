@@ -797,7 +797,17 @@ func FuzzApplyIsIdempotent(f *testing.F) {
 		}
 
 		if first := applyLegacy(t, home, flagValues); first.err != nil {
-			t.Skipf("materializing boot failed (%v); malformed-input behavior is covered elsewhere", first.err)
+			// The laddr is the only input here the fuzzer can make unusable, so with none set
+			// there is nothing to attribute a failure to and materializing has to succeed.
+			// Skipping in that case would let a regression that stops a seeded row from
+			// materializing pass as a skip, which is the outcome this suite exists to prevent.
+			// A non-empty laddr still declines, the same move IsTOMLWritable makes, rather than
+			// re-deriving what the p2p layer accepts.
+			if p2pLaddr == "" {
+				t.Fatalf("materializing boot with no laddr override must succeed: %v", first.err)
+			}
+			t.Skipf("materializing boot failed for laddr %q (%v); malformed-input behavior is covered elsewhere",
+				p2pLaddr, first.err)
 		}
 		if !home.Exists("config.toml") || !home.Exists("app.toml") {
 			t.Fatal("the first Apply must leave both config.toml and app.toml on disk")
