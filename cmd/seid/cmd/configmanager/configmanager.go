@@ -156,13 +156,19 @@ func logAdvisory(out advisoryOutcome) {
 	if len(out.Diagnostics) == 0 {
 		return
 	}
-	shown, omitted := out.Diagnostics, 0
-	if len(shown) > maxLoggedDiagnostics {
-		omitted = len(shown) - maxLoggedDiagnostics
-		shown = shown[:maxLoggedDiagnostics]
-	}
+	shown, omitted := capDiagnostics(out.Diagnostics)
 	logger.Warn("advisory config validation diagnostics (not enforced; node will boot)",
 		"count", len(out.Diagnostics), "diagnostics", shown, "omitted", omitted)
+}
+
+// capDiagnostics splits a diagnostic list into the part to render and the number left
+// out. It is separate from logAdvisory so the arithmetic can be asserted directly:
+// an off-by-one or an inverted omitted count is not visible in a log line anyone reads.
+func capDiagnostics(diags []string) (shown []string, omitted int) {
+	if len(diags) <= maxLoggedDiagnostics {
+		return diags, 0
+	}
+	return diags[:maxLoggedDiagnostics], len(diags) - maxLoggedDiagnostics
 }
 
 // resolveHomeDir resolves --home the same way the legacy handler does

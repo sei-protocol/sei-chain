@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -337,23 +339,39 @@ func TestConfigManagerV2AdvisoryReadErrorMatchesLegacy(t *testing.T) {
 		"v2 must return the same boot error as legacy, not mask or add one")
 }
 
-// snapshotConfigDir records the name, size and content hash of every file under the
-// home's config directory, which is what a no-write claim has to be checked against.
-func snapshotConfigDir(t *testing.T, home *configtest.Home) map[string]string {
+// snapshotHome records every path under the home, with a content hash for each file.
+//
+// It walks the whole home rather than listing config/, because the claim it backs is
+// that nothing is authored at boot, and a sei.toml at the home root or a file dropped
+// into a subdirectory of config/ would both sit outside a single-level listing of
+// config/. Directories are recorded as names so an added empty one still shows up.
+func snapshotHome(t *testing.T, home *configtest.Home) map[string]string {
 	t.Helper()
-	entries, err := os.ReadDir(home.ConfigDir())
-	require.NoError(t, err)
 
-	snap := make(map[string]string, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			snap[e.Name()+"/"] = "dir"
-			continue
+	snap := map[string]string{}
+	err := filepath.WalkDir(home.Root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		b, ok := home.Read(t, e.Name())
-		require.True(t, ok, "listed file %q could not be read", e.Name())
-		snap[e.Name()] = fmt.Sprintf("%d:%x", len(b), sha256.Sum256(b))
-	}
+		rel, err := filepath.Rel(home.Root, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if d.IsDir() {
+			snap[rel+"/"] = "dir"
+			return nil
+		}
+		b, err := os.ReadFile(path) //nolint:gosec // fixture path under the test's temp dir
+		if err != nil {
+			return err
+		}
+		snap[rel] = fmt.Sprintf("%d:%x", len(b), sha256.Sum256(b))
+		return nil
+	})
+	require.NoError(t, err)
 	return snap
 }
 
@@ -363,7 +381,7 @@ func snapshotConfigDir(t *testing.T, home *configtest.Home) map[string]string {
 // Every other assertion here compares the resolved channels, so a v2-side write that
 // leaves those channels alone passes all of them. Authoring a sei.toml, rewriting a
 // file to nearly the same bytes, or adding anything to the config directory would all
-// go unnoticed. This snapshots the directory around the v2 run and compares, so the
+// go unnoticed. This walks the whole home around the v2 run and compares, so the
 // prose guarantee becomes an enforced one.
 //
 // The home is pre-seeded on purpose. A fresh home is the one case where writes are
@@ -373,14 +391,14 @@ func TestConfigManagerV2WritesNothing(t *testing.T) {
 	configtest.Isolate(t)
 	home := seedDefaultConfig(t)
 
-	before := snapshotConfigDir(t, home)
+	before := snapshotHome(t, home)
 	_ = runConfigManager(t, configmanager.SeiConfigManager{}, home)
-	after := snapshotConfigDir(t, home)
+	after := snapshotHome(t, home)
 
 	require.Equal(t, before, after,
-		"v2 changed the config directory. It re-enters the legacy reader on the operator's "+
-			"own files and must not author, migrate or rewrite anything at boot, and a write "+
-			"that leaves the resolved channels alone is invisible to every other assertion here")
+		"v2 changed the node directory. It re-enters the legacy reader on the operator's own "+
+			"files and must not author, migrate or rewrite anything at boot, and a write that "+
+			"leaves the resolved channels alone is invisible to every other assertion here")
 }
 
 // FuzzConfigManagerEnvOnlyKeyParity closes the one class the AllSettings comparison

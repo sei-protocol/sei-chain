@@ -2,6 +2,8 @@ package configmanager
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,6 +141,15 @@ func TestResolveHomeDirAgreesWithTheLegacyHandler(t *testing.T) {
 			cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
 			tc.setup(t, cmd, root)
 
+			// Captured before the handler runs, which is both what Apply does and what makes
+			// this an assertion about resolveHomeDir. The handler ends in bindFlags, which
+			// writes the env-resolved value back onto the --home flag and marks it Changed
+			// (sei-cosmos/server/util.go), so a resolveHomeDir read afterwards would be
+			// reading that flag rather than resolving anything, and a version that had
+			// dropped SetEnvPrefix and AutomaticEnv entirely would still pass.
+			got, err := resolveHomeDir(cmd)
+			require.NoError(t, err)
+
 			serverCtx := &server.Context{}
 			cmd.SetContext(context.WithValue(context.Background(), server.ServerContextKey, serverCtx))
 
@@ -150,8 +161,6 @@ func TestResolveHomeDirAgreesWithTheLegacyHandler(t *testing.T) {
 			require.Equal(t, root, handlerHome,
 				"the fixture did not drive the handler's resolution, so this comparison would be vacuous")
 
-			got, err := resolveHomeDir(cmd)
-			require.NoError(t, err)
 			require.Equal(t, handlerHome, got,
 				"resolveHomeDir has drifted from the legacy handler: v2 would validate %q while "+
 					"the node boots on %q, and no parity assertion can see it", got, handlerHome)
@@ -233,6 +242,76 @@ func TestValidateAdvisorySkipsAnUnresolvedHome(t *testing.T) {
 	require.Empty(t, out.Diagnostics, "a declined pass must not report findings")
 	require.NoError(t, out.Err)
 	require.Nil(t, out.Panic)
+}
+
+// TestCapDiagnostics pins the truncation arithmetic at its boundary. A miscount here
+// would misreport how much was left out of a log line, which is the kind of defect
+// nobody notices by reading the output.
+func TestCapDiagnostics(t *testing.T) {
+	diags := func(n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = fmt.Sprintf("d%d", i)
+		}
+		return out
+	}
+	cases := []struct {
+		name        string
+		in          int
+		wantShown   int
+		wantOmitted int
+	}{
+		{"none", 0, 0, 0},
+		{"one", 1, 1, 0},
+		{"exactly at the cap", maxLoggedDiagnostics, maxLoggedDiagnostics, 0},
+		{"one over the cap", maxLoggedDiagnostics + 1, maxLoggedDiagnostics, 1},
+		{"far over the cap", maxLoggedDiagnostics + 15, maxLoggedDiagnostics, 15},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := diags(tc.in)
+			shown, omitted := capDiagnostics(in)
+
+			require.Len(t, shown, tc.wantShown)
+			require.Equal(t, tc.wantOmitted, omitted)
+			// Nothing may be invented or reordered, and the two parts must account for
+			// the whole list, which is what makes the reported count trustworthy.
+			require.Equal(t, tc.in, len(shown)+omitted, "shown plus omitted must be the whole list")
+			for i := range shown {
+				require.Equal(t, in[i], shown[i], "the rendered part must be the first %d in order", tc.wantShown)
+			}
+		})
+	}
+}
+
+// TestLogAdvisoryHandlesEveryOutcome exercises the branches no other test reaches: a
+// recovered panic, a failure at each stage, and a truncated diagnostic list. It
+// asserts the reporting path survives each shape rather than asserting log text, since
+// the text is not a contract; a panic or nil dereference in the reporter would turn an
+// advisory pass into a boot failure, which is the one thing it must never do.
+func TestLogAdvisoryHandlesEveryOutcome(t *testing.T) {
+	many := make([]string, maxLoggedDiagnostics+3)
+	for i := range many {
+		many[i] = fmt.Sprintf("[ERROR] field%d: broken", i)
+	}
+	cases := []struct {
+		name string
+		out  advisoryOutcome
+	}{
+		{"zero value", advisoryOutcome{}},
+		{"skipped", advisoryOutcome{Skipped: true}},
+		{"resolve failed", advisoryOutcome{Stage: "resolve", Err: errors.New("no home")}},
+		{"read failed", advisoryOutcome{Stage: "read", Err: errors.New("bad toml")}},
+		{"panicked", advisoryOutcome{Panic: "boom", Stack: []byte("goroutine 1 [running]:\n")}},
+		{"panicked with no stack", advisoryOutcome{Panic: errors.New("boom")}},
+		{"one diagnostic", advisoryOutcome{Home: "/tmp/n", Diagnostics: []string{"[ERROR] a: b"}}},
+		{"more diagnostics than the cap", advisoryOutcome{Home: "/tmp/n", Diagnostics: many}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NotPanics(t, func() { logAdvisory(tc.out) })
+		})
+	}
 }
 
 // TestReadConfigFromDirMissingIsErrNotExist pins the contract validateAdvisory's
