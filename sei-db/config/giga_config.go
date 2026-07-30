@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
@@ -33,10 +35,13 @@ type GigaStorageConfig struct {
 //	data/state_store/evm/{backend}
 //	data/ledger/receipt/{backend}
 //	data/ledger/block
-func DefaultGigaStorageConfig(homePath string) GigaStorageConfig {
+//
+// Unlike the other Default*Config helpers in this package, this can fail: the block-store
+// default wraps littdb.DefaultConfig, which validates the directory path.
+func DefaultGigaStorageConfig(homePath string) (GigaStorageConfig, error) {
 	blockDBConfig, err := littblock.DefaultConfig(utils.GetBlockStorePath(homePath))
 	if err != nil {
-		panic(err)
+		return GigaStorageConfig{}, fmt.Errorf("failed to build block db config: %w", err)
 	}
 
 	flatKV := flatkvConfig.DefaultConfig()
@@ -48,14 +53,12 @@ func DefaultGigaStorageConfig(homePath string) GigaStorageConfig {
 	receiptConfig := DefaultReceiptStoreConfig()
 	receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath, receiptConfig.Backend)
 
-	pruningConfig := gc.DefaultStorageGarbageCollectorConfig()
-
 	return GigaStorageConfig{
 		HomePath:        homePath,
 		FlatKVConfig:    flatKV,
 		SSConfig:        ssConfig,
 		ReceiptDBConfig: receiptConfig,
 		BlockDBConfig:   blockDBConfig,
-		PruningConfig:   pruningConfig,
-	}
+		PruningConfig:   gc.DefaultStorageGarbageCollectorConfig(),
+	}, nil
 }
