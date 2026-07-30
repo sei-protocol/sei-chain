@@ -613,14 +613,11 @@ func makeCommitQC(keys []SecretKey, fullProposal *FullProposal) *CommitQC {
 	return NewCommitQC(votes)
 }
 
-func TestProposalVerifyRejectsAppProposalLowerThanPrevious(t *testing.T) {
+func TestProposalVerifyAllowsAbsentAppProposal(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
 
-	// Construct commitQC for index 1 with AppProposal
-	// and Proposal for index 2 without any app proposal.
-	// Such a proposal should fail validation, because app proposals need to be monotone.
 	l := keys[0].Public()
 	lQCs := map[LaneID]*LaneQC{l: makeLaneQC(rng, committee, keys, l, 0, GenBlockHeaderHash(rng))}
 	commitQC0 := makeCommitQC(keys, makeFullProposal(ep, keys, utils.None[*CommitQC](), lQCs, utils.None[*AppQC]()))
@@ -632,12 +629,52 @@ func TestProposalVerifyRejectsAppProposalLowerThanPrevious(t *testing.T) {
 	fp2a := makeFullProposal(ep, keys, utils.Some(commitQC1a), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]())
 	fp2b := makeFullProposal(ep, keys, utils.Some(commitQC1b), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]())
 
-	// We construct the invalid proposal by constructing 2 alternative futures: one with appQC, one without.
 	require.NoError(t, fp2a.Verify(vs))
-	require.Error(t, fp2b.Verify(vs))
+	require.NoError(t, fp2b.Verify(vs))
 }
 
-func TestProposalVerifyRejectsUnnecessaryAppQC(t *testing.T) {
+func TestProposalVerifyRejectsAppProposalLowerThanPrevious(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep := genFreshEpoch(rng, committee)
+
+	commitQC0 := BuildCommitQC(ep, keys, utils.None[*CommitQC](), nil, utils.None[*AppQC]())
+	commitQC1 := BuildCommitQC(ep, keys, utils.Some(commitQC0), nil, utils.None[*AppQC]())
+	appQC1 := makeAppQCFor(
+		keys,
+		commitQC1.GlobalRange().First,
+		commitQC1.Proposal().Index(),
+		GenAppHash(rng),
+		ep.EpochIndex(),
+	)
+	commitQC2 := BuildCommitQC(ep, keys, utils.Some(commitQC1), nil, utils.Some(appQC1))
+	vs := ViewSpec{CommitQC: utils.Some(commitQC2), Epochs: EpochDuoForTest(ep)}
+	leader := leaderKey(committee, keys, vs.View())
+	fp := utils.OrPanic1(NewProposal(
+		leader,
+		vs,
+		time.Now(),
+		oneLaneQCMap(rng, committee, keys, vs),
+		utils.None[*AppQC](),
+	))
+
+	carried := fp.Proposal().Msg().App().OrPanic("fixture carries an AppProposal")
+	proposalPB := ProposalConv.Encode(fp.Proposal().Msg())
+	proposalPB.App = AppProposalConv.Encode(NewAppProposal(
+		carried.GlobalNumber(),
+		carried.RoadIndex()-1,
+		carried.AppHash(),
+		carried.EpochIndex(),
+	))
+	lowerProposal := utils.OrPanic1(ProposalConv.Decode(proposalPB))
+	fullPB := FullProposalConv.Encode(fp)
+	fullPB.ProposalV2 = SignedProposalConv.Encode(Sign(leader, lowerProposal))
+	lower := utils.OrPanic1(FullProposalConv.Decode(fullPB))
+
+	require.Error(t, lower.Verify(vs))
+}
+
+func TestProposalVerifyIgnoresAppQCWithoutAppProposal(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
@@ -655,7 +692,7 @@ func TestProposalVerifyRejectsUnnecessaryAppQC(t *testing.T) {
 		timeoutQC: fp.timeoutQC,
 	}
 	err := tamperedFP.Verify(vs)
-	require.Error(t, err)
+	require.NoError(t, err)
 }
 
 func TestProposalVerifyRejectsMissingAppQC(t *testing.T) {
@@ -724,9 +761,27 @@ func TestProposalVerifyRejectsAppProposalWrongEpoch(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, EpochIndex(0), appPrev.EpochIndex())
 
-	// AppQC outside {Current, Current-1} — rejected during construction.
-	_, err := NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(2)))
-	require.Error(t, err)
+	// AppQC outside {Current, Current-1} — omitted during construction.
+	outside := makeAppQCWithEpoch(2)
+	fpOutside := utils.OrPanic1(NewProposal(
+		leader,
+		vs,
+		time.Now(),
+		oneLaneQCMap(rng, committee, keys, vs),
+		utils.Some(outside),
+	))
+	require.False(t, fpOutside.Proposal().Msg().App().IsPresent())
+	require.False(t, fpOutside.appQC.IsPresent())
+	require.NoError(t, fpOutside.Verify(vs))
+
+	// A leader that puts the incompatible App back on the wire is rejected.
+	proposalPB := ProposalConv.Encode(fpOutside.Proposal().Msg())
+	proposalPB.App = AppProposalConv.Encode(outside.Proposal())
+	wrongEpochProposal := utils.OrPanic1(ProposalConv.Decode(proposalPB))
+	fullPB := FullProposalConv.Encode(fpOutside)
+	fullPB.ProposalV2 = SignedProposalConv.Encode(Sign(leader, wrongEpochProposal))
+	wrongEpoch := utils.OrPanic1(FullProposalConv.Decode(fullPB))
+	require.Error(t, wrongEpoch.Verify(vs))
 }
 
 func TestProposalVerifyRejectsChangedCarriedAppProposal(t *testing.T) {
@@ -761,6 +816,35 @@ func TestProposalVerifyRejectsChangedCarriedAppProposal(t *testing.T) {
 	require.Error(t, tampered.Verify(vs))
 }
 
+func TestProposalVerifyRejectsWrappedAppRoadWithoutPanic(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep := genFreshEpoch(rng, committee)
+	vs := genesisViewSpec(rng, ep)
+	leader := leaderKey(committee, keys, vs.View())
+	fp := utils.OrPanic1(NewProposal(
+		leader,
+		vs,
+		time.Now(),
+		oneLaneQCMap(rng, committee, keys, vs),
+		utils.None[*AppQC](),
+	))
+
+	proposalPB := ProposalConv.Encode(fp.Proposal().Msg())
+	proposalPB.App = AppProposalConv.Encode(NewAppProposal(
+		0,
+		utils.Max[RoadIndex](),
+		GenAppHash(rng),
+		ep.EpochIndex(),
+	))
+	maliciousProposal := utils.OrPanic1(ProposalConv.Decode(proposalPB))
+	fullPB := FullProposalConv.Encode(fp)
+	fullPB.ProposalV2 = SignedProposalConv.Encode(Sign(leader, maliciousProposal))
+	malicious := utils.OrPanic1(FullProposalConv.Decode(fullPB))
+
+	require.Error(t, malicious.Verify(vs))
+}
+
 func TestProposalFallsBackWhenAppQCFromFuture(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
@@ -783,6 +867,43 @@ func TestProposalFallsBackWhenAppQCFromFuture(t *testing.T) {
 	require.True(t, ok, "must fall back to CommitQC App, not clear to None")
 	want, _ := qc1.Proposal().App().Get()
 	require.Equal(t, want.AppHash(), app.AppHash())
+	require.NoError(t, fp.Verify(vs))
+}
+
+func TestProposalDropsStaleCarriedAppAfterEpochAdvance(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep0 := NewEpoch(0, RoadRange{First: 0, Next: 1}, committee)
+	ep1 := NewEpoch(1, RoadRange{First: 1, Next: 2}, committee)
+	ep2 := NewEpoch(2, RoadRange{First: 2, Next: utils.Max[RoadIndex]()}, committee)
+
+	qc0 := BuildCommitQC(ep0, keys, utils.None[*CommitQC](), nil, utils.None[*AppQC]())
+	oldApp := makeAppQCFor(
+		keys,
+		qc0.GlobalRange().Next-1,
+		qc0.Proposal().Index(),
+		GenAppHash(rng),
+		ep0.EpochIndex(),
+	)
+	qc1 := BuildCommitQC(ep1, keys, utils.Some(qc0), nil, utils.Some(oldApp))
+	vs := ViewSpec{CommitQC: utils.Some(qc1), Epochs: NewEpochDuo(ep2, utils.Some(ep1))}
+	future := makeAppQCFor(
+		keys,
+		vs.NextGlobalBlock(),
+		vs.View().Index,
+		GenAppHash(rng),
+		ep2.EpochIndex(),
+	)
+
+	fp := utils.OrPanic1(NewProposal(
+		leaderKey(committee, keys, vs.View()),
+		vs,
+		time.Now(),
+		oneLaneQCMap(rng, committee, keys, vs),
+		utils.Some(future),
+	))
+	require.False(t, fp.Proposal().Msg().App().IsPresent())
+	require.False(t, fp.appQC.IsPresent())
 	require.NoError(t, fp.Verify(vs))
 }
 

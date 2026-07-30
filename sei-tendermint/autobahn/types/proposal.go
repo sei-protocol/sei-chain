@@ -377,13 +377,14 @@ func buildProposal(
 	if wantMin := viewSpec.NextTimestamp(); timestamp.Before(wantMin) {
 		timestamp = wantMin
 	}
-	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app, viewSpec.NextGlobalBlock())
-	if a, ok := proposal.App().Get(); ok && !proposal.acceptsAppEpoch(a.EpochIndex()) {
-		return nil, appQC, fmt.Errorf(
-			"app epoch_index %d incompatible with proposal epoch %d",
-			a.EpochIndex(), proposal.EpochIndex(),
-		)
+	if a, ok := app.Get(); ok {
+		cur := viewSpec.Epoch().EpochIndex()
+		if a.EpochIndex() != cur && !(cur > 0 && a.EpochIndex() == cur-1) {
+			app = utils.None[*AppProposal]()
+			appQC = utils.None[*AppQC]()
+		}
 	}
+	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app, viewSpec.NextGlobalBlock())
 	if proposal.GlobalRange().Len() == 0 {
 		return nil, appQC, errors.New("empty tipcut: need at least one LaneQC")
 	}
@@ -514,7 +515,11 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			}
 		}
 		proposalApp := proposal.App()
-		if app, ok := proposalApp.Get(); ok && !proposal.acceptsAppEpoch(app.EpochIndex()) {
+		app, appPresent := proposalApp.Get()
+		if !appPresent {
+			return nil
+		}
+		if !proposal.acceptsAppEpoch(app.EpochIndex()) {
 			return fmt.Errorf(
 				"app epoch_index %d incompatible with proposal epoch %d",
 				app.EpochIndex(), proposal.EpochIndex(),
@@ -523,45 +528,45 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 
 		// Verify the appQC.
 		previousApp := AppOpt(ProposalOpt(vs.CommitQC))
-		if got, wantMin := NextOpt(proposalApp), NextOpt(previousApp); got < wantMin {
-			return errors.New("AppProposal lower than in previous CommitQC")
-		} else if got == wantMin {
-			if m.appQC.IsPresent() {
-				return errors.New("unnecessary appQC")
+		previous, previousPresent := previousApp.Get()
+		if previousPresent {
+			if app.RoadIndex() < previous.RoadIndex() {
+				return errors.New("AppProposal lower than in previous CommitQC")
 			}
-			if app, ok := proposalApp.Get(); ok {
-				previous := previousApp.OrPanic("previous AppProposal is present when NextOpt matches")
+			if app.RoadIndex() == previous.RoadIndex() {
+				if m.appQC.IsPresent() {
+					return errors.New("unnecessary appQC")
+				}
 				if NewHashed(NewAppVote(app)).hash != NewHashed(NewAppVote(previous)).hash {
 					return errors.New("AppProposal differs from previous CommitQC")
 				}
-			}
-		} else {
-			app := proposalApp.OrPanic("AppProposal is present when NextOpt increased")
-			appEpoch := app.EpochIndex()
-			cur := vs.Epoch()
-			appQC, ok := m.appQC.Get()
-			if !ok {
-				return errors.New("appQC missing")
-			}
-			if appQC.vote.hash != NewHashed(NewAppVote(app)).hash {
-				return errors.New("appQC doesn't match the proposal")
-			}
-			s.Spawn(func() error {
-				ep := vs.Epochs.Current
-				if appEpoch != cur.EpochIndex() {
-					ep = vs.Epochs.Prev.OrPanic("previous epoch required for previous-epoch AppQC")
-				}
-				if err := appQC.Verify(ep); err != nil {
-					return fmt.Errorf("appQC: %w", err)
-				}
 				return nil
-			})
-			if got, want := appQC.Proposal().RoadIndex(), vs.View().Index; got >= want {
-				return fmt.Errorf("appQC road %v ahead of tipcut view %v", got, want)
 			}
-			if got, want := appQC.Proposal().GlobalNumber(), vs.NextGlobalBlock(); got >= want {
-				return fmt.Errorf("appQC for block %v, while only %v blocks were finalized", got, want)
+		}
+		appEpoch := app.EpochIndex()
+		cur := vs.Epoch()
+		appQC, ok := m.appQC.Get()
+		if !ok {
+			return errors.New("appQC missing")
+		}
+		if appQC.vote.hash != NewHashed(NewAppVote(app)).hash {
+			return errors.New("appQC doesn't match the proposal")
+		}
+		s.Spawn(func() error {
+			ep := vs.Epochs.Current
+			if appEpoch != cur.EpochIndex() {
+				ep = vs.Epochs.Prev.OrPanic("previous epoch required for previous-epoch AppQC")
 			}
+			if err := appQC.Verify(ep); err != nil {
+				return fmt.Errorf("appQC: %w", err)
+			}
+			return nil
+		})
+		if got, want := appQC.Proposal().RoadIndex(), vs.View().Index; got >= want {
+			return fmt.Errorf("appQC road %v ahead of tipcut view %v", got, want)
+		}
+		if got, want := appQC.Proposal().GlobalNumber(), vs.NextGlobalBlock(); got >= want {
+			return fmt.Errorf("appQC for block %v, while only %v blocks were finalized", got, want)
 		}
 		return nil
 	})
