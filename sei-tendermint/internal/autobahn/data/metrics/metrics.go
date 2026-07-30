@@ -15,6 +15,8 @@ type metrics struct {
 	blockHeight prometheus.GaugeIntVec `metrics_labels:"stage"`
 	// gas used by executed blocks
 	gasUsed prometheus.CounterIntVec
+	// size of executed transactions in bytes
+	txSize prometheus.HistogramVec `metrics_buckets:"none"`
 }
 
 type stageMetrics struct {
@@ -29,6 +31,8 @@ type Metrics struct {
 	Execute stageMetrics
 	Evict   stageMetrics
 	GasUsed *prometheus.CounterInt
+	// TxSize has no finite buckets; it exports count and sum only.
+	TxSize *prometheus.Histogram
 }
 
 func Get() *Metrics {
@@ -45,5 +49,6 @@ func Get() *Metrics {
 		Execute: get("execute"),
 		Evict:   get("evict"),
 		GasUsed: Global.gasUsedAt(),
+		TxSize:  Global.txSizeAt(),
 	}
 }

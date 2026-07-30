@@ -643,6 +643,13 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
 			s.metrics.Execute.BlocksLatency.Observe(latency)
 			s.metrics.Execute.TxsLatency.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+			if txCount := len(b.Payload().Txs()); txCount > 0 {
+				var totalTxSize int
+				for _, tx := range b.Payload().Txs() {
+					totalTxSize += len(tx)
+				}
+				s.metrics.TxSize.ObserveWithWeight(float64(totalTxSize)/float64(txCount), uint64(txCount))
+			}
 			inner.appProposals[inner.nextAppProposal] = proposal
 			inner.nextAppProposal += 1
 		}

@@ -14,6 +14,7 @@ func init() {
 		Global.latency,
 		Global.blockHeight,
 		Global.gasUsed,
+		Global.txSize,
 	)
 }
 
@@ -38,6 +39,12 @@ func newMetrics() *metrics {
 			Name:      "gas_used",
 			Help:      "gas used by executed blocks",
 		}, nil),
+		txSize: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "tx_size",
+			Help:      "size of executed transactions in bytes",
+		}, nil),
 	}
 }
 
@@ -51,4 +58,8 @@ func (m *metrics) blockHeightAt(stage string) *tmprometheus.GaugeInt {
 
 func (m *metrics) gasUsedAt() *tmprometheus.CounterInt {
 	return m.gasUsed.WithLabelValues()
+}
+
+func (m *metrics) txSizeAt() *tmprometheus.Histogram {
+	return m.txSize.WithLabelValues()
 }
