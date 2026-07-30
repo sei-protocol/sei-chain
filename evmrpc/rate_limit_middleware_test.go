@@ -254,6 +254,49 @@ func TestComposedStack_OversizeContentLengthBeforeProbeRead(t *testing.T) {
 	require.Equal(t, int64(0), tracked.drained, "oversize body must be rejected before probe read")
 }
 
+func TestComposedStack_ChunkedOversizeReturns413(t *testing.T) {
+	const maxBody = 100
+	reg := mustRateLimitRegistry(t, 100, 10)
+	gate := NewRateLimitGate(reg, maxBody, true, "evm")
+
+	var innerRan bool
+	base := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		innerRan = true
+		w.WriteHeader(http.StatusOK)
+	})
+	stack := newRequestSizeLimiter(newRateLimitMiddleware(base, gate), maxBody, 0)
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", maxBody+64)))
+	req.ContentLength = -1
+
+	rec := httptest.NewRecorder()
+	stack.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	require.Contains(t, rec.Body.String(), "request body too large")
+	require.False(t, innerRan)
+}
+
+func TestRateLimitMiddleware_MaxBytesReaderOversizeReturns413(t *testing.T) {
+	const maxBody = 100
+	reg := mustRateLimitRegistry(t, 100, 10)
+	gate := NewRateLimitGate(reg, maxBody, true, "evm")
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner should not be called")
+	})
+	h := newRateLimitMiddleware(inner, gate)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", maxBody+64)))
+	req.Body = http.MaxBytesReader(rec, req.Body, maxBody)
+	req.ContentLength = -1
+
+	h.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	require.Contains(t, rec.Body.String(), "request body too large")
+}
+
 func TestRateLimitGate_Check(t *testing.T) {
 	reg := mustRateLimitRegistry(t, 0.001, 1)
 	gate := NewRateLimitGate(reg, 0, true, "evm")

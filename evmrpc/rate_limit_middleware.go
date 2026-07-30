@@ -32,12 +32,11 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	ip := m.gate.registry.IPFromHTTPRequest(r)
 	body, err := readBoundedBody(r.Body, m.gate.maxBodyBytes)
 	if err != nil {
-		if errors.Is(err, errBodyTooLarge) {
+		if isRequestBodyTooLarge(err) {
 			recordRequestRejected(r.Context(), rejectReasonOversize)
 			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 			return
 		}
-		recordRequestRejected(r.Context(), rejectReasonUnparseable)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -83,4 +82,16 @@ func readBoundedBody(body io.ReadCloser, maxBytes int64) ([]byte, error) {
 		return nil, errBodyTooLarge
 	}
 	return buf, nil
+}
+
+// isRequestBodyTooLarge reports whether err indicates the request body exceeded
+// maxBodyBytes. The outer requestSizeLimiter wraps r.Body in http.MaxBytesReader,
+// which returns *http.MaxBytesError; readBoundedBody returns errBodyTooLarge when
+// the gate runs without that wrapper.
+func isRequestBodyTooLarge(err error) bool {
+	if errors.Is(err, errBodyTooLarge) {
+		return true
+	}
+	var maxErr *http.MaxBytesError
+	return errors.As(err, &maxErr)
 }
