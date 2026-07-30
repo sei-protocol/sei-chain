@@ -24,8 +24,7 @@ func OpenStateWAL(cfg *config.Config) (statewal.StateWAL, error) {
 
 // stateWALConfig builds the state WAL configuration for a store configured by cfg: a "changelog"
 // subdirectory of the data dir, with a fixed instance name used only to label metrics. It is the single
-// definition of that layout convention, shared by OpenStateWAL and resetWAL (which reconstructs the
-// instance from the same convention when reopening after a close).
+// definition of that layout convention.
 func stateWALConfig(cfg *config.Config) *statewal.Config {
 	return statewal.DefaultConfig(filepath.Join(cfg.DataDir, changelogDir), "flatkv")
 }

@@ -93,12 +93,14 @@ func (s *CommitStore) Close() error {
 	err := s.closeDBsOnly()
 
 	// FlatKV owns Close of whatever WAL instance it currently holds (the injected one, or a replacement made
-	// by rollback/restore). A nil WAL means the outer context owns the pipeline — nothing to close.
+	// by rollback/restore). A nil WAL means the outer context owns the pipeline — nothing to close. The
+	// closed instance is deliberately retained rather than nilled: a store constructed with a WAL holds one
+	// for its whole life, so a later write fails loudly against the closed WAL instead of being silently
+	// skipped as it would be against a nil one.
 	if s.wal != nil {
 		if walErr := s.wal.Close(); walErr != nil {
 			err = errors.Join(err, fmt.Errorf("WAL close: %w", walErr))
 		}
-		s.wal = nil
 	}
 
 	s.cancel()

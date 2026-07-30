@@ -1398,6 +1398,92 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	require.Equal(t, expectedVersion+1, v)
 }
 
+// walStoreAtV1 returns an open store managing a real WAL, with one committed block.
+func walStoreAtV1(t *testing.T, cfg *config.Config) *CommitStore {
+	t.Helper()
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x01)))
+	cs := makeChangeSet(key, padLeft32(0xAA), false)
+	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{cs}))
+	_, err = s.Commit(1)
+	require.NoError(t, err)
+	return s
+}
+
+// TestCloseRetainsWALInstance verifies Close leaves the closed WAL in place instead of nilling it. A store
+// built with a WAL must hold one for its whole life: a nil field is indistinguishable from "the outer
+// context owns the pipeline", which is what made a WAL-less writer commit with no log.
+func TestCloseRetainsWALInstance(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	s := walStoreAtV1(t, cfg)
+
+	require.True(t, s.manageWAL)
+	require.NoError(t, s.Close())
+	require.NotNil(t, s.wal, "Close must retain the closed WAL instance, not nil it")
+	require.True(t, s.manageWAL, "manageWAL is fixed at construction")
+}
+
+// TestCommitWithClosedWALFailsLoudly verifies the state a failed resetWAL now leaves behind — DBs open, WAL
+// closed — refuses to commit rather than persisting to the four Pebble DBs with nothing to replay from. That
+// is the whole point of retaining the closed instance: against a nil WAL this commit would silently succeed.
+func TestCommitWithClosedWALFailsLoudly(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	s := walStoreAtV1(t, cfg)
+
+	// Exactly the state left by a resetWAL whose Delete or New failed after the old WAL was closed.
+	require.NoError(t, s.wal.Close())
+
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x02)))
+	cs := makeChangeSet(key, padLeft32(0xBB), false)
+	require.NoError(t, s.ApplyChangeSets(2, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(2)
+	require.Error(t, err, "a store whose WAL is closed must not commit silently")
+	require.Contains(t, err.Error(), "closed")
+	require.Equal(t, int64(1), s.committedVersion, "the failed commit must not advance the version")
+
+	// Closing the store closes the WAL a second time, which must be a no-op.
+	require.NoError(t, s.Close())
+}
+
+// TestResetWALAfterCloseReopens covers the live import path: rootmulti.Restore closes the store before
+// calling Importer, so resetWAL runs against an already-closed instance. It must still read the config off
+// it and close it a second time without error.
+func TestResetWALAfterCloseReopens(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	s := walStoreAtV1(t, cfg)
+	require.NoError(t, s.Close())
+
+	require.NoError(t, s.resetWAL())
+	require.NotNil(t, s.wal)
+
+	ok, _, _, err := s.wal.GetStoredRange()
+	require.NoError(t, err)
+	require.False(t, ok, "resetWAL must leave an empty WAL")
+	require.NoError(t, s.Close())
+}
+
+// TestRollbackRetainsWALInstance pins the behavior Rollback already had — it never nils s.wal — so a future
+// edit cannot reintroduce the fail-silent shape there.
+func TestRollbackRetainsWALInstance(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	s := walStoreAtV1(t, cfg)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x03)))
+	cs := makeChangeSet(key, padLeft32(0xCC), false)
+	require.NoError(t, s.ApplyChangeSets(2, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(2)
+	require.NoError(t, err)
+
+	require.NoError(t, s.Rollback(1))
+	require.NotNil(t, s.wal)
+	require.Equal(t, int64(1), s.committedVersion)
+}
+
 func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
