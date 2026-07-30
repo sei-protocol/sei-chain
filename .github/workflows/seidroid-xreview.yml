@@ -1,10 +1,8 @@
 name: seidroid xreview
-# Comment `seidroid xreview` (or `... --dry-run`) on a PR to run the on-demand,
-# sandbox-backed agentic review. Thin caller: the logic is the reusable workflow in
-# sei-protocol/uci; bump both refs below (to the next release's commit SHA) to adopt a
-# new xreview release. Runs dry-run until the SEIDROID_XREVIEW_DRY_RUN repo variable is
-# set to 'false' (read as `vars.SEIDROID_XREVIEW_DRY_RUN` by the reusable workflow, which
-# resolves it against this repo — there is no `with:` input for it here).
+# Comment `seidroid xreview` on a PR to run the on-demand, sandbox-backed agentic review.
+# Thin caller: the logic is the reusable workflow in sei-protocol/uci; bump both refs below
+# (to the next release's commit SHA) to adopt a new xreview release. The verdict is posted to
+# the PR as one sticky comment when a review produces one.
 on:
   issue_comment:
     types: [created]
@@ -22,10 +20,10 @@ jobs:
       && github.event.comment.user.type != 'Bot'
       && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
       && contains(github.event.comment.body, 'seidroid xreview') }}
-    # Pinned to the immutable commit for uci v0.0.14 — a mutable tag would let anyone
+    # Pinned to the immutable commit for uci v0.0.15 — a mutable tag would let anyone
     # able to move it run code in this repo's Actions context with the passed secret.
     # Matches how ai-review/ai-assist pin uci (a full commit SHA).
-    uses: sei-protocol/uci/.github/workflows/seidroid-xreview.yml@a63adbcea9100121491ec25c758a36baf6a5cf9c  # uci v0.0.14
+    uses: sei-protocol/uci/.github/workflows/seidroid-xreview.yml@65901242783550521f25a19199a6b10e54550b97  # uci v0.0.15
     permissions:
       pull-requests: write   # upsert the one sticky verdict comment
       contents: read         # read PR metadata
@@ -37,4 +35,4 @@ jobs:
     secrets:
       OMNIGENT_M2M_CLIENT_SECRET: ${{ secrets.OMNIGENT_M2M_CLIENT_SECRET }}
     with:
-      uci-ref: a63adbcea9100121491ec25c758a36baf6a5cf9c   # uci v0.0.14 (same commit as `uses:`)
+      uci-ref: 65901242783550521f25a19199a6b10e54550b97   # uci v0.0.15 (same commit as `uses:`)
