@@ -255,7 +255,7 @@ func getDefaultOpts() opts {
 		32,
 		1000,
 		200.0,
-		400,
+		1000,
 		nil,
 		nil,
 		1000,
@@ -650,6 +650,7 @@ func TestReadConfigRateLimiting(t *testing.T) {
 	require.Nil(t, cfg.TrustedProxyCIDRs)
 	require.Equal(t, config.DefaultConfig.IPRateLimitRPS, cfg.IPRateLimitRPS)
 	require.Equal(t, config.DefaultConfig.IPRateLimitBurst, cfg.IPRateLimitBurst)
+	require.GreaterOrEqual(t, cfg.IPRateLimitBurst, cfg.BatchRequestLimit)
 
 	o := getDefaultOpts()
 	o.rateLimitingEnabled = false

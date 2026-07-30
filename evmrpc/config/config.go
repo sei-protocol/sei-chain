@@ -244,7 +244,8 @@ type Config struct {
 
 	// IPRateLimitBurst is the maximum per-IP burst size. Zero disables the token
 	// bucket (same effect as ip_rate_limit_rps = 0) and does not bypass the
-	// admission middleware when rate_limiting_enabled is true.
+	// admission middleware when rate_limiting_enabled is true. Should be at least
+	// batch_request_limit because the rate limiter charges one token per batch element.
 	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
 
 	// RateLimitingEnabled is the master switch for the rate-limit admission
@@ -283,6 +284,8 @@ type Config struct {
 	// accept queue until an active connection closes. Zero disables the limit.
 	MaxOpenConnections int `mapstructure:"max_open_connections"`
 }
+
+const defaultBatchRequestLimit = 1000
 
 var DefaultConfig = Config{
 	HTTPEnabled:                  true,
@@ -335,10 +338,10 @@ var DefaultConfig = Config{
 	TraceBakeUseSnapshot:      false,
 	TraceBakeSnapshotWindow:   64,
 	IPRateLimitRPS:            200,
-	IPRateLimitBurst:          400,
+	IPRateLimitBurst:          defaultBatchRequestLimit,
 	RateLimitingEnabled:       false,
 	TrustedProxyCIDRs:         nil,
-	BatchRequestLimit:         1000,
+	BatchRequestLimit:         defaultBatchRequestLimit,
 	BatchResponseMaxSize:      25 * 1000 * 1000,  // 25MB
 	MaxRequestBodyBytes:       5 * 1024 * 1024,   // 5 MiB (matches go-ethereum rpc default body limit)
 	MaxConcurrentRequestBytes: 128 * 1024 * 1024, // 128 MiB of request bodies admitted concurrently
@@ -945,6 +948,7 @@ ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
 
 # ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
 # Set to 0 to disable per-IP throttling (same effect as ip_rate_limit_rps = 0).
+# Should be at least batch_request_limit (one token is charged per batch element).
 ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
 
 # rate_limiting_enabled is the master switch for the rate-limit admission
