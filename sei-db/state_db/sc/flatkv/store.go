@@ -520,6 +520,9 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 // exists because the clone has a nil WAL: the primary owns the WAL, so the primary reads it and feeds each
 // block into the clone via applyAndCommit (which never touches a WAL).
 //
+// The WAL must still reach back to the block after the clone's snapshot boundary. If it begins later than
+// that, the blocks the clone needs are gone and this fails rather than serving a clone with a hole in it.
+//
 // Concurrency: export runs in a background goroutine while this (primary) store may still be committing.
 // The iterator is constructed under s.mu, serializing against a concurrent Commit's WAL-wrapper access;
 // iteration then proceeds lock-free, because a seiwal iterator reads a consistent point-in-time (hard-link)
@@ -536,10 +539,8 @@ func (s *CommitStore) replayInto(clone *CommitStore, targetVersion int64) (retEr
 		return nil
 	}
 
-	start := uint64(clone.committedVersion) + 1 //nolint:gosec // committedVersion >= 0
-
 	s.mu.Lock()
-	ok, _, last, err := s.wal.GetStoredRange()
+	ok, first, last, err := s.wal.GetStoredRange()
 	if err != nil {
 		s.mu.Unlock()
 		return fmt.Errorf("readonly: WAL range: %w", err)
@@ -548,6 +549,15 @@ func (s *CommitStore) replayInto(clone *CommitStore, targetVersion int64) (retEr
 		s.mu.Unlock()
 		return nil // empty WAL: nothing to replay
 	}
+
+	// Replay from the block after the snapshot boundary the clone opened at. A clone at version 0 has no
+	// history behind it, so the WAL's first block is where this store's history begins rather than a gap —
+	// the same reasoning as catchup, which this must match or a store whose first block is above 1 (chain
+	// initial_height > 1) would be rejected as gapped.
+	start := first
+	if clone.committedVersion > 0 {
+		start = uint64(clone.committedVersion) + 1 //nolint:gosec // committedVersion > 0 checked above
+	}
 	end := last
 	if targetVersion > 0 && uint64(targetVersion) < end {
 		end = uint64(targetVersion)
@@ -555,6 +565,13 @@ func (s *CommitStore) replayInto(clone *CommitStore, targetVersion int64) (retEr
 	if end < start {
 		s.mu.Unlock()
 		return nil // clone already at or beyond target
+	}
+	if first > start {
+		// We are about to replay, but the primary's WAL no longer reaches back to this clone's snapshot, so
+		// the blocks the clone needs are gone. Only the export fails — the primary's own state is untouched.
+		s.mu.Unlock()
+		return fmt.Errorf("readonly: WAL starts at block %d but the clone needs block %d: "+
+			"blocks %d-%d are missing (data loss or corruption)", first, start, start, first-1)
 	}
 	it, err := s.wal.Iterator(start, end)
 	s.mu.Unlock()

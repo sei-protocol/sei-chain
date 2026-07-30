@@ -36,6 +36,9 @@ func (s *CommitStore) applyAndCommit(version int64, changesets []*proto.NamedCha
 // reads s.wal without additional locking. (Concurrent read for state-sync export goes through replayInto,
 // which locks around iterator construction.)
 //
+// The WAL must still reach back to the block after committedVersion. If it begins later than that, the
+// blocks in between are gone and catchup fails rather than silently skipping them.
+//
 // With a nil WAL there is no replay: the store can only be at a version that is already committed or that
 // exactly matches the snapshot it opened at. A load that would need to advance past the committed version
 // is rejected — the nil-WAL contract, where the outer context owns the WAL pipeline.
@@ -82,6 +85,13 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 	}
 	if endBlock < startBlock {
 		return nil
+	}
+	if first > startBlock {
+		// We are about to replay, but the blocks between where this store sits and where the WAL begins are
+		// gone. Starting at first would silently skip them and commit a state whose LtHash matches no real
+		// chain history. Retention never drops blocks a store still needs, so this is loss or a bug.
+		return fmt.Errorf("catchup: WAL starts at block %d but replay must start at block %d: "+
+			"blocks %d-%d are missing (data loss or corruption)", first, startBlock, startBlock, first-1)
 	}
 
 	logger.Info("FlatKV catchup start",
