@@ -339,8 +339,31 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 	if err != nil {
 		return nil, fmt.Errorf("convertFlatKVNodes failed: %w", err)
 	}
+	if moduleName == "" {
+		// Same guard as classifyAndPrefix and routePhysicalKey: an empty
+		// module would produce a StoreKey the SS importer silently drops.
+		return nil, fmt.Errorf("flatkv: empty module name in physical key %q", node.Key)
+	}
+	if len(innerKey) == 0 {
+		// A bare "module/" key cannot be produced by a healthy writer (the
+		// SDK rejects empty keys before they reach a changeset), so seeing
+		// one during import signals corruption. Reject it explicitly: the
+		// misc path would emit an empty-key node that the SS importer
+		// silently skips, hiding the problem.
+		return nil, fmt.Errorf("flatkv: empty inner key in physical key %q", node.Key)
+	}
 
-	kind, strippedKey := keys.ParseEVMKey(innerKey)
+	// Only keys under the EVM module carry EVM kind prefixes. Legacy module
+	// keys are opaque bytes: a staking/bank/... key can coincidentally start
+	// with an EVM prefix byte and satisfy its length check, and would then be
+	// deserialized as the wrong vtype (observed on production-scale data).
+	// Default them to the misc kind — their values are always MiscData. This
+	// mirrors the write side (classifyAndPrefix) and the read routing
+	// (routePhysicalKey), which both gate EVM parsing on the module name.
+	kind, strippedKey := keys.EVMKeyMisc, innerKey
+	if moduleName == evm.EVMStoreKey {
+		kind, strippedKey = keys.ParseEVMKey(innerKey)
+	}
 
 	switch kind {
 	case keys.EVMKeyNonce:
@@ -385,10 +408,10 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 			{StoreKey: evm.EVMStoreKey, Key: innerKey, Value: cd.GetBytecode()},
 		}, nil
 
-	case keys.EVMKeyLegacy:
-		ld, err := vtype.DeserializeLegacyData(node.Value)
+	case keys.EVMKeyMisc:
+		ld, err := vtype.DeserializeMiscData(node.Value)
 		if err != nil {
-			return nil, fmt.Errorf("failed to DeserializeLegacyData legacy: %w", err)
+			return nil, fmt.Errorf("failed to DeserializeMiscData misc: %w", err)
 		}
 		return []types.SnapshotNode{
 			{StoreKey: moduleName, Key: innerKey, Value: ld.GetValue()},

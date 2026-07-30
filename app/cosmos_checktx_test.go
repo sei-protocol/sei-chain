@@ -1,14 +1,20 @@
 package app_test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app"
 	anteante "github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
+	kmultisig "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/multisig"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
@@ -191,4 +197,178 @@ func TestCheckSignaturesSkipsEventsOnCheckTx(t *testing.T) {
 	events, err = anteante.CheckSignatures(recheckCtx, txConfig, signedTx, signerAccounts, authParams)
 	require.NoError(t, err)
 	require.Empty(t, events, "expected no signature events in ReCheckTx context")
+}
+
+func TestCosmosStatelessChecksRejectsInvalidNestedMultisigKey(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		malformedChild cryptotypes.PubKey
+	}{
+		{
+			name:           "wrong length secp256k1 child",
+			malformedChild: &secp256k1.PubKey{Key: bytes.Repeat([]byte{1}, secp256k1.PubKeySize+1)},
+		},
+		{
+			name:           "correct length invalid secp256k1 child",
+			malformedChild: &secp256k1.PubKey{Key: append([]byte{0x02}, bytes.Repeat([]byte{0xff}, secp256k1.PubKeySize-1)...)},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testApp := app.Setup(t, false, false, false)
+			ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+			signedTx, _ := buildNestedMultisigTx(t, ctx, tc.malformedChild)
+
+			_, err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "invalid secp256k1 public key")
+		})
+	}
+}
+
+func TestCosmosStatelessChecksRejectsOversizedMultisigBeforePubKeyValidation(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+
+	malformedChildren := make([]cryptotypes.PubKey, authtypes.DefaultTxSigLimit)
+	for i := range malformedChildren {
+		malformedChildren[i] = &secp256k1.PubKey{Key: append([]byte{0x02}, bytes.Repeat([]byte{0xff}, secp256k1.PubKeySize-1)...)}
+	}
+	signedTx, _ := buildNestedMultisigTx(t, ctx, malformedChildren...)
+
+	_, err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	require.Error(t, err)
+	require.ErrorIs(t, err, sdkerrors.ErrTooManySignatures)
+	require.NotContains(t, err.Error(), "invalid secp256k1 public key")
+}
+
+func TestCosmosStatelessChecksDoesNotAggregateTxSigLimitAcrossProvidedPubKeys(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+	txConfig := app.MakeEncodingConfig().TxConfig
+	txBuilder := txConfig.NewTxBuilder()
+
+	multisigPubKeys := make([]cryptotypes.PubKey, authtypes.DefaultTxSigLimit)
+	for i := range multisigPubKeys {
+		_, pubKey, _ := testdata.KeyTestPubAddr()
+		multisigPubKeys[i] = pubKey
+	}
+	multisigPubKey := kmultisig.NewLegacyAminoPubKey(1, multisigPubKeys)
+	multisigAddr := sdk.AccAddress(multisigPubKey.Address())
+	_, singlePubKey, singleAddr := testdata.KeyTestPubAddr()
+
+	require.NoError(t, txBuilder.SetMsgs(testdata.NewTestMsg(multisigAddr, singleAddr)))
+	txBuilder.SetFeeAmount(testdata.NewTestFeeAmount())
+	txBuilder.SetGasLimit(testdata.NewTestGasLimit())
+	require.NoError(t, txBuilder.SetSignatures(
+		signing.SignatureV2{
+			PubKey:   multisigPubKey,
+			Data:     multisig.NewMultisig(len(multisigPubKeys)),
+			Sequence: 0,
+		},
+		signing.SignatureV2{
+			PubKey: singlePubKey,
+			Data: &signing.SingleSignatureData{
+				SignMode: txConfig.SignModeHandler().DefaultMode(),
+			},
+			Sequence: 0,
+		},
+	))
+
+	_, err := anteante.CosmosStatelessChecks(txBuilder.GetTx(), ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	require.NoError(t, err)
+}
+
+func TestCosmosStatelessChecksRejectsDeepNestedMultisig(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+
+	_, leafPubKey, _ := testdata.KeyTestPubAddr()
+	nestedPubKey := leafPubKey
+	for i := 0; i < 5; i++ {
+		nestedPubKey = kmultisig.NewLegacyAminoPubKey(1, []cryptotypes.PubKey{nestedPubKey})
+	}
+	signedTx, _ := buildNestedMultisigTx(t, ctx, nestedPubKey)
+
+	_, err := anteante.CosmosStatelessChecks(signedTx, ctx.BlockHeight(), ctx.ConsensusParams(), authtypes.DefaultParams())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "multisig public key nesting exceeds limit")
+}
+
+func TestCheckPubKeysRejectsInvalidNestedMultisigKey(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		malformedChild cryptotypes.PubKey
+	}{
+		{
+			name:           "wrong length secp256k1 child",
+			malformedChild: &secp256k1.PubKey{Key: bytes.Repeat([]byte{1}, secp256k1.PubKeySize+1)},
+		},
+		{
+			name:           "correct length invalid secp256k1 child",
+			malformedChild: &secp256k1.PubKey{Key: append([]byte{0x02}, bytes.Repeat([]byte{0xff}, secp256k1.PubKeySize-1)...)},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testApp := app.Setup(t, false, false, false)
+			ctx := testApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+			signedTx, addr := buildNestedMultisigTx(t, ctx, tc.malformedChild)
+
+			acc := testApp.AccountKeeper.NewAccountWithAddress(ctx, addr)
+			require.NoError(t, acc.SetAccountNumber(0))
+			testApp.AccountKeeper.SetAccount(ctx, acc)
+
+			_, err := anteante.CheckPubKeys(ctx, signedTx, testApp.AccountKeeper, authtypes.DefaultParams())
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "invalid secp256k1 public key")
+
+			storedAcc := testApp.AccountKeeper.GetAccount(ctx, addr)
+			require.NotNil(t, storedAcc)
+			require.Nil(t, storedAcc.GetPubKey())
+		})
+	}
+}
+
+func buildNestedMultisigTx(t *testing.T, ctx sdk.Context, malformedPubKeys ...cryptotypes.PubKey) (sdk.Tx, sdk.AccAddress) {
+	t.Helper()
+
+	txConfig := app.MakeEncodingConfig().TxConfig
+	txBuilder := txConfig.NewTxBuilder()
+
+	priv, pubKey, _ := testdata.KeyTestPubAddr()
+	pubKeys := append([]cryptotypes.PubKey{pubKey}, malformedPubKeys...)
+	multisigPubKey := kmultisig.NewLegacyAminoPubKey(1, pubKeys)
+	addr := sdk.AccAddress(multisigPubKey.Address())
+
+	require.NoError(t, txBuilder.SetMsgs(testdata.NewTestMsg(addr)))
+	txBuilder.SetFeeAmount(testdata.NewTestFeeAmount())
+	txBuilder.SetGasLimit(testdata.NewTestGasLimit())
+	require.NoError(t, txBuilder.SetSignatures(signing.SignatureV2{
+		PubKey:   multisigPubKey,
+		Data:     multisig.NewMultisig(len(pubKeys)),
+		Sequence: 0,
+	}))
+
+	singleSig, err := tx.SignWithPrivKey(
+		txConfig.SignModeHandler().DefaultMode(),
+		authsigning.SignerData{
+			ChainID:       ctx.ChainID(),
+			AccountNumber: 0,
+			Sequence:      0,
+		},
+		txBuilder,
+		priv,
+		txConfig,
+		0,
+	)
+	require.NoError(t, err)
+
+	multisigSig := multisig.NewMultisig(len(pubKeys))
+	require.NoError(t, multisig.AddSignatureV2(multisigSig, singleSig, pubKeys))
+	require.NoError(t, txBuilder.SetSignatures(signing.SignatureV2{
+		PubKey:   multisigPubKey,
+		Data:     multisigSig,
+		Sequence: 0,
+	}))
+
+	return txBuilder.GetTx(), addr
 }

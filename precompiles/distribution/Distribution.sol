@@ -50,6 +50,49 @@ interface IDistr {
     /// @return rewards Structured data containing all pending rewards
     function rewards(address delegatorAddress) external view returns (Rewards memory rewards);
 
+    /// @notice Gets the distribution module parameters
+    /// @return params The distribution module parameters
+    function params() external view returns (DistributionParams memory params);
+
+    /// @notice Gets the outstanding (un-withdrawn) rewards of a validator and all its delegations
+    /// @param validatorAddress The validator's Sei address (e.g., "seivaloper1...")
+    /// @return rewards The outstanding rewards of the validator
+    function validatorOutstandingRewards(string memory validatorAddress) external view returns (Coin[] memory rewards);
+
+    /// @notice Gets the accumulated commission of a validator
+    /// @param validatorAddress The validator's Sei address (e.g., "seivaloper1...")
+    /// @return commission The accumulated commission of the validator
+    function validatorCommission(string memory validatorAddress) external view returns (Coin[] memory commission);
+
+    /// @notice Gets the slash events of a validator within a height range
+    /// @param validatorAddress The validator's Sei address (e.g., "seivaloper1...")
+    /// @param startingHeight The starting height to query the slashes from
+    /// @param endingHeight The ending height to query the slashes to
+    /// @param pageKey The pagination key from a previous response (empty bytes for the first page)
+    /// @return slashes The slash events of the validator
+    /// @return nextKey The pagination key for the next page (empty when exhausted)
+    function validatorSlashes(string memory validatorAddress, uint64 startingHeight, uint64 endingHeight, bytes memory pageKey) external view returns (Slash[] memory slashes, bytes memory nextKey);
+
+    /// @notice Gets the pending rewards of a delegation
+    /// @param delegatorAddress The EVM address of the delegator
+    /// @param validatorAddress The validator's Sei address (e.g., "seivaloper1...")
+    /// @return rewards The pending rewards accrued by the delegation
+    function delegationRewards(address delegatorAddress, string memory validatorAddress) external view returns (Coin[] memory rewards);
+
+    /// @notice Gets the validators a delegator is delegating to
+    /// @param delegatorAddress The EVM address of the delegator
+    /// @return validators The Sei addresses of the validators
+    function delegatorValidators(address delegatorAddress) external view returns (string[] memory validators);
+
+    /// @notice Gets the withdraw address of a delegator
+    /// @param delegatorAddress The EVM address of the delegator
+    /// @return withdrawAddress The delegator's withdraw address (bech32)
+    function delegatorWithdrawAddress(address delegatorAddress) external view returns (string memory withdrawAddress);
+
+    /// @notice Gets the coins held by the community pool
+    /// @return pool The coins in the community pool
+    function communityPool() external view returns (Coin[] memory pool);
+
     /// @notice Represents a coin/token with amount, decimals, and denomination
     /// @dev Used to represent various tokens in the Cosmos ecosystem
     struct Coin {
@@ -77,5 +120,25 @@ interface IDistr {
         Reward[] rewards;
         /// @notice Total rewards summed across all validators
         Coin[] total;
+    }
+
+    /// @notice Parameters of the distribution module
+    struct DistributionParams {
+        /// @notice The tax rate applied to rewards for the community pool (decimal string)
+        string communityTax;
+        /// @notice The base reward rate for block proposers (decimal string)
+        string baseProposerReward;
+        /// @notice The bonus reward rate for block proposers (decimal string)
+        string bonusProposerReward;
+        /// @notice Whether delegators can set a separate withdraw address
+        bool withdrawAddrEnabled;
+    }
+
+    /// @notice Represents a validator slash event
+    struct Slash {
+        /// @notice The validator distribution period when the slash occurred
+        uint64 validatorPeriod;
+        /// @notice The fraction of the validator's stake that was slashed (decimal string)
+        string fraction;
     }
 }

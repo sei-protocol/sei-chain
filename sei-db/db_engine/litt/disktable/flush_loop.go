@@ -75,7 +75,7 @@ func (f *flushLoop) run() {
 // the seal is finished and a new mutable segment has been created. This means that no future flush requests will be
 // sent to the segment that is being sealed, since only the control loop can schedule work for the flush loop.
 func (f *flushLoop) handleSealRequest(req *flushLoopSealRequest) {
-	durableKeys, err := req.segmentToSeal.Seal(req.now)
+	durableKeys, rawValueBytes, err := req.segmentToSeal.Seal(req.now)
 	if err != nil {
 		f.errorMonitor.Panic(fmt.Errorf("failed to seal segment %s: %w", req.segmentToSeal.String(), err))
 		return
@@ -84,7 +84,7 @@ func (f *flushLoop) handleSealRequest(req *flushLoopSealRequest) {
 	// Schedule the now-durable keys to be written into the keymap asynchronously. The segment data is already
 	// crash durable, so we don't block the seal on the keymap write; a crash that loses the scheduled write is
 	// repaired from the segment key files on the next startup. A full manager channel backpressures here.
-	err = f.keymapManager.scheduleWrite(durableKeys)
+	err = f.keymapManager.scheduleWrite(durableKeys, rawValueBytes)
 	if err != nil {
 		// The only error path is a panic-induced shutdown; the awaiting caller is released via the error
 		// monitor, so there is nothing more to do here.
@@ -117,7 +117,7 @@ func (f *flushLoop) handleFlushRequest(req *flushLoopFlushRequest) {
 		segmentFlushStart = f.clock()
 	}
 
-	durableKeys, err := req.flushWaitFunction()
+	durableKeys, rawValueBytes, err := req.flushWaitFunction()
 	if err != nil {
 		f.errorMonitor.Panic(fmt.Errorf("failed to flush mutable segment: %w", err))
 		return
@@ -133,12 +133,16 @@ func (f *flushLoop) handleFlushRequest(req *flushLoopFlushRequest) {
 	// caller without waiting for the keymap write. The segment data is already crash durable; a crash that
 	// loses the scheduled write is repaired from the segment key files on the next startup. A full manager
 	// channel backpressures here, which propagates back to Flush().
-	err = f.keymapManager.scheduleWrite(durableKeys)
+	err = f.keymapManager.scheduleWrite(durableKeys, rawValueBytes)
 	if err != nil {
 		// The only error path is a panic-induced shutdown; the awaiting caller is released via the error
 		// monitor, so there is nothing more to do here.
 		return
 	}
 
-	req.responseChan <- struct{}{}
+	// An auto-flush scheduled by the control loop is fire-and-forget and has no waiting caller, so its
+	// responseChan is nil. The cache-draining work above still runs; only the completion signal is skipped.
+	if req.responseChan != nil {
+		req.responseChan <- struct{}{}
+	}
 }

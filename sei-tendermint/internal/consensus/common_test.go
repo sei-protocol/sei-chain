@@ -501,7 +501,6 @@ func newStateWithConfigAndBlockStore(
 	mempool := mempool.NewTxMempool(
 		thisConfig.Mempool.ToMempoolConfig(),
 		app,
-		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
 
@@ -519,7 +518,7 @@ func newStateWithConfigAndBlockStore(
 		panic(fmt.Errorf("eventBus.Start(): %w", err))
 	}
 
-	blockExec := sm.NewBlockExecutor(stateStore, app, mempool, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
+	blockExec := sm.NewBlockExecutor(stateStore, app, mempool, evpool, blockStore, eventBus, types.DefaultConsensusPolicy())
 	wal, err := OpenWAL(thisConfig.Consensus.WalFile())
 	if err != nil {
 		panic(err)
@@ -534,7 +533,6 @@ func newStateWithConfigAndBlockStore(
 		evpool,
 		eventBus,
 		[]trace.TracerProviderOption{},
-		NopMetrics(),
 	)}
 	if err := stateHandle.updateStateFromStore(); err != nil {
 		panic(err)
@@ -990,11 +988,11 @@ func makeConsensusState(
 		closeFuncs = append(closeFuncs, app.Close)
 
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
-		_, err = app.InitChain(ctx, &abci.RequestInitChain{})
+		_, err = app.InitChain(&abci.RequestInitChain{})
 		require.NoError(t, err)
 		app.SetValidators(vals)
 
-		proxyApp := proxy.New(app, proxy.NopMetrics())
+		proxyApp := proxy.New(app)
 		css[i] = newStateWithConfigAndBlockStore(t, thisConfig, state, privVals[i], proxyApp, blockStore)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
@@ -1054,12 +1052,12 @@ func randConsensusNetWithPeers(
 		app := kvstore.NewApplication()
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
 		state.Version.Consensus.App = kvstore.ProtocolVersion
-		_, err = app.InitChain(ctx, &abci.RequestInitChain{})
+		_, err = app.InitChain(&abci.RequestInitChain{})
 		require.NoError(t, err)
 		app.SetValidators(vals)
 		// sm.SaveState(stateDB,state)	//height 1's validatorsInfo already saved in LoadStateFromDBOrGenesisDoc above
 
-		proxyApp := proxy.New(app, proxy.NopMetrics())
+		proxyApp := proxy.New(app)
 		css[i] = newStateWithConfig(t, thisConfig, state, privVal, proxyApp)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}

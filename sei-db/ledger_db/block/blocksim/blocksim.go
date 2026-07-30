@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
@@ -91,6 +92,10 @@ func NewBlockSim(
 		return nil, err
 	}
 
+	// Pre-generate a random buffer once; all block/QC data generation slices into it
+	// (zero-copy) so the generator never runs math/rand on the hot path.
+	cannedRand := crand.NewCannedRandom(int(config.RandomDataBufferSizeBytes), config.Seed) //nolint:gosec // buffer size is bounded by config
+
 	db, err := openBlockDB(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -121,14 +126,14 @@ func NewBlockSim(
 		// last QC's range — the next batch then appends contiguously. Block bytes
 		// are irrelevant here (this is a DB stress test), so the backfill writes
 		// freshly generated blocks under the already-persisted QC.
-		qcRange := prevQC.GlobalRange(committee)
+		qcRange := prevQC.GlobalRange()
 		lastQCNext := uint64(qcRange.Next)
 		firstMissing := uint64(qcRange.First)
 		if h, ok := highestOpt.Get(); ok {
 			firstMissing = h + 1
 		}
 		for n := firstMissing; n < lastQCNext; n++ {
-			blk := types.GenBlock(rng)
+			blk := backfillBlock(cannedRand, committee, config)
 			if err := db.WriteBlock(types.GlobalBlockNumber(n), blk); err != nil { //nolint:gosec // n < lastQCNext
 				cancel()
 				return nil, fmt.Errorf("failed to backfill block %d: %w", n, err)
@@ -138,7 +143,7 @@ func NewBlockSim(
 		fmt.Printf("Resuming from block %d.\n", highest)
 	}
 
-	generator := NewBlockGenerator(ctx, config, rng, committee, keys, prev)
+	generator := NewBlockGenerator(ctx, config, cannedRand, committee, keys, prev)
 
 	consoleUpdatePeriod := time.Duration(config.ConsoleUpdateIntervalSeconds * float64(time.Second))
 
@@ -170,39 +175,30 @@ func NewBlockSim(
 	return b, nil
 }
 
-// countExistingState scans the block and QC iterators to count what is already
-// persisted, exercising the replay path at startup.
+// countExistingState scans the ledger to count the persisted blocks and QCs,
+// exercising the replay path at startup.
 func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
-	blockIt, err := db.Blocks(false)
+	it, err := db.Iterator(0)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to open block iterator: %w", err)
+		return 0, 0, fmt.Errorf("failed to open ledger iterator: %w", err)
 	}
-	defer func() { _ = blockIt.Close() }()
+	defer func() { _ = it.Close() }()
 	for {
-		ok, err := blockIt.Next()
+		pos, ok, err := it.Next()
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to advance block iterator: %w", err)
+			return 0, 0, fmt.Errorf("failed to advance ledger iterator: %w", err)
 		}
 		if !ok {
 			break
 		}
-		blocks++
-	}
-
-	qcIt, err := db.QCs(false)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to open QC iterator: %w", err)
-	}
-	defer func() { _ = qcIt.Close() }()
-	for {
-		ok, err := qcIt.Next()
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to advance QC iterator: %w", err)
+		if pos.QC.QC().GlobalRange().First == pos.Number {
+			// The scan entered a new QC's range.
+			qcs++
 		}
-		if !ok {
-			break
+		// Presence comes off the position, so counting never reads a block value.
+		if pos.HasBlock {
+			blocks++
 		}
-		qcs++
 	}
 	return blocks, qcs, nil
 }
@@ -211,42 +207,30 @@ func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
 // after existing history rather than restarting from global block 0. It returns
 // the last persisted QC (to seed the generator's chain via BlockGenerator.prev)
 // and the highest persisted block number (None if no blocks are persisted, which
-// the caller must distinguish from block 0). Blocks and QCs are recovered
-// independently with a single reverse-iterator step each, because a hard crash
-// can leave the QC ahead of its blocks. An empty store yields (None, None, nil),
-// preserving genesis-start behavior.
+// the caller must distinguish from block 0). Both come from the write tips the
+// store recovers at open (Status), because a hard crash can leave the QC ahead
+// of its blocks: the newest QC is resolved by a point read at NextQC-1, which
+// cannot race pruning (the newest cohort is never pruned). An empty store yields
+// (None, None, nil), preserving genesis-start behavior.
 func recoverResumeState(
 	db types.BlockDB,
 ) (tmutils.Option[*types.CommitQC], tmutils.Option[uint64], error) {
 	prev := tmutils.None[*types.CommitQC]()
 	highest := tmutils.None[uint64]()
 
-	blockIt, err := db.Blocks(true)
-	if err != nil {
-		return prev, highest, fmt.Errorf("failed to open reverse block iterator: %w", err)
+	status := db.Status()
+	if status.NextBlock > 0 {
+		highest = tmutils.Some(uint64(status.NextBlock - 1))
 	}
-	defer func() { _ = blockIt.Close() }()
-	ok, err := blockIt.Next()
-	if err != nil {
-		return prev, highest, fmt.Errorf("failed to read newest block: %w", err)
-	}
-	if ok {
-		highest = tmutils.Some(uint64(blockIt.Number()))
-	}
-
-	qcIt, err := db.QCs(true)
-	if err != nil {
-		return prev, highest, fmt.Errorf("failed to open reverse QC iterator: %w", err)
-	}
-	defer func() { _ = qcIt.Close() }()
-	ok, err = qcIt.Next()
-	if err != nil {
-		return prev, highest, fmt.Errorf("failed to read newest QC: %w", err)
-	}
-	if ok {
-		fqc, err := qcIt.QC()
+	if status.NextQC > 0 {
+		covering, err := db.ReadQCByBlockNumber(status.NextQC - 1)
 		if err != nil {
-			return prev, highest, fmt.Errorf("failed to decode newest QC: %w", err)
+			return prev, highest, fmt.Errorf("failed to read newest QC: %w", err)
+		}
+		fqc, ok := covering.Get()
+		if !ok {
+			return prev, highest, fmt.Errorf(
+				"store reports QCs through %d but the newest QC is unreadable", status.NextQC)
 		}
 		prev = tmutils.Some(fqc.QC())
 	}
@@ -263,11 +247,25 @@ func buildCommittee(rng tmutils.Rng, size int) (*types.Committee, []types.Secret
 		keys[i] = types.GenSecretKey(rng)
 		replicas[i] = keys[i].Public()
 	}
-	committee, err := types.NewRoundRobinElection(replicas, 0, genesisTime)
+	committee, err := types.NewRoundRobinElection(replicas)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build committee: %w", err)
 	}
 	return committee, keys, nil
+}
+
+// backfillBlock builds a throwaway block for crash-recovery backfill using canned random
+// data. The block's content and internal header are irrelevant — the store keys blocks by
+// the global number passed to WriteBlock — so this avoids real crypto and math/rand.
+func backfillBlock(rand *crand.CannedRandom, committee *types.Committee, config *BlocksimConfig) *types.Block {
+	txs := make([][]byte, config.TransactionsPerBlock)
+	for i := range txs {
+		txs[i] = rand.Bytes(int(config.BytesPerTransaction)) //nolint:gosec // payload sizes are bounded by config validation
+	}
+	payload := tmutils.OrPanic1(types.PayloadBuilder{CreatedAt: time.Now(), Txs: txs}.Build())
+	payloadHash := tmutils.OrPanic1(types.ParsePayloadHash(rand.Bytes(hashSizeBytes)))
+	parentHash := tmutils.OrPanic1(types.ParseBlockHeaderHash(rand.Bytes(hashSizeBytes)))
+	return types.NewBlockForTesting(committee.Lanes().At(0), 0, parentHash, payload, payloadHash)
 }
 
 // The main loop of the benchmark.
@@ -329,7 +327,7 @@ func (b *BlockSim) maybeThrottle() {
 // partial batch.
 func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 	b.metrics.SetMainThreadPhase("write_qc")
-	if err := b.db.WriteQC(batch.first, batch.next, batch.qc); err != nil {
+	if err := b.db.WriteQC(batch.qc); err != nil {
 		fmt.Printf("failed to write QC: %v\n", err)
 		b.cancel()
 		return
@@ -350,7 +348,7 @@ func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 		b.totalBlocksWritten++
 		b.totalBytesWritten += blockBytes
 		b.highestBlockHeight = uint64(n)
-		b.metrics.ReportBlockWritten(blockBytes)
+		b.metrics.ReportBlockWritten(blockBytes, int64(len(blk.Payload().Txs())))
 	}
 	b.metrics.RecordHighestHeight(b.highestBlockHeight)
 
@@ -509,6 +507,10 @@ func openBlockDB(config *BlocksimConfig) (types.BlockDB, error) {
 			return nil, fmt.Errorf("failed to build litt block db config: %w", err)
 		}
 		littConfig.Retention = time.Duration(config.LittRetentionSeconds) * time.Second
+		// Record litt_* metrics into blocksim's already-configured global OTel MeterProvider (set up in
+		// main before the DB is opened). MetricsServeEndpoint stays false so LittDB does not stand up its
+		// own registry/server; the metrics surface on blocksim's single /metrics endpoint.
+		littConfig.Litt.MetricsEnabled = config.LittMetricsEnabled
 		return littblock.NewBlockDB(littConfig)
 	default:
 		return nil, fmt.Errorf("unknown block store backend: %q", config.Backend)

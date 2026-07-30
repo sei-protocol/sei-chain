@@ -1,4 +1,4 @@
-//go:build !test_amino
+//go:build !test_amino && !historical_replay
 
 package params
 

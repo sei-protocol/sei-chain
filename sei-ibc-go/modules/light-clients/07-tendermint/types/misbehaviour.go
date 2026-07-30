@@ -119,7 +119,7 @@ func validCommit(chainID string, blockID tmtypes.BlockID, commit *tmproto.Commit
 	if err != nil {
 		return sdkerrors.Wrap(err, "commit is not tendermint commit type")
 	}
-	tmValset, err := tmtypes.ValidatorSetFromProto(valSet)
+	tmValset, err := validatorSetFromProto(valSet)
 	if err != nil {
 		return sdkerrors.Wrap(err, "validator set is not tendermint validator set type")
 	}

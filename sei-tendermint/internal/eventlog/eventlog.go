@@ -26,7 +26,6 @@ type Log struct {
 	// These values do not change after construction.
 	windowSize time.Duration
 	maxItems   int
-	metrics    *Metrics
 
 	// Protects access to the fields below.  Lock to modify the values of these
 	// fields, or to read or snapshot the values.
@@ -47,12 +46,8 @@ func New(opts LogSettings) (*Log, error) {
 	lg := &Log{
 		windowSize: opts.WindowSize,
 		maxItems:   opts.MaxItems,
-		metrics:    NopMetrics(),
 		ready:      make(chan struct{}),
 		source:     opts.Source,
-	}
-	if opts.Metrics != nil {
-		lg.metrics = opts.Metrics
 	}
 	return lg, nil
 }
@@ -130,9 +125,6 @@ type LogSettings struct {
 
 	// The cursor source to use for log entries. If not set, use wallclock time.
 	Source cursor.Source
-
-	// If non-nil, exported metrics to update. If nil, metrics are discarded.
-	Metrics *Metrics
 }
 
 // Info records the current state of the log at the time of a scan operation.

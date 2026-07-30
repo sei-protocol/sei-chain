@@ -3,11 +3,13 @@ package p2p
 import (
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -55,19 +57,30 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.NoError(t, genDoc.ValidateAndComplete())
 
 	app := newTestApp()
-	proxyApp := proxy.New(app, proxy.NopMetrics())
+	proxyApp := proxy.New(app)
 
-	// Fullnodes have no validator key and no Producer config. The data WAL
-	// reads PersistentStateDir = None (in-memory) for this construction-
-	// shape check; App is required for executeBlock but isn't exercised by
-	// this test.
-	router, err := NewGigaFullnodeRouter(&GigaRouterCommonConfig{
+	dir := t.TempDir()
+	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
+	// (zero overrides); p2p can't import config (import cycle).
+	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+	require.NoError(t, err)
+	littCfg.Litt.Fsync = true
+	blockDB, err := littblock.NewBlockDB(littCfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blockDB.Close() })
+	cfg := &GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
-		PersistentStateDir: utils.None[string](),
+		PersistentStateDir: utils.Some(dir),
 		App:                proxyApp,
 		GenDoc:             genDoc,
-	}, makeKey(rng))
+	}
+	dataState, err := BuildDataState(cfg, blockDB)
+	require.NoError(t, err)
+
+	// Fullnodes have no validator key and no Producer config.
+	// App is required for executeBlock but isn't exercised by this test.
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState)
 	require.NoError(t, err)
 
 	// EvmProxy: for every sender, the fullnode router resolves to the
@@ -82,7 +95,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	returnedRemoteURLs := map[string]struct{}{}
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.Committee().EvmShard(sender)
+		shardValidator := router.data.Registry().LatestEpoch().Committee().EvmShard(sender)
 		expectedURL := urlByValidator[shardValidator]
 		proxyURL, ok := router.EvmProxy(sender).Get()
 		require.True(t, ok)

@@ -9,6 +9,7 @@ import (
 	storev2rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/suite"
 
@@ -71,6 +72,9 @@ func (suite *TypesTestSuite) SetupTest() {
 	app := simapp.Setup(false)
 
 	scConfig := seidbconfig.DefaultStateCommitConfig()
+	// Mounts a non-canonical store name, so it cannot use the default auto
+	// mode; pin memiavl_only (this test store never migrates).
+	scConfig.WriteMode = sctypes.MemiavlOnly
 	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
 	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	ssConfig := seidbconfig.StateStoreConfig{}

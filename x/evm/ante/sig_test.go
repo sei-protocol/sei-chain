@@ -158,3 +158,48 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 	})
 	require.NotNil(t, err)
 }
+
+func TestEVMSimulationBeforeFirstCommitIsNotGenesis(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetCheckCtx().WithBlockTime(time.Now())
+	require.False(t, ctx.IsGenesis())
+
+	handler := ante.NewEVMSigVerifyDecorator(k, func() sdk.Context { return ctx })
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	to := new(common.Address)
+	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
+	txData := ethtypes.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(10),
+		Gas:      1000,
+		To:       to,
+		Value:    big.NewInt(1000),
+		Data:     []byte("abc"),
+	}
+	chainID := k.ChainID(ctx)
+	chainCfg := types.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.NoError(t, err)
+	typedTx, err := ethtx.NewLegacyTx(tx)
+	require.NoError(t, err)
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	require.NoError(t, err)
+
+	preprocessor := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, true, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		require.False(t, ctx.IsGenesis())
+		return ctx, nil
+	})
+	require.NoError(t, err)
+
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, true, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		require.False(t, ctx.IsGenesis())
+		return ctx, nil
+	})
+	require.NoError(t, err)
+}

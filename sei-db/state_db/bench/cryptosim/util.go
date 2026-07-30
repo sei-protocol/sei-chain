@@ -18,7 +18,7 @@ func BytesToHex(b []byte) string {
 
 // Get the key for the account ID counter in the database.
 // Uses EVMKeyCode with padded keyBytes; EVMKeyNonce requires 20-byte addresses and
-// non-standard lengths are routed to EVMKeyLegacy which FlatKV ignores.
+// non-standard lengths are routed to EVMKeyMisc which FlatKV ignores.
 func AccountIDCounterKey() []byte {
 	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(accountIdCounterKey))
 }

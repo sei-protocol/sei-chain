@@ -3,7 +3,9 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/url"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,9 +13,12 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -59,20 +64,32 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
-			proxyApp := proxy.New(app, proxy.NopMetrics())
+			proxyApp := proxy.New(app)
 			// In giga mode the CometBFT handshaker is skipped; the router's
 			// runExecute calls InitChain itself on fresh start.
+			dir := t.TempDir()
+			// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
+			// (zero overrides); p2p can't import config (import cycle).
+			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+			require.NoError(t, err, "littblock.DefaultConfig[%v]", i)
+			littCfg.Litt.Fsync = true
+			blockDB, err := littblock.NewBlockDB(littCfg)
+			require.NoError(t, err, "littblock.NewBlockDB[%v]", i)
+			t.Cleanup(func() { _ = blockDB.Close() })
+			commonCfg := GigaRouterCommonConfig{
+				// Aggressive dialing rate to speed up startup.
+				DialInterval:       100 * time.Millisecond,
+				ValidatorAddrs:     addrs,
+				PersistentStateDir: utils.Some(dir),
+				App:                proxyApp,
+				GenDoc:             genDoc,
+			}
+			dataState, err := BuildDataState(&commonCfg, blockDB)
+			require.NoError(t, err, "BuildDataState[%v]", i)
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
-				GigaRouterCommonConfig: GigaRouterCommonConfig{
-					// Aggressive dialing rate to speed up startup.
-					DialInterval:       100 * time.Millisecond,
-					ValidatorAddrs:     addrs,
-					PersistentStateDir: utils.None[string](),
-					App:                proxyApp,
-					GenDoc:             genDoc,
-				},
-				ValidatorKey: cfg.validatorKey,
-				ViewTimeout:  func(atypes.View) time.Duration { return time.Hour },
+				GigaRouterCommonConfig: commonCfg,
+				ValidatorKey:           cfg.validatorKey,
+				ViewTimeout:            func(atypes.View) time.Duration { return time.Hour },
 				Producer: &producer.Config{
 					MaxGasWantedPerBlock:    txGasUsed * maxTxsPerBlock,
 					MaxGasEstimatedPerBlock: txGasUsed * maxTxsPerBlock,
@@ -81,10 +98,9 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					BlockInterval:           100 * time.Millisecond,
 					AllowEmptyBlocks:        false,
 				},
-			}, cfg.nodeKey)
+			}, cfg.nodeKey, dataState)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
 			router, err := NewRouter(
-				NopMetrics(),
 				cfg.nodeKey,
 				func() *types.NodeInfo { return &nodeInfo },
 				dbm.NewMemDB(),
@@ -200,8 +216,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
 	urlByValidator := map[atypes.PublicKey]*url.URL{}
 	// NewGigaRouter requires EVMRPC on every committee member in both
-	// validator and fullnode modes; the missing-URL branch of EvmProxy is
-	// unreachable.
+	// validator and fullnode modes.
 	for i, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
@@ -221,16 +236,29 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
+	dir := t.TempDir()
+	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
+	// (zero overrides); p2p can't import config (import cycle).
+	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
+	require.NoError(t, err)
+	littCfg.Litt.Fsync = true
+	blockDB, err := littblock.NewBlockDB(littCfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blockDB.Close() })
+	commonCfg := GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     addrs,
+		PersistentStateDir: utils.Some(dir),
+		App:                proxy.New(newTestApp()),
+		GenDoc:             genDoc,
+	}
+	dataState, err := BuildDataState(&commonCfg, blockDB)
+	require.NoError(t, err)
+
 	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{
-		GigaRouterCommonConfig: GigaRouterCommonConfig{
-			DialInterval:       time.Second,
-			ValidatorAddrs:     addrs,
-			PersistentStateDir: utils.None[string](),
-			App:                proxy.New(newTestApp(), proxy.NopMetrics()),
-			GenDoc:             genDoc,
-		},
-		ValidatorKey: validatorKeys[0],
-		ViewTimeout:  func(atypes.View) time.Duration { return time.Second },
+		GigaRouterCommonConfig: commonCfg,
+		ValidatorKey:           validatorKeys[0],
+		ViewTimeout:            func(atypes.View) time.Duration { return time.Second },
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    1,
 			MaxGasEstimatedPerBlock: 1,
@@ -238,41 +266,81 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
 		},
-	}, nodeKeys[0])
+	}, nodeKeys[0], dataState)
 	require.NoError(t, err)
 
 	localValidator := validatorKeys[0].Public()
 	localURL, ok := urlByValidator[localValidator]
 	require.True(t, ok)
 
-	expectedRemoteURLs := map[string]struct{}{}
-	for validator, rpcURL := range urlByValidator {
-		if validator == localValidator {
-			continue
+	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		connectedRemote := map[atypes.PublicKey]struct{}{}
+		expectedRemoteURLs := map[string]struct{}{}
+		type noOpAPI = rpc.Client[giga.API]
+		for validator, addr := range addrs {
+			if validator == localValidator {
+				continue
+			}
+			if len(connectedRemote) >= 3 {
+				break
+			}
+			connectedRemote[validator] = struct{}{}
+			expectedRemoteURLs[addr.EVMRPC.String()] = struct{}{}
+			key := addr.Key
+			ready := make(chan struct{})
+			s.SpawnBgNamed(fmt.Sprintf("poolOut[%s]", key), func() error {
+				var client noOpAPI
+				return utils.IgnoreCancel(router.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error {
+					close(ready)
+					<-ctx.Done()
+					return nil
+				}))
+			})
+			if _, _, err := utils.RecvOrClosed(ctx, ready); err != nil {
+				return err
+			}
 		}
-		expectedRemoteURLs[rpcURL.String()] = struct{}{}
-	}
-	returnedRemoteURLs := map[string]struct{}{}
 
-	for range 200 {
-		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.Committee().EvmShard(sender)
+		returnedRemoteURLs := map[string]struct{}{}
+		seenDisconnected := false
+		for range 400 {
+			sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+			shardValidator := router.data.Registry().LatestEpoch().Committee().EvmShard(sender)
 
-		proxyURL, ok := router.EvmProxy(sender).Get()
-		expectedURL := urlByValidator[shardValidator]
+			proxyURL, ok := router.EvmProxy(sender).Get()
+			expectedURL := urlByValidator[shardValidator]
 
-		if shardValidator == localValidator {
-			// Self-shard: validator short-circuits to local mempool.
-			require.False(t, ok)
-			require.Nil(t, proxyURL)
-		} else {
-			require.True(t, ok)
-			require.NotNil(t, proxyURL)
-			require.Equal(t, expectedURL.String(), proxyURL.String())
-			require.NotEqual(t, localURL.String(), proxyURL.String())
-			returnedRemoteURLs[proxyURL.String()] = struct{}{}
+			if shardValidator == localValidator {
+				// Self-shard: validator short-circuits to local mempool.
+				if ok || proxyURL != nil {
+					return fmt.Errorf("expected local shard %s to avoid proxying", shardValidator)
+				}
+			} else if _, connected := connectedRemote[shardValidator]; !connected {
+				if ok || proxyURL != nil {
+					return fmt.Errorf("expected disconnected shard %s to avoid proxying", shardValidator)
+				}
+				seenDisconnected = true
+			} else {
+				if !ok || proxyURL == nil {
+					return fmt.Errorf("expected connected shard %s to proxy", shardValidator)
+				}
+				if got := proxyURL.String(); got != expectedURL.String() {
+					return fmt.Errorf("proxy url = %s, want %s", got, expectedURL.String())
+				}
+				if proxyURL.String() == localURL.String() {
+					return fmt.Errorf("connected remote shard %s unexpectedly proxied to local URL", shardValidator)
+				}
+				returnedRemoteURLs[proxyURL.String()] = struct{}{}
+			}
 		}
-	}
 
-	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
+		if !maps.Equal(expectedRemoteURLs, returnedRemoteURLs) {
+			return fmt.Errorf("returned remote urls = %v, want %v", returnedRemoteURLs, expectedRemoteURLs)
+		}
+		if !seenDisconnected {
+			return fmt.Errorf("expected at least one disconnected shard sample")
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }

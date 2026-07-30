@@ -105,7 +105,6 @@ type SyncerConfig struct {
 	BlockExec             *sm.BlockExecutor
 	ConsReactor           utils.Option[ConsensusReactor]
 	BlockSync             bool
-	Metrics               *consensus.Metrics
 	EventBus              *eventbus.EventBus
 	RestartEvent          func()
 	SelfRemediationConfig *config.SelfRemediationConfig
@@ -140,7 +139,6 @@ type syncController struct {
 	router      *p2p.Router
 	channel     *p2p.Channel[*pb.Message]
 	consReactor utils.Option[ConsensusReactor]
-	metrics     *consensus.Metrics
 	eventBus    *eventbus.EventBus
 
 	// Mutable sync state initialized on start and updated as blocksync runs.
@@ -183,7 +181,6 @@ func NewReactor(
 			router:                    router,
 			channel:                   channel,
 			consReactor:               cfg.ConsReactor,
-			metrics:                   cfg.Metrics,
 			eventBus:                  cfg.EventBus,
 			restartEvent:              cfg.RestartEvent,
 			blocksBehindThreshold:     cfg.SelfRemediationConfig.BlocksBehindThreshold,
@@ -582,7 +579,7 @@ func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initi
 				panic(fmt.Sprintf("failed to process committed block (%d:%X): %v", first.Height, first.Hash(), err))
 			}
 
-			s.metrics.RecordConsMetrics(first)
+			consensus.Global.RecordConsMetrics(first)
 			blocksSynced++
 
 			if blocksSynced%100 == 0 {

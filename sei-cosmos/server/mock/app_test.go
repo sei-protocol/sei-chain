@@ -23,7 +23,7 @@ func TestInitApp(t *testing.T) {
 	req := abci.RequestInitChain{
 		AppStateBytes: appState,
 	}
-	app.InitChain(context.Background(), &req)
+	app.InitChain(&req)
 	app.Commit(context.Background())
 
 	// make sure we can query these values
@@ -54,7 +54,7 @@ func TestDeliverTx(t *testing.T) {
 	req := abci.RequestInitChain{
 		AppStateBytes: appState,
 	}
-	app.InitChain(goCtx, &req)
+	app.InitChain(&req)
 	header := tmproto.Header{Height: 1}
 	app.FinalizeBlock(goCtx, &abci.RequestFinalizeBlock{
 		Hash:   []byte("apphash"),

@@ -243,9 +243,9 @@ func (suite *AnteTestSuite) TestAnteHandlerAccountNumbers() {
 }
 
 // Test logic around account number checking with many signers when BlockHeight is 0.
-func (suite *AnteTestSuite) TestAnteHandlerAccountNumbersAtBlockHeightZero() {
+func (suite *AnteTestSuite) TestAnteHandlerAccountNumbersAtGenesis() {
 	suite.SetupTest(false) // setup
-	suite.ctx = suite.ctx.WithBlockHeight(0)
+	suite.ctx = suite.ctx.WithBlockHeight(0).WithIsGenesis(true)
 
 	// Same data for every test cases
 	accounts := suite.CreateTestAccounts(2)

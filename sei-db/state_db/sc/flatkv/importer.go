@@ -46,19 +46,33 @@ type dbWorker struct {
 	batch   seidbtypes.Batch
 	ltPairs []lthash.KVPairWithLastValue
 	ltHash  *lthash.LtHash
+	// moduleLtHash tracks the per-module decomposition of ltHash, keyed by the
+	// "<module>/" physical-key prefix. Its homomorphic sum equals ltHash.
+	moduleLtHash map[string]*lthash.LtHash
+	// moduleStats tracks the per-module key-count / byte totals accumulated
+	// alongside moduleLtHash, keyed the same way. Mirrors the live commit path
+	// so an imported store carries identical per-module stats metadata.
+	moduleStats map[string]lthash.ModuleStats
+	// calc is the shared lattice-hash calculator. Its worker pool is used to
+	// distribute this worker's flushed pairs and compute per-module deltas —
+	// the same path the live commit uses (see HashCalculator.ComputeModuleHashInfos).
+	calc    *lthash.HashCalculator
 	flushes int64
 	pairs   int64
 }
 
-func newDBWorker(ctx context.Context, dir string, db seidbtypes.KeyValueDB, ltHash *lthash.LtHash) *dbWorker {
+func newDBWorker(ctx context.Context, dir string, db seidbtypes.KeyValueDB, calc *lthash.HashCalculator, ltHash *lthash.LtHash, moduleLtHash map[string]*lthash.LtHash, moduleStats map[string]lthash.ModuleStats) *dbWorker {
 	return &dbWorker{
-		ctx:     ctx,
-		dir:     dir,
-		db:      db,
-		ch:      make(chan rawKVPair, workerChanSize),
-		batch:   db.NewBatch(),
-		ltPairs: make([]lthash.KVPairWithLastValue, 0, importBatchSize),
-		ltHash:  ltHash,
+		ctx:          ctx,
+		dir:          dir,
+		db:           db,
+		ch:           make(chan rawKVPair, workerChanSize),
+		batch:        db.NewBatch(),
+		ltPairs:      make([]lthash.KVPairWithLastValue, 0, importBatchSize),
+		ltHash:       ltHash,
+		moduleLtHash: moduleLtHash,
+		moduleStats:  moduleStats,
+		calc:         calc,
 	}
 }
 
@@ -110,9 +124,29 @@ func (w *dbWorker) flush() (err error) {
 			metric.WithAttributes(dbAttr(w.dir), successAttr(err)))
 	}()
 
-	// TODO:In theory, we could offload lattice hash calculation to a work pool and get parallelism between DB operations and hash calculations. Cryptosim performance makes me think we could probably get a 2-3x speedup from this, assuming receiving data from the network isn't the bottleneck.
-	newHash, _ := lthash.ComputeLtHash(w.ltHash, w.ltPairs)
-	w.ltHash = newHash
+	// Per-module hashes are the primitive: distribute this batch's pairs across
+	// the shared lattice-hash pool to compute each touched module's delta (the
+	// same path the live commit uses), fold each delta into the running
+	// per-module hash, then derive the per-DB root as their homomorphic sum.
+	// This mirrors the live commit path so an imported store carries the same
+	// per-module metadata and identical per-DB root a natively-committed store
+	// would — and it lets a single large DB's batch fan out across every core
+	// instead of being pinned to one import worker goroutine.
+	deltas, err := w.calc.ComputeModuleHashInfos([]lthash.DBPairs{{Dir: w.dir, Pairs: w.ltPairs}})
+	if err != nil {
+		return fmt.Errorf("%s compute module deltas: %w", w.dir, err)
+	}
+	for key, delta := range deltas {
+		acc := w.moduleLtHash[key.Module]
+		if acc == nil {
+			acc = lthash.New()
+			w.moduleLtHash[key.Module] = acc
+		}
+		acc.MixIn(delta.Hash)
+		w.moduleStats[key.Module] = w.moduleStats[key.Module].Add(
+			lthash.ModuleStats{KeyCount: delta.KeyCount, Bytes: delta.Bytes})
+	}
+	w.ltHash = lthash.SumModuleHashes(w.moduleLtHash)
 
 	syncOpt := seidbtypes.WriteOptions{Sync: false}
 	if err := w.batch.Commit(syncOpt); err != nil {
@@ -162,7 +196,10 @@ func NewKVImporter(store *CommitStore, version int64) types.Importer {
 			store.ctx,
 			ndb.dir,
 			ndb.db,
+			store.ltCalc,
 			store.perDBWorkingLtHash[ndb.dir],
+			cloneModuleHashes(store.perDBModuleWorkingLtHash[ndb.dir]),
+			cloneModuleStats(store.perDBModuleWorkingStats[ndb.dir]),
 		)
 		imp.workers[ndb.db] = w
 	}
@@ -313,6 +350,8 @@ func (imp *KVImporter) Close() error {
 
 		for _, w := range imp.workers {
 			imp.store.perDBWorkingLtHash[w.dir] = w.ltHash
+			imp.store.perDBModuleWorkingLtHash[w.dir] = w.moduleLtHash
+			imp.store.perDBModuleWorkingStats[w.dir] = w.moduleStats
 		}
 
 		if err = imp.store.FinalizeImport(imp.version); err != nil {

@@ -17,7 +17,9 @@ func newBlockVotes() blockVotes {
 }
 
 // Returns true iff a new QC has been constructed.
-func (bv blockVotes) pushVote(c *types.Committee, vote *types.Signed[*types.LaneVote]) (*types.LaneQC, bool) {
+// TODO: handle epoch transitions — weight must be counted per-epoch committee once multi-epoch is wired up.
+func (bv blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) (*types.LaneQC, bool) {
+	c := ep.Committee()
 	k := vote.Key()
 	h := vote.Msg().Header().Hash()
 	if _, ok := bv.byKey[k]; ok {

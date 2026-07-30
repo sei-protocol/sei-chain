@@ -129,7 +129,6 @@ func startNode(ctx context.Context, cfg *Config) error {
 		app,
 		nil,
 		[]trace.TracerProviderOption{},
-		nil,
 		types.DefaultConsensusPolicy(),
 	)
 	if err != nil {
@@ -146,7 +145,7 @@ func startSeedNode(ctx context.Context) error {
 
 	tmcfg.Mode = config.ModeSeed
 
-	n, err := node.New(ctx, tmcfg, func() {}, nil, nil, []trace.TracerProviderOption{}, nil, types.DefaultConsensusPolicy())
+	n, err := node.New(ctx, tmcfg, func() {}, nil, nil, []trace.TracerProviderOption{}, types.DefaultConsensusPolicy())
 	if err != nil {
 		return err
 	}

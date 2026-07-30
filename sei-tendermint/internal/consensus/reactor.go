@@ -98,7 +98,6 @@ type Reactor struct {
 	router   *p2p.Router
 	channels channelBundle
 	eventBus *eventbus.EventBus
-	Metrics  *Metrics
 
 	peers       utils.RWMutex[map[types.NodeID]*PeerState]
 	roundState  atomic.Pointer[cstypes.RoundState]
@@ -114,7 +113,6 @@ func NewReactor(
 	router *p2p.Router,
 	eventBus *eventbus.EventBus,
 	waitSync bool,
-	metrics *Metrics,
 	cfg *config.Config,
 ) (*Reactor, error) {
 	stateCh, err := p2p.OpenChannel(router, GetStateChannelDescriptor())
@@ -137,7 +135,6 @@ func NewReactor(
 		state:       cs,
 		peers:       utils.NewRWMutex(map[types.NodeID]*PeerState{}),
 		eventBus:    eventBus,
-		Metrics:     metrics,
 		router:      router,
 		readySignal: utils.NewAtomicSend(!waitSync),
 		channels: channelBundle{
@@ -211,8 +208,8 @@ func (r *Reactor) SwitchToConsensus(state sm.State, skipWAL bool) {
 	if err := r.eventBus.PublishEventBlockSyncStatus(d); err != nil {
 		logger.Error("failed to emit the blocksync complete event", "err", err)
 	}
-	r.Metrics.BlockSyncing.Set(0)
-	r.Metrics.StateSyncing.Set(0)
+	Global.BlockSyncingAt().Set(0)
+	Global.StateSyncingAt().Set(0)
 
 	// we have no votes, so reconstruct LastCommit from SeenCommit
 	r.state.mtx.Lock()
@@ -764,7 +761,7 @@ func (r *Reactor) handleDataMessage(ctx context.Context, m p2p.RecvMsg[*tmcons.M
 		return nil
 	case *BlockPartMessage:
 		ps.SetHasProposalBlockPart(msg.Height, msg.Round, int(msg.Part.Index))
-		r.Metrics.BlockParts.With("peer_id", string(m.From)).Add(1)
+		Global.BlockPartsAt(string(m.From)).Add(1)
 		return utils.Send(ctx, r.state.peerMsgQueue, msgInfo{msg, m.From, tmtime.Now()})
 	default:
 		return fmt.Errorf("received unknown message on DataChannel: %T", msg)
@@ -1013,10 +1010,10 @@ func (r *Reactor) recordPeerMsg(msg msgInfo) {
 	}
 }
 
-func (r *Reactor) SetStateSyncingMetrics(v float64) {
-	r.Metrics.StateSyncing.Set(v)
+func (r *Reactor) SetStateSyncingMetrics(v int64) {
+	Global.StateSyncingAt().Set(v)
 }
 
-func (r *Reactor) SetBlockSyncingMetrics(v float64) {
-	r.Metrics.BlockSyncing.Set(v)
+func (r *Reactor) SetBlockSyncingMetrics(v int64) {
+	Global.BlockSyncingAt().Set(v)
 }

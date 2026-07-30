@@ -1,6 +1,6 @@
 // Package ktype defines the physical key encoding used by FlatKV's data DBs.
 //
-// Every key stored in accountDB, codeDB, storageDB, and legacyDB is prefixed
+// Every key stored in accountDB, codeDB, storageDB, and miscDB is prefixed
 // with "moduleName/" so that keys remain unique and LtHash-stable when DBs are
 // merged in the future.
 package ktype
@@ -52,11 +52,11 @@ func StorageKey(addr Address, slot Slot) []byte {
 //	EVMKeyStorage   0x03    storageDB  "evm/" + 0x03 + addr||slot
 //	EVMKeyAccount   0x0a    accountDB  "evm/" + 0x0a + addr  (merges nonce, codehash, balance)
 //	EVMKeyCode      0x07    codeDB     "evm/" + 0x07 + addr
-//	EVMKeyLegacy    (orig)  legacyDB   "evm/" + original_key  OR  "module/" + cosmos_key
+//	EVMKeyMisc    (orig)  miscDB   "evm/" + original_key  OR  "module/" + cosmos_key
 const EVMKeyAccount = keys.EVMKeyNonce
 
 // ModulePhysicalKey returns "moduleName/" + key.
-// All four data DBs (account, code, storage, legacy) use this format so keys
+// All four data DBs (account, code, storage, misc) use this format so keys
 // remain unique and LtHash-stable when DBs are merged in the future.
 func ModulePhysicalKey(moduleName string, key []byte) []byte {
 	n := len(moduleName)

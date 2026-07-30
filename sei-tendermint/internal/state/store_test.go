@@ -24,6 +24,31 @@ const (
 	valSetCheckpointInterval = 100000
 )
 
+// TestStoreSaveLoadGenesisStateNoValidators pins that a genesis with no
+// validators (they arrive at InitChain via gentxs) saves and reloads through
+// the state store — the pre-state-sync bootstrap path.
+func TestStoreSaveLoadGenesisStateNoValidators(t *testing.T) {
+	genesisState, err := sm.MakeGenesisState(&types.GenesisDoc{
+		ChainID: "statesync-genesis-chain",
+	})
+	require.NoError(t, err)
+	require.True(t, genesisState.Validators.IsNilOrEmpty())
+
+	stateStore := sm.NewStore(dbm.NewMemDB())
+	require.NoError(t, stateStore.Save(genesisState))
+
+	loaded, err := stateStore.Load()
+	require.NoError(t, err)
+	require.True(t, loaded.Validators.IsNilOrEmpty())
+	require.Equal(t, genesisState.ChainID, loaded.ChainID)
+
+	// The genesis entry is loadable as state, but not usable as a validator
+	// set until InitChain (or state sync) installs the real validators.
+	_, err = stateStore.LoadValidators(loaded.InitialHeight)
+	var errEmpty sm.ErrEmptyValidatorSet
+	require.ErrorAs(t, err, &errEmpty)
+}
+
 func TestStoreBootstrap(t *testing.T) {
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)

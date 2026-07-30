@@ -98,7 +98,7 @@ func filterMinMax(base, height, min, max, limit int64) (int64, int64, error) {
 // individually branching on consensus mode.
 func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 	if giga, ok := env.gigaRouter().Get(); ok {
-		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
+		height, err := env.autobahnCheckAndGetHeight((*int64)(req.Height))
 		if err != nil {
 			return nil, err
 		}
@@ -139,17 +139,13 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 // env.getHeight. We currently pass env.BlockStore.Base() (always 0 under
 // Autobahn), which means any positive height < chain head passes validation
 // here and is rejected one layer down (data.GlobalBlock returns
-// data.ErrPruned, which BlockByNumber maps to ErrHeightNotAvailable). With
+// types.ErrPruned, which BlockByNumber maps to ErrHeightNotAvailable). With
 // a real lower bound the rejection happens at this layer instead. The
 // natural source becomes available once sei-db/ledger_db/block.BlockDB is
 // wired into block execution: switch this and BlockByNumber to read from
 // BlockDB, and source `base` from BlockDB.GetLowestBlockHeight.
-func (env *Environment) autobahnCheckAndGetHeight(ctx context.Context, heightPtr *int64) (int64, error) {
-	info, err := env.ABCIInfo(ctx)
-	if err != nil {
-		return 0, err
-	}
-	return env.getHeight(info.Response.LastBlockHeight, heightPtr)
+func (env *Environment) autobahnCheckAndGetHeight(heightPtr *int64) (int64, error) {
+	return env.getHeight(env.App.Info().LastBlockHeight, heightPtr)
 }
 
 // BlockByHash gets block by hash.
@@ -259,7 +255,7 @@ func (env *Environment) Commit(ctx context.Context, req *coretypes.RequestBlockI
 // populating these under Autobahn is a separate follow-up.
 func (env *Environment) BlockResults(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlockResults, error) {
 	if giga, ok := env.gigaRouter().Get(); ok {
-		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
+		height, err := env.autobahnCheckAndGetHeight((*int64)(req.Height))
 		if err != nil {
 			return nil, err
 		}
@@ -301,6 +297,9 @@ func (env *Environment) BlockResults(ctx context.Context, req *coretypes.Request
 	}, nil
 }
 
+const AscendingOrder = "asc"
+const DescendingOrder = "desc"
+
 // BlockSearch searches for a paginated set of blocks matching the provided query.
 func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestBlockSearch) (*coretypes.ResultBlockSearch, error) {
 	if !indexer.KVSinkEnabled(env.EventSinks) {
@@ -319,25 +318,40 @@ func (env *Environment) BlockSearch(ctx context.Context, req *coretypes.RequestB
 		}
 	}
 
-	results, err := kvsink.SearchBlockEvents(ctx, q)
-	if err != nil {
-		return nil, err
-	}
-
-	// sort results (must be done before cap and pagination)
+	// Validate order_by up front so we can push the ordering (and the result
+	// cap) down into the indexer; a broad query is then bounded at the scan
+	// path rather than after materializing and sorting the full match set.
+	var orderDesc bool
 	switch req.OrderBy {
-	case "desc", "":
-		sort.Slice(results, func(i, j int) bool { return results[i] > results[j] })
+	case DescendingOrder, "":
+		orderDesc = true
 
-	case "asc":
-		sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
+	case AscendingOrder:
+		orderDesc = false
 
 	default:
 		return nil, fmt.Errorf("expected order_by to be either `asc` or `desc` or empty: %w", coretypes.ErrInvalidRequest)
 	}
 
-	if max := env.Config.MaxTxSearchResults; max > 0 && len(results) > max {
-		results = results[:max]
+	results, err := kvsink.SearchBlockEvents(ctx, q, indexer.SearchOptions{
+		Limit:     env.Config.MaxTxSearchResults,
+		OrderDesc: orderDesc,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// sort results (must be done before cap and pagination)
+	if orderDesc {
+		sort.Slice(results, func(i, j int) bool { return results[i] > results[j] })
+	} else {
+		sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
+	}
+
+	// Safety net: the kv indexer already bounds to MaxTxSearchResults, but keep
+	// the cap so the response stays bounded for any sink that ignores the limit.
+	if maxResults := env.Config.MaxTxSearchResults; maxResults > 0 && len(results) > maxResults {
+		results = results[:maxResults]
 	}
 
 	// paginate results

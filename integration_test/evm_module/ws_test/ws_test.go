@@ -13,11 +13,13 @@
 package ws_test
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sei-protocol/sei-chain/testutil/evmtest"
 )
 
 func wsURL() string {
@@ -25,6 +27,17 @@ func wsURL() string {
 		return u
 	}
 	return "ws://127.0.0.1:8546"
+}
+
+func triggerHead(t *testing.T) {
+	t.Helper()
+	// Progress-only tx: newHeads needs one real block after subscription, and
+	// under allow_empty_blocks=false we must create that block explicitly.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := evmtest.SendTinyEvmTx(ctx, evmtest.ConfigFromEnv("SEI_EVM_WS_TX_")); err != nil {
+		t.Fatalf("trigger head tx: %v", err)
+	}
 }
 
 func TestEthSubscribeNewHeads(t *testing.T) {
@@ -68,8 +81,11 @@ func TestEthSubscribeNewHeads(t *testing.T) {
 	}
 	t.Logf("subscription id: %s", ack.Result)
 
-	// Wait for at least one head notification. At Sei's block cadence
-	// this should arrive within a few seconds; allow generous slack.
+	// Drive a real block after subscribing so Autobahn does not depend on
+	// idle block production to emit a new head notification.
+	triggerHead(t)
+
+	// Wait for the resulting head notification.
 	if err = conn.SetReadDeadline(time.Now().Add(15 * time.Second)); err != nil {
 		t.Fatalf("set deadline: %v", err)
 	}

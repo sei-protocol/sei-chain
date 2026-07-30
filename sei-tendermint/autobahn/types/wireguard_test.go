@@ -143,7 +143,7 @@ func TestFullCommitQCWireguardAcceptsMaxValidatorsAndHeaders(t *testing.T) {
 		}
 		laneRanges = append(laneRanges, NewLaneRange(lane, 0, utils.Some(lastHeader)))
 	}
-	proposal := newProposal(View{}, time.Unix(1, 2), laneRanges, utils.None[*AppProposal]())
+	proposal := newProposal(View{}, time.Unix(1, 2), laneRanges, utils.None[*AppProposal](), 0)
 	vote := NewCommitVote(proposal)
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, key := range keys {
@@ -197,8 +197,7 @@ func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
 	}
 	proposal, err := NewProposal(
 		secretKeyFor(keys, committee.Leader(View{})),
-		committee,
-		ViewSpec{},
+		ViewSpec{Epoch: NewEpoch(0, OpenRoadRange(), time.Time{}, committee, 0)},
 		time.Unix(1, 2),
 		laneQCs,
 		utils.None[*AppQC](),

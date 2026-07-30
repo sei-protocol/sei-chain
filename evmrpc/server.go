@@ -82,6 +82,8 @@ func NewEVMHTTPServer(
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 		MaxEstimateGasCalls:          config.MaxEstimateGasCalls,
+		MaxStateOverrideAccounts:     config.MaxStateOverrideAccounts,
+		MaxStateOverrideSlots:        config.MaxStateOverrideSlots,
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 
@@ -166,7 +168,7 @@ func NewEVMHTTPServer(
 				k,
 				ctxProvider,
 				txConfigProvider,
-				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog},
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog},
 				ConnectionTypeHTTP,
 				"eth",
 				dbReadSemaphore,
@@ -183,7 +185,7 @@ func NewEVMHTTPServer(
 				k,
 				ctxProvider,
 				txConfigProvider,
-				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog},
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog},
 				ConnectionTypeHTTP,
 				"sei",
 				dbReadSemaphore,
@@ -274,6 +276,8 @@ func NewEVMWebSocketServer(
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 		MaxEstimateGasCalls:          config.MaxEstimateGasCalls,
+		MaxStateOverrideAccounts:     config.MaxStateOverrideAccounts,
+		MaxStateOverrideSlots:        config.MaxStateOverrideSlots,
 	}
 	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 	// DB semaphore aligned with worker count
@@ -326,7 +330,7 @@ func NewEVMWebSocketServer(
 				cacheCreationMutex: cacheCreationMutex,
 				globalLogSlicePool: globalLogSlicePool,
 				watermarks:         watermarks,
-			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS, blockHeaderNotifier),
+			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS, blockHeaderNotifier),
 		},
 		{
 			Namespace: "web3",

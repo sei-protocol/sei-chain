@@ -72,7 +72,7 @@ func commitMixedState(t *testing.T, s *CommitStore, round byte) {
 	t.Helper()
 	addr := addrN(round)
 	slot := slotN(round)
-	legacyKey := append([]byte{0x09}, addr[:]...)
+	miscKey := append([]byte{0x09}, addr[:]...)
 
 	cs1 := namedCS(
 		noncePair(addr, uint64(round)),
@@ -80,9 +80,9 @@ func commitMixedState(t *testing.T, s *CommitStore, round byte) {
 		codePair(addr, []byte{0x60, 0x80, round}),
 		storagePair(addr, slot, []byte{round, 0xAA}),
 	)
-	cs2 := makeChangeSet(legacyKey, []byte{round, 0xBB}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1, cs2}))
-	_, err := s.Commit()
+	cs2 := makeChangeSet(miscKey, []byte{round, 0xBB}, false)
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1, cs2}))
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 }
 
@@ -187,14 +187,14 @@ func TestPerDBLtHashIncrementalEqualsFullScan(t *testing.T) {
 	for i := 1; i <= 10; i++ {
 		addr := addrN(byte(i))
 		slot := slotN(byte(i))
-		legacyKey := append([]byte{0x09}, addr[:]...)
+		miscKey := append([]byte{0x09}, addr[:]...)
 
 		cs1 := namedCS(
 			noncePair(addr, uint64(i)),
 			storagePair(addr, slot, []byte{byte(i), 0xAA}),
 		)
-		cs2 := makeChangeSet(legacyKey, []byte{byte(i)}, false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1, cs2}))
+		cs2 := makeChangeSet(miscKey, []byte{byte(i)}, false)
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1, cs2}))
 		commitAndCheck(t, s)
 	}
 	verifyPerDBLtHash(t, s)
@@ -207,7 +207,7 @@ func TestPerDBLtHashIncrementalEqualsFullScan(t *testing.T) {
 			codeHashPair(addr, ch),
 			codePair(addr, []byte{0x60, 0x80, byte(i)}),
 		)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 		commitAndCheck(t, s)
 	}
 	verifyPerDBLtHash(t, s)
@@ -216,14 +216,14 @@ func TestPerDBLtHashIncrementalEqualsFullScan(t *testing.T) {
 		addr := addrN(byte(i - 15))
 		slot := slotN(byte(i - 15))
 		cs := namedCS(storagePair(addr, slot, []byte{byte(i), 0xBB}))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 		commitAndCheck(t, s)
 	}
 	for i := 19; i <= 20; i++ {
 		addr := addrN(byte(i - 15))
 		slot := slotN(byte(i - 15))
 		cs := namedCS(storageDeletePair(addr, slot))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 		commitAndCheck(t, s)
 	}
 	verifyPerDBLtHash(t, s)
@@ -240,7 +240,7 @@ func TestPerDBLtHashSumEqualsGlobal(t *testing.T) {
 	}
 
 	sumHash := lthash.New()
-	for _, dbDir := range []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir} {
+	for _, dbDir := range []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir} {
 		sumHash.MixIn(s.perDBWorkingLtHash[dbDir])
 	}
 
@@ -307,7 +307,7 @@ func TestPerDBLtHashEmptyBlocks(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS()}))
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS()}))
 		commitAndCheck(t, s)
 	}
 
@@ -407,7 +407,7 @@ func TestPerDBLtHashPersistedInLocalMeta(t *testing.T) {
 		accountDBDir: s.accountDB,
 		codeDBDir:    s.codeDB,
 		storageDBDir: s.storageDB,
-		legacyDBDir:  s.legacyDB,
+		miscDBDir:    s.miscDB,
 	}
 	for _, dbDirName := range dataDBDirs {
 		db := dbInstances[dbDirName]
@@ -448,7 +448,7 @@ func TestPerDBLtHashAfterDirectImport(t *testing.T) {
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	verifyPerDBLtHash(t, s)
@@ -465,7 +465,7 @@ func TestPerDBLtHashPartialKeyTypeOperations(t *testing.T) {
 
 	// Write only storage keys: other DBs' per-DB LtHash should remain zero.
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	zeroChecksum := lthash.New().Checksum()
@@ -475,8 +475,8 @@ func TestPerDBLtHashPartialKeyTypeOperations(t *testing.T) {
 		"accountDB hash should remain zero")
 	require.Equal(t, zeroChecksum, s.perDBWorkingLtHash[codeDBDir].Checksum(),
 		"codeDB hash should remain zero")
-	require.Equal(t, zeroChecksum, s.perDBWorkingLtHash[legacyDBDir].Checksum(),
-		"legacyDB hash should remain zero")
+	require.Equal(t, zeroChecksum, s.perDBWorkingLtHash[miscDBDir].Checksum(),
+		"miscDB hash should remain zero")
 }
 
 func TestPerDBLtHashDeleteLastKeyZerosHash(t *testing.T) {
@@ -487,7 +487,7 @@ func TestPerDBLtHashDeleteLastKeyZerosHash(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 
 	cs := makeChangeSet(key, padLeft32(0x22), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	nonZeroHash := s.perDBWorkingLtHash[storageDBDir].Checksum()
@@ -496,7 +496,7 @@ func TestPerDBLtHashDeleteLastKeyZerosHash(t *testing.T) {
 
 	// Delete the only storage key.
 	delCS := makeChangeSet(key, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{delCS}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{delCS}))
 	commitAndCheck(t, s)
 
 	// After deleting all keys from a DB, its hash should return to zero.
@@ -527,7 +527,7 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 	// Operation 1: Add storage key.
 	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(storageKey, padLeft32(0x33), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 	verifySumInvariant("after storage add")
 
@@ -539,7 +539,7 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 			codeHashPair(addr, codeHashN(0xAA)),
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 	verifySumInvariant("after account add")
 
@@ -550,19 +550,19 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 			codePair(addr, []byte{0x60, 0x60}),
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s)
 	verifySumInvariant("after code add")
 
 	// Operation 4: Update storage.
 	cs4 := makeChangeSet(storageKey, padLeft32(0x44), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs4}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs4}))
 	commitAndCheck(t, s)
 	verifySumInvariant("after storage update")
 
 	// Operation 5: Delete storage.
 	cs5 := makeChangeSet(storageKey, nil, true)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs5}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs5}))
 	commitAndCheck(t, s)
 	verifySumInvariant("after storage delete")
 
@@ -574,7 +574,7 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Delete: true},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs6}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs6}))
 	commitAndCheck(t, s)
 	verifySumInvariant("after account delete")
 
@@ -585,7 +585,7 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 			{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Delete: true},
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs7}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs7}))
 	commitAndCheck(t, s)
 	verifySumInvariant("after code delete")
 

@@ -26,6 +26,7 @@ import (
 
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/testutil/evmtest"
 )
 
 const (
@@ -59,26 +60,21 @@ const (
 	// checks (the rpc-node's 8545 isn't host-published).
 	evmRPCURLOnContainerLocalhost = "http://localhost:8545"
 
-	// heightPoll governs both waitForStableHeight and waitForHeightAdvance:
-	// the fullnode's read of /abci_info trails the cluster while
-	// runExecute drains buffered blocks, and a killed-peer failover
-	// (DialInterval-bounded, ~10s) holds height static for that long.
-	// Polling lets each test absorb whatever combination of those delays
-	// actually applies, instead of guessing a sleep duration.
-	// Bounds are 2× the expected failover+drain so a slow CI runner has
-	// headroom without giving up another whole minute on every run.
+	// heightPoll governs waitForStableHeight: the fullnode's read of
+	// /abci_info trails the cluster while runExecute drains buffered
+	// blocks, and a killed-peer failover (DialInterval-bounded, ~10s)
+	// holds height static for that long. Polling lets each test absorb
+	// whatever combination of those delays actually applies, instead of
+	// guessing a sleep duration.
 	heightPoll       = 1 * time.Second
 	haltStableWindow = 20 * time.Second
-	// Initial fullnode sync can pause at a height briefly while Autobahn
-	// streams settle; require eventual progress rather than one fixed sample.
-	blockProductionAdvanceMax = 30 * time.Second
 	// 2m / 90s give headroom for the fullnode catch-up backlog the
 	// preceding subtest may have left (failover delay during
 	// LivenessUnderMaxFaults can put the fullnode ~600 blocks behind,
 	// which takes ~60s to drain on top of the halt-detection window).
 	// CI runners are slower than local; 1m was tight enough to flake.
 	haltStableTimeout = 2 * time.Minute
-	heightAdvanceMax  = 90 * time.Second
+	testRecipientEVM  = "0x1000000000000000000000000000000000000001"
 )
 
 var (
@@ -107,10 +103,8 @@ func listRunningNodes(t *testing.T) []string {
 	return strings.Fields(strings.TrimSpace(string(out)))
 }
 
-// getHeight reads last_block_height from /abci_info and retries until the
-// chain has produced at least one block (height > 0). ABCI returns 0 between
-// InitChain and the first FinalizeBlock; we treat that as "not ready" since
-// all callers assume a live, advancing chain.
+// getHeight reads last_block_height from /abci_info and retries until a
+// non-zero committed height is observed.
 //
 // Uses abci_info instead of /status because /status reads from the CometBFT
 // block store, which autobahn does not populate.
@@ -126,6 +120,15 @@ func getHeight(t *testing.T) int64 {
 	}
 	t.Fatalf("could not get block height after %d retries", heightRetries)
 	return 0
+}
+
+func currentHeight(t *testing.T) int64 {
+	t.Helper()
+	h, err := fetchHeight()
+	if err != nil {
+		t.Fatalf("fetch height: %v", err)
+	}
+	return h
 }
 
 // waitForStableHeight polls getHeight every heightPoll. It returns the
@@ -152,26 +155,6 @@ func waitForStableHeight(t *testing.T, window, timeout time.Duration) int64 {
 		}
 	}
 	t.Fatalf("height did not stabilize within %s (last seen %d)", timeout, h)
-	return 0
-}
-
-// waitForHeightAdvance polls getHeight every heightPoll, returning the
-// first observed value strictly greater than `base`. Used by liveness
-// tests where progress is expected but may be delayed by the fullnode's
-// block-sync failover from a killed peer. Fails the test on timeout.
-func waitForHeightAdvance(t *testing.T, base int64, timeout time.Duration) int64 {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	last := base
-	for time.Now().Before(deadline) {
-		h := getHeight(t)
-		if h > base {
-			return h
-		}
-		last = h
-		time.Sleep(heightPoll)
-	}
-	t.Fatalf("height did not advance past %d within %s (last seen %d)", base, timeout, last)
 	return 0
 }
 
@@ -231,6 +214,109 @@ func dockerExec(t *testing.T, container, script string) string {
 // dockerExecAllowFail runs docker exec but doesn't fail the test on non-zero exit.
 func dockerExecAllowFail(container, script string) {
 	_ = exec.Command("docker", "exec", container, "sh", "-c", script).Run()
+}
+
+func waitForReceiptBlockNumber(t *testing.T, txHash string) int64 {
+	t.Helper()
+	for {
+		if err := t.Context().Err(); err != nil {
+			t.Fatalf("receipt for %s not observed before test context ended: %v", txHash, err)
+		}
+		resp, err := evmRPCInContainer(fullnodeContainer, "eth_getTransactionReceipt", []any{txHash})
+		if err != nil {
+			time.Sleep(heightPoll)
+			continue
+		}
+		if resp.Error != nil {
+			t.Fatalf("eth_getTransactionReceipt(%s): code=%d message=%s", txHash, resp.Error.Code, resp.Error.Message)
+		}
+		if string(resp.Result) == "null" || len(resp.Result) == 0 {
+			time.Sleep(heightPoll)
+			continue
+		}
+
+		var receipt struct {
+			BlockNumber string `json:"blockNumber"`
+			Status      string `json:"status"`
+		}
+		if err := json.Unmarshal(resp.Result, &receipt); err != nil {
+			t.Fatalf("decode receipt for %s: %v\nbody: %s", txHash, err, resp.Result)
+		}
+		if receipt.Status != "" && receipt.Status != "0x1" {
+			t.Fatalf("tx %s reverted with status %s", txHash, receipt.Status)
+		}
+		if receipt.BlockNumber == "" {
+			time.Sleep(heightPoll)
+			continue
+		}
+
+		var height int64
+		if _, err := fmt.Sscanf(receipt.BlockNumber, "0x%x", &height); err != nil {
+			t.Fatalf("parse receipt block number %q for %s: %v", receipt.BlockNumber, txHash, err)
+		}
+		return height
+	}
+}
+
+func evmBalanceHex(t *testing.T, address string) string {
+	t.Helper()
+	resp, err := evmRPCInContainer(fullnodeContainer, "eth_getBalance", []any{address, "latest"})
+	if err != nil {
+		t.Fatalf("eth_getBalance(%s): %v", address, err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("eth_getBalance(%s): code=%d message=%s", address, resp.Error.Code, resp.Error.Message)
+	}
+	var balance string
+	if err := json.Unmarshal(resp.Result, &balance); err != nil {
+		t.Fatalf("decode balance for %s: %v\nbody: %s", address, err, resp.Result)
+	}
+	return balance
+}
+
+func sendEvmTx(t *testing.T, container string) string {
+	t.Helper()
+	// Progress-only tx: these subtests use "a tx finalized in a new block" as
+	// the observable signal that Autobahn is live or halted.
+	txHash, err := evmtest.SendTinyEvmTx(t.Context(), evmtest.DockerTxConfig{
+		Container: container,
+		Password:  "12345678",
+		From:      "node_admin",
+		Recipient: testRecipientEVM,
+		ChainID:   "sei",
+		EVMRPCURL: evmRPCURLOnContainerLocalhost,
+	})
+	if err != nil {
+		t.Fatalf("send evm tx: %v", err)
+	}
+	return txHash
+}
+
+func sendEvmTxAndWait(t *testing.T, container string) int64 {
+	t.Helper()
+	baseHeight := currentHeight(t)
+	txHash := sendEvmTx(t, container)
+	receiptHeight := waitForReceiptBlockNumber(t, txHash)
+	if receiptHeight <= baseHeight {
+		t.Fatalf("expected tx %s to land after height %d, got receipt at %d", txHash, baseHeight, receiptHeight)
+	}
+	return receiptHeight
+}
+
+func sendEvmTxExpectNoInclusion(t *testing.T, container string, baseHeight int64) {
+	t.Helper()
+	// Progress-only tx: after quorum loss, this should remain uncommitted and
+	// height should stay fixed, proving that no new block can be produced.
+	txHash := sendEvmTx(t, container)
+	hAfter := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
+	if hAfter != baseHeight {
+		t.Fatalf("expected no inclusion after quorum loss, but height advanced from %d to %d", baseHeight, hAfter)
+	}
+	resp, err := evmRPCInContainer(fullnodeContainer, "eth_getTransactionReceipt", []any{txHash})
+	if err == nil && resp != nil && resp.Error == nil && string(resp.Result) != "null" && len(resp.Result) > 0 {
+		t.Fatalf("expected no inclusion after quorum loss, but tx %s received receipt %s", txHash, resp.Result)
+	}
+	t.Logf("height stayed at %d after submitted tx", hAfter)
 }
 
 // TestMain brings up the autobahn docker cluster before the test runs and
@@ -480,7 +566,7 @@ func TestAutobahn(t *testing.T) {
 	t.Logf("cluster size = %d, max tolerated faults = %d (assuming equal weights)", clusterSize, maxFaults)
 
 	t.Run("BlockProduction", testBlockProduction)
-	t.Run("BankTransfer", testBankTransfer)
+	t.Run("EVMTransfer", testEVMTransfer)
 	t.Run("LivenessUnderMaxFaults", testLivenessUnderMaxFaults)
 	t.Run("HaltsBeyondMaxFaults", testHaltsBeyondMaxFaults)
 	t.Run("Recovery", testRecovery)
@@ -537,9 +623,12 @@ func testRecovery(t *testing.T) {
 	target := clusterSize - 1 - maxFaults
 	restartNode(t, target)
 
-	// Poll for the chain to advance. Give the restarted seid time to init
-	// and rejoin consensus, plus any fullnode failover.
-	hAfter := waitForHeightAdvance(t, hBefore, heightAdvanceMax)
+	// A committed tx is the liveness signal here: once quorum is restored,
+	// a new tx should finalize and advance height.
+	hAfter := sendEvmTxAndWait(t, "sei-node-0")
+	if hAfter <= hBefore {
+		t.Fatalf("expected committed tx after recovery to advance height past %d, got %d", hBefore, hAfter)
+	}
 	t.Logf("height after restart: %d", hAfter)
 
 	// assertAutobahnEnabled greps every running container's log. The restarted
@@ -551,17 +640,15 @@ func testRecovery(t *testing.T) {
 
 func testBlockProduction(t *testing.T) {
 	assertAutobahnEnabled(t)
-	h1 := getHeight(t)
-	t.Logf("height: %d", h1)
-	h2 := waitForHeightAdvance(t, h1, blockProductionAdvanceMax)
-	t.Logf("height after progress: %d", h2)
+	h := sendEvmTxAndWait(t, "sei-node-0")
+	t.Logf("height after committed evm tx: %d", h)
 
-	// Verify the Autobahn-routed tmRPC handlers serve real data at h2 (a
+	// Verify the Autobahn-routed tmRPC handlers serve real data at h (a
 	// recently committed height — past tail of the chain, so historical
 	// query paths are exercised without racing the producer). Each
 	// endpoint asserts one observable property; a single mismatch fails
 	// the test with the specific shape that broke.
-	assertTmRPCEndpoints(t, h2)
+	assertTmRPCEndpoints(t, h)
 }
 
 // assertTmRPCEndpoints exercises the tmRPC surface that PR #3310 wires up
@@ -663,50 +750,15 @@ func fetchTmRPC[T any](t *testing.T, url string, into *T) {
 	}
 }
 
-func testBankTransfer(t *testing.T) {
+func testEVMTransfer(t *testing.T) {
 	assertAutobahnEnabled(t)
-
-	// Create recipient. stderr is redirected inside the container so stdout is pure JSON.
-	createOut := dockerExec(t, "sei-node-0",
-		"printf '12345678\n12345678\n' | seid keys add test_recipient --output json 2>/dev/null")
-	var key struct {
-		Address string `json:"address"`
+	before := evmBalanceHex(t, testRecipientEVM)
+	h := sendEvmTxAndWait(t, "sei-node-0")
+	after := evmBalanceHex(t, testRecipientEVM)
+	if before == after {
+		t.Fatalf("expected recipient %s balance to change after evm tx at height %d", testRecipientEVM, h)
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(createOut)), &key); err != nil {
-		t.Fatalf("parse recipient address: %v\noutput: %s", err, createOut)
-	}
-	t.Logf("recipient: %s", key.Address)
-
-	// Send from node_admin (genesis account) to recipient.
-	// Use -b sync (not -b block) because CometBFT consensus is disabled in autobahn mode.
-	// TODO: support -b block once autobahn supports it.
-	sendCmd := fmt.Sprintf(
-		"printf '12345678\n' | seid tx bank send node_admin %s 1000000usei "+
-			"--chain-id sei --fees 2000usei -b sync -y --output json",
-		key.Address)
-	dockerExec(t, "sei-node-0", sendCmd)
-
-	// Poll for balance. Tolerate transient query failures before the tx finalizes.
-	t.Log("waiting for tx to finalize...")
-	queryCmd := fmt.Sprintf("seid q bank balances %s --denom usei --output json 2>/dev/null", key.Address)
-	var balance string
-	for attempt := 0; attempt < 15; attempt++ {
-		out, _ := exec.Command("docker", "exec", "sei-node-0", "sh", "-c", queryCmd).Output()
-		var b struct {
-			Amount string `json:"amount"`
-		}
-		if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &b); err == nil {
-			balance = b.Amount
-			if balance == "1000000" {
-				break
-			}
-		}
-		time.Sleep(2 * time.Second)
-	}
-	t.Logf("balance: %s usei", balance)
-	if balance != "1000000" {
-		t.Fatalf("expected balance 1000000, got %s", balance)
-	}
+	t.Logf("evm transfer committed at height %d (balance %s -> %s)", h, before, after)
 }
 
 // killNode kills seid inside sei-node-<i> via pkill. Tolerates non-zero exit
@@ -732,7 +784,10 @@ func testLivenessUnderMaxFaults(t *testing.T) {
 	for i := 0; i < maxFaults; i++ {
 		killNode(t, clusterSize-1-i)
 	}
-	hAfter := waitForHeightAdvance(t, hBefore, heightAdvanceMax)
+	hAfter := sendEvmTxAndWait(t, "sei-node-0")
+	if hAfter <= hBefore {
+		t.Fatalf("expected committed tx with %d faults to advance height past %d, got %d", maxFaults, hBefore, hAfter)
+	}
 	t.Logf("height after: %d", hAfter)
 }
 
@@ -751,12 +806,5 @@ func testHaltsBeyondMaxFaults(t *testing.T) {
 	killNode(t, clusterSize-1-maxFaults)
 	hBefore := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
 	t.Logf("height: %d (expecting halt)", hBefore)
-	// waitForStableHeight already returned only after haltStableWindow of
-	// no movement; the sample we just took is the halted height.
-	hAfter := getHeight(t)
-	t.Logf("height after stability: %d", hAfter)
-	if hAfter != hBefore {
-		t.Fatalf("chain should halt with %d/%d validators (height changed: %d -> %d)",
-			clusterSize-maxFaults-1, clusterSize, hBefore, hAfter)
-	}
+	sendEvmTxExpectNoInclusion(t, "sei-node-0", hBefore)
 }

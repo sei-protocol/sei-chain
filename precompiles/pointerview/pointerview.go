@@ -37,7 +37,7 @@ type PrecompileExecutor struct {
 	GetCW1155PointerID []byte
 }
 
-func NewPrecompile(keepers utils.Keepers) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
@@ -57,31 +57,36 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.Precompile, error) {
 		}
 	}
 
-	return pcommon.NewPrecompile(newAbi, p, common.HexToAddress(PointerViewAddress), "pointerview"), nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, p, common.HexToAddress(PointerViewAddress), "pointerview"), nil
 }
 
-// RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p PrecompileExecutor) RequiredGas([]byte, *abi.Method) uint64 {
-	return 2000
+func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
+	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, hooks *tracing.Hooks) (ret []byte, err error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
+	if err = pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
 	}
+	// The pointer lookups below read state, so they self-meter against the call's
+	// gas meter (like the other dynamic precompiles); no flat work charge is
+	// needed. remainingGas reflects what those reads consumed.
 	switch method.Name {
 	case GetNativePointer:
-		return p.GetNative(ctx, method, args)
+		ret, err = p.GetNative(ctx, method, args)
 	case GetCW20Pointer:
-		return p.GetCW20(ctx, method, args)
+		ret, err = p.GetCW20(ctx, method, args)
 	case GetCW721Pointer:
-		return p.GetCW721(ctx, method, args)
+		ret, err = p.GetCW721(ctx, method, args)
 	case GetCW1155Pointer:
-		return p.GetCW1155(ctx, method, args)
+		ret, err = p.GetCW1155(ctx, method, args)
 	default:
 		err = fmt.Errorf("unknown method %s", method.Name)
 	}
-	return
+	if err != nil {
+		return nil, 0, err
+	}
+	return ret, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
 func (p PrecompileExecutor) GetNative(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {

@@ -1,8 +1,8 @@
 #!/bin/bash
 
 seidbin=$(which ~/go/bin/seid | tr -d '"')
-keyname=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].name" | tr -d '"')
-keyaddress=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].address" | tr -d '"')
+keyname=admin
+keyaddress=$(printf "12345678\n" | $seidbin keys show "$keyname" -a 2>/dev/null)
 chainid=$($seidbin status | jq ".NodeInfo.network" | tr -d '"')
 seihome=$(git rev-parse --show-toplevel | tr -d '"')
 
@@ -11,7 +11,12 @@ source "$(dirname "$0")/../utils/_tx_helpers.sh"
 cd $seihome || exit
 echo "Deploying first set of contracts..."
 
-beginning_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
+# Capture a committed baseline height before storing the first wasm contracts.
+# The follow-up checks use this "beginning block height" as the last state
+# before any contract writes, so under allow_empty_blocks=false we force one
+# real block and persist its exact inclusion height.
+bootstrap_block_height=$(bank_send_and_get_height "$keyname" "$keyaddress" "1usei") || exit 1
+beginning_block_height="$bootstrap_block_height"
 echo "$beginning_block_height" > $seihome/integration_test/contracts/wasm_beginning_block_height.txt
 echo "$keyaddress"  > $seihome/integration_test/contracts/wasm_creator_id.txt
 

@@ -16,10 +16,10 @@ func TestNullEventSink(t *testing.T) {
 
 	assert.Nil(t, nullIndexer.IndexTxEvents(nil))
 	assert.Nil(t, nullIndexer.IndexBlockEvents(types.EventDataNewBlockHeader{}))
-	val1, err1 := nullIndexer.SearchBlockEvents(ctx, nil)
+	val1, err1 := nullIndexer.SearchBlockEvents(ctx, nil, indexer.SearchOptions{})
 	assert.Nil(t, val1)
 	assert.NoError(t, err1)
-	val2, err2 := nullIndexer.SearchTxEvents(ctx, nil)
+	val2, err2 := nullIndexer.SearchTxEvents(ctx, nil, indexer.SearchOptions{})
 	assert.Nil(t, val2)
 	assert.NoError(t, err2)
 	val3, err3 := nullIndexer.GetTxByHash(nil)

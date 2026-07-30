@@ -71,7 +71,7 @@ func TestExporterStorageKeys(t *testing.T) {
 	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot1))
 	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot2))
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: key1, Value: val1},
 			{Key: key2, Value: val2},
@@ -106,7 +106,7 @@ func TestExporterAccountKeys(t *testing.T) {
 	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[0] = 0xDE
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: nonceKey, Value: nonceVal},
 			{Key: codeHashKey, Value: codeHashVal},
@@ -141,7 +141,7 @@ func TestExporterCodeKeys(t *testing.T) {
 	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
 	codeVal := []byte{0x60, 0x80, 0x60, 0x40}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: codeKey, Value: codeVal},
 		}}},
@@ -180,7 +180,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[31] = 0xAB
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageKey, Value: storageVal},
 			{Key: nonceKey, Value: nonceVal},
@@ -258,7 +258,7 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 1}
 
 	// EOA: only nonce, no codehash
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: nonceKey, Value: nonceVal},
 		}}},
@@ -295,7 +295,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 
-	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, src.ApplyChangeSets(src.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageKey, Value: storageVal},
 			{Key: nonceKey, Value: nonceVal},
@@ -393,7 +393,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	codeHashVal[31] = 0xAB
 	codeVal := []byte{0x60, 0x80}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageA, Value: padLeft32(0x0A)},
 			{Key: storageStale, Value: padLeft32(0x0C)},
@@ -425,7 +425,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	newCodeHashVal[31] = 0xCD
 	newCodeVal := []byte{0x60, 0x40, 0x52}
 
-	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, src.ApplyChangeSets(src.Version()+1, []*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageA, Value: newStorageVal},
 			{Key: nonceA, Value: newNonceVal},
@@ -537,7 +537,7 @@ func TestImporterOnReadOnlyStore(t *testing.T) {
 		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
 		padLeft32(0x11), false,
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
@@ -708,6 +708,10 @@ func TestImporterDoubleImport(t *testing.T) {
 func TestExporterAtHistoricalVersion(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 1
+	// Keep enough historical snapshots that v1 survives after committing v3
+	// (latest v3 + the two older snapshots v2 and v1); the default keep-recent
+	// of 1 would prune v1 and make the historical export below fail.
+	cfg.SnapshotKeepRecent = 2
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
@@ -716,17 +720,17 @@ func TestExporterAtHistoricalVersion(t *testing.T) {
 
 	// v1: write 0x11
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// v2: write 0x22
 	cs2 := makeChangeSet(key, padLeft32(0x22), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	// v3: write 0x33
 	cs3 := makeChangeSet(key, padLeft32(0x33), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s)
 
 	// Export at v1 (historical).
@@ -788,7 +792,7 @@ func TestExportImportLargerDataset(t *testing.T) {
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: allPairs},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 	originalHash := s.RootHash()
 
@@ -831,7 +835,7 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 			noncePair(addr, 42),
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Corrupt the account value in accountDB with invalid-length data.
@@ -865,9 +869,9 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 	}
 }
 
-// TestExporterImporterNonEVMLegacyRoundTrip drives non-EVM module data
+// TestExporterImporterNonEVMMiscRoundTrip drives non-EVM module data
 // (e.g. "bank", "staking") through the full Export → Import pipeline to
-// cover the module-prefixed legacyDB path introduced in PR #3229.
+// cover the module-prefixed miscDB path introduced in PR #3229.
 //
 // The path exercised here is NOT reachable from a rootmulti-level
 // integration test because CompositeCommitStore.ApplyChangeSets filters
@@ -875,11 +879,11 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 // exporting, and re-importing non-EVM data has to be tested at this layer.
 //
 // Invariants verified:
-//  1. ApplyChangeSets routes non-EVM modules to legacyDB under a
+//  1. ApplyChangeSets routes non-EVM modules to miscDB under a
 //     "<module>/" physical-key prefix via classifyAndPrefix.
 //  2. The Exporter emits raw physical keys carrying that prefix.
 //  3. The Importer re-routes via routePhysicalKey, sending non-EVM keys
-//     back to legacyDB with the prefix intact.
+//     back to miscDB with the prefix intact.
 //  4. Get(moduleName, key) reads them back correctly, and cross-module
 //     namespaces stay isolated (same inner bytes under a different module
 //     must miss).
@@ -887,7 +891,7 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 //     resurface in the Exporter output.
 //  6. The imported store's LtHash matches the source bit-for-bit, and
 //     VerifyLtHash passes on the imported store (full-scan ≡ committed).
-func TestExporterImporterNonEVMLegacyRoundTrip(t *testing.T) {
+func TestExporterImporterNonEVMMiscRoundTrip(t *testing.T) {
 	src := setupTestStore(t)
 	defer func() { require.NoError(t, src.Close()) }()
 
@@ -923,7 +927,7 @@ func TestExporterImporterNonEVMLegacyRoundTrip(t *testing.T) {
 
 	// Block 1: mixed changeset — non-EVM and EVM in the same commit — so
 	// classifyAndPrefix has to route both kinds in one pass.
-	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, src.ApplyChangeSets(src.Version()+1, []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: bankPairs}},
 		{Name: "staking", Changeset: proto.ChangeSet{Pairs: stakingPairs}},
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -934,7 +938,7 @@ func TestExporterImporterNonEVMLegacyRoundTrip(t *testing.T) {
 
 	// Block 2: delete the doomed bank key. MarkDeleted → batch.Delete at
 	// commit time, so the physical row must be gone from the exporter.
-	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+	require.NoError(t, src.ApplyChangeSets(src.Version()+1, []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: deletedBankKey, Delete: true},
 		}}},
@@ -1010,11 +1014,11 @@ func TestExporterImporterNonEVMLegacyRoundTrip(t *testing.T) {
 	require.Equalf(t, srcHash, dst.RootHash(),
 		"RootHash after non-EVM round-trip mismatch")
 
-	// Full-scan verification catches any silent drift between legacyDB's
+	// Full-scan verification catches any silent drift between miscDB's
 	// physical layout and the per-DB LtHash accumulator on the imported
 	// store.
 	require.NoError(t, VerifyLtHash(dst),
-		"VerifyLtHash should pass on imported store with legacy data")
+		"VerifyLtHash should pass on imported store with misc data")
 
 	require.NoError(t, dst.Close())
 }

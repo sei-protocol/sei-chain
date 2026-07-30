@@ -88,6 +88,19 @@ type LittDBMetrics struct {
 	// The latency of garbage collection operations.
 	garbageCollectionLatency metric.Float64Histogram
 
+	// Reports on the latency of compressing a batch of values before they are written.
+	compressionLatency metric.Float64Histogram
+
+	// The number of uncompressed value bytes submitted to compression since startup.
+	compressionUncompressedBytes metric.Int64Counter
+
+	// The number of compressed value bytes produced by compression since startup. Compared against
+	// compressionUncompressedBytes, this gives the aggregate compression ratio and total bytes saved.
+	compressionCompressedBytes metric.Int64Counter
+
+	// The per-batch compression ratio (compressed bytes / uncompressed bytes); lower is better.
+	compressionRatio metric.Float64Histogram
+
 	// Metrics for the write cache.
 	writeCacheMetrics *util.CacheMetrics
 
@@ -219,6 +232,32 @@ func NewLittDBMetrics() *LittDBMetrics {
 		metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 	)
 
+	compressionLatency, _ := meter.Float64Histogram(
+		"litt_compression_latency_seconds",
+		metric.WithDescription("Reports on the latency of compressing a batch of values before they are written."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+	)
+
+	compressionUncompressedBytes, _ := meter.Int64Counter(
+		"litt_compression_uncompressed_bytes",
+		metric.WithDescription("The number of uncompressed value bytes submitted to compression since startup."),
+		metric.WithUnit("By"),
+	)
+
+	compressionCompressedBytes, _ := meter.Int64Counter(
+		"litt_compression_compressed_bytes",
+		metric.WithDescription("The number of compressed value bytes produced by compression since startup."),
+		metric.WithUnit("By"),
+	)
+
+	compressionRatio, _ := meter.Float64Histogram(
+		"litt_compression_ratio",
+		metric.WithDescription("The per-batch compression ratio (compressed bytes / uncompressed bytes); lower is better."),
+		metric.WithUnit("1"),
+		metric.WithExplicitBucketBoundaries(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.25, 1.5),
+	)
+
 	writeCacheMetrics := util.NewCacheMetrics("chunk_write")
 	readCacheMetrics := util.NewCacheMetrics("chunk_read")
 
@@ -240,8 +279,14 @@ func NewLittDBMetrics() *LittDBMetrics {
 		garbageCollectionLatency: garbageCollectionLatency,
 		segmentFlushLatency:      segmentFlushLatency,
 		keymapFlushLatency:       keymapFlushLatency,
-		writeCacheMetrics:        writeCacheMetrics,
-		readCacheMetrics:         readCacheMetrics,
+
+		compressionLatency:           compressionLatency,
+		compressionUncompressedBytes: compressionUncompressedBytes,
+		compressionCompressedBytes:   compressionCompressedBytes,
+		compressionRatio:             compressionRatio,
+
+		writeCacheMetrics: writeCacheMetrics,
+		readCacheMetrics:  readCacheMetrics,
 	}
 }
 
@@ -365,6 +410,30 @@ func (m *LittDBMetrics) ReportGarbageCollectionLatency(tableName string, latency
 	}
 
 	m.garbageCollectionLatency.Record(context.Background(), latency.Seconds(), tableAttr(tableName))
+}
+
+// ReportCompression reports the results of compressing a batch of values: the time taken, the number of
+// uncompressed bytes submitted, and the number of compressed bytes produced. The per-batch ratio is
+// derived and recorded when at least one byte was submitted.
+func (m *LittDBMetrics) ReportCompression(
+	tableName string,
+	latency time.Duration,
+	uncompressedBytes uint64,
+	compressedBytes uint64) {
+
+	if m == nil {
+		return
+	}
+
+	ctx := context.Background()
+	attrs := tableAttr(tableName)
+
+	m.compressionLatency.Record(ctx, latency.Seconds(), attrs)
+	m.compressionUncompressedBytes.Add(ctx, int64(uncompressedBytes), attrs) //nolint:gosec // byte count fits int64
+	m.compressionCompressedBytes.Add(ctx, int64(compressedBytes), attrs)     //nolint:gosec // byte count fits int64
+	if uncompressedBytes > 0 {
+		m.compressionRatio.Record(ctx, float64(compressedBytes)/float64(uncompressedBytes), attrs)
+	}
 }
 
 func (m *LittDBMetrics) GetWriteCacheMetrics() *util.CacheMetrics {

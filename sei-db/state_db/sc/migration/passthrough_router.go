@@ -68,3 +68,7 @@ func (p *PassthroughRouter) GetProof(store string, key []byte) (*ics23.Commitmen
 	}
 	return p.proofBuilder(store, key)
 }
+
+// SetMigrationBatchSize is a no-op: a passthrough router targets a single
+// backend and performs no data migration.
+func (p *PassthroughRouter) SetMigrationBatchSize(int) {}

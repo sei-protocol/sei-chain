@@ -36,7 +36,7 @@ dump_node_log() {
   node_id=${node#sei-node-}
   logfile="/sei-protocol/sei-chain/build/generated/logs/seid-${node_id}.log"
   echo "==================== ${node} app.toml state-commit excerpt ====================" >&2
-  docker exec "$node" bash -lc "grep -E '^(sc-write-mode|sc-keys-to-migrate-per-block|evm-ss-split)' '$APP_CONFIG' 2>/dev/null" >&2 || true
+  docker exec "$node" bash -lc "grep -E '^(sc-write-mode|evm-ss-split)' '$APP_CONFIG' 2>/dev/null" >&2 || true
   echo "==================== ${node} seid log ${logfile} (last 240 lines) ====================" >&2
   docker exec "$node" tail -240 "$logfile" >&2 2>/dev/null \
     || echo "(could not read ${logfile})" >&2
@@ -353,7 +353,7 @@ flatkv_dump_digest() {
       --db-dir $FLATKV_DIR \
       --output-dir \"\$out_dir\" \
       --height $version > /dev/null
-    tail -q -n +2 \"\$out_dir/account\" \"\$out_dir/code\" \"\$out_dir/storage\" \"\$out_dir/legacy\" \
+    tail -q -n +2 \"\$out_dir/account\" \"\$out_dir/code\" \"\$out_dir/storage\" \"\$out_dir/misc\" \
       | sha256sum | cut -d' ' -f1
   "
 }

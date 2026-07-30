@@ -27,6 +27,15 @@ GetMembershipProof will produce a CommitmentProof that the given key (and querie
 If the key doesn't exist in the tree, this will return an error.
 */
 func (t *Tree) GetMembershipProof(key []byte) (*ics23.CommitmentProof, error) {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+	return t.getMembershipProofNoLock(key)
+}
+
+// getMembershipProofNoLock is GetMembershipProof without acquiring t.mtx; the
+// caller must already hold the write lock (createExistenceProof mutates
+// MemNode.hash via Node.Hash()).
+func (t *Tree) getMembershipProofNoLock(key []byte) (*ics23.CommitmentProof, error) {
 	exist, err := t.createExistenceProof(key)
 	if err != nil {
 		return nil, err
@@ -40,6 +49,13 @@ func (t *Tree) GetMembershipProof(key []byte) (*ics23.CommitmentProof, error) {
 }
 
 // VerifyMembership returns true iff proof is an ExistenceProof for the given key.
+//
+// NOTE: this reads the value (Get, RLock) and the root (RootHash, write lock)
+// under two separate lock acquisitions, so a commit landing between them can
+// yield an inconsistent (val, root) pair. That is acceptable here because this
+// is a test/verification-only helper and is not used on the live commit or
+// query paths; a caller needing an atomic (value, root) snapshot must serialize
+// against commits itself.
 func (t *Tree) VerifyMembership(proof *ics23.CommitmentProof, key []byte) bool {
 	val := t.Get(key)
 	root := t.RootHash()
@@ -51,9 +67,18 @@ GetNonMembershipProof will produce a CommitmentProof that the given key doesn't 
 If the key exists in the tree, this will return an error.
 */
 func (t *Tree) GetNonMembershipProof(key []byte) (*ics23.CommitmentProof, error) {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+	return t.getNonMembershipProofNoLock(key)
+}
+
+// getNonMembershipProofNoLock is GetNonMembershipProof without acquiring
+// t.mtx; the caller must already hold the write lock. It uses the *NoLock
+// read helpers so it does not recursively re-acquire t.mtx.
+func (t *Tree) getNonMembershipProofNoLock(key []byte) (*ics23.CommitmentProof, error) {
 	// idx is one node right of what we want....
 	var err error
-	idx, val := t.GetWithIndex(key)
+	idx, val := t.getWithIndexNoLock(key)
 	if val != nil {
 		return nil, fmt.Errorf("cannot create NonExistanceProof when Key in State")
 	}
@@ -63,7 +88,7 @@ func (t *Tree) GetNonMembershipProof(key []byte) (*ics23.CommitmentProof, error)
 	}
 
 	if idx >= 1 {
-		leftkey, _ := t.GetByIndex(idx - 1)
+		leftkey, _ := t.getByIndexNoLock(idx - 1)
 		nonexist.Left, err = t.createExistenceProof(leftkey)
 		if err != nil {
 			return nil, err
@@ -71,7 +96,7 @@ func (t *Tree) GetNonMembershipProof(key []byte) (*ics23.CommitmentProof, error)
 	}
 
 	// this will be nil if nothing right of the queried key
-	rightkey, _ := t.GetByIndex(idx)
+	rightkey, _ := t.getByIndexNoLock(idx)
 	if rightkey != nil {
 		nonexist.Right, err = t.createExistenceProof(rightkey)
 		if err != nil {
@@ -88,6 +113,11 @@ func (t *Tree) GetNonMembershipProof(key []byte) (*ics23.CommitmentProof, error)
 }
 
 // VerifyNonMembership returns true iff proof is a NonExistenceProof for the given key.
+//
+// NOTE: like VerifyMembership, this is a test/verification-only helper. The
+// supplied proof and the root read here (RootHash, write lock) are not captured
+// atomically relative to concurrent commits, so it must not be relied on for
+// consistency on the live commit or query paths.
 func (t *Tree) VerifyNonMembership(proof *ics23.CommitmentProof, key []byte) bool {
 	root := t.RootHash()
 	return ics23.VerifyNonMembership(ics23.IavlSpec, root, proof, key)
@@ -95,6 +125,10 @@ func (t *Tree) VerifyNonMembership(proof *ics23.CommitmentProof, key []byte) boo
 
 // createExistenceProof will get the proof from the tree and convert the proof into a valid
 // existence proof, if that's what it is.
+//
+// It reads t.root and sibling node hashes (via Node.Hash(), which mutates
+// MemNode.hash in place), so the caller must already hold t.mtx's write lock.
+// All in-tree callers reach it through the *NoLock proof builders.
 func (t *Tree) createExistenceProof(key []byte) (*ics23.ExistenceProof, error) {
 	path, node, err := pathToLeaf(t.root, key)
 	return &ics23.ExistenceProof{

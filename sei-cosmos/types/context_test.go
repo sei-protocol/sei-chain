@@ -94,6 +94,8 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	s.Require().Equal(minGasPrices, ctx.MinGasPrices())
 	s.Require().Equal(headerHash, ctx.HeaderHash().Bytes())
 	s.Require().False(ctx.WithIsCheckTx(false).IsCheckTx())
+	s.Require().False(ctx.IsGenesis())
+	s.Require().True(ctx.WithIsGenesis(true).IsGenesis())
 
 	// test IsReCheckTx
 	s.Require().False(ctx.IsReCheckTx())

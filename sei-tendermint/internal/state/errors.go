@@ -49,6 +49,14 @@ type (
 	ErrNoFinalizeBlockResponsesForHeight struct {
 		Height int64
 	}
+
+	// ErrEmptyValidatorSet flags a persisted validator set that is empty past
+	// genesis — possible only through corruption, since a committed block
+	// implies a non-empty set. Empty is legitimate only for a genesis-derived
+	// state (validators arrive at InitChain, or via state sync).
+	ErrEmptyValidatorSet struct {
+		Height int64
+	}
 )
 
 func (e ErrUnknownBlock) Error() string {
@@ -100,6 +108,10 @@ func (e ErrNoValSetForHeight) Unwrap() error { return e.Err }
 
 func (e ErrNoConsensusParamsForHeight) Error() string {
 	return fmt.Sprintf("could not find consensus params for height #%d", e.Height)
+}
+
+func (e ErrEmptyValidatorSet) Error() string {
+	return fmt.Sprintf("validator set at height #%d is empty", e.Height)
 }
 
 func (e ErrNoFinalizeBlockResponsesForHeight) Error() string {

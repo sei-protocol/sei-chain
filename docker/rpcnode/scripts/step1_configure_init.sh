@@ -42,6 +42,28 @@ cp docker/rpcnode/config/app.toml ~/.sei/config/app.toml
 cp docker/rpcnode/config/config.toml ~/.sei/config/config.toml
 cp "$GENESIS_SRC" ~/.sei/config/genesis.json
 
+# pin_sc_write_mode MODE: set sc-write-mode = "MODE" and pin
+# sc-write-mode-enable-auto = false so the explicit mode is actually honored.
+# sc-write-mode-enable-auto defaults to true, which forces the node into auto
+# and ignores any explicit sc-write-mode; the RPC node must match the
+# validators' pinned backend exactly, so it must opt out of auto.
+pin_sc_write_mode() {
+  mode="$1"
+  cfg="$HOME/.sei/config/app.toml"
+  if grep -q '^sc-write-mode[[:space:]]*=' "$cfg"; then
+    sed -i "s/^sc-write-mode[[:space:]]*=.*/sc-write-mode = \"$mode\"/" "$cfg"
+  else
+    sed -i "/^\[state-store\]/i sc-write-mode = \"$mode\"" "$cfg"
+  fi
+  if grep -q '^sc-write-mode-enable-auto[[:space:]]*=' "$cfg"; then
+    sed -i "s/^sc-write-mode-enable-auto[[:space:]]*=.*/sc-write-mode-enable-auto = false/" "$cfg"
+  elif grep -q '^sc-write-mode[[:space:]]*=' "$cfg"; then
+    sed -i "/^sc-write-mode[[:space:]]*=/a sc-write-mode-enable-auto = false" "$cfg"
+  else
+    sed -i "/^\[state-store\]/i sc-write-mode-enable-auto = false" "$cfg"
+  fi
+}
+
 # Apply Giga Storage overrides so the RPC node's app hash matches the validators.
 GIGA_STORAGE=${GIGA_STORAGE:-false}
 GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY:-false}
@@ -52,11 +74,7 @@ if [ "$GIGA_STORAGE" = "true" ] && [ "$GIGA_FLATKV_ONLY" != "true" ]; then
   echo "Enabling Giga Storage for RPC node..."
 
   # SC layer: must match validators (test_only_dual_write)
-  if grep -q '^sc-write-mode[[:space:]]*=' ~/.sei/config/app.toml; then
-    sed -i 's/^sc-write-mode[[:space:]]*=.*/sc-write-mode = "test_only_dual_write"/' ~/.sei/config/app.toml
-  else
-    sed -i '/^\[state-store\]/i sc-write-mode = "test_only_dual_write"' ~/.sei/config/app.toml
-  fi
+  pin_sc_write_mode "test_only_dual_write"
 
   # SS layer: enable EVM split
   sed -i 's/^evm-ss-split[[:space:]]*=.*/evm-ss-split = true/' ~/.sei/config/app.toml
@@ -64,11 +82,7 @@ fi
 
 if [ "$GIGA_FLATKV_ONLY" = "true" ]; then
   echo "Booting RPC node in flatkv_only mode..."
-  if grep -q '^sc-write-mode[[:space:]]*=' ~/.sei/config/app.toml; then
-    sed -i 's/^sc-write-mode[[:space:]]*=.*/sc-write-mode = "flatkv_only"/' ~/.sei/config/app.toml
-  else
-    sed -i '/^\[state-store\]/i sc-write-mode = "flatkv_only"' ~/.sei/config/app.toml
-  fi
+  pin_sc_write_mode "flatkv_only"
   sed -i 's/^evm-ss-split[[:space:]]*=.*/evm-ss-split = false/' ~/.sei/config/app.toml
 fi
 
@@ -123,7 +137,6 @@ if [ "$AUTOBAHN" = "true" ]; then
   done
 
   seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
-
   # Inject autobahn-config-file as a top-level key in config.toml. It must
   # precede any [section] header so the TOML parser sees it at root scope.
   if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then
@@ -134,16 +147,26 @@ if [ "$AUTOBAHN" = "true" ]; then
   echo "Autobahn config written to $AUTOBAHN_CONFIG (fullnode via mode=full)"
 fi
 
-# Override state sync configs
+# Override state sync configs. Autobahn startup can legitimately sit at
+# height 0 until a tx drives the first finalized block, so state sync
+# cannot be configured yet in that case because trust-height 0 is invalid.
+# Fall back to normal peer sync from genesis until the cluster has a real
+# block history to trust.
 STATE_SYNC_RPC="192.168.10.10:26657"
 STATE_SYNC_PEER="2f9846450b7a3dcf4af1ac0082e3279c16744df8@172.31.9.18:26656,ec98c4a28a2023f4f976828c8a8e7127bfef4e1b@172.31.4.96:26656,b03014d67384fb0ef6ad992c77cefe4f9d2c1640@172.31.4.219:26656"
 curl "$STATE_SYNC_RPC"/net_info |jq -r '.peers[] | .url' |sed -e 's#mconn://##' >> build/generated/PEERS
 STATE_SYNC_PEER=$(paste -s -d ',' build/generated/PEERS)
 LATEST_HEIGHT=$(curl -s $STATE_SYNC_RPC/block | jq -r .block.header.height)
-SYNC_BLOCK_HEIGHT=$LATEST_HEIGHT
-SYNC_BLOCK_HASH=$(curl -s "$STATE_SYNC_RPC/block?height=$SYNC_BLOCK_HEIGHT" | jq -r .block_id.hash)
-sed -i.bak -e "s|^enable *=.*|enable = true|" ~/.sei/config/config.toml
-sed -i.bak -e "s|^rpc-servers *=.*|rpc-servers = \"$STATE_SYNC_RPC,$STATE_SYNC_RPC\"|" ~/.sei/config/config.toml
-sed -i.bak -e "s|^trust-height *=.*|trust-height = $SYNC_BLOCK_HEIGHT|" ~/.sei/config/config.toml
-sed -i.bak -e "s|^trust-hash *=.*|trust-hash = \"$SYNC_BLOCK_HASH\"|" ~/.sei/config/config.toml
-sed -i.bak -e "s|^persistent-peers *=.*|persistent-peers = \"$STATE_SYNC_PEER\"|" ~/.sei/config/config.toml
+if [ -n "$LATEST_HEIGHT" ] && [ "$LATEST_HEIGHT" -gt 0 ] 2>/dev/null; then
+  SYNC_BLOCK_HEIGHT=$LATEST_HEIGHT
+  SYNC_BLOCK_HASH=$(curl -s "$STATE_SYNC_RPC/block?height=$SYNC_BLOCK_HEIGHT" | jq -r .block_id.hash)
+  sed -i.bak -e "s|^enable *=.*|enable = true|" ~/.sei/config/config.toml
+  sed -i.bak -e "s|^rpc-servers *=.*|rpc-servers = \"$STATE_SYNC_RPC,$STATE_SYNC_RPC\"|" ~/.sei/config/config.toml
+  sed -i.bak -e "s|^trust-height *=.*|trust-height = $SYNC_BLOCK_HEIGHT|" ~/.sei/config/config.toml
+  sed -i.bak -e "s|^trust-hash *=.*|trust-hash = \"$SYNC_BLOCK_HASH\"|" ~/.sei/config/config.toml
+  sed -i.bak -e "s|^persistent-peers *=.*|persistent-peers = \"$STATE_SYNC_PEER\"|" ~/.sei/config/config.toml
+else
+  echo "State sync unavailable at height ${LATEST_HEIGHT:-unknown}; falling back to peer sync."
+  sed -i.bak -e "s|^enable *=.*|enable = false|" ~/.sei/config/config.toml
+  sed -i.bak -e "s|^persistent-peers *=.*|persistent-peers = \"$STATE_SYNC_PEER\"|" ~/.sei/config/config.toml
+fi

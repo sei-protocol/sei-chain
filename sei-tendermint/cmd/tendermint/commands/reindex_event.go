@@ -118,13 +118,19 @@ func loadEventSinks(cfg *tmcfg.Config) ([]indexer.EventSink, error) {
 			if err != nil {
 				return nil, err
 			}
-			eventSinks = append(eventSinks, kv.NewEventSink(store))
+			// Reindexing only writes to the sink; it never searches, so the
+			// scan budget is irrelevant here.
+			eventSinks = append(eventSinks, kv.NewEventSink(store, nil))
 		case string(indexer.PSQL):
 			conn := cfg.TxIndex.PsqlConn
 			if conn == "" {
 				return nil, errors.New("the psql connection settings cannot be empty")
 			}
-			es, err := psql.NewEventSink(conn, cfg.ChainID())
+			genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
+			if err != nil {
+				return nil, fmt.Errorf("failed to load genesis file: %w", err)
+			}
+			es, err := psql.NewEventSink(conn, genDoc.ChainID)
 			if err != nil {
 				return nil, err
 			}

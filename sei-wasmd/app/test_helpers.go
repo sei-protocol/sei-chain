@@ -48,6 +48,7 @@ import (
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	storev2rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 )
 
@@ -79,6 +80,11 @@ func setup(t testing.TB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Opt
 	require.NoError(t, err)
 
 	scConfig := seidbconfig.DefaultStateCommitConfig()
+	// This test app mounts non-canonical store names (e.g. icacontroller,
+	// icahost) that are not in keys.MemIAVLStoreKeys, so it cannot use the
+	// default auto mode (which validates store names for migration
+	// routability). Pin memiavl_only: this app never migrates.
+	scConfig.WriteMode = sctypes.MemiavlOnly
 	scConfig.MemIAVLConfig.SnapshotInterval = 1
 	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
@@ -159,13 +165,11 @@ func SetupWithGenesisValSet(t *testing.T, chainID string, valSet *tmtypes.Valida
 	require.NoError(t, err)
 
 	// init chain will set the validator set and initialize the genesis accounts
-	_, err = app.InitChain(
-		context.Background(),
-		&abci.RequestInitChain{
-			ConsensusParams: DefaultConsensusParams,
-			AppStateBytes:   stateBytes,
-			ChainId:         chainID,
-		},
+	_, err = app.InitChain(&abci.RequestInitChain{
+		ConsensusParams: DefaultConsensusParams,
+		AppStateBytes:   stateBytes,
+		ChainId:         chainID,
+	},
 	)
 	require.NoError(t, err)
 	// This line is necessary due to the capability module which has a map as well as store usages,

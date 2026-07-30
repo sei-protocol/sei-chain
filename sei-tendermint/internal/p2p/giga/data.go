@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
@@ -120,8 +119,13 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 			scope.Spawn(func() error {
 				defer release()
 				for first := true; ; first = false {
-					if _, err := x.data.TryBlock(n); !errors.Is(err, data.ErrNotFound) {
+					_, err := x.data.TryBlock(n)
+					if err == nil || errors.Is(err, types.ErrPruned) {
+						// Have it, or no longer needed (pruned past catch-up).
 						return nil
+					}
+					if !errors.Is(err, types.ErrNotFound) {
+						return fmt.Errorf("TryBlock(%d): %w", n, err)
 					}
 					// Back off between repeated requests for the same block —
 					// avoids hammering a peer that responded with an empty
@@ -183,10 +187,15 @@ func (x *Service) serverGetBlock(ctx context.Context, server rpc.Server[API]) er
 			return fmt.Errorf("GetBlockReqConv.Decode(): %w", err)
 		}
 		block, err := x.data.TryBlock(req.GlobalNumber)
-		resp := utils.None[*types.Block]()
-		if err == nil {
-			resp = utils.Some(block)
+		if err != nil {
+			// Absent (not yet / pruned) is a successful empty response so the
+			// peer can retry. Any other error is a store failure — do not
+			// disguise it as "not available".
+			if errors.Is(err, types.ErrPruned) || errors.Is(err, types.ErrNotFound) {
+				return stream.Send(ctx, GetBlockRespConv.Encode(utils.None[*types.Block]()))
+			}
+			return fmt.Errorf("TryBlock(%d): %w", req.GlobalNumber, err)
 		}
-		return stream.Send(ctx, GetBlockRespConv.Encode(resp))
+		return stream.Send(ctx, GetBlockRespConv.Encode(utils.Some(block)))
 	})
 }

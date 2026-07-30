@@ -23,10 +23,15 @@ type EventSink struct {
 	store dbm.DB
 }
 
-func NewEventSink(store dbm.DB) indexer.EventSink {
+// NewEventSink creates a KV event sink backed by store. budget, when non-nil,
+// is a shared scan budget that bounds how many index entries all in-flight
+// tx_search and block_search requests may visit at once; passing nil disables
+// the cap. The same budget is shared by the tx and block indexers so the cap is
+// process-wide across both.
+func NewEventSink(store dbm.DB, budget *indexer.ScanBudget) indexer.EventSink {
 	return &EventSink{
-		txi:   kvt.NewTxIndex(store),
-		bi:    kvb.New(store),
+		txi:   kvt.NewTxIndex(store).WithScanBudget(budget),
+		bi:    kvb.New(store).WithScanBudget(budget),
 		store: store,
 	}
 }
@@ -43,12 +48,12 @@ func (kves *EventSink) IndexTxEvents(results []*abci.TxResultV2) error {
 	return kves.txi.Index(results)
 }
 
-func (kves *EventSink) SearchBlockEvents(ctx context.Context, q *query.Query) ([]int64, error) {
-	return kves.bi.Search(ctx, q)
+func (kves *EventSink) SearchBlockEvents(ctx context.Context, q *query.Query, opts indexer.SearchOptions) ([]int64, error) {
+	return kves.bi.Search(ctx, q, opts)
 }
 
-func (kves *EventSink) SearchTxEvents(ctx context.Context, q *query.Query) ([]*abci.TxResultV2, error) {
-	return kves.txi.Search(ctx, q)
+func (kves *EventSink) SearchTxEvents(ctx context.Context, q *query.Query, opts indexer.SearchOptions) ([]*abci.TxResultV2, error) {
+	return kves.txi.Search(ctx, q, opts)
 }
 
 func (kves *EventSink) GetTxByHash(hash []byte) (*abci.TxResultV2, error) {

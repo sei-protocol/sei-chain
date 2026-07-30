@@ -3,6 +3,11 @@ run-name: UCI / Release Publish
 
 on:
   push:
+    # Note: `paths` filters do not apply to tag pushes, so this workflow also fires
+    # when a version tag is pushed manually. That is the normal release path here:
+    # the "Restrict tagging" ruleset blocks this workflow's token from creating tags,
+    # so the publish job fails on branch pushes and a maintainer pushes the tag by
+    # hand. The goreleaser job below handles that path explicitly.
     paths: [ 'version.json' ]
   workflow_dispatch:
 
@@ -10,8 +15,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.sha }}
-  cancel-in-progress: true
+  # Keyed per event+ref, never cancelled: a version.json branch push and the
+  # follow-up manual tag push share the same SHA, and an in-flight release build
+  # must not be cancelled by the later event.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -21,10 +29,17 @@ jobs:
   goreleaser:
     name: GoReleaser
     needs: publish
-    if: needs.publish.outputs.release_created == 'true'
+    # Build and attach when this run created the release, or when a maintainer
+    # pushed a version tag by hand (release_created is false on that path because
+    # the tag already exists; publish then no-ops and this job attaches the
+    # binaries). Re-pushing an existing tag re-appends the goreleaser notes block
+    # to the release body, so treat this as run-once per tag.
+    if: >-
+      needs.publish.outputs.release_created == 'true' ||
+      (github.ref_type == 'tag' && startsWith(github.ref_name, 'v'))
     uses: sei-protocol/uci/.github/workflows/goreleaser-release.yml@v0.0.11
     with:
-      ref: ${{ needs.publish.outputs.version }}
+      ref: ${{ github.ref_type == 'tag' && github.ref_name || needs.publish.outputs.version }}
       go-version: '1.25.6'
       # Repo submodules are Solidity test libs (forge-std/openzeppelin/solmate); the
       # seid binary build doesn't use them, so skip the fetch.

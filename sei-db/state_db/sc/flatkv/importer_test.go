@@ -78,6 +78,29 @@ func TestKVImporter_CloseIdempotent_AfterError(t *testing.T) {
 	require.Equal(t, first, third)
 }
 
+// TestKVImporter_EmptyModuleNameRejected guards the state-sync import
+// boundary the same way TestStoreApplyRejectsEmptyModuleName guards the
+// live-commit path: a physical key with an empty module segment (e.g. a
+// peer-supplied snapshot key of the form "/x") must fail routing instead of
+// silently folding into moduleLtHash[""], which would later persist as the
+// per-module meta key "_meta/x:/hash" and permanently brick the store on the
+// very next reopen (ParseModuleLtHashKey rejects that key, so the sum-to-root
+// check fails forever).
+func TestKVImporter_EmptyModuleNameRejected(t *testing.T) {
+	s, imp := newKVImporterForTest(t, 1)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	imp.AddNode(&types.SnapshotNode{
+		Key:     []byte("/x"),
+		Value:   []byte("v"),
+		Version: 1,
+	})
+
+	err := imp.Close()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "empty module name")
+}
+
 // TestKVImporter_ErrLifecycle locks in the contract that Err() returns the
 // first pipeline error as soon as it propagates, before Close is invoked.
 // This is the path the seidb tool relies on to short-circuit a failing import

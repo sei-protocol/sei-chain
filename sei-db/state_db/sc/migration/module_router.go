@@ -22,6 +22,14 @@ type Route struct {
 	writer DBWriter
 	// For building a proof of the value for a key in a store. If nil, the route does not support proofs.
 	proofBuilder DBProofBuilder
+	// owner is the Router whose accessors back this route, if any. It lets
+	// a ModuleRouter propagate control signals (today:
+	// SetMigrationBatchSize) to the underlying router — chiefly a
+	// MigrationManager whose Read/ApplyChangeSets/GetProof are otherwise
+	// only reachable through the closures above. Leaf routes that point
+	// straight at a single backend (routeToMemIAVL / routeToFlatKV) leave
+	// it nil, so those signals are skipped for them.
+	owner Router
 }
 
 // NewRoute creates a new Route.
@@ -166,4 +174,22 @@ func (m *ModuleRouter) GetProof(store string, key []byte) (*ics23.CommitmentProo
 		return nil, fmt.Errorf("proof builder not supported for store %q", store)
 	}
 	return r.proofBuilder(store, key)
+}
+
+// SetMigrationBatchSize forwards the new batch size to every route that
+// has an owning Router (e.g. a MigrationManager). Routes that point
+// directly at a single backend have no owner and are skipped. A given
+// owner is signalled at most once even if it backs multiple routes.
+func (m *ModuleRouter) SetMigrationBatchSize(batchSize int) {
+	signalled := make(map[Router]struct{}, len(m.routes))
+	for _, r := range m.routes {
+		if r.owner == nil {
+			continue
+		}
+		if _, done := signalled[r.owner]; done {
+			continue
+		}
+		signalled[r.owner] = struct{}{}
+		r.owner.SetMigrationBatchSize(batchSize)
+	}
 }

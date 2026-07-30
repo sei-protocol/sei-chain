@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,7 +15,8 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/tracers"
-	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
+	_ "github.com/ethereum/go-ethereum/eth/tracers/js" // run init()s to register JS tracers
+	traceLogger "github.com/ethereum/go-ethereum/eth/tracers/logger"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -31,9 +34,12 @@ const (
 	IsPanicCacheSize = 5000
 	IsPanicCacheTTL  = 1 * time.Minute
 
-	callTracerName     = "callTracer"
-	prestateTracerName = "prestateTracer"
-	flatCallTracerName = "flatCallTracer"
+	callTracerName     = evmrpcconfig.TraceTracerCall
+	prestateTracerName = evmrpcconfig.TraceTracerPrestate
+	flatCallTracerName = evmrpcconfig.TraceTracerFlatCall
+	muxTracerName      = evmrpcconfig.TraceTracerMux
+
+	maxMuxTracerNestingDepth = 16
 )
 
 var errTraceConcurrencyLimit = errors.New("trace request rejected due to concurrency limit: server busy")
@@ -50,6 +56,9 @@ type DebugAPI struct {
 	traceCallSemaphore chan struct{} // Semaphore for limiting concurrent trace calls
 	maxBlockLookback   int64
 	traceTimeout       time.Duration
+	maxStructLogBytes  int // per-call cap on retained default struct-logger output; 0 = unlimited
+	allowedTracers     map[string]struct{}
+	allowJSTracers     bool
 	profiledBlockTrace bool
 }
 
@@ -203,8 +212,114 @@ func NewDebugAPI(
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
+		maxStructLogBytes:  clampUint64ToInt(debugCfg.MaxTraceStructLogBytes),
+		allowedTracers:     buildAllowedTracerSet(debugCfg.TraceAllowedTracers),
+		allowJSTracers:     debugCfg.TraceAllowJSTracers,
 		profiledBlockTrace: debugCfg.EnableParallelizedBlockTrace,
 	}
+}
+
+// clampUint64ToInt converts an operator-configured uint64 to int, saturating at
+// math.MaxInt instead of wrapping to a negative value. A negative maxStructLogBytes
+// would be treated as "disabled" by clampDefaultStructLogLimit, silently defeating
+// the cap — the opposite of an operator setting a very large limit.
+func clampUint64ToInt(v uint64) int {
+	if v > uint64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(v)
+}
+
+// clampDefaultStructLogLimit caps the default struct logger's retained output at
+// api.maxStructLogBytes. No-op for custom tracers, a disabled cap (0), or a
+// smaller caller-supplied Limit.
+func (api *DebugAPI) clampDefaultStructLogLimit(config *tracers.TraceConfig) {
+	if config == nil || config.Tracer != nil || api.maxStructLogBytes <= 0 {
+		return
+	}
+	if config.Config == nil {
+		config.Config = &traceLogger.Config{}
+	}
+	if config.Limit <= 0 || config.Limit > api.maxStructLogBytes {
+		config.Limit = api.maxStructLogBytes
+	}
+}
+
+func buildAllowedTracerSet(names []string) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		allowed[name] = struct{}{}
+	}
+	return allowed
+}
+
+func (api *DebugAPI) validateTraceTracer(config *tracers.TraceConfig) error {
+	if config == nil || config.Tracer == nil {
+		return nil
+	}
+	name := strings.TrimSpace(*config.Tracer)
+	if name == "" {
+		return errors.New("debug tracer name must not be empty")
+	}
+	// Write the trimmed name back so geth resolves the exact tracer that was
+	// validated; otherwise a padded native name (e.g. " callTracer") would pass
+	// validation here yet be treated as JS source by the tracer directory.
+	*config.Tracer = name
+	if _, ok := api.allowedTracers[name]; !ok {
+		if api.allowJSTracers && !evmrpcconfig.IsNativeTraceTracer(name) {
+			return nil
+		}
+		if api.allowJSTracers {
+			return fmt.Errorf("debug native tracer %q is not listed in evm.trace_allowed_tracers", name)
+		}
+		return fmt.Errorf("debug tracer %q is not allowed; JavaScript tracers are disabled and only native tracers listed in evm.trace_allowed_tracers may be used", name)
+	}
+	if name == muxTracerName {
+		if err := validateMuxTraceConfig(config.TracerConfig, api.allowedTracers, api.allowJSTracers, 1); err != nil {
+			return fmt.Errorf("invalid muxTracer config: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateMuxTraceConfig(raw json.RawMessage, allowed map[string]struct{}, allowJS bool, depth int) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	if depth > maxMuxTracerNestingDepth {
+		return fmt.Errorf("muxTracer nesting depth exceeds maximum of %d", maxMuxTracerNestingDepth)
+	}
+	var nested map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &nested); err != nil {
+		return err
+	}
+	for name, cfg := range nested {
+		if strings.TrimSpace(name) == "" {
+			return errors.New("nested debug tracer name must not be empty")
+		}
+		// Nested names live inside caller-supplied JSON that is forwarded to
+		// geth verbatim, so a padded name cannot be rewritten the way the
+		// top-level tracer is. Reject it instead of validating a name geth
+		// would resolve differently.
+		if name != strings.TrimSpace(name) {
+			return fmt.Errorf("nested debug tracer name %q must not have leading or trailing whitespace", name)
+		}
+		if _, ok := allowed[name]; !ok {
+			if allowJS && !evmrpcconfig.IsNativeTraceTracer(name) {
+				continue
+			}
+			if allowJS {
+				return fmt.Errorf("nested native debug tracer %q is not listed in evm.trace_allowed_tracers", name)
+			}
+			return fmt.Errorf("nested debug tracer %q is not allowed; JavaScript tracers are disabled", name)
+		}
+		if name == muxTracerName {
+			if err := validateMuxTraceConfig(cfg, allowed, allowJS, depth+1); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
@@ -213,6 +328,9 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 		recordMetricsWithError(ctx, "debug_traceTransaction", api.connectionType, startTime, returnErr, recover())
 	}()
 
+	if returnErr = api.validateTraceTracer(config); returnErr != nil {
+		return nil, returnErr
+	}
 	if returnErr = api.guardHistoricalDebugTraceByTxHash(ctx, "debug_traceTransaction", hash); returnErr != nil {
 		return nil, returnErr
 	}
@@ -227,6 +345,10 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
+	if config == nil {
+		config = &tracers.TraceConfig{}
+	}
+	api.clampDefaultStructLogLimit(config)
 	return api.tracersAPI.TraceTransaction(ctx, hash, config)
 }
 
@@ -416,6 +538,9 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 		recordMetricsWithError(ctx, "debug_traceBlockByNumber", api.connectionType, startTime, returnErr, recover())
 	}()
 
+	if returnErr = api.validateTraceTracer(config); returnErr != nil {
+		return nil, returnErr
+	}
 	if returnErr = api.guardHistoricalDebugTraceByNumber(ctx, "debug_traceBlockByNumber", number); returnErr != nil {
 		return nil, returnErr
 	}
@@ -430,6 +555,10 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 		return cached, nil
 	}
 
+	if config == nil {
+		config = &tracers.TraceConfig{}
+	}
+	api.clampDefaultStructLogLimit(config)
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
 	} else {
@@ -443,6 +572,10 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	defer func() {
 		recordMetricsWithError(ctx, "debug_traceBlockByHash", api.connectionType, startTime, returnErr, recover())
 	}()
+
+	if returnErr = api.validateTraceTracer(config); returnErr != nil {
+		return nil, returnErr
+	}
 
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
@@ -458,6 +591,10 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 		return cached, nil
 	}
 
+	if config == nil {
+		config = &tracers.TraceConfig{}
+	}
+	api.clampDefaultStructLogLimit(config)
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
 	} else {
@@ -472,6 +609,13 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		recordMetricsWithError(ctx, "debug_traceCall", api.connectionType, startTime, returnErr, recover())
 	}()
 
+	if config == nil {
+		config = &tracers.TraceCallConfig{}
+	}
+	if returnErr = api.validateTraceTracer(&config.TraceConfig); returnErr != nil {
+		return nil, returnErr
+	}
+
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
@@ -482,6 +626,10 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		return nil, returnErr
 	}
 
+	if returnErr = validateStateOverrides(config.StateOverrides, api.backend.MaxStateOverrideAccounts(), api.backend.MaxStateOverrideSlots()); returnErr != nil {
+		return nil, returnErr
+	}
+	api.clampDefaultStructLogLimit(&config.TraceConfig)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
 }

@@ -215,6 +215,8 @@ func (f *failingRouter) GetProof(string, []byte) (*ics23.CommitmentProof, error)
 	return nil, errors.New("failingRouter.GetProof: not used by these tests")
 }
 
+func (f *failingRouter) SetMigrationBatchSize(int) {}
+
 func TestRouterCommitKVStore_GetPanicsOnRouterError(t *testing.T) {
 	store := NewRouterCommitKVStore(
 		staticRouter(&failingRouter{readErr: errors.New("boom")}),

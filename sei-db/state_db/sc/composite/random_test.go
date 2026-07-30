@@ -259,9 +259,14 @@ func runMigrationScenario(t *testing.T, sc migrationScenario) {
 	// batch size is randomized (small) to vary how quickly the boundary
 	// advances. ---
 	migCfg := randomTestConfig(t, rng, sc.migrationMode)
-	migCfg.KeysToMigratePerBlock = 3 + rng.Intn(3) // {3,4,5}
+	migBatch := 3 + rng.Intn(3) // {3,4,5}
+	// The per-block rate is no longer a persisted config; mirror production
+	// (BeginBlock re-applies the gov param after every restart) by having the
+	// framework re-apply it on every store open for the rest of the scenario.
+	testMigrationBatchSize = migBatch
+	defer func() { testMigrationBatchSize = 0 }()
 	t.Logf("migration scenario %s->%s keysToMigratePerBlock=%d",
-		sc.migrationMode, sc.successorMode, migCfg.KeysToMigratePerBlock)
+		sc.migrationMode, sc.successorMode, migBatch)
 	cs = restartComposite(t, cs, dir, migCfg)
 
 	// Pre-migration reads must be transparent across the boundary.

@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
@@ -21,6 +22,14 @@ type Store struct {
 	parent    types.KVStore
 	storeKey  types.StoreKey
 	cacheSize int
+
+	// frozen/dirty/readParent implement the same "skip frozen empty layers on
+	// read" optimization as sei-cosmos/store/cachekv, so that a deep stack of
+	// empty EVM snapshot layers does not make each Get O(depth). See Freeze and
+	// readThroughParent there for the full invariant.
+	frozen     atomic.Bool
+	dirty      atomic.Bool
+	readParent atomic.Pointer[types.KVStore]
 }
 
 var _ types.CacheKVStore = (*Store)(nil)
@@ -50,7 +59,45 @@ func (store *Store) getFromCache(key []byte) []byte {
 	if cv, ok := store.cache.Load(UnsafeBytesToStr(key)); ok {
 		return cv.(*types.CValue).Value()
 	}
-	return store.parent.Get(key)
+	return store.readThroughParent().Get(key)
+}
+
+// readThroughParent returns the store a cache-missing read must fall through to,
+// skipping any run of frozen empty layers. See the equivalently named method in
+// sei-cosmos/store/cachekv for the full correctness argument; the invariant is
+// identical (a frozen empty layer never gains writes, and RevertToSnapshot
+// discards any layer that memoized a skip over a re-exposed one).
+func (store *Store) readThroughParent() types.KVStore {
+	cp, ok := store.parent.(*Store)
+	if !ok || !cp.frozen.Load() || cp.dirty.Load() {
+		return store.parent
+	}
+	if p := store.readParent.Load(); p != nil {
+		return *p
+	}
+	p := store.parent
+	for {
+		next, ok := p.(*Store)
+		if !ok || !next.frozen.Load() || next.dirty.Load() {
+			break
+		}
+		p = next.parent
+	}
+	store.readParent.Store(&p)
+	return p
+}
+
+// Freeze marks the store as superseded by a newer cache layer so deeper layers
+// may skip it for reads while it is empty. Opt-in and idempotent.
+func (store *Store) Freeze() {
+	store.frozen.Store(true)
+}
+
+// Unfreeze reverts Freeze, marking the store writable again (e.g. when a layer is
+// re-exposed by RevertToSnapshot). Deeper stores gate on the parent's live frozen
+// bit, so unfreezing here also bypasses any stale memo that skipped this store.
+func (store *Store) Unfreeze() {
+	store.frozen.Store(false)
 }
 
 // Get implements types.KVStore.
@@ -115,6 +162,8 @@ func (store *Store) Write() {
 
 	store.cache = &sync.Map{}
 	store.deleted = &sync.Map{}
+	store.dirty.Store(false)
+	store.readParent.Store(nil)
 }
 
 // CacheWrap implements CacheWrapper.
@@ -142,6 +191,7 @@ func (store *Store) setCacheValue(key, value []byte, deleted bool, dirty bool) {
 	} else {
 		store.deleted.Delete(keyStr)
 	}
+	store.dirty.Store(true)
 }
 
 func (store *Store) isDeleted(key string) bool {

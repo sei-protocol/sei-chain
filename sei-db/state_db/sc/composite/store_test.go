@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -30,10 +31,15 @@ var _ flatkv.Store = (*failingEVMStore)(nil)
 func (f *failingEVMStore) LoadVersion(int64, bool) (flatkv.Store, error) {
 	return nil, fmt.Errorf("flatkv unavailable")
 }
-func (f *failingEVMStore) ApplyChangeSets([]*proto.NamedChangeSet) error { return nil }
-func (f *failingEVMStore) Commit() (int64, error)                        { return 0, nil }
-func (f *failingEVMStore) SetInitialVersion(int64) error                 { return nil }
-func (f *failingEVMStore) Get(string, []byte) ([]byte, bool)             { return nil, false }
+func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error {
+	return nil
+}
+func (f *failingEVMStore) Commit(int64) (int64, error) { return 0, nil }
+func (f *failingEVMStore) CommitBlock(int64, []*proto.NamedChangeSet) error {
+	return nil
+}
+func (f *failingEVMStore) SetInitialVersion(int64) error     { return nil }
+func (f *failingEVMStore) Get(string, []byte) ([]byte, bool) { return nil, false }
 func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
 	return -1, false, nil
 }
@@ -44,6 +50,7 @@ func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, 
 }
 func (f *failingEVMStore) RootHash() []byte                              { return nil }
 func (f *failingEVMStore) Version() int64                                { return 0 }
+func (f *failingEVMStore) PendingVersion() int64                         { return 0 }
 func (f *failingEVMStore) EarliestVersion() int64                        { return 0 }
 func (f *failingEVMStore) GetLatestVersion() (int64, error)              { return 0, nil }
 func (f *failingEVMStore) WriteSnapshot(string) error                    { return nil }
@@ -448,10 +455,9 @@ func TestMemiavlOnlyToMigrateEVMPreservesLastCommitInfoBeforeFirstCommit(t *test
 	// height.
 	migrateCfg := config.DefaultStateCommitConfig()
 	migrateCfg.WriteMode = types.MigrateEVM
-	migrateCfg.KeysToMigratePerBlock = 100
-
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
 	require.NoError(t, err)
+	require.NoError(t, cs2.SetMigrationBatchSize(100))
 	require.NoError(t, cs2.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -493,10 +499,9 @@ func TestMemiavlOnlyToMigrateEVMPreservesLastCommitInfoBeforeFirstCommit(t *test
 func TestMigrateEVMGenesisPreFirstCommitOmitsLatticeHash(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
-
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -530,10 +535,9 @@ func TestMigrateEVMGenesisPreFirstCommitOmitsLatticeHash(t *testing.T) {
 func TestMigrateEVMIncludesLatticeHashAfterFirstCommit(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
-
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -579,10 +583,9 @@ func TestMigrateEVMLatticeRemainsAfterRestartPostMigrationCompletion(t *testing.
 	// iterator's first batch reports MigrationBoundaryComplete and the
 	// manager atomically deletes the boundary key and writes the version
 	// key on the same commit.
-	cfg.KeysToMigratePerBlock = 1000
-
 	cs1, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs1.SetMigrationBatchSize(1000))
 	require.NoError(t, cs1.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs1.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -772,7 +775,6 @@ func TestGetLatestVersionBothBackendsAligned(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
 	// Force synchronous memiavl WAL writes so the on-disk tail
 	// reflects every Commit before GetLatestVersion reads it (the
 	// flatkv side is already synchronous). See the doc comment on
@@ -781,6 +783,7 @@ func TestGetLatestVersionBothBackendsAligned(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -817,10 +820,9 @@ func TestReadOnlyLoadVersionFailsLoudWhenFlatKVUnavailable(t *testing.T) {
 	// Need flatkv to be allocated and exercised by LoadVersion;
 	// MemiavlOnly would not touch the flatkv path at all.
 	cfg.WriteMode = types.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
-
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 
 	_, err = cs.LoadVersion(0, false)
@@ -929,10 +931,9 @@ func TestLoadVersionFlatKVOnlyReadOnly(t *testing.T) {
 func TestLoadVersionRebuildsRouterOnReload(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
-
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 
 	_, err = cs.LoadVersion(0, false)
@@ -962,10 +963,9 @@ func TestLoadVersionRebuildsRouterOnReload(t *testing.T) {
 func TestLoadVersionDoesNotMountMigrationStoreInMigrationMode(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
-
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err, "LoadVersion in migration mode must succeed without mounting a migration tree on memiavl")
@@ -1049,6 +1049,13 @@ func evmMigratedConfig() config.StateCommitConfig {
 	cfg.MemIAVLConfig.SnapshotInterval = 1
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	// With SnapshotInterval=1 every commit produces a snapshot, and FlatKV
+	// mirrors this cadence via alignFlatKVSnapshotWithMemIAVL. The default
+	// keep-recent of 1 would prune all but the two newest snapshots, so a
+	// rollback/reconcile to an older version (e.g. v3 after committing v5)
+	// could no longer find a base snapshot at-or-below the target. Retain all
+	// snapshots for the short duration of a test so those paths stay valid.
+	cfg.MemIAVLConfig.SnapshotKeepRecent = 100
 	return cfg
 }
 
@@ -1185,10 +1192,9 @@ func TestExporterFailsLoudOnInHistoryFlatKVLoadFailure(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	cfg.WriteMode = types.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
-
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -1224,10 +1230,9 @@ func TestExporterOmitsFlatKVForPreEraVersion(t *testing.T) {
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	cfg.WriteMode = types.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
-
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -1922,10 +1927,9 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 	// version 100 so the very next commit produces version 101 on both.
 	migrateCfg := config.DefaultStateCommitConfig()
 	migrateCfg.WriteMode = types.MigrateEVM
-	migrateCfg.KeysToMigratePerBlock = 100
-
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
 	require.NoError(t, err)
+	require.NoError(t, cs2.SetMigrationBatchSize(100))
 	require.NoError(t, cs2.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -1993,11 +1997,11 @@ func TestMigrateEVMReopenPreservesPreFlipLastCommitInfo(t *testing.T) {
 
 	migrateCfg := config.DefaultStateCommitConfig()
 	migrateCfg.WriteMode = types.MigrateEVM
-	migrateCfg.KeysToMigratePerBlock = 1
 	migrateCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
 	require.NoError(t, err)
+	require.NoError(t, cs2.SetMigrationBatchSize(1))
 	require.NoError(t, cs2.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -2059,10 +2063,9 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 
 	migrateCfg := config.DefaultStateCommitConfig()
 	migrateCfg.WriteMode = types.MigrateEVM
-	migrateCfg.KeysToMigratePerBlock = 100
-
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
 	require.NoError(t, err)
+	require.NoError(t, cs2.SetMigrationBatchSize(100))
 	require.NoError(t, cs2.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -2130,10 +2133,9 @@ func TestSetInitialVersionMemiavlOnly(t *testing.T) {
 func TestSetInitialVersionDelegatesToBothBackends(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
-
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -2167,10 +2169,9 @@ func TestSetInitialVersionDelegatesToBothBackends(t *testing.T) {
 func TestSetInitialVersionRetryIsIdempotent(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
-
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
+	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -2582,10 +2583,9 @@ func TestLoadVersionReadOnlyDuringMigrateEVMTransition(t *testing.T) {
 	// flagged.
 	migrateCfg := config.DefaultStateCommitConfig()
 	migrateCfg.WriteMode = types.MigrateEVM
-	migrateCfg.KeysToMigratePerBlock = 100
-
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
 	require.NoError(t, err)
+	require.NoError(t, cs2.SetMigrationBatchSize(100))
 	require.NoError(t, cs2.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -2625,4 +2625,62 @@ func TestLoadVersionReadOnlyDuringMigrateEVMTransition(t *testing.T) {
 	require.NoError(t, err, "evm/ read must not fail with store-not-found on the read-only handle")
 	require.True(t, found, "pre-migration evm/ value must be visible to the read-only handle")
 	require.Equal(t, []byte(evmVal), got)
+}
+
+func TestAlignFlatKVSnapshotWithMemIAVL(t *testing.T) {
+	t.Run("FlatKV derives interval and keep-recent from a non-zero memIAVL", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotInterval = 5000
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 3
+		// Start FlatKV from divergent values to prove they get overwritten.
+		cfg.FlatKVConfig.SnapshotInterval = 111
+		cfg.FlatKVConfig.SnapshotKeepRecent = 222
+
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(5000), cfg.FlatKVConfig.SnapshotInterval)
+		require.Equal(t, uint32(3), cfg.FlatKVConfig.SnapshotKeepRecent)
+	})
+
+	t.Run("a zero memIAVL keep-recent resolves to the healed default", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
+		// FlatKV must not mirror the raw 0 (which would prune everything but the
+		// latest). Instead it mirrors the value FillDefaults will heal memIAVL to,
+		// keeping the two in lockstep. memIAVL's own 0 is left for FillDefaults.
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(0), cfg.MemIAVLConfig.SnapshotKeepRecent)
+		require.Equal(t, uint32(memiavl.DefaultSnapshotKeepRecent), cfg.FlatKVConfig.SnapshotKeepRecent)
+	})
+
+	t.Run("a zero memIAVL interval resolves to the healed default", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotInterval = 0
+		// A raw 0 would disable FlatKV auto-snapshots; instead FlatKV mirrors the
+		// value FillDefaults will heal memIAVL's interval to.
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(memiavl.DefaultSnapshotInterval), cfg.FlatKVConfig.SnapshotInterval)
+		require.NotZero(t, cfg.FlatKVConfig.SnapshotInterval)
+	})
+
+	t.Run("an explicit FlatKV override loses to memIAVL's healed default", func(t *testing.T) {
+		// Upgrade scenario: an old app.toml still pins an explicit FlatKV
+		// keep-recent/interval (the previous template rendered flatkv.* keys)
+		// while sc-* is 0. FlatKV must follow memIAVL's effective (healed) cadence
+		// rather than staying pinned to the stale explicit value, otherwise the
+		// two backends diverge (memIAVL heals 0 -> default, FlatKV keeps the old
+		// explicit value).
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
+		cfg.MemIAVLConfig.SnapshotInterval = 0
+		cfg.FlatKVConfig.SnapshotKeepRecent = 2
+		cfg.FlatKVConfig.SnapshotInterval = 7777
+
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(memiavl.DefaultSnapshotKeepRecent), cfg.FlatKVConfig.SnapshotKeepRecent)
+		require.Equal(t, uint32(memiavl.DefaultSnapshotInterval), cfg.FlatKVConfig.SnapshotInterval)
+	})
 }

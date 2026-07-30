@@ -39,23 +39,23 @@ export interface PriorityFeeSample {
 export async function maxPriorityFeePerGasAtStableBlock(
     provider: ethers.JsonRpcProvider,
 ): Promise<PriorityFeeSample> {
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 50; i++) {
         const b1 = await provider.getBlockNumber();
         const tip = await maxPriorityFeePerGas(provider);
-        const info = await blockGasInfo(provider, 'latest');
-        const evmGasUsed = await evmGasUsedForBlock(provider, info.number);
         const b2 = await provider.getBlockNumber();
-        if (b1 === b2 && info.number === b1) {
-            return {
-                tip,
-                block: info.number,
-                gasUsed: info.gasUsed,
-                evmGasUsed,
-                gasLimit: info.gasLimit,
-                ratio: Number(info.gasUsed) / Number(info.gasLimit),
-                evmRatio: Number(evmGasUsed) / Number(info.gasLimit),
-            };
-        }
+        if (b1 !== b2) continue;
+
+        const info = await blockGasInfo(provider, b1);
+        const evmGasUsed = await evmGasUsedForBlock(provider, b1);
+        return {
+            tip,
+            block: info.number,
+            gasUsed: info.gasUsed,
+            evmGasUsed,
+            gasLimit: info.gasLimit,
+            ratio: Number(info.gasUsed) / Number(info.gasLimit),
+            evmRatio: Number(evmGasUsed) / Number(info.gasLimit),
+        };
     }
     throw new Error('maxPriorityFeePerGasAtStableBlock: block kept advancing across the sample');
 }

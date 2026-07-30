@@ -24,11 +24,11 @@ func writeMigrationMeta(t *testing.T, s flatkv.Store, version *uint64, boundaryB
 	if boundaryBytes != nil {
 		pairs = append(pairs, &proto.KVPair{Key: []byte(MigrationBoundaryKey), Value: boundaryBytes})
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{{
 		Name:      MigrationStore,
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}}))
-	_, err := s.Commit()
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 }
 

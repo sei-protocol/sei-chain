@@ -1,25 +1,29 @@
 package indexer
 
 import (
-	"github.com/go-kit/kit/metrics"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 //go:generate go run ../../../scripts/metricsgen -struct=Metrics
 
-// MetricsSubsystem is a the subsystem label for the indexer package.
-const MetricsSubsystem = "indexer"
+const (
+	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
+	MetricsNamespace = "tendermint"
+	// MetricsSubsystem is a the subsystem label for the indexer package.
+	MetricsSubsystem = "indexer"
+)
 
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// Latency for indexing block events.
-	BlockEventsSeconds metrics.Histogram
+	BlockEventsSeconds tmprometheus.HistogramVec
 
 	// Latency for indexing transaction events.
-	TxEventsSeconds metrics.Histogram
+	TxEventsSeconds tmprometheus.HistogramVec
 
 	// Number of complete blocks indexed.
-	BlocksIndexed metrics.Counter
+	BlocksIndexed tmprometheus.CounterIntVec
 
 	// Number of transactions indexed.
-	TransactionsIndexed metrics.Counter
+	TransactionsIndexed tmprometheus.CounterIntVec
 }

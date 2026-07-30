@@ -39,13 +39,24 @@ func DefaultBenchStateStoreConfig() *config.StateStoreConfig {
 	return &cfg
 }
 
-func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
+// DefaultBenchMemIAVLConfig returns the memiavl config the benchmarks open
+// with by default. Note AsyncCommitBuffer=10: Commit() returns once the WAL
+// write is enqueued, not once it is durable.
+func DefaultBenchMemIAVLConfig() memiavl.Config {
 	cfg := memiavl.DefaultConfig()
 	cfg.AsyncCommitBuffer = 10
 	cfg.SnapshotInterval = 1000
 	cfg.SnapshotMinTimeInterval = 60
+	return cfg
+}
+
+func newMemIAVLCommitStore(dbDir string, cfg *memiavl.Config) (DBWrapper, error) {
+	if cfg == nil {
+		defaultCfg := DefaultBenchMemIAVLConfig()
+		cfg = &defaultCfg
+	}
 	fmt.Printf("Opening memIAVL from directory %s\n", dbDir)
-	cs := memiavl.NewCommitStore(dbDir, cfg)
+	cs := memiavl.NewCommitStore(dbDir, *cfg)
 	if err := cs.Initialize([]string{EVMStoreName}); err != nil {
 		return nil, fmt.Errorf("memiavl Initialize: %w", err)
 	}
@@ -148,9 +159,17 @@ func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any)
 	case NoOp:
 		return NewNoOpWrapper(), nil
 	case MemIAVL:
-		return newMemIAVLCommitStore(dataDir)
+		memiavlCfg, ok := dbConfig.(*memiavl.Config)
+		if dbConfig != nil && !ok {
+			return nil, fmt.Errorf("invalid MemIAVL config type %T", dbConfig)
+		}
+		return newMemIAVLCommitStore(dataDir, memiavlCfg)
 	case FlatKV:
-		return newFlatKVCommitStore(ctx, dataDir, dbConfig.(*flatkvConfig.Config))
+		flatKVConfig, ok := dbConfig.(*flatkvConfig.Config)
+		if dbConfig != nil && !ok {
+			return nil, fmt.Errorf("invalid FlatKV config type %T", dbConfig)
+		}
+		return newFlatKVCommitStore(ctx, dataDir, flatKVConfig)
 	case CompositeDual:
 		return newCompositeCommitStore(ctx, dataDir, sctypes.TestOnlyDualWrite)
 	case CompositeSplit:

@@ -5,6 +5,7 @@ import (
 	"io"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/internal/conv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
@@ -23,6 +24,20 @@ type Store struct {
 	parent        types.KVStore
 	storeKey      types.StoreKey
 	cacheSize     int
+
+	// frozen marks a layer that has been superseded by a newer cache layer and
+	// will therefore never receive another write via this store reference (writes
+	// go to the newest layer). It is set opt-in via Freeze() — callers that never
+	// call Freeze (all non-EVM code) get exactly the previous behavior.
+	frozen atomic.Bool
+	// dirty is set the first time a key is written (Set/Delete) and cleared on
+	// Write(). A frozen layer with dirty==false is empty and, by the freeze
+	// invariant, stays empty, so reads may skip it entirely.
+	dirty atomic.Bool
+	// readParent memoizes the nearest ancestor a read must consult, skipping any
+	// run of frozen empty layers. Valid for the store's lifetime because a frozen
+	// empty layer never gains writes (see readThroughParent).
+	readParent atomic.Pointer[types.KVStore]
 }
 
 var _ types.CacheKVStore = (*Store)(nil)
@@ -54,7 +69,58 @@ func (store *Store) getFromCache(key []byte) []byte {
 	if cv, ok := store.cache.Load(conv.UnsafeBytesToStr(key)); ok {
 		return cv.(*types.CValue).Value()
 	}
-	return store.parent.Get(key)
+	return store.readThroughParent().Get(key)
+}
+
+// readThroughParent returns the store a cache-missing read must fall through to.
+// It normally returns store.parent, but when the parent is a frozen empty cache
+// layer it walks up, skipping every consecutive frozen empty layer, and returns
+// the first ancestor that could actually hold data. Empty layers contribute
+// nothing to a point read (getFromCache falls straight through them), so the
+// result is identical to walking one layer at a time — only O(1) instead of
+// O(depth) once a deep stack of empty snapshot layers has accumulated.
+//
+// The result is safe to memoize: a layer is only skipped when it is frozen AND
+// empty, and a frozen layer never gains writes (writes always target the newest,
+// unfrozen layer). The single exception is RevertToSnapshot re-exposing a layer
+// as the newest layer, but that discards every layer above it — including any
+// store that memoized a skip over it — so no live memo can go stale.
+func (store *Store) readThroughParent() types.KVStore {
+	// Cheap gate: only nested cache layers can be skipped. The common single-layer
+	// case (parent is an iavl/dbadapter store) never enters the skip path.
+	cp, ok := store.parent.(*Store)
+	if !ok || !cp.frozen.Load() || cp.dirty.Load() {
+		return store.parent
+	}
+	if p := store.readParent.Load(); p != nil {
+		return *p
+	}
+	p := store.parent
+	for {
+		next, ok := p.(*Store)
+		if !ok || !next.frozen.Load() || next.dirty.Load() {
+			break
+		}
+		p = next.parent
+	}
+	store.readParent.Store(&p)
+	return p
+}
+
+// Freeze marks the store as superseded by a newer cache layer. After Freeze the
+// caller must not write to the store again (writes go to the newer layer); this
+// lets deeper layers skip it for reads while it is empty. Freeze is idempotent.
+func (store *Store) Freeze() {
+	store.frozen.Store(true)
+}
+
+// Unfreeze reverts Freeze, marking the store writable again. It is called when a
+// layer is re-exposed as the newest layer (e.g. RevertToSnapshot), so that reads
+// stop skipping it — a writable top must never be treated as a frozen empty layer.
+// Deeper stores gate on the parent's live frozen bit, so unfreezing here also
+// bypasses any stale memo that skipped this store while it was frozen.
+func (store *Store) Unfreeze() {
+	store.frozen.Store(false)
 }
 
 // Get implements types.KVStore.
@@ -121,6 +187,10 @@ func (store *Store) Write() {
 	store.deleted = &sync.Map{}
 	store.unsortedCache = &sync.Map{}
 	store.sortedCache = nil
+	// The layer is empty again; drop the memoized skip so a subsequent read
+	// recomputes it against the current parent chain.
+	store.dirty.Store(false)
+	store.readParent.Store(nil)
 }
 
 // CacheWrap implements CacheWrapper.
@@ -160,10 +230,15 @@ func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 
 	var parent, cache types.Iterator
 
+	// Iterate the nearest ancestor that can hold data, skipping any run of frozen
+	// empty layers. An empty layer has no sets and no deletes, so it contributes
+	// nothing to iteration; skipping it avoids building an O(depth) chain of
+	// cacheMergeIterators over a deep snapshot stack.
+	parentStore := store.readThroughParent()
 	if ascending {
-		parent = store.parent.Iterator(start, end)
+		parent = parentStore.Iterator(start, end)
 	} else {
-		parent = store.parent.ReverseIterator(start, end)
+		parent = parentStore.ReverseIterator(start, end)
 	}
 	defer func() {
 		if err := recover(); err != nil {
@@ -176,6 +251,24 @@ func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	}()
 	store.dirtyItems(start, end)
 	cache = newMemIterator(start, end, store.getOrInitSortedCache(), store.deleted, ascending)
+	// Fast path: when this layer has no cached writes or deletes within [start, end),
+	// the merge is a pure pass-through of the parent iterator. Returning the parent
+	// directly avoids wrapping every empty cache layer in a cacheMergeIterator. Deeply
+	// nested cache stacks (e.g. one CacheMultiStore layer per EVM call frame) would
+	// otherwise force each Value()/Next()/Valid() to recurse through O(depth) merge
+	// iterators, turning a linear number of reads into quadratic work. Because empty
+	// layers pass through, nested empty layers collapse the whole chain to the base
+	// iterator. Note dirtyItems materializes in-range deletes into sortedCache, so a
+	// non-Valid cache correctly means "no sets and no deletes in range".
+	if !cache.Valid() {
+		if err := cache.Close(); err != nil {
+			if parent != nil {
+				_ = parent.Close()
+			}
+			panic(err)
+		}
+		return parent
+	}
 	return NewCacheMergeIterator(parent, cache, ascending, store.storeKey)
 }
 
@@ -341,6 +434,8 @@ func (store *Store) setCacheValue(key, value []byte, deleted bool, dirty bool) {
 	if dirty {
 		store.unsortedCache.Store(keyStr, struct{}{})
 	}
+	// Mark the layer non-empty so deeper layers stop skipping it for reads.
+	store.dirty.Store(true)
 }
 
 func (store *Store) isDeleted(key string) bool {

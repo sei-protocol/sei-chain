@@ -6,7 +6,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
-	rpcclientmock "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
@@ -16,14 +15,14 @@ import (
 var _ client.TendermintRPC = (*MockTendermintRPC)(nil)
 
 type MockTendermintRPC struct {
-	rpcclientmock.Client
+	rpcclient.Client
 
 	responseQuery abci.ResponseQuery
 }
 
 // NewMockTendermintRPC returns a mock TendermintRPC implementation.
 // It is used for CLI testing.
-func NewMockTendermintRPC(respQuery abci.ResponseQuery, client rpcclientmock.Client) MockTendermintRPC {
+func NewMockTendermintRPC(respQuery abci.ResponseQuery, client rpcclient.Client) MockTendermintRPC {
 	return MockTendermintRPC{
 		Client:        client,
 		responseQuery: respQuery,

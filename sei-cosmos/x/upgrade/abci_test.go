@@ -40,7 +40,7 @@ func setupTest(t *testing.T, height int64) TestSuite {
 	if err != nil {
 		panic(err)
 	}
-	app.InitChain(t.Context(), &abci.RequestInitChain{AppStateBytes: stateBytes})
+	app.InitChain(&abci.RequestInitChain{AppStateBytes: stateBytes})
 
 	s.keeper = app.UpgradeKeeper
 	s.ctx = app.BaseApp.NewContext(false, tmproto.Header{Height: height, Time: time.Now()})

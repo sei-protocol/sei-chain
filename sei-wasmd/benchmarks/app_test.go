@@ -53,12 +53,10 @@ func SetupWithGenesisAccounts(b testing.TB, db dbm.DB, genAccs []authtypes.Genes
 		panic(err)
 	}
 
-	wasmApp.InitChain(
-		context.Background(),
-		&abci.RequestInitChain{
-			ConsensusParams: seiapp.DefaultConsensusParams,
-			AppStateBytes:   stateBytes,
-		},
+	wasmApp.InitChain(&abci.RequestInitChain{
+		ConsensusParams: seiapp.DefaultConsensusParams,
+		AppStateBytes:   stateBytes,
+	},
 	)
 
 	wasmApp.SetDeliverStateToCommit()

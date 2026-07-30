@@ -8,10 +8,75 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 )
+
+// TestRecoverAddressesFromAuthorization verifies that our EIP-7702 authorization sig-hash
+// replication recovers the same account go-ethereum's own SignSetCode/Authority() does.
+// If the sig hash drifts from go-ethereum, RecoverAddressesFromAuthorization would recover
+// the wrong (or no) address and the ante-handler pre-association would silently no-op, so
+// this test pins the encoding across several chain IDs, nonces and delegation targets.
+func TestRecoverAddressesFromAuthorization(t *testing.T) {
+	cases := []struct {
+		name    string
+		chainID *uint256.Int
+		address common.Address
+		nonce   uint64
+	}{
+		{"typical", uint256.NewInt(1329), common.HexToAddress("0x00000000000000000000000000000000000000aa"), 7},
+		{"zero chain id (valid for any chain)", uint256.NewInt(0), common.HexToAddress("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"), 0},
+		{"large nonce", uint256.NewInt(11155111), common.Address{}, 1<<63 + 123},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			privKey, err := crypto.GenerateKey()
+			require.NoError(t, err)
+			expectedEVM := crypto.PubkeyToAddress(privKey.PublicKey)
+
+			signed, err := ethtypes.SignSetCode(privKey, ethtypes.SetCodeAuthorization{
+				ChainID: *tc.chainID,
+				Address: tc.address,
+				Nonce:   tc.nonce,
+			})
+			require.NoError(t, err)
+
+			// go-ethereum's authoritative recovery (used during EVM execution).
+			authority, err := signed.Authority()
+			require.NoError(t, err)
+			require.Equal(t, expectedEVM, authority)
+
+			evmAddr, seiAddr, pubkey, err := RecoverAddressesFromAuthorization(signed)
+			require.NoError(t, err)
+			require.Equal(t, expectedEVM, evmAddr)
+			require.Equal(t, authority, evmAddr)
+
+			// The Sei address and pubkey must match those derived directly from the key.
+			expEVM, expSei, expPub, err := GetAddressesFromPubkeyBytes(crypto.FromECDSAPub(&privKey.PublicKey))
+			require.NoError(t, err)
+			require.Equal(t, expEVM, evmAddr)
+			require.Equal(t, expSei, seiAddr)
+			require.Equal(t, expPub, pubkey)
+		})
+	}
+}
+
+// TestRecoverAddressesFromAuthorizationInvalidSig ensures a malformed authorization
+// signature yields an error rather than a bogus address (the ante handler skips these).
+func TestRecoverAddressesFromAuthorizationInvalidSig(t *testing.T) {
+	_, _, _, err := RecoverAddressesFromAuthorization(ethtypes.SetCodeAuthorization{
+		ChainID: *uint256.NewInt(1329),
+		Address: common.HexToAddress("0x00000000000000000000000000000000000000aa"),
+		Nonce:   1,
+		V:       0,
+		R:       *uint256.NewInt(0),
+		S:       *uint256.NewInt(0),
+	})
+	require.Error(t, err)
+}
 
 func TestPubkeyToEVMAddress(t *testing.T) {
 	tests := []struct {

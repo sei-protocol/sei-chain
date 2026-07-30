@@ -66,6 +66,15 @@ func (p *Pool[K, V]) InsertAndRun(ctx context.Context, key K, val V, task func(c
 	return err
 }
 
+func (p *Pool[K, V]) Get(key K) (V, bool) {
+	for inner := range p.inner.Lock() {
+		if entry, ok := inner.byKey[key]; ok {
+			return entry.val, true
+		}
+	}
+	return utils.Zero[V](), false
+}
+
 func (p *Pool[K, V]) RunForEach(ctx context.Context, task func(context.Context, V) error) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var next poolEntry[V]

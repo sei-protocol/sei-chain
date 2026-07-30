@@ -48,24 +48,24 @@ func TestClassifyFlatKVPhysicalKey(t *testing.T) {
 			expected: "storage",
 		},
 		{
-			name:     "non-evm module -> legacy",
+			name:     "non-evm module -> misc",
 			key:      ktype.ModulePhysicalKey("bank", []byte("supply")),
-			expected: "legacy",
+			expected: "misc",
 		},
 		{
-			name:     "evm with unknown prefix byte -> legacy",
+			name:     "evm with unknown prefix byte -> misc",
 			key:      append([]byte("evm/"), 0xFF, 0xAA),
-			expected: "legacy",
+			expected: "misc",
 		},
 		{
-			name:     "empty evm inner key -> legacy",
+			name:     "empty evm inner key -> misc",
 			key:      []byte("evm/"),
-			expected: "legacy",
+			expected: "misc",
 		},
 		{
-			name:     "missing module prefix -> legacy",
+			name:     "missing module prefix -> misc",
 			key:      []byte{0x03, 0x04, 0x05},
-			expected: "legacy",
+			expected: "misc",
 		},
 	}
 
@@ -98,7 +98,7 @@ func TestExtractFlatKVContractAddress(t *testing.T) {
 
 // TestCollectFlatKVStateSize exercises the full scan path against a real
 // in-memory FlatKV store. We seed a mix of account, code, storage and
-// legacy rows, then verify per-DB counts and the top-contracts ranking by
+// misc rows, then verify per-DB counts and the top-contracts ranking by
 // storage size.
 func TestCollectFlatKVStateSize(t *testing.T) {
 	store := newTestFlatKVStore(t)
@@ -138,7 +138,7 @@ func TestCollectFlatKVStateSize(t *testing.T) {
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
 
-	// One non-evm write goes to the legacy DB.
+	// One non-evm write goes to the misc DB.
 	bankCS := &proto.NamedChangeSet{
 		Name: "bank",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -146,8 +146,8 @@ func TestCollectFlatKVStateSize(t *testing.T) {
 		}},
 	}
 
-	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{evmCS, bankCS}))
-	_, err := store.Commit()
+	require.NoError(t, store.ApplyChangeSets(store.Version()+1, []*proto.NamedChangeSet{evmCS, bankCS}))
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 
 	result, err := collectFlatKVStateSize(store)
@@ -166,9 +166,9 @@ func TestCollectFlatKVStateSize(t *testing.T) {
 	require.EqualValues(t, 8, result.DBSizes["storage"].NumKeys,
 		"3 slots for addrA + 5 slots for addrB = 8 physical storage rows")
 
-	require.NotNil(t, result.DBSizes["legacy"], "expected legacy DB breakdown")
-	require.EqualValues(t, 1, result.DBSizes["legacy"].NumKeys,
-		"one non-evm bank row should land in legacy")
+	require.NotNil(t, result.DBSizes["misc"], "expected misc DB breakdown")
+	require.EqualValues(t, 1, result.DBSizes["misc"].NumKeys,
+		"one non-evm bank row should land in misc")
 
 	// Total key count is the sum of per-DB counts.
 	require.EqualValues(t, 3+2+8+1, result.Total.NumKeys)

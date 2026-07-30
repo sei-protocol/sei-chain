@@ -103,7 +103,8 @@ func driveRootMultiMigration(
 	}
 
 	// --- Restart: MemiavlOnly -> MigrateEVM ---
-	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig(migrateBatchSize))
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig())
+	require.NoError(t, store.SetMigrationBatchSize(migrateBatchSize))
 
 	for i := phase1Blocks + 1; i <= phase1Blocks+phase2Blocks; i++ {
 		records = append(records, simulateBlock(t, store, storeKeys, i, addrBase))
@@ -149,7 +150,8 @@ func TestRootMultiMigrateEVM_ReopenPreservesPreFlipAppHash(t *testing.T) {
 	require.Equal(t, int64(3), preFlipID.Version)
 	require.NotEmpty(t, preFlipID.Hash)
 
-	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig(2))
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig())
+	require.NoError(t, store.SetMigrationBatchSize(2))
 	defer func() { require.NoError(t, store.Close()) }()
 
 	require.Equal(t, preFlipID, store.LastCommitID(),
@@ -168,7 +170,8 @@ func TestRootMultiMigrateEVM_EmptyBlocksAdvanceMigration(t *testing.T) {
 	storageKeys := storageMemIAVLKeys(0xB1, 4)
 	simulateBlockManyStorage(t, store, storeKeys, 1, storageKeys, addrBase)
 
-	store, _ = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig(2))
+	store, _ = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig())
+	require.NoError(t, store.SetMigrationBatchSize(2))
 
 	for i := 0; i < 4; i++ {
 		rec := finalizeBlock(t, store)
@@ -177,7 +180,7 @@ func TestRootMultiMigrateEVM_EmptyBlocksAdvanceMigration(t *testing.T) {
 	}
 	require.NoError(t, store.Close())
 
-	v, present := migrationVersionInFlatKV(t, dir, migrateEVMConfig(2))
+	v, present := migrationVersionInFlatKV(t, dir, migrateEVMConfig())
 	require.True(t, present)
 	require.Equal(t, uint64(migration.Version1_MigrateEVM), v)
 }
@@ -193,7 +196,8 @@ func TestRootMultiMigrateEVM_EVMIteratorAvailableDuringMigration(t *testing.T) {
 	rec := finalizeBlock(t, store)
 	require.Equal(t, int64(1), rec.version)
 
-	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig(2))
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig())
+	require.NoError(t, store.SetMigrationBatchSize(2))
 	defer func() { require.NoError(t, store.Close()) }()
 
 	cms = store.CacheMultiStore()
@@ -263,7 +267,7 @@ func TestRootMultiMigrateEVM_HappyPath_Lifecycle(t *testing.T) {
 	// LtHash equality; we don't repeat that here because the live
 	// rootmulti store has by now rotated flatkv WAL snapshots in a way
 	// that breaks LoadVersion(latest, readOnly=true) catchup.
-	v, present := migrationVersionInFlatKV(t, dir, migrateEVMConfig(batch))
+	v, present := migrationVersionInFlatKV(t, dir, migrateEVMConfig())
 	require.True(t, present, "migration-version key must be present in flatkv after completion")
 	require.Equal(t, uint64(migration.Version1_MigrateEVM), v,
 		"flatkv migration version must be Version1_MigrateEVM")
@@ -335,7 +339,7 @@ func TestRootMultiMigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	// Sanity: the close-and-reopen below depends on the migration
 	// having actually finished before we flip the mode.
 	require.NoError(t, store.Close())
-	v, present := migrationVersionInFlatKV(t, dir, migrateEVMConfig(batch))
+	v, present := migrationVersionInFlatKV(t, dir, migrateEVMConfig())
 	require.True(t, present && v == uint64(migration.Version1_MigrateEVM),
 		"flip must happen after migration completes; tighten drainBlocks if this fails")
 
@@ -404,7 +408,8 @@ func TestRootMultiMigrateEVM_DoubleFlushAppHashStable(t *testing.T) {
 	// --- Restart into MigrateEVM with a small batch so multiple
 	// per-block advances are required to drain. ---
 	const batch = 4
-	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig(batch))
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig())
+	require.NoError(t, store.SetMigrationBatchSize(batch))
 	defer func() { require.NoError(t, store.Close()) }()
 
 	// Alternate empty blocks (exercise the "empty changesets in

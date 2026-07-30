@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
-	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 )
 
 // defaultDirPerm is the default permissions used when creating directories.
@@ -286,6 +285,14 @@ timeout-write = "{{ .RPC.TimeoutWrite }}"
 # Maximum number of results returned by tx_search and block_search.
 # Set to 0 to disable the cap (not recommended on public nodes).
 max-tx-search-results = {{ .RPC.MaxTxSearchResults }}
+
+# Maximum number of KV index entries that all in-flight tx_search and
+# block_search requests may visit at once. This is a process-wide safety cap
+# that bounds peak memory (and scan CPU) under broad or highly concurrent
+# search load; it is shared across requests, not applied per-query. When the
+# budget is exhausted an in-flight search fails rather than continuing to
+# accumulate. Set to 0 to disable the cap (not recommended on public nodes).
+max-search-scan-budget = {{ .RPC.MaxSearchScanBudget }}
 
 #######################################################################
 ###           P2P Configuration Options                             ###
@@ -612,14 +619,12 @@ prometheus = {{ .Instrumentation.Prometheus }}
 # Address to listen for Prometheus collector(s) connections
 prometheus-listen-addr = "{{ .Instrumentation.PrometheusListenAddr }}"
 
-# Maximum number of simultaneous connections.
-# If you want to accept a larger number than the default, make sure
-# you increase your OS limits.
+# Maximum number of scrapes served concurrently. Not a socket limit despite the
+# name: requests past it receive a 503 rather than being queued. Keep it above
+# the number of scrapers that can overlap (an HA Prometheus pair, probes, a human
+# curl) — a slow reader holds a slot until it finishes or times out.
 # 0 - unlimited.
 max-open-connections = {{ .Instrumentation.MaxOpenConnections }}
-
-# Instrumentation namespace
-namespace = "{{ .Instrumentation.Namespace }}"
 
 #######################################################################
 ###       Priv Validator Configuration (Auto-managed)              ###
@@ -723,7 +728,6 @@ func ResetTestRootWithChainID(dir, testName string, chainID string) (*Config, er
 
 	config := TestConfig().SetRoot(rootDir)
 	config.P2P.ListenAddress = tcp.TestReserveAddr().String()
-	config.Instrumentation.Namespace = fmt.Sprintf("%s_%s_%s", testName, chainID, tmrand.Str(16))
 	return config, nil
 }
 

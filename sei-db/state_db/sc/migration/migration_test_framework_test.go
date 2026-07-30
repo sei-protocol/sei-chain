@@ -53,6 +53,12 @@ func (m *TestMultiDB) GetProof(store string, key []byte) (*ics23.CommitmentProof
 	panic("not implemented")
 }
 
+func (m *TestMultiDB) SetMigrationBatchSize(batchSize int) {
+	for _, nestedDB := range m.nestedDBs {
+		nestedDB.SetMigrationBatchSize(batchSize)
+	}
+}
+
 func (m *TestMultiDB) Read(store string, key []byte) ([]byte, bool, error) {
 	if len(m.nestedDBs) == 0 {
 		return nil, false, fmt.Errorf("no nested databases configured")
@@ -96,12 +102,14 @@ func (r *TestFlatKVRouter) Read(store string, key []byte) ([]byte, bool, error) 
 }
 
 func (r *TestFlatKVRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, _ bool) error {
-	return r.flatKV.ApplyChangeSets(changesets)
+	return r.flatKV.ApplyChangeSets(r.flatKV.Version()+1, changesets)
 }
 
 func (r *TestFlatKVRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
 	return nil, errors.New("TestFlatKVRouter does not support proofs")
 }
+
+func (r *TestFlatKVRouter) SetMigrationBatchSize(int) {}
 
 // TestMemIAVLRouter is a [Router] that sends all operations to a single underlying
 // memiavl.CommitStore. It does not support iteration or proofs.
@@ -131,6 +139,8 @@ func (r *TestMemIAVLRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, 
 func (r *TestMemIAVLRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
 	return nil, errors.New("TestMemIAVLRouter does not support proofs")
 }
+
+func (r *TestMemIAVLRouter) SetMigrationBatchSize(int) {}
 
 // TestInMemoryRouter is a [Router] backed by an in-memory map. The outer map keys
 // are store (module) names and the inner map keys are store keys. It does not
@@ -184,6 +194,8 @@ func (r *TestInMemoryRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet,
 func (r *TestInMemoryRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
 	return nil, errors.New("TestInMemoryRouter does not support proofs")
 }
+
+func (r *TestInMemoryRouter) SetMigrationBatchSize(int) {}
 
 // VerifyKeyPlacement verifies that every key in the oracle is in the correct backend.
 // Keys whose store name appears in flatKVStores must be readable from flatKVRouter and
@@ -380,13 +392,13 @@ func encodeVersion(v uint64) []byte {
 // setup that has not itself written the version key).
 func SeedMigrationVersionInFlatKV(t *testing.T, flatKV *flatkv.CommitStore, version uint64) {
 	t.Helper()
-	require.NoError(t, flatKV.ApplyChangeSets([]*proto.NamedChangeSet{{
+	require.NoError(t, flatKV.ApplyChangeSets(flatKV.Version()+1, []*proto.NamedChangeSet{{
 		Name: MigrationStore,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte(MigrationVersionKey), Value: encodeVersion(version)},
 		}},
 	}}), "seed migration version")
-	_, err := flatKV.Commit()
+	_, err := flatKV.Commit(flatKV.Version() + 1)
 	require.NoError(t, err, "commit after seeding migration version")
 }
 
@@ -505,7 +517,7 @@ func randomEVMValue(rng *testutil.TestRandom, key []byte) []byte {
 		return randomTestBytes(rng, 8)
 	case keys.EVMKeyCodeHash, keys.EVMKeyCode, keys.EVMKeyStorage:
 		return randomTestBytes(rng, 32)
-	default: // EVMKeyLegacy or unknown — no fixed constraint
+	default: // EVMKeyMisc or unknown — no fixed constraint
 		return randomTestBytes(rng, 8)
 	}
 }

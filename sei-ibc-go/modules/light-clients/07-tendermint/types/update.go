@@ -148,7 +148,7 @@ func (cs ClientState) CheckHeaderAndUpdateState(
 
 // checkTrustedHeader checks that consensus state matches trusted fields of Header
 func checkTrustedHeader(header *Header, consState *ConsensusState) error {
-	tmTrustedValidators, err := tmtypes.ValidatorSetFromProto(header.TrustedValidators)
+	tmTrustedValidators, err := validatorSetFromProto(header.TrustedValidators)
 	if err != nil {
 		return sdkerrors.Wrap(err, "trusted validator set in not tendermint validator set type")
 	}
@@ -186,7 +186,7 @@ func checkValidity(
 		)
 	}
 
-	tmTrustedValidators, err := tmtypes.ValidatorSetFromProto(header.TrustedValidators)
+	tmTrustedValidators, err := validatorSetFromProto(header.TrustedValidators)
 	if err != nil {
 		return sdkerrors.Wrap(err, "trusted validator set in not tendermint validator set type")
 	}
@@ -196,7 +196,7 @@ func checkValidity(
 		return sdkerrors.Wrap(err, "signed header in not tendermint signed header type")
 	}
 
-	tmValidatorSet, err := tmtypes.ValidatorSetFromProto(header.ValidatorSet)
+	tmValidatorSet, err := validatorSetFromProto(header.ValidatorSet)
 	if err != nil {
 		return sdkerrors.Wrap(err, "validator set in not tendermint validator set type")
 	}

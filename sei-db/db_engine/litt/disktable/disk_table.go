@@ -1,6 +1,7 @@
 package disktable
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -23,8 +24,6 @@ var _ litt.ManagedTable = (*DiskTable)(nil)
 
 // keymapReloadBatchSize is the size of the batch used for reloading keys from segments into the keymap.
 const keymapReloadBatchSize = 1024
-
-const tableFlushChannelCapacity = 8
 
 // DiskTable manages a table's Segments.
 type DiskTable struct {
@@ -99,6 +98,10 @@ type DiskTable struct {
 	// If true then ensure file operations are synced to disk.
 	fsync bool
 
+	// The algorithm used to compress values written to new segments. types.CompressionNone means values
+	// are stored verbatim. Held only in memory; each segment records its own algorithm for reads.
+	compressionAlgorithm types.CompressionAlgorithm
+
 	// Manages flush requests and flush request batching. This is a performance optimization.
 	flushCoordinator *flushCoordinator
 }
@@ -148,17 +151,18 @@ func NewDiskTable(
 	errorMonitor := util.NewErrorMonitor(runtimeConfig.CTX, runtimeConfig.Logger, runtimeConfig.FatalErrorCallback)
 
 	table := &DiskTable{
-		logger:         runtimeConfig.Logger,
-		errorMonitor:   errorMonitor,
-		clock:          runtimeConfig.Clock,
-		roots:          qualifiedRoots,
-		segmentPaths:   segmentPaths,
-		name:           name,
-		keymap:         keymap,
-		keymapPath:     keymapPath,
-		keymapTypeFile: keymapTypeFile,
-		metrics:        metrics,
-		fsync:          config.Fsync,
+		logger:               runtimeConfig.Logger,
+		errorMonitor:         errorMonitor,
+		clock:                runtimeConfig.Clock,
+		roots:                qualifiedRoots,
+		segmentPaths:         segmentPaths,
+		name:                 name,
+		keymap:               keymap,
+		keymapPath:           keymapPath,
+		keymapTypeFile:       keymapTypeFile,
+		metrics:              metrics,
+		fsync:                config.Fsync,
+		compressionAlgorithm: tableConfig.Compression,
 	}
 	// Sharding factor is supplied at creation time and held only in memory; it is not persisted across restarts.
 	// (TTL is likewise in-memory, but it lives on the GC manager — its only consumer — and is seeded there.)
@@ -208,7 +212,9 @@ func NewDiskTable(
 		segmentPaths,
 		snapshottingEnabled,
 		table.getShardingFactor(),
-		config.Fsync)
+		table.compressionAlgorithm,
+		config.Fsync,
+		config.ShardControlChannelSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mutable segment: %w", err)
 	}
@@ -332,6 +338,7 @@ func NewDiskTable(
 		name,
 		config.KeymapManagerChannelSize,
 		config.KeymapManagerMaxBatchSize,
+		config.KeymapManagerMaxBatchBytes,
 		config.GCBatchSize,
 		config.KeymapManagerMaxInterval,
 		config.KeymapManagerMaxBufferedDeletes,
@@ -342,7 +349,7 @@ func NewDiskTable(
 		logger:                 runtimeConfig.Logger,
 		keymapManager:          kManager,
 		errorMonitor:           errorMonitor,
-		flushChannel:           make(chan any, tableFlushChannelCapacity),
+		flushChannel:           make(chan any, config.FlushChannelSize),
 		metrics:                metrics,
 		clock:                  runtimeConfig.Clock,
 		name:                   name,
@@ -362,6 +369,8 @@ func NewDiskTable(
 		targetFileSize:          config.TargetSegmentFileSize,
 		targetKeyFileSize:       config.TargetSegmentKeyFileSize,
 		maxKeyCount:             config.MaxSegmentKeyCount,
+		autoFlushByteThreshold:  config.AutoFlushByteThreshold,
+		shardControlChannelSize: config.ShardControlChannelSize,
 		clock:                   runtimeConfig.Clock,
 		segmentPaths:            segmentPaths,
 		snapshottingEnabled:     snapshottingEnabled,
@@ -375,9 +384,32 @@ func NewDiskTable(
 		immutableSegmentSize:    immutableSegmentSize,
 		deletionWatermarkChan:   make(chan int64, config.KeymapManagerWatermarkChannelSize),
 		keymapDeletionWatermark: initialDeletionWatermark,
+		compressionAlgorithm:    tableConfig.Compression,
 	}
 	cLoop.lowestSegmentIndex = lowestSegmentIndex
 	cLoop.threadsafeHighestSegmentIndex.Store(highestSegmentIndex)
+
+	// Wire the compression stage in front of the control loop when compression is enabled. enqueue sends
+	// to inputChannel; the compression loop compresses write requests and forwards every message (in
+	// order, so flush stays ordered behind its writes) to controllerChannel. When compression is
+	// disabled, enqueue targets controllerChannel directly and no compression goroutine runs.
+	var cmpLoop *compressionLoop
+	if tableConfig.Compression == types.CompressionNone {
+		cLoop.inputChannel = cLoop.controllerChannel
+	} else {
+		cmpLoop = &compressionLoop{
+			logger:        runtimeConfig.Logger,
+			errorMonitor:  errorMonitor,
+			algorithm:     tableConfig.Compression,
+			inputChannel:  make(chan any, config.ControlChannelSize),
+			outputChannel: cLoop.controllerChannel,
+			metrics:       metrics,
+			name:          name,
+			clock:         runtimeConfig.Clock,
+		}
+		cLoop.inputChannel = cmpLoop.inputChannel
+	}
+
 	table.controlLoop = cLoop
 	cLoop.updateCurrentSize()
 
@@ -411,6 +443,9 @@ func NewDiskTable(
 	go fLoop.run()
 	go cLoop.run()
 	go gcMgr.run()
+	if cmpLoop != nil {
+		go cmpLoop.run()
+	}
 
 	return table, nil
 }
@@ -971,8 +1006,10 @@ func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 		if len(kv.Key) > math.MaxUint16 {
 			return fmt.Errorf("key is too large, length must not exceed 2^16 bytes: %d bytes", len(kv.Key))
 		}
-		if len(kv.Value) > math.MaxUint32 {
-			return fmt.Errorf("value is too large, length must not exceed 2^32 bytes: %d bytes", len(kv.Value))
+		// One byte below 2^32-1: a compressed segment prefixes each value with a one-byte algorithm tag,
+		// and the resulting on-disk blob length must still fit the uint32 value-size field of an Address.
+		if len(kv.Value) >= math.MaxUint32 {
+			return fmt.Errorf("value is too large, length must not exceed 2^32 - 2 bytes: %d bytes", len(kv.Value))
 		}
 
 		// Validate every secondary key in this request, and detect duplicate keys (primary vs
@@ -995,6 +1032,16 @@ func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 			if end > uint64(len(kv.Value)) {
 				return fmt.Errorf(
 					"secondary key range [%d, %d) exceeds value length %d", sk.Offset, end, len(kv.Value))
+			}
+			// On a compressed table, a secondary key may only alias the entire value. A compressed blob
+			// cannot be sliced, so a strict sub-range would require storing a second (duplicated)
+			// compressed copy, which is a documented future optimization rather than current behavior.
+			if d.compressionAlgorithm != types.CompressionNone &&
+				(sk.Offset != 0 || uint64(sk.Length) != uint64(len(kv.Value))) {
+				return fmt.Errorf(
+					"secondary key range [%d, %d) is a strict sub-range of the value (length %d), which is "+
+						"not supported on a compressed table; secondary keys must alias the entire value",
+					sk.Offset, end, len(kv.Value))
 			}
 			skKey := util.UnsafeBytesToString(sk.Key)
 			if _, dup := seen[skKey]; dup {
@@ -1177,23 +1224,172 @@ func (d *DiskTable) Iterator(reverse bool) (litt.Iterator, error) {
 		return nil, fmt.Errorf("cannot process Iterator() request, DB is in panicked state due to error: %w", err)
 	}
 
-	request := &controlLoopOpenIteratorRequest{
-		responseChan: make(chan []*segment.Segment, 1),
-	}
-	err := d.controlLoop.enqueue(request)
+	segs, err := d.openSnapshot()
 	if err != nil {
-		return nil, fmt.Errorf("failed to send open iterator request: %w", err)
-	}
-
-	segs, err := util.Await(d.errorMonitor, request.responseChan)
-	if err != nil {
-		return nil, fmt.Errorf("failed to await iterator open: %w", err)
+		return nil, err
 	}
 
 	if reverse {
 		return newReverseIterator(d, segs), nil
 	}
 	return newForwardIterator(d, segs), nil
+}
+
+// IteratorAt returns an iterator positioned at key. See litt.Table.IteratorAt for the contract.
+func (d *DiskTable) IteratorAt(key []byte, reverse bool) (litt.Iterator, bool, error) {
+	if ok, err := d.errorMonitor.IsOk(); !ok {
+		return nil, false, fmt.Errorf(
+			"cannot process IteratorAt() request, DB is in panicked state due to error: %w", err)
+	}
+
+	// Existence check, cache before keymap — the same oracle Get uses. The keymap lags writes: a key
+	// lives in the unflushed data cache from Put until its keymap entry is durable, and is pruned from
+	// the cache only after the keymap put succeeds, so a key absent from both is genuinely absent. This
+	// keeps the not-found case cheap: no segment is sealed and no barrier is paid for a key that was
+	// never written. A key present in the keymap has a live entry, so its segment cannot be garbage
+	// collected out from under the snapshot opened below.
+	_, inCache := d.unflushedDataCache.Load(util.UnsafeBytesToString(key))
+	address, inKeymap, err := d.keymap.Get(key)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to look up key address: %w", err)
+	}
+	if !inKeymap && !inCache {
+		return nil, false, nil
+	}
+
+	segs, err := d.openSnapshot()
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !inKeymap {
+		// The key is in the unflushed data cache but not yet in the keymap. openSnapshot sealed the
+		// mutable segment, which handed every pending key to the keymap manager before returning, so
+		// draining the manager's buffered puts makes the keymap lookup authoritative for everything
+		// that was written before the seal.
+		//
+		// A miss after the barrier is therefore not necessarily a deletion. PutBatch populates the
+		// cache before enqueueing its write, so a concurrent writer's key can be visible to the read
+		// above while its controlLoopWriteRequest still sits behind this reader's own request: the
+		// seal misses it, and no barrier can conjure it. Reporting not-found is correct in that case
+		// as well as for a concurrent delete — treat a miss here as "not in this snapshot", not as a
+		// sign something is wrong.
+		if err = d.keymapManager.syncPuts(); err != nil {
+			return nil, false, errors.Join(
+				fmt.Errorf("failed to sync keymap manager puts: %w", err),
+				d.abandonSnapshot(segs))
+		}
+		address, inKeymap, err = d.keymap.Get(key)
+		if err != nil {
+			return nil, false, errors.Join(
+				fmt.Errorf("failed to look up key address: %w", err),
+				d.abandonSnapshot(segs))
+		}
+		if !inKeymap {
+			return nil, false, d.abandonSnapshot(segs)
+		}
+	}
+
+	// Find the snapshot position of the keymap-identified segment. segs is ordered by ascending segment
+	// index; a linear scan suffices here. (This could be a binary search if it ever showed up as a
+	// hotspot — it won't; even tens of thousands of segment pointers is negligible next to the key-file
+	// read below.)
+	segPos := -1
+	for i, seg := range segs {
+		if seg.SegmentIndex() == address.Index() {
+			segPos = i
+			break
+		}
+	}
+	if segPos < 0 {
+		// The key's segment is not part of the readable snapshot (e.g. a concurrent prune/GC boundary).
+		// Report not found; surface any error releasing the snapshot.
+		return nil, false, d.abandonSnapshot(segs)
+	}
+
+	// Scan the located segment's keys (insertion order) for the exact key to fix the start position.
+	//
+	// TODO(perf): positioning is O(keys in segment). The key-file read itself is not wasted — the
+	// iterator walks this same slice — but the scan is pure overhead on top of it. Two ways to get to
+	// O(log n), neither free:
+	//
+	//   - Fix the key size, or enforce a maximum so a key record can occupy a fixed number of bytes.
+	//     Records are variable-stride today (kind, uint16 key length, key, address — see
+	//     keyFile.readKeys), so the file cannot be indexed arithmetically; a fixed stride would allow
+	//     binary searching the file directly. Only sound where insertion order is also key order,
+	//     since the key file is written in insertion order.
+	//   - Build a small per-segment index over the key file, shaped like a binary search tree. Works
+	//     regardless of key ordering, at the cost of another file per segment.
+	//
+	// Both trade one sequential key-file read for random reads, so either needs benchmarking before
+	// adoption. Deferred until there is evidence it matters: if iteration is mostly a startup
+	// activity, reading one segment's key file is noise.
+	keys, err := segs[segPos].GetKeys()
+	if err != nil {
+		return nil, false, errors.Join(
+			fmt.Errorf("failed to read keys for segment %d: %w", segs[segPos].SegmentIndex(), err),
+			d.abandonSnapshot(segs))
+	}
+	keyPos := -1
+	for i := range keys {
+		if bytes.Equal(keys[i].Key, key) {
+			keyPos = i
+			break
+		}
+	}
+	if keyPos < 0 {
+		return nil, false, d.abandonSnapshot(segs)
+	}
+
+	// Both constructors take the whole snapshot even though a forward iterator never visits
+	// segs[:segPos] and a reverse one never visits segs[segPos+1:], so unreachable segment files
+	// stay on disk until Close. That is deliberate for now, and cheap: GC still collects them
+	// (keymap deletes proceed and the read barrier advances — see gcManager.collectExpiredSegments),
+	// only file deletion waits. Handing a forward iterator segs[segPos:] and releasing the rest
+	// would let those files go sooner; the reverse case would gain nothing, since segments are
+	// deleted strictly oldest-first via chained reservations and the ones it could release are the
+	// newest. Worth revisiting if long-lived mid-history iterators ever appear.
+	if reverse {
+		return newReverseIteratorAt(d, segs, segPos, keys, keyPos), true, nil
+	}
+	return newForwardIteratorAt(d, segs, segPos, keys, keyPos), true, nil
+}
+
+// openSnapshot seals the mutable segment and returns a reserved, index-ordered snapshot of the readable
+// sealed segments. The caller must eventually release the reservations: either by constructing an
+// iterator over the snapshot (whose Close releases them) or, if no iterator is created, via
+// abandonSnapshot.
+func (d *DiskTable) openSnapshot() ([]*segment.Segment, error) {
+	request := &controlLoopOpenIteratorRequest{
+		responseChan: make(chan []*segment.Segment, 1),
+	}
+	if err := d.controlLoop.enqueue(request); err != nil {
+		return nil, fmt.Errorf("failed to send open iterator request: %w", err)
+	}
+	segs, err := util.Await(d.errorMonitor, request.responseChan)
+	if err != nil {
+		return nil, fmt.Errorf("failed to await iterator open: %w", err)
+	}
+	return segs, nil
+}
+
+// abandonSnapshot releases a snapshot acquired via openSnapshot when no iterator will be created over it,
+// releasing each segment reservation and updating the open-iterator metric. It mirrors the release path
+// of Iterator.Close for the case where an iterator was never constructed.
+func (d *DiskTable) abandonSnapshot(segs []*segment.Segment) error {
+	for _, seg := range segs {
+		seg.Release()
+	}
+	request := &controlLoopCloseIteratorRequest{
+		completionChan: make(chan struct{}, 1),
+	}
+	if err := d.controlLoop.enqueue(request); err != nil {
+		return fmt.Errorf("failed to send close iterator request: %w", err)
+	}
+	if _, err := util.Await(d.errorMonitor, request.completionChan); err != nil {
+		return fmt.Errorf("failed to await iterator close: %w", err)
+	}
+	return nil
 }
 
 // GetOldestKey returns the oldest non-deleted primary key in the table.

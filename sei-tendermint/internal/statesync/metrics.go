@@ -1,10 +1,13 @@
 package statesync
 
 import (
-	"github.com/go-kit/kit/metrics"
+	"github.com/prometheus/client_golang/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
 const (
+	// MetricsNamespace is the namespace shared by all Tendermint Prometheus metrics.
+	MetricsNamespace = "tendermint"
 	// MetricsSubsystem is a subsystem shared by all metrics exposed by this package.
 	MetricsSubsystem = "statesync"
 )
@@ -14,17 +17,17 @@ const (
 // Metrics contains metrics exposed by this package.
 type Metrics struct {
 	// The total number of snapshots discovered.
-	TotalSnapshots metrics.Counter
+	TotalSnapshots tmprometheus.CounterIntVec
 	// The average processing time per chunk.
-	ChunkProcessAvgTime metrics.Gauge
+	ChunkProcessAvgTime *prometheus.GaugeVec
 	// The height of the current snapshot the has been processed.
-	SnapshotHeight metrics.Gauge
+	SnapshotHeight tmprometheus.GaugeIntVec
 	// The current number of chunks that have been processed.
-	SnapshotChunk metrics.Counter
+	SnapshotChunk tmprometheus.CounterIntVec
 	// The total number of chunks in the current snapshot.
-	SnapshotChunkTotal metrics.Gauge
+	SnapshotChunkTotal tmprometheus.GaugeIntVec
 	// The current number of blocks that have been back-filled.
-	BackFilledBlocks metrics.Counter
+	BackFilledBlocks tmprometheus.CounterIntVec
 	// The total number of blocks that need to be back-filled.
-	BackFillBlocksTotal metrics.Gauge
+	BackFillBlocksTotal tmprometheus.GaugeIntVec
 }

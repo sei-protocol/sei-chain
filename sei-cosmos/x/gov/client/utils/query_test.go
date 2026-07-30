@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	ctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -20,7 +19,7 @@ import (
 
 type TxSearchMock struct {
 	txConfig client.TxConfig
-	mock.Client
+	client.Client
 	txs []tmtypes.Tx
 }
 

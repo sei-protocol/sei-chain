@@ -4,10 +4,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
+
+// TestNewDecCoinConversionRange covers the Coin -> DecCoin conversion boundary:
+// a max-magnitude Int coin cannot be scaled to a whole-coin Dec within range, so
+// every Coin -> DecCoin constructor must reject it before it can reach state.
+// This is the shared conversion used by the community-pool, fee-collector and
+// denom-normalization paths.
+func TestNewDecCoinConversionRange(t *testing.T) {
+	require.Panics(t, func() { sdk.NewDecCoin("stake", maxInt()) }, "NewDecCoin must reject max Int")
+	require.Panics(t, func() { sdk.NewDecCoinFromCoin(sdk.NewCoin("stake", maxInt())) }, "NewDecCoinFromCoin must reject max Int")
+	require.Panics(t, func() { sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", maxInt())) }, "NewDecCoinsFromCoins must reject max Int")
+}
 
 type decCoinTestSuite struct {
 	suite.Suite

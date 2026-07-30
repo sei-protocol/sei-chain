@@ -345,7 +345,7 @@ assert_flatkv_dump_contains_fixture() {
     #   bucket=account  recipient_hits=0  contract_hits=1
     #   bucket=code     recipient_hits=0  contract_hits=1  code_hits=1
     #   bucket=storage  recipient_hits=0  contract_hits=1  storage_hits=1
-    #   bucket=legacy   recipient_hits=0  contract_hits=3
+    #   bucket=misc   recipient_hits=0  contract_hits=3
     # Reason: a fresh-EOA recipient of a native EVM transfer keeps the
     # default nonce=0 / codehash=keccak('') values that Sei's EVM keeper
     # never persists, so memiavl never holds a row for it (offline import

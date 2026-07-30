@@ -46,8 +46,25 @@ func (h Hooks) AfterValidatorRemoved(ctx sdk.Context, _ sdk.ConsAddress, valAddr
 			accAddr := sdk.AccAddress(valAddr)
 			withdrawAddr := h.k.GetDelegatorWithdrawAddr(ctx, accAddr)
 
-			if err := h.k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, withdrawAddr, coins); err != nil {
-				panic(err)
+			// GetDelegatorWithdrawAddr falls back to the delegator (accAddr) when the
+			// configured withdraw address cannot receive funds, but that fallback can
+			// itself be unable to receive — e.g. accAddr is an EVM address whose Sei
+			// mapping was re-associated to a different address, so CanAddressReceive
+			// rejects it. This hook runs in EndBlock, so attempting the send and
+			// panicking on the resulting bank error would halt the chain. Check
+			// receivability first: when the recipient cannot receive, route the
+			// commission to the community pool instead. The coins already back the
+			// distribution module account (where community pool funds are held), so this
+			// conserves value and avoids the partial module-account debit that a failed
+			// SendCoins leaves behind.
+			if h.k.canReceiveWithdrawAddr(ctx, withdrawAddr) {
+				if err := h.k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, withdrawAddr, coins); err != nil {
+					panic(err)
+				}
+			} else {
+				feePool := h.k.GetFeePool(ctx)
+				feePool.CommunityPool = feePool.CommunityPool.Add(sdk.NewDecCoinsFromCoins(coins...)...)
+				h.k.SetFeePool(ctx, feePool)
 			}
 		}
 	}

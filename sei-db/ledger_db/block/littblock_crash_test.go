@@ -71,21 +71,27 @@ func TestLittblockNoBlockWithoutQCAfterTornTail(t *testing.T) {
 		totalBlocks += len(b.blocks)
 	}
 
-	it, err := db2.Blocks(false)
+	it, err := db2.Iterator(0)
 	require.NoError(t, err)
 	defer func() { _ = it.Close() }()
 	present := 0
 	for {
-		ok, err := it.Next()
+		pos, ok, err := it.Next()
 		require.NoError(t, err)
 		if !ok {
 			break
 		}
-		n := it.Number()
+		// pos.QC being non-nil at every position (guaranteed by the iterator
+		// contract) is the covering-QC invariant; cross-check via the point-read
+		// path too.
+		n := pos.Number
+		require.NotNil(t, pos.QC, "position %d has no covering QC", n)
 		qc, err := db2.ReadQCByBlockNumber(n)
 		require.NoError(t, err)
-		require.True(t, qc.IsPresent(), "block %d survived but its covering QC was lost", n)
-		present++
+		require.True(t, qc.IsPresent(), "position %d survived but its covering QC was lost", n)
+		if pos.HasBlock {
+			present++
+		}
 	}
 
 	// The truncation must have actually dropped at least one block, otherwise the
@@ -149,8 +155,8 @@ func markSegmentUnsealedOnDisk(t *testing.T, metaPath string) {
 	t.Helper()
 	data, err := os.ReadFile(metaPath)
 	require.NoError(t, err)
-	require.Equal(t, segment.V3MetadataSize, len(data), "unexpected metadata size for %s", metaPath)
-	data[segment.V3MetadataSize-1] = 0
+	require.Equal(t, segment.V4MetadataSize, len(data), "unexpected metadata size for %s", metaPath)
+	data[segment.MetadataSealedByteOffset] = 0
 	require.NoError(t, os.WriteFile(metaPath, data, 0600))
 }
 
@@ -219,21 +225,24 @@ func TestLittblockFlushSurvivesHardKill(t *testing.T) {
 		totalBlocks += len(b.blocks)
 	}
 
-	it, err := db.Blocks(false)
+	it, err := db.Iterator(0)
 	require.NoError(t, err)
 	defer func() { _ = it.Close() }()
 	present := 0
 	for {
-		ok, err := it.Next()
+		pos, ok, err := it.Next()
 		require.NoError(t, err)
 		if !ok {
 			break
 		}
-		n := it.Number()
+		n := pos.Number
+		require.NotNil(t, pos.QC, "position %d has no covering QC", n)
 		qc, err := db.ReadQCByBlockNumber(n)
 		require.NoError(t, err)
-		require.True(t, qc.IsPresent(), "block %d lost its covering QC after hard kill", n)
-		present++
+		require.True(t, qc.IsPresent(), "position %d lost its covering QC after hard kill", n)
+		if pos.HasBlock {
+			present++
+		}
 	}
 
 	// Unlike the torn-tail test (which expects loss), a clean Flush before the kill

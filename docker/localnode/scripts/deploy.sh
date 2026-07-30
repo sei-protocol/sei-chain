@@ -11,9 +11,14 @@ export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH
 echo "export GOPATH=$HOME/go" >> "$HOME/.bashrc"
 echo "GOBIN=$GOPATH/bin" >> "$HOME/.bashrc"
 echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH:$HOME/.foundry/bin" >> "$HOME/.bashrc"
-rm -rf build/generated
 /bin/bash -c "source $HOME/.bashrc"
 mkdir -p $GOBIN
+
+# build/generated is a shared bind mount across all localnode containers. The
+# Makefile cluster targets clean it before docker compose starts; deleting it
+# here races with other nodes writing init/genesis/launch coordination files.
+mkdir -p build/generated
+
 # Step 0: Build on node 0
 if [ "$NODE_ID" = 0 ] && [ -z "$SKIP_BUILD" ]
 then

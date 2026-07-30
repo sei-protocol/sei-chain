@@ -2,16 +2,21 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	dto "github.com/prometheus/client_model/go"
 	"go.opentelemetry.io/otel/sdk/trace"
+	"google.golang.org/protobuf/proto"
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -44,6 +49,41 @@ import (
 	_ "github.com/lib/pq" // provide the psql db driver
 )
 
+type chainIDGatherer struct{ chainID string }
+
+func (g chainIDGatherer) Gather() ([]*dto.MetricFamily, error) {
+	metricFamilies, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		return nil, err
+	}
+	for _, metricFamily := range metricFamilies {
+		for _, metric := range metricFamily.Metric {
+			if hasMetricLabel(metric, "chain_id") {
+				continue
+			}
+			labels := slices.Clone(metric.Label)
+			labels = append(labels, &dto.LabelPair{
+				Name:  proto.String("chain_id"),
+				Value: proto.String(g.chainID),
+			})
+			slices.SortFunc(labels, func(a, b *dto.LabelPair) int {
+				return strings.Compare(a.GetName(), b.GetName())
+			})
+			metric.Label = labels
+		}
+	}
+	return metricFamilies, nil
+}
+
+func hasMetricLabel(metric *dto.Metric, name string) bool {
+	for _, label := range metric.GetLabel() {
+		if label.GetName() == name {
+			return true
+		}
+	}
+	return false
+}
+
 // nodeImpl is the highest level interface to a full Tendermint node.
 // It includes all configuration information and running services.
 type nodeImpl struct {
@@ -57,11 +97,13 @@ type nodeImpl struct {
 	consensusPolicy types.ConsensusPolicy
 
 	// network
-	router           *p2p.Router
-	giga             utils.Option[p2p.GigaRouter]
-	ServiceRestartCh utils.Option[chan []string]
-	nodeInfo         types.NodeInfo
-	nodeKey          types.NodeKey // our node privkey
+	router               *p2p.Router
+	giga                 utils.Option[p2p.GigaRouter]
+	gigaBlockDB          utils.Option[atypes.BlockDB] // owned here; closed after giga.Run (sync.Once)
+	gigaBlockDBCloseOnce sync.Once
+	ServiceRestartCh     utils.Option[chan []string]
+	nodeInfo             types.NodeInfo
+	nodeKey              types.NodeKey // our node privkey
 
 	// services
 	eventSinks     []indexer.EventSink
@@ -89,14 +131,21 @@ func makeNode(
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
-	nodeMetrics *NodeMetrics,
 	consensusPolicy types.ConsensusPolicy,
 ) (_ local.NodeService, err error) {
-	var cancel context.CancelFunc
+	var (
+		cancel context.CancelFunc
+		node   *nodeImpl
+	)
 	ctx, cancel = context.WithCancel(ctx)
 	closers := []closer{convertCancelCloser(cancel)}
 	defer func() {
 		if err != nil {
+			// Close BlockDB on construct failure after it was opened. Must not
+			// live in shutdownOps (see OnStart comment on SpawnCritical).
+			if node != nil {
+				_ = node.closeGigaBlockDB()
+			}
 			err = combineCloseError(err, makeCloser(closers))
 		}
 	}()
@@ -130,7 +179,6 @@ func makeNode(
 		eventLog, err = eventlog.New(eventlog.LogSettings{
 			WindowSize: w,
 			MaxItems:   cfg.RPC.EventLogMaxItems,
-			Metrics:    nodeMetrics.eventlog,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("initializing event log: %w", err)
@@ -143,7 +191,6 @@ func makeNode(
 	indexerService := indexer.NewService(indexer.ServiceArgs{
 		Sinks:    eventSinks,
 		EventBus: eventBus,
-		Metrics:  nodeMetrics.indexer,
 	})
 
 	privValidator, err := createPrivval(ctx, cfg, genDoc, filePrivval)
@@ -164,7 +211,7 @@ func makeNode(
 		eventLogOpt = utils.Some(eventLog)
 	}
 	// TODO construct node here:
-	node := &nodeImpl{
+	node = &nodeImpl{
 		config:          cfg,
 		genesisDoc:      genDoc,
 		privValidator:   privValidator,
@@ -201,8 +248,7 @@ func makeNode(
 	if gigaEnabled {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
-	router, peerCloser, err := createRouter(
-		nodeMetrics.p2p,
+	router, peerCloser, gigaBlockDB, err := createRouter(
 		node.NodeInfo,
 		nodeKey,
 		gigaValidatorKey,
@@ -217,10 +263,17 @@ func makeNode(
 	}
 	node.router = router
 	node.giga = router.Giga()
+	node.gigaBlockDB = gigaBlockDB
+	// BlockDB is NOT closed in OnStop: BaseService runs OnStop before
+	// SpawnCritical (giga.Run) finishes, so closing there would race with
+	// still-running persist/execute. Close paths:
+	//   - makeNode defer on construct failure
+	//   - OnStart defer if Start fails before giga is spawned
+	//   - SpawnCritical wrapper after giga.Run returns (happy path / cancel)
 	node.rpcEnv.Router = router
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
-		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
+		stateStore, blockStore, node.router, eventBus)
 	closers = append(closers, edbCloser)
 	if err != nil {
 		return nil, fmt.Errorf("createEvidenceReactor(): %w", err)
@@ -241,7 +294,7 @@ func makeNode(
 	}
 
 	if !gigaEnabled {
-		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, sm.TxConstraintsFetcherFromStore(stateStore))
 		node.mempool = utils.Some(mp)
 		node.rpcEnv.Mempool = utils.Some(mp)
 		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
@@ -259,7 +312,6 @@ func makeNode(
 			evPool,
 			blockStore,
 			eventBus,
-			nodeMetrics.state,
 			consensusPolicy,
 		)
 
@@ -292,7 +344,6 @@ func makeNode(
 			evPool,
 			eventBus,
 			tracerProviderOptions,
-			nodeMetrics.consensus,
 		)
 		node.rpcEnv.ConsensusState = utils.Some[rpccore.ConsensusState](csState)
 
@@ -301,7 +352,6 @@ func makeNode(
 			node.router,
 			eventBus,
 			waitSync,
-			nodeMetrics.consensus,
 			cfg,
 		)
 		if err != nil {
@@ -321,7 +371,6 @@ func makeNode(
 				BlockExec:             blockExec,
 				ConsReactor:           utils.Some[blocksync.ConsensusReactor](csReactor),
 				BlockSync:             blockSync && !stateSync,
-				Metrics:               nodeMetrics.consensus,
 				EventBus:              eventBus,
 				RestartEvent:          restartEvent,
 				SelfRemediationConfig: cfg.SelfRemediation,
@@ -336,9 +385,9 @@ func makeNode(
 		// Make ConsensusReactor. Don't enable fully if doing a state sync and/or block sync first.
 		// FIXME We need to update metrics here, since other reactors don't have access to them.
 		if stateSync {
-			nodeMetrics.consensus.StateSyncing.Set(1)
+			consensus.Global.StateSyncingAt().Set(1)
 		} else if blockSync {
-			nodeMetrics.consensus.BlockSyncing.Set(1)
+			consensus.Global.BlockSyncingAt().Set(1)
 		}
 
 		postSyncHook := func(ctx context.Context, state sm.State) error {
@@ -378,7 +427,6 @@ func makeNode(
 			stateStore,
 			blockStore,
 			cfg.StateSync.TempDir,
-			nodeMetrics.statesync,
 			eventBus,
 			// the post-sync operation
 			postSyncHook,
@@ -419,16 +467,28 @@ func makeNode(
 }
 
 // OnStart starts the Node. It implements service.Service.
-func (n *nodeImpl) OnStart(ctx context.Context) error {
+func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
+	// If Start fails before giga is spawned, BaseService does not call OnStop
+	// and never cancels SpawnCritical — so BlockDB would otherwise leak.
+	// When giga has already been spawned, its wrapper closes BlockDB after
+	// Run observes the service-context cancel issued once OnStart returns.
+	gigaSpawned := false
+	defer func() {
+		if err == nil || gigaSpawned {
+			return
+		}
+		_ = n.closeGigaBlockDB()
+	}()
+
 	// EventBus and IndexerService must be started before the handshake because
 	// we might need to index the txs of the replayed block as this might not have happened
 	// when the node stopped last time (i.e. the node stopped or crashed after it saved the block
 	// but before it indexed the txs)
-	if err := n.rpcEnv.EventBus.Start(ctx); err != nil {
+	if err = n.rpcEnv.EventBus.Start(ctx); err != nil {
 		return err
 	}
 
-	if err := n.indexerService.Start(ctx); err != nil {
+	if err = n.indexerService.Start(ctx); err != nil {
 		return err
 	}
 
@@ -438,7 +498,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	if n.shouldHandshake {
 		// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
 		// and replays any blocks as necessary to sync tendermint with the app.
-		if err := consensus.NewHandshaker(
+		if err = consensus.NewHandshaker(
 			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc, n.consensusPolicy,
 		).Handshake(ctx, n.rpcEnv.App); err != nil {
 			return err
@@ -515,26 +575,59 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	}
 
 	if n.config.Instrumentation.Prometheus && n.config.Instrumentation.PrometheusListenAddr != "" {
-		n.prometheusSrv = utils.Some(n.startPrometheusServer(ctx, n.config.Instrumentation.PrometheusListenAddr))
+		// A full node deliberately survives a bind failure where a seed does not:
+		// it still serves RPC, so an operator retains an in-band way to ask how it
+		// is doing, and failing startup here would stop nodes that run today with
+		// a contended metrics port. A seed has no such fallback.
+		// serr, not err: `err :=` would shadow OnStart's named return, which the
+		// gigaSpawned defer above and the rollback below both close over.
+		srv, serr := startPrometheusServer(
+			ctx,
+			n.config.Instrumentation.PrometheusListenAddr,
+			n.genesisDoc.ChainID,
+			n.config.Instrumentation.MaxOpenConnections,
+		)
+		if serr != nil {
+			logger.Error("Prometheus HTTP server not started; node is unscrapeable", "err", serr)
+		} else {
+			n.prometheusSrv = utils.Some(srv)
+
+			// OnStart can still fail below — router, reactors, rpcEnv — and
+			// BaseService does not run OnStop in that case, so without this the
+			// listener stays bound with its goroutines parked until process exit.
+			// Mirrors the seed path.
+			defer func() {
+				if err == nil {
+					return
+				}
+				shutdownPrometheus(srv)
+			}()
+		}
+	}
+
+	// Start giga before the transport so runPersist is active before inbound
+	// giga connections (dispatched via the router) can advance inner cursors
+	// via PushQC. Keep this after the genesis-time wait and EventBus/indexer
+	// init so Autobahn does not InitChain or produce ahead of genesis.
+	if giga, ok := n.giga.Get(); ok {
+		gigaSpawned = true
+		n.SpawnCritical("giga", func(ctx context.Context) error {
+			defer func() { _ = n.closeGigaBlockDB() }()
+			return giga.Run(ctx)
+		})
 	}
 
 	// Start the transport.
-	if err := n.router.Start(ctx); err != nil {
+	if err = n.router.Start(ctx); err != nil {
 		return err
 	}
 	n.rpcEnv.IsListening = true
 	if m, ok := n.mempool.Get(); ok {
 		n.SpawnCritical("mempool", m.Run)
 	}
-	// Run the GigaRouter alongside the transport. n.giga is the canonical
-	// reference; the Router holds a copy only for its own internal use
-	// (dispatching inbound giga connections). Lifecycle is owned here.
-	if giga, ok := n.giga.Get(); ok {
-		n.SpawnCritical("giga", giga.Run)
-	}
 
 	for _, reactor := range n.services {
-		if err := reactor.Start(ctx); err != nil {
+		if err = reactor.Start(ctx); err != nil {
 			return fmt.Errorf("problem starting service '%T': %w ", reactor, err)
 		}
 	}
@@ -543,7 +636,6 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
 	if n.config.RPC.ListenAddress != "" {
-		var err error
 		n.rpcListeners, err = n.rpcEnv.StartService(ctx, n.config)
 		if err != nil {
 			return err
@@ -584,10 +676,7 @@ func (n *nodeImpl) OnStop() {
 	}
 
 	if srv, ok := n.prometheusSrv.Get(); ok {
-		if err := srv.Shutdown(context.Background()); err != nil {
-			// Error from closing listeners, or context timeout:
-			logger.Error("Prometheus HTTP server Shutdown", "err", err)
-		}
+		shutdownPrometheus(srv)
 	}
 	if err := n.shutdownOps(); err != nil {
 		if strings.TrimSpace(err.Error()) != "" {
@@ -606,39 +695,121 @@ func (n *nodeImpl) OnStop() {
 	}
 }
 
-// startPrometheusServer starts a Prometheus HTTP server, listening for metrics
-// collectors on addr.
-func (n *nodeImpl) startPrometheusServer(ctx context.Context, addr string) *http.Server {
+// closeGigaBlockDB closes the Autobahn BlockDB at most once. Safe to call from
+// makeNode's failure defer, OnStart's pre-giga failure path, and the giga
+// SpawnCritical wrapper.
+func (n *nodeImpl) closeGigaBlockDB() error {
+	var err error
+	n.gigaBlockDBCloseOnce.Do(func() {
+		if db, ok := n.gigaBlockDB.Get(); ok {
+			if err = db.Close(); err != nil {
+				logger.Error("failed to close Autobahn BlockDB", "err", err)
+			}
+		}
+	})
+	return err
+}
+
+// prometheusShutdownTimeout bounds every Shutdown of the metrics server. Shutdown
+// waits on in-flight requests, so an unbounded one lets a single stalled /metrics
+// reader hold up whatever follows — on a full node, closing the block and state
+// stores.
+const prometheusShutdownTimeout = time.Second
+
+// shutdownPrometheus stops srv within prometheusShutdownTimeout, forcing the
+// sockets closed if the graceful deadline elapses. Used by the ctx watcher, both
+// node implementations' OnStop, and the seed's OnStart rollback.
+func shutdownPrometheus(srv *http.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), prometheusShutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		// Deadline elapsed with a request still in flight. Shutdown has closed the
+		// listeners but waits on connections that will not idle, so the bound alone
+		// does not hold: a stalled reader outlives it by up to WriteTimeout. Close
+		// shuts every active connection's socket, unblocking those goroutines. The
+		// handler hijacks nothing, so nothing is left behind.
+		if errors.Is(err, context.DeadlineExceeded) {
+			logger.Error("Prometheus HTTP server Shutdown timed out; forcing close", "err", err)
+		} else {
+			logger.Error("Prometheus HTTP server Shutdown", "err", err)
+		}
+		_ = srv.Close()
+	}
+}
+
+// startPrometheusServer serves the default Prometheus registry on addr, with
+// every metric stamped with chain_id. Shared by the full and seed node
+// implementations: both collect into the same global registry (p2p metrics
+// register at package init), so seed mode differs only in which reactors feed
+// it — not in how the metrics are exposed.
+func startPrometheusServer(ctx context.Context, addr, chainID string, maxOpenConnections int) (*http.Server, error) {
+	gatherer := chainIDGatherer{
+		chainID: chainID,
+	}
+
 	srv := &http.Server{
 		Addr: addr,
 		Handler: promhttp.InstrumentMetricHandler(
 			prometheus.DefaultRegisterer, promhttp.HandlerFor(
-				prometheus.DefaultGatherer,
-				promhttp.HandlerOpts{MaxRequestsInFlight: n.config.Instrumentation.MaxOpenConnections},
+				gatherer,
+				promhttp.HandlerOpts{MaxRequestsInFlight: maxOpenConnections},
 			),
 		),
 		ReadHeaderTimeout: 10 * time.Second, //nolint:gosec // G112: mitigate slowloris attacks
+		// A slow reader holds a MaxRequestsInFlight slot while blocked in Write, and
+		// enough of them make promhttp answer 503 to everyone else — a healthy node
+		// reporting unscrapeable. WriteTimeout bounds how long each such slot is
+		// held rather than preventing it; Idle bounds keep-alive connections that
+		// would otherwise accumulate a goroutine and an fd each, indefinitely.
+		// Values match rpc/jsonrpc/server, the in-tree precedent.
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
+
+	// Bind before returning rather than inside the serve goroutine. A taken port
+	// or unparseable address is then the caller's error, not a log line emitted
+	// while the node comes up reporting healthy and silently unscrapeable — the
+	// failure this exists to make visible. It also means the listener is
+	// accepting by the time OnStart returns, so callers need not wait on it.
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("prometheus listen on %q: %w", addr, err)
+	}
+
+	// Deliberately no netutil.LimitListener here, unlike rpc/jsonrpc/server.Listen:
+	// it blocks Accept rather than rejecting, so a capped-out scraper hangs to its
+	// own timeout and reports the node unscrapeable — the failure this server
+	// exists to prevent. The timeouts above bound connection accumulation instead.
+	//
+	// Concurrency is bounded by promhttp's MaxRequestsInFlight, which takes
+	// Instrumentation.MaxOpenConnections. The residual, stated plainly: that many
+	// concurrent slow readers each hold a slot for up to WriteTimeout and promhttp
+	// answers everyone else 503 for that window. The timeouts bound how long, not
+	// whether. Keep the value above an HA Prometheus pair plus probes.
 
 	signal := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			sctx, scancel := context.WithTimeout(context.Background(), time.Second)
-			defer scancel()
-			_ = srv.Shutdown(sctx)
+			shutdownPrometheus(srv)
 		case <-signal:
 		}
 	}()
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil {
-			logger.Error("Prometheus HTTP server ListenAndServe", "err", err)
-			close(signal)
+		// Unconditional, so a graceful Shutdown releases the watcher above too.
+		// Shutdown makes Serve return ErrServerClosed, so closing only on an
+		// unexpected error would park that goroutine until the outer ctx — which
+		// Stop() does not cancel — leaking one per in-process restart.
+		defer close(signal)
+		// ErrServerClosed is the ordinary outcome of Shutdown, not a fault.
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("Prometheus HTTP server Serve", "err", err)
 		}
 	}()
 
-	return srv
+	return srv, nil
 }
 
 func (n *nodeImpl) NodeInfo() *types.NodeInfo {
@@ -674,57 +845,6 @@ func defaultGenesisDocProviderFunc(cfg *config.Config) genesisDocProvider {
 		return types.GenesisDocFromFile(cfg.GenesisFile())
 	}
 }
-
-type NodeMetrics struct {
-	consensus *consensus.Metrics
-	eventlog  *eventlog.Metrics
-	indexer   *indexer.Metrics
-	mempool   *mempool.Metrics
-	p2p       *p2p.Metrics
-	proxy     *proxy.Metrics
-	state     *sm.Metrics
-	statesync *statesync.Metrics
-	evidence  *evidence.Metrics
-}
-
-// metricsProvider returns consensus, p2p, mempool, state, statesync Metrics.
-type metricsProvider func(chainID string) *NodeMetrics
-
-func NoOpMetricsProvider() *NodeMetrics {
-	return &NodeMetrics{
-		consensus: consensus.NopMetrics(),
-		indexer:   indexer.NopMetrics(),
-		mempool:   mempool.NopMetrics(),
-		p2p:       p2p.NopMetrics(),
-		proxy:     proxy.NopMetrics(),
-		state:     sm.NopMetrics(),
-		statesync: statesync.NopMetrics(),
-		evidence:  evidence.NopMetrics(),
-	}
-}
-
-// defaultMetricsProvider returns Metrics build using Prometheus client library
-// if Prometheus is enabled. Otherwise, it returns no-op Metrics.
-func DefaultMetricsProvider(cfg *config.InstrumentationConfig) metricsProvider {
-	return func(chainID string) *NodeMetrics {
-		if cfg.Prometheus {
-			return &NodeMetrics{
-				consensus: consensus.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
-				eventlog:  eventlog.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
-				indexer:   indexer.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
-				mempool:   mempool.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
-				p2p:       p2p.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
-				proxy:     proxy.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
-				state:     sm.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
-				statesync: statesync.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
-				evidence:  evidence.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
-			}
-		}
-		return NoOpMetricsProvider()
-	}
-}
-
-//------------------------------------------------------------------------------
 
 // LoadStateFromDBOrGenesisDocProvider attempts to load the state from the
 // database, or creates one using the given genesisDocProvider. On success this also

@@ -236,13 +236,6 @@ sc-snapshot-writer-limit = 2
 # CacheSize defines the size of the LRU cache for each store on top of the tree, default to 100000.
 sc-cache-size = 1000
 
-# KeysToMigratePerBlock controls how many EVM keys the in-flight migration
-# (sc-write-mode = migrate_evm / migrate_bank / migrate_all_but_bank) drains
-# from memiavl into flatkv per block. Default 1024 is appropriate for
-# production drains; tests lower it to spread the migration across more
-# blocks and exercise the resume / hybrid-read path.
-sc-keys-to-migrate-per-block = 1024
-
 [state-store]
 
 # Enable defines if the state-store should be enabled for historical queries.
@@ -284,6 +277,10 @@ enable_test_api = true
 
 # Set to 0 to disable request limiter, otherwise this limits the number of concurrent simulation calls.
 max_concurrent_simulation_calls = 0
+
+# Native debug tracers allowed in TraceConfig.Tracer. JavaScript tracer source is disabled.
+trace_allowed_tracers = ["callTracer", "prestateTracer", "flatCallTracer", "4byteTracer", "noopTracer", "muxTracer"]
+trace_allow_js_tracers = false
 
 # Legacy sei_* / sei2_* JSON-RPC (EVM HTTP only).
 # DEPRECATION: All sei_* and sei2_* methods are deprecated and scheduled for removal - no new integrations.

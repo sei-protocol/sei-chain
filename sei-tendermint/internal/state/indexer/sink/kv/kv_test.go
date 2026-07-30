@@ -18,19 +18,23 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// searchOpts is the zero-value (unbounded, ascending) options used by these
+// tests
+var searchOpts = indexer.SearchOptions{}
+
 func TestType(t *testing.T) {
-	kvSink := NewEventSink(dbm.NewMemDB())
+	kvSink := NewEventSink(dbm.NewMemDB(), nil)
 	assert.Equal(t, indexer.KV, kvSink.Type())
 }
 
 func TestStop(t *testing.T) {
-	kvSink := NewEventSink(dbm.NewMemDB())
+	kvSink := NewEventSink(dbm.NewMemDB(), nil)
 	assert.Nil(t, kvSink.Stop())
 }
 
 func TestBlockFuncs(t *testing.T) {
 	store := dbm.NewPrefixDB(dbm.NewMemDB(), []byte("block_events"))
-	indexer := NewEventSink(store)
+	indexer := NewEventSink(store, nil)
 
 	require.NoError(t, indexer.IndexBlockEvents(types.EventDataNewBlockHeader{
 		Header: types.Header{Height: 1},
@@ -145,7 +149,7 @@ func TestBlockFuncs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
 
-			results, err := indexer.SearchBlockEvents(ctx, tc.q)
+			results, err := indexer.SearchBlockEvents(ctx, tc.q, searchOpts)
 			require.NoError(t, err)
 			require.Equal(t, tc.results, results)
 		})
@@ -153,7 +157,7 @@ func TestBlockFuncs(t *testing.T) {
 }
 
 func TestTxSearchWithCancelation(t *testing.T) {
-	indexer := NewEventSink(dbm.NewMemDB())
+	indexer := NewEventSink(dbm.NewMemDB(), nil)
 
 	txResult := txResultWithEvents([]abci.Event{
 		{Type: "account", Attributes: []abci.EventAttribute{{Key: []byte("number"), Value: []byte("1"), Index: true}}},
@@ -169,14 +173,14 @@ func TestTxSearchWithCancelation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	results, err := indexer.SearchTxEvents(ctx, query.MustCompile(`account.number = 1`))
+	results, err := indexer.SearchTxEvents(ctx, query.MustCompile(`account.number = 1`), searchOpts)
 	assert.NoError(t, err)
 	assert.Empty(t, results)
 }
 
 func TestTxSearchDeprecatedIndexing(t *testing.T) {
 	esdb := dbm.NewMemDB()
-	indexer := NewEventSink(esdb)
+	indexer := NewEventSink(esdb, nil)
 
 	// index tx using events indexing (composite key)
 	txResult1 := txResultWithEvents([]abci.Event{
@@ -242,7 +246,7 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.q, func(t *testing.T) {
-			results, err := indexer.SearchTxEvents(ctx, query.MustCompile(tc.q))
+			results, err := indexer.SearchTxEvents(ctx, query.MustCompile(tc.q), searchOpts)
 			require.NoError(t, err)
 			for _, txr := range results {
 				for _, tr := range tc.results {
@@ -254,7 +258,7 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 }
 
 func TestTxSearchOneTxWithMultipleSameTagsButDifferentValues(t *testing.T) {
-	indexer := NewEventSink(dbm.NewMemDB())
+	indexer := NewEventSink(dbm.NewMemDB(), nil)
 
 	txResult := txResultWithEvents([]abci.Event{
 		{Type: "account", Attributes: []abci.EventAttribute{{Key: []byte("number"), Value: []byte("1"), Index: true}}},
@@ -266,7 +270,7 @@ func TestTxSearchOneTxWithMultipleSameTagsButDifferentValues(t *testing.T) {
 
 	ctx := t.Context()
 
-	results, err := indexer.SearchTxEvents(ctx, query.MustCompile(`account.number >= 1`))
+	results, err := indexer.SearchTxEvents(ctx, query.MustCompile(`account.number >= 1`), searchOpts)
 	assert.NoError(t, err)
 
 	assert.Len(t, results, 1)
@@ -276,7 +280,7 @@ func TestTxSearchOneTxWithMultipleSameTagsButDifferentValues(t *testing.T) {
 }
 
 func TestTxSearchMultipleTxs(t *testing.T) {
-	indexer := NewEventSink(dbm.NewMemDB())
+	indexer := NewEventSink(dbm.NewMemDB(), nil)
 
 	// indexed first, but bigger height (to test the order of transactions)
 	txResult := txResultWithEvents([]abci.Event{
@@ -323,7 +327,7 @@ func TestTxSearchMultipleTxs(t *testing.T) {
 
 	ctx := t.Context()
 
-	results, err := indexer.SearchTxEvents(ctx, query.MustCompile(`account.number >= 1`))
+	results, err := indexer.SearchTxEvents(ctx, query.MustCompile(`account.number >= 1`), searchOpts)
 	assert.NoError(t, err)
 
 	require.Len(t, results, 3)

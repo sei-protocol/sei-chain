@@ -1,6 +1,7 @@
 package feegrant_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -145,6 +146,65 @@ func TestBasicFeeValidAllow(t *testing.T) {
 			if !removed {
 				assert.Equal(t, tc.allowance.SpendLimit, tc.remains)
 			}
+		})
+	}
+}
+
+// sortedCoins builds a valid, sorted, duplicate-free Coins list of n denoms
+// (zero-padded so lexical order matches numeric order).
+func sortedCoins(n int) sdk.Coins {
+	coins := make(sdk.Coins, n)
+	for i := 0; i < n; i++ {
+		coins[i] = sdk.NewInt64Coin(fmt.Sprintf("coin%08d", i), 1)
+	}
+	return coins.Sort()
+}
+
+func TestBasicAllowanceMaxDenoms(t *testing.T) {
+	atCap := &feegrant.BasicAllowance{SpendLimit: sortedCoins(feegrant.MaxAllowanceDenoms)}
+	require.NoError(t, atCap.ValidateBasic())
+
+	overCap := &feegrant.BasicAllowance{SpendLimit: sortedCoins(feegrant.MaxAllowanceDenoms + 1)}
+	err := overCap.ValidateBasic()
+	require.Error(t, err)
+	require.ErrorIs(t, err, feegrant.ErrTooManyDenoms)
+}
+
+func TestPeriodicAllowanceMaxDenoms(t *testing.T) {
+	atCap := sortedCoins(feegrant.MaxAllowanceDenoms)
+	over := sortedCoins(feegrant.MaxAllowanceDenoms + 1)
+
+	// Each case keeps the other allowance fields under cap so that a single
+	// over-cap field is the only thing that can trip ErrTooManyDenoms. This
+	// isolates the periodic-specific checks; if they only oversized every field
+	// at once, the embedded Basic.ValidateBasic() would short-circuit and the
+	// periodic checks would never be exercised.
+	cases := map[string]*feegrant.PeriodicAllowance{
+		"basic spend limit over cap": {
+			Basic:            feegrant.BasicAllowance{SpendLimit: over},
+			PeriodSpendLimit: atCap,
+			PeriodCanSpend:   atCap,
+			Period:           time.Hour,
+		},
+		"period spend limit over cap": {
+			Basic:            feegrant.BasicAllowance{SpendLimit: atCap},
+			PeriodSpendLimit: over,
+			PeriodCanSpend:   atCap,
+			Period:           time.Hour,
+		},
+		"period can spend over cap": {
+			Basic:            feegrant.BasicAllowance{SpendLimit: atCap},
+			PeriodSpendLimit: atCap,
+			PeriodCanSpend:   over,
+			Period:           time.Hour,
+		},
+	}
+
+	for name, allowance := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := allowance.ValidateBasic()
+			require.Error(t, err)
+			require.ErrorIs(t, err, feegrant.ErrTooManyDenoms)
 		})
 	}
 }

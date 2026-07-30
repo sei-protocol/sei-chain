@@ -29,18 +29,34 @@ type Store interface {
 	// the caller must Close it when done.
 	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
 
-	// ApplyChangeSets buffers EVM changesets (x/evm memiavl keys) and updates LtHash.
-	// Non-EVM modules are routed into legacy storage under their module prefix.
-	// Call Commit to persist.
-	ApplyChangeSets(cs []*proto.NamedChangeSet) error
+	// ApplyChangeSets buffers changesets at the given version, to be
+	// persisted by the next Commit.
+	// May be called multiple times before a single Commit, either
+	// repeatedly at the same version (e.g. one block's writes split across
+	// several calls) or at increasing versions (e.g. batching several
+	// blocks together). version must never decrease across calls (see
+	// PendingVersion), and Commit must be called with the highest version
+	// applied since the last Commit.
+	ApplyChangeSets(version int64, cs []*proto.NamedChangeSet) error
 
-	// Commit persists buffered writes and advances the version.
-	Commit() (int64, error)
+	// Commit persists buffered writes at the given version (block height).
+	// If ApplyChangeSets has buffered writes, version must equal the highest
+	// height those rows were stamped with (see PendingVersion).
+	Commit(version int64) (int64, error)
 
-	// SetInitialVersion seeds the store so that the next Commit produces
-	// initialVersion. Must be called after LoadVersion, on a truly fresh
-	// store (no prior commits) and before any writes. Returns an error on
-	// a read-only store, on a non-fresh store, or for initialVersion <= 0.
+	// CommitBlock is a Giga-only helper that applies changesets and commits
+	// them at version in one call.
+	// Callers must use either ApplyChangeSets+Commit or CommitBlock
+	// exclusively, never mixing the two on the same store.
+	// ApplyChangeSets+Commit is expected to be deprecated once all callers
+	// move to CommitBlock.
+	CommitBlock(version int64, cs []*proto.NamedChangeSet) error
+
+	// SetInitialVersion seeds the store so that Commit(initialVersion) is
+	// accepted as the first commit. Must be called after LoadVersion, on a
+	// truly fresh store (no prior commits) and before any writes. Returns an
+	// error on a read-only store, on a non-fresh store, or for
+	// initialVersion <= 0.
 	SetInitialVersion(initialVersion int64) error
 
 	// EarliestVersion returns the version this store's history begins at
@@ -53,13 +69,13 @@ type Store interface {
 
 	// Get returns the value for a key within the given module.
 	// For EVM keys (moduleName == "evm"), the key is a memiavl EVM key
-	// routed to account/storage/code/legacy DBs internally.
-	// For non-EVM modules, the key is read from legacy storage with the module prefix.
+	// routed to account/storage/code/misc DBs internally.
+	// For non-EVM modules, the key is read from misc storage with the module prefix.
 	// If not found, returns (nil, false).
 	Get(moduleName string, key []byte) (value []byte, found bool)
 
 	// GetBlockHeightModified returns the block height at which the key was last modified.
-	// Only supported for EVM keys; non-EVM legacy data does not track block height.
+	// Only supported for EVM keys; non-EVM misc data does not track block height.
 	// If not found, returns (-1, false, nil).
 	GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error)
 
@@ -117,6 +133,16 @@ type Store interface {
 
 	// Version returns the latest committed version.
 	Version() int64
+
+	// PendingVersion returns the height stamped by the most recent
+	// ApplyChangeSets call since the last Commit, or 0 when there are no
+	// buffered writes. Multiple ApplyChangeSets calls may accumulate at
+	// strictly increasing heights before a single Commit persists them all
+	// (e.g. batching several blocks); callers that need to know "the next
+	// version to apply" should use PendingVersion()+1 when non-zero, falling
+	// back to Version()+1 otherwise, rather than assuming Version()+1 always
+	// reflects the next height.
+	PendingVersion() int64
 
 	// GetLatestVersion returns the latest committed version persisted to
 	// disk. Equivalent to Version() once LoadVersion has run; before

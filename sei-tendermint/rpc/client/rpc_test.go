@@ -508,7 +508,7 @@ func TestClientMethodCalls(t *testing.T) {
 				t.Run("BroadcastDuplicateVote", func(t *testing.T) {
 					ctx := t.Context()
 
-					chainID := conf.ChainID()
+					chainID := config.TestLoadGenesis(conf).ChainID
 
 					// make sure that the node has produced enough blocks
 					waitForBlock(ctx, t, c, 2)

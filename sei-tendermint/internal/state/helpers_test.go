@@ -234,7 +234,7 @@ func randomGenesisDoc() *types.GenesisDoc {
 func makeTxMempool(t testing.TB, app *proxy.Proxy) *mempool.TxMempool {
 	t.Helper()
 
-	return mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	return mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopTxConstraintsFetcher)
 }
 
 // used for testing by state store
@@ -288,8 +288,8 @@ type testApp struct {
 
 var _ abci.Application = (*testApp)(nil)
 
-func (app *testApp) Info(_ context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
-	return &abci.ResponseInfo{}, nil
+func (app *testApp) Info() *abci.ResponseInfo {
+	return &abci.ResponseInfo{}
 }
 
 func (app *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {

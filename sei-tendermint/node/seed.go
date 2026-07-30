@@ -40,9 +40,10 @@ type seedNodeImpl struct {
 	isListening bool
 
 	// services
-	pexReactor  service.Service // for exchanging peer addresses
-	shutdownOps closer
-	rpcEnv      *rpccore.Environment
+	pexReactor    service.Service // for exchanging peer addresses
+	shutdownOps   closer
+	rpcEnv        *rpccore.Environment
+	prometheusSrv utils.Option[*http.Server]
 }
 
 // makeSeedNode returns a new seed node, containing only p2p, pex reactor
@@ -51,7 +52,6 @@ func makeSeedNode(
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
-	nodeMetrics *NodeMetrics,
 ) (_ local.NodeService, err error) {
 	closers := []closer{}
 	defer func() {
@@ -78,8 +78,7 @@ func makeSeedNode(
 		return nil, err
 	}
 
-	router, peerCloser, err := createRouter(
-		nodeMetrics.p2p,
+	router, peerCloser, _, err := createRouter(
 		func() *types.NodeInfo { return &nodeInfo },
 		nodeKey,
 		utils.None[atypes.SecretKey](),
@@ -121,7 +120,7 @@ func makeSeedNode(
 
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
-			App: proxy.New(abci.BaseApplication{}, proxy.NopMetrics()),
+			App: proxy.New(abci.BaseApplication{}),
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
@@ -141,7 +140,62 @@ func makeSeedNode(
 }
 
 // OnStart starts the Seed Node. It implements service.Service.
-func (n *seedNodeImpl) OnStart(ctx context.Context) error {
+func (n *seedNodeImpl) OnStart(ctx context.Context) (err error) {
+
+	// A seed serves no RPC, so Prometheus is its only observability surface. The
+	// p2p metrics it needs — peer count against the connection cap, and inbound
+	// connection/handshake outcomes — register on the global registry at package
+	// init and the router increments them regardless of mode, so exposing them
+	// needs only this listener.
+	//
+	// First in OnStart, ahead of both pprof and the genesis-time wait. The wait is
+	// an unbounded, non-ctx-aware sleep and the listener depends on nothing either
+	// provides, so a seed that is unscrapeable across them is blind during exactly
+	// the period an operator is asking whether it came up. Going first also means
+	// the fatal return below cannot orphan the pprof listener, which has no
+	// rollback of its own. The p2p series are already present by now — NewRouter
+	// seeds them at construction — so scraping during the wait is not a window
+	// where the endpoint answers but the gauges are missing.
+	if n.config.Instrumentation.Prometheus && n.config.Instrumentation.PrometheusListenAddr != "" {
+		// serr, not err: `err :=` here would shadow the named return, and the defer
+		// below would then close over the shadowed copy — which is always nil by the
+		// time it runs — silently disabling the teardown.
+		srv, serr := startPrometheusServer(
+			ctx,
+			n.config.Instrumentation.PrometheusListenAddr,
+			n.genesisDoc.ChainID,
+			n.config.Instrumentation.MaxOpenConnections,
+		)
+		if serr != nil {
+			// Fatal, where a full node logs and continues. Not because the failure
+			// would otherwise be silent — a refused scrape trips the same target-down
+			// alert, and the log line and pod state remain — but because a seed's
+			// value is only realized when it is observable, and an unambiguous
+			// CrashLoopBackOff is preferable to a seed that peers while blind. The
+			// cost is real and deliberate: a transient conflict on this port stops
+			// peer discovery, which is the seed's actual job.
+			return fmt.Errorf("instrumentation.prometheus-listen-addr %q: %w",
+				n.config.Instrumentation.PrometheusListenAddr, serr)
+		}
+		n.prometheusSrv = utils.Some(srv)
+
+		// If Start fails from here on, BaseService does not call OnStop, and the
+		// cancel it issues is of its own derived context, which this listener's
+		// shutdown goroutine does not watch — so the port would stay bound with
+		// nothing left to release it.
+		//
+		// The close is prompt but not synchronous with this return: on a fast
+		// failure Shutdown can run before Serve has registered the listener, find
+		// nothing tracked, and leave the close to Serve's own defer. Measured at a
+		// few milliseconds — enough to release the port, not enough to rebind it
+		// in the same breath.
+		defer func() {
+			if err == nil {
+				return
+			}
+			shutdownPrometheus(srv)
+		}()
+	}
 
 	if n.config.RPC.PprofListenAddress != "" {
 		rpcCtx, rpcCancel := context.WithCancel(ctx)
@@ -196,9 +250,19 @@ func (n *seedNodeImpl) OnStart(ctx context.Context) error {
 func (n *seedNodeImpl) OnStop() {
 	logger.Info("Stopping Node")
 
+	// Stop before Wait, as nodeImpl.OnStop does. Both were started with the outer
+	// context, which BaseService.Stop does not cancel, so Wait on its own never
+	// returns — and everything below it, including the listener teardown, never
+	// runs.
+	n.pexReactor.Stop()
 	n.pexReactor.Wait()
+	n.router.Stop()
 	n.router.Wait()
 	n.isListening = false
+
+	if srv, ok := n.prometheusSrv.Get(); ok {
+		shutdownPrometheus(srv)
+	}
 
 	if err := n.shutdownOps(); err != nil {
 		if strings.TrimSpace(err.Error()) != "" {

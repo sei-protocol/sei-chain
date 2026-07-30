@@ -7,6 +7,10 @@ import (
 
 var _ FeeAllowanceI = (*BasicAllowance)(nil)
 
+// MaxAllowanceDenoms bounds the number of coins allowed in a single allowance
+// spend-limit list.
+const MaxAllowanceDenoms = 100
+
 // Accept can use fee payment requested as well as timestamp of the current block
 // to determine whether or not to process this. This is checked in
 // Keeper.UseGrantedFees and the return values should match how it is handled there.
@@ -38,6 +42,9 @@ func (a *BasicAllowance) Accept(ctx sdk.Context, fee sdk.Coins, _ []sdk.Msg) (bo
 // ValidateBasic implements FeeAllowance and enforces basic sanity checks
 func (a BasicAllowance) ValidateBasic() error {
 	if a.SpendLimit != nil {
+		if len(a.SpendLimit) > MaxAllowanceDenoms {
+			return sdkerrors.Wrapf(ErrTooManyDenoms, "spend limit has %d denoms, max %d", len(a.SpendLimit), MaxAllowanceDenoms)
+		}
 		if !a.SpendLimit.IsValid() {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidCoins, "send amount is invalid: %s", a.SpendLimit)
 		}

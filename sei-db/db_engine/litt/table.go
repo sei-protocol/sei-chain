@@ -29,9 +29,12 @@ type Table interface {
 	// each and do not duplicate value bytes. Secondary keys must be globally unique just like
 	// primary keys, and must not collide with the primary key or other secondaries.
 	//
-	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size
-	// of the value is 2^32 bytes. This database has been optimized under the assumption that values
-	// are generally much larger than keys. This affects performance, but not correctness.
+	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size of a
+	// value is 2^32 - 2 bytes (math.MaxUint32 - 1, ~4 GiB); a larger value is rejected with an error. (This
+	// limit is stricter than it was before secondary keys existed: a value's byte offsets are stored as
+	// uint32, and each value is written whole within a single segment file below the 2^32 boundary.) This
+	// database has been optimized under the assumption that values are generally much larger than keys.
+	// This affects performance, but not correctness.
 	//
 	// Although writes are individually atomic, the DB makes no guarantees about atomicity of multiple writes in
 	// aggregate. That is to say, if a caller writes A and then B and the DB crashes before flushing, it may be the
@@ -47,9 +50,10 @@ type Table interface {
 	//
 	// Each PutRequest may include zero or more secondary keys (see Put for semantics).
 	//
-	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size
-	// of a value is 2^32 bytes. This database has been optimized under the assumption that values
-	// are generally much larger than keys. This affects performance, but not correctness.
+	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size of a
+	// value is 2^32 - 2 bytes (math.MaxUint32 - 1, ~4 GiB); a larger value is rejected with an error. This
+	// database has been optimized under the assumption that values are generally much larger than keys.
+	// This affects performance, but not correctness.
 	//
 	// Although writes in a batch are individually atomic, the DB makes no guarantees about atomicity of multiple
 	// writes in aggregate. That is to say, if a caller writes A and then B in a batch and the DB crashes before
@@ -65,9 +69,9 @@ type Table interface {
 	// (returns false if the key does not exist). If an error is returned, the value of the other returned values are
 	// undefined.
 	//
-	// The maximum size of a key is 2^32 bytes. The maximum size of a value is 2^32 bytes.
-	// This database has been optimized under the assumption that values are generally much larger than keys.
-	// This affects performance, but not correctness.
+	// The maximum size of a key is 64 KiB (2^16 - 1 bytes). The maximum size of a value is 2^32 - 2 bytes
+	// (math.MaxUint32 - 1, ~4 GiB). This database has been optimized under the assumption that values are
+	// generally much larger than keys. This affects performance, but not correctness.
 	//
 	// For the sake of performance, the returned data is NOT safe to mutate. If you need to modify the data,
 	// make a copy of it first. It is also not safe to modify the key byte slice after it is passed to this
@@ -158,6 +162,19 @@ type Table interface {
 	// Iterator.Close).
 	Iterator(reverse bool) (Iterator, error)
 
+	// IteratorAt returns an iterator positioned at key: the first successful Next lands on key, and
+	// iteration then proceeds in insertion order — with reverse == false, key followed by the keys
+	// inserted after it; with reverse == true, key followed by the keys inserted before it. found is
+	// false (and the returned iterator nil) when key is not present in a readable segment. Unlike a
+	// sorted store, LittDB has no key ordering, so there is no "next key after key" to approximate when
+	// key is absent.
+	//
+	// Apart from its start position, the returned iterator behaves exactly like one from Iterator: it
+	// captures a snapshot of the keys present when it is created, has the same forward/reverse
+	// performance characteristics, and — when found is true — MUST be closed when no longer needed (see
+	// Iterator.Close).
+	IteratorAt(key []byte, reverse bool) (it Iterator, found bool, err error)
+
 	// GetOldestKey returns the oldest (earliest inserted) primary key in the table that has not been
 	// deleted. The returned boolean is false if the table contains no keys.
 	//
@@ -182,12 +199,15 @@ type Iterator interface {
 	Next() (bool, error)
 
 	// GetKey returns the current key and whether it is a primary key (as opposed to a secondary key).
-	// It is only valid to call GetKey after Next has returned (true, nil). The returned key must not be
+	// It returns an error if the iterator is closed, or is not positioned on a key because Next has
+	// not yet returned (true, nil) or has since returned (false, nil). The returned key must not be
 	// modified.
-	GetKey() (key []byte, isPrimary bool)
+	GetKey() (key []byte, isPrimary bool, err error)
 
-	// GetValue reads and returns the value associated with the current key. It is only valid to call
-	// GetValue after Next has returned (true, nil). The returned value must not be modified.
+	// GetValue reads and returns the value associated with the current key. It returns an error if
+	// the read failed, if the iterator is closed, or if it is not positioned on a key because Next
+	// has not yet returned (true, nil) or has since returned (false, nil). The returned value must
+	// not be modified.
 	GetValue() (value []byte, err error)
 
 	// Close releases the resources held by the iterator.

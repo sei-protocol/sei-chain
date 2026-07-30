@@ -54,7 +54,7 @@ func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
 	cfg.AccountDBConfig.EnableMetrics = true
 	cfg.CodeDBConfig.EnableMetrics = true
 	cfg.StorageDBConfig.EnableMetrics = true
-	cfg.LegacyDBConfig.EnableMetrics = true
+	cfg.MiscDBConfig.EnableMetrics = true
 	cfg.MetadataDBConfig.EnableMetrics = true
 
 	InitializeDataDirectories(cfg)
@@ -62,7 +62,7 @@ func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
 	require.False(t, cfg.AccountDBConfig.EnableMetrics)
 	require.False(t, cfg.CodeDBConfig.EnableMetrics)
 	require.False(t, cfg.StorageDBConfig.EnableMetrics)
-	require.False(t, cfg.LegacyDBConfig.EnableMetrics)
+	require.False(t, cfg.MiscDBConfig.EnableMetrics)
 	require.False(t, cfg.MetadataDBConfig.EnableMetrics)
 }
 
@@ -98,22 +98,22 @@ func TestStoreCommitVersionAutoIncrement(t *testing.T) {
 	require.Equal(t, int64(0), s.Version())
 
 	// First commit should return version 1
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v1, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	v1, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v1)
 	require.Equal(t, int64(1), s.Version())
 
 	// Second commit should return version 2
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v2, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	v2, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v2)
 	require.Equal(t, int64(2), s.Version())
 
 	// Third commit should return version 3
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v3, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	v3, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), v3)
 	require.Equal(t, int64(3), s.Version())
@@ -131,7 +131,7 @@ func TestStoreApplyAndCommit(t *testing.T) {
 	cs := makeChangeSet(key, value, false)
 
 	// Apply but not commit - should be readable from pending writes
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	got, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found, "should be readable from pending writes")
 	require.Equal(t, value, got)
@@ -173,7 +173,7 @@ func TestStoreMultipleWrites(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Verify all entries
@@ -195,10 +195,28 @@ func TestStoreEmptyChangesets(t *testing.T) {
 		Changeset: proto.ChangeSet{Pairs: nil},
 	}
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, s)
 
 	require.Equal(t, int64(1), s.Version())
+}
+
+// TestStoreApplyRejectsEmptyModuleName guards against a non-EVM changeset with
+// an empty Name. An empty module folds into the physical key as "/"+key,
+// whose per-module meta key ("_meta/x:/hash") ParseModuleLtHashKey rejects on
+// reload — silently accepting it here would make the store permanently
+// unopenable rather than failing fast at Apply time.
+func TestStoreApplyRejectsEmptyModuleName(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	cs := &proto.NamedChangeSet{
+		Name:      "",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}}},
+	}
+
+	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
+	require.ErrorContains(t, err, "empty module name")
 }
 
 func TestStoreClearsPendingAfterCommit(t *testing.T) {
@@ -210,7 +228,7 @@ func TestStoreClearsPendingAfterCommit(t *testing.T) {
 	key := evmStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, padLeft32(0xCC), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// Should have pending writes
 	require.Len(t, s.storageWrites, 1)
@@ -237,14 +255,14 @@ func TestStoreVersioning(t *testing.T) {
 
 	// Version 1
 	cs1 := makeChangeSet(key, padLeft32(0x01), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
 
 	require.Equal(t, int64(1), s.Version())
 
 	// Version 2 with updated value
 	cs2 := makeChangeSet(key, padLeft32(0x02), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
 	require.Equal(t, int64(2), s.Version())
@@ -272,7 +290,7 @@ func TestStorePersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	cs := makeChangeSet(key, value, false)
-	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s1.ApplyChangeSets(s1.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s1)
 	require.NoError(t, s1.Close())
 
@@ -311,7 +329,7 @@ func TestStoreRootHashChanges(t *testing.T) {
 	key := evmStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, padLeft32(0xEF), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// Working hash should change
 	hash2 := s.RootHash()
@@ -339,7 +357,7 @@ func TestStoreRootHashChangesOnApply(t *testing.T) {
 	key := evmStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// Working hash should change
 	hash2 := s.RootHash()
@@ -355,7 +373,7 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 	key := evmStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, padLeft32(0x56), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// Get working hash
 	workingHash := s.RootHash()
@@ -687,11 +705,11 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
 
 	cs := makeChangeSet(storageKey, padLeft32(0x11), false)
-	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s1.ApplyChangeSets(s1.Version()+1, []*proto.NamedChangeSet{cs}))
 	cs2 := makeChangeSet(nonceKey, []byte{0, 0, 0, 0, 0, 0, 0, 5}, false)
-	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s1.ApplyChangeSets(s1.Version()+1, []*proto.NamedChangeSet{cs2}))
 	cs3 := makeChangeSet(codeKey, []byte{0x60, 0x80}, false)
-	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
+	require.NoError(t, s1.ApplyChangeSets(s1.Version()+1, []*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s1)
 
 	hash := s1.RootHash()
@@ -736,7 +754,7 @@ func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	key := evmStorageKey(addr, slot)
 	value := padLeft32(0xCC)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, value, false)}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, value, false)}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
@@ -763,7 +781,7 @@ func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
 	key := evmStorageKey(addr, slot)
 	value := padLeft32(0xEE)
 
-	require.NoError(t, writer.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, value, false)}))
+	require.NoError(t, writer.ApplyChangeSets(writer.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, value, false)}))
 	commitAndCheck(t, writer)
 	require.NoError(t, writer.Close())
 
@@ -791,7 +809,7 @@ func TestReadOnlyAtSpecificVersion(t *testing.T) {
 	key := evmStorageKey(addr, slot)
 
 	for i := byte(1); i <= 5; i++ {
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 			makeChangeSet(key, padLeft32(i), false),
 		}))
 		commitAndCheck(t, s)
@@ -817,15 +835,15 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
 	key := evmStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
 	require.NoError(t, err)
 	defer ro.Close()
 
-	require.ErrorIs(t, ro.ApplyChangeSets(nil), errReadOnly)
-	_, err = ro.Commit()
+	require.ErrorIs(t, ro.ApplyChangeSets(ro.Version()+1, nil), errReadOnly)
+	_, err = ro.Commit(ro.Version() + 1)
 	require.ErrorIs(t, err, errReadOnly)
 	require.ErrorIs(t, ro.WriteSnapshot(""), errReadOnly)
 	require.ErrorIs(t, ro.Rollback(1), errReadOnly)
@@ -846,16 +864,16 @@ func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
 	key := evmStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
 	require.NoError(t, err)
 	defer ro.Close()
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(2), false)}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(2), false)}))
 	commitAndCheck(t, s)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(3), false)}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(3), false)}))
 	commitAndCheck(t, s)
 
 	require.Equal(t, int64(3), s.Version())
@@ -880,7 +898,7 @@ func TestReadOnlyConcurrentInstances(t *testing.T) {
 	key := evmStorageKey(addr, slot)
 
 	for i := byte(1); i <= 4; i++ {
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 			makeChangeSet(key, padLeft32(i), false),
 		}))
 		commitAndCheck(t, s)
@@ -915,14 +933,14 @@ func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
 	key := evmStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
 	_, err = s.LoadVersion(999, true)
 	require.Error(t, err)
 
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(2), false)}))
-	v, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(2), false)}))
+	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v)
 
@@ -941,7 +959,7 @@ func TestReadOnlyCloseRemovesTempDir(t *testing.T) {
 	addr := ktype.Address{0xAA}
 	slot := ktype.Slot{0xBB}
 	key := evmStorageKey(addr, slot)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
 	roStore, err := s.LoadVersion(0, true)
@@ -1009,7 +1027,7 @@ func TestLoadVersionReload(t *testing.T) {
 	addr := addrN(0x01)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	expectedHash := s.RootHash()
@@ -1033,7 +1051,7 @@ func TestLoadVersionReadOnlyVersion0(t *testing.T) {
 	addr := addrN(0x02)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x22), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Version 0 in read-only means "latest committed".
@@ -1054,13 +1072,13 @@ func TestLoadVersionReadOnlyDoesNotSeePending(t *testing.T) {
 	addr := addrN(0x03)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x33), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Apply a new changeset without committing.
 	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x02)))
 	cs2 := makeChangeSet(key2, padLeft32(0x44), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 	// RO should not see the uncommitted write.
 	ro, err := s.LoadVersion(0, true)
@@ -1107,13 +1125,13 @@ func TestCloseWithPendingUncommittedWrites(t *testing.T) {
 	addr := addrN(0x10)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	// Apply but do NOT commit.
 	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x02)))
 	cs2 := makeChangeSet(key2, padLeft32(0x22), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 	// Close should succeed even with pending writes.
 	require.NoError(t, s.Close())
@@ -1141,7 +1159,7 @@ func TestCloseDuringConcurrentReadOnlyClone(t *testing.T) {
 	addr := addrN(0x11)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0xAA), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	ro, err := s.LoadVersion(0, true)
@@ -1174,7 +1192,7 @@ func TestRootHashAndVersionAfterClose(t *testing.T) {
 	addr := addrN(0x12)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0xBB), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
 	require.NoError(t, s.Close())
@@ -1209,8 +1227,8 @@ func TestCatchupSkipsAlreadyCommittedEntries(t *testing.T) {
 	for i := 1; i <= 5; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 	hashV5 := s.RootHash()
@@ -1244,8 +1262,8 @@ func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
 	for i := 1; i <= 5; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 		hashes[i] = s.RootHash()
 	}
@@ -1294,8 +1312,8 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 				noncePair(addr, uint64(i*10)),
 			}},
 		}
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.Equal(t, int64(6), s.Version())
@@ -1307,7 +1325,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	// LtHash. This simulates a crash where the version watermark wasn't
 	// persisted but the actual data and hash are intact.
 	batch := s.accountDB.NewBatch()
-	require.NoError(t, writeLocalMetaToBatch(batch, 4, savedAccountLtHash))
+	require.NoError(t, writeLocalMetaToBatch(batch, 4, savedAccountLtHash, s.perDBModuleWorkingLtHash[accountDBDir], s.perDBModuleWorkingStats[accountDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
@@ -1330,8 +1348,8 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 			noncePair(addr, 999),
 		}},
 	}
-	require.NoError(t, s2.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	v, err := s2.Commit()
+	require.NoError(t, s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs}))
+	v, err := s2.Commit(s2.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(7), v)
 }
@@ -1351,8 +1369,8 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	for i := 1; i <= 5; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i*11)), false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -1361,7 +1379,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 
 	// Simulate crash: storageDB only flushed v3 (version watermark behind).
 	batch := s.storageDB.NewBatch()
-	require.NoError(t, writeLocalMetaToBatch(batch, 3, savedStorageLtHash))
+	require.NoError(t, writeLocalMetaToBatch(batch, 3, savedStorageLtHash, s.perDBModuleWorkingLtHash[storageDBDir], s.perDBModuleWorkingStats[storageDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
@@ -1399,8 +1417,8 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 	for i := 1; i <= 20; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(byte(i))))
 		cs := makeChangeSet(key, padLeft32(byte(i)), false)
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 	expectedHash := s.RootHash()
@@ -1439,8 +1457,8 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	addr := addrN(0x04)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0xAA), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	require.NoError(t, s.WriteSnapshot(""))
@@ -1467,8 +1485,8 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 
 	// Can continue committing after recovery from snapshot-only state.
 	cs2 := makeChangeSet(key, padLeft32(0xBB), false)
-	require.NoError(t, s2.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-	v, err := s2.Commit()
+	require.NoError(t, s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs2}))
+	v, err := s2.Commit(s2.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, expectedVersion+1, v)
 }
@@ -1484,8 +1502,8 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 			noncePair(addr, 42),
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err := s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	// Corrupt the account value in the DB with invalid-length data.
@@ -1495,12 +1513,12 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 	_ = batch.Close()
 
 	// Next ApplyChangeSets touching this account should detect the corruption
-	// during batchReadOldValues.
+	// when deserializing the old account value (deserializeAccountOld).
 	cs2 := &proto.NamedChangeSet{
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 99)}},
 	}
-	err = s.ApplyChangeSets([]*proto.NamedChangeSet{cs2})
+	err = s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2})
 	require.Error(t, err, "should fail on corrupted AccountValue")
 	require.Contains(t, err.Error(), "unsupported serialization version")
 }
@@ -1520,14 +1538,14 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	slot := slotN(0x01)
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	hashAfterV1 := s.RootHash()
 
 	// Now simulate writing v2 to WAL but "crashing" before DB commit.
 	cs2 := makeChangeSet(key, padLeft32(0x22), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 	// Write v2 to WAL manually (like Commit step 1).
 	changelogEntry := proto.ChangelogEntry{
@@ -1582,8 +1600,8 @@ func TestCrashRecoveryLtHashConsistencyAfterAllPaths(t *testing.T) {
 			Name:      "evm",
 			Changeset: proto.ChangeSet{Pairs: pairs},
 		}
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-		_, err := s.Commit()
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
 	verifyLtHashConsistency(t, s)
@@ -1608,8 +1626,8 @@ func TestCrashRecoveryLtHashConsistencyAfterAllPaths(t *testing.T) {
 			noncePair(addr, 999),
 		}},
 	}
-	require.NoError(t, s2.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s2.Commit()
+	require.NoError(t, s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err = s2.Commit(s2.Version() + 1)
 	require.NoError(t, err)
 	verifyLtHashConsistency(t, s2)
 	require.NoError(t, s2.Close())
@@ -1637,8 +1655,8 @@ func TestCrashRecoveryCorruptLtHashBlobInMetadata(t *testing.T) {
 		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
 		padLeft32(0x11), false,
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	// Write garbage to the global _meta/hash key in metadataDB.
@@ -1672,8 +1690,8 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x02), slotN(0x01))),
 		padLeft32(0x22), false,
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	// Write garbage to accountDB's _meta/hash key.
@@ -1707,8 +1725,8 @@ func TestCrashRecoveryGlobalVersionOverflow(t *testing.T) {
 		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x03), slotN(0x01))),
 		padLeft32(0x33), false,
 	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	_, err = s.Commit()
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
 	// Write a version value that exceeds math.MaxInt64 to the global metadata.
@@ -1736,7 +1754,7 @@ func TestInitializeDataDirectories(t *testing.T) {
 	cfg.AccountDBConfig.DataDir = ""
 	cfg.CodeDBConfig.DataDir = ""
 	cfg.StorageDBConfig.DataDir = ""
-	cfg.LegacyDBConfig.DataDir = ""
+	cfg.MiscDBConfig.DataDir = ""
 	cfg.MetadataDBConfig.DataDir = ""
 
 	InitializeDataDirectories(cfg)
@@ -1744,7 +1762,7 @@ func TestInitializeDataDirectories(t *testing.T) {
 	require.Equal(t, "/base/flatkv/working/account", cfg.AccountDBConfig.DataDir)
 	require.Equal(t, "/base/flatkv/working/code", cfg.CodeDBConfig.DataDir)
 	require.Equal(t, "/base/flatkv/working/storage", cfg.StorageDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/legacy", cfg.LegacyDBConfig.DataDir)
+	require.Equal(t, "/base/flatkv/working/misc", cfg.MiscDBConfig.DataDir)
 	require.Equal(t, "/base/flatkv/working/metadata", cfg.MetadataDBConfig.DataDir)
 }
 

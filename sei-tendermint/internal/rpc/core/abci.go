@@ -5,7 +5,6 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 // ABCIQuery queries the application for some information.
@@ -27,10 +26,6 @@ func (env *Environment) ABCIQuery(ctx context.Context, req *coretypes.RequestABC
 // ABCIInfo gets some info about the application.
 // More: https://docs.tendermint.com/master/rpc/#/ABCI/abci_info
 func (env *Environment) ABCIInfo(ctx context.Context) (*coretypes.ResultABCIInfo, error) {
-	resInfo, err := env.App.Info(ctx, &version.RequestInfo)
-	if err != nil {
-		return nil, err
-	}
-
+	resInfo := env.App.Info()
 	return &coretypes.ResultABCIInfo{Response: *resInfo}, nil
 }

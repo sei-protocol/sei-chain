@@ -204,6 +204,10 @@ The association between the sei address and the eth address will also be created
 	cmd.Flags().String(flagVestingAmt, "", "amount of coins for vesting accounts")
 	cmd.Flags().Int64(flagVestingStart, 0, "schedule start time (unix epoch) for vesting accounts")
 	cmd.Flags().Int64(flagVestingEnd, 0, "schedule end time (unix epoch) for vesting accounts")
+	deprecationNotice := "the vesting module is deprecated; vesting parameters are kept only for legacy genesis tooling"
+	_ = cmd.Flags().MarkDeprecated(flagVestingAmt, deprecationNotice)
+	_ = cmd.Flags().MarkDeprecated(flagVestingStart, deprecationNotice)
+	_ = cmd.Flags().MarkDeprecated(flagVestingEnd, deprecationNotice)
 	flags.AddQueryFlagsToCmd(cmd)
 
 	return cmd

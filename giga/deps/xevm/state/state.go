@@ -23,10 +23,16 @@ func (s *DBImpl) CreateAccount(acc common.Address) {
 }
 
 func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
+	if ov, ok := s.tempState.storageOverrides[addr]; ok {
+		return ov.committed[hash.Hex()]
+	}
 	return s.getState(s.snapshottedCtxs[0], addr, hash)
 }
 
 func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
+	if ov, ok := s.tempState.storageOverrides[addr]; ok {
+		return ov.current[hash.Hex()]
+	}
 	return s.getState(s.ctx, addr, hash)
 }
 
@@ -35,6 +41,10 @@ func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash
 }
 
 func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) common.Hash {
+	if ov, ok := s.tempState.storageOverrides[addr]; ok {
+		return s.setOverrideState(ov, addr, key, val)
+	}
+
 	old := s.GetState(addr, key)
 	if s.logger != nil && s.logger.OnStorageChange != nil {
 		s.logger.OnStorageChange(addr, key, old, val)
@@ -113,7 +123,18 @@ func (s *DBImpl) AnySelfDestructed() bool {
 }
 
 func (s *DBImpl) Snapshot() int {
-	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	oldMS := s.ctx.MultiStore()
+	newCtx := s.ctx.WithMultiStore(oldMS.CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	// Freeze the superseded layer so deeper layers can skip it for reads while it
+	// stays empty; this keeps a Cosmos read at call depth N from walking all N
+	// nested cache layers (quadratic). Never freeze the base layer
+	// (snapshottedCtxs[0]) — it is the flush target and is read directly by
+	// GetCommittedState. See x/evm/state/state.go for the full rationale.
+	if len(s.snapshottedCtxs) > 0 {
+		if f, ok := oldMS.(interface{ Freeze() }); ok {
+			f.Freeze()
+		}
+	}
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
 	version := len(s.snapshottedCtxs) - 1
@@ -129,6 +150,13 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 
 	s.ctx = s.snapshottedCtxs[rev]
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
+
+	// The re-exposed layer is the writable top again; unfreeze it so reads no
+	// longer skip it (Snapshot froze it when it was superseded). See
+	// x/evm/state/state.go for the rationale.
+	if f, ok := s.ctx.MultiStore().(interface{ Unfreeze() }); ok {
+		f.Unfreeze()
+	}
 
 	// Find the watermark index to truncate the journal
 	watermarkIndex := -1
@@ -174,12 +202,22 @@ func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 }
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
+	// Drop any simulation-local storage override so a recreated/cleared account
+	// reads empty storage rather than the frozen overlay. Journaled so a revert restores the overlay.
+	if ov, ok := s.tempState.storageOverrides[acc]; ok {
+		s.journal = append(s.journal, &storageOverrideRemove{account: acc, prev: ov})
+		delete(s.tempState.storageOverrides, acc)
+	}
 	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:]) {
 		s.k.PurgePrefix(s.ctx, types.StateKey(acc))
-		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
-		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
-		deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
+		s.clearAccountCodeAndNonce(acc)
 	}
+}
+
+func (s *DBImpl) clearAccountCodeAndNonce(acc common.Address) {
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
@@ -199,11 +237,36 @@ func (s *DBImpl) Created(acc common.Address) bool {
 	return bytes.Equal(val, AccountCreated)
 }
 
+// SetStorage replaces an account's entire storage with a simulation-local mask:
+// unset slots read as zero and persisted slots are hidden rather than deleted.
+// Following go-ethereum semantics, only storage is replaced; the account's code,
+// code hash, nonce, and balance are left intact so an overridden contract still
+// executes its bytecode (and any accompanying code/nonce override is preserved).
 func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
-	s.clearAccountState(addr)
-	for key, val := range states {
-		s.SetState(addr, key, val)
+	var prev *storageOverride
+	if existing, ok := s.tempState.storageOverrides[addr]; ok {
+		prev = existing.deepCopy()
 	}
+	ov := &storageOverride{
+		committed: make(map[string]common.Hash, len(states)),
+		current:   make(map[string]common.Hash, len(states)),
+	}
+	for key, val := range states {
+		ov.committed[key.Hex()] = val
+		ov.current[key.Hex()] = val
+	}
+	s.tempState.storageOverrides[addr] = ov
+	s.journal = append(s.journal, &storageOverrideInstall{account: addr, prev: prev})
+}
+
+func (s *DBImpl) setOverrideState(ov *storageOverride, addr common.Address, key, val common.Hash) common.Hash {
+	old := ov.current[key.Hex()]
+	if s.logger != nil && s.logger.OnStorageChange != nil {
+		s.logger.OnStorageChange(addr, key, old, val)
+	}
+	s.journal = append(s.journal, &storageOverrideChange{account: addr, key: key, prev: old})
+	ov.current[key.Hex()] = val
+	return old
 }
 
 func (s *DBImpl) getTransientAccount(acc common.Address) ([]byte, bool) {

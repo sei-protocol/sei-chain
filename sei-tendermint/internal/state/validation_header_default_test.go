@@ -34,7 +34,7 @@ func TestValidateBlockHeader(t *testing.T) {
 
 	state, stateDB, privVals := makeState(t, 3, 1)
 	stateStore := sm.NewStore(stateDB)
-	proxyApp := proxy.New(app, proxy.NopMetrics())
+	proxyApp := proxy.New(app)
 	mp := makeTxMempool(t, proxyApp)
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
@@ -45,7 +45,6 @@ func TestValidateBlockHeader(t *testing.T) {
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
-		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
 	)
 	lastCommit := &types.Commit{}

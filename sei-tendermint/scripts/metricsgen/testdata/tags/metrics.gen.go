@@ -3,53 +3,75 @@
 package tags
 
 import (
-	"github.com/go-kit/kit/metrics/discard"
-	prometheus "github.com/go-kit/kit/metrics/prometheus"
-	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
+	tmprometheus "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/prometheus"
 )
 
-func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
-	labels := []string{}
-	for i := 0; i < len(labelsAndValues); i += 2 {
-		labels = append(labels, labelsAndValues[i])
-	}
+var Global = NewMetrics()
+
+func init() {
+	prometheus.MustRegister(
+		Global.WithLabels,
+		Global.WithExpBuckets,
+		Global.WithBuckets,
+		Global.WithNoBuckets,
+		Global.Named,
+	)
+}
+
+func NewMetrics() *Metrics {
 	return &Metrics{
-		WithLabels: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+		WithLabels: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "with_labels",
 			Help:      "",
-		}, append(labels, "step", "time")).With(labelsAndValues...),
-		WithExpBuckets: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+		}, []string{"step", "time"}),
+		WithExpBuckets: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "with_exp_buckets",
 			Help:      "",
-
-			Buckets: stdprometheus.ExponentialBuckets(.1, 100, 8),
-		}, labels).With(labelsAndValues...),
-		WithBuckets: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
+			Buckets:   prometheus.ExponentialBuckets(.1, 100, 8),
+		}, nil),
+		WithBuckets: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "with_buckets",
 			Help:      "",
-
-			Buckets: []float64{1, 2, 3, 4, 5},
-		}, labels).With(labelsAndValues...),
-		Named: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
+			Buckets:   []float64{1, 2, 3, 4, 5},
+		}, nil),
+		WithNoBuckets: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "with_no_buckets",
+			Help:      "",
+		}, nil),
+		Named: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "metric_with_name",
 			Help:      "",
-		}, labels).With(labelsAndValues...),
+		}, nil),
 	}
 }
 
-func NopMetrics() *Metrics {
-	return &Metrics{
-		WithLabels:     discard.NewCounter(),
-		WithExpBuckets: discard.NewHistogram(),
-		WithBuckets:    discard.NewHistogram(),
-		Named:          discard.NewCounter(),
-	}
+func (m *Metrics) WithLabelsAt(step string, time string) prometheus.Counter {
+	return m.WithLabels.WithLabelValues(step, time)
+}
+
+func (m *Metrics) WithExpBucketsAt() *tmprometheus.Histogram {
+	return m.WithExpBuckets.WithLabelValues()
+}
+
+func (m *Metrics) WithBucketsAt() *tmprometheus.Histogram {
+	return m.WithBuckets.WithLabelValues()
+}
+
+func (m *Metrics) WithNoBucketsAt() *tmprometheus.Histogram {
+	return m.WithNoBuckets.WithLabelValues()
+}
+
+func (m *Metrics) NamedAt() prometheus.Counter {
+	return m.Named.WithLabelValues()
 }

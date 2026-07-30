@@ -25,7 +25,7 @@ func TestWasmdExport(t *testing.T) {
 	require.NoError(t, err)
 
 	// Initialize the chain
-	gapp.InitChain(t.Context(), &abci.RequestInitChain{AppStateBytes: stateBytes})
+	gapp.InitChain(&abci.RequestInitChain{AppStateBytes: stateBytes})
 	gapp.SetDeliverStateToCommit()
 	gapp.Commit(context.Background())
 

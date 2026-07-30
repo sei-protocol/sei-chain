@@ -1,0 +1,7 @@
+{
+  "Comment": "Standard blocksim configuration.",
+  "Seed": 1337,
+  "DataDir": "~/blocksim/data",
+  "LogDir": "~/blocksim/logs",
+  "Backend": "litt"
+}

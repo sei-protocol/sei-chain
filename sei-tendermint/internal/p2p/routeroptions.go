@@ -47,9 +47,10 @@ type RouterOptions struct {
 	PexOnHandshake bool
 
 	// Giga, if Some, is the already-constructed GigaRouter the Router
-	// should attach. Setup-side code (node/setup.go) picks the right
-	// constructor — NewGigaValidatorRouter or NewGigaFullnodeRouter —
-	// based on whether the node has a local validator key.
+	// should attach. Setup-side code (node/setup.go) opens BlockDB via
+	// BuildDataState, then picks NewGigaValidatorRouter or
+	// NewGigaFullnodeRouter based on cfg.Mode. BlockDB lifecycle is owned
+	// by nodeImpl, not the Router.
 	Giga utils.Option[GigaRouter]
 
 	// Local endpoint to listen for p2p connections on.

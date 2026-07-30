@@ -177,9 +177,6 @@ func (cfg *Config) DeprecatedFieldWarning() error {
 
 // BaseConfig defines the base configuration for a Tendermint node
 type BaseConfig struct {
-	// chainID is unexposed and immutable but here for convenience
-	chainID string
-
 	// The root directory for all data.
 	// This should be set in viper so it can unmarshal into this struct
 	RootDir string `mapstructure:"home"`
@@ -268,15 +265,10 @@ func DefaultBaseConfig() BaseConfig {
 // TestBaseConfig returns a base configuration for testing a Tendermint node
 func TestBaseConfig() BaseConfig {
 	cfg := DefaultBaseConfig()
-	cfg.chainID = "tendermint_test"
 	cfg.Mode = ModeValidator
 	cfg.ProxyApp = "kvstore"
 	cfg.DBBackend = "memdb"
 	return cfg
-}
-
-func (cfg BaseConfig) ChainID() string {
-	return cfg.chainID
 }
 
 // GenesisFile returns the full path to the genesis.json file
@@ -536,6 +528,13 @@ type RPCConfig struct {
 	// Maximum number of results returned by tx_search and block_search.
 	// 0 disables the cap (not recommended on public nodes).
 	MaxTxSearchResults int `mapstructure:"max-tx-search-results"`
+
+	// Maximum number of KV index entries that all in-flight tx_search and
+	// block_search requests may visit at once. This is a process-wide safety
+	// cap that bounds peak memory (and scan CPU) under broad or highly
+	// concurrent search load: it is shared across requests, not applied per-query.
+	// 0 disables the cap (not recommended on public nodes).
+	MaxSearchScanBudget int `mapstructure:"max-search-scan-budget"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -569,7 +568,8 @@ func DefaultRPCConfig() *RPCConfig {
 		TimeoutReadHeader: 10 * time.Second,
 		TimeoutWrite:      30 * time.Second,
 
-		MaxTxSearchResults: 10_000,
+		MaxTxSearchResults:  10_000,
+		MaxSearchScanBudget: 100_000,
 	}
 }
 
@@ -624,6 +624,9 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	}
 	if cfg.MaxTxSearchResults < 0 {
 		return errors.New("max-tx-search-results can't be negative")
+	}
+	if cfg.MaxSearchScanBudget < 0 {
+		return errors.New("max-search-scan-budget can't be negative")
 	}
 	return nil
 }
@@ -1441,13 +1444,16 @@ type InstrumentationConfig struct {
 	// Address to listen for Prometheus collector(s) connections.
 	PrometheusListenAddr string `mapstructure:"prometheus-listen-addr"`
 
-	// Maximum number of simultaneous connections.
-	// If you want to accept a larger number than the default, make sure
-	// you increase your OS limits.
+	// Maximum number of scrapes served concurrently. Not a socket limit despite the
+	// name: it becomes promhttp's MaxRequestsInFlight, and requests past it get a
+	// 503 rather than being queued. Keep it above the number of scrapers that can
+	// overlap — an HA Prometheus pair, blackbox probes, a human curl — because a
+	// slow reader occupies a slot until it finishes or hits WriteTimeout.
 	// 0 - unlimited.
 	MaxOpenConnections int `mapstructure:"max-open-connections"`
 
-	// Instrumentation namespace.
+	// Deprecated: Instrumentation namespace is ignored. Tendermint Prometheus
+	// metrics always use the fixed "tendermint" namespace.
 	Namespace string `mapstructure:"namespace"`
 }
 

@@ -75,7 +75,7 @@ func TestEncodeBankMsg(t *testing.T) {
 	}
 	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, false, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
-	txs := res["transactions"].([]interface{})
+	txs := res["transactions"].([]any)
 	require.Equal(t, 0, len(txs))
 }
 
@@ -115,7 +115,7 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 	}
 	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, false, true, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
-	txs := res["transactions"].([]interface{})
+	txs := res["transactions"].([]any)
 	require.Equal(t, 1, len(txs))
 	ti := uint64(0)
 	bh := common.HexToHash(MockBlockID.Hash.String())
@@ -163,7 +163,7 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 	}
 	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, true, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
-	txs := res["transactions"].([]interface{})
+	txs := res["transactions"].([]any)
 	require.Equal(t, 1, len(txs))
 	bh := common.HexToHash(MockBlockID.Hash.String())
 	to := common.Address(toSeiAddr)
@@ -218,7 +218,7 @@ func TestEncodeWasmExecuteMsg_GasUsedFromReceipt(t *testing.T) {
 	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, false, true, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 	require.Equal(t, hexutil.Uint64(54321), res["gasUsed"])
-	txs := res["transactions"].([]interface{})
+	txs := res["transactions"].([]any)
 	require.Equal(t, 1, len(txs))
 }
 
@@ -255,7 +255,7 @@ func TestEncodeBankTransferMsg_NoReceiptGasUsedZero(t *testing.T) {
 	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, true, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 	require.Equal(t, hexutil.Uint64(0), res["gasUsed"])
-	txs := res["transactions"].([]interface{})
+	txs := res["transactions"].([]any)
 	require.Equal(t, 1, len(txs))
 }
 
@@ -332,7 +332,7 @@ func TestEncodeTmBlock_ExcludeUntraceable(t *testing.T) {
 		false /*fullTx*/, false /*includeBankTransfers*/, false /*includeSyntheticTxs*/, true, /*excludeUntraceable*/
 		evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.NoError(t, err)
-	txs := res["transactions"].([]interface{})
+	txs := res["transactions"].([]any)
 	require.Len(t, txs, 1, "expected only the revert to survive, got %v", txs)
 	require.Equal(t, strings.ToLower(TestNonPanicTxHash), strings.ToLower(txs[0].(string)))
 
@@ -342,7 +342,7 @@ func TestEncodeTmBlock_ExcludeUntraceable(t *testing.T) {
 		false /*fullTx*/, false /*includeBankTransfers*/, false /*includeSyntheticTxs*/, false, /*excludeUntraceable*/
 		evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.NoError(t, err)
-	txs = res["transactions"].([]interface{})
+	txs = res["transactions"].([]any)
 	require.Len(t, txs, 2, "expected revert + ante stub to flow through, got %v", txs)
 }
 

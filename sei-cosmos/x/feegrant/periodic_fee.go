@@ -79,11 +79,17 @@ func (a PeriodicAllowance) ValidateBasic() error {
 		return err
 	}
 
+	if len(a.PeriodSpendLimit) > MaxAllowanceDenoms {
+		return sdkerrors.Wrapf(ErrTooManyDenoms, "period spend limit has %d denoms, max %d", len(a.PeriodSpendLimit), MaxAllowanceDenoms)
+	}
 	if !a.PeriodSpendLimit.IsValid() {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidCoins, "spend amount is invalid: %s", a.PeriodSpendLimit)
 	}
 	if !a.PeriodSpendLimit.IsAllPositive() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, "spend limit must be positive")
+	}
+	if len(a.PeriodCanSpend) > MaxAllowanceDenoms {
+		return sdkerrors.Wrapf(ErrTooManyDenoms, "period can spend has %d denoms, max %d", len(a.PeriodCanSpend), MaxAllowanceDenoms)
 	}
 	if !a.PeriodCanSpend.IsValid() {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidCoins, "can spend amount is invalid: %s", a.PeriodCanSpend)

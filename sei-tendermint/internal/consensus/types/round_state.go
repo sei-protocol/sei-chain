@@ -419,6 +419,9 @@ var leaderElectionSeed = [32]byte(utils.OrPanic1(hex.DecodeString(
 // Validators are assigned subintervals of [0,TotalVotingPower) of length
 // equal to their voting poser.
 // Validator i is the leader of (height,round) <=> pos(height,round)%TotalVotingPower \in validator_interval[i]
+//
+// Leader must not be called with an empty validator set: it divides by the
+// set's total voting power.
 func (rs *RoundState) Leader() crypto.PubKey {
 	// sha256 does not support seed natively, so we add it by hand.
 	d := slices.Clone(leaderElectionSeed[:])
@@ -455,12 +458,6 @@ func (rs *RoundState) RoundStateSimple() RoundStateSimple {
 		panic(err)
 	}
 
-	addr := rs.Leader().Address()
-	idx, _, ok := rs.Validators.GetByAddress(addr)
-	if !ok {
-		panic(fmt.Errorf("validator %v not in committee", addr))
-	}
-
 	return RoundStateSimple{
 		HeightRoundStep:   fmt.Sprintf("%d/%d/%d", rs.Height, rs.Round, rs.Step),
 		StartTime:         rs.StartTime,
@@ -468,28 +465,34 @@ func (rs *RoundState) RoundStateSimple() RoundStateSimple {
 		LockedBlockHash:   rs.LockedBlock.Hash(),
 		ValidBlockHash:    rs.ValidBlock.Hash(),
 		Votes:             votesJSON,
-		Proposer: types.ValidatorInfo{
-			Address: addr,
-			Index:   idx,
-		},
+		Proposer:          rs.leaderInfo(),
 	}
 }
 
-// NewRoundEvent returns the RoundState with proposer information as an event.
-func (rs *RoundState) NewRoundEvent() types.EventDataNewRound {
+// leaderInfo resolves the current leader into a ValidatorInfo for event/RPC
+// serialization, guarding the emptiness precondition that Leader itself cannot:
+// an empty validator set has no leader and yields a zero ValidatorInfo. This is
+// the reachable surface — /consensus_state (RoundStateSimple) can be scraped
+// while the validator set is still empty.
+func (rs *RoundState) leaderInfo() types.ValidatorInfo {
+	if rs.Validators.IsNilOrEmpty() {
+		return types.ValidatorInfo{}
+	}
 	addr := rs.Leader().Address()
 	idx, _, ok := rs.Validators.GetByAddress(addr)
 	if !ok {
 		panic(fmt.Errorf("validator %v not in committee", addr))
 	}
+	return types.ValidatorInfo{Address: addr, Index: idx}
+}
+
+// NewRoundEvent returns the RoundState with proposer information as an event.
+func (rs *RoundState) NewRoundEvent() types.EventDataNewRound {
 	return types.EventDataNewRound{
-		Height: rs.Height,
-		Round:  rs.Round,
-		Step:   rs.Step.String(),
-		Proposer: types.ValidatorInfo{
-			Address: addr,
-			Index:   idx,
-		},
+		Height:   rs.Height,
+		Round:    rs.Round,
+		Step:     rs.Step.String(),
+		Proposer: rs.leaderInfo(),
 	}
 }
 
