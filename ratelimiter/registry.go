@@ -88,7 +88,7 @@ func New(cfg Config) (*Registry, error) {
 }
 
 // Allow reports whether the request from ip should be allowed for the given plane.
-// Rejections increment rpc_rate_limit_rejected_total{plane, method}.
+// Rejections increment rpc_rate_limit_rejected_total{plane, method_namespace}.
 func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
 	if r.cfg.RPS <= 0 || r.cfg.Burst <= 0 {
 		return true
@@ -101,7 +101,7 @@ func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method", bucketRPCMethod(method)),
+			attribute.String("method_namespace", bucketRPCMethod(method)),
 		),
 	)
 	return false
