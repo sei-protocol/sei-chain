@@ -455,14 +455,20 @@ func FuzzConfigManagerEnvOnlyKeyParity(f *testing.F) {
 		if envKey == prefix+"_" || strings.ContainsAny(envKey, "= ") {
 			return // not a name the environment can carry
 		}
-		// A key that derives the same variable as any bound flag the legacy handler
-		// consumes is not an env-only probe. The handler binds the StartCmd flags into
-		// its viper, and such a flag either outranks AutomaticEnv (the harness sets
-		// --home Changed, so Get returns the fixture root rather than the value under
-		// test — not-live) or is parsed and can reject the value outright (SEID_LOG_LEVEL
-		// goes through lvl.UnmarshalText and errors on an unparseable level, tripping the
-		// require.NoError in execConfigManager). Either way there is no divergence to
-		// compare, so skip when the derived variable collides with any bound flag's.
+		// A key that derives the same variable as a flag the legacy handler reads is not
+		// an env-only probe, and there are two distinct ways that happens. A StartCmd flag
+		// the harness marks Changed (--home) outranks AutomaticEnv, so Get returns the
+		// fixture root rather than the value under test (not-live). A flag the handler
+		// reads straight from viper under AutomaticEnv (log_level goes through
+		// lvl.UnmarshalText and errors on an unparseable level, tripping the require.NoError
+		// in execConfigManager) rejects the value before any comparison. Either way there
+		// is no divergence to compare, so skip when the derived variable collides.
+		//
+		// The two need different detection. The Changed-flag case is found by walking this
+		// command's flags. The AutomaticEnv case cannot be: log_level and log_format are
+		// registered on the root command, not on the bare StartCmd the harness builds, yet
+		// AutomaticEnv resolves them from the environment whether or not any flag is bound,
+		// so a flag walk never sees them. They are named explicitly for that reason.
 		//
 		// The comparison is on the derived variable name rather than the key, because
 		// ServerEnvKey upper-cases and rewrites separators: "HOME", "Home" and "home" all
@@ -470,13 +476,15 @@ func FuzzConfigManagerEnvOnlyKeyParity(f *testing.F) {
 		// seed corpus runs under plain `go test`, so this is reachable by -fuzz, not CI.
 		probeCmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
 		collidesWithFlag := false
-		checkFlag := func(f *pflag.Flag) {
-			if envKey == configtest.ServerEnvKey(prefix, f.Name) {
+		checkName := func(name string) {
+			if envKey == configtest.ServerEnvKey(prefix, name) {
 				collidesWithFlag = true
 			}
 		}
-		probeCmd.Flags().VisitAll(checkFlag)
-		probeCmd.PersistentFlags().VisitAll(checkFlag)
+		probeCmd.Flags().VisitAll(func(f *pflag.Flag) { checkName(f.Name) })
+		probeCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { checkName(f.Name) })
+		checkName(flags.FlagLogLevel)
+		checkName(flags.FlagLogFormat)
 		if collidesWithFlag {
 			return
 		}
