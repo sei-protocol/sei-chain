@@ -523,7 +523,8 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 // Concurrency: export runs in a background goroutine while this (primary) store may still be committing.
 // The iterator is constructed under s.mu, serializing against a concurrent Commit's WAL-wrapper access;
 // iteration then proceeds lock-free, because a seiwal iterator reads a consistent point-in-time (hard-link)
-// snapshot that concurrent appends/prunes cannot disturb.
+// snapshot that concurrent appends/prunes cannot disturb. A concurrent Commit is the only overlap this
+// tolerates: closing the primary while an export is in flight is not permitted (see Close).
 func (s *CommitStore) replayInto(clone *CommitStore, targetVersion int64) (retErr error) {
 	if s.wal == nil {
 		// nil WAL: the outer context owns the pipeline, so no between-snapshot replay is available here. The

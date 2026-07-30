@@ -72,6 +72,38 @@ func PruneAfter(path string, highestIndexToKeep uint64) error {
 	return nil
 }
 
+// DeleteAll removes the WAL directory at path and everything in it, lock file included. It is a no-op if the
+// directory does not exist. It requires the exclusive directory lock and returns
+// commonerrors.ErrFileLockUnavailable if a WAL is open on the same directory.
+func DeleteAll(path string) error {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to stat WAL directory %s: %w", path, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("WAL path %s exists but is not a directory", path)
+	}
+
+	lock, err := acquireDirLock(path)
+	if err != nil {
+		return fmt.Errorf("failed to lock WAL directory %s: %w", path, err)
+	}
+	// Releasing after the removal below is safe: the lock acts on the open file descriptor, which outlives
+	// the unlink of the file it was opened from on both backends.
+	defer releaseDirLock(lock, path)
+
+	// This must remain the last mutation under the lock. It unlinks the lock file, so a concurrent NewWAL can
+	// recreate the directory and take a fresh, unrelated lock; anything added after this point would run
+	// against that second owner with no exclusion at all.
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("failed to delete WAL directory %s: %w", path, err)
+	}
+	return nil
+}
+
 // VerifyIntegrity checks every sealed file in the WAL directory at path: each record's CRC is intact, each
 // file's content covers the index range its name promises, and the sealed sequence has no gaps or duplicates.
 // It does not modify the directory. It requires the exclusive directory lock and returns

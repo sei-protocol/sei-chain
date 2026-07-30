@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 )
 
 // TestConfigGetterReturnsOpenedConfig verifies Config() hands back the exact config the WAL was opened
@@ -27,9 +29,9 @@ func TestConfigGetterValidAfterClose(t *testing.T) {
 	require.Same(t, cfg, w.Config())
 }
 
-// TestDeleteRemovesWALFiles verifies Delete empties the WAL directory so a subsequent New yields a fresh,
-// empty WAL.
-func TestDeleteRemovesWALFiles(t *testing.T) {
+// TestDeleteRemovesWALDirectory verifies Delete removes the WAL directory outright and that New recreates it,
+// yielding a fresh, empty WAL.
+func TestDeleteRemovesWALDirectory(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	w := openWAL(t, cfg)
 	for block := uint64(1); block <= 3; block++ {
@@ -39,18 +41,46 @@ func TestDeleteRemovesWALFiles(t *testing.T) {
 	require.NoError(t, w.Close())
 
 	require.NoError(t, Delete(cfg))
+	require.NoDirExists(t, cfg.Path)
 
 	w2 := openWAL(t, cfg)
 	defer func() { require.NoError(t, w2.Close()) }()
+	require.DirExists(t, cfg.Path, "New must recreate the directory Delete removed")
 	ok, _, _, err := w2.GetStoredRange()
 	require.NoError(t, err)
 	require.False(t, ok, "WAL should be empty after Delete")
 }
 
-// TestDeleteMissingDirIsNoop verifies Delete on a directory that was never created is a clean no-op.
+// TestDeleteMissingDirIsNoop verifies Delete on a directory that was never created is a clean no-op that does
+// not create the directory.
 func TestDeleteMissingDirIsNoop(t *testing.T) {
 	cfg := testConfig(filepath.Join(t.TempDir(), "never-created"))
 	require.NoError(t, Delete(cfg))
+	require.NoDirExists(t, cfg.Path)
+}
+
+// TestDeleteRejectedWhileWALOpen verifies Delete fails fast rather than wiping the directory out from under a
+// live StateWAL, which would leave the writer appending to unlinked files.
+func TestDeleteRejectedWhileWALOpen(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+
+	writeBlock(t, w, 1)
+	require.NoError(t, w.Flush())
+
+	err := Delete(cfg)
+	require.ErrorIs(t, err, commonerrors.ErrFileLockUnavailable)
+	require.DirExists(t, cfg.Path)
+
+	// The live WAL is untouched and still usable.
+	writeBlock(t, w, 2)
+	require.NoError(t, w.Flush())
+	ok, first, last, err := w.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), first)
+	require.Equal(t, uint64(2), last)
 }
 
 // TestCloseDeleteReopenAcceptsFarAheadBlock models the state-sync restore case (D7): after wiping a WAL that

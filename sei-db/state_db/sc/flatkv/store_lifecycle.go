@@ -68,6 +68,11 @@ func (s *CommitStore) closeDBsOnly() error {
 // Close drains thread pools, closes all database instances, cancels the
 // store's context to stop background goroutines (caches, metrics), and
 // releases the file lock.
+//
+// NOT SAFE FOR CONCURRENT USE with any other operation on this store: Close releases resources that
+// live operations still hold references to, and no lock guards them against it. The caller must
+// quiesce every operation first — including background work it does not drive itself, such as an
+// export goroutine replaying this store's WAL into a read-only clone (see replayInto).
 func (s *CommitStore) Close() error {
 	if s.readPool != nil {
 		s.readPool.Close()
