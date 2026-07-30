@@ -37,10 +37,6 @@ type State struct {
 	// persisters groups all disk persistence components.
 	// Always initialized: real when stateDir is set, no-op otherwise.
 	persisters persisters
-
-	// startupWALPrune, if set, is the prune-anchor CommitQC used once at the
-	// start of runPersist to truncate WAL entries filtered out of memory at load.
-	startupWALPrune utils.Option[*types.CommitQC]
 }
 
 func (s *State) PublicKey() types.PublicKey {
@@ -61,7 +57,7 @@ const innerFile = "avail_inner"
 
 // PruneAnchor is the decoded form of the persisted prune anchor
 // (AppQC + matching CommitQC pair). It serves as the crash-recovery
-// pruning watermark.
+// pruning boundary.
 type PruneAnchor struct {
 	AppQC    *types.AppQC
 	CommitQC *types.CommitQC
@@ -164,13 +160,8 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	// Tip order: consensus.NewState requires avail ≥ consensus; avail/consensus
 	// may lag data and catch up in Run.
 	commitTip := types.RoadIndex(0)
-	startupWALPrune := utils.None[*types.CommitQC]()
 	if ls, ok := loaded.Get(); ok {
 		commitTip = ls.nextCommitQC()
-		if anchor, ok := ls.pruneAnchor.Get(); ok {
-			// Disk truncate of filtered-out WAL entries runs once in runPersist.
-			startupWALPrune = utils.Some(anchor.CommitQC)
-		}
 	}
 	inner, err := newInner(data.Registry(), commitTip, loaded)
 	if err != nil {
@@ -178,12 +169,11 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	}
 
 	return &State{
-		key:             key,
-		data:            data,
-		inner:           utils.NewWatch(inner),
-		epochDuo:        inner.epochDuo.Subscribe(),
-		persisters:      pers,
-		startupWALPrune: startupWALPrune,
+		key:        key,
+		data:       data,
+		inner:      utils.NewWatch(inner),
+		epochDuo:   inner.epochDuo.Subscribe(),
+		persisters: pers,
 	}, nil
 }
 
@@ -425,7 +415,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	}
 
 	for inner, ctrl := range s.inner.Lock() {
-		if !inner.insertCommitQCAtTip(qc) {
+		if !inner.pushCommitQC(qc) {
 			return nil
 		}
 		// latestCommitQC advances only after durable persist (or no-op persister).
@@ -481,7 +471,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		if !ok {
 			return nil
 		}
-		updated, err := inner.prune(appQC, qc)
+		updated, err := inner.pushPruneAnchor(&PruneAnchor{AppQC: appQC, CommitQC: qc})
 		if err != nil {
 			return err
 		}
@@ -538,15 +528,13 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 		}
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		updated, err := inner.prune(appQC, commitQC)
+		updated, err := inner.pushPruneAnchor(&PruneAnchor{AppQC: appQC, CommitQC: commitQC})
 		if err != nil {
 			return err
 		}
 		if !updated {
 			return nil
 		}
-		// prune advances pointers first; only then can pushBack land at idx.
-		inner.insertCommitQCAtTip(commitQC)
 		ctrl.Updated()
 	}
 	return nil
@@ -941,33 +929,18 @@ func (s *State) runAdvanceEpoch(ctx context.Context) error {
 
 // runPersist is the main loop for the persist goroutine.
 // Write order:
-//  1. Prune anchor (AppQC + CommitQC pair) — the crash-recovery watermark (sequential).
+//  1. Prune anchor (AppQC + CommitQC pair) — the crash-recovery boundary (sequential).
 //  2. commitQCs.MaybePruneAndPersist and each lane's blocks.MaybePruneAndPersistLane run
 //     concurrently via scope.Parallel (separate WALs, no early cancellation; first error
 //     is returned after all tasks finish).
 //     Each path publishes (markCommitQCsPersisted / markBlockPersisted) per entry so voting
 //     unblocks ASAP.
 //
-// The prune anchor is a pruning watermark: on restart we resume from it.
+// On restart, the persisted prune anchor establishes the retained boundary.
 //
 // TODO: use a single WAL for anchor and CommitQCs to make
 // this atomic rather than relying on write order.
 func (s *State) runPersist(ctx context.Context, pers persisters) error {
-	// Truncate WAL entries filtered out of memory at load (once).
-	// TODO(lane-id): also prune Prev committee lanes on restart (same as
-	// newInner Prev-lane seeding). Next Lane ID PR.
-	if anchorQC, ok := s.startupWALPrune.Get(); ok {
-		s.startupWALPrune = utils.None[*types.CommitQC]()
-		for lane := range s.epochDuo.Load().Current.Committee().Lanes().All() {
-			if err := pers.blocks.MaybePruneAndPersistLane(lane, utils.Some(anchorQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
-				return fmt.Errorf("prune stale block WAL entries: %w", err)
-			}
-		}
-		if err := pers.commitQCs.MaybePruneAndPersist(utils.Some(anchorQC), nil, utils.None[func(*types.CommitQC)]()); err != nil {
-			return fmt.Errorf("prune stale commitQC WAL entries: %w", err)
-		}
-	}
-
 	var lastPersistedAppQCNext types.RoadIndex
 	for {
 		batch, err := s.collectPersistBatch(ctx, lastPersistedAppQCNext)
@@ -975,10 +948,10 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			return err
 		}
 
-		// Prune CommitQC anchor: same Option drives commit-QC WAL and per-lane block WAL
+		// The same anchor CommitQC drives commit-QC WAL and per-lane block WAL
 		// (truncate-then-append below this QC).
 		var anchorQC utils.Option[*types.CommitQC]
-		// 1. Persist prune anchor first — establishes the crash-recovery watermark.
+		// 1. Persist prune anchor first — establishes the crash-recovery boundary.
 		if anchor, ok := batch.pruneAnchor.Get(); ok {
 			if err := pers.pruneAnchor.Persist(PruneAnchorConv.Encode(anchor)); err != nil {
 				return fmt.Errorf("persist prune anchor: %w", err)
@@ -1040,7 +1013,7 @@ type persistBatch struct {
 	pruneLanes  []types.LaneID
 }
 
-// advancePersistedBlockStart updates the per-lane block admission watermark
+// advancePersistedBlockStart updates the per-lane block admission boundary
 // after durably writing the prune anchor. This unblocks PushBlock/ProduceBlock
 // waiters that are gated on persistedBlockStart + BlocksPerLane.
 func (s *State) advancePersistedBlockStart(commitQC *types.CommitQC) {
@@ -1085,10 +1058,10 @@ func (s *State) collectPersistBatch(ctx context.Context, lastPersistedAppQCNext 
 	for inner, ctrl := range s.inner.Lock() {
 		// Derive the CommitQC persist cursor from latestCommitQC. This is
 		// safe because latestCommitQC is only advanced by markCommitQCsPersisted
-		// (after disk write) and on startup (from disk). prune() does NOT
-		// update latestCommitQC, so this always reflects persistence state.
-		// The max clamp with commitQCs.first handles the case where prune()
-		// fast-forwarded the queue past the cursor.
+		// (after disk write) and on startup (from disk). Applying a prune anchor
+		// does not update latestCommitQC, so this always reflects persistence
+		// state. The max clamp with commitQCs.first handles an anchor
+		// fast-forwarding the queue past the cursor.
 		commitQCNext := types.NextIndexOpt(inner.latestCommitQC.Load())
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			if types.NextOpt(inner.latestAppQC) != lastPersistedAppQCNext {

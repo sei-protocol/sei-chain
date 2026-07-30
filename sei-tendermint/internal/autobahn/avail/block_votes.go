@@ -10,17 +10,13 @@ type laneVoteSet struct {
 	weight uint64
 	votes  []*types.Signed[*types.LaneVote]
 	header *types.BlockHeader
-}
-
-func (s *laneVoteSet) reset() {
-	s.weight = 0
-	s.votes = s.votes[:0]
+	qc     utils.Option[*types.LaneQC]
 }
 
 // add credits vote weight until quorum. Returns a newly formed LaneQC iff this
-// vote crosses quorum (built from votes; not cached on the set).
+// vote crosses quorum and caches it for subsequent readers.
 func (s *laneVoteSet) add(weight, quorum uint64, vote *types.Signed[*types.LaneVote]) utils.Option[*types.LaneQC] {
-	if s.weight >= quorum {
+	if s.qc.IsPresent() {
 		return utils.None[*types.LaneQC]()
 	}
 	s.weight += weight
@@ -28,15 +24,12 @@ func (s *laneVoteSet) add(weight, quorum uint64, vote *types.Signed[*types.LaneV
 	if s.weight < quorum {
 		return utils.None[*types.LaneQC]()
 	}
-	return utils.Some(types.NewLaneQC(s.votes))
+	s.qc = utils.Some(types.NewLaneQC(s.votes))
+	return s.qc
 }
 
-// laneQC returns a LaneQC built from votes if weight has reached quorum.
-func (s *laneVoteSet) laneQC(quorum uint64) utils.Option[*types.LaneQC] {
-	if s.weight < quorum {
-		return utils.None[*types.LaneQC]()
-	}
-	return utils.Some(types.NewLaneQC(s.votes))
+func (s *laneVoteSet) laneQC() utils.Option[*types.LaneQC] {
+	return s.qc
 }
 
 // blockVotes credits lane votes under the Current committee only.
@@ -80,9 +73,8 @@ func (bv *blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVo
 // ctrl.Updated() after advanceEpoch (not via a return flag).
 func (bv *blockVotes) reweight(newEpoch *types.Epoch) {
 	c := newEpoch.Committee()
-	for _, set := range bv.byHash {
-		set.reset()
-	}
+	clear(bv.byHash)
+	quorum := c.LaneQuorum()
 	for k, vote := range bv.byKey {
 		w := c.Weight(k)
 		if w == 0 {
@@ -95,13 +87,13 @@ func (bv *blockVotes) reweight(newEpoch *types.Epoch) {
 			set = &laneVoteSet{header: vote.Msg().Header()}
 			bv.byHash[h] = set
 		}
-		set.add(w, c.LaneQuorum(), vote)
+		set.add(w, quorum, vote)
 	}
 }
 
-func (bv *blockVotes) laneQC(quorum uint64) utils.Option[*types.LaneQC] {
+func (bv *blockVotes) laneQC() utils.Option[*types.LaneQC] {
 	for _, set := range bv.byHash {
-		if qc, ok := set.laneQC(quorum).Get(); ok {
+		if qc, ok := set.laneQC().Get(); ok {
 			return utils.Some(qc)
 		}
 	}

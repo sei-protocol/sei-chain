@@ -215,6 +215,13 @@ func (m *Proposal) App() utils.Option[*AppProposal] { return m.app }
 // EpochIndex returns the epoch index encoded in the proposal.
 func (m *Proposal) EpochIndex() EpochIndex { return m.view.EpochIndex }
 
+// acceptsAppEpoch reports whether appEp is usable by this proposal: the
+// proposal's own epoch, or the immediately preceding epoch.
+func (m *Proposal) acceptsAppEpoch(appEp EpochIndex) bool {
+	cur := m.EpochIndex()
+	return appEp == cur || cur > 0 && appEp == cur-1
+}
+
 // GlobalRange returns the proposed global block range.
 func (m *Proposal) GlobalRange() GlobalRange {
 	return m.globalRange
@@ -366,18 +373,17 @@ func buildProposal(
 		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 		appQC = utils.None[*AppQC]()
 	}
-	// Attached App must be Current or Current-1. Out-of-window candidates are
-	// not attached; tipcuts may omit App entirely (doc: may embed). Keep the
-	// CommitQC App when present so App is never lower than the prior tipcut.
-	if a, ok := app.Get(); ok && !viewSpec.Epoch().AcceptsAppEpoch(a.EpochIndex()) {
-		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
-		appQC = utils.None[*AppQC]()
-	}
 	// Normalize the creation timestamp.
 	if wantMin := viewSpec.NextTimestamp(); timestamp.Before(wantMin) {
 		timestamp = wantMin
 	}
 	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app, viewSpec.NextGlobalBlock())
+	if a, ok := proposal.App().Get(); ok && !proposal.acceptsAppEpoch(a.EpochIndex()) {
+		return nil, appQC, fmt.Errorf(
+			"app epoch_index %d incompatible with proposal epoch %d",
+			a.EpochIndex(), proposal.EpochIndex(),
+		)
+	}
 	if proposal.GlobalRange().Len() == 0 {
 		return nil, appQC, errors.New("empty tipcut: need at least one LaneQC")
 	}
@@ -507,28 +513,32 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 				})
 			}
 		}
+		proposalApp := proposal.App()
+		if app, ok := proposalApp.Get(); ok && !proposal.acceptsAppEpoch(app.EpochIndex()) {
+			return fmt.Errorf(
+				"app epoch_index %d incompatible with proposal epoch %d",
+				app.EpochIndex(), proposal.EpochIndex(),
+			)
+		}
+
 		// Verify the appQC.
-		if got, wantMin := NextOpt(m.proposal.Msg().App()), NextOpt(AppOpt(ProposalOpt(vs.CommitQC))); got < wantMin {
+		previousApp := AppOpt(ProposalOpt(vs.CommitQC))
+		if got, wantMin := NextOpt(proposalApp), NextOpt(previousApp); got < wantMin {
 			return errors.New("AppProposal lower than in previous CommitQC")
 		} else if got == wantMin {
 			if m.appQC.IsPresent() {
 				return errors.New("unnecessary appQC")
 			}
-			// Carried-forward App is optional; if present must stay in-window.
-			if app, ok := m.proposal.Msg().App().Get(); ok {
-				if !vs.Epoch().AcceptsAppEpoch(app.EpochIndex()) {
-					return fmt.Errorf("app epoch_index %d not Current (%d) or Current-1",
-						app.EpochIndex(), vs.Epoch().EpochIndex())
+			if app, ok := proposalApp.Get(); ok {
+				previous := previousApp.OrPanic("previous AppProposal is present when NextOpt matches")
+				if NewHashed(NewAppVote(app)).hash != NewHashed(NewAppVote(previous)).hash {
+					return errors.New("AppProposal differs from previous CommitQC")
 				}
 			}
 		} else {
-			app, _ := m.proposal.Msg().App().Get()
+			app := proposalApp.OrPanic("AppProposal is present when NextOpt increased")
 			appEpoch := app.EpochIndex()
 			cur := vs.Epoch()
-			// Allow Current or Current-1 (Prev lag). Reject anything else.
-			if !cur.AcceptsAppEpoch(appEpoch) {
-				return fmt.Errorf("app epoch_index %d not Current (%d) or Current-1", appEpoch, cur.EpochIndex())
-			}
 			appQC, ok := m.appQC.Get()
 			if !ok {
 				return errors.New("appQC missing")
@@ -539,13 +549,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			s.Spawn(func() error {
 				ep := vs.Epochs.Current
 				if appEpoch != cur.EpochIndex() {
-					prev, ok := vs.Epochs.Prev.Get()
-					if !ok {
-						// NewEpochDuo requires Prev iff Current>0; AppQC at Current-1
-						// with Current>0 must have Prev.
-						panic(fmt.Sprintf("appQC epoch %d needs Prev, but Prev is absent (Current %d)", appEpoch, cur.EpochIndex()))
-					}
-					ep = prev
+					ep = vs.Epochs.Prev.OrPanic("previous epoch required for previous-epoch AppQC")
 				}
 				if err := appQC.Verify(ep); err != nil {
 					return fmt.Errorf("appQC: %w", err)

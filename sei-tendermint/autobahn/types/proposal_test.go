@@ -724,13 +724,41 @@ func TestProposalVerifyRejectsAppProposalWrongEpoch(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, EpochIndex(0), appPrev.EpochIndex())
 
-	// AppQC outside {Current, Current-1} — not attached; keep in-window CommitQC App.
-	fpOut := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(2))))
-	require.False(t, fpOut.appQC.IsPresent())
-	appOut, ok := fpOut.Proposal().Msg().App().Get()
-	require.True(t, ok)
-	require.True(t, vs.Epoch().AcceptsAppEpoch(appOut.EpochIndex()))
-	require.NoError(t, fpOut.Verify(vs))
+	// AppQC outside {Current, Current-1} — rejected during construction.
+	_, err := NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.Some(makeAppQCWithEpoch(2)))
+	require.Error(t, err)
+}
+
+func TestProposalVerifyRejectsChangedCarriedAppProposal(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep := genFreshEpoch(rng, committee)
+	lane := keys[0].Public()
+
+	laneQCs0 := map[LaneID]*LaneQC{lane: makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))}
+	commitQC0 := makeCommitQC(keys, makeFullProposal(ep, keys, utils.None[*CommitQC](), laneQCs0, utils.None[*AppQC]()))
+	appQC0 := makeAppQCFor(keys, commitQC0.GlobalRange().First, commitQC0.Proposal().Index(), GenAppHash(rng), ep.EpochIndex())
+	vs1 := ViewSpec{CommitQC: utils.Some(commitQC0), Epochs: EpochDuoForTest(ep)}
+	commitQC1 := makeCommitQC(keys, makeFullProposal(ep, keys, utils.Some(commitQC0), oneLaneQCMap(rng, committee, keys, vs1), utils.Some(appQC0)))
+	vs := ViewSpec{CommitQC: utils.Some(commitQC1), Epochs: EpochDuoForTest(ep)}
+	leader := leaderKey(committee, keys, vs.View())
+	fp := utils.OrPanic1(NewProposal(leader, vs, time.Now(), oneLaneQCMap(rng, committee, keys, vs), utils.None[*AppQC]()))
+
+	msg := fp.Proposal().Msg()
+	carried := msg.App().OrPanic("fixture CommitQC carries an AppProposal")
+	changed := NewAppProposal(
+		carried.GlobalNumber(),
+		carried.RoadIndex(),
+		GenAppHash(rng),
+		carried.EpochIndex(),
+	)
+	proposalPB := ProposalConv.Encode(msg)
+	proposalPB.App = AppProposalConv.Encode(changed)
+	changedProposal := utils.OrPanic1(ProposalConv.Decode(proposalPB))
+	fullPB := FullProposalConv.Encode(fp)
+	fullPB.ProposalV2 = SignedProposalConv.Encode(Sign(leader, changedProposal))
+	tampered := utils.OrPanic1(FullProposalConv.Decode(fullPB))
+	require.Error(t, tampered.Verify(vs))
 }
 
 func TestProposalFallsBackWhenAppQCFromFuture(t *testing.T) {

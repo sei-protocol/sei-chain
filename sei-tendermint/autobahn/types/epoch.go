@@ -46,14 +46,3 @@ func NewEpoch(index EpochIndex, roads RoadRange, committee *Committee) *Epoch {
 func (e *Epoch) EpochIndex() EpochIndex { return e.epochIndex }
 func (e *Epoch) RoadRange() RoadRange   { return e.roads }
 func (e *Epoch) Committee() *Committee  { return e.committee }
-
-// AcceptsAppEpoch reports whether appEp is usable for a tipcut whose Current is
-// e: e itself, or e-1 (Prev lag). Epoch 0 accepts only epoch 0.
-// Use e-1 (not appEp+1) so uint64 wrap cannot admit MaxUint64 when e==0.
-func (e *Epoch) AcceptsAppEpoch(appEp EpochIndex) bool {
-	cur := e.epochIndex
-	if appEp == cur {
-		return true
-	}
-	return cur > 0 && appEp == cur-1
-}

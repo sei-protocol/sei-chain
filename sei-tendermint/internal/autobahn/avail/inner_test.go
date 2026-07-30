@@ -56,10 +56,10 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	state, err = NewState(keys[0], ds, utils.Some(t.TempDir()))
 	require.NoError(t, err)
 	for inner := range state.inner.Lock() {
-		_, err := inner.prune(makeAppQC(qc1, qc0), qc1)
+		_, err := inner.pushPruneAnchor(&PruneAnchor{AppQC: makeAppQC(qc1, qc0), CommitQC: qc1})
 		require.Error(t, err, "good range, bad index should fail")
 		require.False(t, inner.latestAppQC.IsPresent(), "latestAppQC should not have been updated")
-		_, err = inner.prune(makeAppQC(qc1, qc1), qc1)
+		_, err = inner.pushPruneAnchor(&PruneAnchor{AppQC: makeAppQC(qc1, qc1), CommitQC: qc1})
 		require.NoError(t, err, "good range, good index should succeed")
 	}
 }
@@ -324,7 +324,7 @@ func TestNewInnerLoadedCommitQCsWithAppQC(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, roadIdx, aq.Proposal().RoadIndex())
 
-	// inner.prune(appQC@2, commitQC@2) sets commitQCs.first = 2.
+	// The prune anchor at road 2 sets commitQCs.first = 2.
 	// Indices 2, 3 and 4 remain; earlier ones are pruned.
 	require.Equal(t, types.RoadIndex(2), inner.commitQCs.first)
 	require.Equal(t, types.RoadIndex(5), inner.commitQCs.next)
@@ -446,7 +446,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 	appProposal := types.NewAppProposal(10, 2, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
-	updated, err := i.prune(appQC, qcs[2])
+	updated, err := i.pushPruneAnchor(&PruneAnchor{AppQC: appQC, CommitQC: qcs[2]})
 	require.NoError(t, err)
 	require.True(t, updated)
 

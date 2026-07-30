@@ -85,15 +85,15 @@ func TestPushVote_CurrentCommitteeOnly(t *testing.T) {
 	require.False(t, bv.pushVote(ep0, types.Sign(keyA, types.NewLaneVote(header))).IsPresent())
 	qc, ok := bv.pushVote(ep0, types.Sign(keyB, types.NewLaneVote(header))).Get()
 	require.True(t, ok)
-	gotQC, ok := bv.byHash[h].laneQC(ep0.Committee().LaneQuorum()).Get()
+	gotQC, ok := bv.byHash[h].laneQC().Get()
 	require.True(t, ok)
+	require.True(t, qc == gotQC, "formed LaneQC should be cached")
 	require.Equal(t, qc.Header().Hash(), gotQC.Header().Hash())
 
 	// ep1: Faulty=(5-1)/3=1, LaneQuorum=2; A+B still form quorum under new weights.
 	bv.reweight(ep1)
-	q := ep1.Committee().LaneQuorum()
-	require.True(t, bv.laneQC(q).IsPresent())
-	require.True(t, bv.byHash[h].laneQC(q).IsPresent())
+	require.True(t, bv.laneQC().IsPresent())
+	require.True(t, bv.byHash[h].laneQC().IsPresent())
 	require.False(t, bv.pushVote(ep1, types.Sign(keyE, types.NewLaneVote(header))).IsPresent())
 	require.Contains(t, bv.byKey, keyE.Public())
 	require.Equal(t, header, bv.byHash[h].header)
@@ -142,19 +142,21 @@ func TestPushVote_ReweightAfterAdvance(t *testing.T) {
 	lane := keyA.Public()
 	header := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
 	h := header.Hash()
+	staleHeader := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
 
 	bv := newBlockVotes()
 	require.False(t, bv.pushVote(ep0, types.Sign(keyA, types.NewLaneVote(header))).IsPresent())
 	require.True(t, bv.pushVote(ep0, types.Sign(keyB, types.NewLaneVote(header))).IsPresent())
+	require.False(t, bv.pushVote(ep0, types.Sign(keyC, types.NewLaneVote(staleHeader))).IsPresent())
 
 	bv.reweight(ep1)
-	q := ep1.Committee().LaneQuorum()
 	require.Equal(t, uint64(1), bv.byHash[h].weight)
 	require.Len(t, bv.byHash[h].votes, 1)
 	require.Equal(t, keyA.Public(), bv.byHash[h].votes[0].Key())
-	require.True(t, bv.byHash[h].laneQC(q).IsPresent())
-	require.True(t, bv.laneQC(q).IsPresent())
+	require.True(t, bv.byHash[h].laneQC().IsPresent())
+	require.True(t, bv.laneQC().IsPresent())
 	require.NotContains(t, bv.byKey, keyB.Public(), "zero-weight signer removed from byKey")
+	require.NotContains(t, bv.byHash, staleHeader.Hash(), "hash with no current-committee votes removed")
 }
 
 func TestPushVote_CompetingHashesBothFormQC(t *testing.T) {
@@ -168,8 +170,6 @@ func TestPushVote_CompetingHashesBothFormQC(t *testing.T) {
 	ep := makeVoteEpoch(0, map[types.PublicKey]uint64{
 		keyA.Public(): 1, keyB.Public(): 1, keyC.Public(): 1, keyD.Public(): 1,
 	})
-	q := ep.Committee().LaneQuorum()
-
 	lane := keyA.Public()
 	header1 := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
 	header2 := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
@@ -178,14 +178,14 @@ func TestPushVote_CompetingHashesBothFormQC(t *testing.T) {
 	bv := newBlockVotes()
 	require.False(t, bv.pushVote(ep, types.Sign(keyA, types.NewLaneVote(header1))).IsPresent())
 	require.True(t, bv.pushVote(ep, types.Sign(keyB, types.NewLaneVote(header1))).IsPresent())
-	require.True(t, bv.byHash[header1.Hash()].laneQC(q).IsPresent())
+	require.True(t, bv.byHash[header1.Hash()].laneQC().IsPresent())
 
 	// Competing hash forms its own LaneQC; both stay.
 	require.False(t, bv.pushVote(ep, types.Sign(keyC, types.NewLaneVote(header2))).IsPresent())
 	require.True(t, bv.pushVote(ep, types.Sign(keyD, types.NewLaneVote(header2))).IsPresent())
-	require.True(t, bv.byHash[header2.Hash()].laneQC(q).IsPresent())
+	require.True(t, bv.byHash[header2.Hash()].laneQC().IsPresent())
 	require.Equal(t, header2, bv.byHash[header2.Hash()].header)
 	require.Len(t, bv.byHash[header2.Hash()].votes, 2)
-	require.True(t, bv.byHash[header1.Hash()].laneQC(q).IsPresent())
-	require.True(t, bv.laneQC(q).IsPresent())
+	require.True(t, bv.byHash[header1.Hash()].laneQC().IsPresent())
+	require.True(t, bv.laneQC().IsPresent())
 }

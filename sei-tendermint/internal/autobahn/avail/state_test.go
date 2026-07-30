@@ -899,7 +899,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
 
-		// inner.prune(appQC@1, commitQC@1) sets commitQCs.first = 1.
+		// The prune anchor at road 1 sets commitQCs.first = 1.
 		require.Equal(t, types.RoadIndex(1), state.FirstCommitQC())
 		require.NoError(t, utils.TestDiff(utils.Some(qcs[4]), state.LastCommitQC().Load()))
 	})
