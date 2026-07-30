@@ -19,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	crptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/teststaking"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
@@ -1668,6 +1669,21 @@ func TestFundCommunityPool(t *testing.T) {
 
 	afterPool := testApp.DistrKeeper.GetFeePoolCommunityCoins(ctx)
 	require.Equal(t, sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(100))), afterPool.Sub(beforePool))
+
+	// the distr precompile is in the payable allowlist, so the EVM value
+	// transfer into it must not leak an (unbalanced) coin_received event for
+	// the precompile address
+	distrSeiAddr := k.GetSeiAddressOrDefault(ctx, common.HexToAddress(distribution.DistrAddress))
+	for _, event := range ctx.EventManager().Events() {
+		if event.Type != banktypes.EventTypeCoinReceived {
+			continue
+		}
+		for _, attr := range event.Attributes {
+			if string(attr.Key) == banktypes.AttributeKeyReceiver {
+				require.NotEqual(t, distrSeiAddr.String(), string(attr.Value))
+			}
+		}
+	}
 
 	receipt, err := k.GetTransientReceipt(ctx, tx.Hash(), 0)
 	require.Nil(t, err)
