@@ -109,7 +109,13 @@ func execConfigManager(t *testing.T, mgr configmanager.ConfigManager, cmd *cobra
 func runManager(t *testing.T, mgr configmanager.ConfigManager, cmd *cobra.Command) (*server.Context, error) {
 	t.Helper()
 	template, appCfg := initAppConfig()
-	cmd.SetErr(io.Discard) // swallow cobra's own error echo; advisory logs go to seilog
+	// The happy-path PreRunE returns a non-nil sentinel (errStopPreRun), which cobra
+	// treats as a command error. SetErr covers the "Error:" line, but the ~50-line start
+	// usage block goes to the out writer, so silence usage and errors rather than dump it
+	// to stderr on every call (which multiplies under -fuzz). Advisory logs go to seilog.
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetErr(io.Discard)
 
 	var applyErr error
 	cmd.PreRunE = func(c *cobra.Command, _ []string) error {
