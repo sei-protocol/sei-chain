@@ -636,6 +636,140 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 	require.Equal(t, hashAtV3, s2.RootHash())
 }
 
+// rollbackFixture returns a store with v1..v5 committed and a snapshot at v2.
+func rollbackFixture(t *testing.T) *CommitStore {
+	t.Helper()
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	for i := byte(1); i <= 5; i++ {
+		commitStorageEntry(t, s, ktype.Address{0x91}, ktype.Slot{i}, []byte{i})
+		if i == 2 {
+			require.NoError(t, s.WriteSnapshot(""))
+		}
+	}
+	return s
+}
+
+// requireRollbackRejected asserts Rollback(target) fails up front with wantErr and leaves the store completely
+// untouched: the same snapshot is current, the WAL holds the same blocks, the version has not moved, and the
+// store is still usable. wantErr must name a message only the pre-flight check produces — some unreachable
+// targets also fail late, after the store has been rewound, so matching the message is what distinguishes
+// "refused before touching anything" from "attempted and then reported". The trailing commit catches the
+// reachability check drifting below the point where Rollback closes the DBs.
+func requireRollbackRejected(t *testing.T, s *CommitStore, target int64, wantErr string) {
+	t.Helper()
+	dir := s.flatkvDir()
+
+	_, curBefore, err := currentSnapshotDir(dir)
+	require.NoError(t, err)
+	okBefore, firstBefore, lastBefore, err := s.wal.GetStoredRange()
+	require.NoError(t, err)
+	versionBefore := s.Version()
+
+	rollbackErr := s.Rollback(target)
+	require.Error(t, rollbackErr, "an unreachable rollback target must be rejected")
+	require.Contains(t, rollbackErr.Error(), wantErr, "must be refused by the pre-flight check, not mid-flight")
+
+	_, curAfter, err := currentSnapshotDir(dir)
+	require.NoError(t, err)
+	require.Equal(t, curBefore, curAfter, "a rejected rollback must not move the current snapshot")
+
+	okAfter, firstAfter, lastAfter, err := s.wal.GetStoredRange()
+	require.NoError(t, err)
+	require.Equal(t, okBefore, okAfter, "a rejected rollback must not touch the WAL")
+	require.Equal(t, firstBefore, firstAfter, "a rejected rollback must not prune the WAL")
+	require.Equal(t, lastBefore, lastAfter, "a rejected rollback must not truncate the WAL")
+	require.Equal(t, versionBefore, s.Version(), "a rejected rollback must not move the version")
+
+	commitStorageEntry(t, s, ktype.Address{0x9F}, ktype.Slot{0xFF}, []byte{0xFF})
+	require.Equal(t, versionBefore+1, s.Version(), "the store must remain usable after a rejected rollback")
+}
+
+// TestRollbackRejectsTargetBeyondWALEnd verifies a target above everything the WAL holds is refused up front,
+// rather than discovered after the store has already been rewound and pruned.
+func TestRollbackRejectsTargetBeyondWALEnd(t *testing.T) {
+	requireRollbackRejected(t, rollbackFixture(t), 9, "the WAL only holds")
+}
+
+// rollbackFixtureEmptyWALAtV2 returns a store with v1..v2 committed, a snapshot at v2, and an emptied WAL, so
+// the caller can choose exactly which blocks the WAL retains. Prune is file-granular and asynchronous, so it
+// cannot be used to shape a small WAL; wiping and re-committing is deterministic.
+func rollbackFixtureEmptyWALAtV2(t *testing.T) *CommitStore {
+	t.Helper()
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	commitStorageEntry(t, s, ktype.Address{0x92}, ktype.Slot{0x01}, []byte{0x01})
+	commitStorageEntry(t, s, ktype.Address{0x92}, ktype.Slot{0x02}, []byte{0x02})
+	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.resetWAL())
+	return s
+}
+
+// TestRollbackRejectsTargetTheWALNoLongerCovers verifies that when the snapshot lands below the target and the
+// WAL does not reach back to the blocks in between, the rollback is refused instead of landing on the snapshot
+// with the intervening blocks destroyed.
+func TestRollbackRejectsTargetTheWALNoLongerCovers(t *testing.T) {
+	s := rollbackFixtureEmptyWALAtV2(t)
+
+	// Resume at v4, so reaching v4 from the v2 snapshot would need block 3, which the WAL never held.
+	cs := makeChangeSet(evmStorageKey(ktype.Address{0x92}, ktype.Slot{0x04}), padLeft32(0x04), false)
+	require.NoError(t, s.ApplyChangeSets(4, []*proto.NamedChangeSet{cs}))
+	_, err := s.Commit(4)
+	require.NoError(t, err)
+
+	ok, first, _, err := s.wal.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(4), first, "fixture precondition: the WAL must start above the v2 snapshot")
+
+	requireRollbackRejected(t, s, 4, "the WAL only holds")
+}
+
+// TestRollbackRejectsVersionZero verifies version 0 is refused: it means no state, so there is nothing to roll
+// back to, and it is the one target that would reach PruneAfter's retains-block-zero boundary.
+func TestRollbackRejectsVersionZero(t *testing.T) {
+	requireRollbackRejected(t, rollbackFixture(t), 0, "nothing to roll back to")
+}
+
+// TestRollbackToTargetPredatingWALSucceeds covers the truncate-to-empty case: the target sits exactly on a
+// snapshot and below every block the WAL still holds, so pruning to it empties the WAL. No replay is needed,
+// so this is reachable and must succeed.
+func TestRollbackToTargetPredatingWALSucceeds(t *testing.T) {
+	s := rollbackFixtureEmptyWALAtV2(t)
+
+	// The WAL holds only blocks above the v2 snapshot, so rolling back to v2 must empty it.
+	for i := byte(3); i <= 5; i++ {
+		commitStorageEntry(t, s, ktype.Address{0x92}, ktype.Slot{i}, []byte{i})
+	}
+	ok, first, _, err := s.wal.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(3), first)
+
+	require.NoError(t, s.Rollback(2))
+	require.Equal(t, int64(2), s.Version())
+
+	ok, _, _, err = s.wal.GetStoredRange()
+	require.NoError(t, err)
+	require.False(t, ok, "pruning to a target below every retained block must empty the WAL")
+
+	// The emptied WAL accepts the next contiguous block, so the store keeps working.
+	commitStorageEntry(t, s, ktype.Address{0x92}, ktype.Slot{0x06}, []byte{0x06})
+	require.Equal(t, int64(3), s.Version())
+}
+
 // =============================================================================
 // removeTmpDirs
 // =============================================================================

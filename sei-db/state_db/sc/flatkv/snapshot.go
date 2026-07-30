@@ -562,9 +562,56 @@ func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) int {
 	return pruned
 }
 
+// rollbackBaseVersion returns the snapshot version Rollback should rewind to for targetVersion, and reports
+// an error if the target cannot be reached from it. A target is reachable when a snapshot at or below it
+// exists and either sits exactly on it, or the WAL still holds every block between that snapshot and the
+// target. With a nil WAL there is no replay, so only a snapshot sitting exactly on the target qualifies.
+//
+// It reads only: no snapshot, symlink, or WAL state is modified, so Rollback can consult it before touching
+// anything and refuse an impossible target outright.
+func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int64, error) {
+	if targetVersion < 1 {
+		return 0, fmt.Errorf("rollback target %d is invalid: version 0 means no state, so there is nothing "+
+			"to roll back to", targetVersion)
+	}
+
+	baseVersion, err := seekSnapshot(dir, targetVersion)
+	if err != nil {
+		return 0, fmt.Errorf("seek snapshot for rollback: %w", err)
+	}
+	if baseVersion == targetVersion {
+		return baseVersion, nil
+	}
+
+	// The snapshot lands below the target, so the WAL has to supply the blocks in between.
+	if s.wal == nil {
+		return 0, fmt.Errorf("cannot roll back to version %d: nearest snapshot is %d and this store has no "+
+			"WAL to replay the difference", targetVersion, baseVersion)
+	}
+	ok, first, last, err := s.wal.GetStoredRange()
+	if err != nil {
+		return 0, fmt.Errorf("read WAL range for rollback: %w", err)
+	}
+	if !ok {
+		return 0, fmt.Errorf("cannot roll back to version %d: nearest snapshot is %d and the WAL is empty, "+
+			"so blocks %d-%d are unavailable", targetVersion, baseVersion, baseVersion+1, targetVersion)
+	}
+	needFrom := uint64(baseVersion) + 1 //nolint:gosec // baseVersion >= 0
+	needTo := uint64(targetVersion)     //nolint:gosec // targetVersion >= 1 checked above
+	if first > needFrom || last < needTo {
+		return 0, fmt.Errorf("cannot roll back to version %d: nearest snapshot is %d, so blocks %d-%d are "+
+			"needed, but the WAL only holds %d-%d",
+			targetVersion, baseVersion, needFrom, needTo, first, last)
+	}
+	return baseVersion, nil
+}
+
 // Rollback restores state to targetVersion by rewinding to the highest
 // snapshot <= targetVersion, replaying WAL to reach the target, and
 // truncating all WAL entries and snapshots beyond that point.
+//
+// A target the store cannot reach is rejected before anything is modified, so a failed Rollback leaves the
+// store open and unchanged and may simply be retried with a reachable target.
 //
 // Crash safety: the WAL is truncated BEFORE catchup writes any data to
 // PebbleDB. If the process crashes after truncation but before catchup
@@ -584,13 +631,15 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 
 	dir := s.flatkvDir()
 
-	if err := s.closeDBsOnly(); err != nil {
-		return fmt.Errorf("close before rollback: %w", err)
+	// Establish reachability first: everything below this point mutates the store irreversibly, and closing
+	// the DBs would leave it unusable on an early return.
+	baseVersion, err := s.rollbackBaseVersion(dir, targetVersion)
+	if err != nil {
+		return err
 	}
 
-	baseVersion, err := seekSnapshot(dir, targetVersion)
-	if err != nil {
-		return fmt.Errorf("seek snapshot for rollback: %w", err)
+	if err := s.closeDBsOnly(); err != nil {
+		return fmt.Errorf("close before rollback: %w", err)
 	}
 
 	if err := updateCurrentSymlink(dir, snapshotName(baseVersion)); err != nil {
@@ -610,8 +659,9 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	// Reset the WAL to targetVersion BEFORE catchup: drop every block after it so a later open-to-latest
 	// can't replay past target and the write head resumes at targetVersion+1. Rollback is a startup/offline
 	// operation (no concurrent commits), so rather than mutating a live instance we close the injected WAL,
-	// prune it offline (PruneAfter subsumes the old truncate-to-empty case uniformly), and reopen it with its
-	// original config. Skipped when the WAL is nil — the outer context owns it.
+	// prune it offline, and reopen it with its original config. The prune only ever runs for a target
+	// rollbackBaseVersion already established is reachable, including the case where the target predates every
+	// retained block and the prune empties the WAL. Skipped when the WAL is nil — the outer context owns it.
 	if s.wal != nil {
 		cfg := s.wal.Config()
 		if err := s.wal.Close(); err != nil {
