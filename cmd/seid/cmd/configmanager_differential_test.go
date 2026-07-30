@@ -447,21 +447,25 @@ func FuzzConfigManagerEnvOnlyKeyParity(f *testing.F) {
 		if value == "" {
 			return
 		}
-		// A key the harness sets as a flag is not an env-only key. startCmdForHome does
-		// cmd.Flags().Set(--home), which marks that flag Changed, and a Changed pflag
-		// outranks AutomaticEnv in viper's precedence, so Get would return the fixture
-		// root rather than the value under test and the probe would fail as not-live
-		// without any divergence existing. Only the seed corpus runs under plain
-		// `go test`, so this is reachable by `-fuzz` rather than by CI.
-		if key == flags.FlagHome {
-			return
-		}
 		configtest.Isolate(t)
 		prefix, err := configtest.ServerEnvPrefix()
 		require.NoError(t, err)
 		envKey := configtest.ServerEnvKey(prefix, key)
 		if envKey == prefix+"_" || strings.ContainsAny(envKey, "= ") {
 			return // not a name the environment can carry
+		}
+		// A key that derives the same variable as a flag the harness sets is not an
+		// env-only key. startCmdForHome does cmd.Flags().Set(--home), which marks that
+		// flag Changed, and a Changed pflag outranks AutomaticEnv, so Get would return
+		// the fixture root rather than the value under test and the probe would fail as
+		// not-live with no divergence present.
+		//
+		// The comparison is on the derived variable name rather than on the key, because
+		// ServerEnvKey upper-cases and rewrites separators: "HOME", "Home" and "home" all
+		// derive one variable, and a key test would let the first two through. Only the
+		// seed corpus runs under plain `go test`, so this is reachable by -fuzz, not CI.
+		if envKey == configtest.ServerEnvKey(prefix, flags.FlagHome) {
+			return
 		}
 		t.Setenv(envKey, value)
 

@@ -194,12 +194,20 @@ func logAdvisory(out advisoryOutcome) {
 			"panic", out.Panic, "stack", string(out.Stack))
 	case out.Stage == stageResolve:
 		logger.Warn("could not resolve home dir for config validation (advisory)", "error", out.Err)
-	// Any other non-completing stage still reports. A stage added without a case here
-	// would otherwise log nothing at all, turning a failure into silence, which is the
-	// opposite of what an advisory pass is for.
+	// Any other non-completing stage still reports, so a stage added without its own
+	// case above logs something rather than nothing. The phrasing is neutral for the
+	// same reason: naming a step here would misreport a stage added later, and the
+	// stage attribute carries which one it actually was.
 	case out.Stage != stageNone:
-		logger.Warn("could not read config for validation (advisory)",
+		logger.Warn("config validation stopped early (advisory)",
 			"stage", out.Stage, "error", out.Err)
+	// An unresolved home is closer to a misconfiguration than to a quiet default, and
+	// it is reported so an operator who opted into v2 can tell a declined pass from a
+	// pass that ran and found nothing. Home is what separates the two skips: it is
+	// empty only when the home never resolved, and the missing-config skip below it
+	// is the ordinary fresh-node case, which stays quiet.
+	case out.Skipped && out.Home == "":
+		logger.Info("config validation skipped: no home dir resolved (advisory)")
 	}
 
 	if len(out.Diagnostics) == 0 {
