@@ -237,14 +237,19 @@ type Config struct {
 	TraceBakeSnapshotWindow int64 `mapstructure:"trace_bake_snapshot_window"` // recent snapshots to keep (default 64)
 
 	// IPRateLimitRPS is the per-IP sustained request rate in requests/second.
-	// Zero disables per-IP rate limiting (all requests pass through).
+	// Zero disables the token bucket (no HTTP 429 rejections). When
+	// rate_limiting_enabled is true, the admission middleware still runs: bodies
+	// are parsed and oversize/malformed requests are rejected before dispatch.
 	IPRateLimitRPS float64 `mapstructure:"ip_rate_limit_rps"`
 
-	// IPRateLimitBurst is the maximum per-IP burst size.
+	// IPRateLimitBurst is the maximum per-IP burst size. Zero disables the token
+	// bucket (same effect as ip_rate_limit_rps = 0) and does not bypass the
+	// admission middleware when rate_limiting_enabled is true.
 	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
 
-	// RateLimitingEnabled is the master switch for per-IP JSON-RPC rate limiting on
-	// the EVM HTTP plane. If disabled, requests bypass the rate limiter entirely.
+	// RateLimitingEnabled is the master switch for the rate-limit admission
+	// middleware on the EVM HTTP plane. When false, requests bypass method
+	// extraction and all rejections from that layer (HTTP 400/413/429).
 	RateLimitingEnabled bool `mapstructure:"rate_limiting_enabled"`
 
 	// TrustedProxyCIDRs lists CIDRs whose X-Forwarded-For headers are trusted when
@@ -934,14 +939,17 @@ trace_bake_use_snapshot = {{ .EVM.TraceBakeUseSnapshot }}
 trace_bake_snapshot_window = {{ .EVM.TraceBakeSnapshotWindow }}
 
 # ip_rate_limit_rps is the per-IP sustained request rate in requests/second.
-# Set to 0 to disable per-IP rate limiting (all requests pass through).
+# Set to 0 to disable per-IP throttling (no HTTP 429). Does not bypass the
+# admission middleware; set rate_limiting_enabled = false for a full bypass.
 ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
 
 # ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
+# Set to 0 to disable per-IP throttling (same effect as ip_rate_limit_rps = 0).
 ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
 
-# rate_limiting_enabled is the master switch for per-IP JSON-RPC rate limiting on
-# the EVM HTTP plane (:8545).
+# rate_limiting_enabled is the master switch for the rate-limit admission
+# middleware on the EVM HTTP plane (:8545). When false, requests bypass method
+# extraction and all rejections from that layer (HTTP 400/413/429).
 rate_limiting_enabled = {{ .EVM.RateLimitingEnabled }}
 
 # trusted_proxy_cidrs lists CIDRs whose X-Forwarded-For headers are trusted when

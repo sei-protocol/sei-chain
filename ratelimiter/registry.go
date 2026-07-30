@@ -46,10 +46,11 @@ var DefaultTrustedProxyCIDRs = []string{
 // Config holds the configuration for a Registry
 type Config struct {
 	// RPS is the sustained request rate allowed per IP in requests/second.
-	// Zero disables per-IP rate limiting (all requests pass).
+	// Zero disables the token bucket (Allow always returns true). Callers may
+	// still perform method extraction and other admission checks independently.
 	RPS float64
 	// Burst is the maximum number of requests allowed in a single burst.
-	// Zero disables per-IP rate limiting (all requests pass).
+	// Zero disables the token bucket (same effect as RPS=0).
 	Burst int
 	// TrustedProxyCIDRs lists CIDRs whose X-Forwarded-For headers are trusted.
 	// Empty means trust no proxy; use RemoteAddr / peer address directly.

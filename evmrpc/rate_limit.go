@@ -10,6 +10,8 @@ import (
 
 // RateLimitGate applies per-IP token-bucket rate limiting after extracting JSON-RPC
 // method names from the entire request body (bounded by max_request_body_bytes).
+// When enabled, method extraction and fail-closed rejection (HTTP 400/413) run even
+// if the registry is configured with RPS or burst zero (no HTTP 429 only).
 type RateLimitGate struct {
 	registry     *ratelimiter.Registry
 	parser       *ratelimiter.MethodParser
