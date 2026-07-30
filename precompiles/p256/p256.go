@@ -22,7 +22,11 @@ const (
 
 const (
 	P256VerifyAddress = "0x0000000000000000000000000000000000001011"
-	GasCostPerByte    = 300
+	// P256VerifyGas is the fixed cost of a secp256r1 signature verification,
+	// matching RIP-7212's P256VERIFY precompile. The verification is a
+	// constant-work stateless operation, so it is priced as a flat charge
+	// against the call's gas meter rather than deriving from state access.
+	P256VerifyGas = 3450
 )
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
@@ -31,13 +35,17 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
+	evmKeeper utils.EVMKeeper
+
 	VerifyID []byte
 }
 
-func NewPrecompile(utils.Keepers) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
-	p := &PrecompileExecutor{}
+	p := &PrecompileExecutor{
+		evmKeeper: keepers.EVMK(),
+	}
 
 	for name, m := range newAbi.Methods {
 		switch name {
@@ -46,36 +54,42 @@ func NewPrecompile(utils.Keepers) (*pcommon.Precompile, error) {
 		}
 	}
 
-	return pcommon.NewPrecompile(newAbi, p, common.HexToAddress(P256VerifyAddress), "p256Verify"), nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, p, common.HexToAddress(P256VerifyAddress), "p256Verify"), nil
 }
 
-// RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
-	return uint64(GasCostPerByte * len(input)) //nolint:gosec
+func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
+	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, hooks *tracing.Hooks) (ret []byte, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if err = pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
-		return nil, errors.New("cannot delegatecall P256Verify")
+		return nil, 0, errors.New("cannot delegatecall P256Verify")
 	}
 
 	switch method.Name {
 	case VerifyMethod:
-		return p.verify(ctx, method, args, caller)
+		// Charge the fixed verification cost here, OUTSIDE verify's panic
+		// recovery, so an out-of-gas panic propagates (failing the tx) instead of
+		// being caught and downgraded to a reverted call. This matches the
+		// framework's executor out-of-gas semantics and the sibling
+		// json/pointerview precompiles, which charge their work gas unguarded.
+		ctx.GasMeter().ConsumeGas(P256VerifyGas, "p256Verify")
+		return p.verify(ctx, method, args)
 	}
 	return
 }
 
 // verify verifies the secp256r1 signature
 // Implements https://github.com/ethereum/RIPs/blob/master/RIPS/rip-7212.md
-func (p PrecompileExecutor) verify(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address) (ret []byte, rerr error) {
+func (p PrecompileExecutor) verify(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
+			remainingGas = 0
 			rerr = fmt.Errorf("%s", err)
 			return
 		}
@@ -105,9 +119,10 @@ func (p PrecompileExecutor) verify(ctx sdk.Context, method *abi.Method, args []i
 	if Verify(hash, r, s, x, y) {
 		// Signature is valid
 		ret, rerr = method.Outputs.Pack(common.LeftPadBytes([]byte{1}, 32))
-		return
-	} else {
-		// Signature is invalid
+		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 		return
 	}
+	// Signature is invalid
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
 }

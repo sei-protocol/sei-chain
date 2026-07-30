@@ -102,7 +102,8 @@ func drainIterator(t *testing.T, it litt.Iterator) []iterEntry {
 		if !ok {
 			break
 		}
-		key, isPrimary := it.GetKey()
+		key, isPrimary, err := it.GetKey()
+		require.NoError(t, err)
 		value, err := it.GetValue()
 		require.NoError(t, err)
 		entries = append(entries, iterEntry{
@@ -563,7 +564,8 @@ func TestIteratorSkipValues(t *testing.T) {
 				if !ok {
 					break
 				}
-				key, _ := it.GetKey()
+				key, _, err := it.GetKey()
+				require.NoError(t, err)
 				// Read the value for only every third key, forcing the reader to skip the others.
 				if seen%3 == 0 {
 					value, err := it.GetValue()
@@ -727,7 +729,8 @@ func TestIteratorLargeValues(t *testing.T) {
 				if !ok {
 					break
 				}
-				key, _ := it.GetKey()
+				key, _, err := it.GetKey()
+				require.NoError(t, err)
 				value, err := it.GetValue()
 				require.NoError(t, err)
 				require.Equal(t, expected[string(key)], value)
@@ -817,6 +820,74 @@ func TestIteratorLifecycle(t *testing.T) {
 	require.NoError(t, it.Close())
 }
 
+// TestIteratorAccessorsRejectMisuse pins the lifecycle enforcement on GetKey and GetValue. The accessors
+// are valid only while the iterator is positioned — after Next has returned (true, nil) and before Close.
+// Outside that window they must report an error: before the fix they returned the stale key, or (after
+// Close) read segments whose reservations had already been released. Both directions are covered because
+// each iterator carries its own copy of the guards, and the reverse iterator's post-Close GetValue reads
+// the released segment directly rather than through a buffered reader.
+func TestIteratorAccessorsRejectMisuse(t *testing.T) {
+	t.Parallel()
+
+	for _, reverse := range []bool{false, true} {
+		name := "forward"
+		if reverse {
+			name = "reverse"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			directory := t.TempDir()
+			table := buildIterTable(t, time.Now, "misuse-"+name, directory, 2, 1)
+			defer func() { require.NoError(t, table.Close()) }()
+
+			for _, k := range []string{"k0", "k1", "k2"} {
+				require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+			}
+
+			// Not positioned: Next has not been called yet.
+			it, err := table.Iterator(reverse)
+			require.NoError(t, err)
+			_, _, err = it.GetKey()
+			require.ErrorContains(t, err, "not positioned")
+			_, err = it.GetValue()
+			require.ErrorContains(t, err, "not positioned")
+
+			ok, err := it.Next()
+			require.NoError(t, err)
+			require.True(t, ok)
+			key, _, err := it.GetKey()
+			require.NoError(t, err, "accessors must work while positioned")
+			require.NotEmpty(t, key)
+
+			// Not positioned: the scan has been drained.
+			for ok {
+				ok, err = it.Next()
+				require.NoError(t, err)
+			}
+			_, _, err = it.GetKey()
+			require.ErrorContains(t, err, "not positioned", "exhaustion must clear the position")
+			_, err = it.GetValue()
+			require.ErrorContains(t, err, "not positioned")
+
+			// Closed. Re-position first, so the guard being tested is `closed` and not exhaustion.
+			it, err = table.Iterator(reverse)
+			require.NoError(t, err)
+			ok, err = it.Next()
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.NoError(t, it.Close())
+
+			_, _, err = it.GetKey()
+			require.ErrorContains(t, err, "closed")
+			_, err = it.GetValue()
+			require.ErrorContains(t, err, "closed")
+			_, err = it.Next()
+			require.ErrorContains(t, err, "closed")
+		})
+	}
+}
+
 // TestReadsAndWritesDuringOpenIterator verifies that ordinary reads and writes work while an iterator is
 // open, that the iterator's snapshot excludes post-open writes, and that a subsequently created iterator
 // observes those writes.
@@ -856,6 +927,292 @@ func TestReadsAndWritesDuringOpenIterator(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it2.Close()) }()
 	require.Equal(t, []string{"k0", "k1", "k2", "k3", "k4"}, entryKeys(drainIterator(t, it2)))
+}
+
+// buildKeymapLagIterTable builds a mem-keymap disk table whose keymap manager buffers puts indefinitely
+// (huge batch size, huge byte bound, hour-long flush interval), so a written key stays out of the keymap
+// until a barrier applies it. Used to pin the window between a write and its keymap entry
+// deterministically. Like buildIterTable, it seals a segment after exactly maxSegmentKeyCount keys and
+// disables background GC.
+func buildKeymapLagIterTable(
+	t *testing.T,
+	name string,
+	path string,
+	maxSegmentKeyCount uint32,
+) litt.ManagedTable {
+	t.Helper()
+
+	logger := slog.Default()
+
+	keymapPath := filepath.Join(path, keymap.KeymapDirectoryName)
+	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
+	require.NoError(t, err)
+
+	keys, _, err := keymap.NewMemKeymap(logger, "", true)
+	require.NoError(t, err)
+
+	config, err := litt.DefaultConfig(path)
+	require.NoError(t, err)
+
+	config.TargetSegmentFileSize = math.MaxUint32
+	config.MaxSegmentKeyCount = maxSegmentKeyCount
+	config.GCPeriod = time.Hour
+	config.Fsync = false
+	config.KeymapManagerMaxBatchSize = math.MaxInt
+	config.KeymapManagerMaxBatchBytes = math.MaxUint64
+	config.KeymapManagerMaxInterval = time.Hour
+
+	tableConfig := litt.DefaultTableConfig(name)
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Logger = logger
+
+	table, err := NewDiskTable(
+		config,
+		runtimeConfig,
+		name,
+		tableConfig,
+		keys,
+		keymapPath,
+		keymapTypeFile,
+		[]string{path},
+		true,
+		nil)
+	require.NoError(t, err)
+
+	return table
+}
+
+// TestIteratorAtUnflushedKeys pins the keymap-lag window: keys are written and their keymap puts sit
+// buffered in the keymap manager (which never applies them on its own here), so the keymap has none of
+// them when IteratorAt runs. IteratorAt must still find every key — matching Get, which serves them from
+// the unflushed-data cache — while a never-written key must still report found=false without sealing the
+// mutable segment.
+func TestIteratorAtUnflushedKeys(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	// Seal every 2 keys: seg0[k0,k1], seg1[k2,k3], seg2(mutable)[k4].
+	table := buildKeymapLagIterTable(t, "atlag", directory, 2)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	keyOrder := []string{"k0", "k1", "k2", "k3", "k4"}
+	for _, k := range keyOrder {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+
+	// Flush makes the data durable and hands the keys to the keymap manager, where they stay buffered:
+	// Get serves every key, while the keymap itself has none of them.
+	require.NoError(t, table.Flush())
+	dt, ok := table.(*DiskTable)
+	require.True(t, ok, "expected *DiskTable")
+	for _, k := range keyOrder {
+		_, inKeymap, err := dt.keymap.Get([]byte(k))
+		require.NoError(t, err)
+		require.False(t, inKeymap, "expected key %q to still be absent from the keymap", k)
+		_, found, err := table.Get([]byte(k))
+		require.NoError(t, err)
+		require.True(t, found)
+	}
+
+	// A never-written key is reported absent without sealing the mutable segment.
+	segmentsBefore := countSegmentsOnDisk(t, directory)
+	it, found, err := table.IteratorAt([]byte("kX"), false)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Nil(t, it)
+	require.Equal(t, segmentsBefore, countSegmentsOnDisk(t, directory))
+
+	// A written key is found and iterates from the right position. This first call takes the
+	// keymap-lag path: seal, drain the manager's buffered puts, then locate via the keymap.
+	fwd := openIteratorAt(t, table, "k2", false)
+	entries := drainIterator(t, fwd)
+	require.NoError(t, fwd.Close())
+	require.Equal(t, []string{"k2", "k3", "k4"}, entryKeys(entries))
+	for _, e := range entries {
+		require.Equal(t, "value-"+e.key, e.value)
+	}
+
+	// The drain above made the keymap current, so this call takes the ordinary keymap-hit path.
+	rev := openIteratorAt(t, table, "k2", true)
+	entries = drainIterator(t, rev)
+	require.NoError(t, rev.Close())
+	require.Equal(t, []string{"k2", "k1", "k0"}, entryKeys(entries))
+}
+
+// openIteratorAt opens an IteratorAt positioned at key, requiring the key to be found.
+func openIteratorAt(t *testing.T, table litt.ManagedTable, key string, reverse bool) litt.Iterator {
+	t.Helper()
+	it, found, err := table.IteratorAt([]byte(key), reverse)
+	require.NoError(t, err)
+	require.True(t, found, "expected key %q to be found", key)
+	return it
+}
+
+// TestIteratorAtForward verifies that a forward IteratorAt begins at the requested key and yields it plus
+// every key inserted after it, in insertion order — including start keys that live in a non-first segment.
+func TestIteratorAtForward(t *testing.T) {
+	t.Parallel()
+
+	for _, sc := range iterShardConfigs {
+		sc := sc
+		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
+			directory := t.TempDir()
+
+			// Seal every 2 keys: seg0[k0,k1], seg1[k2,k3], seg2(mutable)[k4].
+			table := buildIterTable(t, time.Now, "atfwd", directory, 2, sc.shardingFactor)
+			defer func() { require.NoError(t, table.Close()) }()
+
+			keyOrder := []string{"k0", "k1", "k2", "k3", "k4"}
+			for _, k := range keyOrder {
+				require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+			}
+
+			cases := []struct {
+				start    string
+				expected []string
+			}{
+				{"k0", []string{"k0", "k1", "k2", "k3", "k4"}}, // first key
+				{"k2", []string{"k2", "k3", "k4"}},             // start in the middle segment
+				{"k3", []string{"k3", "k4"}},                   // start in the middle of a segment
+				{"k4", []string{"k4"}},                         // last key
+			}
+			for _, tc := range cases {
+				it := openIteratorAt(t, table, tc.start, false)
+				entries := drainIterator(t, it)
+				require.NoError(t, it.Close())
+				require.Equal(t, tc.expected, entryKeys(entries), "start=%s", tc.start)
+				for _, e := range entries {
+					require.Equal(t, "value-"+e.key, e.value)
+				}
+			}
+		})
+	}
+}
+
+// TestIteratorAtReverse verifies that a reverse IteratorAt begins at the requested key and yields it plus
+// every key inserted before it, in reverse insertion order.
+func TestIteratorAtReverse(t *testing.T) {
+	t.Parallel()
+
+	for _, sc := range iterShardConfigs {
+		sc := sc
+		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
+			directory := t.TempDir()
+
+			table := buildIterTable(t, time.Now, "atrev", directory, 2, sc.shardingFactor)
+			defer func() { require.NoError(t, table.Close()) }()
+
+			keyOrder := []string{"k0", "k1", "k2", "k3", "k4"}
+			for _, k := range keyOrder {
+				require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+			}
+
+			cases := []struct {
+				start    string
+				expected []string
+			}{
+				{"k4", []string{"k4", "k3", "k2", "k1", "k0"}}, // last key
+				{"k2", []string{"k2", "k1", "k0"}},             // start in the middle segment
+				{"k0", []string{"k0"}},                         // first key
+			}
+			for _, tc := range cases {
+				it := openIteratorAt(t, table, tc.start, true)
+				entries := drainIterator(t, it)
+				require.NoError(t, it.Close())
+				require.Equal(t, tc.expected, entryKeys(entries), "start=%s", tc.start)
+				for _, e := range entries {
+					require.Equal(t, "value-"+e.key, e.value)
+				}
+			}
+		})
+	}
+}
+
+// TestIteratorAtNotFound verifies that positioning at an absent key reports found=false with a nil
+// iterator, both on a populated table and on an empty one.
+func TestIteratorAtNotFound(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	table := buildIterTable(t, time.Now, "atmiss", directory, 2, 1)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	// Empty table: any key is absent.
+	it, found, err := table.IteratorAt([]byte("k0"), false)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Nil(t, it)
+
+	for _, k := range []string{"k0", "k1", "k2"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+
+	// A key that was never written is absent.
+	it, found, err = table.IteratorAt([]byte("kX"), false)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Nil(t, it)
+}
+
+// TestIteratorAtExcludesConcurrentWrites verifies that IteratorAt captures a snapshot at creation: keys
+// written after it is created are not observed.
+func TestIteratorAtExcludesConcurrentWrites(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	table := buildIterTable(t, time.Now, "atsnapshot", directory, 2, 1)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	for _, k := range []string{"k0", "k1", "k2"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+
+	it := openIteratorAt(t, table, "k1", false)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	// These writes happen after the iterator is created and must not be observed.
+	for _, k := range []string{"k3", "k4"} {
+		require.NoError(t, table.Put([]byte(k), []byte("value-"+k)))
+	}
+
+	require.Equal(t, []string{"k1", "k2"}, entryKeys(drainIterator(t, it)))
+}
+
+// TestIteratorAtSecondaryKey verifies that IteratorAt can position at a secondary key: iteration begins at
+// that secondary and its value is read correctly (the forward group optimization is inactive until a
+// primary has been visited, so the secondary's value is read directly).
+func TestIteratorAtSecondaryKey(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	table := buildIterTable(t, time.Now, "atsec", directory, 64, 1)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	require.NoError(t, table.Put(
+		[]byte("p0"),
+		[]byte("abcdef"),
+		&types.SecondaryKey{Key: []byte("s0a"), Offset: 1, Length: 3}, // "bcd"
+		&types.SecondaryKey{Key: []byte("s0b"), Offset: 0, Length: 6}, // "abcdef"
+	))
+	require.NoError(t, table.Put([]byte("p1"), []byte("xyz")))
+
+	// Insertion order of records is [p0, s0a, s0b, p1]; positioning at s0a yields [s0a, s0b, p1].
+	it := openIteratorAt(t, table, "s0a", false)
+	defer func() { require.NoError(t, it.Close()) }()
+
+	expected := []iterEntry{
+		{key: "s0a", isPrimary: false, value: "bcd"},
+		{key: "s0b", isPrimary: false, value: "abcdef"},
+		{key: "p1", isPrimary: true, value: "xyz"},
+	}
+	require.Equal(t, expected, drainIterator(t, it))
 }
 
 // TestGetNewestKeyAfterPartialGC verifies that after GC deletes some but not all segments, the oldest

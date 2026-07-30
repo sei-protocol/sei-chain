@@ -55,6 +55,10 @@ type OpenOptions struct {
 type KeyValueDB interface {
 
 	// Get returns the value for the given key, returning an error if the key is not found.
+	//
+	// A found zero-length value must be returned as a non-nil empty slice; nil is never a found
+	// value. Callers (e.g. the snapshot engine) rely on this distinction to tell empty values
+	// from absent keys.
 	Get(key []byte) (value []byte, err error)
 
 	// Perform a batch read operation. Given a map of keys to read, performs the reads and updates the
@@ -87,8 +91,15 @@ type KeyValueDB interface {
 type Batch interface {
 	Set(key, value []byte) error
 	Delete(key []byte) error
+
+	// Commit applies the batch atomically: after a crash it is either fully present or fully absent.
+	// Sequential commits on the same DB become durable in commit order — a crash may lose a suffix of
+	// commits, never an earlier commit while retaining a later one.
 	Commit(opts WriteOptions) error
 
+	// Len returns the current encoded size of the batch in bytes — NOT the number of buffered
+	// operations. Callers (e.g. the snapshot engine's flush batching) size batches by bytes;
+	// implementations must preserve this unit.
 	Len() int
 	Reset()
 	io.Closer

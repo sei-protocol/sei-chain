@@ -297,7 +297,8 @@ func TestCompressionIteration(t *testing.T) {
 		if !ok {
 			break
 		}
-		key, _ := it.GetKey()
+		key, _, err := it.GetKey()
+		require.NoError(t, err)
 		value, err := it.GetValue()
 		require.NoError(t, err)
 		seen[string(key)] = append([]byte(nil), value...)
@@ -336,7 +337,8 @@ func TestCompressionReverseIteration(t *testing.T) {
 		if !ok {
 			break
 		}
-		key, _ := it.GetKey()
+		key, _, err := it.GetKey()
+		require.NoError(t, err)
 		value, err := it.GetValue()
 		require.NoError(t, err)
 		seen[string(key)] = append([]byte(nil), value...)
