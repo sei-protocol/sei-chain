@@ -178,12 +178,10 @@ func TestResolveHomeDirAgreesWithTheLegacyHandler(t *testing.T) {
 // depend on either.
 func writeMinimalHome(t *testing.T, configTOML, appTOML string) string {
 	t.Helper()
-	root := filepath.Join(t.TempDir(), "node")
-	cfgDir := filepath.Join(root, "config")
-	require.NoError(t, os.MkdirAll(cfgDir, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte(configTOML), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "app.toml"), []byte(appTOML), 0o600))
-	return root
+	h := configtest.NewHome(t)
+	h.WriteConfigTOML(t, []byte(configTOML))
+	h.WriteAppTOML(t, []byte(appTOML))
+	return h.Root
 }
 
 // homeCmd returns a command whose --home is set to root.
@@ -300,8 +298,8 @@ func TestLogAdvisoryHandlesEveryOutcome(t *testing.T) {
 	}{
 		{"zero value", advisoryOutcome{}},
 		{"skipped", advisoryOutcome{Skipped: true}},
-		{"resolve failed", advisoryOutcome{Stage: "resolve", Err: errors.New("no home")}},
-		{"read failed", advisoryOutcome{Stage: "read", Err: errors.New("bad toml")}},
+		{"resolve failed", advisoryOutcome{Stage: stageResolve, Err: errors.New("no home")}},
+		{"read failed", advisoryOutcome{Stage: stageRead, Err: errors.New("bad toml")}},
 		{"panicked", advisoryOutcome{Panic: "boom", Stack: []byte("goroutine 1 [running]:\n")}},
 		{"panicked with no stack", advisoryOutcome{Panic: errors.New("boom")}},
 		{"one diagnostic", advisoryOutcome{Home: "/tmp/n", Diagnostics: []string{"[ERROR] a: b"}}},

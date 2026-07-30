@@ -22,9 +22,18 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
-// This file is the equality foundation for the two managers: everything here
-// compares what legacy resolves against what v2 resolves, on one home, through the
-// two channels the rest of the boot reads.
+// This file compares what legacy resolves against what v2 resolves, on one home,
+// through the two channels the rest of the boot reads.
+//
+// Be precise about what that currently proves. While v2 is a passthrough, both sides
+// of every comparison here run the same legacy reader, so these rows cannot fail
+// unless the advisory pass has a side effect. They are side-effect detectors, and the
+// scaffolding the real comparison will run on, not yet a proof that two independent
+// implementations agree: the second implementation does not exist yet. The rows that
+// can fail on their own today are the ones that assert something other than equality
+// between two runs of the same reader, namely that v2 writes nothing, that the
+// advisory pass actually produced a finding, and that resolveHomeDir agrees with the
+// handler.
 //
 // It runs on the same harness as the characterization suite (testutil/configtest),
 // which is what makes the comparison trustworthy. Isolate pins the process
@@ -194,8 +203,10 @@ func configCorpus() []corpusCase {
 	}
 }
 
-// TestConfigManagerLegacyVsV2Differential is the core safety property: the v2
-// manager must produce the SAME consumed config as the legacy path. v2 reads the
+// TestConfigManagerLegacyVsV2Differential is the shape the parity proof will take: the
+// v2 manager must produce the SAME consumed config as the legacy path. While v2 passes
+// through, it detects a side effect rather than proving agreement between two
+// implementations (see the file header). v2 reads the
 // config (to validate it) and then re-enters the legacy reader on the operator's
 // ORIGINAL files — it does not rewrite — so the two paths read the SAME home and any
 // difference is a real divergence, not a path artifact.

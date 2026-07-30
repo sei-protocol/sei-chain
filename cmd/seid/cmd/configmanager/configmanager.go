@@ -48,21 +48,41 @@ type SeiConfigManager struct{}
 // Apply runs the advisory validation pass, then re-enters the legacy handler on
 // the operator's original files. Nothing in the validation pass refuses boot.
 func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
-	logAdvisory(validateAdvisory(cmd))
+	reportAdvisory(cmd)
 	return server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
+}
+
+// reportAdvisory runs the advisory pass and reports what it found, containing a panic
+// from either step.
+//
+// The recover has to cover the reporting and not just the pass. Everything here is
+// advisory, so the one promise this manager makes is that it cannot refuse a boot the
+// legacy path would have allowed, and a panic escaping the reporter would do exactly
+// that by propagating out of Apply into PersistentPreRunE. Keeping the pass's own
+// recover and adding none here would leave that hole open, since the pass returns
+// normally and the reporter runs after it.
+func reportAdvisory(cmd *cobra.Command) {
+	defer func() {
+		if recover() != nil {
+			// Deliberately the smallest possible call: this runs after something already
+			// panicked, so it does not touch the value that may have caused it.
+			logger.Error("config validation reporting panicked (advisory; recovered, node will boot)")
+		}
+	}()
+	logAdvisory(validateAdvisory(cmd))
 }
 
 // advisoryOutcome is what the validation pass saw. The pass reports rather than logs
 // so that it is observable, which nothing else here can be: a channel-parity or
 // never-refuses-boot assertion holds just as well when the read always fails or the
 // validation has quietly become a no-op, so something has to be able to see that the
-// pass ran and what it found. Apply does the logging.
+// pass ran and what it found. reportAdvisory does the logging.
 type advisoryOutcome struct {
 	// Home is the directory the pass read, empty when it never got that far.
 	Home string
-	// Stage names where the pass stopped, "resolve" or "read", and is empty when it
-	// completed. It is what keeps the two failures separately reportable.
-	Stage string
+	// Stage names where the pass stopped, and is stageNone when it completed. It is
+	// what keeps the two failures separately reportable.
+	Stage stage
 	// Skipped records that there was nothing to validate: no home resolved, or no
 	// config on disk yet, which is the normal case on a fresh node.
 	Skipped bool
@@ -76,6 +96,17 @@ type advisoryOutcome struct {
 	Panic any
 	Stack []byte
 }
+
+// stage names how far the advisory pass got. It is a typed constant rather than a
+// string because it is an internal discriminator matched by name, so a mistyped value
+// should be a compile error instead of a case that silently drops an operator warning.
+type stage int
+
+const (
+	stageNone    stage = iota // the pass completed
+	stageResolve              // stopped resolving the home dir
+	stageRead                 // stopped reading the config
+)
 
 // validateAdvisory resolves the home dir, reads the on-disk config and validates it,
 // reporting what it saw. Every outcome is advisory: a failure, or a panic in the
@@ -104,7 +135,7 @@ func validateAdvisory(cmd *cobra.Command) (out advisoryOutcome) {
 
 	home, err := resolveHomeDir(cmd)
 	if err != nil {
-		out.Stage, out.Err = "resolve", err
+		out.Stage, out.Err = stageResolve, err
 		return out
 	}
 	// An unresolved home would send the read at ./config relative to the process
@@ -125,7 +156,7 @@ func validateAdvisory(cmd *cobra.Command) (out advisoryOutcome) {
 			out.Skipped = true
 			return out
 		}
-		out.Stage, out.Err = "read", err
+		out.Stage, out.Err = stageRead, err
 		return out
 	}
 
@@ -147,9 +178,9 @@ func logAdvisory(out advisoryOutcome) {
 	case out.Panic != nil:
 		logger.Error("config validation panicked (advisory; recovered, node will boot)",
 			"panic", out.Panic, "stack", string(out.Stack))
-	case out.Stage == "resolve":
+	case out.Stage == stageResolve:
 		logger.Warn("could not resolve home dir for config validation (advisory)", "error", out.Err)
-	case out.Stage == "read":
+	case out.Stage == stageRead:
 		logger.Warn("could not read config for validation (advisory)", "error", out.Err)
 	}
 
