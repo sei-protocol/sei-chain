@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"runtime/debug"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -47,44 +48,108 @@ type SeiConfigManager struct{}
 // Apply runs the advisory validation pass, then re-enters the legacy handler on
 // the operator's original files. Nothing in the validation pass refuses boot.
 func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
-	validateAdvisory(cmd)
+	logAdvisory(validateAdvisory(cmd))
 	return server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
 }
 
-// validateAdvisory resolves the home dir, reads the on-disk config, and logs any
-// validation diagnostics via seilog at Warn. Every step is advisory: a failure —
-// or a panic in the sei-config read/validate, whose fidelity is still being
-// hardened — is logged and swallowed so the pass can never change what the node
-// boots on. A missing config file is normal (the legacy handler creates it) and
-// is not surfaced. Keeping this a distinct step from Apply is what lets the
-// generate path add its authoring/render step as a sibling.
-func validateAdvisory(cmd *cobra.Command) {
+// advisoryOutcome is what the validation pass saw. The pass reports rather than logs
+// so that it is observable, which nothing else here can be: a channel-parity or
+// never-refuses-boot assertion holds just as well when the read always fails or the
+// validation has quietly become a no-op, so something has to be able to see that the
+// pass ran and what it found. Apply does the logging.
+type advisoryOutcome struct {
+	// Home is the directory the pass read, empty when it never got that far.
+	Home string
+	// Stage names where the pass stopped, "resolve" or "read", and is empty when it
+	// completed. It is what keeps the two failures separately reportable.
+	Stage string
+	// Skipped records that there was nothing to validate: no home resolved, or no
+	// config on disk yet, which is the normal case on a fresh node.
+	Skipped bool
+	// Diagnostics are the rendered validation findings.
+	Diagnostics []string
+	// Err is a resolve or read failure, advisory like everything else here.
+	Err error
+	// Panic is a recovered panic value and Stack its origin. sei-config's read and
+	// validate fidelity is still being hardened, so a panic here is the case most
+	// likely to need debugging from a node's logs, and the value alone gives no origin.
+	Panic any
+	Stack []byte
+}
+
+// validateAdvisory resolves the home dir, reads the on-disk config and validates it,
+// reporting what it saw. Every outcome is advisory: a failure, or a panic in the
+// sei-config read or validate, is captured and returned rather than propagated, so
+// the pass can never change what the node boots on. Keeping this a distinct step from
+// Apply is what lets the generate path add its authoring/render step as a sibling.
+func validateAdvisory(cmd *cobra.Command) (out advisoryOutcome) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Error("config validation panicked (advisory; recovered, node will boot)", "panic", r)
+			out.Panic, out.Stack = r, debug.Stack()
 		}
 	}()
 
 	home, err := resolveHomeDir(cmd)
 	if err != nil {
-		logger.Warn("could not resolve home dir for config validation (advisory)", "error", err)
-		return
+		out.Stage, out.Err = "resolve", err
+		return out
 	}
+	// An unresolved home would send the read at ./config relative to the process
+	// working directory, so it could validate some unrelated node's files and report
+	// diagnostics that have nothing to do with what this node boots on. The legacy
+	// reader treats an empty home the same way, so this is not a parity break, but a
+	// pass whose whole purpose is operator-facing diagnostics has to decline instead.
+	if home == "" {
+		out.Skipped = true
+		return out
+	}
+	out.Home = home
+
 	cfg, err := seiconfig.ReadConfigFromDir(home)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			logger.Warn("could not read config for validation (advisory)", "error", err)
+		// A missing config is the normal fresh-node case: the legacy handler creates it.
+		if errors.Is(err, os.ErrNotExist) {
+			out.Skipped = true
+			return out
 		}
+		out.Stage, out.Err = "read", err
+		return out
+	}
+
+	for _, d := range seiconfig.Validate(cfg).Diagnostics {
+		out.Diagnostics = append(out.Diagnostics, d.String())
+	}
+	return out
+}
+
+// maxLoggedDiagnostics bounds the rendered list in one log line. A badly broken
+// config can produce a diagnostic per field, and count is what an operator alerts
+// on, so the full set is left to be re-derived from the file rather than emitted as
+// one unbounded line.
+const maxLoggedDiagnostics = 10
+
+// logAdvisory reports an outcome through seilog. Nothing here refuses boot.
+func logAdvisory(out advisoryOutcome) {
+	switch {
+	case out.Panic != nil:
+		logger.Error("config validation panicked (advisory; recovered, node will boot)",
+			"panic", out.Panic, "stack", string(out.Stack))
+	case out.Stage == "resolve":
+		logger.Warn("could not resolve home dir for config validation (advisory)", "error", out.Err)
+	case out.Stage == "read":
+		logger.Warn("could not read config for validation (advisory)", "error", out.Err)
+	}
+
+	if len(out.Diagnostics) == 0 {
 		return
 	}
-	if diags := seiconfig.Validate(cfg).Diagnostics; len(diags) > 0 {
-		msgs := make([]string, len(diags))
-		for i, d := range diags {
-			msgs[i] = d.String()
-		}
-		logger.Warn("advisory config validation diagnostics (not enforced; node will boot)",
-			"count", len(diags), "diagnostics", msgs)
+	shown, omitted := out.Diagnostics, 0
+	if len(shown) > maxLoggedDiagnostics {
+		omitted = len(shown) - maxLoggedDiagnostics
+		shown = shown[:maxLoggedDiagnostics]
 	}
+	logger.Warn("advisory config validation diagnostics (not enforced; node will boot)",
+		"count", len(out.Diagnostics), "diagnostics", shown, "omitted", omitted)
 }
 
 // resolveHomeDir resolves --home the same way the legacy handler does

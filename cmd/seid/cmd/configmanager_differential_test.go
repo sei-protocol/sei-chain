@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -323,8 +326,58 @@ func TestConfigManagerV2AdvisoryReadErrorMatchesLegacy(t *testing.T) {
 	_, v2Err := runManager(t, configmanager.SeiConfigManager{}, startCmdForHome(t, home))
 
 	require.Error(t, legacyErr, "corrupt config.toml should fail the legacy reader")
+	// Asserted before the strings are compared: were v2 to swallow the failure, the
+	// comparison below would panic on a nil error rather than report the invariant
+	// that was actually broken.
+	require.Error(t, v2Err, "v2 must not mask the legacy boot error")
 	require.Equal(t, legacyErr.Error(), v2Err.Error(),
 		"v2 must return the same boot error as legacy, not mask or add one")
+}
+
+// snapshotConfigDir records the name, size and content hash of every file under the
+// home's config directory, which is what a no-write claim has to be checked against.
+func snapshotConfigDir(t *testing.T, home *configtest.Home) map[string]string {
+	t.Helper()
+	entries, err := os.ReadDir(home.ConfigDir())
+	require.NoError(t, err)
+
+	snap := make(map[string]string, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			snap[e.Name()+"/"] = "dir"
+			continue
+		}
+		b, ok := home.Read(t, e.Name())
+		require.True(t, ok, "listed file %q could not be read", e.Name())
+		snap[e.Name()] = fmt.Sprintf("%d:%x", len(b), sha256.Sum256(b))
+	}
+	return snap
+}
+
+// TestConfigManagerV2WritesNothing pins the guarantee the rest of the file cannot
+// see: v2 does not rewrite, migrate, or author anything at boot.
+//
+// Every other assertion here compares the resolved channels, so a v2-side write that
+// leaves those channels alone passes all of them. Authoring a sei.toml, rewriting a
+// file to nearly the same bytes, or adding anything to the config directory would all
+// go unnoticed. This snapshots the directory around the v2 run and compares, so the
+// prose guarantee becomes an enforced one.
+//
+// The home is pre-seeded on purpose. A fresh home is the one case where writes are
+// expected, since the legacy handler v2 re-enters is what creates the files, and
+// TestConfigManagerV2FreshHomeBoots covers that path.
+func TestConfigManagerV2WritesNothing(t *testing.T) {
+	configtest.Isolate(t)
+	home := seedDefaultConfig(t)
+
+	before := snapshotConfigDir(t, home)
+	_ = runConfigManager(t, configmanager.SeiConfigManager{}, home)
+	after := snapshotConfigDir(t, home)
+
+	require.Equal(t, before, after,
+		"v2 changed the config directory. It re-enters the legacy reader on the operator's "+
+			"own files and must not author, migrate or rewrite anything at boot, and a write "+
+			"that leaves the resolved channels alone is invisible to every other assertion here")
 }
 
 // FuzzConfigManagerEnvOnlyKeyParity closes the one class the AllSettings comparison
