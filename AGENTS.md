@@ -14,6 +14,7 @@ progressively the deeper you go. Existing package guides include:
 - `evmrpc/AGENTS.md` — EVM JSON-RPC (`eth_*`, `sei_*`, `sei2_*`, `debug_*`) semantics
 - `x/evm/AGENTS.md` — EVM module: address association, StateDB bridge, precompiles, pointers
 - `sei-tendermint/AGENTS.md` — sei-tendermint module conventions
+- `tools/gasbench/AGENTS.md` — per-opcode gas-vs-time differential microbenchmark harness
 
 ## Code style
 
