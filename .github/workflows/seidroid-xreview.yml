@@ -1,0 +1,95 @@
+name: seidroid-xreview
+
+# Comment `seidroid xreview` on a PR -> trusted-commenter gate -> drive one managed
+# sei-droid omnigent session -> post one sticky verdict -> tear down.
+# Lives in the reviewed repo in each reviewed repo; the heavy lifting
+# is the pinned composite action in sei-protocol/uci at .github/seidroid/xreview/tools.
+on:
+  issue_comment:
+    types: [created]
+
+# Least privilege: nothing by default. Each job adds only what it needs.
+permissions: {}
+
+jobs:
+  guard:
+    # Cheap allowlist + command parse on a hosted runner, no secrets, before any
+    # in-cluster work spins up. The author_association gate is the trust boundary:
+    # only OWNER/MEMBER/COLLABORATOR can fire it -- an untrusted PR author cannot.
+    runs-on: ubuntu-latest
+    permissions: {}
+    if: >-
+      ${{ github.event.issue.pull_request != null &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) }}
+    outputs:
+      should_run: ${{ steps.parse.outputs.should_run }}
+      dry_run: ${{ steps.parse.outputs.dry_run }}
+      pr_number: ${{ steps.parse.outputs.pr_number }}
+      comment_id: ${{ steps.parse.outputs.comment_id }}
+    steps:
+      - id: parse
+        env:
+          BODY: ${{ github.event.comment.body }}
+          # Repo default for the safety toggle. Flip to 'false' in
+          # Settings -> Secrets and variables -> Actions -> Variables to enable real posts.
+          REPO_DRY_RUN: ${{ vars.SEIDROID_XREVIEW_DRY_RUN }}
+        run: |
+          set -euo pipefail
+          cmd="$(printf '%s' "$BODY" | tr -d '\r')"
+          # Match a LINE reading exactly `seidroid xreview` (optionally
+          # `--dry-run`) and CAPTURE it; grep is line-oriented, so the command
+          # may sit inside a longer comment as long as one line matches on its
+          # own. The captured line — not the whole body — is what the --dry-run
+          # check below reads, so prose mentioning `--dry-run` elsewhere in the
+          # comment cannot force dry-run.
+          cmdline="$(printf '%s\n' "$cmd" | grep -m1 -E '^[[:space:]]*seidroid[[:space:]]+xreview([[:space:]]+--dry-run)?[[:space:]]*$' || true)"
+          if [ -z "$cmdline" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          # dry-run = the flag ON THE COMMAND LINE, or the repo default. Unset
+          # repo var -> TRUE (fail safe).
+          dry="${REPO_DRY_RUN:-true}"
+          if printf '%s' "$cmdline" | grep -qE -- '--dry-run'; then dry=true; fi
+          echo "dry_run=$dry" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          # The comment id becomes the driver's per-trigger run key, so a
+          # re-delivered comment adopts the same session rather than driving a
+          # new turn, and two distinct comments are two distinct runs.
+          echo "comment_id=${{ github.event.comment.id }}" >> "$GITHUB_OUTPUT"
+
+  xreview:
+    needs: guard
+    if: needs.guard.outputs.should_run == 'true'
+    # Exactly one review per PR: a newer `seidroid xreview` cancels an in-flight
+    # one (latest wins, never two posters); the driver traps cancellation and
+    # DELETEs its session. Job-level (not workflow-level) on purpose — the group
+    # is entered ONLY when a real command runs, so an unrelated PR comment (which
+    # skips the guard) never cancels a review that is mid-flight.
+    concurrency:
+      group: seidroid-xreview-${{ github.event.issue.number }}
+      cancel-in-progress: true
+    # Org ARC scale set, in-cluster. It reaches omnigent over the ClusterIP
+    # Service and mints its bearer with the omnigent client_credentials grant,
+    # using a repo/environment-scoped GitHub secret as the client secret.
+    runs-on: uci-default
+    permissions:
+      pull-requests: write   # upsert the one sticky verdict comment
+      contents: read         # read PR metadata
+    # Set at JOB level so the composite action's internal steps inherit it as
+    # process env. Step-level env on a `uses:` step does NOT reach a composite
+    # action's steps. Sourced from a GitHub secret, so it is masked in logs
+    # regardless of the channel.
+    env:
+      OMNIGENT_M2M_CLIENT_SECRET: ${{ secrets.OMNIGENT_M2M_CLIENT_SECRET }}
+    steps:
+      - name: sei-droid xreview
+        # Pin by SHA at wire-in (supply-chain: never a moving tag).
+        uses: sei-protocol/uci/.github/seidroid/xreview/tools@072b388080a15a989a59b30558f865fc066221ff
+        with:
+          repo: ${{ github.repository }}
+          pr_number: ${{ needs.guard.outputs.pr_number }}
+          dry_run: ${{ needs.guard.outputs.dry_run }}
+          github_token: ${{ github.token }}
+          trigger_id: ${{ needs.guard.outputs.comment_id }}
