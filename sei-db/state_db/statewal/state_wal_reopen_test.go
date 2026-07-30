@@ -138,3 +138,24 @@ func TestClosePruneAfterReopenResetsHead(t *testing.T) {
 	require.NoError(t, w2.Flush())
 	require.Equal(t, []uint64{1, 2, 3, 4}, collectBlocks(t, w2, 1, 4))
 }
+
+// TestReopenEnforcesContiguity verifies the contiguity rule survives close and reopen: the reopened WAL
+// recovers its write head from the highest stored block, so a forward jump is still rejected. Only the
+// positive direction (resuming at head+1) was covered before.
+func TestReopenEnforcesContiguity(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	w := openWAL(t, cfg)
+	for block := uint64(1); block <= 3; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+	require.NoError(t, w.Close())
+
+	w2 := openWAL(t, cfg)
+	defer func() { require.NoError(t, w2.Close()) }()
+
+	require.Error(t, w2.Write(5, nil), "a forward jump must be rejected after reopen, not just in-session")
+	writeBlock(t, w2, 4)
+	require.NoError(t, w2.Flush())
+	require.Equal(t, []uint64{1, 2, 3, 4}, collectBlocks(t, w2, 1, 4))
+}

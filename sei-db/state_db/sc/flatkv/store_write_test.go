@@ -151,6 +151,31 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	requireAllLocalMetaAt(t, s, 2)
 }
 
+// TestCommitRejectsNonContiguousVersion verifies a forward jump in commit height is rejected by the WAL's
+// contiguity rule rather than silently accepted. The version guard only rejects versions at or below
+// committedVersion, so a gapped height reaches the WAL and must fail there.
+//
+// This is a behavior change from the old changelog, which permitted forward jumps for gapped/batch commits.
+// Note the asymmetry: the *first* block written to an empty WAL may be any number, which is why a fresh
+// store can start mid-chain (see TestCatchupRecoversGappedCommitBlockAfterMetadataLag) while an established
+// one cannot skip.
+func TestCommitRejectsNonContiguousVersion(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	key := evmStorageKey(ktype.Address{0x11}, ktype.Slot{0x22})
+	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(0xAA), false)}))
+	_, err := s.Commit(1)
+	require.NoError(t, err)
+
+	// Skip version 2. This clears the version guard (3 > committedVersion) and fails at the WAL.
+	require.NoError(t, s.ApplyChangeSets(3, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(0xBB), false)}))
+	_, err = s.Commit(3)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "contiguous")
+	require.Equal(t, int64(1), s.committedVersion, "a rejected commit must not advance the version")
+}
+
 func TestStoreWriteAccountAndCode(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()

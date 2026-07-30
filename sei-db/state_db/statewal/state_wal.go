@@ -27,12 +27,14 @@ type StateWAL interface {
 	// A nil entry in cs is rejected synchronously with an error and leaves the WAL usable; cs itself may be
 	// nil or empty.
 	//
-	// The StateWAL rejects writes for blocks if provided out of order. To avoid errors, observe
-	// the following rules:
+	// Blocks must be written in contiguous ascending order, one at a time:
 	//
-	// - The block numbers passed to Write() may never decrease.
-	// - If data has been written for block N, you cannot write data for block N+1 until you have called
-	//   SignalEndOfBlock().
+	// - The first block written to an empty WAL may be any number. Every block after it must be exactly one
+	//   greater than the last, so forward jumps are rejected. This survives close and reopen.
+	// - Any number of Writes may target the current block until SignalEndOfBlock; afterwards that block is
+	//   closed and writing to it again is an error.
+	//
+	// Violations are reported synchronously and leave the WAL usable.
 	Write(
 		// The block number associated with the changeset.
 		blockNumber uint64,
@@ -40,8 +42,8 @@ type StateWAL interface {
 		cs []*proto.NamedChangeSet,
 	) error
 
-	// Signal that there will be no more writes for the current block number. Attempting to write additional
-	// changes for the same block number after calling this method may result in an error.
+	// Signal that there will be no more writes for the current block number. Writing additional changes for
+	// the same block number after calling this method is an error.
 	//
 	// Similar to Write(), this method is asynchronous. Calling this method does not, by itself, make
 	// data immediately crash durable.
