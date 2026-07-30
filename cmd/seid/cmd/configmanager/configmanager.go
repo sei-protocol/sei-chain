@@ -108,6 +108,20 @@ const (
 	stageRead                 // stopped reading the config
 )
 
+// String names the stage for a log line.
+func (s stage) String() string {
+	switch s {
+	case stageNone:
+		return "none"
+	case stageResolve:
+		return "resolve"
+	case stageRead:
+		return "read"
+	default:
+		return fmt.Sprintf("stage(%d)", int(s))
+	}
+}
+
 // validateAdvisory resolves the home dir, reads the on-disk config and validates it,
 // reporting what it saw. Every outcome is advisory: a failure, or a panic in the
 // sei-config read or validate, is captured and returned rather than propagated, so
@@ -180,16 +194,23 @@ func logAdvisory(out advisoryOutcome) {
 			"panic", out.Panic, "stack", string(out.Stack))
 	case out.Stage == stageResolve:
 		logger.Warn("could not resolve home dir for config validation (advisory)", "error", out.Err)
-	case out.Stage == stageRead:
-		logger.Warn("could not read config for validation (advisory)", "error", out.Err)
+	// Any other non-completing stage still reports. A stage added without a case here
+	// would otherwise log nothing at all, turning a failure into silence, which is the
+	// opposite of what an advisory pass is for.
+	case out.Stage != stageNone:
+		logger.Warn("could not read config for validation (advisory)",
+			"stage", out.Stage, "error", out.Err)
 	}
 
 	if len(out.Diagnostics) == 0 {
 		return
 	}
 	shown, omitted := capDiagnostics(out.Diagnostics)
+	// The home is reported because a resolveHomeDir that drifted from the legacy
+	// handler would have these diagnostics describe a directory the node is not
+	// booting on, and without the path in the line there is no way to tell from a log.
 	logger.Warn("advisory config validation diagnostics (not enforced; node will boot)",
-		"count", len(out.Diagnostics), "diagnostics", shown, "omitted", omitted)
+		"home", out.Home, "count", len(out.Diagnostics), "diagnostics", shown, "omitted", omitted)
 }
 
 // capDiagnostics splits a diagnostic list into the part to render and the number left

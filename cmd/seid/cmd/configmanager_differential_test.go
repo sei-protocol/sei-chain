@@ -447,6 +447,15 @@ func FuzzConfigManagerEnvOnlyKeyParity(f *testing.F) {
 		if value == "" {
 			return
 		}
+		// A key the harness sets as a flag is not an env-only key. startCmdForHome does
+		// cmd.Flags().Set(--home), which marks that flag Changed, and a Changed pflag
+		// outranks AutomaticEnv in viper's precedence, so Get would return the fixture
+		// root rather than the value under test and the probe would fail as not-live
+		// without any divergence existing. Only the seed corpus runs under plain
+		// `go test`, so this is reachable by `-fuzz` rather than by CI.
+		if key == flags.FlagHome {
+			return
+		}
 		configtest.Isolate(t)
 		prefix, err := configtest.ServerEnvPrefix()
 		require.NoError(t, err)
