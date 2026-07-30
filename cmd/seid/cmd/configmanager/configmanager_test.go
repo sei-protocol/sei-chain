@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -321,3 +322,35 @@ func TestReadConfigFromDirMissingIsErrNotExist(t *testing.T) {
 	_, err := seiconfig.ReadConfigFromDir(t.TempDir())
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
+
+// TestReportAdvisoryNeverEscapesWhenTheLoggerPanics exercises the manager's one hard
+// promise: a panic in the advisory path must never propagate out of Apply into
+// PersistentPreRunE and refuse a boot the legacy path would have allowed.
+//
+// The logger is the subsystem this defends against. validateAdvisory recovers its own
+// panics (TestValidateAdvisoryReportsWhatItFound asserts a clean pass), and logAdvisory
+// is proven panic-free on every outcome (TestLogAdvisoryHandlesEveryOutcome), so the
+// remaining exposure is a logger broken independent of its arguments. Swapping in a
+// logger whose handler panics on every record makes both the reporting call and the
+// recover handler's own log call panic; reportAdvisory must still return normally.
+func TestReportAdvisoryNeverEscapesWhenTheLoggerPanics(t *testing.T) {
+	configtest.Isolate(t)
+	// A config missing a required field, so the pass produces a diagnostic and
+	// logAdvisory reaches a logger call rather than the quiet fresh-node skip.
+	root := writeMinimalHome(t, "mode = \"full\"\n", "")
+
+	orig := logger
+	t.Cleanup(func() { logger = orig })
+	logger = slog.New(panickingHandler{})
+
+	require.NotPanics(t, func() { reportAdvisory(homeCmd(t, root)) })
+}
+
+// panickingHandler is a slog.Handler that panics on every record, standing in for a
+// logger broken independent of its arguments (a bad handler, a writer on a closed fd).
+type panickingHandler struct{}
+
+func (panickingHandler) Enabled(context.Context, slog.Level) bool  { return true }
+func (panickingHandler) Handle(context.Context, slog.Record) error { panic("logger handler is broken") }
+func (panickingHandler) WithAttrs([]slog.Attr) slog.Handler        { return panickingHandler{} }
+func (panickingHandler) WithGroup(string) slog.Handler             { return panickingHandler{} }
