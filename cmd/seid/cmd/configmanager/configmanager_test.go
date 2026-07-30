@@ -10,6 +10,7 @@ import (
 	seiconfig "github.com/sei-protocol/sei-config"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
 // TestSelect covers the dispatch table: unset and "legacy" select the
@@ -54,6 +55,51 @@ func TestResolveHomeDir_Flag(t *testing.T) {
 	got, err := resolveHomeDir(cmd)
 	require.NoError(t, err)
 	require.Equal(t, "/tmp/seid-test-home", got)
+}
+
+// TestResolveHomeDirEnvAndPrecedence covers the two cells the flag case above does
+// not: the home arriving through the environment, and an explicit flag outranking it.
+//
+// The key is derived from the running binary's basename rather than spelled as
+// SEID_HOME, because that is how both resolveHomeDir and the legacy handler build it.
+// A change that hardcoded "seid" would still satisfy a literal-key test while
+// silently ceasing to answer the environment under any other binary name, and the
+// test binary is never named seid, so deriving the key is what makes this real.
+//
+// This asserts resolveHomeDir alone. That it agrees with the home the legacy handler
+// reads is the lockstep property, and it is asserted end to end against the real
+// handler in TestConfigManagerLegacyVsV2Differential_EnvHome.
+func TestResolveHomeDirEnvAndPrecedence(t *testing.T) {
+	prefix, err := configtest.ServerEnvPrefix()
+	require.NoError(t, err)
+	envKey := configtest.ServerEnvKey(prefix, flags.FlagHome)
+
+	t.Run("the environment supplies the home", func(t *testing.T) {
+		configtest.Isolate(t)
+		t.Setenv(envKey, "/tmp/seid-env-home")
+
+		cmd := &cobra.Command{}
+		cmd.Flags().String(flags.FlagHome, "", "")
+
+		got, err := resolveHomeDir(cmd)
+		require.NoError(t, err)
+		require.Equal(t, "/tmp/seid-env-home", got,
+			"an unchanged flag default ranks below AutomaticEnv, so %s resolves the home", envKey)
+	})
+
+	t.Run("an explicit flag outranks the environment", func(t *testing.T) {
+		configtest.Isolate(t)
+		t.Setenv(envKey, "/tmp/seid-env-home")
+
+		cmd := &cobra.Command{}
+		cmd.Flags().String(flags.FlagHome, "", "")
+		require.NoError(t, cmd.Flags().Set(flags.FlagHome, "/tmp/seid-flag-home"))
+
+		got, err := resolveHomeDir(cmd)
+		require.NoError(t, err)
+		require.Equal(t, "/tmp/seid-flag-home", got,
+			"a changed flag outranks the environment in viper's precedence")
+	})
 }
 
 // TestReadConfigFromDirMissingIsErrNotExist pins the contract validateAdvisory's
