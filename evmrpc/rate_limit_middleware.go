@@ -42,7 +42,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
-	allowed, _, checkErr := m.gate.Check(r.Context(), ip, bytes.NewReader(body))
+	allowed, rejectMethod, checkErr := m.gate.Check(r.Context(), ip, bytes.NewReader(body))
 	if checkErr != nil {
 		if ratelimiter.IsBodyTooLarge(checkErr) {
 			recordRequestRejected(r.Context(), rejectReasonOversize)
@@ -54,6 +54,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if !allowed {
+		logger.Debug("rate limit rejected request", "ip", ip, "method", rejectMethod, "plane", m.gate.plane)
 		recordRequestRejected(r.Context(), rejectReasonRateLimited)
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
 		return
