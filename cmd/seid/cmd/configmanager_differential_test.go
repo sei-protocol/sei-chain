@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/sdk/trace"
 
@@ -454,17 +455,29 @@ func FuzzConfigManagerEnvOnlyKeyParity(f *testing.F) {
 		if envKey == prefix+"_" || strings.ContainsAny(envKey, "= ") {
 			return // not a name the environment can carry
 		}
-		// A key that derives the same variable as a flag the harness sets is not an
-		// env-only key. startCmdForHome does cmd.Flags().Set(--home), which marks that
-		// flag Changed, and a Changed pflag outranks AutomaticEnv, so Get would return
-		// the fixture root rather than the value under test and the probe would fail as
-		// not-live with no divergence present.
+		// A key that derives the same variable as any bound flag the legacy handler
+		// consumes is not an env-only probe. The handler binds the StartCmd flags into
+		// its viper, and such a flag either outranks AutomaticEnv (the harness sets
+		// --home Changed, so Get returns the fixture root rather than the value under
+		// test — not-live) or is parsed and can reject the value outright (SEID_LOG_LEVEL
+		// goes through lvl.UnmarshalText and errors on an unparseable level, tripping the
+		// require.NoError in execConfigManager). Either way there is no divergence to
+		// compare, so skip when the derived variable collides with any bound flag's.
 		//
-		// The comparison is on the derived variable name rather than on the key, because
+		// The comparison is on the derived variable name rather than the key, because
 		// ServerEnvKey upper-cases and rewrites separators: "HOME", "Home" and "home" all
 		// derive one variable, and a key test would let the first two through. Only the
 		// seed corpus runs under plain `go test`, so this is reachable by -fuzz, not CI.
-		if envKey == configtest.ServerEnvKey(prefix, flags.FlagHome) {
+		probeCmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
+		collidesWithFlag := false
+		checkFlag := func(f *pflag.Flag) {
+			if envKey == configtest.ServerEnvKey(prefix, f.Name) {
+				collidesWithFlag = true
+			}
+		}
+		probeCmd.Flags().VisitAll(checkFlag)
+		probeCmd.PersistentFlags().VisitAll(checkFlag)
+		if collidesWithFlag {
 			return
 		}
 		t.Setenv(envKey, value)
