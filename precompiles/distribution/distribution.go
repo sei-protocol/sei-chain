@@ -26,7 +26,6 @@ const (
 	WithdrawDelegationRewardsMethod         = "withdrawDelegationRewards"
 	WithdrawMultipleDelegationRewardsMethod = "withdrawMultipleDelegationRewards"
 	WithdrawValidatorCommissionMethod       = "withdrawValidatorCommission"
-	FundCommunityPoolMethod                 = "fundCommunityPool"
 	RewardsMethod                           = "rewards"
 	ParamsMethod                            = "params"
 	ValidatorOutstandingRewardsMethod       = "validatorOutstandingRewards"
@@ -41,7 +40,6 @@ const (
 	DelegationRewardsEvent         = "DelegationRewardsWithdrawn"
 	MultipleDelegationRewardsEvent = "MultipleDelegationRewardsWithdrawn"
 	ValidatorCommissionEvent       = "ValidatorCommissionWithdrawn"
-	CommunityPoolFundedEvent       = "CommunityPoolFunded"
 )
 
 const (
@@ -53,7 +51,6 @@ var (
 	DelegationRewardsEventSig         = crypto.Keccak256Hash([]byte("DelegationRewardsWithdrawn(address,string,uint256)"))
 	MultipleDelegationRewardsEventSig = crypto.Keccak256Hash([]byte("MultipleDelegationRewardsWithdrawn(address,string[],uint256[])"))
 	ValidatorCommissionEventSig       = crypto.Keccak256Hash([]byte("ValidatorCommissionWithdrawn(string,uint256)"))
-	CommunityPoolFundedEventSig       = crypto.Keccak256Hash([]byte("CommunityPoolFunded(address,uint256)"))
 )
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
@@ -65,14 +62,12 @@ type PrecompileExecutor struct {
 	distrKeeper         utils.DistributionKeeper
 	distributionQuerier utils.DistributionQuerier
 	evmKeeper           utils.EVMKeeper
-	bankKeeper          utils.BankKeeper
 	address             common.Address
 
 	SetWithdrawAddrID                   []byte
 	WithdrawDelegationRewardsID         []byte
 	WithdrawMultipleDelegationRewardsID []byte
 	WithdrawValidatorCommissionID       []byte
-	FundCommunityPoolID                 []byte
 	RewardsID                           []byte
 	ParamsID                            []byte
 	ValidatorOutstandingRewardsID       []byte
@@ -93,7 +88,6 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 		distrKeeper:         keepers.DistributionK(),
 		distributionQuerier: keepers.DistributionQ(),
 		evmKeeper:           keepers.EVMK(),
-		bankKeeper:          keepers.BankK(),
 		address:             common.HexToAddress(DistrAddress),
 		abi:                 newAbi,
 	}
@@ -108,8 +102,6 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 			p.WithdrawMultipleDelegationRewardsID = m.ID
 		case WithdrawValidatorCommissionMethod:
 			p.WithdrawValidatorCommissionID = m.ID
-		case FundCommunityPoolMethod:
-			p.FundCommunityPoolID = m.ID
 		case RewardsMethod:
 			p.RewardsID = m.ID
 		case ParamsMethod:
@@ -168,11 +160,6 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, 0, errors.New("cannot call distr precompile from staticcall")
 		}
 		return p.withdrawValidatorCommission(ctx, method, caller, evm)
-	case FundCommunityPoolMethod:
-		if readOnly {
-			return nil, 0, errors.New("cannot call distr precompile from staticcall")
-		}
-		return p.fundCommunityPool(ctx, method, caller, args, value, evm, hooks)
 	case RewardsMethod:
 		return p.rewards(ctx, method, args)
 	case ParamsMethod:
@@ -203,7 +190,7 @@ func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 // distribution methods are views.
 func (PrecompileExecutor) IsTransaction(method string) bool {
 	switch method {
-	case SetWithdrawAddressMethod, WithdrawDelegationRewardsMethod, WithdrawMultipleDelegationRewardsMethod, WithdrawValidatorCommissionMethod, FundCommunityPoolMethod:
+	case SetWithdrawAddressMethod, WithdrawDelegationRewardsMethod, WithdrawMultipleDelegationRewardsMethod, WithdrawValidatorCommissionMethod:
 		return true
 	default:
 		return false
@@ -812,61 +799,6 @@ func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method 
 	if err := pcommon.EmitEVMLog(evm, p.address, []common.Hash{
 		ValidatorCommissionEventSig,
 		crypto.Keccak256Hash([]byte(validator.String())),
-	}, logData); err != nil {
-		rerr = err
-		return
-	}
-	return
-}
-
-func (p PrecompileExecutor) fundCommunityPool(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, rerr error) {
-	defer func() {
-		if err := recover(); err != nil {
-			ret = nil
-			remainingGas = 0
-			rerr = fmt.Errorf("%s", err)
-			return
-		}
-	}()
-	if err := pcommon.ValidateArgsLength(args, 0); err != nil {
-		rerr = err
-		return
-	}
-	depositor, found := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !found {
-		rerr = types.NewAssociationMissingErr(caller.Hex())
-		return
-	}
-	if value == nil || value.Sign() == 0 {
-		rerr = errors.New("set `value` field to non-zero to fund community pool")
-		return
-	}
-
-	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), depositor, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	if err := p.distrKeeper.FundCommunityPool(ctx, sdk.NewCoins(coin), depositor); err != nil {
-		rerr = err
-		return
-	}
-
-	ret, rerr = method.Outputs.Pack(true)
-	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
-	if rerr != nil {
-		return
-	}
-
-	logData, err := p.abi.Events[CommunityPoolFundedEvent].Inputs.NonIndexed().Pack(coin.Amount.BigInt())
-	if err != nil {
-		rerr = err
-		return
-	}
-	if err := pcommon.EmitEVMLog(evm, p.address, []common.Hash{
-		CommunityPoolFundedEventSig,
-		common.BytesToHash(caller.Bytes()),
 	}, logData); err != nil {
 		rerr = err
 		return
