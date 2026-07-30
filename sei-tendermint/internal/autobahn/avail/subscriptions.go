@@ -76,7 +76,7 @@ type AppVotesRecv struct {
 }
 
 func (s *State) SubscribeAppVotes() *AppVotesRecv {
-	return &AppVotesRecv{s, 0}
+	return &AppVotesRecv{s, s.data.FirstAppProposal()}
 }
 
 func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote], error) {

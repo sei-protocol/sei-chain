@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -33,6 +34,32 @@ func makeAppVotes(keys []types.SecretKey, proposal *types.AppProposal) []*types.
 		votes = append(votes, types.Sign(k, vote))
 	}
 	return votes
+}
+
+func TestSubscribeAppVotesStartsAtDataFloor(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc, blocks := data.TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr := qc.QC().GlobalRange()
+	require.Greater(t, gr.Len(), uint64(2))
+
+	db := memblock.NewBlockDB()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	require.NoError(t, db.WriteQC(qc))
+	for i, n := 0, gr.First; n < gr.Next; i, n = i+1, n+1 {
+		require.NoError(t, db.WriteBlock(n, blocks[i]))
+	}
+	require.NoError(t, db.Flush())
+
+	first := gr.First + types.GlobalBlockNumber(gr.Len()/2)
+	ds, err := data.NewState(&data.Config{
+		Registry:          registry,
+		LastExecutedBlock: first,
+	}, db)
+	require.NoError(t, err)
+
+	recv := (&State{data: ds}).SubscribeAppVotes()
+	require.Equal(t, first, recv.next)
 }
 
 func makeLaneVotes(keys []types.SecretKey, h *types.BlockHeader) []*types.Signed[*types.LaneVote] {

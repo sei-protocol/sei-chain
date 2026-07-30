@@ -18,6 +18,15 @@ const blocksCacheSize = 4000
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
 	Registry *epoch.Registry
+	// LastExecutedBlock is the app's committed global height. Recovery starts
+	// its BlockDB scan here because runExecute replays this block's AppHash. The
+	// scan start is capped at BlockDB's last stored block because app.Commit
+	// currently precedes the BlockDB durability wait; a crash between them can
+	// legitimately leave the app one block ahead. A larger gap is inconsistent
+	// because PushAppHash waits for each block's durability before execution
+	// proceeds. If BlockDB has no blocks, only the first committed block can be
+	// missing legitimately.
+	LastExecutedBlock types.GlobalBlockNumber
 }
 
 // StateAPI is the interface of the State for consuming global blocks
@@ -184,7 +193,8 @@ type State struct {
 // Use memblock.NewBlockDB() for an in-memory store (testing / no persistent dir).
 // The caller owns blockDB and must close it after State.Run returns (nodeImpl
 // owns this in production); State never closes it.
-// Recovery from a non-zero CommitQC tip is handled by loadFromBlockDB (skipTo).
+// Recovery starts at cfg.LastExecutedBlock and handles a non-zero CommitQC tip
+// via loadFromBlockDB (skipTo).
 func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	s := &State{
 		cfg:     cfg,
@@ -192,7 +202,7 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 		inner:   utils.NewWatch(newInner(cfg.Registry.FirstBlock())),
 		blockDB: blockDB,
 	}
-	if err := s.loadFromBlockDB(blockDB); err != nil {
+	if err := s.loadFromBlockDB(blockDB, cfg.LastExecutedBlock); err != nil {
 		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
 	}
 	return s, nil
@@ -202,13 +212,12 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // Called from NewState before any goroutines are spawned; the lock is acquired
 // only to satisfy the Watch API.
 //
-// The recovery floor is derived from BlockDB: an empty store keeps
-// registry.FirstBlock(); otherwise cursors skipTo the first number the scan
-// yields. BlockDB.Iterator opens on a block that exists, so that number is the
-// start of the retained block history — which may sit inside its covering QC's
-// range rather than on that range's first number, since the first block is free
-// to start there. Taking the floor from the position rather than from the QC is
-// what keeps blocks dense over [first, nextBlock) as inner requires.
+// Recovery starts at the app tip capped at BlockDB's last stored block. An empty
+// block store starts at zero. BlockDB.Iterator then clamps that start up to its
+// retained floor; cursors skipTo the first number the scan yields. That number
+// may sit inside its covering QC's range rather than on that range's first
+// number. Taking the floor from the position rather than from the QC is what
+// keeps blocks dense over [first, nextBlock) as inner requires.
 //
 // A single iterator scan restores both record kinds: each yielded number carries
 // its covering QC (inserted the first time the scan sees that QC) and its block
@@ -218,14 +227,29 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // violation from Next, and an in-memory one cannot reach one (see
 // types.BlockDBIterator). A first QC that predates committee genesis is the one
 // inconsistency checked here.
-//
-// TODO: Cap how much of BlockDB we replay into RAM (similar to PushQC's
-// blocksCacheSize gate). Deferred to a follow-up PR — today we load the full
-// retained store.
-func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
+func (s *State) loadFromBlockDB(blockDB types.BlockDB, lastExecutedBlock types.GlobalBlockNumber) error {
 	for in := range s.inner.Lock() {
 		err := func() error {
-			it, err := blockDB.Iterator(0)
+			recoveryStart := lastExecutedBlock
+			dbNextBlock := blockDB.Status().NextBlock
+			if dbNextBlock == 0 {
+				firstBlock := s.cfg.Registry.FirstBlock()
+				if lastExecutedBlock != 0 && lastExecutedBlock != firstBlock {
+					return fmt.Errorf(
+						"BlockDB has no blocks for app tip %d; restore matching BlockDB data or state-sync the node: %w",
+						lastExecutedBlock, types.ErrNotFound,
+					)
+				}
+				recoveryStart = 0
+			} else if recoveryStart > dbNextBlock {
+				return fmt.Errorf(
+					"BlockDB next block %d is behind app tip %d by more than the recoverable crash window; restore matching BlockDB data or state-sync the node: %w",
+					dbNextBlock, lastExecutedBlock, types.ErrNotFound,
+				)
+			} else if recoveryStart == dbNextBlock {
+				recoveryStart = dbNextBlock - 1
+			}
+			it, err := blockDB.Iterator(recoveryStart)
 			if err != nil {
 				return fmt.Errorf("open block db iterator: %w", err)
 			}
@@ -237,7 +261,7 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 					return fmt.Errorf("advance block db iterator: %w", err)
 				}
 				if !ok {
-					return nil
+					break
 				}
 				n, qc := pos.Number, pos.QC
 				gr := qc.QC().GlobalRange()
@@ -285,6 +309,7 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 					return fmt.Errorf("insert block %d from BlockDB: %w", n, err)
 				}
 			}
+			return nil
 		}()
 		if err != nil {
 			return err
@@ -302,6 +327,15 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 
 // Registry returns the epoch registry.
 func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
+
+// FirstAppProposal is the first global number for which AppProposal may become
+// available. Requests below it return ErrPruned.
+func (s *State) FirstAppProposal() types.GlobalBlockNumber {
+	for inner := range s.inner.Lock() {
+		return inner.first
+	}
+	panic("unreachable")
+}
 
 // insertBlocksByHash matches byHash against stored (already verified) QC
 // headers over gr ∩ [nextBlock, nextQC) and inserts hits. Advances nextBlock
@@ -616,9 +650,6 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.qcs[n].QC().Proposal().EpochIndex(),
 		)
 		t := time.Now()
-		// TODO(gprusak): this will be problematic on restart,
-		// nextAppProposal should be initiated wrt current application height,
-		// so that we don't iterate over all blocks in storage on startup.
 		for inner.nextAppProposal <= n {
 			b := inner.blocks[inner.nextAppProposal]
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()

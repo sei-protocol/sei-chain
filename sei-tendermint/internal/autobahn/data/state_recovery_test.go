@@ -14,6 +14,16 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
+type recoveryStartBlockDB struct {
+	types.BlockDB
+	start types.GlobalBlockNumber
+}
+
+func (db *recoveryStartBlockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
+	db.start = n
+	return db.BlockDB.Iterator(n)
+}
+
 // TestRecoveryEmpty verifies that NewState is a no-op on a fresh BlockDB.
 func TestRecoveryEmpty(t *testing.T) {
 	rng := utils.TestRng()
@@ -96,6 +106,140 @@ func TestRecoveryNormal(t *testing.T) {
 	db3 := newTestBlockDB(t, dir)
 	state3 := newTestState(t, &Config{Registry: registry}, db3)
 	require.Equal(t, gr2.Next, state3.NextBlock())
+}
+
+func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	gr2 := qc2.QC().GlobalRange()
+	require.Greater(t, gr2.Len(), 2)
+
+	db := &recoveryStartBlockDB{BlockDB: newTestBlockDB(t, t.TempDir())}
+	writeToBlockDB(t, db,
+		[]*types.FullCommitQC{qc1, qc2},
+		[][]*types.Block{blocks1, blocks2})
+
+	offset := gr2.Len() / 2
+	lastExecuted := gr2.First + types.GlobalBlockNumber(offset)
+	state := newTestState(t, &Config{
+		Registry:          registry,
+		LastExecutedBlock: lastExecuted,
+	}, db)
+
+	require.Equal(t, lastExecuted, db.start)
+	require.Equal(t, lastExecuted, state.FirstAppProposal())
+	require.Equal(t, gr2.Next, state.NextBlock())
+	got, err := state.TryBlock(lastExecuted)
+	require.NoError(t, err)
+	require.Equal(t, blocks2[offset].Header().Hash(), got.Header().Hash())
+
+	appHash := types.GenAppHash(rng)
+	require.NoError(t, state.PushAppHash(t.Context(), lastExecuted, appHash))
+	proposal, err := state.AppProposal(t.Context(), lastExecuted)
+	require.NoError(t, err)
+	require.Equal(t, appHash, proposal.AppHash())
+}
+
+func TestRecoveryCapsAppTipAtLastBlockInBlockDB(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
+
+	dir := t.TempDir()
+	db1 := newTestBlockDB(t, dir)
+	writeToBlockDB(t, db1, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
+	require.NoError(t, db1.Close())
+
+	db := &recoveryStartBlockDB{BlockDB: newTestBlockDB(t, dir)}
+
+	state, err := NewState(&Config{
+		Registry:          registry,
+		LastExecutedBlock: gr2.First,
+	}, db)
+	require.NoError(t, err)
+	require.Equal(t, gr1.Next-1, db.start)
+	require.Equal(t, gr2.First, state.NextBlock())
+
+	require.NoError(t, state.PushQC(t.Context(), qc2, blocks2))
+	got, err := state.GlobalBlock(t.Context(), gr2.First)
+	require.NoError(t, err)
+	require.Equal(t, blocks2[0].Header().Hash(), got.Header.Hash())
+
+	require.NoError(t, pushAppHashesRunning(t.Context(), state, rng, gr2.First, gr2.First+1))
+}
+
+func TestRecoveryRejectsAppTipBeyondCrashWindow(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+
+	db := newTestBlockDB(t, t.TempDir())
+	writeToBlockDB(t, db, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
+	dbNextBlock := db.Status().NextBlock
+	lastExecuted := dbNextBlock + 1
+
+	_, err := NewState(&Config{
+		Registry:          registry,
+		LastExecutedBlock: lastExecuted,
+	}, db)
+	require.ErrorIs(t, err, types.ErrNotFound)
+}
+
+func TestRecoveryStartsAtZeroWhenBlockDBMissingFirstCommittedBlock(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr := qc.QC().GlobalRange()
+
+	db := &recoveryStartBlockDB{BlockDB: newTestBlockDB(t, t.TempDir())}
+	require.NoError(t, db.WriteQC(qc))
+	require.NoError(t, db.Flush())
+
+	state, err := NewState(&Config{
+		Registry:          registry,
+		LastExecutedBlock: gr.First,
+	}, db)
+	require.NoError(t, err)
+	require.Equal(t, types.GlobalBlockNumber(0), db.start)
+	require.Equal(t, gr.First, state.NextBlock())
+}
+
+func TestRecoveryRejectsEmptyBlockDBAfterFirstCommittedBlock(t *testing.T) {
+	rng := utils.TestRng()
+	registry, _ := epoch.GenRegistry(rng, 3)
+	lastExecuted := registry.FirstBlock() + 1
+
+	_, err := NewState(&Config{
+		Registry:          registry,
+		LastExecutedBlock: lastExecuted,
+	}, newTestBlockDB(t, t.TempDir()))
+	require.ErrorIs(t, err, types.ErrNotFound)
+}
+
+func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+
+	db := newTestBlockDB(t, t.TempDir())
+	writeToBlockDB(t, db,
+		[]*types.FullCommitQC{qc1, qc2},
+		[][]*types.Block{blocks1, blocks2})
+	require.NoError(t, db.PruneBefore(qc2.QC().GlobalRange().First))
+
+	state, err := NewState(&Config{
+		Registry:          registry,
+		LastExecutedBlock: qc1.QC().GlobalRange().First,
+	}, db)
+	require.NoError(t, err)
+	_, err = state.GlobalBlock(t.Context(), qc1.QC().GlobalRange().First)
+	require.ErrorIs(t, err, types.ErrPruned)
 }
 
 // TestPruningDiscards verifies that PruneBefore advances BlockDB's watermark so
