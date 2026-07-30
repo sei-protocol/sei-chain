@@ -217,6 +217,11 @@ func logAdvisory(out advisoryOutcome) {
 	// is the ordinary fresh-node case, which stays quiet.
 	case out.Skipped && out.Home == "":
 		logger.Info("config validation skipped: no home dir resolved (advisory)")
+	// The pass completed and found nothing. Report at Info so an operator who opted into
+	// v2 can see it ran clean, distinct from the quiet fresh-node skip (Skipped with a
+	// home), which stays silent because the legacy handler is about to write those files.
+	case !out.Skipped && out.Stage == stageNone && len(out.Diagnostics) == 0:
+		logger.Info("config validation passed: no advisories (node will boot)", "home", out.Home)
 	}
 
 	if len(out.Diagnostics) == 0 {
