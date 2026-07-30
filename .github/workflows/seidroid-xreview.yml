@@ -1,0 +1,36 @@
+name: seidroid xreview
+# Comment `seidroid xreview` (or `... --dry-run`) on a PR to run the on-demand,
+# sandbox-backed agentic review. Thin caller: the logic is the reusable workflow in
+# sei-protocol/uci; bump both refs below (to the next release's commit SHA) to adopt a
+# new xreview release. Runs dry-run until the SEIDROID_XREVIEW_DRY_RUN repo variable is
+# set to 'false'.
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  xreview:
+    # Pre-filter that MIRRORS the reusable workflow's trust gate locally (PR comment, a
+    # human, a trusted author, and the command mentioned) so an unrelated, bot-echoed, or
+    # untrusted comment never dispatches the workflow — defense in depth that does not rely
+    # on the cross-repo guard alone. The reusable workflow's guard remains the authoritative
+    # exact-command + author check; overlapping runs on one PR are handled by its job-level
+    # concurrency group.
+    if: >-
+      ${{ github.event.issue.pull_request
+      && github.event.comment.user.type != 'Bot'
+      && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      && contains(github.event.comment.body, 'seidroid xreview') }}
+    # Pinned to the immutable commit for uci v0.0.14 — a mutable tag plus
+    # `secrets: inherit` would let anyone able to move the tag reach this repo's
+    # secrets. Matches how ai-review/ai-assist pin uci (a full commit SHA).
+    uses: sei-protocol/uci/.github/workflows/seidroid-xreview.yml@a63adbcea9100121491ec25c758a36baf6a5cf9c  # uci v0.0.14
+    permissions:
+      pull-requests: write   # upsert the one sticky verdict comment
+      contents: read         # read PR metadata
+      # id-token: write intentionally omitted — xreview mints its omnigent bearer via the
+      # client-credentials grant (no OIDC exchange), unlike ai-review/ai-assist which use
+      # Anthropic workload-identity federation.
+    secrets: inherit
+    with:
+      uci-ref: a63adbcea9100121491ec25c758a36baf6a5cf9c   # uci v0.0.14 (same commit as `uses:`)
