@@ -64,8 +64,13 @@ func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string
 func reportAdvisory(cmd *cobra.Command) {
 	defer func() {
 		if recover() != nil {
-			// Deliberately the smallest possible call: this runs after something already
-			// panicked, so it does not touch the value that may have caused it.
+			// This runs after something already panicked, and the logger is itself a
+			// plausible cause (a broken handler, or a writer panicking on a closed fd),
+			// so guard the report: a second panic here must not escape the deferred
+			// func and refuse a boot the legacy path would have allowed. The message
+			// touches no dynamic value, so this only defends against a logger broken
+			// independent of its arguments.
+			defer func() { _ = recover() }()
 			logger.Error("config validation reporting panicked (advisory; recovered, node will boot)")
 		}
 	}()
@@ -134,12 +139,16 @@ func (s stage) String() string {
 // its first boot, since there is nothing on disk yet and the handler writes the files
 // afterwards, so the earliest a diagnostic can appear is the second start.
 //
-// Running it after re-entry as well would close that, and it is deliberately not done
-// yet, because sei-config today reports an error against a freshly generated default
-// config (the pruning read-mapping gap the design tracks). Validating generated files
-// before that gap closes would mean every fresh node logging an error about a file
-// seid itself had just written, which is worse than validating a boot late. This is
-// worth revisiting when validation goes fatal, and the two decisions belong together.
+// Running it after re-entry as well would also validate on boot #1, and it is
+// deliberately not done yet, because sei-config today reports an error against a freshly
+// generated default config (the pruning read-mapping gap the design tracks). Note this
+// ordering DEFERS that spurious warning by one boot rather than avoiding it: from the
+// second boot on, the pre-handler pass reads the same seid-generated, operator-untouched
+// config and logs the pruning-gap diagnostic until the gap closes, so a v2 node that
+// never touches its config still warns on every start. Validating after re-entry too
+// would only add the same warning on boot #1. Closing the pruning gap is therefore a
+// prerequisite for wider v2 rollout, not just for making validation fatal; revisit the
+// two together.
 func validateAdvisory(cmd *cobra.Command) (out advisoryOutcome) {
 	defer func() {
 		if r := recover(); r != nil {
