@@ -38,7 +38,6 @@ type Keepers interface {
 	EVMK() EVMKeeper
 	AccountK() AccountKeeper
 	AuthQ() AuthQuerier
-	AuthzMS() AuthzMsgServer
 	AuthzQ() AuthzQuerier
 	OracleK() OracleKeeper
 	WasmdK() WasmdKeeper
@@ -74,7 +73,6 @@ func (ek *EmptyKeepers) BankQ() BankQuerier                { return nil }
 func (ek *EmptyKeepers) EVMK() EVMKeeper                   { return nil }
 func (ek *EmptyKeepers) AccountK() AccountKeeper           { return nil }
 func (ek *EmptyKeepers) AuthQ() AuthQuerier                { return nil }
-func (ek *EmptyKeepers) AuthzMS() AuthzMsgServer           { return nil }
 func (ek *EmptyKeepers) AuthzQ() AuthzQuerier              { return nil }
 func (ek *EmptyKeepers) OracleK() OracleKeeper             { return nil }
 func (ek *EmptyKeepers) WasmdK() WasmdKeeper               { return nil }
@@ -118,12 +116,6 @@ type BankKeeper interface {
 type BankMsgServer interface {
 	Send(goCtx context.Context, msg *banktypes.MsgSend) (*banktypes.MsgSendResponse, error)
 	MultiSend(goCtx context.Context, msg *banktypes.MsgMultiSend) (*banktypes.MsgMultiSendResponse, error)
-}
-
-type AuthzMsgServer interface {
-	Grant(goCtx context.Context, msg *authz.MsgGrant) (*authz.MsgGrantResponse, error)
-	Exec(goCtx context.Context, msg *authz.MsgExec) (*authz.MsgExecResponse, error)
-	Revoke(goCtx context.Context, msg *authz.MsgRevoke) (*authz.MsgRevokeResponse, error)
 }
 
 type FeegrantMsgServer interface {

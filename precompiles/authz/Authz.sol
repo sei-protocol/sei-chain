@@ -6,45 +6,6 @@ address constant AUTHZ_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000
 IAuthz constant AUTHZ_CONTRACT = IAuthz(AUTHZ_PRECOMPILE_ADDRESS);
 
 interface IAuthz {
-    // Transactions
-
-    /**
-     * @notice Grant an authorization from the caller (granter) to a grantee
-     * @param grantee The grantee's EVM address (must be associated with a Sei address)
-     * @param authorization The authorization as protobuf-JSON bytes, e.g.
-     *        {"@type":"/cosmos.bank.v1beta1.SendAuthorization","spend_limit":[{"denom":"usei","amount":"100"}]}
-     * @param expiration The expiration time of the grant as a Unix timestamp in seconds
-     * @return success True if the grant was stored successfully
-     */
-    function grant(
-        address grantee,
-        bytes memory authorization,
-        int64 expiration
-    ) external returns (bool success);
-
-    /**
-     * @notice Execute messages with the caller as the authz grantee. Messages
-     *         whose signer is not the caller require a matching grant. EVM
-     *         messages are not allowed.
-     * @param msgs The messages to execute, each as protobuf-JSON bytes, e.g.
-     *        {"@type":"/cosmos.bank.v1beta1.MsgSend","from_address":"sei1...","to_address":"sei1...","amount":[...]}
-     * @return responses The protobuf-encoded response of each message
-     */
-    function exec(
-        bytes[] memory msgs
-    ) external returns (bytes[] memory responses);
-
-    /**
-     * @notice Revoke the caller's grant to a grantee for the given message type URL
-     * @param grantee The grantee's EVM address (must be associated with a Sei address)
-     * @param msgTypeUrl The message type URL of the authorization to revoke, e.g. "/cosmos.bank.v1beta1.MsgSend"
-     * @return success True if the grant was revoked successfully
-     */
-    function revoke(
-        address grantee,
-        string memory msgTypeUrl
-    ) external returns (bool success);
-
     // Queries
 
     /**
