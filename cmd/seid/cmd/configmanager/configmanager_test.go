@@ -1,6 +1,7 @@
 package configmanager
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,10 +9,13 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/sdk/trace"
 
 	seiconfig "github.com/sei-protocol/sei-config"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
@@ -43,12 +47,9 @@ func TestSelect(t *testing.T) {
 	}
 }
 
-// TestResolveHomeDir_Flag confirms resolveHomeDir reads the --home flag — the
-// value v2 validates against must be the dir the re-entered handler reads. (Env
-// precedence follows viper, mirrored from the legacy handler; the end-to-end
-// env-driven case is exercised by TestConfigManagerLegacyVsV2Differential_EnvHome
-// in the cmd package, which resolves the test-binary-basename prefix and asserts
-// legacy/v2 parity.)
+// TestResolveHomeDir_Flag confirms resolveHomeDir reads the --home flag. That the
+// value it returns is the same one the re-entered handler reads is a separate
+// property, asserted in TestResolveHomeDirAgreesWithTheLegacyHandler.
 func TestResolveHomeDir_Flag(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.Flags().String(flags.FlagHome, "", "")
@@ -68,9 +69,9 @@ func TestResolveHomeDir_Flag(t *testing.T) {
 // silently ceasing to answer the environment under any other binary name, and the
 // test binary is never named seid, so deriving the key is what makes this real.
 //
-// This asserts resolveHomeDir alone. That it agrees with the home the legacy handler
-// reads is the lockstep property, and it is asserted end to end against the real
-// handler in TestConfigManagerLegacyVsV2Differential_EnvHome.
+// This asserts resolveHomeDir alone, against literal expectations. Agreement with the
+// home the legacy handler reads is the lockstep property, and it is asserted against
+// the real handler in TestResolveHomeDirAgreesWithTheLegacyHandler.
 func TestResolveHomeDirEnvAndPrecedence(t *testing.T) {
 	prefix, err := configtest.ServerEnvPrefix()
 	require.NoError(t, err)
@@ -102,6 +103,60 @@ func TestResolveHomeDirEnvAndPrecedence(t *testing.T) {
 		require.Equal(t, "/tmp/seid-flag-home", got,
 			"a changed flag outranks the environment in viper's precedence")
 	})
+}
+
+// TestResolveHomeDirAgreesWithTheLegacyHandler is the lockstep assertion: the home v2
+// validates has to be the home the handler it re-enters actually reads.
+//
+// No test outside this one can reach that property. v2's channels are produced
+// entirely by the legacy handler, so a resolveHomeDir that drifted from the handler
+// would only cause the advisory read to skip or warn, which changes no channel and
+// fails no parity assertion anywhere. The result is that v2 would report diagnostics
+// about one directory while the node booted on another, which is the silent drift the
+// advisory design cannot surface on its own. So it is asserted directly, against the
+// real handler, for both ways a home arrives.
+func TestResolveHomeDirAgreesWithTheLegacyHandler(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(t *testing.T, cmd *cobra.Command, root string)
+	}{
+		{"home from the flag", func(t *testing.T, cmd *cobra.Command, root string) {
+			require.NoError(t, cmd.Flags().Set(flags.FlagHome, root))
+		}},
+		{"home from the environment", func(t *testing.T, cmd *cobra.Command, root string) {
+			prefix, err := configtest.ServerEnvPrefix()
+			require.NoError(t, err)
+			t.Setenv(configtest.ServerEnvKey(prefix, flags.FlagHome), root)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configtest.Isolate(t)
+			root := filepath.Join(t.TempDir(), "node")
+			require.NoError(t, os.MkdirAll(root, 0o750))
+
+			// A real StartCmd, so the flag set and its defaults are the ones seid ships.
+			cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
+			tc.setup(t, cmd, root)
+
+			serverCtx := &server.Context{}
+			cmd.SetContext(context.WithValue(context.Background(), server.ServerContextKey, serverCtx))
+
+			// The real handler, which is what v2 re-enters and therefore what it must agree with.
+			require.NoError(t, LegacyConfigManager{}.Apply(cmd,
+				serverconfig.DefaultConfigTemplate, serverconfig.DefaultConfig()))
+
+			handlerHome := serverCtx.Viper.GetString(flags.FlagHome)
+			require.Equal(t, root, handlerHome,
+				"the fixture did not drive the handler's resolution, so this comparison would be vacuous")
+
+			got, err := resolveHomeDir(cmd)
+			require.NoError(t, err)
+			require.Equal(t, handlerHome, got,
+				"resolveHomeDir has drifted from the legacy handler: v2 would validate %q while "+
+					"the node boots on %q, and no parity assertion can see it", got, handlerHome)
+		})
+	}
 }
 
 // writeMinimalHome creates a node directory carrying the two files

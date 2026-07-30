@@ -82,6 +82,19 @@ type advisoryOutcome struct {
 // sei-config read or validate, is captured and returned rather than propagated, so
 // the pass can never change what the node boots on. Keeping this a distinct step from
 // Apply is what lets the generate path add its authoring/render step as a sibling.
+//
+// It runs before the legacy handler, and that ordering is deliberate: what it reports
+// on is the configuration a node operator authored, not the configuration seid just
+// generated for itself. The consequence is that a brand-new node is not validated on
+// its first boot, since there is nothing on disk yet and the handler writes the files
+// afterwards, so the earliest a diagnostic can appear is the second start.
+//
+// Running it after re-entry as well would close that, and it is deliberately not done
+// yet, because sei-config today reports an error against a freshly generated default
+// config (the pruning read-mapping gap the design tracks). Validating generated files
+// before that gap closes would mean every fresh node logging an error about a file
+// seid itself had just written, which is worse than validating a boot late. This is
+// worth revisiting when validation goes fatal, and the two decisions belong together.
 func validateAdvisory(cmd *cobra.Command) (out advisoryOutcome) {
 	defer func() {
 		if r := recover(); r != nil {

@@ -225,14 +225,17 @@ func TestConfigManagerLegacyVsV2Differential(t *testing.T) {
 		"settings diverge after the start.go chain-id mutation")
 }
 
-// TestConfigManagerLegacyVsV2Differential_EnvHome exercises the env-precedence half
-// of resolveHomeDir's mirror of the legacy handler — the flag-driven differential
-// above never touches SetEnvPrefix/AutomaticEnv. When home is supplied via the
-// environment (not --home), v2 must resolve the SAME home the legacy handler does;
-// otherwise v2 would advisorily validate one dir while the re-entered legacy reader
-// boots on another — a silent drift the advisory design cannot surface (no error, no
-// diagnostic). This pins the seam so a future change to the legacy env-resolution
-// can't diverge undetected.
+// TestConfigManagerLegacyVsV2Differential_EnvHome runs the whole differential with the
+// home arriving through the environment instead of --home, which the flag-driven case
+// above never exercises: it is the only path here that goes through SetEnvPrefix and
+// AutomaticEnv, on both managers.
+//
+// What it does not assert is that v2's own resolveHomeDir agrees with the handler.
+// Both assertions below read the home out of the server context, which is the value
+// the re-entered legacy handler resolved, so a drifted resolveHomeDir would only make
+// the advisory read skip or warn and every assertion here would still pass. That
+// property is asserted directly in the configmanager package, by
+// TestResolveHomeDirAgreesWithTheLegacyHandler.
 func TestConfigManagerLegacyVsV2Differential_EnvHome(t *testing.T) {
 	configtest.Isolate(t)
 	home := configtest.NewHome(t)
