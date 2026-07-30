@@ -18,14 +18,7 @@ const blocksCacheSize = 4000
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
 	Registry *epoch.Registry
-	// LastExecutedBlock is the app's committed global height, None when the app
-	// has not committed any block yet. Recovery starts its BlockDB scan here
-	// because runExecute replays this block's AppHash. The scan start is capped
-	// at BlockDB's last stored block because app.Commit currently precedes the
-	// BlockDB durability wait; a crash between them can legitimately leave the
-	// app one block ahead. A larger gap is inconsistent because PushAppHash
-	// waits for each block's durability before execution proceeds. If BlockDB
-	// has no blocks, only the first committed block can be missing legitimately.
+	// LastExecutedBlock is the app's committed global height if any.
 	LastExecutedBlock utils.Option[types.GlobalBlockNumber]
 }
 
@@ -212,22 +205,20 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // Called from NewState before any goroutines are spawned; the lock is acquired
 // only to satisfy the Watch API.
 //
-// Recovery starts at the app tip capped at BlockDB's last stored block. An empty
-// block store, or an app that has not committed a block, starts at the registry's
-// first block and replays whatever BlockDB retains. BlockDB.Iterator then clamps
-// that start up to its retained floor; cursors skipTo the first number the scan
-// yields. That number may sit inside its covering QC's range rather than on that
-// range's first number. Taking the floor from the position rather than from the
-// QC is what keeps blocks dense over [first, nextBlock) as inner requires.
+// Recovery starts at the app tip so runExecute can replay its AppHash. If the
+// app tip equals BlockDB's next block, recovery starts at the last stored block:
+// app.Commit may finish before BlockDB is durable. A larger gap violates the
+// PushAppHash durability invariant. An empty BlockDB allows only no app tip or
+// the first committed block.
 //
-// A single iterator scan restores both record kinds: each yielded number carries
-// its covering QC (inserted the first time the scan sees that QC) and its block
-// when one survives — HasBlock is false only in the trailing positions, where a
-// QC outlived (or preceded) its blocks. Density and QC-coverage consistency hold
-// below this loop, so it does not re-check them: a durable BlockDB reports a
-// violation from Next, and an in-memory one cannot reach one (see
-// types.BlockDBIterator). A first QC that predates committee genesis is the one
-// inconsistency checked here.
+// Without an app tip, recovery starts at the registry's first block.
+// BlockDB.Iterator clamps the start to its retained floor. skipTo uses the first
+// returned position, even inside a QC, to keep blocks dense over
+// [first, nextBlock).
+//
+// Each iterator position has its covering QC and an optional block. Missing
+// blocks are allowed only at the tail. BlockDB enforces other consistency; this
+// method only rejects a first QC before committee genesis.
 func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 	for in := range s.inner.Lock() {
 		err := func() error {
