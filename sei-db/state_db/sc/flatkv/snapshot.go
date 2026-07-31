@@ -610,8 +610,7 @@ func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int6
 // snapshot <= targetVersion, replaying WAL to reach the target, and
 // truncating all WAL entries and snapshots beyond that point.
 //
-// A target the store cannot reach is rejected before anything is modified, so a failed Rollback leaves the
-// store open and unchanged and may simply be retried with a reachable target.
+// An unreachable target is rejected before anything is modified.
 //
 // Crash safety: the WAL is truncated BEFORE catchup writes any data to
 // PebbleDB. If the process crashes after truncation but before catchup
