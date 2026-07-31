@@ -529,18 +529,18 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 	return s.blockFromDB(n)
 }
 
-// HaveBlock reports whether height n is already held in memory for catch-up:
-// either in the contiguous prefix (n < nextBlock) or as a gap-fill above
-// nextBlock. Unlike TryBlock, gap-fills count as present so the block fetcher
-// does not keep re-requesting heights it already holds while waiting for a
-// lower contiguous hole to close. Does not consult BlockDB.
-func (s *State) HaveBlock(n types.GlobalBlockNumber) bool {
+// NeedBlock reports whether catch-up still needs to fetch height n.
+// False when n is already past nextBlock (including heights pruned or
+// evicted from RAM) or an in-memory gap-fill is present. Unlike TryBlock,
+// gap-fills count as satisfied so the fetcher does not keep re-requesting
+// them while a lower contiguous hole is open. Does not consult BlockDB.
+func (s *State) NeedBlock(n types.GlobalBlockNumber) bool {
 	for inner := range s.inner.Lock() {
 		if n < inner.nextBlock {
-			return true
+			return false
 		}
 		_, ok := inner.blocks[n]
-		return ok
+		return !ok
 	}
 	panic("unreachable")
 }

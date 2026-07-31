@@ -81,38 +81,31 @@ func (x *Service) RunServer(ctx context.Context, server rpc.Server[API]) error {
 	})
 }
 
-func (x *Service) RunClient(ctx context.Context, client rpc.Client[API]) error {
+func (x *Service) RunClient(ctx context.Context, client rpc.Client[API], getBlock bool) error {
+	// TODO: implement a uniform robust GetBlock peer-selection / retry strategy
+	// so connections that lack a height (including self) do not need a separate
+	// getBlock=false path to avoid starving the shared fetch queue.
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		x.spawnConsensusClientStreams(ctx, s, client)
-		s.Spawn(func() error { return x.clientStreamFullCommitQCs(ctx, client) })
-		s.Spawn(func() error { return x.clientGetBlock(ctx, client) })
+		s.Spawn(func() error { return x.runConsensusClientStreams(ctx, client) })
+		if getBlock {
+			s.Spawn(func() error { return x.clientStreamFullCommitQCs(ctx, client) })
+			s.Spawn(func() error { return x.clientGetBlock(ctx, client) })
+		}
 		return nil
 	})
 }
 
-// RunSelfClient runs validator-local consensus and availability streams without
-// block sync. The self connection is required for the validator's own votes,
-// but it must not consume catch-up GetBlock requests: by definition this node
-// cannot serve a block that is missing from its own data state. The self QC
-// stream is omitted too — it would only re-push QCs this node already holds.
-func (x *Service) RunSelfClient(ctx context.Context, client rpc.Client[API]) error {
+func (x *Service) runConsensusClientStreams(ctx context.Context, client rpc.Client[API]) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		x.spawnConsensusClientStreams(ctx, s, client)
+		s.Spawn(func() error { return x.clientPing(ctx, client) })
+		s.Spawn(func() error { return x.clientConsensus(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamLaneProposals(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamLaneVotes(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamCommitQCs(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamAppVotes(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamAppQCs(ctx, client) })
 		return nil
 	})
-}
-
-// spawnConsensusClientStreams starts the streams shared by peer and self
-// clients. Block-sync streams (FullCommitQCs / GetBlock) are added only by
-// RunClient so the self dial cannot drift back into catch-up fetches.
-func (x *Service) spawnConsensusClientStreams(ctx context.Context, s scope.Scope, client rpc.Client[API]) {
-	s.Spawn(func() error { return x.clientPing(ctx, client) })
-	s.Spawn(func() error { return x.clientConsensus(ctx, client) })
-	s.Spawn(func() error { return x.clientStreamLaneProposals(ctx, client) })
-	s.Spawn(func() error { return x.clientStreamLaneVotes(ctx, client) })
-	s.Spawn(func() error { return x.clientStreamCommitQCs(ctx, client) })
-	s.Spawn(func() error { return x.clientStreamAppVotes(ctx, client) })
-	s.Spawn(func() error { return x.clientStreamAppQCs(ctx, client) })
 }
 
 // RunBlockSyncServer spawns only the block-sync server handlers. Used on

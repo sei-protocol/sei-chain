@@ -65,22 +65,20 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Validators dial every committee member in parallel — consensus
 		// voting needs fan-out, not stickiness. Same connections also
-		// serve block sync between committee peers. Self is dialed for
-		// consensus/availability only: a loopback GetBlock consumer always
-		// returns empty for missing catch-up heights and can starve the
-		// contiguous prefix while higher gap-fills keep retrying.
-		// Compare against the p2p node key (r.key.Public), not validatorKey
-		// (consensus signing key used by EvmProxy): GigaNodeAddr.Key is a
-		// NodePublicKey.
+		// serve block sync between committee peers. Self disables GetBlock:
+		// a loopback consumer always returns empty for missing catch-up
+		// heights and can starve the contiguous prefix while higher
+		// gap-fills keep retrying. Compare against the p2p node key
+		// (r.key.Public), not validatorKey (consensus signing key used by
+		// EvmProxy): GigaNodeAddr.Key is a NodePublicKey.
 		selfKey := r.key.Public()
 		for _, addr := range r.cfg.ValidatorAddrs {
-			runClient := r.service.RunClient
-			if addr.Key == selfKey {
-				runClient = r.service.RunSelfClient
-			}
+			getBlock := addr.Key != selfKey
 			s.Spawn(func() error {
 				for {
-					err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, runClient)
+					err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+						return r.service.RunClient(ctx, client, getBlock)
+					})
 					logger.Info("giga connection failed", "addr", addr, "err", err)
 					if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
 						return err
