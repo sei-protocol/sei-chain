@@ -36,7 +36,7 @@ type PrunableStore interface {
 	//     only drives SS snapshot pruning for the shared rollback window).
 	GetRetentionWindow() int64
 
-	// GetPruningBoundry returns the oldest block this store must keep to remain able to
+	// GetPruningBoundary returns the oldest block this store must keep to remain able to
 	// serve cutLine, or 0 to opt out of this cycle (not participate in calculating min prune height).
 	//
 	// Contiguous stores can restore to any height they hold → return cutLine.
@@ -47,7 +47,7 @@ type PrunableStore interface {
 	//
 	// Assumption: snapshot creation finishes quickly enough that an in-flight write need
 	// not be reserved; modeling long-running snapshot writes is out of scope.
-	GetPruningBoundry(cutLine uint64) uint64
+	GetPruningBoundary(cutLine uint64) uint64
 
 	// GetLastestBlock returns the highest block this store has ingested.
 	// 0 means "no data / uninitialized" and is ignored when computing the global head.

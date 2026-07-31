@@ -23,11 +23,11 @@ var logger = seilog.NewLogger("db", "gc")
 //  1. head = min non-zero GetLastestBlock across stores
 //  2. per store: cutLine = head - RollbackWindow - GetRetentionWindow
 //     (skipped when cutLine == 0: infinite retention, or head still inside the window)
-//  3. ask GetPruningBoundry(cutLine); 0 = opt out for this cycle
+//  3. ask GetPruningBoundary(cutLine); 0 = opt out for this cycle
 //  4. pruneHeight = min of non-zero answers; PruneBelow(pruneHeight) on every store
 //     that answered non-zero
 //
-// Step 4 uses the shared min (not each store's own boundry) so a snapshot remains
+// Step 4 uses the shared min (not each store's own boundary) so a snapshot remains
 // restorable: contiguous stores must still hold the blocks that follow it.
 // PruneBelow failures are joined and do not skip later stores — permission-to-drop
 // is not transactional, and one unhealthy store must not block pruning of others.
@@ -108,8 +108,8 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 		return nil
 	}
 
-	// Boundries are positional so duplicate Name() values cannot mis-attribute an opt-out.
-	pruningBoundries := make([]uint64, len(stores))
+	// Boundaries are positional so duplicate Name() values cannot mis-attribute an opt-out.
+	pruningBoundaries := make([]uint64, len(stores))
 	var pruneHeight uint64
 	for i, store := range stores {
 		retention := store.GetRetentionWindow()
@@ -119,19 +119,19 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 			continue
 		}
 
-		pruningBoundries[i] = store.GetPruningBoundry(cutLine)
-		if pruningBoundries[i] == 0 {
+		pruningBoundaries[i] = store.GetPruningBoundary(cutLine)
+		if pruningBoundaries[i] == 0 {
 			// Opt-out (e.g. no completed snapshot yet).
 			continue
 		}
-		if pruneHeight == 0 || pruningBoundries[i] < pruneHeight {
-			pruneHeight = pruningBoundries[i]
+		if pruneHeight == 0 || pruningBoundaries[i] < pruneHeight {
+			pruneHeight = pruningBoundaries[i]
 		}
 	}
 	if pruneHeight == 0 {
-		logger.Info("skipping pruning: no store reported a pruning boundry",
+		logger.Info("skipping pruning: no store reported a pruning boundary",
 			"globalLatestBlock", globalLatestBlock,
-			"pruningBoundryByStore", describeAnswers(stores, pruningBoundries),
+			"pruningBoundaryByStore", describeAnswers(stores, pruningBoundaries),
 		)
 		return nil
 	}
@@ -139,11 +139,11 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 	logger.Info("pruning stores",
 		"globalLatestBlock", globalLatestBlock,
 		"pruneHeight", pruneHeight,
-		"pruningBoundryByStore", describeAnswers(stores, pruningBoundries),
+		"pruningBoundaryByStore", describeAnswers(stores, pruningBoundaries),
 	)
 	var pruneErrs error
 	for i, store := range stores {
-		if pruningBoundries[i] == 0 {
+		if pruningBoundaries[i] == 0 {
 			continue
 		}
 		if err := store.PruneBelow(pruneHeight); err != nil {
@@ -153,13 +153,13 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 	return pruneErrs
 }
 
-func describeAnswers(stores []PrunableStore, pruningBoundries []uint64) string {
+func describeAnswers(stores []PrunableStore, pruningBoundaries []uint64) string {
 	var sb strings.Builder
 	for i, store := range stores {
 		if i > 0 {
 			sb.WriteString(" ")
 		}
-		fmt.Fprintf(&sb, "%s=%d", store.Name(), pruningBoundries[i])
+		fmt.Fprintf(&sb, "%s=%d", store.Name(), pruningBoundaries[i])
 	}
 	return sb.String()
 }

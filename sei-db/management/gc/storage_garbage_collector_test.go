@@ -16,7 +16,7 @@ type mockStore struct {
 	latestHeight uint64
 	// retentionWindow is returned by GetRetentionWindow (0 = shared RollbackWindow only).
 	retentionWindow int64
-	pruningBoundry  func(cutLine uint64) uint64
+	pruningBoundary func(cutLine uint64) uint64
 	getErr          error
 	pruneErr        error
 
@@ -24,7 +24,7 @@ type mockStore struct {
 	prunedBelow      atomic.Uint64
 }
 
-// snapshotStore models SC/SS (retention 0). GetPruningBoundry returns the newest snapshot
+// snapshotStore models SC/SS (retention 0). GetPruningBoundary returns the newest snapshot
 // ≤ cutLine, or the oldest snapshot if all are above cutLine. Empty snapshots → 0.
 // Snapshots must be ascending.
 func snapshotStore(name string, latestHeight uint64, snapshots ...uint64) *mockStore {
@@ -32,7 +32,7 @@ func snapshotStore(name string, latestHeight uint64, snapshots ...uint64) *mockS
 		name:            name,
 		latestHeight:    latestHeight,
 		retentionWindow: 0,
-		pruningBoundry: func(cutLine uint64) uint64 {
+		pruningBoundary: func(cutLine uint64) uint64 {
 			if len(snapshots) == 0 {
 				return 0
 			}
@@ -49,14 +49,14 @@ func snapshotStore(name string, latestHeight uint64, snapshots ...uint64) *mockS
 }
 
 // contiguousStore models blockDB / receiptDB / WAL (retention 0 by default).
-// hasData=false → GetPruningBoundry returns 0 (opt out). Otherwise returns cutLine.
+// hasData=false → GetPruningBoundary returns 0 (opt out). Otherwise returns cutLine.
 // Use withRetentionWindow for extras or InfiniteRetentionWindow.
 func contiguousStore(name string, latestHeight uint64, hasData bool) *mockStore {
 	return &mockStore{
 		name:            name,
 		latestHeight:    latestHeight,
 		retentionWindow: 0,
-		pruningBoundry: func(cutLine uint64) uint64 {
+		pruningBoundary: func(cutLine uint64) uint64 {
 			if !hasData {
 				return 0
 			}
@@ -82,8 +82,8 @@ func (m *mockStore) GetLastestBlock() (uint64, error) {
 	return m.latestHeight, m.getErr
 }
 
-func (m *mockStore) GetPruningBoundry(cutLine uint64) uint64 {
-	return m.pruningBoundry(cutLine)
+func (m *mockStore) GetPruningBoundary(cutLine uint64) uint64 {
+	return m.pruningBoundary(cutLine)
 }
 
 func (m *mockStore) PruneBelow(blockNumber uint64) error {
@@ -119,7 +119,7 @@ func TestPruneDecisions(t *testing.T) {
 		wantPruneBelow *uint64
 	}{
 		{
-			name:           "SC and WAL both retention 0: min boundry wins",
+			name:           "SC and WAL both retention 0: min boundary wins",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 80_000, 85_000, 92_000),
@@ -129,7 +129,7 @@ func TestPruneDecisions(t *testing.T) {
 			wantPruneBelow: ptr(85_000),
 		},
 		{
-			name:           "lowest boundry across many stores wins",
+			name:           "lowest boundary across many stores wins",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 80_000, 85_000, 92_000),
@@ -148,6 +148,25 @@ func TestPruneDecisions(t *testing.T) {
 				contiguousStore("stateWAL", 100_000, true),
 			},
 			wantPruneBelow: ptr(99_999),
+		},
+		{
+			name:           "RollbackWindow 0: cutLine equals head",
+			rollbackWindow: 0,
+			stores: []*mockStore{
+				snapshotStore("sc", 100_000, 80_000, 90_000),
+				contiguousStore("stateWAL", 100_000, true),
+			},
+			// cutLine 100_000; sc 90_000; WAL 100_000 → min 90_000.
+			wantPruneBelow: ptr(90_000),
+		},
+		{
+			name:           "RollbackWindow 0 with no snapshot vote prunes contiguous to head",
+			rollbackWindow: 0,
+			stores: []*mockStore{
+				snapshotStore("sc", 100_000),
+				contiguousStore("stateWAL", 100_000, true),
+			},
+			wantPruneBelow: ptr(100_000),
 		},
 		{
 			name:           "positive contiguous retention deepens that store's cut line",
@@ -302,7 +321,7 @@ func TestPruneDecisions(t *testing.T) {
 				shouldPrune := false
 				if tc.wantPruneBelow != nil && store.GetRetentionWindow() >= 0 {
 					cutLine := getCutLine(head, tc.rollbackWindow, store.GetRetentionWindow())
-					if cutLine > 0 && store.GetPruningBoundry(cutLine) != 0 {
+					if cutLine > 0 && store.GetPruningBoundary(cutLine) != 0 {
 						shouldPrune = true
 					}
 				}
@@ -385,6 +404,8 @@ func TestGetCutLine(t *testing.T) {
 		want           uint64
 	}{
 		{name: "rollback window only", head: 100_000, rollbackWindow: 10_000, want: 90_000},
+		{name: "zero rollback window", head: 100_000, rollbackWindow: 0, want: 100_000},
+		{name: "zero rollback with retention", head: 100_000, rollbackWindow: 0, retention: 10_000, want: 90_000},
 		{name: "retention adds to rollback window", head: 100_000, rollbackWindow: 1, retention: 10_000, want: 89_999},
 		{name: "the two windows add", head: 100_000, rollbackWindow: 10_000, retention: 5_000, want: 85_000},
 		{name: "zero retention", head: 100_000, rollbackWindow: 10_000, want: 90_000},
@@ -449,10 +470,10 @@ func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {
 func TestValidate(t *testing.T) {
 	require.ErrorContains(t, (*StorageGarbageCollectorConfig)(nil).Validate(), "config is required")
 
-	require.ErrorContains(t, (&StorageGarbageCollectorConfig{
+	require.NoError(t, (&StorageGarbageCollectorConfig{
 		RollbackWindow: 0,
 		PruneInterval:  time.Minute,
-	}).Validate(), "rollback window must be greater than 0")
+	}).Validate())
 
 	require.NoError(t, (&StorageGarbageCollectorConfig{
 		RollbackWindow: 1,
