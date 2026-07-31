@@ -96,6 +96,23 @@ func (x *Service) RunClient(ctx context.Context, client rpc.Client[API]) error {
 	})
 }
 
+// RunSelfClient runs validator-local consensus and availability streams without
+// block sync. The self connection is required for the validator's own votes,
+// but it must not consume catch-up GetBlock requests: by definition this node
+// cannot serve a block that is missing from its own data state.
+func (x *Service) RunSelfClient(ctx context.Context, client rpc.Client[API]) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error { return x.clientPing(ctx, client) })
+		s.Spawn(func() error { return x.clientConsensus(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamLaneProposals(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamLaneVotes(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamCommitQCs(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamAppVotes(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamAppQCs(ctx, client) })
+		return nil
+	})
+}
+
 // RunBlockSyncServer spawns only the block-sync server handlers. Used on
 // both validator and fullnode inbound connections from non-committee peers.
 func (x *Service) RunBlockSyncServer(ctx context.Context, server rpc.Server[API]) error {
