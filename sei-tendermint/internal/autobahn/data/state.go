@@ -539,7 +539,8 @@ func (s *State) HaveBlock(n types.GlobalBlockNumber) bool {
 		if n < inner.nextBlock {
 			return true
 		}
-		return inner.blocks[n] != nil
+		_, ok := inner.blocks[n]
+		return ok
 	}
 	panic("unreachable")
 }

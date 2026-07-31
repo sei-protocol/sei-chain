@@ -69,6 +69,9 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		// consensus/availability only: a loopback GetBlock consumer always
 		// returns empty for missing catch-up heights and can starve the
 		// contiguous prefix while higher gap-fills keep retrying.
+		// Compare against the p2p node key (r.key.Public), not validatorKey
+		// (consensus signing key used by EvmProxy): GigaNodeAddr.Key is a
+		// NodePublicKey.
 		selfKey := r.key.Public()
 		for _, addr := range r.cfg.ValidatorAddrs {
 			runClient := r.service.RunClient
