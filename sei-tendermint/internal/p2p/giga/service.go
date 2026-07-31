@@ -86,24 +86,17 @@ func (x *Service) RunClient(ctx context.Context, client rpc.Client[API], getBloc
 	// so connections that lack a height (including self) do not need a separate
 	// getBlock=false path to avoid starving the shared fetch queue.
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error { return x.runConsensusClientStreams(ctx, client) })
-		if getBlock {
-			s.Spawn(func() error { return x.clientStreamFullCommitQCs(ctx, client) })
-			s.Spawn(func() error { return x.clientGetBlock(ctx, client) })
-		}
-		return nil
-	})
-}
-
-func (x *Service) runConsensusClientStreams(ctx context.Context, client rpc.Client[API]) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.clientPing(ctx, client) })
 		s.Spawn(func() error { return x.clientConsensus(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamFullCommitQCs(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamLaneProposals(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamLaneVotes(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamCommitQCs(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamAppVotes(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamAppQCs(ctx, client) })
+		if getBlock {
+			s.Spawn(func() error { return x.clientGetBlock(ctx, client) })
+		}
 		return nil
 	})
 }
