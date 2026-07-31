@@ -566,6 +566,8 @@ func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) int {
 // an error if the target cannot be reached from it. A target is reachable when a snapshot at or below it
 // exists and either sits exactly on it, or the WAL still holds every block between that snapshot and the
 // target. With a nil WAL there is no replay, so only a snapshot sitting exactly on the target qualifies.
+// When the only snapshot behind the target is the initial one, the store's history starts at the WAL's first
+// block rather than at block 1, so a target is reachable from there iff the WAL holds it.
 //
 // It reads only: no snapshot, symlink, or WAL state is modified, so Rollback can consult it before touching
 // anything and refuse an impossible target outright.
@@ -598,6 +600,16 @@ func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int6
 	}
 	needFrom := uint64(baseVersion) + 1 //nolint:gosec // baseVersion >= 0
 	needTo := uint64(targetVersion)     //nolint:gosec // targetVersion >= 1 checked above
+	if baseVersion == 0 {
+		// Only the initial snapshot sits behind the target, so replay starts at the WAL's first block rather
+		// than at block 1 — the same clamp catchup and replayInto apply when committedVersion is 0. Below
+		// that block nothing can rebuild the target: no snapshot names it and the WAL does not reach it.
+		needFrom = first
+		if needTo < needFrom {
+			return 0, fmt.Errorf("cannot roll back to version %d: no snapshot covers it and the WAL "+
+				"starts at block %d, so it cannot be reconstructed", targetVersion, first)
+		}
+	}
 	if first > needFrom || last < needTo {
 		return 0, fmt.Errorf("cannot roll back to version %d: nearest snapshot is %d, so blocks %d-%d are "+
 			"needed, but the WAL only holds %d-%d",
