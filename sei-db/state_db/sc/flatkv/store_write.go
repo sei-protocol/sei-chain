@@ -29,7 +29,9 @@ func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChange
 }
 
 // Commit persists buffered writes at the given version (block height). One Commit persists exactly one
-// block; version must equal the height the pending writes were stamped with.
+// block; version must equal the height the pending writes were stamped with. Consecutive commits must also
+// be contiguous: the state WAL rejects a version that skips a height, though the first block written to an
+// empty WAL may be any height.
 // Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit(version int64) (committed int64, err error) {

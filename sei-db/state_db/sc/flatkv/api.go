@@ -25,8 +25,15 @@ type Options struct {
 // Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
 type Store interface {
 	// LoadVersion opens the database at the given version (0 = latest).
-	// When readOnly is true an isolated, read-only store is returned;
-	// the caller must Close it when done.
+	//
+	// Sharp edges. The two modes differ in what they load: readOnly=true returns
+	// a new isolated store and leaves the receiver untouched (the caller must
+	// Close it when done), while readOnly=false loads and returns the receiver
+	// itself. And a writable load at a non-zero version leaves the state WAL
+	// holding its blocks above targetVersion, so Commit fails as non-contiguous
+	// and such a store can only be read from; Rollback rewinds and prunes
+	// together, and is the only way to reach an older version and keep
+	// committing.
 	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
 
 	// ApplyChangeSets buffers changesets at the given version, to be

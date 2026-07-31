@@ -370,6 +370,7 @@ var errReadOnly = errors.New("flatkv: store is read-only")
 // LoadVersion opens the database at the given version (0 = latest).
 // When readOnly is true an isolated, read-only CommitStore is returned;
 // the caller must Close it when done.
+// See the Store interface for this method's sharp edges.
 func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (opened Store, retErr error) {
 	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
 	obs := s.observeOp("LoadVersion", otelMetrics.OpenLatency,
@@ -411,6 +412,9 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (opened St
 		}
 	}()
 
+	// TODO: this should also truncate the WAL to targetVersion, the way Rollback
+	// does, so the loaded store can go on committing instead of being read-only
+	// in practice.
 	if targetVersion > 0 {
 		if err := os.MkdirAll(dir, 0750); err != nil {
 			return nil, fmt.Errorf("create flatkv dir: %w", err)
