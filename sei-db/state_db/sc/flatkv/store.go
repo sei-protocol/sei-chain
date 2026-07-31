@@ -187,8 +187,9 @@ type CommitStore struct {
 	pendingChangeSets []*proto.NamedChangeSet
 
 	// pendingBlockHeight is the version stamped by the current buffered
-	// ApplyChangeSets. 0 means no pending apply. Commit requires version to
-	// match when this is non-zero.
+	// ApplyChangeSets. 0 means no pending apply. Further ApplyChangeSets
+	// calls and Commit both require version to match when this is non-zero:
+	// only one block may be buffered per commit.
 	pendingBlockHeight int64
 
 	lastSnapshotTime time.Time
@@ -880,9 +881,8 @@ func (s *CommitStore) Version() int64 {
 	return s.committedVersion
 }
 
-// PendingVersion returns s.pendingBlockHeight: the height stamped by the most
-// recent ApplyChangeSets call since the last Commit, or 0 when there are no
-// buffered writes.
+// PendingVersion returns s.pendingBlockHeight: the height of the block currently
+// buffered by ApplyChangeSets, or 0 when there are no buffered writes.
 func (s *CommitStore) PendingVersion() int64 {
 	return s.pendingBlockHeight
 }

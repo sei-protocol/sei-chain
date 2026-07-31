@@ -31,17 +31,17 @@ type Store interface {
 
 	// ApplyChangeSets buffers changesets at the given version, to be
 	// persisted by the next Commit.
-	// May be called multiple times before a single Commit, either
-	// repeatedly at the same version (e.g. one block's writes split across
-	// several calls) or at increasing versions (e.g. batching several
-	// blocks together). version must never decrease across calls (see
-	// PendingVersion), and Commit must be called with the highest version
-	// applied since the last Commit.
+	//
+	// Exactly one block may be buffered per Commit: repeated calls at the
+	// same version are allowed, any other version is rejected (see
+	// PendingVersion), and Commit must be called with that version.
+	// Batching several blocks into one Commit is not supported.
 	ApplyChangeSets(version int64, cs []*proto.NamedChangeSet) error
 
 	// Commit persists buffered writes at the given version (block height).
-	// If ApplyChangeSets has buffered writes, version must equal the highest
-	// height those rows were stamped with (see PendingVersion).
+	// One Commit persists exactly one block. If ApplyChangeSets has buffered
+	// writes, version must equal the height those rows were stamped with
+	// (see PendingVersion).
 	Commit(version int64) (int64, error)
 
 	// CommitBlock is a Giga-only helper that applies changesets and commits
@@ -134,14 +134,10 @@ type Store interface {
 	// Version returns the latest committed version.
 	Version() int64
 
-	// PendingVersion returns the height stamped by the most recent
-	// ApplyChangeSets call since the last Commit, or 0 when there are no
-	// buffered writes. Multiple ApplyChangeSets calls may accumulate at
-	// strictly increasing heights before a single Commit persists them all
-	// (e.g. batching several blocks); callers that need to know "the next
-	// version to apply" should use PendingVersion()+1 when non-zero, falling
-	// back to Version()+1 otherwise, rather than assuming Version()+1 always
-	// reflects the next height.
+	// PendingVersion returns the height of the block currently buffered by
+	// ApplyChangeSets, or 0 when there are no buffered writes. It is the
+	// version the next Commit must be called with, and the only version
+	// further ApplyChangeSets calls may use.
 	PendingVersion() int64
 
 	// GetLatestVersion returns the latest committed version persisted to

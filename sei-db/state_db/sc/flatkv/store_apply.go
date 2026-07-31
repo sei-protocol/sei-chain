@@ -35,21 +35,15 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 		return fmt.Errorf("flatkv: apply version %d must be ahead of committed version %d",
 			version, s.committedVersion)
 	}
-	// Two legitimate multi-call patterns must both be accepted here:
-	//   - Same-height repeats: a single block's writes may arrive across
-	//     several ApplyChangeSets calls at the same height (e.g. a
-	//     ModuleRouter fanning one block's changesets out to multiple
-	//     routes that all target flatKV).
-	//   - Strictly increasing heights: several blocks' writes may be
-	//     batched before a single Commit (e.g. a benchmark harness with
-	//     BlocksPerCommit > 1), each call stamping its own rows with its
-	//     own height.
-	// Only a height that goes backwards indicates a bug.
-	// Commit(version) below requires version == pendingBlockHeight, i.e.
-	// the highest height applied since the last Commit.
-	if s.pendingBlockHeight != 0 && version < s.pendingBlockHeight {
-		return fmt.Errorf("flatkv: cannot apply at height %d; pending writes already stamped up to %d",
-			version, s.pendingBlockHeight)
+	// A single block's writes may arrive across several ApplyChangeSets calls at the same height (e.g. a
+	// ModuleRouter fanning one block's changesets out to multiple routes that all target flatKV), so
+	// same-height repeats are accepted. Any other height is a bug: batching several blocks before one
+	// Commit is not supported, because changesets carry no block number and the batch would collapse into
+	// a single WAL entry at its highest height — see the ApplyChangeSets contract in api.go. Rejecting the
+	// jump here rather than letting the WAL reject the following Commit keeps the error at the caller.
+	if s.pendingBlockHeight != 0 && version != s.pendingBlockHeight {
+		return fmt.Errorf("flatkv: cannot apply at height %d; pending writes are stamped at %d and only "+
+			"one block may be buffered per commit", version, s.pendingBlockHeight)
 	}
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")

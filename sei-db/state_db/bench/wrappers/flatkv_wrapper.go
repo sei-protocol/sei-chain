@@ -11,9 +11,10 @@ import (
 var _ DBWrapper = (*flatKVWrapper)(nil)
 
 // flatKVWrapper wraps a flatkv commit store to implement the DBWrapper interface.
-// Version() and Commit() consult the base store's PendingVersion() so that
-// benchmarks may call ApplyChangeSets multiple times (one per block) before a
-// single Commit, e.g. when BlocksPerCommit > 1.
+// FlatKV persists exactly one block per Commit, so benchmarks must commit every
+// block (BlocksPerCommit == 1, enforced by cryptosim's config validation). Several
+// ApplyChangeSets calls may still precede one Commit as long as they all target the
+// same height; Commit() consults PendingVersion() to find that height.
 type flatKVWrapper struct {
 	base flatkv.Store
 }
@@ -46,23 +47,14 @@ func (f *flatKVWrapper) LoadVersion(version int64) error {
 	return err
 }
 
-// Version returns the working version: the height stamped by the most
-// recent pending ApplyChangeSets call, or committedVersion+1's predecessor
-// (committedVersion) when nothing is pending.
 func (f *flatKVWrapper) Version() int64 {
-	if p := f.base.PendingVersion(); p != 0 {
-		return p
-	}
 	return f.base.Version()
 }
 
-// nextVersion computes the height for the next ApplyChangeSets call: one
-// past the last pending call's height, or one past the committed version
-// when no writes are pending.
+// nextVersion computes the height for the next ApplyChangeSets call: one past the
+// committed version. It deliberately ignores PendingVersion() — a pending block's
+// writes may be extended at its own height, never continued at the next one.
 func (f *flatKVWrapper) nextVersion() int64 {
-	if p := f.base.PendingVersion(); p != 0 {
-		return p + 1
-	}
 	return f.base.Version() + 1
 }
 
