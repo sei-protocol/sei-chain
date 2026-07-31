@@ -127,8 +127,12 @@
     # It successfully reach TARGET_HEIGHT, panic, and log upgrade needed.
     - cmd: seid_downgrade.sh
       node: sei-node-0
-    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
+    # The integration runner records non-zero script exits but does not fail the
+    # input step. Capture an explicit result so a live, stalled node cannot be
+    # mistaken for the expected upgrade panic.
+    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin; WAIT_STATUS=$?; if [ "$WAIT_STATUS" -eq 0 ]; then echo WAIT_FOR_HEIGHT_PASS; else echo WAIT_FOR_HEIGHT_FAIL; fi
       node: sei-node-0
+      env: DOWNGRADED_NODE_0_REACHED_TARGET
     - cmd: verify_panic.sh node_admin
       node: sei-node-0
       env: PANIC_AT_BLOCK_HEIGHT_NODE_0 
@@ -176,6 +180,9 @@
 
     # Downgrade node 0 so that it can sync the rest of the blocks
     # It successfully reach TARGET_HEIGHT, panic, and log upgrade needed.
+    - type: regex
+      result: DOWNGRADED_NODE_0_REACHED_TARGET
+      expr: '(?m)^WAIT_FOR_HEIGHT_PASS$'
     - type: eval
       expr: PANIC_AT_BLOCK_HEIGHT_NODE_0 == "PASS"
     - type: eval

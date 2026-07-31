@@ -153,10 +153,11 @@ func TestPreRunSkipsConfigForInitPrefixedSubcommands(t *testing.T) {
 // a typo'd value stops the command rather than quietly booting the wrong manager,
 // which is what makes the flag safe to leave in a deployment.
 //
-// Because this tree ships the v2 body as a stub, "v2" surfaces as a
-// not-implemented error. That distinguishes "the gate rejected the value" from "the
-// gate accepted it and the manager refused", and both are asserted so the difference
-// survives the v2 body landing.
+// What the gate does is all this pins. The v2 body is advisory, so it validates the
+// config, logs what it finds, and re-enters the legacy reader on the operator's own
+// files, which means an accepted value boots exactly as legacy does. The observable
+// difference is therefore acceptance versus rejection rather than which manager ran,
+// and the legacy-vs-v2 differential is what proves the two produce the same channels.
 func FuzzPreRunManagerSelection(f *testing.F) {
 	f.Add("")
 	f.Add("legacy")
@@ -192,12 +193,12 @@ func FuzzPreRunManagerSelection(f *testing.F) {
 				t.Fatal("the legacy manager must populate the boot channels")
 			}
 		case "v2":
-			if err == nil {
-				t.Fatal("v2 is accepted by the gate but its body is a stub, so the command must " +
-					"fail rather than silently falling back to legacy")
+			if err != nil {
+				t.Fatalf("%s=%q selects the v2 manager, which validates advisorily and re-enters "+
+					"the legacy reader, so it must boot, got %v", configmanager.EnvVar, value, err)
 			}
-			if !strings.Contains(err.Error(), configmanager.EnvVar) {
-				t.Fatalf("the v2 failure must name the gate, got %v", err)
+			if serverCtx.Viper == nil {
+				t.Fatal("the v2 manager must populate the boot channels")
 			}
 		default:
 			if err == nil {
@@ -257,21 +258,23 @@ func TestPreRunReadsTheManagerGatePerInvocation(t *testing.T) {
 		t.Fatal("the legacy manager must populate the boot channels")
 	}
 
-	// Second invocation in the same process, gate now set. It must reach the v2 manager,
-	// which this tree ships as a stub and therefore fails. Booting instead means the gate
-	// was answered from the first invocation rather than re-read.
-	if err := os.Setenv(configmanager.EnvVar, "v2"); err != nil {
+	// Second invocation in the same process, gate now set to a value the gate rejects.
+	// The rejection is the observable, and it belongs to the gate rather than to any
+	// manager's body: a cached answer would boot legacy cleanly here instead of failing.
+	// A legal "v2" cannot serve that purpose, because the v2 body is advisory and boots
+	// identically to legacy, so it would leave a re-read and a cached answer
+	// indistinguishable from outside.
+	if err := os.Setenv(configmanager.EnvVar, "v3"); err != nil {
 		t.Fatalf("set %s: %v", configmanager.EnvVar, err)
 	}
 	second, secondErr := runRootPreRun(t, configtest.NewHome(t), "start")
 	if secondErr == nil {
-		t.Fatalf("the second invocation has %s=v2 and must select the v2 manager, whose body is a "+
-			"stub and fails. It booted cleanly instead, so the gate is being cached across "+
-			"invocations and one process can no longer change managers between commands",
-			configmanager.EnvVar)
+		t.Fatalf("the second invocation has %s=v3, which the gate rejects, so it must fail. It "+
+			"booted cleanly instead, so the gate is being cached across invocations and one "+
+			"process can no longer change managers between commands", configmanager.EnvVar)
 	}
 	if !strings.Contains(secondErr.Error(), configmanager.EnvVar) {
-		t.Fatalf("the v2 failure must name the gate, got %v", secondErr)
+		t.Fatalf("the rejection must name the gate, got %v", secondErr)
 	}
 	if second.Viper != nil {
 		t.Fatal("a rejected invocation must leave the boot channels unpopulated")
