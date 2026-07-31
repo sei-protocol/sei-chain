@@ -174,7 +174,7 @@ func verifyCommitQCInDuo(duo types.EpochDuo, qc *types.CommitQC) error {
 // already satisfied. Adds Current lanes; does not delete old lanes
 // (TODO(lane-expiry)). Touches epoch + lane votes (reweight).
 func (i *inner) advanceEpoch(epoch *types.Epoch) bool {
-	if i.epoch.Load().EpochIndex() < epoch.EpochIndex() {
+	if i.epoch.Load().EpochIndex() >= epoch.EpochIndex() {
 		return false
 	}
 	c := epoch.Committee()
