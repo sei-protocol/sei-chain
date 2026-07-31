@@ -95,6 +95,11 @@ func (m SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate stri
 // deferred recover below contains. logAdvisory is proven panic-free on every outcome, so
 // this only fires for a logger broken independent of its arguments.
 func reportAdvisory(lg *slog.Logger, out advisoryOutcome) {
+	// The recover below stays inside this closure. Hoisted into reportAdvisory's own body
+	// it would see a panic unwinding a caller's frame whenever this function is deferred,
+	// so a deferred report in Apply would recover the legacy handler's panic and boot a
+	// node the legacy path refuses. TestApplyPropagatesALegacyHandlerPanic fails on that
+	// pair, and neither half fails on its own.
 	defer func() {
 		if r := recover(); r != nil {
 			// A second panic, from logging the first, must not escape. The nested recover
