@@ -27,14 +27,14 @@ type mockStore struct {
 
 // snapshotStore models a store that can only be restored to a height it holds a snapshot for, such as SC or SS: it
 // answers with the newest snapshot at or below the cut line, or with its oldest snapshot when every snapshot is above the
-// cut line. Snapshots must be in ascending order. With no completed snapshot yet it answers its last committed height.
+// cut line. Snapshots must be in ascending order; a store given none has no completed snapshot and answers 0.
 func snapshotStore(name string, latestHeight uint64, snapshots ...uint64) *mockStore {
 	return &mockStore{
 		name:         name,
 		latestHeight: latestHeight,
 		oldestToRetain: func(cutLine uint64) uint64 {
 			if len(snapshots) == 0 {
-				return latestHeight
+				return 0
 			}
 			oldest := snapshots[0]
 			for _, snapshot := range snapshots {
@@ -208,29 +208,15 @@ func TestPruneDecisions(t *testing.T) {
 			wantPruneBelow: ptr(80_000),
 		},
 		{
-			name:           "no snapshots yet votes the last committed height",
+			name:           "a store with no snapshot yet is ignored",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000),
 				contiguousStore("stateWAL", 100_000, true),
 			},
-			// sc has no completed snapshot, so it answers its committed height (100,000) and still participates —
-			// unlike answering 0, which would leave it out of PruneBelow. The WAL's cut line of 90,000 is lower.
+			// sc has no completed snapshot, so it answers 0 and stays out of the vote and of PruneBelow. Snapshot
+			// creation is assumed to finish within seconds, so no blocks are reserved for a write in flight.
 			wantPruneBelow: ptr(90_000),
-		},
-		{
-			name:           "an in-progress first snapshot binds below the cut line",
-			rollbackWindow: 10_000,
-			stores: []*mockStore{
-				{
-					name:         "sc",
-					latestHeight: 100_000,
-					// First snapshot is being written at 50,000 while the tip has moved on.
-					oldestToRetain: func(uint64) uint64 { return 50_000 },
-				},
-				contiguousStore("stateWAL", 100_000, true),
-			},
-			wantPruneBelow: ptr(50_000),
 		},
 		{
 			name:           "a head of zero is ignored, the data behind it is not",
@@ -324,6 +310,21 @@ func TestPruneOnYoungChainWithDefaultConfig(t *testing.T) {
 
 	require.False(t, sc.pruneBelowCalled.Load())
 	require.False(t, wal.pruneBelowCalled.Load())
+}
+
+// TestPruneKeepsOptedOutStoreWithDuplicateName checks that answers are tracked positionally: two stores sharing a name
+// must not make the collector prune the one that opted out with 0.
+func TestPruneKeepsOptedOutStoreWithDuplicateName(t *testing.T) {
+	optOut := contiguousStore("ss", 100_000, false)
+	participating := snapshotStore("ss", 100_000, 80_000)
+	wal := contiguousStore("stateWAL", 100_000, true)
+
+	require.NoError(t, newTestCollector(t, 10_000, 0, optOut, participating, wal).prune())
+
+	require.False(t, optOut.pruneBelowCalled.Load(), "a store answering 0 must never be pruned")
+	require.True(t, participating.pruneBelowCalled.Load())
+	require.Equal(t, uint64(80_000), participating.prunedBelow.Load())
+	require.Equal(t, uint64(80_000), wal.prunedBelow.Load())
 }
 
 // TestPruneGetLastCommittedBlockError checks that a failure to read a head aborts the cycle before anything is deleted.

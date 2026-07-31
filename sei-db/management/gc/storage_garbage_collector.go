@@ -3,6 +3,7 @@ package gc
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -122,24 +123,25 @@ func (s *StorageGarbageCollector) prune() error {
 	// them. Pruning below a higher answer would delete blocks that a lower-answering store just reported it still
 	// needs, which is exactly how deletion would break the rollback invariant.
 	//
-	// A store that answers 0 is left out of both the prune-height vote and PruneBelow: it may be uninitialized or
-	// intentionally retaining forever. Snapshotted stores that have not finished a first snapshot yet still vote with
-	// their last committed height (see GetOldestBlockToRetain).
+	// A store that answers 0 is left out of both the prune-height vote and PruneBelow: it holds no snapshot yet, is
+	// disabled, or is intentionally retaining forever (see GetOldestBlockToRetain).
+	//
+	// The answers are kept positionally rather than keyed by Name so that two stores sharing a name cannot make the
+	// collector prune one that opted out. Names are for logs only.
 	var pruneHeight uint64
-	oldestBlockToRetainByStore := make(map[string]uint64, len(s.stores))
-	for _, store := range s.stores {
-		oldestBlockToRetain := store.GetOldestBlockToRetain(cutLine)
-		oldestBlockToRetainByStore[store.Name()] = oldestBlockToRetain
-		if oldestBlockToRetain == 0 {
+	oldestBlockToRetain := make([]uint64, len(s.stores))
+	for i, store := range s.stores {
+		oldestBlockToRetain[i] = store.GetOldestBlockToRetain(cutLine)
+		if oldestBlockToRetain[i] == 0 {
 			continue
 		}
-		if pruneHeight == 0 || oldestBlockToRetain < pruneHeight {
-			pruneHeight = oldestBlockToRetain
+		if pruneHeight == 0 || oldestBlockToRetain[i] < pruneHeight {
+			pruneHeight = oldestBlockToRetain[i]
 		}
 	}
 	if pruneHeight == 0 {
 		logger.Info("skipping pruning, no store has data to retain",
-			"cutLine", cutLine, "oldestBlockToRetainByStore", oldestBlockToRetainByStore)
+			"cutLine", cutLine, "oldestBlockToRetainByStore", s.describeAnswers(oldestBlockToRetain))
 		return nil
 	}
 
@@ -147,10 +149,10 @@ func (s *StorageGarbageCollector) prune() error {
 		"globalLatestBlock", globalLatestBlock,
 		"cutLine", cutLine,
 		"pruneHeight", pruneHeight,
-		"oldestBlockToRetainByStore", oldestBlockToRetainByStore,
+		"oldestBlockToRetainByStore", s.describeAnswers(oldestBlockToRetain),
 	)
-	for _, store := range s.stores {
-		if oldestBlockToRetainByStore[store.Name()] == 0 {
+	for i, store := range s.stores {
+		if oldestBlockToRetain[i] == 0 {
 			continue
 		}
 		if err := store.PruneBelow(pruneHeight); err != nil {
@@ -158,6 +160,19 @@ func (s *StorageGarbageCollector) prune() error {
 		}
 	}
 	return nil
+}
+
+// describeAnswers renders the per-store retain answers for a log line, in store order so duplicate names stay
+// distinguishable.
+func (s *StorageGarbageCollector) describeAnswers(oldestBlockToRetain []uint64) string {
+	var sb strings.Builder
+	for i, store := range s.stores {
+		if i > 0 {
+			sb.WriteString(" ")
+		}
+		fmt.Fprintf(&sb, "%s=%d", store.Name(), oldestBlockToRetain[i])
+	}
+	return sb.String()
 }
 
 // getCutLine returns the oldest block the system must remain able to serve, which is the head of the chain less the
