@@ -3,8 +3,10 @@ package ratelimiter
 import "strings"
 
 const (
-	// rpcMethodBucketOther is the fallback label for unrecognized or malformed methods.
+	// rpcMethodBucketOther is the fallback label for unrecognized methods.
 	rpcMethodBucketOther = "other"
+	// MethodInvalid labels rate-limit charges for unparseable request bodies.
+	MethodInvalid = "invalid"
 	// maxRPCMethodLen rejects oversized method strings before metric recording.
 	maxRPCMethodLen = 128
 )
@@ -32,6 +34,9 @@ var knownRPCNamespaces = map[string]struct{}{
 // suitable for OTel/Prometheus metrics. Attacker-controlled method strings
 // collapse to rpcMethodBucketOther.
 func bucketRPCMethod(method string) string {
+	if method == MethodInvalid {
+		return MethodInvalid
+	}
 	if method == "" || len(method) > maxRPCMethodLen {
 		return rpcMethodBucketOther
 	}
