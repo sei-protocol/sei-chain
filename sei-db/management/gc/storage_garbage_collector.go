@@ -20,15 +20,21 @@ var logger = seilog.NewLogger("db", "gc")
 // their snapshot pruning for the shared window; SS version-history pruning is separate.
 //
 // Each cycle:
-//  1. head = min non-zero GetLastestBlock across stores
+//  1. head = min non-zero GetLatestBlock across stores
 //  2. per store: cutLine = head - RollbackWindow - GetRetentionWindow
 //     (skipped when cutLine == 0: infinite retention, or head still inside the window)
 //  3. ask GetPruningBoundary(cutLine); 0 = opt out for this cycle
 //  4. pruneHeight = min of non-zero answers; PruneBelow(pruneHeight) on every store
 //     that answered non-zero
 //
-// Step 4 uses the shared min (not each store's own boundary) so a snapshot remains
-// restorable: contiguous stores must still hold the blocks that follow it.
+// Step 4 uses the shared min (not each store's own boundary) so a retained snapshot
+// stays restorable: contiguous stores must still hold the blocks that follow it.
+// A side effect is that one store's deep GetRetentionWindow is imposed on every
+// participating store — e.g. receiptDB retention 100_000 also keeps SC/SS snapshots
+// that far back even though those stores report retention 0. That uniform prune is
+// an intentional tradeoff for Giga (one effective retention across stores), not
+// independent per-store retention.
+//
 // PruneBelow failures are joined and do not skip later stores — permission-to-drop
 // is not transactional, and one unhealthy store must not block pruning of others.
 //
@@ -99,7 +105,7 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 		return nil
 	}
 
-	globalLatestBlock, err := getGlobalLastestBlock(stores)
+	globalLatestBlock, err := getGlobalLatestBlock(stores)
 	if err != nil {
 		return err
 	}
@@ -165,29 +171,33 @@ func describeAnswers(stores []PrunableStore, pruningBoundaries []uint64) string 
 }
 
 // getCutLine returns head - RollbackWindow - retention for retention >= 0.
-// Returns 0 when retention < 0, or when head is still inside that combined window
-// (unsigned subtraction must not wrap).
+// Returns 0 when retention < 0, when the combined window overflows uint64, or when
+// head is still inside that window (unsigned subtraction must not wrap).
 func getCutLine(globalLatestBlock uint64, rollbackWindow uint64, retention int64) uint64 {
 	if retention < 0 {
 		return 0
 	}
 	totalRetainWindow := rollbackWindow + uint64(retention)
+	if totalRetainWindow < rollbackWindow {
+		// Addition wrapped; treat as an unsatisfiable retain window (skip pruning).
+		return 0
+	}
 	if globalLatestBlock <= totalRetainWindow {
 		return 0
 	}
 	return globalLatestBlock - totalRetainWindow
 }
 
-// getGlobalLastestBlock returns the smallest non-zero GetLastestBlock among stores.
+// getGlobalLatestBlock returns the smallest non-zero GetLatestBlock among stores.
 // Using the min keeps a lagging store from being pruned past blocks it still needs.
 // Heads of 0 are skipped so an uninitialized store does not stall pruning.
 // Returns 0 when no store has data.
-func getGlobalLastestBlock(stores []PrunableStore) (uint64, error) {
+func getGlobalLatestBlock(stores []PrunableStore) (uint64, error) {
 	var blockNum uint64
 	for _, store := range stores {
-		storeHeight, err := store.GetLastestBlock()
+		storeHeight, err := store.GetLatestBlock()
 		if err != nil {
-			return 0, fmt.Errorf("failed to read lastest block from %s: %w", store.Name(), err)
+			return 0, fmt.Errorf("failed to read latest block from %s: %w", store.Name(), err)
 		}
 		if storeHeight == 0 {
 			continue

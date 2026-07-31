@@ -20,7 +20,7 @@ type PrunableStore interface {
 	PruneBelow(blockNumber uint64) error
 
 	// GetRetentionWindow is how many extra blocks beyond the shared RollbackWindow
-	// this store needs to keep servable. Cut line (head = min non-zero GetLastestBlock):
+	// this store needs to keep servable. Cut line (head = min non-zero GetLatestBlock):
 	//
 	//	retention < 0  → store ignored (cutLine treated as 0; conventionally -1)
 	//	retention >= 0  → cutLine = head - RollbackWindow - retention
@@ -28,6 +28,11 @@ type PrunableStore interface {
 	// RollbackWindow is shared so every store stays consistent under rollback.
 	// Retention is optional history on top — kept so the store can still serve queries
 	// after a rollback that consumes the entire rollback window.
+	//
+	// Because the collector prunes every participating store to the *lowest*
+	// GetPruningBoundary, a large retention on one store effectively deepens pruning
+	// for the others (see StorageGarbageCollector). Read this as an input to that
+	// shared min, not as an independently applied per-store policy.
 	//
 	// Contract by store kind:
 	//   - Contiguous (blockDB, receiptDB, state WAL): -1 / 0 / positive as configured.
@@ -49,7 +54,7 @@ type PrunableStore interface {
 	// not be reserved; modeling long-running snapshot writes is out of scope.
 	GetPruningBoundary(cutLine uint64) uint64
 
-	// GetLastestBlock returns the highest block this store has ingested.
+	// GetLatestBlock returns the highest block this store has ingested.
 	// 0 means "no data / uninitialized" and is ignored when computing the global head.
-	GetLastestBlock() (uint64, error)
+	GetLatestBlock() (uint64, error)
 }

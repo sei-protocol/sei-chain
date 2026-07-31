@@ -3,6 +3,7 @@ package gc
 import (
 	"context"
 	"errors"
+	"math"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -78,7 +79,7 @@ func (m *mockStore) GetRetentionWindow() int64 {
 	return m.retentionWindow
 }
 
-func (m *mockStore) GetLastestBlock() (uint64, error) {
+func (m *mockStore) GetLatestBlock() (uint64, error) {
 	return m.latestHeight, m.getErr
 }
 
@@ -314,7 +315,7 @@ func TestPruneDecisions(t *testing.T) {
 			stores := prunableStores(tc.stores...)
 			require.NoError(t, prune(testConfig(t, tc.rollbackWindow), stores))
 
-			head, err := getGlobalLastestBlock(stores)
+			head, err := getGlobalLatestBlock(stores)
 			require.NoError(t, err)
 
 			for _, store := range tc.stores {
@@ -361,7 +362,7 @@ func TestPruneKeepsOptedOutStoreWithDuplicateName(t *testing.T) {
 	require.Equal(t, uint64(80_000), wal.prunedBelow.Load())
 }
 
-func TestPruneGetLastestBlockError(t *testing.T) {
+func TestPruneGetLatestBlockError(t *testing.T) {
 	sentinel := errors.New("boom")
 	sc := snapshotStore("sc", 100_000, 80_000)
 	broken := contiguousStore("brokenStore", 100_000, true)
@@ -416,6 +417,8 @@ func TestGetCutLine(t *testing.T) {
 		{name: "head one below the window", head: 9_999, rollbackWindow: 10_000, want: 0},
 		{name: "head far below the window", head: 100, rollbackWindow: 1_000, retention: 100_000, want: 0},
 		{name: "head at genesis", head: 0, rollbackWindow: 10_000, want: 0},
+		{name: "rollback plus retention overflows uint64", head: math.MaxUint64, rollbackWindow: math.MaxUint64, retention: 1, want: 0},
+		{name: "max rollback alone does not overflow", head: math.MaxUint64, rollbackWindow: math.MaxUint64, want: 0},
 	}
 
 	for _, tc := range cases {
@@ -425,7 +428,7 @@ func TestGetCutLine(t *testing.T) {
 	}
 }
 
-func TestGetGlobalLastestBlock(t *testing.T) {
+func TestGetGlobalLatestBlock(t *testing.T) {
 	storesWithHeads := func(heads ...uint64) []PrunableStore {
 		list := make([]*mockStore, len(heads))
 		for i, head := range heads {
@@ -453,7 +456,7 @@ func TestGetGlobalLastestBlock(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			head, err := getGlobalLastestBlock(storesWithHeads(tc.heads...))
+			head, err := getGlobalLatestBlock(storesWithHeads(tc.heads...))
 			require.NoError(t, err)
 			require.Equal(t, tc.want, head)
 		})
