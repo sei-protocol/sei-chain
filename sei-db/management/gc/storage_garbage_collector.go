@@ -74,12 +74,12 @@ func (s *StorageGarbageCollector) Close() error {
 }
 
 // run periodically drives prune cycles until the manager is stopped. All decision logic lives in prune so it can
-// be unit tested without threading.
+// be unit tested without threading; the ticker path is covered by constructing a collector with a short
+// config.PruneInterval.
 func (s *StorageGarbageCollector) run() {
 	defer s.wg.Done()
 
-	//nolint:gosec // G115 - Config.Validate rejects PruneIntervalSeconds large enough to overflow this conversion.
-	ticker := time.NewTicker(time.Duration(s.config.PruneIntervalSeconds) * time.Second)
+	ticker := time.NewTicker(s.config.PruneInterval)
 	defer ticker.Stop()
 
 	for {

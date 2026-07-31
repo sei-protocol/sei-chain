@@ -33,29 +33,27 @@ type StorageGarbageCollectorConfig struct {
 	// contiguous stores must still cover the oldest snapshot anyone kept, or the snapshot becomes unreplayable.
 	StoreRetention uint64
 
-	// The frequency of prune operations, in seconds.
-	PruneIntervalSeconds uint64
+	// How often the collector drives a prune cycle.
+	PruneInterval time.Duration
 }
 
 // Construct a default storage garbage collector config.
 func DefaultStorageGarbageCollectorConfig() *StorageGarbageCollectorConfig {
 	return &StorageGarbageCollectorConfig{
-		RollbackWindow:       1000,
-		StoreRetention:       100_000,
-		PruneIntervalSeconds: 600,
+		RollbackWindow: 1000,
+		StoreRetention: 100_000,
+		PruneInterval:  10 * time.Minute,
 	}
 }
 
 // Validate the storage garbage collector's config.
 func (c *StorageGarbageCollectorConfig) Validate() error {
-	// A zero rollback window is legal: it means the system prunes as aggressively as possible.
-	if c.PruneIntervalSeconds == 0 {
-		return fmt.Errorf("prune interval must be greater than 0 seconds")
+	if c == nil {
+		return fmt.Errorf("config is required")
 	}
-	// The prune interval is converted to a time.Duration (int64 nanoseconds) when the ticker is created. Reject values
-	// that would overflow that conversion so the ticker can never be handed a zero/negative duration.
-	if c.PruneIntervalSeconds > math.MaxInt64/uint64(time.Second) {
-		return fmt.Errorf("prune interval must be at most %d seconds", math.MaxInt64/uint64(time.Second))
+	// A zero rollback window is legal: it means the system prunes as aggressively as possible.
+	if c.PruneInterval <= 0 {
+		return fmt.Errorf("prune interval must be greater than 0")
 	}
 	// The cut line is derived by subtracting RollbackWindow + StoreRetention from the head of the chain. Reject a pair
 	// that overflows when summed, so that subtraction cannot wrap around to a cut line above the head.
