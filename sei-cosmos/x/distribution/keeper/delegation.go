@@ -3,11 +3,21 @@ package keeper
 import (
 	"fmt"
 
+	"golang.org/x/mod/semver"
+
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/seilog"
 )
+
+// ReadOnlyRewardsUpgrade is the upgrade at which delegation-reward queries stopped
+// persisting a validator-period increment (see DelegationRewardsForQuery). It is
+// only consulted when re-tracing a historical block (ctx.IsTracing()), and only via
+// semver comparison against ctx.ClosestUpgradeName(), so it just needs to be
+// semver-equal to that release. It follows the app/tags convention (…, v6.5, v6.6),
+// hence "v6.7".
+const ReadOnlyRewardsUpgrade = "v6.7"
 
 var logger = seilog.NewLogger("cosmos", "x", "distribution", "keeper")
 
@@ -29,6 +39,18 @@ func (k Keeper) initializeDelegation(ctx sdk.Context, val sdk.ValAddress, del sd
 	k.SetDelegatorStartingInfo(ctx, val, del, types.NewDelegatorStartingInfo(previousPeriod, stake, uint64(ctx.BlockHeight()))) //nolint:gosec // block heights are always non-negative
 }
 
+// rewardsFromRatios returns stake * (endingRatio - startingRatio), truncated. It
+// centralizes the ratio math shared by the store-backed reward calculation and the
+// read-only calculation used by queries (which supply an in-memory ending ratio).
+func rewardsFromRatios(startingRatio, endingRatio sdk.DecCoins, stake sdk.Dec) sdk.DecCoins {
+	difference := endingRatio.Sub(startingRatio)
+	if difference.IsAnyNegative() {
+		panic("negative rewards should not be possible")
+	}
+	// note: necessary to truncate so we don't allow withdrawing more rewards than owed
+	return difference.MulDecTruncate(stake)
+}
+
 // calculate the rewards accrued by a delegation between two periods
 func (k Keeper) calculateDelegationRewardsBetween(ctx sdk.Context, val stakingtypes.ValidatorI,
 	startingPeriod, endingPeriod uint64, stake sdk.Dec) (rewards sdk.DecCoins) {
@@ -45,17 +67,96 @@ func (k Keeper) calculateDelegationRewardsBetween(ctx sdk.Context, val stakingty
 	// return staking * (ending - starting)
 	starting := k.GetValidatorHistoricalRewards(ctx, val.GetOperator(), startingPeriod)
 	ending := k.GetValidatorHistoricalRewards(ctx, val.GetOperator(), endingPeriod)
-	difference := ending.CumulativeRewardRatio.Sub(starting.CumulativeRewardRatio)
-	if difference.IsAnyNegative() {
-		panic("negative rewards should not be possible")
-	}
-	// note: necessary to truncate so we don't allow withdrawing more rewards than owed
-	rewards = difference.MulDecTruncate(stake)
-	return
+	return rewardsFromRatios(starting.CumulativeRewardRatio, ending.CumulativeRewardRatio, stake)
 }
 
-// calculate the total rewards accrued by a delegation
+// CalculateDelegationRewards calculates the total rewards accrued by a delegation
+// up to endingPeriod, reading that period's cumulative reward ratio from the
+// store. State-changing callers (e.g. withdrawals) persist endingPeriod via
+// IncrementValidatorPeriod before calling this. Passing a nil ending ratio makes
+// the core read endingPeriod from the store lazily (only if the final period is
+// reached), preserving this path's exact store-access pattern and gas cost.
 func (k Keeper) CalculateDelegationRewards(ctx sdk.Context, val stakingtypes.ValidatorI, del stakingtypes.DelegationI, endingPeriod uint64) (rewards sdk.DecCoins) {
+	return k.calculateDelegationRewards(ctx, val, del, endingPeriod, nil)
+}
+
+// currentRewardsEndingPeriodAndRatio returns the ending period and its cumulative
+// reward ratio that IncrementValidatorPeriod WOULD produce for the validator's
+// current (open) period — computed in memory, WITHOUT writing to the store. This
+// lets read-only reward queries avoid the state mutation (historical/current
+// rewards, reference counts, and the zero-token community-pool transfer) that
+// IncrementValidatorPeriod performs. The returned ratio is identical to the one
+// IncrementValidatorPeriod would persist for that period, so the resulting reward
+// figure matches the state-changing path exactly.
+func (k Keeper) currentRewardsEndingPeriodAndRatio(ctx sdk.Context, val stakingtypes.ValidatorI) (uint64, sdk.DecCoins) {
+	rewards := k.GetValidatorCurrentRewards(ctx, val.GetOperator())
+
+	var current sdk.DecCoins
+	if val.GetTokens().IsZero() {
+		// The state-changing path routes a zero-token validator's rewards to the
+		// community pool and uses a zero ratio; a read-only query only needs the
+		// (zero) ratio, not the transfer.
+		current = sdk.DecCoins{}
+	} else {
+		// note: necessary to truncate so we don't allow withdrawing more rewards than owed
+		current = rewards.Rewards.QuoDecTruncate(val.GetTokens().ToDec())
+	}
+
+	historical := k.GetValidatorHistoricalRewards(ctx, val.GetOperator(), rewards.Period-1).CumulativeRewardRatio
+	return rewards.Period, historical.Add(current...)
+}
+
+// CalculateDelegationRewardsReadOnly computes a delegation's outstanding rewards
+// without mutating any state. It mirrors the "IncrementValidatorPeriod then
+// CalculateDelegationRewards" sequence used by the withdraw path, but derives the
+// ending period's cumulative reward ratio in memory instead of persisting it, so
+// it is safe to call from read-only queries.
+func (k Keeper) CalculateDelegationRewardsReadOnly(ctx sdk.Context, val stakingtypes.ValidatorI, del stakingtypes.DelegationI) sdk.DecCoins {
+	endingPeriod, endingRatio := k.currentRewardsEndingPeriodAndRatio(ctx, val)
+	return k.calculateDelegationRewards(ctx, val, del, endingPeriod, &endingRatio)
+}
+
+// DelegationRewardsForQuery computes a delegation's rewards for a read-only reward
+// query. It uses the non-mutating read-only path (CalculateDelegationRewardsReadOnly).
+// Before v6.7 these queries persisted a validator-period increment
+// (IncrementValidatorPeriod), which committed when the EVM distribution `rewards()`
+// precompile ran the query on the live context. That old behavior only needs to be
+// reproduced when re-tracing a pre-v6.7 block via debug_trace* — live execution runs
+// only on the current (post-upgrade) binary, which never non-tracingly re-executes a
+// pre-upgrade block (see rewardQueryIsReadOnly).
+func (k Keeper) DelegationRewardsForQuery(ctx sdk.Context, val stakingtypes.ValidatorI, del stakingtypes.DelegationI) sdk.DecCoins {
+	if k.rewardQueryIsReadOnly(ctx) {
+		return k.CalculateDelegationRewardsReadOnly(ctx, val, del)
+	}
+	// Pre-v6.7 behavior: the query incremented the validator period and read the
+	// freshly-persisted ending ratio. Reproduce it exactly for deterministic replay.
+	endingPeriod := k.IncrementValidatorPeriod(ctx, val)
+	return k.CalculateDelegationRewards(ctx, val, del, endingPeriod)
+}
+
+// rewardQueryIsReadOnly reports whether a reward query should use the non-mutating
+// read-only path. Live execution always does: the current binary only ever executes
+// at/after the upgrade that shipped this behavior, so a non-tracing block is never a
+// pre-upgrade block. The only place the old, state-mutating behavior must be
+// reproduced is when re-tracing a historical pre-v6.7 block via debug_trace*, where
+// the era is signaled by the trace harness through ClosestUpgradeName (see
+// app.RPCContextProvider) and compared by semver (empty name sorts before v6.7).
+func (k Keeper) rewardQueryIsReadOnly(ctx sdk.Context) bool {
+	if !ctx.IsTracing() {
+		return true
+	}
+	return semver.Compare(ctx.ClosestUpgradeName(), ReadOnlyRewardsUpgrade) >= 0
+}
+
+// calculateDelegationRewards is the shared core of the reward calculation. When
+// endingRatio is non-nil it is used as the cumulative reward ratio at endingPeriod
+// for the final period, so read-only callers can pass an in-memory ratio and avoid
+// persisting the period. When endingRatio is nil the ratio is read from the store
+// (the state-changing withdraw path, which persists it via IncrementValidatorPeriod
+// beforehand); reading it lazily here — only if the final period is reached —
+// preserves that path's exact store-access pattern and gas cost. Intermediate
+// slash periods are always read from the store (they are always persisted).
+func (k Keeper) calculateDelegationRewards(ctx sdk.Context, val stakingtypes.ValidatorI, del stakingtypes.DelegationI, endingPeriod uint64, endingRatio *sdk.DecCoins) (rewards sdk.DecCoins) {
 	// fetch starting info for delegation
 	startingInfo := k.GetDelegatorStartingInfo(ctx, del.GetValidatorAddr(), del.GetDelegatorAddr())
 
@@ -133,8 +234,23 @@ func (k Keeper) CalculateDelegationRewards(ctx sdk.Context, val stakingtypes.Val
 		}
 	}
 
-	// calculate rewards for final period
-	rewards = rewards.Add(k.calculateDelegationRewardsBetween(ctx, val, startingPeriod, endingPeriod, stake)...)
+	// calculate rewards for the final period (mirrors calculateDelegationRewardsBetween:
+	// same sanity checks and same two historical-rewards reads for the nil path).
+	if startingPeriod > endingPeriod {
+		panic("startingPeriod cannot be greater than endingPeriod")
+	}
+	if stake.IsNegative() {
+		panic("stake should not be negative")
+	}
+	startingRatio := k.GetValidatorHistoricalRewards(ctx, val.GetOperator(), startingPeriod).CumulativeRewardRatio
+	finalRatio := endingRatio
+	if finalRatio == nil {
+		// state-changing path: read the persisted ending ratio here (lazily, only
+		// once the final period is reached) to preserve the original gas cost.
+		ratio := k.GetValidatorHistoricalRewards(ctx, val.GetOperator(), endingPeriod).CumulativeRewardRatio
+		finalRatio = &ratio
+	}
+	rewards = rewards.Add(rewardsFromRatios(startingRatio, *finalRatio, stake)...)
 
 	return rewards
 }

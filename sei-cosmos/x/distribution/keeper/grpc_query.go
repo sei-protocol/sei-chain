@@ -150,8 +150,9 @@ func (k Keeper) DelegationRewards(c context.Context, req *types.QueryDelegationR
 		return nil, types.ErrNoDelegationExists
 	}
 
-	endingPeriod := k.IncrementValidatorPeriod(ctx, val)
-	rewards := k.CalculateDelegationRewards(ctx, val, del, endingPeriod)
+	// Read-only for v6.7.0+; reproduces the pre-v6.7.0 period-increment write only
+	// when re-tracing an older block (see DelegationRewardsForQuery).
+	rewards := k.DelegationRewardsForQuery(ctx, val, del)
 
 	return &types.QueryDelegationRewardsResponse{Rewards: rewards}, nil
 }
@@ -181,8 +182,9 @@ func (k Keeper) DelegationTotalRewards(c context.Context, req *types.QueryDelega
 		func(_ int64, del stakingtypes.DelegationI) (stop bool) {
 			valAddr := del.GetValidatorAddr()
 			val := k.stakingKeeper.Validator(ctx, valAddr)
-			endingPeriod := k.IncrementValidatorPeriod(ctx, val)
-			delReward := k.CalculateDelegationRewards(ctx, val, del, endingPeriod)
+			// Read-only for v6.7.0+; reproduces the pre-v6.7.0 period-increment write
+			// only when re-tracing an older block (see DelegationRewardsForQuery).
+			delReward := k.DelegationRewardsForQuery(ctx, val, del)
 
 			delRewards = append(delRewards, types.NewDelegationDelegatorReward(valAddr, delReward))
 			total = total.Add(delReward...)
