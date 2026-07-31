@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -288,7 +289,16 @@ func TestCapDiagnostics(t *testing.T) {
 // asserts the reporting path survives each shape rather than asserting log text, since
 // the text is not a contract; a panic or nil dereference in the reporter would turn an
 // advisory pass into a boot failure, which is the one thing it must never do.
+//
+// It reports through the production logger, which is what the zero-value manager
+// resolves to, so the every-outcome table covers the logger a node actually boots with.
+// The other tests here inject their own, and without this one nothing would construct
+// the package logger at all: a nil or broken one would ship unnoticed, and a nil
+// *slog.Logger panics on use rather than discarding, so it would refuse a boot.
 func TestLogAdvisoryHandlesEveryOutcome(t *testing.T) {
+	lg := SeiConfigManager{}.log()
+	require.NotNil(t, lg, "the zero-value manager must resolve to a usable logger")
+
 	many := make([]string, maxLoggedDiagnostics+3)
 	for i := range many {
 		many[i] = fmt.Sprintf("[ERROR] field%d: broken", i)
@@ -308,7 +318,7 @@ func TestLogAdvisoryHandlesEveryOutcome(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.NotPanics(t, func() { logAdvisory(tc.out) })
+			require.NotPanics(t, func() { logAdvisory(lg, tc.out) })
 		})
 	}
 }
@@ -330,23 +340,21 @@ func TestReadConfigFromDirMissingIsErrNotExist(t *testing.T) {
 // The logger is the subsystem this defends against. validateAdvisory recovers its own
 // panics (TestValidateAdvisoryReportsWhatItFound asserts a clean pass), and logAdvisory
 // is proven panic-free on every outcome (TestLogAdvisoryHandlesEveryOutcome), so the
-// remaining exposure is a logger broken independent of its arguments. Swapping in a
-// logger whose handler panics on every record makes both the reporting call and the
-// recover handler's own log call panic; reportAdvisory must still return normally.
+// remaining exposure is a logger broken independent of its arguments. A logger whose
+// handler panics on every record makes both the reporting call and the recover handler's
+// own log call panic; reportAdvisory must still return normally.
+//
+// The broken logger is passed in rather than assigned over the package one. Reassigning
+// it would leave a future parallel test in this package racing the swap, and nothing here
+// needs the package logger to change: the reporter takes the logger it reports through.
 func TestReportAdvisoryNeverEscapesWhenTheLoggerPanics(t *testing.T) {
 	configtest.Isolate(t)
 	// A config missing a required field, so the pass produces a diagnostic and
-	// logAdvisory reaches a logger call rather than the quiet fresh-node skip. The pass
-	// runs before the logger is swapped, matching production, where it runs before the
-	// handler applies the operator's level and only the reporting runs after.
+	// logAdvisory reaches a logger call rather than the quiet fresh-node skip.
 	root := writeMinimalHome(t, "mode = \"full\"\n", "")
 	out := validateAdvisory(homeCmd(t, root))
 
-	orig := logger
-	t.Cleanup(func() { logger = orig })
-	logger = slog.New(panickingHandler{})
-
-	require.NotPanics(t, func() { reportAdvisory(out) })
+	require.NotPanics(t, func() { reportAdvisory(slog.New(panickingHandler{}), out) })
 }
 
 // panickingHandler is a slog.Handler that panics on every record, standing in for a
@@ -357,3 +365,126 @@ func (panickingHandler) Enabled(context.Context, slog.Level) bool  { return true
 func (panickingHandler) Handle(context.Context, slog.Record) error { panic("logger handler is broken") }
 func (panickingHandler) WithAttrs([]slog.Attr) slog.Handler        { return panickingHandler{} }
 func (panickingHandler) WithGroup(string) slog.Handler             { return panickingHandler{} }
+
+// TestApplyRunsTheValidationPass asserts the one claim that distinguishes v2 from the
+// legacy manager: that Apply actually runs the validation pass and reports it.
+//
+// Nothing else reaches this. The parity rows compare two runs of the same reader and
+// still match if the pass never runs; the never-refuses-boot tests only assert that a
+// boot succeeds; and the advisory tests call validateAdvisory and reportAdvisory
+// directly. Deleting the two lines in Apply that call them makes v2 byte-identical to
+// the legacy manager, and every one of those tests stays green. This one fails, because
+// it drives the real Apply and names a finding the pass has to produce.
+func TestApplyRunsTheValidationPass(t *testing.T) {
+	configtest.Isolate(t)
+	// A config missing a required field, so validation has a finding to report. app.toml
+	// is written as well: without it the read fails with ErrNotExist, the pass skips
+	// silently, and there would be nothing to distinguish that from the wiring being gone.
+	root := writeMinimalHome(t, "mode = \"full\"\n", "")
+
+	// A real StartCmd, and one whose default home is non-empty. With an empty default an
+	// unresolved --home reports the no-home skip instead, so an assertion that merely
+	// counted records would hold even on a fixture that never reached the config.
+	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
+	require.NoError(t, cmd.Flags().Set(flags.FlagHome, root))
+	serverCtx := &server.Context{}
+	cmd.SetContext(context.WithValue(context.Background(), server.ServerContextKey, serverCtx))
+
+	capture := &capturingHandler{}
+	require.NoError(t, SeiConfigManager{logger: slog.New(capture)}.Apply(cmd,
+		serverconfig.DefaultConfigTemplate, serverconfig.DefaultConfig()),
+		"the fixture is meant to boot, so a failure here means the fixture, not the pass")
+
+	// Named by diagnostic rather than by record count, and it is the same finding
+	// TestValidateAdvisoryReportsWhatItFound anchors on, so a sei-config change moves
+	// both together instead of leaving this one asserting that something was logged.
+	var found *slog.Record
+	var seen []string
+	for i := range capture.records {
+		line := renderRecord(capture.records[i])
+		seen = append(seen, line)
+		if strings.Contains(line, "chain.min_gas_prices") {
+			found = &capture.records[i]
+		}
+	}
+	require.NotNil(t, found,
+		"Apply reported no diagnostic naming chain.min_gas_prices, so the validation pass "+
+			"is not wired into it; records seen: %v", seen)
+	require.Equal(t, slog.LevelWarn, found.Level,
+		"the diagnostic line is the operator-facing one and has to survive a node's level")
+	require.Contains(t, renderRecord(*found), "home="+root,
+		"the line has to name the directory validated, or a drifted resolve is invisible")
+}
+
+// TestApplyPropagatesALegacyHandlerPanic asserts the abort direction of the manager's
+// promise: v2 must not turn a boot the legacy path refuses into one that succeeds.
+//
+// Every other test asserts the permissive direction, that a boot legacy allows still
+// happens. This one exists because the advisory path holds a recover, and the reporting
+// call in Apply is deliberately not deferred for that reason. A deferred report whose
+// recover had been hoisted into reportAdvisory's own body would swallow the handler's
+// panic and return nil, which is exactly this assertion failing.
+//
+// The fixture drives a real panic rather than simulating one. A home under a
+// non-writable parent is absent as far as the handler's stat is concerned, so it takes
+// the fresh-node branch, and the directory creation inside that branch then fails on
+// permissions, which the legacy handler raises as a panic rather than an error.
+func TestApplyPropagatesALegacyHandlerPanic(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, which ignores the directory permissions this relies on")
+	}
+	configtest.Isolate(t)
+
+	readOnly := filepath.Join(t.TempDir(), "read-only")
+	require.NoError(t, os.MkdirAll(readOnly, 0o500))
+	// Restored so the temp-dir cleanup can remove it.
+	t.Cleanup(func() { _ = os.Chmod(readOnly, 0o700) })
+
+	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
+	require.NoError(t, cmd.Flags().Set(flags.FlagHome, filepath.Join(readOnly, "node")))
+	serverCtx := &server.Context{}
+	cmd.SetContext(context.WithValue(context.Background(), server.ServerContextKey, serverCtx))
+
+	require.Panics(t, func() {
+		_ = SeiConfigManager{logger: slog.New(&capturingHandler{})}.Apply(cmd,
+			serverconfig.DefaultConfigTemplate, serverconfig.DefaultConfig())
+	}, "a panic from the legacy handler must reach the caller rather than being recovered "+
+		"into a successful boot")
+}
+
+// capturingHandler records what was logged so a test can assert on it without
+// reassigning the package logger.
+type capturingHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+// Enabled admits every level, so a record cannot be dropped by the level the legacy
+// handler applies partway through Apply and leave an assertion looking at nothing.
+func (h *capturingHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *capturingHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	// Cloned because slog only lends a record for the duration of the call.
+	h.records = append(h.records, r.Clone())
+	return nil
+}
+
+func (h *capturingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *capturingHandler) WithGroup(string) slog.Handler      { return h }
+
+// renderRecord flattens a record's message and attributes into one line, so an
+// assertion can name a value without knowing which attribute carries it.
+func renderRecord(r slog.Record) string {
+	var b strings.Builder
+	b.WriteString(r.Message)
+	r.Attrs(func(a slog.Attr) bool {
+		b.WriteString(" ")
+		b.WriteString(a.Key)
+		b.WriteString("=")
+		b.WriteString(a.Value.String())
+		return true
+	})
+	return b.String()
+}

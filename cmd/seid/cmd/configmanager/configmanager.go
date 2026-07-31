@@ -3,6 +3,7 @@ package configmanager
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"runtime/debug"
@@ -43,7 +44,23 @@ func (LegacyConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate str
 // SeiConfigManager validates the config through the sei-config library, then
 // re-enters the legacy handler on the operator's original files. It never
 // writes, migrates, or refuses boot.
-type SeiConfigManager struct{}
+type SeiConfigManager struct {
+	// logger reports the advisory outcome, and a nil one means the package logger.
+	// Select and every other caller build the zero value, so the nil case is the
+	// production path rather than a fallback: the accessor below is what keeps it
+	// from being a nil dereference, which in Apply would refuse a boot the legacy
+	// path allowed. It exists so a test can read what Apply reported without
+	// reassigning package state that a parallel test could race.
+	logger *slog.Logger
+}
+
+// log returns the logger to report through, and never returns nil.
+func (m SeiConfigManager) log() *slog.Logger {
+	if m.logger != nil {
+		return m.logger
+	}
+	return logger
+}
 
 // Apply validates the operator's config, re-enters the legacy handler on the original
 // files, then reports what the validation found. Validation runs before re-entry so it
@@ -54,10 +71,18 @@ type SeiConfigManager struct{}
 // which for a pass whose only output is operator-facing defeats it. The outcome is
 // reported even when the handler errors, so a boot that fails still gets the advisory.
 // Nothing in either step refuses a boot the legacy path would have allowed.
-func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
+//
+// The report is deliberately not deferred. Deferring it as written would be harmless,
+// because reportAdvisory's recover sits in a closure one frame too deep to see a panic
+// raised here. It stops being harmless the moment that recover is hoisted into
+// reportAdvisory's own body, which is a plausible edit given validateAdvisory below uses
+// exactly that idiom: a deferred report would then recover a panic from the legacy
+// handler and return nil, turning a boot the legacy path aborts into a successful one.
+// TestApplyPropagatesALegacyHandlerPanic fails on that combination.
+func (m SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
 	out := validateAdvisory(cmd)
 	err := server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
-	reportAdvisory(out)
+	reportAdvisory(m.log(), out)
 	return err
 }
 
@@ -69,7 +94,7 @@ func (SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string
 // produced out has its own recover, so the remaining exposure is the log call, which the
 // deferred recover below contains. logAdvisory is proven panic-free on every outcome, so
 // this only fires for a logger broken independent of its arguments.
-func reportAdvisory(out advisoryOutcome) {
+func reportAdvisory(lg *slog.Logger, out advisoryOutcome) {
 	defer func() {
 		if r := recover(); r != nil {
 			// A second panic, from logging the first, must not escape. The nested recover
@@ -78,11 +103,11 @@ func reportAdvisory(out advisoryOutcome) {
 			// debuggable from a node's logs. This mirrors what the pass captures for a
 			// panic in validateAdvisory.
 			defer func() { _ = recover() }()
-			logger.Error("config validation reporting panicked (advisory; recovered, node will boot)",
+			lg.Error("config validation reporting panicked (advisory; recovered, node will boot)",
 				"panic", r, "stack", string(debug.Stack()))
 		}
 	}()
-	logAdvisory(out)
+	logAdvisory(lg, out)
 }
 
 // advisoryOutcome is what the validation pass saw. The pass reports rather than logs
@@ -204,19 +229,19 @@ func validateAdvisory(cmd *cobra.Command) (out advisoryOutcome) {
 const maxLoggedDiagnostics = 10
 
 // logAdvisory reports an outcome through seilog. Nothing here refuses boot.
-func logAdvisory(out advisoryOutcome) {
+func logAdvisory(lg *slog.Logger, out advisoryOutcome) {
 	switch {
 	case out.Panic != nil:
-		logger.Error("config validation panicked (advisory; recovered, node will boot)",
+		lg.Error("config validation panicked (advisory; recovered, node will boot)",
 			"panic", out.Panic, "stack", string(out.Stack))
 	case out.Stage == stageResolve:
-		logger.Warn("could not resolve home dir for config validation (advisory)", "error", out.Err)
+		lg.Warn("could not resolve home dir for config validation (advisory)", "error", out.Err)
 	// Any other non-completing stage still reports, so a stage added without its own
 	// case above logs something rather than nothing. The phrasing is neutral for the
 	// same reason: naming a step here would misreport a stage added later, and the
 	// stage attribute carries which one it actually was.
 	case out.Stage != stageNone:
-		logger.Warn("config validation stopped early (advisory)",
+		lg.Warn("config validation stopped early (advisory)",
 			"stage", out.Stage, "error", out.Err)
 	// An unresolved home is closer to a misconfiguration than to a quiet default, and
 	// it is reported so an operator who opted into v2 can tell a declined pass from a
@@ -224,12 +249,12 @@ func logAdvisory(out advisoryOutcome) {
 	// empty only when the home never resolved, and the missing-config skip below it
 	// is the ordinary fresh-node case, which stays quiet.
 	case out.Skipped && out.Home == "":
-		logger.Info("config validation skipped: no home dir resolved (advisory)")
+		lg.Info("config validation skipped: no home dir resolved (advisory)")
 	// The pass completed and found nothing. Report at Info so an operator who opted into
 	// v2 can see it ran clean, distinct from the quiet fresh-node skip (Skipped with a
 	// home), which stays silent because the legacy handler is about to write those files.
 	case !out.Skipped && out.Stage == stageNone && len(out.Diagnostics) == 0:
-		logger.Info("config validation passed: no advisories (node will boot)", "home", out.Home)
+		lg.Info("config validation passed: no advisories (node will boot)", "home", out.Home)
 	}
 
 	if len(out.Diagnostics) == 0 {
@@ -239,7 +264,7 @@ func logAdvisory(out advisoryOutcome) {
 	// The home is reported because a resolveHomeDir that drifted from the legacy
 	// handler would have these diagnostics describe a directory the node is not
 	// booting on, and without the path in the line there is no way to tell from a log.
-	logger.Warn("advisory config validation diagnostics (not enforced; node will boot)",
+	lg.Warn("advisory config validation diagnostics (not enforced; node will boot)",
 		"home", out.Home, "count", len(out.Diagnostics), "diagnostics", shown, "omitted", omitted)
 }
 
