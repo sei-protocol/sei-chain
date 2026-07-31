@@ -8,10 +8,10 @@ import (
 )
 
 // StateReader supplies EVM-native state to an executor. Implementations passed
-// through WithState do not need to be goroutine-safe; the executor serializes
-// reads unless the implementation advertises ConcurrentStateReader. GetBalance
-// and GetCode return mutable values, so concurrent readers must return
-// caller-owned copies.
+// through WithState do not need to be goroutine-safe; the executor disables OCC
+// and serializes whole-block execution unless the implementation advertises
+// ConcurrentStateReader. GetBalance and GetCode return mutable values, so
+// concurrent readers must return caller-owned copies.
 type StateReader interface {
 	GetBalance(common.Address) *big.Int
 	GetNonce(common.Address) uint64
@@ -192,45 +192,4 @@ func cloneBytes(v []byte) []byte {
 		return nil
 	}
 	return append([]byte(nil), v...)
-}
-
-type lockedStateReader struct {
-	mu     sync.Mutex
-	source StateReader
-}
-
-func (s *lockedStateReader) ConcurrentReads() {}
-
-func parallelSafeStateReader(source StateReader) StateReader {
-	if source == nil {
-		return NewMemoryState()
-	}
-	if _, ok := source.(ConcurrentStateReader); ok {
-		return source
-	}
-	return &lockedStateReader{source: source}
-}
-
-func (s *lockedStateReader) GetBalance(addr common.Address) *big.Int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return cloneBig(s.source.GetBalance(addr))
-}
-
-func (s *lockedStateReader) GetNonce(addr common.Address) uint64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.source.GetNonce(addr)
-}
-
-func (s *lockedStateReader) GetCode(addr common.Address) []byte {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return cloneBytes(s.source.GetCode(addr))
-}
-
-func (s *lockedStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.source.GetState(addr, key)
 }

@@ -9,7 +9,8 @@ import (
 )
 
 type blockResultPool struct {
-	free chan *BlockResult
+	free                chan *BlockResult
+	overflowAllocations atomic.Uint64
 }
 
 type blockResultLease struct {
@@ -35,6 +36,9 @@ func (p *blockResultPool) acquire(ctx context.Context, txCapacity int) (*BlockRe
 		result.prepareForBlock(txCapacity)
 		return result, nil
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	select {
 	case result := <-p.free:
 		result.prepareForBlock(txCapacity)
@@ -44,8 +48,22 @@ func (p *blockResultPool) acquire(ctx context.Context, txCapacity int) (*BlockRe
 		result.lease = lease
 		result.releaseMu.Unlock()
 		return result, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	default:
+		p.overflowAllocations.Add(1)
+		result := &BlockResult{}
+		result.prepareForBlock(txCapacity)
+		return result, nil
+	}
+}
+
+func (p *blockResultPool) stats() BlockResultPoolStats {
+	if p == nil {
+		return BlockResultPoolStats{}
+	}
+	return BlockResultPoolStats{
+		Capacity:            cap(p.free),
+		Available:           len(p.free),
+		OverflowAllocations: p.overflowAllocations.Load(),
 	}
 }
 

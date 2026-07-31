@@ -72,9 +72,10 @@ durable persistence, state commitment, block indexing, and receipt publication.
 The concrete `Executor` accepts a `StateReader` backend through `WithState(...)`;
 callers can persist the returned `ChangeSet` with a matching `StateWriter`.
 `StateReader` implementations passed to `WithState` do not need to be safe for
-parallel reads: the executor serializes reads for arbitrary backends. Backends
-that are already read-concurrent can implement `ConcurrentStateReader` to opt out
-of executor-side locking.
+parallel reads. For those backends, the executor disables OCC and serializes
+whole-block execution instead of putting a mutex around every cold state lookup.
+Backends must implement `ConcurrentStateReader` before OCC is eligible; skipped
+OCC is reported through `OCCStats.DisabledReason`.
 Call `Close()` to disable future OCC execution on an executor.
 
 A non-nil `error` means block validation failed and the caller must not commit a
@@ -135,6 +136,9 @@ logs, tx hash, contract address, and effective gas price metadata where needed.
 
 `Txs` carries per-transaction execution metadata used to build or enrich
 receipts and RPC responses. `GasUsed` is the total EVM gas consumed by the block.
+When result pooling is enabled, exhaustion allocates an unpooled result instead
+of blocking execution on a missing `Release` call. `ResultPoolStats` exposes the
+pool capacity, current availability, and overflow allocation count.
 
 ## Open precompile work
 
@@ -165,11 +169,15 @@ comparing each incarnation's recorded balance, nonce, code, account, and
 incarnation's source prefix.
 
 - transactions with no dependency on newly accepted prior writes are retained
-  until they can be accepted in block order
+  and accepted in block order without rerunning
 - transactions whose reads, writes, gas-pool availability, or execution errors
-  are invalidated by the accepted prefix are batched into a rerun round against
-  an immutable snapshot of the first blocked prefix
-- rerun rounds execute concurrently through the shared OCC worker pool
+  are invalidated at the validation frontier are rerun against that exact
+  accepted prefix
+- the accepted prefix, write index, cumulative gas, and validation frontier stay
+  live across reruns; validation resumes at the blocked transaction instead of
+  rebuilding and replaying the block prefix
+- only the earliest invalid transaction is rerun, so downstream dependency
+  chains do not spend incarnations against a prefix known to be incomplete
 - rerun outputs replace only that transaction's prior incarnation
 - the final changeset is generated from the accepted prefix state, not by
   blindly merging mixed-base speculative writes
@@ -190,20 +198,26 @@ and changesets are detached before the scratch state DB is reset. EVM snapshots
 inside `nativeStateDB` are journaled by mutation kind instead of cloning all side
 state at every snapshot; account contents, access lists, transient storage,
 tx-storage bookkeeping, preimages, finalise markers, and commutative balance
-deltas are restored by undo entries.
+deltas are restored by undo entries. Loaded bytecode is immutable and shared
+across account snapshots, and code hashes are cached per loaded account.
 
 `OCCStats` reports whether optimistic execution was attempted, how many reruns
-were needed, and aggregated conflict samples. `Fallback` is reserved for cases
-where the executor gives up on the optimistic path, such as max-incarnation
-exhaustion or a concurrent `Close()` closing the shared OCC worker pool after
-OCC was selected; ordinary conflicts should be resolved by per-transaction
-reruns instead.
+and validation attempts were needed, and aggregated conflict samples.
+`DisabledReason` explains why an otherwise eligible block skipped OCC.
+`Fallback` is reserved for cases where the executor gives up on the optimistic
+path, such as max-incarnation exhaustion or a concurrent `Close()` closing the
+shared OCC worker pool after OCC was selected; ordinary conflicts should be
+resolved by per-transaction reruns instead.
 
 ## Current limitations
 
 - Block-STM execution is optional and conservative; conflicts are resolved by
   granular reruns, but the validator may rerun more transactions than a less
   conservative implementation would.
+- The first mutation of an account in each nested EVM snapshot still clones its
+  loaded storage map for rollback. Bytecode no longer contributes to that copy,
+  but field- and slot-level account journaling remains a future optimization for
+  deep call trees on storage-heavy contracts.
 - State input is key-addressable only. The executor lazily reads storage slots
   by `(address, slot)` and does not require or expose range iteration.
 - The map-backed `MemoryState` is for tests and early integration; production

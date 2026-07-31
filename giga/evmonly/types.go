@@ -105,8 +105,10 @@ type OCCStats struct {
 	Attempted       bool
 	Fallback        bool
 	FallbackReason  string
+	DisabledReason  string
 	RerunCount      uint64
 	ConflictCount   uint64
+	ValidationCount uint64
 	ConflictSamples []OCCConflictCount
 }
 
@@ -118,6 +120,14 @@ type OCCConflictCount struct {
 	Address common.Address
 	Slot    common.Hash
 	Count   uint64
+}
+
+// BlockResultPoolStats reports bounded-pool availability and the number of
+// unpooled allocations used to avoid blocking when every pooled result is held.
+type BlockResultPoolStats struct {
+	Capacity            int
+	Available           int
+	OverflowAllocations uint64
 }
 
 // StateChangeSet is the deterministic EVM-native state output for a block.

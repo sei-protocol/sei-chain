@@ -55,7 +55,8 @@ type nativeStateDB struct {
 type nativeAccount struct {
 	Balance        *uint256.Int
 	Nonce          uint64
-	Code           []byte
+	Code           []byte // Immutable after assignment; SetCode replaces the slice.
+	CodeHash       common.Hash
 	Storage        map[common.Hash]storageValue
 	StorageCleared bool
 	SelfDestructed bool
@@ -359,7 +360,10 @@ func (s *nativeStateDB) GetCodeHash(addr common.Address) common.Hash {
 	s.markRead(stateAccessKey{kind: stateAccessCode, address: addr})
 	acct := s.account(addr)
 	if len(acct.Code) > 0 {
-		return crypto.Keccak256Hash(acct.Code)
+		if acct.CodeHash == (common.Hash{}) {
+			acct.CodeHash = crypto.Keccak256Hash(acct.Code)
+		}
+		return acct.CodeHash
 	}
 	s.markRead(stateAccessKey{kind: stateAccessBalance, address: addr})
 	s.markRead(stateAccessKey{kind: stateAccessNonce, address: addr})
@@ -371,7 +375,7 @@ func (s *nativeStateDB) GetCodeHash(addr common.Address) common.Hash {
 
 func (s *nativeStateDB) GetCode(addr common.Address) []byte {
 	s.markRead(stateAccessKey{kind: stateAccessCode, address: addr})
-	return cloneBytes(s.account(addr).Code)
+	return s.account(addr).Code
 }
 
 func (s *nativeStateDB) SetCode(addr common.Address, code []byte) []byte {
@@ -380,6 +384,10 @@ func (s *nativeStateDB) SetCode(addr common.Address, code []byte) []byte {
 	s.recordAccount(addr)
 	s.markWrite(stateAccessKey{kind: stateAccessCode, address: addr})
 	acct.Code = cloneBytes(code)
+	acct.CodeHash = common.Hash{}
+	if len(acct.Code) != 0 {
+		acct.CodeHash = crypto.Keccak256Hash(acct.Code)
+	}
 	return prev
 }
 
@@ -625,6 +633,7 @@ func (s *nativeStateDB) Finalise(bool) {
 		if acct.SelfDestructed {
 			s.recordAccount(addr)
 			acct.Code = nil
+			acct.CodeHash = common.Hash{}
 			acct.Storage = map[common.Hash]storageValue{}
 			acct.StorageCleared = true
 			acct.Nonce = 0
@@ -760,7 +769,7 @@ func (s *nativeStateDB) recordAccount(addr common.Address) {
 func (e nativeJournalEntry) revert(s *nativeStateDB) {
 	switch e.kind {
 	case nativeJournalAccount:
-		s.accounts[e.address] = e.account.clone()
+		s.accounts[e.address] = e.account
 	case nativeJournalAccessAddress:
 		delete(s.accessList.addresses, e.address)
 	case nativeJournalAccessSlot:
@@ -1075,7 +1084,8 @@ func (a *nativeAccount) clone() *nativeAccount {
 	cp := &nativeAccount{
 		Balance:        uint256.NewInt(0),
 		Nonce:          a.Nonce,
-		Code:           cloneBytes(a.Code),
+		Code:           a.Code,
+		CodeHash:       a.CodeHash,
 		Storage:        map[common.Hash]storageValue{},
 		StorageCleared: a.StorageCleared,
 		SelfDestructed: a.SelfDestructed,

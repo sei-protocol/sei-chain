@@ -12,6 +12,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -167,6 +168,40 @@ func TestExecutorPooledResultReleaseIsConcurrentIdempotent(t *testing.T) {
 	next.Release()
 }
 
+func TestExecutorPooledResultExhaustionAllocatesWithoutBlocking(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xd3)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithState(state))
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
+	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
+
+	pooled, err := executor.ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, BlockResultPoolStats{Capacity: 1}, executor.ResultPoolStats())
+
+	overflow, err := executor.ExecuteBlock(context.Background(), req)
+	require.NoError(t, err)
+	require.NotSame(t, pooled, overflow)
+	require.Equal(t, BlockResultPoolStats{
+		Capacity:            1,
+		OverflowAllocations: 1,
+	}, executor.ResultPoolStats())
+
+	overflow.Release()
+	pooled.Release()
+	require.Equal(t, BlockResultPoolStats{
+		Capacity:            1,
+		Available:           1,
+		OverflowAllocations: 1,
+	}, executor.ResultPoolStats())
+}
+
 func TestExecutorCloseDisablesOCC(t *testing.T) {
 	chainID := big.NewInt(713715)
 	rawTxs := make([][]byte, 0, 2)
@@ -234,29 +269,42 @@ type overlapDetectingStateReader struct {
 	active    int
 	maxActive int
 	delay     time.Duration
+	source    StateReader
 }
 
-func (s *overlapDetectingStateReader) GetBalance(common.Address) *big.Int {
+func (s *overlapDetectingStateReader) GetBalance(addr common.Address) *big.Int {
 	done := s.enter()
 	defer done()
+	if s.source != nil {
+		return s.source.GetBalance(addr)
+	}
 	return new(big.Int)
 }
 
-func (s *overlapDetectingStateReader) GetNonce(common.Address) uint64 {
+func (s *overlapDetectingStateReader) GetNonce(addr common.Address) uint64 {
 	done := s.enter()
 	defer done()
+	if s.source != nil {
+		return s.source.GetNonce(addr)
+	}
 	return 0
 }
 
-func (s *overlapDetectingStateReader) GetCode(common.Address) []byte {
+func (s *overlapDetectingStateReader) GetCode(addr common.Address) []byte {
 	done := s.enter()
 	defer done()
+	if s.source != nil {
+		return s.source.GetCode(addr)
+	}
 	return nil
 }
 
-func (s *overlapDetectingStateReader) GetState(common.Address, common.Hash) common.Hash {
+func (s *overlapDetectingStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
 	done := s.enter()
 	defer done()
+	if s.source != nil {
+		return s.source.GetState(addr, key)
+	}
 	return common.Hash{}
 }
 
@@ -289,28 +337,65 @@ func (s *overflowingBalanceState) GetBalance(common.Address) *big.Int {
 	return new(big.Int).Lsh(big.NewInt(1), 256)
 }
 
-func TestWithStateSerializesNonConcurrentReader(t *testing.T) {
+func TestWithStateDisablesOCCForNonConcurrentReader(t *testing.T) {
 	reader := &overlapDetectingStateReader{delay: 2 * time.Millisecond}
-	executor := NewExecutor(Config{}, WithState(reader))
-	_, locked := executor.state.(*lockedStateReader)
-	require.True(t, locked)
+	executor := NewExecutor(Config{OCCWorkers: 4}, WithState(reader))
+
+	require.Same(t, reader, executor.state)
 	_, concurrent := executor.state.(ConcurrentStateReader)
-	require.True(t, concurrent)
-	require.True(t, executor.state == parallelSafeStateReader(executor.state))
+	require.False(t, concurrent)
+	require.False(t, executor.stateConcurrent)
+	require.False(t, executor.useOCC(2))
+}
+
+func TestWithStateSerializesBlocksForNonConcurrentReader(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xef)
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(1_000_000))
+	reader := &overlapDetectingStateReader{delay: 100 * time.Microsecond, source: state}
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(reader))
+	prepared, err := executor.PrepareBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs: [][]byte{
+			signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(0)),
+			signLegacyTxWithGasPrice(t, key, chainID, 1, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(0)),
+		},
+	})
+	require.NoError(t, err)
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for range 16 {
+	type executionOutcome struct {
+		err            error
+		disabledReason string
+	}
+	outcomes := make(chan executionOutcome, 8)
+	for range 8 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			<-start
-			_ = executor.state.GetBalance(testAddress(0xef))
+			result, executeErr := executor.ExecutePreparedBlock(context.Background(), prepared)
+			outcome := executionOutcome{err: executeErr}
+			if result != nil {
+				outcome.disabledReason = result.OCCStats.DisabledReason
+				result.Release()
+			}
+			outcomes <- outcome
 		}()
 	}
 	close(start)
 	wg.Wait()
+	close(outcomes)
 
+	for outcome := range outcomes {
+		require.NoError(t, outcome.err)
+		require.Equal(t, occDisabledReasonStateReaderNotConcurrent, outcome.disabledReason)
+	}
 	require.Equal(t, 1, reader.maxActiveReads())
 }
 
@@ -1931,6 +2016,44 @@ func TestStateDBGetCodeHashDistinguishesExistingCodelessAccounts(t *testing.T) {
 	require.Equal(t, crypto.Keccak256Hash(code), stateDB.GetCodeHash(contract))
 }
 
+func TestStateDBCachesCodeHashAndReturnsImmutableCodeView(t *testing.T) {
+	addr := testAddress(0xe8)
+	code := []byte{0x60, 0x01, 0x60, 0x02}
+	state := NewMemoryState()
+	state.SetCode(addr, code)
+	stateDB := newNativeStateDB(state)
+
+	acct := stateDB.account(addr)
+	require.Equal(t, common.Hash{}, acct.CodeHash)
+	require.Equal(t, crypto.Keccak256Hash(code), stateDB.GetCodeHash(addr))
+	require.Equal(t, crypto.Keccak256Hash(code), acct.CodeHash)
+
+	first := stateDB.GetCode(addr)
+	second := stateDB.GetCode(addr)
+	require.NotEmpty(t, first)
+	require.Equal(t, &first[0], &second[0])
+}
+
+func TestStateDBSnapshotJournalSharesCodeAndReusesSavedAccountOnRevert(t *testing.T) {
+	addr := testAddress(0xe9)
+	code := []byte{0x60, 0x03, 0x60, 0x04}
+	state := NewMemoryState()
+	state.SetCode(addr, code)
+	state.SetBalance(addr, big.NewInt(10))
+	stateDB := newNativeStateDB(state)
+	original := stateDB.account(addr)
+	snapshot := stateDB.Snapshot()
+
+	stateDB.SetBalance(addr, uint256.NewInt(9), tracing.BalanceChangeUnspecified)
+	require.Len(t, stateDB.journal, 1)
+	saved := stateDB.journal[0].account
+	require.Equal(t, &original.Code[0], &saved.Code[0])
+
+	stateDB.RevertToSnapshot(snapshot)
+	require.Same(t, saved, stateDB.accounts[addr])
+	require.Equal(t, uint256.NewInt(10), stateDB.GetBalance(addr))
+}
+
 func TestStateDBGetCodeHashTracksCodelessAccountExistenceReads(t *testing.T) {
 	eoa := testAddress(0xbd)
 	state := NewMemoryState()
@@ -2180,7 +2303,7 @@ func TestNeedsSTMRerunQueuesGasLimitRerunBeforeValidatedPrefix(t *testing.T) {
 	require.Equal(t, occFallbackReasonGasLimit, validation.fallbackReason)
 }
 
-func TestExecutorOCCFallsBackAtMaxIncarnation(t *testing.T) {
+func TestExecutorOCCHotRecipientChainDoesNotExhaustIncarnations(t *testing.T) {
 	chainID := big.NewInt(713715)
 	txCount := occMaxTxIncarnations + 1
 	recipient := testAddress(0xce)
@@ -2201,12 +2324,70 @@ func TestExecutorOCCFallsBackAtMaxIncarnation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, result.OCCStats.Attempted)
-	require.True(t, result.OCCStats.Fallback)
-	require.Equal(t, occFallbackReasonMaxIncarnation, result.OCCStats.FallbackReason)
-	require.Greater(t, result.OCCStats.RerunCount, uint64(0))
+	require.False(t, result.OCCStats.Fallback)
+	require.Empty(t, result.OCCStats.FallbackReason)
+	require.Equal(t, uint64(txCount-1), result.OCCStats.RerunCount)
+	require.Equal(t, uint64(2*txCount-1), result.OCCStats.ValidationCount)
 
 	state.ApplyChangeSet(result.ChangeSet)
 	require.Equal(t, big.NewInt(int64(txCount)), state.GetBalance(recipient))
+}
+
+func TestExecutorOCCSameSenderChainDoesNotExhaustIncarnations(t *testing.T) {
+	chainID := big.NewInt(713715)
+	txCount := occMaxTxIncarnations + 5
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(1_000_000))
+	rawTxs := make([][]byte, 0, txCount)
+	for i := range txCount {
+		recipient := common.BigToAddress(big.NewInt(int64(50_000 + i)))
+		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(
+			t,
+			key,
+			chainID,
+			uint64(i), //nolint:gosec // bounded by the test transaction count.
+			&recipient,
+			big.NewInt(1),
+			nil,
+			100_000,
+			big.NewInt(0),
+		))
+	}
+
+	result, err := NewExecutor(
+		Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4},
+		WithState(state),
+	).ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     rawTxs,
+	})
+
+	require.NoError(t, err)
+	require.True(t, result.OCCStats.Attempted)
+	require.False(t, result.OCCStats.Fallback)
+	require.Equal(t, uint64(txCount-1), result.OCCStats.RerunCount)
+	require.Equal(t, uint64(2*txCount-1), result.OCCStats.ValidationCount)
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, uint64(txCount), state.GetNonce(sender))
+}
+
+func TestNewSTMRerunTaskEnforcesPerTransactionIncarnationLimit(t *testing.T) {
+	validation := occValidationResult{}
+	_, err := newSTMRerunTask(
+		&validation,
+		occTxExecution{incarnation: occMaxTxIncarnations - 1},
+		3,
+		3,
+		NewMemoryState(),
+		100_000,
+	)
+
+	require.ErrorIs(t, err, errOCCMaxIncarnation)
+	require.Equal(t, occFallbackReasonMaxIncarnation, validation.fallbackReason)
+	require.Zero(t, validation.rerunCount)
 }
 
 func TestFinaliseClearsRefund(t *testing.T) {
@@ -2245,17 +2426,99 @@ func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
 	require.True(t, errors.Is(result.Txs[0].Err, precompiles.ErrCustomPrecompilesOpen))
 }
 
-func signLegacyTx(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte) []byte {
+func BenchmarkExecutorOCC(b *testing.B) {
+	for _, pattern := range []string{"conflict_free", "hot_recipient", "same_sender_nonce_chain"} {
+		b.Run(pattern, func(b *testing.B) {
+			req, state := benchmarkTransferBlock(b, pattern, 128)
+			executor := NewExecutor(
+				Config{MinGasPrice: big.NewInt(0), OCCWorkers: 8},
+				WithState(state),
+			)
+			prepared, err := executor.PrepareBlock(context.Background(), req)
+			require.NoError(b, err)
+
+			sample, err := executor.ExecutePreparedBlock(context.Background(), prepared)
+			require.NoError(b, err)
+			sampleStats := sample.OCCStats
+			sample.Release()
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				result, executeErr := executor.ExecutePreparedBlock(context.Background(), prepared)
+				if executeErr != nil {
+					b.Fatal(executeErr)
+				}
+				result.Release()
+			}
+			b.StopTimer()
+			b.ReportMetric(float64(sampleStats.RerunCount), "reruns/block")
+			b.ReportMetric(float64(sampleStats.ValidationCount), "validations/block")
+			if sampleStats.Fallback {
+				b.ReportMetric(1, "fallback/block")
+			} else {
+				b.ReportMetric(0, "fallback/block")
+			}
+		})
+	}
+}
+
+func benchmarkTransferBlock(tb testing.TB, pattern string, txCount int) (BlockRequest, *MemoryState) {
+	tb.Helper()
+	chainID := big.NewInt(713715)
+	state := NewMemoryState()
+	rawTxs := make([][]byte, 0, txCount)
+	hotRecipient := testAddress(0xed)
+
+	var sharedKey *ecdsa.PrivateKey
+	if pattern == "same_sender_nonce_chain" {
+		var err error
+		sharedKey, err = crypto.GenerateKey()
+		require.NoError(tb, err)
+		state.SetBalance(crypto.PubkeyToAddress(sharedKey.PublicKey), big.NewInt(1_000_000_000))
+	}
+	for i := range txCount {
+		key := sharedKey
+		if key == nil {
+			var err error
+			key, err = crypto.GenerateKey()
+			require.NoError(tb, err)
+			state.SetBalance(crypto.PubkeyToAddress(key.PublicKey), big.NewInt(1_000_000_000))
+		}
+		recipient := hotRecipient
+		if pattern != "hot_recipient" {
+			recipient = common.BigToAddress(big.NewInt(int64(60_000 + i)))
+		}
+		nonce := uint64(0)
+		if pattern == "same_sender_nonce_chain" {
+			nonce = uint64(i) //nolint:gosec // bounded by the benchmark transaction count.
+		}
+		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(
+			tb,
+			key,
+			chainID,
+			nonce,
+			&recipient,
+			big.NewInt(1),
+			nil,
+			100_000,
+			big.NewInt(0),
+		))
+	}
+	return BlockRequest{Context: blockContext(chainID), Txs: rawTxs}, state
+}
+
+func signLegacyTx(t testing.TB, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte) []byte {
 	t.Helper()
 	return signLegacyTxWithGas(t, key, chainID, nonce, to, value, data, 100_000)
 }
 
-func signLegacyTxWithGas(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte, gas uint64) []byte {
+func signLegacyTxWithGas(t testing.TB, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte, gas uint64) []byte {
 	t.Helper()
 	return signLegacyTxWithGasPrice(t, key, chainID, nonce, to, value, data, gas, big.NewInt(testGasPriceWei))
 }
 
-func signLegacyTxWithGasPrice(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte, gas uint64, gasPrice *big.Int) []byte {
+func signLegacyTxWithGasPrice(t testing.TB, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte, gas uint64, gasPrice *big.Int) []byte {
 	t.Helper()
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    nonce,

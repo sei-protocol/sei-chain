@@ -25,6 +25,8 @@ type occTxExecution struct {
 	gasUsed                  uint64
 	gasLimit                 uint64
 	commutativeBalanceDeltas map[common.Address]*big.Int
+	incarnation              int
+	sourcePrefix             int
 	err                      error
 }
 
@@ -68,15 +70,14 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 
 	results := make([]occTxExecution, len(req.Txs))
 	chunkSize := occChunkSize(len(req.Txs), workers)
-	speculativeSource := parallelSafeStateReader(e.state)
-	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), speculativeSource, runner.blockGasLimit, results); err != nil {
+	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), e.state, runner.blockGasLimit, results); err != nil {
 		if errors.Is(err, errOCCWorkerPoolClosed) {
 			return e.executeBlockOCCSequentialFallback(ctx, req, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
 		}
 		return nil, err
 	}
 
-	results, changeSet, validation, err := e.validateBlockSTMRounds(ctx, runner, executionPool, results)
+	results, finalState, validation, err := e.validateBlockSTM(ctx, runner, executionPool, results)
 	if errors.Is(err, errOCCMaxIncarnation) || errors.Is(err, errOCCWorkerPoolClosed) {
 		reason := validation.fallbackReason
 		switch {
@@ -90,7 +91,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 	if err != nil {
 		return nil, err
 	}
-	result, err := e.mergeOCCResults(ctx, results, changeSet)
+	result, err := e.mergeOCCResults(ctx, results, finalState)
 	if err != nil {
 		return nil, err
 	}
@@ -194,8 +195,9 @@ func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, task occExecu
 			return ctxErr
 		}
 		result.err = err
-		result.gasLimit = r.req.Txs[task.txIndex].Tx.Gas()
 	}
+	result.incarnation = task.incarnation
+	result.sourcePrefix = task.sourcePrefix
 	results[task.txIndex] = result
 	return nil
 }
@@ -265,115 +267,113 @@ func (e *Executor) executeTxSpeculative(
 		txIndexUint,
 		baseFee,
 	)
-	if err != nil {
-		return occTxExecution{}, fmt.Errorf("execute tx %d %s: %w", txIndex, p.Tx.Hash(), err)
-	}
 	readSet, writeSet := stateDB.accessSets()
-	var changeSet StateChangeSet
-	stateDB.ChangeSetInto(&changeSet)
-	return occTxExecution{
+	result := occTxExecution{
 		txResult:                 txResult,
 		receipt:                  receipt,
-		changeSet:                changeSet,
 		readSet:                  readSet,
 		writeSet:                 writeSet,
 		gasUsed:                  txResult.GasUsed,
 		gasLimit:                 p.Tx.Gas(),
 		commutativeBalanceDeltas: stateDB.commutativeBalanceDeltasBig(),
-	}, nil
+	}
+	if err != nil {
+		return result, fmt.Errorf("execute tx %d %s: %w", txIndex, p.Tx.Hash(), err)
+	}
+	stateDB.ChangeSetInto(&result.changeSet)
+	return result, nil
 }
 
-func (e *Executor) validateBlockSTMRounds(
+type blockSTMValidationState struct {
+	prefix            *blockSTMState
+	writes            *stateAccessIndex
+	cumulativeGasUsed uint64
+	nextToValidate    int
+}
+
+func newBlockSTMValidationState(source StateReader) *blockSTMValidationState {
+	return &blockSTMValidationState{
+		prefix: newBlockSTMState(source),
+		writes: newStateAccessIndex(),
+	}
+}
+
+func (e *Executor) validateBlockSTM(
 	ctx context.Context,
 	runner occSpeculativeRunner,
 	pool *occWorkerPool,
 	results []occTxExecution,
-) ([]occTxExecution, StateChangeSet, occValidationResult, error) {
-	incarnations := make([]int, len(results))
-	sourcePrefixes := make([]int, len(results))
+) ([]occTxExecution, *blockSTMState, occValidationResult, error) {
+	state := newBlockSTMValidationState(e.state)
 	validation := occValidationResult{}
-	for {
-		changeSet, reruns, err := e.validateBlockSTMRound(ctx, runner, results, incarnations, sourcePrefixes, &validation)
+	for state.nextToValidate < len(results) {
+		rerun, err := validateBlockSTMFrontier(ctx, runner, results, state, &validation)
 		if err != nil {
-			return nil, StateChangeSet{}, validation, err
+			return nil, nil, validation, err
 		}
-		if len(reruns) == 0 {
-			return results, changeSet, validation, nil
+		if rerun == nil {
+			continue
 		}
-		if err := runner.runTasks(ctx, pool, reruns, results); err != nil {
-			return nil, StateChangeSet{}, validation, err
+		if err := runner.runTasks(ctx, pool, []occExecutionTask{*rerun}, results); err != nil {
+			return nil, nil, validation, err
 		}
 	}
+	return results, state.prefix, validation, nil
 }
 
-func (e *Executor) validateBlockSTMRound(
+func validateBlockSTMFrontier(
 	ctx context.Context,
 	runner occSpeculativeRunner,
 	results []occTxExecution,
-	incarnations []int,
-	sourcePrefixes []int,
+	state *blockSTMValidationState,
 	validation *occValidationResult,
-) (StateChangeSet, []occExecutionTask, error) {
-	prefix := newBlockSTMState(e.state)
-	writes := newStateAccessIndex()
-	reruns := make([]occExecutionTask, 0)
-	var cumulativeGasUsed uint64
-	blockedPrefix := -1
-	var blockedSource *blockSTMState
-	var blockedGasLimit uint64
-	for txIndex, txIndexUint := 0, uint(0); txIndex < len(results); txIndex, txIndexUint = txIndex+1, txIndexUint+1 {
+) (*occExecutionTask, error) {
+	for state.nextToValidate < len(results) {
 		if err := ctx.Err(); err != nil {
-			return StateChangeSet{}, nil, err
+			return nil, err
 		}
+		txIndex := state.nextToValidate
+		txIndexUint := uint(txIndex) //nolint:gosec // transaction count is bounded by available memory.
 		result := results[txIndex]
-		sourcePrefix := sourcePrefixes[txIndex]
-		nextToValidate := txIndex
-		if blockedPrefix >= 0 {
-			nextToValidate = blockedPrefix
-		}
-		needsRerun, err := needsSTMRerun(validation, writes, result, cumulativeGasUsed, runner.blockGasLimit, sourcePrefix, txIndex, nextToValidate)
+		validation.validationCount++
+		needsRerun, err := needsSTMRerun(
+			validation,
+			state.writes,
+			result,
+			state.cumulativeGasUsed,
+			runner.blockGasLimit,
+			result.sourcePrefix,
+			txIndex,
+			txIndex,
+		)
 		if err != nil {
-			return StateChangeSet{}, nil, err
+			return nil, err
 		}
 		if needsRerun {
-			if blockedPrefix < 0 {
-				blockedPrefix = txIndex
-				blockedSource = prefix.clone()
-				blockedGasLimit = availableGas(runner.blockGasLimit, cumulativeGasUsed)
-			}
 			rerun, err := newSTMRerunTask(
-				runner,
 				validation,
-				incarnations,
-				sourcePrefixes,
+				result,
 				txIndex,
 				txIndexUint,
-				blockedPrefix,
-				blockedSource,
-				blockedGasLimit,
+				state.prefix,
+				availableGas(runner.blockGasLimit, state.cumulativeGasUsed),
 			)
 			if err != nil {
-				return StateChangeSet{}, nil, err
+				return nil, err
 			}
-			reruns = append(reruns, rerun)
-			continue
+			return &rerun, nil
 		}
-		if blockedPrefix >= 0 {
-			continue
-		}
-		if result.gasUsed > math.MaxUint64-cumulativeGasUsed {
+		if result.gasUsed > math.MaxUint64-state.cumulativeGasUsed {
 			validation.fallbackReason = occFallbackReasonGasOverflow
-			return StateChangeSet{}, nil, errors.New(occFallbackReasonGasOverflow)
+			return nil, errors.New(occFallbackReasonGasOverflow)
 		}
-		cumulativeGasUsed += result.gasUsed
-		prefix.apply(result)
-		writes.addAllAt(txIndex, result.writeSet)
-		writes.addCommutativeBalanceDeltasAt(txIndex, result.commutativeBalanceDeltas)
+		state.cumulativeGasUsed += result.gasUsed
+		state.prefix.apply(result)
+		state.writes.addAllAt(txIndex, result.writeSet)
+		state.writes.addCommutativeBalanceDeltasAt(txIndex, result.commutativeBalanceDeltas)
+		state.nextToValidate++
 	}
-	if len(reruns) != 0 {
-		return StateChangeSet{}, reruns, nil
-	}
-	return prefix.ChangeSet(), nil, nil
+	return nil, nil
 }
 
 func needsSTMRerun(
@@ -402,29 +402,24 @@ func needsSTMRerun(
 }
 
 func newSTMRerunTask(
-	runner occSpeculativeRunner,
 	validation *occValidationResult,
-	incarnations []int,
-	sourcePrefixes []int,
+	result occTxExecution,
 	txIndex int,
 	txIndexUint uint,
-	sourcePrefix int,
 	source StateReader,
 	gasLimit uint64,
 ) (occExecutionTask, error) {
-	nextIncarnation := incarnations[txIndex] + 1
+	nextIncarnation := result.incarnation + 1
 	if nextIncarnation >= occMaxTxIncarnations {
 		validation.fallbackReason = occFallbackReasonMaxIncarnation
 		return occExecutionTask{}, errOCCMaxIncarnation
 	}
-	incarnations[txIndex] = nextIncarnation
-	sourcePrefixes[txIndex] = sourcePrefix
 	validation.rerunCount++
 	return occExecutionTask{
 		txIndex:      txIndex,
 		txIndexUint:  txIndexUint,
 		incarnation:  nextIncarnation,
-		sourcePrefix: sourcePrefix,
+		sourcePrefix: txIndex,
 		source:       source,
 		gasLimit:     gasLimit,
 	}, nil
@@ -451,10 +446,11 @@ type occExecutionTask struct {
 }
 
 type occValidationResult struct {
-	fallbackReason string
-	rerunCount     uint64
-	conflictCount  uint64
-	conflicts      map[occConflictAggregationKey]uint64
+	fallbackReason  string
+	rerunCount      uint64
+	conflictCount   uint64
+	validationCount uint64
+	conflicts       map[occConflictAggregationKey]uint64
 }
 
 type occConflictAggregationKey struct {
@@ -525,10 +521,11 @@ func (r *occValidationResult) addConflicts(access string, writes *stateAccessInd
 
 func (r occValidationResult) stats(fallback bool) OCCStats {
 	stats := OCCStats{
-		Attempted:     true,
-		Fallback:      fallback,
-		RerunCount:    r.rerunCount,
-		ConflictCount: r.conflictCount,
+		Attempted:       true,
+		Fallback:        fallback,
+		RerunCount:      r.rerunCount,
+		ConflictCount:   r.conflictCount,
+		ValidationCount: r.validationCount,
 	}
 	if fallback {
 		stats.FallbackReason = r.fallbackReason
@@ -582,7 +579,7 @@ func (k stateAccessKind) String() string {
 	}
 }
 
-func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution, changeSet StateChangeSet) (*BlockResult, error) {
+func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution, finalState *blockSTMState) (*BlockResult, error) {
 	blockResult, err := e.acquireBlockResult(ctx, len(results))
 	if err != nil {
 		return nil, err
@@ -600,7 +597,7 @@ func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution
 		blockResult.Txs[i] = result.txResult
 		blockResult.Receipts[i] = result.receipt
 	}
-	changeSet.cloneInto(&blockResult.ChangeSet)
+	finalState.ChangeSetInto(&blockResult.ChangeSet)
 	return blockResult, nil
 }
 
@@ -625,33 +622,6 @@ func newBlockSTMState(source StateReader) *blockSTMState {
 		storageClears: map[common.Address]struct{}{},
 		storage:       map[storageChangeKey]common.Hash{},
 	}
-}
-
-func (s *blockSTMState) clone() *blockSTMState {
-	copied := &blockSTMState{
-		source:        s.source,
-		balances:      make(map[common.Address]*big.Int, len(s.balances)),
-		nonces:        make(map[common.Address]uint64, len(s.nonces)),
-		code:          make(map[common.Address][]byte, len(s.code)),
-		storageClears: make(map[common.Address]struct{}, len(s.storageClears)),
-		storage:       make(map[storageChangeKey]common.Hash, len(s.storage)),
-	}
-	for addr, balance := range s.balances {
-		copied.balances[addr] = cloneBig(balance)
-	}
-	for addr, nonce := range s.nonces {
-		copied.nonces[addr] = nonce
-	}
-	for addr, code := range s.code {
-		copied.code[addr] = cloneBytes(code)
-	}
-	for addr := range s.storageClears {
-		copied.storageClears[addr] = struct{}{}
-	}
-	for key, value := range s.storage {
-		copied.storage[key] = value
-	}
-	return copied
 }
 
 func (s *blockSTMState) GetBalance(addr common.Address) *big.Int {
@@ -722,6 +692,12 @@ func (s *blockSTMState) apply(result occTxExecution) {
 
 func (s *blockSTMState) ChangeSet() StateChangeSet {
 	var changes StateChangeSet
+	s.ChangeSetInto(&changes)
+	return changes
+}
+
+func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
+	changes.resetForReuse()
 	balanceAddrs := sortedAddressesFromBigMap(s.balances)
 	for _, addr := range balanceAddrs {
 		balance := cloneBig(s.balances[addr])
@@ -774,7 +750,6 @@ func (s *blockSTMState) ChangeSet() StateChangeSet {
 			Delete:  value == (common.Hash{}),
 		})
 	}
-	return changes
 }
 
 type stateAccessIndex struct {
@@ -867,26 +842,6 @@ func (i *stateAccessIndex) recordAddressWrite(writes map[common.Address]int, add
 type storageChangeKey struct {
 	address common.Address
 	key     common.Hash
-}
-
-func (cs StateChangeSet) cloneInto(dst *StateChangeSet) {
-	dst.resetForReuse()
-	for _, change := range cs.Balances {
-		dst.Balances = append(dst.Balances, BalanceChange{
-			Address: change.Address,
-			Balance: cloneBig(change.Balance),
-		})
-	}
-	dst.Nonces = append(dst.Nonces, cs.Nonces...)
-	for _, change := range cs.Code {
-		dst.Code = append(dst.Code, CodeChange{
-			Address: change.Address,
-			Code:    cloneBytes(change.Code),
-			Delete:  change.Delete,
-		})
-	}
-	dst.StorageClears = append(dst.StorageClears, cs.StorageClears...)
-	dst.Storage = append(dst.Storage, cs.Storage...)
 }
 
 func sortedAddressesFromBigMap(values map[common.Address]*big.Int) []common.Address {

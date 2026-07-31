@@ -26,7 +26,8 @@ type Config struct {
 	// BlockResultPoolSize enables a bounded reusable output pool. Callers that
 	// enable it must call BlockResult.Release when they are done with returned
 	// results. Result sinks receive a retained result and must release it after
-	// they finish async persistence.
+	// they finish async persistence. Pool exhaustion allocates an unpooled result
+	// instead of blocking block execution.
 	BlockResultPoolSize int
 }
 
