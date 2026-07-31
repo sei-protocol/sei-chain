@@ -701,9 +701,10 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	return nil
 }
 
-// tryTruncateWAL is a best-effort truncation of WAL entries that are older
-// than the earliest snapshot. This prevents unbounded WAL growth while
-// keeping enough entries for rollback to any retained snapshot.
+// tryTruncateWAL truncates WAL entries older than the earliest snapshot, keeping enough entries for rollback
+// to any retained snapshot. Scheduling the truncation is best-effort in that it is skipped when there is
+// nothing to prune against, but a prune that fails is not a benign outcome: it only fails when the WAL is
+// already dead, which means commits will fail from that point on.
 func (s *CommitStore) tryTruncateWAL() {
 	if s.wal == nil {
 		return
@@ -724,6 +725,10 @@ func (s *CommitStore) tryTruncateWAL() {
 
 	// Index == version, so prune below the earliest snapshot directly — no offset mapping.
 	if err := s.wal.Prune(uint64(earliestSnapVersion)); err != nil { //nolint:gosec // earliestSnapVersion > 0
-		logger.Error("failed to prune WAL", "err", err, "lowestBlockToKeep", earliestSnapVersion)
+		// A prune only fails when the WAL is already dead or shutting down, so this is not a retryable
+		// housekeeping miss. Name the consequence: the next commit fails at its WAL write with this same
+		// cause, and that failure would otherwise look unrelated to this line.
+		logger.Error("WAL is unusable; FlatKV commits will fail from here",
+			"err", err, "lowestBlockToKeep", earliestSnapVersion)
 	}
 }
