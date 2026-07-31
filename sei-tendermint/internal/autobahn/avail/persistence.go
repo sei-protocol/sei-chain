@@ -30,7 +30,10 @@ const innerFile = "avail_inner"
 type PruneAnchor struct {
 	AppQC    *types.AppQC
 	CommitQC *types.CommitQC
+	Epoch *types.Epoch
 }
+
+func (a *PruneAnchor) Next() types.RoadIndex { return a.AppQC.Next() }
 
 // PruneAnchorConv converts between PruneAnchor and its protobuf representation.
 var PruneAnchorConv = protoutils.Conv[*PruneAnchor, *pb.PersistedAvailPruneAnchor]{
@@ -249,7 +252,7 @@ func (s *State) collectPersistBatch(ctx context.Context, persistedAnchorNext typ
 		// fast-forwarding the queue past the cursor.
 		commitQCNext := types.NextIndexOpt(inner.commits.persistedCommitQC.Load())
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			if types.NextOpt(inner.app.latestAppQC) != persistedAnchorNext {
+			if types.NextOpt(inner.app.anchor) != persistedAnchorNext {
 				return true
 			}
 			for _, ls := range inner.lanes.byID {
@@ -271,23 +274,13 @@ func (s *State) collectPersistBatch(ctx context.Context, persistedAnchorNext typ
 		for n := commitQCNext; n < inner.commits.qcs.next; n++ {
 			b.commitQCs = append(b.commitQCs, inner.commits.qcs.q[n])
 		}
-		if types.NextOpt(inner.app.latestAppQC) != persistedAnchorNext {
-			if appQC, ok := inner.app.latestAppQC.Get(); ok {
-				idx := appQC.Proposal().RoadIndex()
-				if qc, ok := inner.commits.qcs.q[idx]; ok {
-					b.pruneAnchor = utils.Some(&PruneAnchor{
-						AppQC:    appQC,
-						CommitQC: qc,
-					})
-					// Capture under the same lock as the anchor so an epoch slide
-					// cannot move its committee out of the live duo before I/O.
-					ep, err := inner.epoch.Load().EpochForRoad(qc.Proposal().Index())
-					if err != nil {
-						return b, fmt.Errorf("EpochForRoad(%d): %w", qc.Proposal().Index(), err)
-					}
-					for lane := range ep.Committee().Lanes().All() {
-						b.pruneLanes = append(b.pruneLanes, lane)
-					}
+		if types.NextOpt(inner.app.anchor) != persistedAnchorNext {
+			if anchor, ok := inner.app.anchor.Get(); ok {
+				b.pruneAnchor = utils.Some(anchor)
+				// Capture under the same lock as the anchor so an epoch slide
+				// cannot move its committee out of the live duo before I/O.
+				for lane := range anchor.Epoch.Committee().Lanes().All() {
+					b.pruneLanes = append(b.pruneLanes, lane)
 				}
 			}
 		}
