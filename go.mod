@@ -23,6 +23,7 @@ require (
 	github.com/creachadair/atomicfile v0.4.0
 	github.com/creachadair/taskgroup v0.3.2
 	github.com/creachadair/tomledit v0.0.29
+	github.com/dop251/goja v0.0.0-20260723142020-b4aef50fa347
 	github.com/dvsekhvalnov/jose2go v1.7.0
 	github.com/ethereum/evmc/v12 v12.1.0
 	github.com/ethereum/go-ethereum v1.16.8
@@ -114,6 +115,7 @@ require (
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
+	github.com/dlclark/regexp2/v2 v2.5.2 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.8.0 // indirect
@@ -176,7 +178,6 @@ require (
 	github.com/docker/cli v24.0.7+incompatible // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/dop251/goja v0.0.0-20230605162241-28ee0ee714f3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ethereum/c-kzg-4844 v1.0.0 // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
