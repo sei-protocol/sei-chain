@@ -112,7 +112,7 @@ func (s *StorageGarbageCollector) prune() error {
 		return nil
 	}
 
-	cutLine := getCutLine(globalLatestBlock, s.config.RollbackWindow, s.config.StoreRetention)
+	cutLine := getCutLine(globalLatestBlock, s.config.RollbackWindow, s.config.RetentionBeyondRollbackWindow)
 	if cutLine == 0 {
 		logger.Info("skipping pruning, the chain is younger than the retain window",
 			"globalLatestBlock", globalLatestBlock)
@@ -176,15 +176,20 @@ func (s *StorageGarbageCollector) describeAnswers(oldestBlockToRetain []uint64) 
 }
 
 // getCutLine returns the oldest block the system must remain able to serve, which is the head of the chain less the
-// rollback window and the extra retention.
+// rollback window and the historical blocks guaranteed beyond it.
 //
-// Returns 0 to mean "prune nothing", which is the case for a chain younger than that combined window. The comparison has
-// to happen before the subtraction: these are unsigned, so subtracting past zero wraps to a cut line far above the head
-// of the chain, and pruning to it would delete everything.
+// Returns 0 to mean "prune nothing": either retentionBeyond is negative (infinite retention), or the chain is younger
+// than the combined finite window. The young-chain comparison has to happen before the subtraction: these are
+// unsigned, so subtracting past zero wraps to a cut line far above the head of the chain, and pruning to it would
+// delete everything.
 //
-// Config.Validate rejects a rollback window and retention that overflow when summed, so retainWindow below is exact.
-func getCutLine(globalLatestBlock uint64, rollbackWindow uint64, retention uint64) uint64 {
-	retainWindow := rollbackWindow + retention
+// Config.Validate rejects a finite rollback window and retention that overflow when summed, so retainWindow below is
+// exact whenever retentionBeyond is non-negative.
+func getCutLine(globalLatestBlock uint64, rollbackWindow uint64, retentionBeyond int64) uint64 {
+	if retentionBeyond < 0 {
+		return 0
+	}
+	retainWindow := rollbackWindow + uint64(retentionBeyond)
 	if globalLatestBlock <= retainWindow {
 		return 0
 	}

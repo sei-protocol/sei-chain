@@ -14,7 +14,7 @@ import (
 // callers build it via DefaultGigaStorageConfig. Nested knobs live on the store and
 // collector configs they already own (StateStoreConfig, ReceiptStoreConfig,
 // gc.StorageGarbageCollectorConfig) rather than being redeclared here — in particular
-// RollbackWindow and StoreRetention have a single source of truth in
+// RollbackWindow and RetentionBeyondRollbackWindow have a single source of truth in
 // gc.DefaultStorageGarbageCollectorConfig.
 type GigaStorageConfig struct {
 	HomePath        string
@@ -22,19 +22,21 @@ type GigaStorageConfig struct {
 	SSConfig        StateStoreConfig
 	ReceiptDBConfig ReceiptStoreConfig
 	BlockDBConfig   *littblock.LittBlockConfig
-	// PruningConfig is the garbage-collector config shared by every store under this
-	// Giga layout. Defaults come from gc.DefaultStorageGarbageCollectorConfig; do not
-	// reintroduce parallel RollbackWindow / StoreRetention fields on this struct.
-	PruningConfig *gc.StorageGarbageCollectorConfig
+	PruningConfig   *gc.StorageGarbageCollectorConfig
 }
 
 // DefaultGigaStorageConfig returns a GigaStorageConfig whose store directories match the
 // layout below, and whose pruning knobs are gc.DefaultStorageGarbageCollectorConfig():
 //
 //	data/state_commit/flatkv
-//	data/state_store/evm/{backend}
+//	data/state_store/evm/{backend}   (sole SS; no Cosmos SS in Giga)
 //	data/ledger/receipt/{backend}
 //	data/ledger/block
+//
+// Giga opens SS via evm.NewEVMStateStore(dir, ssConfig) directly — not through
+// composite.NewCompositeStateStore — so the EVM path lives on EVMDBDirectory (the
+// argument callers pass as dir). DBDirectory and EVMSplit are left at their defaults:
+// they only matter for the composite path, which Giga does not use.
 //
 // Unlike the other Default*Config helpers in this package, this can fail: the block-store
 // default wraps littdb.DefaultConfig, which validates the directory path.
@@ -48,7 +50,7 @@ func DefaultGigaStorageConfig(homePath string) (GigaStorageConfig, error) {
 	flatKV.DataDir = utils.GetFlatKVPath(homePath)
 
 	ssConfig := DefaultStateStoreConfig()
-	ssConfig.DBDirectory = utils.GetEVMStateStorePath(homePath, ssConfig.Backend)
+	ssConfig.EVMDBDirectory = utils.GetEVMStateStorePath(homePath, ssConfig.Backend)
 
 	receiptConfig := DefaultReceiptStoreConfig()
 	receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath, receiptConfig.Backend)

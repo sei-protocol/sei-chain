@@ -94,15 +94,15 @@ func prunableStores(list ...*mockStore) []PrunableStore {
 func newTestCollector(
 	t *testing.T,
 	rollbackWindow uint64,
-	storeRetention uint64,
+	retentionBeyond int64,
 	stores ...*mockStore,
 ) *StorageGarbageCollector {
 	t.Helper()
 
 	config := &StorageGarbageCollectorConfig{
-		RollbackWindow: rollbackWindow,
-		StoreRetention: storeRetention,
-		PruneInterval:  time.Minute,
+		RollbackWindow:                rollbackWindow,
+		RetentionBeyondRollbackWindow: retentionBeyond,
+		PruneInterval:                 time.Minute,
 	}
 	// getCutLine subtracts without an overflow guard because Validate rejects a retain window that would overflow, so
 	// test configs have to clear the same bar as real ones.
@@ -114,11 +114,11 @@ func newTestCollector(
 // TestPruneDecisions is the decision matrix for a single prune cycle. wantPruneBelow == nil means no store may be pruned.
 func TestPruneDecisions(t *testing.T) {
 	cases := []struct {
-		name           string
-		rollbackWindow uint64
-		storeRetention uint64
-		stores         []*mockStore
-		wantPruneBelow *uint64
+		name            string
+		rollbackWindow  uint64
+		retentionBeyond int64
+		stores          []*mockStore
+		wantPruneBelow  *uint64
 	}{
 		{
 			name:           "one snapshotted store and a WAL",
@@ -145,18 +145,19 @@ func TestPruneDecisions(t *testing.T) {
 			wantPruneBelow: ptr(85_000),
 		},
 		{
-			name:           "zero rollback window prunes up to the head",
-			rollbackWindow: 0,
+			name:           "minimum rollback window still leaves one block of margin",
+			rollbackWindow: 1,
 			stores: []*mockStore{
-				snapshotStore("sc", 100_000, 80_000, 100_000),
+				snapshotStore("sc", 100_000, 80_000, 99_999),
 				contiguousStore("stateWAL", 100_000, true),
 			},
-			wantPruneBelow: ptr(100_000),
+			// Cut line 99,999. sc keeps the snapshot at the cut line; contiguous stores prune to that.
+			wantPruneBelow: ptr(99_999),
 		},
 		{
-			name:           "store retention deepens the cut line",
-			rollbackWindow: 10_000,
-			storeRetention: 5_000,
+			name:            "retention beyond rollback window deepens the cut line",
+			rollbackWindow:  10_000,
+			retentionBeyond: 5_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 80_000, 90_000),
 				contiguousStore("stateWAL", 100_000, true),
@@ -164,6 +165,16 @@ func TestPruneDecisions(t *testing.T) {
 			// Cut line 85,000 rather than 90,000, so the 80,000 snapshot is now the newest at or below it. Without the
 			// extra retention sc would have needed only 90,000.
 			wantPruneBelow: ptr(80_000),
+		},
+		{
+			name:            "infinite retention beyond rollback window skips pruning",
+			rollbackWindow:  10_000,
+			retentionBeyond: InfiniteRetentionBeyondRollbackWindow,
+			stores: []*mockStore{
+				snapshotStore("sc", 100_000, 80_000, 100_000),
+				contiguousStore("stateWAL", 100_000, true),
+			},
+			wantPruneBelow: nil,
 		},
 		{
 			name:           "a snapshot exactly at the cut line is kept",
@@ -239,9 +250,9 @@ func TestPruneDecisions(t *testing.T) {
 			wantPruneBelow: nil,
 		},
 		{
-			name:           "head exactly at the retain window",
-			rollbackWindow: 60_000,
-			storeRetention: 40_000,
+			name:            "head exactly at the retain window",
+			rollbackWindow:  60_000,
+			retentionBeyond: 40_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 500, 1_000),
 				contiguousStore("stateWAL", 100_000, true),
@@ -276,12 +287,12 @@ func TestPruneDecisions(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			collector := newTestCollector(t, tc.rollbackWindow, tc.storeRetention, tc.stores...)
+			collector := newTestCollector(t, tc.rollbackWindow, tc.retentionBeyond, tc.stores...)
 			require.NoError(t, collector.prune())
 
 			head, err := getGlobalLastCommittedBlock(prunableStores(tc.stores...))
 			require.NoError(t, err)
-			cutLine := getCutLine(head, tc.rollbackWindow, tc.storeRetention)
+			cutLine := getCutLine(head, tc.rollbackWindow, tc.retentionBeyond)
 
 			for _, store := range tc.stores {
 				if tc.wantPruneBelow == nil || store.GetOldestBlockToRetain(cutLine) == 0 {
@@ -364,13 +375,15 @@ func TestGetCutLine(t *testing.T) {
 		name           string
 		head           uint64
 		rollbackWindow uint64
-		retention      uint64
+		retention      int64
 		want           uint64
 	}{
 		{name: "rollback window only", head: 100_000, rollbackWindow: 10_000, want: 90_000},
-		{name: "retention only", head: 100_000, retention: 10_000, want: 90_000},
+		{name: "retention adds to rollback window", head: 100_000, rollbackWindow: 1, retention: 10_000, want: 89_999},
 		{name: "the two windows add", head: 100_000, rollbackWindow: 10_000, retention: 5_000, want: 85_000},
-		{name: "no retain window at all", head: 100_000, want: 100_000},
+		{name: "zero retention beyond rollback window", head: 100_000, rollbackWindow: 10_000, want: 90_000},
+		{name: "infinite retention beyond rollback window", head: 100_000, rollbackWindow: 10_000, retention: InfiniteRetentionBeyondRollbackWindow, want: 0},
+		{name: "any negative retention is infinite", head: 100_000, rollbackWindow: 10_000, retention: -99, want: 0},
 		{name: "head one above the window", head: 10_001, rollbackWindow: 10_000, want: 1},
 		{name: "head exactly at the window", head: 10_000, rollbackWindow: 10_000, want: 0},
 		{name: "head one below the window", head: 9_999, rollbackWindow: 10_000, want: 0},
@@ -425,7 +438,7 @@ func TestGetGlobalLastCommittedBlock(t *testing.T) {
 func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {
 	cfg := DefaultStorageGarbageCollectorConfig()
 	require.Equal(t, uint64(1_000), cfg.RollbackWindow)
-	require.Equal(t, uint64(100_000), cfg.StoreRetention)
+	require.Equal(t, int64(100_000), cfg.RetentionBeyondRollbackWindow)
 	require.Equal(t, 10*time.Minute, cfg.PruneInterval)
 	require.NoError(t, cfg.Validate())
 }
@@ -433,21 +446,60 @@ func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {
 func TestValidate(t *testing.T) {
 	require.ErrorContains(t, (*StorageGarbageCollectorConfig)(nil).Validate(), "config is required")
 
-	// A zero rollback window is legal, as is a zero store retention.
-	require.NoError(t, (&StorageGarbageCollectorConfig{PruneInterval: time.Minute}).Validate())
-
-	require.ErrorContains(t, (&StorageGarbageCollectorConfig{PruneInterval: 0}).Validate(), "prune interval")
-	require.ErrorContains(t, (&StorageGarbageCollectorConfig{PruneInterval: -time.Second}).Validate(), "prune interval")
-
-	// The retain window is the sum of the two, so the pair must not overflow. getCutLine subtracts it without a guard.
-	require.NoError(t, (&StorageGarbageCollectorConfig{
-		RollbackWindow: math.MaxUint64,
+	require.ErrorContains(t, (&StorageGarbageCollectorConfig{
+		RollbackWindow: 0,
 		PruneInterval:  time.Minute,
+	}).Validate(), "rollback window must be greater than 0")
+
+	require.NoError(t, (&StorageGarbageCollectorConfig{
+		RollbackWindow:                1,
+		RetentionBeyondRollbackWindow: 0,
+		PruneInterval:                 time.Minute,
+	}).Validate())
+
+	require.NoError(t, (&StorageGarbageCollectorConfig{
+		RollbackWindow:                1,
+		RetentionBeyondRollbackWindow: InfiniteRetentionBeyondRollbackWindow,
+		PruneInterval:                 time.Minute,
+	}).Validate())
+
+	// Any negative value means infinite retention.
+	require.NoError(t, (&StorageGarbageCollectorConfig{
+		RollbackWindow:                1,
+		RetentionBeyondRollbackWindow: -2,
+		PruneInterval:                 time.Minute,
+	}).Validate())
+
+	require.ErrorContains(t, (&StorageGarbageCollectorConfig{
+		RollbackWindow: 1,
+		PruneInterval:  0,
+	}).Validate(), "prune interval")
+	require.ErrorContains(t, (&StorageGarbageCollectorConfig{
+		RollbackWindow: 1,
+		PruneInterval:  -time.Second,
+	}).Validate(), "prune interval")
+
+	// The retain window is the sum of the two finite values, so the pair must not overflow. getCutLine
+	// subtracts it without a guard. Infinite retention (any negative) skips that sum.
+	require.NoError(t, (&StorageGarbageCollectorConfig{
+		RollbackWindow:                math.MaxUint64,
+		RetentionBeyondRollbackWindow: 0,
+		PruneInterval:                 time.Minute,
+	}).Validate())
+	require.NoError(t, (&StorageGarbageCollectorConfig{
+		RollbackWindow:                math.MaxUint64,
+		RetentionBeyondRollbackWindow: InfiniteRetentionBeyondRollbackWindow,
+		PruneInterval:                 time.Minute,
+	}).Validate())
+	require.NoError(t, (&StorageGarbageCollectorConfig{
+		RollbackWindow:                math.MaxUint64,
+		RetentionBeyondRollbackWindow: -99,
+		PruneInterval:                 time.Minute,
 	}).Validate())
 	require.ErrorContains(t, (&StorageGarbageCollectorConfig{
-		RollbackWindow: math.MaxUint64,
-		StoreRetention: 1,
-		PruneInterval:  time.Minute,
+		RollbackWindow:                math.MaxUint64,
+		RetentionBeyondRollbackWindow: 1,
+		PruneInterval:                 time.Minute,
 	}).Validate(), "overflows uint64")
 }
 
