@@ -73,9 +73,10 @@ The concrete `Executor` accepts a `StateReader` backend through `WithState(...)`
 callers can persist the returned `ChangeSet` with a matching `StateWriter`.
 Every `StateReader` method must be safe for concurrent calls because speculative
 transactions and overlapping block executions may read the backend at the same
-time. `GetBalance` and `GetCode` must return caller-owned values because the
-executor may retain or mutate them. The executor intentionally does not detect
-or serialize non-concurrent backends; violating this contract is a data race.
+time. Values returned by `GetBalance` and `GetCode` must remain stable while
+being read; the executor treats them as immutable and copies them into
+transaction-local state. The executor intentionally does not detect or
+serialize non-concurrent backends; violating this contract is a data race.
 Call `Close()` to disable future OCC execution on an executor.
 
 A non-nil `error` means block validation failed and the caller must not commit a

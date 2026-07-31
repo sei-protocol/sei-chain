@@ -9,8 +9,10 @@ import (
 
 // StateReader supplies EVM-native state to an executor. Every method must be
 // safe for concurrent calls: speculative transactions and overlapping block
-// executions can read from the same backend at the same time. GetBalance and
-// GetCode return mutable values and therefore must return caller-owned copies.
+// executions can read from the same backend at the same time. Values returned
+// by GetBalance and GetCode must remain stable while they are being read; the
+// executor treats them as immutable and copies them into transaction-local
+// state.
 type StateReader interface {
 	GetBalance(common.Address) *big.Int
 	GetNonce(common.Address) uint64
