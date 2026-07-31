@@ -5,13 +5,14 @@ the EVM-only executor without Cosmos SDK state, mempool, RPC, or persistence.
 
 It currently generates pure EVM legacy transfer transactions, ERC20 transfer
 transactions, and a contract-call workload that exercises nested StateDB
-snapshot/revert behavior. Each generated sender account has exactly one nonce-0
-transaction and is funded in the command's in-memory genesis state before its
-block is queued. Recipients are unique by default so the transfer workloads
-exercise the optimistic no-overlap case. Pass
+snapshot/revert behavior. By default, each generated sender account has one
+nonce-0 transaction and is funded in the command's in-memory genesis state
+before its block is queued. Recipients are unique by default so the transfer
+workloads exercise the optimistic no-overlap case. Pass
 `--recipient-conflict-rate=<0..1>` to pair that fraction of each block's
 transactions onto shared recipients, or pass `--recipient=0x...` to force all
-transactions to a single recipient.
+transactions to a single recipient. Pass `--same-sender` to use one sender per
+block with sequential transaction nonces.
 
 Run a bounded test:
 
@@ -39,6 +40,24 @@ go run ./giga/evmonly/cmd/evmonly-loadtest \
   --gas-price-wei=0 \
   --min-gas-price-wei=0 \
   --queue-size=512
+```
+
+The three executor OCC scenarios have direct command-line forms:
+
+```bash
+# Conflict-free: unique senders and recipients.
+go run ./giga/evmonly/cmd/evmonly-loadtest \
+  --gas-price-wei=0 --min-gas-price-wei=0
+
+# Hot recipient: unique senders all credit one account.
+go run ./giga/evmonly/cmd/evmonly-loadtest \
+  --gas-price-wei=0 --min-gas-price-wei=0 \
+  --recipient=0x00000000000000000000000000000000000000f1
+
+# Same-sender nonce chain: one sender and sequential nonces within each block.
+go run ./giga/evmonly/cmd/evmonly-loadtest \
+  --gas-price-wei=0 --min-gas-price-wei=0 \
+  --same-sender
 ```
 
 Example conflict run:
@@ -95,9 +114,9 @@ Prebuilding requires `--blocks > 0` and stores every raw block in memory.
 Sender recovery still runs in the measured phase, but it is pipelined ahead of
 execution through `--prepare-workers`.
 
-The zero gas price/min-gas settings keep the transfer workload focused on the
-optimistic no-overlap case. Non-zero fees make every transaction update the
-same coinbase balance, which is a real intra-block conflict.
+The zero gas price/min-gas settings keep the conflict-free transfer workload
+focused on the optimistic no-overlap case. Non-zero fees make every transaction
+update the same coinbase balance, which is a real intra-block conflict.
 
 Useful knobs:
 
@@ -124,6 +143,8 @@ Useful knobs:
 - `--recipient-conflict-rate`: fraction of each block's transactions that are
   paired onto shared recipients; `0` keeps recipients unique and `1` pairs all
   possible transactions.
+- `--same-sender`: use one sender per native-transfer block and assign
+  transaction nonces in block order.
 - `--workload`: workload type, either `transfer`, `erc20-transfer`, or
   `snapshot-revert`.
 - `--snapshot-revert-contract`, `--snapshot-revert-helper`: generated contract

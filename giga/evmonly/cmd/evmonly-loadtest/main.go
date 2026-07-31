@@ -99,6 +99,7 @@ type config struct {
 	snapshotRevertHelper   common.Address
 	fixedRecipient         *common.Address
 	recipientConflictRate  float64
+	sameSender             bool
 	disableGasPriceRule    bool
 	prebuildBlocks         bool
 }
@@ -141,6 +142,7 @@ func parseConfig(args []string) (config, error) {
 	snapshotRevertHelper := fs.String("snapshot-revert-helper", defaultSnapshotRevertHelper, "EVM address for the generated snapshot-revert helper contract")
 	recipient := fs.String("recipient", "", "optional fixed transfer recipient; empty creates one recipient per tx")
 	fs.Float64Var(&cfg.recipientConflictRate, "recipient-conflict-rate", 0, "fraction [0,1] of transactions per block paired onto shared recipients; 0 keeps recipients unique")
+	fs.BoolVar(&cfg.sameSender, "same-sender", false, "use one sender with sequential nonces for every transaction in a transfer block")
 
 	fs.Uint64Var(&cfg.blocks, "blocks", 0, "number of blocks to feed; 0 runs until interrupted")
 	fs.IntVar(&cfg.txsPerBlock, "txs-per-block", defaultTxsPerBlock, "transactions generated per block")
@@ -258,6 +260,9 @@ func parseConfig(args []string) (config, error) {
 	if cfg.workload == workloadSnapshotRevert && cfg.recipientConflictRate != 0 {
 		return config{}, fmt.Errorf("recipient-conflict-rate is not supported with snapshot-revert workload")
 	}
+	if cfg.sameSender && cfg.workload != workloadTransfer {
+		return config{}, fmt.Errorf("same-sender is only supported with transfer workload")
+	}
 	if cfg.workload == workloadSnapshotRevert && cfg.snapshotRevertContract == cfg.snapshotRevertHelper {
 		return config{}, fmt.Errorf("snapshot-revert-contract and snapshot-revert-helper must differ")
 	}
@@ -302,6 +307,11 @@ func parseConfig(args []string) (config, error) {
 	if cfg.workload == workloadTransfer {
 		requiredBalance.Add(requiredBalance, cfg.transferValue)
 		requiredBalanceReason = "transfer value plus max gas cost"
+	}
+	if cfg.sameSender {
+		txCount := new(big.Int).SetUint64(uint64(cfg.txsPerBlock)) //nolint:gosec // txsPerBlock is validated as positive above.
+		requiredBalance.Mul(requiredBalance, txCount)
+		requiredBalanceReason = "all same-sender transactions' transfer value plus max gas cost"
 	}
 	if cfg.senderBalance.Cmp(requiredBalance) < 0 {
 		return config{}, fmt.Errorf("sender-balance-wei must cover %s: need at least %s", requiredBalanceReason, requiredBalance.String())
@@ -933,8 +943,14 @@ func (w *transferWorkload) buildBlock(ctx context.Context, number uint64) (evmon
 		default:
 		}
 		accountIndex := w.accountCursor.Add(1)
+		senderIndex := accountIndex
+		nonce := uint64(0)
+		if w.cfg.sameSender {
+			senderIndex = number
+			nonce = uint64(i) //nolint:gosec // i is bounded by txsPerBlock.
+		}
 		recipient := w.recipient(number, i, accountIndex)
-		raw, sender, err := w.buildTransferTx(accountIndex, recipient)
+		raw, sender, err := w.buildTransferTx(senderIndex, nonce, recipient)
 		if err != nil {
 			return evmonly.BlockRequest{}, err
 		}
@@ -947,14 +963,14 @@ func (w *transferWorkload) buildBlock(ctx context.Context, number uint64) (evmon
 	}, nil
 }
 
-func (w *transferWorkload) buildTransferTx(accountIndex uint64, recipient common.Address) ([]byte, common.Address, error) {
+func (w *transferWorkload) buildTransferTx(accountIndex, nonce uint64, recipient common.Address) ([]byte, common.Address, error) {
 	key, err := deterministicPrivateKey(accountIndex)
 	if err != nil {
 		return nil, common.Address{}, err
 	}
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
-		Nonce:    0,
+		Nonce:    nonce,
 		GasPrice: new(big.Int).Set(w.cfg.gasPrice),
 		Gas:      w.cfg.txGasLimit,
 		To:       &recipient,
@@ -1248,7 +1264,6 @@ type generatedState struct {
 }
 
 var _ evmonly.StateReader = (*generatedState)(nil)
-var _ evmonly.ConcurrentStateReader = (*generatedState)(nil)
 
 var frozenZeroBalance = new(big.Int)
 
@@ -1264,8 +1279,6 @@ func newGeneratedState() *generatedState {
 func (s *generatedState) Freeze() {
 	s.frozen.Store(true)
 }
-
-func (s *generatedState) ConcurrentReads() {}
 
 func (s *generatedState) GetBalance(addr common.Address) *big.Int {
 	if s.frozen.Load() {

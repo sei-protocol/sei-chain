@@ -53,6 +53,102 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	require.NoError(t, discardReceiptSink{}.StoreReceipts(context.Background(), request.Context.Number, result.Receipts))
 }
 
+func TestTransferWorkloadOCCScenarios(t *testing.T) {
+	tests := []struct {
+		name              string
+		args              []string
+		wantConflicts     bool
+		wantReruns        bool
+		wantSameSender    bool
+		wantSameRecipient bool
+	}{
+		{name: "conflict free"},
+		{
+			name:              "hot recipient",
+			args:              []string{"--recipient=0x00000000000000000000000000000000000000f1"},
+			wantConflicts:     true,
+			wantReruns:        true,
+			wantSameRecipient: true,
+		},
+		{
+			name:           "same sender nonce chain",
+			args:           []string{"--same-sender"},
+			wantReruns:     true,
+			wantSameSender: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{
+				"--metrics-addr=",
+				"--txs-per-block=4",
+				"--gas-price-wei=0",
+				"--min-gas-price-wei=0",
+			}, tc.args...)
+			cfg, err := parseConfig(args)
+			require.NoError(t, err)
+
+			state := newGeneratedState()
+			workload := newTransferWorkload(cfg, state)
+			request, err := workload.buildBlock(context.Background(), 1)
+			require.NoError(t, err)
+
+			signer := ethtypes.LatestSignerForChainID(cfg.chainID)
+			senders := make([]common.Address, len(request.Txs))
+			recipients := make([]common.Address, len(request.Txs))
+			for i, raw := range request.Txs {
+				tx := new(ethtypes.Transaction)
+				require.NoError(t, tx.UnmarshalBinary(raw))
+				senders[i], err = ethtypes.Sender(signer, tx)
+				require.NoError(t, err)
+				require.NotNil(t, tx.To())
+				recipients[i] = *tx.To()
+				if tc.wantSameSender {
+					require.Equal(t, uint64(i), tx.Nonce())
+				} else {
+					require.Zero(t, tx.Nonce())
+				}
+			}
+			for i := 1; i < len(request.Txs); i++ {
+				require.Equal(t, tc.wantSameSender, senders[i] == senders[0])
+				require.Equal(t, tc.wantSameRecipient, recipients[i] == recipients[0])
+			}
+
+			executor := evmonly.NewExecutor(evmonly.Config{
+				MinGasPrice: cfg.minGasPrice,
+				OCCWorkers:  4,
+			}, evmonly.WithState(state))
+			result, err := executor.ExecuteBlock(context.Background(), request)
+			require.NoError(t, err)
+			require.True(t, result.OCCStats.Attempted)
+			require.False(t, result.OCCStats.Fallback)
+			require.Len(t, result.Txs, cfg.txsPerBlock)
+			for _, tx := range result.Txs {
+				require.Equal(t, ethtypes.ReceiptStatusSuccessful, tx.Status)
+				require.NoError(t, tx.Err)
+			}
+			if tc.wantConflicts {
+				require.Greater(t, result.OCCStats.ConflictCount, uint64(0))
+			} else {
+				require.Zero(t, result.OCCStats.ConflictCount)
+			}
+			if tc.wantReruns {
+				require.Greater(t, result.OCCStats.RerunCount, uint64(0))
+			} else {
+				require.Zero(t, result.OCCStats.RerunCount)
+			}
+
+			applyGeneratedStateChangeSet(state, result.ChangeSet)
+			if tc.wantSameSender {
+				require.Equal(t, uint64(cfg.txsPerBlock), state.GetNonce(senders[0]))
+			}
+			result.Release()
+			executor.Close()
+		})
+	}
+}
+
 func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
@@ -235,6 +331,24 @@ func TestRecipientConflictRateValidation(t *testing.T) {
 		"--recipient-conflict-rate=0.5",
 	})
 	require.ErrorContains(t, err, "recipient cannot be combined with recipient-conflict-rate")
+}
+
+func TestSameSenderValidation(t *testing.T) {
+	_, err := parseConfig([]string{
+		"--workload=erc20-transfer",
+		"--same-sender",
+	})
+	require.ErrorContains(t, err, "same-sender is only supported with transfer workload")
+
+	_, err = parseConfig([]string{
+		"--same-sender",
+		"--txs-per-block=4",
+		"--gas-price-wei=0",
+		"--min-gas-price-wei=0",
+		"--sender-balance-wei=3",
+		"--transfer-value-wei=1",
+	})
+	require.ErrorContains(t, err, "sender-balance-wei must cover all same-sender transactions")
 }
 
 func TestSnapshotRevertValidation(t *testing.T) {
@@ -435,30 +549,54 @@ func requireNoFileExists(t *testing.T, path string) {
 }
 
 func BenchmarkExecuteTransferBlock(b *testing.B) {
-	cfg, err := parseConfig([]string{
-		"--metrics-addr=",
-		"--txs-per-block=1000",
-	})
-	require.NoError(b, err)
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "conflict_free"},
+		{
+			name: "hot_recipient",
+			args: []string{"--recipient=0x00000000000000000000000000000000000000f1"},
+		},
+		{
+			name: "same_sender_nonce_chain",
+			args: []string{"--same-sender"},
+		},
+	}
+	for _, tc := range tests {
+		b.Run(tc.name, func(b *testing.B) {
+			args := append([]string{
+				"--metrics-addr=",
+				"--txs-per-block=1000",
+				"--gas-price-wei=0",
+				"--min-gas-price-wei=0",
+			}, tc.args...)
+			cfg, err := parseConfig(args)
+			require.NoError(b, err)
 
-	state := newGeneratedState()
-	workload := newTransferWorkload(cfg, state)
-	request, err := workload.buildBlock(context.Background(), 1)
-	require.NoError(b, err)
-	executor := evmonly.NewExecutor(evmonly.Config{
-		MinGasPrice: cfg.minGasPrice,
-	}, evmonly.WithState(state))
+			state := newGeneratedState()
+			workload := newTransferWorkload(cfg, state)
+			request, err := workload.buildBlock(context.Background(), 1)
+			require.NoError(b, err)
+			executor := evmonly.NewExecutor(evmonly.Config{
+				MinGasPrice: cfg.minGasPrice,
+				OCCWorkers:  cfg.executorWorkers,
+			}, evmonly.WithState(state))
 
-	b.ReportAllocs()
-	b.SetBytes(int64(cfg.txsPerBlock))
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		result, err := executor.ExecuteBlock(context.Background(), request)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if len(result.Txs) != cfg.txsPerBlock {
-			b.Fatalf("expected %d txs, got %d", cfg.txsPerBlock, len(result.Txs))
-		}
+			b.ReportAllocs()
+			b.SetBytes(int64(cfg.txsPerBlock))
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				result, err := executor.ExecuteBlock(context.Background(), request)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(result.Txs) != cfg.txsPerBlock {
+					b.Fatalf("expected %d txs, got %d", cfg.txsPerBlock, len(result.Txs))
+				}
+				result.Release()
+			}
+			executor.Close()
+		})
 	}
 }
