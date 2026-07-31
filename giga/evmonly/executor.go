@@ -18,19 +18,15 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
-const occDisabledReasonStateReaderNotConcurrent = "state_reader_not_concurrent"
-
 // Executor runs raw EVM transactions against an EVM-native state backend.
 type Executor struct {
-	cfg             Config
-	state           StateReader
-	stateConcurrent bool
-	stateMu         sync.Mutex
-	resultSink      ResultSink
-	occPool         *occWorkerPool
-	resultPool      *blockResultPool
-	stateDBPool     sync.Pool
-	closed          atomic.Bool
+	cfg         Config
+	state       StateReader
+	resultSink  ResultSink
+	occPool     *occWorkerPool
+	resultPool  *blockResultPool
+	stateDBPool sync.Pool
+	closed      atomic.Bool
 }
 
 type Option func(*Executor)
@@ -39,7 +35,6 @@ func WithState(state StateReader) Option {
 	return func(e *Executor) {
 		if state != nil {
 			e.state = state
-			_, e.stateConcurrent = state.(ConcurrentStateReader)
 		}
 	}
 }
@@ -54,10 +49,9 @@ func WithResultSink(sink ResultSink) Option {
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
-		cfg:             cfg.WithDefaults(),
-		state:           NewMemoryState(),
-		stateConcurrent: true,
-		resultPool:      newBlockResultPool(cfg.BlockResultPoolSize),
+		cfg:        cfg.WithDefaults(),
+		state:      NewMemoryState(),
+		resultPool: newBlockResultPool(cfg.BlockResultPoolSize),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -117,13 +111,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return nil, err
 	}
-	var result *BlockResult
-	var err error
-	if e.stateConcurrent {
-		result, err = e.executePreparedBlock(ctx, req)
-	} else {
-		result, err = e.executePreparedBlockSerial(ctx, req)
-	}
+	result, err := e.executePreparedBlock(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -134,12 +122,6 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	return result, nil
 }
 
-func (e *Executor) executePreparedBlockSerial(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
-	e.stateMu.Lock()
-	defer e.stateMu.Unlock()
-	return e.executePreparedBlock(ctx, req)
-}
-
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
@@ -147,11 +129,7 @@ func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock) 
 	if e.useOCC(len(req.Txs)) {
 		return e.executeBlockOCC(ctx, req)
 	}
-	result, err := e.executeBlockSequential(ctx, req)
-	if result != nil && e.cfg.OCCWorkers > 1 && len(req.Txs) > 1 && !e.stateConcurrent {
-		result.OCCStats.DisabledReason = occDisabledReasonStateReaderNotConcurrent
-	}
-	return result, err
+	return e.executeBlockSequential(ctx, req)
 }
 
 func (e *Executor) acquireBlockResult(ctx context.Context, txCapacity int) (*BlockResult, error) {
@@ -176,7 +154,7 @@ func (e *Executor) sinkBlockResult(ctx context.Context, height uint64, result *B
 }
 
 func (e *Executor) useOCC(txCount int) bool {
-	if e.closed.Load() || e.cfg.OCCWorkers <= 1 || txCount <= 1 || !e.stateConcurrent {
+	if e.closed.Load() || e.cfg.OCCWorkers <= 1 || txCount <= 1 {
 		return false
 	}
 	if e.cfg.CustomPrecompiles == nil {

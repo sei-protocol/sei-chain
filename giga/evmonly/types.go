@@ -105,7 +105,6 @@ type OCCStats struct {
 	Attempted       bool
 	Fallback        bool
 	FallbackReason  string
-	DisabledReason  string
 	RerunCount      uint64
 	ConflictCount   uint64
 	ValidationCount uint64

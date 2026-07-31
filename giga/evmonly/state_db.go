@@ -87,6 +87,8 @@ const (
 	nativeJournalTxStorageClear
 	nativeJournalCommutativeBalanceDelta
 	nativeJournalPreimage
+	nativeJournalStorage
+	nativeJournalStorageMap
 )
 
 type nativeJournalEntry struct {
@@ -97,6 +99,7 @@ type nativeJournalEntry struct {
 	account      *nativeAccount
 	balanceDelta *uint256.Int
 	preimage     []byte
+	storage      map[common.Hash]storageValue
 	hadValue     bool
 }
 
@@ -243,6 +246,7 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 func (s *nativeStateDB) CreateAccount(addr common.Address) {
 	acct := s.account(addr)
 	s.recordAccount(addr)
+	s.recordStorageMap(addr)
 	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
 	balance := acct.Balance.Clone()
 	storageCleared := acct.StorageCleared
@@ -427,6 +431,7 @@ func (s *nativeStateDB) SetState(addr common.Address, key common.Hash, value com
 	acct := s.account(addr)
 	prev := storageHash(acct.Storage, key)
 	s.recordAccount(addr)
+	s.recordStorage(addr, key)
 	s.markWrite(stateAccessKey{kind: stateAccessStorage, address: addr, slot: key})
 	acct.Storage[key] = storageValue{value: value}
 	s.markTxStorageWrite(addr, key)
@@ -436,6 +441,7 @@ func (s *nativeStateDB) SetState(addr common.Address, key common.Hash, value com
 func (s *nativeStateDB) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
 	acct := s.account(addr)
 	s.recordAccount(addr)
+	s.recordStorageMap(addr)
 	s.markWrite(stateAccessKey{kind: stateAccessAccount, address: addr})
 	s.markTxStorageClear(addr)
 	acct.Storage = map[common.Hash]storageValue{}
@@ -632,6 +638,7 @@ func (s *nativeStateDB) Finalise(bool) {
 		acct := s.account(addr)
 		if acct.SelfDestructed {
 			s.recordAccount(addr)
+			s.recordStorageMap(addr)
 			acct.Code = nil
 			acct.CodeHash = common.Hash{}
 			acct.Storage = map[common.Hash]storageValue{}
@@ -762,14 +769,17 @@ func (s *nativeStateDB) recordAccount(addr common.Address) {
 	s.journal = append(s.journal, nativeJournalEntry{
 		kind:    nativeJournalAccount,
 		address: addr,
-		account: s.account(addr).clone(),
+		account: s.account(addr).cloneMetadata(),
 	})
 }
 
 func (e nativeJournalEntry) revert(s *nativeStateDB) {
 	switch e.kind {
 	case nativeJournalAccount:
-		s.accounts[e.address] = e.account
+		acct := s.account(e.address)
+		storage := acct.Storage
+		*acct = *e.account
+		acct.Storage = storage
 	case nativeJournalAccessAddress:
 		delete(s.accessList.addresses, e.address)
 	case nativeJournalAccessSlot:
@@ -826,9 +836,43 @@ func (e nativeJournalEntry) revert(s *nativeStateDB) {
 		} else {
 			delete(s.preimages, e.hash)
 		}
+	case nativeJournalStorage:
+		acct := s.account(e.address)
+		if e.hadValue {
+			acct.Storage[e.key] = storageValue{value: e.hash}
+		} else {
+			delete(acct.Storage, e.key)
+		}
+	case nativeJournalStorageMap:
+		s.account(e.address).Storage = e.storage
 	default:
 		panic("unknown native state journal entry")
 	}
+}
+
+func (s *nativeStateDB) recordStorage(addr common.Address, key common.Hash) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	value, ok := s.account(addr).Storage[key]
+	s.journal = append(s.journal, nativeJournalEntry{
+		kind:     nativeJournalStorage,
+		address:  addr,
+		key:      key,
+		hash:     value.value,
+		hadValue: ok,
+	})
+}
+
+func (s *nativeStateDB) recordStorageMap(addr common.Address) {
+	if len(s.snapshots) == 0 {
+		return
+	}
+	s.journal = append(s.journal, nativeJournalEntry{
+		kind:    nativeJournalStorageMap,
+		address: addr,
+		storage: s.account(addr).Storage,
+	})
 }
 
 func (s *nativeStateDB) recordAccessAddress(addr common.Address) {
@@ -1100,6 +1144,20 @@ func (a *nativeAccount) clone() *nativeAccount {
 	return cp
 }
 
+func (a *nativeAccount) cloneMetadata() *nativeAccount {
+	if a == nil {
+		return &nativeAccount{Balance: uint256.NewInt(0)}
+	}
+	cp := *a
+	cp.Storage = nil
+	if a.Balance == nil {
+		cp.Balance = uint256.NewInt(0)
+	} else {
+		cp.Balance = a.Balance.Clone()
+	}
+	return &cp
+}
+
 func newAccessList() accessList {
 	return accessList{
 		addresses: map[common.Address]struct{}{},
@@ -1277,11 +1335,25 @@ func cloneJournal(journal []nativeJournalEntry) []nativeJournalEntry {
 	cp := make([]nativeJournalEntry, len(journal))
 	for i, entry := range journal {
 		cp[i] = entry
-		cp[i].account = entry.account.clone()
+		if entry.account != nil {
+			cp[i].account = entry.account.cloneMetadata()
+		}
 		if entry.balanceDelta != nil {
 			cp[i].balanceDelta = entry.balanceDelta.Clone()
 		}
 		cp[i].preimage = cloneBytes(entry.preimage)
+		cp[i].storage = cloneStorageValues(entry.storage)
+	}
+	return cp
+}
+
+func cloneStorageValues(values map[common.Hash]storageValue) map[common.Hash]storageValue {
+	if values == nil {
+		return nil
+	}
+	cp := make(map[common.Hash]storageValue, len(values))
+	for key, value := range values {
+		cp[key] = value
 	}
 	return cp
 }

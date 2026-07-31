@@ -264,139 +264,12 @@ func TestExecutorOCCFallsBackWhenSharedWorkerPoolClosesAfterOCCSelection(t *test
 	}
 }
 
-type overlapDetectingStateReader struct {
-	mu        sync.Mutex
-	active    int
-	maxActive int
-	delay     time.Duration
-	source    StateReader
-}
-
-func (s *overlapDetectingStateReader) GetBalance(addr common.Address) *big.Int {
-	done := s.enter()
-	defer done()
-	if s.source != nil {
-		return s.source.GetBalance(addr)
-	}
-	return new(big.Int)
-}
-
-func (s *overlapDetectingStateReader) GetNonce(addr common.Address) uint64 {
-	done := s.enter()
-	defer done()
-	if s.source != nil {
-		return s.source.GetNonce(addr)
-	}
-	return 0
-}
-
-func (s *overlapDetectingStateReader) GetCode(addr common.Address) []byte {
-	done := s.enter()
-	defer done()
-	if s.source != nil {
-		return s.source.GetCode(addr)
-	}
-	return nil
-}
-
-func (s *overlapDetectingStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
-	done := s.enter()
-	defer done()
-	if s.source != nil {
-		return s.source.GetState(addr, key)
-	}
-	return common.Hash{}
-}
-
-func (s *overlapDetectingStateReader) enter() func() {
-	s.mu.Lock()
-	s.active++
-	if s.active > s.maxActive {
-		s.maxActive = s.active
-	}
-	s.mu.Unlock()
-	time.Sleep(s.delay)
-	return func() {
-		s.mu.Lock()
-		s.active--
-		s.mu.Unlock()
-	}
-}
-
-func (s *overlapDetectingStateReader) maxActiveReads() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.maxActive
-}
-
 type overflowingBalanceState struct {
 	*MemoryState
 }
 
 func (s *overflowingBalanceState) GetBalance(common.Address) *big.Int {
 	return new(big.Int).Lsh(big.NewInt(1), 256)
-}
-
-func TestWithStateDisablesOCCForNonConcurrentReader(t *testing.T) {
-	reader := &overlapDetectingStateReader{delay: 2 * time.Millisecond}
-	executor := NewExecutor(Config{OCCWorkers: 4}, WithState(reader))
-
-	require.Same(t, reader, executor.state)
-	_, concurrent := executor.state.(ConcurrentStateReader)
-	require.False(t, concurrent)
-	require.False(t, executor.stateConcurrent)
-	require.False(t, executor.useOCC(2))
-}
-
-func TestWithStateSerializesBlocksForNonConcurrentReader(t *testing.T) {
-	chainID := big.NewInt(713715)
-	key, err := crypto.GenerateKey()
-	require.NoError(t, err)
-	sender := crypto.PubkeyToAddress(key.PublicKey)
-	recipient := testAddress(0xef)
-	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(1_000_000))
-	reader := &overlapDetectingStateReader{delay: 100 * time.Microsecond, source: state}
-	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(reader))
-	prepared, err := executor.PrepareBlock(context.Background(), BlockRequest{
-		Context: blockContext(chainID),
-		Txs: [][]byte{
-			signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(0)),
-			signLegacyTxWithGasPrice(t, key, chainID, 1, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(0)),
-		},
-	})
-	require.NoError(t, err)
-
-	start := make(chan struct{})
-	var wg sync.WaitGroup
-	type executionOutcome struct {
-		err            error
-		disabledReason string
-	}
-	outcomes := make(chan executionOutcome, 8)
-	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			result, executeErr := executor.ExecutePreparedBlock(context.Background(), prepared)
-			outcome := executionOutcome{err: executeErr}
-			if result != nil {
-				outcome.disabledReason = result.OCCStats.DisabledReason
-				result.Release()
-			}
-			outcomes <- outcome
-		}()
-	}
-	close(start)
-	wg.Wait()
-	close(outcomes)
-
-	for outcome := range outcomes {
-		require.NoError(t, outcome.err)
-		require.Equal(t, occDisabledReasonStateReaderNotConcurrent, outcome.disabledReason)
-	}
-	require.Equal(t, 1, reader.maxActiveReads())
 }
 
 func TestOCCWorkerPoolCloseWaitsForInFlightRun(t *testing.T) {
@@ -2034,24 +1907,109 @@ func TestStateDBCachesCodeHashAndReturnsImmutableCodeView(t *testing.T) {
 	require.Equal(t, &first[0], &second[0])
 }
 
-func TestStateDBSnapshotJournalSharesCodeAndReusesSavedAccountOnRevert(t *testing.T) {
+func TestStateDBSnapshotJournalStoresAccountMetadataWithoutStorage(t *testing.T) {
 	addr := testAddress(0xe9)
 	code := []byte{0x60, 0x03, 0x60, 0x04}
 	state := NewMemoryState()
 	state.SetCode(addr, code)
 	state.SetBalance(addr, big.NewInt(10))
+	for i := range 128 {
+		state.SetState(addr, testHash(byte(i)), testHash(byte(i+1)))
+	}
 	stateDB := newNativeStateDB(state)
 	original := stateDB.account(addr)
+	for i := range 128 {
+		require.Equal(t, testHash(byte(i+1)), stateDB.GetState(addr, testHash(byte(i))))
+	}
 	snapshot := stateDB.Snapshot()
 
 	stateDB.SetBalance(addr, uint256.NewInt(9), tracing.BalanceChangeUnspecified)
 	require.Len(t, stateDB.journal, 1)
 	saved := stateDB.journal[0].account
 	require.Equal(t, &original.Code[0], &saved.Code[0])
+	require.Nil(t, saved.Storage)
 
 	stateDB.RevertToSnapshot(snapshot)
-	require.Same(t, saved, stateDB.accounts[addr])
+	require.Same(t, original, stateDB.accounts[addr])
 	require.Equal(t, uint256.NewInt(10), stateDB.GetBalance(addr))
+	require.Equal(t, testHash(2), stateDB.GetState(addr, testHash(1)))
+}
+
+func TestStateDBSnapshotRevertsIncrementalStorageJournal(t *testing.T) {
+	addr := testAddress(0xea)
+	key := testHash(0x01)
+	otherKey := testHash(0x02)
+	original := testHash(0x03)
+	first := testHash(0x04)
+	second := testHash(0x05)
+
+	state := NewMemoryState()
+	state.SetState(addr, key, original)
+	stateDB := newNativeStateDB(state)
+	outer := stateDB.Snapshot()
+	require.Equal(t, original, stateDB.SetState(addr, key, first))
+	require.Equal(t, common.Hash{}, stateDB.SetState(addr, otherKey, first))
+
+	inner := stateDB.Snapshot()
+	require.Equal(t, first, stateDB.SetState(addr, key, second))
+	stateDB.RevertToSnapshot(inner)
+	require.Equal(t, first, stateDB.GetState(addr, key))
+	require.Equal(t, first, stateDB.GetState(addr, otherKey))
+
+	stateDB.RevertToSnapshot(outer)
+	require.Equal(t, original, stateDB.GetState(addr, key))
+	require.Equal(t, common.Hash{}, stateDB.GetState(addr, otherKey))
+}
+
+func TestStateDBSnapshotRevertsStorageMapReplacement(t *testing.T) {
+	addr := testAddress(0xeb)
+	key := testHash(0x01)
+	otherKey := testHash(0x02)
+	original := testHash(0x03)
+	replacement := testHash(0x04)
+
+	state := NewMemoryState()
+	state.SetState(addr, key, original)
+	stateDB := newNativeStateDB(state)
+	require.Equal(t, original, stateDB.GetState(addr, key))
+	snapshot := stateDB.Snapshot()
+
+	stateDB.SetStorage(addr, map[common.Hash]common.Hash{otherKey: replacement})
+	require.Equal(t, common.Hash{}, stateDB.GetState(addr, key))
+	require.Equal(t, replacement, stateDB.GetState(addr, otherKey))
+
+	stateDB.RevertToSnapshot(snapshot)
+	require.Equal(t, original, stateDB.GetState(addr, key))
+	require.Equal(t, common.Hash{}, stateDB.GetState(addr, otherKey))
+	require.False(t, stateDB.account(addr).StorageCleared)
+}
+
+func TestStateDBCopyRevertsIncrementalStorageJournal(t *testing.T) {
+	addr := testAddress(0xec)
+	key := testHash(0x01)
+	otherKey := testHash(0x02)
+	original := testHash(0x03)
+	first := testHash(0x04)
+	replacement := testHash(0x05)
+	second := testHash(0x06)
+
+	state := NewMemoryState()
+	state.SetState(addr, key, original)
+	stateDB := newNativeStateDB(state)
+	require.Equal(t, original, stateDB.GetState(addr, key))
+	snapshot := stateDB.Snapshot()
+	stateDB.SetState(addr, key, first)
+	stateDB.SetStorage(addr, map[common.Hash]common.Hash{otherKey: replacement})
+	stateDB.SetState(addr, otherKey, second)
+
+	copied := stateDB.Copy().(*nativeStateDB)
+	copied.RevertToSnapshot(snapshot)
+
+	require.Equal(t, original, copied.GetState(addr, key))
+	require.Equal(t, common.Hash{}, copied.GetState(addr, otherKey))
+	require.False(t, copied.account(addr).StorageCleared)
+	require.Equal(t, common.Hash{}, stateDB.GetState(addr, key))
+	require.Equal(t, second, stateDB.GetState(addr, otherKey))
 }
 
 func TestStateDBGetCodeHashTracksCodelessAccountExistenceReads(t *testing.T) {
@@ -2424,88 +2382,6 @@ func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
 	require.Len(t, result.Receipts, 1)
 	require.Equal(t, ethtypes.ReceiptStatusFailed, result.Txs[0].Status)
 	require.True(t, errors.Is(result.Txs[0].Err, precompiles.ErrCustomPrecompilesOpen))
-}
-
-func BenchmarkExecutorOCC(b *testing.B) {
-	for _, pattern := range []string{"conflict_free", "hot_recipient", "same_sender_nonce_chain"} {
-		b.Run(pattern, func(b *testing.B) {
-			req, state := benchmarkTransferBlock(b, pattern, 128)
-			executor := NewExecutor(
-				Config{MinGasPrice: big.NewInt(0), OCCWorkers: 8},
-				WithState(state),
-			)
-			prepared, err := executor.PrepareBlock(context.Background(), req)
-			require.NoError(b, err)
-
-			sample, err := executor.ExecutePreparedBlock(context.Background(), prepared)
-			require.NoError(b, err)
-			sampleStats := sample.OCCStats
-			sample.Release()
-
-			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
-				result, executeErr := executor.ExecutePreparedBlock(context.Background(), prepared)
-				if executeErr != nil {
-					b.Fatal(executeErr)
-				}
-				result.Release()
-			}
-			b.StopTimer()
-			b.ReportMetric(float64(sampleStats.RerunCount), "reruns/block")
-			b.ReportMetric(float64(sampleStats.ValidationCount), "validations/block")
-			if sampleStats.Fallback {
-				b.ReportMetric(1, "fallback/block")
-			} else {
-				b.ReportMetric(0, "fallback/block")
-			}
-		})
-	}
-}
-
-func benchmarkTransferBlock(tb testing.TB, pattern string, txCount int) (BlockRequest, *MemoryState) {
-	tb.Helper()
-	chainID := big.NewInt(713715)
-	state := NewMemoryState()
-	rawTxs := make([][]byte, 0, txCount)
-	hotRecipient := testAddress(0xed)
-
-	var sharedKey *ecdsa.PrivateKey
-	if pattern == "same_sender_nonce_chain" {
-		var err error
-		sharedKey, err = crypto.GenerateKey()
-		require.NoError(tb, err)
-		state.SetBalance(crypto.PubkeyToAddress(sharedKey.PublicKey), big.NewInt(1_000_000_000))
-	}
-	for i := range txCount {
-		key := sharedKey
-		if key == nil {
-			var err error
-			key, err = crypto.GenerateKey()
-			require.NoError(tb, err)
-			state.SetBalance(crypto.PubkeyToAddress(key.PublicKey), big.NewInt(1_000_000_000))
-		}
-		recipient := hotRecipient
-		if pattern != "hot_recipient" {
-			recipient = common.BigToAddress(big.NewInt(int64(60_000 + i)))
-		}
-		nonce := uint64(0)
-		if pattern == "same_sender_nonce_chain" {
-			nonce = uint64(i) //nolint:gosec // bounded by the benchmark transaction count.
-		}
-		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(
-			tb,
-			key,
-			chainID,
-			nonce,
-			&recipient,
-			big.NewInt(1),
-			nil,
-			100_000,
-			big.NewInt(0),
-		))
-	}
-	return BlockRequest{Context: blockContext(chainID), Txs: rawTxs}, state
 }
 
 func signLegacyTx(t testing.TB, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte) []byte {

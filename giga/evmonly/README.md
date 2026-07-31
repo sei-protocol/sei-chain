@@ -71,11 +71,11 @@ returns the state writes and receipts produced by that block. The caller owns
 durable persistence, state commitment, block indexing, and receipt publication.
 The concrete `Executor` accepts a `StateReader` backend through `WithState(...)`;
 callers can persist the returned `ChangeSet` with a matching `StateWriter`.
-`StateReader` implementations passed to `WithState` do not need to be safe for
-parallel reads. For those backends, the executor disables OCC and serializes
-whole-block execution instead of putting a mutex around every cold state lookup.
-Backends must implement `ConcurrentStateReader` before OCC is eligible; skipped
-OCC is reported through `OCCStats.DisabledReason`.
+Every `StateReader` method must be safe for concurrent calls because speculative
+transactions and overlapping block executions may read the backend at the same
+time. `GetBalance` and `GetCode` must return caller-owned values because the
+executor may retain or mutate them. The executor intentionally does not detect
+or serialize non-concurrent backends; violating this contract is a data race.
 Call `Close()` to disable future OCC execution on an executor.
 
 A non-nil `error` means block validation failed and the caller must not commit a
@@ -198,12 +198,14 @@ and changesets are detached before the scratch state DB is reset. EVM snapshots
 inside `nativeStateDB` are journaled by mutation kind instead of cloning all side
 state at every snapshot; account contents, access lists, transient storage,
 tx-storage bookkeeping, preimages, finalise markers, and commutative balance
-deltas are restored by undo entries. Loaded bytecode is immutable and shared
-across account snapshots, and code hashes are cached per loaded account.
+deltas are restored by undo entries. Account snapshots retain only metadata;
+ordinary storage writes journal the affected slot, while operations that replace
+storage retain the old map until the snapshot is discarded. Loaded bytecode is
+immutable and shared across account snapshots, and code hashes are cached per
+loaded account.
 
 `OCCStats` reports whether optimistic execution was attempted, how many reruns
 and validation attempts were needed, and aggregated conflict samples.
-`DisabledReason` explains why an otherwise eligible block skipped OCC.
 `Fallback` is reserved for cases where the executor gives up on the optimistic
 path, such as max-incarnation exhaustion or a concurrent `Close()` closing the
 shared OCC worker pool after OCC was selected; ordinary conflicts should be
@@ -214,10 +216,6 @@ resolved by per-transaction reruns instead.
 - Block-STM execution is optional and conservative; conflicts are resolved by
   granular reruns, but the validator may rerun more transactions than a less
   conservative implementation would.
-- The first mutation of an account in each nested EVM snapshot still clones its
-  loaded storage map for rollback. Bytecode no longer contributes to that copy,
-  but field- and slot-level account journaling remains a future optimization for
-  deep call trees on storage-heavy contracts.
 - State input is key-addressable only. The executor lazily reads storage slots
   by `(address, slot)` and does not require or expose range iteration.
 - The map-backed `MemoryState` is for tests and early integration; production

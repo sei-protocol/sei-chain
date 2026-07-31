@@ -7,23 +7,15 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// StateReader supplies EVM-native state to an executor. Implementations passed
-// through WithState do not need to be goroutine-safe; the executor disables OCC
-// and serializes whole-block execution unless the implementation advertises
-// ConcurrentStateReader. GetBalance and GetCode return mutable values, so
-// concurrent readers must return caller-owned copies.
+// StateReader supplies EVM-native state to an executor. Every method must be
+// safe for concurrent calls: speculative transactions and overlapping block
+// executions can read from the same backend at the same time. GetBalance and
+// GetCode return mutable values and therefore must return caller-owned copies.
 type StateReader interface {
 	GetBalance(common.Address) *big.Int
 	GetNonce(common.Address) uint64
 	GetCode(common.Address) []byte
 	GetState(common.Address, common.Hash) common.Hash
-}
-
-// ConcurrentStateReader marks a StateReader implementation as safe for parallel
-// executor reads without executor-side locking.
-type ConcurrentStateReader interface {
-	StateReader
-	ConcurrentReads()
 }
 
 // StateWriter persists an executor-produced changeset.
@@ -54,8 +46,6 @@ type StateAccount struct {
 func NewMemoryState() *MemoryState {
 	return &MemoryState{accounts: map[common.Address]*StateAccount{}}
 }
-
-func (s *MemoryState) ConcurrentReads() {}
 
 func (s *MemoryState) GetBalance(addr common.Address) *big.Int {
 	s.mu.RLock()
