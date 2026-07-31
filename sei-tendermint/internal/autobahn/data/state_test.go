@@ -827,6 +827,9 @@ func TestTryBlockHidesGapFills(t *testing.T) {
 	require.NoError(t, state.PushBlock(ctx, last, gapBlock))
 	_, err := state.TryBlock(last)
 	require.ErrorIs(t, err, types.ErrNotFound, "gap-fill above nextBlock must stay hidden")
+	require.False(t, state.NeedBlock(last), "NeedBlock must treat gap-fills as already satisfied")
+	missing := gr2.First
+	require.True(t, state.NeedBlock(missing), "NeedBlock must still request holes below a gap-fill")
 
 	// ByHash must not fall through to BlockDB (gap-fills are not persisted yet).
 	gotOpt, err := state.GlobalBlockByHash(gapBlock.Header().Hash())

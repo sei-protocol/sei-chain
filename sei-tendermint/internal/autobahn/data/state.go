@@ -651,6 +651,22 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 	return s.blockFromDB(n)
 }
 
+// NeedBlock reports whether catch-up still needs to fetch height n.
+// False when n is already past nextBlock (including heights pruned or
+// evicted from RAM) or an in-memory gap-fill is present. Unlike TryBlock,
+// gap-fills count as satisfied so the fetcher does not keep re-requesting
+// them while a lower contiguous hole is open. Does not consult BlockDB.
+func (s *State) NeedBlock(n types.GlobalBlockNumber) bool {
+	for inner := range s.inner.Lock() {
+		if n < inner.nextBlock {
+			return false
+		}
+		_, ok := inner.blocks[n]
+		return !ok
+	}
+	panic("unreachable")
+}
+
 // assembleGlobalBlock builds a GlobalBlock from a block and its covering QC.
 // Callers must supply non-nil b and fqc for height n. In-memory paths look up
 // maps only for heights still indexed there (including gap-fills); BlockDB
