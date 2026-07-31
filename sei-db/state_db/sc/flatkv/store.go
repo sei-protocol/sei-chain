@@ -997,13 +997,13 @@ func (s *CommitStore) resetForImport() error {
 //
 // When the store does not manage a WAL (constructed with nil — the outer context owns the pipeline) this is
 // a no-op. The instance may already be closed here, since rootmulti.Restore closes the store before
-// importing; Config() stays readable across Close, and closing twice is a no-op. On failure the store keeps
-// the closed instance rather than dropping to nil, so a later write fails loudly instead of being skipped.
+// importing; closing twice is a no-op. On failure the store keeps the closed instance rather than dropping to
+// nil, so a later write fails loudly instead of being skipped.
 func (s *CommitStore) resetWAL() error {
 	if !s.manageWAL {
 		return nil
 	}
-	cfg := s.wal.Config()
+	cfg := stateWALConfig(&s.config)
 	if err := s.wal.Close(); err != nil {
 		return fmt.Errorf("close WAL for reset: %w", err)
 	}

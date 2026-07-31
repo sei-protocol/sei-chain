@@ -65,7 +65,7 @@ func (f *fakeWAL) Close() error {
 
 func newFakeStateWAL(t *testing.T, f *fakeWAL) StateWAL {
 	t.Helper()
-	w, err := newStateWAL(f, nil)
+	w, err := newStateWAL(f)
 	require.NoError(t, err)
 	return w
 }

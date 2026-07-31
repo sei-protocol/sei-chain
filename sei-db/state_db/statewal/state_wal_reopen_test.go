@@ -9,26 +9,6 @@ import (
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 )
 
-// TestConfigGetterReturnsOpenedConfig verifies Config() hands back the exact config the WAL was opened
-// with, so FlatKV can close and reopen the instance with its original tuning during rollback / restore.
-func TestConfigGetterReturnsOpenedConfig(t *testing.T) {
-	cfg := testConfig(t.TempDir())
-	w := openWAL(t, cfg)
-	defer func() { require.NoError(t, w.Close()) }()
-
-	require.Same(t, cfg, w.Config())
-}
-
-// TestConfigGetterValidAfterClose verifies Config() still returns the config after Close — the caller needs
-// it precisely to reopen after closing.
-func TestConfigGetterValidAfterClose(t *testing.T) {
-	cfg := testConfig(t.TempDir())
-	w := openWAL(t, cfg)
-	require.NoError(t, w.Close())
-
-	require.Same(t, cfg, w.Config())
-}
-
 // TestDeleteRemovesWALDirectory verifies Delete removes the WAL directory outright and that New recreates it,
 // yielding a fresh, empty WAL.
 func TestDeleteRemovesWALDirectory(t *testing.T) {

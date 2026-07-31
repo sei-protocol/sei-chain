@@ -663,7 +663,7 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	// rollbackBaseVersion already established is reachable, including the case where the target predates every
 	// retained block and the prune empties the WAL. Skipped when the WAL is nil — the outer context owns it.
 	if s.wal != nil {
-		cfg := s.wal.Config()
+		cfg := stateWALConfig(&s.config)
 		if err := s.wal.Close(); err != nil {
 			return fmt.Errorf("close WAL for rollback: %w", err)
 		}

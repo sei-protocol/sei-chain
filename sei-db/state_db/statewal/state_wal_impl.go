@@ -17,10 +17,6 @@ type stateWALImpl struct {
 	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
 	wal seiwal.WAL[[]*proto.NamedChangeSet]
 
-	// The configuration this WAL was opened with. Retained only so Config() can hand it back for
-	// close/reopen (see Config on the StateWAL interface). Never mutated after construction.
-	config *Config
-
 	// Set by Close() so subsequent calls fail fast. A plain field: like the write-ordering state below, it
 	// is only ever touched by the single caller, which must not invoke methods concurrently.
 	closed bool
@@ -53,7 +49,7 @@ func New(config *Config) (StateWAL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state WAL: %w", err)
 	}
-	return newStateWAL(wal, config)
+	return newStateWAL(wal)
 }
 
 // GetRange reports the range of block numbers stored in the state WAL directory configured by config,
@@ -122,8 +118,8 @@ func Delete(config *Config) error {
 	return nil
 }
 
-func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet], config *Config) (StateWAL, error) {
-	w := &stateWALImpl{wal: wal, config: config}
+func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
+	w := &stateWALImpl{wal: wal}
 
 	// Recover the write-ordering position from the highest block already on disk.
 	ok, _, last, err := wal.Bounds()
@@ -282,13 +278,6 @@ func (w *stateWALImpl) Iterator(
 		return nil, w.fail(fmt.Errorf("failed to create WAL iterator: %w", err))
 	}
 	return it, nil
-}
-
-// Config returns the configuration this WAL was opened with. See the Config method on the StateWAL
-// interface — it is a pure getter of an immutable field, so it stays valid (and returns the config) even
-// after the WAL is closed or bricked, which is exactly when the caller needs it to reopen.
-func (w *stateWALImpl) Config() *Config {
-	return w.config
 }
 
 // Close flushes pending writes, closes the underlying WAL, and releases resources.
