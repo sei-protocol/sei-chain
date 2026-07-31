@@ -355,20 +355,25 @@ func TestPruneGetLastestBlockError(t *testing.T) {
 	require.False(t, broken.pruneBelowCalled.Load())
 }
 
-func TestPruneBelowErrorStopsRemainingStores(t *testing.T) {
-	sentinel := errors.New("boom")
+func TestPruneBelowErrorContinuesRemainingStores(t *testing.T) {
+	firstErr := errors.New("boom1")
+	secondErr := errors.New("boom2")
 	first := snapshotStore("first", 100_000, 80_000)
-	first.pruneErr = sentinel
+	first.pruneErr = firstErr
 	second := snapshotStore("second", 100_000, 80_000)
+	second.pruneErr = secondErr
 	wal := contiguousStore("stateWAL", 100_000, true)
 
 	err := prune(testConfig(t, 10_000), prunableStores(first, second, wal))
-	require.ErrorIs(t, err, sentinel)
+	require.ErrorIs(t, err, firstErr)
+	require.ErrorIs(t, err, secondErr)
 	require.ErrorContains(t, err, "first")
+	require.ErrorContains(t, err, "second")
 	require.ErrorContains(t, err, "80000")
 	require.True(t, first.pruneBelowCalled.Load())
-	require.False(t, second.pruneBelowCalled.Load())
-	require.False(t, wal.pruneBelowCalled.Load())
+	require.True(t, second.pruneBelowCalled.Load())
+	require.True(t, wal.pruneBelowCalled.Load())
+	require.Equal(t, uint64(80_000), wal.prunedBelow.Load())
 }
 
 func TestGetCutLine(t *testing.T) {

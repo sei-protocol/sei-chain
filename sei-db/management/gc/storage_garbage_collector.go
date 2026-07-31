@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -28,6 +29,8 @@ var logger = seilog.NewLogger("db", "gc")
 //
 // Step 4 uses the shared min (not each store's own boundry) so a snapshot remains
 // restorable: contiguous stores must still hold the blocks that follow it.
+// PruneBelow failures are joined and do not skip later stores — permission-to-drop
+// is not transactional, and one unhealthy store must not block pruning of others.
 //
 // Invariant: if RollbackWindow blocks of rollback were possible before a prune, that
 // prune does not take the ability away. Full headroom is not promised after a rollback
@@ -138,15 +141,16 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 		"pruneHeight", pruneHeight,
 		"pruningBoundryByStore", describeAnswers(stores, pruningBoundries),
 	)
+	var pruneErrs error
 	for i, store := range stores {
 		if pruningBoundries[i] == 0 {
 			continue
 		}
 		if err := store.PruneBelow(pruneHeight); err != nil {
-			return fmt.Errorf("failed to prune %s below %d: %w", store.Name(), pruneHeight, err)
+			pruneErrs = errors.Join(pruneErrs, fmt.Errorf("failed to prune %s below %d: %w", store.Name(), pruneHeight, err))
 		}
 	}
-	return nil
+	return pruneErrs
 }
 
 func describeAnswers(stores []PrunableStore, pruningBoundries []uint64) string {
