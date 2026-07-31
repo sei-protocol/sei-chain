@@ -18,7 +18,7 @@ import (
 // MaybePruneAndPersistLane, but the new member must also appear in
 // inner.lanes before the next persist cycle.
 type inner struct {
-	epoch   epochProgress
+	epoch   utils.AtomicSend[*types.Epoch]
 	app     appProgress
 	commits commitProgress
 	lanes   laneCollection
@@ -51,9 +51,9 @@ func (ls *loadedAvailState) nextCommitQC() types.RoadIndex {
 }
 
 func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.Option[*loadedAvailState]) (*inner, error) {
-	startEpochDuo, err := registry.DuoAt(commitTip)
-	if err != nil {
-		return nil, fmt.Errorf("DuoAt(%d): %w", commitTip, err)
+	startEpochDuo, ok := registry.DuoAt(commitTip)
+	if !ok {
+		return nil, fmt.Errorf("DuoAt(%d): epoch missing", commitTip)
 	}
 	lanes := map[types.LaneID]*laneState{}
 	// TODO(lane-id): also seed Prev lanes before pruning so restart applies the
@@ -64,10 +64,10 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 	}
 
 	i := &inner{
-		epoch: utils.NewAtomicSend(startEpochDuo),
+		epoch: utils.NewAtomicSend(startEpochDuo.Current),
 		app: appProgress{
-			latestAppQC: utils.None[*types.AppQC](),
-			votes:       newQueue[types.GlobalBlockNumber, appVotes](),
+			anchor: utils.None[*PruneAnchor](),
+			votes: newQueue[types.GlobalBlockNumber, appVotes](),
 		},
 		commits: commitProgress{
 			qcs:               newQueue[types.RoadIndex, *types.CommitQC](),
@@ -161,14 +161,11 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 
 // verifyCommitQCInDuo verifies qc against startEpochDuo (Prev|Current at restore).
 func verifyCommitQCInDuo(duo types.EpochDuo, qc *types.CommitQC) error {
-	ep, err := duo.EpochForRoad(qc.Proposal().Index())
+	ep, err := duo.ByRoad(qc.Proposal().Index())
 	if err != nil {
 		return fmt.Errorf("epoch lookup: %w", err)
 	}
-	if err := qc.Verify(ep); err != nil {
-		return fmt.Errorf("verify: %w", err)
-	}
-	return nil
+	return qc.Verify(ep)
 }
 
 // advanceEpoch installs nextDuo at a boundary. Sole post-construction writer of
@@ -176,17 +173,21 @@ func verifyCommitQCInDuo(duo types.EpochDuo, qc *types.CommitQC) error {
 // after Current and that seal leashes (waitForAppQC, registry WaitForDuo) are
 // already satisfied. Adds Current lanes; does not delete old lanes
 // (TODO(lane-expiry)). Touches epoch + lane votes (reweight).
-func (i *inner) advanceEpoch(nextDuo types.EpochDuo) {
-	current := nextDuo.Current
-	for lane := range current.Committee().Lanes().All() {
+func (i *inner) advanceEpoch(epoch *types.Epoch) bool {
+	if i.epoch.Load().EpochIndex() < epoch.EpochIndex() {
+		return false
+	}
+	c := epoch.Committee()
+	for lane := range c.Lanes().All() {
 		i.lanes.getOrInsert(lane)
 	}
 	for _, ls := range i.lanes.byID {
 		for n := ls.votes.first; n < ls.votes.next; n++ {
-			ls.votes.q[n].reweight(current)
+			ls.votes.q[n].reweight(c)
 		}
 	}
-	i.epoch.Store(nextDuo)
+	i.epoch.Store(epoch)
+	return true
 }
 
 // pushPruneAnchor advances queue boundaries for an AppQC and its matching
@@ -200,10 +201,10 @@ func (i *inner) pushPruneAnchor(anchor *PruneAnchor) (bool, error) {
 	if idx != commitQC.Proposal().Index() {
 		return false, fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", idx, commitQC.Proposal().Index())
 	}
-	if idx < types.NextOpt(i.app.latestAppQC) {
+	if idx < types.NextOpt(i.app.anchor) {
 		return false, nil
 	}
-	i.app.latestAppQC = utils.Some(appQC)
+	i.app.anchor = utils.Some(anchor)
 	metrics.ObserveAppQC(appQC)
 	i.commits.qcs.prune(idx)
 	i.commits.push(commitQC)
@@ -213,6 +214,9 @@ func (i *inner) pushPruneAnchor(anchor *PruneAnchor) (bool, error) {
 		ls.votes.prune(lr.First())
 		ls.blocks.prune(lr.First())
 		ls.durable.floorNext(lr.First())
+	}
+	if anchor.Epoch.EpochIndex() > i.epoch.Load().EpochIndex() {
+		i.advanceEpoch(anchor.Epoch)
 	}
 	return true, nil
 }

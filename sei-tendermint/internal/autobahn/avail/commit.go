@@ -17,6 +17,23 @@ func (s *State) waitForCommitQC(ctx context.Context, idx types.RoadIndex) error 
 	return err
 }
 
+func (s *State) commitQCAndEpoch(ctx context.Context, idx types.RoadIndex) (*types.CommitQC, *types.Epoch, error) {
+	if err := s.waitForCommitQC(ctx, idx); err != nil {
+		return nil, nil, err
+	}
+	for inner := range s.inner.Lock() {
+		if idx < inner.commits.qcs.first {
+			return nil, nil, types.ErrPruned
+		}
+		qc := inner.commits.qcs.q[idx]
+		if epoch := inner.epoch.Load(); epoch.EpochIndex()==qc.Proposal().EpochIndex() {
+			return qc,epoch,nil
+		}
+		return qc,inner.app.anchor.OrPanic("missing anchor").Epoch,nil
+	}
+	panic("unreachable")
+}
+
 // CommitQC returns the CommitQC for the given index.
 func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.CommitQC, error) {
 	if err := s.waitForCommitQC(ctx, idx); err != nil {
@@ -40,55 +57,41 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 //
 // Admit-then-verify is intentional backpressure for ahead-of-window QCs.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
-	idx := qc.Proposal().Index()
-	if idx > 0 {
-		if err := s.waitForCommitQC(ctx, idx-1); err != nil {
+	// Await previous CommitQC.
+	if i := qc.Proposal().Index(); i>0 {
+		if err:=s.waitForCommitQC(ctx,i-1); err!=nil {
 			return err
 		}
 	}
-	admitted, err := s.waitForEpochOrDropStale(ctx, "CommitQC", idx)
+	// Await Epoch.
+	epoch, err := s.Epoch(ctx, qc.Proposal().EpochIndex())
 	if err != nil {
-		return err
-	}
-	duo, ok := admitted.Get()
-	if !ok {
-		return nil
-	}
-	ep := duo.Current
-	if err := qc.Verify(ep); err != nil {
-		return fmt.Errorf("qc.Verify(): %w", err)
-	}
-	if err := s.waitSealLeashes(ctx, ep, idx, utils.None[types.EpochIndex]()); err != nil {
-		return err
-	}
-
-	for inner, ctrl := range s.inner.Lock() {
-		if !inner.commits.push(qc) {
+		if errors.Is(err,types.ErrPruned); err!=nil {
 			return nil
 		}
-		// persistedCommitQC advances only after durable persist (or no-op persister).
-		ctrl.Updated()
-		return nil
+		return err
+	}
+	// Verify qc.
+	if err := qc.Verify(epoch); err != nil {
+		return fmt.Errorf("qc.Verify(): %w", err)
+	}
+	// Push.
+	for inner, ctrl := range s.inner.Lock() {
+		if inner.commits.push(qc) {
+			ctrl.Updated()
+		}
 	}
 	return nil
 }
 
 // fullCommitQC returns the FullCommitQC for road n.
-// ErrRoadBeforeWindow → ErrPruned (export may jump ahead). ErrRoadAfterWindow hard-fails.
 func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.FullCommitQC, error) {
-	qc, err := s.CommitQC(ctx, n)
+	qc, epoch, err := s.commitQCAndEpoch(ctx, n)
 	if err != nil {
-		return nil, err
-	}
-	ep, err := s.epochDuo.Load().EpochForRoad(qc.Proposal().Index())
-	if err != nil {
-		if errors.Is(err, types.ErrRoadBeforeWindow) {
-			return nil, types.ErrPruned
-		}
 		return nil, err
 	}
 	var commitHeaders []*types.BlockHeader
-	for lane := range ep.Committee().Lanes().All() {
+	for lane := range epoch.Committee().Lanes().All() {
 		headers, err := s.headers(ctx, qc.LaneRange(lane))
 		if err != nil {
 			return nil, err

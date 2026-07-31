@@ -2,6 +2,7 @@ package avail
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -10,33 +11,29 @@ import (
 
 // appProgress owns the in-memory AppQC tip and AppVote accumulators.
 type appProgress struct {
-	latestAppQC utils.Option[*types.AppQC]
-	votes       *queue[types.GlobalBlockNumber, appVotes]
+	anchor utils.Option[*PruneAnchor]
+	votes *queue[types.GlobalBlockNumber, appVotes]
 }
 
 // LastAppQC returns the latest observed AppQC.
 func (s *State) LastAppQC() utils.Option[*types.AppQC] {
 	for inner := range s.inner.Lock() {
-		return inner.app.latestAppQC
+		if anchor,ok := inner.app.anchor.Get(); ok {
+			return utils.Some(anchor.AppQC)
+		}
 	}
-	panic("unreachable")
+	return utils.None[*types.AppQC]()
 }
 
 // WaitForAppQC waits until there is an AppQC for the given index or higher.
 // Returns this AppQC and the corresponding CommitQC.
 // Together they provide enough information to prune the availability state.
-func (s *State) WaitForAppQC(ctx context.Context, idx types.RoadIndex) (*types.AppQC, *types.CommitQC, error) {
+func (s *State) WaitForAnchor(ctx context.Context, idx types.RoadIndex) (*PruneAnchor, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		for {
-			if appQC, ok := inner.app.latestAppQC.Get(); ok {
-				if x := appQC.Proposal().RoadIndex(); x >= idx && inner.commits.qcs.next > x {
-					return appQC, inner.commits.qcs.q[x], nil
-				}
-			}
-			if err := ctrl.Wait(ctx); err != nil {
-				return nil, nil, err
-			}
+		if err := ctrl.WaitUntil(ctx, func() bool { return types.NextOpt(inner.app.anchor) > idx }); err!= nil {
+			return nil,err
 		}
+		return inner.app.anchor.OrPanic("missing anchor"), nil
 	}
 	panic("unreachable")
 }
@@ -45,37 +42,24 @@ func (s *State) WaitForAppQC(ctx context.Context, idx types.RoadIndex) (*types.A
 // Same admit-then-verify as PushAppQC: far-future roads park until the duo
 // and CommitQC tip catch up (one stream goroutine; does not block others).
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
-	idx := v.Msg().Proposal().RoadIndex()
-	// A vote may arrive before its CommitQC advances the tip.
-	if err := s.waitForCommitQC(ctx, idx); err != nil {
-		return err
-	}
-	// Too-early roads (ahead of Prev|Current) backpressure; too-late are dropped.
-	admitted, err := s.waitForEpochDuoOrDropStale(ctx, "AppVote", idx)
+	qc,epoch,err := s.commitQCAndEpoch(ctx, v.Msg().Proposal().RoadIndex())
 	if err != nil {
+		if errors.Is(err,types.ErrPruned) {
+			return nil
+		}
 		return err
 	}
-	duo, ok := admitted.Get()
-	if !ok {
-		return nil
+	if err := v.Msg().Proposal().Verify(qc); err != nil {
+		return fmt.Errorf("invalid vote: %w", err)
 	}
-	ep := utils.OrPanic1(duo.EpochForRoad(idx))
-	if got, want := v.Msg().Proposal().EpochIndex(), ep.EpochIndex(); got != want {
-		return fmt.Errorf("appVote epoch_index %d, want %d", got, want)
-	}
-	committee := ep.Committee()
+	committee := epoch.Committee()
 	if err := v.VerifySig(committee); err != nil {
 		return fmt.Errorf("v.VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		// Early exit if not useful (we collect <=1 AppQC per road index).
-		if idx < types.NextOpt(inner.app.latestAppQC) {
+		if qc.Index() < types.NextOpt(inner.app.anchor) {
 			return nil
-		}
-		// Verify the vote against the CommitQC.
-		qc := inner.commits.qcs.q[idx]
-		if err := v.Msg().Proposal().Verify(qc); err != nil {
-			return fmt.Errorf("invalid vote: %w", err)
 		}
 		// Push the vote.
 		n := v.Msg().Proposal().GlobalNumber()
@@ -87,10 +71,8 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		if !ok {
 			return nil
 		}
-		updated, err := inner.pushPruneAnchor(&PruneAnchor{AppQC: appQC, CommitQC: qc})
-		if err != nil {
-			return err
-		}
+		// Anchor is always valid here.
+		updated := utils.OrPanic1(inner.pushPruneAnchor(&PruneAnchor{AppQC: appQC, CommitQC: qc, Epoch: epoch}))
 		if updated {
 			ctrl.Updated()
 		}
@@ -98,19 +80,25 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	return nil
 }
 
-// PushAppQC requires a justifying CommitQC. Epoch slide is async in
-// runAdvanceEpoch (same as PushCommitQC). Prune before insert so latestAppQC is
-// visible before the advance task observes the new tip.
-//
-// Same admit-then-verify as PushCommitQC.
+// PushAppQC requires a justifying CommitQC.
+// Prunes state up to AppQC.Proposal().Index().
 func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *types.CommitQC) error {
+	// If epoch is from the future then we are unable to process AppQC. 
+	// If epoch is pruned, then it is from the past and there is no point participating in the consensus.
+	epoch, err := s.data.Registry().WaitForEpoch(ctx, appQC.Proposal().EpochIndex())
+	if err != nil {
+		if errors.Is(err,types.ErrPruned) {
+			return nil
+		}
+		return err
+	}
 	// Check whether it is needed before verifying.
 	for inner := range s.inner.Lock() {
-		if types.NextOpt(inner.app.latestAppQC) > appQC.Proposal().RoadIndex() {
+		if types.NextOpt(inner.app.anchor) >= appQC.Next() {
 			return nil
 		}
 	}
-	// Pair consistency only; ahead-of-window still waits in waitForEpochDuo.
+	// Verify appQC <-> commitQC consistency.
 	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
 		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
 	}
@@ -120,38 +108,17 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC, commitQC *typ
 	if !commitQC.GlobalRange().Has(appQC.Proposal().GlobalNumber()) {
 		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
 	}
-	idx := commitQC.Proposal().Index()
-	admitted, err := s.waitForEpochDuoOrDropStale(ctx, "AppQC", idx)
-	if err != nil {
-		return err
-	}
-	duo, ok := admitted.Get()
-	if !ok {
-		return nil
-	}
-	ep := utils.OrPanic1(duo.EpochForRoad(idx))
-	if err := appQC.Verify(ep); err != nil {
+	if err := appQC.Verify(epoch); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
-	if err := commitQC.Verify(ep); err != nil {
+	if err := commitQC.Verify(epoch); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
-	// Seal CommitQC paired with this AppQC: incoming AppQC satisfies the prune
-	// leash; still wait on the execution leash when idx closes Current.
-	if duo.Current.RoadRange().Next-1 == idx && ep.EpochIndex() == duo.Current.EpochIndex() {
-		if err := s.waitSealLeashes(ctx, duo.Current, idx, utils.Some(appQC.Proposal().EpochIndex())); err != nil {
-			return err
-		}
-	}
+	anchor := &PruneAnchor{AppQC: appQC, CommitQC: commitQC, Epoch: epoch}
 	for inner, ctrl := range s.inner.Lock() {
-		updated, err := inner.pushPruneAnchor(&PruneAnchor{AppQC: appQC, CommitQC: commitQC})
-		if err != nil {
-			return err
+		if utils.OrPanic1(inner.pushPruneAnchor(anchor)) {
+			ctrl.Updated()
 		}
-		if !updated {
-			return nil
-		}
-		ctrl.Updated()
 	}
 	return nil
 }
