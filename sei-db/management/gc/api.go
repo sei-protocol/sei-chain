@@ -1,32 +1,55 @@
 package gc
 
+// InfiniteRetentionWindow is the conventional GetRetentionWindow value meaning "never
+// prune this store." Any negative value is treated the same: the store does not vote
+// and is never passed to PruneBelow.
+//
+// Note: elsewhere in this repo (KeepRecent / MinRetainBlocks) 0 often means "keep
+// forever." Here 0 means "no extra beyond the shared RollbackWindow," so infinite
+// retention needs a negative sentinel.
+const InfiniteRetentionWindow int64 = -1
+
 // PrunableStore is a store whose old data may be dropped by the StorageGarbageCollector.
 type PrunableStore interface {
-	// Name Returns the name of the store.
+	// Name identifies the store (logging / errors). Duplicate names are allowed;
+	// the collector keys answers by index, not by name.
 	Name() string
 
-	// PruneBelow tells the store that it may drop snapshots/data for all blocks below a specified number.
-	// Store can drop data asynchronously in the background.
+	// PruneBelow may drop data for all blocks below blockNumber.
+	// The store may perform the deletion asynchronously.
 	PruneBelow(blockNumber uint64) error
 
-	// GetOldestBlockToRetain returns the oldest block this store must keep in order to remain able to serve cutLine,
-	// or 0 when the store opts out of pruning entirely (e.g. infinite retention or disabled).
+	// GetRetentionWindow is how many extra blocks beyond the shared RollbackWindow
+	// this store needs to keep servable. Cut line (head = min non-zero GetLastestBlock):
 	//
-	// The collector ignores a store that answers 0 when choosing the prune height and does not call PruneBelow on it,
-	// so that other stores can still be pruned.
+	//	retention < 0  → store ignored (cutLine treated as 0; conventionally -1)
+	//	retention >= 0  → cutLine = head - RollbackWindow - retention
 	//
-	// A store that retains a contiguous range of blocks (blockDB, receiptDB, the state WAL) can be restored to any
-	// block it holds, so it should simply return the cutLine unchanged.
+	// RollbackWindow is shared so every store stays consistent under rollback.
+	// Retention is optional history on top — kept so the store can still serve queries
+	// after a rollback that consumes the entire rollback window.
 	//
-	// A store with checkpoints can only be restored to a height it has a snapshot for, so it answers the newest
-	// completed snapshot at or below cutLine, or its oldest completed snapshot when every snapshot is above the cut
-	// line, since in that case none of them can be dropped. With no completed snapshot at all it answers 0.
-	//
-	// Snapshot creation is assumed to complete within seconds, so a snapshot write in flight is not modeled: a store
-	// need not reserve blocks for a snapshot that has not landed yet. A store whose snapshots take long enough for the
-	// cut line to advance past them would need to report the in-progress height instead, and that is out of scope here.
-	GetOldestBlockToRetain(cutLine uint64) uint64
+	// Contract by store kind:
+	//   - Contiguous (blockDB, receiptDB, state WAL): -1 / 0 / positive as configured.
+	//   - SC: always 0 (only needs the shared rollback window for snapshots).
+	//   - SS: always 0 (SS prunes its own version history via KeepRecent; the collector
+	//     only drives SS snapshot pruning for the shared rollback window).
+	GetRetentionWindow() int64
 
-	// GetLastCommittedBlock returns the highest block this store has ingested.
-	GetLastCommittedBlock() (uint64, error)
+	// GetPruningBoundry returns the oldest block this store must keep to remain able to
+	// serve cutLine, or 0 to opt out of this cycle (not participate in calculating min prune height).
+	//
+	// Contiguous stores can restore to any height they hold → return cutLine.
+	//
+	// Snapshot stores can restore only at snapshot heights → return the newest completed
+	// snapshot ≤ cutLine, or the oldest completed snapshot if every snapshot is above
+	// cutLine (none can be dropped yet). No completed snapshot → 0.
+	//
+	// Assumption: snapshot creation finishes quickly enough that an in-flight write need
+	// not be reserved; modeling long-running snapshot writes is out of scope.
+	GetPruningBoundry(cutLine uint64) uint64
+
+	// GetLastestBlock returns the highest block this store has ingested.
+	// 0 means "no data / uninitialized" and is ignored when computing the global head.
+	GetLastestBlock() (uint64, error)
 }
