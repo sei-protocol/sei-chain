@@ -233,6 +233,7 @@ func NewEVMHTTPServer(
 	httpConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
 	httpConfig.maxRequestBodyBytes = config.MaxRequestBodyBytes
 	httpConfig.maxConcurrentRequestBytes = config.MaxConcurrentRequestBytes
+	httpConfig.bodyReadIdleTimeout = config.BodyReadIdleTimeout
 	if err := httpServer.EnableRPC(apis, httpConfig); err != nil {
 		return nil, err
 	}

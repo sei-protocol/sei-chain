@@ -257,11 +257,16 @@ type Config struct {
 	MaxRequestBodyBytes int64 `mapstructure:"max_request_body_bytes"`
 
 	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP
-	// JSON-RPC request bodies admitted for processing concurrently, weighted by
-	// each request's Content-Length. Requests that would exceed the budget are
-	// rejected fast (HTTP 429) before decode, capping peak memory under load.
-	// Set to 0 to disable the limit.
+	// JSON-RPC request bodies admitted for processing concurrently, charged
+	// incrementally as body bytes are read. Requests that would exceed the
+	// budget mid-read are rejected (HTTP 429). Set to 0 to disable the limit.
 	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
+
+	// BodyReadIdleTimeout is the maximum idle time allowed between body chunks
+	// while reading an HTTP JSON-RPC request. Stalled body reads are cut with
+	// HTTP 408 and release any byte budget held so far. Zero disables the
+	// per-chunk idle guard (http.Server ReadTimeout remains the backstop).
+	BodyReadIdleTimeout time.Duration `mapstructure:"body_read_idle_timeout"`
 
 	// MaxOpenConnections caps the number of simultaneously accepted connections
 	// on the EVM HTTP and WebSocket listeners. The limit is applied per listener
@@ -327,6 +332,7 @@ var DefaultConfig = Config{
 	MaxRequestBodyBytes:       5 * 1024 * 1024,   // 5 MiB (matches go-ethereum rpc default body limit)
 	MaxConcurrentRequestBytes: 128 * 1024 * 1024, // 128 MiB of request bodies admitted concurrently
 	MaxOpenConnections:        2000,
+	BodyReadIdleTimeout:       10 * time.Second,
 }
 
 const (
@@ -382,6 +388,7 @@ const (
 	flagMaxRequestBodyBytes          = "evm.max_request_body_bytes"
 	flagMaxConcurrentRequestBytes    = "evm.max_concurrent_request_bytes"
 	flagMaxOpenConnections           = "evm.max_open_connections"
+	flagBodyReadIdleTimeout          = "evm.body_read_idle_timeout"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -659,6 +666,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the limit), got %d", flagMaxOpenConnections, cfg.MaxOpenConnections)
 		}
 	}
+	if v := opts.Get(flagBodyReadIdleTimeout); v != nil {
+		if cfg.BodyReadIdleTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
 	return cfg, nil
 }
 
@@ -922,10 +934,16 @@ batch_response_max_size = {{ .EVM.BatchResponseMaxSize }}
 max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
 
 # max_concurrent_request_bytes bounds the total size, in bytes, of HTTP JSON-RPC
-# request bodies admitted for processing concurrently (weighted by each request's
-# Content-Length). Requests that would exceed the budget are rejected fast
-# (HTTP 429) before decode, capping peak memory under load. Set to 0 to disable.
+# request bodies admitted for processing concurrently, charged incrementally as
+# body bytes are read. Requests that would exceed the budget mid-read are
+# rejected (HTTP 429). Set to 0 to disable.
 max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
+
+# body_read_idle_timeout is the maximum idle time allowed between body chunks
+# while reading an HTTP JSON-RPC request. Stalled body reads return HTTP 408 and
+# release any byte budget held so far. Set to 0 to disable (ReadTimeout remains
+# the whole-request backstop).
+body_read_idle_timeout = "{{ .EVM.BodyReadIdleTimeout }}"
 
 # max_open_connections caps the number of simultaneously accepted connections on
 # the EVM HTTP and WebSocket listeners. Set to 0 to disable the limit.

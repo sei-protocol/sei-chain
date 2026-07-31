@@ -68,6 +68,8 @@ type RPCEndpointConfig struct {
 	maxRequestBodyBytes int64
 	// maxConcurrentRequestBytes bounds total request bytes admitted concurrently; 0 disables.
 	maxConcurrentRequestBytes int64
+	// bodyReadIdleTimeout caps idle time between body chunks; 0 disables.
+	bodyReadIdleTimeout time.Duration
 }
 
 type rpcHandler struct {
@@ -344,15 +346,22 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 		srv.RegisterDenyList(method)
 	}
 	h.HTTPConfig = config
-	base := NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret)
+	// JWT runs before the byte limiter so unauthenticated clients get 401 without
+	// touching the global body budget. The inner stack omits JWT when configured here.
+	base := NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, nil)
 
 	// maxRequestBodyBytes feeds all three body-cap layers (requestSizeLimiter, the gate, and
 	// srv.SetHTTPBodyLimit above) so they agree; change the cap via the config value, not one layer.
-	handler := newRequestSizeLimiter(
+	limiter := newRequestSizeLimiter(
 		wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
 		config.maxRequestBodyBytes,
 		config.maxConcurrentRequestBytes,
+		config.bodyReadIdleTimeout,
 	)
+	handler := limiter
+	if len(config.JwtSecret) != 0 {
+		handler = newJWTHandler(config.JwtSecret, limiter)
+	}
 	h.httpHandler.Store(&rpcHandler{
 		Handler: handler,
 		server:  srv,

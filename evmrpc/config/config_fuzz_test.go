@@ -93,6 +93,7 @@ var evmKeys = []configtest.KeySpec{
 	{Key: "evm.batch_response_max_size", Path: "BatchResponseMaxSize", Cast: configtest.CastInt, Checked: true},
 	{Key: "evm.max_request_body_bytes", Path: "MaxRequestBodyBytes", Cast: configtest.CastInt64, Checked: true},
 	{Key: "evm.max_concurrent_request_bytes", Path: "MaxConcurrentRequestBytes", Cast: configtest.CastInt64, Checked: true},
+	{Key: "evm.body_read_idle_timeout", Path: "BodyReadIdleTimeout", Cast: configtest.CastDuration, Checked: true},
 }
 
 func readEVM(opts configtest.AppOpts) (any, error) { return config.ReadConfig(opts) }
