@@ -107,37 +107,40 @@ func (s *StorageGarbageCollector) prune() error {
 		return err
 	}
 	if globalLatestBlock == 0 {
-		logger.Debug("skipping pruning, no store has committed a block")
+		logger.Info("skipping pruning, no store has committed a block")
 		return nil
 	}
 
 	cutLine := getCutLine(globalLatestBlock, s.config.RollbackWindow, s.config.StoreRetention)
 	if cutLine == 0 {
-		logger.Debug("skipping pruning, the chain is younger than the retain window",
+		logger.Info("skipping pruning, the chain is younger than the retain window",
 			"globalLatestBlock", globalLatestBlock)
 		return nil
 	}
 
-	// Every store must keep back to its own answer, so the system may only prune below the lowest of them. Pruning
-	// below a higher answer would delete blocks that a lower-answering store just reported it still needs, which is
-	// exactly how deletion would break the rollback invariant.
+	// Every participating store must keep back to its own answer, so the system may only prune below the lowest of
+	// them. Pruning below a higher answer would delete blocks that a lower-answering store just reported it still
+	// needs, which is exactly how deletion would break the rollback invariant.
 	//
-	// A store that answers 0 is treated as unknown rather than empty: a snapshot may be mid-write and take hours to
-	// land. Skipping that store and pruning everyone else would delete the contiguous blocks the in-flight snapshot
-	// will need once it appears, so the whole cycle is skipped until every store reports something to retain.
+	// A store that answers 0 is left out of both the prune-height vote and PruneBelow: it may be uninitialized or
+	// intentionally retaining forever. Snapshotted stores that have not finished a first snapshot yet still vote with
+	// their last committed height (see GetOldestBlockToRetain).
 	var pruneHeight uint64
 	oldestBlockToRetainByStore := make(map[string]uint64, len(s.stores))
 	for _, store := range s.stores {
 		oldestBlockToRetain := store.GetOldestBlockToRetain(cutLine)
 		oldestBlockToRetainByStore[store.Name()] = oldestBlockToRetain
 		if oldestBlockToRetain == 0 {
-			logger.Debug("skipping pruning, a store holds no data to retain",
-				"cutLine", cutLine, "oldestBlockToRetainByStore", oldestBlockToRetainByStore)
-			return nil
+			continue
 		}
 		if pruneHeight == 0 || oldestBlockToRetain < pruneHeight {
 			pruneHeight = oldestBlockToRetain
 		}
+	}
+	if pruneHeight == 0 {
+		logger.Info("skipping pruning, no store has data to retain",
+			"cutLine", cutLine, "oldestBlockToRetainByStore", oldestBlockToRetainByStore)
+		return nil
 	}
 
 	logger.Info("pruning storage",
@@ -147,6 +150,9 @@ func (s *StorageGarbageCollector) prune() error {
 		"oldestBlockToRetainByStore", oldestBlockToRetainByStore,
 	)
 	for _, store := range s.stores {
+		if oldestBlockToRetainByStore[store.Name()] == 0 {
+			continue
+		}
 		if err := store.PruneBelow(pruneHeight); err != nil {
 			return fmt.Errorf("failed to prune %s below %d: %w", store.Name(), pruneHeight, err)
 		}

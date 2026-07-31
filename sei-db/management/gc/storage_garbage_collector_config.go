@@ -2,7 +2,6 @@ package gc
 
 import (
 	"fmt"
-	"math"
 	"time"
 )
 
@@ -58,8 +57,8 @@ func (c *StorageGarbageCollectorConfig) Validate() error {
 	// The cut line is derived by subtracting RollbackWindow + StoreRetention from the head of the chain. Reject a pair
 	// that overflows when summed, so that subtraction cannot wrap around to a cut line above the head.
 	if c.RollbackWindow+c.StoreRetention < c.RollbackWindow {
-		return fmt.Errorf("rollback window (%d) plus store retention (%d) must be at most %d",
-			c.RollbackWindow, c.StoreRetention, uint64(math.MaxUint64))
+		return fmt.Errorf("rollback window (%d) plus store retention (%d) overflows uint64",
+			c.RollbackWindow, c.StoreRetention)
 	}
 	return nil
 }

@@ -27,14 +27,14 @@ type mockStore struct {
 
 // snapshotStore models a store that can only be restored to a height it holds a snapshot for, such as SC or SS: it
 // answers with the newest snapshot at or below the cut line, or with its oldest snapshot when every snapshot is above the
-// cut line. Snapshots must be in ascending order; a store given none holds no data.
+// cut line. Snapshots must be in ascending order. With no completed snapshot yet it answers its last committed height.
 func snapshotStore(name string, latestHeight uint64, snapshots ...uint64) *mockStore {
 	return &mockStore{
 		name:         name,
 		latestHeight: latestHeight,
 		oldestToRetain: func(cutLine uint64) uint64 {
 			if len(snapshots) == 0 {
-				return 0
+				return latestHeight
 			}
 			oldest := snapshots[0]
 			for _, snapshot := range snapshots {
@@ -197,16 +197,40 @@ func TestPruneDecisions(t *testing.T) {
 			wantPruneBelow: ptr(30_000),
 		},
 		{
-			name:           "a store holding nothing stalls the whole cycle",
+			name:           "a store answering 0 is ignored",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
-				snapshotStore("empty", 100_000),
+				contiguousStore("optOut", 100_000, false),
 				snapshotStore("sc", 100_000, 80_000),
 				contiguousStore("stateWAL", 100_000, true),
 			},
-			// empty may be mid-write of a first snapshot below the cut line; pruning the WAL to 80,000 would leave
-			// that snapshot unreplayable once it lands.
-			wantPruneBelow: nil,
+			// optOut answers 0 (e.g. infinite retention) and is left out of the vote and of PruneBelow.
+			wantPruneBelow: ptr(80_000),
+		},
+		{
+			name:           "no snapshots yet votes the last committed height",
+			rollbackWindow: 10_000,
+			stores: []*mockStore{
+				snapshotStore("sc", 100_000),
+				contiguousStore("stateWAL", 100_000, true),
+			},
+			// sc has no completed snapshot, so it answers its committed height (100,000) and still participates —
+			// unlike answering 0, which would leave it out of PruneBelow. The WAL's cut line of 90,000 is lower.
+			wantPruneBelow: ptr(90_000),
+		},
+		{
+			name:           "an in-progress first snapshot binds below the cut line",
+			rollbackWindow: 10_000,
+			stores: []*mockStore{
+				{
+					name:         "sc",
+					latestHeight: 100_000,
+					// First snapshot is being written at 50,000 while the tip has moved on.
+					oldestToRetain: func(uint64) uint64 { return 50_000 },
+				},
+				contiguousStore("stateWAL", 100_000, true),
+			},
+			wantPruneBelow: ptr(50_000),
 		},
 		{
 			name:           "a head of zero is ignored, the data behind it is not",
@@ -248,13 +272,12 @@ func TestPruneDecisions(t *testing.T) {
 			wantPruneBelow: nil,
 		},
 		{
-			name:           "stores are committing blocks but none retains any",
+			name:           "only an opt-out store has data",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
-				snapshotStore("sc", 100_000),
-				contiguousStore("stateWAL", 100_000, false),
+				contiguousStore("optOut", 100_000, false),
 			},
-			// A fresh node whose stores have ingested blocks but have not yet written a first snapshot.
+			// Every store answered 0, so there is no prune height.
 			wantPruneBelow: nil,
 		},
 		{
@@ -270,8 +293,12 @@ func TestPruneDecisions(t *testing.T) {
 			collector := newTestCollector(t, tc.rollbackWindow, tc.storeRetention, tc.stores...)
 			require.NoError(t, collector.prune())
 
+			head, err := getGlobalLastCommittedBlock(prunableStores(tc.stores...))
+			require.NoError(t, err)
+			cutLine := getCutLine(head, tc.rollbackWindow, tc.storeRetention)
+
 			for _, store := range tc.stores {
-				if tc.wantPruneBelow == nil {
+				if tc.wantPruneBelow == nil || store.GetOldestBlockToRetain(cutLine) == 0 {
 					require.Falsef(t, store.pruneBelowCalled.Load(), "%s should not be pruned", store.name)
 					continue
 				}
@@ -420,7 +447,7 @@ func TestValidate(t *testing.T) {
 		RollbackWindow: math.MaxUint64,
 		StoreRetention: 1,
 		PruneInterval:  time.Minute,
-	}).Validate(), "store retention")
+	}).Validate(), "overflows uint64")
 }
 
 func TestNewStorageGarbageCollectorInvalidConfig(t *testing.T) {

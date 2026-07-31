@@ -10,21 +10,22 @@ type PrunableStore interface {
 	PruneBelow(blockNumber uint64) error
 
 	// GetOldestBlockToRetain returns the oldest block this store must keep in order to remain able to serve cutLine,
-	// or 0 when the store holds nothing. A chain's first block is block 1, so 0 is free to serve as that sentinel: no
-	// store can legitimately need to retain from block 0.
+	// or 0 when the store opts out of pruning entirely (e.g. infinite retention or truly uninitialized). A chain's
+	// first block is block 1, so 0 is free to serve as that sentinel.
 	//
-	// The collector skips the whole prune cycle when any store answers 0. An empty answer is treated as unknown rather
-	// than empty — a snapshot may be mid-write and take hours to land — and pruning the other stores against it would
-	// risk deleting contiguous blocks that snapshot will need once it appears.
+	// The collector ignores a store that answers 0 when choosing the prune height and does not call PruneBelow on it,
+	// so other stores can still be pruned.
 	//
 	// A store that retains a contiguous range of blocks (blockDB, receiptDB, the state WAL) can be restored to any
 	// block it holds, so it needs nothing below the cut line and returns cutLine unchanged.
-	// A store with checkpoints can only be restored to a height it has a snapshot for,
-	// so it returns the newest snapshot at or below cutLine, or its oldest snapshot when every snapshot is above the cut line,
-	// since in that case none of them can be dropped.
+	// A store with checkpoints can only be restored to a height it has a snapshot for, so it returns the newest
+	// snapshot at or below cutLine, or its oldest snapshot when every snapshot is above the cut line, since in that
+	// case none of them can be dropped. If it has not completed any snapshot yet, it returns its last committed
+	// height — including an in-progress snapshot height — so contiguous stores are not pruned past blocks that
+	// snapshot will need once it lands.
 	//
-	// The collector prunes every store below the lowest answer it receives, so an answer that is too low only costs temporary
-	// disk, while one that is too high deletes blocks the system still needs.
+	// The collector prunes every participating store below the lowest non-zero answer it receives, so an answer that is
+	// too low only costs temporary disk, while one that is too high deletes blocks the system still needs.
 	GetOldestBlockToRetain(cutLine uint64) uint64
 
 	// GetLastCommittedBlock returns the highest block this store has ingested.
