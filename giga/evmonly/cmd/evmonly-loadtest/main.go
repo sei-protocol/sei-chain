@@ -1824,6 +1824,7 @@ type loadMetrics struct {
 	executionErrors atomic.Uint64
 	occAttempts     atomic.Uint64
 	occFallbacks    atomic.Uint64
+	occReruns       atomic.Uint64
 	occConflicts    atomic.Uint64
 	sinkEnqueued    atomic.Uint64
 	sinkWritten     atomic.Uint64
@@ -1843,6 +1844,7 @@ type loadMetrics struct {
 	executionErrorsTotal prometheus.Counter
 	occAttemptsTotal     prometheus.Counter
 	occFallbacksTotal    prometheus.Counter
+	occRerunsTotal       prometheus.Counter
 	occConflictsTotal    prometheus.Counter
 
 	occFallbackReasonTotal *prometheus.CounterVec
@@ -1877,6 +1879,7 @@ type metricsSnapshot struct {
 	executionErrors uint64
 	occAttempts     uint64
 	occFallbacks    uint64
+	occReruns       uint64
 	occConflicts    uint64
 	sinkEnqueued    uint64
 	sinkWritten     uint64
@@ -1928,6 +1931,10 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		occFallbacksTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_occ_fallbacks_total",
 			Help: "Total OCC blocks that fell back to sequential execution.",
+		}),
+		occRerunsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_occ_reruns_total",
+			Help: "Total OCC transaction rerun attempts caused by stale speculative execution state.",
 		}),
 		occConflictsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_occ_conflicts_total",
@@ -2013,6 +2020,7 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		m.executionErrorsTotal,
 		m.occAttemptsTotal,
 		m.occFallbacksTotal,
+		m.occRerunsTotal,
 		m.occConflictsTotal,
 		m.occFallbackReasonTotal,
 		m.occConflictTotal,
@@ -2076,6 +2084,10 @@ func (m *loadMetrics) recordOCC(stats evmonly.OCCStats) {
 		m.occFallbacks.Add(1)
 		m.occFallbacksTotal.Inc()
 		m.occFallbackReasonTotal.WithLabelValues(reason).Inc()
+	}
+	if stats.RerunCount > 0 {
+		m.occReruns.Add(stats.RerunCount)
+		m.occRerunsTotal.Add(float64(stats.RerunCount))
 	}
 	if stats.ConflictCount == 0 {
 		return
@@ -2155,6 +2167,7 @@ func (m *loadMetrics) snapshot() metricsSnapshot {
 		executionErrors: m.executionErrors.Load(),
 		occAttempts:     m.occAttempts.Load(),
 		occFallbacks:    m.occFallbacks.Load(),
+		occReruns:       m.occReruns.Load(),
 		occConflicts:    m.occConflicts.Load(),
 		sinkEnqueued:    m.sinkEnqueued.Load(),
 		sinkWritten:     m.sinkWritten.Load(),
@@ -2211,7 +2224,7 @@ func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetric
 			sinkWaitSeconds := float64(curr.sinkWaitNanos-prev.sinkWaitNanos) / float64(time.Second)
 			sinkWriteSeconds := float64(curr.sinkWriteNanos-prev.sinkWriteNanos) / float64(time.Second)
 			fmt.Printf(
-				"input_blocks/s=%.2f prepared_blocks/s=%.2f prepared_tx/s=%.2f finished_blocks/s=%.2f tx/s=%.2f gas/s=%.2f queued_blocks=%d sink_queue=%d sink_enqueue_wait/s=%.6f sink_write/s=%.6f totals(input_blocks=%d prepared_blocks=%d prepared_txs=%d finished_blocks=%d txs=%d gas=%d prepare_errors=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d sink_enqueued=%d sink_written=%d)\n",
+				"input_blocks/s=%.2f prepared_blocks/s=%.2f prepared_tx/s=%.2f finished_blocks/s=%.2f tx/s=%.2f gas/s=%.2f queued_blocks=%d sink_queue=%d sink_enqueue_wait/s=%.6f sink_write/s=%.6f totals(input_blocks=%d prepared_blocks=%d prepared_txs=%d finished_blocks=%d txs=%d gas=%d prepare_errors=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_reruns=%d sink_enqueued=%d sink_written=%d)\n",
 				float64(curr.inputBlocks-prev.inputBlocks)/elapsed,
 				float64(curr.preparedBlocks-prev.preparedBlocks)/elapsed,
 				float64(curr.preparedTxs-prev.preparedTxs)/elapsed,
@@ -2232,7 +2245,7 @@ func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetric
 				curr.executionErrors,
 				curr.occAttempts,
 				curr.occFallbacks,
-				curr.occConflicts,
+				curr.occReruns,
 				curr.sinkEnqueued,
 				curr.sinkWritten,
 			)
@@ -2247,7 +2260,7 @@ func printFinalReport(startedAt time.Time, snapshot metricsSnapshot) {
 		elapsed = 1
 	}
 	fmt.Printf(
-		"complete elapsed=%s input_blocks=%d prepared_blocks=%d prepared_txs=%d finished_blocks=%d txs=%d gas=%d prepare_errors=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_conflicts=%d sink_queue=%d sink_enqueued=%d sink_written=%d sink_bytes=%d sink_enqueue_wait=%s sink_enqueue_wait_events=%d sink_write=%s avg_input_blocks/s=%.2f avg_prepared_blocks/s=%.2f avg_prepared_tx/s=%.2f avg_finished_blocks/s=%.2f avg_tx/s=%.2f avg_gas/s=%.2f\n",
+		"complete elapsed=%s input_blocks=%d prepared_blocks=%d prepared_txs=%d finished_blocks=%d txs=%d gas=%d prepare_errors=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_reruns=%d sink_queue=%d sink_enqueued=%d sink_written=%d sink_bytes=%d sink_enqueue_wait=%s sink_enqueue_wait_events=%d sink_write=%s avg_input_blocks/s=%.2f avg_prepared_blocks/s=%.2f avg_prepared_tx/s=%.2f avg_finished_blocks/s=%.2f avg_tx/s=%.2f avg_gas/s=%.2f\n",
 		snapshot.at.Sub(startedAt).Round(time.Millisecond),
 		snapshot.inputBlocks,
 		snapshot.preparedBlocks,
@@ -2259,7 +2272,7 @@ func printFinalReport(startedAt time.Time, snapshot metricsSnapshot) {
 		snapshot.executionErrors,
 		snapshot.occAttempts,
 		snapshot.occFallbacks,
-		snapshot.occConflicts,
+		snapshot.occReruns,
 		snapshot.sinkQueued,
 		snapshot.sinkEnqueued,
 		snapshot.sinkWritten,

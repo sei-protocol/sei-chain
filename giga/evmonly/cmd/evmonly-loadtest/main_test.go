@@ -384,6 +384,19 @@ func TestRunPrebuiltBlocks(t *testing.T) {
 	require.NoError(t, run(cfg))
 }
 
+func TestLoadMetricsRecordsOCCRerunsWithoutConflicts(t *testing.T) {
+	metrics := newLoadMetrics(prometheus.NewRegistry())
+	metrics.recordFinished(4, 84_000, evmonly.OCCStats{
+		Attempted:  true,
+		RerunCount: 3,
+	})
+
+	snapshot := metrics.snapshot()
+	require.Equal(t, uint64(1), snapshot.occAttempts)
+	require.Equal(t, uint64(3), snapshot.occReruns)
+	require.Zero(t, snapshot.occConflicts)
+}
+
 func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := parseConfig([]string{
