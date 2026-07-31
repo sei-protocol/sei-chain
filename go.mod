@@ -5,7 +5,7 @@ go 1.25.6
 require (
 	cosmossdk.io/errors v1.0.2
 	github.com/99designs/keyring v1.2.1
-	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c
+	github.com/BurntSushi/toml v1.5.0
 	github.com/adlio/schema v1.3.9
 	github.com/alitto/pond v1.8.3
 	github.com/armon/go-metrics v0.4.1
@@ -70,6 +70,7 @@ require (
 	github.com/sasha-s/go-deadlock v0.3.5
 	github.com/segmentio/kafka-go v0.4.50
 	github.com/sei-protocol/goutils v0.0.2
+	github.com/sei-protocol/sei-config v0.0.21
 	github.com/sei-protocol/sei-load v0.0.0-20251007135253-78fbdc141082
 	github.com/sei-protocol/sei-tm-db v0.0.5
 	github.com/sei-protocol/seilog v0.0.3
@@ -187,7 +188,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
-	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/godbus/dbus v0.0.0-20190726142602-4481cbc300e2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
