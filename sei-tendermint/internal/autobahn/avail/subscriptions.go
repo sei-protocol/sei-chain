@@ -89,7 +89,7 @@ func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote],
 		p, err := r.state.data.AppProposal(ctx, r.next)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
-				r.next = r.next + 1
+				r.next = max(r.next+1, r.state.data.FirstAppProposal())
 				continue
 			}
 			return nil, err
