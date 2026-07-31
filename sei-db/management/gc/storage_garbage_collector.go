@@ -26,6 +26,9 @@ var logger = seilog.NewLogger("db", "gc")
 // blocks by itself, it guarantees that the act of deleting old state does not prevent rollback within this
 // rollback window.
 //
+// The collector itself is only a ticker that periodically calls prune. All decision logic lives in prune so it can be
+// unit tested without threads or timing.
+//
 // StorageGarbageCollector is not thread safe.
 type StorageGarbageCollector struct {
 
@@ -74,9 +77,7 @@ func (s *StorageGarbageCollector) Close() error {
 	return nil
 }
 
-// run periodically drives prune cycles until the manager is stopped. All decision logic lives in prune so it can
-// be unit tested without threading; the ticker path is covered by constructing a collector with a short
-// config.PruneInterval.
+// run periodically drives prune cycles until the manager is stopped.
 func (s *StorageGarbageCollector) run() {
 	defer s.wg.Done()
 
@@ -90,7 +91,7 @@ func (s *StorageGarbageCollector) run() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			if err := s.prune(); err != nil {
+			if err := prune(s.config, s.stores); err != nil {
 				logger.Error("prune cycle failed", "err", err)
 			}
 		}
@@ -99,11 +100,11 @@ func (s *StorageGarbageCollector) run() {
 
 // prune performs a single prune cycle: it locates the head of the chain, derives the cut line from it, asks every store
 // how far back it must retain data to serve that cut line, and prunes every store below the lowest answer.
-func (s *StorageGarbageCollector) prune() error {
-	if len(s.stores) == 0 {
+func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error {
+	if len(stores) == 0 {
 		return nil
 	}
-	globalLatestBlock, err := getGlobalLastCommittedBlock(s.stores)
+	globalLatestBlock, err := getGlobalLastCommittedBlock(stores)
 	if err != nil {
 		return err
 	}
@@ -112,7 +113,7 @@ func (s *StorageGarbageCollector) prune() error {
 		return nil
 	}
 
-	cutLine := getCutLine(globalLatestBlock, s.config.RollbackWindow, s.config.RetentionBeyondRollbackWindow)
+	cutLine := getCutLine(globalLatestBlock, config.RollbackWindow, config.RetentionBeyondRollbackWindow)
 	if cutLine == 0 {
 		logger.Info("skipping pruning, the chain is younger than the retain window",
 			"globalLatestBlock", globalLatestBlock)
@@ -129,8 +130,8 @@ func (s *StorageGarbageCollector) prune() error {
 	// The answers are kept positionally rather than keyed by Name so that two stores sharing a name cannot make the
 	// collector prune one that opted out. Names are for logs only.
 	var pruneHeight uint64
-	oldestBlockToRetain := make([]uint64, len(s.stores))
-	for i, store := range s.stores {
+	oldestBlockToRetain := make([]uint64, len(stores))
+	for i, store := range stores {
 		oldestBlockToRetain[i] = store.GetOldestBlockToRetain(cutLine)
 		if oldestBlockToRetain[i] == 0 {
 			continue
@@ -141,7 +142,7 @@ func (s *StorageGarbageCollector) prune() error {
 	}
 	if pruneHeight == 0 {
 		logger.Info("skipping pruning, no store has data to retain",
-			"cutLine", cutLine, "oldestBlockToRetainByStore", s.describeAnswers(oldestBlockToRetain))
+			"cutLine", cutLine, "oldestBlockToRetainByStore", describeAnswers(stores, oldestBlockToRetain))
 		return nil
 	}
 
@@ -149,9 +150,9 @@ func (s *StorageGarbageCollector) prune() error {
 		"globalLatestBlock", globalLatestBlock,
 		"cutLine", cutLine,
 		"pruneHeight", pruneHeight,
-		"oldestBlockToRetainByStore", s.describeAnswers(oldestBlockToRetain),
+		"oldestBlockToRetainByStore", describeAnswers(stores, oldestBlockToRetain),
 	)
-	for i, store := range s.stores {
+	for i, store := range stores {
 		if oldestBlockToRetain[i] == 0 {
 			continue
 		}
@@ -164,9 +165,9 @@ func (s *StorageGarbageCollector) prune() error {
 
 // describeAnswers renders the per-store retain answers for a log line, in store order so duplicate names stay
 // distinguishable.
-func (s *StorageGarbageCollector) describeAnswers(oldestBlockToRetain []uint64) string {
+func describeAnswers(stores []PrunableStore, oldestBlockToRetain []uint64) string {
 	var sb strings.Builder
-	for i, store := range s.stores {
+	for i, store := range stores {
 		if i > 0 {
 			sb.WriteString(" ")
 		}

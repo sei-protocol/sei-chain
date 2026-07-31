@@ -20,7 +20,7 @@ type mockStore struct {
 	getErr         error
 	pruneErr       error
 
-	// Atomically observed so the run-loop ticker tests can assert without racing the collector goroutine.
+	// Observed by tests after a prune cycle.
 	pruneBelowCalled atomic.Bool
 	prunedBelow      atomic.Uint64
 }
@@ -81,7 +81,7 @@ func (m *mockStore) PruneBelow(blockNumber uint64) error {
 	return m.pruneErr
 }
 
-// prunableStores adapts the mocks to the interface slice the collector holds.
+// prunableStores adapts the mocks to the interface slice prune takes.
 func prunableStores(list ...*mockStore) []PrunableStore {
 	result := make([]PrunableStore, len(list))
 	for i, store := range list {
@@ -90,15 +90,9 @@ func prunableStores(list ...*mockStore) []PrunableStore {
 	return result
 }
 
-// newTestCollector builds a collector without starting its run loop, so prune can be driven one cycle at a time.
-func newTestCollector(
-	t *testing.T,
-	rollbackWindow uint64,
-	retentionBeyond int64,
-	stores ...*mockStore,
-) *StorageGarbageCollector {
+// testConfig builds a validated config for calling prune directly.
+func testConfig(t *testing.T, rollbackWindow uint64, retentionBeyond int64) *StorageGarbageCollectorConfig {
 	t.Helper()
-
 	config := &StorageGarbageCollectorConfig{
 		RollbackWindow:                rollbackWindow,
 		RetentionBeyondRollbackWindow: retentionBeyond,
@@ -107,8 +101,7 @@ func newTestCollector(
 	// getCutLine subtracts without an overflow guard because Validate rejects a retain window that would overflow, so
 	// test configs have to clear the same bar as real ones.
 	require.NoError(t, config.Validate())
-
-	return &StorageGarbageCollector{config: config, stores: prunableStores(stores...)}
+	return config
 }
 
 // TestPruneDecisions is the decision matrix for a single prune cycle. wantPruneBelow == nil means no store may be pruned.
@@ -287,10 +280,10 @@ func TestPruneDecisions(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			collector := newTestCollector(t, tc.rollbackWindow, tc.retentionBeyond, tc.stores...)
-			require.NoError(t, collector.prune())
+			stores := prunableStores(tc.stores...)
+			require.NoError(t, prune(testConfig(t, tc.rollbackWindow, tc.retentionBeyond), stores))
 
-			head, err := getGlobalLastCommittedBlock(prunableStores(tc.stores...))
+			head, err := getGlobalLastCommittedBlock(stores)
 			require.NoError(t, err)
 			cutLine := getCutLine(head, tc.rollbackWindow, tc.retentionBeyond)
 
@@ -313,11 +306,7 @@ func TestPruneOnYoungChainWithDefaultConfig(t *testing.T) {
 	sc := snapshotStore("sc", 100, 50, 100)
 	wal := contiguousStore("stateWAL", 100, true)
 
-	collector := &StorageGarbageCollector{
-		config: DefaultStorageGarbageCollectorConfig(),
-		stores: prunableStores(sc, wal),
-	}
-	require.NoError(t, collector.prune())
+	require.NoError(t, prune(DefaultStorageGarbageCollectorConfig(), prunableStores(sc, wal)))
 
 	require.False(t, sc.pruneBelowCalled.Load())
 	require.False(t, wal.pruneBelowCalled.Load())
@@ -330,7 +319,7 @@ func TestPruneKeepsOptedOutStoreWithDuplicateName(t *testing.T) {
 	participating := snapshotStore("ss", 100_000, 80_000)
 	wal := contiguousStore("stateWAL", 100_000, true)
 
-	require.NoError(t, newTestCollector(t, 10_000, 0, optOut, participating, wal).prune())
+	require.NoError(t, prune(testConfig(t, 10_000, 0), prunableStores(optOut, participating, wal)))
 
 	require.False(t, optOut.pruneBelowCalled.Load(), "a store answering 0 must never be pruned")
 	require.True(t, participating.pruneBelowCalled.Load())
@@ -345,7 +334,7 @@ func TestPruneGetLastCommittedBlockError(t *testing.T) {
 	broken := contiguousStore("brokenStore", 100_000, true)
 	broken.getErr = sentinel
 
-	err := newTestCollector(t, 10_000, 0, sc, broken).prune()
+	err := prune(testConfig(t, 10_000, 0), prunableStores(sc, broken))
 	require.ErrorIs(t, err, sentinel)
 	require.ErrorContains(t, err, "brokenStore")
 	require.False(t, sc.pruneBelowCalled.Load())
@@ -361,7 +350,7 @@ func TestPruneBelowErrorStopsRemainingStores(t *testing.T) {
 	second := snapshotStore("second", 100_000, 80_000)
 	wal := contiguousStore("stateWAL", 100_000, true)
 
-	err := newTestCollector(t, 10_000, 0, first, second, wal).prune()
+	err := prune(testConfig(t, 10_000, 0), prunableStores(first, second, wal))
 	require.ErrorIs(t, err, sentinel)
 	require.ErrorContains(t, err, "first")
 	require.ErrorContains(t, err, "80000") // the prune height, i.e. the lowest need across the stores
@@ -540,74 +529,6 @@ func TestCloseAfterContextCancelled(t *testing.T) {
 	// Cancelling the context lets the run loop exit on its own, so Close must still return.
 	cancel()
 	require.NoError(t, sm.Close())
-}
-
-// startTestCollectorWithInterval builds a running collector with a short PruneInterval so the ticker path can be
-// exercised without waiting on the production default.
-func startTestCollectorWithInterval(
-	t *testing.T,
-	interval time.Duration,
-	stores []PrunableStore,
-) *StorageGarbageCollector {
-	t.Helper()
-
-	config := &StorageGarbageCollectorConfig{
-		RollbackWindow: 10_000,
-		PruneInterval:  interval,
-	}
-	require.NoError(t, config.Validate())
-
-	s := &StorageGarbageCollector{
-		config: config,
-		stores: stores,
-		ctx:    context.Background(),
-		stopCh: make(chan struct{}),
-	}
-	s.wg.Add(1)
-	go s.run()
-	t.Cleanup(func() { require.NoError(t, s.Close()) })
-	return s
-}
-
-// TestRunFiresPruneCycle checks that the ticker path actually invokes prune.
-func TestRunFiresPruneCycle(t *testing.T) {
-	sc := snapshotStore("sc", 100_000, 80_000)
-	wal := contiguousStore("stateWAL", 100_000, true)
-
-	_ = startTestCollectorWithInterval(t, 5*time.Millisecond, prunableStores(sc, wal))
-
-	require.Eventually(t, func() bool {
-		return sc.pruneBelowCalled.Load() && wal.pruneBelowCalled.Load()
-	}, time.Second, 5*time.Millisecond)
-	require.Equal(t, uint64(80_000), sc.prunedBelow.Load())
-	require.Equal(t, uint64(80_000), wal.prunedBelow.Load())
-}
-
-// countingStore counts how many times GetLastCommittedBlock is called so a failing prune cycle can be observed
-// without depending on log output.
-type countingStore struct {
-	*mockStore
-	calls atomic.Uint64
-}
-
-func (c *countingStore) GetLastCommittedBlock() (uint64, error) {
-	c.calls.Add(1)
-	return c.mockStore.GetLastCommittedBlock()
-}
-
-// TestRunContinuesAfterPruneError checks that a failed prune cycle does not kill the run loop: the ticker keeps
-// firing and prune is invoked again.
-func TestRunContinuesAfterPruneError(t *testing.T) {
-	broken := &countingStore{
-		mockStore: contiguousStore("broken", 100_000, true),
-	}
-	broken.getErr = errors.New("boom")
-
-	_ = startTestCollectorWithInterval(t, 5*time.Millisecond, []PrunableStore{broken})
-
-	require.Eventually(t, func() bool {
-		return broken.calls.Load() >= 2
-	}, time.Second, 5*time.Millisecond)
 }
 
 func ptr(v uint64) *uint64 {
