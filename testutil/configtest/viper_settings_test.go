@@ -87,7 +87,10 @@ func TestSettingsIsStableWhereAllSettingsIsNot(t *testing.T) {
 			"the fixture must present the prefix collision this test is about; got keys %v", keys)
 		require.Equal(t, len(keys)-1, countLeaves(all),
 			"AllSettings must lose exactly one of the two colliding values on every read, "+
-				"whichever way it re-nested; got %v for keys %v", all, keys)
+				"whichever way it re-nested; got %v for keys %v. This characterizes viper, "+
+				"not this repo: if it fails after a viper upgrade, AllSettings may have "+
+				"fixed the prefix collision, in which case delete this assertion rather "+
+				"than working around it — Settings stays correct either way", all, keys)
 	}
 
 	require.Len(t, settingsShapes, 1,

@@ -141,6 +141,20 @@ max_log_bytes = 100
 			// reader cannot infer "in effect" from "enumerated".
 			require.True(t, slices.Contains(v.AllKeys(), "giga_executor.enabled"),
 				"AllKeys must still list a shadowed key")
+
+			// The same pair, through configtest.Settings, because this is the only place
+			// it can be asserted. Settings' coverage argument is that AllSettings omits a
+			// key whose Get returns nil while Settings records it as an explicit nil
+			// entry — and a key that enumerates but resolves to nothing is what the
+			// environment shadow produces and nothing else does, so the vipers in
+			// configtest's own tests cannot construct one. Contains before the nil check:
+			// indexing an absent key also yields nil, so the two together are what
+			// distinguish "recorded as nil" from "not recorded".
+			settings := configtest.Settings(v)
+			require.Contains(t, settings, "giga_executor.enabled",
+				"Settings must record a shadowed key, which is the entry AllSettings drops")
+			require.Nil(t, settings["giga_executor.enabled"],
+				"Settings must record a shadowed key as an explicit nil entry")
 		})
 	}
 }
