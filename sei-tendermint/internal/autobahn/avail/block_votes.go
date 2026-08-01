@@ -71,8 +71,7 @@ func (bv *blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVo
 // reweight recomputes already-stored votes under new Current after advanceEpoch.
 // Zero-weight signers are removed from byKey. Callers wake waiters via
 // ctrl.Updated() after advanceEpoch (not via a return flag).
-func (bv *blockVotes) reweight(newEpoch *types.Epoch) {
-	c := newEpoch.Committee()
+func (bv *blockVotes) reweight(c *types.Committee) {
 	clear(bv.byHash)
 	quorum := c.LaneQuorum()
 	for k, vote := range bv.byKey {

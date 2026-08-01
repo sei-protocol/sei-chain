@@ -29,20 +29,16 @@ func LastRoad(idx types.EpochIndex) types.RoadIndex {
 
 type registryState = map[types.EpochIndex]*types.Epoch
 
-// Registry is the authoritative store of epoch/committee metadata for all
+// Registry is the authoritative catalog of epoch/committee metadata for all
 // layers (consensus, data, avail).
 //
 // Invariants:
-//   - Independent of each layer's live EpochDuo (Prev|Current). Duo admits
-//     traffic; the registry may retain more epochs for restart and leashes.
+//   - Catalog, not a live admit window. Each layer caches the epochs it needs
+//     to verify its own tip (avail: Current + App-anchor epoch; consensus:
+//     Current + Prev for AppQC lag).
 //   - Execution cannot pass commit. Sealing epoch N (including 0) requires
-//     registry N+1 (execution leash) and AppQC in epoch N before the window
-//     slides (prune leash). Epoch 0 is intentionally not exempt: even though
-//     {∅,0}→{0,1} drops no Prev, the leash is what guarantees an AppQC anchor
-//     before Current leaves 0 (newInner hard-fails without one). Peer
-//     PushCommitQC can seal LastRoad(0) without local BlocksPerLane pressure,
-//     so "unreachable under BlocksPerLane" is not a valid exemption. Finishing
-//     LastRoad(N-1) seeds epoch N+1 (AdvanceIfNeeded).
+//     registry N+1 (execution leash) and AppQC in epoch N before avail Current
+//     leaves N (prune leash).
 //   - data/ is the sole restart seeder (SetupInitialDuo). Avail/consensus must
 //     not seed; tip into an unseeded epoch → EpochAt/DuoAt hard-fail.
 //   - Post-construction tipcuts: avail ≥ consensus. Consensus and avail may
@@ -55,10 +51,7 @@ type registryState = map[types.EpochIndex]*types.Epoch
 //
 // TODO(autobahn): replace genesis placeholders with epoch info on blocks.
 type Registry struct {
-	state utils.RWMutex[registryState]
-	// epochGen bumps on every new registration; WaitForDuo waits on it so
-	// filling a gap still wakes waiters.
-	epochGen utils.AtomicSend[uint64]
+	state utils.Watch[registryState]
 	// Genesis floors from GenDoc (InitialHeight / GenesisTime).
 	genesisFirstBlock types.GlobalBlockNumber
 	genesisTimestamp  time.Time
@@ -74,8 +67,7 @@ func NewRegistry(
 ) (*Registry, error) {
 	ep := types.NewEpoch(0, types.RoadRange{First: 0, Next: FirstRoad(1)}, committee)
 	return &Registry{
-		state:             utils.NewRWMutex(registryState{0: ep}),
-		epochGen:          utils.NewAtomicSend(uint64(0)),
+		state:             utils.NewWatch(registryState{0: ep}),
 		genesisFirstBlock: firstBlock,
 		genesisTimestamp:  genesisTimestamp,
 		genesisCommittee:  committee,
@@ -101,12 +93,13 @@ func (r *Registry) SetupInitialDuo(commitQCs utils.Option[types.RoadRange]) erro
 		// Avail WAL and BlockDB prune independently. Avail may restart at the
 		// retained span's first epoch and still need its Prev.
 		r.EnsureDuoAt(span.First)
-		for s := range r.state.Lock() {
+		for s, ctrl := range r.state.Lock() {
 			for idx := windowFirst; idx <= windowLast; idx++ {
 				if _, ok := s[idx]; ok {
 					continue
 				}
 				r.makeEpoch(s, idx)
+				ctrl.Updated()
 			}
 		}
 		r.EnsureDuoAt(span.Next)
@@ -139,7 +132,7 @@ func (r *Registry) FirstTimestamp() time.Time {
 // Error if that epoch is not registered.
 func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 	epochIdx := IndexForRoad(roadIndex)
-	for s := range r.state.RLock() {
+	for s := range r.state.Lock() {
 		if ep, ok := s[epochIdx]; ok {
 			return ep, nil
 		}
@@ -157,20 +150,15 @@ func (r *Registry) makeEpoch(s registryState, epochIdx types.EpochIndex) *types.
 	firstRoad := FirstRoad(epochIdx)
 	epoch := types.NewEpoch(epochIdx, types.RoadRange{First: firstRoad, Next: FirstRoad(epochIdx + 1)}, r.genesisCommittee)
 	s[epochIdx] = epoch
-	r.epochGen.Store(r.epochGen.Load() + 1)
 	return epoch
 }
 
 // EnsureEpoch registers a genesis-committee placeholder for idx if missing.
 func (r *Registry) EnsureEpoch(idx types.EpochIndex) {
-	for s := range r.state.RLock() {
-		if _, ok := s[idx]; ok {
-			return
-		}
-	}
-	for s := range r.state.Lock() {
+	for s, ctrl := range r.state.Lock() {
 		if _, ok := s[idx]; !ok {
 			r.makeEpoch(s, idx)
+			ctrl.Updated()
 		}
 	}
 }
@@ -185,7 +173,7 @@ func (r *Registry) EnsureDuoAt(road types.RoadIndex) {
 }
 
 // AdvanceIfNeeded seeds epoch M+2 when roadIndex is LastRoad(M); else no-op.
-// Also ensures M+1 so WaitForDuo(FirstRoad(M+2)) is not stuck on a Prev gap.
+// Also ensures M+1 so WaitForEpoch(M+1) is not stuck when sealing M.
 // Call only after the last global of that road has executed (IsLastBlock).
 //
 // TODO(autobahn): pass the real M+2 committee once execution derives it.
@@ -204,36 +192,52 @@ func (r *Registry) AdvanceIfNeeded(roadIndex types.RoadIndex) {
 // Current must already be registered. Prev absent only for epoch 0; missing
 // Prev for center > 0 is a hard error (no soft-degrade to Current-only).
 func (r *Registry) DuoAt(roadIndex types.RoadIndex) (types.EpochDuo, error) {
-	centerIdx := IndexForRoad(roadIndex)
-	current, err := r.EpochAt(FirstRoad(centerIdx))
+	current, err := r.EpochAt(roadIndex)
 	if err != nil {
-		return types.EpochDuo{}, fmt.Errorf("epoch %d (road %d) not in registry", centerIdx, roadIndex)
+		return types.EpochDuo{}, err
 	}
 	prev := utils.None[*types.Epoch]()
-	if centerIdx > 0 {
-		p, err := r.EpochAt(FirstRoad(centerIdx - 1))
+	if current.EpochIndex() > 0 {
+		p, err := r.EpochAt(current.RoadRange().First - 1)
 		if err != nil {
-			return types.EpochDuo{}, fmt.Errorf("epoch %d prev (road %d) not in registry", centerIdx-1, roadIndex)
+			return types.EpochDuo{}, fmt.Errorf("DuoAt(%d): Prev epoch missing: %w", roadIndex, err)
 		}
 		prev = utils.Some(p)
 	}
 	return types.NewEpochDuo(current, prev), nil
 }
 
-// WaitForDuo blocks until DuoAt(roadIndex) succeeds.
-// Waits on epochGen (any registration), so filling Prev after Current is
-// already present still unblocks. Must not hold the avail/data inner lock
-// (execution may seed via AdvanceIfNeeded).
-func (r *Registry) WaitForDuo(ctx context.Context, roadIndex types.RoadIndex) (types.EpochDuo, error) {
-	sub := r.epochGen.Subscribe()
-	for {
-		// Capture gen before DuoAt so a registration between check and Wait still wakes.
-		seen := sub.Load()
-		if duo, err := r.DuoAt(roadIndex); err == nil {
-			return duo, nil
-		}
-		if _, err := sub.Wait(ctx, func(gen uint64) bool { return gen > seen }); err != nil {
-			return types.EpochDuo{}, err
+// WaitForEpoch blocks until epoch i is registered.
+// Must not hold the avail/data inner lock (execution may seed via AdvanceIfNeeded).
+func (r *Registry) WaitForEpoch(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
+	for inner, ctrl := range r.state.Lock() {
+		for {
+			if ep, ok := inner[i]; ok {
+				return ep, nil
+			}
+			if err := ctrl.Wait(ctx); err != nil {
+				return nil, err
+			}
 		}
 	}
+	panic("unreachable")
+}
+
+// WaitForDuo blocks until DuoAt(roadIndex) succeeds.
+// Must not hold the avail/data inner lock (execution may seed via AdvanceIfNeeded).
+func (r *Registry) WaitForDuo(ctx context.Context, roadIndex types.RoadIndex) (types.EpochDuo, error) {
+	i := IndexForRoad(roadIndex)
+	current, err := r.WaitForEpoch(ctx, i)
+	if err != nil {
+		return types.EpochDuo{}, err
+	}
+	prev := utils.None[*types.Epoch]()
+	if i > 0 {
+		p, err := r.WaitForEpoch(ctx, i-1)
+		if err != nil {
+			return types.EpochDuo{}, err
+		}
+		prev = utils.Some(p)
+	}
+	return types.NewEpochDuo(current, prev), nil
 }

@@ -440,7 +440,7 @@ func (s *State) insertBlocksByHash(inner *inner, gr types.GlobalRange, byHash ma
 }
 
 // PushQC atomically admits qc and optional finalized blocks.
-// Tip-order WaitUntil runs before EpochForRoad so a first QC of the next epoch
+// Tip-order WaitUntil runs before ByRoad so a first QC of the next epoch
 // waits for the boundary slide (rather than ErrRoadAfterWindow). Epoch via
 // epochDuo only (not Registry). Before-window on a still-needed QC hard-fails;
 // if needQC is false the QC is already applied and a before-window miss is a
@@ -465,9 +465,9 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	}
 	idx := qc.QC().Proposal().Index()
 	duo := s.epochDuo.Load()
-	ep, err := duo.EpochForRoad(idx)
+	ep, err := duo.ByRoad(idx)
 	if err != nil {
-		if !needQC && errors.Is(err, types.ErrRoadBeforeWindow) {
+		if !needQC && errors.Is(err, types.ErrPruned) {
 			return nil
 		}
 		return err
@@ -560,7 +560,7 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		}
 		// n in [nextBlock, nextQC): QC is contiguous in that range.
 		var err error
-		ep, err = s.epochDuo.Load().EpochForRoad(inner.qcs[n].QC().Proposal().Index())
+		ep, err = s.epochDuo.Load().ByRoad(inner.qcs[n].QC().Proposal().Index())
 		if err != nil {
 			return fmt.Errorf("epoch not in window: %w", err)
 		}

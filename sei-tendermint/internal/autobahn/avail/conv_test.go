@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestPruneAnchorConv(t *testing.T) {
+func TestAppTipConv(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, _ := epoch.GenRegistry(rng, 4)
 
@@ -23,9 +23,9 @@ func TestPruneAnchorConv(t *testing.T) {
 	appProposal := types.NewAppProposal(commitQC.GlobalRange().First, commitQC.Proposal().Index(), types.GenAppHash(rng), commitQC.Proposal().EpochIndex())
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
-	anchor := &PruneAnchor{AppQC: appQC, CommitQC: commitQC}
-	pb1 := PruneAnchorConv.Encode(anchor)
-	decoded, err := PruneAnchorConv.Decode(pb1)
+	anchor := &AppTip{AppQC: appQC, CommitQC: commitQC}
+	pb1 := AppTipConv.Encode(anchor)
+	decoded, err := AppTipConv.Decode(pb1)
 	require.NoError(t, err)
-	require.True(t, proto.Equal(pb1, PruneAnchorConv.Encode(decoded)))
+	require.True(t, proto.Equal(pb1, AppTipConv.Encode(decoded)))
 }

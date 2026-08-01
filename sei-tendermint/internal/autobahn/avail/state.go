@@ -25,10 +25,10 @@ const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
 // to trigger internal pruning, which allows it to manage memory independently
 // of the main consensus loop.
 type State struct {
-	key      types.SecretKey
-	data     *data.State
-	inner    utils.Watch[*inner]
-	epochDuo utils.AtomicRecv[types.EpochDuo] // Load-only view of inner.epoch
+	key   types.SecretKey
+	data  *data.State
+	inner utils.Watch[*inner]
+	epoch utils.AtomicRecv[*types.Epoch] // Load-only view of inner.epoch
 
 	// persisters groups all disk persistence components.
 	// Always initialized: real when stateDir is set, no-op otherwise.
@@ -65,7 +65,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		key:        key,
 		data:       data,
 		inner:      utils.NewWatch(inner),
-		epochDuo:   inner.epoch.Subscribe(),
+		epoch:      inner.epoch.Subscribe(),
 		persisters: pers,
 	}, nil
 }

@@ -70,73 +70,55 @@ func TestNewEpochDuo_PanicsOnPrevCurrentMismatch(t *testing.T) {
 	})
 }
 
-func TestEpochForRoad(t *testing.T) {
+func TestByRoad(t *testing.T) {
 	rng := utils.TestRng()
 	prev, current := testDuoEpochs(t, rng)
 	weights := map[types.PublicKey]uint64{types.GenSecretKey(rng).Public(): 1}
 	committee := utils.OrPanic1(types.NewCommittee(weights))
 	// Prev absent only for epoch 0.
 	ep0 := types.NewEpoch(0, types.RoadRange{First: 0, Next: 100}, committee)
+	// Contiguous duo starting past road 0 so a behind-window road is possible.
+	latePrev := types.NewEpoch(0, types.RoadRange{First: 100, Next: 200}, committee)
+	lateCurrent := types.NewEpoch(1, types.RoadRange{First: 200, Next: 300}, committee)
 
 	currentOnly := types.NewEpochDuo(ep0, utils.None[*types.Epoch]())
 	withPrev := types.NewEpochDuo(current, utils.Some(prev))
+	lateDuo := types.NewEpochDuo(lateCurrent, utils.Some(latePrev))
 
 	for _, tc := range []struct {
-		name string
-		w    types.EpochDuo
-		road types.RoadIndex
-		want *types.Epoch
-		err  error
+		name    string
+		w       types.EpochDuo
+		road    types.RoadIndex
+		want    *types.Epoch
+		wantErr error // nil = success; errors.Is match when non-nil
+		anyErr  bool  // future roads: non-nil err, not a typed sentinel
 	}{
-		{"ep0_hit", currentOnly, 50, ep0, nil},
-		{"ep0_after", currentOnly, 100, nil, types.ErrRoadAfterWindow},
-		{"prev_hit", withPrev, 50, prev, nil},
-		{"duo_current_hit", withPrev, 150, current, nil},
-		{"duo_after", withPrev, 200, nil, types.ErrRoadAfterWindow},
+		{"ep0_hit", currentOnly, 50, ep0, nil, false},
+		{"ep0_after", currentOnly, 100, nil, nil, true},
+		{"prev_hit", withPrev, 50, prev, nil, false},
+		{"duo_current_hit", withPrev, 150, current, nil, false},
+		{"duo_after", withPrev, 200, nil, nil, true},
+		{"behind", lateDuo, 50, nil, types.ErrPruned, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ep, err := tc.w.EpochForRoad(tc.road)
-			if tc.err != nil {
-				if !errors.Is(err, tc.err) {
-					t.Fatalf("EpochForRoad(%d) = %v, want %v", tc.road, err, tc.err)
+			ep, err := tc.w.ByRoad(tc.road)
+			if tc.anyErr {
+				if err == nil {
+					t.Fatalf("ByRoad(%d) = nil err, want non-nil", tc.road)
+				}
+				return
+			}
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("ByRoad(%d) = %v, want %v", tc.road, err, tc.wantErr)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("EpochForRoad(%d): %v", tc.road, err)
+				t.Fatalf("ByRoad(%d): %v", tc.road, err)
 			}
 			if ep != tc.want {
-				t.Fatalf("EpochForRoad(%d) = %v, want %v", tc.road, ep, tc.want)
-			}
-		})
-	}
-}
-
-func TestEpochDuo_RoadStatus(t *testing.T) {
-	rng := utils.TestRng()
-	prev, current := testDuoEpochs(t, rng)
-	withPrev := types.NewEpochDuo(current, utils.Some(prev))
-	ep0Only := types.NewEpochDuo(prev, utils.None[*types.Epoch]())
-
-	for _, tc := range []struct {
-		name string
-		w    types.EpochDuo
-		road types.RoadIndex
-		cur  types.RoadStatus
-		duo  types.RoadStatus
-	}{
-		{"prev_road", withPrev, 50, types.RoadStale, types.RoadReady},
-		{"current_road", withPrev, 150, types.RoadReady, types.RoadReady},
-		{"future_road", withPrev, 200, types.RoadFuture, types.RoadFuture},
-		{"ep0_ready", ep0Only, 50, types.RoadReady, types.RoadReady},
-		{"ep0_future", ep0Only, 100, types.RoadFuture, types.RoadFuture},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.w.RoadStatusCurrent(tc.road); got != tc.cur {
-				t.Fatalf("RoadStatusCurrent(%d) = %v, want %v", tc.road, got, tc.cur)
-			}
-			if got := tc.w.RoadStatusDuo(tc.road); got != tc.duo {
-				t.Fatalf("RoadStatusDuo(%d) = %v, want %v", tc.road, got, tc.duo)
+				t.Fatalf("ByRoad(%d) = %v, want %v", tc.road, ep, tc.want)
 			}
 		})
 	}

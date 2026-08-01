@@ -56,10 +56,10 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	state, err = NewState(keys[0], ds, utils.Some(t.TempDir()))
 	require.NoError(t, err)
 	for inner := range state.inner.Lock() {
-		_, err := inner.pushPruneAnchor(&PruneAnchor{AppQC: makeAppQC(qc1, qc0), CommitQC: qc1})
+		_, err := inner.pushAppTip(&AppTip{AppQC: makeAppQC(qc1, qc0), CommitQC: qc1, Epoch: ep})
 		require.Error(t, err, "good range, bad index should fail")
-		require.False(t, inner.app.latestAppQC.IsPresent(), "latestAppQC should not have been updated")
-		_, err = inner.pushPruneAnchor(&PruneAnchor{AppQC: makeAppQC(qc1, qc1), CommitQC: qc1})
+		require.False(t, inner.app.tip.IsPresent(), "anchor should not have been updated")
+		_, err = inner.pushAppTip(&AppTip{AppQC: makeAppQC(qc1, qc1), CommitQC: qc1, Epoch: ep})
 		require.NoError(t, err, "good range, good index should succeed")
 	}
 }
@@ -84,7 +84,7 @@ func TestNewInnerFreshStart(t *testing.T) {
 			i, err := newInner(registry, 0, tc.loaded)
 			require.NoError(t, err)
 
-			require.False(t, i.app.latestAppQC.IsPresent())
+			require.False(t, i.app.tip.IsPresent())
 			require.NotNil(t, i.lanes.byID)
 			require.Equal(t, types.RoadIndex(0), i.commits.qcs.first)
 			require.Equal(t, types.RoadIndex(0), i.commits.qcs.next)
@@ -100,14 +100,14 @@ func TestNewInnerFreshStart(t *testing.T) {
 	}
 }
 
-func TestDecodePruneAnchorIncomplete(t *testing.T) {
+func TestDecodeAppTipIncomplete(t *testing.T) {
 	rng := utils.TestRng()
 	_, keys := epoch.GenRegistryAt(rng, 4, 0)
 
 	appProposal := types.NewAppProposal(42, 5, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
-	_, err := PruneAnchorConv.Decode(&pb.PersistedAvailPruneAnchor{
+	_, err := AppTipConv.Decode(&pb.PersistedAvailPruneAnchor{
 		AppQc: types.AppQCConv.Encode(appQC),
 	})
 	require.Error(t, err)
@@ -123,10 +123,10 @@ func TestNewInnerRequiresAnchorWhenEpochNonZero(t *testing.T) {
 	// missing one on restart is a hard fail (do not weaken that contract).
 	_, err := newInner(registry, epoch.FirstRoad(m), utils.Some(&loadedAvailState{}))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "prune anchor required")
+	require.Contains(t, err.Error(), "app tip required")
 	_, err = newInner(registry, epoch.FirstRoad(m), utils.None[*loadedAvailState]())
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "prune anchor required")
+	require.Contains(t, err.Error(), "app tip required")
 }
 
 func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
@@ -312,17 +312,17 @@ func TestNewInnerLoadedCommitQCsWithAppQC(t *testing.T) {
 	}
 
 	loaded := &loadedAvailState{
-		pruneAnchor: utils.Some(&PruneAnchor{AppQC: appQC, CommitQC: qcs[2]}),
-		commitQCs:   loadedQCs,
+		appTip:    utils.Some(&AppTip{AppQC: appQC, CommitQC: qcs[2]}),
+		commitQCs: loadedQCs,
 	}
 
 	inner, err := newInner(registry, 0, utils.Some(loaded))
 	require.NoError(t, err)
 
-	// latestAppQC should be set by prune.
-	aq, ok := inner.app.latestAppQC.Get()
+	// AppQC should be set on the prune anchor.
+	anchor, ok := inner.app.tip.Get()
 	require.True(t, ok)
-	require.Equal(t, roadIdx, aq.Proposal().RoadIndex())
+	require.Equal(t, roadIdx, anchor.AppQC.Proposal().RoadIndex())
 
 	// The prune anchor at road 2 sets commitQCs.first = 2.
 	// Indices 2, 3 and 4 remain; earlier ones are pruned.
@@ -372,18 +372,18 @@ func TestNewInnerLoadedAllThree(t *testing.T) {
 	}
 
 	loaded := &loadedAvailState{
-		pruneAnchor: utils.Some(&PruneAnchor{AppQC: appQC, CommitQC: qcs[2]}),
-		commitQCs:   loadedQCs,
-		blocks:      map[types.LaneID][]persist.LoadedBlock{lane: bs},
+		appTip:    utils.Some(&AppTip{AppQC: appQC, CommitQC: qcs[2]}),
+		commitQCs: loadedQCs,
+		blocks:    map[types.LaneID][]persist.LoadedBlock{lane: bs},
 	}
 
 	inner, err := newInner(registry, 0, utils.Some(loaded))
 	require.NoError(t, err)
 
-	// AppQC restored.
-	aq, ok := inner.app.latestAppQC.Get()
+	// AppQC restored on the prune anchor.
+	anchor, ok := inner.app.tip.Get()
 	require.True(t, ok)
-	require.Equal(t, roadIdx, aq.Proposal().RoadIndex())
+	require.Equal(t, roadIdx, anchor.AppQC.Proposal().RoadIndex())
 
 	// CommitQCs: prune pushed qcs[2], loading skipped it, added 3 and 4.
 	require.Equal(t, types.RoadIndex(2), inner.commits.qcs.first)
@@ -446,7 +446,8 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 	appProposal := types.NewAppProposal(10, 2, types.GenAppHash(rng), 0)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
-	updated, err := i.pushPruneAnchor(&PruneAnchor{AppQC: appQC, CommitQC: qcs[2]})
+	ep0 := utils.OrPanic1(registry.EpochAt(0))
+	updated, err := i.pushAppTip(&AppTip{AppQC: appQC, CommitQC: qcs[2], Epoch: ep0})
 	require.NoError(t, err)
 	require.True(t, updated)
 
@@ -478,7 +479,7 @@ func TestNewInnerLoadedCommitQCsAllBeforeAppQCArePruned(t *testing.T) {
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loaded := &loadedAvailState{
-		pruneAnchor: utils.Some(&PruneAnchor{AppQC: appQC, CommitQC: qcs[5]}),
+		appTip: utils.Some(&AppTip{AppQC: appQC, CommitQC: qcs[5]}),
 	}
 
 	inner, err := newInner(registry, 0, utils.Some(loaded))
@@ -507,7 +508,7 @@ func TestNewInnerAnchorWithNoCommitQCFiles(t *testing.T) {
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loaded := &loadedAvailState{
-		pruneAnchor: utils.Some(&PruneAnchor{AppQC: appQC, CommitQC: qcs[3]}),
+		appTip: utils.Some(&AppTip{AppQC: appQC, CommitQC: qcs[3]}),
 	}
 
 	inner, err := newInner(registry, 0, utils.Some(loaded))
@@ -518,10 +519,10 @@ func TestNewInnerAnchorWithNoCommitQCFiles(t *testing.T) {
 	require.Equal(t, types.RoadIndex(4), inner.commits.qcs.next)
 	require.NoError(t, utils.TestDiff(qcs[3], inner.commits.qcs.q[3]))
 
-	// latestAppQC should be set.
-	aq, ok := inner.app.latestAppQC.Get()
+	// AppQC should be set on the prune anchor.
+	anchor, ok := inner.app.tip.Get()
 	require.True(t, ok)
-	require.Equal(t, types.RoadIndex(3), aq.Proposal().RoadIndex())
+	require.Equal(t, types.RoadIndex(3), anchor.AppQC.Proposal().RoadIndex())
 
 	// persistedBlockFirst should be initialized from the anchor's CommitQC.
 	for lane := range registry.LatestEpoch().Committee().Lanes().All() {
@@ -597,8 +598,8 @@ func TestNewInnerLoadedCommitQCsGapWithAppQCAnchor(t *testing.T) {
 	}
 
 	loaded := &loadedAvailState{
-		pruneAnchor: utils.Some(&PruneAnchor{AppQC: appQC, CommitQC: qcs[10]}),
-		commitQCs:   loadedQCs,
+		appTip:    utils.Some(&AppTip{AppQC: appQC, CommitQC: qcs[10]}),
+		commitQCs: loadedQCs,
 	}
 
 	inner, err := newInner(registry, 0, utils.Some(loaded))
@@ -614,9 +615,9 @@ func TestNewInnerLoadedCommitQCsGapWithAppQCAnchor(t *testing.T) {
 	require.NoError(t, utils.TestDiff(qcs[10], latest))
 
 	// AppQC should be applied via prune.
-	aq, ok := inner.app.latestAppQC.Get()
+	anchor, ok := inner.app.tip.Get()
 	require.True(t, ok)
-	require.Equal(t, types.RoadIndex(10), aq.Proposal().RoadIndex())
+	require.Equal(t, types.RoadIndex(10), anchor.AppQC.Proposal().RoadIndex())
 }
 
 func TestNewInnerLoadedCommitQCsBelowAnchorSkipped(t *testing.T) {
@@ -646,8 +647,8 @@ func TestNewInnerLoadedCommitQCsBelowAnchorSkipped(t *testing.T) {
 	}
 
 	loaded := &loadedAvailState{
-		pruneAnchor: utils.Some(&PruneAnchor{AppQC: appQC, CommitQC: qcs[3]}),
-		commitQCs:   loadedQCs,
+		appTip:    utils.Some(&AppTip{AppQC: appQC, CommitQC: qcs[3]}),
+		commitQCs: loadedQCs,
 	}
 
 	inner, err := newInner(registry, 0, utils.Some(loaded))
@@ -685,8 +686,8 @@ func TestNewInnerLoadedCommitQCsGapAfterAnchorReturnsError(t *testing.T) {
 	}
 
 	loaded := &loadedAvailState{
-		pruneAnchor: utils.Some(&PruneAnchor{AppQC: appQC, CommitQC: qcs[2]}),
-		commitQCs:   loadedQCs,
+		appTip:    utils.Some(&AppTip{AppQC: appQC, CommitQC: qcs[2]}),
+		commitQCs: loadedQCs,
 	}
 
 	_, err := newInner(registry, 0, utils.Some(loaded))
@@ -772,7 +773,7 @@ func TestNewInnerLoadedBlocksOverCapacityReturnsError(t *testing.T) {
 	require.Contains(t, err.Error(), "exceeds capacity")
 }
 
-func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
+func TestNewInnerAppTipPrunesBlockQueues(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistryAt(rng, 4, 0)
 	initialBlock := types.GlobalBlockNumber(0)
@@ -803,7 +804,7 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	}
 
 	loaded := &loadedAvailState{
-		pruneAnchor: utils.Some(&PruneAnchor{AppQC: appQC, CommitQC: pruneQC}),
+		appTip: utils.Some(&AppTip{AppQC: appQC, CommitQC: pruneQC}),
 		commitQCs: []persist.LoadedCommitQC{
 			{Index: 2, QC: qcs[2]},
 		},
@@ -821,7 +822,7 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	}
 }
 
-func TestNewInnerPruneAnchorCommitQCUsedForPrune(t *testing.T) {
+func TestNewInnerAppTipCommitQCUsedForPrune(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistryAt(rng, 4, 0)
 	initialBlock := types.GlobalBlockNumber(0)
@@ -839,7 +840,7 @@ func TestNewInnerPruneAnchorCommitQCUsedForPrune(t *testing.T) {
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loaded := &loadedAvailState{
-		pruneAnchor: utils.Some(&PruneAnchor{AppQC: appQC, CommitQC: qcs[1]}),
+		appTip: utils.Some(&AppTip{AppQC: appQC, CommitQC: qcs[1]}),
 		commitQCs: []persist.LoadedCommitQC{
 			{Index: 1, QC: qcs[1]},
 			{Index: 2, QC: qcs[2]},
@@ -872,7 +873,7 @@ func TestNewInnerAppVotesFloorFromAnchorNotTipFirstBlock(t *testing.T) {
 	wantAppFirst := qcs[1].GlobalRange().First
 	ap := types.NewAppProposal(wantAppFirst, qcs[1].Index(), types.GenAppHash(rng), 0)
 	loaded := &loadedAvailState{
-		pruneAnchor: utils.Some(&PruneAnchor{
+		appTip: utils.Some(&AppTip{
 			AppQC:    types.NewAppQC(makeAppVotes(keys, ap)),
 			CommitQC: qcs[1],
 		}),
@@ -913,7 +914,7 @@ func TestAdvanceEpoch_AddsLanesKeepsOld(t *testing.T) {
 	bogusLane := bogusSK.Public()
 	i.lanes.byID[bogusLane] = newLaneState()
 
-	i.advanceEpoch(duo)
+	i.advanceEpoch(duo.Current)
 	require.Contains(t, i.lanes.byID, bogusLane, "old lanes must be retained until lane-expiry")
 	require.Contains(t, i.lanes.byID, realLane, "active lane removed incorrectly")
 }
@@ -929,14 +930,14 @@ func TestAdvanceEpoch_RetainsPrevEpochLanes(t *testing.T) {
 
 	// Collect a lane from Current (will become Prev after advance).
 	var prevLane types.LaneID
-	for l := range i.epoch.Load().Current.Committee().Lanes().All() {
+	for l := range i.epoch.Load().Committee().Lanes().All() {
 		prevLane = l
 		break
 	}
 	require.Contains(t, i.lanes.byID, prevLane, "Current lane missing before reweight")
 
 	duo1 := utils.OrPanic1(registry.DuoAt(epoch.FirstRoad(1)))
-	i.advanceEpoch(duo1)
+	i.advanceEpoch(duo1.Current)
 
 	// Prior Current lane is now in Prev — must be retained for boundary QC collection.
 	require.Contains(t, i.lanes.byID, prevLane, "Prev-epoch lane deleted prematurely; fullCommitQC needs it")

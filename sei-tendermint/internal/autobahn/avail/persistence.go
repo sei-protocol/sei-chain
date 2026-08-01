@@ -24,23 +24,16 @@ type persisters struct {
 // innerFile is the A/B file prefix for avail inner state persistence.
 const innerFile = "avail_inner"
 
-// PruneAnchor is the decoded form of the persisted prune anchor
-// (AppQC + matching CommitQC pair). It serves as the crash-recovery
-// pruning boundary.
-type PruneAnchor struct {
-	AppQC    *types.AppQC
-	CommitQC *types.CommitQC
-}
-
-// PruneAnchorConv converts between PruneAnchor and its protobuf representation.
-var PruneAnchorConv = protoutils.Conv[*PruneAnchor, *pb.PersistedAvailPruneAnchor]{
-	Encode: func(a *PruneAnchor) *pb.PersistedAvailPruneAnchor {
+// AppTipConv maps the live App tip to the persisted prune-watermark proto
+// (AppQC + CommitQC). Epoch is live-only and recovered on load.
+var AppTipConv = protoutils.Conv[*AppTip, *pb.PersistedAvailPruneAnchor]{
+	Encode: func(t *AppTip) *pb.PersistedAvailPruneAnchor {
 		return &pb.PersistedAvailPruneAnchor{
-			AppQc:    types.AppQCConv.Encode(a.AppQC),
-			CommitQc: types.CommitQCConv.Encode(a.CommitQC),
+			AppQc:    types.AppQCConv.Encode(t.AppQC),
+			CommitQc: types.CommitQCConv.Encode(t.CommitQC),
 		}
 	},
-	Decode: func(p *pb.PersistedAvailPruneAnchor) (*PruneAnchor, error) {
+	Decode: func(p *pb.PersistedAvailPruneAnchor) (*AppTip, error) {
 		if p.AppQc == nil || p.CommitQc == nil {
 			return nil, fmt.Errorf("incomplete prune anchor: AppQC=%v CommitQC=%v", p.AppQc != nil, p.CommitQc != nil)
 		}
@@ -52,16 +45,16 @@ var PruneAnchorConv = protoutils.Conv[*PruneAnchor, *pb.PersistedAvailPruneAncho
 		if err != nil {
 			return nil, fmt.Errorf("decode CommitQC: %w", err)
 		}
-		return &PruneAnchor{AppQC: appQC, CommitQC: commitQC}, nil
+		return &AppTip{AppQC: appQC, CommitQC: commitQC}, nil
 	},
 }
 
 // loadPersistedState creates persisters for the given directory option and loads
 // any existing state from disk. When dir is None, all persisters are no-op
-// and no state is loaded. When a prune anchor is present, stale commitQCs and
-// blocks below the anchor are filtered out before returning.
+// and no state is loaded. When an App tip watermark is present, stale commitQCs
+// and blocks below that tip are filtered out before returning.
 func loadPersistedState(dir utils.Option[string]) (utils.Option[*loadedAvailState], persisters, error) {
-	prunePersister, persistedPruneAnchor, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](dir, innerFile)
+	prunePersister, persistedAppTip, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](dir, innerFile)
 	if err != nil {
 		return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("NewPersister %s: %w", innerFile, err)
 	}
@@ -84,24 +77,24 @@ func loadPersistedState(dir utils.Option[string]) (utils.Option[*loadedAvailStat
 
 	loaded := &loadedAvailState{commitQCs: commitQCs, blocks: blocks}
 
-	if raw, ok := persistedPruneAnchor.Get(); ok {
-		anchor, err := PruneAnchorConv.Decode(raw)
+	if raw, ok := persistedAppTip.Get(); ok {
+		tip, err := AppTipConv.Decode(raw)
 		if err != nil {
-			return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("decode prune anchor: %w", err)
+			return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("decode app tip: %w", err)
 		}
-		loaded.pruneAnchor = utils.Some(anchor)
+		loaded.appTip = utils.Some(tip)
 
-		anchorIdx := anchor.AppQC.Proposal().RoadIndex()
+		tipIdx := tip.AppQC.Proposal().RoadIndex()
 		filtered := commitQCs[:0]
 		for _, lqc := range commitQCs {
-			if lqc.Index >= anchorIdx {
+			if lqc.Index >= tipIdx {
 				filtered = append(filtered, lqc)
 			}
 		}
 		loaded.commitQCs = filtered
 
 		for lane, bs := range blocks {
-			first := anchor.CommitQC.LaneRange(lane).First()
+			first := tip.CommitQC.LaneRange(lane).First()
 			j := 0
 			for j < len(bs) && bs[j].Number < first {
 				j++
@@ -117,14 +110,14 @@ func loadPersistedState(dir utils.Option[string]) (utils.Option[*loadedAvailStat
 
 // runPersist is the main loop for the persist goroutine.
 // Write order:
-//  1. Prune anchor (AppQC + CommitQC pair) — the crash-recovery boundary (sequential).
+//  1. App tip snapshot (AppQC + CommitQC) — the crash-recovery prune watermark (sequential).
 //  2. commitQCs.MaybePruneAndPersist and each lane's blocks.MaybePruneAndPersistLane run
 //     concurrently via scope.Parallel (separate WALs, no early cancellation; first error
 //     is returned after all tasks finish).
 //     Each path publishes (markCommitQCsPersisted / markBlockPersisted) per entry so voting
 //     unblocks ASAP.
 //
-// On restart, the persisted prune anchor establishes the retained boundary.
+// On restart, the persisted App tip establishes the retained boundary.
 //
 // TODO: use a single WAL for anchor and CommitQCs to make
 // this atomic rather than relying on write order.
@@ -136,17 +129,17 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			return err
 		}
 
-		// The same anchor CommitQC drives commit-QC WAL and per-lane block WAL
+		// The same tip CommitQC drives commit-QC WAL and per-lane block WAL
 		// (truncate-then-append below this QC).
-		var anchorQC utils.Option[*types.CommitQC]
-		// 1. Persist prune anchor first — establishes the crash-recovery boundary.
-		if anchor, ok := batch.pruneAnchor.Get(); ok {
-			if err := pers.pruneAnchor.Persist(PruneAnchorConv.Encode(anchor)); err != nil {
-				return fmt.Errorf("persist prune anchor: %w", err)
+		var tipQC utils.Option[*types.CommitQC]
+		// 1. Persist App tip first — establishes the crash-recovery prune watermark.
+		if tip, ok := batch.appTip.Get(); ok {
+			if err := pers.pruneAnchor.Persist(AppTipConv.Encode(tip)); err != nil {
+				return fmt.Errorf("persist app tip: %w", err)
 			}
-			s.advancePersistedBlockStart(anchor.CommitQC)
-			persistedAnchorNext = anchor.CommitQC.Proposal().Index() + 1
-			anchorQC = utils.Some(anchor.CommitQC)
+			s.advancePersistedBlockStart(tip.CommitQC)
+			persistedAnchorNext = tip.CommitQC.Proposal().Index() + 1
+			tipQC = utils.Some(tip.CommitQC)
 		}
 
 		markBlock := func(p *types.Signed[*types.LaneProposal]) {
@@ -164,12 +157,12 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 		// Callees handle empty inputs gracefully (no-op when nothing to write/truncate).
 		if err := scope.Parallel(func(ps scope.ParallelScope) error {
 			ps.Spawn(func() error {
-				return pers.commitQCs.MaybePruneAndPersist(anchorQC, batch.commitQCs, utils.Some(func(qc *types.CommitQC) {
+				return pers.commitQCs.MaybePruneAndPersist(tipQC, batch.commitQCs, utils.Some(func(qc *types.CommitQC) {
 					s.markCommitQCsPersisted(qc)
 				}))
 			})
 			// Collect lanes: any lane with blocks in this batch, plus all lanes
-			// in the anchor epoch (for WAL pruning).
+			// in the tip epoch (for WAL pruning).
 			// TODO: when epoch transitions land, also union in lanes from all
 			// epochs that appear in batch.commitQCs so new-epoch lanes are
 			// never skipped in a cross-epoch batch.
@@ -177,13 +170,13 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			for lane := range blocksByLane {
 				batchLanes[lane] = struct{}{}
 			}
-			for _, lane := range batch.pruneLanes {
+			for _, lane := range batch.tipLanes {
 				batchLanes[lane] = struct{}{}
 			}
 			for lane := range batchLanes {
 				proposals := blocksByLane[lane]
 				ps.Spawn(func() error {
-					return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))
+					return pers.blocks.MaybePruneAndPersistLane(lane, tipQC, proposals, utils.Some(markBlock))
 				})
 			}
 			return nil
@@ -194,15 +187,17 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 }
 
 // persistBatch holds the data collected under lock for one persist iteration.
+// appTip is a snapshot of app's live tip for the prune watermark — persist
+// does not own or look up the tip's CommitQC separately.
 type persistBatch struct {
-	blocks      []*types.Signed[*types.LaneProposal]
-	commitQCs   []*types.CommitQC
-	pruneAnchor utils.Option[*PruneAnchor]
-	pruneLanes  []types.LaneID
+	blocks    []*types.Signed[*types.LaneProposal]
+	commitQCs []*types.CommitQC
+	appTip    utils.Option[*AppTip]
+	tipLanes  []types.LaneID
 }
 
 // advancePersistedBlockStart updates the per-lane block admission boundary
-// after durably writing the prune anchor. This unblocks PushBlock/ProduceBlock
+// after durably writing the App tip watermark. This unblocks PushBlock/ProduceBlock
 // waiters that are gated on persistedBlockFirst + BlocksPerLane.
 func (s *State) advancePersistedBlockStart(commitQC *types.CommitQC) {
 	for inner, ctrl := range s.inner.Lock() {
@@ -243,13 +238,13 @@ func (s *State) collectPersistBatch(ctx context.Context, persistedAnchorNext typ
 	for inner, ctrl := range s.inner.Lock() {
 		// Derive the CommitQC persist cursor from persistedCommitQC. This is
 		// safe because persistedCommitQC is only advanced by markCommitQCsPersisted
-		// (after disk write) and on startup (from disk). Applying a prune anchor
+		// (after disk write) and on startup (from disk). Advancing the App tip
 		// does not update persistedCommitQC, so this always reflects persistence
-		// state. The max clamp with commits.qcs.first handles an anchor
+		// state. The max clamp with commits.qcs.first handles a tip
 		// fast-forwarding the queue past the cursor.
 		commitQCNext := types.NextIndexOpt(inner.commits.persistedCommitQC.Load())
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			if types.NextOpt(inner.app.latestAppQC) != persistedAnchorNext {
+			if types.NextOpt(inner.app.tip) != persistedAnchorNext {
 				return true
 			}
 			for _, ls := range inner.lanes.byID {
@@ -271,23 +266,13 @@ func (s *State) collectPersistBatch(ctx context.Context, persistedAnchorNext typ
 		for n := commitQCNext; n < inner.commits.qcs.next; n++ {
 			b.commitQCs = append(b.commitQCs, inner.commits.qcs.q[n])
 		}
-		if types.NextOpt(inner.app.latestAppQC) != persistedAnchorNext {
-			if appQC, ok := inner.app.latestAppQC.Get(); ok {
-				idx := appQC.Proposal().RoadIndex()
-				if qc, ok := inner.commits.qcs.q[idx]; ok {
-					b.pruneAnchor = utils.Some(&PruneAnchor{
-						AppQC:    appQC,
-						CommitQC: qc,
-					})
-					// Capture under the same lock as the anchor so an epoch slide
-					// cannot move its committee out of the live duo before I/O.
-					ep, err := inner.epoch.Load().EpochForRoad(qc.Proposal().Index())
-					if err != nil {
-						return b, fmt.Errorf("EpochForRoad(%d): %w", qc.Proposal().Index(), err)
-					}
-					for lane := range ep.Committee().Lanes().All() {
-						b.pruneLanes = append(b.pruneLanes, lane)
-					}
+		if types.NextOpt(inner.app.tip) != persistedAnchorNext {
+			if tip, ok := inner.app.tip.Get(); ok {
+				b.appTip = utils.Some(tip)
+				// Capture under the same lock as the tip so an epoch slide
+				// cannot move its committee before I/O.
+				for lane := range tip.Epoch.Committee().Lanes().All() {
+					b.tipLanes = append(b.tipLanes, lane)
 				}
 			}
 		}

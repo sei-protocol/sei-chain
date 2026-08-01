@@ -50,8 +50,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	// Snapshot Current once for off-lock verify. Unlike PushVote (which parks
 	// until Current accepts the signer), we do not wait for future committees —
 	// lane proposals are not reweighted across epoch advances.
-	duo := s.epochDuo.Load()
-	c := duo.Current.Committee()
+	c := s.epoch.Load().Committee()
 	if err := p.Msg().Verify(c); err != nil {
 		return fmt.Errorf("block.Verify(): %w", err)
 	}
@@ -109,23 +108,18 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
 	h := vote.Msg().Header()
 	// Future-epoch voters park (one stream goroutine) until Current includes them.
-	var committee *types.Committee
-	var verifiedEpoch types.EpochIndex
-	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool {
-			c := inner.epoch.Load().Current.Committee()
-			return c.Weight(vote.Key()) > 0 && c.HasLane(h.Lane())
-		}); err != nil {
-			return err
-		}
-		duo := inner.epoch.Load()
-		committee = duo.Current.Committee()
-		verifiedEpoch = duo.Current.EpochIndex()
+	epoch, err := s.epoch.Wait(ctx, func(epoch *types.Epoch) bool {
+		// TODO: this is not a reliable criterion: fix once we have proper line lifecycle management
+		c := s.epoch.Load().Committee()
+		return c.Weight(vote.Key()) > 0 && c.HasLane(h.Lane())
+	})
+	if err != nil {
+		return err
 	}
-	if err := vote.Msg().Verify(committee); err != nil {
+	if err := vote.Msg().Verify(epoch.Committee()); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
-	if err := vote.VerifySig(committee); err != nil {
+	if err := vote.VerifySig(epoch.Committee()); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
@@ -139,11 +133,9 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		}); err != nil {
 			return err
 		}
-		// WaitUntil may release the lock; re-check membership under live Current.
-		live := inner.epoch.Load()
-		if live.Current.EpochIndex() != verifiedEpoch &&
-			(live.Current.Committee().Weight(vote.Key()) == 0 ||
-				!live.Current.Committee().HasLane(h.Lane())) {
+		// Check if the lane is still live
+		epoch := inner.epoch.Load()
+		if epoch.Committee().Weight(vote.Key()) == 0 || !epoch.Committee().HasLane(h.Lane()) {
 			return nil
 		}
 		if h.BlockNumber() < q.first {
@@ -152,7 +144,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= h.BlockNumber() {
 			q.pushBack(newBlockVotes())
 		}
-		if q.q[h.BlockNumber()].pushVote(live.Current, vote).IsPresent() {
+		if q.q[h.BlockNumber()].pushVote(epoch, vote).IsPresent() {
 			ctrl.Updated()
 		}
 	}
@@ -223,8 +215,8 @@ func (s *State) WaitForLaneQCs(
 	for inner, ctrl := range s.inner.Lock() {
 		laneQCs := map[types.LaneID]*types.LaneQC{}
 		for {
-			ep := inner.epoch.Load().Current
-			for lane := range ep.Committee().Lanes().All() {
+			epoch := inner.epoch.Load()
+			for lane := range epoch.Committee().Lanes().All() {
 				first := types.LaneRangeOpt(prev, lane).Next()
 				for i := range types.BlockNumber(types.MaxLaneRangeInProposal) {
 					if qc, ok := inner.lanes.laneQC(lane, first+i).Get(); ok {
@@ -235,7 +227,7 @@ func (s *State) WaitForLaneQCs(
 				}
 			}
 			if len(laneQCs) > 0 {
-				return laneQCs, ep, nil
+				return laneQCs, epoch, nil
 			}
 			if err := ctrl.Wait(ctx); err != nil {
 				return nil, nil, err

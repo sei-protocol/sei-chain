@@ -18,34 +18,33 @@ import (
 // MaybePruneAndPersistLane, but the new member must also appear in
 // inner.lanes before the next persist cycle.
 type inner struct {
-	epoch   epochProgress
+	epoch   utils.AtomicSend[*types.Epoch]
 	app     appProgress
 	commits commitProgress
 	lanes   laneCollection
 }
 
 // loadedAvailState holds data loaded from disk on restart.
-// pruneAnchor is the decoded prune anchor (if any).
-// commitQCs and blocks are pre-filtered: stale entries below the
-// anchor have already been removed by loadPersistedState.
+// appTip is the decoded App tip watermark (if any); Epoch is filled in newInner.
+// commitQCs and blocks are pre-filtered: stale entries below the tip have
+// already been removed by loadPersistedState.
 // commitQCs are sorted by road index; blocks are sorted by number per lane.
 // newInner requires both to be contiguous and returns an error on gaps.
 type loadedAvailState struct {
-	pruneAnchor utils.Option[*PruneAnchor]
-	commitQCs   []persist.LoadedCommitQC
-	blocks      map[types.LaneID][]persist.LoadedBlock
+	appTip    utils.Option[*AppTip]
+	commitQCs []persist.LoadedCommitQC
+	blocks    map[types.LaneID][]persist.LoadedBlock
 }
 
 // nextCommitQC is the index of the next CommitQC to be inserted after restore:
-// one past the last loaded CommitQC, floored by the prune-anchor tipcut when
-// the WAL lags.
+// one past the last loaded CommitQC, floored by the App tip when the WAL lags.
 func (ls *loadedAvailState) nextCommitQC() types.RoadIndex {
 	tip := types.RoadIndex(0)
 	if n := len(ls.commitQCs); n > 0 {
 		tip = ls.commitQCs[n-1].Index + 1
 	}
-	if anchor, ok := ls.pruneAnchor.Get(); ok {
-		tip = max(tip, anchor.CommitQC.Proposal().Index()+1)
+	if appTip, ok := ls.appTip.Get(); ok {
+		tip = max(tip, appTip.CommitQC.Proposal().Index()+1)
 	}
 	return tip
 }
@@ -64,10 +63,10 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 	}
 
 	i := &inner{
-		epoch: utils.NewAtomicSend(startEpochDuo),
+		epoch: utils.NewAtomicSend(startEpochDuo.Current),
 		app: appProgress{
-			latestAppQC: utils.None[*types.AppQC](),
-			votes:       newQueue[types.GlobalBlockNumber, appVotes](),
+			tip:   utils.None[*AppTip](),
+			votes: newQueue[types.GlobalBlockNumber, appVotes](),
 		},
 		commits: commitProgress{
 			qcs:               newQueue[types.RoadIndex, *types.CommitQC](),
@@ -78,34 +77,43 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 	l, ok := loaded.Get()
 	if !ok {
 		if startEpochDuo.Current.EpochIndex() > 0 {
-			return nil, fmt.Errorf("prune anchor required for epoch %d", startEpochDuo.Current.EpochIndex())
+			return nil, fmt.Errorf("app tip required for epoch %d", startEpochDuo.Current.EpochIndex())
 		}
 		i.app.votes.prune(registry.FirstBlock())
 		return i, nil
 	}
 
-	// Apply the persisted prune anchor first. It advances all queue boundaries,
-	// retains the anchor CommitQC, and sets app.votes.first from that CommitQC.
-	if anchor, ok := l.pruneAnchor.Get(); ok {
-		logger.Info("loaded persisted prune anchor",
-			slog.Uint64("roadIndex", uint64(anchor.AppQC.Proposal().RoadIndex())),
-			slog.Uint64("globalNumber", uint64(anchor.AppQC.Proposal().GlobalNumber())),
+	// Apply the persisted App tip first. It advances all queue boundaries,
+	// retains the tip CommitQC, and sets app.votes.first from that CommitQC.
+	if tip, ok := l.appTip.Get(); ok {
+		logger.Info("loaded persisted app tip",
+			slog.Uint64("roadIndex", uint64(tip.AppQC.Proposal().RoadIndex())),
+			slog.Uint64("globalNumber", uint64(tip.AppQC.Proposal().GlobalNumber())),
 		)
-		if err := verifyCommitQCInDuo(startEpochDuo, anchor.CommitQC); err != nil {
-			return nil, fmt.Errorf("load prune-anchor CommitQC: %w", err)
+		if err := verifyCommitQCInDuo(startEpochDuo, tip.CommitQC); err != nil {
+			return nil, fmt.Errorf("load app-tip CommitQC: %w", err)
 		}
-		if _, err := i.pushPruneAnchor(anchor); err != nil {
-			return nil, fmt.Errorf("push prune anchor: %w", err)
+		// Persisted proto does not yet carry Epoch; recover from the restore duo
+		// so avail stays self-contained after load.
+		if tip.Epoch == nil {
+			ep, err := startEpochDuo.ByRoad(tip.CommitQC.Proposal().Index())
+			if err != nil {
+				return nil, fmt.Errorf("load app-tip Epoch: %w", err)
+			}
+			tip.Epoch = ep
+		}
+		if _, err := i.pushAppTip(tip); err != nil {
+			return nil, fmt.Errorf("push app tip: %w", err)
 		}
 		for lane, ls := range i.lanes.byID {
-			ls.durable.persistedBlockFirst = anchor.CommitQC.LaneRange(lane).First()
+			ls.durable.persistedBlockFirst = tip.CommitQC.LaneRange(lane).First()
 		}
 	} else if startEpochDuo.Current.EpochIndex() == 0 {
-		// No anchor: floor app votes at genesis (registry), not tip Current —
+		// No tip: floor app votes at genesis (registry), not tip Current —
 		// live advanceEpoch also leaves app.votes at the genesis floor.
 		i.app.votes.prune(registry.FirstBlock())
 	} else {
-		return nil, fmt.Errorf("prune anchor required for epoch %d", startEpochDuo.Current.EpochIndex())
+		return nil, fmt.Errorf("app tip required for epoch %d", startEpochDuo.Current.EpochIndex())
 	}
 
 	// Restore persisted CommitQCs. The prune anchor may have already pushed the
@@ -161,49 +169,54 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 
 // verifyCommitQCInDuo verifies qc against startEpochDuo (Prev|Current at restore).
 func verifyCommitQCInDuo(duo types.EpochDuo, qc *types.CommitQC) error {
-	ep, err := duo.EpochForRoad(qc.Proposal().Index())
+	ep, err := duo.ByRoad(qc.Proposal().Index())
 	if err != nil {
 		return fmt.Errorf("epoch lookup: %w", err)
 	}
-	if err := qc.Verify(ep); err != nil {
-		return fmt.Errorf("verify: %w", err)
-	}
-	return nil
+	return qc.Verify(ep)
 }
 
-// advanceEpoch installs nextDuo at a boundary. Sole post-construction writer of
-// epoch (via runAdvanceEpoch). Caller must ensure nextDuo is the next epoch
-// after Current and that seal leashes (waitForAppQC, registry WaitForDuo) are
-// already satisfied. Adds Current lanes; does not delete old lanes
-// (TODO(lane-expiry)). Touches epoch + lane votes (reweight).
-func (i *inner) advanceEpoch(nextDuo types.EpochDuo) {
-	current := nextDuo.Current
-	for lane := range current.Committee().Lanes().All() {
+// advanceEpoch installs Current. Sole post-construction writer is
+// runAdvanceEpoch (after commit tip + seal leashes).
+// Adds Current lanes; does not delete old lanes (TODO(lane-expiry)).
+func (i *inner) advanceEpoch(epoch *types.Epoch) bool {
+	if i.epoch.Load().EpochIndex() >= epoch.EpochIndex() {
+		return false
+	}
+	c := epoch.Committee()
+	for lane := range c.Lanes().All() {
 		i.lanes.getOrInsert(lane)
 	}
 	for _, ls := range i.lanes.byID {
 		for n := ls.votes.first; n < ls.votes.next; n++ {
-			ls.votes.q[n].reweight(current)
+			ls.votes.q[n].reweight(c)
 		}
 	}
-	i.epoch.Store(nextDuo)
+	i.epoch.Store(epoch)
+	return true
 }
 
-// pushPruneAnchor advances queue boundaries for an AppQC and its matching
-// CommitQC, retaining the CommitQC when it is the next tip. Returns true when
-// the anchor advanced, or false when it was stale.
+// pushAppTip advances queue boundaries for an App tip (AppQC + matching
+// CommitQC + Epoch), retaining the CommitQC when it is the next tip.
+// Returns true when the tip advanced, or false when it was stale.
 // Cross-progress orchestrator: touches app, commits, and lanes.
-func (i *inner) pushPruneAnchor(anchor *PruneAnchor) (bool, error) {
-	appQC := anchor.AppQC
-	commitQC := anchor.CommitQC
+func (i *inner) pushAppTip(tip *AppTip) (bool, error) {
+	appQC := tip.AppQC
+	commitQC := tip.CommitQC
+	if tip.Epoch == nil {
+		return false, fmt.Errorf("app tip missing Epoch")
+	}
 	idx := appQC.Proposal().RoadIndex()
 	if idx != commitQC.Proposal().Index() {
 		return false, fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", idx, commitQC.Proposal().Index())
 	}
-	if idx < types.NextOpt(i.app.latestAppQC) {
+	if got, want := tip.Epoch.EpochIndex(), appQC.Proposal().EpochIndex(); got != want {
+		return false, fmt.Errorf("app tip epoch %d != appQC epoch %d", got, want)
+	}
+	if idx < types.NextOpt(i.app.tip) {
 		return false, nil
 	}
-	i.app.latestAppQC = utils.Some(appQC)
+	i.app.tip = utils.Some(tip)
 	metrics.ObserveAppQC(appQC)
 	i.commits.qcs.prune(idx)
 	i.commits.push(commitQC)
