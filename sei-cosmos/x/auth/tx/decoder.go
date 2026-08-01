@@ -19,13 +19,14 @@ func DefaultTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 }
 
 // DefaultTxDecoderWithoutBodyBloatRejection returns a protobuf TxDecoder that
-// preserves pre-v6.5 decode behavior for historical tooling. Do not use this for
+// preserves pre-v6.5 decode behavior for historical tooling: it does not reject
+// non-canonical TxBody or AuthInfo wire encodings. Do not use this for
 // mempool, CheckTx, or DeliverTx paths.
 func DefaultTxDecoderWithoutBodyBloatRejection(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 	return defaultTxDecoder(cdc, false)
 }
 
-func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat bool) sdk.TxDecoder {
+func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBloat bool) sdk.TxDecoder {
 	return func(txBytes []byte) (sdk.Tx, error) {
 		// Make sure txBytes follow ADR-027.
 		err := rejectNonADR027TxRaw(txBytes)
@@ -59,8 +60,8 @@ func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat bool) sdk.T
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
 
-		if rejectBodyBloat {
-			if err := rejectBloatedBody(raw.BodyBytes, &body); err != nil {
+		if rejectBloat {
+			if err := rejectBloatedProto(raw.BodyBytes, &body, "tx body"); err != nil {
 				return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 			}
 		}
@@ -76,6 +77,12 @@ func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat bool) sdk.T
 		err = cdc.Unmarshal(raw.AuthInfoBytes, &authInfo)
 		if err != nil {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
+		}
+
+		if rejectBloat {
+			if err := rejectBloatedProto(raw.AuthInfoBytes, &authInfo, "tx auth info"); err != nil {
+				return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
+			}
 		}
 
 		theTx := &tx.Tx{
@@ -159,17 +166,17 @@ func rejectNonADR027TxRaw(txBytes []byte) error {
 	return nil
 }
 
-// rejectBloatedBody rejects tx bodies where the raw wire encoding is larger
+// rejectBloatedProto rejects messages where the raw wire encoding is larger
 // than the canonical re-marshal of the decoded struct. This catches protobuf-level
-// bloat (e.g. padded sdk.Int fields, oversized Any.Value) that UnpackAny would
-// otherwise silently canonicalize away before validation runs.
-func rejectBloatedBody(rawBodyBytes []byte, body *tx.TxBody) error {
-	canonicalBytes, err := proto.Marshal(body)
+// bloat (e.g. padded sdk.Int fields, oversized Any.Value, non-canonical encodings)
+// that Unmarshal would otherwise silently canonicalize away before validation runs.
+func rejectBloatedProto(rawBytes []byte, msg proto.Message, name string) error {
+	canonicalBytes, err := proto.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("failed to re-marshal tx body: %w", err)
+		return fmt.Errorf("failed to re-marshal %s: %w", name, err)
 	}
-	if len(rawBodyBytes) != len(canonicalBytes) {
-		return fmt.Errorf("tx body wire size (%d) exceeds canonical size (%d)", len(rawBodyBytes), len(canonicalBytes))
+	if len(rawBytes) != len(canonicalBytes) {
+		return fmt.Errorf("%s wire size (%d) exceeds canonical size (%d)", name, len(rawBytes), len(canonicalBytes))
 	}
 	return nil
 }

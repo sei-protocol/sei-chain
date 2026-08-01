@@ -94,6 +94,72 @@ func TestDefaultTxDecoderWithoutBodyBloatRejection(t *testing.T) {
 	}
 }
 
+func TestDefaultTxDecoderRejectsAuthInfoBloat(t *testing.T) {
+	registry := codectypes.NewInterfaceRegistry()
+	testdata.RegisterInterfaces(registry)
+	cdc := codec.NewProtoCodec(registry)
+
+	builder := newBuilder()
+	require.NoError(t, builder.SetMsgs(testdata.NewTestMsg()))
+	builder.SetGasLimit(127)
+
+	txBz, err := DefaultTxEncoder()(builder.GetTx())
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		mutate func([]byte) []byte
+		assert func(*testing.T, *wrapper)
+	}{
+		{
+			name: "fee field encoded twice",
+			mutate: func(authInfoBytes []byte) []byte {
+				fee := &tx.Fee{GasLimit: 127}
+				feeBz, err := fee.Marshal()
+				require.NoError(t, err)
+				extra := protowire.AppendTag(nil, 2, protowire.BytesType)
+				extra = protowire.AppendBytes(extra, feeBz)
+				return append(authInfoBytes, extra...)
+			},
+			assert: func(t *testing.T, decoded *wrapper) {
+				require.Equal(t, uint64(127), decoded.GetGas())
+			},
+		},
+		{
+			name: "payer explicitly encoded as default empty string inside fee",
+			mutate: func(authInfoBytes []byte) []byte {
+				// Fee tag 2 with an inner payer="" (tag 3, empty bytes).
+				feeBz := []byte{0x1a, 0x00}
+				extra := protowire.AppendTag(nil, 2, protowire.BytesType)
+				extra = protowire.AppendBytes(extra, feeBz)
+				return append(authInfoBytes, extra...)
+			},
+			assert: func(t *testing.T, decoded *wrapper) {
+				require.Equal(t, uint64(127), decoded.GetGas())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var raw tx.TxRaw
+			require.NoError(t, raw.Unmarshal(txBz))
+			raw.AuthInfoBytes = tt.mutate(raw.AuthInfoBytes)
+			bloatedTxBz, err := raw.Marshal()
+			require.NoError(t, err)
+
+			_, err = DefaultTxDecoder(cdc)(bloatedTxBz)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "exceeds canonical size")
+			require.Contains(t, err.Error(), "auth info")
+
+			decoded, err := DefaultTxDecoderWithoutBodyBloatRejection(cdc)(bloatedTxBz)
+			require.NoError(t, err)
+			tt.assert(t, decoded.(*wrapper))
+		})
+	}
+}
+
 func TestUnknownFields(t *testing.T) {
 	registry := codectypes.NewInterfaceRegistry()
 	cdc := codec.NewProtoCodec(registry)
