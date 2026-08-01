@@ -61,9 +61,6 @@ func (s *State) WaitForAppQC(ctx context.Context, idx types.RoadIndex) (*types.A
 // behind-window votes soft-drop.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
 	idx := v.Msg().Proposal().RoadIndex()
-	if err := s.waitForCommitQC(ctx, idx); err != nil {
-		return err
-	}
 	epoch, err := s.waitForAppEpoch(ctx, idx)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
@@ -74,7 +71,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	if got, want := v.Msg().Proposal().EpochIndex(), epoch.EpochIndex(); got != want {
 		return fmt.Errorf("appVote epoch_index %d, want %d", got, want)
 	}
-	qc, err := s.CommitQC(ctx, idx)
+	qc, err := s.WaitForCommitQC(ctx, idx)
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
 			return nil

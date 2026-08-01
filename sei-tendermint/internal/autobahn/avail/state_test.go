@@ -238,8 +238,8 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 				return fmt.Errorf("state.WaitForAppQC(): %w", err)
 			}
 			if prev, ok := prev.Get(); ok {
-				if _, err := state.CommitQC(ctx, prev.Proposal().Index()); !errors.Is(err, types.ErrPruned) {
-					return fmt.Errorf("state.CommitQC(): %w, want %v", err, types.ErrPruned)
+				if _, err := state.WaitForCommitQC(ctx, prev.Proposal().Index()); !errors.Is(err, types.ErrPruned) {
+					return fmt.Errorf("state.WaitForCommitQC(): %w, want %v", err, types.ErrPruned)
 				}
 			}
 
@@ -362,8 +362,8 @@ func TestStateRestartFromPersisted(t *testing.T) {
 		// all commitQCs in the batch are on disk. Block goroutines may still
 		// be in flight, but scope.Parallel in runPersist ensures they complete
 		// before the next batch, so the data is durable by scope exit.
-		if err := state.waitForCommitQC(ctx, wantAppQCIdx); err != nil {
-			return fmt.Errorf("waitForCommitQC: %w", err)
+		if err := state.waitForCommitTip(ctx, wantAppQCIdx); err != nil {
+			return fmt.Errorf("waitForCommitTip: %w", err)
 		}
 
 		wantNextBlocks = make(map[types.LaneID]types.BlockNumber, committee.Lanes().Len())
@@ -1158,7 +1158,7 @@ func TestPushAppVoteFutureWaitsForCommitQC(t *testing.T) {
 	require.NoError(t, err)
 
 	// AppVote for Current's first road while CommitQC tip is still behind:
-	// PushAppVote parks in waitForCommitQC (not on the epoch window).
+	// PushAppVote parks in WaitForCommitQC (not on the epoch window).
 	epM := utils.OrPanic1(registry.EpochAt(epoch.FirstRoad(m)))
 	proposal := types.NewAppProposal(
 		registry.FirstBlock(), epM.RoadRange().First, types.GenAppHash(rng), epM.EpochIndex())
@@ -1170,7 +1170,7 @@ func TestPushAppVoteFutureWaitsForCommitQC(t *testing.T) {
 }
 
 // TestPushAppVoteFarFutureParks: an unregistered far-future RoadIndex parks
-// (waitForCommitQC) rather than failing EpochAt up front.
+// (waitForAppEpoch / WaitForCommitQC) rather than failing EpochAt up front.
 func TestPushAppVoteFarFutureParks(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, m := epoch.GenRegistryTip(rng, 4)
@@ -1665,7 +1665,7 @@ func TestEpochAdvanceGapHandoff(t *testing.T) {
 
 		require.NoError(t, state.PushCommitQC(t.Context(), qcLast))
 		require.Equal(t, m, state.epoch.Load().EpochIndex())
-		state.markCommitQCsPersisted(qcLast) // satisfy waitForCommitQC for FirstRoad(m+1)
+		state.markCommitQCsPersisted(qcLast) // satisfy waitForCommitTip for FirstRoad(m+1)
 
 		advCtx, advCancel := context.WithCancel(t.Context())
 		advErr := make(chan error, 1)
@@ -1690,7 +1690,7 @@ func TestPushCommitQCFutureWaitsForCurrent(t *testing.T) {
 
 	registerDuoAtEpoch(state, m-1)
 
-	// Satisfy waitForCommitQC(FirstRoad(m)-1) without pushing EpochLength QCs.
+	// Satisfy waitForCommitTip(FirstRoad(m)-1) without pushing EpochLength QCs.
 	// Current remains M-1, so FirstRoad(m) parks on Epoch(M).
 	tipQC := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
 		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(epPrev, types.View{

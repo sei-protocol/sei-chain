@@ -104,7 +104,7 @@ func (x *Service) serverStreamCommitQCs(ctx context.Context, server rpc.Server[A
 	return StreamCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.CommitQC, *pb.StreamCommitQCsReq]) error {
 		next := types.RoadIndex(0)
 		for {
-			qc, err := x.validatorState().Avail().CommitQC(ctx, next)
+			qc, err := x.validatorState().Avail().WaitForCommitQC(ctx, next)
 			if err != nil {
 				if errors.Is(err, types.ErrPruned) {
 					next = x.validatorState().Avail().FirstCommitQC()

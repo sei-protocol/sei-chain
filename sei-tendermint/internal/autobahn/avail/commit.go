@@ -9,8 +9,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// waitForCommitQC waits until the durable CommitQC tip has advanced past idx.
-func (s *State) waitForCommitQC(ctx context.Context, idx types.RoadIndex) error {
+// waitForCommitTip waits until the durable CommitQC tip has advanced past idx.
+func (s *State) waitForCommitTip(ctx context.Context, idx types.RoadIndex) error {
 	_, err := s.LastCommitQC().Wait(ctx, func(qc utils.Option[*types.CommitQC]) bool {
 		return types.NextIndexOpt(qc) > idx
 	})
@@ -21,14 +21,11 @@ func (s *State) waitForCommitQC(ctx context.Context, idx types.RoadIndex) error 
 // epoch needed to verify it: Current when the QC is in Current, otherwise the
 // App-tip epoch (Prev).
 func (s *State) waitForCommitQCAndEpoch(ctx context.Context, idx types.RoadIndex) (*types.CommitQC, *types.Epoch, error) {
-	if err := s.waitForCommitQC(ctx, idx); err != nil {
+	qc, err := s.WaitForCommitQC(ctx, idx)
+	if err != nil {
 		return nil, nil, err
 	}
 	for inner := range s.inner.Lock() {
-		if idx < inner.commits.qcs.first {
-			return nil, nil, types.ErrPruned
-		}
-		qc := inner.commits.qcs.q[idx]
 		cur := inner.epoch.Load()
 		if cur.EpochIndex() == qc.Proposal().EpochIndex() {
 			return qc, cur, nil
@@ -42,9 +39,10 @@ func (s *State) waitForCommitQCAndEpoch(ctx context.Context, idx types.RoadIndex
 	panic("unreachable")
 }
 
-// CommitQC returns the CommitQC for the given index.
-func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.CommitQC, error) {
-	if err := s.waitForCommitQC(ctx, idx); err != nil {
+// WaitForCommitQC waits until the durable tip covers idx, then returns that
+// CommitQC. Returns ErrPruned if the road was pruned after the tip advanced.
+func (s *State) WaitForCommitQC(ctx context.Context, idx types.RoadIndex) (*types.CommitQC, error) {
+	if err := s.waitForCommitTip(ctx, idx); err != nil {
 		return nil, err
 	}
 	for inner := range s.inner.Lock() {
@@ -61,7 +59,7 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 // Seal leashes (App anchor + registry N+1) gate that advance, not this admit.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	if i := qc.Proposal().Index(); i > 0 {
-		if err := s.waitForCommitQC(ctx, i-1); err != nil {
+		if err := s.waitForCommitTip(ctx, i-1); err != nil {
 			return err
 		}
 	}
