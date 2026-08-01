@@ -187,17 +187,44 @@ func TestFullKeyEnvVarDeliversRatherThanShadows(t *testing.T) {
 // lookup. A dashed section is shadowed by the same variable-name shape as an
 // underscored one — which is also why two differently-punctuated names cannot be
 // distinguished by environment delivery.
+//
+// It also records the sharper half of the consequence, because this key's reader is
+// shaped differently from giga_executor's. GetConfig reads it unguarded —
+// v.GetBool("state-commit.sc-enable") at sei-cosmos/server/config/config.go:621, with no
+// presence check — so a nil read is not a fallback to an in-code default, it is
+// GetBool(nil), which is false. The two sections therefore fail in opposite directions
+// from one mechanism: a shadowed giga_executor.enabled keeps its true default and
+// silently enables what the operator disabled, while a shadowed state-commit.sc-enable
+// resolves false and silently disables what the operator enabled. Which direction a
+// section takes depends only on whether its reader guards the read.
+//
+// The baseline is what makes the nil assertion mean anything. A nil is evidence of
+// shadowing only if the key is known to resolve without the variable set — otherwise a
+// fixture typo or a section rename would satisfy the assertion while the dash-folding
+// property it exists to pin went untested.
 func TestShadowFoldsSectionPunctuation(t *testing.T) {
 	configtest.Isolate(t)
 
-	home := homeWithAppTOML(t, "[state-commit]\nsc-enable = true\n")
+	const body = "[state-commit]\nsc-enable = true\n"
 	shadowVar := sectionEnvVar(t, "state-commit")
 	require.True(t, strings.Contains(shadowVar, "STATE_COMMIT"),
 		"the replacer must fold the dash to an underscore: got %q", shadowVar)
 
+	// Baseline, on its own fixture home: the dashed key resolves, and the reader agrees.
+	base := applyLegacy(t, homeWithAppTOML(t, body), nil)
+	require.NoError(t, base.err)
+	require.Equal(t, true, base.ctx.Viper.Get("state-commit.sc-enable"),
+		"without a shadowing variable the dashed key must resolve to the written value")
+	require.True(t, base.ctx.Viper.GetBool("state-commit.sc-enable"),
+		"the reader must see the operator's value when nothing shadows it")
+
 	t.Setenv(shadowVar, "x")
-	got := applyLegacy(t, home, nil)
+	got := applyLegacy(t, homeWithAppTOML(t, body), nil)
 	require.NoError(t, got.err)
 	require.Nil(t, got.ctx.Viper.Get("state-commit.sc-enable"),
 		"%s must shadow a dashed section the same way it shadows an underscored one", shadowVar)
+	require.False(t, got.ctx.Viper.GetBool("state-commit.sc-enable"),
+		"%s must make the unguarded reader resolve false, against an app.toml that sets it "+
+			"true — the opposite direction from giga_executor, whose guarded reader keeps its "+
+			"true default instead", shadowVar)
 }
