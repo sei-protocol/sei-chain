@@ -220,7 +220,7 @@ func configCorpus() []corpusCase {
 //
 // It compares parsed semantics:
 //   - serverCtx.Config (the *tmcfg.Config the node runs on), and
-//   - serverCtx.Viper.AllSettings() (the AppOptions every Sei section reads via
+//   - configtest.Settings(serverCtx.Viper) (the AppOptions every Sei section reads via
 //     appOpts.Get), both at end-of-PersistentPreRunE and after the start.go
 //     chain-id mutation.
 func TestConfigManagerLegacyVsV2Differential(t *testing.T) {
@@ -233,7 +233,7 @@ func TestConfigManagerLegacyVsV2Differential(t *testing.T) {
 
 	require.Equal(t, legacyCtx.Config, v2Ctx.Config,
 		"serverCtx.Config differs between legacy and v2")
-	require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(),
+	require.Equal(t, configtest.Settings(legacyCtx.Viper), configtest.Settings(v2Ctx.Viper),
 		"serverCtx.Viper settings differ between legacy and v2")
 
 	// The start.go chain-id mutation is identical on both vipers; assert parity
@@ -241,7 +241,7 @@ func TestConfigManagerLegacyVsV2Differential(t *testing.T) {
 	const chainID = "differential-test-1"
 	legacyCtx.Viper.Set(flags.FlagChainID, chainID)
 	v2Ctx.Viper.Set(flags.FlagChainID, chainID)
-	require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(),
+	require.Equal(t, configtest.Settings(legacyCtx.Viper), configtest.Settings(v2Ctx.Viper),
 		"settings diverge after the start.go chain-id mutation")
 }
 
@@ -278,7 +278,7 @@ func TestConfigManagerLegacyVsV2Differential_EnvHome(t *testing.T) {
 
 	require.Equal(t, legacyCtx.Config, v2Ctx.Config,
 		"serverCtx.Config differs between legacy and v2 on the env-home path")
-	require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(),
+	require.Equal(t, configtest.Settings(legacyCtx.Viper), configtest.Settings(v2Ctx.Viper),
 		"serverCtx.Viper settings differ between legacy and v2 on the env-home path")
 }
 
@@ -300,7 +300,7 @@ func TestConfigManagerLegacyVsV2Differential_Corpus(t *testing.T) {
 
 			require.Equal(t, legacyCtx.Config, v2Ctx.Config,
 				"serverCtx.Config differs between legacy and v2 (%s)", tc.name)
-			require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(),
+			require.Equal(t, configtest.Settings(legacyCtx.Viper), configtest.Settings(v2Ctx.Viper),
 				"serverCtx.Viper settings differ between legacy and v2 (%s)", tc.name)
 		})
 	}
@@ -319,7 +319,7 @@ func TestConfigManagerV2AdvisoryNeverRefusesBoot(t *testing.T) {
 
 	legacyCtx := runConfigManager(t, configmanager.LegacyConfigManager{}, home)
 	require.Equal(t, legacyCtx.Config, v2Ctx.Config)
-	require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings())
+	require.Equal(t, configtest.Settings(legacyCtx.Viper), configtest.Settings(v2Ctx.Viper))
 }
 
 // TestConfigManagerV2FreshHomeBoots exercises the fresh-home first-boot path: v2's
@@ -419,13 +419,13 @@ func TestConfigManagerV2WritesNothing(t *testing.T) {
 			"leaves the resolved channels alone is invisible to every other assertion here")
 }
 
-// FuzzConfigManagerEnvOnlyKeyParity closes the one class the AllSettings comparison
+// FuzzConfigManagerEnvOnlyKeyParity closes the one class the settings comparison
 // cannot reach.
 //
-// AllSettings enumerates only what viper knows structurally, from the files it read,
-// its defaults, overrides and bound flags. A value carried solely by the environment
-// for a key absent from app.toml has no enumerable existence, so it appears in neither
-// AllSettings nor AllKeys, and every comparison above is blind to it. It is not
+// AllKeys enumerates only what viper knows structurally, from the files it read, its
+// defaults, overrides and bound flags. A value carried solely by the environment for a
+// key absent from app.toml has no enumerable existence, so it appears in neither
+// AllKeys nor anything built on it, and every comparison above is blind to it. It is not
 // invisible to the node: app.New reads through appOpts.Get, and AutomaticEnv resolves
 // at Get time, so such a value does reach running code.
 //
@@ -513,7 +513,7 @@ func FuzzConfigManagerEnvOnlyKeyParity(f *testing.F) {
 
 		require.Equal(t, legacyGot, v2Got,
 			"env-only key %q resolves differently between legacy and v2 (env %s=%q). This is "+
-				"invisible to the AllSettings comparison, and app.New reads it through "+
+				"invisible to the settings comparison, and app.New reads it through "+
 				"appOpts.Get, so it reaches the running node", key, envKey, value)
 	})
 }
@@ -559,6 +559,6 @@ func FuzzConfigManagerLegacyVsV2Parity(f *testing.F) {
 			return
 		}
 		require.Equal(t, legacyCtx.Config, v2Ctx.Config, "Config diverges (case %q, suffix %q)", tc.name, appTOMLSuffix)
-		require.Equal(t, legacyCtx.Viper.AllSettings(), v2Ctx.Viper.AllSettings(), "settings diverge (case %q, suffix %q)", tc.name, appTOMLSuffix)
+		require.Equal(t, configtest.Settings(legacyCtx.Viper), configtest.Settings(v2Ctx.Viper), "settings diverge (case %q, suffix %q)", tc.name, appTOMLSuffix)
 	})
 }
