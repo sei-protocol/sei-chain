@@ -38,6 +38,18 @@ var logger = seilog.NewLogger("db", "gc")
 // PruneBelow failures are joined and do not skip later stores — permission-to-drop
 // is not transactional, and one unhealthy store must not block pruning of others.
 //
+// Precondition on stores: every store passed in is live. A store disabled for this node is
+// not instantiated and so never reaches the collector, so the set holds no permanently-empty
+// member. A store that is present but has ingested nothing reports head 0; that head is
+// ignored when computing the global head and the store opts out via GetPruningBoundary, so
+// one store still filling does not stall pruning fleet-wide.
+//
+// That skip is only safe while no store bootstraps from another store's history: today each
+// replays its own changelog and owns that changelog's retention. If a store is ever fed from
+// another store's WAL, it could sit at head 0 while that WAL is pruned past what it needs,
+// and this rule has to change (distinguish "empty and still bootstrapping" from "not
+// participating" rather than skipping both).
+//
 // Invariant: if RollbackWindow blocks of rollback were possible before a prune, that
 // prune does not take the ability away. Full headroom is not promised after a rollback
 // has already consumed part of the window.
@@ -190,8 +202,11 @@ func getCutLine(globalLatestBlock uint64, rollbackWindow uint64, retention int64
 
 // getGlobalLatestBlock returns the smallest non-zero GetLatestBlock among stores.
 // Using the min keeps a lagging store from being pruned past blocks it still needs.
-// Heads of 0 are skipped so an uninitialized store does not stall pruning.
 // Returns 0 when no store has data.
+//
+// Heads of 0 are skipped rather than treated as "unknown". Note this excludes from the min
+// exactly the store that holds nothing, so the min-head argument does not protect that
+// store; what protects it is the store-set precondition on StorageGarbageCollector.
 func getGlobalLatestBlock(stores []PrunableStore) (uint64, error) {
 	var blockNum uint64
 	for _, store := range stores {

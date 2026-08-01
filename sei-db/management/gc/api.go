@@ -55,6 +55,10 @@ type PrunableStore interface {
 	GetPruningBoundary(cutLine uint64) uint64
 
 	// GetLatestBlock returns the highest block this store has ingested.
-	// 0 means "no data / uninitialized" and is ignored when computing the global head.
+	//
+	// 0 means "nothing ingested yet" and is ignored when computing the global head, so a store
+	// still filling does not stall pruning for the rest of the fleet. It does not mean
+	// "disabled": a store disabled for this node is not instantiated and never reaches the
+	// collector. See StorageGarbageCollector for why skipping a 0 head is safe.
 	GetLatestBlock() (uint64, error)
 }
