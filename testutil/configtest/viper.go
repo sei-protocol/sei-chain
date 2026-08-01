@@ -54,10 +54,12 @@ func DumpViper(v *viper.Viper) string {
 // bytes — cannot make two different key sets render identically. DumpViper stays
 // the right tool for a readable failure message; this is the right tool for the
 // assertion itself.
+//
+// A nil viper is left to panic on AllKeys rather than guarded into an empty result,
+// which is the same distinction: DumpViper renders <nil-viper> because describing a
+// broken state is its job, while an empty result here would let two contexts nobody
+// populated compare equal and report a parity that was never established.
 func Settings(v *viper.Viper) map[string]any {
-	if v == nil {
-		return nil
-	}
 	keys := v.AllKeys()
 	settings := make(map[string]any, len(keys))
 	for _, k := range keys {

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -70,6 +69,11 @@ func bootWithAppTOML(t *testing.T, body string) *configtest.Home {
 // TestSectionEnvVarShadowsItsWholeSection records the shadow itself: the section's keys
 // stop resolving, a sibling section is untouched, and enumeration keeps listing the
 // shadowed keys.
+//
+// Every row boots its own fixture home, the baseline included: the legacy path treats a
+// node directory as read-write while it reads it and creates config.toml on first boot,
+// so one home shared across the rows would vary a second input alongside the variable
+// under test (testutil/configtest/AGENTS.md).
 func TestSectionEnvVarShadowsItsWholeSection(t *testing.T) {
 	configtest.Isolate(t)
 
@@ -82,11 +86,10 @@ occ_enabled = false
 [evm]
 max_log_bytes = 100
 `
-	home := bootWithAppTOML(t, body)
 	shadowVar := sectionEnvVar(t, "giga_executor")
 
 	// Baseline: no shadowing variable, so the operator's written values win.
-	base := applyLegacy(t, home, nil)
+	base := applyLegacy(t, bootWithAppTOML(t, body), nil)
 	require.NoError(t, base.err)
 	require.Equal(t, false, base.ctx.Viper.Get("giga_executor.enabled"),
 		"without a shadowing variable the operator's written value must win")
@@ -94,7 +97,7 @@ max_log_bytes = 100
 	for _, value := range []string{"true", "false", "1", "0", "anything-at-all"} {
 		t.Run("value="+value, func(t *testing.T) {
 			t.Setenv(shadowVar, value)
-			got := applyLegacy(t, home, nil)
+			got := applyLegacy(t, bootWithAppTOML(t, body), nil)
 			require.NoError(t, got.err, "shadowing must not refuse the boot")
 			v := got.ctx.Viper
 
@@ -149,8 +152,10 @@ func TestFullKeyEnvVarDeliversRatherThanShadows(t *testing.T) {
 	t.Setenv(sectionEnvVar(t, "giga_executor.occ_enabled"), "true")
 	delivered := applyLegacy(t, home, nil)
 	require.NoError(t, delivered.err)
-	require.Equal(t, "true", fmt.Sprint(delivered.ctx.Viper.Get("giga_executor.occ_enabled")),
-		"a variable naming the full key path must deliver its value (env over file)")
+	require.Equal(t, "true", delivered.ctx.Viper.Get("giga_executor.occ_enabled"),
+		"a variable naming the full key path must deliver its value (env over file), and it "+
+			"arrives as the untyped string it was written as — the same key read from the file "+
+			"layer resolves to a bool, so which layer a value came from changes its Go type")
 }
 
 // TestShadowFoldsSectionPunctuation records that the shadow does not care how the

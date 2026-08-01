@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newViperOver returns a viper reading the given app.toml body, configured the way the
-// server viper is: SEID prefix, AutomaticEnv, and the replacer that folds ".", "-" and
-// "_" to "_".
+// newViperOver returns a viper whose only layer is the given app.toml body: no prefix,
+// no AutomaticEnv, no replacer. Settings's interaction with the environment is pinned
+// against the real server viper in cmd/seid/cmd, so nothing here needs an env layer.
 func newViperOver(t *testing.T, body string) *viper.Viper {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "app.toml")
@@ -97,8 +97,11 @@ func TestSettingsKeysCannotCollideThroughRendering(t *testing.T) {
 	require.Len(t, one, 1)
 }
 
-// TestSettingsOnNilViper pins the nil case, since the differential builds a
-// server.Context whose Viper may be unset before Apply runs.
-func TestSettingsOnNilViper(t *testing.T) {
-	require.Nil(t, configtest.Settings(nil))
+// TestSettingsOnNilViperPanics pins the nil case as a failure rather than a tolerance,
+// since the differential builds a server.Context whose Viper stays nil until Apply
+// populates it. An empty map would let two such contexts compare equal, so the
+// differential's strongest premise would report success on a boot that never ran. The
+// panic is what makes the guard at those call sites redundant rather than load-bearing.
+func TestSettingsOnNilViperPanics(t *testing.T) {
+	require.Panics(t, func() { configtest.Settings(nil) })
 }
