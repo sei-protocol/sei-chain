@@ -15,7 +15,7 @@ import (
 
 // DefaultTxDecoder returns a default protobuf TxDecoder using the provided Marshaler.
 func DefaultTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
-	return defaultTxDecoder(cdc, true)
+	return defaultTxDecoder(cdc, true, true)
 }
 
 // DefaultTxDecoderWithoutBodyBloatRejection returns a protobuf TxDecoder that
@@ -23,10 +23,18 @@ func DefaultTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 // non-canonical TxBody or AuthInfo wire encodings. Do not use this for
 // mempool, CheckTx, or DeliverTx paths.
 func DefaultTxDecoderWithoutBodyBloatRejection(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
-	return defaultTxDecoder(cdc, false)
+	return defaultTxDecoder(cdc, false, false)
 }
 
-func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBloat bool) sdk.TxDecoder {
+// DefaultTxDecoderWithoutAuthInfoBloatRejection returns a protobuf TxDecoder that
+// rejects non-canonical TxBody encodings (v6.5+) but not non-canonical AuthInfo
+// encodings. Used for historical tooling that replays the v6.5-to-v6.8 window.
+// Do not use this for mempool, CheckTx, or DeliverTx paths.
+func DefaultTxDecoderWithoutAuthInfoBloatRejection(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
+	return defaultTxDecoder(cdc, true, false)
+}
+
+func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat, rejectAuthInfoBloat bool) sdk.TxDecoder {
 	return func(txBytes []byte) (sdk.Tx, error) {
 		// Make sure txBytes follow ADR-027.
 		err := rejectNonADR027TxRaw(txBytes)
@@ -60,7 +68,7 @@ func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBloat bool) sdk.TxDec
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
 
-		if rejectBloat {
+		if rejectBodyBloat {
 			if err := rejectBloatedProto(raw.BodyBytes, &body, "tx body"); err != nil {
 				return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 			}
@@ -79,7 +87,7 @@ func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBloat bool) sdk.TxDec
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
 
-		if rejectBloat {
+		if rejectAuthInfoBloat {
 			if err := rejectBloatedProto(raw.AuthInfoBytes, &authInfo, "tx auth info"); err != nil {
 				return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 			}
@@ -176,7 +184,7 @@ func rejectBloatedProto(rawBytes []byte, msg proto.Message, name string) error {
 		return fmt.Errorf("failed to re-marshal %s: %w", name, err)
 	}
 	if len(rawBytes) != len(canonicalBytes) {
-		return fmt.Errorf("%s wire size (%d) exceeds canonical size (%d)", name, len(rawBytes), len(canonicalBytes))
+		return fmt.Errorf("%s wire size (%d) does not match canonical size (%d)", name, len(rawBytes), len(canonicalBytes))
 	}
 	return nil
 }

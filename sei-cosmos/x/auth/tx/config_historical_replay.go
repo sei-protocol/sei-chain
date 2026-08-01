@@ -9,7 +9,7 @@ import (
 )
 
 // NewTxConfigWithoutBodyBloatRejection returns a TxConfig whose decoder does not
-// reject non-canonical (bloat) protobuf TxBody or AuthInfo encodings, so historical
+// reject non-canonical protobuf TxBody or AuthInfo encodings, so historical
 // blocks whose txs predate those checks can be decoded and executed.
 //
 // It is consensus-unsafe for live paths, so it is compiled ONLY into

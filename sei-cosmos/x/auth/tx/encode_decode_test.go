@@ -6,13 +6,14 @@ import (
 	"math"
 	"testing"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
-
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	signingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
@@ -85,13 +86,33 @@ func TestDefaultTxDecoderWithoutBodyBloatRejection(t *testing.T) {
 
 			_, err = DefaultTxDecoder(cdc)(bloatedTxBz)
 			require.Error(t, err)
-			require.Contains(t, err.Error(), "exceeds canonical size")
+			require.Contains(t, err.Error(), "does not match canonical size")
 
 			decoded, err := DefaultTxDecoderWithoutBodyBloatRejection(cdc)(bloatedTxBz)
 			require.NoError(t, err)
 			tt.assert(t, decoded.(*wrapper))
 		})
 	}
+}
+
+func TestDefaultTxDecoderAcceptsCanonicalAuthInfo(t *testing.T) {
+	registry := codectypes.NewInterfaceRegistry()
+	testdata.RegisterInterfaces(registry)
+	cdc := codec.NewProtoCodec(registry)
+
+	builder := newBuilder()
+	require.NoError(t, builder.SetMsgs(testdata.NewTestMsg()))
+	builder.SetGasLimit(127)
+	builder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("stake", 5)))
+
+	txBz, err := DefaultTxEncoder()(builder.GetTx())
+	require.NoError(t, err)
+
+	decoded, err := DefaultTxDecoder(cdc)(txBz)
+	require.NoError(t, err)
+	w := decoded.(*wrapper)
+	require.Equal(t, uint64(127), w.GetGas())
+	require.Equal(t, sdk.NewCoins(sdk.NewInt64Coin("stake", 5)), w.GetFee())
 }
 
 func TestDefaultTxDecoderRejectsAuthInfoBloat(t *testing.T) {
@@ -108,12 +129,12 @@ func TestDefaultTxDecoderRejectsAuthInfoBloat(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		mutate func([]byte) []byte
+		mutate func(*testing.T, []byte) []byte
 		assert func(*testing.T, *wrapper)
 	}{
 		{
 			name: "fee field encoded twice",
-			mutate: func(authInfoBytes []byte) []byte {
+			mutate: func(t *testing.T, authInfoBytes []byte) []byte {
 				fee := &tx.Fee{GasLimit: 127}
 				feeBz, err := fee.Marshal()
 				require.NoError(t, err)
@@ -127,12 +148,25 @@ func TestDefaultTxDecoderRejectsAuthInfoBloat(t *testing.T) {
 		},
 		{
 			name: "payer explicitly encoded as default empty string inside fee",
-			mutate: func(authInfoBytes []byte) []byte {
-				// Fee tag 2 with an inner payer="" (tag 3, empty bytes).
-				feeBz := []byte{0x1a, 0x00}
-				extra := protowire.AppendTag(nil, 2, protowire.BytesType)
-				extra = protowire.AppendBytes(extra, feeBz)
-				return append(authInfoBytes, extra...)
+			mutate: func(t *testing.T, authInfoBytes []byte) []byte {
+				var authInfo tx.AuthInfo
+				require.NoError(t, authInfo.Unmarshal(authInfoBytes))
+				require.NotNil(t, authInfo.Fee)
+
+				out := make([]byte, 0, len(authInfoBytes)+2)
+				for _, si := range authInfo.SignerInfos {
+					siBz, err := proto.Marshal(si)
+					require.NoError(t, err)
+					out = protowire.AppendTag(out, 1, protowire.BytesType)
+					out = protowire.AppendBytes(out, siBz)
+				}
+				feeBz, err := proto.Marshal(authInfo.Fee)
+				require.NoError(t, err)
+				// Explicit empty payer (tag 3) inside the single Fee message.
+				feeBz = append(feeBz, 0x1a, 0x00)
+				out = protowire.AppendTag(out, 2, protowire.BytesType)
+				out = protowire.AppendBytes(out, feeBz)
+				return out
 			},
 			assert: func(t *testing.T, decoded *wrapper) {
 				require.Equal(t, uint64(127), decoded.GetGas())
@@ -144,16 +178,21 @@ func TestDefaultTxDecoderRejectsAuthInfoBloat(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var raw tx.TxRaw
 			require.NoError(t, raw.Unmarshal(txBz))
-			raw.AuthInfoBytes = tt.mutate(raw.AuthInfoBytes)
+			raw.AuthInfoBytes = tt.mutate(t, raw.AuthInfoBytes)
 			bloatedTxBz, err := raw.Marshal()
 			require.NoError(t, err)
 
 			_, err = DefaultTxDecoder(cdc)(bloatedTxBz)
 			require.Error(t, err)
-			require.Contains(t, err.Error(), "exceeds canonical size")
+			require.Contains(t, err.Error(), "does not match canonical size")
 			require.Contains(t, err.Error(), "auth info")
 
-			decoded, err := DefaultTxDecoderWithoutBodyBloatRejection(cdc)(bloatedTxBz)
+			// v6.5-to-v6.8 window: body checks on, AuthInfo checks off.
+			decoded, err := DefaultTxDecoderWithoutAuthInfoBloatRejection(cdc)(bloatedTxBz)
+			require.NoError(t, err)
+			tt.assert(t, decoded.(*wrapper))
+
+			decoded, err = DefaultTxDecoderWithoutBodyBloatRejection(cdc)(bloatedTxBz)
 			require.NoError(t, err)
 			tt.assert(t, decoded.(*wrapper))
 		})
