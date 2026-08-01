@@ -287,7 +287,7 @@ func (s *State) runPropose(ctx context.Context) error {
 			return nil
 		}
 		// AppQC is optional on tipcuts: attach only when LastAppQC is newer and
-		// in-window (buildProposal). Seal AppQC leash is on CommitQC admission.
+		// in-window (buildProposal). Seal AppQC leash is on avail runAdvanceEpoch.
 		fullProposal, err := types.NewProposal(
 			s.cfg.Key,
 			vs,
