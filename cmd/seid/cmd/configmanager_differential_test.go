@@ -214,7 +214,7 @@ func callerContext(msgAndArgs []any) string {
 		if format, ok := msgAndArgs[0].(string); ok {
 			return " (" + fmt.Sprintf(format, msgAndArgs[1:]...) + ")"
 		}
-		return fmt.Sprintf(" (%v)", msgAndArgs)
+		return " (" + fmt.Sprint(msgAndArgs...) + ")"
 	}
 }
 
@@ -315,8 +315,7 @@ func TestConfigManagerLegacyVsV2Differential(t *testing.T) {
 	legacyCtx := runConfigManager(t, configmanager.LegacyConfigManager{}, home)
 	v2Ctx := runConfigManager(t, configmanager.SeiConfigManager{}, home)
 
-	requireSameChannels(t, legacyCtx, v2Ctx,
-		"serverCtx.Viper settings differ between legacy and v2")
+	requireSameChannels(t, legacyCtx, v2Ctx)
 
 	// The start.go chain-id mutation is identical on both vipers; assert parity
 	// holds after it too (covers the post-mutation snapshot).
@@ -358,8 +357,7 @@ func TestConfigManagerLegacyVsV2Differential_EnvHome(t *testing.T) {
 	require.Equal(t, home.Root, legacyCtx.Viper.GetString(flags.FlagHome),
 		"env-provided home did not drive legacy resolution")
 
-	requireSameChannels(t, legacyCtx, v2Ctx,
-		"serverCtx.Viper settings differ between legacy and v2 on the env-home path")
+	requireSameChannels(t, legacyCtx, v2Ctx, "env-home path")
 }
 
 // TestConfigManagerLegacyVsV2Differential_Corpus widens the parity proof from the
@@ -378,8 +376,7 @@ func TestConfigManagerLegacyVsV2Differential_Corpus(t *testing.T) {
 			legacyCtx := runConfigManager(t, configmanager.LegacyConfigManager{}, home)
 			v2Ctx := runConfigManager(t, configmanager.SeiConfigManager{}, home)
 
-			requireSameChannels(t, legacyCtx, v2Ctx,
-				"serverCtx.Viper settings differ between legacy and v2 (%s)", tc.name)
+			requireSameChannels(t, legacyCtx, v2Ctx, "case %q", tc.name)
 		})
 	}
 }

@@ -28,7 +28,8 @@ import (
 // changing how configuration resolves could silently break an operator who has come to
 // depend on the current answer, so the behavior is recorded here and left alone.
 // SeiConfigManager corrects it when it owns resolution, and the divergence is ratified
-// against these rows rather than discovered against a production node.
+// against these rows rather than discovered against a production node. That correction is
+// tracked on PLT-775, so the fix has an anchor that outlives this comment.
 //
 // The consequence is worth stating where the pin lives, because it is what makes the
 // pin worth having rather than trivia. giga_executor.enabled defaults to true
@@ -85,9 +86,7 @@ func homeWithAppTOML(t *testing.T, body string) *configtest.Home {
 func TestSectionEnvVarShadowsItsWholeSection(t *testing.T) {
 	configtest.Isolate(t)
 
-	const body = `minimum-gas-prices = "0.1usei"
-
-[giga_executor]
+	const body = `[giga_executor]
 enabled = false
 occ_enabled = false
 
