@@ -16,10 +16,25 @@ import (
 // against the real server viper in cmd/seid/cmd, so nothing here needs an env layer.
 func newViperOver(t *testing.T, body string) *viper.Viper {
 	t.Helper()
+	return newViperOverFile(t, writeAppTOML(t, body))
+}
+
+// writeAppTOML writes body to an app.toml in a fresh temp directory and returns its path.
+func writeAppTOML(t *testing.T, body string) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "app.toml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write app.toml: %v", err)
 	}
+	return path
+}
+
+// newViperOverFile returns a viper that has read the app.toml at path, the same single
+// file layer newViperOver builds. It is separate so a test can read one file many times:
+// the nondeterminism such a test is after lives in viper's map iteration, not in the
+// parse, so re-reading one path varies only the thing under study.
+func newViperOverFile(t *testing.T, path string) *viper.Viper {
+	t.Helper()
 	v := viper.New()
 	v.SetConfigFile(path)
 	if err := v.ReadInConfig(); err != nil {
@@ -36,10 +51,16 @@ func newViperOver(t *testing.T, body string) *viper.Viper {
 // the ambiguity by map iteration order, which Go randomizes per run. Settings never
 // re-nests, so there is no ambiguity to resolve.
 //
-// The assertion is deliberately asymmetric: it requires Settings to be stable, and it
-// only *reports* whether AllSettings varied on this run rather than requiring that it
-// does. Requiring instability would make this test depend on hitting both orderings
-// within the sample, which is the same coin-flip it is documenting.
+// Both halves are assertions, and the AllSettings half holds on every single read rather
+// than over the sample. Whichever order the re-nesting visits the two keys in, one
+// value is destroyed: reaching "giga.x" through a scalar "giga" replaces that scalar with
+// a fresh map, and writing "giga" over an existing sub-tree discards the sub-tree. So the
+// re-nested tree always holds one leaf fewer than AllKeys has keys. Only *which* value is
+// lost varies with the ordering, which is the instability the shape count reports.
+//
+// Asserting the loss rather than the variation is what makes this a regression guard: it
+// cannot depend on hitting both orderings within the sample, and a viper that fixed the
+// collision fails here instead of quietly making the test meaningless.
 func TestSettingsIsStableWhereAllSettingsIsNot(t *testing.T) {
 	const body = `
 [section]
@@ -48,26 +69,47 @@ func TestSettingsIsStableWhereAllSettingsIsNot(t *testing.T) {
 `
 	const runs = 200
 
+	// One file, read many times. Writing it once keeps the parse out of the experiment,
+	// leaving map iteration order as the only thing that differs between reads.
+	path := writeAppTOML(t, body)
+
 	settingsShapes := map[string]int{}
 	allSettingsShapes := map[string]int{}
 	for i := 0; i < runs; i++ {
-		v := newViperOver(t, body)
+		v := newViperOverFile(t, path)
 		settingsShapes[fmt.Sprint(configtest.Settings(v))]++
-		allSettingsShapes[fmt.Sprint(v.AllSettings())]++
+
+		all := v.AllSettings()
+		allSettingsShapes[fmt.Sprint(all)]++
+
+		keys := v.AllKeys()
+		require.Len(t, keys, 2,
+			"the fixture must present the prefix collision this test is about; got keys %v", keys)
+		require.Equal(t, len(keys)-1, countLeaves(all),
+			"AllSettings must lose exactly one of the two colliding values on every read, "+
+				"whichever way it re-nested; got %v for keys %v", all, keys)
 	}
 
 	require.Len(t, settingsShapes, 1,
 		"Settings must return one shape across %d reads of one file; got %d: %v",
 		runs, len(settingsShapes), settingsShapes)
 
-	if len(allSettingsShapes) > 1 {
-		t.Logf("AllSettings returned %d distinct shapes across %d reads, as expected: %v",
-			len(allSettingsShapes), runs, allSettingsShapes)
-	} else {
-		t.Logf("AllSettings happened to return one shape across %d reads this time; the "+
-			"instability is order-dependent, so a single stable sample does not clear it",
-			runs)
+	t.Logf("AllSettings returned %d distinct shapes across %d reads, each of them lossy: %v",
+		len(allSettingsShapes), runs, allSettingsShapes)
+}
+
+// countLeaves counts the non-map values in a nested settings tree, which is how many of
+// AllKeys's keys survived being re-nested into it.
+func countLeaves(m map[string]any) int {
+	n := 0
+	for _, v := range m {
+		if sub, ok := v.(map[string]any); ok {
+			n += countLeaves(sub)
+			continue
+		}
+		n++
 	}
+	return n
 }
 
 // TestSettingsPreservesConcreteTypes pins the property that makes Settings usable for a

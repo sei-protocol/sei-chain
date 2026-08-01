@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/sdk/trace"
 
@@ -144,11 +145,29 @@ func runManager(t *testing.T, mgr configmanager.ConfigManager, cmd *cobra.Comman
 // pair — it is the half that names the broken premise instead of surfacing a nil
 // dereference from inside viper. Every settings comparison in this file goes through
 // here, so the next one cannot be written without it.
+//
+// Compared as typed maps, reported as sorted dumps. The comparison has to be the typed
+// one, because the whole point of Settings is that int64(8) and "8" differ. The report
+// goes through DumpViper because that is the notation the rest of this harness fails in:
+// a differing key reads as `evm.max_log_bytes = int64(67108864)` rather than as spew's
+// `(string) (len=17) "evm.max_log_bytes": (int64) 67108864`. Both forms diff per key,
+// since testify sorts a map before diffing it, so this buys legibility rather than a
+// shorter failure. Both dumps are built only after a difference is known, since this
+// runs per fuzz execution.
 func requireSameSettings(t *testing.T, legacy, v2 *server.Context, msgAndArgs ...any) {
 	t.Helper()
 	require.NotNil(t, legacy.Viper, "legacy Apply left serverCtx.Viper nil: there is no resolved config to compare")
 	require.NotNil(t, v2.Viper, "v2 Apply left serverCtx.Viper nil: there is no resolved config to compare")
-	require.Equal(t, configtest.Settings(legacy.Viper), configtest.Settings(v2.Viper), msgAndArgs...)
+
+	legacySettings, v2Settings := configtest.Settings(legacy.Viper), configtest.Settings(v2.Viper)
+	if assert.ObjectsAreEqual(legacySettings, v2Settings) {
+		return
+	}
+	// The dump diff is the readable report. It is a rendering, so two different key sets
+	// can render alike (a key holding a newline), and the typed assertion below is the
+	// authority either way: whichever of the two fires, the difference is reported.
+	require.Equal(t, configtest.DumpViper(legacy.Viper), configtest.DumpViper(v2.Viper), msgAndArgs...)
+	require.Equal(t, legacySettings, v2Settings, msgAndArgs...)
 }
 
 // seedDefaultConfig returns a home carrying a complete, realistic config (all Sei

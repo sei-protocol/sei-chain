@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 	"github.com/stretchr/testify/require"
 )
@@ -40,14 +41,23 @@ import (
 // writes `enabled = false` and has any non-empty SEID_GIGA_EXECUTOR in the process
 // environment therefore gets giga enabled and that consensus comparison relaxed, with
 // nothing in any log saying so.
+//
+// Two of the three links in that chain are asserted, and the third is described. This
+// file asserts the shadow itself and, through gigaconfig.ReadConfig on the resolved
+// viper, that the nil read leaves enabled at true. app's
+// TestGigaExecutorEnabledDrivesLastResultsHashValidation asserts that enabled reaches the
+// atomic, through a real app construction. Only the join between them is prose here,
+// because observing it needs a running node, which this suite deliberately does not do
+// (testutil/configtest/AGENTS.md, "Out of Scope").
 
 // sectionEnvVar returns the environment variable that shadows the given dotted path,
 // derived the way the server viper derives it rather than built by hand.
 //
 // Built by hand it is easy to get wrong in a way that reads as "the defect does not
-// exist": the replacer runs over the whole prefixed name, so folding only the key and
-// then joining with an underscore yields SEID_GIGA.EXECUTOR, which matches nothing and
-// shadows nothing.
+// exist". The replacer runs over the whole prefixed name, prefix included, and the prefix
+// is the running binary's basename — "cmd.test" under go test. Folding only the key and
+// joining it to the prefix therefore leaves that dot in place, yielding
+// CMD.TEST_GIGA_EXECUTOR, which no environment lookup matches and which shadows nothing.
 func sectionEnvVar(t *testing.T, path string) string {
 	t.Helper()
 	prefix, err := configtest.ServerEnvPrefix()
@@ -57,9 +67,9 @@ func sectionEnvVar(t *testing.T, path string) string {
 	return configtest.ServerEnvKey(prefix, path)
 }
 
-// bootWithAppTOML boots one fixture home carrying the given app.toml body through the
-// legacy manager and returns the resolved viper every appOpts.Get() call site reads.
-func bootWithAppTOML(t *testing.T, body string) *configtest.Home {
+// homeWithAppTOML returns a fresh fixture home whose app.toml holds the given body.
+// Booting it is applyLegacy's job.
+func homeWithAppTOML(t *testing.T, body string) *configtest.Home {
 	t.Helper()
 	home := configtest.NewHome(t)
 	home.WriteAppTOML(t, []byte(body))
@@ -89,7 +99,7 @@ max_log_bytes = 100
 	shadowVar := sectionEnvVar(t, "giga_executor")
 
 	// Baseline: no shadowing variable, so the operator's written values win.
-	base := applyLegacy(t, bootWithAppTOML(t, body), nil)
+	base := applyLegacy(t, homeWithAppTOML(t, body), nil)
 	require.NoError(t, base.err)
 	require.Equal(t, false, base.ctx.Viper.Get("giga_executor.enabled"),
 		"without a shadowing variable the operator's written value must win")
@@ -97,7 +107,7 @@ max_log_bytes = 100
 	for _, value := range []string{"true", "false", "1", "0", "anything-at-all"} {
 		t.Run("value="+value, func(t *testing.T) {
 			t.Setenv(shadowVar, value)
-			got := applyLegacy(t, bootWithAppTOML(t, body), nil)
+			got := applyLegacy(t, homeWithAppTOML(t, body), nil)
 			require.NoError(t, got.err, "shadowing must not refuse the boot")
 			v := got.ctx.Viper
 
@@ -107,6 +117,20 @@ max_log_bytes = 100
 				"%s=%q must make giga_executor.enabled resolve to nothing", shadowVar, value)
 			require.Nil(t, v.Get("giga_executor.occ_enabled"))
 			require.False(t, v.IsSet("giga_executor.enabled"))
+
+			// What the nil read costs, asserted through the section's real reader
+			// rather than inferred from it. ReadConfig is presence-guarded, so a key
+			// that resolves to nothing leaves the in-code default standing, and
+			// enabled comes back true from a file that says false. This is the step
+			// the consensus consequence in the header rests on.
+			cfg, err := gigaconfig.ReadConfig(v)
+			require.NoError(t, err, "a shadowed section must not make the reader fail")
+			require.True(t, cfg.Enabled,
+				"%s=%q must leave giga_executor.enabled at its in-code default of true, "+
+					"against an app.toml that sets it to false", shadowVar, value)
+			require.Equal(t, gigaconfig.DefaultConfig, cfg,
+				"a shadowed section must resolve to exactly the in-code defaults, so no "+
+					"value the operator wrote survives anywhere in it")
 
 			// A sibling section is untouched: the shadow is scoped to the prefix the
 			// variable names, not to the whole file.
@@ -129,7 +153,7 @@ max_log_bytes = 100
 func TestEmptySectionEnvVarDoesNotShadow(t *testing.T) {
 	configtest.Isolate(t)
 
-	home := bootWithAppTOML(t, "[giga_executor]\nenabled = false\n")
+	home := homeWithAppTOML(t, "[giga_executor]\nenabled = false\n")
 	t.Setenv(sectionEnvVar(t, "giga_executor"), "")
 
 	got := applyLegacy(t, home, nil)
@@ -147,7 +171,7 @@ func TestEmptySectionEnvVarDoesNotShadow(t *testing.T) {
 func TestFullKeyEnvVarDeliversRatherThanShadows(t *testing.T) {
 	configtest.Isolate(t)
 
-	home := bootWithAppTOML(t, "[giga_executor]\nocc_enabled = false\n")
+	home := homeWithAppTOML(t, "[giga_executor]\nocc_enabled = false\n")
 
 	t.Setenv(sectionEnvVar(t, "giga_executor.occ_enabled"), "true")
 	delivered := applyLegacy(t, home, nil)
@@ -159,14 +183,14 @@ func TestFullKeyEnvVarDeliversRatherThanShadows(t *testing.T) {
 }
 
 // TestShadowFoldsSectionPunctuation records that the shadow does not care how the
-// section is punctuated, because the replacer folds ".", "-" and "_" to "_" before the
+// section is punctuated, because the replacer folds "." and "-" to "_" before the
 // lookup. A dashed section is shadowed by the same variable-name shape as an
 // underscored one — which is also why two differently-punctuated names cannot be
 // distinguished by environment delivery.
 func TestShadowFoldsSectionPunctuation(t *testing.T) {
 	configtest.Isolate(t)
 
-	home := bootWithAppTOML(t, "[state-commit]\nsc-enable = true\n")
+	home := homeWithAppTOML(t, "[state-commit]\nsc-enable = true\n")
 	shadowVar := sectionEnvVar(t, "state-commit")
 	require.True(t, strings.Contains(shadowVar, "STATE_COMMIT"),
 		"the replacer must fold the dash to an underscore: got %q", shadowVar)
