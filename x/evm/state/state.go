@@ -170,6 +170,9 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 	if watermarkIndex >= 0 {
 		s.journal = s.journal[:watermarkIndex]
 	}
+
+	// Store was rewound via CacheMultiStore; drop any cached code that may now be stale.
+	clear(s.codeCache)
 }
 
 func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
@@ -216,6 +219,9 @@ func (s *DBImpl) clearAccountCodeAndNonce(acc common.Address) {
 	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
 	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
 	deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
+	if s.codeCache != nil {
+		delete(s.codeCache, acc)
+	}
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
