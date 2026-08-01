@@ -73,6 +73,13 @@ func TestSettingsIsStableWhereAllSettingsIsNot(t *testing.T) {
 	// leaving map iteration order as the only thing that differs between reads.
 	path := writeAppTOML(t, body)
 
+	// The shape fingerprint is fmt.Sprint of a map, which is stable only because fmt
+	// sorts map keys before printing (Go 1.12+). Worth stating in a test whose whole
+	// premise is that map ordering is untrustworthy: the ordering fmt hides is the one
+	// this test relies on, and the ordering AllSettings exposes is the one it measures.
+	// Without the sort, every read would look like a distinct shape and the counts below
+	// would be meaningless rather than wrong.
+
 	settingsShapes := map[string]int{}
 	allSettingsShapes := map[string]int{}
 	for i := 0; i < runs; i++ {

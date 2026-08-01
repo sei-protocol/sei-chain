@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"slices"
-	"strings"
 	"testing"
 
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
@@ -139,7 +137,7 @@ max_log_bytes = 100
 
 			// Enumeration still reports the shadowed keys as present, which is why a
 			// reader cannot infer "in effect" from "enumerated".
-			require.True(t, slices.Contains(v.AllKeys(), "giga_executor.enabled"),
+			require.Contains(t, v.AllKeys(), "giga_executor.enabled",
 				"AllKeys must still list a shadowed key")
 
 			// The same pair, through configtest.Settings, because this is the only place
@@ -221,8 +219,8 @@ func TestShadowFoldsSectionPunctuation(t *testing.T) {
 
 	const body = "[state-commit]\nsc-enable = true\n"
 	shadowVar := sectionEnvVar(t, "state-commit")
-	require.True(t, strings.Contains(shadowVar, "STATE_COMMIT"),
-		"the replacer must fold the dash to an underscore: got %q", shadowVar)
+	require.Contains(t, shadowVar, "STATE_COMMIT",
+		"the replacer must fold the dash to an underscore")
 
 	// Baseline, on its own fixture home: the dashed key resolves, and the reader agrees.
 	base := applyLegacy(t, homeWithAppTOML(t, body), nil)
