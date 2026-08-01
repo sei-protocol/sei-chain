@@ -67,7 +67,12 @@ func TestSettingsIsStableWhereAllSettingsIsNot(t *testing.T) {
 "giga" = 1
 "giga.x" = 2
 `
-	const runs = 200
+	// Small on purpose. Both assertions below are deterministic per read — Settings cannot
+	// vary, and the leaf loss holds whichever way deepSearch re-nested — so the sample size
+	// feeds only the informational shape count. At the measured ~4:1 split, 20 reads show
+	// both orderings better than 99% of the time, and 180 fewer parses keeps this out of
+	// the package's runtime.
+	const runs = 20
 
 	// One file, read many times. Writing it once keeps the parse out of the experiment,
 	// leaving map iteration order as the only thing that differs between reads.
@@ -136,17 +141,41 @@ func TestSettingsPreservesConcreteTypes(t *testing.T) {
 }
 
 // TestSettingsKeysCannotCollideThroughRendering pins the second reason Settings is a map
-// rather than a rendered document. A key may legally contain a newline, and the parity
-// fuzz target appends arbitrary bytes to app.toml, so a newline-joined rendering can make
-// two different key sets produce one identical string. Map keys cannot collide that way.
+// rather than a rendered document: a rendering can collide where the underlying key sets
+// differ, and a map cannot.
+//
+// The fixtures are built to reach that collision rather than merely to differ, which is
+// the whole difficulty. DumpViper renders each key as `key = type(value)` and joins with
+// newlines, and a TOML key may legally contain a newline — so a single key whose text
+// reproduces one map's entire rendering makes the two documents byte-identical. The
+// second fixture is exactly that: one root key spelled `s.a = int64(1)\ns.b` holding
+// int64(2), which renders as `s.a = int64(1)\ns.b = int64(2)` — the same two lines the
+// first fixture's two keys produce.
+//
+// An earlier version of this test used `"a = 1\nb" = 2` and asserted only that the two
+// maps differ. That passed for a reason unrelated to the property: the renderings were
+// never equal, because DumpViper wraps the value as int64(1) while the key text carried a
+// bare 1. Two maps of different sizes are unequal, so the assertion held while the
+// collision it exists to demonstrate was never constructed. That is worth recording here,
+// because it is the failure this file is otherwise about: an assertion that passes for a
+// reason its own comment does not claim.
 func TestSettingsKeysCannotCollideThroughRendering(t *testing.T) {
-	two := configtest.Settings(newViperOver(t, "[s]\n\"a\" = 1\n\"b\" = 2\n"))
-	one := configtest.Settings(newViperOver(t, "[s]\n\"a = 1\\nb\" = 2\n"))
+	twoKeys := newViperOver(t, "[s]\n\"a\" = 1\n\"b\" = 2\n")
+	oneKey := newViperOver(t, "\"s.a = int64(1)\\ns.b\" = 2\n")
 
+	// The premise: the two renderings really are identical. Without this the assertion
+	// below is the vacuous one described above.
+	require.Equal(t, configtest.DumpViper(twoKeys), configtest.DumpViper(oneKey),
+		"the fixtures must reach the rendering collision this test is about, or the "+
+			"comparison below proves nothing about it")
+
+	// The property: Settings keeps them apart anyway, because it compares map keys rather
+	// than a joined document.
+	two, one := configtest.Settings(twoKeys), configtest.Settings(oneKey)
 	require.NotEqual(t, two, one,
-		"two keys and one newline-containing key must not compare equal")
+		"Settings must distinguish key sets whose rendering collides")
 	require.Len(t, two, 2)
-	require.Len(t, one, 1)
+	require.Len(t, one, 1, "a newline-containing key must stay a single entry")
 }
 
 // TestSettingsOnNilViperPanics pins the nil case as a failure rather than a tolerance,

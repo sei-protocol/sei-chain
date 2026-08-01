@@ -156,8 +156,9 @@ func runManager(t *testing.T, mgr configmanager.ConfigManager, cmd *cobra.Comman
 // runs per fuzz execution.
 func requireSameSettings(t *testing.T, legacy, v2 *server.Context, msgAndArgs ...any) {
 	t.Helper()
-	require.NotNil(t, legacy.Viper, "legacy Apply left serverCtx.Viper nil: there is no resolved config to compare")
-	require.NotNil(t, v2.Viper, "v2 Apply left serverCtx.Viper nil: there is no resolved config to compare")
+	where := callerContext(msgAndArgs)
+	require.NotNil(t, legacy.Viper, "legacy Apply left serverCtx.Viper nil: there is no resolved config to compare"+where)
+	require.NotNil(t, v2.Viper, "v2 Apply left serverCtx.Viper nil: there is no resolved config to compare"+where)
 
 	legacySettings, v2Settings := configtest.Settings(legacy.Viper), configtest.Settings(v2.Viper)
 	if assert.ObjectsAreEqual(legacySettings, v2Settings) {
@@ -168,6 +169,53 @@ func requireSameSettings(t *testing.T, legacy, v2 *server.Context, msgAndArgs ..
 	// authority either way: whichever of the two fires, the difference is reported.
 	require.Equal(t, configtest.DumpViper(legacy.Viper), configtest.DumpViper(v2.Viper), msgAndArgs...)
 	require.Equal(t, legacySettings, v2Settings, msgAndArgs...)
+}
+
+// requireSameChannels asserts legacy and v2 produced the same two boot channels — the
+// Tendermint config struct and the resolved settings — having first asserted that both
+// exist.
+//
+// The Config half needs the same guard the settings half does, and for longer than it
+// had one. Apply populates both fields, so a context it never reached carries nil in
+// both, and require.Equal on two nil *tmcfg.Config pointers passes: the same vacuous
+// pass the settings comparison used to have, on the channel next to it. It went unnoticed
+// because AllSettings used to panic on the nil viper two lines later, so the boot failure
+// surfaced anyway — as a nil dereference from inside viper rather than as a named
+// premise. Guarding settings alone would have left this one masked only by the accident
+// that the two are always compared together.
+//
+// Both channels in one helper because they come from one Apply: a test that has grounds
+// to compare either has grounds to compare both, and splitting them is what let the hole
+// sit next to its own fix.
+func requireSameChannels(t *testing.T, legacy, v2 *server.Context, msgAndArgs ...any) {
+	t.Helper()
+	where := callerContext(msgAndArgs)
+	require.NotNil(t, legacy.Config, "legacy Apply left serverCtx.Config nil: there is no config to compare"+where)
+	require.NotNil(t, v2.Config, "v2 Apply left serverCtx.Config nil: there is no config to compare"+where)
+	require.Equal(t, legacy.Config, v2.Config,
+		"serverCtx.Config differs between legacy and v2"+where)
+	requireSameSettings(t, legacy, v2, msgAndArgs...)
+}
+
+// callerContext renders a testify msgAndArgs tail as a parenthetical, so a helper can
+// prepend its own explanation without discarding the caller's.
+//
+// The guards inside these helpers name which premise broke; the caller's message names
+// which input broke it. A corpus row or a fuzz execution needs both to be reproducible,
+// and passing msgAndArgs straight through would make the caller's format string consume
+// the helper's text as an argument.
+func callerContext(msgAndArgs []any) string {
+	switch len(msgAndArgs) {
+	case 0:
+		return ""
+	case 1:
+		return fmt.Sprintf(" (%v)", msgAndArgs[0])
+	default:
+		if format, ok := msgAndArgs[0].(string); ok {
+			return " (" + fmt.Sprintf(format, msgAndArgs[1:]...) + ")"
+		}
+		return fmt.Sprintf(" (%v)", msgAndArgs)
+	}
 }
 
 // seedDefaultConfig returns a home carrying a complete, realistic config (all Sei
@@ -267,9 +315,7 @@ func TestConfigManagerLegacyVsV2Differential(t *testing.T) {
 	legacyCtx := runConfigManager(t, configmanager.LegacyConfigManager{}, home)
 	v2Ctx := runConfigManager(t, configmanager.SeiConfigManager{}, home)
 
-	require.Equal(t, legacyCtx.Config, v2Ctx.Config,
-		"serverCtx.Config differs between legacy and v2")
-	requireSameSettings(t, legacyCtx, v2Ctx,
+	requireSameChannels(t, legacyCtx, v2Ctx,
 		"serverCtx.Viper settings differ between legacy and v2")
 
 	// The start.go chain-id mutation is identical on both vipers; assert parity
@@ -312,9 +358,7 @@ func TestConfigManagerLegacyVsV2Differential_EnvHome(t *testing.T) {
 	require.Equal(t, home.Root, legacyCtx.Viper.GetString(flags.FlagHome),
 		"env-provided home did not drive legacy resolution")
 
-	require.Equal(t, legacyCtx.Config, v2Ctx.Config,
-		"serverCtx.Config differs between legacy and v2 on the env-home path")
-	requireSameSettings(t, legacyCtx, v2Ctx,
+	requireSameChannels(t, legacyCtx, v2Ctx,
 		"serverCtx.Viper settings differ between legacy and v2 on the env-home path")
 }
 
@@ -334,9 +378,7 @@ func TestConfigManagerLegacyVsV2Differential_Corpus(t *testing.T) {
 			legacyCtx := runConfigManager(t, configmanager.LegacyConfigManager{}, home)
 			v2Ctx := runConfigManager(t, configmanager.SeiConfigManager{}, home)
 
-			require.Equal(t, legacyCtx.Config, v2Ctx.Config,
-				"serverCtx.Config differs between legacy and v2 (%s)", tc.name)
-			requireSameSettings(t, legacyCtx, v2Ctx,
+			requireSameChannels(t, legacyCtx, v2Ctx,
 				"serverCtx.Viper settings differ between legacy and v2 (%s)", tc.name)
 		})
 	}
@@ -354,8 +396,7 @@ func TestConfigManagerV2AdvisoryNeverRefusesBoot(t *testing.T) {
 	require.NoError(t, v2Err, "advisory validation must never refuse boot on a valid config")
 
 	legacyCtx := runConfigManager(t, configmanager.LegacyConfigManager{}, home)
-	require.Equal(t, legacyCtx.Config, v2Ctx.Config)
-	requireSameSettings(t, legacyCtx, v2Ctx)
+	requireSameChannels(t, legacyCtx, v2Ctx)
 }
 
 // TestConfigManagerV2FreshHomeBoots exercises the fresh-home first-boot path: v2's
@@ -594,7 +635,6 @@ func FuzzConfigManagerLegacyVsV2Parity(f *testing.F) {
 			require.Equal(t, legacyErr.Error(), v2Err.Error(), "divergent error (case %q, suffix %q)", tc.name, appTOMLSuffix)
 			return
 		}
-		require.Equal(t, legacyCtx.Config, v2Ctx.Config, "Config diverges (case %q, suffix %q)", tc.name, appTOMLSuffix)
-		requireSameSettings(t, legacyCtx, v2Ctx, "settings diverge (case %q, suffix %q)", tc.name, appTOMLSuffix)
+		requireSameChannels(t, legacyCtx, v2Ctx, "case %q, app.toml suffix %q", tc.name, appTOMLSuffix)
 	})
 }
