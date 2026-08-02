@@ -70,6 +70,20 @@ func (c *laneCollection) laneQC(lane types.LaneID, n types.BlockNumber) utils.Op
 	return bv.laneQC()
 }
 
+// pruneTo floors each lane's vote/block queues and durable cursor to the
+// CommitQC's per-lane First (App tip prune watermark).
+func (c *laneCollection) pruneTo(qc *types.CommitQC) {
+	for lane, ls := range c.byID {
+		ls.pruneTo(qc.LaneRange(lane).First())
+	}
+}
+
+func (ls *laneState) pruneTo(first types.BlockNumber) {
+	ls.votes.prune(first)
+	ls.blocks.prune(first)
+	ls.durable.floorNext(first)
+}
+
 func (d *laneDurability) admitLimit() types.BlockNumber {
 	return d.persistedBlockFirst + BlocksPerLane
 }

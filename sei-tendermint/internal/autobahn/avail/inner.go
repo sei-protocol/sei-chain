@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -196,36 +195,24 @@ func (i *inner) advanceEpoch(epoch *types.Epoch) bool {
 	return true
 }
 
-// pushAppTip advances queue boundaries for an App tip (AppQC + matching
-// CommitQC + Epoch), retaining the CommitQC when it is the next tip.
-// Returns true when the tip advanced, or false when it was stale.
-// Cross-progress orchestrator: touches app, commits, and lanes.
+// pushAppTip validates tip pair consistency, then asks each progress owner to
+// apply its App-tip watermark. Returns true when the tip advanced, or false
+// when it was stale.
 func (i *inner) pushAppTip(tip *AppTip) (bool, error) {
-	appQC := tip.AppQC
-	commitQC := tip.CommitQC
 	if tip.Epoch == nil {
 		return false, fmt.Errorf("app tip missing Epoch")
 	}
-	idx := appQC.Proposal().RoadIndex()
-	if idx != commitQC.Proposal().Index() {
-		return false, fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", idx, commitQC.Proposal().Index())
+	idx := tip.AppQC.Proposal().RoadIndex()
+	if idx != tip.CommitQC.Proposal().Index() {
+		return false, fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", idx, tip.CommitQC.Proposal().Index())
 	}
-	if got, want := tip.Epoch.EpochIndex(), appQC.Proposal().EpochIndex(); got != want {
+	if got, want := tip.Epoch.EpochIndex(), tip.AppQC.Proposal().EpochIndex(); got != want {
 		return false, fmt.Errorf("app tip epoch %d != appQC epoch %d", got, want)
 	}
-	if idx < types.NextOpt(i.app.tip) {
+	if !i.app.setTip(tip) {
 		return false, nil
 	}
-	i.app.tip = utils.Some(tip)
-	metrics.ObserveAppQC(appQC)
-	i.commits.qcs.prune(idx)
-	i.commits.push(commitQC)
-	i.app.votes.prune(commitQC.GlobalRange().First)
-	for lane, ls := range i.lanes.byID {
-		lr := commitQC.LaneRange(lane)
-		ls.votes.prune(lr.First())
-		ls.blocks.prune(lr.First())
-		ls.durable.floorNext(lr.First())
-	}
+	i.commits.applyJustifying(tip.CommitQC)
+	i.lanes.pruneTo(tip.CommitQC)
 	return true, nil
 }

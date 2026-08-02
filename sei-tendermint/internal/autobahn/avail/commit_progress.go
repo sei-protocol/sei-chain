@@ -26,6 +26,13 @@ func (c *commitProgress) push(qc *types.CommitQC) bool {
 	return true
 }
 
+// applyJustifying prunes the admitted log below qc's road and retains qc when
+// it is the next tip (App tip justification).
+func (c *commitProgress) applyJustifying(qc *types.CommitQC) {
+	c.qcs.prune(qc.Proposal().Index())
+	c.push(qc)
+}
+
 // markPersisted publishes the latest durably persisted CommitQC.
 func (c *commitProgress) markPersisted(qc *types.CommitQC) {
 	c.persistedCommitQC.Store(utils.Some(qc))

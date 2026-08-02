@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -25,6 +26,20 @@ func (t *AppTip) Next() types.RoadIndex { return t.AppQC.Next() }
 type appProgress struct {
 	tip   utils.Option[*AppTip]
 	votes *queue[types.GlobalBlockNumber, appVotes]
+}
+
+// setTip installs tip when it advances the App road watermark. Prunes AppVote
+// accumulators below the justifying CommitQC's global floor. Returns false if
+// tip is stale (road already covered).
+func (a *appProgress) setTip(tip *AppTip) bool {
+	idx := tip.AppQC.Proposal().RoadIndex()
+	if idx < types.NextOpt(a.tip) {
+		return false
+	}
+	a.tip = utils.Some(tip)
+	metrics.ObserveAppQC(tip.AppQC)
+	a.votes.prune(tip.CommitQC.GlobalRange().First)
+	return true
 }
 
 // LastAppQC returns the AppQC peel of the live App tip.
