@@ -266,6 +266,9 @@ func (s *State) PushTimeoutVote(vote *types.FullTimeoutVote) error {
 func (s *State) Data() *data.State   { return s.avail.Data() }
 func (s *State) Avail() *avail.State { return s.avail }
 
+// SecretKey is this node's Autobahn signing key.
+func (s *State) SecretKey() types.SecretKey { return s.cfg.Key }
+
 // Constructs new proposals.
 func (s *State) runPropose(ctx context.Context) error {
 	return s.myView.Iter(ctx, func(ctx context.Context, vs types.ViewSpec) error {

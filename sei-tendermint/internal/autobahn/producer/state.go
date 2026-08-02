@@ -146,7 +146,7 @@ func (s *State) Run(ctx context.Context) error {
 						panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
 					}
 				}
-				if _, err := availState.ProduceLocalBlock(toProduce, payload); err != nil {
+				if _, err := availState.ProduceLocalBlock(toProduce, s.consensus.SecretKey(), payload); err != nil {
 					return fmt.Errorf("availState.ProduceLocalBlock(): %w", err)
 				}
 				lastBlockTime = time.Now()

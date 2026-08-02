@@ -237,14 +237,9 @@ func (s *State) WaitForLaneQCs(
 	panic("unreachable")
 }
 
-// ProduceLocalBlock appends a new block to the producers lane.
+// ProduceLocalBlock appends a new block to key's lane.
 // Fails in case there is not enough capacity in the lane, or it is not the next block expected.
-func (s *State) ProduceLocalBlock(n types.BlockNumber, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
-	return s.produceLocalBlock(n, s.key, payload)
-}
-
-// TODO: produceLocalBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
-func (s *State) produceLocalBlock(n types.BlockNumber, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+func (s *State) ProduceLocalBlock(n types.BlockNumber, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	lane := key.Public()
 	var result *types.Signed[*types.LaneProposal]
 	for inner, ctrl := range s.inner.Lock() {

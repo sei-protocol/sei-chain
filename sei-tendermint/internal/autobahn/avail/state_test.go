@@ -190,9 +190,9 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 				lane := key.Public()
 				p := types.GenPayload(rng)
 				want[lane] = append(want[lane], p.Hash())
-				b, err := state.produceLocalBlock(state.NextBlock(lane), key, p)
+				b, err := state.ProduceLocalBlock(state.NextBlock(lane), key, p)
 				if err != nil {
-					return fmt.Errorf("state.produceLocalBlock(): %w", err)
+					return fmt.Errorf("state.ProduceLocalBlock(): %w", err)
 				}
 				if err := utils.TestDiff(b.Msg().Block().Payload(), p); err != nil {
 					return fmt.Errorf("snapshot: %w", err)
@@ -317,8 +317,8 @@ func TestStateRestartFromPersisted(t *testing.T) {
 
 			for range 5 {
 				key := keys[rng.Intn(len(keys))]
-				if _, err := state.produceLocalBlock(state.NextBlock(key.Public()), key, types.GenPayload(rng)); err != nil {
-					return fmt.Errorf("produceLocalBlock: %w", err)
+				if _, err := state.ProduceLocalBlock(state.NextBlock(key.Public()), key, types.GenPayload(rng)); err != nil {
+					return fmt.Errorf("ProduceLocalBlock: %w", err)
 				}
 			}
 
@@ -424,7 +424,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 	// 1. Produce a block so we have a non-empty range
 	lane := keys[0].Public()
 	p := types.GenPayload(rng)
-	b, err := state.ProduceLocalBlock(state.NextBlock(lane), p)
+	b, err := state.ProduceLocalBlock(state.NextBlock(lane), keys[0], p)
 	require.NoError(t, err)
 
 	// 2. Form a LaneQC for it
@@ -466,7 +466,7 @@ func TestWaitForAppQC(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 
 	lane := keys[0].Public()
-	b, err := state.ProduceLocalBlock(state.NextBlock(lane), types.GenPayload(rng))
+	b, err := state.ProduceLocalBlock(state.NextBlock(lane), keys[0], types.GenPayload(rng))
 	require.NoError(t, err)
 	laneQC := types.NewLaneQC(makeLaneVotes(
 		types.TestKeysWithWeight(committee, keys, committee.LaneQuorum()),
@@ -683,7 +683,7 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	state := utils.OrPanic1(NewState(keys[0], ds, utils.Some(t.TempDir())))
 
 	// Produce a valid first block on our lane.
-	_, err := state.ProduceLocalBlock(state.NextBlock(keys[0].Public()), types.GenPayload(rng))
+	_, err := state.ProduceLocalBlock(state.NextBlock(keys[0].Public()), keys[0], types.GenPayload(rng))
 	require.NoError(t, err)
 
 	// Create a second block with a fake parentHash.
@@ -1079,7 +1079,7 @@ func TestWaitForLaneQCs_OnlyReturnsCommitteeLanes(t *testing.T) {
 		s.SpawnBgNamed("avail.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
 		// Produce and vote on a block for the committee lane.
-		b, err := state.produceLocalBlock(0, committeeKey, types.GenPayload(rng))
+		b, err := state.ProduceLocalBlock(0, committeeKey, types.GenPayload(rng))
 		if err != nil {
 			return err
 		}
