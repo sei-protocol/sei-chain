@@ -84,6 +84,24 @@ func (ls *laneState) pruneTo(first types.BlockNumber) {
 	ls.durable.floorNext(first)
 }
 
+// onAdvance seeds Current's lanes and reweights retained vote sets under the
+// new committee. Does not delete old lanes (TODO(lane-expiry)).
+func (c *laneCollection) onAdvance(epoch *types.Epoch) {
+	committee := epoch.Committee()
+	for lane := range committee.Lanes().All() {
+		c.getOrInsert(lane)
+	}
+	for _, ls := range c.byID {
+		ls.reweight(committee)
+	}
+}
+
+func (ls *laneState) reweight(c *types.Committee) {
+	for n := ls.votes.first; n < ls.votes.next; n++ {
+		ls.votes.q[n].reweight(c)
+	}
+}
+
 func (d *laneDurability) admitLimit() types.BlockNumber {
 	return d.persistedBlockFirst + BlocksPerLane
 }

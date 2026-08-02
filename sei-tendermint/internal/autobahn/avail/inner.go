@@ -177,20 +177,11 @@ func verifyCommitQCInDuo(duo types.EpochDuo, qc *types.CommitQC) error {
 
 // advanceEpoch installs Current. Sole post-construction writer is
 // runAdvanceEpoch (after commit tip + seal leashes).
-// Adds Current lanes; does not delete old lanes (TODO(lane-expiry)).
 func (i *inner) advanceEpoch(epoch *types.Epoch) bool {
 	if i.epoch.Load().EpochIndex() >= epoch.EpochIndex() {
 		return false
 	}
-	c := epoch.Committee()
-	for lane := range c.Lanes().All() {
-		i.lanes.getOrInsert(lane)
-	}
-	for _, ls := range i.lanes.byID {
-		for n := ls.votes.first; n < ls.votes.next; n++ {
-			ls.votes.q[n].reweight(c)
-		}
-	}
+	i.lanes.onAdvance(epoch)
 	i.epoch.Store(epoch)
 	return true
 }
