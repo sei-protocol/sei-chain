@@ -6,9 +6,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
-// Epoch waits until avail Current reaches exactly epoch i.
+// WaitForCurrentEpoch waits until avail Current reaches exactly epoch i.
 // If Current has already moved past i, returns ErrPruned.
-func (s *State) Epoch(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
+func (s *State) WaitForCurrentEpoch(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
 	epoch, err := s.epoch.Wait(ctx, func(epoch *types.Epoch) bool {
 		return i <= epoch.EpochIndex()
 	})
@@ -51,7 +51,7 @@ func (s *State) waitForAppEpoch(ctx context.Context, roadIdx types.RoadIndex) (*
 //   - prune: App tip epoch >= Current
 //   - execution: registry has Current+1
 //
-// N+1 CommitQCs park on Epoch(N+1) until this advances Current.
+// N+1 CommitQCs park on WaitForCurrentEpoch(N+1) until this advances Current.
 func (s *State) runAdvanceEpoch(ctx context.Context) error {
 	return s.epoch.Iter(ctx, func(ctx context.Context, epoch *types.Epoch) error {
 		for inner, ctrl := range s.inner.Lock() {

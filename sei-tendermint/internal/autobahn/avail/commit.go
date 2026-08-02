@@ -55,7 +55,7 @@ func (s *State) WaitForCommitQC(ctx context.Context, idx types.RoadIndex) (*type
 }
 
 // PushCommitQC admits qc for Current only (too early waits; stale drops).
-// N+1 CommitQCs park on Epoch until runAdvanceEpoch slides Current.
+// N+1 CommitQCs park on WaitForCurrentEpoch until runAdvanceEpoch slides Current.
 // Seal leashes (App anchor + registry N+1) gate that advance, not this admit.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	if i := qc.Proposal().Index(); i > 0 {
@@ -63,7 +63,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 			return err
 		}
 	}
-	epoch, err := s.Epoch(ctx, qc.Proposal().EpochIndex())
+	epoch, err := s.WaitForCurrentEpoch(ctx, qc.Proposal().EpochIndex())
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
 			return nil

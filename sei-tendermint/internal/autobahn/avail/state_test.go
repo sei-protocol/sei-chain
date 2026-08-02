@@ -1187,8 +1187,9 @@ func TestPushAppVoteFarFutureParks(t *testing.T) {
 	require.ErrorIs(t, state.PushAppVote(ctx, vote), context.Canceled)
 }
 
-// TestEpochPastCurrentIsPruned: Epoch(i) when Current has moved past i returns ErrPruned.
-func TestEpochPastCurrentIsPruned(t *testing.T) {
+// TestWaitForCurrentEpochPastIsPruned: WaitForCurrentEpoch(i) when Current has
+// moved past i returns ErrPruned.
+func TestWaitForCurrentEpochPastIsPruned(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys, m := epoch.GenRegistryTip(rng, 4)
 	ds := newTestDataState(&data.Config{Registry: registry})
@@ -1197,7 +1198,7 @@ func TestEpochPastCurrentIsPruned(t *testing.T) {
 
 	registerDuoAtEpoch(state, m) // Current=M
 
-	_, err = state.Epoch(t.Context(), m-1)
+	_, err = state.WaitForCurrentEpoch(t.Context(), m-1)
 	require.ErrorIs(t, err, types.ErrPruned, "past Current must be ErrPruned")
 }
 
@@ -1691,7 +1692,7 @@ func TestPushCommitQCFutureWaitsForCurrent(t *testing.T) {
 	registerDuoAtEpoch(state, m-1)
 
 	// Satisfy waitForCommitTip(FirstRoad(m)-1) without pushing EpochLength QCs.
-	// Current remains M-1, so FirstRoad(m) parks on Epoch(M).
+	// Current remains M-1, so FirstRoad(m) parks on WaitForCurrentEpoch(M).
 	tipQC := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
 		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(epPrev, types.View{
 			EpochIndex: m - 1,
