@@ -147,16 +147,10 @@ func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (
 }
 
 func (s *State) pushCommitQC(qc *types.CommitQC) error {
+	// Avail already verified at admit; this only installs the tip and aligns
+	// the tipcut duo (prune-tolerant jump via LastCommitQC).
 	if qc.Proposal().Index() < s.innerRecv.Load().View().Index {
 		return nil
-	}
-	// Re-verify. Epoch must be seeded; missing → hard error (no WaitForDuo).
-	ep, err := s.registry.EpochAt(qc.Proposal().Index())
-	if err != nil {
-		return fmt.Errorf("EpochAt(%d): %w", qc.Proposal().Index(), err)
-	}
-	if err := qc.Verify(ep); err != nil {
-		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for iSend := range s.inner.Lock() {
 		i := iSend.Load()
