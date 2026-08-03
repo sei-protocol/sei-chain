@@ -73,11 +73,17 @@ type StorageGarbageCollector struct {
 	wg     sync.WaitGroup
 }
 
+// NewStorageGarbageCollector starts a collector that prunes stores every config.PruneInterval
+// until Close is called or ctx is cancelled. ctx and config are both required: run dereferences
+// ctx on a background goroutine, where a nil would panic unrecoverably instead of surfacing here.
 func NewStorageGarbageCollector(
 	ctx context.Context,
 	config *StorageGarbageCollectorConfig,
 	stores []PrunableStore,
 ) (*StorageGarbageCollector, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("context is required")
+	}
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid storage garbage collector config: %w", err)
 	}
@@ -135,30 +141,31 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 		return nil
 	}
 
-	// Boundaries are positional so duplicate Name() values cannot mis-attribute an opt-out.
-	pruningBoundaries := make([]uint64, len(stores))
+	// Decisions are positional so duplicate Name() values cannot mis-attribute an opt-out.
+	decisions := make([]storeDecision, len(stores))
 	var pruneHeight uint64
 	for i, store := range stores {
 		retention := store.GetRetentionWindow()
 		cutLine := getCutLine(globalLatestBlock, config.RollbackWindow, retention)
 		if cutLine == 0 {
-			// Infinite retention, or head still inside this store's retain window.
+			// Infinite retention, or head still inside this store's retain window: never asked.
 			continue
 		}
 
-		pruningBoundaries[i] = store.GetPruningBoundary(cutLine)
-		if pruningBoundaries[i] == 0 {
-			// Opt-out (e.g. no completed snapshot yet).
+		decisions[i].cutLine = cutLine
+		decisions[i].boundary = store.GetPruningBoundary(cutLine)
+		if decisions[i].boundary == 0 {
+			// Asked, but opted out of this cycle (e.g. no completed snapshot yet).
 			continue
 		}
-		if pruneHeight == 0 || pruningBoundaries[i] < pruneHeight {
-			pruneHeight = pruningBoundaries[i]
+		if pruneHeight == 0 || decisions[i].boundary < pruneHeight {
+			pruneHeight = decisions[i].boundary
 		}
 	}
 	if pruneHeight == 0 {
 		logger.Info("skipping pruning: no store reported a pruning boundary",
 			"globalLatestBlock", globalLatestBlock,
-			"pruningBoundaryByStore", describeAnswers(stores, pruningBoundaries),
+			"decisionByStore", describeDecisions(stores, decisions),
 		)
 		return nil
 	}
@@ -166,11 +173,11 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 	logger.Info("pruning stores",
 		"globalLatestBlock", globalLatestBlock,
 		"pruneHeight", pruneHeight,
-		"pruningBoundaryByStore", describeAnswers(stores, pruningBoundaries),
+		"decisionByStore", describeDecisions(stores, decisions),
 	)
 	var pruneErrs error
 	for i, store := range stores {
-		if pruningBoundaries[i] == 0 {
+		if decisions[i].boundary == 0 {
 			continue
 		}
 		if err := store.PruneBelow(pruneHeight); err != nil {
@@ -180,13 +187,32 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 	return pruneErrs
 }
 
-func describeAnswers(stores []PrunableStore, pruningBoundaries []uint64) string {
+// storeDecision is what the collector asked one store and what it answered, kept for the prune
+// log. cutLine == 0 means the store was never asked, which is what distinguishes it from a store
+// that was asked and opted out with boundary 0.
+type storeDecision struct {
+	cutLine  uint64
+	boundary uint64
+}
+
+// describeDecisions renders one entry per store, in store order, for the prune log. The three
+// outcomes are spelled differently on purpose: a store skipped before being asked, a store that
+// was asked and opted out, and a store that reported a boundary. Each asked store also carries
+// the cut line it was given, since that is the input its answer is a function of.
+func describeDecisions(stores []PrunableStore, decisions []storeDecision) string {
 	var sb strings.Builder
 	for i, store := range stores {
 		if i > 0 {
 			sb.WriteString(" ")
 		}
-		fmt.Fprintf(&sb, "%s=%d", store.Name(), pruningBoundaries[i])
+		switch {
+		case decisions[i].cutLine == 0:
+			fmt.Fprintf(&sb, "%s=notAsked", store.Name())
+		case decisions[i].boundary == 0:
+			fmt.Fprintf(&sb, "%s=optedOut(cutLine=%d)", store.Name(), decisions[i].cutLine)
+		default:
+			fmt.Fprintf(&sb, "%s=%d(cutLine=%d)", store.Name(), decisions[i].boundary, decisions[i].cutLine)
+		}
 	}
 	return sb.String()
 }

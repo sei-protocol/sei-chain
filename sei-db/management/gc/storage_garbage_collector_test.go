@@ -495,10 +495,31 @@ func TestGetGlobalLatestBlock(t *testing.T) {
 	}
 }
 
+// The prune log is the stated mechanism for reconstructing a deletion after the fact, so the
+// three outcomes must not collapse onto the same rendering: never asked (cutLine 0), asked and
+// opted out (boundary 0), and asked with a boundary.
+func TestDescribeDecisionsDistinguishesNotAskedFromOptedOut(t *testing.T) {
+	stores := prunableStores(
+		withRetentionWindow(contiguousStore("archiveWAL", 100_000, true), InfiniteRetentionWindow),
+		snapshotStore("sc", 100_000),
+		contiguousStore("stateWAL", 100_000, true),
+	)
+	decisions := []storeDecision{
+		{cutLine: 0, boundary: 0},           // skipped before being asked
+		{cutLine: 90_000, boundary: 0},      // asked, opted out
+		{cutLine: 90_000, boundary: 90_000}, // asked, reported a boundary
+	}
+
+	require.Equal(t,
+		"archiveWAL=notAsked sc=optedOut(cutLine=90000) stateWAL=90000(cutLine=90000)",
+		describeDecisions(stores, decisions),
+	)
+}
+
 func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {
 	cfg := DefaultStorageGarbageCollectorConfig()
 	require.Equal(t, uint64(1_000), cfg.RollbackWindow)
-	require.Equal(t, 10*time.Minute, cfg.PruneInterval)
+	require.Equal(t, 5*time.Minute, cfg.PruneInterval)
 	require.NoError(t, cfg.Validate())
 }
 
@@ -538,6 +559,15 @@ func TestNewStorageGarbageCollectorInvalidConfig(t *testing.T) {
 func TestNewStorageGarbageCollectorNilConfig(t *testing.T) {
 	sm, err := NewStorageGarbageCollector(context.Background(), nil, nil)
 	require.ErrorContains(t, err, "config is required")
+	require.Nil(t, sm)
+}
+
+// A nil ctx must be rejected here rather than panicking later on run()'s goroutine, where the
+// panic is unrecoverable and takes the process down.
+func TestNewStorageGarbageCollectorNilContext(t *testing.T) {
+	//nolint:staticcheck // SA1012: passing a nil ctx is the case under test.
+	sm, err := NewStorageGarbageCollector(nil, DefaultStorageGarbageCollectorConfig(), nil)
+	require.ErrorContains(t, err, "context is required")
 	require.Nil(t, sm)
 }
 
