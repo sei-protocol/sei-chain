@@ -50,22 +50,6 @@ func TestLoadConfigFromFile_InvalidStateStoreBackend(t *testing.T) {
 	require.ErrorContains(t, err, `StateStoreConfig.Backend must be one of "pebbledb" or "rocksdb"`)
 }
 
-func TestLoadConfigFromFile_FlatKVRejectsBatchedBlocks(t *testing.T) {
-	t.Parallel()
-
-	configPath := filepath.Join(t.TempDir(), "cryptosim.json")
-	err := os.WriteFile(configPath, []byte(`{
-  "Backend": "FlatKV",
-  "BlocksPerCommit": 32,
-  "DataDir": "data",
-  "LogDir": "logs"
-}`), 0o600)
-	require.NoError(t, err)
-
-	_, err = LoadConfigFromFile(configPath)
-	require.ErrorContains(t, err, "BlocksPerCommit must be 1 for the FlatKV backend")
-}
-
 // TestShippedConfigsAreValid keeps every config file under config/ runnable: a
 // config that fails Validate is a broken benchmark nobody discovers until they run
 // it.

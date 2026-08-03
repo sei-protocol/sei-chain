@@ -83,10 +83,6 @@ type CryptoSimConfig struct {
 	// The number of transactions that will be processed in each "block".
 	TransactionsPerBlock int
 
-	// Commit is called on the database after this many blocks have been processed.
-	// Must be 1 for the FlatKV backend, which persists exactly one block per commit.
-	BlocksPerCommit int
-
 	// The directory to store the benchmark data.
 	DataDir string
 
@@ -257,7 +253,6 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		AccountBalanceSize:                32,
 		Erc20InteractionsPerAccount:       10,
 		TransactionsPerBlock:              1024,
-		BlocksPerCommit:                   1,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
@@ -350,13 +345,6 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.TransactionsPerBlock < 1 {
 		return fmt.Errorf("TransactionsPerBlock must be at least 1 (got %d)", c.TransactionsPerBlock)
-	}
-	if c.BlocksPerCommit < 1 {
-		return fmt.Errorf("BlocksPerCommit must be at least 1 (got %d)", c.BlocksPerCommit)
-	}
-	if c.Backend == wrappers.FlatKV && c.BlocksPerCommit != 1 {
-		return fmt.Errorf("BlocksPerCommit must be 1 for the %s backend (got %d): FlatKV persists exactly "+
-			"one block per commit", wrappers.FlatKV, c.BlocksPerCommit)
 	}
 	if c.CannedRandomSize < 8 {
 		return fmt.Errorf("CannedRandomSize must be at least 8 (got %d)", c.CannedRandomSize)

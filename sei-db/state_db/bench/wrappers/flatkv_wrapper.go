@@ -12,7 +12,7 @@ var _ DBWrapper = (*flatKVWrapper)(nil)
 
 // flatKVWrapper wraps a flatkv commit store to implement the DBWrapper interface.
 // FlatKV persists exactly one block per Commit, so benchmarks must commit every
-// block (BlocksPerCommit == 1, enforced by cryptosim's config validation). Several
+// block. Several
 // ApplyChangeSets calls may still precede one Commit as long as they all target the
 // same height; Commit() consults PendingVersion() to find that height.
 type flatKVWrapper struct {

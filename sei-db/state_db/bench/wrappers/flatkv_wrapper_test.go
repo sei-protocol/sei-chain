@@ -19,7 +19,7 @@ func flatKVEntry(version int64, value byte) *proto.ChangelogEntry {
 }
 
 // TestFlatKVWrapperCommitsOneBlockPerCommit drives the cryptosim
-// Database.FinalizeBlock pattern at BlocksPerCommit == 1 against a real state
+// Database.FinalizeBlock pattern against a real state
 // WAL: each block is applied at Version()+1 and committed immediately. It runs
 // several cycles because the WAL only rejects a non-contiguous block number on
 // the commit after the first one.
