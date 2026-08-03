@@ -283,6 +283,11 @@ func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueD
 
 // NewCommitStore creates a new (unopened) FlatKV commit store.
 // Call LoadVersion to open and initialize.
+//
+// A non-nil stateWAL is owned by the store: it writes to it and closes, deletes, prunes and reopens it as
+// rollback and restore require, recreating it under cfg.DataDir — so pass the instance OpenStateWAL(cfg)
+// returns for this same cfg. Pass nil to leave the WAL outside the store, which then performs no WAL
+// operations at all. There is no middle setting: the WAL is either owned here or entirely external.
 func NewCommitStore(
 	ctx context.Context,
 	cfg *config.Config,
@@ -531,8 +536,8 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 // Concurrency: export runs in a background goroutine while this (primary) store may still be committing.
 // The iterator is constructed under s.mu, serializing against a concurrent Commit's WAL-wrapper access;
 // iteration then proceeds lock-free, because a seiwal iterator reads a consistent point-in-time (hard-link)
-// snapshot that concurrent appends/prunes cannot disturb. A concurrent Commit is the only overlap this
-// tolerates: closing the primary while an export is in flight is not permitted (see Close).
+// snapshot that concurrent appends/prunes cannot disturb. Teardown is the other overlap: a Close racing an
+// in-flight export ends it with a closed-WAL error rather than being held off (see Close).
 func (s *CommitStore) replayInto(clone *CommitStore, targetVersion int64) (retErr error) {
 	if s.wal == nil {
 		// nil WAL: the outer context owns the pipeline, so no between-snapshot replay is available here. The

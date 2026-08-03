@@ -669,10 +669,11 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 
 	// Reset the WAL to targetVersion BEFORE catchup: drop every block after it so a later open-to-latest
 	// can't replay past target and the write head resumes at targetVersion+1. Rollback is a startup/offline
-	// operation (no concurrent commits), so rather than mutating a live instance we close the injected WAL,
-	// prune it offline, and reopen it with its original config. The prune only ever runs for a target
-	// rollbackBaseVersion already established is reachable, including the case where the target predates every
-	// retained block and the prune empties the WAL. Skipped when the WAL is nil — the outer context owns it.
+	// operation (no concurrent commits), so rather than mutating a live instance we close the WAL, prune it
+	// offline, and reopen it. The store owns the injected WAL and its location (see NewCommitStore), so the
+	// reopen goes through the same config. The prune only ever runs for a target rollbackBaseVersion already
+	// established is reachable, including the case where the target predates every retained block and the
+	// prune empties the WAL. Skipped when the WAL is nil — the outer context owns it.
 	if s.wal != nil {
 		cfg := stateWALConfig(&s.config)
 		if err := s.wal.Close(); err != nil {

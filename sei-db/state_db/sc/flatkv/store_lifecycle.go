@@ -65,14 +65,16 @@ func (s *CommitStore) closeDBsOnly() error {
 	return nil
 }
 
-// Close drains thread pools, closes all database instances, cancels the
-// store's context to stop background goroutines (caches, metrics), and
-// releases the file lock.
+// Close drains thread pools, closes all database instances, cancels the store's context to stop background
+// goroutines (caches, metrics), and releases the file lock.
 //
-// NOT SAFE FOR CONCURRENT USE with any other operation on this store: Close releases resources that
-// live operations still hold references to, and no lock guards them against it. The caller must
-// quiesce every operation first — including background work it does not drive itself, such as an
-// export goroutine replaying this store's WAL into a read-only clone (see replayInto).
+// Close does not coordinate with concurrent operations: it releases resources they still hold, and no lock
+// guards them against it. Callers need not quiesce first — a background export replaying this store's WAL into
+// a read-only clone (see replayInto) ends with a closed-WAL error.
+//
+// That overlap includes an unsynchronized read of the WAL's closed flag. The racing read either observes the
+// flag or falls through to the WAL's own closed check, so it changes nothing a caller can see, but a test that
+// closes the store while an export runs would trip the race detector.
 func (s *CommitStore) Close() error {
 	if s.readPool != nil {
 		s.readPool.Close()
