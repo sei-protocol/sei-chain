@@ -22,16 +22,14 @@ func (s *DBImpl) GetCode(addr common.Address) []byte {
 	if s.codeCache == nil {
 		return code
 	}
-	// Cache a copy so callers cannot mutate the keeper/store-backed slice into
-	// the tx memo, and keep empty code as nil to match Keeper.GetCode.
+	// Keep empty code as nil to match Keeper.GetCode, and store a copy so the
+	// memo is not aliased to the keeper/store-backed slice.
 	if len(code) == 0 {
 		s.codeCache[addr] = nil
 		return nil
 	}
-	cached := make([]byte, len(code))
-	copy(cached, code)
-	s.codeCache[addr] = cached
-	return cached
+	s.putCodeCache(addr, code)
+	return s.codeCache[addr]
 }
 
 func (s *DBImpl) SetCode(addr common.Address, code []byte) []byte {
@@ -46,18 +44,27 @@ func (s *DBImpl) SetCode(addr common.Address, code []byte) []byte {
 	}
 
 	s.k.SetCode(s.ctx, addr, code)
+	s.putCodeCache(addr, code)
+	return oldCode
+}
+
+// RefreshCodeCache updates the deliver-tx code memo after a keeper store write
+// that bypassed SetCode (so gas can be charged against a different ctx meter).
+func (s *DBImpl) RefreshCodeCache(addr common.Address, code []byte) {
+	s.putCodeCache(addr, code)
+}
+
+func (s *DBImpl) putCodeCache(addr common.Address, code []byte) {
 	if s.codeCache == nil {
-		return oldCode
+		return
 	}
 	if len(code) == 0 {
 		s.codeCache[addr] = nil
-	} else {
-		// Store a copy so later mutations of the caller's slice cannot corrupt the cache.
-		cached := make([]byte, len(code))
-		copy(cached, code)
-		s.codeCache[addr] = cached
+		return
 	}
-	return oldCode
+	cached := make([]byte, len(code))
+	copy(cached, code)
+	s.codeCache[addr] = cached
 }
 
 func (s *DBImpl) GetCodeSize(addr common.Address) int {

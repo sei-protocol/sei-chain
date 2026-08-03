@@ -152,6 +152,15 @@ func TestCodeCacheDisabledForSimulation(t *testing.T) {
 	require.Equal(t, updated, deliver.GetCode(addr))
 	require.Equal(t, len(updated), deliver.GetCodeSize(addr))
 
+	// Keeper write billed on a separate meter: refresh memo without SetCode.
+	_, addr2 := testkeeper.MockAddressPair()
+	deliver.SetCode(addr2, initial)
+	require.Equal(t, initial, deliver.GetCode(addr2))
+	k.SetCode(deliver.Ctx(), addr2, updated)
+	deliver.RefreshCodeCache(addr2, updated)
+	require.Equal(t, updated, deliver.GetCode(addr2))
+	require.Equal(t, len(updated), deliver.GetCodeSize(addr2))
+
 	// Simulation/RPC DB always reads the store (caching disabled).
 	sim := state.NewDBImpl(ctx, k, true)
 	sim.SetCode(addr, initial)

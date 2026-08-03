@@ -70,8 +70,8 @@ func TestUpsertERCNativePointer(t *testing.T) {
 }
 
 // TestUpsertERCNativePointerKeepsCodeCacheCoherent covers the mid-tx redeploy
-// path: plant a warm memo, re-upsert (exists → StateDB.SetCode with real
-// deployment bytecode), and assert GetCode follows the store.
+// path: plant a warm memo, re-upsert (exists → keeper SetCode + RefreshCodeCache),
+// and assert GetCode follows the store.
 func TestUpsertERCNativePointerKeepsCodeCacheCoherent(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())

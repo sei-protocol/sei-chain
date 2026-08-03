@@ -105,12 +105,11 @@ func (k *Keeper) UpsertERCPointer(
 		var ret []byte
 		contractAddr = existingAddr
 		ret, remainingGas, err = evm.GetDeploymentCode(evmModuleAddress, bin, suppliedGas, utils.Big0, existingAddr)
-		// Prefer StateDB.SetCode so a live deliver codeCache stays coherent with
-		// the store (keeper SetCode alone would leave a warm memo stale).
-		// Called even when GetDeploymentCode returned an error to preserve prior
-		// write-before-check ordering (callers typically revert the snapshot).
+		// Prefer the StateDB Multistore (correct for RunWithOneOff nested CMS) while
+		// billing KV gas to the caller's meter (finite precompile meter in deliver).
 		if sdb := state.GetDBImpl(evm.StateDB); sdb != nil {
-			sdb.SetCode(contractAddr, ret)
+			k.SetCode(sdb.Ctx().WithGasMeter(ctx.GasMeter()), contractAddr, ret)
+			sdb.RefreshCodeCache(contractAddr, ret)
 		} else {
 			k.SetCode(ctx, contractAddr, ret)
 		}
