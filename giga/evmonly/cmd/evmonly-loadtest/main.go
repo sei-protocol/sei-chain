@@ -1205,10 +1205,14 @@ func recipientConflictParticipants(txsPerBlock int, rate float64) int {
 }
 
 func blockContext(cfg config, number uint64) evmonly.BlockContext {
+	gasLimit := cfg.blockGasLimit
+	if gasLimit == 0 {
+		gasLimit = math.MaxUint64
+	}
 	return evmonly.BlockContext{
 		Number:      number,
 		Time:        uint64(time.Now().Unix()),
-		GasLimit:    cfg.blockGasLimit,
+		GasLimit:    gasLimit,
 		ChainID:     new(big.Int).Set(cfg.chainID),
 		BaseFee:     big.NewInt(0),
 		BlobBaseFee: big.NewInt(0),
