@@ -503,22 +503,26 @@ func TestDescribeDecisionsRendersEachOutcomeDistinctly(t *testing.T) {
 	)
 }
 
-// A cycle stopped by CannotServeRollback must still ask every store. The prune log is the stated
-// mechanism for reconstructing a decision after the fact, and a store left unasked renders as
-// "notAsked" — indistinguishable from one skipped at the cutLine == 0 branch. Asking everyone
-// keeps that rendering honest, so the blocking store must not short-circuit the loop.
-func TestPruneAsksEveryStoreEvenWhenBlocked(t *testing.T) {
+// One blocker abandons the cycle, so the loop stops asking — but only when a rollback window is
+// actually in force. Under RollbackWindow 0 the guarantee is waived and the blocker is ignored,
+// which means the later stores must still be asked or the waiver has nothing left to prune.
+func TestPruneStopsAtFirstBlockerUnlessWaived(t *testing.T) {
 	blocker := snapshotStore("sc", 100_000) // no snapshot -> CannotServeRollback
 	afterBlocker := contiguousStore("stateWAL", 100_000)
-	stores := prunableStores(blocker, afterBlocker)
+	require.NoError(t, prune(testConfig(t, 1_000), prunableStores(blocker, afterBlocker)))
 
-	cfg := &StorageGarbageCollectorConfig{RollbackWindow: 1_000, PruneInterval: time.Minute}
-	require.NoError(t, prune(cfg, stores))
-
-	require.False(t, afterBlocker.pruneBelowCalled.Load(), "the cycle must be abandoned")
 	require.Equal(t, uint64(1), blocker.boundaryCalls.Load())
-	require.Equal(t, uint64(1), afterBlocker.boundaryCalls.Load(),
-		"a store after the blocking one must still be asked, or the prune log misreports it")
+	require.False(t, afterBlocker.pruneBelowCalled.Load(), "the cycle must be abandoned")
+	require.Zero(t, afterBlocker.boundaryCalls.Load(), "one blocker is enough; stop asking")
+
+	waived := snapshotStore("sc", 100_000)
+	afterWaived := contiguousStore("stateWAL", 100_000)
+	require.NoError(t, prune(testConfig(t, 0), prunableStores(waived, afterWaived)))
+
+	require.Equal(t, uint64(1), afterWaived.boundaryCalls.Load(),
+		"RollbackWindow 0 ignores the blocker, so later stores must still be asked")
+	require.True(t, afterWaived.pruneBelowCalled.Load())
+	require.Equal(t, uint64(100_000), afterWaived.prunedBelow.Load())
 }
 
 func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {

@@ -128,9 +128,7 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 		return nil
 	}
 
-	// Answers are positional so duplicate Name() values cannot mis-attribute one. Every store is
-	// asked before anything is decided: an unasked store renders as "notAsked" in the log, which
-	// would be indistinguishable from one skipped at the cutLine == 0 branch.
+	// Answers are positional so duplicate Name() values cannot mis-attribute one.
 	decisions := make([]storeDecision, len(stores))
 	var pruneHeight uint64
 	blockedBy := -1
@@ -145,16 +143,23 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 		decisions[i].cutLine = cutLine
 		decisions[i].boundary = store.GetPruningBoundary(cutLine)
 		if decisions[i].boundary == CannotServeRollback {
-			blockedBy = i
-			break
+			if config.RollbackWindow > 0 {
+				// One blocker is enough to abandon the cycle, so stop asking.
+				blockedBy = i
+				break
+			}
+			// RollbackWindow 0 waives the guarantee, leaving this store nothing to protect.
+			// The others must still be asked, or the waiver would have nothing to prune.
+			continue
 		}
 		if pruneHeight == 0 || decisions[i].boundary < pruneHeight {
 			pruneHeight = decisions[i].boundary
 		}
 	}
 
-	// RollbackWindow 0 waives the guarantee, leaving such a store nothing to protect.
-	if blockedBy >= 0 && config.RollbackWindow > 0 {
+	if blockedBy >= 0 {
+		// No decisionByStore here: the break leaves later stores unasked, and they would render
+		// as "notAsked" — indistinguishable from a store skipped at the cutLine == 0 branch.
 		logger.Info("pruning blocked: store cannot serve the rollback window yet",
 			"store", stores[blockedBy].Name(),
 			"globalLatestBlock", globalLatestBlock,
