@@ -4,13 +4,14 @@ package config
 type DBBackend string
 
 const (
-	DefaultSSKeepRecent    = 100000
-	DefaultSSPruneInterval = 600
-	DefaultSSImportWorkers = 1
-	DefaultSSAsyncBuffer   = 100
-	PebbleDBBackend        = "pebbledb"
-	RocksDBBackend         = "rocksdb"
-	DefaultSSBackend       = PebbleDBBackend
+	DefaultSSKeepRecent     = 100000
+	DefaultSSPruneInterval  = 600
+	DefaultSSImportWorkers  = 1
+	DefaultSSAsyncBuffer    = 100
+	PebbleDBBackend         = "pebbledb"
+	RocksDBBackend          = "rocksdb"
+	DefaultSSBackend        = PebbleDBBackend
+	DefaultSSCacheSizeBytes = 32 * 1024 * 1024
 )
 
 // StateStoreConfig defines configuration for the state store (SS) layer.
@@ -80,6 +81,13 @@ type StateStoreConfig struct {
 	// When true, data is routed to separate DBs by EVM key family while
 	// preserving the same logical store key and full key encoding inside each DB.
 	SeparateEVMSubDBs bool `mapstructure:"evm-separate-dbs"`
+
+	// CacheSizeBytes defines the pebbledb block cache size (in bytes) for the
+	// state store backend. Historical reads (e.g. eth debug_trace*, archival
+	// queries) are served from the SS backend rather than memIAVL, so a larger
+	// cache reduces disk-bound random reads. Set <= 0 to use the default.
+	// defaults to 32 MiB
+	CacheSizeBytes int64 `mapstructure:"ss-cache-size-bytes"`
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig
@@ -95,5 +103,6 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		UseDefaultComparer:   false,
 		EVMSplit:             false,
 		SeparateEVMSubDBs:    false,
+		CacheSizeBytes:       DefaultSSCacheSizeBytes,
 	}
 }
