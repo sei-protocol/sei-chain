@@ -11,7 +11,7 @@ import (
 // write persistedCommitQC.
 type commitProgress struct {
 	qcs               *queue[types.RoadIndex, *types.CommitQC]
-	consensusSpec utils.AtomicSend[types.ConsensusSpec]
+	consensusSpec utils.AtomicSend[*types.ConsensusSpec]
 }
 
 // push inserts qc at qcs.next. Returns false if idx is not the tip
@@ -24,9 +24,4 @@ func (c *commitProgress) push(qc *types.CommitQC) bool {
 	c.qcs.pushBack(qc)
 	metrics.ObserveCommitQC(qc)
 	return true
-}
-
-// markPersisted publishes the latest durably persisted CommitQC.
-func (c *commitProgress) markPersisted(qc *types.CommitQC) {
-	c.persistedCommitQC.Store(utils.Some(qc))
 }

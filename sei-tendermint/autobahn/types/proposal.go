@@ -133,6 +133,11 @@ type ConsensusSpec struct {
 	GenesisTimestamp  time.Time
 }
 
+// Epoch is the proposing/voting epoch (Epochs.Current).
+func (cs *ConsensusSpec) Epoch() *Epoch { return cs.Epochs.Current }
+
+func (cs *ConsensusSpec) Index() RoadIndex { return NextIndexOpt(cs.CommitQC) }
+
 // ViewSpec is the local context for starting a view: justification QCs plus a
 // Prev|Current EpochDuo. Attached AppQC may be Current or Current-1 (Prev lag).
 type ViewSpec struct {
@@ -142,9 +147,6 @@ type ViewSpec struct {
 	*ConsensusSpec
 	TimeoutQC utils.Option[*TimeoutQC]
 }
-
-// Epoch is the proposing/voting epoch (Epochs.Current).
-func (vs ViewSpec) Epoch() *Epoch { return vs.Epochs.Current }
 
 // NextGlobalBlock returns the first global block number expected in the next proposal.
 // CommitQC is None only at chain start, in which case it returns GenesisFirstBlock.
@@ -163,7 +165,7 @@ func (vs ViewSpec) View() View {
 	}
 	return View{
 		EpochIndex: vs.Epoch().EpochIndex(),
-		Index: NextIndexOpt(vs.CommitQC),
+		Index: vs.Index(), 
 		Number: 0,
 	}
 }

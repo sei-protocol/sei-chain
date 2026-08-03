@@ -63,6 +63,11 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 		lanes[lane] = newLaneState()
 	}
 
+	genesisSpec,ok := registry.ConsensusSpec(utils.None[*types.CommitQC]())
+	if !ok {
+		return nil, fmt.Errorf("registry.ConsensusSpec(): not found")
+	}
+
 	i := &inner{
 		epoch: utils.NewAtomicSend(startEpochDuo.Current),
 		app: appProgress{
@@ -71,7 +76,7 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 		},
 		commits: commitProgress{
 			qcs:               newQueue[types.RoadIndex, *types.CommitQC](),
-			persistedCommitQC: utils.NewAtomicSend(utils.None[*types.CommitQC]()),
+			consensusSpec: utils.NewAtomicSend(genesisSpec),
 		},
 		lanes: laneCollection{byID: lanes},
 	}
@@ -124,7 +129,9 @@ func newInner(registry *epoch.Registry, commitTip types.RoadIndex, loaded utils.
 		i.commits.qcs.pushBack(lqc.QC)
 	}
 	if i.commits.qcs.next > i.commits.qcs.first {
-		i.commits.markPersisted(i.commits.qcs.q[i.commits.qcs.next-1])
+		spec,ok := registry.ConsensusSpec(utils.Some(i.commits.qcs.q[i.commits.qcs.next-1]))
+		if !ok { return nil, fmt.Errorf("registry.ConsensusSpec(): not found") }
+		i.commits.consensusSpec.Store(spec)
 	}
 
 	// Restore blocks; create queues for any WAL lane (including outside Current).

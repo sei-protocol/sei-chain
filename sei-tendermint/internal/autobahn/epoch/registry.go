@@ -220,6 +220,28 @@ func (r *Registry) WaitForDuo(ctx context.Context, i types.EpochIndex) (types.Ep
 	return types.NewEpochDuo(current,prev)
 }
 
+func (r *Registry) ConsensusSpec(prev utils.Option[*types.CommitQC]) (*types.ConsensusSpec, bool) {
+	duo,ok := r.DuoAt(types.NextIndexOpt(prev))
+	if !ok { return nil,false }
+	return &types.ConsensusSpec {
+		Epochs: duo,
+		CommitQC: prev,
+		GenesisFirstBlock: r.genesisFirstBlock,
+		GenesisTimestamp: r.genesisTimestamp,
+	},true
+}
+
+func (r *Registry) WaitForConsensusSpec(ctx context.Context, prev utils.Option[*types.CommitQC]) (*types.ConsensusSpec, error) {
+	duo,err := r.WaitForDuo(ctx,IndexForRoad(types.NextIndexOpt(prev)))
+	if err!=nil { return nil,err }
+	return &types.ConsensusSpec {
+		Epochs: duo,
+		CommitQC: prev,
+		GenesisFirstBlock: r.genesisFirstBlock,
+		GenesisTimestamp: r.genesisTimestamp,
+	},nil
+}
+
 func (r *Registry) WaitForEpoch(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
 	for inner,ctrl := range r.state.Lock() {
 		for {

@@ -25,6 +25,25 @@ func (s *State) LastAppQC() utils.Option[*types.AppQC] {
 	return utils.None[*types.AppQC]()
 }
 
+// WaitForAppQC waits until there is an AppQC for the given index or higher.
+// Returns this AppQC and the corresponding CommitQC.
+// Together they provide enough information to prune the availability state.
+func (s *State) waitForAnchor(ctx context.Context, idx types.RoadIndex) (*PruneAnchor, error) {
+	for inner, ctrl := range s.inner.Lock() {
+		for {
+			if anchor, ok := inner.app.anchor.Get(); ok {
+				if x := anchor.AppQC.Proposal().RoadIndex(); x >= idx {
+					return anchor, nil
+				}
+			}
+			if err := ctrl.Wait(ctx); err != nil {
+				return nil, err
+			}
+		}
+	}
+	panic("unreachable")
+}
+
 // PushAppVote pushes an AppVote to the state.
 // Same admit-then-verify as PushAppQC: far-future roads park until the duo
 // and CommitQC tip catch up (one stream goroutine; does not block others).

@@ -132,9 +132,10 @@ func loadPersistedState(dir utils.Option[string]) (utils.Option[*loadedAvailStat
 // TODO: use a single WAL for anchor and CommitQCs to make
 // this atomic rather than relying on write order.
 func (s *State) runPersist(ctx context.Context, pers persisters) error {
-	var persistedAnchorNext types.RoadIndex
+	// TODO(gprusak): persistedRange should be initialized from the persister itself.
+	var persistedRange types.RoadRange
 	for {
-		batch, err := s.collectPersistBatch(ctx, persistedAnchorNext)
+		batch, err := s.collectPersistBatch(ctx, persistedRange)
 		if err != nil {
 			return err
 		}
@@ -148,7 +149,7 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 				return fmt.Errorf("persist prune anchor: %w", err)
 			}
 			s.advancePersistedBlockStart(anchor.CommitQC)
-			persistedAnchorNext = anchor.CommitQC.Proposal().Index() + 1
+			persistedRange.First = anchor.CommitQC.Proposal().Index() + 1
 			anchorQC = utils.Some(anchor.CommitQC)
 		}
 
@@ -165,11 +166,22 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 
 		// 2. Persist commit-QCs and per-lane blocks in parallel.
 		// Callees handle empty inputs gracefully (no-op when nothing to write/truncate).
-		if err := scope.Parallel(func(ps scope.ParallelScope) error {
-			ps.Spawn(func() error {
-				return pers.commitQCs.MaybePruneAndPersist(anchorQC, batch.commitQCs, utils.Some(func(qc *types.CommitQC) {
-					s.markCommitQCsPersisted(qc)
-				}))
+		if err := scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+			scope.Spawn(func() error {
+				if err:=pers.commitQCs.PruneAndPersist(anchorQC, batch.commitQCs); err!=nil { return err }
+				if n := len(batch.commitQCs); n>0 {
+					qc := batch.commitQCs[n-1]
+					persistedRange.Next = qc.Index()+1
+				  // Bump the consensus spec so that validator can start participating in
+					// the next consensus instance.
+					// We bump it once per batch, since all previous instances have already finished.
+					spec,err:=s.data.Registry().WaitForConsensusSpec(ctx, utils.Some(qc))
+					if err!=nil { return fmt.Errorf("WaitForConsensusSpec(): %w",err) }
+					for inner := range s.inner.Lock() {
+						inner.commits.consensusSpec.Store(spec)
+					}
+				}
+				return nil
 			})
 			// Collect lanes: any lane with blocks in this batch, plus all lanes
 			// in the anchor epoch (for WAL pruning).
@@ -185,8 +197,8 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			}
 			for lane := range batchLanes {
 				proposals := blocksByLane[lane]
-				ps.Spawn(func() error {
-					return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))
+				scope.Spawn(func() error {
+					return pers.blocks.PruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))
 				})
 			}
 			return nil
@@ -233,26 +245,28 @@ func (s *State) markBlockPersisted(lane types.LaneID, next types.BlockNumber) {
 
 // markCommitQCsPersisted publishes the latest persisted CommitQC,
 // gating consensus from advancing until the QC is durable.
-func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
-	for inner, ctrl := range s.inner.Lock() {
-		inner.commits.markPersisted(qc)
-		ctrl.Updated()
+func (s *State) setConsensusSpec(ctx context.Context, qc *types.CommitQC) error {
+	spec,err := s.data.Registry().WaitForConsensusSpec(ctx,utils.Some(qc))
+	if err!=nil {
+		if err==types.ErrPruned { return nil }
 	}
+	for inner := range s.inner.Lock() {
+		if inner.commits.consensusSpec.Load().Index() <= spec.Index() {
+			inner.commits.consensusSpec.Store(spec)
+		}
+	}
+	return nil
 }
 
 // collectPersistBatch waits for new blocks or commitQCs and collects them under lock.
-func (s *State) collectPersistBatch(ctx context.Context, persistedAnchorNext types.RoadIndex) (persistBatch, error) {
+// persistedRange represents (anchor,commits.next) range.
+// TODO(gprusak): this is inconsistent that SoT for persisted commit range is an input arg,
+// while lane persistence status is internal to State.
+func (s *State) collectPersistBatch(ctx context.Context, persistedRange types.RoadRange) (persistBatch, error) {
 	var b persistBatch
 	for inner, ctrl := range s.inner.Lock() {
-		// Derive the CommitQC persist cursor from persistedCommitQC. This is
-		// safe because persistedCommitQC is only advanced by markCommitQCsPersisted
-		// (after disk write) and on startup (from disk). Applying a prune anchor
-		// does not update persistedCommitQC, so this always reflects persistence
-		// state. The max clamp with commits.qcs.first handles an anchor
-		// fast-forwarding the queue past the cursor.
-		commitQCNext := types.NextIndexOpt(inner.commits.persistedCommitQC.Load())
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			if types.NextOpt(inner.app.anchor) != persistedAnchorNext {
+			if persistedRange.First < types.NextOpt(inner.app.anchor) || persistedRange.Next < inner.commits.qcs.next {
 				return true
 			}
 			for _, ls := range inner.lanes.byID {
@@ -260,7 +274,7 @@ func (s *State) collectPersistBatch(ctx context.Context, persistedAnchorNext typ
 					return true
 				}
 			}
-			return commitQCNext < inner.commits.qcs.next
+			return false
 		}); err != nil {
 			return b, err
 		}
@@ -270,11 +284,10 @@ func (s *State) collectPersistBatch(ctx context.Context, persistedAnchorNext typ
 				b.blocks = append(b.blocks, ls.blocks.q[n])
 			}
 		}
-		commitQCNext = max(commitQCNext, inner.commits.qcs.first)
-		for n := commitQCNext; n < inner.commits.qcs.next; n++ {
+		for n := max(persistedRange.Next, inner.commits.qcs.first); n < inner.commits.qcs.next; n++ {
 			b.commitQCs = append(b.commitQCs, inner.commits.qcs.q[n])
 		}
-		if types.NextOpt(inner.app.anchor) != persistedAnchorNext {
+		if persistedRange.First < types.NextOpt(inner.app.anchor) {
 			if anchor, ok := inner.app.anchor.Get(); ok {
 				b.pruneAnchor = utils.Some(anchor)
 				// Capture under the same lock as the anchor so an epoch slide

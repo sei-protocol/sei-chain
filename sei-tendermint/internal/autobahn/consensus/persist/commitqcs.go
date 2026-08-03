@@ -136,10 +136,9 @@ func (cp *CommitQCPersister) LoadNext() types.RoadIndex {
 // need not coordinate ordering.
 // afterEach, when present, is called after each successful append. It is
 // invoked while the lock is held, so it must not re-enter the persister.
-func (cp *CommitQCPersister) MaybePruneAndPersist(
+func (cp *CommitQCPersister) PruneAndPersist(
 	anchor utils.Option[*types.CommitQC],
 	commitQCs []*types.CommitQC,
-	afterEach utils.Option[func(*types.CommitQC)],
 ) error {
 	for s := range cp.state.Lock() {
 		if qc, ok := anchor.Get(); ok {
@@ -147,13 +146,9 @@ func (cp *CommitQCPersister) MaybePruneAndPersist(
 				return err
 			}
 		}
-		fn, hasFn := afterEach.Get()
 		for _, c := range commitQCs {
 			if err := s.persistCommitQC(c); err != nil {
 				return err
-			}
-			if hasFn {
-				fn(c)
 			}
 		}
 		return nil

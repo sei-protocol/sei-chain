@@ -294,7 +294,7 @@ func (bp *BlockPersister) getOrCreateLane(lane types.LaneID) (*laneWAL, error) {
 //
 // The per-lane lock is held for the entire truncate-then-append sequence,
 // so concurrent calls on the same lane serialize correctly.
-func (bp *BlockPersister) MaybePruneAndPersistLane(
+func (bp *BlockPersister) PruneAndPersistLane(
 	lane types.LaneID,
 	anchor utils.Option[*types.CommitQC],
 	proposals []*types.Signed[*types.LaneProposal],

@@ -86,13 +86,11 @@ func (s *State) NextCommitQC() types.RoadIndex {
 }
 
 // Data returns the data state.
-func (s *State) Data() *data.State {
-	return s.data
-}
+func (s *State) Data() *data.State { return s.data }
 
 // LastCommitQC returns receiver of the LastCommitQC.
 // The tip is the latest durably persisted CommitQC, not merely the admitted tip.
-func (s *State) ConsensusSpec() utils.AtomicRecv[types.ConsensusSpec] {
+func (s *State) ConsensusSpec() utils.AtomicRecv[*types.ConsensusSpec] {
 	for inner := range s.inner.Lock() {
 		return inner.commits.consensusSpec.Subscribe()
 	}
@@ -108,12 +106,8 @@ func (s *State) ConsensusSpec() utils.AtomicRecv[types.ConsensusSpec] {
 // not spawn goroutines.
 func (s *State) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		scope.SpawnNamed("persist", func() error {
-			return s.runPersist(ctx, s.persisters)
-		})
-		scope.SpawnNamed("advanceEpoch", func() error {
-			return s.runAdvanceEpoch(ctx)
-		})
+		scope.SpawnNamed("persist", func() error { return s.runPersist(ctx, s.persisters) })
+		scope.SpawnNamed("advanceEpoch", func() error { return s.runAdvanceEpoch(ctx) })
 		// Task inserting FullCommitQCs and local blocks to data state.
 		// ErrPruned jumps n forward (AppQC/window prune during catch-up): skipped
 		// roads need not be exported locally — peers can PushQC into data.
