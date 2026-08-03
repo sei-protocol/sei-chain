@@ -58,13 +58,13 @@ ExecutePreparedBlock(context.Context, PreparedBlock) (*BlockResult, error)
 ```
 
 `PrepareBlock` decodes transaction RLP and recovers senders using
-`ParseWorkers` goroutines while preserving transaction order and deterministic
-first-error reporting. This work does not touch state, so block N+1 can be
-prepared while block N is still executing. `ExecuteBlock` remains the
-convenience path and performs prepare then execute in one call. `PreparedBlock`
-is trusted executor-produced data: callers should pass the result of
-`PrepareBlock` unchanged, because `ExecutePreparedBlock` does not recover
-senders again.
+`ParseWorkers` goroutines while preserving transaction order. A parse failure
+cancels dispatch of remaining work and reports the failing transaction index.
+This work does not touch state, so block N+1 can be prepared while block N is
+still executing. `ExecuteBlock` remains the convenience path and performs
+prepare then execute in one call. `PreparedBlock` is trusted executor-produced
+data: callers should pass the result of `PrepareBlock` unchanged, because
+`ExecutePreparedBlock` does not recover senders again.
 
 The executor should be commit-neutral. It executes an ordered EVM block and
 returns the state writes and receipts produced by that block. The caller owns
@@ -90,7 +90,7 @@ represented in `Receipts` and `Txs` with failed status.
 - `Context` contains block-constant EVM fields:
   - block number
   - timestamp
-  - block gas limit
+  - non-zero block gas limit
   - chain ID
   - base fee
   - blob base fee, when enabled

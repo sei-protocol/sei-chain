@@ -1,7 +1,6 @@
 package evmonly
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
@@ -31,7 +30,7 @@ type gethReferenceResult struct {
 }
 
 func TestExecutorNativeTransferFeeAccountingMatchesGeth(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -53,7 +52,7 @@ func TestExecutorNativeTransferFeeAccountingMatchesGeth(t *testing.T) {
 
 	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 	require.NoError(t, err)
-	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -76,7 +75,7 @@ func TestExecutorNativeTransferFeeAccountingMatchesGeth(t *testing.T) {
 }
 
 func TestExecutorNativeTransferEdgeCasesMatchGeth(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	initialBalance := big.NewInt(1_000_000_000_000)
 
 	tests := []struct {
@@ -158,7 +157,7 @@ func TestExecutorNativeTransferEdgeCasesMatchGeth(t *testing.T) {
 
 			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 			require.NoError(t, err)
-			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: ctx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -177,7 +176,7 @@ func TestExecutorNativeTransferEdgeCasesMatchGeth(t *testing.T) {
 }
 
 func TestExecutorERC20StyleTransferMatchesGeth(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -199,7 +198,7 @@ func TestExecutorERC20StyleTransferMatchesGeth(t *testing.T) {
 
 	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 	require.NoError(t, err)
-	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -224,7 +223,7 @@ func TestExecutorERC20StyleTransferMatchesGeth(t *testing.T) {
 }
 
 func TestExecutorSelfDestructCreatedInSameTxMatchesGeth(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -243,7 +242,7 @@ func TestExecutorSelfDestructCreatedInSameTxMatchesGeth(t *testing.T) {
 
 	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 	require.NoError(t, err)
-	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -261,7 +260,7 @@ func TestExecutorSelfDestructCreatedInSameTxMatchesGeth(t *testing.T) {
 }
 
 func TestExecutorPragueSelfDestructEdgeCasesMatchGeth(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	slot := testHash(0x47)
 	value := testHash(0x48)
 	contractBalance := big.NewInt(99)
@@ -312,7 +311,7 @@ func TestExecutorPragueSelfDestructEdgeCasesMatchGeth(t *testing.T) {
 
 			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 			require.NoError(t, err)
-			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: ctx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -335,7 +334,7 @@ func TestExecutorPragueSelfDestructEdgeCasesMatchGeth(t *testing.T) {
 }
 
 func TestExecutorAccessListGasAccountingMatchesGeth(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -354,7 +353,7 @@ func TestExecutorAccessListGasAccountingMatchesGeth(t *testing.T) {
 
 		gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 		require.NoError(t, err)
-		execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+		execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 			Context: ctx,
 			Txs:     [][]byte{rawTx},
 		})
@@ -417,7 +416,7 @@ func TestExecutorAccessListGasAccountingMatchesGeth(t *testing.T) {
 }
 
 func TestExecutorLogOpcodeCorpusMatchesGeth(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	data := testHash(0x60)
 	cfg := Config{MinGasPrice: big.NewInt(0)}
 	ctx := blockContext(chainID)
@@ -439,7 +438,7 @@ func TestExecutorLogOpcodeCorpusMatchesGeth(t *testing.T) {
 
 			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 			require.NoError(t, err)
-			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: ctx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -460,7 +459,7 @@ func TestExecutorLogOpcodeCorpusMatchesGeth(t *testing.T) {
 }
 
 func TestExecutorCallOpcodeCorpusMatchesGeth(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	targetSlot := testHash(0x61)
 	successSlot := testHash(0x62)
 	targetValue := testHash(0x63)
@@ -516,7 +515,7 @@ func TestExecutorCallOpcodeCorpusMatchesGeth(t *testing.T) {
 
 			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 			require.NoError(t, err)
-			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: ctx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -538,7 +537,7 @@ func TestExecutorCallOpcodeCorpusMatchesGeth(t *testing.T) {
 }
 
 func TestExecutorEnvironmentOpcodeCorpusMatchesGeth(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -564,7 +563,7 @@ func TestExecutorEnvironmentOpcodeCorpusMatchesGeth(t *testing.T) {
 
 	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 	require.NoError(t, err)
-	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -587,7 +586,7 @@ func TestExecutorEnvironmentOpcodeCorpusMatchesGeth(t *testing.T) {
 }
 
 func TestExecutorVMFailureReceiptsAndFeesMatchGeth(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	contract := testAddress(0xdd)
 	coinbase := testAddress(0xde)
 	storageSlot := testHash(0x50)
@@ -642,7 +641,7 @@ func TestExecutorVMFailureReceiptsAndFeesMatchGeth(t *testing.T) {
 
 			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 			require.NoError(t, err)
-			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: ctx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -673,7 +672,7 @@ func TestExecutorVMFailureReceiptsAndFeesMatchGeth(t *testing.T) {
 }
 
 func TestExecutorPreVMFailuresMatchGeth(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	recipient := testAddress(0xd9)
 	ctx := blockContext(chainID)
 
@@ -807,7 +806,7 @@ func TestExecutorPreVMFailuresMatchGeth(t *testing.T) {
 			}
 
 			gethResult, gethErr := executeGethReferenceBlock(t, state, cfg, testCtx, [][]byte{rawTx})
-			execResult, execErr := NewExecutor(cfg, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+			execResult, execErr := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: testCtx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -822,7 +821,7 @@ func TestExecutorPreVMFailuresMatchGeth(t *testing.T) {
 }
 
 func TestExecutorPrepareBlockRejectsBlobTransactions(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	recipient := testAddress(0xda)
@@ -843,7 +842,7 @@ func TestExecutorPrepareBlockRejectsBlobTransactions(t *testing.T) {
 	ctx := blockContext(chainID)
 	ctx.BlobBaseFee = big.NewInt(1)
 
-	prepared, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}).PrepareBlock(context.Background(), BlockRequest{
+	prepared, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}).PrepareBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -853,7 +852,7 @@ func TestExecutorPrepareBlockRejectsBlobTransactions(t *testing.T) {
 }
 
 func TestExecutorOCCDeterministicAcrossRuns(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	txCount := 24
 	rawTxs := make([][]byte, 0, txCount)
 	senders := make([]common.Address, 0, txCount)
@@ -884,7 +883,7 @@ func TestExecutorOCCDeterministicAcrossRuns(t *testing.T) {
 	for iteration := 0; iteration < 8; iteration++ {
 		state := newState()
 		executor := NewExecutor(cfg, WithState(state))
-		result, err := executor.ExecuteBlock(context.Background(), req)
+		result, err := executor.ExecuteBlock(t.Context(), req)
 		executor.Close()
 		require.NoError(t, err)
 		require.True(t, result.OCCStats.Attempted)
@@ -918,11 +917,7 @@ func executeGethReferenceBlock(t *testing.T, initial *MemoryState, cfg Config, c
 	}
 	stateDB := newGethStateFromMemory(t, initial)
 	evm := vm.NewEVM(buildBlockContext(ctx), stateDB, chainConfig, vm.Config{}, nil)
-	gasLimit := ctx.GasLimit
-	if gasLimit == 0 {
-		gasLimit = math.MaxUint64
-	}
-	gasPool := new(core.GasPool).AddGas(gasLimit)
+	gasPool := new(core.GasPool).AddGas(ctx.GasLimit)
 	baseFee := cloneOptionalBig(ctx.BaseFee)
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(ctx.Number), ctx.Time)
 	result := &gethReferenceResult{}

@@ -18,21 +18,14 @@ type occWorkerPool struct {
 var errOCCWorkerPoolClosed = errors.New("OCC worker pool is closed")
 
 func newOCCWorkerPool(workers int) *occWorkerPool {
-	if workers <= 0 {
-		workers = 1
-	}
-	return &occWorkerPool{workers: workers}
+	return &occWorkerPool{workers: max(workers, 1)}
 }
 
 func (p *occWorkerPool) Run(ctx context.Context, workItems int, run func(context.Context, int, int) error) error {
 	workers := p.workers
-	if workItems > 0 && workers > workItems {
-		workers = workItems
+	if workItems > 0 {
+		workers = min(workers, workItems)
 	}
-	if workers <= 0 {
-		workers = 1
-	}
-
 	p.mu.RLock()
 	if p.closed {
 		p.mu.RUnlock()

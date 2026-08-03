@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"math/big"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,7 +22,11 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
-const testGasPriceWei = 1_000_000_000
+const (
+	testChainID          = 713715
+	testFundedBalanceWei = 200_000_000_000_000
+	testGasPriceWei      = 1_000_000_000
+)
 
 type recordingResultSink struct {
 	heights  []uint64
@@ -41,8 +44,8 @@ func (s *recordingResultSink) StoreBlockResult(_ context.Context, height uint64,
 func TestExecutorEmptyBlock(t *testing.T) {
 	executor := NewExecutor(Config{})
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
-		Context: blockContext(big.NewInt(713715)),
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
+		Context: blockContext(big.NewInt(testChainID)),
 	})
 
 	require.NoError(t, err)
@@ -50,19 +53,19 @@ func TestExecutorEmptyBlock(t *testing.T) {
 }
 
 func TestExecutorTransferTx(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := common.HexToAddress("0x00000000000000000000000000000000000000a1")
 
 	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	executor := NewExecutor(Config{}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{rawTx},
 	})
@@ -80,14 +83,14 @@ func TestExecutorTransferTx(t *testing.T) {
 }
 
 func TestExecutorInvokesResultSink(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := common.HexToAddress("0x00000000000000000000000000000000000000a7")
 
 	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	sink := &recordingResultSink{}
 
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
@@ -95,7 +98,7 @@ func TestExecutorInvokesResultSink(t *testing.T) {
 	ctx := blockContext(chainID)
 	ctx.Number = 77
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -109,27 +112,27 @@ func TestExecutorInvokesResultSink(t *testing.T) {
 }
 
 func TestExecutorPooledResultRelease(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := common.HexToAddress("0x00000000000000000000000000000000000000a8")
 
 	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	sink := &recordingResultSink{}
 	executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithState(state), WithResultSink(sink))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
 
-	first, err := executor.ExecuteBlock(context.Background(), req)
+	first, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	require.Same(t, first, sink.results[0])
 	require.NotNil(t, sink.releases[0])
 	sink.releases[0]()
 	first.Release()
 
-	second, err := executor.ExecuteBlock(context.Background(), req)
+	second, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	require.Same(t, first, second)
 	sink.releases[1]()
@@ -137,19 +140,19 @@ func TestExecutorPooledResultRelease(t *testing.T) {
 }
 
 func TestExecutorPooledResultReleaseIsConcurrentIdempotent(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := testAddress(0xd1)
 
 	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithState(state))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
 
-	result, err := executor.ExecuteBlock(context.Background(), req)
+	result, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -162,30 +165,30 @@ func TestExecutorPooledResultReleaseIsConcurrentIdempotent(t *testing.T) {
 	}
 	wg.Wait()
 
-	next, err := executor.ExecuteBlock(context.Background(), req)
+	next, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	require.Same(t, result, next)
 	next.Release()
 }
 
 func TestExecutorPooledResultExhaustionAllocatesWithoutBlocking(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := testAddress(0xd3)
 
 	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithState(state))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
 
-	pooled, err := executor.ExecuteBlock(context.Background(), req)
+	pooled, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	require.Equal(t, BlockResultPoolStats{Capacity: 1}, executor.ResultPoolStats())
 
-	overflow, err := executor.ExecuteBlock(context.Background(), req)
+	overflow, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	require.NotSame(t, pooled, overflow)
 	require.Equal(t, BlockResultPoolStats{
@@ -203,7 +206,7 @@ func TestExecutorPooledResultExhaustionAllocatesWithoutBlocking(t *testing.T) {
 }
 
 func TestExecutorCloseDisablesOCC(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	rawTxs := make([][]byte, 0, 2)
 	state := NewMemoryState()
 	for i := range 2 {
@@ -217,7 +220,7 @@ func TestExecutorCloseDisablesOCC(t *testing.T) {
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(state))
 	executor.Close()
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     rawTxs,
 	})
@@ -227,7 +230,7 @@ func TestExecutorCloseDisablesOCC(t *testing.T) {
 }
 
 func TestExecutorOCCFallsBackWhenSharedWorkerPoolClosesAfterOCCSelection(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	rawTxs := make([][]byte, 0, 2)
 	recipients := make([]common.Address, 0, 2)
 	seqState := NewMemoryState()
@@ -244,13 +247,13 @@ func TestExecutorOCCFallsBackWhenSharedWorkerPoolClosesAfterOCCSelection(t *test
 	}
 
 	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState))
 	require.NotNil(t, executor.occPool)
 	executor.occPool.Close()
-	occResult, err := executor.ExecuteBlock(context.Background(), req)
+	occResult, err := executor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	require.True(t, occResult.OCCStats.Attempted)
 	require.True(t, occResult.OCCStats.Fallback)
@@ -272,6 +275,15 @@ func (s *overflowingBalanceState) GetBalance(common.Address) *big.Int {
 	return new(big.Int).Lsh(big.NewInt(1), 256)
 }
 
+type stableBalancePointerState struct {
+	*MemoryState
+	balance *big.Int
+}
+
+func (s *stableBalancePointerState) GetBalance(common.Address) *big.Int {
+	return s.balance
+}
+
 func TestOCCWorkerPoolCloseWaitsForInFlightRun(t *testing.T) {
 	pool := newOCCWorkerPool(2)
 	started := make(chan struct{})
@@ -280,7 +292,7 @@ func TestOCCWorkerPoolCloseWaitsForInFlightRun(t *testing.T) {
 	runDone := make(chan error, 1)
 
 	go func() {
-		runDone <- pool.Run(context.Background(), 2, func(context.Context, int, int) error {
+		runDone <- pool.Run(t.Context(), 2, func(context.Context, int, int) error {
 			startedOnce.Do(func() {
 				close(started)
 			})
@@ -309,7 +321,7 @@ func TestOCCWorkerPoolCloseWaitsForInFlightRun(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Close did not return after Run completed")
 	}
-	require.ErrorIs(t, pool.Run(context.Background(), 1, func(context.Context, int, int) error {
+	require.ErrorIs(t, pool.Run(t.Context(), 1, func(context.Context, int, int) error {
 		return nil
 	}), errOCCWorkerPoolClosed)
 }
@@ -324,7 +336,7 @@ func TestOCCWorkerPoolAllowsConcurrentRunsAndClampsFanOut(t *testing.T) {
 		secondDone := make(chan error, 1)
 
 		go func() {
-			firstDone <- pool.Run(context.Background(), 1, func(context.Context, int, int) error {
+			firstDone <- pool.Run(t.Context(), 1, func(context.Context, int, int) error {
 				close(firstStarted)
 				<-release
 				return nil
@@ -333,7 +345,7 @@ func TestOCCWorkerPoolAllowsConcurrentRunsAndClampsFanOut(t *testing.T) {
 		<-firstStarted
 
 		go func() {
-			secondDone <- pool.Run(context.Background(), 1, func(context.Context, int, int) error {
+			secondDone <- pool.Run(t.Context(), 1, func(context.Context, int, int) error {
 				close(secondStarted)
 				<-release
 				return nil
@@ -354,7 +366,7 @@ func TestOCCWorkerPoolAllowsConcurrentRunsAndClampsFanOut(t *testing.T) {
 	t.Run("fanout", func(t *testing.T) {
 		pool := newOCCWorkerPool(64)
 		workerIDs := make(chan int, 64)
-		err := pool.Run(context.Background(), 2, func(_ context.Context, workerID int, workers int) error {
+		err := pool.Run(t.Context(), 2, func(_ context.Context, workerID int, workers int) error {
 			if workers != 2 {
 				return errors.New("worker fanout was not clamped")
 			}
@@ -373,8 +385,8 @@ func TestOCCChunkSizeSplitsSmallBlocks(t *testing.T) {
 	require.Equal(t, 256, occChunkSize(10_000, 1))
 }
 
-func TestPrepareBlockParallelParsePreservesOrderAndFirstError(t *testing.T) {
-	chainID := big.NewInt(713715)
+func TestPrepareBlockParallelParsePreservesOrderAndReturnsIndexedError(t *testing.T) {
+	chainID := big.NewInt(testChainID)
 	validRaw := make([][]byte, 4)
 	expectedSenders := make([]common.Address, 4)
 	for i := range validRaw {
@@ -386,7 +398,7 @@ func TestPrepareBlockParallelParsePreservesOrderAndFirstError(t *testing.T) {
 	}
 
 	executor := NewExecutor(Config{ParseWorkers: 4})
-	prepared, err := executor.PrepareBlock(context.Background(), BlockRequest{
+	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     validRaw,
 	})
@@ -397,29 +409,27 @@ func TestPrepareBlockParallelParsePreservesOrderAndFirstError(t *testing.T) {
 
 	malformed := append([][]byte(nil), validRaw...)
 	malformed[1] = []byte{0x01}
-	malformed[3] = []byte{0x02}
-	_, err = executor.PrepareBlock(context.Background(), BlockRequest{
+	_, err = executor.PrepareBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     malformed,
 	})
-	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "parse tx 1"), err.Error())
+	require.ErrorContains(t, err, "parse tx 1")
 }
 
 func TestExecutorDynamicFeeTx(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := common.HexToAddress("0x00000000000000000000000000000000000000a2")
 
 	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 
 	rawTx := signDynamicFeeTx(t, key, chainID, 0, &recipient, big.NewInt(11), nil)
 	executor := NewExecutor(Config{}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{rawTx},
 	})
@@ -433,7 +443,7 @@ func TestExecutorDynamicFeeTx(t *testing.T) {
 }
 
 func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -462,7 +472,7 @@ func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
 	ctx.BlobBaseFee = blobBaseFee
 
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(state))
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -473,7 +483,7 @@ func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
 
 	tx, sender, err := parseTx(rawTx, ethtypes.LatestSignerForChainID(chainID))
 	require.NoError(t, err)
-	result, err = executor.ExecutePreparedBlock(context.Background(), PreparedBlock{
+	result, err = executor.ExecutePreparedBlock(t.Context(), PreparedBlock{
 		Context: ctx,
 		Txs: []PreparedTx{{
 			Tx:     tx,
@@ -487,19 +497,19 @@ func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
 }
 
 func TestExecutorRequiresBaseFeeAfterLondon(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := testAddress(0xb4)
 
 	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
 	ctx := blockContext(chainID)
 	ctx.BaseFee = nil
 
-	result, err := NewExecutor(Config{}, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+	result, err := NewExecutor(Config{}, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -509,20 +519,33 @@ func TestExecutorRequiresBaseFeeAfterLondon(t *testing.T) {
 	require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 }
 
+func TestExecutorRequiresNonZeroBlockGasLimit(t *testing.T) {
+	ctx := blockContext(big.NewInt(testChainID))
+	ctx.GasLimit = 0
+	executor := NewExecutor(Config{})
+
+	_, err := executor.PrepareBlock(t.Context(), BlockRequest{Context: ctx})
+	require.ErrorIs(t, err, errInvalidBlockGasLimit)
+
+	result, err := executor.ExecutePreparedBlock(t.Context(), PreparedBlock{Context: ctx})
+	require.ErrorIs(t, err, errInvalidBlockGasLimit)
+	require.Nil(t, result)
+}
+
 func TestExecutorRequiresBlobBaseFeeAfterCancun(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := testAddress(0xb6)
 
 	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
 	ctx := blockContext(chainID)
 	ctx.BlobBaseFee = nil
 
-	result, err := NewExecutor(Config{}, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+	result, err := NewExecutor(Config{}, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -533,7 +556,7 @@ func TestExecutorRequiresBlobBaseFeeAfterCancun(t *testing.T) {
 }
 
 func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	txCount := 12
 	rawTxs := make([][]byte, 0, txCount)
 	senders := make([]common.Address, 0, txCount)
@@ -558,9 +581,9 @@ func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
 	occExecutor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(occState))
 	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
 
-	seqResult, err := seqExecutor.ExecuteBlock(context.Background(), req)
+	seqResult, err := seqExecutor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := occExecutor.ExecuteBlock(context.Background(), req)
+	occResult, err := occExecutor.ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
@@ -585,7 +608,7 @@ func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
 }
 
 func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	txCount := 8
 	recipient := testAddress(0xdd)
 	rawTxs := make([][]byte, 0, txCount)
@@ -602,9 +625,9 @@ func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
 	}
 
 	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	seqState.ApplyChangeSet(seqResult.ChangeSet)
@@ -629,7 +652,7 @@ func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
 }
 
 func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	txCount := 4
 	rawTxs := make([][]byte, 0, txCount)
 	senders := make([]common.Address, 0, txCount)
@@ -651,9 +674,9 @@ func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
 
 	cfg := Config{MinGasPrice: big.NewInt(0)}
 	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
-	seqResult, err := NewExecutor(cfg, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	seqResult, err := NewExecutor(cfg, WithState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -670,7 +693,7 @@ func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
 }
 
 func TestExecutorOCCRerunsWhenLaterTxReadsFeeCreditedCoinbase(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	feePayerKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	readerKey, err := crypto.GenerateKey()
@@ -692,9 +715,9 @@ func TestExecutorOCCRerunsWhenLaterTxReadsFeeCreditedCoinbase(t *testing.T) {
 	feeTx := signLegacyTxWithGasPrice(t, feePayerKey, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(1))
 	readCoinbaseTx := signLegacyTxWithGasPrice(t, readerKey, chainID, 0, &contract, big.NewInt(0), nil, 100_000, big.NewInt(0))
 	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{feeTx, readCoinbaseTx}}
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -716,7 +739,7 @@ func TestExecutorOCCRerunsWhenLaterTxReadsFeeCreditedCoinbase(t *testing.T) {
 }
 
 func TestExecutorOCCRerunsWhenLaterTxWritesFeeCreditedCoinbase(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	feePayerKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	transferKey, err := crypto.GenerateKey()
@@ -739,9 +762,9 @@ func TestExecutorOCCRerunsWhenLaterTxWritesFeeCreditedCoinbase(t *testing.T) {
 	ctx.Coinbase = coinbase
 	req := BlockRequest{Context: ctx, Txs: [][]byte{feeTx, transferToCoinbaseTx}}
 
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -762,7 +785,7 @@ func TestExecutorOCCRerunsWhenLaterTxWritesFeeCreditedCoinbase(t *testing.T) {
 }
 
 func TestExecutorOCCRerunsCoinbaseSpendFundedByPriorFeeCredit(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	feePayerKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	coinbaseKey, err := crypto.GenerateKey()
@@ -784,9 +807,9 @@ func TestExecutorOCCRerunsCoinbaseSpendFundedByPriorFeeCredit(t *testing.T) {
 	ctx.Coinbase = coinbase
 	req := BlockRequest{Context: ctx, Txs: [][]byte{feeTx, spendFeeCreditTx}}
 
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -801,7 +824,7 @@ func TestExecutorOCCRerunsCoinbaseSpendFundedByPriorFeeCredit(t *testing.T) {
 }
 
 func TestExecutorOCCRerunsCoinbaseReadAfterNormalAndCommutativeWrite(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	coinbaseKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	readerKey, err := crypto.GenerateKey()
@@ -827,9 +850,9 @@ func TestExecutorOCCRerunsCoinbaseReadAfterNormalAndCommutativeWrite(t *testing.
 	ctx.Coinbase = coinbase
 	req := BlockRequest{Context: ctx, Txs: [][]byte{coinbaseTransferTx, readCoinbaseTx}}
 
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -845,7 +868,7 @@ func TestExecutorOCCRerunsCoinbaseReadAfterNormalAndCommutativeWrite(t *testing.
 }
 
 func TestExecutorOCCMergesCoinbaseSenderFeeWithoutDoubleCount(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	coinbaseKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	otherKey, err := crypto.GenerateKey()
@@ -868,9 +891,9 @@ func TestExecutorOCCMergesCoinbaseSenderFeeWithoutDoubleCount(t *testing.T) {
 	ctx := blockContext(chainID)
 	ctx.Coinbase = coinbase
 	req := BlockRequest{Context: ctx, Txs: [][]byte{coinbaseTx, otherTx}}
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -883,7 +906,7 @@ func TestExecutorOCCMergesCoinbaseSenderFeeWithoutDoubleCount(t *testing.T) {
 }
 
 func TestExecutorOCCSelfDestructedCoinbaseFeeDoesNotResurrectBalance(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	selfDestructKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	otherKey, err := crypto.GenerateKey()
@@ -911,9 +934,9 @@ func TestExecutorOCCSelfDestructedCoinbaseFeeDoesNotResurrectBalance(t *testing.
 	req := BlockRequest{Context: ctx, Txs: [][]byte{selfDestructTx, otherTx}}
 	cfg := Config{MinGasPrice: big.NewInt(0), ChainConfig: legacySelfDestructChainConfig(chainID)}
 
-	seqResult, err := NewExecutor(cfg, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	seqResult, err := NewExecutor(cfg, WithState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), ChainConfig: cfg.ChainConfig, OCCWorkers: 2}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), ChainConfig: cfg.ChainConfig, OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	require.True(t, occResult.OCCStats.Attempted)
 	require.False(t, occResult.OCCStats.Fallback)
@@ -928,7 +951,7 @@ func TestExecutorOCCSelfDestructedCoinbaseFeeDoesNotResurrectBalance(t *testing.
 }
 
 func TestExecutorOCCRerunsSameSenderNonceChain(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -941,7 +964,7 @@ func TestExecutorOCCRerunsSameSenderNonceChain(t *testing.T) {
 	secondTx := signLegacyTxWithGasPrice(t, key, chainID, 1, &secondRecipient, big.NewInt(1), nil, 100_000, big.NewInt(0))
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{firstTx, secondTx},
 	})
@@ -958,7 +981,7 @@ func TestExecutorOCCRerunsSameSenderNonceChain(t *testing.T) {
 }
 
 func TestExecutorOCCRejectsWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	rawTxs := make([][]byte, 0, 2)
 	state := NewMemoryState()
 
@@ -975,7 +998,7 @@ func TestExecutorOCCRejectsWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
 	ctx.GasLimit = 100_000
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     rawTxs,
 	})
@@ -986,7 +1009,7 @@ func TestExecutorOCCRejectsWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
 }
 
 func TestExecutorOCCAllowsDeclaredGasSumAboveBlockLimitWhenUsedGasFits(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	rawTxs := make([][]byte, 0, 2)
 	state := NewMemoryState()
 
@@ -1003,7 +1026,7 @@ func TestExecutorOCCAllowsDeclaredGasSumAboveBlockLimitWhenUsedGasFits(t *testin
 	ctx.GasLimit = 100_000
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     rawTxs,
 	})
@@ -1015,7 +1038,7 @@ func TestExecutorOCCAllowsDeclaredGasSumAboveBlockLimitWhenUsedGasFits(t *testin
 }
 
 func TestExecutorOCCCreateThenCallRerunsDependentTx(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -1034,9 +1057,9 @@ func TestExecutorOCCCreateThenCallRerunsDependentTx(t *testing.T) {
 	callContract := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
 	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{createContract, callContract}}
 
-	seqResult, err := NewExecutor(Config{}, WithState(seqState)).ExecuteBlock(context.Background(), req)
+	seqResult, err := NewExecutor(Config{}, WithState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{OCCWorkers: 2}, WithState(occState)).ExecuteBlock(context.Background(), req)
+	occResult, err := NewExecutor(Config{OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -1052,7 +1075,7 @@ func TestExecutorOCCCreateThenCallRerunsDependentTx(t *testing.T) {
 }
 
 func TestExecutorReceiptAndLogMetadata(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -1072,7 +1095,7 @@ func TestExecutorReceiptAndLogMetadata(t *testing.T) {
 	ctx.BlockHash = testHash(0x42)
 	executor := NewExecutor(Config{}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{transfer, emitLog},
 	})
@@ -1105,7 +1128,7 @@ func TestExecutorReceiptAndLogMetadata(t *testing.T) {
 }
 
 func TestExecutorEVMFailureProducesReceiptAndContinues(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -1122,7 +1145,7 @@ func TestExecutorEVMFailureProducesReceiptAndContinues(t *testing.T) {
 	laterTransfer := signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(5), nil)
 	executor := NewExecutor(Config{}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{oogCall, laterTransfer},
 	})
@@ -1142,7 +1165,7 @@ func TestExecutorEVMFailureProducesReceiptAndContinues(t *testing.T) {
 }
 
 func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	recipient := testAddress(0xa7)
 
 	t.Run("nonce too high", func(t *testing.T) {
@@ -1155,7 +1178,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		rawTx := signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(1), nil)
 		executor := NewExecutor(Config{}, WithState(state))
 
-		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
 			Txs:     [][]byte{rawTx},
 		})
@@ -1178,7 +1201,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
 		executor := NewExecutor(Config{}, WithState(state))
 
-		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
 			Txs:     [][]byte{rawTx},
 		})
@@ -1200,7 +1223,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
 		executor := NewExecutor(Config{}, WithState(state))
 
-		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
 			Txs:     [][]byte{rawTx},
 		})
@@ -1224,7 +1247,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 			MinGasPrice: big.NewInt(2),
 		}, WithState(state))
 
-		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
 			Txs:     [][]byte{rawTx},
 		})
@@ -1261,7 +1284,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		ctx := blockContext(chainID)
 		ctx.BaseFee = big.NewInt(2 * testGasPriceWei)
 
-		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: ctx,
 			Txs:     [][]byte{rawTx},
 		})
@@ -1283,7 +1306,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		rawTx := signLegacyTxWithGas(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 20_000)
 		executor := NewExecutor(Config{}, WithState(state))
 
-		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
 			Txs:     [][]byte{rawTx},
 		})
@@ -1308,7 +1331,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		ctx := blockContext(chainID)
 		ctx.GasLimit = 30_000
 
-		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: ctx,
 			Txs:     [][]byte{firstTransfer, secondTransfer},
 		})
@@ -1322,7 +1345,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 }
 
 func TestExecutorRejectsBadSignatureBeforeExecution(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	recipient := testAddress(0xa8)
 
 	t.Run("wrong chain id", func(t *testing.T) {
@@ -1336,7 +1359,7 @@ func TestExecutorRejectsBadSignatureBeforeExecution(t *testing.T) {
 		rawTx := signLegacyTx(t, key, wrongChainID, 0, &recipient, big.NewInt(1), nil)
 		executor := NewExecutor(Config{}, WithState(state))
 
-		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
 			Txs:     [][]byte{rawTx},
 		})
@@ -1364,7 +1387,7 @@ func TestExecutorRejectsBadSignatureBeforeExecution(t *testing.T) {
 		)
 		executor := NewExecutor(Config{}, WithState(state))
 
-		result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
 			Txs:     [][]byte{rawTx},
 		})
@@ -1377,7 +1400,7 @@ func TestExecutorRejectsBadSignatureBeforeExecution(t *testing.T) {
 }
 
 func TestExecutorCreatesContractThenUpdatesStorage(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -1393,7 +1416,7 @@ func TestExecutorCreatesContractThenUpdatesStorage(t *testing.T) {
 	callContract := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
 	executor := NewExecutor(Config{}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{createContract, callContract},
 	})
@@ -1412,7 +1435,7 @@ func TestExecutorCreatesContractThenUpdatesStorage(t *testing.T) {
 }
 
 func TestExecutorCreateSelfDestructThenTransferSameAddress(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -1430,7 +1453,7 @@ func TestExecutorCreateSelfDestructThenTransferSameAddress(t *testing.T) {
 		ChainConfig: legacySelfDestructChainConfig(chainID),
 	}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{createContract, destroyContract, transferToDestroyed},
 	})
@@ -1450,7 +1473,7 @@ func TestExecutorCreateSelfDestructThenTransferSameAddress(t *testing.T) {
 }
 
 func TestExecutorEIP6780CreateFlagExpiresAfterTx(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -1465,7 +1488,7 @@ func TestExecutorEIP6780CreateFlagExpiresAfterTx(t *testing.T) {
 	selfDestructAfterCreateTx := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
 	executor := NewExecutor(Config{}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{createContract, selfDestructAfterCreateTx},
 	})
@@ -1483,7 +1506,7 @@ func TestExecutorEIP6780CreateFlagExpiresAfterTx(t *testing.T) {
 }
 
 func TestExecutorFinalisesAfterEachTx(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
@@ -1500,7 +1523,7 @@ func TestExecutorFinalisesAfterEachTx(t *testing.T) {
 		ChainConfig: legacySelfDestructChainConfig(chainID),
 	}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{firstCall, secondCall},
 	})
@@ -1714,15 +1737,38 @@ func TestStateDBBalanceErrorsAreSurfaced(t *testing.T) {
 	})
 }
 
+func TestBlockSTMCommutativeBalanceApplyDoesNotMutateSource(t *testing.T) {
+	addr := testAddress(0xc3)
+	sourceBalance := big.NewInt(10)
+	source := &stableBalancePointerState{
+		MemoryState: NewMemoryState(),
+		balance:     sourceBalance,
+	}
+	state := newBlockSTMState(source)
+	state.apply(occTxExecution{
+		changeSet: StateChangeSet{Balances: []BalanceChange{{
+			Address: addr,
+			Balance: big.NewInt(15),
+		}}},
+		writeSet: map[stateAccessKey]struct{}{},
+		commutativeBalanceDeltas: map[common.Address]*big.Int{
+			addr: big.NewInt(5),
+		},
+	})
+
+	require.Equal(t, big.NewInt(10), sourceBalance)
+	require.Equal(t, big.NewInt(15), state.GetBalance(addr))
+}
+
 func TestExecutorSurfacesStateDBBalanceOverflow(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	recipient := testAddress(0xc2)
 	rawTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(0), nil, 100_000, big.NewInt(1))
 	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(&overflowingBalanceState{MemoryState: NewMemoryState()}))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{rawTx},
 	})
@@ -2262,7 +2308,7 @@ func TestNeedsSTMRerunQueuesGasLimitRerunBeforeValidatedPrefix(t *testing.T) {
 }
 
 func TestExecutorOCCHotRecipientChainDoesNotExhaustIncarnations(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	txCount := occMaxTxIncarnations + 1
 	recipient := testAddress(0xce)
 	rawTxs := make([][]byte, 0, txCount)
@@ -2276,7 +2322,7 @@ func TestExecutorOCCHotRecipientChainDoesNotExhaustIncarnations(t *testing.T) {
 		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(0)))
 	}
 
-	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(state)).ExecuteBlock(context.Background(), BlockRequest{
+	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     rawTxs,
 	})
@@ -2292,7 +2338,7 @@ func TestExecutorOCCHotRecipientChainDoesNotExhaustIncarnations(t *testing.T) {
 }
 
 func TestExecutorOCCSameSenderChainDoesNotExhaustIncarnations(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	txCount := occMaxTxIncarnations + 5
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -2318,7 +2364,7 @@ func TestExecutorOCCSameSenderChainDoesNotExhaustIncarnations(t *testing.T) {
 	result, err := NewExecutor(
 		Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4},
 		WithState(state),
-	).ExecuteBlock(context.Background(), BlockRequest{
+	).ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     rawTxs,
 	})
@@ -2358,21 +2404,21 @@ func TestFinaliseClearsRefund(t *testing.T) {
 }
 
 func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
-	chainID := big.NewInt(713715)
+	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	customAddr := common.HexToAddress("0x0000000000000000000000000000000000001001")
 
 	state := NewMemoryState()
-	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 
 	rawTx := signLegacyTx(t, key, chainID, 0, &customAddr, big.NewInt(0), []byte{0x01})
 	executor := NewExecutor(Config{
 		CustomPrecompiles: staticPrecompileRegistry{addr: customAddr},
 	}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{rawTx},
 	})

@@ -3,7 +3,6 @@ package evmonly
 import (
 	"context"
 	"fmt"
-	"math"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -192,11 +191,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
 	stateDB.SetEVM(evm)
 
-	gasLimit := req.Context.GasLimit
-	if gasLimit == 0 {
-		gasLimit = math.MaxUint64
-	}
-	gasPool := new(core.GasPool).AddGas(gasLimit)
+	gasPool := new(core.GasPool).AddGas(req.Context.GasLimit)
 	baseFee := cloneOptionalBig(req.Context.BaseFee)
 
 	result, err := e.acquireBlockResult(ctx, len(req.Txs))
@@ -354,10 +349,6 @@ func buildBlockContext(ctx BlockContext) vm.BlockContext {
 	prevRandao := ctx.PrevRandao
 	baseFee := cloneOptionalBig(ctx.BaseFee)
 	blobBaseFee := cloneOptionalBig(ctx.BlobBaseFee)
-	gasLimit := ctx.GasLimit
-	if gasLimit == 0 {
-		gasLimit = math.MaxUint64
-	}
 	return vm.BlockContext{
 		CanTransfer: core.CanTransfer,
 		Transfer:    core.Transfer,
@@ -368,7 +359,7 @@ func buildBlockContext(ctx BlockContext) vm.BlockContext {
 			return common.Hash{}
 		},
 		Coinbase:    ctx.Coinbase,
-		GasLimit:    gasLimit,
+		GasLimit:    ctx.GasLimit,
 		BlockNumber: new(big.Int).SetUint64(ctx.Number),
 		Time:        ctx.Time,
 		Difficulty:  new(big.Int),
@@ -428,6 +419,9 @@ func validateSupportedTx(tx *ethtypes.Transaction) error {
 }
 
 func validateBlockContext(chainConfig *params.ChainConfig, ctx BlockContext) error {
+	if ctx.GasLimit == 0 {
+		return errInvalidBlockGasLimit
+	}
 	if chainConfig != nil {
 		blockNumber := new(big.Int).SetUint64(ctx.Number)
 		if chainConfig.IsLondon(blockNumber) && ctx.BaseFee == nil {
@@ -452,6 +446,7 @@ func effectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 
 var (
 	errInsufficientGasPrice = fmt.Errorf("insufficient gas price")
+	errInvalidBlockGasLimit = fmt.Errorf("block gas limit must be non-zero")
 	errMissingBaseFee       = fmt.Errorf("missing base fee for post-London block")
 	errMissingBlobBaseFee   = fmt.Errorf("missing blob base fee for post-Cancun block")
 	errUnsupportedBlobTx    = fmt.Errorf("blob transactions require block-level blob gas accounting")

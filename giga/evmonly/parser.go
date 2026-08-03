@@ -27,35 +27,35 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, wo
 		}
 		return parsed, nil
 	}
-	if workers > len(txs) {
-		workers = len(txs)
-	}
+	workers = min(workers, len(txs))
 
-	parseErrs := make([]error, len(txs))
 	g, groupCtx := errgroup.WithContext(ctx)
-	g.SetLimit(workers)
-	for i, raw := range txs {
-		i, raw := i, raw
+	jobs := make(chan int)
+	g.Go(func() error {
+		defer close(jobs)
+		for i := range txs {
+			select {
+			case jobs <- i:
+			case <-groupCtx.Done():
+				return groupCtx.Err()
+			}
+		}
+		return nil
+	})
+	for range workers {
 		g.Go(func() error {
-			if err := groupCtx.Err(); err != nil {
-				return err
+			for i := range jobs {
+				prepared, err := parsePreparedTx(txs[i], signer)
+				if err != nil {
+					return fmt.Errorf("parse tx %d: %w", i, err)
+				}
+				parsed[i] = prepared
 			}
-			prepared, err := parsePreparedTx(raw, signer)
-			if err != nil {
-				parseErrs[i] = err
-				return nil
-			}
-			parsed[i] = prepared
 			return nil
 		})
 	}
 	if err := g.Wait(); err != nil {
 		return nil, err
-	}
-	for i, err := range parseErrs {
-		if err != nil {
-			return nil, fmt.Errorf("parse tx %d: %w", i, err)
-		}
 	}
 	return parsed, nil
 }

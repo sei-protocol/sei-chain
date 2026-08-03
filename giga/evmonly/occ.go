@@ -46,26 +46,19 @@ type occSpeculativeRunner struct {
 }
 
 func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunner {
-	gasLimit := req.Context.GasLimit
-	if gasLimit == 0 {
-		gasLimit = math.MaxUint64
-	}
 	return occSpeculativeRunner{
 		executor:      e,
 		req:           req,
 		chainConfig:   e.chainConfig(req.Context),
 		blockCtx:      buildBlockContext(req.Context),
 		baseFee:       cloneOptionalBig(req.Context.BaseFee),
-		blockGasLimit: gasLimit,
+		blockGasLimit: req.Context.GasLimit,
 	}
 }
 
 func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	runner := newOCCSpeculativeRunner(e, req)
-	workers := e.cfg.OCCWorkers
-	if workers > len(req.Txs) {
-		workers = len(req.Txs)
-	}
+	workers := min(e.cfg.OCCWorkers, len(req.Txs))
 	executionPool := e.occPool
 
 	results := make([]occTxExecution, len(req.Txs))
@@ -203,16 +196,11 @@ func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, task occExecu
 }
 
 func occRanges(txCount int, chunkSize int) []occTxRange {
-	if chunkSize <= 0 {
-		chunkSize = 1
-	}
+	chunkSize = max(chunkSize, 1)
 	ranges := make([]occTxRange, 0, (txCount+chunkSize-1)/chunkSize)
 	startUint := uint(0)
 	for start := 0; start < txCount; {
-		end := start + chunkSize
-		if end > txCount {
-			end = txCount
-		}
+		end := min(start+chunkSize, txCount)
 		ranges = append(ranges, occTxRange{start: start, end: end, startUint: startUint})
 		width := end - start
 		start = end
@@ -227,13 +215,7 @@ func occChunkSize(txCount int, workers int) int {
 	}
 	targetChunks := workers * 8
 	chunkSize := (txCount + targetChunks - 1) / targetChunks
-	if chunkSize < 1 {
-		return 1
-	}
-	if chunkSize > 256 {
-		return 256
-	}
-	return chunkSize
+	return min(max(chunkSize, 1), 256)
 }
 
 func (e *Executor) executeTxSpeculative(
@@ -660,7 +642,7 @@ func (s *blockSTMState) apply(result occTxExecution) {
 		delta := result.commutativeBalanceDeltas[change.Address]
 		_, normalWrite := result.writeSet[stateAccessKey{kind: stateAccessBalance, address: change.Address}]
 		if delta != nil && !normalWrite {
-			balance := s.GetBalance(change.Address)
+			balance := cloneBig(s.GetBalance(change.Address))
 			balance.Add(balance, delta)
 			s.balances[change.Address] = balance
 			continue
