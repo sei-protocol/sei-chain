@@ -7,13 +7,18 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/precompiles/slashing"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
+	crptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/teststaking"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -190,4 +195,90 @@ func TestPrecompile_Run_SigningInfos(t *testing.T) {
 	_, _, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(method.ID, inputs...), 100000, big.NewInt(1), nil, false, false)
 	require.Error(t, err)
 	require.Equal(t, vm.ErrExecutionReverted, err)
+}
+
+func setupValidator(t *testing.T, ctx sdk.Context, a *app.App, bondStatus stakingtypes.BondStatus, valPub crptotypes.PubKey) sdk.ValAddress {
+	valAddr := sdk.ValAddress(valPub.Address())
+	bondDenom := a.StakingKeeper.GetParams(ctx).BondDenom
+	selfBond := sdk.NewCoins(sdk.Coin{Amount: sdk.NewInt(100), Denom: bondDenom})
+
+	require.NoError(t, a.BankKeeper.MintCoins(ctx, minttypes.ModuleName, selfBond))
+	require.NoError(t, a.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, sdk.AccAddress(valAddr), selfBond))
+
+	sh := teststaking.NewHelper(t, ctx, a.StakingKeeper)
+	msg := sh.CreateValidatorMsg(valAddr, valPub, selfBond[0].Amount)
+	sh.Handle(msg, true)
+
+	val, found := a.StakingKeeper.GetValidator(ctx, valAddr)
+	require.True(t, found)
+
+	val = val.UpdateStatus(bondStatus)
+	a.StakingKeeper.SetValidator(ctx, val)
+
+	consAddr, err := val.GetConsAddr()
+	require.NoError(t, err)
+
+	signingInfo := slashingtypes.NewValidatorSigningInfo(
+		consAddr,
+		ctx.BlockHeight(),
+		0,
+		time.Unix(0, 0),
+		false,
+		0,
+	)
+	a.SlashingKeeper.SetValidatorSigningInfo(ctx, consAddr, signingInfo)
+
+	return valAddr
+}
+
+func TestUnjail(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2).WithBlockTime(time.Now())
+	k := &testApp.EvmKeeper
+
+	valPub := ed25519.GenPrivKey().PubKey()
+	valAddr := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub)
+	consAddr := sdk.ConsAddress(valPub.Address())
+	testApp.StakingKeeper.Jail(ctx, consAddr)
+	require.True(t, testApp.StakingKeeper.Validator(ctx, valAddr).IsJailed())
+
+	operatorSeiAddr := sdk.AccAddress(valAddr)
+	_, operatorEvmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, operatorSeiAddr, operatorEvmAddr)
+	// an associated address that is not a validator operator
+	nonValidatorSeiAddr, nonValidatorEvmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, nonValidatorSeiAddr, nonValidatorEvmAddr)
+
+	p, err := slashing.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.NoError(t, err)
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{StateDB: statedb, TxContext: vm.TxContext{Origin: operatorEvmAddr}}
+	executor := p.GetExecutor().(*slashing.PrecompileExecutor)
+	method, err := p.ABI.MethodById(executor.UnjailID)
+	require.NoError(t, err)
+
+	// should error because of read only call
+	_, _, err = p.RunAndCalculateGas(&evm, operatorEvmAddr, operatorEvmAddr, executor.UnjailID, 1000000, nil, nil, true, false)
+	require.Error(t, err)
+	// should error because of delegatecall
+	_, _, err = p.RunAndCalculateGas(&evm, operatorEvmAddr, operatorEvmAddr, executor.UnjailID, 1000000, nil, nil, false, true)
+	require.Error(t, err)
+	// should error because it's not payable
+	_, _, err = p.RunAndCalculateGas(&evm, operatorEvmAddr, operatorEvmAddr, executor.UnjailID, 1000000, big.NewInt(1), nil, false, false)
+	require.Error(t, err)
+	// should error because caller is not associated
+	_, unassociatedEvmAddr := testkeeper.MockAddressPair()
+	_, _, err = p.RunAndCalculateGas(&evm, unassociatedEvmAddr, unassociatedEvmAddr, executor.UnjailID, 1000000, nil, nil, false, false)
+	require.Error(t, err)
+	// should error because caller is not a validator operator
+	_, _, err = p.RunAndCalculateGas(&evm, nonValidatorEvmAddr, nonValidatorEvmAddr, executor.UnjailID, 1000000, nil, nil, false, false)
+	require.Error(t, err)
+
+	// happy path
+	ret, _, err := p.RunAndCalculateGas(&evm, operatorEvmAddr, operatorEvmAddr, executor.UnjailID, 1000000, nil, nil, false, false)
+	require.NoError(t, err)
+	outputs, err := method.Outputs.Unpack(ret)
+	require.NoError(t, err)
+	require.True(t, outputs[0].(bool))
+	require.False(t, testApp.StakingKeeper.Validator(statedb.Ctx(), valAddr).IsJailed())
 }
