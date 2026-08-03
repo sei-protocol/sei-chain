@@ -105,7 +105,15 @@ func (k *Keeper) UpsertERCPointer(
 		var ret []byte
 		contractAddr = existingAddr
 		ret, remainingGas, err = evm.GetDeploymentCode(evmModuleAddress, bin, suppliedGas, utils.Big0, existingAddr)
-		k.SetCode(ctx, contractAddr, ret)
+		// Prefer StateDB.SetCode so a live deliver codeCache stays coherent with
+		// the store (keeper SetCode alone would leave a warm memo stale).
+		// Called even when GetDeploymentCode returned an error to preserve prior
+		// write-before-check ordering (callers typically revert the snapshot).
+		if sdb := state.GetDBImpl(evm.StateDB); sdb != nil {
+			sdb.SetCode(contractAddr, ret)
+		} else {
+			k.SetCode(ctx, contractAddr, ret)
+		}
 	} else {
 		_, contractAddr, remainingGas, err = evm.Create(evmModuleAddress, bin, suppliedGas, uint256.NewInt(0))
 	}

@@ -10,6 +10,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,6 +67,55 @@ func TestUpsertERCNativePointer(t *testing.T) {
 	require.Equal(t, uint8(12), res.(uint8))
 	_, err = k.QueryERCSingleOutput(ctx, "native", addr, "nonexist")
 	require.NotNil(t, err)
+}
+
+// TestUpsertERCNativePointerKeepsCodeCacheCoherent covers the mid-tx redeploy
+// path: plant a warm memo, re-upsert (exists → StateDB.SetCode with real
+// deployment bytecode), and assert GetCode follows the store.
+func TestUpsertERCNativePointerKeepsCodeCacheCoherent(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+
+	stalePlant := []byte{1, 2, 3, 4, 5}
+	var warmed, codeAfter, storeCode []byte
+	var sizeAfter int
+	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
+		addr, err := k.UpsertERCNativePointer(ctx, e, "cache-coherent", utils.ERCMetadata{
+			Name:     "before",
+			Symbol:   "before",
+			Decimals: 6,
+		})
+		if err != nil {
+			return err
+		}
+		sdb := state.GetDBImpl(e.StateDB)
+		if sdb == nil {
+			return errors.New("expected DBImpl StateDB")
+		}
+		// Distinct warm entry so a missed memo update is observable (metadata-only
+		// redeploys often produce identical runtime bytecode).
+		sdb.SetCode(addr, stalePlant)
+		warmed = sdb.GetCode(addr)
+
+		_, err = k.UpsertERCNativePointer(ctx, e, "cache-coherent", utils.ERCMetadata{
+			Name:     "after",
+			Symbol:   "after",
+			Decimals: 8,
+		})
+		if err != nil {
+			return err
+		}
+		codeAfter = sdb.GetCode(addr)
+		sizeAfter = sdb.GetCodeSize(addr)
+		storeCode = k.GetCode(sdb.Ctx(), addr)
+		return nil
+	}, func(string, string) {})
+	require.NoError(t, err)
+	require.Equal(t, stalePlant, warmed)
+	require.NotEqual(t, warmed, codeAfter)
+	require.Equal(t, len(codeAfter), sizeAfter)
+	require.Equal(t, codeAfter, storeCode)
 }
 
 func TestUpsertERC20Pointer(t *testing.T) {

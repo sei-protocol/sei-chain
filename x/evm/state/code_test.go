@@ -144,12 +144,13 @@ func TestCodeCacheDisabledForSimulation(t *testing.T) {
 	initial := []byte{1, 2, 3}
 	updated := []byte{9, 9, 9, 9}
 
-	// Deliver DB memos GetCode: a keeper write that bypasses SetCode stays hidden.
+	// Deliver DB: StateDB.SetCode must refresh the memo after a warm GetCode.
 	deliver := state.NewDBImpl(ctx, k, false)
 	deliver.SetCode(addr, initial)
 	require.Equal(t, initial, deliver.GetCode(addr))
-	k.SetCode(deliver.Ctx(), addr, updated)
-	require.Equal(t, initial, deliver.GetCode(addr))
+	deliver.SetCode(addr, updated)
+	require.Equal(t, updated, deliver.GetCode(addr))
+	require.Equal(t, len(updated), deliver.GetCodeSize(addr))
 
 	// Simulation/RPC DB always reads the store (caching disabled).
 	sim := state.NewDBImpl(ctx, k, true)
