@@ -6,17 +6,20 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// waitForCommitQC waits until the durable CommitQC tip has advanced past idx.
+// waitForCommitQC waits until commitqc queue reaches idx.
+// CommitQC at idx is NOT guaranteed to be persisted yet. 
 func (s *State) waitForCommitQC(ctx context.Context, idx types.RoadIndex) error {
-	_, err := s.LastCommitQC().Wait(ctx, func(qc utils.Option[*types.CommitQC]) bool {
-		return types.NextIndexOpt(qc) > idx
-	})
-	return err
+	for inner,ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return idx < inner.commits.qcs.next }); err!=nil {
+			return err
+		}
+	}
+	return nil
 }
 
+// Fetches CommitQC and a matching epoch. They are NOT guaranteed to be persisted.
 func (s *State) commitQCAndEpoch(ctx context.Context, idx types.RoadIndex) (*types.CommitQC, *types.Epoch, error) {
 	if err := s.waitForCommitQC(ctx, idx); err != nil {
 		return nil, nil, err
@@ -48,14 +51,10 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 	panic("unreachable")
 }
 
-// PushCommitQC admits qc for Current only (too early waits; stale drops).
-// Epoch slide is async in runAdvanceEpoch (tip may sit at Current.Next while
-// Current still N; N+1 CommitQCs park on waitForEpoch until the duo advances).
-//
-// Seal (last road of Current): prune + execution leashes before admit
-// (interlocking doc CommitQC admission).
-//
-// Admit-then-verify is intentional backpressure for ahead-of-window QCs.
+// PushCommitQC pushes qc to the commit queue.
+// Blocks until all previous CommitQCs are available and State enters this qc's epoch.
+// Silently drops qc if not needed.
+// NOT guaranteed to be persisted yet.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	// Await previous CommitQC.
 	if i := qc.Proposal().Index(); i>0 {

@@ -104,16 +104,14 @@ func newState(
 	pers utils.Option[persist.Persister[*pb.PersistedInner]],
 	persistedData utils.Option[*pb.PersistedInner],
 ) (*State, error) {
-	initialInner, err := newInner(persistedData, data.Registry())
-	if err != nil {
-		return nil, fmt.Errorf("newInner: %w", err)
-	}
-
 	availState, err := avail.NewState(cfg.Key, data, cfg.PersistentStateDir)
 	if err != nil {
 		return nil, fmt.Errorf("avail.NewState: %w", err)
 	}
-
+	initialInner, err := newInner(persistedData, availState.ConsensusSpec().Load())
+	if err != nil {
+		return nil, fmt.Errorf("newInner: %w", err)
+	}
 	innerSend := utils.Alloc(utils.NewAtomicSend(initialInner))
 	registry := data.Registry()
 	s := &State{
@@ -129,13 +127,7 @@ func newState(
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
 		commitVotes:  utils.NewMutex(newCommitVotes()),
 
-		myView: utils.NewAtomicSend(types.ViewSpec{
-			CommitQC:          initialInner.CommitQC,
-			TimeoutQC:         initialInner.TimeoutQC,
-			Epochs:            initialInner.epochs,
-			GenesisFirstBlock: registry.FirstBlock(),
-			GenesisTimestamp:  registry.FirstTimestamp(),
-		}),
+		myView: utils.NewAtomicSend(initialInner.ViewSpec()),
 		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
 		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
 		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
@@ -199,65 +191,48 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 	return s.pushTimeoutQC(ctx, qc)
 }
 
-// TODO: scope prepareVotes, commitVotes, and timeoutVotes to a single epoch
-// so stale votes from a previous epoch are automatically dropped on transition.
-
 // PushPrepareVote processes an unverified Prepare vote message.
-func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
-	// Contract: accept only Current-epoch votes (innerRecv). Others drop without
-	// error (avoid wrong-committee verify / peer teardown). No redelivery —
-	// around an epoch boundary peers may disagree for a window; recovery is via
-	// view timeout (typically one timeout round per transition).
-	i := s.innerRecv.Load()
-	if voteEp := vote.Msg().Proposal().View().EpochIndex; voteEp != i.epochs.Current.EpochIndex() {
-		logger.Debug("dropping prepare vote for non-current epoch",
-			"vote_epoch", uint64(voteEp), "current_epoch", uint64(i.epochs.Current.EpochIndex()))
-		return nil
-	}
-	committee := i.epochs.Current.Committee()
-	if err := vote.VerifySig(committee); err != nil {
+func (s *State) PushPrepareVote(ctx context.Context, vote *types.Signed[*types.PrepareVote]) error {
+	epochIdx := vote.Msg().Proposal().View().EpochIndex
+	vs,err := s.myView.Wait(ctx, func(vs types.ViewSpec) bool { return vs.Epoch().EpochIndex() >= epochIdx })
+	if err!=nil { return err }
+	if vs.View().EpochIndex != epochIdx { return nil }
+	if err := vote.VerifySig(vs.Epoch().Committee()); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
 	for pv := range s.prepareVotes.Lock() {
-		pv.pushVote(committee, vote)
+		// TODO: prune old epoch votes at some point.
+		pv.pushVote(vs.Epoch().Committee(), vote)
 	}
 	return nil
 }
 
 // PushCommitVote processes an unverified CommitVote message.
-func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
-	// Same Current-epoch contract as PushPrepareVote.
-	i := s.innerRecv.Load()
-	if voteEp := vote.Msg().Proposal().View().EpochIndex; voteEp != i.epochs.Current.EpochIndex() {
-		logger.Debug("dropping commit vote for non-current epoch",
-			"vote_epoch", uint64(voteEp), "current_epoch", uint64(i.epochs.Current.EpochIndex()))
-		return nil
-	}
-	committee := i.epochs.Current.Committee()
-	if err := vote.VerifySig(committee); err != nil {
+func (s *State) PushCommitVote(ctx context.Context, vote *types.Signed[*types.CommitVote]) error {
+	epochIdx := vote.Msg().Proposal().View().EpochIndex
+	vs,err := s.myView.Wait(ctx, func(vs types.ViewSpec) bool { return vs.Epoch().EpochIndex() >= epochIdx })
+	if err!=nil { return err }
+	if vs.View().EpochIndex != epochIdx { return nil }
+	if err := vote.VerifySig(vs.Epoch().Committee()); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
 	for cv := range s.commitVotes.Lock() {
-		cv.pushVote(committee, vote)
+		cv.pushVote(vs.Epoch().Committee(), vote)
 	}
 	return nil
 }
 
 // PushTimeoutVote processes an unverified FullTimeoutVote message.
-func (s *State) PushTimeoutVote(vote *types.FullTimeoutVote) error {
-	// Same Current-epoch contract as PushPrepareVote.
-	i := s.innerRecv.Load()
-	if voteEp := vote.View().EpochIndex; voteEp != i.epochs.Current.EpochIndex() {
-		logger.Debug("dropping timeout vote for non-current epoch",
-			"vote_epoch", uint64(voteEp), "current_epoch", uint64(i.epochs.Current.EpochIndex()))
-		return nil
-	}
-	ep := i.epochs.Current
-	if err := vote.Verify(ep); err != nil {
-		return fmt.Errorf("vote.Verify(): %w", err)
+func (s *State) PushTimeoutVote(ctx context.Context, vote *types.FullTimeoutVote) error {
+	epochIdx := vote.View().EpochIndex
+	vs,err := s.myView.Wait(ctx, func(vs types.ViewSpec) bool { return vs.Epoch().EpochIndex() >= epochIdx })
+	if err!=nil { return err }
+	if vs.View().EpochIndex != epochIdx { return nil }
+	if err := vote.Verify(vs.Epoch()); err != nil {
+		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
 	for tv := range s.timeoutVotes.Lock() {
-		tv.pushVote(ep.Committee(), vote)
+		tv.pushVote(vs.Epoch().Committee(), vote)
 	}
 	return nil
 }
@@ -320,18 +295,6 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 	}
 }
 
-// viewSpec builds a ViewSpec for i, taking genesis floors from the registry
-// (used only when CommitQC is None).
-func (s *State) viewSpec(i inner) types.ViewSpec {
-	return types.ViewSpec{
-		CommitQC:          i.CommitQC,
-		TimeoutQC:         i.TimeoutQC,
-		Epochs:            i.epochs,
-		GenesisFirstBlock: s.registry.FirstBlock(),
-		GenesisTimestamp:  s.registry.FirstTimestamp(),
-	}
-}
-
 // Updates the outputs based on the inner state.
 // Persists state to disk before broadcasting votes to ensure votes are durable
 // before dissemination (prevents double-voting on crash).
@@ -339,7 +302,7 @@ func (s *State) viewSpec(i inner) types.ViewSpec {
 // timers, neither of which constitutes a vote.
 func (s *State) runOutputs(ctx context.Context) error {
 	return s.innerRecv.Iter(ctx, func(ctx context.Context, i inner) error {
-		vs := s.viewSpec(i)
+		vs := i.ViewSpec() 
 		old := s.myView.Load()
 		if old.View().Less(vs.View()) {
 			s.myView.Store(vs)
@@ -383,14 +346,12 @@ func (s *State) Run(ctx context.Context) error {
 				return nil
 			})
 		})
-		scope.SpawnNamed("pushCommitQC", func() error {
+		scope.SpawnNamed("pushSpec", func() error {
 			// Pull the CommitQC tip back from avail after it has been logged and
 			// verified at admit. Tip watch may coalesce; pushCommitQC re-verifies
 			// against the QC's epoch and aligns the duo without replaying roads.
-			return s.avail.LastCommitQC().Iter(ctx, func(ctx context.Context, last utils.Option[*types.CommitQC]) error {
-				if qc, ok := last.Get(); ok {
-					return s.pushCommitQC(qc)
-				}
+			return s.avail.ConsensusSpec().Iter(ctx, func(ctx context.Context, spec *types.ConsensusSpec) error {
+				s.pushSpec(spec)
 				return nil
 			})
 		})

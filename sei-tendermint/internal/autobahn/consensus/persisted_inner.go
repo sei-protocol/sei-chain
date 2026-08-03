@@ -60,7 +60,7 @@ import (
 //     the persisted viewSpec. TODO: consider rebroadcasting CommitQC on restart
 //     to help peers sync faster after cluster-wide outages.
 type persistedInner struct {
-	CommitQC  utils.Option[*types.CommitQC]
+	Index types.RoadIndex
 	PrepareQC utils.Option[*types.PrepareQC]
 	TimeoutQC utils.Option[*types.TimeoutQC]
 
@@ -74,55 +74,41 @@ type persistedInner struct {
 //
 // commitEp verifies the persisted CommitQC. viewDuo is DuoAt(tipcut): Current
 // stamps/verifies the open view; at a boundary commitEp and Current differ.
-func (p *persistedInner) validate(commitEp *types.Epoch, viewDuo types.EpochDuo) error {
-	viewEp := viewDuo.Current
-	if cqc, ok := p.CommitQC.Get(); ok {
-		if err := cqc.Verify(commitEp); err != nil {
-			return fmt.Errorf("corrupt persisted state: CommitQC failed verification: %w", err)
-		}
+func (p *persistedInner) Verify(spec *types.ConsensusSpec) error {
+	if got,want := p.Index,types.NextIndexOpt(spec.CommitQC); got!=want {
+		return fmt.Errorf("p.Index = %v, want %v",got,want)
 	}
-
 	// TimeoutQC index must equal NextIndexOpt(CommitQC) (i.e., CommitQC.Index+1, or 0 if missing).
 	// Since we persist the entire inner state atomically, a mismatched index is always corrupt.
 	if tqc, ok := p.TimeoutQC.Get(); ok {
-		tqcIndex := tqc.View().Index
-		expectedIndex := types.NextIndexOpt(p.CommitQC)
-		if tqcIndex != expectedIndex {
-			return fmt.Errorf("corrupt persisted state: TimeoutQC has index %d but expected %d", tqcIndex, expectedIndex)
-		}
-		if err := tqc.Verify(viewEp, p.CommitQC); err != nil {
-			return fmt.Errorf("corrupt persisted state: TimeoutQC failed verification: %w", err)
+		if err := tqc.Verify(spec.Epochs.Current, spec.CommitQC); err != nil {
+			return fmt.Errorf("p.TimeoutQC.Verify(): %w", err)
 		}
 	}
 
-	vs := types.ViewSpec{
-		CommitQC:          p.CommitQC,
-		TimeoutQC:         p.TimeoutQC,
-		Epochs:            viewDuo,
-		GenesisFirstBlock: 0, // validate does not use NextGlobalBlock; floors unused here
-	}
+	vs := types.ViewSpec{ConsensusSpec: spec, TimeoutQC: p.TimeoutQC}
 	currentView := vs.View()
-	committee := viewEp.Committee()
+	committee := vs.Epoch().Committee() 
 
 	// checkViewAndSig validates that a persisted field has the current view and a valid signature.
 	// Since inner is persisted atomically, any view mismatch indicates corrupt state.
 	checkViewAndSig := func(name string, view types.View, verifyErr error) error {
 		if view != currentView {
-			return fmt.Errorf("corrupt persisted state: %s has view %v but current view is %v", name, view, currentView)
+			return fmt.Errorf("%s has view %v but current view is %v", name, view, currentView)
 		}
 		if verifyErr != nil {
-			return fmt.Errorf("corrupt persisted state: %s failed verification: %w", name, verifyErr)
+			return fmt.Errorf("%s failed verification: %w", name, verifyErr)
 		}
 		return nil
 	}
 
 	// PrepareQC is required when CommitVote is present (CommitVote requires PrepareQC justification).
 	if pqc, ok := p.PrepareQC.Get(); ok {
-		if err := checkViewAndSig("PrepareQC", pqc.Proposal().View(), pqc.Verify(viewEp)); err != nil {
+		if err := checkViewAndSig("PrepareQC", pqc.Proposal().View(), pqc.Verify(vs.Epoch())); err != nil {
 			return err
 		}
 	} else if p.CommitVote.IsPresent() {
-		return fmt.Errorf("corrupt persisted state: CommitVote present without PrepareQC")
+		return fmt.Errorf("CommitVote present without PrepareQC")
 	}
 	if v, ok := p.CommitVote.Get(); ok {
 		if err := checkViewAndSig("CommitVote", v.Msg().Proposal().View(), v.VerifySig(committee)); err != nil {
@@ -135,7 +121,7 @@ func (p *persistedInner) validate(commitEp *types.Epoch, viewDuo types.EpochDuo)
 		}
 	}
 	if v, ok := p.TimeoutVote.Get(); ok {
-		if err := checkViewAndSig("TimeoutVote", v.View(), v.Verify(viewEp)); err != nil {
+		if err := checkViewAndSig("TimeoutVote", v.View(), v.Verify(vs.Epoch())); err != nil {
 			return err
 		}
 	}

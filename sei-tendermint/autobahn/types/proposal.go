@@ -125,28 +125,31 @@ func (v View) Next() View {
 	return v
 }
 
+type ConsensusSpec struct {
+	Epochs EpochDuo
+	CommitQC  utils.Option[*CommitQC]
+	// Genesis floors used only when CommitQC is None (chain start).
+	GenesisFirstBlock GlobalBlockNumber
+	GenesisTimestamp  time.Time
+}
+
 // ViewSpec is the local context for starting a view: justification QCs plus a
 // Prev|Current EpochDuo. Attached AppQC may be Current or Current-1 (Prev lag).
 type ViewSpec struct {
 	// WARNING: currently we have implicit assumption that
 	// TimeoutQC.View().Index == CommitQC.Index.Next(),
 	// I.e. that TimeoutQC comes from the expected consensus instance.
-	CommitQC  utils.Option[*CommitQC]
+	*ConsensusSpec
 	TimeoutQC utils.Option[*TimeoutQC]
-	Epochs    EpochDuo
-	// Genesis floors used only when CommitQC is None (chain start).
-	// Copied from Registry; ignored when CommitQC is present.
-	GenesisFirstBlock GlobalBlockNumber
-	GenesisTimestamp  time.Time
 }
 
 // Epoch is the proposing/voting epoch (Epochs.Current).
-func (vs *ViewSpec) Epoch() *Epoch { return vs.Epochs.Current }
+func (vs ViewSpec) Epoch() *Epoch { return vs.Epochs.Current }
 
 // NextGlobalBlock returns the first global block number expected in the next proposal.
 // CommitQC is None only at chain start, in which case it returns GenesisFirstBlock.
 // For all other views, including the first view of a non-genesis epoch, CommitQC is present and it returns CommitQC.GlobalRange().Next.
-func (vs *ViewSpec) NextGlobalBlock() GlobalBlockNumber {
+func (vs ViewSpec) NextGlobalBlock() GlobalBlockNumber {
 	if cQC, ok := vs.CommitQC.Get(); ok {
 		return cQC.GlobalRange().Next
 	}
@@ -154,16 +157,18 @@ func (vs *ViewSpec) NextGlobalBlock() GlobalBlockNumber {
 }
 
 // View is the view justified by vs.
-func (vs *ViewSpec) View() View {
-	idx := NextIndexOpt(vs.CommitQC)
-	if view := NextViewOpt(vs.TimeoutQC); view.Index == idx {
-		view.EpochIndex = vs.Epoch().EpochIndex()
-		return view
+func (vs ViewSpec) View() View {
+	if qc,ok := vs.TimeoutQC.Get(); ok {
+		return qc.View()
 	}
-	return View{Index: idx, Number: 0, EpochIndex: vs.Epoch().EpochIndex()}
+	return View{
+		EpochIndex: vs.Epoch().EpochIndex(),
+		Index: NextIndexOpt(vs.CommitQC),
+		Number: 0,
+	}
 }
 
-func (vs *ViewSpec) NextTimestamp() time.Time {
+func (vs ViewSpec) NextTimestamp() time.Time {
 	if cQC, ok := vs.CommitQC.Get(); ok {
 		return cQC.Proposal().NextTimestamp()
 	}
