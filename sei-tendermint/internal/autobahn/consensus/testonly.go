@@ -43,7 +43,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 				return from.SubscribePrepareVote().Iter(ctx, func(_ context.Context, msg utils.Option[*types.ConsensusReqPrepareVote]) error {
 					if vote, ok := msg.Get(); ok {
 						for _, to := range states {
-							if err := to.PushPrepareVote(vote.Signed); err != nil {
+							if err := to.PushPrepareVote(ctx, vote.Signed); err != nil {
 								return err
 							}
 						}
@@ -58,7 +58,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 						return nil
 					}
 					for _, to := range states {
-						if err := to.PushCommitVote(vote.Signed); err != nil {
+						if err := to.PushCommitVote(ctx, vote.Signed); err != nil {
 							return err
 						}
 					}
@@ -69,7 +69,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 				return from.SubscribeTimeoutVote().Iter(ctx, func(_ context.Context, msg utils.Option[*types.FullTimeoutVote]) error {
 					if vote, ok := msg.Get(); ok {
 						for _, to := range states {
-							if err := to.PushTimeoutVote(vote); err != nil {
+							if err := to.PushTimeoutVote(ctx, vote); err != nil {
 								return err
 							}
 						}

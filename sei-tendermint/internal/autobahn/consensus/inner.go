@@ -95,7 +95,7 @@ const innerFile = "inner"
 // pushCommitQC on State), and epoch transitions are explicit.
 // Genesis floors for ViewSpec come from State.registry (see State.viewSpec).
 type inner struct {
-	*types.ConsensusSpec
+	spec *types.ConsensusSpec
 	persistedInner
 }
 
@@ -103,7 +103,7 @@ type inner struct {
 // (used only when CommitQC is None).
 func (i inner) ViewSpec() types.ViewSpec {
 	return types.ViewSpec{
-		ConsensusSpec:     i.ConsensusSpec,	
+		ConsensusSpec:     i.spec,	
 		TimeoutQC:         i.TimeoutQC,
 	}
 }
@@ -133,14 +133,14 @@ func newInner(data utils.Option[*pb.PersistedInner], spec *types.ConsensusSpec) 
 	if err := persisted.Verify(spec); err != nil {
 		return inner{}, err
 	}
-	return inner{ConsensusSpec: spec, persistedInner: *persisted}, nil
+	return inner{spec: spec, persistedInner: *persisted}, nil
 }
 
 func (s *State) pushSpec(spec *types.ConsensusSpec) {	
 	for iSend := range s.inner.Lock() {
 		i := iSend.Load()
 		if newIndex := types.NextIndexOpt(spec.CommitQC); newIndex > i.Index {
-			iSend.Store(inner{ConsensusSpec: spec, persistedInner: persistedInner{Index: newIndex}})
+			iSend.Store(inner{spec: spec, persistedInner: persistedInner{Index: newIndex}})
 		}
 	}
 }
@@ -158,7 +158,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 		return nil
 	}
 	// Verify checks the invariant: TimeoutQC.View().Index == CommitQC.Index + 1
-	if err := qc.Verify(i.Epochs.Current, i.CommitQC); err != nil {
+	if err := qc.Verify(i.spec.Epoch(), i.spec.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for isend := range s.inner.Lock() {
@@ -167,7 +167,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 			return nil
 		}
 		// TimeoutQC advances view number; clear votes and prepareQC. Epochs unchanged.
-		isend.Store(inner{ConsensusSpec: i.ConsensusSpec, persistedInner: persistedInner{Index: i.Index, TimeoutQC: utils.Some(qc)}})
+		isend.Store(inner{spec: i.spec, persistedInner: persistedInner{Index: i.Index, TimeoutQC: utils.Some(qc)}})
 	}
 	return nil
 }
