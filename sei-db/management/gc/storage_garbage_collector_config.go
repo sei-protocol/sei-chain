@@ -27,10 +27,21 @@ type StorageGarbageCollectorConfig struct {
 }
 
 // DefaultStorageGarbageCollectorConfig returns the default collector config.
+//
+// Both values are deliberately lower than the pre-unification defaults (RollbackWindow 10_000,
+// interval 60s), to match how these are actually used:
+//
+//   - RollbackWindow 1_000. Real rollbacks are a few blocks deep, so 1_000 is already ample
+//     headroom, and this is only the correctness floor. The production shape is a short
+//     rollback window paired with much longer history, and that history now belongs on each
+//     store via GetRetentionWindow rather than being folded into this shared window — keeping
+//     it short here avoids charging every store for retention only some of them need.
+//   - PruneInterval 5m. Pruning reclaims whole files lazily; running it every minute buys
+//     nothing and costs I/O against a live node. Anything in the 5-10 minute range is fine.
 func DefaultStorageGarbageCollectorConfig() *StorageGarbageCollectorConfig {
 	return &StorageGarbageCollectorConfig{
 		RollbackWindow: 1000,
-		PruneInterval:  10 * time.Minute,
+		PruneInterval:  5 * time.Minute,
 	}
 }
 

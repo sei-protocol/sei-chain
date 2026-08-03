@@ -27,8 +27,8 @@ type mockStore struct {
 }
 
 // snapshotStore models SC/SS (retention 0). GetPruningBoundary returns the newest snapshot
-// ≤ cutLine, or the oldest snapshot if all are above cutLine. Empty snapshots → 0.
-// Snapshots must be ascending.
+// ≤ cutLine, or cutLine when every snapshot is above it (nothing can be dropped, and the
+// contract forbids answering above cutLine). Empty snapshots → 0. Snapshots must be ascending.
 func snapshotStore(name string, latestHeight uint64, snapshots ...uint64) *mockStore {
 	return &mockStore{
 		name:            name,
@@ -38,14 +38,17 @@ func snapshotStore(name string, latestHeight uint64, snapshots ...uint64) *mockS
 			if len(snapshots) == 0 {
 				return 0
 			}
-			oldest := snapshots[0]
+			if snapshots[0] > cutLine {
+				return cutLine
+			}
+			newest := snapshots[0]
 			for _, snapshot := range snapshots {
 				if snapshot > cutLine {
 					break
 				}
-				oldest = snapshot
+				newest = snapshot
 			}
-			return oldest
+			return newest
 		},
 	}
 }
@@ -234,15 +237,26 @@ func TestPruneDecisions(t *testing.T) {
 			wantPruned:     []bool{true, true},
 		},
 		{
-			name:           "all snapshots above cut line: store still votes its oldest",
+			name:           "all snapshots above cut line: store votes the cut line",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 95_000, 97_000),
 				contiguousStore("stateWAL", 100_000, true),
 			},
-			// sc answers 95_000; WAL answers 90_000 → shared prune 90_000 (sc snapshots untouched).
+			// Both answer 90_000 → shared prune 90_000 (sc's snapshots sit above it, untouched).
 			wantPruneBelow: ptr(90_000),
 			wantPruned:     []bool{true, true},
+		},
+		{
+			// Regression: with no contiguous store to bound the min, an answer above cutLine
+			// would become pruneHeight and delete inside the rollback window.
+			name:           "all snapshots above cut line with no contiguous store",
+			rollbackWindow: 10_000,
+			stores: []*mockStore{
+				snapshotStore("sc", 100_000, 95_000, 97_000),
+			},
+			wantPruneBelow: ptr(90_000),
+			wantPruned:     []bool{true},
 		},
 		{
 			name:           "lagging store lowers the global head",

@@ -44,11 +44,19 @@ type PrunableStore interface {
 	// GetPruningBoundary returns the oldest block this store must keep to remain able to
 	// serve cutLine, or 0 to opt out of this cycle (not participate in calculating min prune height).
 	//
+	// A non-zero answer must never exceed cutLine. The collector prunes every participating
+	// store to the minimum of these answers, so an answer above cutLine can raise that minimum
+	// above head - RollbackWindow and tell a store holding contiguous history to drop data
+	// inside the rollback window. Honoring this bound is what makes pruneHeight <= cutLine
+	// hold by construction, with no clamping in the collector.
+	//
 	// Contiguous stores can restore to any height they hold → return cutLine.
 	//
 	// Snapshot stores can restore only at snapshot heights → return the newest completed
-	// snapshot ≤ cutLine, or the oldest completed snapshot if every snapshot is above
-	// cutLine (none can be dropped yet). No completed snapshot → 0.
+	// snapshot ≤ cutLine. When every snapshot is above cutLine, none of them can be dropped;
+	// return cutLine rather than the oldest snapshot, which reports that without breaking the
+	// bound above — pruning below cutLine cannot reach a snapshot that sits above it.
+	// No completed snapshot → 0.
 	//
 	// Assumption: snapshot creation finishes quickly enough that an in-flight write need
 	// not be reserved; modeling long-running snapshot writes is out of scope.

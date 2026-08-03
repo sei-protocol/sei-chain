@@ -40,19 +40,28 @@ var logger = seilog.NewLogger("db", "gc")
 //
 // Precondition on stores: every store passed in is live. A store disabled for this node is
 // not instantiated and so never reaches the collector, so the set holds no permanently-empty
-// member. A store that is present but has ingested nothing reports head 0; that head is
-// ignored when computing the global head and the store opts out via GetPruningBoundary, so
-// one store still filling does not stall pruning fleet-wide.
+// member. A store that is present but has ingested nothing reports head 0, and that head is
+// ignored when computing the global head so one store still filling cannot stall pruning
+// fleet-wide. Nothing stops such a store from still reporting a boundary, and it need not:
+// answering low only lowers pruneHeight, which is the conservative direction.
 //
-// That skip is only safe while no store bootstraps from another store's history: today each
-// replays its own changelog and owns that changelog's retention. If a store is ever fed from
-// another store's WAL, it could sit at head 0 while that WAL is pruned past what it needs,
-// and this rule has to change (distinguish "empty and still bootstrapping" from "not
-// participating" rather than skipping both).
+// Ignoring a 0 head is safe because a store fills from its own ingest path, not from another
+// store's retained range. That is narrower than the cross-store dependency: there,
+// participants must cover each other's boundaries, which the shared min guarantees. The gap
+// would be a store that reports head 0 (or opts out) this cycle and later needs blocks the
+// participants are dropping now. If a store is ever fed from another store's WAL that becomes
+// reachable, and this rule has to change — "empty and still bootstrapping" would then need to
+// be distinguishable from "not participating" rather than both mapping to a skip.
 //
 // Invariant: if RollbackWindow blocks of rollback were possible before a prune, that
 // prune does not take the ability away. Full headroom is not promised after a rollback
 // has already consumed part of the window.
+//
+// This rests on GetPruningBoundary never answering above the cutLine it was given, which
+// makes pruneHeight <= min(cutLine) <= head - RollbackWindow hold by construction — the
+// collector does not clamp. A store that broke that bound could raise pruneHeight into the
+// rollback window of the other participants, which is why the bound is stated as a contract
+// requirement rather than inferred from any particular store's shape.
 //
 // The type is a ticker around prune; decision logic lives in prune for unit testing.
 // Not safe for concurrent use (Close must be called exactly once).

@@ -39,8 +39,10 @@ type GigaStorageConfig struct {
 // argument callers pass as dir). DBDirectory and EVMSplit are left at their defaults:
 // they only matter for the composite path, which Giga does not use.
 //
-// Unlike the other Default*Config helpers in this package, this can fail: the block-store
-// default wraps littdb.DefaultConfig, which validates the directory path.
+// Unlike the other Default*Config helpers in this package, this returns an error: the
+// block-store default wraps littdb.DefaultConfig, whose signature is fallible. It only rejects
+// an empty path list, so the error cannot fire from here — the return is kept so this helper
+// does not have to change if littdb starts validating the path itself.
 func DefaultGigaStorageConfig(homePath string) (GigaStorageConfig, error) {
 	blockDBConfig, err := littblock.DefaultConfig(utils.GetBlockStorePath(homePath))
 	if err != nil {
