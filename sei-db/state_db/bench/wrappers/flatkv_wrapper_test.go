@@ -29,7 +29,8 @@ func TestFlatKVWrapperCommitsOneBlockPerCommit(t *testing.T) {
 	defer func() { require.NoError(t, wrapper.Close()) }()
 
 	for block := 1; block <= 5; block++ {
-		require.NoError(t, wrapper.ApplyChangeSets(flatKVEntry(wrapper.Version()+1, byte(block))), "block %d", block)
+		require.NoError(t,
+			wrapper.ApplyChangeSets(flatKVEntry(wrapper.Version()+1, byte(block))), "block %d", block)
 		committed, err := wrapper.Commit()
 		require.NoError(t, err, "block %d", block)
 		require.Equal(t, int64(block), committed)
@@ -48,7 +49,7 @@ func TestFlatKVWrapperRejectsSecondBlockBeforeCommit(t *testing.T) {
 	require.NoError(t, wrapper.ApplyChangeSets(flatKVEntry(1, 0x01)))
 
 	err = wrapper.ApplyChangeSets(flatKVEntry(2, 0x02))
-	require.ErrorContains(t, err, "only one block may be buffered per commit")
+	require.ErrorContains(t, err, "flatkv: apply version 2 must be committed version 0 plus one")
 
 	// The rejected call left the pending block intact and committable.
 	committed, err := wrapper.Commit()
