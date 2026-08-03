@@ -208,7 +208,7 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 		return fmt.Errorf("failed to create FlatKV store: %w", err)
 	}
 	defer func() { _ = store.Close() }()
-	if _, err := store.LoadVersion(0, false); err != nil {
+	if err := store.LoadLatest(); err != nil {
 		return fmt.Errorf("failed to open FlatKV store: %w", err)
 	}
 

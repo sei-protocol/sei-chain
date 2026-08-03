@@ -19,22 +19,22 @@ type Options struct {
 
 // Store provides EVM state storage with LtHash integrity.
 //
-// Lifecycle: NewCommitStore (create) → LoadVersion (open) → ApplyChangeSets/Commit → Close.
+// Lifecycle: NewCommitStore (create) → LoadLatest (open) → ApplyChangeSets/Commit → Close.
 // Write path: ApplyChangeSets (buffer) → Commit (persist).
-// Read path: Get/Has/Iterator read committed state only.
+// Read path: Get/Has/Iterator read committed state only; LoadVersionReadOnly serves past versions.
 // Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
 type Store interface {
-	// LoadVersion opens the database at the given version (0 = latest).
+	// LoadLatest opens this store at the latest persisted version, ready to commit. It must be called
+	// before any read or write, and is the only way to obtain a committable store. Use Rollback to move a
+	// committable store backwards.
+	LoadLatest() error
+
+	// LoadVersionReadOnly returns an isolated read-only view of the store at targetVersion (0 = latest).
+	// This store is left untouched and keeps committing; the caller owns the view and must Close it.
 	//
-	// Sharp edges. The two modes differ in what they load: readOnly=true returns
-	// a new isolated store and leaves the receiver untouched (the caller must
-	// Close it when done), while readOnly=false loads and returns the receiver
-	// itself. And a writable load at a non-zero version leaves the state WAL
-	// holding its blocks above targetVersion, so Commit fails as non-contiguous
-	// and such a store can only be read from; Rollback rewinds and prunes
-	// together, and is the only way to reach an older version and keep
-	// committing.
-	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
+	// The view is reconstructed from the newest snapshot at or below targetVersion plus this store's WAL,
+	// so a version whose history has been pruned fails rather than being served approximately.
+	LoadVersionReadOnly(targetVersion int64) (Store, error)
 
 	// ApplyChangeSets buffers changesets at the given version, to be
 	// persisted by the next Commit.
@@ -60,7 +60,7 @@ type Store interface {
 	CommitBlock(version int64, cs []*proto.NamedChangeSet) error
 
 	// SetInitialVersion seeds the store so that Commit(initialVersion) is
-	// accepted as the first commit. Must be called after LoadVersion, on a
+	// accepted as the first commit. Must be called after LoadLatest, on a
 	// truly fresh store (no prior commits) and before any writes. Returns an
 	// error on a read-only store, on a non-fresh store, or for
 	// initialVersion <= 0.
@@ -148,16 +148,18 @@ type Store interface {
 	PendingVersion() int64
 
 	// GetLatestVersion returns the latest committed version persisted to
-	// disk. Equivalent to Version() once LoadVersion has run; before
-	// LoadVersion it answers from on-disk metadata so callers can
+	// disk. Equivalent to Version() once LoadLatest has run; before
+	// LoadLatest it answers from on-disk metadata so callers can
 	// inspect the store's height without taking ownership of it.
 	GetLatestVersion() (int64, error)
 
 	// WriteSnapshot writes a complete snapshot to dir.
 	WriteSnapshot(dir string) error
 
-	// Rollback restores state to targetVersion by rewinding to the best
-	// snapshot, replaying WAL, and pruning snapshots/WAL beyond target.
+	// Rollback rewinds a store opened with LoadLatest to targetVersion and prunes everything above it:
+	// snapshots, WAL blocks and committed state. It is the only way to move a committable store backwards,
+	// and the result keeps committing from targetVersion+1. An unreachable target is rejected before
+	// anything is modified.
 	Rollback(targetVersion int64) error
 
 	// Exporter creates an exporter for the given version (0 = current).

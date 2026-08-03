@@ -31,7 +31,12 @@ func reopenCommittedRoot(t *testing.T, dir string, readOnly bool) []byte {
 	cfg.DataDir = dir
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	ro, err := s.LoadVersion(0, readOnly)
+	if !readOnly {
+		require.NoError(t, s.LoadLatest())
+		defer func() { require.NoError(t, s.Close()) }()
+		return s.CommittedRootHash()
+	}
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 	cs := ro.(*CommitStore)

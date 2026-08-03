@@ -99,7 +99,7 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	commitMixedState(t, s1, 1)
@@ -127,7 +127,7 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -146,7 +146,7 @@ func TestPerDBLtHashPersistenceAfterReopen(t *testing.T) {
 
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 10; i++ {
@@ -161,7 +161,7 @@ func TestPerDBLtHashPersistenceAfterReopen(t *testing.T) {
 
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -259,7 +259,7 @@ func TestPerDBLtHashCatchupReplay(t *testing.T) {
 
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	commitMixedState(t, s1, 1)
@@ -282,7 +282,7 @@ func TestPerDBLtHashCatchupReplay(t *testing.T) {
 
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -328,7 +328,7 @@ func TestPerDBLtHashAfterImport(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	imp, err := s.Importer(1)
@@ -368,7 +368,7 @@ func TestPerDBLtHashRollback(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	commitMixedState(t, s, 1)
@@ -397,7 +397,7 @@ func TestPerDBLtHashPersistedInLocalMeta(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	commitMixedState(t, s, 1)
@@ -431,7 +431,7 @@ func TestPerDBLtHashAfterDirectImport(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	var pairs []*proto.KVPair

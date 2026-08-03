@@ -138,7 +138,7 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 	cfg.DataDir = dbDir
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	// A committed EVM storage entry gives storageDB a non-identity per-DB root
@@ -170,7 +170,7 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
 	require.NoError(t, err)
 	defer s2.Close()
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "predates per-module hashing")
 }
@@ -319,7 +319,7 @@ func TestSetInitialVersion_PersistsEarliestVersion(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	require.Equal(t, int64(0), s.EarliestVersion(),
 		"a fresh store has no earliest-version record")
@@ -330,7 +330,7 @@ func TestSetInitialVersion_PersistsEarliestVersion(t *testing.T) {
 
 	reopened, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = reopened.LoadVersion(0, false)
+	err = reopened.LoadLatest()
 	require.NoError(t, err)
 	defer reopened.Close()
 	require.Equal(t, int64(99), reopened.EarliestVersion(),
@@ -364,7 +364,7 @@ func TestSetInitialVersion_RejectsReadOnly(t *testing.T) {
 	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	roStore, err := s.LoadVersion(0, true)
+	roStore, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer roStore.Close()
 
@@ -390,7 +390,7 @@ func TestSetInitialVersion_SurvivesReopen(t *testing.T) {
 	cfg.DataDir = dbDir
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	require.NoError(t, s.SetInitialVersion(100))
@@ -400,7 +400,7 @@ func TestSetInitialVersion_SurvivesReopen(t *testing.T) {
 	cfg2.DataDir = dbDir
 	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -448,7 +448,7 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	cfg.DataDir = dbDir
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
@@ -469,7 +469,7 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	cfg2.DataDir = dbDir
 	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -498,7 +498,7 @@ func TestGetLatestVersionAfterCommitsReadsWorkingMeta(t *testing.T) {
 	cfg.DataDir = dbDir
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
@@ -521,7 +521,7 @@ func TestGetLatestVersionMissingKeyReturnsZero(t *testing.T) {
 	cfg.DataDir = dbDir
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 
@@ -556,7 +556,7 @@ func TestCommitStoreGetLatestVersionFallsBackToDiskWhenUnloaded(t *testing.T) {
 	cfg.DataDir = dbDir
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})

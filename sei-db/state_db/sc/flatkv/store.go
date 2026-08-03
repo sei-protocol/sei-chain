@@ -105,7 +105,7 @@ func applyPebbleMetricsConfig(c *config.Config) {
 // snapshot their data at construction time (pending writes are cloned and the
 // Pebble view is pinned), so once built they may be used and Closed without
 // holding mu and may safely outlive a subsequent ApplyChangeSets/Commit. All
-// other lifecycle operations (LoadVersion, Rollback, snapshot/import/export,
+// other lifecycle operations (LoadLatest, Rollback, snapshot/import/export,
 // Close) must still be serialized by the caller.
 type CommitStore struct {
 	// mu guards the pending-writes maps against concurrent iterator
@@ -178,11 +178,6 @@ type CommitStore struct {
 	// lifecycle is decoupled from the DB open/close cycle, so closeDBsOnly does not touch it.
 	wal statewal.StateWAL
 
-	// Whether FlatKV manages a WAL (a non-nil instance was injected at construction). It records the intent
-	// even across a Close that nil-es the live instance, so import reset can reconstruct the WAL rather than
-	// mistaking a closed-but-owned WAL for the nil "outer context owns it" case.
-	manageWAL bool
-
 	// Changes to feed into the WAL at the next commit.
 	pendingChangeSets []*proto.NamedChangeSet
 
@@ -199,7 +194,7 @@ type CommitStore struct {
 
 	phaseTimer *metrics.PhaseTimer
 
-	// readOnly marks stores opened via LoadVersion(..., true).
+	// readOnly marks stores opened via LoadVersionReadOnly.
 	readOnly bool
 
 	readOnlyWorkDir string // Temp working dir for readonly store; removed by Close.
@@ -282,7 +277,7 @@ func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueD
 }
 
 // NewCommitStore creates a new (unopened) FlatKV commit store.
-// Call LoadVersion to open and initialize.
+// Call LoadLatest to open and initialize.
 //
 // A non-nil stateWAL is owned by the store: it writes to it and closes, deletes, prunes and reopens it as
 // rollback and restore require, recreating it under cfg.DataDir — so pass the instance OpenStateWAL(cfg)
@@ -335,7 +330,6 @@ func NewCommitStore(
 		ltHashPool:               ltHashPool,
 		ltCalc:                   ltCalc,
 		wal:                      stateWAL,
-		manageWAL:                stateWAL != nil,
 	}, nil
 }
 
@@ -372,40 +366,22 @@ func (s *CommitStore) flatkvDir() string {
 
 var errReadOnly = errors.New("flatkv: store is read-only")
 
-// LoadVersion opens the database at the given version (0 = latest).
-// When readOnly is true an isolated, read-only CommitStore is returned;
-// the caller must Close it when done.
-// See the Store interface for this method's sharp edges.
-func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (opened Store, retErr error) {
-	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
-	obs := s.observeOp("LoadVersion", otelMetrics.OpenLatency,
-		"targetVersion", targetVersion, "readOnly", readOnly).
-		withAttrs(attribute.Bool("read_only", readOnly))
+// LoadLatest opens the database at the latest persisted version, leaving this store open for writing.
+// It is the only way to obtain a store that can commit.
+func (s *CommitStore) LoadLatest() (retErr error) {
+	logger.Info("FlatKV LoadLatest")
+	obs := s.observeOp("LoadLatest", otelMetrics.OpenLatency).
+		withAttrs(attribute.Bool("read_only", false))
 	defer obs.done(&retErr, func() {
-		version := s.committedVersion
-		if opened != nil {
-			version = opened.Version()
-		}
-		if !readOnly {
-			otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
-		}
-		logger.Info("FlatKV LoadVersion complete",
-			"targetVersion", targetVersion,
-			"readOnly", readOnly,
-			"version", version,
-			"elapsed", obs.elapsed())
+		otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		logger.Info("FlatKV LoadLatest complete", "version", s.committedVersion, "elapsed", obs.elapsed())
 	})
 
-	if readOnly {
-		if s.readOnly {
-			return nil, errReadOnly
-		}
-		return s.loadVersionReadOnly(targetVersion)
+	if s.readOnly {
+		return errReadOnly
 	}
 
 	_ = s.closeDBsOnly()
-
-	dir := s.flatkvDir()
 
 	// Track whether we acquire the lock in this call so we can release it
 	// on any error path (open() won't track a pre-held lock).
@@ -417,60 +393,47 @@ func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (opened St
 		}
 	}()
 
-	// TODO: this should also truncate the WAL to targetVersion, the way Rollback
-	// does, so the loaded store can go on committing instead of being read-only
-	// in practice.
-	if targetVersion > 0 {
-		if err := os.MkdirAll(dir, 0750); err != nil {
-			return nil, fmt.Errorf("create flatkv dir: %w", err)
-		}
-		// Acquire lock before mutating the current symlink to prevent
-		// a race with another process observing an unintended baseline.
-		if s.fileLock == nil {
-			if err := s.acquireFileLock(dir); err != nil {
-				return nil, err
-			}
-		}
-		if baseVer, err := seekSnapshot(dir, targetVersion); err == nil {
-			if err := updateCurrentSymlink(dir, snapshotName(baseVer)); err != nil {
-				return nil, fmt.Errorf("update current symlink for target version %d: %w", targetVersion, err)
-			}
-		} else {
-			logger.Debug("no snapshot found, will open current", "target", targetVersion, "err", err)
-		}
-		// Force a fresh working dir clone: the working dir may contain data
-		// beyond targetVersion from a previous open-to-latest.
-		_ = os.Remove(filepath.Join(dir, workingDirName, snapshotBaseFile))
+	if err := s.openTo(0); err != nil {
+		return fmt.Errorf("failed to open FlatKV store: %w", err)
 	}
-
-	if err := s.openTo(targetVersion); err != nil {
-		return nil, fmt.Errorf("failed to open FlatKV store: %w", err)
-	}
-
-	if targetVersion > 0 && s.committedVersion != targetVersion {
-		_ = s.closeDBsOnly()
-		return nil, fmt.Errorf("FlatKV version mismatch: requested %d, reached %d",
-			targetVersion, s.committedVersion)
-	}
-
-	return s, nil
+	return nil
 }
 
-// loadVersionReadOnly creates an isolated, read-only CommitStore at the
-// requested version. If the writer lock has not yet been acquired (e.g. the
-// store was freshly constructed), CleanupOrphanedReadOnlyDirs is called
-// lazily to acquire it and clean up any leftover directories. When the lock
-// is acquired lazily, ownership is transferred to the returned clone so that
-// closing the clone releases it; this prevents leaking the lock when the
-// caller never explicitly closes the parent store.
-func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr error) {
+// LoadVersionReadOnly returns an isolated read-only view of the database at targetVersion (0 = latest).
+// This store is left untouched and keeps committing; the caller owns the view and must Close it.
+//
+// If the writer lock has not yet been acquired (e.g. the store was freshly constructed),
+// CleanupOrphanedReadOnlyDirs is called lazily to acquire it and clean up any leftover directories. When the
+// lock is acquired lazily, ownership is transferred to the returned view so that closing the view releases
+// it; this prevents leaking the lock when the caller never explicitly closes this store.
+func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, retErr error) {
+	logger.Info("FlatKV LoadVersionReadOnly", "targetVersion", targetVersion)
+	obs := s.observeOp("LoadVersionReadOnly", otelMetrics.OpenLatency, "targetVersion", targetVersion).
+		withAttrs(attribute.Bool("read_only", true))
+	defer obs.done(&retErr, func() {
+		var reached int64
+		if opened != nil {
+			reached = opened.Version()
+		}
+		logger.Info("FlatKV LoadVersionReadOnly complete",
+			"targetVersion", targetVersion,
+			"version", reached,
+			"elapsed", obs.elapsed())
+	})
+
+	if s.readOnly {
+		return nil, errReadOnly
+	}
+
 	lazyLock := s.fileLock == nil
 	if lazyLock {
 		if err := s.CleanupOrphanedReadOnlyDirs(); err != nil {
-			return nil, fmt.Errorf("loadVersionReadOnly: pre-init cleanup: %w", err)
+			return nil, fmt.Errorf("readonly pre-init cleanup: %w", err)
 		}
 	}
 
+	// The view gets an independent context, not one derived from s.ctx: callers close this store while
+	// still reading from the view, and a derived context would cancel those reads.
 	ro, err := NewCommitStore(context.Background(), &s.config, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create readonly store: %w", err)
@@ -488,8 +451,8 @@ func (s *CommitStore) loadVersionReadOnly(targetVersion int64) (_ Store, retErr 
 	ro.config.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
 	ro.config.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
 
-	// Transfer the lazily-acquired lock to the clone so that ro.Close()
-	// releases it, preventing a leak when the parent is never closed.
+	// Transfer the lazily-acquired lock to the view so that ro.Close()
+	// releases it, preventing a leak when this store is never closed.
 	if lazyLock && s.fileLock != nil {
 		ro.fileLock = s.fileLock
 		s.fileLock = nil
@@ -1009,7 +972,7 @@ func (s *CommitStore) resetForImport() error {
 // importing; closing twice is a no-op. On failure the store keeps the closed instance rather than dropping to
 // nil, so a later write fails loudly instead of being skipped.
 func (s *CommitStore) resetWAL() error {
-	if !s.manageWAL {
+	if s.wal == nil {
 		return nil
 	}
 	cfg := stateWALConfig(&s.config)

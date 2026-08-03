@@ -359,7 +359,7 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 			s.committedVersion)
 	}
 	if s.metadataDB == nil {
-		return fmt.Errorf("flatkv: SetInitialVersion called before LoadVersion")
+		return fmt.Errorf("flatkv: SetInitialVersion called before LoadLatest")
 	}
 
 	seededVersion := initialVersion - 1
@@ -426,7 +426,7 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 // GetLatestVersion returns the latest committed version persisted under
 // dir without holding an open *CommitStore. Mirrors memiavl.GetLatestVersion
 // in role: a side-channel for callers that need the on-disk watermark
-// before LoadVersion has run (e.g. the rootmulti sanity check at
+// before LoadLatest has run (e.g. the rootmulti sanity check at
 // process startup). Returns 0 when the store has never been opened or
 // has no commits yet.
 //
@@ -473,7 +473,7 @@ func GetLatestVersion(dir string) (int64, error) {
 
 // GetLatestVersion returns the latest committed version. When the store
 // is open, the in-memory committed watermark is authoritative; before
-// LoadVersion has run, it falls back to the free-standing on-disk
+// LoadLatest has run, it falls back to the free-standing on-disk
 // helper. Either path returns 0 on a fresh store.
 func (s *CommitStore) GetLatestVersion() (int64, error) {
 	if s.metadataDB != nil {

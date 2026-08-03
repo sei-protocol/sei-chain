@@ -19,7 +19,7 @@ func TestCatchupNoOpWhenWALBehindCommittedVersion(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -44,7 +44,7 @@ func TestCatchupRecoversGappedCommitBlockAfterMetadataLag(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := ktype.Address{0xAB}
@@ -79,7 +79,7 @@ func gappedWALStore(t *testing.T, firstBlock int64) *CommitStore {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
@@ -120,7 +120,7 @@ func TestLoadVersionSurfacesCatchupGap(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
@@ -135,7 +135,7 @@ func TestLoadVersionSurfacesCatchupGap(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = reopened.Close() }()
 
-	_, err = reopened.LoadVersion(0, false)
+	err = reopened.LoadLatest()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "blocks 6-9 are missing")
 }
@@ -147,7 +147,7 @@ func TestReadOnlyAcceptsMidChainWALStart(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	defer func() { require.NoError(t, s.Close()) }()
 
@@ -158,7 +158,7 @@ func TestReadOnlyAcceptsMidChainWALStart(t *testing.T) {
 	}
 
 	// The only snapshot is the initial one, so the clone opens at version 0 while the WAL begins at 10.
-	ro, err := s.LoadVersion(12, true)
+	ro, err := s.LoadVersionReadOnly(12)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, ro.Close()) }()
 	require.Equal(t, int64(12), ro.Version())
@@ -174,7 +174,7 @@ func TestReadOnlySurfacesReplayGap(t *testing.T) {
 	cfg.SnapshotKeepRecent = 8
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	defer func() { require.NoError(t, s.Close()) }()
 
@@ -190,7 +190,7 @@ func TestReadOnlySurfacesReplayGap(t *testing.T) {
 	require.NoError(t, s.resetWAL())
 	commit(10, 0x99)
 
-	_, err = s.LoadVersion(3, true)
+	_, err = s.LoadVersionReadOnly(3)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "are missing")
 

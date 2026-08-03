@@ -561,7 +561,7 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	cfg.DataDir = dir
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	for i := 1; i <= 10; i++ {
@@ -582,7 +582,7 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	cfg.DataDir = dir
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -1150,7 +1150,7 @@ func TestLtHashReadOnlyMatchesParent(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 5; i++ {
@@ -1169,7 +1169,7 @@ func TestLtHashReadOnlyMatchesParent(t *testing.T) {
 	parentHash := s.CommittedRootHash()
 	verifyLtHashAtHeight(t, s, 5)
 
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -1275,7 +1275,7 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	// Blocks 1-3: mixed state
@@ -1297,7 +1297,7 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 	cfg2.DataDir = dbDir
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -1323,7 +1323,7 @@ func TestLtHashRollbackFullScan(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 5; i++ {
@@ -1402,7 +1402,7 @@ func TestLtHashMultipleRollbacks(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 5; i++ {

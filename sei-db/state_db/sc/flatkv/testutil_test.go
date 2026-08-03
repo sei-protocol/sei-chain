@@ -71,7 +71,7 @@ func setupTestStore(t *testing.T) *CommitStore {
 	t.Helper()
 	s, err := newCommitStoreWithWAL(t.Context(), config.DefaultTestConfig(t))
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	return s
 }
@@ -83,7 +83,7 @@ func setupTestStoreWithConfig(t *testing.T, cfg *config.Config) *CommitStore {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	return s
 }

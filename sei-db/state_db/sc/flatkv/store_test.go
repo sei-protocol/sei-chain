@@ -41,7 +41,7 @@ func TestStoreOpenClose(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	require.NoError(t, s.Close())
@@ -70,7 +70,7 @@ func TestStoreClose(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	// Close should succeed
@@ -286,7 +286,7 @@ func TestStorePersistence(t *testing.T) {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	cs := makeChangeSet(key, value, false)
@@ -299,7 +299,7 @@ func TestStorePersistence(t *testing.T) {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -419,7 +419,7 @@ func TestFileLockPreventsDoubleOpen(t *testing.T) {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	// The second store uses a nil WAL so its construction does not take the WAL's changelog-directory lock;
@@ -429,13 +429,13 @@ func TestFileLockPreventsDoubleOpen(t *testing.T) {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := NewCommitStore(t.Context(), cfg, nil)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.Error(t, err, "second open on same dir should fail due to file lock")
 	require.Contains(t, err.Error(), "file lock")
 
 	require.NoError(t, s1.Close())
 
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err, "should succeed after first store releases lock")
 	require.NoError(t, s2.Close())
 }
@@ -448,7 +448,7 @@ func TestCloseDBsOnlyIdempotent(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	require.NoError(t, s.closeDBsOnly())
@@ -462,14 +462,14 @@ func TestCloseDBsOnlyIdempotent(t *testing.T) {
 // LoadVersion with targetVersion > WAL
 // =============================================================================
 
-func TestLoadVersionTargetBeyondWALFails(t *testing.T) {
+func TestReadOnlyAtBeyondWALFails(t *testing.T) {
 	dir := t.TempDir()
 
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s1, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
@@ -481,8 +481,11 @@ func TestLoadVersionTargetBeyondWALFails(t *testing.T) {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(100, false)
-	require.Error(t, err, "loading version beyond WAL should fail")
+	require.NoError(t, s2.LoadLatest())
+	defer func() { require.NoError(t, s2.Close()) }()
+	_, err = s2.LoadVersionReadOnly(100)
+	require.ErrorContains(t, err, "readonly version mismatch",
+		"a view beyond the WAL should fail")
 }
 
 // =============================================================================
@@ -496,7 +499,7 @@ func TestReopenReusesWorkingDir(t *testing.T) {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
@@ -512,7 +515,7 @@ func TestReopenReusesWorkingDir(t *testing.T) {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -529,7 +532,7 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
@@ -544,7 +547,7 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -615,7 +618,7 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
@@ -637,7 +640,7 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -664,7 +667,7 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	s, err := newCommitStoreWithWAL(t.Context(), config.DefaultTestConfig(t))
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := ktype.Address{0xAA}
@@ -675,7 +678,7 @@ func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, value, false)}))
 	commitAndCheck(t, s)
 
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -691,7 +694,7 @@ func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	writer, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = writer.LoadVersion(0, false)
+	err = writer.LoadLatest()
 	require.NoError(t, err)
 
 	addr := ktype.Address{0xCC}
@@ -705,7 +708,7 @@ func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
 
 	fresh, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	ro, err := fresh.LoadVersion(0, true)
+	ro, err := fresh.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -719,7 +722,7 @@ func TestReadOnlyAtSpecificVersion(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := ktype.Address{0x11}
@@ -733,7 +736,7 @@ func TestReadOnlyAtSpecificVersion(t *testing.T) {
 		commitAndCheck(t, s)
 	}
 
-	ro, err := s.LoadVersion(3, true)
+	ro, err := s.LoadVersionReadOnly(3)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -747,7 +750,7 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := ktype.Address{0xAA}
@@ -756,7 +759,7 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -768,7 +771,7 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	_, err = ro.(*CommitStore).Importer(1)
 	require.ErrorIs(t, err, errReadOnly)
 
-	_, err = ro.LoadVersion(0, true)
+	_, err = ro.LoadVersionReadOnly(0)
 	require.ErrorIs(t, err, errReadOnly)
 }
 
@@ -776,7 +779,7 @@ func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := ktype.Address{0xAA}
@@ -785,7 +788,7 @@ func TestReadOnlyParentWritesDuringReadOnly(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -808,7 +811,7 @@ func TestReadOnlyConcurrentInstances(t *testing.T) {
 	cfg.SnapshotKeepRecent = 10
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := ktype.Address{0x11}
@@ -822,11 +825,11 @@ func TestReadOnlyConcurrentInstances(t *testing.T) {
 		commitAndCheck(t, s)
 	}
 
-	ro1, err := s.LoadVersion(0, true)
+	ro1, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro1.Close()
 
-	ro2, err := s.LoadVersion(0, true)
+	ro2, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro2.Close()
 
@@ -845,7 +848,7 @@ func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := ktype.Address{0xAA}
@@ -854,7 +857,7 @@ func TestReadOnlyFailureDoesNotAffectParent(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
-	_, err = s.LoadVersion(999, true)
+	_, err = s.LoadVersionReadOnly(999)
 	require.Error(t, err)
 
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(2), false)}))
@@ -871,7 +874,7 @@ func TestReadOnlyCloseRemovesTempDir(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := ktype.Address{0xAA}
@@ -880,7 +883,7 @@ func TestReadOnlyCloseRemovesTempDir(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(1), false)}))
 	commitAndCheck(t, s)
 
-	roStore, err := s.LoadVersion(0, true)
+	roStore, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 
 	roCommit := roStore.(*CommitStore)
@@ -911,7 +914,7 @@ func TestCleanupOrphanedReadOnlyDirs(t *testing.T) {
 	require.NoDirExists(t, orphan1)
 	require.NoDirExists(t, orphan2)
 
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 }
 
@@ -941,7 +944,7 @@ func TestLoadVersionReload(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := addrN(0x01)
@@ -952,8 +955,8 @@ func TestLoadVersionReload(t *testing.T) {
 
 	expectedHash := s.RootHash()
 
-	// Re-call LoadVersion(0, false) on the same store: should close and reopen.
-	_, err = s.LoadVersion(0, false)
+	// Re-call LoadLatest on the same store: should close and reopen.
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	require.Equal(t, int64(1), s.Version())
@@ -975,7 +978,7 @@ func TestLoadVersionReadOnlyVersion0(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Version 0 in read-only means "latest committed".
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -1001,7 +1004,7 @@ func TestLoadVersionReadOnlyDoesNotSeePending(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 
 	// RO should not see the uncommitted write.
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -1022,7 +1025,7 @@ func TestLoadVersionEmptyWAL(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	// Fresh store with no commits: WAL is empty.
@@ -1039,7 +1042,7 @@ func TestCloseWithPendingUncommittedWrites(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := addrN(0x10)
@@ -1059,7 +1062,7 @@ func TestCloseWithPendingUncommittedWrites(t *testing.T) {
 	// Reopen: uncommitted data should be lost.
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -1082,7 +1085,7 @@ func TestCloseDuringConcurrentReadOnlyClone(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 
 	// Close parent while RO is still open.
@@ -1140,7 +1143,7 @@ func TestCatchupSkipsAlreadyCommittedEntries(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := addrN(0x20)
@@ -1158,7 +1161,7 @@ func TestCatchupSkipsAlreadyCommittedEntries(t *testing.T) {
 	// and skip already-committed entries.
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -1174,7 +1177,7 @@ func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := addrN(0x21)
@@ -1189,15 +1192,18 @@ func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
 	}
 	require.NoError(t, s.Close())
 
-	// Open at v3 (middle of WAL).
+	// View at v3 (middle of WAL).
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(3, false)
-	require.NoError(t, err)
+	require.NoError(t, s2.LoadLatest())
 	defer s2.Close()
 
-	require.Equal(t, int64(3), s2.Version())
-	require.Equal(t, hashes[3], s2.RootHash())
+	ro, err := s2.LoadVersionReadOnly(3)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, ro.Close()) }()
+
+	require.Equal(t, int64(3), ro.Version())
+	require.Equal(t, hashes[3], ro.RootHash())
 }
 
 func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
@@ -1208,7 +1214,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := addrN(0x01)
@@ -1241,7 +1247,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	// Reopen: loadGlobalMetadata detects version skew and catchup replays.
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -1269,7 +1275,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := addrN(0x02)
@@ -1294,7 +1300,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -1317,7 +1323,7 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := addrN(0x03)
@@ -1334,7 +1340,7 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 	// Reopen normally -- large WAL gap between snapshot and HEAD.
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -1358,7 +1364,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := addrN(0x04)
@@ -1379,7 +1385,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	// Reopen: should work from snapshot alone.
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -1403,7 +1409,7 @@ func walStoreAtV1(t *testing.T, cfg *config.Config) *CommitStore {
 	t.Helper()
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x01)))
@@ -1421,10 +1427,8 @@ func TestCloseRetainsWALInstance(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s := walStoreAtV1(t, cfg)
 
-	require.True(t, s.manageWAL)
 	require.NoError(t, s.Close())
 	require.NotNil(t, s.wal, "Close must retain the closed WAL instance, not nil it")
-	require.True(t, s.manageWAL, "manageWAL is fixed at construction")
 }
 
 // TestCommitWithClosedWALFailsLoudly verifies the state a failed resetWAL now leaves behind — DBs open, WAL
@@ -1524,7 +1528,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := addrN(0x06)
@@ -1554,7 +1558,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	// Reopen: catchup should replay v2 from WAL.
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -1575,7 +1579,7 @@ func TestCrashRecoveryLtHashConsistencyAfterAllPaths(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addr := addrN(0x07)
@@ -1601,7 +1605,7 @@ func TestCrashRecoveryLtHashConsistencyAfterAllPaths(t *testing.T) {
 	// Path 1: Normal reopen
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	verifyLtHashConsistency(t, s2)
 
@@ -1626,7 +1630,7 @@ func TestCrashRecoveryLtHashConsistencyAfterAllPaths(t *testing.T) {
 	// Path 4: Reopen after rollback + new commit
 	s3, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s3.LoadVersion(0, false)
+	err = s3.LoadLatest()
 	require.NoError(t, err)
 	defer s3.Close()
 	verifyLtHashConsistency(t, s3)
@@ -1639,7 +1643,7 @@ func TestCrashRecoveryCorruptLtHashBlobInMetadata(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	cs := makeChangeSet(
@@ -1662,7 +1666,7 @@ func TestCrashRecoveryCorruptLtHashBlobInMetadata(t *testing.T) {
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	defer s2.Close()
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid LtHash size")
 }
@@ -1674,7 +1678,7 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	cs := makeChangeSet(
@@ -1697,7 +1701,7 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	defer s2.Close()
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid LtHash size")
 }
@@ -1709,7 +1713,7 @@ func TestCrashRecoveryGlobalVersionOverflow(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	cs := makeChangeSet(
@@ -1734,7 +1738,7 @@ func TestCrashRecoveryGlobalVersionOverflow(t *testing.T) {
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	defer s2.Close()
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "global version overflow")
 }

@@ -632,7 +632,7 @@ func NewTestFlatKVCommitStore(t *testing.T, dir string) *flatkv.CommitStore {
 	}
 	// LoadVersion(0, ...) loads the latest committed version on disk, or
 	// initialises the store at version 0 if the directory is empty.
-	if _, err := s.LoadVersion(0, false); err != nil {
+	if err := s.LoadLatest(); err != nil {
 		t.Fatalf("NewTestFlatKVCommitStore: LoadVersion: %v", err)
 	}
 	t.Cleanup(func() {

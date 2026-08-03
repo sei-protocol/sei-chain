@@ -241,7 +241,7 @@ func TestExporterReadOnlyGuard(t *testing.T) {
 
 	commitAndCheck(t, s)
 
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -318,7 +318,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 
 	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	imp, err := s1.Importer(1)
@@ -336,8 +336,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(1, false)
-	require.NoError(t, err)
+	require.NoError(t, s2.LoadLatest())
 	defer s2.Close()
 
 	require.Equal(t, int64(1), s2.Version())
@@ -367,7 +366,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	addrA := ktype.Address{0xAA}
@@ -446,7 +445,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	s, err = newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	imp, err := s.Importer(1)
@@ -486,8 +485,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	require.NoError(t, s.Close())
 	s, err = newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(1, false)
-	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
 	defer s.Close()
 
 	require.Equal(t, int64(1), s.Version())
@@ -507,7 +505,7 @@ func TestImporterFailsWhenResetCannotRemoveCurrentLink(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -540,7 +538,7 @@ func TestImporterOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -557,7 +555,7 @@ func TestImporterHeightNonZeroSkipped(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	imp, err := s.Importer(1)
@@ -586,7 +584,7 @@ func TestImporterNilKeySkipped(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	imp, err := s.Importer(1)
@@ -611,7 +609,7 @@ func TestImporterEmptyStore(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	imp, err := s.Importer(5)
@@ -631,7 +629,7 @@ func TestImporterCorruptKeyDataPropagatesError(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	imp, err := s.Importer(1)
@@ -657,7 +655,7 @@ func TestImporterDoubleImport(t *testing.T) {
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	storageVal1 := padLeft32(0x11)
@@ -809,7 +807,7 @@ func TestExportImportLargerDataset(t *testing.T) {
 	cfg2.DataDir = filepath.Join(dir2, flatkvRootDir)
 	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 
 	imp, err := s2.Importer(1)

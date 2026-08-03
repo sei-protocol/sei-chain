@@ -132,7 +132,7 @@ func (s *CommitStore) Close() error {
 // working directories left behind by a previous process crash. It is a
 // startup-only API and must be called before any read-only instances are
 // created in the current process. The acquired writer lock is retained for
-// subsequent LoadVersion(..., false) calls.
+// subsequent LoadLatest calls.
 func (s *CommitStore) CleanupOrphanedReadOnlyDirs() error {
 	dir := s.flatkvDir()
 	if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -170,14 +170,14 @@ func (s *CommitStore) Exporter(version int64) (types.Exporter, error) {
 	if s.readOnly {
 		return nil, errReadOnly
 	}
-	roStore, err := s.LoadVersion(version, true)
+	roStore, err := s.LoadVersionReadOnly(version)
 	if err != nil {
 		return nil, fmt.Errorf("load readonly version for export: %w", err)
 	}
 	cs, ok := roStore.(*CommitStore)
 	if !ok {
 		_ = roStore.Close()
-		return nil, fmt.Errorf("unexpected store type from LoadVersion")
+		return nil, fmt.Errorf("unexpected store type from LoadVersionReadOnly")
 	}
 	return NewKVExporter(cs, version), nil
 }

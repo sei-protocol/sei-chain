@@ -43,14 +43,14 @@ var errSourceChurning = errors.New("flatkv source kept churning during clone")
 // The tools intentionally operate on a temp clone of the selected snapshot +
 // WAL so they do not compete with a live node for the FlatKV writer lock.
 type openedFlatKV struct {
-	*flatkv.CommitStore
+	flatkv.Store
 	tempDir string
 }
 
 func (o *openedFlatKV) Close() error {
 	var err error
-	if o.CommitStore != nil {
-		err = o.CommitStore.Close()
+	if o.Store != nil {
+		err = o.Store.Close()
 	}
 	if o.tempDir != "" {
 		if rmErr := os.RemoveAll(o.tempDir); rmErr != nil {
@@ -97,22 +97,31 @@ func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
 		_ = os.RemoveAll(tempDir)
 		return nil, fmt.Errorf("failed to open FlatKV state WAL: %w", err)
 	}
-	store, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
+	primary, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
 	if err != nil {
 		_ = stateWAL.Close()
 		_ = os.RemoveAll(tempDir)
 		return nil, fmt.Errorf("failed to create FlatKV store: %w", err)
 	}
 
-	if _, err := store.LoadVersion(height, false); err != nil {
-		_ = store.Close()
+	// The view is built from the clone's snapshot and WAL by primary, which is disposable once the replay
+	// has finished: primary was never opened, so it holds no writer lock of its own and the lock it takes
+	// lazily is handed to the view.
+	view, err := primary.LoadVersionReadOnly(height)
+	if err != nil {
+		_ = primary.Close()
 		_ = os.RemoveAll(tempDir)
 		return nil, fmt.Errorf("failed to open FlatKV at version %d: %w", height, err)
 	}
+	if err := primary.Close(); err != nil {
+		_ = view.Close()
+		_ = os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("failed to close FlatKV clone writer: %w", err)
+	}
 
 	return &openedFlatKV{
-		CommitStore: store,
-		tempDir:     tempDir,
+		Store:   view,
+		tempDir: tempDir,
 	}, nil
 }
 
