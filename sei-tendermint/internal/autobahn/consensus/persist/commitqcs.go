@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const commitqcsDir = "commitqcs"
+
+// commitqcsWALName identifies the commitQC WAL in metrics.
+const commitqcsWALName = "autobahn_commitqcs"
 
 // LoadedCommitQC is a CommitQC loaded from disk during state restoration.
 type LoadedCommitQC struct {
@@ -19,13 +23,17 @@ type LoadedCommitQC struct {
 
 // commitQCState is the mutable state protected by CommitQCPersister's mutex.
 type commitQCState struct {
-	iw   utils.Option[*indexedWAL[*types.CommitQC]]
+	wal  utils.Option[seiwal.WAL[*types.CommitQC]]
 	next types.RoadIndex
+	// Whether a QC has been appended since the last flush, so a prune that re-persists its anchor is
+	// still made durable while a run of duplicates costs no fsync.
+	unflushed bool
 }
 
-// persistCommitQC writes a CommitQC to the WAL. Caller must hold the lock.
+// persistCommitQC schedules a CommitQC for the WAL under its own road index. The QC is not durable
+// until flush returns. Caller must hold the lock.
 // Duplicates (idx < next) are silently ignored for idempotent startup.
-// Gaps (idx > next) return an error (breaks linear index mapping).
+// Gaps (idx > next) return an error.
 func (s *commitQCState) persistCommitQC(qc *types.CommitQC) error {
 	idx := qc.Index()
 	if idx < s.next {
@@ -34,61 +42,70 @@ func (s *commitQCState) persistCommitQC(qc *types.CommitQC) error {
 	if idx > s.next {
 		return fmt.Errorf("commitqc %d out of sequence (next=%d)", idx, s.next)
 	}
-	if iw, ok := s.iw.Get(); ok {
-		if err := iw.Write(qc); err != nil {
+	if w, ok := s.wal.Get(); ok {
+		if err := w.Append(uint64(idx), qc); err != nil {
 			return fmt.Errorf("persist commitqc %d: %w", idx, err)
 		}
+		s.unflushed = true
 	}
 	s.next = idx + 1
 	return nil
 }
 
-// deleteBefore truncates WAL entries below the anchor's index, then
-// re-persists the anchor for crash recovery. Caller must hold the lock.
+// flush makes every QC scheduled by persistCommitQC durable. Caller must hold the lock.
+func (s *commitQCState) flush() error {
+	w, ok := s.wal.Get()
+	if !ok || !s.unflushed {
+		return nil
+	}
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("flush commitqc WAL: %w", err)
+	}
+	s.unflushed = false
+	return nil
+}
+
+// deleteBefore prunes WAL entries below the anchor's index, then re-persists the anchor for crash
+// recovery. Pruning is lazy, so entries below the anchor may remain on disk until the file holding
+// them falls entirely below the threshold. Caller must hold the lock.
 func (s *commitQCState) deleteBefore(anchor *types.CommitQC) error {
 	idx := anchor.Index()
-	iw, ok := s.iw.Get()
-	if idx >= s.next {
+	if w, ok := s.wal.Get(); ok {
+		if err := w.PruneBefore(uint64(idx)); err != nil {
+			return fmt.Errorf("prune commitqc WAL before %d: %w", idx, err)
+		}
+	}
+	if idx > s.next {
+		// The anchor moved past every QC persisted so far, so the next QC to persist is the anchor
+		// itself. That leaves a gap, which the WAL is configured to permit.
 		s.next = idx
-		if ok && iw.Count() > 0 {
-			if err := iw.TruncateAll(); err != nil {
-				return err
-			}
-		}
-	} else if ok && iw.Count() > 0 {
-		firstRoadIndex := s.next - types.RoadIndex(iw.Count())
-		if idx > firstRoadIndex {
-			walIdx := iw.FirstIdx() + uint64(idx-firstRoadIndex)
-			if err := iw.TruncateBefore(walIdx, func(entry *types.CommitQC) error {
-				if entry.Index() != idx {
-					return fmt.Errorf("commitqc at WAL index %d has road index %d, expected %d (index mapping broken)", walIdx, entry.Index(), idx)
-				}
-				return nil
-			}); err != nil {
-				return fmt.Errorf("truncate commitqc WAL before %d: %w", walIdx, err)
-			}
-		}
 	}
 	return s.persistCommitQC(anchor)
 }
 
 // CommitQCPersister manages CommitQC persistence using a WAL.
-// Entries are appended in order; each entry is self-describing (the serialized
-// CommitQC contains its RoadIndex). The WAL index is append order, not
-// RoadIndex — the indexedWAL tracks first/next indices to enable truncation.
-// When iw is None, all disk I/O is skipped but cursor tracking still works.
+// Each QC is stored under its own RoadIndex, so no mapping between append order
+// and RoadIndex is needed.
+// When wal is None, all disk I/O is skipped but cursor tracking still works.
 type CommitQCPersister struct {
 	state utils.Mutex[*commitQCState]
 }
 
 // NewCommitQCPersister opens (or creates) a WAL in the commitqcs/ subdirectory
 // and replays all persisted entries. Returns the persister and a sorted slice of
-// loaded CommitQCs. Corrupt tail entries are auto-truncated by the WAL library.
+// loaded CommitQCs. A torn entry at the end of the WAL, left by a crash
+// mid-write, is discarded by the WAL on open.
+//
+// The QCs returned are a superset of what the prune anchor considers live:
+// pruning is lazy, so QCs the anchor has moved past can still be on disk. QCs
+// stranded behind a gap are dropped, but those directly below the anchor are
+// indistinguishable from live ones here and are filtered by the caller, which is
+// what holds the anchor.
+//
 // When stateDir is None, returns a no-op persister.
 //
-// After crash recovery with an empty WAL (e.g. TruncateAll completed but no
-// new write followed), LoadNext() returns 0. The caller MUST use
-// MaybePruneAndPersist with the prune CommitQC in Anchor to re-establish the
+// After crash recovery with an empty WAL, LoadNext() returns 0. The caller MUST
+// use MaybePruneAndPersist with the prune CommitQC in Anchor to re-establish the
 // cursor and re-persist the anchor's CommitQC before appending more QCs.
 func NewCommitQCPersister(stateDir utils.Option[string]) (*CommitQCPersister, []LoadedCommitQC, error) {
 	sd, ok := stateDir.Get()
@@ -96,15 +113,15 @@ func NewCommitQCPersister(stateDir utils.Option[string]) (*CommitQCPersister, []
 		return &CommitQCPersister{state: utils.NewMutex(&commitQCState{})}, nil, nil
 	}
 	dir := filepath.Join(sd, commitqcsDir)
-	iw, err := openIndexedWAL(dir, types.CommitQCConv)
+	wal, err := openWAL(dir, commitqcsWALName, types.CommitQCConv, targetFileSize)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open commitqc WAL in %s: %w", dir, err)
 	}
 
-	s := &commitQCState{iw: utils.Some(iw)}
+	s := &commitQCState{wal: utils.Some(wal)}
 	loaded, err := loadAllCommitQCs(s)
 	if err != nil {
-		_ = iw.Close()
+		_ = wal.Close()
 		return nil, nil, err
 	}
 	if len(loaded) > 0 {
@@ -132,10 +149,15 @@ func (cp *CommitQCPersister) LoadNext() types.RoadIndex {
 //   - anchor empty, commitQCs non-empty: append only, no truncation.
 //   - anchor empty, commitQCs empty:     no-op.
 //
-// The lock is held for the entire truncate-then-append sequence, so callers
+// Pruning is lazy, so QCs below the anchor may remain on disk for a while; the anchor is what defines
+// which of them are live.
+//
+// The lock is held for the entire prune-then-append sequence, so callers
 // need not coordinate ordering.
-// afterEach, when present, is called after each successful append. It is
-// invoked while the lock is held, so it must not re-enter the persister.
+// afterEach, when present, is called once per QC in commitQCs in order, after the batch has been
+// flushed — never before, because an append is not durable until then and afterEach is what releases a
+// QC to the rest of consensus. It is invoked while the lock is held, so it must not re-enter the
+// persister. If any append fails, afterEach is not called for the batch at all.
 func (cp *CommitQCPersister) MaybePruneAndPersist(
 	anchor utils.Option[*types.CommitQC],
 	commitQCs []*types.CommitQC,
@@ -147,12 +169,18 @@ func (cp *CommitQCPersister) MaybePruneAndPersist(
 				return err
 			}
 		}
-		fn, hasFn := afterEach.Get()
 		for _, c := range commitQCs {
 			if err := s.persistCommitQC(c); err != nil {
 				return err
 			}
-			if hasFn {
+		}
+		// persistCommitQC only schedules the write, so the QCs are not durable — and must not be
+		// reported as persisted — until this returns.
+		if err := s.flush(); err != nil {
+			return err
+		}
+		if fn, ok := afterEach.Get(); ok {
+			for _, c := range commitQCs {
 				fn(c)
 			}
 		}
@@ -164,31 +192,34 @@ func (cp *CommitQCPersister) MaybePruneAndPersist(
 // Close shuts down the WAL. Safe to call multiple times (idempotent).
 func (cp *CommitQCPersister) Close() error {
 	for s := range cp.state.Lock() {
-		iw, ok := s.iw.Get()
+		w, ok := s.wal.Get()
 		if !ok {
 			return nil // no-op persister or already closed
 		}
-		s.iw = utils.None[*indexedWAL[*types.CommitQC]]()
-		return iw.Close()
+		s.wal = utils.None[seiwal.WAL[*types.CommitQC]]()
+		return w.Close()
 	}
 	panic("unreachable")
 }
 
+// loadAllCommitQCs reads the WAL and returns the QCs that are still live.
+//
+// QCs stranded below a lazy prune are discarded: a gap in the stored road indices marks where pruning
+// has already logically removed everything before it.
 func loadAllCommitQCs(s *commitQCState) ([]LoadedCommitQC, error) {
-	iw, ok := s.iw.Get()
+	w, ok := s.wal.Get()
 	if !ok {
 		return nil, nil // no-op persister (persistence disabled)
 	}
-	entries, err := iw.ReadAll()
+	entries, err := readAll(w)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read commitqc WAL: %w", err)
 	}
-	loaded := make([]LoadedCommitQC, 0, len(entries))
-	for i, qc := range entries {
-		if i > 0 && qc.Index() != loaded[i-1].Index+1 {
-			return nil, fmt.Errorf("gap in commitqcs: index %d follows %d", qc.Index(), loaded[i-1].Index)
-		}
-		loaded = append(loaded, LoadedCommitQC{Index: qc.Index(), QC: qc})
+	live := contiguousSuffix(entries)
+
+	loaded := make([]LoadedCommitQC, 0, len(live))
+	for _, entry := range live {
+		loaded = append(loaded, LoadedCommitQC{Index: entry.value.Index(), QC: entry.value})
 	}
 	return loaded, nil
 }

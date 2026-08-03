@@ -185,6 +185,16 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	}, nil
 }
 
+// Close releases the WALs this state owns, and with them the exclusive lock each holds on its
+// directory.
+//
+// Production does not call this: a node exits by rugpull and the OS reclaims everything. It exists so
+// that a process which opens the same state directory more than once in its lifetime — a test
+// simulating a restart — can release the first State before constructing the second.
+func (s *State) Close() error {
+	return errors.Join(s.persisters.blocks.Close(), s.persisters.commitQCs.Close())
+}
+
 func (s *State) FirstCommitQC() types.RoadIndex {
 	for inner := range s.inner.Lock() {
 		return inner.commitQCs.first
@@ -684,8 +694,10 @@ func (s *State) Run(ctx context.Context) error {
 //  2. commitQCs.MaybePruneAndPersist and each lane's blocks.MaybePruneAndPersistLane run
 //     concurrently via scope.Parallel (separate WALs, no early cancellation; first error
 //     is returned after all tasks finish).
-//     Each path publishes (markCommitQCsPersisted / markBlockPersisted) per entry so voting
-//     unblocks ASAP.
+//     Each path appends its whole batch, flushes once, then publishes
+//     (markCommitQCsPersisted / markBlockPersisted) for every entry in the batch. Publishing
+//     trails the flush because an append is not durable before it, and voting must never be
+//     unblocked by an entry a crash could still lose.
 //
 // The prune anchor is a pruning watermark: on restart we resume from it.
 //

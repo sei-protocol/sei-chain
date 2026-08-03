@@ -256,6 +256,9 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	// Phase 1: Run state with persistence through 2 iterations.
 	var wantAppQCIdx types.RoadIndex
 	var wantNextBlocks map[types.LaneID]types.BlockNumber
+	// Hoisted so phase 1's WALs can be closed after its goroutines have stopped: the lane and
+	// commitQC WALs hold an exclusive lock on their directories, which phase 2 reopens.
+	var state1 *State
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		ds := newTestDataState(&data.Config{Registry: registry})
@@ -266,6 +269,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		state1 = state
 		s.SpawnBgNamed("avail.Run", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -332,7 +336,10 @@ func TestStateRestartFromPersisted(t *testing.T) {
 		return nil
 	}))
 
-	// Phase 2: Restart from the same directory.
+	// Phase 2: Restart from the same directory. scope.Run has stopped avail.Run, so nothing is
+	// writing to phase 1's WALs and they can be released.
+	require.NoError(t, state1.Close())
+
 	ds2 := newTestDataState(&data.Config{Registry: registry})
 	state2, err := NewState(keys[0], ds2, utils.Some(dir))
 	require.NoError(t, err)
@@ -495,6 +502,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			CommitQc: types.CommitQCConv.Encode(pruneQC),
 		}))
 
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, cp.Close())
+
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
 
@@ -523,6 +533,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			parent = block.Header().Hash()
 			require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{signed}, noBlockCB))
 		}
+
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, bp.Close())
 
 		// Now construct state — it should load the blocks.
 		state, err := NewState(keys[0], ds, utils.Some(dir))
@@ -573,6 +586,10 @@ func TestNewStateWithPersistence(t *testing.T) {
 			require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{signed}, noBlockCB))
 		}
 
+		// Release the seeding persisters' WAL locks before NewState opens the same directory.
+		require.NoError(t, cp.Close())
+		require.NoError(t, bp.Close())
+
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
 
@@ -599,6 +616,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			prev = utils.Some(qcs[i])
 			require.NoError(t, cp.MaybePruneAndPersist(utils.None[*types.CommitQC](), []*types.CommitQC{qcs[i]}, noCommitQCCB))
 		}
+
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, cp.Close())
 
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
@@ -638,6 +658,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			AppQc:    types.AppQCConv.Encode(appQC),
 			CommitQc: types.CommitQCConv.Encode(qcs[roadIdx]),
 		}))
+
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, cp.Close())
 
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
@@ -753,7 +776,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		}
 
 		// Persist a prune anchor at index 9 with a laneRange that starts past
-		// all persisted blocks — MaybePruneAndPersistLane will TruncateAll the block WAL.
+		// all persisted blocks — MaybePruneAndPersistLane prunes the whole block WAL.
 		appProposal := types.NewAppProposal(50, 9, types.GenAppHash(rng), 0)
 		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 		prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(dir), innerFile)
@@ -762,6 +785,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			AppQc:    types.AppQCConv.Encode(appQC),
 			CommitQc: types.CommitQCConv.Encode(qcs[9]),
 		}))
+
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, bp.Close())
 
 		// NewState should succeed: block WAL gets truncated, lane starts clean.
 		state, err := NewState(keys[0], ds, utils.Some(dir))
