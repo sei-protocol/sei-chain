@@ -131,6 +131,42 @@ func TestOpenMemiAVLReplayWorksWhileWriterHoldsLock(t *testing.T) {
 	require.NoError(t, db.Close())
 }
 
+// TestOpenMemiAVLReplayAfterSetInitialVersion pins the non-default
+// initial-height layout: memiavl bootstraps every DB as snapshot-0 even when
+// SetInitialVersion(100) makes the first changelog entry version 100, so the
+// clone's WAL-coverage check must derive the snapshot's successor from the
+// snapshot metadata instead of assuming version 1 follows snapshot-0. This is
+// exactly the shape of a freshly recovered chain whose genesis initial_height
+// is greater than 1 and whose first snapshot rewrite has not happened yet;
+// before the fix, replay mode failed deterministically on such nodes with
+// "source kept churning".
+func TestOpenMemiAVLReplayAfterSetInitialVersion(t *testing.T) {
+	homeDir := t.TempDir()
+	store := newTestMemiavlStore(t, homeDir)
+	require.NoError(t, store.SetInitialVersion(100))
+	for i := 0; i < 3; i++ {
+		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+			Name:      keys.EVMStoreKey,
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(byte(i+1)), uint64(i+1))}},
+		}}))
+		v, err := store.Commit()
+		require.NoError(t, err)
+		require.Equal(t, int64(100+i), v)
+	}
+	require.NoError(t, store.Close())
+	dbDir := utils.GetCosmosSCStorePath(homeDir)
+
+	historical, err := openMemiAVLReplay(dbDir, 101)
+	require.NoError(t, err, "coverage check must accept a snapshot-0 whose successor is the initial version")
+	require.Equal(t, int64(101), historical.Version())
+	require.NoError(t, historical.Close())
+
+	latest, err := openMemiAVLReplay(dbDir, 0)
+	require.NoError(t, err)
+	require.Equal(t, int64(102), latest.Version())
+	require.NoError(t, latest.Close())
+}
+
 // TestOpenMemiAVLReplayRejectsShortChangelog guards the failure mode this
 // design makes routine: repairing a torn tail inside the clone silently costs
 // the trailing version, and memiavl reports success anyway. For a tool whose

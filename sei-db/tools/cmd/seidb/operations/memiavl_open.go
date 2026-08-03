@@ -3,16 +3,18 @@ package operations
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 )
 
 // openedMemIAVL is a memiavl DB opened against a temp clone of the source.
 type openedMemIAVL struct {
 	*memiavl.DB
-	tempDir string
+	clone *toolClone
 }
 
 func (o *openedMemIAVL) Close() error {
@@ -20,13 +22,11 @@ func (o *openedMemIAVL) Close() error {
 	if o.DB != nil {
 		err = o.DB.Close()
 	}
-	if o.tempDir != "" {
-		if rmErr := os.RemoveAll(o.tempDir); rmErr != nil {
-			if err != nil {
-				return fmt.Errorf("%w; cleanup temp dir: %w", err, rmErr)
-			}
-			return fmt.Errorf("cleanup temp dir: %w", rmErr)
+	if rmErr := o.clone.Remove(); rmErr != nil {
+		if err != nil {
+			return fmt.Errorf("%w; %w", err, rmErr)
 		}
+		return rmErr
 	}
 	return err
 }
@@ -41,21 +41,29 @@ func (o *openedMemIAVL) Close() error {
 // corruption, so a read-only replay could truncate committed versions out from
 // under a running seid. Repairing a torn tail in a private copy is harmless.
 // This mirrors openFlatKVReadOnly.
+//
+// height=0 ("latest") is best-effort on a live node: the clone is a
+// consistent committed prefix as of the copy instant, and a torn-tail repair
+// inside the clone (surfaced as a warning) can land it one version behind the
+// source tip. There is no target version to check against, so the report's
+// printed version line is the authoritative record of what was digested;
+// cross-node comparisons should always use an explicit common --height.
 func openMemiAVLReplay(dbDir string, height int64) (*openedMemIAVL, error) {
-	tempDir, err := prepareMemIAVLToolingClone(dbDir, height)
+	clone, err := prepareMemIAVLToolingClone(dbDir, height)
 	if err != nil {
 		return nil, err
 	}
+	warnIfCloneRepaired(clone, "memiavl", height)
 
 	db, err := memiavl.OpenDB(height, memiavl.Options{
-		Dir:      tempDir,
+		Dir:      clone.dir,
 		ZeroCopy: true,
 	})
 	if err != nil {
-		_ = os.RemoveAll(tempDir)
+		_ = clone.Remove()
 		return nil, fmt.Errorf("open memiavl clone at version %d: %w", height, err)
 	}
-	opened := &openedMemIAVL{DB: db, tempDir: tempDir}
+	opened := &openedMemIAVL{DB: db, clone: clone}
 
 	// memiavl replays whatever the changelog holds and reports success even
 	// when that falls short of the requested height. Every tail repair inside
@@ -73,7 +81,7 @@ func openMemiAVLReplay(dbDir string, height int64) (*openedMemIAVL, error) {
 	return opened, nil
 }
 
-func prepareMemIAVLToolingClone(dbDir string, height int64) (string, error) {
+func prepareMemIAVLToolingClone(dbDir string, height int64) (*toolClone, error) {
 	return retryToolingClone(dbDir, height, tryPrepareMemIAVLToolingClone)
 }
 
@@ -81,38 +89,50 @@ func prepareMemIAVLToolingClone(dbDir string, height int64) (string, error) {
 // layouts are the same shape (current -> snapshot-N/, changelog/, LOCK) and both
 // publish snapshots by rename and drop them wholesale, so the same
 // hardlink-the-snapshot / byte-copy-the-changelog split applies.
-func tryPrepareMemIAVLToolingClone(dbDir string, height int64) (string, error) {
-	snapshotName, snapshotVersion, err := memiavl.SeekSnapshotDir(dbDir, height)
+func tryPrepareMemIAVLToolingClone(dbDir string, height int64) (*toolClone, error) {
+	snapshotName, snapshotVersion, err := memiavl.SeekSnapshotName(dbDir, height)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// The clone must sit inside dbDir to share a filesystem with the source
 	// snapshot: dbDir is often its own mount point, so a sibling directory is
 	// not enough and hardlinks would fail across the boundary.
-	if err := os.MkdirAll(dbDir, 0o750); err != nil {
-		return "", fmt.Errorf("ensure clone root %s: %w", dbDir, err)
-	}
-	// Not a "-tmp" suffix: memiavl's removeTmpDirs deletes every "*-tmp"
-	// directory under its root when a node opens the DB read-write.
-	tempDir, err := os.MkdirTemp(dbDir, ".seidb-memiavl-tool-*")
+	// SeekSnapshotName already read dbDir, so it is known to exist.
+	clone, err := newToolClone(dbDir, ".seidb-memiavl-tool-")
 	if err != nil {
-		return "", fmt.Errorf("create temp dir under %s: %w", dbDir, err)
+		return nil, err
 	}
-	cleanup := func(err error) (string, error) {
-		_ = os.RemoveAll(tempDir)
-		return "", err
+	cleanup := func(err error) (*toolClone, error) {
+		_ = clone.Remove()
+		return nil, err
 	}
 
 	srcSnapshotDir := filepath.Join(dbDir, snapshotName)
-	dstSnapshotDir := filepath.Join(tempDir, snapshotName)
+	dstSnapshotDir := filepath.Join(clone.dir, snapshotName)
 	if err := cloneDirRecursive(srcSnapshotDir, dstSnapshotDir); err != nil {
 		return cleanup(fmt.Errorf("clone snapshot %s: %w", snapshotName, err))
 	}
 
-	if err := os.Symlink(snapshotName, filepath.Join(tempDir, "current")); err != nil {
+	if err := os.Symlink(snapshotName, filepath.Join(clone.dir, "current")); err != nil {
 		return cleanup(fmt.Errorf("create current symlink: %w", err))
 	}
+
+	// The version parsed from the snapshot directory name is not enough to
+	// know which changelog version catchup resumes from: memiavl bootstraps
+	// every DB as snapshot-0 even when it was initialized with
+	// SetInitialVersion(N), in which case the first changelog entry is
+	// version N, not 1. Read the initial version from the cloned snapshot's
+	// metadata (immune to source pruning — the files are hard links) and
+	// derive the successor the same way memiavl itself does.
+	metadata, err := memiavl.ReadMetadata(dstSnapshotDir)
+	if err != nil {
+		return cleanup(fmt.Errorf("read cloned snapshot metadata: %w", err))
+	}
+	if metadata.InitialVersion < 0 || metadata.InitialVersion > math.MaxUint32 {
+		return cleanup(fmt.Errorf("cloned snapshot has invalid initial version: %d", metadata.InitialVersion))
+	}
+	firstNeeded := utils.NextVersion(snapshotVersion, uint32(metadata.InitialVersion))
 
 	srcChangelogDir := filepath.Join(dbDir, "changelog")
 	info, err := os.Stat(srcChangelogDir)
@@ -123,18 +143,20 @@ func tryPrepareMemIAVLToolingClone(dbDir string, height int64) (string, error) {
 		return cleanup(fmt.Errorf("changelog path is not a directory: %s", srcChangelogDir))
 	}
 	if err == nil {
-		dstChangelogDir := filepath.Join(tempDir, "changelog")
+		dstChangelogDir := filepath.Join(clone.dir, "changelog")
 		if err := copyDirRecursive(srcChangelogDir, dstChangelogDir); err != nil {
 			return cleanup(fmt.Errorf("clone changelog: %w", err))
 		}
 		// A live writer can roll a new snapshot between our snapshot clone and
 		// our changelog copy, then prune the changelog up to that newer
-		// version — leaving a copy that no longer covers snapshotVersion+1 and
-		// a catchup that would silently skip versions. Retryable.
-		if err := verifyClonedWALCovers(dstChangelogDir, snapshotVersion); err != nil {
+		// version — leaving a copy that no longer covers the snapshot's
+		// successor and a catchup that would silently skip versions. Retryable.
+		sizeBefore := changelogByteSize(dstChangelogDir)
+		if err := verifyClonedWALCovers(dstChangelogDir, snapshotVersion, firstNeeded); err != nil {
 			return cleanup(err)
 		}
+		clone.walRepaired = changelogByteSize(dstChangelogDir) < sizeBefore
 	}
 
-	return tempDir, nil
+	return clone, nil
 }

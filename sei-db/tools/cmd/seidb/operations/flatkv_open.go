@@ -40,7 +40,7 @@ var errSourceChurning = errors.New("source kept churning during clone")
 // WAL so they do not compete with a live node for the FlatKV writer lock.
 type openedFlatKV struct {
 	*flatkv.CommitStore
-	tempDir string
+	clone *toolClone
 }
 
 func (o *openedFlatKV) Close() error {
@@ -48,13 +48,11 @@ func (o *openedFlatKV) Close() error {
 	if o.CommitStore != nil {
 		err = o.CommitStore.Close()
 	}
-	if o.tempDir != "" {
-		if rmErr := os.RemoveAll(o.tempDir); rmErr != nil {
-			if err != nil {
-				return fmt.Errorf("%w; cleanup temp dir: %w", err, rmErr)
-			}
-			return fmt.Errorf("cleanup temp dir: %w", rmErr)
+	if rmErr := o.clone.Remove(); rmErr != nil {
+		if err != nil {
+			return fmt.Errorf("%w; %w", err, rmErr)
 		}
+		return rmErr
 	}
 	return err
 }
@@ -78,54 +76,73 @@ func (o *openedFlatKV) Close() error {
 //     os.ReadDir and os.Link calls, we surface ENOENT, re-select the
 //     snapshot, and retry up to maxCloneRetries times.
 //
-// height=0 means latest version.
+// height=0 means the latest version, best-effort on a live node: the clone is
+// a consistent committed prefix as of the copy instant, and a torn-tail
+// repair inside the clone (surfaced as a warning) can land it one version
+// behind the source tip. Tools print the version actually opened; treat that
+// line as authoritative when comparing across nodes.
 func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
-	tempDir, err := prepareFlatKVToolingClone(dbDir, height)
+	clone, err := prepareFlatKVToolingClone(dbDir, height)
 	if err != nil {
 		return nil, err
 	}
+	warnIfCloneRepaired(clone, "flatkv", height)
 
 	cfg := config.DefaultConfig()
-	cfg.DataDir = tempDir
+	cfg.DataDir = clone.dir
 
 	store, err := flatkv.NewCommitStore(context.Background(), cfg)
 	if err != nil {
-		_ = os.RemoveAll(tempDir)
+		_ = clone.Remove()
 		return nil, fmt.Errorf("failed to create FlatKV store: %w", err)
 	}
 
 	if _, err := store.LoadVersion(height, false); err != nil {
 		_ = store.Close()
-		_ = os.RemoveAll(tempDir)
+		_ = clone.Remove()
 		return nil, fmt.Errorf("failed to open FlatKV at version %d: %w", height, err)
 	}
 
 	return &openedFlatKV{
 		CommitStore: store,
-		tempDir:     tempDir,
+		clone:       clone,
 	}, nil
 }
 
-func prepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
+// warnIfCloneRepaired tells the operator that the cloned changelog had a torn
+// tail (the byte-copy raced the live writer mid-append) and was repaired
+// inside the clone. For an explicit --height the reached-version checks catch
+// any resulting shortfall; for height 0 ("latest") there is no target to
+// check against, so the printed version line is the only record of what was
+// actually digested.
+func warnIfCloneRepaired(clone *toolClone, backend string, height int64) {
+	if !clone.walRepaired || height != 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "warning: cloned %s changelog had a torn tail (live writer mid-append) and was repaired in the clone; "+
+		"the opened version may trail the source tip by one — trust the printed version line\n", backend)
+}
+
+func prepareFlatKVToolingClone(dbDir string, height int64) (*toolClone, error) {
 	return retryToolingClone(dbDir, height, tryPrepareFlatKVToolingClone)
 }
 
 // retryToolingClone runs tryClone, retrying while the live writer keeps
 // mutating the source out from under us. Shared by the FlatKV and memiavl
 // tooling clones, which race the same writer in the same ways.
-func retryToolingClone(dbDir string, height int64, tryClone func(string, int64) (string, error)) (string, error) {
+func retryToolingClone(dbDir string, height int64, tryClone func(string, int64) (*toolClone, error)) (*toolClone, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxCloneRetries; attempt++ {
-		tempDir, err := tryClone(dbDir, height)
+		clone, err := tryClone(dbDir, height)
 		if err == nil {
-			return tempDir, nil
+			return clone, nil
 		}
 		if !isCloneRetryableError(err) {
-			return "", err
+			return nil, err
 		}
 		lastErr = err
 	}
-	return "", fmt.Errorf("clone aborted after %d retries, source kept churning: %w", maxCloneRetries, lastErr)
+	return nil, fmt.Errorf("clone aborted after %d retries, source kept churning: %w", maxCloneRetries, lastErr)
 }
 
 // isCloneRetryableError reports whether err indicates a transient race with
@@ -136,39 +153,37 @@ func isCloneRetryableError(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || errors.Is(err, errSourceChurning)
 }
 
-func tryPrepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
+func tryPrepareFlatKVToolingClone(dbDir string, height int64) (*toolClone, error) {
 	snapshotName, err := selectFlatKVSnapshot(dbDir, height)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	snapshotVersion, err := strconv.ParseInt(snapshotName[len(flatkvSnapshotPrefix):], 10, 64)
 	if err != nil {
-		return "", fmt.Errorf("parse snapshot version from %q: %w", snapshotName, err)
+		return nil, fmt.Errorf("parse snapshot version from %q: %w", snapshotName, err)
 	}
 
-	// Place the temp clone inside dbDir so it is on the exact same mounted
-	// filesystem as the source snapshots. A sibling directory is not enough:
-	// dbDir itself is often a mount point on dedicated data volumes.
-	cloneRoot := dbDir
-	if err := os.MkdirAll(cloneRoot, 0o750); err != nil {
-		return "", fmt.Errorf("ensure clone root %s: %w", cloneRoot, err)
-	}
-	tempDir, err := os.MkdirTemp(cloneRoot, ".seidb-flatkv-tool-*")
+	// The clone must sit inside dbDir so it is on the exact same mounted
+	// filesystem as the source snapshots (dbDir is often its own mount
+	// point, so a sibling directory is not enough and hardlinks would fail
+	// across the boundary). selectFlatKVSnapshot already read dbDir, so it
+	// is known to exist.
+	clone, err := newToolClone(dbDir, ".seidb-flatkv-tool-")
 	if err != nil {
-		return "", fmt.Errorf("create temp dir under %s: %w", cloneRoot, err)
+		return nil, err
 	}
-	cleanup := func(err error) (string, error) {
-		_ = os.RemoveAll(tempDir)
-		return "", err
+	cleanup := func(err error) (*toolClone, error) {
+		_ = clone.Remove()
+		return nil, err
 	}
 
 	srcSnapshotDir := filepath.Join(dbDir, snapshotName)
-	dstSnapshotDir := filepath.Join(tempDir, snapshotName)
+	dstSnapshotDir := filepath.Join(clone.dir, snapshotName)
 	if err := cloneDirRecursive(srcSnapshotDir, dstSnapshotDir); err != nil {
 		return cleanup(fmt.Errorf("clone snapshot %s: %w", snapshotName, err))
 	}
 
-	if err := os.Symlink(snapshotName, filepath.Join(tempDir, "current")); err != nil {
+	if err := os.Symlink(snapshotName, filepath.Join(clone.dir, "current")); err != nil {
 		return cleanup(fmt.Errorf("create current symlink: %w", err))
 	}
 
@@ -181,29 +196,39 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
 		return cleanup(fmt.Errorf("changelog path is not a directory: %s", srcChangelogDir))
 	}
 	if err == nil {
-		dstChangelogDir := filepath.Join(tempDir, "changelog")
+		dstChangelogDir := filepath.Join(clone.dir, "changelog")
 		if err := copyDirRecursive(srcChangelogDir, dstChangelogDir); err != nil {
 			return cleanup(fmt.Errorf("clone changelog: %w", err))
 		}
 		// Detect the snapshot/WAL race: a live writer can roll a new
 		// snapshot between our snapshot clone and our changelog copy and
 		// then truncateWAL up to that newer snapshot's version. If that
-		// happened, the cloned WAL no longer covers snapshotVersion+1,
-		// and a downstream catchup would silently jump over missing
-		// versions. Surface it as a retryable error so the outer loop
-		// re-selects the snapshot and tries again.
-		if err := verifyClonedWALCovers(dstChangelogDir, snapshotVersion); err != nil {
+		// happened, the cloned WAL no longer covers the snapshot's
+		// successor version, and a downstream catchup would silently jump
+		// over missing versions. Surface it as a retryable error so the
+		// outer loop re-selects the snapshot and tries again.
+		//
+		// FlatKV snapshots are always named with a real committed version —
+		// SetInitialVersion(N) seeds committedVersion N-1 and writes
+		// snapshot-<N-1> — so the successor is unconditionally
+		// snapshotVersion+1 here (unlike memiavl, whose bootstrap
+		// snapshot-0 hides a configurable initial version).
+		sizeBefore := changelogByteSize(dstChangelogDir)
+		if err := verifyClonedWALCovers(dstChangelogDir, snapshotVersion, snapshotVersion+1); err != nil {
 			return cleanup(err)
 		}
+		clone.walRepaired = changelogByteSize(dstChangelogDir) < sizeBefore
 	}
 
-	return tempDir, nil
+	return clone, nil
 }
 
 // verifyClonedWALCovers opens the cloned WAL just long enough to ensure it
 // either is empty, ends at or before snapshotVersion (no replay needed), or
-// starts at or before snapshotVersion+1 (catchup can resume cleanly).
-func verifyClonedWALCovers(dstChangelogDir string, snapshotVersion int64) error {
+// starts at or before firstNeeded — the first version catchup must replay on
+// top of the snapshot (snapshotVersion+1, except for a memiavl bootstrap
+// snapshot-0 whose successor is the configured initial version).
+func verifyClonedWALCovers(dstChangelogDir string, snapshotVersion, firstNeeded int64) error {
 	walLog, err := wal.NewChangelogWAL(dstChangelogDir, wal.Config{})
 	if err != nil {
 		return fmt.Errorf("open cloned changelog for validation: %w", err)
@@ -234,11 +259,11 @@ func verifyClonedWALCovers(dstChangelogDir string, snapshotVersion int64) error 
 	if lastVer <= snapshotVersion {
 		return nil
 	}
-	if firstVer <= snapshotVersion+1 {
+	if firstVer <= firstNeeded {
 		return nil
 	}
-	return fmt.Errorf("%w: cloned WAL starts at version %d but snapshot is %d (truncated past snapshot mid-clone)",
-		errSourceChurning, firstVer, snapshotVersion)
+	return fmt.Errorf("%w: cloned WAL starts at version %d but catchup needs %d over snapshot %d (truncated past snapshot mid-clone)",
+		errSourceChurning, firstVer, firstNeeded, snapshotVersion)
 }
 
 func readWALEntryVersion(walLog wal.ChangelogWAL, off uint64) (int64, error) {

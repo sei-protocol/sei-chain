@@ -166,7 +166,7 @@ func EvmLogicalDigestCmd() *cobra.Command {
 	cmd.Flags().StringP("db-dir", "d", "", "For flatkv: the flatkv data dir. For memiavl: the memiavl root dir (contains current/ and snapshot-* )")
 	cmd.Flags().String("flatkv-dir", "", "Composite mode: flatkv data dir")
 	cmd.Flags().String("memiavl-dir", "", "Composite mode: memiavl root dir (contains current/ and snapshot-* )")
-	cmd.Flags().Int64("height", 0, "Target version. flatkv WAL-replays to it; memiavl resolves snapshot-<height>/evm (0 = current symlink)")
+	cmd.Flags().Int64("height", 0, "Target version. flatkv WAL-replays to it; memiavl resolves snapshot-<height>/evm (0 = current symlink). On a live node 0 = latest is best-effort — the printed version line records what was actually digested; always pass an explicit common height when comparing nodes")
 	cmd.Flags().String("memiavl-open-mode", memiavlOpenModeSnapshot, "memiavl read mode: snapshot (FAST: sequential scan of the completed snapshot kvs file; requires an on-disk snapshot at --height, or --height 0 for current) | replay (SLOW, ~10x: clones the snapshot + changelog to a temp dir, replays to --height there, then walks the mmap tree; use only when no snapshot exists at the target height). Prefer snapshot when --height matches an existing snapshot boundary")
 	cmd.Flags().String("memiavl-normalization", memiavlNormSemantic, "memiavl digest/inspect normalization: semantic/independent (raw EVM key/value decoder) | translator (current migration mapping)")
 	cmd.Flags().String("inspect-bucket", "", "Inspect one normalized bucket (account|code|storage|misc) instead of printing the global digest")
