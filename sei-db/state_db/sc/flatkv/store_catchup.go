@@ -42,7 +42,7 @@ func (s *CommitStore) applyAndCommit(version int64, changesets []*proto.NamedCha
 // With a nil WAL there is no replay: the store can only be at a version that is already committed or that
 // exactly matches the snapshot it opened at. A load that would need to advance past the committed version
 // is rejected — the nil-WAL contract, where the outer context owns the WAL pipeline.
-func (s *CommitStore) catchup(targetVersion int64) (err error) {
+func (s *CommitStore) catchup(targetVersion int64) (err error) { // TODO can this logic be collapsed?
 	var replayed int
 	var startBlock, endBlock uint64
 	obs := s.observeOp("catchup", otelMetrics.CatchupLatency, "targetVersion", targetVersion)

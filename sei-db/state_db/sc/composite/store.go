@@ -410,7 +410,12 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 		}
 	}
 
-	if cs.flatKV != nil && !cs.targetPredatesFlatKV(targetVersion) {
+	needFlatKV, err := FlatKVNeededAtHeight(cs.flatKV, cs.config.WriteMode, targetVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine whether FlatKV is needed at version %d: %w",
+			targetVersion, err)
+	}
+	if needFlatKV {
 		fkv, err := cs.flatKV.LoadVersionReadOnly(targetVersion)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
@@ -436,37 +441,6 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 		return nil, fmt.Errorf("failed to build router for read-only handle: %w", err)
 	}
 	return ro, nil
-}
-
-// targetPredatesFlatKV reports whether a read-only view at
-// targetVersion should skip flatkv entirely because the version predates
-// flatkv's history: under types.Auto the chain ran memiavl-only before the
-// MigrateEVM transition seeded flatkv, so at such heights ALL consensus
-// data (including evm) lives in memiavl and a memiavl-only handle serves
-// both reads and proofs completely. Without the skip, the flatkv load
-// fails ("no snapshot found ...") and the whole historical query errors —
-// queries that succeeded when the node was configured memiavl_only.
-//
-// Keyed on flatkv's persisted earliest-history record
-// (Store.EarliestVersion, written by the seeding SetInitialVersion), NOT
-// on the load failing: "no snapshot at target" is also what pruned
-// in-history versions produce, and silently serving those from
-// post-migration memiavl (with migrated keys deleted) would fabricate
-// nonexistence answers. Pruned/corrupt in-history versions therefore
-// still fail loudly. Restricted to types.Auto: fixed-mode handles cannot
-// re-derive an effective MemiavlOnly mode, and their fail-loud behavior
-// is pre-existing and pinned.
-func (cs *CompositeCommitStore) targetPredatesFlatKV(targetVersion int64) bool {
-	if cs.config.WriteMode != types.Auto || targetVersion <= 0 {
-		return false
-	}
-	earliest := cs.flatKV.EarliestVersion()
-	if earliest <= 0 || targetVersion >= earliest {
-		return false
-	}
-	logger.Info("read-only target predates flatkv history; serving memiavl only",
-		"targetVersion", targetVersion, "flatkvEarliestVersion", earliest)
-	return true
 }
 
 // resolveCurrentWriteMode sets cs.currentWriteMode after the backends have been

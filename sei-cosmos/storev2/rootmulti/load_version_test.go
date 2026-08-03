@@ -206,3 +206,48 @@ func TestLoadVersionAndUpgradeRejectsUpgradesAtHeight(t *testing.T) {
 	err := store.LoadVersionAndUpgrade(records[0].version, &types.StoreUpgrades{Added: []string{"newstore"}})
 	require.ErrorContains(t, err, "store upgrades cannot be applied to a historical load")
 }
+
+// TestLoadVersionAtPreFlatKVEraHeightUnderAutoMode covers the auto-layout hole in this file: every other test
+// here uses a fixed write mode, for which the era classification short-circuits, so none of them exercise a
+// historical load at a height that predates flatkv's history. Under auto the chain runs memiavl-only until the
+// migration trigger materializes flatkv and seeds it at the current height; heights below that seam hold all
+// their consensus data in memiavl and must stay loadable. The load runs against a never-loaded store, which is
+// the shape `seid export --height N` produces, so the era answer cannot come from flatkv's in-memory
+// bookkeeping.
+func TestLoadVersionAtPreFlatKVEraHeightUnderAutoMode(t *testing.T) {
+	dir := t.TempDir()
+	cfg := autoModeConfig()
+
+	store, storeKeys := newTestRootMulti(t, dir, cfg)
+	evmData := newEVMTestData(0xD1)
+	preEra := make([]commitRecord, 0, 3)
+	for block := 1; block <= 3; block++ {
+		preEra = append(preEra, simulateBlock(t, store, storeKeys, block, evmData))
+	}
+
+	// Raising the batch size above 0 is the migration trigger: it advances the auto store past memiavl-only,
+	// materializing flatkv and seeding its history at the current height. That seam is the era boundary.
+	require.NoError(t, store.SetMigrationBatchSize(100))
+	var inEra commitRecord
+	for block := 4; block <= 8; block++ {
+		inEra = simulateCosmosOnlyBlock(t, store, storeKeys, block)
+	}
+	require.NoError(t, store.Close())
+
+	// Pre-era height: must load and reproduce that height's commit hash, served by memiavl alone.
+	target := preEra[1]
+	preEraStore := openAt(t, dir, cfg, target.version)
+	require.Equal(t, target.version, preEraStore.LastCommitID().Version)
+	require.Equal(t, target.hash, preEraStore.LastCommitID().Hash,
+		"a pre-flatkv-era height must reproduce the commit hash recorded at that height")
+	require.NoError(t, preEraStore.Close())
+
+	// In-era height: flatkv is still opened and still answers.
+	inEraStore := openAt(t, dir, cfg, inEra.version)
+	require.Equal(t, inEra.version, inEraStore.LastCommitID().Version)
+	require.Equal(t, inEra.hash, inEraStore.LastCommitID().Hash,
+		"an in-era height must still be served with flatkv loaded")
+	require.NoError(t, inEraStore.Close())
+
+	requireNoOrphanedViewDirs(t, dir)
+}
