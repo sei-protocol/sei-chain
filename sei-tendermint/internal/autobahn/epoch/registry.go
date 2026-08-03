@@ -208,8 +208,7 @@ func (r *Registry) DuoAt(roadIndex types.RoadIndex) (types.EpochDuo, bool) {
 // Waits on epochGen (any registration), so filling Prev after Current is
 // already present still unblocks. Must not hold the avail/data inner lock
 // (execution may seed via AdvanceIfNeeded).
-func (r *Registry) WaitForDuo(ctx context.Context, roadIndex types.RoadIndex) (types.EpochDuo, error) {
-	i := IndexForRoad(roadIndex)
+func (r *Registry) WaitForDuo(ctx context.Context, i types.EpochIndex) (types.EpochDuo, error) {
 	current,err := r.WaitForEpoch(ctx,i)
 	if err!=nil { return types.EpochDuo{},nil }
 	prev := utils.None[*types.Epoch]()

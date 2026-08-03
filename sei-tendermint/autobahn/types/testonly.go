@@ -16,7 +16,7 @@ import (
 // iff Current is epoch 0; otherwise a synthetic contiguous Prev is created.
 func EpochDuoForTest(current *Epoch) EpochDuo {
 	if current.EpochIndex() == 0 {
-		return NewEpochDuo(current, utils.None[*Epoch]())
+		return utils.OrPanic1(NewEpochDuo(current, utils.None[*Epoch]()))
 	}
 	first := current.RoadRange().First
 	if first == 0 {
@@ -28,7 +28,7 @@ func EpochDuoForTest(current *Epoch) EpochDuo {
 		RoadRange{First: 0, Next: first},
 		current.Committee(),
 	)
-	return NewEpochDuo(current, utils.Some(prev))
+	return utils.OrPanic1(NewEpochDuo(current, utils.Some(prev)))
 }
 
 // BuildCommitQC builds a valid CommitQC from explicit lane QCs and an optional app QC.
@@ -46,7 +46,7 @@ func BuildCommitQC(
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
 ) *CommitQC {
-	vs := ViewSpec{CommitQC: prev, Epochs: EpochDuoForTest(epoch)}
+	vs := ViewSpec{ConsensusSpec:&ConsensusSpec{CommitQC: prev, Epochs: EpochDuoForTest(epoch)}}
 	if len(laneQCs) == 0 {
 		laneQCs = oneBlockLaneQCMap(vs, keys)
 	}

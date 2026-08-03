@@ -12,7 +12,7 @@ import (
 // EpochAtTip (or EpochAt) so View.EpochIndex matches the road's epoch when
 // GenRegistry starts away from genesis.
 func (r *Registry) LatestEpoch() *types.Epoch {
-	for s := range r.state.RLock() {
+	for s := range r.state.Lock() {
 		var best types.EpochIndex
 		var ep *types.Epoch
 		for idx, e := range s {
@@ -32,7 +32,9 @@ func (r *Registry) LatestEpoch() *types.Epoch {
 // EpochAtTip is the epoch for the next CommitQC after prev (road 0 if none).
 // Intended for test CommitQC chains when GenRegistry's start epoch may be ≫ 0.
 func (r *Registry) EpochAtTip(prev utils.Option[*types.CommitQC]) *types.Epoch {
-	return utils.OrPanic1(r.EpochAt(types.NextIndexOpt(prev)))
+	epoch,ok := r.EpochAt(types.NextIndexOpt(prev))
+	if !ok { panic("r.EpochAt() missing") }
+	return epoch
 }
 
 // GenRegistry generates a random Registry of the given committee size, starting

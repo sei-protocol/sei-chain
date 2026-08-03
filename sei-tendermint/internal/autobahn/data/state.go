@@ -220,9 +220,9 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 			}
 			initRoad = lastQC.QC().Proposal().Index() + 1
 		}
-		initDuo, err := cfg.Registry.DuoAt(initRoad)
-		if err != nil {
-			return nil, fmt.Errorf("init epochDuo: %w", err)
+		initDuo, ok := cfg.Registry.DuoAt(initRoad)
+		if !ok {
+			return nil, fmt.Errorf("missing epoch duo")
 		}
 		in.epochDuo = utils.NewAtomicSend(initDuo)
 		s.epochDuo = in.epochDuo.Subscribe()
@@ -342,9 +342,9 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 					// gr.First == n it still fires for the covering QC when the scan opened
 					// inside that QC's range. insertQC clips it to [nextQC, gr.Next).
 					lastQC = qc
-					ep, err := s.cfg.Registry.EpochAt(qc.QC().Proposal().Index())
-					if err != nil {
-						return fmt.Errorf("load QC from BlockDB: epoch lookup: %w", err)
+					ep, ok := s.cfg.Registry.EpochAt(qc.QC().Proposal().Index())
+					if !ok {
+						return fmt.Errorf("load QC from BlockDB: missing epoch")
 					}
 					if err := in.insertQC(qc, ep); err != nil {
 						return fmt.Errorf("load QC from BlockDB: %w", err)
@@ -361,9 +361,9 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 				}
 				blk := blkOpt.OrPanic(fmt.Sprintf("block %d absent at a HasBlock position", n))
 				storedQC := in.qcs[n]
-				e, err := s.cfg.Registry.EpochAt(storedQC.QC().Proposal().Index())
-				if err != nil {
-					return fmt.Errorf("load block %d from BlockDB: epoch lookup: %w", n, err)
+				e, ok := s.cfg.Registry.EpochAt(storedQC.QC().Proposal().Index())
+				if !ok {
+					return fmt.Errorf("load block %d from BlockDB: epoch lookup: missing epoch", n)
 				}
 				if err := blk.Verify(e.Committee()); err != nil {
 					return fmt.Errorf("verify block %d from BlockDB: %w", n, err)
@@ -449,65 +449,47 @@ func (s *State) insertBlocksByHash(inner *inner, gr types.GlobalRange, byHash ma
 // horizon; do not soft-admit them via Registry.
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
 	gr := qc.QC().GlobalRange()
-	needQC, err := func() (bool, error) {
+	needQC, duo, err := func() (bool, types.EpochDuo, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
 				return gr.First <= inner.nextQC && gr.First < inner.nextAppProposal+blocksCacheSize
 			}); err != nil {
-				return false, err
+				return false, types.EpochDuo{}, err
 			}
-			return inner.nextQC == gr.First, nil
+			return inner.nextQC == gr.First, inner.epochDuo.Load(), nil
 		}
 		panic("unreachable")
 	}()
 	if err != nil {
 		return err
 	}
-	idx := qc.QC().Proposal().Index()
-	duo := s.epochDuo.Load()
-	ep, err := duo.EpochForRoad(idx)
-	if err != nil {
-		if !needQC && errors.Is(err, types.ErrRoadBeforeWindow) {
-			return nil
-		}
-		return err
+	ei := qc.QC().Proposal().EpochIndex()
+	if duo.Current.EpochIndex()!=ei {
+		if duo, err = s.cfg.Registry.WaitForDuo(ctx, ei); err!=nil { return err }
 	}
 	// Verify data.
 	if needQC {
-		if err := qc.Verify(ep); err != nil {
+		if err := qc.Verify(duo.Current); err != nil {
 			return fmt.Errorf("qc.Verify(): %w", err)
 		}
 	}
 	// Blocks share the QC's epoch (unlike PushBlock, which uses the stored QC).
 	byHash := map[types.BlockHeaderHash]*types.Block{}
-	committee := ep.Committee()
+	committee := duo.Current.Committee()
 	for _, b := range blocks {
 		byHash[b.Header().Hash()] = b
 		if err := b.Verify(committee); err != nil {
 			return fmt.Errorf("b.Verify(): %w", err)
 		}
-	}
-	// Closing Current: WaitForDuo(tipcut) before mutating nextQC.
-	nextDuo := utils.None[types.EpochDuo]()
-	if needQC && duo.Current.RoadRange().IsLastRoad(idx) {
-		nt, err := s.cfg.Registry.WaitForDuo(ctx, idx+1)
-		if err != nil {
-			return err
-		}
-		nextDuo = utils.Some(nt)
-	}
+	}	
 	for inner, ctrl := range s.inner.Lock() {
 		if needQC {
-			// Only the first inserter may advance epochDuo.
-			applied := inner.nextQC == gr.First
 			for inner.nextQC < gr.Next {
 				inner.qcs[inner.nextQC] = qc
 				inner.nextQC += 1
 			}
-			if applied {
-				if nd, ok := nextDuo.Get(); ok {
-					inner.epochDuo.Store(nd)
-				}
+			if inner.epochDuo.Load().Current.EpochIndex() < duo.Current.EpochIndex() {
+				inner.epochDuo.Store(duo)
 			}
 			ctrl.Updated()
 		}
@@ -560,7 +542,7 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		}
 		// n in [nextBlock, nextQC): QC is contiguous in that range.
 		var err error
-		ep, err = s.epochDuo.Load().EpochForRoad(inner.qcs[n].QC().Proposal().Index())
+		ep, err = s.epochDuo.Load().ByRoad(inner.qcs[n].QC().Proposal().Index())
 		if err != nil {
 			return fmt.Errorf("epoch not in window: %w", err)
 		}

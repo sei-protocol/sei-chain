@@ -114,15 +114,15 @@ func (x *Service) serverConsensus(ctx context.Context, server rpc.Server[API]) e
 			}
 			switch req := req.(type) {
 			case *types.ConsensusReqPrepareVote:
-				if err := x.validatorState().PushPrepareVote(req.Signed); err != nil {
+				if err := x.validatorState().PushPrepareVote(ctx, req.Signed); err != nil {
 					return fmt.Errorf("x.validatorState().PushPrepareVote(): %w", err)
 				}
 			case *types.ConsensusReqCommitVote:
-				if err := x.validatorState().PushCommitVote(req.Signed); err != nil {
+				if err := x.validatorState().PushCommitVote(ctx, req.Signed); err != nil {
 					return fmt.Errorf("x.validatorState().PushCommitVote(): %w", err)
 				}
 			case *types.FullTimeoutVote:
-				if err := x.validatorState().PushTimeoutVote(req); err != nil {
+				if err := x.validatorState().PushTimeoutVote(ctx, req); err != nil {
 					return fmt.Errorf("x.validatorState().PushTimeoutVote(): %w", err)
 				}
 			case *types.FullProposal:

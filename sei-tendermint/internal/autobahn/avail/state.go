@@ -92,9 +92,9 @@ func (s *State) Data() *data.State {
 
 // LastCommitQC returns receiver of the LastCommitQC.
 // The tip is the latest durably persisted CommitQC, not merely the admitted tip.
-func (s *State) LastCommitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
+func (s *State) ConsensusSpec() utils.AtomicRecv[types.ConsensusSpec] {
 	for inner := range s.inner.Lock() {
-		return inner.commits.persistedCommitQC.Subscribe()
+		return inner.commits.consensusSpec.Subscribe()
 	}
 	panic("unreachable")
 }

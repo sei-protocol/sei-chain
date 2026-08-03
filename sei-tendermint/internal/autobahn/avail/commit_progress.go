@@ -11,7 +11,7 @@ import (
 // write persistedCommitQC.
 type commitProgress struct {
 	qcs               *queue[types.RoadIndex, *types.CommitQC]
-	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]]
+	consensusSpec utils.AtomicSend[types.ConsensusSpec]
 }
 
 // push inserts qc at qcs.next. Returns false if idx is not the tip
