@@ -716,11 +716,18 @@ func rollbackFixtureEmptyWALAtV2(t *testing.T) *CommitStore {
 func TestRollbackRejectsTargetTheWALNoLongerCovers(t *testing.T) {
 	s := rollbackFixtureEmptyWALAtV2(t)
 
-	// Resume at v4, so reaching v4 from the v2 snapshot would need block 3, which the WAL never held.
-	cs := makeChangeSet(evmStorageKey(ktype.Address{0x92}, ktype.Slot{0x04}), padLeft32(0x04), false)
-	require.NoError(t, s.ApplyChangeSets(4, []*proto.NamedChangeSet{cs}))
-	_, err := s.Commit(4)
-	require.NoError(t, err)
+	// Commit v3, then wipe the WAL again and commit v4, so the WAL starts at 4 while the snapshot is still
+	// at 2: reaching v4 would need block 3, which the WAL no longer holds.
+	for _, v := range []int64{3, 4} {
+		if v == 4 {
+			require.NoError(t, s.resetWAL())
+		}
+		cs := makeChangeSet(evmStorageKey(ktype.Address{0x92}, ktype.Slot{byte(v)}), padLeft32(byte(v)), false)
+		require.NoError(t, s.ApplyChangeSets(v, []*proto.NamedChangeSet{cs}))
+		_, err := s.Commit(v)
+		require.NoError(t, err)
+	}
+	var err error
 
 	ok, first, _, err := s.wal.GetStoredRange()
 	require.NoError(t, err)
@@ -736,9 +743,8 @@ func TestRollbackRejectsVersionZero(t *testing.T) {
 	requireRollbackRejected(t, rollbackFixture(t), 0, "nothing to roll back to")
 }
 
-// rollbackFixtureMidChainWALStart returns a store whose only snapshot is the initial one and whose WAL begins
-// at block 10 — the topology TestReadOnlyAcceptsMidChainWALStart pins for reads, i.e. a store that started
-// mid-chain and so has no history behind its first WAL block.
+// rollbackFixtureMidChainWALStart returns a store seeded to begin at block 10, so its snapshot sits at 9 and
+// its WAL holds 10-12 — a store that legally started mid-chain and has no history behind its first WAL block.
 func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
@@ -749,6 +755,7 @@ func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 
+	require.NoError(t, s.SetInitialVersion(10))
 	for _, v := range []int64{10, 11, 12} {
 		cs := makeChangeSet(evmStorageKey(ktype.Address{0x93}, ktype.Slot{byte(v)}), padLeft32(byte(v)), false)
 		require.NoError(t, s.ApplyChangeSets(v, []*proto.NamedChangeSet{cs}))
@@ -758,7 +765,7 @@ func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {
 
 	base, err := seekSnapshot(s.flatkvDir(), 11)
 	require.NoError(t, err)
-	require.Equal(t, int64(0), base, "fixture precondition: the only snapshot must be the initial one")
+	require.Equal(t, int64(9), base, "fixture precondition: the seeded snapshot must sit at 9")
 	ok, first, last, err := s.wal.GetStoredRange()
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -767,9 +774,8 @@ func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {
 	return s
 }
 
-// TestRollbackAcceptsMidChainWALStart verifies a target inside the WAL is reachable when the only snapshot is
-// the initial one. catchup treats the WAL's first block as the start of history whenever committedVersion is 0,
-// so the reachability pre-flight must apply that same clamp rather than demanding the WAL reach back to block 1.
+// TestRollbackAcceptsMidChainWALStart verifies a target inside the WAL is reachable on a store that legally
+// began mid-chain: the seeded snapshot at 9 is the baseline, and the WAL supplies 10 onwards.
 func TestRollbackAcceptsMidChainWALStart(t *testing.T) {
 	s := rollbackFixtureMidChainWALStart(t)
 
@@ -783,11 +789,11 @@ func TestRollbackAcceptsMidChainWALStart(t *testing.T) {
 	require.Equal(t, uint64(11), last, "rollback must truncate the WAL to the target")
 }
 
-// TestRollbackRejectsTargetBelowMidChainWALStart verifies a target below the WAL's first block stays an up-front
-// rejection. With only the initial snapshot there is no state at such a target, and PruneAfter(target) would
-// drop every block the WAL holds, so discovering it after the rewind would destroy the store's whole history.
+// TestRollbackRejectsTargetBelowMidChainWALStart verifies a target below where this store's history begins
+// stays an up-front rejection: no snapshot names it and the WAL does not reach it, and PruneAfter(target)
+// would drop every block the WAL holds, so discovering it after the rewind would destroy the whole history.
 func TestRollbackRejectsTargetBelowMidChainWALStart(t *testing.T) {
-	requireRollbackRejected(t, rollbackFixtureMidChainWALStart(t), 5, "cannot be reconstructed")
+	requireRollbackRejected(t, rollbackFixtureMidChainWALStart(t), 5, "blocks 1-5 are needed")
 }
 
 // TestRollbackToTargetPredatingWALSucceeds covers the truncate-to-empty case: the target sits exactly on a

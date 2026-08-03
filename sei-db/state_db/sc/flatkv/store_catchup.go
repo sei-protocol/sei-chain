@@ -73,12 +73,10 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 		return nil
 	}
 
-	// Replay from the block after committedVersion. On a fresh load committedVersion is the snapshot version
-	// (>= first); when there is no committed state yet (0) start at the WAL's first block.
-	startBlock = first
-	if s.committedVersion > 0 {
-		startBlock = uint64(s.committedVersion) + 1 //nolint:gosec // committedVersion > 0 checked above
-	}
+	// Replay from the block after committedVersion. Blocks are contiguous and the first block is 1, so this
+	// holds on a fresh store too: committedVersion 0 means replay must start at block 1, and a WAL that
+	// begins later is a gap, caught below.
+	startBlock = uint64(s.committedVersion) + 1 //nolint:gosec // committedVersion >= 0
 	endBlock = last
 	if targetVersion > 0 && uint64(targetVersion) < endBlock {
 		endBlock = uint64(targetVersion)

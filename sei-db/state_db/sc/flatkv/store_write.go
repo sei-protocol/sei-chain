@@ -68,12 +68,12 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	if s.readOnly {
 		return 0, errReadOnly
 	}
-	if version <= s.committedVersion {
-		return 0, fmt.Errorf("flatkv: committing bad version: got %d, current %d", version, s.committedVersion)
-	}
-	if s.pendingBlockHeight != 0 && version != s.pendingBlockHeight {
-		return 0, fmt.Errorf("flatkv: commit version %d does not match applied block height %d",
-			version, s.pendingBlockHeight)
+	// Blocks are contiguous and the first block is 1, so the next commit is always committedVersion+1. On a
+	// fresh store that means block 1; a store whose history starts higher gets there via SetInitialVersion,
+	// which seeds committedVersion to one below its first block.
+	if version != s.committedVersion+1 {
+		return 0, fmt.Errorf("flatkv: committing bad version: got %d, want %d (current %d)",
+			version, s.committedVersion+1, s.committedVersion)
 	}
 
 	// Step 1: Write the WAL (source of truth) before the DBs, so crash recovery via catchup stays valid.

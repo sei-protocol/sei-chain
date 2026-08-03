@@ -600,16 +600,6 @@ func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int6
 	}
 	needFrom := uint64(baseVersion) + 1 //nolint:gosec // baseVersion >= 0
 	needTo := uint64(targetVersion)     //nolint:gosec // targetVersion >= 1 checked above
-	if baseVersion == 0 {
-		// Only the initial snapshot sits behind the target, so replay starts at the WAL's first block rather
-		// than at block 1 — the same clamp catchup and replayInto apply when committedVersion is 0. Below
-		// that block nothing can rebuild the target: no snapshot names it and the WAL does not reach it.
-		needFrom = first
-		if needTo < needFrom {
-			return 0, fmt.Errorf("cannot roll back to version %d: no snapshot covers it and the WAL "+
-				"starts at block %d, so it cannot be reconstructed", targetVersion, first)
-		}
-	}
 	if first > needFrom || last < needTo {
 		return 0, fmt.Errorf("cannot roll back to version %d: nearest snapshot is %d, so blocks %d-%d are "+
 			"needed, but the WAL only holds %d-%d",

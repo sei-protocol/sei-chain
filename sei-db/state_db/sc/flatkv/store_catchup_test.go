@@ -52,13 +52,16 @@ func TestCatchupRecoversGappedCommitBlockAfterMetadataLag(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 
+	// Seed so history legally begins at 10, then commit it: the crash window this simulates is a lagging
+	// watermark, not a store that skipped blocks 1-9.
+	require.NoError(t, s.SetInitialVersion(10))
 	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
 	require.Equal(t, int64(10), s.Version())
 	hashAfterCommit := append([]byte(nil), s.RootHash()...)
 
 	// Rewind only the global watermark to mimic metadata lagging the WAL /
 	// per-DB commits. Catchup should replay the gapped WAL entry at v10.
-	s.committedVersion = 0
+	s.committedVersion = 9
 	require.NoError(t, s.catchup(0))
 	require.Equal(t, int64(10), s.committedVersion)
 	require.Equal(t, hashAfterCommit, s.RootHash())
@@ -81,6 +84,10 @@ func gappedWALStore(t *testing.T, firstBlock int64) *CommitStore {
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
+
+	// Seed so history legally begins at firstBlock; committing it directly on a fresh store is rejected,
+	// because the first block is 1.
+	require.NoError(t, s.SetInitialVersion(firstBlock))
 
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
@@ -123,6 +130,7 @@ func TestLoadVersionSurfacesCatchupGap(t *testing.T) {
 	err = s.LoadLatest()
 	require.NoError(t, err)
 
+	require.NoError(t, s.SetInitialVersion(10))
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
@@ -140,10 +148,10 @@ func TestLoadVersionSurfacesCatchupGap(t *testing.T) {
 	require.Contains(t, err.Error(), "blocks 6-9 are missing")
 }
 
-// TestReadOnlyAcceptsMidChainWALStart pins the clamp replayInto needs: a clone that opens with no history
-// behind it must treat the WAL's first block as the start of history, not as a gap. Without the clamp every
-// historical read on a store whose first block is above 1 would be rejected.
-func TestReadOnlyAcceptsMidChainWALStart(t *testing.T) {
+// TestReadOnlyServesSeededMidChainStore pins that a store whose history legally begins above block 1 — seeded
+// by SetInitialVersion, which also writes the snapshot at seededVersion — is still readable at a past height.
+// The seeded snapshot is what makes this legal: without it the clone would have no baseline to replay onto.
+func TestReadOnlyServesSeededMidChainStore(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
@@ -151,13 +159,14 @@ func TestReadOnlyAcceptsMidChainWALStart(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, s.Close()) }()
 
+	require.NoError(t, s.SetInitialVersion(10))
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
 	for _, v := range []int64{10, 11, 12} {
 		cs := makeChangeSet(key, padLeft32(byte(v)), false)
 		require.NoError(t, s.CommitBlock(v, []*proto.NamedChangeSet{cs}))
 	}
 
-	// The only snapshot is the initial one, so the clone opens at version 0 while the WAL begins at 10.
+	// The clone opens at the seeded snapshot (version 9) and replays 10-12 from the WAL.
 	ro, err := s.LoadVersionReadOnly(12)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, ro.Close()) }()
@@ -186,14 +195,14 @@ func TestReadOnlySurfacesReplayGap(t *testing.T) {
 		commit(v, byte(v))
 	}
 
-	// Wipe the WAL and resume far ahead so it no longer reaches back to the snapshot at version 2.
+	// Wipe the WAL and resume, so it no longer reaches back to the snapshot at version 2.
 	require.NoError(t, s.resetWAL())
-	commit(10, 0x99)
+	commit(5, 0x99)
 
 	_, err = s.LoadVersionReadOnly(3)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "are missing")
 
-	commit(11, 0xAA)
-	require.Equal(t, int64(11), s.Version())
+	commit(6, 0xAA)
+	require.Equal(t, int64(6), s.Version())
 }

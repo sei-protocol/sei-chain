@@ -168,11 +168,15 @@ func TestCommitRejectsNonContiguousVersion(t *testing.T) {
 	_, err := s.Commit(1)
 	require.NoError(t, err)
 
-	// Skip version 2. This clears the version guard (3 > committedVersion) and fails at the WAL.
-	require.NoError(t, s.ApplyChangeSets(3, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(0xBB), false)}))
+	// Skipping version 2 is rejected at apply: blocks are contiguous, so the only legal height is 2.
+	err = s.ApplyChangeSets(3, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(0xBB), false)})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "plus one")
+
+	// And directly at commit, for an empty block that never buffered writes.
 	_, err = s.Commit(3)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "contiguous")
+	require.Contains(t, err.Error(), "committing bad version")
 	require.Equal(t, int64(1), s.committedVersion, "a rejected commit must not advance the version")
 }
 
@@ -1768,17 +1772,24 @@ func TestCommitRejectsVersionNotAhead(t *testing.T) {
 	require.Contains(t, err.Error(), "committing bad version")
 	require.Equal(t, int64(0), s.Version())
 
-	// Empty commits may jump ahead; there are no row stamps to mismatch.
-	v, err := s.Commit(5)
-	require.NoError(t, err)
-	require.Equal(t, int64(5), v)
-
+	// Empty commits may not jump ahead either: the first block is 1.
 	_, err = s.Commit(5)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "committing bad version")
+	require.Equal(t, int64(0), s.Version())
+
+	v, err := s.Commit(1)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), v)
+
+	_, err = s.Commit(1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "committing bad version")
 }
 
-func TestCommitRejectsApplyHeightMismatch(t *testing.T) {
+// TestRejectedCommitLeavesStoreIntact pins that a commit at the wrong version changes nothing: the version
+// does not advance and the buffered writes survive, so the correct commit still works afterwards.
+func TestRejectedCommitLeavesStoreIntact(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -1789,7 +1800,7 @@ func TestCommitRejectsApplyHeightMismatch(t *testing.T) {
 
 	_, err := s.Commit(5)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not match applied block height")
+	require.Contains(t, err.Error(), "committing bad version")
 	require.Equal(t, int64(0), s.Version(), "rejected commit must not advance version")
 	require.Len(t, s.storageWrites, 1, "rejected commit must leave pending writes intact")
 
@@ -1813,30 +1824,30 @@ func TestApplyChangeSetsAllowsSameHeightRepeatsOnly(t *testing.T) {
 	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x02)))
 
 	// Same-height repeat: splitting one block's writes across two calls.
-	require.NoError(t, s.ApplyChangeSets(5, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x11), false)}))
-	require.NoError(t, s.ApplyChangeSets(5, []*proto.NamedChangeSet{makeChangeSet(key2, padLeft32(0x22), false)}))
-	require.Equal(t, int64(5), s.PendingVersion())
+	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x11), false)}))
+	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key2, padLeft32(0x22), false)}))
+	require.Equal(t, int64(1), s.PendingVersion())
 
 	// Advancing to the next block before committing this one is rejected.
-	err := s.ApplyChangeSets(6, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x33), false)})
+	err := s.ApplyChangeSets(2, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x33), false)})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "only one block may be buffered per commit")
+	require.Contains(t, err.Error(), "plus one")
 
 	// So is going backwards.
-	err = s.ApplyChangeSets(4, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x44), false)})
+	err = s.ApplyChangeSets(0, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x44), false)})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "only one block may be buffered per commit")
+	require.Contains(t, err.Error(), "plus one")
 
-	v, err := s.Commit(5)
+	v, err := s.Commit(1)
 	require.NoError(t, err)
-	require.Equal(t, int64(5), v)
+	require.Equal(t, int64(1), v)
 	require.Equal(t, int64(0), s.PendingVersion())
 
 	for _, key := range [][]byte{key1, key2} {
 		height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)
 		require.NoError(t, err)
 		require.True(t, found)
-		require.Equal(t, int64(5), height)
+		require.Equal(t, int64(1), height)
 	}
 }
 
@@ -1848,6 +1859,8 @@ func TestCommitBlockStampsRowBlockHeight(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 
+	// Start at block 10 the legal way: seed the store so its history begins there.
+	require.NoError(t, s.SetInitialVersion(10))
 	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
 	require.Equal(t, int64(10), s.Version())
 

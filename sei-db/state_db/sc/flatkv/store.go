@@ -523,14 +523,10 @@ func (s *CommitStore) replayInto(clone *CommitStore, targetVersion int64) (retEr
 		return nil // empty WAL: nothing to replay
 	}
 
-	// Replay from the block after the snapshot boundary the clone opened at. A clone at version 0 has no
-	// history behind it, so the WAL's first block is where this store's history begins rather than a gap —
-	// the same reasoning as catchup, which this must match or a store whose first block is above 1 (chain
-	// initial_height > 1) would be rejected as gapped.
-	start := first
-	if clone.committedVersion > 0 {
-		start = uint64(clone.committedVersion) + 1 //nolint:gosec // committedVersion > 0 checked above
-	}
+	// Replay from the block after the snapshot boundary the clone opened at. Blocks are contiguous and the
+	// first block is 1, so a clone at version 0 must start at block 1; a WAL that begins later is a gap,
+	// caught below. Same rule as catchup, which this must match.
+	start := uint64(clone.committedVersion) + 1 //nolint:gosec // committedVersion >= 0
 	end := last
 	if targetVersion > 0 && uint64(targetVersion) < end {
 		end = uint64(targetVersion)

@@ -31,20 +31,16 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 	if s.readOnly {
 		return errReadOnly
 	}
-	if version <= s.committedVersion {
-		return fmt.Errorf("flatkv: apply version %d must be ahead of committed version %d",
+	// Blocks are contiguous and the first block is 1, so writes always land at committedVersion+1. See the
+	// Commit contract: a store whose history starts higher is seeded by SetInitialVersion.
+	if version != s.committedVersion+1 {
+		return fmt.Errorf("flatkv: apply version %d must be committed version %d plus one",
 			version, s.committedVersion)
 	}
 	// A single block's writes may arrive across several ApplyChangeSets calls at the same height (e.g. a
-	// ModuleRouter fanning one block's changesets out to multiple routes that all target flatKV), so
-	// same-height repeats are accepted. Any other height is a bug: batching several blocks before one
-	// Commit is not supported, because changesets carry no block number and the batch would collapse into
-	// a single WAL entry at its highest height — see the ApplyChangeSets contract in api.go. Rejecting the
-	// jump here rather than letting the WAL reject the following Commit keeps the error at the caller.
-	if s.pendingBlockHeight != 0 && version != s.pendingBlockHeight {
-		return fmt.Errorf("flatkv: cannot apply at height %d; pending writes are stamped at %d and only "+
-			"one block may be buffered per commit", version, s.pendingBlockHeight)
-	}
+	// ModuleRouter fanning one block's changesets out to multiple routes that all target flatKV). The check
+	// above already restricts those to committedVersion+1, which is the only height pending writes can be
+	// stamped at, so same-height repeats are accepted and no other height can reach here.
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 	changesByType, err := classifyAndPrefix(changeSets)
