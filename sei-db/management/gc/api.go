@@ -1,72 +1,101 @@
 package gc
 
-// InfiniteRetentionWindow is the conventional GetRetentionWindow value meaning "never
-// prune this store." Any negative value is treated the same: the store does not vote
-// and is never passed to PruneBelow.
+// InfiniteRetentionWindow is the GetRetentionWindow value meaning "never prune this store": its
+// cut line is forced to 0, so it is never asked for a boundary and never passed to PruneBelow.
 //
-// Note: elsewhere in this repo (KeepRecent / MinRetainBlocks) 0 often means "keep
-// forever." Here 0 means "no extra beyond the shared RollbackWindow," so infinite
-// retention needs a negative sentinel.
+// Note that 0 here means "no extra beyond the shared RollbackWindow", not "keep forever" as
+// KeepRecent / MinRetainBlocks do elsewhere in this repo — hence the negative sentinel.
 const InfiniteRetentionWindow int64 = -1
+
+// CannotServeRollback is the GetPruningBoundary answer meaning "I hold nothing that can serve a
+// rollback to any height": in practice, a snapshot store with no completed snapshot. A store that
+// answers this is not idle — it will replay forward once its first snapshot lands, so pruning the
+// others now can delete the range it will replay from. The collector therefore stops:
+//
+//	RollbackWindow > 0  → the whole cycle is abandoned; nothing is pruned
+//	RollbackWindow == 0 → this store is ignored and the others are pruned
+//
+// 0 is a safe value for this because block heights start at 1 and a store is only asked when its
+// own cut line is above 0, so a real boundary is always positive. It also puts the conservative
+// answer on Go's zero value: a store that returns nothing meaningful stops pruning rather than
+// silently dropping out of the decision.
+//
+// Two limits are worth knowing. RollbackWindow == 0 puts the cut line at the head itself, so
+// contiguous stores are pruned to their head and a store that has not snapshotted yet loses that
+// replay range outright — do not run it on a node whose snapshot stores are still bootstrapping.
+// And this signal only reaches the collector if the store is asked, which happens only when its
+// own cut line is above 0: a snapshot store with InfiniteRetentionWindow, or with a retention
+// window deep enough to zero its cut line, is never asked and so cannot stop a cycle. The SC/SS
+// retention contract below pins retention at 0 to keep them out of that case.
+const CannotServeRollback uint64 = 0
 
 // PrunableStore is a store whose old data may be dropped by the StorageGarbageCollector.
 type PrunableStore interface {
-	// Name identifies the store (logging / errors). Duplicate names are allowed;
-	// the collector keys answers by index, not by name.
+	// Name identifies the store for logs and errors. Duplicate names are allowed; the
+	// collector keys answers by index, not by name.
 	Name() string
 
-	// PruneBelow may drop data for all blocks below blockNumber.
-	// The store may perform the deletion asynchronously.
+	// PruneBelow may drop data for all blocks below blockNumber. The store may perform the
+	// deletion asynchronously.
 	PruneBelow(blockNumber uint64) error
 
-	// GetRetentionWindow is how many extra blocks beyond the shared RollbackWindow
-	// this store needs to keep servable. Cut line (head = min non-zero GetLatestBlock):
+	// GetRetentionWindow is how many extra blocks beyond the shared RollbackWindow this store
+	// needs to keep servable, where head is the min non-zero GetLatestBlock:
 	//
-	//	retention < 0  → store ignored (cutLine treated as 0; conventionally -1)
+	//	retention < 0   → never pruned (see InfiniteRetentionWindow)
 	//	retention >= 0  → cutLine = head - RollbackWindow - retention
 	//
-	// RollbackWindow is shared so every store stays consistent under rollback.
-	// Retention is optional history on top — kept so the store can still serve queries
-	// after a rollback that consumes the entire rollback window.
+	// RollbackWindow is shared so every store stays consistent under rollback. Retention is
+	// optional history on top, so a store can still serve queries after a rollback has consumed
+	// the whole window.
 	//
-	// Because the collector prunes every participating store to the *lowest*
-	// GetPruningBoundary, a large retention on one store effectively deepens pruning
-	// for the others (see StorageGarbageCollector). Read this as an input to that
-	// shared min, not as an independently applied per-store policy.
+	// This is an input to a shared minimum, not an independently applied per-store policy:
+	// because every participating store is pruned to the lowest boundary, one store's deep
+	// retention extends retention for all of them (see StorageGarbageCollector).
 	//
-	// Contract by store kind:
-	//   - Contiguous (blockDB, receiptDB, state WAL): -1 / 0 / positive as configured.
-	//   - SC: always 0 (only needs the shared rollback window for snapshots).
-	//   - SS: always 0 (SS prunes its own version history via KeepRecent; the collector
-	//     only drives SS snapshot pruning for the shared rollback window).
+	// By store kind: contiguous stores (blockDB, receiptDB, state WAL) use -1 / 0 / positive as
+	// configured; SC and SS always return 0, since the collector drives only their snapshot
+	// pruning for the shared window (SS prunes its own version history via KeepRecent).
 	GetRetentionWindow() int64
 
-	// GetPruningBoundary returns the oldest block this store must keep to remain able to
-	// serve cutLine, or 0 to opt out of this cycle (not participate in calculating min prune height).
+	// GetPruningBoundary returns the oldest block this store must keep in order to serve cutLine:
 	//
-	// A non-zero answer must never exceed cutLine. The collector prunes every participating
-	// store to the minimum of these answers, so an answer above cutLine can raise that minimum
-	// above head - RollbackWindow and tell a store holding contiguous history to drop data
-	// inside the rollback window. Honoring this bound is what makes pruneHeight <= cutLine
-	// hold by construction, with no clamping in the collector.
+	//	> 0                 → that boundary, which must never exceed cutLine
+	//	CannotServeRollback → no snapshots available; abandons the cycle
 	//
-	// Contiguous stores can restore to any height they hold → return cutLine.
+	// There is no third answer: a store either has a boundary to report or cannot serve a
+	// rollback at all.
 	//
-	// Snapshot stores can restore only at snapshot heights → return the newest completed
-	// snapshot ≤ cutLine. When every snapshot is above cutLine, none of them can be dropped;
-	// return cutLine rather than the oldest snapshot, which reports that without breaking the
-	// bound above — pruning below cutLine cannot reach a snapshot that sits above it.
-	// No completed snapshot → 0.
+	// Contiguous stores can restore to any height they hold, so they return cutLine. Snapshot
+	// stores can restore only at a snapshot, so they return the newest completed snapshot at or
+	// below cutLine; when every snapshot sits above cutLine none of them can be dropped, and they
+	// return cutLine rather than their oldest snapshot. With no completed snapshot at all they
+	// return CannotServeRollback.
 	//
-	// Assumption: snapshot creation finishes quickly enough that an in-flight write need
-	// not be reserved; modeling long-running snapshot writes is out of scope.
+	// A store holding nothing at or below cutLine — empty, already pruned to a higher floor, or
+	// restored by state sync above it — still returns cutLine. The PruneBelow that follows is a
+	// no-op, which is the point: it has nothing to delete and nothing to protect, since a
+	// contiguous store fills from its own ingest path rather than by replaying another store.
+	// CannotServeRollback would be wrong there, stalling the fleet until the head advanced a full
+	// RollbackWindow past that floor.
+	//
+	// Never answering above cutLine is what makes pruneHeight <= head - RollbackWindow hold by
+	// construction, since the collector takes a minimum across stores and deliberately does not
+	// clamp. A higher answer would raise that minimum and tell a store holding contiguous history
+	// to drop blocks inside the rollback window.
+	//
+	// A snapshot write in flight need not be reserved, as snapshot creation is assumed to finish
+	// quickly. Never having produced one is the separate CannotServeRollback case.
 	GetPruningBoundary(cutLine uint64) uint64
 
 	// GetLatestBlock returns the highest block this store has ingested.
 	//
-	// 0 means "nothing ingested yet" and is ignored when computing the global head, so a store
-	// still filling does not stall pruning for the rest of the fleet. It does not mean
-	// "disabled": a store disabled for this node is not instantiated and never reaches the
-	// collector. See StorageGarbageCollector for why skipping a 0 head is safe.
+	// 0 means "nothing ingested yet" and is excluded when computing the head, so a store still
+	// filling cannot drag the head — and every cut line with it — down to 0. That exclusion says
+	// nothing about whether the store may be pruned around: one that cannot serve a rollback
+	// still stops the cycle, via GetPruningBoundary.
+	//
+	// 0 does not mean "disabled". A store disabled for this node is not instantiated and never
+	// reaches the collector.
 	GetLatestBlock() (uint64, error)
 }

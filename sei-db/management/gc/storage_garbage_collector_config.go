@@ -11,12 +11,12 @@ type StorageGarbageCollectorConfig struct {
 	// roll back to. Shared by every managed store so they stay mutually consistent;
 	// per-store extras beyond this window use PrunableStore.GetRetentionWindow.
 	//
-	// 0 is allowed: cutLine then equals head for any store with retention 0. That is
-	// safe only when every participating store still leaves enough history on its own
-	// (e.g. positive GetRetentionWindow, or snapshot votes that keep contiguous stores
-	// above genesis). With retention-0 contiguous stores and a snapshot store that
-	// answers 0 (no snapshot yet), pruneHeight can reach head and drop everything
-	// below it — a snapshot landing near head then cannot be replayed forward.
+	// 0 is allowed and waives the guarantee: cutLine then equals head for any store with
+	// retention 0, so those stores are pruned to their head. It is safe only when every
+	// participating store leaves enough history on its own — a positive GetRetentionWindow,
+	// or snapshot answers that hold the contiguous stores above genesis. It also disables
+	// the CannotServeRollback stop signal, so a store that has not snapshotted yet loses the
+	// range it would have replayed from. See that constant.
 	//
 	// After a rollback that consumes part of the window, full headroom is not promised
 	// (e.g. window 10_000, roll back 5_000 → only ~5_000 of headroom remain).
@@ -40,7 +40,7 @@ type StorageGarbageCollectorConfig struct {
 //     nothing and costs I/O against a live node. Anything in the 5-10 minute range is fine.
 func DefaultStorageGarbageCollectorConfig() *StorageGarbageCollectorConfig {
 	return &StorageGarbageCollectorConfig{
-		RollbackWindow: 1000,
+		RollbackWindow: 1_000,
 		PruneInterval:  5 * time.Minute,
 	}
 }

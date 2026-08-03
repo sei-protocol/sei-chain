@@ -24,11 +24,13 @@ type mockStore struct {
 	pruneBelowCalled atomic.Bool
 	prunedBelow      atomic.Uint64
 	pruneBelowCalls  atomic.Uint64
+	boundaryCalls    atomic.Uint64
 }
 
 // snapshotStore models SC/SS (retention 0). GetPruningBoundary returns the newest snapshot
 // ≤ cutLine, or cutLine when every snapshot is above it (nothing can be dropped, and the
-// contract forbids answering above cutLine). Empty snapshots → 0. Snapshots must be ascending.
+// contract forbids answering above cutLine). No snapshots at all → CannotServeRollback.
+// Snapshots must be ascending.
 func snapshotStore(name string, latestHeight uint64, snapshots ...uint64) *mockStore {
 	return &mockStore{
 		name:            name,
@@ -36,7 +38,7 @@ func snapshotStore(name string, latestHeight uint64, snapshots ...uint64) *mockS
 		retentionWindow: 0,
 		pruningBoundary: func(cutLine uint64) uint64 {
 			if len(snapshots) == 0 {
-				return 0
+				return CannotServeRollback
 			}
 			if snapshots[0] > cutLine {
 				return cutLine
@@ -53,20 +55,16 @@ func snapshotStore(name string, latestHeight uint64, snapshots ...uint64) *mockS
 	}
 }
 
-// contiguousStore models blockDB / receiptDB / WAL (retention 0 by default).
-// hasData=false → GetPruningBoundary returns 0 (opt out). Otherwise returns cutLine.
-// Use withRetentionWindow for extras or InfiniteRetentionWindow.
-func contiguousStore(name string, latestHeight uint64, hasData bool) *mockStore {
+// contiguousStore models blockDB / receiptDB / WAL (retention 0 by default): it can restore to
+// any height it holds, so it always answers cutLine — including when it holds nothing at or below
+// cutLine, where the resulting PruneBelow is simply a no-op. Use withRetentionWindow for extra
+// retention or InfiniteRetentionWindow.
+func contiguousStore(name string, latestHeight uint64) *mockStore {
 	return &mockStore{
 		name:            name,
 		latestHeight:    latestHeight,
 		retentionWindow: 0,
-		pruningBoundary: func(cutLine uint64) uint64 {
-			if !hasData {
-				return 0
-			}
-			return cutLine
-		},
+		pruningBoundary: func(cutLine uint64) uint64 { return cutLine },
 	}
 }
 
@@ -88,6 +86,7 @@ func (m *mockStore) GetLatestBlock() (uint64, error) {
 }
 
 func (m *mockStore) GetPruningBoundary(cutLine uint64) uint64 {
+	m.boundaryCalls.Add(1)
 	return m.pruningBoundary(cutLine)
 }
 
@@ -133,7 +132,7 @@ func TestPruneDecisions(t *testing.T) {
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 80_000, 85_000, 92_000),
-				contiguousStore("stateWAL", 100_000, true),
+				contiguousStore("stateWAL", 100_000),
 			},
 			// cutLine 90_000; sc keeps snapshot 85_000; WAL answers 90_000 → min 85_000.
 			wantPruneBelow: ptr(85_000),
@@ -146,7 +145,7 @@ func TestPruneDecisions(t *testing.T) {
 				snapshotStore("sc", 100_000, 80_000, 85_000, 92_000),
 				snapshotStore("ss", 100_000, 70_000, 88_000, 95_000),
 				snapshotStore("flatKV", 100_000, 50_000, 90_000, 99_000),
-				contiguousStore("stateWAL", 100_000, true),
+				contiguousStore("stateWAL", 100_000),
 			},
 			// sc 85_000, ss 88_000, flatKV 90_000, WAL 90_000 → min 85_000.
 			wantPruneBelow: ptr(85_000),
@@ -157,7 +156,7 @@ func TestPruneDecisions(t *testing.T) {
 			rollbackWindow: 1,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 80_000, 99_999),
-				contiguousStore("stateWAL", 100_000, true),
+				contiguousStore("stateWAL", 100_000),
 			},
 			wantPruneBelow: ptr(99_999),
 			wantPruned:     []bool{true, true},
@@ -167,28 +166,18 @@ func TestPruneDecisions(t *testing.T) {
 			rollbackWindow: 0,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 80_000, 90_000),
-				contiguousStore("stateWAL", 100_000, true),
+				contiguousStore("stateWAL", 100_000),
 			},
 			// cutLine 100_000; sc 90_000; WAL 100_000 → min 90_000.
 			wantPruneBelow: ptr(90_000),
 			wantPruned:     []bool{true, true},
 		},
 		{
-			name:           "RollbackWindow 0 with no snapshot vote prunes contiguous to head",
-			rollbackWindow: 0,
-			stores: []*mockStore{
-				snapshotStore("sc", 100_000),
-				contiguousStore("stateWAL", 100_000, true),
-			},
-			wantPruneBelow: ptr(100_000),
-			wantPruned:     []bool{false, true},
-		},
-		{
 			name:           "positive contiguous retention deepens that store's cut line",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 80_000, 90_000),
-				withRetentionWindow(contiguousStore("stateWAL", 100_000, true), 5_000),
+				withRetentionWindow(contiguousStore("stateWAL", 100_000), 5_000),
 			},
 			// sc cutLine 90_000 → 90_000; WAL cutLine 85_000 → 85_000 → min 85_000.
 			wantPruneBelow: ptr(85_000),
@@ -199,7 +188,7 @@ func TestPruneDecisions(t *testing.T) {
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("ss", 100_000, 80_000, 90_000),
-				contiguousStore("stateWAL", 100_000, true),
+				contiguousStore("stateWAL", 100_000),
 			},
 			wantPruneBelow: ptr(90_000),
 			wantPruned:     []bool{true, true},
@@ -208,8 +197,8 @@ func TestPruneDecisions(t *testing.T) {
 			name:           "infinite retention on every store skips pruning",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
-				withRetentionWindow(contiguousStore("blockDB", 100_000, true), InfiniteRetentionWindow),
-				withRetentionWindow(contiguousStore("receiptDB", 100_000, true), InfiniteRetentionWindow),
+				withRetentionWindow(contiguousStore("blockDB", 100_000), InfiniteRetentionWindow),
+				withRetentionWindow(contiguousStore("receiptDB", 100_000), InfiniteRetentionWindow),
 			},
 			wantPruneBelow: nil,
 			wantPruned:     []bool{false, false},
@@ -218,9 +207,9 @@ func TestPruneDecisions(t *testing.T) {
 			name:           "infinite retention on one store leaves others free to prune",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
-				withRetentionWindow(contiguousStore("archiveWAL", 100_000, true), InfiniteRetentionWindow),
+				withRetentionWindow(contiguousStore("archiveWAL", 100_000), InfiniteRetentionWindow),
 				snapshotStore("sc", 100_000, 80_000),
-				contiguousStore("stateWAL", 100_000, true),
+				contiguousStore("stateWAL", 100_000),
 			},
 			// archiveWAL skipped; sc 80_000; stateWAL 90_000 → min 80_000.
 			wantPruneBelow: ptr(80_000),
@@ -231,7 +220,7 @@ func TestPruneDecisions(t *testing.T) {
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 50_000, 90_000),
-				contiguousStore("stateWAL", 100_000, true),
+				contiguousStore("stateWAL", 100_000),
 			},
 			wantPruneBelow: ptr(90_000),
 			wantPruned:     []bool{true, true},
@@ -241,7 +230,7 @@ func TestPruneDecisions(t *testing.T) {
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 95_000, 97_000),
-				contiguousStore("stateWAL", 100_000, true),
+				contiguousStore("stateWAL", 100_000),
 			},
 			// Both answer 90_000 → shared prune 90_000 (sc's snapshots sit above it, untouched).
 			wantPruneBelow: ptr(90_000),
@@ -263,31 +252,34 @@ func TestPruneDecisions(t *testing.T) {
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("lagging", 50_000, 30_000, 50_000),
-				contiguousStore("stateWAL", 100_000, true),
+				contiguousStore("stateWAL", 100_000),
 			},
 			// head 50_000 → cutLine 40_000; lagging answers 30_000; WAL 40_000 → min 30_000.
 			wantPruneBelow: ptr(30_000),
 			wantPruned:     []bool{true, true},
 		},
 		{
-			name:           "store answering 0 is ignored",
-			rollbackWindow: 10_000,
-			stores: []*mockStore{
-				contiguousStore("optOut", 100_000, false),
-				snapshotStore("sc", 100_000, 80_000),
-				contiguousStore("stateWAL", 100_000, true),
-			},
-			wantPruneBelow: ptr(80_000),
-			wantPruned:     []bool{false, true, true},
-		},
-		{
-			name:           "store with no snapshot yet is ignored",
+			// A store with no snapshot will replay forward once its first one lands, so pruning
+			// the WAL to its own cut line now would delete the range it replays from.
+			name:           "store with no snapshot blocks the whole cycle",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000),
-				contiguousStore("stateWAL", 100_000, true),
+				contiguousStore("stateWAL", 100_000),
 			},
-			wantPruneBelow: ptr(90_000),
+			wantPruneBelow: nil,
+			wantPruned:     []bool{false, false},
+		},
+		{
+			// Same store set, but RollbackWindow 0 waives the guarantee, so there is nothing
+			// left for the snapshot-less store to protect and the others prune.
+			name:           "no snapshot does not block when RollbackWindow is 0",
+			rollbackWindow: 0,
+			stores: []*mockStore{
+				snapshotStore("sc", 100_000),
+				contiguousStore("stateWAL", 100_000),
+			},
+			wantPruneBelow: ptr(100_000),
 			wantPruned:     []bool{false, true},
 		},
 		{
@@ -295,7 +287,7 @@ func TestPruneDecisions(t *testing.T) {
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("stalled", 0, 50_000),
-				contiguousStore("stateWAL", 100_000, true),
+				contiguousStore("stateWAL", 100_000),
 			},
 			// head from WAL 100_000; stalled still answers 50_000 → min 50_000.
 			wantPruneBelow: ptr(50_000),
@@ -306,7 +298,7 @@ func TestPruneDecisions(t *testing.T) {
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 5_000, 1_000, 2_000),
-				contiguousStore("stateWAL", 5_000, true),
+				contiguousStore("stateWAL", 5_000),
 			},
 			wantPruneBelow: nil,
 			wantPruned:     []bool{false, false},
@@ -316,7 +308,7 @@ func TestPruneDecisions(t *testing.T) {
 			rollbackWindow: 60_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 100_000, 500, 1_000),
-				withRetentionWindow(contiguousStore("stateWAL", 100_000, true), 40_000),
+				withRetentionWindow(contiguousStore("stateWAL", 100_000), 40_000),
 			},
 			// WAL cutLine 0 (skipped); sc cutLine 40_000 → 1_000.
 			wantPruneBelow: ptr(1_000),
@@ -327,19 +319,10 @@ func TestPruneDecisions(t *testing.T) {
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
 				snapshotStore("sc", 0),
-				contiguousStore("stateWAL", 0, false),
+				contiguousStore("stateWAL", 0),
 			},
 			wantPruneBelow: nil,
 			wantPruned:     []bool{false, false},
-		},
-		{
-			name:           "only an opt-out store has data",
-			rollbackWindow: 10_000,
-			stores: []*mockStore{
-				contiguousStore("optOut", 100_000, false),
-			},
-			wantPruneBelow: nil,
-			wantPruned:     []bool{false},
 		},
 		{
 			name:           "no stores at all",
@@ -372,7 +355,7 @@ func TestPruneDecisions(t *testing.T) {
 func TestPruneOnYoungChainWithDeepContiguousRetention(t *testing.T) {
 	// head 100 << WAL retain window (rollback 1_000 + retention 100_000) → both cutLines 0.
 	sc := snapshotStore("sc", 100, 50, 100)
-	wal := withRetentionWindow(contiguousStore("stateWAL", 100, true), 100_000)
+	wal := withRetentionWindow(contiguousStore("stateWAL", 100), 100_000)
 
 	require.NoError(t, prune(testConfig(t, 1_000), prunableStores(sc, wal)))
 
@@ -380,15 +363,17 @@ func TestPruneOnYoungChainWithDeepContiguousRetention(t *testing.T) {
 	require.False(t, wal.pruneBelowCalled.Load())
 }
 
-func TestPruneKeepsOptedOutStoreWithDuplicateName(t *testing.T) {
-	// Answers are keyed by index, so a duplicate Name() must not prune the opt-out store.
-	optOut := contiguousStore("ss", 100_000, false)
+// Answers are held positionally rather than keyed by Name(), so a store sharing a name with a
+// participating one must not inherit its prune. The stake is data loss: an infinite-retention
+// store exists precisely to keep what the others are dropping.
+func TestPruneKeepsInfiniteRetentionStoreWithDuplicateName(t *testing.T) {
+	archive := withRetentionWindow(contiguousStore("ss", 100_000), InfiniteRetentionWindow)
 	participating := snapshotStore("ss", 100_000, 80_000)
-	wal := contiguousStore("stateWAL", 100_000, true)
+	wal := contiguousStore("stateWAL", 100_000)
 
-	require.NoError(t, prune(testConfig(t, 10_000), prunableStores(optOut, participating, wal)))
+	require.NoError(t, prune(testConfig(t, 10_000), prunableStores(archive, participating, wal)))
 
-	require.False(t, optOut.pruneBelowCalled.Load(), "store answering 0 must not be pruned")
+	require.False(t, archive.pruneBelowCalled.Load(), "an infinite-retention store must never be pruned")
 	require.True(t, participating.pruneBelowCalled.Load())
 	require.Equal(t, uint64(80_000), participating.prunedBelow.Load())
 	require.Equal(t, uint64(80_000), wal.prunedBelow.Load())
@@ -397,7 +382,7 @@ func TestPruneKeepsOptedOutStoreWithDuplicateName(t *testing.T) {
 func TestPruneGetLatestBlockError(t *testing.T) {
 	sentinel := errors.New("boom")
 	sc := snapshotStore("sc", 100_000, 80_000)
-	broken := contiguousStore("brokenStore", 100_000, true)
+	broken := contiguousStore("brokenStore", 100_000)
 	broken.getErr = sentinel
 
 	err := prune(testConfig(t, 10_000), prunableStores(sc, broken))
@@ -414,7 +399,7 @@ func TestPruneBelowErrorContinuesRemainingStores(t *testing.T) {
 	first.pruneErr = firstErr
 	second := snapshotStore("second", 100_000, 80_000)
 	second.pruneErr = secondErr
-	wal := contiguousStore("stateWAL", 100_000, true)
+	wal := contiguousStore("stateWAL", 100_000)
 
 	err := prune(testConfig(t, 10_000), prunableStores(first, second, wal))
 	require.ErrorIs(t, err, firstErr)
@@ -464,7 +449,7 @@ func TestGetGlobalLatestBlock(t *testing.T) {
 	storesWithHeads := func(heads ...uint64) []PrunableStore {
 		list := make([]*mockStore, len(heads))
 		for i, head := range heads {
-			list[i] = contiguousStore("store", head, true)
+			list[i] = contiguousStore("store", head)
 		}
 		return prunableStores(list...)
 	}
@@ -495,25 +480,45 @@ func TestGetGlobalLatestBlock(t *testing.T) {
 	}
 }
 
-// The prune log is the stated mechanism for reconstructing a deletion after the fact, so the
-// three outcomes must not collapse onto the same rendering: never asked (cutLine 0), asked and
-// opted out (boundary 0), and asked with a boundary.
-func TestDescribeDecisionsDistinguishesNotAskedFromOptedOut(t *testing.T) {
+// The prune log is the stated mechanism for reconstructing a deletion after the fact, so the three
+// outcomes must not collapse onto the same rendering: never asked (cutLine 0), unable to serve a
+// rollback, and asked with a boundary. The first two both carry boundary 0, so cutLine is the only
+// thing separating them.
+func TestDescribeDecisionsRendersEachOutcomeDistinctly(t *testing.T) {
 	stores := prunableStores(
-		withRetentionWindow(contiguousStore("archiveWAL", 100_000, true), InfiniteRetentionWindow),
+		withRetentionWindow(contiguousStore("archiveWAL", 100_000), InfiniteRetentionWindow),
 		snapshotStore("sc", 100_000),
-		contiguousStore("stateWAL", 100_000, true),
+		contiguousStore("stateWAL", 100_000),
 	)
 	decisions := []storeDecision{
-		{cutLine: 0, boundary: 0},           // skipped before being asked
-		{cutLine: 90_000, boundary: 0},      // asked, opted out
-		{cutLine: 90_000, boundary: 90_000}, // asked, reported a boundary
+		{cutLine: 0, boundary: CannotServeRollback},      // skipped before being asked
+		{cutLine: 90_000, boundary: CannotServeRollback}, // asked, cannot serve a rollback
+		{cutLine: 90_000, boundary: 90_000},              // asked, reported a boundary
 	}
 
 	require.Equal(t,
-		"archiveWAL=notAsked sc=optedOut(cutLine=90000) stateWAL=90000(cutLine=90000)",
+		"archiveWAL=notAsked sc=cannotServeRollback(cutLine=90000) "+
+			"stateWAL=90000(cutLine=90000)",
 		describeDecisions(stores, decisions),
 	)
+}
+
+// A cycle stopped by CannotServeRollback must still ask every store. The prune log is the stated
+// mechanism for reconstructing a decision after the fact, and a store left unasked renders as
+// "notAsked" — indistinguishable from one skipped at the cutLine == 0 branch. Asking everyone
+// keeps that rendering honest, so the blocking store must not short-circuit the loop.
+func TestPruneAsksEveryStoreEvenWhenBlocked(t *testing.T) {
+	blocker := snapshotStore("sc", 100_000) // no snapshot -> CannotServeRollback
+	afterBlocker := contiguousStore("stateWAL", 100_000)
+	stores := prunableStores(blocker, afterBlocker)
+
+	cfg := &StorageGarbageCollectorConfig{RollbackWindow: 1_000, PruneInterval: time.Minute}
+	require.NoError(t, prune(cfg, stores))
+
+	require.False(t, afterBlocker.pruneBelowCalled.Load(), "the cycle must be abandoned")
+	require.Equal(t, uint64(1), blocker.boundaryCalls.Load())
+	require.Equal(t, uint64(1), afterBlocker.boundaryCalls.Load(),
+		"a store after the blocking one must still be asked, or the prune log misreports it")
 }
 
 func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {
@@ -575,7 +580,7 @@ func TestNewStorageGarbageCollectorConstructAndClose(t *testing.T) {
 	sm, err := NewStorageGarbageCollector(
 		context.Background(),
 		DefaultStorageGarbageCollectorConfig(),
-		prunableStores(snapshotStore("sc", 100, 100), contiguousStore("stateWAL", 100, true)),
+		prunableStores(snapshotStore("sc", 100, 100), contiguousStore("stateWAL", 100)),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, sm)
@@ -608,7 +613,7 @@ func startCollector(t *testing.T, interval time.Duration, stores ...*mockStore) 
 // height.
 func TestRunTickerDrivesPruneCycles(t *testing.T) {
 	sc := snapshotStore("sc", 100_000, 80_000)
-	wal := contiguousStore("stateWAL", 100_000, true)
+	wal := contiguousStore("stateWAL", 100_000)
 
 	startCollector(t, 10*time.Millisecond, sc, wal)
 
