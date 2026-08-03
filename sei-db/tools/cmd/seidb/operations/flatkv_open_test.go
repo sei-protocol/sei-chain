@@ -123,7 +123,7 @@ func TestPrepareFlatKVToolingCloneMissingCurrentAndSnapshot(t *testing.T) {
 
 func TestPrepareFlatKVToolingCloneRetriesENOENT(t *testing.T) {
 	var attempts int
-	cloneDir, err := prepareFlatKVToolingCloneWith(t.TempDir(), 0, func(string, int64) (string, error) {
+	cloneDir, err := retryToolingClone(t.TempDir(), 0, func(string, int64) (string, error) {
 		attempts++
 		if attempts < maxCloneRetries {
 			return "", fmt.Errorf("source vanished: %w", os.ErrNotExist)
@@ -135,7 +135,7 @@ func TestPrepareFlatKVToolingCloneRetriesENOENT(t *testing.T) {
 	require.Equal(t, maxCloneRetries, attempts)
 
 	attempts = 0
-	_, err = prepareFlatKVToolingCloneWith(t.TempDir(), 0, func(string, int64) (string, error) {
+	_, err = retryToolingClone(t.TempDir(), 0, func(string, int64) (string, error) {
 		attempts++
 		return "", errors.New("permission denied")
 	})

@@ -29,11 +29,10 @@ const (
 	maxCloneRetries = 3
 )
 
-// errSourceChurning marks transient races where the source FlatKV directory
-// mutates (snapshot pruned, WAL truncated) between our reads. It is the
-// sentinel that prepareFlatKVToolingCloneWith uses to decide whether to
-// retry instead of bailing out.
-var errSourceChurning = errors.New("flatkv source kept churning during clone")
+// errSourceChurning marks transient races where the source directory mutates
+// (snapshot pruned, WAL truncated) between our reads. It is the sentinel that
+// retryToolingClone uses to decide whether to retry instead of bailing out.
+var errSourceChurning = errors.New("source kept churning during clone")
 
 // openedFlatKV wraps a temp-cloned FlatKV store used by tooling.
 //
@@ -108,10 +107,13 @@ func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
 }
 
 func prepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
-	return prepareFlatKVToolingCloneWith(dbDir, height, tryPrepareFlatKVToolingClone)
+	return retryToolingClone(dbDir, height, tryPrepareFlatKVToolingClone)
 }
 
-func prepareFlatKVToolingCloneWith(dbDir string, height int64, tryClone func(string, int64) (string, error)) (string, error) {
+// retryToolingClone runs tryClone, retrying while the live writer keeps
+// mutating the source out from under us. Shared by the FlatKV and memiavl
+// tooling clones, which race the same writer in the same ways.
+func retryToolingClone(dbDir string, height int64, tryClone func(string, int64) (string, error)) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxCloneRetries; attempt++ {
 		tempDir, err := tryClone(dbDir, height)
@@ -302,7 +304,7 @@ func isFlatKVSnapshotName(name string) bool {
 // error: snapshots can be many GB, and the previous behavior of falling back
 // to a byte-copy on tmpfs (the historical $TMPDIR default) routinely OOM'd
 // nodes and exhausted /tmp. Callers must ensure the tool clone dir lives on
-// the same filesystem as the source FlatKV directory.
+// the same filesystem as the source directory.
 //
 // Hardlinking is safe because:
 //   - snapshot-N files are immutable after Pebble Checkpoint + Rename.
@@ -368,7 +370,7 @@ func linkOnly(src, dst string) error {
 	if err := os.Link(src, dst); err != nil {
 		if isCrossDeviceLinkError(err) {
 			return fmt.Errorf("hardlink %s -> %s failed across filesystems; "+
-				"FlatKV tooling requires the temp clone to share a filesystem with the source: %w",
+				"seidb tooling requires the temp clone to share a filesystem with the source: %w",
 				src, dst, err)
 		}
 		return err
