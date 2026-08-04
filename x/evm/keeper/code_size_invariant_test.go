@@ -54,7 +54,6 @@ func TestGetCodeSizeMatchesGetCodeLength(t *testing.T) {
 
 	t.Run("max code size", func(t *testing.T) {
 		code := make([]byte, params.MaxCodeSize)
-		code[0] = 0x00
 		k.SetCode(ctx, addr, code)
 		assertInvariant(t)
 		require.Equal(t, params.MaxCodeSize, k.GetCodeSize(ctx, addr))
