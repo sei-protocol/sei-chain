@@ -525,6 +525,34 @@ func TestPruneStopsAtFirstBlockerUnlessWaived(t *testing.T) {
 	require.Equal(t, uint64(100_000), afterWaived.prunedBelow.Load())
 }
 
+// InfiniteRetentionWindow on a snapshot store is a footgun, and this pins which way it cuts. A
+// store with no cut line is never asked, so it leaves the minimum entirely and the WAL holding its
+// replay range is pruned to the WAL's own cut line — the old snapshot survives but can no longer be
+// replayed forward. Retention 0 protects it strictly better, because then it answers its oldest
+// needed snapshot and drags the WAL down to it.
+//
+// The other infinite-retention cases in TestPruneDecisions only cover the safe direction, where the
+// infinite-retention store is the contiguous archive (a replay source, not a consumer).
+func TestPruneInfiniteRetentionSnapshotStore(t *testing.T) {
+	archive := withRetentionWindow(snapshotStore("archiveSC", 100_000, 20_000), InfiniteRetentionWindow)
+	wal := contiguousStore("stateWAL", 100_000)
+	require.NoError(t, prune(testConfig(t, 1_000), prunableStores(archive, wal)))
+
+	require.Zero(t, archive.boundaryCalls.Load(), "no cut line means it is never asked")
+	require.False(t, archive.pruneBelowCalled.Load(), "infinite retention is never pruned")
+	require.True(t, wal.pruneBelowCalled.Load())
+	require.Equal(t, uint64(99_000), wal.prunedBelow.Load(),
+		"the archive contributes nothing, so the WAL only honors its own cut line")
+
+	// Same store, contract-sanctioned retention of 0: it participates and protects its snapshot.
+	compliant := snapshotStore("archiveSC", 100_000, 20_000)
+	wal2 := contiguousStore("stateWAL", 100_000)
+	require.NoError(t, prune(testConfig(t, 1_000), prunableStores(compliant, wal2)))
+
+	require.Equal(t, uint64(20_000), wal2.prunedBelow.Load(),
+		"retention 0 pulls the WAL down to the snapshot, keeping it replayable")
+}
+
 func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {
 	cfg := DefaultStorageGarbageCollectorConfig()
 	require.Equal(t, uint64(1_000), cfg.RollbackWindow)

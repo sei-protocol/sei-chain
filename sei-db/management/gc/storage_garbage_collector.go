@@ -35,9 +35,15 @@ var logger = seilog.NewLogger("db", "gc")
 // Two properties do the safety work.
 //
 // Answers are bounded by the cut line they were given, so pruneHeight <= head - RollbackWindow
-// holds by construction and the collector never clamps. That yields the invariant: a prune cannot
-// take away a rollback that was possible before it. Full headroom is not promised after a
-// rollback has already consumed part of the window.
+// holds by construction and the collector does not clamp. That yields the invariant: a prune cannot
+// take away a rollback that was possible before it. Full headroom is not promised after a rollback
+// has already consumed part of the window.
+//
+// The bound is trusted rather than checked. A check could only substitute cutLine for a bad answer,
+// which for a snapshot store is itself too aggressive — the correct answer is the newest snapshot at
+// or below cutLine, normally well below it — and refusing to prune instead would let one faulty
+// store stall the fleet and grow disk without limit. Both remedies are worse than the bug they
+// guard, so the bound stays a contract requirement on GetPruningBoundary.
 //
 // And a store that can serve no rollback at all is not merely skipped, it abandons the cycle. It
 // will replay forward once its first snapshot lands, so pruning the others now could delete the

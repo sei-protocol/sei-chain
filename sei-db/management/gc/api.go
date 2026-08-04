@@ -40,10 +40,11 @@ type PrunableStore interface {
 	PruneBelow(blockNumber uint64) error
 
 	// GetRetentionWindow is how many extra blocks beyond the shared RollbackWindow this store
-	// needs to keep servable, where head is the min non-zero GetLatestBlock:
+	// needs to keep servable, where head is the min non-zero GetLatestBlock. Three answers:
 	//
-	//	retention < 0   → never pruned (see InfiniteRetentionWindow)
-	//	retention >= 0  → cutLine = head - RollbackWindow - retention
+	//	> 0  → extra history on top; cutLine = head - RollbackWindow - retention
+	//	0    → no extra history;     cutLine = head - RollbackWindow
+	//	-1   → never prune this store at all (see InfiniteRetentionWindow)
 	//
 	// RollbackWindow is shared so every store stays consistent under rollback. Retention is
 	// optional history on top, so a store can still serve queries after a rollback has consumed
@@ -53,9 +54,26 @@ type PrunableStore interface {
 	// because every participating store is pruned to the lowest boundary, one store's deep
 	// retention extends retention for all of them (see StorageGarbageCollector).
 	//
-	// By store kind: contiguous stores (blockDB, receiptDB, state WAL) use -1 / 0 / positive as
-	// configured; SC and SS always return 0, since the collector drives only their snapshot
-	// pruning for the shared window (SS prunes its own version history via KeepRecent).
+	// By store kind:
+	//   - Contiguous (blockDB, receiptDB, state WAL): -1 / 0 / positive as configured.
+	//   - SC: 0. It only needs the shared rollback window for its snapshots.
+	//   - SS: 0, including on an archive node. What the collector manages for SS is snapshot
+	//     pruning, not state pruning, and those snapshots only need to cover RollbackWindow. SS
+	//     keeps its own version history via KeepRecent, so making a node archival belongs there,
+	//     not here. Returning -1 would freeze SS snapshots forever without retaining any extra
+	//     state — the opposite trade from the one intended — and would also drop SS out of the
+	//     shared minimum, per the warning below.
+	//
+	// Do not give a snapshot store InfiniteRetentionWindow expecting deeper history — it does the
+	// opposite. A store with no cut line is never asked for a boundary, so it drops out of the
+	// minimum and the contiguous store holding its replay range is pruned to its own cut line.
+	// With retention 0 the same store answers its oldest needed snapshot and pulls that range down
+	// with it. Concretely, with head 100_000, RollbackWindow 1_000, and a lone snapshot at 20_000:
+	// retention 0 holds the WAL at 20_000, while InfiniteRetentionWindow lets it go to 99_000 and
+	// leaves the snapshot unable to replay forward. Only the snapshot itself survives, so this is
+	// safe solely for a store that never needs another store's history — which is what the
+	// StorageGarbageCollector precondition requires. TestPruneInfiniteRetentionSnapshotStore pins
+	// both directions.
 	GetRetentionWindow() int64
 
 	// GetPruningBoundary returns the oldest block this store must keep in order to serve cutLine:
@@ -80,9 +98,14 @@ type PrunableStore interface {
 	// RollbackWindow past that floor.
 	//
 	// Never answering above cutLine is what makes pruneHeight <= head - RollbackWindow hold by
-	// construction, since the collector takes a minimum across stores and deliberately does not
-	// clamp. A higher answer would raise that minimum and tell a store holding contiguous history
-	// to drop blocks inside the rollback window.
+	// construction, since the collector takes a minimum across stores and does not clamp. A higher
+	// answer would raise that minimum; with no correctly answering retention-0 store to cap it, it
+	// can exceed the head and drop the store outright.
+	//
+	// Nothing in the collector enforces this — honoring it is the implementor's job. The collector
+	// cannot repair a bad answer, because cutLine is all it knows: substituting it would still prune
+	// past the snapshot a snapshot store needed, and refusing to prune would let one faulty store
+	// stall every other store's pruning. So this bound is load-bearing and unchecked.
 	//
 	// A snapshot write in flight need not be reserved, as snapshot creation is assumed to finish
 	// quickly. Never having produced one is the separate CannotServeRollback case.
