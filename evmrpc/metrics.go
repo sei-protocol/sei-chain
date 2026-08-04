@@ -26,6 +26,7 @@ const (
 	rejectReasonOversize      = "oversize"       // body exceeded max_request_body_bytes
 	rejectReasonBudgetMidread = "budget_midread" // global byte budget exhausted mid-body read
 	rejectReasonSlowBody      = "slow_body"      // body read idle timeout exceeded
+	rejectReasonBusy          = "busy"           // WS admission budget/frame wait timed out
 	// error_class values; empty string ("") means success.
 	errorClassPanic              = "panic"
 	errorClassExecutionReverted  = "execution_reverted"
