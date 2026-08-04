@@ -72,7 +72,7 @@ func (r *LaneVotesRecv) RecvBatch(ctx context.Context) ([]*types.Signed[*types.L
 
 type AppVotesRecv struct {
 	state *State
-	next  types.GlobalBlockNumber
+	next  types.RoadIndex
 }
 
 func (s *State) SubscribeAppVotes() *AppVotesRecv {
@@ -83,7 +83,7 @@ func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote],
 	for {
 		// If needed, fast forward to the first global number without known AppQC.
 		if qc, ok := r.state.LastAppQC().Get(); ok {
-			r.next = max(r.next, qc.Proposal().GlobalNumber()+1)
+			r.next = max(r.next, qc.Proposal().RoadIndex()+1)
 		}
 		// Fetch the proposal.
 		p, err := r.state.data.AppProposal(ctx, r.next)

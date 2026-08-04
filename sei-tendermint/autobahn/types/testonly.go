@@ -21,7 +21,6 @@ func BuildCommitQC(
 	keys []SecretKey,
 	prev utils.Option[*CommitQC],
 	laneQCs map[LaneID]*LaneQC,
-	appQC utils.Option[*AppQC],
 ) *CommitQC {
 	vs := ViewSpec{CommitQC: prev, Epoch: epoch}
 	if len(laneQCs) == 0 {
@@ -35,7 +34,7 @@ func BuildCommitQC(
 			break
 		}
 	}
-	proposal := utils.OrPanic1(NewProposal(leaderKey, vs, time.Now(), laneQCs, appQC))
+	proposal := utils.OrPanic1(NewProposal(leaderKey, vs, time.Now(), laneQCs))
 	votes := make([]*Signed[*CommitVote], 0, len(keys))
 	for _, k := range keys {
 		votes = append(votes, Sign(k, NewCommitVote(proposal.Proposal().Msg())))
@@ -314,12 +313,12 @@ func CommitQCAt(ep *Epoch, keys []SecretKey) *CommitQC {
 
 // GenProposal generates a random Proposal.
 func GenProposal(rng utils.Rng) *Proposal {
-	return newProposal(GenView(rng), utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), GlobalBlockNumber(rng.Uint64()))
+	return newProposal(GenView(rng), utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), GlobalBlockNumber(rng.Uint64()))
 }
 
 // GenProposalAt generates a Proposal at a specific view.
 func GenProposalAt(rng utils.Rng, view View) *Proposal {
-	return newProposal(view, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), GlobalBlockNumber(rng.Uint64()))
+	return newProposal(view, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), GlobalBlockNumber(rng.Uint64()))
 }
 
 // ProposalAt returns a minimal non-empty Proposal at view, consistent with ep.
@@ -330,7 +329,7 @@ func ProposalAt(ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	lane := ep.Committee().Lanes().At(0)
 	header := NewBlock(lane, 0, BlockHeaderHash{}, &Payload{}).Header()
-	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}, utils.None[*AppProposal](), ep.FirstBlock())
+	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}, ep.FirstBlock())
 }
 
 // GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,
@@ -340,7 +339,7 @@ func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	c := ep.Committee()
 	laneRanges := utils.GenSlice(rng, func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
-	return newProposal(view, utils.GenTimestamp(rng), laneRanges, utils.Some(GenAppProposal(rng)), ep.FirstBlock())
+	return newProposal(view, utils.GenTimestamp(rng), laneRanges, ep.FirstBlock())
 }
 
 // GenAppHash generates a random AppHash.
@@ -350,7 +349,7 @@ func GenAppHash(rng utils.Rng) AppHash {
 
 // GenAppProposal generates a random AppProposal.
 func GenAppProposal(rng utils.Rng) *AppProposal {
-	return NewAppProposal(GenGlobalBlockNumber(rng), GenRoadIndex(rng), GenAppHash(rng), GenEpochIndex(rng))
+	return NewAppProposal(GenRoadIndex(rng), GenAppHash(rng), GenEpochIndex(rng))
 }
 
 // GenAppVote generates a random AppVote.
@@ -376,7 +375,6 @@ func GenFullProposal(rng utils.Rng) *FullProposal {
 	return &FullProposal{
 		proposal:  GenSigned(rng, GenProposal(rng)),
 		laneQCs:   laneQCs,
-		appQC:     utils.Some(GenAppQC(rng)),
 		timeoutQC: utils.Some(GenTimeoutQC(rng)),
 	}
 }
@@ -391,7 +389,6 @@ func GenGlobalBlock(rng utils.Rng) *GlobalBlock {
 	return &GlobalBlock{
 		GlobalNumber:  GenGlobalBlockNumber(rng),
 		Payload:       GenPayload(rng),
-		FinalAppState: utils.Some(GenAppProposal(rng)),
 	}
 }
 
