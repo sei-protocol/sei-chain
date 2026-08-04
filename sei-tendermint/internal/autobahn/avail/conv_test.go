@@ -10,22 +10,22 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestPruneAnchorConv(t *testing.T) {
+func TestAppTipConv(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 4)
+	registry, keys, _ := epoch.GenRegistry(rng, 4)
 
 	lane := keys[0].Public()
 	block := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))
 	laneQCs := map[types.LaneID]*types.LaneQC{
 		lane: types.NewLaneQC(makeLaneVotes(keys, block.Header())),
 	}
-	commitQC := makeCommitQC(registry.LatestEpoch(), keys, utils.None[*types.CommitQC](), laneQCs, utils.None[*types.AppQC]())
+	commitQC := makeCommitQC(registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC](), laneQCs, utils.None[*types.AppQC]())
 	appProposal := types.NewAppProposal(commitQC.GlobalRange().First, commitQC.Proposal().Index(), types.GenAppHash(rng), commitQC.Proposal().EpochIndex())
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
-	anchor := &PruneAnchor{AppQC: appQC, CommitQC: commitQC}
-	pb1 := PruneAnchorConv.Encode(anchor)
-	decoded, err := PruneAnchorConv.Decode(pb1)
+	anchor := &AppTip{AppQC: appQC, CommitQC: commitQC}
+	pb1 := AppTipConv.Encode(anchor)
+	decoded, err := AppTipConv.Decode(pb1)
 	require.NoError(t, err)
-	require.True(t, proto.Equal(pb1, PruneAnchorConv.Encode(decoded)))
+	require.True(t, proto.Equal(pb1, AppTipConv.Encode(decoded)))
 }

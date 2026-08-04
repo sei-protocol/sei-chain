@@ -2,42 +2,99 @@ package avail
 
 import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// laneVoteSet holds weight toward LaneQC for one header hash under Current.
+type laneVoteSet struct {
+	weight uint64
+	votes  []*types.Signed[*types.LaneVote]
+	header *types.BlockHeader
+	qc     utils.Option[*types.LaneQC]
+}
+
+// add credits vote weight until quorum. Returns a newly formed LaneQC iff this
+// vote crosses quorum and caches it for subsequent readers.
+func (s *laneVoteSet) add(weight, quorum uint64, vote *types.Signed[*types.LaneVote]) utils.Option[*types.LaneQC] {
+	if s.qc.IsPresent() {
+		return utils.None[*types.LaneQC]()
+	}
+	s.weight += weight
+	s.votes = append(s.votes, vote)
+	if s.weight < quorum {
+		return utils.None[*types.LaneQC]()
+	}
+	s.qc = utils.Some(types.NewLaneQC(s.votes))
+	return s.qc
+}
+
+func (s *laneVoteSet) laneQC() utils.Option[*types.LaneQC] {
+	return s.qc
+}
+
+// blockVotes credits lane votes under the Current committee only.
+// Each header hash may form its own LaneQC.
 type blockVotes struct {
 	byKey  map[types.PublicKey]*types.Signed[*types.LaneVote]
-	byHash map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]
+	byHash map[types.BlockHeaderHash]*laneVoteSet
 }
 
-func newBlockVotes() blockVotes {
-	return blockVotes{
+func newBlockVotes() *blockVotes {
+	return &blockVotes{
 		byKey:  map[types.PublicKey]*types.Signed[*types.LaneVote]{},
-		byHash: map[types.BlockHeaderHash]*voteSet[*types.Signed[*types.LaneVote]]{},
+		byHash: map[types.BlockHeaderHash]*laneVoteSet{},
 	}
 }
 
-// Returns true iff a new QC has been constructed.
-// TODO: handle epoch transitions — weight must be counted per-epoch committee once multi-epoch is wired up.
-func (bv blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) (*types.LaneQC, bool) {
-	c := ep.Committee()
+// pushVote credits vote under ep (Current). Zero-weight → drop (not retained).
+// Callers VerifySig first; after a lock release, Weight==0 is still a silent drop.
+func (bv *blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) utils.Option[*types.LaneQC] {
 	k := vote.Key()
-	h := vote.Msg().Header().Hash()
 	if _, ok := bv.byKey[k]; ok {
-		return nil, false
+		return utils.None[*types.LaneQC]()
+	}
+	w := ep.Committee().Weight(k)
+	if w == 0 {
+		return utils.None[*types.LaneQC]()
 	}
 	bv.byKey[k] = vote
-	byHash, ok := bv.byHash[h]
+
+	h := vote.Msg().Header().Hash()
+	set, ok := bv.byHash[h]
 	if !ok {
-		byHash = &voteSet[*types.Signed[*types.LaneVote]]{}
-		bv.byHash[h] = byHash
+		set = &laneVoteSet{header: vote.Msg().Header()}
+		bv.byHash[h] = set
 	}
-	if byHash.weight >= c.LaneQuorum() {
-		return nil, false
+	return set.add(w, ep.Committee().LaneQuorum(), vote)
+}
+
+// reweight recomputes already-stored votes under new Current after advanceEpoch.
+// Zero-weight signers are removed from byKey. Callers wake waiters via
+// ctrl.Updated() after advanceEpoch (not via a return flag).
+func (bv *blockVotes) reweight(c *types.Committee) {
+	clear(bv.byHash)
+	quorum := c.LaneQuorum()
+	for k, vote := range bv.byKey {
+		w := c.Weight(k)
+		if w == 0 {
+			delete(bv.byKey, k)
+			continue
+		}
+		h := vote.Msg().Header().Hash()
+		set, ok := bv.byHash[h]
+		if !ok {
+			set = &laneVoteSet{header: vote.Msg().Header()}
+			bv.byHash[h] = set
+		}
+		set.add(w, quorum, vote)
 	}
-	byHash.weight += c.Weight(k)
-	byHash.votes = append(byHash.votes, vote)
-	if byHash.weight >= c.LaneQuorum() {
-		return types.NewLaneQC(byHash.votes), true
+}
+
+func (bv *blockVotes) laneQC() utils.Option[*types.LaneQC] {
+	for _, set := range bv.byHash {
+		if qc, ok := set.laneQC().Get(); ok {
+			return utils.Some(qc)
+		}
 	}
-	return nil, false
+	return utils.None[*types.LaneQC]()
 }

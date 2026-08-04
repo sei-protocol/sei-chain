@@ -35,8 +35,17 @@ func (m *AppQC) Next() RoadIndex {
 	return m.Proposal().Next()
 }
 
-// Verify verifies the AppQC against the committee.
-func (m *AppQC) Verify(c *Committee) error {
+// Verify checks epoch_index / road against ep, then quorum under ep's committee.
+func (m *AppQC) Verify(ep *Epoch) error {
+	p := m.Proposal()
+	if got, want := p.EpochIndex(), ep.EpochIndex(); got != want {
+		return fmt.Errorf("appQC epoch %d, want %d", got, want)
+	}
+	if rr := ep.RoadRange(); !rr.Has(p.RoadIndex()) {
+		return fmt.Errorf("app road_index %v not in epoch %d roads [%v,%v)",
+			p.RoadIndex(), ep.EpochIndex(), rr.First, rr.Next)
+	}
+	c := ep.Committee()
 	return m.vote.verifyQC(c, c.AppQuorum(), m.sigs)
 }
 

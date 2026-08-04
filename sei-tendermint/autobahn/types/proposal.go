@@ -77,6 +77,10 @@ func (g GlobalRange) Has(n GlobalBlockNumber) bool {
 	return g.First <= n && n < g.Next
 }
 
+func (g GlobalRange) IsLastBlock(n GlobalBlockNumber) bool {
+	return n+1 == g.Next
+}
+
 // RoadIndex is the index of the consensus instance.
 type RoadIndex uint64
 
@@ -110,7 +114,7 @@ func (v View) Verify(ep *Epoch) error {
 		return fmt.Errorf("epoch_index = %d, want %d", got, want)
 	}
 	if rr := ep.RoadRange(); !rr.Has(v.Index) {
-		return fmt.Errorf("road_index %v not in epoch roads [%v, %v]", v.Index, rr.First, rr.Last)
+		return fmt.Errorf("road_index %v not in epoch roads [%v, %v)", v.Index, rr.First, rr.Next)
 	}
 	return nil
 }
@@ -121,43 +125,49 @@ func (v View) Next() View {
 	return v
 }
 
-// ViewSpec is the full local context for starting a view: justification QCs plus
-// the epoch active at that view. Epoch is required; View(), NextGlobalBlock(), and
-// NextTimestamp() panic if it is nil.
+// ViewSpec is the local context for starting a view: justification QCs plus a
+// Prev|Current EpochDuo. Attached AppQC may be Current or Current-1 (Prev lag).
 type ViewSpec struct {
 	// WARNING: currently we have implicit assumption that
 	// TimeoutQC.View().Index == CommitQC.Index.Next(),
 	// I.e. that TimeoutQC comes from the expected consensus instance.
 	CommitQC  utils.Option[*CommitQC]
 	TimeoutQC utils.Option[*TimeoutQC]
-	Epoch     *Epoch
+	Epochs    EpochDuo
+	// Genesis floors used only when CommitQC is None (chain start).
+	// Copied from Registry; ignored when CommitQC is present.
+	GenesisFirstBlock GlobalBlockNumber
+	GenesisTimestamp  time.Time
 }
 
+// Epoch is the proposing/voting epoch (Epochs.Current).
+func (vs *ViewSpec) Epoch() *Epoch { return vs.Epochs.Current }
+
 // NextGlobalBlock returns the first global block number expected in the next proposal.
-// CommitQC is None only at global block 0 (genesis), in which case it returns Epoch[0].FirstBlock.
+// CommitQC is None only at chain start, in which case it returns GenesisFirstBlock.
 // For all other views, including the first view of a non-genesis epoch, CommitQC is present and it returns CommitQC.GlobalRange().Next.
 func (vs *ViewSpec) NextGlobalBlock() GlobalBlockNumber {
 	if cQC, ok := vs.CommitQC.Get(); ok {
 		return cQC.GlobalRange().Next
 	}
-	return vs.Epoch.FirstBlock()
+	return vs.GenesisFirstBlock
 }
 
 // View is the view justified by vs.
 func (vs *ViewSpec) View() View {
 	idx := NextIndexOpt(vs.CommitQC)
 	if view := NextViewOpt(vs.TimeoutQC); view.Index == idx {
-		view.EpochIndex = vs.Epoch.EpochIndex()
+		view.EpochIndex = vs.Epoch().EpochIndex()
 		return view
 	}
-	return View{Index: idx, Number: 0, EpochIndex: vs.Epoch.EpochIndex()}
+	return View{Index: idx, Number: 0, EpochIndex: vs.Epoch().EpochIndex()}
 }
 
 func (vs *ViewSpec) NextTimestamp() time.Time {
 	if cQC, ok := vs.CommitQC.Get(); ok {
 		return cQC.Proposal().NextTimestamp()
 	}
-	return vs.Epoch.FirstTimestamp()
+	return vs.GenesisTimestamp
 }
 
 // Proposal is the road tipcut proposal.
@@ -204,6 +214,13 @@ func (m *Proposal) App() utils.Option[*AppProposal] { return m.app }
 
 // EpochIndex returns the epoch index encoded in the proposal.
 func (m *Proposal) EpochIndex() EpochIndex { return m.view.EpochIndex }
+
+// acceptsAppEpoch reports whether appEp is usable by this proposal: the
+// proposal's own epoch, or the immediately preceding epoch.
+func (m *Proposal) acceptsAppEpoch(appEp EpochIndex) bool {
+	cur := m.EpochIndex()
+	return appEp == cur || cur > 0 && appEp == cur-1
+}
 
 // GlobalRange returns the proposed global block range.
 func (m *Proposal) GlobalRange() GlobalRange {
@@ -299,7 +316,7 @@ func NewProposal(
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
 ) (*FullProposal, error) {
-	committee := viewSpec.Epoch.Committee()
+	committee := viewSpec.Epoch().Committee()
 	if got, want := key.Public(), committee.Leader(viewSpec.View()); got != want {
 		return nil, fmt.Errorf("key %q is not the leader %q for view %v", got, want, viewSpec.View())
 	}
@@ -345,20 +362,27 @@ func buildProposal(
 		}
 	}
 	app := ProposalOpt(appQC)
-	// If the new appProposal is not later than the previous one, then clear appQC.
+	// Attach AppQC only when newer than the previous tipcut's App; otherwise
+	// carry the CommitQC App forward with no attachment.
 	if old := AppOpt(ProposalOpt(viewSpec.CommitQC)); NextOpt(app) <= NextOpt(old) {
 		app = old
 		appQC = utils.None[*AppQC]()
 	}
-	// If the new appProposal is from the future (which may happen if this node is behind), then clear appQC.
-	// The proposal will be useless in this case, but at least it will be valid.
+	// Ahead of this tipcut: do not attach; keep prior CommitQC App (may be None).
 	if a, ok := app.Get(); ok && a.GlobalNumber() >= viewSpec.NextGlobalBlock() {
-		app = utils.None[*AppProposal]()
+		app = AppOpt(ProposalOpt(viewSpec.CommitQC))
 		appQC = utils.None[*AppQC]()
 	}
 	// Normalize the creation timestamp.
 	if wantMin := viewSpec.NextTimestamp(); timestamp.Before(wantMin) {
 		timestamp = wantMin
+	}
+	if a, ok := app.Get(); ok {
+		cur := viewSpec.Epoch().EpochIndex()
+		if a.EpochIndex() != cur && (cur == 0 || a.EpochIndex() != cur-1) {
+			app = utils.None[*AppProposal]()
+			appQC = utils.None[*AppQC]()
+		}
 	}
 	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app, viewSpec.NextGlobalBlock())
 	if proposal.GlobalRange().Len() == 0 {
@@ -411,8 +435,9 @@ func (m *FullProposal) TimeoutQC() utils.Option[*TimeoutQC] {
 }
 
 // Verify verifies the FullProposal against the current view.
+// Attached AppQC may be Current or Current-1 (Prev lag for unfinished AppQC).
 func (m *FullProposal) Verify(vs ViewSpec) error {
-	c := vs.Epoch.Committee()
+	c := vs.Epoch().Committee()
 	return scope.Parallel(func(s scope.ParallelScope) error {
 		// Does the view match?
 		if got, want := m.proposal.Msg().View(), vs.View(); got != want {
@@ -440,7 +465,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 		// Verify timeoutQC.
 		if tQC, ok := m.timeoutQC.Get(); ok {
 			s.Spawn(func() error {
-				if err := tQC.Verify(vs.Epoch, vs.CommitQC); err != nil {
+				if err := tQC.Verify(vs.Epoch(), vs.CommitQC); err != nil {
 					return fmt.Errorf("timeoutQC: %w", err)
 				}
 				return nil
@@ -459,7 +484,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 		}
 		// Verify the proposal's epoch binding, road range, lane structure, and membership.
 		proposal := m.proposal.Msg()
-		if err := proposal.Verify(vs.Epoch); err != nil {
+		if err := proposal.Verify(vs.Epoch()); err != nil {
 			return fmt.Errorf("proposal: %w", err)
 		}
 		// Verify each lane range against the previous commitQC and its laneQC justification.
@@ -489,35 +514,59 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 				})
 			}
 		}
+		proposalApp := proposal.App()
+		app, appPresent := proposalApp.Get()
+		if !appPresent {
+			return nil
+		}
+		if !proposal.acceptsAppEpoch(app.EpochIndex()) {
+			return fmt.Errorf(
+				"app epoch_index %d incompatible with proposal epoch %d",
+				app.EpochIndex(), proposal.EpochIndex(),
+			)
+		}
+
 		// Verify the appQC.
-		if got, wantMin := NextOpt(m.proposal.Msg().App()), NextOpt(AppOpt(ProposalOpt(vs.CommitQC))); got < wantMin {
-			return errors.New("AppProposal lower than in previous CommitQC")
-		} else if got == wantMin {
-			if m.appQC.IsPresent() {
-				return errors.New("unnecessary appQC")
+		previousApp := AppOpt(ProposalOpt(vs.CommitQC))
+		previous, previousPresent := previousApp.Get()
+		if previousPresent {
+			if app.RoadIndex() < previous.RoadIndex() {
+				return errors.New("AppProposal lower than in previous CommitQC")
 			}
-		} else {
-			app, _ := m.proposal.Msg().App().Get()
-			// TODO: relax to allow current_epoch-1 once epoch transitions are wired up.
-			if got, want := app.EpochIndex(), m.proposal.Msg().EpochIndex(); got != want {
-				return fmt.Errorf("app epoch_index %d != proposal epoch_index %d", got, want)
-			}
-			appQC, ok := m.appQC.Get()
-			if !ok {
-				return errors.New("appQC missing")
-			}
-			if appQC.vote.hash != NewHashed(NewAppVote(app)).hash {
-				return errors.New("appQC doesn't match the proposal")
-			}
-			s.Spawn(func() error {
-				if err := appQC.Verify(c); err != nil {
-					return fmt.Errorf("appQC: %w", err)
+			if app.RoadIndex() == previous.RoadIndex() {
+				if m.appQC.IsPresent() {
+					return errors.New("unnecessary appQC")
+				}
+				if NewHashed(NewAppVote(app)).hash != NewHashed(NewAppVote(previous)).hash {
+					return errors.New("AppProposal differs from previous CommitQC")
 				}
 				return nil
-			})
-			if got, want := appQC.Proposal().GlobalNumber(), vs.NextGlobalBlock(); got >= want {
-				return fmt.Errorf("appQC for block %v, while only %v blocks were finalized", got, want)
 			}
+		}
+		appEpoch := app.EpochIndex()
+		cur := vs.Epoch()
+		appQC, ok := m.appQC.Get()
+		if !ok {
+			return errors.New("appQC missing")
+		}
+		if appQC.vote.hash != NewHashed(NewAppVote(app)).hash {
+			return errors.New("appQC doesn't match the proposal")
+		}
+		s.Spawn(func() error {
+			ep := vs.Epochs.Current
+			if appEpoch != cur.EpochIndex() {
+				ep = vs.Epochs.Prev.OrPanic("previous epoch required for previous-epoch AppQC")
+			}
+			if err := appQC.Verify(ep); err != nil {
+				return fmt.Errorf("appQC: %w", err)
+			}
+			return nil
+		})
+		if got, want := appQC.Proposal().RoadIndex(), vs.View().Index; got >= want {
+			return fmt.Errorf("appQC road %v ahead of tipcut view %v", got, want)
+		}
+		if got, want := appQC.Proposal().GlobalNumber(), vs.NextGlobalBlock(); got >= want {
+			return fmt.Errorf("appQC for block %v, while only %v blocks were finalized", got, want)
 		}
 		return nil
 	})

@@ -92,20 +92,25 @@ var logger = seilog.NewLogger("tendermint", "internal", "autobahn", "consensus")
 // Persisted state file prefix for consensus inner state.
 const innerFile = "inner"
 
+// inner holds no registry: the epoch window is provided from outside (newInner /
+// pushCommitQC on State), and epoch transitions are explicit.
+// Genesis floors for ViewSpec come from State.registry (see State.viewSpec).
 type inner struct {
 	persistedInner
-	epoch *types.Epoch
+	epochs types.EpochDuo
 }
 
 // View returns the current view, embedding the epoch's index.
+// Genesis floors are unused here (View only needs CommitQC/TimeoutQC/Epochs).
 func (i inner) View() types.View {
-	vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, Epoch: i.epoch}
+	vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, Epochs: i.epochs}
 	return vs.View()
 }
 
 // newInner creates the inner state from persisted data loaded by NewPersister.
 // data is None on fresh start (persistence disabled or no prior state).
-// Returns error if persisted state is corrupt (see persistedInner.validate).
+// Returns error if persisted state is corrupt (see persistedInner.validate) or
+// required epochs are missing from the registry.
 func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (inner, error) {
 	var persisted persistedInner
 
@@ -117,35 +122,54 @@ func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (
 		persisted = *decoded
 	}
 
-	// TODO: when AddEpoch is wired, resolve the epoch from the persisted QC/proposal
-	// rather than assuming LatestEpoch — otherwise a restart after an epoch transition
-	// fails validation with an epoch/road mismatch.
-	ep := registry.LatestEpoch()
-	if err := persisted.validate(ep); err != nil {
+	// View duo = tipcut; CommitQC may be prior epoch. Seeding is data's;
+	// missing epoch hard-fails. Tip order: NewState requires avail ≥ consensus;
+	// avail/consensus may lag data and catch up in Run.
+	nextViewRoad := types.NextIndexOpt(persisted.CommitQC)
+	duo, err := registry.DuoAt(nextViewRoad)
+	if err != nil {
+		return inner{}, fmt.Errorf("DuoAt(%d): %w", nextViewRoad, err)
+	}
+	commitEpoch := duo.Current
+	if cqc, ok := persisted.CommitQC.Get(); ok {
+		commitEpoch, err = registry.EpochAt(cqc.Proposal().Index())
+		if err != nil {
+			return inner{}, fmt.Errorf("EpochAt(%d): %w", cqc.Proposal().Index(), err)
+		}
+	}
+	if err := persisted.validate(commitEpoch, duo); err != nil {
 		return inner{}, err
 	}
 
 	logger.Info("restored consensus state", "state", innerProtoConv.Encode(&persisted))
 
-	return inner{persistedInner: persisted, epoch: ep}, nil
+	return inner{persistedInner: persisted, epochs: duo}, nil
 }
 
 func (s *State) pushCommitQC(qc *types.CommitQC) error {
-	i := s.innerRecv.Load()
-	if qc.Proposal().Index() < i.View().Index {
+	// Avail already verified at admit; this only installs the tip and aligns
+	// the tipcut duo (prune-tolerant jump via LastCommitQC).
+	if qc.Proposal().Index() < s.innerRecv.Load().View().Index {
 		return nil
-	}
-	if err := qc.Verify(i.epoch); err != nil {
-		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for iSend := range s.inner.Lock() {
 		i := iSend.Load()
 		if qc.Proposal().Index() < i.View().Index {
 			return nil
 		}
-		// CommitQC advances to new index; clear all state for new view.
-		// TODO: rotate ep when epoch transitions are wired up.
-		iSend.Store(inner{persistedInner: persistedInner{CommitQC: utils.Some(qc)}, epoch: i.epoch})
+		nextRoad := qc.Proposal().Index() + 1
+		nextDuo := i.epochs
+		if !i.epochs.Current.RoadRange().Has(nextRoad) {
+			// Tipcut past Current: DuoAt must already be seeded.
+			duo, err := s.registry.DuoAt(nextRoad)
+			if err != nil {
+				logger.Error("tipcut duo not in registry after avail CommitQC tip",
+					"road", nextRoad)
+				return fmt.Errorf("DuoAt(%d): %w", nextRoad, err)
+			}
+			nextDuo = duo
+		}
+		iSend.Store(inner{persistedInner: persistedInner{CommitQC: utils.Some(qc)}, epochs: nextDuo})
 	}
 	return nil
 }
@@ -163,7 +187,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 		return nil
 	}
 	// Verify checks the invariant: TimeoutQC.View().Index == CommitQC.Index + 1
-	if err := qc.Verify(i.epoch, i.CommitQC); err != nil {
+	if err := qc.Verify(i.epochs.Current, i.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for isend := range s.inner.Lock() {
@@ -171,8 +195,8 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 		if qc.View().Less(i.View()) {
 			return nil
 		}
-		// TimeoutQC advances view number; clear votes and prepareQC (stale view).
-		isend.Store(inner{persistedInner: persistedInner{CommitQC: i.CommitQC, TimeoutQC: utils.Some(qc)}, epoch: i.epoch})
+		// TimeoutQC advances view number; clear votes and prepareQC. Epochs unchanged.
+		isend.Store(inner{persistedInner: persistedInner{CommitQC: i.CommitQC, TimeoutQC: utils.Some(qc)}, epochs: i.epochs})
 	}
 	return nil
 }
@@ -214,7 +238,7 @@ func (s *State) pushPrepareQC(ctx context.Context, qc *types.PrepareQC) error {
 	if vs.View() != qc.Proposal().View() {
 		return nil
 	}
-	if err := qc.Verify(vs.Epoch); err != nil {
+	if err := qc.Verify(vs.Epoch()); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	// Update.

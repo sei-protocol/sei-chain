@@ -12,10 +12,33 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// EpochDuoForTest builds a valid Prev|Current duo for tests. Prev is absent
+// iff Current is epoch 0; otherwise a synthetic contiguous Prev is created.
+func EpochDuoForTest(current *Epoch) EpochDuo {
+	if current.EpochIndex() == 0 {
+		return NewEpochDuo(current, utils.None[*Epoch]())
+	}
+	first := current.RoadRange().First
+	if first == 0 {
+		panic(fmt.Sprintf("EpochDuoForTest: epoch %d with RoadRange.First==0 cannot host Prev",
+			current.EpochIndex()))
+	}
+	prev := NewEpoch(
+		current.EpochIndex()-1,
+		RoadRange{First: 0, Next: first},
+		current.Committee(),
+	)
+	return NewEpochDuo(current, utils.Some(prev))
+}
+
 // BuildCommitQC builds a valid CommitQC from explicit lane QCs and an optional app QC.
 // If laneQCs is empty, a single 1-block LaneQC is synthesized so the tipcut is
 // non-empty (empty tipcuts are rejected by Proposal.Verify).
 // Use BuildFullCommitQC when you want random blocks generated automatically.
+//
+// For epoch>0, NewProposal requires an in-window App (Current or Current-1). If
+// neither appQC nor prev's CommitQC App provides one, a Current-1 AppQC is
+// synthesized on the prior tipcut road so fixtures keep working.
 func BuildCommitQC(
 	epoch *Epoch,
 	keys []SecretKey,
@@ -23,9 +46,19 @@ func BuildCommitQC(
 	laneQCs map[LaneID]*LaneQC,
 	appQC utils.Option[*AppQC],
 ) *CommitQC {
-	vs := ViewSpec{CommitQC: prev, Epoch: epoch}
+	vs := ViewSpec{CommitQC: prev, Epochs: EpochDuoForTest(epoch)}
 	if len(laneQCs) == 0 {
 		laneQCs = oneBlockLaneQCMap(vs, keys)
+	}
+	if epoch.EpochIndex() > 0 {
+		have := appInDuoWindow(AppOpt(ProposalOpt(prev)), epoch.EpochIndex())
+		if qc, ok := appQC.Get(); ok {
+			ep := qc.Proposal().EpochIndex()
+			have = have || ep == epoch.EpochIndex() || ep == epoch.EpochIndex()-1
+		}
+		if !have {
+			appQC = utils.Some(synthAppQCForPrevEpoch(epoch, keys, prev))
+		}
 	}
 	leader := epoch.Committee().Leader(vs.View())
 	var leaderKey SecretKey
@@ -43,9 +76,39 @@ func BuildCommitQC(
 	return NewCommitQC(votes)
 }
 
+func appInDuoWindow(app utils.Option[*AppProposal], want EpochIndex) bool {
+	a, ok := app.Get()
+	if !ok {
+		return false
+	}
+	ep := a.EpochIndex()
+	if ep == want {
+		return true
+	}
+	return want > 0 && ep == want-1
+}
+
+// synthAppQCForPrevEpoch builds a Current-1 AppQC anchored on the prior tipcut
+// (or genesis global 0 when prev is absent).
+func synthAppQCForPrevEpoch(epoch *Epoch, keys []SecretKey, prev utils.Option[*CommitQC]) *AppQC {
+	prevEp := epoch.EpochIndex() - 1
+	var global GlobalBlockNumber
+	var road RoadIndex
+	if cqc, ok := prev.Get(); ok {
+		global = cqc.GlobalRange().Next - 1
+		road = cqc.Proposal().Index()
+	}
+	p := NewAppProposal(global, road, AppHash{}, prevEp)
+	votes := make([]*Signed[*AppVote], 0, len(keys))
+	for _, k := range keys {
+		votes = append(votes, Sign(k, NewAppVote(p)))
+	}
+	return NewAppQC(votes)
+}
+
 // oneBlockLaneQCMap builds a single LaneQC advancing the first committee lane by one block.
 func oneBlockLaneQCMap(vs ViewSpec, keys []SecretKey) map[LaneID]*LaneQC {
-	c := vs.Epoch.Committee()
+	c := vs.Epoch().Committee()
 	lane := c.Lanes().At(0)
 	n := LaneRangeOpt(vs.CommitQC, lane).Next()
 	header := NewBlock(lane, n, BlockHeaderHash{}, &Payload{}).Header()
@@ -289,16 +352,19 @@ func GenEpochIndex(rng utils.Rng) EpochIndex {
 }
 
 // GenEpochWithCommittee returns a random Epoch wrapping committee.
-// epochIndex, firstBlock, timestamp, and Roads.First are randomized so that tests
-// exercise epoch-binding checks rather than silently passing on zero values.
+// epochIndex and Roads.First are randomized so that tests exercise
+// epoch-binding checks rather than silently passing on zero values.
+// When epochIndex > 0, First is at least 1 so EpochDuoForTest can place Prev.
 func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
+	idx := GenEpochIndex(rng)
 	first := RoadIndex(rng.Uint64() % 1000)
+	if idx > 0 && first == 0 {
+		first = RoadIndex(rng.Uint64()%999) + 1
+	}
 	return NewEpoch(
-		GenEpochIndex(rng),
-		RoadRange{First: first, Last: first + RoadIndex(rng.Uint64()%10000) + 10},
-		utils.GenTimestamp(rng),
+		idx,
+		RoadRange{First: first, Next: first + RoadIndex(rng.Uint64()%10000) + 11},
 		committee,
-		GlobalBlockNumber(rng.Uint64()%1000000)+1,
 	)
 }
 
@@ -325,22 +391,24 @@ func GenProposalAt(rng utils.Rng, view View) *Proposal {
 // ProposalAt returns a minimal non-empty Proposal at view, consistent with ep.
 // Includes a single 1-block lane range so Proposal.Verify accepts it (empty
 // tipcuts are forbidden). For tests that care about signature weight or epoch
-// binding rather than real lane/app data.
+// binding rather than real lane/app data. GlobalRange starts at 1.
 func ProposalAt(ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	lane := ep.Committee().Lanes().At(0)
 	header := NewBlock(lane, 0, BlockHeaderHash{}, &Payload{}).Header()
-	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}, utils.None[*AppProposal](), ep.FirstBlock())
+	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}, utils.None[*AppProposal](), 1)
 }
 
-// GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,
-// firstBlock, and lane IDs are all consistent with ep. Use in tests that verify
-// QCs against a known Epoch.
+// GenProposalForEpoch generates a Proposal at a specific view whose epochIndex
+// and lane IDs are consistent with ep. Use in tests that verify QCs against a
+// known Epoch. GlobalRange.First is randomized (floors live on ViewSpec/Registry,
+// not Epoch).
 func GenProposalForEpoch(rng utils.Rng, ep *Epoch, view View) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	c := ep.Committee()
 	laneRanges := utils.GenSlice(rng, func(rng utils.Rng) *LaneRange { return GenLaneRangeFor(rng, c) })
-	return newProposal(view, utils.GenTimestamp(rng), laneRanges, utils.Some(GenAppProposal(rng)), ep.FirstBlock())
+	firstBlock := GlobalBlockNumber(rng.Uint64()%1000000) + 1
+	return newProposal(view, utils.GenTimestamp(rng), laneRanges, utils.Some(GenAppProposal(rng)), firstBlock)
 }
 
 // GenAppHash generates a random AppHash.

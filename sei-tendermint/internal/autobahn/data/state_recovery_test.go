@@ -27,7 +27,7 @@ func (db *recoveryStartBlockDB) Iterator(n types.GlobalBlockNumber) (types.Block
 // TestRecoveryEmpty verifies that NewState is a no-op on a fresh BlockDB.
 func TestRecoveryEmpty(t *testing.T) {
 	rng := utils.TestRng()
-	registry, _ := epoch.GenRegistry(rng, 3)
+	registry, _, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 	fb := registry.FirstBlock()
 
@@ -45,8 +45,8 @@ func TestRecoveryEmpty(t *testing.T) {
 func TestNewStateInMemoryMode(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 
 	state := utils.OrPanic1(NewState(&Config{Registry: registry}, memblock.NewBlockDB()))
 
@@ -70,11 +70,11 @@ func TestNewStateInMemoryMode(t *testing.T) {
 // from BlockDB on restart.
 func TestRecoveryNormal(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
@@ -110,9 +110,9 @@ func TestRecoveryNormal(t *testing.T) {
 
 func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr2 := qc2.QC().GlobalRange()
 	require.Greater(t, gr2.Len(), 2)
 
@@ -144,9 +144,9 @@ func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
 
 func TestRecoveryCapsAppTipAtLastBlockInBlockDB(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
@@ -175,8 +175,8 @@ func TestRecoveryCapsAppTipAtLastBlockInBlockDB(t *testing.T) {
 
 func TestRecoveryRejectsAppTipBeyondCrashWindow(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
+	qc, blocks := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 
 	db := newTestBlockDB(t, t.TempDir())
 	writeToBlockDB(t, db, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
@@ -192,8 +192,8 @@ func TestRecoveryRejectsAppTipBeyondCrashWindow(t *testing.T) {
 
 func TestRecoveryStartsAtRegistryFloorWhenBlockDBMissingFirstCommittedBlock(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	qc, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
+	qc, _ := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr := qc.QC().GlobalRange()
 
 	db := &recoveryStartBlockDB{BlockDB: newTestBlockDB(t, t.TempDir())}
@@ -211,7 +211,7 @@ func TestRecoveryStartsAtRegistryFloorWhenBlockDBMissingFirstCommittedBlock(t *t
 
 func TestRecoveryRejectsEmptyBlockDBAfterFirstCommittedBlock(t *testing.T) {
 	rng := utils.TestRng()
-	registry, _ := epoch.GenRegistry(rng, 3)
+	registry, _, _ := epoch.GenRegistry(rng, 3)
 	lastExecuted := registry.FirstBlock() + 1
 
 	_, err := NewState(&Config{
@@ -223,9 +223,9 @@ func TestRecoveryRejectsEmptyBlockDBAfterFirstCommittedBlock(t *testing.T) {
 
 func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 
 	db := newTestBlockDB(t, t.TempDir())
 	writeToBlockDB(t, db,
@@ -248,11 +248,11 @@ func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
 func TestPruningDiscards(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	qc3, blocks3 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc2.QC()))
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
+	qc3, blocks3 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc2.QC())), keys, utils.Some(qc2.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 	gr3 := qc3.QC().GlobalRange()
@@ -283,12 +283,12 @@ func TestPruningDiscards(t *testing.T) {
 // BlockDB only contains data from a later QC range (as left by pruning + GC).
 func TestRecoveryAfterPruning(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	qc3, blocks3 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc2.QC()))
+	qc1, _ := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
+	qc3, blocks3 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc2.QC())), keys, utils.Some(qc2.QC()))
 	gr2 := qc2.QC().GlobalRange()
 	gr3 := qc3.QC().GlobalRange()
 
@@ -330,11 +330,11 @@ func TestRecoveryAfterPruning(t *testing.T) {
 func TestRecoveryBlocksBehind(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
@@ -378,10 +378,10 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 // leave the blockless prefix inside [first, nextBlock), which inner's density invariant forbids.
 func TestRecoveryPartialQCPrefix(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 	if gr1.Next-gr1.First < 3 {
 		t.Skip("need at least 3 blocks in QC range to test split")
@@ -430,11 +430,11 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 // floor set by the QC pass, so the "block predates first QC start" guard never fires.
 func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
@@ -474,10 +474,10 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 // cursor sits at the QC start with nextBlock at that floor and no block data.
 func TestRecoveryQCsNoBlocks(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, _ := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
 	db1 := newTestBlockDB(t, dir)
@@ -506,11 +506,11 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	qc1, _ := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.EpochAtTip(utils.Some(qc1.QC())), keys, utils.Some(qc1.QC()))
 	gr2 := qc2.QC().GlobalRange()
 	require.Greater(t, gr2.First, registry.FirstBlock(), "need skipTo past genesis")
 
@@ -558,10 +558,10 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 // propagates.)
 func TestRecoveryBlockGap(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
 	dir := t.TempDir()
 
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
 	// TestCommitQC generates 10 global blocks, so the range is always wide
@@ -592,4 +592,21 @@ func TestRecoveryBlockGap(t *testing.T) {
 	state, err := NewState(&Config{Registry: registry}, db1)
 	require.NoError(t, err)
 	require.Equal(t, mid, state.NextBlock(), "replay must resume at the first unfilled number")
+}
+
+// TestNewState_AppLeadsBlockDBFlush: app Commit can lead BlockDB flush; NewState
+// still boots from the CommitQC span + placeholder N+1/N+2 (no LastExecuted lookup).
+func TestNewState_AppLeadsBlockDBFlush(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys, _ := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.EpochAtTip(utils.None[*types.CommitQC]()), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+
+	db := memblock.NewBlockDB()
+	writeToBlockDB(t, db, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
+	tips := db.Status()
+	require.Equal(t, gr1.Next, tips.NextBlock, "NextBlock is first height of the next QC")
+
+	_, err := NewState(&Config{Registry: registry}, db)
+	require.NoError(t, err)
 }

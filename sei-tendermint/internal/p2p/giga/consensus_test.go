@@ -14,7 +14,7 @@ import (
 func TestConsensusClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 7)
+	registry, keys, _ := epoch.GenRegistry(rng, 7)
 	committee := registry.LatestEpoch().Committee()
 	env := newTestEnv(registry)
 	// Run only a subset of replicas, to enforce timeouts.
@@ -31,7 +31,7 @@ func TestConsensusClientServer(t *testing.T) {
 			t.Logf("[%v] Push a block.", idx)
 			node := nodes[rng.Intn(len(env.nodes))]
 			a := node.consensus.Avail()
-			b, err := a.ProduceLocalBlock(a.NextBlock(a.PublicKey()), types.GenPayload(rng))
+			b, err := a.ProduceLocalBlock(a.NextBlock(a.PublicKey()), node.consensus.SecretKey(), types.GenPayload(rng))
 			if err != nil {
 				return fmt.Errorf("ds.ProduceLocalBlock(): %w", err)
 			}
@@ -41,11 +41,12 @@ func TestConsensusClientServer(t *testing.T) {
 				GlobalNumber:  idx,
 				FinalAppState: wantAppProposal,
 			}
+			road := types.RoadIndex(offset)
 			p := types.NewAppProposal(
 				idx,
-				types.RoadIndex(offset),
+				road,
 				types.GenAppHash(rng),
-				registry.LatestEpoch().EpochIndex(),
+				epoch.IndexForRoad(road),
 			)
 			wantAppProposal = utils.Some(p)
 			for _, n := range nodes {
@@ -59,6 +60,8 @@ func TestConsensusClientServer(t *testing.T) {
 					return fmt.Errorf("ds.QC(): %w", err)
 				}
 				want.Timestamp = qc.QC().Proposal().BlockTimestamp(idx).OrPanic("global block not in QC")
+				want.RoadIndex = qc.QC().Proposal().Index()
+				want.LastInCommitQC = qc.QC().GlobalRange().IsLastBlock(idx)
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}

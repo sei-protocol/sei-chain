@@ -15,6 +15,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
@@ -204,6 +205,12 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 			require.Equal(t, gb.Payload.Txs(), rbBytes, "router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.GlobalBlock(%v).Payload.Txs", h, h)
 		}
+		// Empty-store SetupInitialDuo seeds genesis neighbor {0,1}; short run
+		// never finishes LastRoad(0), so AdvanceIfNeeded must not seed epoch 2.
+		_, err := giga0.data.Registry().EpochAt(epoch.FirstRoad(1))
+		require.NoError(t, err, "empty-store seeding should register epoch 1 for WaitForDuo")
+		_, err = giga0.data.Registry().EpochAt(epoch.FirstRoad(2))
+		require.Error(t, err, "epoch 2 should not be seeded before last road of epoch 0")
 		return nil
 	})
 	require.NoError(t, err)

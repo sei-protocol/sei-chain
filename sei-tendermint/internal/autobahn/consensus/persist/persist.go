@@ -59,13 +59,11 @@ const (
 	headerSize = crcSize + seqSize // file header: [4-byte CRC32-C BE][8-byte seq LE]
 )
 
-// ErrNoData is returned by loadPersisted when no persisted files exist for the prefix.
 var ErrNoData = errors.New("no persisted data")
 
-// ErrCorrupt indicates that a persisted file exists but contains invalid data
-// (e.g. partially written during a crash). loadPersisted tolerates one corrupt
-// file and falls back to the other A/B copy. OS-level errors (permission denied,
-// I/O errors) are NOT wrapped with ErrCorrupt and cause loadPersisted to fail.
+// ErrCorrupt: persisted file exists but is invalid (e.g. partial crash write).
+// loadPersisted tolerates one corrupt A/B copy and falls back to the other;
+// OS errors are not wrapped as ErrCorrupt.
 var ErrCorrupt = errors.New("corrupt persisted data")
 
 // dataWithSeq is the unit stored in each A/B file: a sequence number and a proto payload.

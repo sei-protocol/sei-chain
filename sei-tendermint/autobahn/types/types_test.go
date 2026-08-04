@@ -144,7 +144,7 @@ func TestTimeoutQCConvDecode_EmptyVotesReturnsError(t *testing.T) {
 func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), committee)
 	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
 	pqc := makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, view)))
@@ -174,7 +174,7 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 func TestNewTimeoutQC_AllNone(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), committee)
 	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
 	votes := make([]*FullTimeoutVote, len(keys))
@@ -196,7 +196,7 @@ func TestNewTimeoutQC_AllNone(t *testing.T) {
 func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
-	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
+	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), committee)
 	view := View{Index: 0, Number: 5, EpochIndex: ep.EpochIndex()}
 
 	makePQCAt := func(vn ViewNumber) *PrepareQC {

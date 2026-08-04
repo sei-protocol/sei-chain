@@ -53,7 +53,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 				s.Spawn(func() error {
 					next := types.RoadIndex(0)
 					for {
-						qc, err := from.CommitQC(ctx, next)
+						qc, err := from.WaitForCommitQC(ctx, next)
 						if err != nil {
 							if errors.Is(err, types.ErrPruned) {
 								next = from.FirstCommitQC()
@@ -61,10 +61,16 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 							}
 							return err
 						}
-						next = qc.Index() + 1
 						if err := to.PushCommitQC(ctx, qc); err != nil {
 							return err
 						}
+						// PushCommitQC may no-op (stale / not yet Current) and still
+						// return nil. Only advance once to's tip covers this road so
+						// we do not skip an index that was never admitted.
+						if err := to.waitForCommitTip(ctx, qc.Index()); err != nil {
+							return err
+						}
+						next = qc.Index() + 1
 					}
 				})
 			}
@@ -77,7 +83,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 					}
 					next = appQC.Next()
 					for _, to := range states {
-						if err := to.PushAppQC(appQC, commitQC); err != nil {
+						if err := to.PushAppQC(ctx, appQC, commitQC); err != nil {
 							return err
 						}
 					}

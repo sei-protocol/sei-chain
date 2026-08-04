@@ -1,51 +1,48 @@
 package types
 
 import (
-	"time"
-
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // EpochIndex is the epoch number.
 type EpochIndex uint64
 
-// RoadRange is an inclusive range of RoadIndex values [First, Last].
+// RoadRange is a half-open range of RoadIndex values [First, Next).
+// Matches GlobalRange / LaneRange: Next is exclusive (Next == lastInclusive+1).
 type RoadRange struct {
 	First RoadIndex
-	Last  RoadIndex
+	Next  RoadIndex
 }
 
-// OpenRoadRange returns a RoadRange covering all road indices from 0.
-// Use in tests and genesis epochs where no upper bound is known yet.
-func OpenRoadRange() RoadRange { return RoadRange{First: 0, Last: utils.Max[RoadIndex]()} }
+// OpenRoadRange returns [0, Max) for tests/genesis when no upper bound is known yet.
+func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[RoadIndex]()} }
 
-// Has reports whether idx falls within this range (inclusive on both ends).
-func (r RoadRange) Has(idx RoadIndex) bool { return idx >= r.First && idx <= r.Last }
+func (r RoadRange) Has(idx RoadIndex) bool { return idx >= r.First && idx < r.Next }
+
+// IsLastRoad is true when idx+1 == Next (same shape as GlobalRange.IsLastBlock).
+func (r RoadRange) IsLastRoad(idx RoadIndex) bool { return idx+1 == r.Next }
 
 // Epoch holds the complete context for a single epoch.
 // Retrieved from the local Registry; never transmitted on the wire.
+//
+// First global block / timestamp floors are not on Epoch: they come from the
+// last CommitQC of the prior epoch (or genesis GenDoc via Registry), and the
+// registry does not store CommitQCs.
 type Epoch struct {
 	utils.ReadOnly
-	epochIndex     EpochIndex
-	roads          RoadRange
-	firstTimestamp time.Time
-	committee      *Committee
-	firstBlock     GlobalBlockNumber
+	epochIndex EpochIndex
+	roads      RoadRange
+	committee  *Committee
 }
 
-// NewEpoch constructs an Epoch.
-func NewEpoch(index EpochIndex, roads RoadRange, firstTimestamp time.Time, committee *Committee, firstBlock GlobalBlockNumber) *Epoch {
+func NewEpoch(index EpochIndex, roads RoadRange, committee *Committee) *Epoch {
 	return &Epoch{
-		epochIndex:     index,
-		roads:          roads,
-		firstTimestamp: firstTimestamp,
-		committee:      committee,
-		firstBlock:     firstBlock,
+		epochIndex: index,
+		roads:      roads,
+		committee:  committee,
 	}
 }
 
-func (e *Epoch) EpochIndex() EpochIndex        { return e.epochIndex }
-func (e *Epoch) RoadRange() RoadRange          { return e.roads }
-func (e *Epoch) FirstTimestamp() time.Time     { return e.firstTimestamp }
-func (e *Epoch) Committee() *Committee         { return e.committee }
-func (e *Epoch) FirstBlock() GlobalBlockNumber { return e.firstBlock }
+func (e *Epoch) EpochIndex() EpochIndex { return e.epochIndex }
+func (e *Epoch) RoadRange() RoadRange   { return e.roads }
+func (e *Epoch) Committee() *Committee  { return e.committee }

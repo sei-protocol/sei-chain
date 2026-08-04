@@ -168,15 +168,29 @@ func (g *BlockGenerator) buildFullCommitQC() (*types.FullCommitQC, []*types.Bloc
 		}
 	}
 
-	viewSpec := types.ViewSpec{CommitQC: prev, Epoch: types.NewEpoch(0, types.OpenRoadRange(), genesisTime, committee, 0)}
+	viewSpec := types.ViewSpec{
+		CommitQC: prev,
+		Epochs: types.NewEpochDuo(
+			types.NewEpoch(0, types.OpenRoadRange(), committee),
+			utils.None[*types.Epoch](),
+		),
+		GenesisFirstBlock: 0,
+		GenesisTimestamp:  genesisTime,
+	}
 	leader := committee.Leader(viewSpec.View())
-	appQC := func() utils.Option[*types.AppQC] {
-		if n := viewSpec.NextGlobalBlock(); n > 0 {
-			p := types.NewAppProposal(n-1, viewSpec.View().Index, types.AppHash(g.rand.Bytes(hashSizeBytes)), viewSpec.Epoch.EpochIndex())
-			return utils.Some(g.fakeAppQC(p))
-		}
-		return utils.None[*types.AppQC]()
-	}()
+	// AppQC certifies the prior tipcut (road == prev.Index), not the tipcut
+	// being built. buildProposal drops AppQCs whose block is not finalized;
+	// Verify additionally requires road < view.
+	var appQC utils.Option[*types.AppQC]
+	if cqc, ok := prev.Get(); ok {
+		p := types.NewAppProposal(
+			cqc.GlobalRange().Next-1,
+			cqc.Proposal().Index(),
+			types.AppHash(g.rand.Bytes(hashSizeBytes)),
+			cqc.Proposal().EpochIndex(),
+		)
+		appQC = utils.Some(g.fakeAppQC(p))
+	}
 	proposal := utils.OrPanic1(types.NewProposalForTesting(
 		committee,
 		viewSpec,

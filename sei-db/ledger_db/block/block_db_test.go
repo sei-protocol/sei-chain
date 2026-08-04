@@ -1484,8 +1484,6 @@ const (
 	testSeed      = 20260615
 )
 
-var genesisTime = time.Unix(1_700_000_000, 0)
-
 // batch is a contiguous run of blocks at global numbers [first, next) together
 // with the QC that finalizes them. next == first+len(blocks).
 type batch struct {
@@ -1577,7 +1575,7 @@ func buildFullCommitQC(
 	} else {
 		appQC = utils.None[*types.AppQC]()
 	}
-	ep := types.NewEpoch(0, types.OpenRoadRange(), genesisTime, committee, 0)
+	ep := types.NewEpoch(0, types.OpenRoadRange(), committee)
 	cqc := types.BuildCommitQC(ep, keys, prev, laneQCs, appQC)
 	return types.NewFullCommitQC(cqc, headers), blockList
 }
