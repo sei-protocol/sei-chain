@@ -1,19 +1,15 @@
 package consensus
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-
-	"github.com/gogo/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// ErrNonCanonicalProposalParts is returned when assembled proposal parts are
-// not the canonical protobuf encoding of the decoded block, or when the
-// proposal BlockID hash disagrees with that block while parts still target the
-// proposal PartSetHeader.
+// ErrNonCanonicalProposalParts is returned when assembled proposal parts do not
+// use the default BlockPartSizeBytes chunking of the block's canonical
+// protobuf encoding (i.e. when parts.Header() differs from MakePartSet).
 var ErrNonCanonicalProposalParts = errors.New("non-canonical proposal parts")
 
 // blockIDMatches reports whether block and parts together match the consensus
@@ -39,41 +35,28 @@ func proposalMatchesLocked(proposal, locked *types.Block, proposalParts, lockedP
 	})
 }
 
-// verifyCanonicalProposalParts ensures the received part bytes are exactly the
-// canonical protobuf encoding of the assembled block (equivalent to matching
-// MakePartSet's PartSetHeader, without rebuilding the Merkle tree). When the
-// current parts still belong to the stored proposal (same PartSetHeader), also
-// require the proposal BlockID hash to match. Parts may instead track a
-// maj23/commit certificate whose PartSetHeader differs from the original
-// proposal; in that case only the canonical-bytes check applies.
-func (cs *State) verifyCanonicalProposalParts(block *types.Block, partsBytes []byte) error {
+// verifyCanonicalProposalParts ensures ProposalBlockParts match
+// block.MakePartSet(BlockPartSizeBytes). Parts that carry the same logical
+// block bytes under a different chunk size produce a different PartSetHeader;
+// those must be rejected so commit/blocksync (which rebuild with
+// BlockPartSizeBytes) stay consistent. Proposal.BlockID.Hash is not checked
+// here: a mismatched proposal hash must not block later maj23/commit catch-up
+// that retargets the same PartSetHeader, and votes already commit to
+// ProposalBlock.Hash() + parts.Header().
+func (cs *State) verifyCanonicalProposalParts(block *types.Block) error {
 	parts := cs.roundState.ProposalBlockParts()
 	if parts == nil {
 		return errors.New("nil proposal block parts")
 	}
-	pbb, err := block.ToProto()
+	canonicalParts, err := block.MakePartSet(types.BlockPartSizeBytes)
 	if err != nil {
-		return fmt.Errorf("block.ToProto: %w", err)
+		return fmt.Errorf("MakePartSet: %w", err)
 	}
-	canonical, err := proto.Marshal(pbb)
-	if err != nil {
-		return fmt.Errorf("proto.Marshal: %w", err)
-	}
-	if !bytes.Equal(partsBytes, canonical) {
+	if !parts.HasHeader(canonicalParts.Header()) {
 		return fmt.Errorf(
-			"%w: assembled block bytes are not the canonical encoding (len got %d, want %d; PartSetHeader got %v)",
-			ErrNonCanonicalProposalParts, len(partsBytes), len(canonical), parts.Header(),
+			"%w: PartSetHeader got %v, want canonical %v",
+			ErrNonCanonicalProposalParts, parts.Header(), canonicalParts.Header(),
 		)
-	}
-	if proposal := cs.roundState.Proposal(); proposal != nil && parts.HasHeader(proposal.BlockID.PartSetHeader) {
-		// parts already match canonical encoding and proposal PartSetHeader,
-		// so only the header hash can still disagree with the proposal BlockID.
-		if !block.HashesTo(proposal.BlockID.Hash) {
-			return fmt.Errorf(
-				"%w: assembled block hash does not match proposal BlockID.Hash: got %X, want %X",
-				ErrNonCanonicalProposalParts, block.Hash(), proposal.BlockID.Hash,
-			)
-		}
 	}
 	return nil
 }

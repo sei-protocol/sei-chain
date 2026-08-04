@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
@@ -216,13 +217,16 @@ func TestEnterPrecommitDoesNotRelockOnPartSetMismatch(t *testing.T) {
 	cs1.validatePrecommit(ctx, t, round, round, vss[0], nil, propBlock.Hash())
 }
 
-func TestTxKeyReconstructionRejectsProposalHashMismatch(t *testing.T) {
+// A proposal whose BlockID.Hash lies but whose PartSetHeader matches the
+// canonical part set must still assemble. Rejecting here would leave a
+// complete PartSet with ProposalBlock==nil and block later maj23/commit
+// catch-up that reuses the same header (votes use ProposalBlock.Hash()).
+func TestAssembleDespiteProposalHashMismatch(t *testing.T) {
 	config := configSetup(t)
 	chainID := tmconfig.TestLoadGenesis(config).ChainID
 	ctx := t.Context()
 
-	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2, nonLeaderLocal: true})
-	cs1.config.GossipTransactionKeyOnly = true
+	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
 	round++
 	incrementRound(vss[1:]...)
@@ -232,7 +236,6 @@ func TestTxKeyReconstructionRejectsProposalHashMismatch(t *testing.T) {
 	canonicalParts, err := propBlock.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
 
-	// Proposal carries canonical parts but a lying BlockID.Hash.
 	badHash := crypto.CRandBytes(32)
 	require.False(t, propBlock.HashesTo(badHash))
 	blockID := types.BlockID{Hash: badHash, PartSetHeader: canonicalParts.Header()}
@@ -249,9 +252,20 @@ func TestTxKeyReconstructionRejectsProposalHashMismatch(t *testing.T) {
 	cs1.startTestRound(ctx, height, round)
 	peerID, err := types.NewNodeID("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 	require.NoError(t, err)
+
 	cs1.handleMsg(ctx, msgInfo{&ProposalMessage{proposal}, peerID, tmtime.Now()}, false)
+	for i := 0; i < int(canonicalParts.Total()); i++ {
+		cs1.handleMsg(ctx, msgInfo{
+			&BlockPartMessage{Height: height, Round: round, Part: canonicalParts.GetPart(i)},
+			peerID,
+			tmtime.Now(),
+		}, false)
+	}
 
 	rs := cs1.GetRoundState()
 	require.NotNil(t, rs.Proposal)
-	require.Nil(t, rs.ProposalBlock, "tx-key path must reject proposal BlockID hash mismatch")
+	require.NotNil(t, rs.ProposalBlock, "lying proposal hash must not block assembly of canonical parts")
+	require.True(t, rs.ProposalBlock.HashesTo(propBlock.Hash()))
+	require.False(t, bytes.Equal(rs.Proposal.BlockID.Hash, propBlock.Hash()))
+	require.True(t, rs.ProposalBlockParts.HasHeader(canonicalParts.Header()))
 }

@@ -160,20 +160,48 @@ func TestCanonicalPartBytesRoundTripShapes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			parts, err := tc.block.MakePartSet(types.BlockPartSizeBytes)
 			require.NoError(t, err)
+
+			cs.roundState.SetProposal(nil)
+			cs.roundState.SetProposalBlockParts(parts)
+			require.NoError(t, cs.verifyCanonicalProposalParts(tc.block))
+
+			// Trailing unknown field → different PartSetHeader under the same chunk size.
 			pbb, err := tc.block.ToProto()
 			require.NoError(t, err)
 			bz, err := proto.Marshal(pbb)
 			require.NoError(t, err)
-
-			cs.roundState.SetProposal(nil)
-			cs.roundState.SetProposalBlockParts(parts)
-			require.NoError(t, cs.verifyCanonicalProposalParts(tc.block, bz))
-
-			// Non-canonical bytes of the same logical block must fail.
 			junk := append(append([]byte{}, bz...), 0xba, 0x3e, 0x04, 'j', 'u', 'n', 'k')
 			cs.roundState.SetProposalBlockParts(types.NewPartSetFromData(junk, types.BlockPartSizeBytes))
-			err = cs.verifyCanonicalProposalParts(tc.block, junk)
+			err = cs.verifyCanonicalProposalParts(tc.block)
 			require.ErrorIs(t, err, ErrNonCanonicalProposalParts)
 		})
 	}
+}
+
+// Same canonical bytes with non-default part size yield a different PartSetHeader
+// and must be rejected (blocksync rebuilds with BlockPartSizeBytes).
+func TestRejectNonDefaultPartChunking(t *testing.T) {
+	ctx := t.Context()
+	config := configSetup(t)
+	cs, _ := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
+
+	// Large enough that a smaller part size splits into multiple parts.
+	block := testBlockWith(t, types.Txs{make([]byte, 8*1024)}, nil)
+	pbb, err := block.ToProto()
+	require.NoError(t, err)
+	bz, err := proto.Marshal(pbb)
+	require.NoError(t, err)
+
+	altPartSize := uint32(512)
+	require.Greater(t, len(bz), int(altPartSize))
+	altParts := types.NewPartSetFromData(bz, altPartSize)
+	canonical, err := block.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
+	require.False(t, altParts.Header().Equals(canonical.Header()))
+	require.Greater(t, altParts.Total(), uint32(1))
+
+	cs.roundState.SetProposal(nil)
+	cs.roundState.SetProposalBlockParts(altParts)
+	err = cs.verifyCanonicalProposalParts(block)
+	require.ErrorIs(t, err, ErrNonCanonicalProposalParts)
 }

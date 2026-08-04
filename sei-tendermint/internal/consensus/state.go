@@ -2173,12 +2173,12 @@ func (cs *State) addProposalBlockPart(
 		for m := range cs.metrics.Lock() {
 			m.MarkBlockGossipComplete()
 		}
-		block, partsBytes, err := cs.getBlockFromBlockParts()
+		block, _, err := cs.getBlockFromBlockParts()
 		if err != nil {
 			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
 			return false, err
 		}
-		if err := cs.verifyCanonicalProposalParts(block, partsBytes); err != nil {
+		if err := cs.verifyCanonicalProposalParts(block); err != nil {
 			Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
 			logger.Error(
 				"rejecting non-canonical proposal block parts",
@@ -2245,13 +2245,13 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 	}
 	// If we just have all the parts, reconstruct the block.
 	if parts.IsComplete() {
-		block, partsBytes, err := cs.getBlockFromBlockParts()
+		block, _, err := cs.getBlockFromBlockParts()
 		if err != nil {
 			// This can happen if the BlockParts header is broken.
 			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
 			return false
 		}
-		if err := cs.verifyCanonicalProposalParts(block, partsBytes); err != nil {
+		if err := cs.verifyCanonicalProposalParts(block); err != nil {
 			Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
 			logger.Error(
 				"rejecting non-canonical proposal block parts",
@@ -2305,34 +2305,14 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 		return false
 	}
 
-	// Now check if parts were actually expected.
+	// Now check if parts were actually expected. newParts comes from MakePartSet,
+	// so matching headers already implies the canonical PartSetHeader; a further
+	// verifyCanonicalProposalParts call would be a tautology.
 	if !parts.Header().Equals(newParts.Header()) {
 		return false
 	}
 
-	// Install canonical parts before verifyCanonical so proposal PartSetHeader
-	// gating and the bytes check both see the MakePartSet encoding.
 	cs.roundState.SetProposalBlockParts(newParts)
-	pbb, err := block.ToProto()
-	if err != nil {
-		return false
-	}
-	partsBytes, err := proto.Marshal(pbb)
-	if err != nil {
-		return false
-	}
-	if err := cs.verifyCanonicalProposalParts(block, partsBytes); err != nil {
-		Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
-		logger.Error(
-			"rejecting non-canonical proposal block from tx-key reconstruction",
-			"err", err,
-			"height", proposal.Height,
-			"round", proposal.Round,
-			"step", cs.roundState.Step().String(),
-		)
-		return false
-	}
-
 	cs.roundState.SetProposalBlock(block)
 	return true
 }
