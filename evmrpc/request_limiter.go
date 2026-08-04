@@ -11,11 +11,11 @@ import (
 // max_request_body_bytes is left at 0 ("use the default").
 const defaultMaxRequestBodyBytes int64 = 5 * 1024 * 1024
 
-func effectiveMaxRequestBodyBytes(max int64) int64 {
-	if max <= 0 {
+func effectiveMaxRequestBodyBytes(maxBody int64) int64 {
+	if maxBody <= 0 {
 		return defaultMaxRequestBodyBytes
 	}
-	return max
+	return maxBody
 }
 
 // requestSizeLimiter is an HTTP middleware that bounds peak decode-time memory by
