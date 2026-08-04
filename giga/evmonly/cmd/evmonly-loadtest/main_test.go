@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,13 +33,13 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 
 	state := newGeneratedState()
 	workload := newTransferWorkload(cfg, state)
-	request, err := workload.buildBlock(context.Background(), 1)
+	request, err := workload.buildBlock(t.Context(), 1)
 	require.NoError(t, err)
 
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
 	}, evmonly.WithState(state))
-	result, err := executor.ExecuteBlock(context.Background(), request)
+	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 
 	require.Len(t, result.Txs, cfg.txsPerBlock)
@@ -49,9 +50,11 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 		require.NoError(t, tx.Err)
 	}
 
-	writer := &discardStateWriter{}
-	writer.ApplyChangeSet(result.ChangeSet)
-	require.NoError(t, discardReceiptSink{}.StoreReceipts(context.Background(), request.Context.Number, result.Receipts))
+	var released atomic.Bool
+	require.NoError(t, discardResultSink{writer: &discardStateWriter{}}.StoreBlockResult(t.Context(), request.Context.Number, result, func() {
+		released.Store(true)
+	}))
+	require.True(t, released.Load())
 }
 
 func TestTransferWorkloadOCCScenarios(t *testing.T) {
@@ -92,7 +95,7 @@ func TestTransferWorkloadOCCScenarios(t *testing.T) {
 
 			state := newGeneratedState()
 			workload := newTransferWorkload(cfg, state)
-			request, err := workload.buildBlock(context.Background(), 1)
+			request, err := workload.buildBlock(t.Context(), 1)
 			require.NoError(t, err)
 
 			signer := ethtypes.LatestSignerForChainID(cfg.chainID)
@@ -120,7 +123,7 @@ func TestTransferWorkloadOCCScenarios(t *testing.T) {
 				MinGasPrice: cfg.minGasPrice,
 				OCCWorkers:  4,
 			}, evmonly.WithState(state))
-			result, err := executor.ExecuteBlock(context.Background(), request)
+			result, err := executor.ExecuteBlock(t.Context(), request)
 			require.NoError(t, err)
 			require.True(t, result.OCCStats.Attempted)
 			require.False(t, result.OCCStats.Fallback)
@@ -164,14 +167,14 @@ func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	state := newGeneratedState()
 	workload, err := newWorkload(cfg, state)
 	require.NoError(t, err)
-	request, err := workload.buildBlock(context.Background(), 1)
+	request, err := workload.buildBlock(t.Context(), 1)
 	require.NoError(t, err)
 
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
 		OCCWorkers:  cfg.executorWorkers,
 	}, evmonly.WithState(state))
-	result, err := executor.ExecuteBlock(context.Background(), request)
+	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 
 	require.Len(t, result.Txs, cfg.txsPerBlock)
@@ -215,14 +218,14 @@ func TestSnapshotRevertWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	state := newGeneratedState()
 	workload, err := newWorkload(cfg, state)
 	require.NoError(t, err)
-	request, err := workload.buildBlock(context.Background(), 1)
+	request, err := workload.buildBlock(t.Context(), 1)
 	require.NoError(t, err)
 
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
 		OCCWorkers:  4,
 	}, evmonly.WithState(state))
-	result, err := executor.ExecuteBlock(context.Background(), request)
+	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 
 	require.Len(t, result.Txs, cfg.txsPerBlock)
@@ -265,14 +268,14 @@ func TestTransferWorkloadRecipientConflictRate(t *testing.T) {
 
 	state := newGeneratedState()
 	workload := newTransferWorkload(cfg, state)
-	request, err := workload.buildBlock(context.Background(), 1)
+	request, err := workload.buildBlock(t.Context(), 1)
 	require.NoError(t, err)
 
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
 		OCCWorkers:  4,
 	}, evmonly.WithState(state))
-	result, err := executor.ExecuteBlock(context.Background(), request)
+	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 	require.True(t, result.OCCStats.Attempted)
 	require.False(t, result.OCCStats.Fallback)
@@ -373,6 +376,32 @@ func TestSnapshotRevertValidation(t *testing.T) {
 	require.ErrorContains(t, err, "snapshot-revert-contract and snapshot-revert-helper must differ")
 }
 
+func TestParseWorkersConfig(t *testing.T) {
+	cfg, err := parseConfig([]string{
+		"--prepare-workers=2",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, cfg.parseWorkers)
+
+	cfg, err = parseConfig([]string{
+		"--prepare-workers=1",
+	})
+	require.NoError(t, err)
+	require.Equal(t, runtime.GOMAXPROCS(0), cfg.parseWorkers)
+
+	cfg, err = parseConfig([]string{
+		"--prepare-workers=8",
+		"--parse-workers=3",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 3, cfg.parseWorkers)
+
+	_, err = parseConfig([]string{
+		"--parse-workers=-1",
+	})
+	require.ErrorContains(t, err, "parse-workers must be non-negative")
+}
+
 func TestRunPrebuiltBlocks(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
@@ -399,7 +428,7 @@ func TestPrepareBlocksCancelsWorkersOnOrderingInvariantError(t *testing.T) {
 	out := make(chan preparedBlockEnvelope, 1)
 	metrics := newLoadMetrics(prometheus.NewRegistry())
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	errCh := make(chan error, 1)
 	go func() {
@@ -412,6 +441,26 @@ func TestPrepareBlocksCancelsWorkersOnOrderingInvariantError(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("prepareBlocks timed out after ordering invariant error")
 	}
+}
+
+func TestPrepareBlocksPrefersWorkerErrorOverOrderingDrainError(t *testing.T) {
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--report-interval=0",
+		"--queue-size=2",
+		"--prepare-workers=1",
+	})
+	require.NoError(t, err)
+	blocks := make(chan blockEnvelope, 2)
+	blocks <- blockEnvelope{number: 2, request: evmonly.BlockRequest{Context: evmonly.BlockContext{Number: 2}}}
+	blocks <- blockEnvelope{number: 1, request: evmonly.BlockRequest{Context: evmonly.BlockContext{Number: 1}}}
+	close(blocks)
+	out := make(chan preparedBlockEnvelope, 2)
+	metrics := newLoadMetrics(prometheus.NewRegistry())
+
+	err = prepareBlocks(t.Context(), cfg, failingPreparedExecutor{}, blocks, out, metrics)
+	require.ErrorContains(t, err, "prepare worker 0 prepare block 1: injected prepare failure")
+	require.ErrorContains(t, err, "prepared block stream closed before block 1")
 }
 
 func TestPrepareBlocksDrainsPreparedBlocksAfterWorkersFinish(t *testing.T) {
@@ -429,7 +478,7 @@ func TestPrepareBlocksDrainsPreparedBlocksAfterWorkersFinish(t *testing.T) {
 	out := make(chan preparedBlockEnvelope, 2)
 	metrics := newLoadMetrics(prometheus.NewRegistry())
 
-	require.NoError(t, prepareBlocks(context.Background(), cfg, preparedOnlyExecutor{}, blocks, out, metrics))
+	require.NoError(t, prepareBlocks(t.Context(), cfg, preparedOnlyExecutor{}, blocks, out, metrics))
 	require.Len(t, out, 2)
 }
 
@@ -488,10 +537,15 @@ func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
 		Status: ethtypes.ReceiptStatusSuccessful,
 		TxHash: common.HexToHash("0x01"),
 	}}
-	require.NoError(t, sinks.StoreChangeSet(context.Background(), 1, writtenChangeSet))
-	require.NoError(t, sinks.StoreReceipts(context.Background(), 1, writtenReceipts))
+	var released atomic.Bool
+	require.NoError(t, sinks.StoreBlockResult(t.Context(), 1, &evmonly.BlockResult{
+		ChangeSet: writtenChangeSet,
+		Receipts:  writtenReceipts,
+	}, func() {
+		released.Store(true)
+	}))
 	require.Eventually(t, func() bool {
-		return metrics.snapshot().sinkWritten == 2
+		return metrics.snapshot().sinkWritten == 2 && released.Load()
 	}, time.Second, time.Millisecond)
 
 	requireFileExists(t, changePath)
@@ -506,7 +560,7 @@ func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
 	require.Equal(t, uint64(1), height)
 	require.Len(t, receipts, 1)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	stopCleanup := cleanupSinksOnContextCancel(ctx, sinks)
 	cancel()
 	stopCleanup()
@@ -530,10 +584,9 @@ func TestAsyncFileResultSinkReportsMetrics(t *testing.T) {
 	sinks, err := newResultSinks(cfg, metrics)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	require.NoError(t, sinks.StoreChangeSet(ctx, 1, evmonly.StateChangeSet{}))
-	require.NoError(t, sinks.StoreReceipts(ctx, 1, ethtypes.Receipts{}))
+	require.NoError(t, sinks.StoreBlockResult(ctx, 1, &evmonly.BlockResult{}, func() {}))
 	require.NoError(t, sinks.Close())
 
 	snapshot := metrics.snapshot()
@@ -570,7 +623,7 @@ func TestAsyncFileResultSinkStoresBlockResultAndReleases(t *testing.T) {
 		}},
 	}
 	var released atomic.Bool
-	require.NoError(t, sinks.StoreBlockResult(context.Background(), 1, result, func() {
+	require.NoError(t, sinks.StoreBlockResult(t.Context(), 1, result, func() {
 		released.Store(true)
 	}))
 	require.Eventually(t, func() bool {
@@ -603,7 +656,6 @@ func TestAsyncFileResultSinkReleasesQueuedResultsAfterWriteError(t *testing.T) {
 	var releases atomic.Uint64
 	for i := 0; i < cap(sink.records); i++ {
 		sink.records <- resultSinkRecord{
-			kind:   resultSinkBlock,
 			result: &evmonly.BlockResult{},
 			release: func() {
 				releases.Add(1)
@@ -615,6 +667,45 @@ func TestAsyncFileResultSinkReleasesQueuedResultsAfterWriteError(t *testing.T) {
 
 	require.Error(t, sink.getErr())
 	require.Equal(t, uint64(3), releases.Load())
+}
+
+func TestExecutorResultPoolReusesSlotsWithFileSink(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--result-sink=file",
+		"--persist-dir=" + dir,
+		"--result-pool-size=1",
+		"--txs-per-block=2",
+		"--gas-price-wei=0",
+		"--min-gas-price-wei=0",
+	})
+	require.NoError(t, err)
+	state := newGeneratedState()
+	workload := newTransferWorkload(cfg, state)
+	metrics := newLoadMetrics(prometheus.NewRegistry())
+	sinks, err := newResultSinks(cfg, metrics)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, sinks.Close())
+	}()
+	executor := evmonly.NewExecutor(executorConfig(cfg), evmonly.WithState(state), evmonly.WithResultSink(sinks))
+	defer executor.Close()
+
+	for blockNumber := uint64(1); blockNumber <= 20; blockNumber++ {
+		request, err := workload.buildBlock(t.Context(), blockNumber)
+		require.NoError(t, err)
+		result, err := executor.ExecuteBlock(t.Context(), request)
+		require.NoError(t, err)
+		result.Release()
+		require.Eventually(t, func() bool {
+			return executor.ResultPoolStats().Available == 1
+		}, time.Second, time.Millisecond)
+	}
+	require.Equal(t, evmonly.BlockResultPoolStats{
+		Capacity:  1,
+		Available: 1,
+	}, executor.ResultPoolStats())
 }
 
 func TestRunPrebuiltBlocksWithFileResultSinkCleansUp(t *testing.T) {
@@ -647,6 +738,23 @@ func (preparedOnlyExecutor) PrepareBlock(_ context.Context, request evmonly.Bloc
 }
 
 func (preparedOnlyExecutor) ExecutePreparedBlock(context.Context, evmonly.PreparedBlock) (*evmonly.BlockResult, error) {
+	return nil, errors.New("ExecutePreparedBlock is unused")
+}
+
+type failingPreparedExecutor struct{}
+
+func (failingPreparedExecutor) ExecuteBlock(context.Context, evmonly.BlockRequest) (*evmonly.BlockResult, error) {
+	return nil, errors.New("ExecuteBlock is unused")
+}
+
+func (failingPreparedExecutor) PrepareBlock(_ context.Context, request evmonly.BlockRequest) (evmonly.PreparedBlock, error) {
+	if request.Context.Number == 1 {
+		return evmonly.PreparedBlock{}, errors.New("injected prepare failure")
+	}
+	return evmonly.PreparedBlock{Context: request.Context}, nil
+}
+
+func (failingPreparedExecutor) ExecutePreparedBlock(context.Context, evmonly.PreparedBlock) (*evmonly.BlockResult, error) {
 	return nil, errors.New("ExecutePreparedBlock is unused")
 }
 
@@ -703,7 +811,7 @@ func BenchmarkExecuteTransferBlock(b *testing.B) {
 
 			state := newGeneratedState()
 			workload := newTransferWorkload(cfg, state)
-			request, err := workload.buildBlock(context.Background(), 1)
+			request, err := workload.buildBlock(b.Context(), 1)
 			require.NoError(b, err)
 			executor := evmonly.NewExecutor(evmonly.Config{
 				MinGasPrice: cfg.minGasPrice,
@@ -714,7 +822,7 @@ func BenchmarkExecuteTransferBlock(b *testing.B) {
 			b.SetBytes(int64(cfg.txsPerBlock))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				result, err := executor.ExecuteBlock(context.Background(), request)
+				result, err := executor.ExecuteBlock(b.Context(), request)
 				if err != nil {
 					b.Fatal(err)
 				}

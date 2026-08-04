@@ -27,6 +27,11 @@ Run continuously until interrupted:
 go run ./giga/evmonly/cmd/evmonly-loadtest --txs-per-block=1000
 ```
 
+Continuous mode with unique generated accounts is memory-limited: the in-memory
+genesis state retains every funded sender account, and ERC20 runs also retain a
+storage slot for every generated token holder. Use bounded `--blocks` runs when
+comparing throughput, especially for long ERC20 or conflict-free transfer runs.
+
 Example local saturation run:
 
 ```bash
@@ -121,11 +126,19 @@ update the same coinbase balance, which is a real intra-block conflict.
 
 Useful knobs:
 
-- `--workers`: parallel executor workers. The default is `1`.
+- `--workers`: parallel executor workers. The default is `1`. Prepared blocks
+  are forwarded to workers in block-number order, but `--workers > 1` can still
+  finish execution out of order; this is safe for the harness because generated
+  state is frozen for prebuilt runs and executor changesets are not applied back
+  into the input state.
 - `--executor-workers`: parallel OCC workers inside each executor. The default
   is `min(12, GOMAXPROCS)`, following the `sei-v3` OCC worker default.
 - `--prepare-workers`: parallel stateless preparation workers used for
   transaction RLP decode and sender recovery. The default is `GOMAXPROCS`.
+- `--parse-workers`: parallel transaction decode/sender recovery workers inside
+  each prepared block. The default `0` uses `1` when `--prepare-workers > 1` to
+  avoid multiplying block-level and intra-block parser pools, otherwise it uses
+  `GOMAXPROCS`.
 - `--builders`: parallel block builders used to keep the input queue full. The
   default is `GOMAXPROCS`.
 - `--queue-size`: buffered raw and prepared blocks. The default is `64`.
@@ -171,14 +184,14 @@ The command reports these saturation signals on stdout and at `/metrics`:
 - prepared blocks queued for execution and cumulative totals
 - result-sink records queued, enqueued, written, bytes written, enqueue wait,
   and write time
+- result-pool capacity, available slots, and overflow allocations
 
 The default executor output path intentionally discards results through mocks:
 
 - `generatedState` implements `evmonly.StateReader` and supplies generated
   genesis balances, nonces, code, and storage.
-- `discardStateWriter` implements `evmonly.StateWriter` and sinks the
-  executor `StateChangeSet`.
-- `discardReceiptSink` sinks Ethereum receipts.
+- `discardResultSink` applies the executor `StateChangeSet` to
+  `discardStateWriter` and discards Ethereum receipts.
 
 With `--result-sink=file`, the loadtest harness hands pooled
 `evmonly.BlockResult` values to an async writer through the executor's
