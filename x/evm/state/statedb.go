@@ -26,9 +26,11 @@ type DBImpl struct {
 	// codeCache memos runtime bytecode so repeated GetCode calls do not re-read
 	// the KV store. nil disables caching (never lazily allocated): simulation /
 	// RPC / trace DBs leave it nil so those paths do not retain large bytecode
-	// for the statedb lifetime. Non-nil (deliver) is cleared on snapshot revert
-	// and Cleanup, and kept in sync by SetCode. Copy() starts empty when the
-	// parent had caching enabled.
+	// for the statedb lifetime. Wasmd-entry deliver txs also leave it nil (see
+	// NewDBImpl) so a nested CallEVM DBImpl cannot Finalize code into the same
+	// Multistore while this memo stays warm. Non-nil (ordinary deliver) is
+	// cleared on snapshot revert and Cleanup, and kept in sync by SetCode.
+	// Copy() starts empty when the parent had caching enabled.
 	codeCache map[common.Address][]byte
 
 	// If err is not nil at the end of the execution, the transaction will be rolled
@@ -65,7 +67,12 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 		journal:            []journalEntry{},
 		coinbaseEvmAddress: feeCollector,
 	}
-	if !simulation {
+	// Enable the memo only for ordinary deliver txs. Wasmd-entry txs can nest a
+	// second deliver DBImpl via CallEVM that Finalizes into this Multistore; a
+	// warm outer memo would then disagree with store. Leave nil until wasm is
+	// decommissioned and that nest path is gone. Nested CallEVM itself clears
+	// EVMEntryViaWasmdPrecompile before NewDBImpl, so the inner DB still memos.
+	if !simulation && !ctx.EVMEntryViaWasmdPrecompile() {
 		s.codeCache = make(map[common.Address][]byte)
 	}
 	s.Snapshot() // take an initial snapshot for GetCommitted

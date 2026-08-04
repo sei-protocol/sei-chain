@@ -136,7 +136,7 @@ func TestCodeCacheCopyStartsEmptyAndIndependent(t *testing.T) {
 	require.Equal(t, updated, parent.GetCode(addr))
 }
 
-func TestCodeCacheDisabledForSimulation(t *testing.T) {
+func TestCodeCacheDisabledForSimulationAndWasmdEntry(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	_, addr := testkeeper.MockAddressPair()
@@ -167,4 +167,13 @@ func TestCodeCacheDisabledForSimulation(t *testing.T) {
 	require.Equal(t, initial, sim.GetCode(addr))
 	k.SetCode(sim.Ctx(), addr, updated)
 	require.Equal(t, updated, sim.GetCode(addr))
+
+	// Wasmd-entry deliver DB also skips the memo so nested CallEVM Finalizes
+	// cannot leave a stale outer GetCode (see NewDBImpl).
+	_, addr3 := testkeeper.MockAddressPair()
+	wasmdEntry := state.NewDBImpl(ctx.WithEVMEntryViaWasmdPrecompile(true), k, false)
+	wasmdEntry.SetCode(addr3, initial)
+	require.Equal(t, initial, wasmdEntry.GetCode(addr3))
+	k.SetCode(wasmdEntry.Ctx(), addr3, updated)
+	require.Equal(t, updated, wasmdEntry.GetCode(addr3))
 }

@@ -12,7 +12,7 @@ func (s *DBImpl) GetCodeHash(addr common.Address) common.Hash {
 
 func (s *DBImpl) GetCode(addr common.Address) []byte {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
-	// nil codeCache means caching is disabled (simulation/RPC/trace); never allocate here.
+	// nil codeCache means caching is disabled (simulation/RPC/trace/wasmd-entry); never allocate here.
 	if s.codeCache != nil {
 		if code, ok := s.codeCache[addr]; ok {
 			return code
