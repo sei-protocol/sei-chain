@@ -102,22 +102,19 @@ func (k *Keeper) UpsertERCPointer(
 	// Exists-lookup and commits must use the live unfrozen top (sdb.Ctx): cachekv
 	// forbids writing a frozen layer, and same-tx readers that skip frozen-empty
 	// parents would miss those writes. The precompile Prepare `ctx` is that top at
-	// Prepare time, but is frozen once this Upsert snapshots. Bill KV gas to the
-	// caller's meter (finite precompile meter in deliver).
+	// Prepare time, but is frozen once this Upsert snapshots. Always attach the
+	// caller's gas meter (finite precompile meter in deliver) — sdb.Ctx() alone
+	// carries the infinite EVM meter.
 	sdb := state.GetDBImpl(evm.StateDB)
-	lookupCtx := ctx
-	if sdb != nil {
-		lookupCtx = sdb.Ctx()
-	}
-	existingAddr, _, exists := getter(lookupCtx, pointee)
-	suppliedGas := k.getEvmGasLimitFromCtx(ctx)
-	var remainingGas uint64
-	liveWriteCtx := func() sdk.Context {
+	liveCtx := func() sdk.Context {
 		if sdb == nil {
 			return ctx
 		}
 		return sdb.Ctx().WithGasMeter(ctx.GasMeter())
 	}
+	existingAddr, _, exists := getter(liveCtx(), pointee)
+	suppliedGas := k.getEvmGasLimitFromCtx(ctx)
+	var remainingGas uint64
 	if exists {
 		var ret []byte
 		contractAddr = existingAddr
@@ -127,7 +124,7 @@ func (k *Keeper) UpsertERCPointer(
 		}
 		// Only write on success: a failed GetDeploymentCode can leave ret as nil or
 		// revert data, which must not clobber live pointer bytecode (even transiently).
-		writeCtx := liveWriteCtx()
+		writeCtx := liveCtx()
 		k.SetCode(writeCtx, contractAddr, ret)
 		if sdb != nil {
 			sdb.RefreshCodeCache(contractAddr, ret)
@@ -139,7 +136,7 @@ func (k *Keeper) UpsertERCPointer(
 		return
 	}
 	ctx.GasMeter().ConsumeGas(k.GetCosmosGasLimitFromEVMGas(ctx, suppliedGas-remainingGas), "ERC pointer deployment")
-	if err = setter(liveWriteCtx(), pointee, contractAddr); err != nil {
+	if err = setter(liveCtx(), pointee, contractAddr); err != nil {
 		return
 	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
