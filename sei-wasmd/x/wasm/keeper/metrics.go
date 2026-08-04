@@ -9,16 +9,21 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
 var (
-	otelMeter = otel.Meter("wasm_keeper")
+	meter = otel.Meter("wasm_keeper")
 
-	// fineGrainedBuckets (seconds) for contract and IBC relay latency.
-	fineGrainedBuckets = metric.WithExplicitBucketBoundaries(
+	// contractLatencyBuckets (seconds) for contract instantiate/execute/migrate/sudo and IBC relay latency.
+	contractLatencyBuckets = metric.WithExplicitBucketBoundaries(
 		0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 10.0,
+	)
+
+	// queryLatencyBuckets (seconds) for smart/raw query latency, which typically runs in the
+	// microsecond-to-low-millisecond range and needs finer resolution than contractLatencyBuckets.
+	queryLatencyBuckets = metric.WithExplicitBucketBoundaries(
+		0.000025, 0.000050, 0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.010, 0.020, 0.050, 0.075, 0.1, 0.25, 0.5, 1, 10,
 	)
 
 	wasmKeeperMetrics = struct {
@@ -37,84 +42,84 @@ var (
 		contractQuerySmartInvocation      metric.Int64Counter
 		contractQuerySmartGasUsed         metric.Int64Gauge
 	}{
-		contractInstantiateDuration: must(otelMeter.Float64Histogram(
+		contractInstantiateDuration: must(meter.Float64Histogram(
 			"wasm_contract_instantiate_duration",
 			metric.WithDescription("Duration of wasm contract instantiate operations"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			contractLatencyBuckets,
 		)),
-		contractExecuteDuration: must(otelMeter.Float64Histogram(
+		contractExecuteDuration: must(meter.Float64Histogram(
 			"wasm_contract_execute_duration",
 			metric.WithDescription("Duration of wasm contract execute operations"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			contractLatencyBuckets,
 		)),
-		contractMigrateDuration: must(otelMeter.Float64Histogram(
+		contractMigrateDuration: must(meter.Float64Histogram(
 			"wasm_contract_migrate_duration",
 			metric.WithDescription("Duration of wasm contract migrate operations"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			contractLatencyBuckets,
 		)),
-		contractSudoDuration: must(otelMeter.Float64Histogram(
+		contractSudoDuration: must(meter.Float64Histogram(
 			"wasm_contract_sudo_duration",
 			metric.WithDescription("Duration of wasm contract sudo operations"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			contractLatencyBuckets,
 		)),
-		contractQuerySmartDuration: must(otelMeter.Float64Histogram(
+		contractQuerySmartDuration: must(meter.Float64Histogram(
 			"wasm_contract_query_smart_duration",
 			metric.WithDescription("Duration of wasm contract smart query operations"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			queryLatencyBuckets,
 		)),
-		contractQueryRawDuration: must(otelMeter.Float64Histogram(
+		contractQueryRawDuration: must(meter.Float64Histogram(
 			"wasm_contract_query_raw_duration",
 			metric.WithDescription("Duration of wasm contract raw query operations"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			queryLatencyBuckets,
 		)),
-		contractIBCOpenChannelDuration: must(otelMeter.Float64Histogram(
+		contractIBCOpenChannelDuration: must(meter.Float64Histogram(
 			"wasm_contract_ibc_open_channel_duration",
 			metric.WithDescription("Duration of wasm contract IBC open-channel callbacks"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			contractLatencyBuckets,
 		)),
-		contractIBCConnectChannelDuration: must(otelMeter.Float64Histogram(
+		contractIBCConnectChannelDuration: must(meter.Float64Histogram(
 			"wasm_contract_ibc_connect_channel_duration",
 			metric.WithDescription("Duration of wasm contract IBC connect-channel callbacks"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			contractLatencyBuckets,
 		)),
-		contractIBCCloseChannelDuration: must(otelMeter.Float64Histogram(
+		contractIBCCloseChannelDuration: must(meter.Float64Histogram(
 			"wasm_contract_ibc_close_channel_duration",
 			metric.WithDescription("Duration of wasm contract IBC close-channel callbacks"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			contractLatencyBuckets,
 		)),
-		contractIBCRecvPacketDuration: must(otelMeter.Float64Histogram(
+		contractIBCRecvPacketDuration: must(meter.Float64Histogram(
 			"wasm_contract_ibc_recv_packet_duration",
 			metric.WithDescription("Duration of wasm contract IBC recv-packet callbacks"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			contractLatencyBuckets,
 		)),
-		contractIBCAckPacketDuration: must(otelMeter.Float64Histogram(
+		contractIBCAckPacketDuration: must(meter.Float64Histogram(
 			"wasm_contract_ibc_ack_packet_duration",
 			metric.WithDescription("Duration of wasm contract IBC ack-packet callbacks"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			contractLatencyBuckets,
 		)),
-		contractIBCTimeoutPacketDuration: must(otelMeter.Float64Histogram(
+		contractIBCTimeoutPacketDuration: must(meter.Float64Histogram(
 			"wasm_contract_ibc_timeout_packet_duration",
 			metric.WithDescription("Duration of wasm contract IBC timeout-packet callbacks"),
 			metric.WithUnit("s"),
-			fineGrainedBuckets,
+			contractLatencyBuckets,
 		)),
-		contractQuerySmartInvocation: must(otelMeter.Int64Counter(
+		contractQuerySmartInvocation: must(meter.Int64Counter(
 			"wasm_contract_query_smart_invocation",
 			metric.WithDescription("Number of wasm contract smart query invocations"),
 			metric.WithUnit("{count}"),
 		)),
-		contractQuerySmartGasUsed: must(otelMeter.Int64Gauge(
+		contractQuerySmartGasUsed: must(meter.Int64Gauge(
 			"wasm_contract_query_smart_gas_used",
 			metric.WithDescription("Gas used by the last wasm contract smart query per contract address"),
 			metric.WithUnit("{gas}"),
@@ -202,9 +207,10 @@ func recordContractIBCTimeoutPacketDuration(ctx context.Context, start time.Time
 }
 
 func recordContractQuerySmartInvocation(ctx context.Context, contractAddress string) {
-	wasmKeeperMetrics.contractQuerySmartInvocation.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("contract_address", contractAddress),
-	))
+	// contract_address is intentionally omitted on the OTel counter: unlike the legacy
+	// Prometheus sink, the OTel SDK has no series expiration, so a per-contract label here
+	// would retain one series per distinct contract address queried for the process lifetime.
+	wasmKeeperMetrics.contractQuerySmartInvocation.Add(ctx, 1)
 	// TODO(PLT-910): remove once wasm_contract_query_smart_invocation verified
 	telemetry.IncrCounterWithLabels(
 		[]string{"wasm", "contract", "query-smart", "invocation"},
@@ -214,9 +220,9 @@ func recordContractQuerySmartInvocation(ctx context.Context, contractAddress str
 }
 
 func recordContractQuerySmartGasUsed(ctx context.Context, contractAddress string, gasUsed uint64) {
-	wasmKeeperMetrics.contractQuerySmartGasUsed.Record(ctx, int64(gasUsed), metric.WithAttributes( //nolint:gosec
-		attribute.String("contract_address", contractAddress),
-	))
+	// contract_address omitted on the OTel gauge for the same unbounded-cardinality reason as
+	// recordContractQuerySmartInvocation above.
+	wasmKeeperMetrics.contractQuerySmartGasUsed.Record(ctx, int64(gasUsed)) //nolint:gosec
 	// TODO(PLT-910): remove once wasm_contract_query_smart_gas_used verified
 	telemetry.SetGaugeWithLabels(
 		[]string{"wasm", "contract", "query-smart", "gas-used"},
