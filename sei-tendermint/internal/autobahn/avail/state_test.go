@@ -816,4 +816,45 @@ func TestNewStateWithPersistence(t *testing.T) {
 		_, err = NewState(keys[0], ds, utils.Some(dir))
 		require.Error(t, err)
 	})
+
+	// A NewState that fails after opening the WALs must release them. Each WAL holds an exclusive lock on
+	// its directory for its lifetime, so an abandoned one makes every later open of the same state
+	// directory in this process fail — which is exactly the restart that Close exists to support.
+	t.Run("failed NewState releases WAL locks", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := newTestDataState(&data.Config{Registry: registry})
+		lane := keys[0].Public()
+
+		// Seed one lane so the failing NewState below has a lane WAL to leak, then release the seeder.
+		bp, _, err := persist.NewBlockPersister(utils.Some(dir))
+		require.NoError(t, err)
+		var parent types.BlockHeaderHash
+		block := types.NewBlock(lane, 0, parent, types.GenPayload(rng))
+		proposals := []*types.Signed[*types.LaneProposal]{types.Sign(keys[0], types.NewLaneProposal(block))}
+		require.NoError(t, bp.MaybePruneAndPersistLane(
+			lane, utils.None[*types.CommitQC](), proposals, noBlockCB))
+		require.NoError(t, bp.Close())
+
+		// A prune anchor missing its CommitQC unmarshals as proto but fails PruneAnchorConv.Decode, so
+		// NewState fails only after both the lane WAL and the commitQC WAL are open.
+		appProposal := types.NewAppProposal(50, 0, types.GenAppHash(rng), 0)
+		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
+		prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(dir), innerFile)
+		require.NoError(t, err)
+		require.NoError(t, prunePers.Persist(&pb.PersistedAvailPruneAnchor{
+			AppQc: types.AppQCConv.Encode(appQC),
+		}))
+
+		_, err = NewState(keys[0], ds, utils.Some(dir))
+		require.Error(t, err)
+
+		// Reopening either WAL proves its lock was released; otherwise this fails as lock-unavailable.
+		reopenedBlocks, _, err := persist.NewBlockPersister(utils.Some(dir))
+		require.NoError(t, err, "failed NewState leaked the lane block WAL lock")
+		require.NoError(t, reopenedBlocks.Close())
+
+		reopenedQCs, _, err := persist.NewCommitQCPersister(utils.Some(dir))
+		require.NoError(t, err, "failed NewState leaked the commitQC WAL lock")
+		require.NoError(t, reopenedQCs.Close())
+	})
 }
