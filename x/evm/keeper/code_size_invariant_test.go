@@ -6,7 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/sei-protocol/sei-chain/testutil/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,9 +14,9 @@ import (
 // EIP-7702 CALL-family size gate relies on: GetCodeSize(addr) == len(GetCode(addr)).
 // This holds on Sei's keeper without bumping go-ethereum.
 func TestGetCodeSizeMatchesGetCodeLength(t *testing.T) {
-	k := &keeper.EVMTestApp.EvmKeeper
-	ctx := keeper.EVMTestApp.GetContextForDeliverTx([]byte{})
-	_, addr := keeper.MockAddressPair()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	_, addr := testkeeper.MockAddressPair()
 
 	assertInvariant := func(t *testing.T) {
 		t.Helper()

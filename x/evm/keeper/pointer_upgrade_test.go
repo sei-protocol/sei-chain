@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -109,6 +110,12 @@ func TestUpsertERCNativePointerKeepsCodeCacheCoherent(t *testing.T) {
 		codeAfter = sdb.GetCode(addr)
 		sizeAfter = sdb.GetCodeSize(addr)
 		storeCode = k.GetCode(sdb.Ctx(), addr)
+		// Registry must be written on the live Multistore layer (sdb.Ctx), not the
+		// Prepare-time ctx that GetDeploymentCode may have frozen.
+		got, _, found := k.GetERC20NativePointer(sdb.Ctx(), "cache-coherent")
+		if !found || got != addr {
+			return fmt.Errorf("pointer registry not visible on live StateDB ctx: found=%v got=%s want=%s", found, got.Hex(), addr.Hex())
+		}
 		return nil
 	}, func(string, string) {})
 	require.NoError(t, err)

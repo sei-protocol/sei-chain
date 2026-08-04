@@ -98,9 +98,26 @@ func (k *Keeper) UpsertERCPointer(
 		panic(err)
 	}
 	bin = append(artifacts.GetBin(typ), bin...)
-	existingAddr, _, exists := getter(ctx, pointee)
+	// GetDeploymentCode / Create take EVM snapshots that Freeze() Multistore layers.
+	// Exists-lookup and commits must use the live unfrozen top (sdb.Ctx): cachekv
+	// forbids writing a frozen layer, and same-tx readers that skip frozen-empty
+	// parents would miss those writes. The precompile Prepare `ctx` is that top at
+	// Prepare time, but is frozen once this Upsert snapshots. Bill KV gas to the
+	// caller's meter (finite precompile meter in deliver).
+	sdb := state.GetDBImpl(evm.StateDB)
+	lookupCtx := ctx
+	if sdb != nil {
+		lookupCtx = sdb.Ctx()
+	}
+	existingAddr, _, exists := getter(lookupCtx, pointee)
 	suppliedGas := k.getEvmGasLimitFromCtx(ctx)
 	var remainingGas uint64
+	liveWriteCtx := func() sdk.Context {
+		if sdb == nil {
+			return ctx
+		}
+		return sdb.Ctx().WithGasMeter(ctx.GasMeter())
+	}
 	if exists {
 		var ret []byte
 		contractAddr = existingAddr
@@ -108,15 +125,12 @@ func (k *Keeper) UpsertERCPointer(
 		if err != nil {
 			return
 		}
-		// Prefer the StateDB Multistore (correct for RunWithOneOff nested CMS) while
-		// billing KV gas to the caller's meter (finite precompile meter in deliver).
 		// Only write on success: a failed GetDeploymentCode can leave ret as nil or
 		// revert data, which must not clobber live pointer bytecode (even transiently).
-		if sdb := state.GetDBImpl(evm.StateDB); sdb != nil {
-			k.SetCode(sdb.Ctx().WithGasMeter(ctx.GasMeter()), contractAddr, ret)
+		writeCtx := liveWriteCtx()
+		k.SetCode(writeCtx, contractAddr, ret)
+		if sdb != nil {
 			sdb.RefreshCodeCache(contractAddr, ret)
-		} else {
-			k.SetCode(ctx, contractAddr, ret)
 		}
 	} else {
 		_, contractAddr, remainingGas, err = evm.Create(evmModuleAddress, bin, suppliedGas, uint256.NewInt(0))
@@ -125,7 +139,7 @@ func (k *Keeper) UpsertERCPointer(
 		return
 	}
 	ctx.GasMeter().ConsumeGas(k.GetCosmosGasLimitFromEVMGas(ctx, suppliedGas-remainingGas), "ERC pointer deployment")
-	if err = setter(ctx, pointee, contractAddr); err != nil {
+	if err = setter(liveWriteCtx(), pointee, contractAddr); err != nil {
 		return
 	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
