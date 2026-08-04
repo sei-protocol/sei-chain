@@ -306,16 +306,14 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 // LoadVersion implements types.Committer.
 //
 // Deprecated: call LoadLatest or LoadVersionReadOnly. This method exists only to satisfy types.Committer,
-// whose signature is pinned by the memiavl implementation. A writable load at a non-zero version is rejected:
-// it yielded a store that could not commit, and rewound the flatkv data directory as a side effect.
+// whose signature is pinned by the memiavl implementation.
+//
+// A non-zero targetVersion always yields a read-only view, whatever readOnly says. Serving one writably meant
+// rewinding the flatkv data directory — and it produced a store that could not commit anyway — so callers that
+// ask for a past version get a view and must use the returned Committer rather than this one.
 func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
-	if readOnly {
+	if readOnly || targetVersion != 0 {
 		return cs.LoadVersionReadOnly(targetVersion)
-	}
-	if targetVersion != 0 {
-		return nil, fmt.Errorf("composite: writable load at version %d is not supported; use Rollback(%d) "+
-			"to move the store back, or LoadVersionReadOnly(%d) to read it",
-			targetVersion, targetVersion, targetVersion)
 	}
 	return cs, cs.LoadLatest()
 }

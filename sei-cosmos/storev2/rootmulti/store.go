@@ -49,20 +49,8 @@ var (
 )
 
 type Store struct {
-	mtx sync.RWMutex
-
-	// scStore is the state-commit store every read is served from: scPrimary normally, or scView after a
-	// load at a historical version.
-	scStore sctypes.Committer
-
-	// scPrimary owns the state-commit data directory — its writer file lock, WAL and thread pools. Never
-	// nil after NewStore.
-	scPrimary *composite.CompositeCommitStore
-
-	// scView is the isolated read-only view installed by a load at a historical version (seid export
-	// --height), or nil. This Store owns it and closes it before scPrimary.
-	scView sctypes.Committer
-
+	mtx            sync.RWMutex
+	scStore        sctypes.Committer
 	ssStore        seidbtypes.StateStore
 	lastCommitInfo *types.CommitInfo
 	storesParams   map[types.StoreKey]storeParams
@@ -137,7 +125,6 @@ func NewStore(
 	}
 	store := &Store{
 		scStore:            scStore,
-		scPrimary:          scStore,
 		storesParams:       make(map[types.StoreKey]storeParams),
 		storeKeys:          make(map[string]types.StoreKey),
 		ckvStores:          make(map[types.StoreKey]types.CommitKVStore),
@@ -172,9 +159,6 @@ func NewStore(
 func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	if !bumpVersion {
 		panic("Commit should always bump version in root multistore")
-	}
-	if rs.scView != nil {
-		panic("cannot commit: the store was loaded read-only at a historical version")
 	}
 	commitStartTime := time.Now()
 	defer func() {
@@ -275,14 +259,7 @@ func (rs *Store) flush() error {
 }
 
 func (rs *Store) Close() error {
-	var err error
-	if rs.scView != nil {
-		// Close the view before the primary: the primary holds the writer file lock that keeps another
-		// process from deleting the view's working directory.
-		err = rs.scView.Close()
-		rs.scView = nil
-	}
-	err = commonerrors.Join(err, rs.scPrimary.Close())
+	err := rs.scStore.Close()
 	if rs.ssStore != nil {
 		err = commonerrors.Join(err, rs.ssStore.Close())
 	}
@@ -391,9 +368,8 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
 		return rs.CacheMultiStore(), nil
 	}
-	// Open SC stores for wasm snapshot, this op is blocking and could take a long time.
-	// Vended by the primary: a view cannot vend further views.
-	scStore, err := rs.scPrimary.LoadVersionReadOnly(version)
+	// Open SC stores for wasm snapshot, this op is blocking and could take a long time
+	scStore, err := rs.scStore.LoadVersion(version, true)
 	if err != nil {
 		return nil, err
 	}
@@ -608,26 +584,16 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 			initialStores = append(initialStores, key.Name())
 		}
 	}
-	if err := rs.scPrimary.Initialize(initialStores); err != nil {
+	if err := rs.scStore.Initialize(initialStores); err != nil {
 		return err
 	}
-	if version > 0 {
-		// Loading a historical version is a read operation (seid export --height). Serve it from an
-		// isolated view so the data directory is left exactly as it was found; the resulting Store
-		// serves reads at version and cannot commit.
-		if upgrades != nil {
-			return fmt.Errorf("store upgrades cannot be applied to a historical load at version %d",
-				version)
-		}
-		view, err := rs.scPrimary.LoadVersionReadOnly(version)
-		if err != nil {
-			return fmt.Errorf("failed to open SC view at version %d: %w", version, err)
-		}
-		rs.scView = view
-		rs.scStore = view
-	} else if err := rs.scPrimary.LoadLatest(); err != nil {
+	// A non-zero version yields a read-only view rather than this store, so the result has to be adopted: it is
+	// what serves reads at that version. For version 0 the SC store returns itself and this is a no-op.
+	sc, err := rs.scStore.LoadVersion(version, false)
+	if err != nil {
 		return err
 	}
+	rs.scStore = sc
 
 	storesKeysForDeletion := make(map[types.StoreKey]struct{})
 	var treeUpgrades []*proto.TreeNameUpgrade
@@ -646,7 +612,6 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 			return err
 		}
 	}
-	var err error
 	newStores := make(map[types.StoreKey]types.CommitKVStore, len(storesKeys))
 	for _, key := range storesKeys {
 		if _, ok := storesKeysForDeletion[key]; ok {
@@ -700,11 +665,8 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, params storeParam
 	}
 }
 
-// LoadVersion implements interface CommitMultiStore.
-//
-// ver == 0 loads the latest version and yields a committable store — the node startup path. ver > 0 opens an
-// isolated read-only view at that version and leaves the data directory untouched; the resulting Store serves
-// reads at ver and cannot commit. Used by seid export --height.
+// Implements interface CommitMultiStore
+// used by export cmd
 func (rs *Store) LoadVersion(ver int64) error {
 	return rs.LoadVersionAndUpgrade(ver, nil)
 }
@@ -924,7 +886,7 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 		}
 		defer rs.releaseHistProofPermit()
 
-		scStore, err := rs.scPrimary.LoadVersionReadOnly(version)
+		scStore, err := rs.scStore.LoadVersion(version, true)
 		if err != nil {
 			return sdkerrors.QueryResult(err)
 		}
