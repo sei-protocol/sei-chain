@@ -35,13 +35,7 @@ func TestEnableWSConcurrentRequestBytes(t *testing.T) {
 		pad           = 48
 	)
 
-	makeMsg := func(id int, method string) string {
-		return fmt.Sprintf(
-			`{"jsonrpc":"2.0","id":%d,"method":"%s","params":[%d],"_pad":"%s"}`,
-			id, method, sleepDuration.Nanoseconds(), strings.Repeat("x", pad),
-		)
-	}
-	payload := makeMsg(1, "test_sleep")
+	payload := makeSleepMsg(1, sleepDuration, pad)
 	frameSize := int64(len(payload))
 
 	srv := startWSTestServer(t, WsConfig{
@@ -55,20 +49,25 @@ func TestEnableWSConcurrentRequestBytes(t *testing.T) {
 	conn := dialWSTestServer(t, srv)
 	defer conn.Close()
 
-	writeReq := func(id int) {
-		msg := makeMsg(id, "test_sleep")
-		require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(msg)))
-	}
-
-	writeReq(1)
-	writeReq(2)
+	writeWSJSON(t, conn, makeSleepMsg(1, sleepDuration, pad))
+	writeWSJSON(t, conn, makeSleepMsg(2, sleepDuration, pad))
 
 	var firstResp, secondResp rpcResponse
+	start := time.Now()
 	readJSON(t, conn, &firstResp)
+	afterFirst := time.Since(start)
 	readJSON(t, conn, &secondResp)
+	total := time.Since(start)
 
+	require.Nil(t, firstResp.Error)
+	require.Nil(t, secondResp.Error)
 	require.Equal(t, json.Number("1"), firstResp.ID)
 	require.Equal(t, json.Number("2"), secondResp.ID)
+	// With budget == frameSize only one handler runs at a time (~200ms each). Without
+	// enforcement both finish concurrently (~200ms total, ~0ms between responses).
+	require.GreaterOrEqual(t, afterFirst, sleepDuration/2)
+	require.GreaterOrEqual(t, total-afterFirst, sleepDuration/2)
+	require.GreaterOrEqual(t, total, 2*sleepDuration-sleepDuration/4)
 }
 
 func TestEnableWSConcurrentBudgetBelowReadLimitAdmitsMaxFrame(t *testing.T) {
@@ -102,19 +101,78 @@ func TestEnableWSConcurrentBudgetBelowReadLimitAdmitsMaxFrame(t *testing.T) {
 	require.Nil(t, resp.Error)
 }
 
-func TestEnableWSReadLimitDefault(t *testing.T) {
-	srv := NewHTTPServer(rpc.DefaultHTTPTimeouts)
-	wsConf := WsConfig{
+func TestEnableWSRejectsOversizeFrame(t *testing.T) {
+	const readLimit = 256
+
+	srv := startWSTestServer(t, WsConfig{
 		Origins: []string{"*"},
 		RPCEndpointConfig: RPCEndpointConfig{
-			readLimit:                 0,
-			maxConcurrentRequestBytes: 0,
+			readLimit:                 readLimit,
+			maxConcurrentRequestBytes: 1024,
 		},
-	}
-	require.NoError(t, srv.EnableWS([]rpc.API{
-		{Namespace: "test", Service: wsAdmissionTestService{}},
-	}, wsConf))
-	require.Equal(t, defaultMaxRequestBodyBytes, effectiveMaxRequestBodyBytes(wsConf.readLimit))
+	})
+
+	conn := dialWSTestServer(t, srv)
+	defer conn.Close()
+
+	oversized := fmt.Sprintf(
+		`{"jsonrpc":"2.0","id":1,"method":"test_sleep","params":[0],"_pad":"%s"}`,
+		strings.Repeat("x", readLimit),
+	)
+	writeWSJSON(t, conn, oversized)
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(time.Second)))
+	_, _, err := conn.ReadMessage()
+	require.Error(t, err, "expected connection to close after oversized frame")
+}
+
+func TestWSOversizeFrameFiresAdmissionHook(t *testing.T) {
+	const (
+		readLimit = 256
+		budget    = 1024
+	)
+
+	srv := rpc.NewServer()
+	require.NoError(t, srv.RegisterName("test", wsAdmissionTestService{}))
+
+	var (
+		mu      sync.Mutex
+		reasons []string
+	)
+	srv.SetWSAdmissionEventHook(func(reason string) {
+		recordWSAdmissionRejected(t.Context(), reason)
+		mu.Lock()
+		reasons = append(reasons, reason)
+		mu.Unlock()
+	})
+	srv.SetReadLimits(readLimit)
+	srv.SetWSConcurrentRequestBytes(budget)
+
+	httpSrv := httptest.NewServer(srv.WebsocketHandler([]string{"*"}))
+	t.Cleanup(func() {
+		httpSrv.Close()
+		srv.Stop()
+	})
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsTestURL(httpSrv), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+
+	oversized := fmt.Sprintf(
+		`{"jsonrpc":"2.0","id":1,"method":"test_sleep","params":[0],"_pad":"%s"}`,
+		strings.Repeat("x", readLimit),
+	)
+	writeWSJSON(t, conn, oversized)
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(time.Second)))
+	_, _, err = conn.ReadMessage()
+	require.Error(t, err, "expected connection to close after oversized frame")
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(reasons) == 1 && reasons[0] == rpc.WSAdmissionReasonOversizeFrame
+	}, time.Second, 5*time.Millisecond)
 }
 
 func TestEnableWSAdmissionTimeout(t *testing.T) {
