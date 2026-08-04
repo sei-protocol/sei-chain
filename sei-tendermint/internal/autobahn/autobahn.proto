@@ -215,16 +215,21 @@ message AppQC {
 }
 
 message AppProposal {
+  reserved 1;
+  reserved "global_number";
   option (hashable.hashable) = true;
   option (wireguard.sized) = true;
-  // Global block number.
-  optional uint64 global_number = 1; // required
-  // Index of the commit qc finalizing the block.
-  optional uint64 road_index = 2; // required
-  // App hash at that block.
-  optional bytes app_hash = 3 [(wireguard.max_size) = 32]; // required
+  
   // Epoch this proposal belongs to.
   optional uint64 epoch_index = 4; // required
+  // Index of the commit qc finalizing the block.
+  optional uint64 road_index = 2; // required
+  // Range of global blocks convered by this proposal.
+  // Has to match the corresponding CommitQC.
+  optional uint64 global_first = 5; // required
+  optional uint64 global_next = 6; // required
+  // App hash of the state at the end of the range above.
+  optional bytes app_hash = 3 [(wireguard.max_size) = 32]; // required
 }
 
 // This is the signable message.

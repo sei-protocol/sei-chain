@@ -29,7 +29,7 @@ func (*LaneProposal) MaxSize() int {
 }
 
 func (*AppVote) MaxSize() int {
-	return 176
+	return 187
 }
 
 func (*StreamLaneProposalsReq) MaxSize() int {

@@ -349,7 +349,7 @@ func GenAppHash(rng utils.Rng) AppHash {
 
 // GenAppProposal generates a random AppProposal.
 func GenAppProposal(rng utils.Rng) *AppProposal {
-	return NewAppProposal(GenRoadIndex(rng), GenAppHash(rng), GenEpochIndex(rng))
+	return NewAppProposal(GenProposal(rng), GenAppHash(rng))
 }
 
 // GenAppVote generates a random AppVote.
@@ -387,8 +387,8 @@ func GenGlobalBlockNumber(rng utils.Rng) GlobalBlockNumber {
 // GenGlobalBlock generates a random GlobalBlock.
 func GenGlobalBlock(rng utils.Rng) *GlobalBlock {
 	return &GlobalBlock{
-		GlobalNumber:  GenGlobalBlockNumber(rng),
-		Payload:       GenPayload(rng),
+		GlobalNumber: GenGlobalBlockNumber(rng),
+		Payload:      GenPayload(rng),
 	}
 }
 

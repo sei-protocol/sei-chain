@@ -477,7 +477,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 
 // TestEvictionWaitsForCommitQCApp checks that evictBelowBound does not drop
 // AppProposals until a later CommitQC embeds an App (certifying AppQC), and
-// that once that App exists, heights below min(NAP, App+1) are evicted.
+// that once that App exists, heights below min(NAP, App.GlobalNext) are evicted.
 func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -490,8 +490,8 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
 	app, ok := qc2.QC().Proposal().App().Get()
 	require.True(t, ok, "second CommitQC embeds App for qc1 tip")
-	appFloor := app.GlobalNumber()
-	require.Equal(t, gr1.Next-1, appFloor)
+	appFloor := app.GlobalNext()
+	require.Equal(t, gr1.Next, appFloor)
 	gr2 := qc2.QC().GlobalRange()
 
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
@@ -526,7 +526,7 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 		}
 
 		for inner := range state.inner.Lock() {
-			require.Equal(t, appFloor+1, inner.first, "after catching up, first reaches App+1")
+			require.Equal(t, appFloor, inner.first, "after catching up, first reaches App.GlobalNext")
 			for n := gr1.First; n < inner.first; n++ {
 				_, ok := inner.appProposals[n]
 				require.False(t, ok, "AppProposal %d should be evicted (< first)", n)
@@ -547,7 +547,8 @@ func TestEvictionWaitsForCommitQCApp(t *testing.T) {
 
 // TestNextToExecuteAfterAppEviction checks WaitUntilExecuted / nextToExecute
 // still work when PushQC embeds an App that aggressively evicts through
-// nextAppProposal (first = App+1 = NAP). nextToExecute uses qc[NAP], not NAP-1.
+// nextAppProposal (first = App.GlobalNext = NAP). nextToExecute uses qc[NAP],
+// not NAP-1.
 func TestNextToExecuteAfterAppEviction(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -558,7 +559,7 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
 	app, ok := qc2.QC().Proposal().App().Get()
 	require.True(t, ok)
-	require.Equal(t, gr1.Next-1, app.GlobalNumber())
+	require.Equal(t, gr1.Next, app.GlobalNext())
 
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -574,7 +575,7 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 				return err
 			}
 		}
-		// Sticky case: App floor == nextAppProposal. first advances to NAP;
+		// Sticky case: App.GlobalNext == nextAppProposal. first advances to NAP;
 		// NAP-1 is gone; nextToExecute reads qc[NAP].
 		require.NoError(t, state.PushQC(ctx, qc2, blocks2))
 
@@ -582,8 +583,8 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 		var tipBlockNum types.BlockNumber
 		for inner := range state.inner.Lock() {
 			require.Equal(t, gr1.Next, inner.nextAppProposal)
-			require.Equal(t, app.GlobalNumber()+1, inner.first,
-				"eviction advances to App+1 == NAP")
+			require.Equal(t, app.GlobalNext(), inner.first,
+				"eviction advances to App.GlobalNext == NAP")
 			_, ok := inner.blocks[inner.nextAppProposal-1]
 			require.False(t, ok, "NAP-1 must be evicted")
 			require.Less(t, inner.nextAppProposal, inner.nextQC)
@@ -669,7 +670,7 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 // readability), so a mid-range prune does not refuse heights inside that QC.
 //
 // PruneBefore is BlockDB-only: heights still retained in RAM for AppVotes
-// (at/above CommitQC.App+1 exclusive floor) remain readable via TryBlock even
+// (at/above CommitQC.App.GlobalNext exclusive floor) remain readable via TryBlock even
 // after the store watermark advances past them.
 func TestPruningWithPartialQCRange(t *testing.T) {
 	ctx := t.Context()
@@ -682,8 +683,7 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	gr2 := qc2.QC().GlobalRange()
 	app, ok := qc2.QC().Proposal().App().Get()
 	require.True(t, ok)
-	appFloor := app.GlobalNumber()
-	exclusiveFloor := appFloor + 1
+	exclusiveFloor := app.GlobalNext()
 
 	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))

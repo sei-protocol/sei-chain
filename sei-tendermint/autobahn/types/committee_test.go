@@ -171,7 +171,7 @@ func TestCommitQCVerifyChecksWeight(t *testing.T) {
 func TestAppQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewAppVote(NewAppProposal(0, GenAppHash(rng), ep.EpochIndex()))
+	vote := NewAppVote(NewAppProposal(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}), GenAppHash(rng)))
 
 	heavyOnly := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[0], vote),

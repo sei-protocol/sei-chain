@@ -175,7 +175,8 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 // Invariant: a CommitQC's embedded AppProposal (when present) always refers to
 // a global number from a *past* CommitQC — strictly below that tip QC's
 // GlobalRange.First (enforced in Proposal.Verify). Together with BlockDB's
-// never-empty retention and eviction at min(nextAppProposal, App+1), in-memory
+// never-empty retention and eviction at min(nextAppProposal, App.GlobalNext),
+// in-memory
 // maps therefore always retain at least the certified tip QC after a
 // CommitQC.App appears. nextToExecute uses qc[nextAppProposal] (or the tip QC
 // when fully caught up), so it does not require retaining nextAppProposal-1.
@@ -547,10 +548,10 @@ func (s *State) NeedBlock(n types.GlobalBlockNumber) bool {
 func assembleGlobalBlock(n types.GlobalBlockNumber, b *types.Block, fqc *types.FullCommitQC) *types.GlobalBlock {
 	qc := fqc.QC()
 	return &types.GlobalBlock{
-		GlobalNumber:  n,
-		Timestamp:     qc.Proposal().BlockTimestamp(n).OrPanic("global block not in QC"),
-		Header:        b.Header(),
-		Payload:       b.Payload(),
+		GlobalNumber: n,
+		Timestamp:    qc.Proposal().BlockTimestamp(n).OrPanic("global block not in QC"),
+		Header:       b.Header(),
+		Payload:      b.Payload(),
 	}
 }
 
@@ -633,7 +634,7 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 // PushAppHash marks blocks up to n as executed. Hash is the execution result.
 // Waits for the block to be durably persisted before proceeding.
 func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash) error {
-	for inner, ctrl := range s.inner.Lock() {	
+	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			return n < inner.nextBlockToPersist
 		}); err != nil {
@@ -641,14 +642,14 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		}
 		p := inner.qcs[n].QC().Proposal()
 		gr := p.GlobalRange()
-		if gr.First!=inner.nextAppProposal {
-			return fmt.Errorf("unexpected app proposal : got %v, want in [%v;%v)", n, gr.First,gr.Next)
+		if gr.First != inner.nextAppProposal {
+			return fmt.Errorf("unexpected app proposal : got %v, want in [%v;%v)", n, gr.First, gr.Next)
 		}
 		// We only care about the AppHash of the last block of the CommitQC.
-		if gr.Next!=n+1 {
+		if gr.Next != n+1 {
 			return nil
 		}
-		proposal := types.NewAppProposal(p.Index(),hash,p.EpochIndex())
+		proposal := types.NewAppProposal(p, hash)
 		t := time.Now()
 		for inner.nextAppProposal < gr.Next {
 			b := inner.blocks[inner.nextAppProposal]
@@ -664,35 +665,37 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 	return nil
 }
 
-// AppVote returns an appVote for a block >= n. 
+// AppVote returns an appVote for a block >= n.
 func (s *State) AppVote(ctx context.Context, n types.GlobalBlockNumber) (*types.AppVote, *types.FullCommitQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return max(inner.nextAppQC,n) < inner.nextAppProposal }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return max(inner.nextAppQC, n) < inner.nextAppProposal }); err != nil {
 			return nil, nil, err
 		}
-		n := max(inner.nextAppQC,n)
-		return types.NewAppVote(inner.appProposals[n]), inner.qcs[n], nil 
+		n := max(inner.nextAppQC, n)
+		return types.NewAppVote(inner.appProposals[n]), inner.qcs[n], nil
 	}
 	panic("unreachable")
 }
 
 func (s *State) AppQC(ctx context.Context, n types.GlobalBlockNumber) (*types.AppQC, *types.FullCommitQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextAppQC }); err!=nil { return nil,nil,err }
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextAppQC }); err != nil {
+			return nil, nil, err
+		}
 		if inner.first <= n {
-			return inner.appQCs[n],inner.qcs[n],nil
+			return inner.appQCs[n], inner.qcs[n], nil
 		}
 	}
 	// TODO: we should fallback to blocksDB
 	panic("unreachable")
 }
 
-func (s *State) LastAppQC() (*types.AppQC,*types.FullCommitQC) {
+func (s *State) LastAppQC() (*types.AppQC, *types.FullCommitQC) {
 	for i := range s.inner.Lock() {
 		// TODO: currently no guarantee that there is >=1 element.
 		// TODO: nextAppQC is NOT good enough, we need it to be persisted.
-		n := i.nextAppQC-1
-		return i.appQCs[n],i.qcs[n]
+		n := i.nextAppQC - 1
+		return i.appQCs[n], i.qcs[n]
 	}
 	panic("unreachable")
 }
@@ -823,9 +826,9 @@ func (s *State) runPersist(ctx context.Context) error {
 // or the bound would not advance first. Caller must hold inner's lock. Invoked
 // from PushQC / PushAppHash.
 //
-// Bound is min(nextAppProposal, App.GlobalNumber()+1). A zero floor (no App /
+// Bound is min(nextAppProposal, App.GlobalNext()). A zero floor (no App /
 // empty maps) yields bound 0 and is a no-op via bound <= first. With the
-// past-CommitQC App invariant (see State), App+1 never exceeds the tip QC
+// past-CommitQC App invariant (see State), App.GlobalNext never exceeds the tip QC
 // start, so at least one CommitQC remains. nextToExecute uses qc[nextAppProposal]
 // (or the tip when caught up), so nextAppProposal-1 need not be retained.
 //

@@ -48,8 +48,8 @@ func (s *State) PublicKey() types.PublicKey {
 // (real I/O) or all are no-op (testing). It is a pure I/O struct — all inner
 // state access goes through State methods.
 type persisters struct {
-	blocks      *persist.BlockPersister
-	commitQCs   *persist.CommitQCPersister
+	blocks    *persist.BlockPersister
+	commitQCs *persist.CommitQCPersister
 }
 
 // innerFile is the A/B file prefix for avail inner state persistence.
@@ -149,18 +149,22 @@ func (s *State) LastCommitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
 }
 
 func (s *State) commitQC(ctx context.Context, idx types.RoadIndex) (*types.Epoch, *types.CommitQC, error) {
-	for inner,ctrl := range s.inner.Lock() {
-		if err:=ctrl.WaitUntil(ctx, func() bool{ return idx < inner.roads.next }); err!=nil { return nil,nil,err }
-		if idx < inner.roads.first { return nil,nil,types.ErrPruned }
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return idx < inner.roads.next }); err != nil {
+			return nil, nil, err
+		}
+		if idx < inner.roads.first {
+			return nil, nil, types.ErrPruned
+		}
 		r := inner.roads.q[idx]
-		return r.epoch,r.commitQC,nil
+		return r.epoch, r.commitQC, nil
 	}
 	panic("unreachable")
 }
 
-func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.CommitQC,error) {
-	_,qc,err := s.commitQC(ctx,idx)
-	return qc,err
+func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.CommitQC, error) {
+	_, qc, err := s.commitQC(ctx, idx)
+	return qc, err
 }
 
 // WaitForAppQC waits until there is an AppQC for the given index or higher.
@@ -168,15 +172,19 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 // Together they provide enough information to prune the availability state.
 func (s *State) WaitForAppQC(ctx context.Context, idx types.RoadIndex) (*types.AppQC, *types.CommitQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		if err:=ctrl.WaitUntil(ctx, func() bool { return idx<inner.nextAppQC }); err!=nil { return nil,nil,err }
-		r := inner.roads.q[max(inner.roads.first,idx)]
-		return r.appQC.OrPanic("missing appQC"),r.commitQC,nil
+		if err := ctrl.WaitUntil(ctx, func() bool { return idx < inner.nextAppQC }); err != nil {
+			return nil, nil, err
+		}
+		r := inner.roads.q[max(inner.roads.first, idx)]
+		return r.appQC.OrPanic("missing appQC"), r.commitQC, nil
 	}
 	panic("unreachable")
 }
 
 func ignorePruned(err error) error {
-	if errors.Is(err,types.ErrPruned) { return nil }
+	if errors.Is(err, types.ErrPruned) {
+		return nil
+	}
 	return err
 }
 
@@ -184,9 +192,13 @@ func ignorePruned(err error) error {
 // Waits until all previous CommitQCs are pushed.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	idx := qc.Proposal().Index()
-	for inner,ctrl := range s.inner.Lock() {
-		if err:=ctrl.WaitUntil(ctx,func() bool { return idx <= inner.roads.next }); err!=nil { return err }
-		if inner.roads.next > idx { return nil }
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return idx <= inner.roads.next }); err != nil {
+			return err
+		}
+		if inner.roads.next > idx {
+			return nil
+		}
 	}
 	epoch, ok := s.data.Registry().EpochByIndex(qc.Proposal().EpochIndex())
 	if !ok {
@@ -196,8 +208,10 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if idx != inner.roads.next { return nil }
-		inner.roads.pushBack(newRoad(qc,epoch))
+		if idx != inner.roads.next {
+			return nil
+		}
+		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
 		// The persist goroutine publishes latestCommitQC after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
@@ -212,8 +226,10 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
 	// Wait for the corresponding commitQC.
 	idx := v.Msg().Proposal().RoadIndex()
-	epoch, commitQC,err := s.commitQC(ctx, idx)
-	if err != nil { return ignorePruned(err) }
+	epoch, commitQC, err := s.commitQC(ctx, idx)
+	if err != nil {
+		return ignorePruned(err)
+	}
 	if err := v.Msg().Proposal().Verify(commitQC); err != nil {
 		return fmt.Errorf("invalid vote: %w", err)
 	}
@@ -241,11 +257,8 @@ func (s *State) prune(appQC *types.AppQC, commitQC *types.CommitQC) error {
 			return nil
 		}
 	}
-	if got, want := appQC.Proposal().EpochIndex(), commitQC.Proposal().EpochIndex(); got != want {
-		return fmt.Errorf("appQC epoch_index %d != commitQC epoch_index %d", got, want)
-	}
-	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
-		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
+	if err := appQC.Proposal().Verify(commitQC); err != nil {
+		return fmt.Errorf("appQC proposal: %w", err)
 	}
 	epoch, ok := s.data.Registry().EpochByIndex(commitQC.Proposal().EpochIndex())
 	if !ok {
@@ -603,13 +616,15 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 		// Callees handle empty inputs gracefully (no-op when nothing to write/truncate).
 		if err := scope.Parallel(func(ps scope.ParallelScope) error {
 			ps.Spawn(func() error {
-				if err:=pers.commitQCs.PruneAndPersist(batch.commitQCs.first, batch.commitQCs.tail); err!=nil { return err }
-				if t:= batch.commitQCs.tail; len(t)>0 {
+				if err := pers.commitQCs.PruneAndPersist(batch.commitQCs.first, batch.commitQCs.tail); err != nil {
+					return err
+				}
+				if t := batch.commitQCs.tail; len(t) > 0 {
 					s.markCommitQCsPersisted(t[len(t)-1])
 				}
 				return nil
 			})
-			for lane,batch := range batch.blocks {
+			for lane, batch := range batch.blocks {
 				ps.Spawn(func() error {
 					return pers.blocks.Persist(lane, batch.first, batch.tail, utils.Some(markBlock))
 				})
@@ -623,17 +638,17 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 
 type batch[I any, T any] struct {
 	first I
-	tail []T
+	tail  []T
 }
 
-type blocksBatch = batch[types.BlockNumber,*types.Signed[*types.LaneProposal]]
-type commitQCsBatch = batch[types.RoadIndex,*types.CommitQC]
+type blocksBatch = batch[types.BlockNumber, *types.Signed[*types.LaneProposal]]
+type commitQCsBatch = batch[types.RoadIndex, *types.CommitQC]
 
 // persistBatch holds the data collected under lock for one persist iteration.
 type persistBatch struct {
-	epoch       *types.Epoch
-	blocks      map[types.LaneID]blocksBatch
-	commitQCs   commitQCsBatch
+	epoch     *types.Epoch
+	blocks    map[types.LaneID]blocksBatch
+	commitQCs commitQCsBatch
 }
 
 // advancePersistedBlockStart updates the per-lane block admission watermark
@@ -690,8 +705,8 @@ func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) 
 		}); err != nil {
 			return nil, err
 		}
-		b := &persistBatch {
-			blocks: map[types.LaneID]blocksBatch{},
+		b := &persistBatch{
+			blocks:    map[types.LaneID]blocksBatch{},
 			commitQCs: commitQCsBatch{first: inner.roads.first},
 		}
 		for n := max(next, inner.roads.first); n < inner.roads.next; n++ {
