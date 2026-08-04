@@ -1,0 +1,4 @@
+"state-sync.snapshot-interval"
+"state-sync.snapshot-keep-recent"
+"state-sync.snapshot-directory"
+# keys with a target of their own

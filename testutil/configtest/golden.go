@@ -63,6 +63,59 @@ type DerivedDefault struct {
 	Why string
 }
 
+// goldenFilePath returns the path of a section's recorded file, rejecting anything that could
+// steer it out of testdata.
+//
+// The whole file name is checked, not just the section name. A section name is written at the
+// call site and names a TOML section, and the suffix selects which of a section's two records
+// is wanted; both are joined before validation, because a check on one half says nothing about
+// a string the other half appends to it. The gosec suppressions on the reads rest on this, so
+// what it has to establish is that the only reachable path is testdata/<name><suffix> with no
+// separator in either half — which is also what the rejection message claims, where a bare
+// filepath.IsLocal would accept a/b and ./app.
+func goldenFilePath(t testing.TB, name, suffix string) string {
+	t.Helper()
+	file := name + suffix
+	if name == "" || strings.ContainsAny(file, `/\`) || !filepath.IsLocal(file) {
+		t.Fatalf("section name %q and suffix %q must compose a bare file name with no path "+
+			"separator, so that a golden file is read and written inside testdata and nowhere else",
+			name, suffix)
+	}
+	return filepath.Join("testdata", file)
+}
+
+// recordText normalizes a golden file's bytes for comparison.
+//
+// Two edits reach these files without anyone intending a change to what they record: an editor
+// adding or stripping the trailing newline, and a checkout rewriting every line ending to CRLF.
+// Trimming the trailing run alone covers the first and not the second, because a CRLF file
+// keeps a \r at the end of every interior line — and a key-name record quotes the manifest's
+// key rather than the record's line, so a stray \r falls outside the quotes and renders
+// identically to the correct spelling. A CRLF checkout of one real record reported three keys
+// removed and the same three added, visually indistinguishable.
+func recordText(raw []byte) string {
+	return strings.TrimRight(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\r\n")
+}
+
+// writeGolden records content at path, for the -update branch of a golden check.
+//
+// path is goldenFilePath's result, which is where the confinement to testdata is established.
+// The directory is created from the path rather than from a literal, so the two cannot disagree
+// about where the file goes.
+func writeGolden(t testing.TB, name, path, content string) {
+	t.Helper()
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatalf("%s: create %s: %v", name, dir, err)
+	}
+	// Written with a trailing newline: these files exist to be read in a review diff, and
+	// without one every diff carries a "\ No newline at end of file" marker.
+	if err := os.WriteFile(path, []byte(content+"\n"), 0o600); err != nil {
+		t.Fatalf("%s: write %s: %v", name, path, err)
+	}
+	t.Logf("%s: rewrote %s", name, path)
+}
+
 // CheckDefaults asserts that a section's in-code defaults still match the values recorded
 // in testdata/<section>.golden, with any machine-derived fields checked against their formula
 // instead.
@@ -80,17 +133,14 @@ type DerivedDefault struct {
 // drift the config-manager work exists to end: a default moving on one side of the
 // binary/renderer boundary while the other side keeps the old one.
 //
-// Regenerate with `go test ./<pkg>/ -update` once the change is deliberate.
+// Regenerate with `go test ./<pkg>/ -run TestDefaultsMatchTheRecordedValues -update` once the
+// change is deliberate. The filter is part of the instruction, not tidiness: -update is one
+// process-global flag and every golden check in the package obeys it, so an unfiltered run also
+// rewrites the section's key-name record and absorbs a pending rename into a defaults commit.
 func CheckDefaults(t testing.TB, name string, defaults any, derived ...DerivedDefault) {
 	t.Helper()
 
-	// A section name is written at the call site and names a TOML section, so it must not be
-	// able to steer the path. Checked rather than assumed, because the gosec suppression on the
-	// read below rests on it: with this, the only reachable path is testdata/<name>.golden.
-	if name == "" || !filepath.IsLocal(name) {
-		t.Fatalf("section name %q must be a bare name, not a path", name)
-	}
-
+	path := goldenFilePath(t, name, ".golden")
 	got := Dump(defaults)
 
 	// Machine-derived fields are verified against their derivation, then replaced by a stable
@@ -116,39 +166,32 @@ func CheckDefaults(t testing.TB, name string, defaults any, derived ...DerivedDe
 		}
 		got = spliced
 	}
-	path := filepath.Join("testdata", name+".golden")
 
 	if goldenUpdateRequested() {
-		if err := os.MkdirAll("testdata", 0o750); err != nil {
-			t.Fatalf("%s: create testdata: %v", name, err)
-		}
-		// Written with a trailing newline: these files exist to be read in a review diff, and
-		// without one every diff carries a "\ No newline at end of file" marker.
-		if err := os.WriteFile(path, []byte(got+"\n"), 0o600); err != nil {
-			t.Fatalf("%s: write %s: %v", name, path, err)
-		}
-		t.Logf("%s: rewrote %s", name, path)
+		writeGolden(t, name, path, got)
 		return
 	}
 
-	raw, err := os.ReadFile(path) //nolint:gosec // testdata/<section>.golden; name validated above
+	raw, err := os.ReadFile(path) //nolint:gosec // testdata/<section>.golden; the whole file name is validated by goldenFilePath
 	if err != nil {
 		t.Fatalf("%s: cannot read %s (%v).\nIf this section is new, create it with "+
-			"`go test ./<pkg>/ -update` and review the recorded values as part of the change.",
-			name, path, err)
+			"`go test ./<pkg>/ -run TestDefaultsMatchTheRecordedValues -update` and review the "+
+			"recorded values as part of the change. The filter keeps the same run from also "+
+			"rewriting the section's key-name record.", name, path, err)
 	}
-	// Tolerant of the trailing newline either way, so an editor that strips or adds one
-	// does not read as a default having changed.
-	// \r as well as \n, so a CRLF checkout does not read as a changed default.
-	want := strings.TrimRight(string(raw), "\r\n")
-	got = strings.TrimRight(got, "\r\n")
+	// Compared as text rather than as bytes, so a stripped trailing newline or a CRLF checkout
+	// does not read as a default having changed. recordText says why the trailing run is not
+	// enough on its own.
+	want := recordText(raw)
+	got = strings.TrimRight(got, "\n")
 	if got == want {
 		return
 	}
 	t.Fatalf("%s: the in-code defaults no longer match %s.\n%s\n"+
 		"A default changing is a change every node inherits without editing its app.toml, so it "+
 		"is recorded rather than followed. If the new values are intended, regenerate with "+
-		"`go test ./<pkg>/ -update` and keep the diff in the review.",
+		"`go test ./<pkg>/ -run TestDefaultsMatchTheRecordedValues -update` and keep the diff in "+
+		"the review. The filter keeps the same run from also rewriting the key-name record.",
 		name, path, goldenDiff(want, got))
 }
 
