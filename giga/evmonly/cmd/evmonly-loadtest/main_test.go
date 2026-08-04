@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
 )
 
 func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
@@ -33,8 +34,8 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	require.NoError(t, err)
 
 	state := newGeneratedState()
-	workload := newTransferWorkload(cfg, state)
-	request, err := workload.buildBlock(t.Context(), 1)
+	workload := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+	request, err := workload.BuildBlock(t.Context(), 1)
 	require.NoError(t, err)
 
 	executor := evmonly.NewExecutor(evmonly.Config{
@@ -96,8 +97,8 @@ func TestTransferWorkloadOCCScenarios(t *testing.T) {
 			require.NoError(t, err)
 
 			state := newGeneratedState()
-			workload := newTransferWorkload(cfg, state)
-			request, err := workload.buildBlock(t.Context(), 1)
+			workload := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+			request, err := workload.BuildBlock(t.Context(), 1)
 			require.NoError(t, err)
 
 			signer := ethtypes.LatestSignerForChainID(cfg.chainID)
@@ -170,7 +171,7 @@ func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	state := newGeneratedState()
 	workload, err := newWorkload(cfg, state)
 	require.NoError(t, err)
-	request, err := workload.buildBlock(t.Context(), 1)
+	request, err := workload.BuildBlock(t.Context(), 1)
 	require.NoError(t, err)
 
 	executor := evmonly.NewExecutor(evmonly.Config{
@@ -196,14 +197,14 @@ func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	}
 
 	applyGeneratedStateChangeSet(state, result.ChangeSet)
-	transferWorkload := workload.(*erc20TransferWorkload)
+	transferWorkload := workload.(*scenarios.ERC20TransferWorkload)
 	for i := uint64(1); i <= uint64(cfg.txsPerBlock); i++ {
-		key, err := deterministicPrivateKey(i)
+		key, err := scenarios.DeterministicPrivateKey(i)
 		require.NoError(t, err)
 		sender := crypto.PubkeyToAddress(key.PublicKey)
-		recipient := transferWorkload.recipient(1, int(i-1), i)
-		require.Equal(t, common.Hash{}, state.GetState(cfg.erc20Contract, erc20BalanceSlot(sender)))
-		require.Equal(t, common.BigToHash(cfg.transferValue), state.GetState(cfg.erc20Contract, erc20BalanceSlot(recipient)))
+		recipient := transferWorkload.Recipient(1, int(i-1), i)
+		require.Equal(t, common.Hash{}, state.GetState(cfg.erc20Contract, scenarios.ERC20BalanceSlot(sender)))
+		require.Equal(t, common.BigToHash(cfg.transferValue), state.GetState(cfg.erc20Contract, scenarios.ERC20BalanceSlot(recipient)))
 	}
 }
 
@@ -222,7 +223,7 @@ func TestSnapshotRevertWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	state := newGeneratedState()
 	workload, err := newWorkload(cfg, state)
 	require.NoError(t, err)
-	request, err := workload.buildBlock(t.Context(), 1)
+	request, err := workload.BuildBlock(t.Context(), 1)
 	require.NoError(t, err)
 
 	executor := evmonly.NewExecutor(evmonly.Config{
@@ -251,10 +252,10 @@ func TestSnapshotRevertWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 
 	applyGeneratedStateChangeSet(state, result.ChangeSet)
 	for i := uint64(1); i <= uint64(cfg.txsPerBlock); i++ {
-		key, err := deterministicPrivateKey(i)
+		key, err := scenarios.DeterministicPrivateKey(i)
 		require.NoError(t, err)
 		sender := crypto.PubkeyToAddress(key.PublicKey)
-		slot := snapshotRevertStorageSlot(sender)
+		slot := scenarios.SnapshotRevertStorageSlot(sender)
 		require.Equal(t, common.BigToHash(big.NewInt(1)), state.GetState(cfg.snapshotRevertContract, slot))
 		require.Equal(t, common.Hash{}, state.GetState(cfg.snapshotRevertHelper, slot))
 	}
@@ -272,8 +273,8 @@ func TestTransferWorkloadRecipientConflictRate(t *testing.T) {
 	require.NoError(t, err)
 
 	state := newGeneratedState()
-	workload := newTransferWorkload(cfg, state)
-	request, err := workload.buildBlock(t.Context(), 1)
+	workload := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+	request, err := workload.BuildBlock(t.Context(), 1)
 	require.NoError(t, err)
 
 	executor := evmonly.NewExecutor(evmonly.Config{
@@ -287,16 +288,16 @@ func TestTransferWorkloadRecipientConflictRate(t *testing.T) {
 	require.Greater(t, result.OCCStats.ConflictCount, uint64(0))
 	require.Greater(t, result.OCCStats.RerunCount, uint64(0))
 
-	conflictRecipient := workload.recipient(1, 0, 1)
-	require.Equal(t, conflictRecipient, workload.recipient(1, 1, 2))
-	require.NotEqual(t, conflictRecipient, workload.recipient(1, 2, 3))
-	require.NotEqual(t, workload.recipient(1, 2, 3), workload.recipient(1, 3, 4))
+	conflictRecipient := workload.Recipient(1, 0, 1)
+	require.Equal(t, conflictRecipient, workload.Recipient(1, 1, 2))
+	require.NotEqual(t, conflictRecipient, workload.Recipient(1, 2, 3))
+	require.NotEqual(t, workload.Recipient(1, 2, 3), workload.Recipient(1, 3, 4))
 
 	applyGeneratedStateChangeSet(state, result.ChangeSet)
 	twoTransfers := new(big.Int).Mul(cfg.transferValue, big.NewInt(2))
 	require.Equal(t, twoTransfers, state.GetBalance(conflictRecipient))
-	require.Equal(t, cfg.transferValue, state.GetBalance(workload.recipient(1, 2, 3)))
-	require.Equal(t, cfg.transferValue, state.GetBalance(workload.recipient(1, 3, 4)))
+	require.Equal(t, cfg.transferValue, state.GetBalance(workload.Recipient(1, 2, 3)))
+	require.Equal(t, cfg.transferValue, state.GetBalance(workload.Recipient(1, 3, 4)))
 }
 
 func applyGeneratedStateChangeSet(state *generatedState, changeSet evmonly.StateChangeSet) {
@@ -515,9 +516,9 @@ func TestBlockContextTimestampIsDeterministic(t *testing.T) {
 	cfg, err := parseConfig([]string{"--metrics-addr=", "--blocks=1"})
 	require.NoError(t, err)
 
-	require.Equal(t, defaultGenesisTimestamp+10, blockContext(cfg, 10).Time)
-	require.Equal(t, blockContext(cfg, 10).Time, blockContext(cfg, 10).Time)
-	require.Less(t, blockContext(cfg, 10).Time, blockContext(cfg, 11).Time)
+	require.Equal(t, defaultGenesisTimestamp+10, scenarios.BlockContext(scenarioConfig(cfg), 10).Time)
+	require.Equal(t, scenarios.BlockContext(scenarioConfig(cfg), 10).Time, scenarios.BlockContext(scenarioConfig(cfg), 10).Time)
+	require.Less(t, scenarios.BlockContext(scenarioConfig(cfg), 10).Time, scenarios.BlockContext(scenarioConfig(cfg), 11).Time)
 }
 
 func TestQueueSizeDefaultPersistQueueOverflowValidation(t *testing.T) {
@@ -703,7 +704,7 @@ func TestExecutorResultPoolReusesSlotsWithFileSink(t *testing.T) {
 	})
 	require.NoError(t, err)
 	state := newGeneratedState()
-	workload := newTransferWorkload(cfg, state)
+	workload := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
 	metrics := newLoadMetrics(prometheus.NewRegistry())
 	sinks, err := newResultSinks(cfg, metrics)
 	require.NoError(t, err)
@@ -714,7 +715,7 @@ func TestExecutorResultPoolReusesSlotsWithFileSink(t *testing.T) {
 	defer executor.Close()
 
 	for blockNumber := uint64(1); blockNumber <= 20; blockNumber++ {
-		request, err := workload.buildBlock(t.Context(), blockNumber)
+		request, err := workload.BuildBlock(t.Context(), blockNumber)
 		require.NoError(t, err)
 		result, err := executor.ExecuteBlock(t.Context(), request)
 		require.NoError(t, err)
@@ -831,8 +832,8 @@ func BenchmarkExecuteTransferBlock(b *testing.B) {
 			require.NoError(b, err)
 
 			state := newGeneratedState()
-			workload := newTransferWorkload(cfg, state)
-			request, err := workload.buildBlock(b.Context(), 1)
+			workload := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+			request, err := workload.BuildBlock(b.Context(), 1)
 			require.NoError(b, err)
 			executor := evmonly.NewExecutor(evmonly.Config{
 				MinGasPrice: cfg.minGasPrice,
