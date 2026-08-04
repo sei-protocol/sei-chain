@@ -271,6 +271,20 @@ func TestPruneDecisions(t *testing.T) {
 			wantPruned:     []bool{false, false},
 		},
 		{
+			// Same store set, blocker last. This ordering is the one that matters: the WAL votes
+			// 90_000, so a usable pruneHeight is sitting there when the loop ends and only the
+			// blocked check stops it from being issued. Ordering the blocker first would leave
+			// pruneHeight at 0, and the cycle would stall on that alone.
+			name:           "blocker after a store that already voted",
+			rollbackWindow: 10_000,
+			stores: []*mockStore{
+				contiguousStore("stateWAL", 100_000),
+				snapshotStore("sc", 100_000),
+			},
+			wantPruneBelow: nil,
+			wantPruned:     []bool{false, false},
+		},
+		{
 			// Same store set, but RollbackWindow 0 waives the guarantee, so there is nothing
 			// left for the snapshot-less store to protect and the others prune.
 			name:           "no snapshot does not block when RollbackWindow is 0",
@@ -503,17 +517,18 @@ func TestDescribeDecisionsRendersEachOutcomeDistinctly(t *testing.T) {
 	)
 }
 
-// One blocker abandons the cycle, so the loop stops asking — but only when a rollback window is
-// actually in force. Under RollbackWindow 0 the guarantee is waived and the blocker is ignored,
-// which means the later stores must still be asked or the waiver has nothing left to prune.
-func TestPruneStopsAtFirstBlockerUnlessWaived(t *testing.T) {
+// One blocker abandons the cycle, but every store is still asked so the blocked cycle can log a
+// complete decision set. Under RollbackWindow 0 the guarantee is waived and the blocker is ignored
+// outright, which is what lets the later stores prune.
+func TestPruneAsksEveryStoreEvenWhenBlocked(t *testing.T) {
 	blocker := snapshotStore("sc", 100_000) // no snapshot -> CannotServeRollback
 	afterBlocker := contiguousStore("stateWAL", 100_000)
 	require.NoError(t, prune(testConfig(t, 1_000), prunableStores(blocker, afterBlocker)))
 
 	require.Equal(t, uint64(1), blocker.boundaryCalls.Load())
 	require.False(t, afterBlocker.pruneBelowCalled.Load(), "the cycle must be abandoned")
-	require.Zero(t, afterBlocker.boundaryCalls.Load(), "one blocker is enough; stop asking")
+	require.Equal(t, uint64(1), afterBlocker.boundaryCalls.Load(),
+		"a blocked cycle still asks every store, so its log names every blocker at once")
 
 	waived := snapshotStore("sc", 100_000)
 	afterWaived := contiguousStore("stateWAL", 100_000)

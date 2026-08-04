@@ -137,7 +137,7 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 	// Answers are positional so duplicate Name() values cannot mis-attribute one.
 	decisions := make([]storeDecision, len(stores))
 	var pruneHeight uint64
-	blockedBy := -1
+	blocked := false
 	for i, store := range stores {
 		retention := store.GetRetentionWindow()
 		cutLine := getCutLine(globalLatestBlock, config.RollbackWindow, retention)
@@ -149,13 +149,13 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 		decisions[i].cutLine = cutLine
 		decisions[i].boundary = store.GetPruningBoundary(cutLine)
 		if decisions[i].boundary == CannotServeRollback {
+			// One blocker is enough to abandon the cycle, but the rest are still asked rather than
+			// broken out of, so the blocked cycle logs every store's decision. These are the cycles
+			// an operator has to explain, and every blocker surfaces in the first one rather than
+			// one per cycle. RollbackWindow 0 waives the guarantee, so the blocker is ignored.
 			if config.RollbackWindow > 0 {
-				// One blocker is enough to abandon the cycle, so stop asking.
-				blockedBy = i
-				break
+				blocked = true
 			}
-			// RollbackWindow 0 waives the guarantee, leaving this store nothing to protect.
-			// The others must still be asked, or the waiver would have nothing to prune.
 			continue
 		}
 		if pruneHeight == 0 || decisions[i].boundary < pruneHeight {
@@ -163,12 +163,13 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 		}
 	}
 
-	if blockedBy >= 0 {
-		// No decisionByStore here: the break leaves later stores unasked, and they would render
-		// as "notAsked" — indistinguishable from a store skipped at the cutLine == 0 branch.
-		logger.Info("pruning blocked: store cannot serve the rollback window yet",
-			"store", stores[blockedBy].Name(),
+	if blocked {
+		// Ahead of the pruneHeight check on purpose: every non-blocking store has already voted, so
+		// a usable pruneHeight is sitting here and must not be issued. decisionByStore names the
+		// blockers, rendering each as cannotServeRollback.
+		logger.Info("pruning blocked: a store cannot serve the rollback window yet",
 			"globalLatestBlock", globalLatestBlock,
+			"decisionByStore", describeDecisions(stores, decisions),
 		)
 		return nil
 	}
