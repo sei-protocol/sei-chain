@@ -55,8 +55,6 @@ func (k Keeper) AllEvidence(c context.Context, req *types.QueryAllEvidenceReques
 	}
 	ctx := sdk.UnwrapSDKContext(c)
 
-	k.GetAllEvidence(ctx)
-
 	var evidence []*codectypes.Any
 	store := ctx.KVStore(k.storeKey)
 	evidenceStore := prefix.NewStore(store, types.KeyPrefixEvidence)

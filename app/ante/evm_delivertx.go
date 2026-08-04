@@ -39,6 +39,13 @@ func EvmDeliverTxAnte(
 	if err != nil {
 		return ctx, err
 	}
+	// EIP-7702 authorization authorities are distinct accounts from the tx sender, so the
+	// sender association above does not cover them. Pre-associate each authority the EVM will
+	// apply to its true (pubkey-derived) Sei address before execution installs delegation code,
+	// otherwise SetCode creates a mutable direct-cast mapping that a later associatePubKey can
+	// remap, orphaning staking/distribution state (which can halt the chain via the distribution
+	// validator-removal hook).
+	AssociateAuthorizationAuthorities(ctx, ek, etx)
 	ctx = DecorateNonceCallback(ctx, ek, evmAddr, etx.Nonce())
 	if err := EvmDeliverChargeFees(ctx, ek, upgradeKeeper, txData, etx, msg, version, evmAddr); err != nil {
 		return ctx, err

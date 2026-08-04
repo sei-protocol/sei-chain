@@ -18,6 +18,8 @@ const blocksCacheSize = 4000
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
 	Registry *epoch.Registry
+	// LastExecutedBlock is the app's committed global height if any.
+	LastExecutedBlock utils.Option[types.GlobalBlockNumber]
 }
 
 // StateAPI is the interface of the State for consuming global blocks
@@ -184,7 +186,8 @@ type State struct {
 // Use memblock.NewBlockDB() for an in-memory store (testing / no persistent dir).
 // The caller owns blockDB and must close it after State.Run returns (nodeImpl
 // owns this in production); State never closes it.
-// Recovery from a non-zero CommitQC tip is handled by loadFromBlockDB (skipTo).
+// Recovery starts at cfg.LastExecutedBlock and handles a non-zero CommitQC tip
+// via loadFromBlockDB (skipTo).
 func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	s := &State{
 		cfg:     cfg,
@@ -202,88 +205,88 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // Called from NewState before any goroutines are spawned; the lock is acquired
 // only to satisfy the Watch API.
 //
-// The recovery floor is derived from BlockDB: empty store keeps
-// registry.FirstBlock(); otherwise cursors skipTo the first retained QC start.
-// Inconsistencies (gaps, block without QC, first-block/QC mismatch, etc.) are
-// returned as errors rather than normalized — BlockDB is expected to present a
-// consistent iterator view (see littblock watermark / stranding rules).
+// Recovery starts at the app tip so runExecute can replay its AppHash. If the
+// app tip equals BlockDB's next block, recovery starts at the last stored block:
+// app.Commit may finish before BlockDB is durable. A larger gap violates the
+// PushAppHash durability invariant. An empty BlockDB allows only no app tip or
+// the first committed block.
 //
-// TODO: Cap how much of BlockDB we replay into RAM (similar to PushQC's
-// blocksCacheSize gate). Deferred to a follow-up PR — today we load the full
-// retained store.
+// Without an app tip, recovery starts at the registry's first block.
+// BlockDB.Iterator clamps the start to its retained floor. skipTo uses the first
+// returned position, even inside a QC, to keep blocks dense over
+// [first, nextBlock).
 //
-// TODO: Push gap / first-block / QC-coverage consistency checks down into the
-// BlockDB implementation so loadFromBlockDB can assume a consistent view.
+// Each iterator position has its covering QC and an optional block. Missing
+// blocks are allowed only at the tail. BlockDB enforces other consistency; this
+// method only rejects a first QC before committee genesis.
 func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 	for in := range s.inner.Lock() {
-		// Restore QCs from BlockDB. On the first QC, skipTo its GlobalRange.First
-		// to advance past any pruned prefix. Subsequent QCs must be consecutive —
-		// insertQC errors on any gap.
 		err := func() error {
-			it, err := blockDB.QCs(false)
+			firstBlock := s.cfg.Registry.FirstBlock()
+			dbNextBlock := blockDB.Status().NextBlock
+			recoveryStart := firstBlock
+			if lastExecutedBlock, executed := s.cfg.LastExecutedBlock.Get(); executed {
+				if lastExecutedBlock > max(dbNextBlock, firstBlock) {
+					return fmt.Errorf(
+						"BlockDB next block %d is behind app tip %d by more than the recoverable crash window; restore matching BlockDB data or state-sync the node: %w",
+						dbNextBlock, lastExecutedBlock, types.ErrNotFound,
+					)
+				}
+				recoveryStart = lastExecutedBlock
+				if dbNextBlock != 0 && lastExecutedBlock == dbNextBlock {
+					// app.Commit completed before the app tip became durable.
+					recoveryStart = dbNextBlock - 1
+				}
+			}
+			it, err := blockDB.Iterator(recoveryStart)
 			if err != nil {
-				return fmt.Errorf("open QC iterator: %w", err)
+				return fmt.Errorf("open block db iterator: %w", err)
 			}
 			defer func() { _ = it.Close() }()
+			var lastQC *types.FullCommitQC
 			for {
-				ok, err := it.Next()
-				if err != nil || !ok {
-					return err
-				}
-				qc, err := it.QC()
+				pos, ok, err := it.Next()
 				if err != nil {
-					return err
+					return fmt.Errorf("advance block db iterator: %w", err)
 				}
-				if len(in.qcs) == 0 {
-					gr := qc.QC().GlobalRange()
+				if !ok {
+					break
+				}
+				n, qc := pos.Number, pos.QC
+				gr := qc.QC().GlobalRange()
+				if lastQC == nil {
+					// First position: skipTo it to advance past any pruned prefix. Nothing has
+					// been inserted yet, which is what makes it legal for skipTo to move first
+					// without deleting. Subsequent QCs must be consecutive — insertQC errors on
+					// any gap.
 					if gr.First < in.nextQC {
-						return fmt.Errorf("QC in BlockDB predates committee genesis %d: got %d", in.nextQC, gr.First)
+						return fmt.Errorf("QC in BlockDB predates committee genesis %d: got %d",
+							in.nextQC, gr.First)
 					}
-					if gr.First > in.nextQC {
-						in.skipTo(gr.First)
+					if n > in.nextQC {
+						in.skipTo(n)
 					}
 				}
-				if err := in.insertQC(s.cfg.Registry, qc); err != nil {
-					return fmt.Errorf("load QC from BlockDB: %w", err)
+				if qc != lastQC {
+					// The scan entered a new QC's range. Position.QC hands back the same pointer
+					// for every number in a range, so identity is the exact test — and unlike
+					// gr.First == n it still fires for the covering QC when the scan opened
+					// inside that QC's range. insertQC clips it to [nextQC, gr.Next).
+					lastQC = qc
+					if err := in.insertQC(s.cfg.Registry, qc); err != nil {
+						return fmt.Errorf("load QC from BlockDB: %w", err)
+					}
 				}
-			}
-		}()
-		if err != nil {
-			return err
-		}
-
-		// Restore blocks from BlockDB. First block must align with first QC start
-		// (set by the QC pass); a mismatch is corruption / incomplete store.
-		// After the QC pass with no AppProposals, nextAppProposal is the recovery
-		// floor (registry.FirstBlock() or first retained QC start).
-		err = func() error {
-			it, err := blockDB.Blocks(false)
-			if err != nil {
-				return fmt.Errorf("open block iterator: %w", err)
-			}
-			defer func() { _ = it.Close() }()
-			nextExpect := in.nextAppProposal
-			for {
-				ok, err := it.Next()
-				if err != nil || !ok {
-					return err
+				if !pos.HasBlock {
+					// The iteration tail: the covering QC is persisted but this block is
+					// not (lost in a crash, or written ahead of its blocks).
+					continue
 				}
-				n := it.Number()
-				if n >= in.nextQC {
-					return fmt.Errorf("block %d in BlockDB has no QC coverage (nextQC=%d)", n, in.nextQC)
-				}
-				// updateNextBlock only advances nextBlock through contiguous present
-				// entries, so runPersist always writes [persistedBlock, nextBlock)
-				// fully populated. A gap here means BlockDB corruption.
-				if n != nextExpect {
-					return fmt.Errorf("%w: expected %d, got %d", types.ErrBlockGap, nextExpect, n)
-				}
-				nextExpect++
-				blk, err := it.Block()
+				blkOpt, err := it.Block()
 				if err != nil {
-					return err
+					return fmt.Errorf("read block %d from BlockDB: %w", n, err)
 				}
-				qc := in.qcs[n]
+				blk := blkOpt.OrPanic(fmt.Sprintf("block %d absent at a HasBlock position", n))
 				e, ok := s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
 				if !ok {
 					return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
@@ -295,6 +298,7 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 					return fmt.Errorf("insert block %d from BlockDB: %w", n, err)
 				}
 			}
+			return nil
 		}()
 		if err != nil {
 			return err
@@ -312,6 +316,15 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 
 // Registry returns the epoch registry.
 func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
+
+// FirstAppProposal is the first global number for which AppProposal may become
+// available. Requests below it return ErrPruned.
+func (s *State) FirstAppProposal() types.GlobalBlockNumber {
+	for inner := range s.inner.Lock() {
+		return inner.first
+	}
+	panic("unreachable")
+}
 
 // insertBlocksByHash matches byHash against stored (already verified) QC
 // headers over gr ∩ [nextBlock, nextQC) and inserts hits. Advances nextBlock
@@ -516,6 +529,22 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 	return s.blockFromDB(n)
 }
 
+// NeedBlock reports whether catch-up still needs to fetch height n.
+// False when n is already past nextBlock (including heights pruned or
+// evicted from RAM) or an in-memory gap-fill is present. Unlike TryBlock,
+// gap-fills count as satisfied so the fetcher does not keep re-requesting
+// them while a lower contiguous hole is open. Does not consult BlockDB.
+func (s *State) NeedBlock(n types.GlobalBlockNumber) bool {
+	for inner := range s.inner.Lock() {
+		if n < inner.nextBlock {
+			return false
+		}
+		_, ok := inner.blocks[n]
+		return !ok
+	}
+	panic("unreachable")
+}
+
 // assembleGlobalBlock builds a GlobalBlock from a block and its covering QC.
 // Callers must supply non-nil b and fqc for height n. In-memory paths look up
 // maps only for heights still indexed there (including gap-fills); BlockDB
@@ -626,9 +655,6 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.qcs[n].QC().Proposal().EpochIndex(),
 		)
 		t := time.Now()
-		// TODO(gprusak): this will be problematic on restart,
-		// nextAppProposal should be initiated wrt current application height,
-		// so that we don't iterate over all blocks in storage on startup.
 		for inner.nextAppProposal <= n {
 			b := inner.blocks[inner.nextAppProposal]
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
@@ -780,7 +806,7 @@ func (s *State) runPersist(ctx context.Context) error {
 		// Write QCs first (BlockDB contract: QC must precede covered blocks).
 		for _, qc := range b.qcs {
 			gr := qc.QC().GlobalRange()
-			if err := s.blockDB.WriteQC(gr.First, gr.Next, qc); err != nil {
+			if err := s.blockDB.WriteQC(qc); err != nil {
 				return fmt.Errorf("write QC [%d,%d): %w", gr.First, gr.Next, err)
 			}
 			if gr.Next > nextToPersistQC {

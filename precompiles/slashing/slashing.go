@@ -2,6 +2,7 @@ package slashing
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -14,9 +15,11 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
+	UnjailMethod       = "unjail"
 	ParamsMethod       = "params"
 	SigningInfoMethod  = "signingInfo"
 	SigningInfosMethod = "signingInfos"
@@ -32,9 +35,11 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper       utils.EVMKeeper
-	slashingQuerier utils.SlashingQuerier
+	evmKeeper         utils.EVMKeeper
+	slashingMsgServer utils.SlashingMsgServer
+	slashingQuerier   utils.SlashingQuerier
 
+	UnjailID       []byte
 	ParamsID       []byte
 	SigningInfoID  []byte
 	SigningInfosID []byte
@@ -44,12 +49,15 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		evmKeeper:       keepers.EVMK(),
-		slashingQuerier: keepers.SlashingQ(),
+		evmKeeper:         keepers.EVMK(),
+		slashingMsgServer: keepers.SlashingMS(),
+		slashingQuerier:   keepers.SlashingQ(),
 	}
 
 	for name, m := range newAbi.Methods {
 		switch name {
+		case UnjailMethod:
+			p.UnjailID = m.ID
 		case ParamsMethod:
 			p.ParamsID = m.ID
 		case SigningInfoMethod:
@@ -89,7 +97,53 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	case SigningInfosMethod:
 		return p.signingInfos(ctx, method, args, value)
 	}
+
+	// Transaction methods act on behalf of the caller, so they must not be
+	// reachable through delegatecall (which would let a contract act on
+	// behalf of its own caller) or staticcall.
+	if ctx.EVMPrecompileCalledFromDelegateCall() {
+		return nil, 0, errors.New("cannot delegatecall slashing")
+	}
+	if readOnly {
+		return nil, 0, errors.New("cannot call slashing precompile from staticcall")
+	}
+	switch method.Name {
+	case UnjailMethod:
+		return p.unjail(ctx, method, caller, args, value)
+	}
 	return
+}
+
+// unjail unjails the validator whose operator address is the caller's
+// associated Sei address.
+func (p PrecompileExecutor) unjail(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 0); err != nil {
+		return nil, 0, err
+	}
+
+	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !found {
+		return nil, 0, evmtypes.NewAssociationMissingErr(caller.Hex())
+	}
+
+	msg := slashingtypes.NewMsgUnjail(sdk.ValAddress(seiAddr))
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, 0, err
+	}
+
+	if _, err := p.slashingMsgServer.Unjail(sdk.WrapSDKContext(ctx), msg); err != nil {
+		return nil, 0, err
+	}
+
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
 type SlashingParams struct {
@@ -223,6 +277,13 @@ func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
 }
 
-func (PrecompileExecutor) IsTransaction(string) bool {
-	return false
+// IsTransaction returns true for methods that mutate state; all other slashing
+// methods are views.
+func (PrecompileExecutor) IsTransaction(method string) bool {
+	switch method {
+	case UnjailMethod:
+		return true
+	default:
+		return false
+	}
 }

@@ -16,8 +16,14 @@ const (
 	// Per-log heap overhead beyond Address/Data/Topics payload bytes: the slice
 	// slot pointer, struct fields, and topics slice header. This bounds peak
 	// heap for OOM prevention, not JSON-RPC wire size.
+	//
+	// logHeapStructOverhead covers everything in ethtypes.Log besides Address
+	// and the Topics slice header (both counted separately below): Data's own
+	// slice header (24) plus BlockNumber/TxHash/TxIndex/BlockHash/Index/Removed
+	// and struct padding (100) = 124 on amd64/arm64, where unsafe.Sizeof(Log{})
+	// is 168.
 	logHeapPointerOverhead = int64(8)
-	logHeapStructOverhead  = int64(64)
+	logHeapStructOverhead  = int64(124)
 	logTopicsSliceHeader   = int64(24)
 )
 

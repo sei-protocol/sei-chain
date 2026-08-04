@@ -52,7 +52,7 @@ func TestRecoverResumeState(t *testing.T) {
 	var last *generatedBatch
 	for i := 0; i < 2; i++ {
 		b := gen.buildBatch()
-		require.NoError(t, db.WriteQC(b.first, b.next, b.qc))
+		require.NoError(t, db.WriteQC(b.qc))
 		for j, blk := range b.blocks {
 			require.NoError(t, db.WriteBlock(b.first+types.GlobalBlockNumber(j), blk)) //nolint:gosec // small index
 		}

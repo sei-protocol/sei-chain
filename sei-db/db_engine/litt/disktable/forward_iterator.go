@@ -72,6 +72,26 @@ func newForwardIterator(table *DiskTable, segs []*segment.Segment) *forwardItera
 	}
 }
 
+// newForwardIteratorAt creates a forward iterator over the given snapshot positioned so that the first
+// Next returns keys[keyPos] in segs[segPos]. keys must be the pre-read key list of segs[segPos] (from
+// GetKeys), letting the iterator resume mid-segment without re-reading it. If keys[keyPos] is a secondary
+// key, its value is read directly (the group optimization only kicks in once a primary has been visited).
+func newForwardIteratorAt(
+	table *DiskTable,
+	segs []*segment.Segment,
+	segPos int,
+	keys []*types.ScopedKey,
+	keyPos int,
+) *forwardIterator {
+	return &forwardIterator{
+		table:  table,
+		segs:   segs,
+		segPos: segPos,
+		keys:   keys,
+		keyPos: keyPos,
+	}
+}
+
 // Next advances the iterator to the next key in insertion order.
 func (it *forwardIterator) Next() (bool, error) {
 	if it.closed {
@@ -80,6 +100,9 @@ func (it *forwardIterator) Next() (bool, error) {
 
 	for {
 		if it.segPos >= len(it.segs) {
+			// Exhausted: drop the position so the accessors report misuse rather than serving the
+			// stale final key.
+			it.current = nil
 			return false, nil
 		}
 
@@ -117,12 +140,26 @@ func (it *forwardIterator) Next() (bool, error) {
 }
 
 // GetKey returns the current key and whether it is a primary key.
-func (it *forwardIterator) GetKey() (key []byte, isPrimary bool) {
-	return it.current.Key, it.current.Kind.IsPrimary()
+func (it *forwardIterator) GetKey() (key []byte, isPrimary bool, err error) {
+	if it.closed {
+		return nil, false, fmt.Errorf("iterator is closed")
+	}
+	if it.current == nil {
+		return nil, false, fmt.Errorf("iterator is not positioned on a key")
+	}
+	return it.current.Key, it.current.Kind.IsPrimary(), nil
 }
 
 // GetValue reads and returns the value associated with the current key.
 func (it *forwardIterator) GetValue() (value []byte, err error) {
+	if it.closed {
+		// Close released the snapshot's segment reservations, so reading now would open a new
+		// reader on segments GC is free to have deleted.
+		return nil, fmt.Errorf("iterator is closed")
+	}
+	if it.current == nil {
+		return nil, fmt.Errorf("iterator is not positioned on a key")
+	}
 	reader, err := it.segmentReader()
 	if err != nil {
 		return nil, err

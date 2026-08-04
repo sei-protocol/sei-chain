@@ -1,0 +1,38 @@
+name: seidroid xreview
+# Comment `seidroid xreview` on a PR to run the on-demand, sandbox-backed agentic review.
+# Thin caller: the logic is the reusable workflow in sei-protocol/uci; bump both refs below
+# (to the next release's commit SHA) to adopt a new xreview release. The verdict is posted to
+# the PR as one sticky comment when a review produces one.
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  xreview:
+    # Pre-filter that MIRRORS the reusable workflow's trust gate locally (PR comment, a
+    # human, a trusted author, and the command mentioned) so an unrelated, bot-echoed, or
+    # untrusted comment never dispatches the workflow — defense in depth that does not rely
+    # on the cross-repo guard alone. The reusable workflow's guard remains the authoritative
+    # exact-command + author check; overlapping runs on one PR are handled by its job-level
+    # concurrency group.
+    if: >-
+      ${{ github.event.issue.pull_request
+      && github.event.comment.user.type != 'Bot'
+      && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      && contains(github.event.comment.body, 'seidroid xreview') }}
+    # Pinned to the immutable commit for uci v0.0.15 — a mutable tag would let anyone
+    # able to move it run code in this repo's Actions context with the passed secret.
+    # Matches how ai-review/ai-assist pin uci (a full commit SHA).
+    uses: sei-protocol/uci/.github/workflows/seidroid-xreview.yml@65901242783550521f25a19199a6b10e54550b97  # uci v0.0.15
+    permissions:
+      pull-requests: write   # upsert the one sticky verdict comment
+      contents: read         # read PR metadata
+      # id-token: write intentionally omitted — xreview mints its omnigent bearer via the
+      # client-credentials grant (no OIDC exchange), unlike ai-review/ai-assist which use
+      # Anthropic workload-identity federation.
+    # Pass ONLY the one secret xreview needs — not `secrets: inherit`, which would hand the
+    # cross-repo reusable workflow every secret on this repo (release, ECR/GHCR, Slack, …).
+    secrets:
+      OMNIGENT_M2M_CLIENT_SECRET: ${{ secrets.OMNIGENT_M2M_CLIENT_SECRET }}
+    with:
+      uci-ref: 65901242783550521f25a19199a6b10e54550b97   # uci v0.0.15 (same commit as `uses:`)

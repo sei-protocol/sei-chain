@@ -8,14 +8,14 @@ import "errors"
 // means the height is below the retention / eviction floor.
 var ErrNotFound = errors.New("not found")
 
-// ErrBlockGap is returned when BlockDB blocks are not contiguous (e.g. during
-// data.State recovery). That indicates store corruption or an incomplete write
-// that left a hole.
+// ErrBlockGap is returned when the persisted blocks are not contiguous,
+// surfaced by BlockDBIterator.Next during a scan. WriteBlock rejects gapped
+// writes, so a gap on disk indicates store corruption.
 var ErrBlockGap = errors.New("block gap in BlockDB")
 
 // ErrBlockOutOfOrder is returned by WriteBlock when the supplied
-// GlobalBlockNumber is not strictly greater than every previously written
-// block number. Blocks must be written in strictly ascending order.
+// GlobalBlockNumber is not exactly one greater than the previously written
+// block number. Blocks must be written densely ascending.
 var ErrBlockOutOfOrder = errors.New("block: WriteBlock out of order")
 
 // ErrQCNonContiguous is returned by WriteQC when the QC's GlobalRange().First
@@ -30,10 +30,11 @@ var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 
 // ErrPruned is returned when a requested record is below the current retention
 // / eviction floor and is not served. Used for BlockDB by-number reads below
-// the store watermark, and for data.State lookups (blocks, QCs, AppProposals)
-// after in-memory eviction. Distinct from utils.None on BlockDB, which means
-// "not present at or above the watermark" and may still be filled by a future
-// write.
+// the store watermark, for BlockDB.Iterator when a concurrent PruneBefore moves
+// the floor past the requested start before the iterator can be positioned, and
+// for data.State lookups (blocks, QCs, AppProposals) after in-memory eviction.
+// Distinct from utils.None on BlockDB, which means "not present at or above the
+// watermark" and may still be filled by a future write.
 //
 // ErrPruned reflects the watermark's current position, not a permanent verdict.
 // The watermark only advances while a store stays open, so within a single

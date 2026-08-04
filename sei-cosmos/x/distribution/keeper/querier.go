@@ -142,8 +142,10 @@ func queryDelegationRewards(ctx sdk.Context, _ []string, req abci.RequestQuery, 
 		return nil, types.ErrNoDelegationExists
 	}
 
-	endingPeriod := k.IncrementValidatorPeriod(ctx, val)
-	rewards := k.CalculateDelegationRewards(ctx, val, del, endingPeriod)
+	// Read-only for v6.7.0+; reproduces the pre-v6.7.0 period-increment write only
+	// when re-tracing an older block (see DelegationRewardsForQuery). The
+	// CacheContext above already isolates any such write from committed state.
+	rewards := k.DelegationRewardsForQuery(ctx, val, del)
 	if rewards == nil {
 		rewards = sdk.DecCoins{}
 	}
@@ -175,8 +177,9 @@ func queryDelegatorTotalRewards(ctx sdk.Context, _ []string, req abci.RequestQue
 		func(_ int64, del stakingtypes.DelegationI) (stop bool) {
 			valAddr := del.GetValidatorAddr()
 			val := k.stakingKeeper.Validator(ctx, valAddr)
-			endingPeriod := k.IncrementValidatorPeriod(ctx, val)
-			delReward := k.CalculateDelegationRewards(ctx, val, del, endingPeriod)
+			// Read-only for v6.7.0+; reproduces the pre-v6.7.0 period-increment write
+			// only when re-tracing an older block (see DelegationRewardsForQuery).
+			delReward := k.DelegationRewardsForQuery(ctx, val, del)
 
 			delRewards = append(delRewards, types.NewDelegationDelegatorReward(valAddr, delReward))
 			total = total.Add(delReward...)
