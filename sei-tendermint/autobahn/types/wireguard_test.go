@@ -200,7 +200,6 @@ func TestFullProposalWireguardAcceptsMaxValidators(t *testing.T) {
 		ViewSpec{Epoch: NewEpoch(0, OpenRoadRange(), time.Time{}, committee, 0)},
 		time.Unix(1, 2),
 		laneQCs,
-		utils.None[*AppQC](),
 	)
 	require.NoError(t, err)
 
