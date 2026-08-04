@@ -464,10 +464,10 @@ func startProfiles(cfg config) (*profileSession, error) {
 }
 
 func createProfileFile(path string) (*os.File, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("create profile dir for %s: %w", path, err)
 	}
-	file, err := os.Create(path)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600) //nolint:gosec // profile output path is an explicit CLI argument.
 	if err != nil {
 		return nil, fmt.Errorf("create profile file %s: %w", path, err)
 	}
@@ -502,12 +502,14 @@ func (p *profileSession) Close() error {
 	return errors.Join(errs...)
 }
 
-func writeHeapProfile(path string) error {
+func writeHeapProfile(path string) (err error) {
 	file, err := createProfileFile(path)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		err = errors.Join(err, file.Close())
+	}()
 	runtime.GC()
 	if err := pprof.WriteHeapProfile(file); err != nil {
 		return fmt.Errorf("write heap profile %s: %w", path, err)
@@ -722,10 +724,11 @@ func produceBlocks(ctx context.Context, cfg config, workload blockWorkload, out 
 }
 
 func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorkload) ([]blockEnvelope, error) {
-	if cfg.blocks > uint64(maxInt()) {
-		return nil, fmt.Errorf("prebuild-blocks cannot allocate %d blocks on this platform", cfg.blocks)
+	blockCount, err := checkedIntFromUint64("prebuild-blocks", cfg.blocks)
+	if err != nil {
+		return nil, err
 	}
-	prebuilt := make([]blockEnvelope, int(cfg.blocks))
+	prebuilt := make([]blockEnvelope, blockCount)
 	var nextBlock atomic.Uint64
 	group, groupCtx := errgroup.WithContext(ctx)
 	for builderID := 0; builderID < cfg.builders; builderID++ {
@@ -886,6 +889,39 @@ func sendPreparedBlock(ctx context.Context, out chan<- preparedBlockEnvelope, bl
 
 func maxInt() int {
 	return int(^uint(0) >> 1)
+}
+
+func checkedIntFromUint64(name string, value uint64) (int, error) {
+	if value > maxIntAsUint64() {
+		return 0, fmt.Errorf("%s cannot allocate %d blocks on this platform", name, value)
+	}
+	return int(value), nil //nolint:gosec // checked against max int above.
+}
+
+func maxIntAsUint64() uint64 {
+	return uint64(^uint(0) >> 1)
+}
+
+func uint64FromNonNegativeInt(value int) uint64 {
+	if value < 0 {
+		panic("negative integer cannot be converted to uint64")
+	}
+	return uint64(value) //nolint:gosec // negative values are rejected above.
+}
+
+func uint64FromNonNegativeInt64(value int64) uint64 {
+	if value < 0 {
+		return 0
+	}
+	return uint64(value) //nolint:gosec // negative values are rejected above.
+}
+
+func durationFromUint64Nanos(nanos uint64) time.Duration {
+	const maxDurationNanos = uint64(1<<63 - 1)
+	if nanos > maxDurationNanos {
+		return time.Duration(maxDurationNanos) //nolint:gosec // capped to max int64 duration by construction.
+	}
+	return time.Duration(nanos) //nolint:gosec // capped to max int64 duration above.
 }
 
 func executeBlocks(
@@ -1172,7 +1208,7 @@ func workloadRecipient(cfg config, conflictParticipants int, uniquePrefix string
 		return *cfg.fixedRecipient
 	}
 	if txIndex < conflictParticipants {
-		return blockScopedAddressFromSeed(conflictPrefix, blockNumber, uint64(txIndex/2))
+		return blockScopedAddressFromSeed(conflictPrefix, blockNumber, uint64FromNonNegativeInt(txIndex/2))
 	}
 	return addressFromSeed(uniquePrefix, accountIndex)
 }
@@ -1211,7 +1247,7 @@ func blockContext(cfg config, number uint64) evmonly.BlockContext {
 	}
 	return evmonly.BlockContext{
 		Number:      number,
-		Time:        uint64(time.Now().Unix()),
+		Time:        uint64FromNonNegativeInt64(time.Now().Unix()),
 		GasLimit:    gasLimit,
 		ChainID:     new(big.Int).Set(cfg.chainID),
 		BaseFee:     big.NewInt(0),
@@ -1487,7 +1523,7 @@ type fileResultSinks struct {
 }
 
 func newFileResultSinks(cfg config, metrics *loadMetrics) (*resultSinks, error) {
-	if err := os.MkdirAll(cfg.persistDir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.persistDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create persist dir %s: %w", cfg.persistDir, err)
 	}
 	changeSetPath := filepath.Join(cfg.persistDir, "changesets.rlp")
@@ -1755,7 +1791,7 @@ type appendRLPFile struct {
 }
 
 func newAppendRLPFile(path string, bufferSize int, syncOnWrite bool) (*appendRLPFile, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600) //nolint:gosec // persist output path is an explicit CLI argument.
 	if err != nil {
 		return nil, fmt.Errorf("open persist file %s: %w", path, err)
 	}
@@ -2054,7 +2090,7 @@ func (m *loadMetrics) recordInput() {
 
 func (m *loadMetrics) recordPrepared(txCount int) {
 	m.preparedBlocks.Add(1)
-	m.preparedTxs.Add(uint64(txCount))
+	m.preparedTxs.Add(uint64FromNonNegativeInt(txCount))
 	m.preparedBlocksTotal.Inc()
 	m.preparedTxsTotal.Add(float64(txCount))
 }
@@ -2066,7 +2102,7 @@ func (m *loadMetrics) recordPrepareError() {
 
 func (m *loadMetrics) recordFinished(txCount int, gasUsed uint64, occStats evmonly.OCCStats) {
 	m.finishedBlocks.Add(1)
-	m.finishedTxs.Add(uint64(txCount))
+	m.finishedTxs.Add(uint64FromNonNegativeInt(txCount))
 	m.gasConsumed.Add(gasUsed)
 	m.finishedBlocksTotal.Inc()
 	m.finishedTxsTotal.Add(float64(txCount))
@@ -2129,7 +2165,7 @@ func (m *loadMetrics) recordSinkEnqueueWait(elapsed time.Duration) {
 	if elapsed <= 0 {
 		return
 	}
-	m.sinkWaitNanos.Add(uint64(elapsed.Nanoseconds()))
+	m.sinkWaitNanos.Add(uint64FromNonNegativeInt64(elapsed.Nanoseconds()))
 	m.sinkWaitEvents.Add(1)
 	m.sinkEnqueueWaitTotal.Add(elapsed.Seconds())
 	m.sinkEnqueueWaitEvents.Inc()
@@ -2137,14 +2173,14 @@ func (m *loadMetrics) recordSinkEnqueueWait(elapsed time.Duration) {
 
 func (m *loadMetrics) recordSinkWrite(kind string, bytes int, elapsed time.Duration, completed bool) {
 	if elapsed > 0 {
-		m.sinkWriteNanos.Add(uint64(elapsed.Nanoseconds()))
+		m.sinkWriteNanos.Add(uint64FromNonNegativeInt64(elapsed.Nanoseconds()))
 		m.sinkWriteSecondsTotal.WithLabelValues(kind).Add(elapsed.Seconds())
 	}
 	if !completed {
 		return
 	}
 	m.sinkWritten.Add(1)
-	m.sinkBytes.Add(uint64(bytes))
+	m.sinkBytes.Add(uint64FromNonNegativeInt(bytes))
 	m.sinkWrittenTotal.WithLabelValues(kind).Inc()
 	m.sinkBytesTotal.WithLabelValues(kind).Add(float64(bytes))
 }
@@ -2281,9 +2317,9 @@ func printFinalReport(startedAt time.Time, snapshot metricsSnapshot) {
 		snapshot.sinkEnqueued,
 		snapshot.sinkWritten,
 		snapshot.sinkBytes,
-		time.Duration(snapshot.sinkWaitNanos).Round(time.Microsecond),
+		durationFromUint64Nanos(snapshot.sinkWaitNanos).Round(time.Microsecond),
 		snapshot.sinkWaitEvents,
-		time.Duration(snapshot.sinkWriteNanos).Round(time.Microsecond),
+		durationFromUint64Nanos(snapshot.sinkWriteNanos).Round(time.Microsecond),
 		float64(snapshot.inputBlocks)/elapsed,
 		float64(snapshot.preparedBlocks)/elapsed,
 		float64(snapshot.preparedTxs)/elapsed,
@@ -2301,9 +2337,9 @@ func printResultSinkReport(closeElapsed time.Duration, snapshot metricsSnapshot)
 		snapshot.sinkEnqueued,
 		snapshot.sinkWritten,
 		snapshot.sinkBytes,
-		time.Duration(snapshot.sinkWaitNanos).Round(time.Microsecond),
+		durationFromUint64Nanos(snapshot.sinkWaitNanos).Round(time.Microsecond),
 		snapshot.sinkWaitEvents,
-		time.Duration(snapshot.sinkWriteNanos).Round(time.Microsecond),
+		durationFromUint64Nanos(snapshot.sinkWriteNanos).Round(time.Microsecond),
 	)
 }
 
