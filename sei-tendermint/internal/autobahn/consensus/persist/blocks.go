@@ -18,9 +18,16 @@ var logger = seilog.NewLogger("tendermint", "internal", "autobahn", "consensus",
 
 const blocksDir = "blocks"
 
-// blocksWALName identifies every lane WAL in metrics. All lanes share it so their counters aggregate;
-// a per-lane name would make a metric label out of a lane's public key.
+// blocksWALName identifies every lane WAL in metrics. All lanes share it rather than deriving a name from
+// the lane, which would make a metric label out of a validator's public key.
+//
+// Because the lanes are live at the same time under one name, their metrics are disabled: seiwal's
+// queue-depth gauge is keyed on the name alone, so the lanes would overwrite each other's samples. Giving
+// each lane a unique name — folding in laneDir(lane) — is what it would take to turn them back on.
 const blocksWALName = "autobahn_blocks"
+
+// blocksWALMetrics is whether lane WALs record metrics. See blocksWALName for why they cannot.
+const blocksWALMetrics = false
 
 // LoadedBlock is a block loaded from disk during state restoration.
 type LoadedBlock struct {
@@ -181,7 +188,7 @@ func laneDir(lane types.LaneID) string {
 }
 
 func newLaneWALState(dir string) (*laneWALState, error) {
-	wal, err := openWAL(dir, blocksWALName, types.SignedLaneProposalConv, targetFileSize)
+	wal, err := openWAL(dir, blocksWALName, types.SignedLaneProposalConv, targetFileSize, blocksWALMetrics)
 	if err != nil {
 		return nil, err
 	}

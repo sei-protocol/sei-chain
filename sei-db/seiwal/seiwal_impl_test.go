@@ -205,9 +205,10 @@ func TestWriterRejectsOutOfOrderRecord(t *testing.T) {
 	dir := t.TempDir()
 	mf, err := newWalFile(dir, 0)
 	require.NoError(t, err)
+	cfg := testConfig(dir)
 	w := &walImpl{
-		config:      testConfig(dir),
-		metricAttrs: walNameAttr("test"),
+		config:      cfg,
+		metrics:     newWALMetrics(cfg, "writer"),
 		ctx:         context.Background(),
 		mutableFile: mf,
 	}
@@ -235,7 +236,7 @@ func TestWriterBackstopPermitsGapsWhenConfigured(t *testing.T) {
 	cfg.PermitGaps = true
 	w := &walImpl{
 		config:      cfg,
-		metricAttrs: walNameAttr("test"),
+		metrics:     newWALMetrics(cfg, "writer"),
 		ctx:         context.Background(),
 		mutableFile: mf,
 	}
@@ -260,9 +261,10 @@ func TestFailReleasesMutableFile(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancelCause(context.Background())
 	senderCtx, senderCancel := context.WithCancelCause(ctx)
+	cfg := testConfig(dir)
 	w := &walImpl{
-		config:       testConfig(dir),
-		metricAttrs:  walNameAttr("test"),
+		config:       cfg,
+		metrics:      newWALMetrics(cfg, "writer"),
 		ctx:          ctx,
 		cancel:       cancel,
 		senderCtx:    senderCtx,

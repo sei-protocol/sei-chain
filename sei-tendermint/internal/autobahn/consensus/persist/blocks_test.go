@@ -482,7 +482,7 @@ func TestPruneReclaimsSealedFiles(t *testing.T) {
 	// Small enough that a file seals every block or two, giving pruning whole files to reclaim.
 	const fileSize = 512
 
-	w, err := openWAL(dir, blocksWALName, types.SignedLaneProposalConv, fileSize)
+	w, err := openWAL(dir, blocksWALName, types.SignedLaneProposalConv, fileSize, blocksWALMetrics)
 	require.NoError(t, err)
 	s := &laneWALState{wal: w}
 	for i := range types.BlockNumber(total) {
@@ -492,7 +492,7 @@ func TestPruneReclaimsSealedFiles(t *testing.T) {
 	require.NoError(t, s.truncateForAnchor(lane, anchor))
 	require.NoError(t, s.wal.Close())
 
-	w2, err := openWAL(dir, blocksWALName, types.SignedLaneProposalConv, fileSize)
+	w2, err := openWAL(dir, blocksWALName, types.SignedLaneProposalConv, fileSize, blocksWALMetrics)
 	require.NoError(t, err)
 	s2 := &laneWALState{wal: w2}
 	loaded, err := s2.loadAll(lane)

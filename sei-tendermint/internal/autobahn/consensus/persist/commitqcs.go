@@ -15,6 +15,10 @@ const commitqcsDir = "commitqcs"
 // commitqcsWALName identifies the commitQC WAL in metrics.
 const commitqcsWALName = "autobahn_commitqcs"
 
+// commitqcsWALMetrics is whether the commitQC WAL records metrics. One instance holds the name above, so
+// unlike the lane WALs (see blocksWALName) it has nothing to collide with.
+const commitqcsWALMetrics = true
+
 // LoadedCommitQC is a CommitQC loaded from disk during state restoration.
 type LoadedCommitQC struct {
 	Index types.RoadIndex
@@ -113,7 +117,7 @@ func NewCommitQCPersister(stateDir utils.Option[string]) (*CommitQCPersister, []
 		return &CommitQCPersister{state: utils.NewMutex(&commitQCState{})}, nil, nil
 	}
 	dir := filepath.Join(sd, commitqcsDir)
-	wal, err := openWAL(dir, commitqcsWALName, types.CommitQCConv, targetFileSize)
+	wal, err := openWAL(dir, commitqcsWALName, types.CommitQCConv, targetFileSize, commitqcsWALMetrics)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open commitqc WAL in %s: %w", dir, err)
 	}

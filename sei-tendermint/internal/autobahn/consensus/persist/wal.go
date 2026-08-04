@@ -33,15 +33,24 @@ type walEntry[T any] struct {
 
 // openWAL creates (or opens) a WAL in dir, recovering any files left behind by a previous session.
 //
-// name identifies the WAL in its metrics and has no effect on the on-disk layout, so instances whose
-// metrics should aggregate may share one.
+// name identifies the WAL in its metrics and has no effect on the on-disk layout.
+//
+// metricsEnabled must be false when other WALs live under the same name at the same time. Their counters
+// would aggregate, but seiwal's queue-depth gauge is keyed on the name alone, so concurrent instances
+// sharing one overwrite each other's samples rather than summing them.
 //
 // fileSize is the size a file may reach before it is sealed, which is also the granularity at which
 // pruning reclaims space. Production callers pass targetFileSize.
 //
 // Appends to the returned WAL are only durable once Flush returns; a caller that reports a record as
 // persisted must flush first.
-func openWAL[T any](dir string, name string, codec codec[T], fileSize uint) (seiwal.WAL[T], error) {
+func openWAL[T any](
+	dir string,
+	name string,
+	codec codec[T],
+	fileSize uint,
+	metricsEnabled bool,
+) (seiwal.WAL[T], error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("create dir %s: %w", dir, err)
 	}
@@ -54,6 +63,7 @@ func openWAL[T any](dir string, name string, codec codec[T], fileSize uint) (sei
 	// enforced by the callers of Append, which reject an out-of-sequence block or road index.
 	config.PermitGaps = true
 	config.TargetFileSize = fileSize
+	config.MetricsEnabled = metricsEnabled
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid WAL config for %s: %w", dir, err)
 	}

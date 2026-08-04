@@ -230,7 +230,7 @@ func TestLoadAllDropsCommitQCsBehindGap(t *testing.T) {
 	// index 1 between them.
 	walDir := filepath.Join(dir, commitqcsDir)
 	require.NoError(t, os.MkdirAll(walDir, 0700))
-	w, err := openWAL(walDir, commitqcsWALName, types.CommitQCConv, targetFileSize)
+	w, err := openWAL(walDir, commitqcsWALName, types.CommitQCConv, targetFileSize, commitqcsWALMetrics)
 	require.NoError(t, err)
 	require.NoError(t, w.Append(0, qcs[0]))
 	require.NoError(t, w.Append(2, qcs[2]))
