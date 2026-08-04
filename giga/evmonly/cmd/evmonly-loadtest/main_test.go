@@ -27,6 +27,7 @@ import (
 func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--blocks=1",
 		"--txs-per-block=4",
 	})
 	require.NoError(t, err)
@@ -86,6 +87,7 @@ func TestTransferWorkloadOCCScenarios(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			args := append([]string{
 				"--metrics-addr=",
+				"--blocks=1",
 				"--txs-per-block=4",
 				"--gas-price-wei=0",
 				"--min-gas-price-wei=0",
@@ -156,6 +158,7 @@ func TestTransferWorkloadOCCScenarios(t *testing.T) {
 func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--blocks=1",
 		"--workload=erc20-transfer",
 		"--txs-per-block=4",
 		"--gas-price-wei=0",
@@ -207,6 +210,7 @@ func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 func TestSnapshotRevertWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--blocks=1",
 		"--workload=snapshot-revert",
 		"--txs-per-block=4",
 		"--gas-price-wei=0",
@@ -259,6 +263,7 @@ func TestSnapshotRevertWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 func TestTransferWorkloadRecipientConflictRate(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--blocks=1",
 		"--txs-per-block=4",
 		"--recipient-conflict-rate=0.5",
 		"--gas-price-wei=0",
@@ -317,20 +322,20 @@ func applyGeneratedStateChangeSet(state *generatedState, changeSet evmonly.State
 	}
 }
 
-func TestPrebuildBlocksRequiresBoundedRun(t *testing.T) {
-	_, err := parseConfig([]string{
-		"--prebuild-blocks",
-	})
-	require.ErrorContains(t, err, "prebuild-blocks requires --blocks > 0")
+func TestBlocksRequiresBoundedRun(t *testing.T) {
+	_, err := parseConfig([]string{})
+	require.ErrorContains(t, err, "blocks must be positive")
 }
 
 func TestRecipientConflictRateValidation(t *testing.T) {
 	_, err := parseConfig([]string{
+		"--blocks=1",
 		"--recipient-conflict-rate=1.1",
 	})
 	require.ErrorContains(t, err, "recipient-conflict-rate must be between 0 and 1")
 
 	_, err = parseConfig([]string{
+		"--blocks=1",
 		"--recipient=0x0000000000000000000000000000000000000001",
 		"--recipient-conflict-rate=0.5",
 	})
@@ -339,12 +344,14 @@ func TestRecipientConflictRateValidation(t *testing.T) {
 
 func TestSameSenderValidation(t *testing.T) {
 	_, err := parseConfig([]string{
+		"--blocks=1",
 		"--workload=erc20-transfer",
 		"--same-sender",
 	})
 	require.ErrorContains(t, err, "same-sender is only supported with transfer workload")
 
 	_, err = parseConfig([]string{
+		"--blocks=1",
 		"--same-sender",
 		"--txs-per-block=4",
 		"--gas-price-wei=0",
@@ -357,18 +364,21 @@ func TestSameSenderValidation(t *testing.T) {
 
 func TestSnapshotRevertValidation(t *testing.T) {
 	_, err := parseConfig([]string{
+		"--blocks=1",
 		"--workload=snapshot-revert",
 		"--recipient=0x0000000000000000000000000000000000000001",
 	})
 	require.ErrorContains(t, err, "recipient is not supported with snapshot-revert workload")
 
 	_, err = parseConfig([]string{
+		"--blocks=1",
 		"--workload=snapshot-revert",
 		"--recipient-conflict-rate=0.5",
 	})
 	require.ErrorContains(t, err, "recipient-conflict-rate is not supported with snapshot-revert workload")
 
 	_, err = parseConfig([]string{
+		"--blocks=1",
 		"--workload=snapshot-revert",
 		"--snapshot-revert-contract=0x0000000000000000000000000000000000000001",
 		"--snapshot-revert-helper=0x0000000000000000000000000000000000000001",
@@ -378,18 +388,21 @@ func TestSnapshotRevertValidation(t *testing.T) {
 
 func TestParseWorkersConfig(t *testing.T) {
 	cfg, err := parseConfig([]string{
+		"--blocks=1",
 		"--prepare-workers=2",
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, cfg.parseWorkers)
 
 	cfg, err = parseConfig([]string{
+		"--blocks=1",
 		"--prepare-workers=1",
 	})
 	require.NoError(t, err)
 	require.Equal(t, runtime.GOMAXPROCS(0), cfg.parseWorkers)
 
 	cfg, err = parseConfig([]string{
+		"--blocks=1",
 		"--prepare-workers=8",
 		"--parse-workers=3",
 	})
@@ -397,6 +410,7 @@ func TestParseWorkersConfig(t *testing.T) {
 	require.Equal(t, 3, cfg.parseWorkers)
 
 	_, err = parseConfig([]string{
+		"--blocks=1",
 		"--parse-workers=-1",
 	})
 	require.ErrorContains(t, err, "parse-workers must be non-negative")
@@ -406,7 +420,6 @@ func TestRunPrebuiltBlocks(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
 		"--report-interval=0",
-		"--prebuild-blocks",
 		"--blocks=2",
 		"--txs-per-block=2",
 	})
@@ -417,6 +430,7 @@ func TestRunPrebuiltBlocks(t *testing.T) {
 func TestPrepareBlocksCancelsWorkersOnOrderingInvariantError(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--blocks=1",
 		"--report-interval=0",
 		"--queue-size=1",
 		"--prepare-workers=1",
@@ -446,6 +460,7 @@ func TestPrepareBlocksCancelsWorkersOnOrderingInvariantError(t *testing.T) {
 func TestPrepareBlocksPrefersWorkerErrorOverOrderingDrainError(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--blocks=1",
 		"--report-interval=0",
 		"--queue-size=2",
 		"--prepare-workers=1",
@@ -466,6 +481,7 @@ func TestPrepareBlocksPrefersWorkerErrorOverOrderingDrainError(t *testing.T) {
 func TestPrepareBlocksDrainsPreparedBlocksAfterWorkersFinish(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--blocks=1",
 		"--report-interval=0",
 		"--queue-size=2",
 		"--prepare-workers=1",
@@ -496,7 +512,7 @@ func TestLoadMetricsRecordsOCCRerunsWithoutConflicts(t *testing.T) {
 }
 
 func TestBlockContextTimestampIsDeterministic(t *testing.T) {
-	cfg, err := parseConfig([]string{"--metrics-addr="})
+	cfg, err := parseConfig([]string{"--metrics-addr=", "--blocks=1"})
 	require.NoError(t, err)
 
 	require.Equal(t, defaultGenesisTimestamp+10, blockContext(cfg, 10).Time)
@@ -506,6 +522,7 @@ func TestBlockContextTimestampIsDeterministic(t *testing.T) {
 
 func TestQueueSizeDefaultPersistQueueOverflowValidation(t *testing.T) {
 	_, err := parseConfig([]string{
+		"--blocks=1",
 		"--queue-size=" + fmt.Sprint(math.MaxInt),
 	})
 	require.ErrorContains(t, err, "queue-size must be at most")
@@ -515,6 +532,7 @@ func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--blocks=1",
 		"--result-sink=file",
 		"--persist-dir=" + dir,
 		"--persist-sync",
@@ -575,6 +593,7 @@ func TestAsyncFileResultSinkReportsMetrics(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--blocks=1",
 		"--result-sink=file",
 		"--persist-dir=" + dir,
 		"--persist-queue-size=1",
@@ -600,6 +619,7 @@ func TestAsyncFileResultSinkStoresBlockResultAndReleases(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--blocks=1",
 		"--result-sink=file",
 		"--persist-dir=" + dir,
 		"--persist-queue-size=1",
@@ -673,6 +693,7 @@ func TestExecutorResultPoolReusesSlotsWithFileSink(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
+		"--blocks=1",
 		"--result-sink=file",
 		"--persist-dir=" + dir,
 		"--result-pool-size=1",
@@ -713,7 +734,6 @@ func TestRunPrebuiltBlocksWithFileResultSinkCleansUp(t *testing.T) {
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
 		"--report-interval=0",
-		"--prebuild-blocks",
 		"--blocks=2",
 		"--txs-per-block=2",
 		"--gas-price-wei=0",
@@ -802,6 +822,7 @@ func BenchmarkExecuteTransferBlock(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			args := append([]string{
 				"--metrics-addr=",
+				"--blocks=1",
 				"--txs-per-block=1000",
 				"--gas-price-wei=0",
 				"--min-gas-price-wei=0",

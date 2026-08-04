@@ -31,7 +31,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 )
@@ -74,7 +73,6 @@ type config struct {
 	parseWorkers           int
 	workers                int
 	executorWorkers        int
-	targetBlocksPerSec     float64
 	reportInterval         time.Duration
 	metricsAddr            string
 	resultSink             string
@@ -102,7 +100,6 @@ type config struct {
 	recipientConflictRate  float64
 	sameSender             bool
 	disableGasPriceRule    bool
-	prebuildBlocks         bool
 }
 
 type blockEnvelope struct {
@@ -145,7 +142,7 @@ func parseConfig(args []string) (config, error) {
 	fs.Float64Var(&cfg.recipientConflictRate, "recipient-conflict-rate", 0, "fraction [0,1] of transactions per block paired onto shared recipients; 0 keeps recipients unique")
 	fs.BoolVar(&cfg.sameSender, "same-sender", false, "use one sender with sequential nonces for every transaction in a transfer block")
 
-	fs.Uint64Var(&cfg.blocks, "blocks", 0, "number of blocks to feed; 0 runs until interrupted")
+	fs.Uint64Var(&cfg.blocks, "blocks", 0, "number of blocks to prebuild and execute; must be positive")
 	fs.IntVar(&cfg.txsPerBlock, "txs-per-block", defaultTxsPerBlock, "transactions generated per block")
 	fs.IntVar(&cfg.queueSize, "queue-size", defaultQueueSize, "buffered blocks waiting for executor workers")
 	fs.IntVar(&cfg.builders, "builders", runtime.GOMAXPROCS(0), "parallel block builder goroutines")
@@ -153,7 +150,6 @@ func parseConfig(args []string) (config, error) {
 	fs.IntVar(&cfg.parseWorkers, "parse-workers", 0, "parallel transaction decode/sender recovery workers inside each prepared block; 0 defaults to 1 when prepare-workers > 1, otherwise GOMAXPROCS")
 	fs.IntVar(&cfg.workers, "workers", defaultWorkerCount, "parallel executor workers")
 	fs.IntVar(&cfg.executorWorkers, "executor-workers", defaultExecutorWorkers(), "parallel OCC workers inside each executor")
-	fs.Float64Var(&cfg.targetBlocksPerSec, "target-blocks-per-sec", 0, "input block rate cap; 0 means unlimited")
 	fs.DurationVar(&cfg.reportInterval, "report-interval", defaultReportInterval, "stdout and rate-gauge reporting interval; 0 disables periodic reports")
 	fs.StringVar(&cfg.metricsAddr, "metrics-addr", defaultMetricsAddr, "Prometheus listen address; empty disables HTTP metrics")
 	fs.StringVar(&cfg.resultSink, "result-sink", resultSinkDiscard, "result sink mode: discard or file")
@@ -162,14 +158,13 @@ func parseConfig(args []string) (config, error) {
 	fs.BoolVar(&cfg.persistSync, "persist-sync", false, "fsync persistent result files from the async sink writer")
 	fs.IntVar(&cfg.persistBufferSize, "persist-buffer-size", defaultPersistBuffer, "buffer size in bytes for --result-sink=file")
 	fs.IntVar(&cfg.persistQueueSize, "persist-queue-size", 0, "record queue size for async file persistence; 0 defaults to 2*queue-size")
-	fs.StringVar(&cfg.cpuProfile, "cpu-profile", "", "write Go CPU profile to this file; starts after prebuild when --prebuild-blocks is set")
+	fs.StringVar(&cfg.cpuProfile, "cpu-profile", "", "write Go CPU profile to this file; starts after prebuild")
 	fs.StringVar(&cfg.heapProfile, "heap-profile", "", "write Go heap profile to this file after execution")
-	fs.StringVar(&cfg.traceProfile, "trace-profile", "", "write Go runtime trace to this file; starts after prebuild when --prebuild-blocks is set")
+	fs.StringVar(&cfg.traceProfile, "trace-profile", "", "write Go runtime trace to this file; starts after prebuild")
 	fs.StringVar(&cfg.workload, "workload", workloadTransfer, "workload type: transfer, erc20-transfer, or snapshot-revert")
 	fs.Uint64Var(&cfg.txGasLimit, "tx-gas-limit", defaultTxGasLimit, "gas limit for each generated transaction")
 	fs.Uint64Var(&cfg.blockGasLimit, "block-gas-limit", 0, "block gas limit; 0 lets the executor use its maximum")
 	fs.BoolVar(&cfg.disableGasPriceRule, "disable-gas-price-rule", false, "disable the executor min-gas-price validity rule")
-	fs.BoolVar(&cfg.prebuildBlocks, "prebuild-blocks", false, "generate all bounded blocks before starting executor workers")
 
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
@@ -229,6 +224,9 @@ func parseConfig(args []string) (config, error) {
 	if cfg.workload == workloadSnapshotRevert && !txGasLimitSet {
 		cfg.txGasLimit = defaultSnapshotRevertTxGasLimit
 	}
+	if cfg.blocks == 0 {
+		return config{}, fmt.Errorf("blocks must be positive")
+	}
 	if cfg.txsPerBlock <= 0 {
 		return config{}, fmt.Errorf("txs-per-block must be positive")
 	}
@@ -255,9 +253,6 @@ func parseConfig(args []string) (config, error) {
 	}
 	if cfg.executorWorkers <= 0 {
 		return config{}, fmt.Errorf("executor-workers must be positive")
-	}
-	if cfg.targetBlocksPerSec < 0 {
-		return config{}, fmt.Errorf("target-blocks-per-sec must be non-negative")
 	}
 	if cfg.recipientConflictRate < 0 || cfg.recipientConflictRate > 1 {
 		return config{}, fmt.Errorf("recipient-conflict-rate must be between 0 and 1")
@@ -306,9 +301,6 @@ func parseConfig(args []string) (config, error) {
 	}
 	if cfg.transferValue.BitLen() > 256 {
 		return config{}, fmt.Errorf("transfer-value-wei must fit in uint256")
-	}
-	if cfg.prebuildBlocks && cfg.blocks == 0 {
-		return config{}, fmt.Errorf("prebuild-blocks requires --blocks > 0")
 	}
 	if !cfg.disableGasPriceRule && cfg.gasPrice.Cmp(cfg.minGasPrice) < 0 {
 		return config{}, fmt.Errorf("gas-price-wei must be greater than or equal to min-gas-price-wei unless disable-gas-price-rule is set")
@@ -443,10 +435,7 @@ func run(cfg config) (err error) {
 		fmt.Printf("metrics listening on http://%s/metrics\n", cfg.metricsAddr)
 	}
 
-	if cfg.prebuildBlocks {
-		return runPrebuilt(ctx, cfg, state, workload, sinks, metrics)
-	}
-	return runStreaming(ctx, cfg, state, workload, sinks, metrics)
+	return runPrebuilt(ctx, cfg, state, workload, sinks, metrics)
 }
 
 type profileSession struct {
@@ -595,54 +584,6 @@ func newWorkload(cfg config, state *generatedState) (blockWorkload, error) {
 	}
 }
 
-func runStreaming(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, sinks *resultSinks, metrics *loadMetrics) (err error) {
-	profiles, err := startProfiles(cfg)
-	if err != nil {
-		return err
-	}
-
-	blocks := make(chan blockEnvelope, cfg.queueSize)
-	preparedBlocks := make(chan preparedBlockEnvelope, cfg.queueSize)
-	reportCtx, stopReporter := context.WithCancel(ctx)
-	reportDone := make(chan struct{})
-	go func() {
-		defer close(reportDone)
-		reportLoop(reportCtx, cfg.reportInterval, metrics, preparedBlocks)
-	}()
-
-	startedAt := time.Now()
-	group, groupCtx := errgroup.WithContext(ctx)
-	executor := evmonly.NewExecutor(executorConfig(cfg), evmonly.WithState(state), evmonly.WithResultSink(sinks))
-	defer executor.Close()
-	metrics.recordResultPoolStats(executor.ResultPoolStats())
-	group.Go(func() error {
-		defer close(blocks)
-		return produceBlocks(groupCtx, cfg, workload, blocks, metrics)
-	})
-	group.Go(func() error {
-		defer close(preparedBlocks)
-		return prepareBlocks(groupCtx, cfg, executor, blocks, preparedBlocks, metrics)
-	})
-	for workerID := 0; workerID < cfg.workers; workerID++ {
-		workerID := workerID
-		group.Go(func() error {
-			return executeBlocks(groupCtx, workerID, executor, preparedBlocks, metrics)
-		})
-	}
-
-	err = group.Wait()
-	metrics.recordResultPoolStats(executor.ResultPoolStats())
-	stopReporter()
-	<-reportDone
-
-	if errors.Is(err, context.Canceled) {
-		err = nil
-	}
-	printFinalReport(startedAt, metrics.snapshot())
-	finishProfiles(profiles, &err)
-	return err
-}
-
 func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workload blockWorkload, sinks *resultSinks, metrics *loadMetrics) (err error) {
 	prebuildStartedAt := time.Now()
 	prebuilt, err := prebuildBlockRequests(ctx, cfg, workload)
@@ -702,52 +643,8 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	return err
 }
 
-func produceBlocks(ctx context.Context, cfg config, workload blockWorkload, out chan<- blockEnvelope, metrics *loadMetrics) error {
-	var limiter *rate.Limiter
-	if cfg.targetBlocksPerSec > 0 {
-		burst := int(math.Ceil(cfg.targetBlocksPerSec))
-		if burst < 1 {
-			burst = 1
-		}
-		limiter = rate.NewLimiter(rate.Limit(cfg.targetBlocksPerSec), burst)
-	}
-
-	var nextBlock atomic.Uint64
-	group, groupCtx := errgroup.WithContext(ctx)
-	for builderID := 0; builderID < cfg.builders; builderID++ {
-		group.Go(func() error {
-			for {
-				number := nextBlock.Add(1)
-				if cfg.blocks != 0 && number > cfg.blocks {
-					return nil
-				}
-				if limiter != nil {
-					if err := limiter.Wait(groupCtx); err != nil {
-						return nil
-					}
-				}
-				request, err := workload.buildBlock(groupCtx, number)
-				if err != nil {
-					if groupCtx.Err() != nil {
-						return nil
-					}
-					return err
-				}
-				block := blockEnvelope{number: number, request: request}
-				select {
-				case out <- block:
-					metrics.recordInput()
-				case <-groupCtx.Done():
-					return nil
-				}
-			}
-		})
-	}
-	return group.Wait()
-}
-
 func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorkload) ([]blockEnvelope, error) {
-	blockCount, err := checkedIntFromUint64("prebuild-blocks", cfg.blocks)
+	blockCount, err := checkedIntFromUint64("blocks", cfg.blocks)
 	if err != nil {
 		return nil, err
 	}

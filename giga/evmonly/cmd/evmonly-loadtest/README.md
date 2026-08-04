@@ -15,22 +15,11 @@ transactions onto shared recipients, or pass `--recipient=0x...` to force all
 transactions to a single recipient. Pass `--same-sender` to use one sender per
 block with sequential transaction nonces.
 
-Run a bounded test:
+Run a bounded prebuilt test:
 
 ```bash
 go run ./giga/evmonly/cmd/evmonly-loadtest --blocks=1000 --txs-per-block=1000
 ```
-
-Run continuously until interrupted:
-
-```bash
-go run ./giga/evmonly/cmd/evmonly-loadtest --txs-per-block=1000
-```
-
-Continuous mode with unique generated accounts is memory-limited: the in-memory
-genesis state retains every funded sender account, and ERC20 runs also retain a
-storage slot for every generated token holder. Use bounded `--blocks` runs when
-comparing throughput, especially for long ERC20 or conflict-free transfer runs.
 
 Example local saturation run:
 
@@ -53,15 +42,18 @@ The three executor OCC scenarios have direct command-line forms:
 ```bash
 # Conflict-free: unique senders and recipients.
 go run ./giga/evmonly/cmd/evmonly-loadtest \
+  --blocks=400 \
   --gas-price-wei=0 --min-gas-price-wei=0
 
 # Hot recipient: unique senders all credit one account.
 go run ./giga/evmonly/cmd/evmonly-loadtest \
+  --blocks=400 \
   --gas-price-wei=0 --min-gas-price-wei=0 \
   --recipient=0x00000000000000000000000000000000000000f1
 
 # Same-sender nonce chain: one sender and sequential nonces within each block.
 go run ./giga/evmonly/cmd/evmonly-loadtest \
+  --blocks=400 \
   --gas-price-wei=0 --min-gas-price-wei=0 \
   --same-sender
 ```
@@ -98,14 +90,13 @@ go run ./giga/evmonly/cmd/evmonly-loadtest \
   --min-gas-price-wei=0
 ```
 
-To isolate executor throughput from block generation, prebuild a bounded run
-before starting the prepare/recover and executor workers:
+The command prebuilds every bounded run before starting the prepare/recover and
+executor workers, which isolates executor throughput from block generation:
 
 ```bash
 go run ./giga/evmonly/cmd/evmonly-loadtest \
   --metrics-addr= \
   --report-interval=5s \
-  --prebuild-blocks \
   --blocks=400 \
   --txs-per-block=5000 \
   --builders=48 \
@@ -116,8 +107,8 @@ go run ./giga/evmonly/cmd/evmonly-loadtest \
   --queue-size=512
 ```
 
-Prebuilding requires `--blocks > 0` and stores every raw block in memory.
-Sender recovery still runs in the measured phase, but it is pipelined ahead of
+Prebuilding requires `--blocks > 0` and stores every raw block in memory. Sender
+recovery still runs in the measured phase, but it is pipelined ahead of
 execution through `--prepare-workers`.
 
 The zero gas price/min-gas settings keep the conflict-free transfer workload
@@ -126,6 +117,8 @@ update the same coinbase balance, which is a real intra-block conflict.
 
 Useful knobs:
 
+- `--blocks`: number of blocks to prebuild and execute. This is required and
+  must be greater than `0`.
 - `--workers`: parallel executor workers. The default is `1`. Prepared blocks
   are forwarded to workers in block-number order, but `--workers > 1` can still
   finish execution out of order; this is safe for the harness because generated
@@ -153,10 +146,6 @@ Useful knobs:
 - `--persist-buffer-size`: buffered writer size for `--result-sink=file`.
 - `--persist-queue-size`: async file-sink record queue size. The default `0`
   uses `2 * --queue-size`.
-- `--target-blocks-per-sec`: cap block input rate. The default `0` feeds as
-  fast as block generation and the queue allow.
-- `--prebuild-blocks`: generate all bounded blocks before starting executor
-  workers. This separates build throughput from executor throughput.
 - `--metrics-addr`: Prometheus endpoint. The default is
   `127.0.0.1:9698`; set it to empty to disable HTTP metrics.
 - `--report-interval`: stdout rate reporting interval. The default is `5s`.
