@@ -49,18 +49,12 @@ checksum:
 snapshot:
   version_template: '{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}'
 
+# The GitHub Release itself already carries an auto-generated "What's Changed"
+# commit list and a "Full Changelog" compare link (release-publish.yml creates the
+# release with generate_release_notes). Disable goreleaser's changelog (and drop the
+# footer below) so we don't append a duplicate list and link.
 changelog:
-  use: github
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-      - 'merge conflict'
-      - Merge pull request
-      - Merge remote-tracking branch
-      - Merge branch
+  disable: true
 
 release:
   github:
@@ -82,5 +76,3 @@ release:
     ```
 
     For Docker images, see `ghcr.io/sei-protocol/sei`.
-  footer: |
-    **Full Changelog**: https://github.com/sei-protocol/sei-chain/compare/{{ .PreviousTag }}...{{ .Tag }}
