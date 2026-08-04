@@ -10,10 +10,11 @@ import (
 
 // targetFileSize is the size a WAL file may reach before it is sealed and a fresh one is opened.
 //
-// This sits far below seiwal's default because pruning only deletes whole sealed files and never the
-// file currently being written, so the volume of pruned-but-still-present records scales with this
-// value — and autobahn keeps one WAL per lane, multiplying that cost by the committee size.
-const targetFileSize = 4 * unit.MB
+// File size is the granularity at which space is reclaimed: a sealed file is deleted only once every
+// record in it is prunable, never partially, and the file being written is never deleted at all. Raising
+// this trades later reclamation for fewer files to track. A large value costs autobahn little because
+// these records are consumed by new proposals and pruned shortly after, so few accumulate either way.
+const targetFileSize = 1 * unit.GB
 
 // codec is the marshal/unmarshal pair needed to store T in a WAL.
 // protoutils.Conv[T, P] satisfies this interface automatically.
@@ -123,6 +124,11 @@ func readAll[T any](w seiwal.WAL[T]) (entries []walEntry[T], err error) {
 // records the prune anchor has moved past survive until every record in their file is below the
 // threshold; appending at the anchor's index then leaves a hole behind it. Everything before the last
 // hole was pruned and merely not yet reclaimed.
+//
+// Dropping that prefix is not a corruption check — a hole left by genuinely lost data is discarded here
+// just the same. What catches real loss is avail.newInner, which rejects loaded records that do not
+// begin exactly where the prune anchor says they should, so a lost sealed file fails startup instead of
+// resuming from a truncated history. This discard is only safe while that holds.
 func contiguousSuffix[T any](entries []walEntry[T]) []walEntry[T] {
 	for i := len(entries) - 1; i > 0; i-- {
 		if entries[i].index != entries[i-1].index+1 {
