@@ -201,27 +201,3 @@ func (x *Service) clientStreamAppVotes(ctx context.Context, c rpc.Client[API]) e
 		}
 	}
 }
-
-func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) error {
-	stream, err := StreamAppQCs.Call(ctx, c)
-	if err != nil {
-		return fmt.Errorf("client.StreamAppQCs(): %w", err)
-	}
-	defer stream.Close()
-	if err := stream.Send(ctx, &pb.StreamAppQCsReq{}); err != nil {
-		return err
-	}
-	for {
-		resp, err := stream.Recv(ctx)
-		if err != nil {
-			return fmt.Errorf("stream.Recv(): %w", err)
-		}
-		msg, err := StreamAppQCsRespConv.Decode(resp)
-		if err != nil {
-			return fmt.Errorf("StreamAppQCsRespConv.Decode(): %w", err)
-		}
-		if err := x.validatorState().Avail().PushAppQC(msg.AppQC, msg.CommitQC); err != nil {
-			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
-		}
-	}
-}

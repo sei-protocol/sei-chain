@@ -26,6 +26,10 @@ type StreamFullCommitQCsReq struct {
 	NextBlock types.GlobalBlockNumber
 }
 
+type StreamAppQCsReq struct {
+	NextBlock types.GlobalBlockNumber
+}
+
 var LaneVoteConv = protoutils.Conv[*types.Signed[*types.LaneVote], *pb.LaneVote]{
 	Encode: func(m *types.Signed[*types.LaneVote]) *pb.LaneVote {
 		return &pb.LaneVote{
@@ -108,5 +112,14 @@ var StreamFullCommitQCsReqConv = protoutils.Conv[*StreamFullCommitQCsReq, *pb.St
 	},
 	Decode: func(m *pb.StreamFullCommitQCsReq) (*StreamFullCommitQCsReq, error) {
 		return &StreamFullCommitQCsReq{NextBlock: types.GlobalBlockNumber(m.NextBlock)}, nil
+	},
+}
+
+var StreamAppQCsReqConv = protoutils.Conv[*StreamAppQCsReq, *pb.StreamAppQCsReq]{
+	Encode: func(m *StreamAppQCsReq) *pb.StreamAppQCsReq {
+		return &pb.StreamAppQCsReq{NextBlock: uint64(m.NextBlock)}
+	},
+	Decode: func(m *pb.StreamAppQCsReq) (*StreamAppQCsReq, error) {
+		return &StreamAppQCsReq{NextBlock: types.GlobalBlockNumber(m.NextBlock)}, nil
 	},
 }
