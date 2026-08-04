@@ -228,6 +228,10 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 // Production does not call this: a node exits by rugpull and the OS reclaims everything. It exists so
 // that a process which opens the same state directory more than once in its lifetime — a test
 // simulating a restart — can release the first State before constructing the second.
+//
+// TODO: tie the WALs to Run instead, opening and closing them inside its scope so the exclusive lock is
+// released by scope teardown and this method can go away. That means moving loadPersistedState and the
+// startup prune out of NewState, since inner is currently built from the loaded data before Run exists.
 func (s *State) Close() error {
 	return s.persisters.close()
 }
