@@ -1836,7 +1836,10 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		panic("cannot finalize commit; commit does not have 2/3 majority")
 	}
 	if !blockIDMatches(block, blockParts, blockID) {
-		panic("cannot finalize commit; proposal block/parts do not match commit BlockID")
+		panic(fmt.Sprintf(
+			"cannot finalize commit; proposal block/parts do not match commit BlockID: block=%X parts=%v commit=%v",
+			block.Hash(), blockParts.Header(), blockID,
+		))
 	}
 
 	if err := cs.blockExec.ValidateBlock(ctx, cs.state, block); err != nil {
@@ -2170,13 +2173,20 @@ func (cs *State) addProposalBlockPart(
 		for m := range cs.metrics.Lock() {
 			m.MarkBlockGossipComplete()
 		}
-		block, err := cs.getBlockFromBlockParts()
+		block, partsBytes, err := cs.getBlockFromBlockParts()
 		if err != nil {
 			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
 			return false, err
 		}
-		if err := cs.verifyCanonicalProposalParts(block); err != nil {
-			logger.Error("rejecting non-canonical proposal block parts", "err", err)
+		if err := cs.verifyCanonicalProposalParts(block, partsBytes); err != nil {
+			Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
+			logger.Error(
+				"rejecting non-canonical proposal block parts",
+				"err", err,
+				"height", height,
+				"round", round,
+				"step", cs.roundState.Step().String(),
+			)
 			return false, err
 		}
 
@@ -2192,27 +2202,27 @@ func (cs *State) addProposalBlockPart(
 	return added, nil
 }
 
-func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
+func (cs *State) getBlockFromBlockParts() (*types.Block, []byte, error) {
 	bz, err := io.ReadAll(cs.roundState.ProposalBlockParts().GetReader())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := protoutils.Scan[*tmproto.Block](bz); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var pbb = new(tmproto.Block)
 	err = proto.Unmarshal(bz, pbb)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	block, err := types.BlockFromProto(pbb)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return block, nil
+	return block, bz, nil
 }
 
 func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
@@ -2235,14 +2245,21 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 	}
 	// If we just have all the parts, reconstruct the block.
 	if parts.IsComplete() {
-		block, err := cs.getBlockFromBlockParts()
+		block, partsBytes, err := cs.getBlockFromBlockParts()
 		if err != nil {
 			// This can happen if the BlockParts header is broken.
 			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
 			return false
 		}
-		if err := cs.verifyCanonicalProposalParts(block); err != nil {
-			logger.Error("rejecting non-canonical proposal block parts", "err", err)
+		if err := cs.verifyCanonicalProposalParts(block, partsBytes); err != nil {
+			Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
+			logger.Error(
+				"rejecting non-canonical proposal block parts",
+				"err", err,
+				"height", cs.roundState.Height(),
+				"round", cs.roundState.Round(),
+				"step", cs.roundState.Step().String(),
+			)
 			return false
 		}
 		cs.roundState.SetProposalBlock(block)
@@ -2266,6 +2283,7 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 	defer span.End()
 
 	// Constructed block needs to match the expected parts.
+	// This check is optimistic, because proposer may provide mismatching PartSetHeader.
 	if !parts.Header().Equals(proposal.BlockID.PartSetHeader) {
 		logger.Error(
 			"skipping tx-key reconstruction; current part set header differs from proposal",
@@ -2292,7 +2310,29 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 		return false
 	}
 
+	// Install canonical parts before verifyCanonical so proposal PartSetHeader
+	// gating and the bytes check both see the MakePartSet encoding.
 	cs.roundState.SetProposalBlockParts(newParts)
+	pbb, err := block.ToProto()
+	if err != nil {
+		return false
+	}
+	partsBytes, err := proto.Marshal(pbb)
+	if err != nil {
+		return false
+	}
+	if err := cs.verifyCanonicalProposalParts(block, partsBytes); err != nil {
+		Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
+		logger.Error(
+			"rejecting non-canonical proposal block from tx-key reconstruction",
+			"err", err,
+			"height", proposal.Height,
+			"round", proposal.Round,
+			"step", cs.roundState.Step().String(),
+		)
+		return false
+	}
+
 	cs.roundState.SetProposalBlock(block)
 	return true
 }

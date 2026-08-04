@@ -6,6 +6,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -14,7 +15,15 @@ import (
 
 func testBlock(t *testing.T) *types.Block {
 	t.Helper()
+	return testBlockWith(t, nil, nil)
+}
+
+func testBlockWith(t *testing.T, txs types.Txs, lastCommit *types.Commit) *types.Block {
+	t.Helper()
 	valHash := crypto.CRandBytes(32)
+	if lastCommit == nil {
+		lastCommit = &types.Commit{}
+	}
 	block := &types.Block{
 		Header: types.Header{
 			Version:            version.Consensus{Block: version.BlockProtocol, App: 1},
@@ -27,7 +36,8 @@ func testBlock(t *testing.T) *types.Block {
 			LastResultsHash:    crypto.CRandBytes(32),
 			ProposerAddress:    crypto.CRandBytes(crypto.AddressSize),
 		},
-		LastCommit: &types.Commit{},
+		Data:       types.Data{Txs: txs},
+		LastCommit: lastCommit,
 	}
 	block.LastCommitHash = block.LastCommit.Hash()
 	block.DataHash = block.Data.Hash(false)
@@ -62,6 +72,9 @@ func TestBlockIDMatches(t *testing.T) {
 	require.False(t, blockIDMatches(nil, parts, matching))
 	require.False(t, blockIDMatches(block, nil, matching))
 	require.False(t, blockIDMatches(block, parts, types.BlockID{}))
+	require.False(t, blockIDMatches(block, parts, types.BlockID{
+		Hash: hash, // missing PartSetHeader → incomplete
+	}))
 }
 
 func TestProposalMatchesLocked(t *testing.T) {
@@ -104,4 +117,63 @@ func TestNonCanonicalPartSetSameHeaderHash(t *testing.T) {
 		Hash:          block.Hash(),
 		PartSetHeader: nonCanonicalParts.Header(),
 	}))
+}
+
+func TestCanonicalPartBytesRoundTripShapes(t *testing.T) {
+	ctx := t.Context()
+	config := configSetup(t)
+	cs, _ := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
+
+	valAddr := crypto.CRandBytes(crypto.AddressSize)
+	sig := utils.OrPanic1(crypto.SigFromBytes(crypto.CRandBytes(64)))
+	mixedCommit := &types.Commit{
+		Height: 1,
+		Round:  0,
+		BlockID: types.BlockID{
+			Hash: crypto.CRandBytes(32),
+			PartSetHeader: types.PartSetHeader{
+				Total: 1,
+				Hash:  crypto.CRandBytes(32),
+			},
+		},
+		Signatures: []types.CommitSig{
+			{
+				BlockIDFlag:      types.BlockIDFlagCommit,
+				ValidatorAddress: valAddr,
+				Timestamp:        cs.state.LastBlockTime,
+				Signature:        utils.Some(sig),
+			},
+			types.NewCommitSigAbsent(),
+		},
+	}
+
+	cases := []struct {
+		name  string
+		block *types.Block
+	}{
+		{name: "empty", block: testBlock(t)},
+		{name: "with_txs", block: testBlockWith(t, types.Txs{[]byte("tx-a"), []byte("tx-b")}, nil)},
+		{name: "mixed_last_commit", block: testBlockWith(t, types.Txs{[]byte("tx")}, mixedCommit)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			parts, err := tc.block.MakePartSet(types.BlockPartSizeBytes)
+			require.NoError(t, err)
+			pbb, err := tc.block.ToProto()
+			require.NoError(t, err)
+			bz, err := proto.Marshal(pbb)
+			require.NoError(t, err)
+
+			cs.roundState.SetProposal(nil)
+			cs.roundState.SetProposalBlockParts(parts)
+			require.NoError(t, cs.verifyCanonicalProposalParts(tc.block, bz))
+
+			// Non-canonical bytes of the same logical block must fail.
+			junk := append(append([]byte{}, bz...), 0xba, 0x3e, 0x04, 'j', 'u', 'n', 'k')
+			cs.roundState.SetProposalBlockParts(types.NewPartSetFromData(junk, types.BlockPartSizeBytes))
+			err = cs.verifyCanonicalProposalParts(tc.block, junk)
+			require.ErrorIs(t, err, ErrNonCanonicalProposalParts)
+		})
+	}
 }
