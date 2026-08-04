@@ -3,7 +3,6 @@ package keeper
 import (
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
@@ -23,7 +22,8 @@ func (k Keeper) OnOpenChannel(
 	contractAddr sdk.AccAddress,
 	msg wasmvmtypes.IBCChannelOpenMsg,
 ) (string, error) {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "ibc-open-channel")
+	start := time.Now()
+	defer func() { recordContractIBCOpenChannelDuration(ctx.Context(), start) }()
 	version := ""
 
 	_, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddr)
@@ -60,7 +60,8 @@ func (k Keeper) OnConnectChannel(
 	contractAddr sdk.AccAddress,
 	msg wasmvmtypes.IBCChannelConnectMsg,
 ) error {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "ibc-connect-channel")
+	start := time.Now()
+	defer func() { recordContractIBCConnectChannelDuration(ctx.Context(), start) }()
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddr)
 	if err != nil {
 		return err
@@ -90,7 +91,8 @@ func (k Keeper) OnCloseChannel(
 	contractAddr sdk.AccAddress,
 	msg wasmvmtypes.IBCChannelCloseMsg,
 ) error {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "ibc-close-channel")
+	start := time.Now()
+	defer func() { recordContractIBCCloseChannelDuration(ctx.Context(), start) }()
 
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddr)
 	if err != nil {
@@ -121,7 +123,8 @@ func (k Keeper) OnRecvPacket(
 	contractAddr sdk.AccAddress,
 	msg wasmvmtypes.IBCPacketReceiveMsg,
 ) ([]byte, error) {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "ibc-recv-packet")
+	start := time.Now()
+	defer func() { recordContractIBCRecvPacketDuration(ctx.Context(), start) }()
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddr)
 	if err != nil {
 		return nil, err
@@ -155,7 +158,8 @@ func (k Keeper) OnAckPacket(
 	contractAddr sdk.AccAddress,
 	msg wasmvmtypes.IBCPacketAckMsg,
 ) error {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "ibc-ack-packet")
+	start := time.Now()
+	defer func() { recordContractIBCAckPacketDuration(ctx.Context(), start) }()
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddr)
 	if err != nil {
 		return err
@@ -181,7 +185,8 @@ func (k Keeper) OnTimeoutPacket(
 	contractAddr sdk.AccAddress,
 	msg wasmvmtypes.IBCPacketTimeoutMsg,
 ) error {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "ibc-timeout-packet")
+	start := time.Now()
+	defer func() { recordContractIBCTimeoutPacketDuration(ctx.Context(), start) }()
 
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddr)
 	if err != nil {

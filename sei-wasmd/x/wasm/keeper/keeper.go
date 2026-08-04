@@ -12,13 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
 	"golang.org/x/mod/semver"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
@@ -302,7 +300,8 @@ func (k Keeper) ImportCode(ctx sdk.Context, codeID uint64, codeInfo types.CodeIn
 }
 
 func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.AccAddress, initMsg []byte, label string, deposit sdk.Coins, authZ AuthorizationPolicy) (sdk.AccAddress, []byte, error) {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "instantiate")
+	start := time.Now()
+	defer func() { recordContractInstantiateDuration(ctx.Context(), start) }()
 
 	instanceCosts := k.gasRegister.NewContractInstanceCosts(k.IsPinnedCode(ctx, codeID), len(initMsg))
 	ctx.GasMeter().ConsumeGas(instanceCosts, "Loading CosmWasm module: instantiate")
@@ -399,7 +398,8 @@ func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.A
 
 // Execute executes the contract instance
 func (k Keeper) execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, msg []byte, coins sdk.Coins) ([]byte, error) {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "execute")
+	start := time.Now()
+	defer func() { recordContractExecuteDuration(ctx.Context(), start) }()
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddress)
 	if err != nil {
 		return nil, err
@@ -442,7 +442,8 @@ func (k Keeper) execute(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 }
 
 func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller sdk.AccAddress, newCodeID uint64, msg []byte, authZ AuthorizationPolicy) ([]byte, error) {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "migrate")
+	start := time.Now()
+	defer func() { recordContractMigrateDuration(ctx.Context(), start) }()
 	migrateSetupCosts := k.gasRegister.InstantiateContractCosts(k.IsPinnedCode(ctx, newCodeID), len(msg))
 	ctx.GasMeter().ConsumeGas(migrateSetupCosts, "Loading CosmWasm module: migrate")
 
@@ -515,7 +516,8 @@ func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 // another native Go module directly, or on-chain governance (if sudo proposals are enabled). Thus, the keeper doesn't
 // place any access controls on it, that is the responsibility or the app developer (who passes the wasm.Keeper in app.go)
 func (k Keeper) Sudo(ctx sdk.Context, contractAddress sdk.AccAddress, msg []byte) ([]byte, error) {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "sudo")
+	start := time.Now()
+	defer func() { recordContractSudoDuration(ctx.Context(), start) }()
 	contractInfo, codeInfo, prefixStore, err := k.contractInstance(ctx, contractAddress)
 	if err != nil {
 		return nil, err
@@ -677,12 +679,9 @@ func (k Keeper) QuerySmartSafe(ctx sdk.Context, contractAddr sdk.AccAddress, req
 
 // QuerySmart queries the smart contract itself.
 func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error) {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "query-smart")
-	telemetry.IncrCounterWithLabels(
-		[]string{"wasm", "contract", "query-smart", "invocation"},
-		1,
-		[]metrics.Label{telemetry.NewLabel("contract_address", contractAddr.String())},
-	)
+	start := time.Now()
+	defer func() { recordContractQuerySmartDuration(ctx.Context(), start) }()
+	recordContractQuerySmartInvocation(ctx.Context(), contractAddr.String())
 
 	// checks and increase query stack size
 	ctx, err := checkAndIncreaseQueryStackSize(ctx, k.maxQueryStackSize)
@@ -712,11 +711,7 @@ func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []b
 		return nil, sdkerrors.Wrap(types.ErrQueryFailed, qErr.Error())
 	}
 
-	telemetry.SetGaugeWithLabels(
-		[]string{"wasm", "contract", "query-smart", "gas-used"},
-		float32(gasUsed),
-		[]metrics.Label{telemetry.NewLabel("contract_address", contractAddr.String())},
-	)
+	recordContractQuerySmartGasUsed(ctx.Context(), contractAddr.String(), gasUsed)
 	return queryResult, nil
 }
 
@@ -769,7 +764,8 @@ func checkAndIncreaseCallDepth(ctx sdk.Context, maxCallDepth uint32) (sdk.Contex
 
 // QueryRaw returns the contract's state for give key. Returns `nil` when key is `nil`.
 func (k Keeper) QueryRaw(ctx sdk.Context, contractAddress sdk.AccAddress, key []byte) []byte {
-	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "query-raw")
+	start := time.Now()
+	defer func() { recordContractQueryRawDuration(ctx.Context(), start) }()
 	if key == nil {
 		return nil
 	}
