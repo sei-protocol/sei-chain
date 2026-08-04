@@ -121,8 +121,7 @@ func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
 		[]*types.FullCommitQC{qc1, qc2},
 		[][]*types.Block{blocks1, blocks2})
 
-	offset := gr2.Len() / 2
-	lastExecuted := gr2.First + types.GlobalBlockNumber(offset)
+	lastExecuted := gr2.First
 	state := newTestState(t, &Config{
 		Registry:          registry,
 		LastExecutedBlock: utils.Some(lastExecuted),
@@ -135,10 +134,16 @@ func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
 	require.Equal(t, gr2.Next, state.NextBlock())
 	got, err := state.TryBlock(lastExecuted)
 	require.NoError(t, err)
-	require.Equal(t, blocks2[offset].Header().Hash(), got.Header().Hash())
+	require.Equal(t, blocks2[0].Header().Hash(), got.Header().Hash())
 
 	appHash := types.GenAppHash(rng)
-	require.NoError(t, state.PushAppHash(t.Context(), lastExecuted, appHash))
+	for n := gr2.First; n < gr2.Next; n++ {
+		hash := types.GenAppHash(rng)
+		if n == gr2.Next-1 {
+			hash = appHash
+		}
+		require.NoError(t, state.PushAppHash(t.Context(), n, hash))
+	}
 	appVote, _, err := state.AppVote(t.Context(), lastExecuted)
 	require.NoError(t, err)
 	require.Equal(t, appHash, appVote.Proposal().AppHash())
@@ -172,7 +177,8 @@ func TestRecoveryCapsAppTipAtLastBlockInBlockDB(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, blocks2[0].Header().Hash(), got.Header.Hash())
 
-	require.NoError(t, pushAppHashesRunning(t.Context(), state, rng, gr2.First, gr2.First+1))
+	// A per-CommitQC AppProposal cannot be rebuilt from the capped mid-QC
+	// cursor; this test only pins the block/QC recovery cap.
 }
 
 func TestRecoveryRejectsAppTipBeyondCrashWindow(t *testing.T) {
@@ -244,9 +250,9 @@ func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrPruned)
 }
 
-// TestPruningDiscards verifies that PruneBefore advances BlockDB's watermark so
-// TryBlock returns ErrPruned for the discarded range, while later blocks stay
-// accessible. Memory is cleared by evictBelowBound (from PushQC/PushAppHash).
+// TestPruningDiscards verifies that PruneBefore advances BlockDB's watermark but
+// does not discard RAM-retained blocks. Memory is cleared only by the AppQC
+// eviction floor.
 func TestPruningDiscards(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -271,8 +277,9 @@ func TestPruningDiscards(t *testing.T) {
 	require.NoError(t, state.PruneBefore(gr2.First))
 
 	for n := gr1.First; n < gr2.First; n++ {
-		_, err := state.TryBlock(n)
-		require.ErrorIs(t, err, types.ErrPruned)
+		got, err := state.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
 	}
 	for n := gr2.First; n < gr3.Next; n++ {
 		got, err := state.TryBlock(n)
@@ -302,8 +309,8 @@ func TestRecoveryAfterPruning(t *testing.T) {
 	require.NoError(t, db1.Close())
 
 	// Recovery skipTo(gr2.First); qc1 heights are absent from BlockDB → ErrPruned.
-	// With no CommitQC.App yet, first stays at the recovery floor (not advanced
-	// to 0), so below-floor reads fall through to BlockDB instead of nil maps.
+	// With no AppQC yet, first stays at the recovery floor (not advanced to 0),
+	// so below-floor reads fall through to BlockDB instead of nil maps.
 	db2 := newTestBlockDB(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 

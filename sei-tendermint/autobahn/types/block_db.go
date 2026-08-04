@@ -4,22 +4,23 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// BlockDB is the durable backing store for data.State. It persists the two
-// kinds of finalized records the consensus state machine produces —
-// finalized blocks (indexed by GlobalBlockNumber and by header hash) and
-// FullCommitQCs (each covering a contiguous range of GlobalBlockNumbers) —
-// and provides the read API needed for crash recovery and runtime lookups.
+// BlockDB is the durable backing store for data.State. It persists the
+// finalized records the consensus state machine produces — finalized blocks
+// (indexed by GlobalBlockNumber and by header hash), FullCommitQCs (each
+// covering a contiguous range of GlobalBlockNumbers), and AppQCs (each matching
+// a persisted CommitQC range) — and provides the read API needed for crash
+// recovery and runtime lookups.
 //
 // # Concurrency
 //
 // All methods are safe for concurrent use. Implementations should expect
-// concurrent writes (WriteBlock + WriteQC interleaved from a single
+// concurrent writes (WriteBlock + WriteQC + WriteAppQC interleaved from a single
 // background persistence loop) and concurrent reads from RPC handlers
 // and peer-sync streams.
 //
 // # Durability and crash safety
 //
-// Writes are two-phase: WriteBlock and WriteQC return without
+// Writes are two-phase: WriteBlock, WriteQC, and WriteAppQC return without
 // guaranteeing the record is on disk. Flush blocks until all
 // previously-returned Writes are durable.
 //
@@ -47,14 +48,18 @@ import (
 //     ErrQCNonContiguous otherwise.
 //   - QCs must be written before blocks. A QC covering a block must
 //     be written before that block is written.
+//   - AppQCs must be written contiguously as an exact prefix of retained QCs.
+//     The first AppQC starts at the retained QC floor; every AppQC's range must
+//     exactly match the next persisted QC range.
 //
 // After a crash, data not flushed may be lost, but the following invariants hold:
 //
-//   - Individual blocks and QCs are either fully persisted or not at all; there are no partial writes.
+//   - Individual blocks, QCs, and AppQCs are either fully persisted or not at all; there are no partial writes.
 //   - Data is persisted in order, meaning that data loss never leaves gaps. If A is written and then B
 //     is written, then after a crash if B is persisted then A is also persisted.
-//   - Since QCs must always be written before the blocks they cover, a persisted block is always covered
-//     by a persisted QC, but a persisted QC may or may not have its covered blocks persisted.
+//   - Since QCs must always be written before the blocks or AppQCs they cover, a persisted block or
+//     AppQC is always covered by a persisted QC, but a persisted QC may or may not have its covered
+//     blocks or AppQC persisted.
 //
 // # A readable block always has a readable covering QC
 //
@@ -106,6 +111,20 @@ type BlockDB interface {
 	// Writes are made crash durable in write order (both blocks and QCs),
 	// so loss of non-durable data after a crash never leaves gaps.
 	WriteQC(qc *FullCommitQC) error
+
+	// WriteAppQC persists an AppQC. The AppQC's proposal carries the exact
+	// CommitQC range it certifies. A matching CommitQC must already be written:
+	// the CommitQC covering GlobalRange.First must have the same GlobalRange.
+	//
+	// AppQCs form a contiguous prefix aligned with retained CommitQCs. The first
+	// AppQC must start at the retained CommitQC floor; each subsequent AppQC's
+	// First must equal the previous AppQC's Next. Re-writing, gaps, overlaps,
+	// mid-QC starts, and ranges that do not exactly match the next persisted
+	// CommitQC range are rejected.
+	//
+	// May return before the AppQC is on disk. See the BlockDB type doc for the
+	// two-phase write/flush contract.
+	WriteAppQC(appQC *AppQC) error
 
 	// PruneBefore advances the retention watermark toward n and removes
 	// everything below it:
@@ -241,6 +260,20 @@ type BlockDB interface {
 	// Non-blocking.
 	ReadQCByBlockNumber(n GlobalBlockNumber) (utils.Option[*FullCommitQC], error)
 
+	// ReadAppQCByBlockNumber returns the AppQC whose
+	// AppProposal.GlobalRange().First ≤ n < AppProposal.GlobalRange().Next.
+	// Because a single AppQC covers a CommitQC range, the same *AppQC is
+	// returned for every n in its range.
+	//
+	// The result is one of:
+	//   - utils.Some with a nil error: an AppQC covering n is present.
+	//   - ErrPruned: n is strictly below the current retention watermark.
+	//   - utils.None with a nil error: n is at or above the watermark but no
+	//     AppQC covers it.
+	//
+	// Non-blocking.
+	ReadAppQCByBlockNumber(n GlobalBlockNumber) (utils.Option[*AppQC], error)
+
 	// Close releases resources held by the store. After Close returns,
 	// no other method may be called on the BlockDB; doing so is
 	// undefined.
@@ -260,6 +293,9 @@ type DBStatus struct {
 	// accepted by WriteQC (the next QC's range must start here). Zero if no QC
 	// has been written.
 	NextQC GlobalBlockNumber
+	// NextAppQC is one past the highest GlobalBlockNumber covered by the last
+	// AppQC accepted by WriteAppQC. Zero if no AppQC has been written.
+	NextAppQC GlobalBlockNumber
 }
 
 // BlockDBIterator steps through consecutive GlobalBlockNumbers in ascending
@@ -328,4 +364,11 @@ type Position struct {
 	// whose covering QC was persisted but whose block was not (e.g. lost in
 	// a crash, or not yet written).
 	HasBlock bool
+
+	// AppQC is the AppQC covering Number, if one has been persisted. It is nil
+	// when no AppQC covers Number.
+	AppQC *AppQC
+
+	// HasAppQC reports whether AppQC is present at Number.
+	HasAppQC bool
 }

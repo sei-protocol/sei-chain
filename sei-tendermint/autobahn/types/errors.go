@@ -28,6 +28,16 @@ var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
 // before that block (see the BlockDB ordering contract).
 var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 
+// ErrAppQCNonContiguous is returned by WriteAppQC when the supplied AppQC does
+// not extend the existing AppQC prefix. AppQCs must be written as a contiguous,
+// ascending sequence aligned with the retained CommitQC prefix.
+var ErrAppQCNonContiguous = errors.New("block: WriteAppQC non-contiguous")
+
+// ErrAppQCMissingQC is returned by WriteAppQC when no previously written
+// CommitQC exactly matches the AppQC's GlobalRange. The matching CommitQC must
+// be written before the AppQC.
+var ErrAppQCMissingQC = errors.New("block: WriteAppQC without matching CommitQC")
+
 // ErrPruned is returned when a requested record is below the current retention
 // / eviction floor and is not served. Used for BlockDB by-number reads below
 // the store watermark, for BlockDB.Iterator when a concurrent PruneBefore moves

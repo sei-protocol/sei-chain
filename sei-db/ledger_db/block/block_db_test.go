@@ -53,6 +53,7 @@ func TestBlockDB(t *testing.T) {
 			t.Run("EmptyDB", func(t *testing.T) { testEmptyDB(t, impl.build) })
 			t.Run("ReadRoundTrip", func(t *testing.T) { testReadRoundTrip(t, impl.build) })
 			t.Run("QCByBlockNumber", func(t *testing.T) { testQCByBlockNumber(t, impl.build) })
+			t.Run("AppQCByBlockNumber", func(t *testing.T) { testAppQCByBlockNumber(t, impl.build) })
 			t.Run("Iterators", func(t *testing.T) { testIterators(t, impl.build) })
 			t.Run("IteratorSnapshot", func(t *testing.T) { testIteratorSnapshot(t, impl.build) })
 			t.Run("RestartPersistsData", func(t *testing.T) { testRestartPersistsData(t, impl.build) })
@@ -77,6 +78,12 @@ func TestBlockDB(t *testing.T) {
 			t.Run("WriteBlockGapRejected", func(t *testing.T) { testWriteBlockGapRejected(t, impl.build) })
 			t.Run("WriteQCCoversNoBlocksRejected", func(t *testing.T) {
 				testWriteQCCoversNoBlocksRejected(t, impl.build)
+			})
+			t.Run("WriteAppQCOrderRejected", func(t *testing.T) {
+				testWriteAppQCOrderRejected(t, impl.build)
+			})
+			t.Run("PruneWithAppQCNeverEmpties", func(t *testing.T) {
+				testPruneWithAppQCNeverEmpties(t, impl.build)
 			})
 			t.Run("IteratorBlockRequiresPosition", func(t *testing.T) {
 				testIteratorBlockRequiresPosition(t, impl.build)
@@ -129,6 +136,10 @@ func testEmptyDB(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, qc.IsPresent())
 
+	appQC, err := db.ReadAppQCByBlockNumber(0)
+	require.NoError(t, err)
+	require.False(t, appQC.IsPresent())
+
 	require.Empty(t, drainIterator(t, openIterator(t, db)), "empty db should yield no positions")
 
 	itAt, err := db.Iterator(0)
@@ -138,6 +149,7 @@ func testEmptyDB(t *testing.T, build builder) {
 	tips := db.Status()
 	require.Zero(t, tips.NextBlock, "empty db has no block write tip")
 	require.Zero(t, tips.NextQC, "empty db has no QC write tip")
+	require.Zero(t, tips.NextAppQC, "empty db has no AppQC write tip")
 }
 
 // iterEntry is one position observed while draining an iterator.
@@ -150,6 +162,9 @@ type iterEntry struct {
 
 	// blk is the block at the position; nil when no block is persisted there.
 	blk *types.Block
+
+	// appQC is the AppQC at the position; nil when no AppQC is persisted there.
+	appQC *types.AppQC
 }
 
 // openIterator opens an iterator over everything retained in db.
@@ -181,7 +196,12 @@ func drainIterator(t *testing.T, it types.BlockDBIterator) []iterEntry {
 		require.NoError(t, err)
 		blk, present := blkOpt.Get()
 		require.Equal(t, pos.HasBlock, present, "HasBlock must agree with Block at position %d", n)
-		entries = append(entries, iterEntry{n: n, qc: qc, blk: blk})
+		require.Equal(t, pos.HasAppQC, pos.AppQC != nil, "HasAppQC must agree with AppQC at position %d", n)
+		if pos.AppQC != nil {
+			appGR := pos.AppQC.Proposal().GlobalRange()
+			require.True(t, appGR.Has(n), "AppQC [%d,%d) must cover position %d", appGR.First, appGR.Next, n)
+		}
+		entries = append(entries, iterEntry{n: n, qc: qc, blk: blk, appQC: pos.AppQC})
 	}
 	return entries
 }
@@ -271,6 +291,15 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockDB) {
 	} else {
 		require.False(t, hasQC, "the iterator yields QCs but Status has no QC tip")
 	}
+
+	lastAppQC, hasAppQC := recoverLastAppQC(t, db)
+	if tips.NextAppQC != 0 {
+		require.True(t, hasAppQC, "Status has an AppQC tip but the iterator yields no AppQCs")
+		require.Equal(t, lastAppQC.Proposal().GlobalRange().Next, tips.NextAppQC,
+			"NextAppQC must be Next of the highest present AppQC")
+	} else {
+		require.False(t, hasAppQC, "the iterator yields AppQCs but Status has no AppQC tip")
+	}
 }
 
 func testReadRoundTrip(t *testing.T, build builder) {
@@ -305,6 +334,55 @@ func testQCByBlockNumber(t *testing.T, build builder) {
 	miss, err := db.ReadQCByBlockNumber(last.next + 1000)
 	require.NoError(t, err)
 	require.False(t, miss.IsPresent())
+}
+
+func testAppQCByBlockNumber(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, o := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+	writeAll(t, db, batches)
+
+	rng := utils.TestRngFromSeed(testSeed + 100)
+	appQCs := []*types.AppQC{
+		appQCForBatch(rng, keys, batches[0]),
+		appQCForBatch(rng, keys, batches[1]),
+	}
+	for _, appQC := range appQCs {
+		require.NoError(t, db.WriteAppQC(appQC))
+	}
+
+	for _, appQC := range appQCs {
+		gr := appQC.Proposal().GlobalRange()
+		for n := gr.First; n < gr.Next; n++ {
+			opt, err := db.ReadAppQCByBlockNumber(n)
+			require.NoError(t, err)
+			got, ok := opt.Get()
+			require.True(t, ok, "AppQC covering %d should exist", n)
+			require.Equal(t, gr, got.Proposal().GlobalRange())
+			require.Equal(t, appQC.Proposal().AppHash(), got.Proposal().AppHash())
+		}
+	}
+	miss, err := db.ReadAppQCByBlockNumber(batches[2].first)
+	require.NoError(t, err)
+	require.False(t, miss.IsPresent(), "CommitQCs/blocks past the AppQC prefix should not imply AppQC presence")
+
+	entries := drainIterator(t, openIterator(t, db))
+	for _, e := range entries {
+		switch {
+		case e.n < batches[2].first:
+			require.NotNil(t, e.appQC, "iterator should expose AppQC at %d", e.n)
+		default:
+			require.Nil(t, e.appQC, "iterator should not expose AppQC past the persisted AppQC prefix at %d", e.n)
+		}
+	}
+
+	tips := db.Status()
+	require.Equal(t, batches[1].next, tips.NextAppQC)
+	db = restart(t, o, db)
+	tips = db.Status()
+	require.Equal(t, batches[1].next, tips.NextAppQC, "AppQC tip must survive restart")
+	assertTipsMatchPresent(t, db)
 }
 
 func testIterators(t *testing.T, build builder) {
@@ -625,6 +703,43 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 	}
 }
 
+func testPruneWithAppQCNeverEmpties(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	require.GreaterOrEqual(t, len(batches), 4, "need AppQC prefix to lag CommitQC tip")
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+	writeAll(t, db, batches)
+
+	rng := utils.TestRngFromSeed(testSeed + 300)
+	for _, b := range batches[:3] {
+		require.NoError(t, db.WriteAppQC(appQCForBatch(rng, keys, b)))
+	}
+
+	latestApp := batches[2]
+	require.NoError(t, db.PruneBefore(batches[len(batches)-1].next+1000))
+
+	below := batches[1]
+	blk, err := db.ReadBlockByNumber(below.first)
+	require.ErrorIs(t, err, types.ErrPruned)
+	require.False(t, blk.IsPresent())
+	appQC, err := db.ReadAppQCByBlockNumber(below.first)
+	require.ErrorIs(t, err, types.ErrPruned)
+	require.False(t, appQC.IsPresent())
+
+	blk, err = db.ReadBlockByNumber(latestApp.first)
+	require.NoError(t, err)
+	require.True(t, blk.IsPresent(), "newest AppQC cohort must retain a block")
+	qc, err := db.ReadQCByBlockNumber(latestApp.first)
+	require.NoError(t, err)
+	require.True(t, qc.IsPresent(), "newest AppQC cohort must retain its CommitQC")
+	appQC, err = db.ReadAppQCByBlockNumber(latestApp.first)
+	require.NoError(t, err)
+	got, ok := appQC.Get()
+	require.True(t, ok, "newest AppQC cohort must retain its AppQC")
+	require.Equal(t, latestApp.qc.QC().GlobalRange(), got.Proposal().GlobalRange())
+}
+
 // testPruneQCAheadOfBlocks pins the min() guard in the prune clamp. QCs are
 // written before the blocks they cover, so between writing a QC and its first
 // block — and after a crash that persisted a QC but not its blocks — the newest
@@ -714,7 +829,8 @@ func testIteratorSnapshot(t *testing.T, build builder) {
 
 	it := openIterator(t, db)
 
-	// Write the remaining batches AFTER the iterator was created.
+	// Write AppQC and the remaining batches AFTER the iterator was created.
+	require.NoError(t, db.WriteAppQC(appQCForBatch(utils.TestRngFromSeed(testSeed+400), keys, first)))
 	writeAll(t, db, batches[1:])
 
 	entries := drainIterator(t, it)
@@ -722,6 +838,9 @@ func testIteratorSnapshot(t *testing.T, build builder) {
 		"iterator must not observe blocks written after creation")
 	require.Equal(t, []types.GlobalBlockNumber{first.first}, qcFirsts(entries),
 		"iterator must not observe QCs written after creation")
+	for _, e := range entries {
+		require.Nil(t, e.appQC, "iterator must not observe AppQCs written after creation")
+	}
 }
 
 func testWriteOrderRejected(t *testing.T, build builder) {
@@ -749,6 +868,40 @@ func testWriteOrderRejected(t *testing.T, build builder) {
 	opt, err := db.ReadBlockByNumber(b0.first)
 	require.NoError(t, err)
 	require.True(t, opt.IsPresent())
+}
+
+func testWriteAppQCOrderRejected(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+	rng := utils.TestRngFromSeed(testSeed + 200)
+
+	b0 := batches[0]
+	b1 := batches[1]
+	b2 := batches[2]
+
+	err := db.WriteAppQC(appQCForBatch(rng, keys, b0))
+	require.ErrorIs(t, err, types.ErrAppQCMissingQC, "AppQC before CommitQC must fail")
+
+	require.NoError(t, db.WriteQC(b0.qc))
+	require.NoError(t, db.WriteQC(b1.qc))
+	err = db.WriteAppQC(appQCForBatch(rng, keys, b1))
+	require.ErrorIs(t, err, types.ErrAppQCNonContiguous, "first AppQC must start at retained QC floor")
+
+	appQC0 := appQCForBatch(rng, keys, b0)
+	require.NoError(t, db.WriteAppQC(appQC0))
+
+	err = db.WriteAppQC(appQC0)
+	require.ErrorIs(t, err, types.ErrAppQCNonContiguous, "duplicate AppQC write must fail")
+
+	require.NoError(t, db.WriteQC(b2.qc))
+	err = db.WriteAppQC(appQCForBatch(rng, keys, b2))
+	require.ErrorIs(t, err, types.ErrAppQCNonContiguous, "AppQC gap must fail")
+
+	require.NoError(t, db.WriteAppQC(appQCForBatch(rng, keys, b1)))
+	tips := db.Status()
+	require.Equal(t, b1.next, tips.NextAppQC)
 }
 
 // testWriteOrderRejectedAfterRestart asserts the write-order cursors are
@@ -871,6 +1024,19 @@ func recoverLastQC(t *testing.T, db types.BlockDB) (*types.CommitQC, bool) {
 		return nil, false
 	}
 	return entries[len(entries)-1].qc.QC(), true
+}
+
+// recoverLastAppQC returns the most recently persisted AppQC via a full
+// iterator scan (false if the store has no AppQCs).
+func recoverLastAppQC(t *testing.T, db types.BlockDB) (*types.AppQC, bool) {
+	t.Helper()
+	entries := drainIterator(t, openIterator(t, db))
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].appQC != nil {
+			return entries[i].appQC, true
+		}
+	}
+	return nil, false
 }
 
 // testIteratorPositioning asserts that Iterator positions at a given height: it yields the
@@ -1570,15 +1736,8 @@ func buildFullCommitQC(
 			}
 		}
 	}
-	var appQC utils.Option[*types.AppQC]
-	if cqc, ok := prev.Get(); ok {
-		p := types.NewAppProposal(cqc.GlobalRange().Next-1, types.NextIndexOpt(prev), types.GenAppHash(rng), cqc.Proposal().EpochIndex())
-		appQC = utils.Some(testAppQC(keys, p))
-	} else {
-		appQC = utils.None[*types.AppQC]()
-	}
 	ep := types.NewEpoch(0, types.OpenRoadRange(), genesisTime, committee, 0)
-	cqc := types.BuildCommitQC(ep, keys, prev, laneQCs, appQC)
+	cqc := types.BuildCommitQC(ep, keys, prev, laneQCs)
 	return types.NewFullCommitQC(cqc, headers), blockList
 }
 
@@ -1589,6 +1748,10 @@ func testLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC
 		votes = append(votes, types.Sign(k, vote))
 	}
 	return types.NewLaneQC(votes)
+}
+
+func appQCForBatch(rng utils.Rng, keys []types.SecretKey, b batch) *types.AppQC {
+	return testAppQC(keys, types.NewAppProposal(b.qc.QC().Proposal(), types.GenAppHash(rng)))
 }
 
 func testAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC {

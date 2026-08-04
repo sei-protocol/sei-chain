@@ -46,6 +46,7 @@ func newSimpleIterator(
 	table qcReader,
 	start types.GlobalBlockNumber,
 	nextQC types.GlobalBlockNumber,
+	appQCs []*coveredAppQC,
 ) (*simpleIterator, error) {
 	var positions []types.Position
 	for n := start; n < nextQC; {
@@ -61,7 +62,14 @@ func newSimpleIterator(
 				n, first, next)
 		}
 		for m := n; m < next && m < nextQC; m++ {
-			positions = append(positions, types.Position{Number: m, QC: qc, HasBlock: false})
+			appQC := appQCCovering(appQCs, m)
+			positions = append(positions, types.Position{
+				Number:   m,
+				QC:       qc,
+				HasBlock: false,
+				AppQC:    appQC,
+				HasAppQC: appQC != nil,
+			})
 		}
 		n = next
 	}

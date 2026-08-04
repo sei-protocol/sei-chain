@@ -19,6 +19,13 @@ type qcEntry struct {
 	upper types.GlobalBlockNumber
 }
 
+// appQCEntry pairs an AppQC with the half-open range [lower, upper) it covers.
+type appQCEntry struct {
+	appQC *types.AppQC
+	lower types.GlobalBlockNumber
+	upper types.GlobalBlockNumber
+}
+
 // hashEntry pairs a block with its GlobalBlockNumber so ReadBlockByHash can
 // return the number, mirroring the littblock implementation which embeds it in
 // the stored value.
@@ -35,17 +42,25 @@ type blockDB struct {
 	byNumber   map[types.GlobalBlockNumber]*types.Block
 	byHash     map[types.BlockHeaderHash]hashEntry
 	qcsByLower map[types.GlobalBlockNumber]qcEntry
+	appQCs     map[types.GlobalBlockNumber]appQCEntry
 
 	// Write-order cursors (see types.BlockDB contract).
 	hasBlocks       bool
 	lastBlockNumber types.GlobalBlockNumber
 	hasQC           bool
 	lastQCNext      types.GlobalBlockNumber
+	hasAppQC        bool
+	lastAppQCNext   types.GlobalBlockNumber
 
 	// latestQCStartBlock is the most recently written QC's starting block number —
 	// the lowest block number in the newest cohort. PruneBefore clamps to it (see
 	// littblock).
 	latestQCStartBlock types.GlobalBlockNumber
+
+	// latestAppQCStartBlock is the most recently written AppQC's starting
+	// block number. When AppQCs exist, PruneBefore clamps to it so the newest
+	// AppQC cohort remains readable together with its CommitQC and blocks.
+	latestAppQCStartBlock types.GlobalBlockNumber
 
 	// firstBlockNumber is the lowest block number written. Iterator clamps its start up to
 	// it so a scan always opens on a block that exists; the first block may land anywhere
@@ -66,6 +81,7 @@ func NewBlockDB() types.BlockDB {
 		byNumber:   make(map[types.GlobalBlockNumber]*types.Block),
 		byHash:     make(map[types.BlockHeaderHash]hashEntry),
 		qcsByLower: make(map[types.GlobalBlockNumber]qcEntry),
+		appQCs:     make(map[types.GlobalBlockNumber]appQCEntry),
 	}
 }
 
@@ -119,6 +135,48 @@ func (s *blockDB) WriteQC(qc *types.FullCommitQC) error {
 	return nil
 }
 
+func appQCRange(appQC *types.AppQC) (types.GlobalBlockNumber, types.GlobalBlockNumber) {
+	gr := appQC.Proposal().GlobalRange()
+	return gr.First, gr.Next
+}
+
+func (s *blockDB) WriteAppQC(appQC *types.AppQC) error {
+	first, next := appQCRange(appQC)
+	if first >= next {
+		return fmt.Errorf("AppQC at %d covers no blocks: %w", first, types.ErrAppQCNonContiguous)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasQC {
+		return fmt.Errorf("AppQC [%d,%d) has no matching QC: %w", first, next, types.ErrAppQCMissingQC)
+	}
+	if s.hasAppQC {
+		if first != s.lastAppQCNext {
+			return fmt.Errorf("AppQC starts at %d, expected %d: %w",
+				first, s.lastAppQCNext, types.ErrAppQCNonContiguous)
+		}
+	} else {
+		entries := s.sortedQCsLocked()
+		if len(entries) == 0 {
+			return fmt.Errorf("AppQC [%d,%d) has no retained QC floor: %w", first, next, types.ErrAppQCMissingQC)
+		}
+		if first != entries[0].lower {
+			return fmt.Errorf("first AppQC starts at %d, expected retained QC floor %d: %w",
+				first, entries[0].lower, types.ErrAppQCNonContiguous)
+		}
+	}
+	qc, ok := s.qcsByLower[first]
+	if !ok || qc.upper != next {
+		return fmt.Errorf("AppQC [%d,%d) has no exact matching QC: %w",
+			first, next, types.ErrAppQCMissingQC)
+	}
+	s.appQCs[first] = appQCEntry{appQC: appQC, lower: first, upper: next}
+	s.latestAppQCStartBlock = first
+	s.lastAppQCNext = next
+	s.hasAppQC = true
+	return nil
+}
+
 func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -131,7 +189,11 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	// at the cohort's first block (latestQCStartBlock), guarded by lastBlockNumber
 	// for a QC written ahead of its blocks. Keeps the newest cohort whole and
 	// pruning monotonic. See littblock and the BlockDB PruneBefore contract.
-	if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
+	ceiling := min(s.latestQCStartBlock, s.lastBlockNumber)
+	if s.hasAppQC {
+		ceiling = min(s.latestAppQCStartBlock, s.lastBlockNumber)
+	}
+	if n > ceiling {
 		n = ceiling
 	}
 	// Round the watermark down to the covering QC's First. A QC's cohort of
@@ -157,6 +219,11 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 			delete(s.qcsByLower, lower)
 		}
 	}
+	for lower, e := range s.appQCs {
+		if e.upper <= s.watermark {
+			delete(s.appQCs, lower)
+		}
+	}
 	return nil
 }
 
@@ -171,6 +238,9 @@ func (s *blockDB) Status() types.DBStatus {
 	}
 	if s.hasQC {
 		tips.NextQC = s.lastQCNext
+	}
+	if s.hasAppQC {
+		tips.NextAppQC = s.lastAppQCNext
 	}
 	return tips
 }
@@ -221,9 +291,19 @@ func (s *blockDB) iteratorLocked(entries []qcEntry, start types.GlobalBlockNumbe
 			it.nums = append(it.nums, num)
 			it.qcs = append(it.qcs, e.qc)
 			it.blocks = append(it.blocks, s.byNumber[num])
+			it.appQCs = append(it.appQCs, s.appQCCoveringLocked(num))
 		}
 	}
 	return it
+}
+
+func (s *blockDB) appQCCoveringLocked(n types.GlobalBlockNumber) *types.AppQC {
+	for _, e := range s.appQCs {
+		if e.lower <= n && n < e.upper {
+			return e.appQC
+		}
+	}
+	return nil
 }
 
 var _ types.BlockDBIterator = (*memBlockDBIterator)(nil)
@@ -238,6 +318,9 @@ type memBlockDBIterator struct {
 
 	// blocks holds the block per position; nil where no block is persisted.
 	blocks []*types.Block
+
+	// appQCs holds the AppQC per position; nil where no AppQC is persisted.
+	appQCs []*types.AppQC
 
 	// idx is the current position; -1 before the first Next and len(nums) once exhausted.
 	idx int
@@ -257,6 +340,8 @@ func (it *memBlockDBIterator) Next() (types.Position, bool, error) {
 		Number:   it.nums[it.idx],
 		QC:       it.qcs[it.idx],
 		HasBlock: it.blocks[it.idx] != nil,
+		AppQC:    it.appQCs[it.idx],
+		HasAppQC: it.appQCs[it.idx] != nil,
 	}, true, nil
 }
 
@@ -320,6 +405,20 @@ func (s *blockDB) ReadQCByBlockNumber(
 		}
 	}
 	return utils.None[*types.FullCommitQC](), nil
+}
+
+func (s *blockDB) ReadAppQCByBlockNumber(
+	n types.GlobalBlockNumber,
+) (utils.Option[*types.AppQC], error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if n < s.watermark {
+		return utils.None[*types.AppQC](), types.ErrPruned
+	}
+	if appQC := s.appQCCoveringLocked(n); appQC != nil {
+		return utils.Some(appQC), nil
+	}
+	return utils.None[*types.AppQC](), nil
 }
 
 func (s *blockDB) Close() error { return nil }

@@ -33,10 +33,7 @@ func newSnapshot() Snapshot {
 
 func snapshot(s *State) Snapshot {
 	for inner := range s.inner.Lock() {
-		aps := map[types.GlobalBlockNumber]*types.AppProposal{}
-		for n, ap := range inner.appProposals {
-			aps[n] = ap
-		}
+		aps := maps.Clone(inner.appProposals)
 		return Snapshot{
 			QCs:          maps.Clone(inner.qcs),
 			Blocks:       maps.Clone(inner.blocks),
@@ -354,16 +351,16 @@ func TestExecution(t *testing.T) {
 			shortCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
 			if err := state.PushAppHash(shortCtx, gr.Next, types.GenAppHash(rng)); err == nil {
 				cancel()
-				return errors.New("PushAppProposal expected to fail on non-finalized blocks")
+				return errors.New("PushAppHash expected to fail on non-finalized blocks")
 			}
 			cancel()
 			for n := gr.First; n < gr.Next; n += 1 {
 				if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
-					return fmt.Errorf("state.PushAppProposal(): %w", err)
+					return fmt.Errorf("state.PushAppHash(): %w", err)
 				}
-				if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err == nil {
-					return errors.New("PushAppProposal expected to fail on duplicate proposal")
-				}
+			}
+			if err := state.PushAppHash(ctx, gr.Next-1, types.GenAppHash(rng)); err == nil {
+				return errors.New("PushAppHash expected to fail on duplicate proposal")
 			}
 		}
 		return nil
@@ -482,8 +479,8 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 }
 
 // TestEvictionWaitsForAppQC checks that evictBelowBound does not drop
-// AppProposals until AppQC advances, and that once it does, heights below
-// min(nextAppProposal, nextAppQC) are evicted.
+// AppProposals until AppQC is persisted, and that once it is, heights below
+// min(nextAppProposal, nextAppQCToPersist) are evicted.
 func TestEvictionWaitsForAppQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -514,11 +511,17 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 			require.Equal(t, gr1.First, inner.first, "no certified App → first unchanged")
 			for n := gr1.First; n < gr1.Next; n++ {
 				_, ok := inner.appProposals[n]
-				require.True(t, ok, "AppProposal %d must survive without CommitQC.App", n)
+				require.True(t, ok, "AppProposal %d must survive without AppQC", n)
 			}
 		}
 
 		require.NoError(t, pushAppQCForBlock(ctx, state, keys, gr1.First))
+		require.Eventually(t, func() bool {
+			for inner := range state.inner.Lock() {
+				return inner.nextAppQCToPersist >= gr1.Next
+			}
+			panic("unreachable")
+		}, time.Second, time.Millisecond)
 
 		require.NoError(t, state.PushQC(ctx, qc2, blocks2))
 		for n := gr2.First; n < gr2.Next; n++ {
@@ -528,8 +531,8 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 		}
 
 		for inner := range state.inner.Lock() {
-			evictionBound := min(inner.nextAppProposal, inner.nextAppQC)
-			require.Equal(t, evictionBound, inner.first, "after catching up, first reaches min(nextAppProposal, nextAppQC)")
+			evictionBound := min(inner.nextAppProposal, inner.nextAppQCToPersist)
+			require.Equal(t, evictionBound, inner.first, "after catching up, first reaches min(nextAppProposal, nextAppQCToPersist)")
 			for n := gr1.First; n < inner.first; n++ {
 				_, ok := inner.appProposals[n]
 				require.False(t, ok, "AppProposal %d should be evicted (< first)", n)
@@ -548,10 +551,62 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 	}))
 }
 
+func TestEvictionWaitsForPersistedAppQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+	require.NoError(t, pushAppHashesRunning(ctx, state, rng, gr1.First, gr1.Next))
+	require.NoError(t, pushAppQCForBlock(ctx, state, keys, gr1.First))
+
+	for inner := range state.inner.Lock() {
+		require.Equal(t, gr1.Next, inner.nextAppQC)
+		require.Equal(t, gr1.First, inner.nextAppQCToPersist)
+		require.Equal(t, gr1.First, inner.first, "accepted but unpersisted AppQC must not advance eviction")
+		for n := gr1.First; n < gr1.Next; n++ {
+			_, ok := inner.appProposals[n]
+			require.True(t, ok, "AppProposal %d must survive until AppQC is persisted", n)
+		}
+	}
+}
+
+func TestPushAppQCWaitsForBlocks(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+	appProposal := types.NewAppProposal(qc1.QC().Proposal(), types.GenAppHash(rng))
+	appQC := TestAppQC(keys, appProposal)
+
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	require.NoError(t, state.PushQC(ctx, qc1, nil))
+
+	shortCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	err := state.PushAppQC(shortCtx, appQC)
+	cancel()
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	for n := gr1.First; n < gr1.Next; n++ {
+		require.NoError(t, state.PushBlock(ctx, n, blocks1[n-gr1.First]))
+	}
+	require.NoError(t, state.PushAppQC(ctx, appQC))
+	for inner := range state.inner.Lock() {
+		require.Equal(t, gr1.Next, inner.nextAppQC)
+		require.LessOrEqual(t, inner.nextAppQC, inner.nextBlock)
+	}
+}
+
 // TestNextToExecuteAfterAppEviction checks WaitUntilExecuted / nextToExecute
-// still work when AppQC aggressively evicts through nextAppProposal
-// (first = min(nextAppProposal, nextAppQC) = NAP). nextToExecute uses qc[NAP],
-// not NAP-1.
+// still work when persisted AppQC aggressively evicts through nextAppProposal
+// (first = min(nextAppProposal, nextAppQCToPersist) = NAP). nextToExecute uses
+// qc[NAP], not NAP-1.
 func TestNextToExecuteAfterAppEviction(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -575,17 +630,23 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 				return err
 			}
 		}
-		// Sticky case: nextAppQC == nextAppProposal. first advances to NAP;
-		// NAP-1 is gone; nextToExecute reads qc[NAP] after the next QC arrives.
+		// Sticky case: nextAppQCToPersist == nextAppProposal. first advances to
+		// NAP; NAP-1 is gone; nextToExecute reads qc[NAP] after the next QC arrives.
 		require.NoError(t, pushAppQCForBlock(ctx, state, keys, gr1.First))
+		require.Eventually(t, func() bool {
+			for inner := range state.inner.Lock() {
+				return inner.nextAppQCToPersist >= gr1.Next
+			}
+			panic("unreachable")
+		}, time.Second, time.Millisecond)
 		require.NoError(t, state.PushQC(ctx, qc2, blocks2))
 
 		var tipLane types.LaneID
 		var tipBlockNum types.BlockNumber
 		for inner := range state.inner.Lock() {
 			require.Equal(t, gr1.Next, inner.nextAppProposal)
-			require.Equal(t, min(inner.nextAppProposal, inner.nextAppQC), inner.first,
-				"eviction advances to min(nextAppProposal, nextAppQC) == NAP")
+			require.Equal(t, min(inner.nextAppProposal, inner.nextAppQCToPersist), inner.first,
+				"eviction advances to min(nextAppProposal, nextAppQCToPersist) == NAP")
 			_, ok := inner.blocks[inner.nextAppProposal-1]
 			require.False(t, ok, "NAP-1 must be evicted")
 			require.Less(t, inner.nextAppProposal, inner.nextQC)
@@ -608,6 +669,55 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 		require.Equal(t, tipBlockNum, next)
 		return nil
 	}))
+}
+
+func TestPushAppQCPersistsAndRecovers(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	dir := t.TempDir()
+
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr1 := qc1.QC().GlobalRange()
+
+	db1 := newTestBlockDB(t, dir)
+	state1 := newTestState(t, &Config{Registry: registry}, db1)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		s.SpawnBgNamed("state.Run", func() error {
+			return utils.IgnoreCancel(state1.Run(runCtx))
+		})
+
+		require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
+		for n := gr1.First; n < gr1.Next; n++ {
+			if err := state1.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+				return err
+			}
+		}
+		require.NoError(t, pushAppQCForBlock(ctx, state1, keys, gr1.First))
+		require.Eventually(t, func() bool {
+			return db1.Status().NextAppQC >= gr1.Next
+		}, time.Second, time.Millisecond)
+		return nil
+	}))
+
+	stored, err := db1.ReadAppQCByBlockNumber(gr1.First)
+	require.NoError(t, err)
+	require.True(t, stored.IsPresent(), "PushAppQC must persist the AppQC")
+	require.NoError(t, db1.Close())
+
+	db2 := newTestBlockDB(t, dir)
+	state2 := newTestState(t, &Config{Registry: registry}, db2)
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, gr1.Next, inner.nextAppQC)
+	}
+	appQC, fQC := state2.LastAppQC()
+	require.NotNil(t, appQC)
+	require.NotNil(t, fQC)
+	require.Equal(t, gr1, appQC.Proposal().GlobalRange())
+	require.Equal(t, gr1, fQC.QC().GlobalRange())
+	require.NoError(t, db2.Close())
 }
 
 // TestPruningKeepsLastQCRange verifies BlockDB's never-empty prune: asking to
@@ -671,8 +781,8 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 // readability), so a mid-range prune does not refuse heights inside that QC.
 //
 // PruneBefore is BlockDB-only: heights still retained in RAM for AppVotes
-// (at/above min(nextAppProposal, nextAppQC) exclusive floor) remain readable via TryBlock even
-// after the store watermark advances past them.
+// (at/above min(nextAppProposal, nextAppQCToPersist) exclusive floor) remain
+// readable via TryBlock even after the store watermark advances past them.
 func TestPruningWithPartialQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -689,9 +799,22 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 
 	require.NoError(t, pushAppHashesRunning(ctx, state1, rng, gr1.First, gr2.Next))
 	var exclusiveFloor types.GlobalBlockNumber
-	require.NoError(t, pushAppQCForBlock(ctx, state1, keys, gr1.First))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		s.SpawnBgNamed("state.Run", func() error {
+			return utils.IgnoreCancel(state1.Run(runCtx))
+		})
+		if err := pushAppQCForBlock(ctx, state1, keys, gr1.First); err != nil {
+			return err
+		}
+		require.Eventually(t, func() bool {
+			return state1.blockDB.Status().NextAppQC >= gr1.Next
+		}, time.Second, time.Millisecond)
+		return nil
+	}))
 	for inner := range state1.inner.Lock() {
-		exclusiveFloor = min(inner.nextAppProposal, inner.nextAppQC)
+		exclusiveFloor = min(inner.nextAppProposal, inner.nextAppQCToPersist)
 		require.Equal(t, exclusiveFloor, inner.first)
 	}
 
@@ -706,12 +829,15 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 		}
 	}
 
-	// Prune past qc1 entirely; BlockDB never-empty keeps the newest cohort (qc2).
+	// Prune past qc1 entirely. Because qc1 now has a persisted AppQC, BlockDB's
+	// never-empty rule keeps that newest AppQC+CommitQC+Block cohort readable.
 	require.NoError(t, state1.PruneBefore(gr2.Next))
-	// Evicted heights (< exclusive App floor) fall through to BlockDB → ErrPruned.
+	// Evicted heights (< exclusive App floor) fall through to BlockDB, but the
+	// persisted AppQC cohort is retained by the prune cap.
 	for n := gr1.First; n < exclusiveFloor; n++ {
-		_, err := state1.TryBlock(n)
-		require.ErrorIs(t, err, types.ErrPruned)
+		got, err := state1.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
 	}
 	// Exclusive floor and above stay cached for AppVotes despite BlockDB prune.
 	// ByHash must match TryBlock here — not fall through to a pruned BlockDB.

@@ -22,6 +22,12 @@ type coveredQC struct {
 	next types.GlobalBlockNumber
 }
 
+type coveredAppQC struct {
+	appQC *types.AppQC
+	first types.GlobalBlockNumber
+	next  types.GlobalBlockNumber
+}
+
 // blockDBIterator implements types.BlockDBIterator over the shared ledger table.
 //
 // It steps through consecutive block numbers, driven by a single forward litt scan. The scan
@@ -35,6 +41,12 @@ type coveredQC struct {
 type blockDBIterator struct {
 	// it is the underlying litt scan; nil for an empty iterator.
 	it littdb.Iterator
+
+	// appQCs is a snapshot of AppQC coverage captured when the iterator was
+	// opened. AppQCs may be written after the blocks they certify, so the
+	// insertion-order block/QC scan cannot discover them before yielding those
+	// blocks without a separate snapshot.
+	appQCs []*coveredAppQC
 
 	// startN is the first number the iterator may yield, and doubles as the retention floor:
 	// blockDB.Iterator clamps it up to the prune watermark and to the start of the block history,
@@ -156,10 +168,18 @@ func (l *blockDBIterator) Next() (types.Position, bool, error) {
 				types.ErrBlockGap, next, l.heldNumber)
 	}
 
+	appQC := appQCCovering(l.appQCs, next)
+
 	l.n = next
 	l.started = true
 	l.positioned = true
-	return types.Position{Number: next, QC: l.current.qc, HasBlock: l.heldBlock}, true, nil
+	return types.Position{
+		Number:   next,
+		QC:       l.current.qc,
+		HasBlock: l.heldBlock,
+		AppQC:    appQC,
+		HasAppQC: appQC != nil,
+	}, true, nil
 }
 
 // fill advances the underlying scan until it holds an unconsumed block record or exhausts,
@@ -207,11 +227,66 @@ func (l *blockDBIterator) fill() error {
 			if err := l.collectQC(); err != nil {
 				return err
 			}
+		case keyKind(key) == kindAppQC:
+			// AppQC coverage was snapshotted when this iterator opened.
 		default:
 			return fmt.Errorf("unknown ledger key kind %q", keyKind(key))
 		}
 	}
 	return nil
+}
+
+func appQCCovering(appQCs []*coveredAppQC, n types.GlobalBlockNumber) *types.AppQC {
+	for _, a := range appQCs {
+		if a.first <= n && n < a.next {
+			return a.appQC
+		}
+	}
+	return nil
+}
+
+func snapshotAppQCs(
+	table littdb.Table,
+	start types.GlobalBlockNumber,
+	nextQC types.GlobalBlockNumber,
+) ([]*coveredAppQC, error) {
+	it, err := table.Iterator(false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open AppQC snapshot iterator: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+
+	var appQCs []*coveredAppQC
+	for {
+		ok, err := it.Next()
+		if err != nil {
+			return nil, fmt.Errorf("failed to advance AppQC snapshot iterator: %w", err)
+		}
+		if !ok {
+			break
+		}
+		key, isPrimary, err := it.GetKey()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read AppQC snapshot key: %w", err)
+		}
+		if !isPrimary || keyKind(key) != kindAppQC {
+			continue
+		}
+		value, err := it.GetValue()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read AppQC snapshot value: %w", err)
+		}
+		appQC, err := decodeAppQC(value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode AppQC snapshot value: %w", err)
+		}
+		first, next := appQCRange(appQC)
+		if next <= start || first >= nextQC {
+			continue
+		}
+		appQCs = append(appQCs, &coveredAppQC{appQC: appQC, first: first, next: next})
+	}
+	return appQCs, nil
 }
 
 // collectQC decodes the QC record at the scan's current position into the covering-QC state: it

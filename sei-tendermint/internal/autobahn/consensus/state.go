@@ -229,7 +229,6 @@ func (s *State) runPropose(ctx context.Context) error {
 			vs,
 			time.Now(),
 			laneQCsMap,
-			s.avail.LastAppQC(),
 		)
 		if err != nil {
 			return fmt.Errorf("s.avail.WaitForProposal(): %w", err)
