@@ -36,11 +36,6 @@ var StreamAppVotes = rpc.Register[API](4, "stream_app_votes",
 	rpc.Msg[*pb.StreamAppVotesReq]{MsgSize: kB, Window: 1},
 	rpc.Msg[*pb.AppVote]{MsgSize: 10 * kB, Window: 100},
 )
-var StreamAppQCs = rpc.Register[API](5, "stream_app_qcs",
-	rpc.Limit{Rate: 1, Concurrent: 1},
-	rpc.Msg[*pb.StreamAppQCsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*pb.StreamAppQCsResp]{MsgSize: 30 * kB, Window: 20},
-)
 var Consensus = rpc.Register[API](6, "consensus",
 	// Consensus streams are special in a sense that
 	// * each stream sends just 1 message per view
@@ -56,6 +51,11 @@ var StreamFullCommitQCs = rpc.Register[API](7, "stream_full_commit_qcs",
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamFullCommitQCsReq]{MsgSize: kB, Window: 1},
 	rpc.Msg[*apb.FullCommitQC]{MsgSize: 300 * kB, Window: 20},
+)
+var StreamAppQCs = rpc.Register[API](5, "stream_app_qcs",
+	rpc.Limit{Rate: 1, Concurrent: 1},
+	rpc.Msg[*pb.StreamAppQCsReq]{MsgSize: kB, Window: 1},
+	rpc.Msg[*apb.AppQC]{MsgSize: 30 * kB, Window: 20},
 )
 var GetBlock = rpc.Register[API](8, "get_block",
 	rpc.Limit{Rate: 10, Concurrent: 10},

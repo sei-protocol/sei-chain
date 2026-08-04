@@ -36,14 +36,6 @@ func (*StreamLaneProposalsReq) MaxSize() int {
 	return 11
 }
 
-func (*StreamAppQCsReq) MaxSize() int {
-	return 0
-}
-
-func (*StreamAppQCsResp) MaxSize() int {
-	return 30418
-}
-
 func (*StreamCommitQCsReq) MaxSize() int {
 	return 0
 }
@@ -65,6 +57,10 @@ func (*GetBlockResp) MaxSize() int {
 }
 
 func (*StreamFullCommitQCsReq) MaxSize() int {
+	return 11
+}
+
+func (*StreamAppQCsReq) MaxSize() int {
 	return 11
 }
 
@@ -98,15 +94,6 @@ func init() {
 		1: {MaxCount: 1},
 	})
 
-	// Register the wireguard.Schema generated for p2p.giga.StreamAppQCsReq.
-	runtime.MustRegister[*StreamAppQCsReq](runtime.Schema{})
-
-	// Register the wireguard.Schema generated for p2p.giga.StreamAppQCsResp.
-	runtime.MustRegister[*StreamAppQCsResp](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.AppQC]())},
-		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.CommitQC]())},
-	})
-
 	// Register the wireguard.Schema generated for p2p.giga.StreamCommitQCsReq.
 	runtime.MustRegister[*StreamCommitQCsReq](runtime.Schema{})
 
@@ -128,6 +115,11 @@ func init() {
 
 	// Register the wireguard.Schema generated for p2p.giga.StreamFullCommitQCsReq.
 	runtime.MustRegister[*StreamFullCommitQCsReq](runtime.Schema{
+		1: {MaxCount: 1},
+	})
+
+	// Register the wireguard.Schema generated for p2p.giga.StreamAppQCsReq.
+	runtime.MustRegister[*StreamAppQCsReq](runtime.Schema{
 		1: {MaxCount: 1},
 	})
 

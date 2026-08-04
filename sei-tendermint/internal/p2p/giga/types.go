@@ -80,26 +80,6 @@ var StreamLaneProposalsReqConv = protoutils.Conv[*StreamLaneProposalsReq, *pb.St
 	},
 }
 
-var StreamAppQCsRespConv = protoutils.Conv[*StreamAppQCsResp, *pb.StreamAppQCsResp]{
-	Encode: func(m *StreamAppQCsResp) *pb.StreamAppQCsResp {
-		return &pb.StreamAppQCsResp{
-			AppQc:    types.AppQCConv.Encode(m.AppQC),
-			CommitQc: types.CommitQCConv.Encode(m.CommitQC),
-		}
-	},
-	Decode: func(m *pb.StreamAppQCsResp) (*StreamAppQCsResp, error) {
-		appQC, err := types.AppQCConv.DecodeReq(m.AppQc)
-		if err != nil {
-			return nil, fmt.Errorf("appQC: %w", err)
-		}
-		commitQC, err := types.CommitQCConv.DecodeReq(m.CommitQc)
-		if err != nil {
-			return nil, fmt.Errorf("commitQC: %w", err)
-		}
-		return &StreamAppQCsResp{AppQC: appQC, CommitQC: commitQC}, nil
-	},
-}
-
 var GetBlockReqConv = protoutils.Conv[*GetBlockReq, *pb.GetBlockReq]{
 	Encode: func(m *GetBlockReq) *pb.GetBlockReq {
 		return &pb.GetBlockReq{GlobalNumber: uint64(m.GlobalNumber)}

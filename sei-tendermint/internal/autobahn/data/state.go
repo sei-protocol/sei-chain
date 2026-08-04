@@ -676,9 +676,21 @@ func (s *State) AppVote(ctx context.Context, n types.GlobalBlockNumber) (*types.
 	panic("unreachable")
 }
 
+func (s *State) AppQC(ctx context.Context, n types.GlobalBlockNumber) (*types.AppQC, *types.FullCommitQC, error) {
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextAppQC }); err!=nil { return nil,nil,err }
+		if inner.first <= n {
+			return inner.appQCs[n],inner.qcs[n],nil
+		}
+	}
+	// TODO: we should fallback to blocksDB
+	panic("unreachable")
+}
+
 func (s *State) LastAppQC() (*types.AppQC,*types.FullCommitQC) {
 	for i := range s.inner.Lock() {
 		// TODO: currently no guarantee that there is >=1 element.
+		// TODO: nextAppQC is NOT good enough, we need it to be persisted.
 		n := i.nextAppQC-1
 		return i.appQCs[n],i.qcs[n]
 	}
