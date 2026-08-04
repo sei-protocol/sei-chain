@@ -68,21 +68,6 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 					}
 				})
 			}
-			s.Spawn(func() error {
-				next := types.RoadIndex(0)
-				for {
-					appQC, commitQC, err := from.WaitForAppQC(ctx, next)
-					if err != nil {
-						return err
-					}
-					next = appQC.Next()
-					for _, to := range states {
-						if err := to.PushAppQC(appQC, commitQC); err != nil {
-							return err
-						}
-					}
-				}
-			})
 		}
 		return nil
 	})

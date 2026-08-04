@@ -82,6 +82,7 @@ func newInner(firstBlock types.GlobalBlockNumber) *inner {
 		blockHashes:        map[types.BlockHeaderHash]types.GlobalBlockNumber{},
 		first:              firstBlock,
 		nextAppProposal:    firstBlock,
+		nextAppQC:          firstBlock,
 		nextBlockToPersist: firstBlock,
 		nextBlock:          firstBlock,
 		nextQC:             firstBlock,
@@ -94,6 +95,7 @@ func newInner(firstBlock types.GlobalBlockNumber) *inner {
 func (i *inner) skipTo(n types.GlobalBlockNumber) {
 	i.first = n
 	i.nextAppProposal = n
+	i.nextAppQC = n
 	i.nextBlockToPersist = n
 	i.nextBlock = n
 	i.nextQC = n
@@ -677,6 +679,57 @@ func (s *State) AppVote(ctx context.Context, n types.GlobalBlockNumber) (*types.
 	panic("unreachable")
 }
 
+// PushAppQC pushes an AppQC to the state and advances the AppQC cursor.
+func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC) error {
+	proposal := appQC.Proposal()
+	ep, ok := s.cfg.Registry.EpochByIndex(proposal.EpochIndex())
+	if !ok {
+		return fmt.Errorf("unknown epoch_index %d", proposal.EpochIndex())
+	}
+	if err := appQC.Verify(ep.Committee()); err != nil {
+		return fmt.Errorf("appQC.Verify(): %w", err)
+	}
+	gr := proposal.GlobalRange()
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			return gr.First <= inner.nextQC
+		}); err != nil {
+			return err
+		}
+		if gr.Next <= inner.nextAppQC {
+			return nil
+		}
+		if gr.First > inner.nextQC {
+			return fmt.Errorf("AppQC gap: expected first<=%d, got %d", inner.nextQC, gr.First)
+		}
+		if gr.Next > inner.nextQC {
+			return fmt.Errorf("AppQC range [%d,%d) exceeds nextQC %d", gr.First, gr.Next, inner.nextQC)
+		}
+		for n := gr.First; n < gr.Next; n++ {
+			qc := inner.qcs[n]
+			if qc == nil {
+				return fmt.Errorf("missing QC for AppQC block %d", n)
+			}
+			if err := proposal.Verify(qc.QC()); err != nil {
+				return fmt.Errorf("appQC proposal for block %d: %w", n, err)
+			}
+		}
+		for n := max(gr.First, inner.nextAppQC); n < gr.Next; n++ {
+			inner.appQCs[n] = appQC
+		}
+		for inner.nextAppQC < inner.nextQC {
+			if _, ok := inner.appQCs[inner.nextAppQC]; !ok {
+				break
+			}
+			inner.nextAppQC++
+		}
+		evictBelowBound(inner)
+		ctrl.Updated()
+		return nil
+	}
+	panic("unreachable")
+}
+
 func (s *State) AppQC(ctx context.Context, n types.GlobalBlockNumber) (*types.AppQC, *types.FullCommitQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextAppQC }); err != nil {
@@ -704,7 +757,10 @@ func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	// TODO(gprusak): decide whether 0 is a good result in this case in general.
 	// Empty maps (first == nextQC) only on fresh start / after skipTo with no QC.
 	if i.first == i.nextAppProposal {
-		return 0
+		if i.first == i.nextQC {
+			return 0
+		}
+		return i.qcs[i.nextAppProposal].QC().LaneRange(lane).First()
 	}
 	return i.qcs[i.nextAppProposal-1].QC().LaneRange(lane).Next()
 }

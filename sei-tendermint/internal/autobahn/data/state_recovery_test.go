@@ -129,7 +129,9 @@ func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
 	}, db)
 
 	require.Equal(t, lastExecuted, db.start)
-	require.Equal(t, lastExecuted, state.FirstAppProposal())
+	for inner := range state.inner.Lock() {
+		require.Equal(t, lastExecuted, inner.nextAppProposal)
+	}
 	require.Equal(t, gr2.Next, state.NextBlock())
 	got, err := state.TryBlock(lastExecuted)
 	require.NoError(t, err)
@@ -137,9 +139,9 @@ func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
 
 	appHash := types.GenAppHash(rng)
 	require.NoError(t, state.PushAppHash(t.Context(), lastExecuted, appHash))
-	proposal, err := state.AppProposal(t.Context(), lastExecuted)
+	appVote, _, err := state.AppVote(t.Context(), lastExecuted)
 	require.NoError(t, err)
-	require.Equal(t, appHash, proposal.AppHash())
+	require.Equal(t, appHash, appVote.Proposal().AppHash())
 }
 
 func TestRecoveryCapsAppTipAtLastBlockInBlockDB(t *testing.T) {
