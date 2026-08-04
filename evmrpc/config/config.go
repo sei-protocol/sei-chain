@@ -255,11 +255,9 @@ type Config struct {
 	// are rejected (HTTP 413) before the body is buffered or JSON-decoded.
 	// WebSocket frames exceeding this limit close the connection with WebSocket
 	// close code 1009 (no JSON-RPC error response). Oversize WS rejections are
-	// recorded on evmrpc_requests_rejected_total{protocol="ws",reason="oversize_frame"}.
+	// recorded on evmrpc_requests_rejected_total{protocol="ws",reason="oversize"}.
 	// 0 uses the go-ethereum default (5 MiB). Upgrade note: WS previously used a
 	// hardcoded 10 MiB frame cap. With default config both planes now use 5 MiB.
-	// If WS clients send frames in the 5-10 MiB range, set max_request_body_bytes
-	// = 10485760 (10 MiB) in app.toml.
 	MaxRequestBodyBytes int64 `mapstructure:"max_request_body_bytes"`
 
 	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP and

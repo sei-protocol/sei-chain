@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -79,7 +80,7 @@ var (
 		)),
 		requestRejectedCount: must(rpcTelemetryMeter.Int64Counter(
 			"evmrpc_requests_rejected_total",
-			metric.WithDescription("Number of JSON-RPC requests rejected by admission control (labeled by protocol and reason)"),
+			metric.WithDescription("Number of JSON-RPC requests rejected by admission control (labeled by protocol and reason: oversize or busy)"),
 			metric.WithUnit("{count}"),
 		)),
 	}
@@ -178,11 +179,24 @@ func recordRequestRejected(ctx context.Context, reason string) {
 	)
 }
 
+// mapWSAdmissionRejectReason normalizes sei go-ethereum WS admission-hook reasons
+// to the same oversize/busy vocabulary HTTP uses on evmrpc_requests_rejected_total.
+func mapWSAdmissionRejectReason(reason string) string {
+	switch reason {
+	case rpc.WSAdmissionReasonOversizeFrame:
+		return rejectReasonOversize
+	case rpc.WSAdmissionReasonBudgetWaitTimeout, rpc.WSAdmissionReasonFrameAdmissionTimeout:
+		return rejectReasonBusy
+	default:
+		return reason
+	}
+}
+
 func recordWSAdmissionRejected(ctx context.Context, reason string) {
 	metrics.requestRejectedCount.Add(ctx, 1,
 		metric.WithAttributes(
 			attribute.String(protocolKey, protocolWS),
-			attribute.String(rejectReasonKey, reason),
+			attribute.String(rejectReasonKey, mapWSAdmissionRejectReason(reason)),
 		),
 	)
 }
