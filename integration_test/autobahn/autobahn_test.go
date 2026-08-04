@@ -14,6 +14,7 @@ package autobahn
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -433,9 +434,27 @@ func countSeiContainers() (int, error) {
 // `go install` cycle. The autobahn role itself comes from mode = "full"
 // in docker/rpcnode/config/config.toml — setup.go picks the fullnode
 // constructor when there's no local validator key.
+//
+// The image build is run to completion before the readiness deadline opens.
+// `skipbuild` names the seid `go install` it skips, not the image build: the
+// target still depends on build-rpc-node, whose cost is entirely a function of
+// the docker layer cache. On a cache miss that step rebuilds
+// docker/rpcnode/Dockerfile from ubuntu:latest — an apt-get install of
+// build-essential plus a network foundry install — which has been measured at
+// roughly nine minutes, so sharing one deadline with it made a cold cache
+// indistinguishable from a sidecar that never came up. Building first costs the
+// same wall clock and leaves fullnodeBootTimeout measuring only what it names.
 func setupFullnodeNode() error {
 	fmt.Println("=== Starting fullnode sidecar ===")
 	_ = runMake(nil, "kill-rpc-node") // best-effort cleanup
+
+	// Synchronous and unbudgeted, so a slow or failing build reports as itself.
+	// Idempotent against the same dependency inside run-rpc-node-skipbuild
+	// below, which is a cache hit once this returns.
+	fmt.Println("=== Building rpc-node image (before the readiness deadline) ===")
+	if err := runMake(nil, "build-rpc-node"); err != nil {
+		return fmt.Errorf("build rpc-node image: %w", err)
+	}
 
 	// Discover the cluster size from docker so the rpc-node's autobahn config
 	// covers exactly the validators that came up — non-four-node test runs
@@ -454,10 +473,13 @@ func setupFullnodeNode() error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start make run-rpc-node-skipbuild: %w", err)
 	}
-	// Reap the process when it eventually exits (e.g. on container kill);
-	// not blocking on Wait here since the container runs for the duration
-	// of the test suite.
-	go func() { _ = cmd.Wait() }()
+	// Reap the process when it eventually exits (e.g. on container kill), and
+	// keep the result: `docker run --rm` holds the foreground for the suite's
+	// duration, so an exit during startup means the container never came up.
+	// Discarding it here would surface every such failure as the readiness
+	// timeout below, naming the sidecar for something that failed earlier.
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
 
 	deadline := time.Now().Add(fullnodeBootTimeout)
 	for time.Now().Before(deadline) {
@@ -465,9 +487,19 @@ func setupFullnodeNode() error {
 			fmt.Println("fullnode sidecar is ready")
 			return nil
 		}
-		time.Sleep(fullnodeBootPoll)
+		select {
+		case err := <-exited:
+			if err != nil {
+				return fmt.Errorf("make run-rpc-node-skipbuild exited before the sidecar was ready: %w", err)
+			}
+			return errors.New("make run-rpc-node-skipbuild exited cleanly before the sidecar was ready, " +
+				"so the container stopped on its own; check the rpc-node logs above")
+		case <-time.After(fullnodeBootPoll):
+		}
 	}
-	return fmt.Errorf("fullnode sidecar didn't come up within %s", fullnodeBootTimeout)
+	return fmt.Errorf("fullnode sidecar didn't come up within %s of the container starting "+
+		"(the image build completed before this deadline opened, so this is a container start "+
+		"or RPC readiness failure rather than a slow build)", fullnodeBootTimeout)
 }
 
 func fullnodeRunning() bool {
