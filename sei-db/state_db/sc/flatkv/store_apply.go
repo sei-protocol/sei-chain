@@ -72,13 +72,9 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 		return err
 	}
 
-	s.bufferPreparedWrites(prepared)
-	s.perDBWorkingLtHash = res.PerDB
-	s.perDBModuleWorkingLtHash = res.PerModule
-	s.perDBModuleWorkingStats = res.PerModuleStats
-	s.workingLtHash = res.Global
-	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
-	s.pendingBlockHeight = version
+	// Single in-memory commit: pending rows, working hashes, and changeset
+	// bookkeeping must move together after Compute.
+	s.bufferPreparedWrites(prepared, res, changeSets, version)
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	logger.Debug("FlatKV ApplyChangeSets complete",
@@ -90,8 +86,8 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 }
 
 // preparedWrites holds the fully-validated per-DB rows and LtHash pairs for one
-// ApplyChangeSets call. Pending maps and metrics are updated only after
-// ltCalc.Compute succeeds (see bufferPreparedWrites).
+// ApplyChangeSets call. Pending maps and working hashes are updated only via
+// bufferPreparedWrites after ltCalc.Compute succeeds.
 type preparedWrites struct {
 	accounts map[string]*vtype.AccountData
 	storage  map[string]*vtype.StorageData
@@ -166,14 +162,28 @@ func (s *CommitStore) prepareWrites(
 	return out, nil
 }
 
-// bufferPreparedWrites copies a successful ApplyChangeSets batch into the
-// pending-write maps and records the corresponding metrics. Called only after
-// ltCalc.Compute has succeeded so pending rows and working hashes stay aligned.
-func (s *CommitStore) bufferPreparedWrites(prepared preparedWrites) {
+// bufferPreparedWrites is the atomic in-memory commit for one successful
+// ApplyChangeSets batch: pending-write maps, working LtHash / per-module
+// metadata, and pendingChangeSets / pendingBlockHeight. Keeping these updates
+// in one function prevents a future edit from buffering rows without the
+// matching hashes (or vice versa) after Compute.
+func (s *CommitStore) bufferPreparedWrites(
+	prepared preparedWrites,
+	res *lthash.Result,
+	changeSets []*proto.NamedChangeSet,
+	version int64,
+) {
 	maps.Copy(s.accountWrites, prepared.accounts)
 	maps.Copy(s.storageWrites, prepared.storage)
 	maps.Copy(s.codeWrites, prepared.code)
 	maps.Copy(s.miscWrites, prepared.misc)
+
+	s.perDBWorkingLtHash = res.PerDB
+	s.perDBModuleWorkingLtHash = res.PerModule
+	s.perDBModuleWorkingStats = res.PerModuleStats
+	s.workingLtHash = res.Global
+	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
+	s.pendingBlockHeight = version
 
 	addKVPairs(s.ctx, accountDBDir, len(prepared.accounts))
 	addKVPairs(s.ctx, storageDBDir, len(prepared.storage))
