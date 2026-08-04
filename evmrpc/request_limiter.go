@@ -36,14 +36,17 @@ type requestSizeLimiter struct {
 	maxBody             int64 // always > 0 after construction
 	budget              *semaphore.Weighted
 	bodyReadIdleTimeout time.Duration
+	readTimeout         time.Duration
 }
 
 // newRequestSizeLimiter wraps inner with pre-decode admission control. maxBody <= 0
 // normalizes to defaultMaxRequestBodyBytes (the per-request cap is always applied —
 // 0 means "use the default", never "no cap"). maxConcurrentBytes <= 0 disables the
 // global budget. If a positive budget is smaller than maxBody it is raised to maxBody
-// so that a single maximum-size request can always be admitted.
-func newRequestSizeLimiter(inner http.Handler, maxBody, maxConcurrentBytes int64, bodyReadIdleTimeout time.Duration) http.Handler {
+// so that a single maximum-size request can always be admitted. readTimeout, when > 0,
+// bounds the per-chunk idle deadline so it can never extend past the server's own
+// absolute http.Server.ReadTimeout for the request.
+func newRequestSizeLimiter(inner http.Handler, maxBody, maxConcurrentBytes int64, bodyReadIdleTimeout, readTimeout time.Duration) http.Handler {
 	if maxBody <= 0 {
 		maxBody = defaultMaxRequestBodyBytes
 	}
@@ -51,6 +54,7 @@ func newRequestSizeLimiter(inner http.Handler, maxBody, maxConcurrentBytes int64
 		inner:               inner,
 		maxBody:             maxBody,
 		bodyReadIdleTimeout: bodyReadIdleTimeout,
+		readTimeout:         readTimeout,
 	}
 	if maxConcurrentBytes > 0 {
 		if maxConcurrentBytes < maxBody {
@@ -75,28 +79,32 @@ func (l *requestSizeLimiter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var budgetWrapped *budgetBody
 	if l.budget != nil || l.bodyReadIdleTimeout > 0 {
 		rc := http.NewResponseController(w)
+		var absDeadline time.Time
+		if l.readTimeout > 0 {
+			absDeadline = time.Now().Add(l.readTimeout)
+		}
 		budgetWrapped = &budgetBody{
 			inner:       r.Body,
 			budget:      l.budget,
 			rc:          rc,
 			idleTimeout: l.bodyReadIdleTimeout,
+			absDeadline: absDeadline,
 			outcome:     &outcome,
 		}
 		r.Body = budgetWrapped
+		// Deferred so a panic anywhere in the inner handler chain (legacy gate,
+		// gzip/vhost/cors wrappers) still releases the reserved bytes instead of
+		// leaking them from the shared max_concurrent_request_bytes semaphore.
+		defer func() {
+			_ = budgetWrapped.Close()
+			budgetWrapped.release()
+		}()
 	}
 
 	// cw suppresses the inner handler's own response once outcome is set, so the
 	// status/message below always wins over whatever the inner handler wrote.
 	cw := &captureResponseWriter{ResponseWriter: w, outcome: &outcome}
 	l.inner.ServeHTTP(cw, r)
-
-	if budgetWrapped != nil {
-		// Release only after the inner handler chain fully returns, so the budget
-		// stays held for the whole request even if an inner handler (e.g. the
-		// sei-legacy gate) closes the body early after buffering it.
-		_ = budgetWrapped.Close()
-		budgetWrapped.release()
-	}
 
 	if outcome.status != 0 && !cw.wroteHeader {
 		recordRequestRejected(r.Context(), outcome.reason)
@@ -117,6 +125,11 @@ type budgetBody struct {
 	budget      *semaphore.Weighted
 	rc          *http.ResponseController
 	idleTimeout time.Duration
+	// absDeadline, if non-zero, is the request's absolute http.Server.ReadTimeout
+	// bound. The idle deadline set below is clamped to it so a client that keeps
+	// trickling chunks just under idleTimeout can't use the per-chunk reset to
+	// hold the connection open past the server's own overall read deadline.
+	absDeadline time.Time
 	outcome     *limiterOutcome
 
 	reserved int64 // bytes charged to the global semaphore
@@ -125,9 +138,14 @@ type budgetBody struct {
 
 func (b *budgetBody) Read(p []byte) (int, error) {
 	if b.idleTimeout > 0 && b.rc != nil {
-		if err := b.rc.SetReadDeadline(time.Now().Add(b.idleTimeout)); err != nil {
+		deadline := time.Now().Add(b.idleTimeout)
+		if !b.absDeadline.IsZero() && deadline.After(b.absDeadline) {
+			deadline = b.absDeadline
+		}
+		if err := b.rc.SetReadDeadline(deadline); err != nil {
 			// ResponseController may be unavailable on exotic ResponseWriters; proceed
 			// without the idle guard rather than failing the request.
+			_ = err
 		}
 	}
 
@@ -144,6 +162,7 @@ func (b *budgetBody) Read(p []byte) (int, error) {
 				b.fail(rejectReasonBudgetMidread, http.StatusTooManyRequests, "server busy", flushErr)
 				return n, flushErr
 			}
+			b.clearReadDeadline()
 			return n, err
 		}
 		if isReadIdleTimeout(err) {
@@ -155,8 +174,20 @@ func (b *budgetBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// clearReadDeadline disarms the per-chunk idle deadline once the body is fully
+// consumed or closed, so it doesn't stay armed on the connection through the rest
+// of the request (the inner handler's own processing time, response write, etc).
+func (b *budgetBody) clearReadDeadline() {
+	if b.idleTimeout > 0 && b.rc != nil {
+		_ = b.rc.SetReadDeadline(time.Time{})
+	}
+}
+
 // Close stops the body and charges any trailing unflushed bytes. It does not release
-// the budget; requestSizeLimiter does that once, after the inner handler returns.
+// the budget; requestSizeLimiter does that once, after the inner handler returns. The
+// idle deadline is left armed until after inner.Close() returns: that close can itself
+// drain unread bytes from the connection (net/http does this to make the connection
+// reusable), and that drain needs the same deadline backstop a live Read would get.
 func (b *budgetBody) Close() error {
 	if b.inner == nil {
 		return nil
@@ -166,7 +197,9 @@ func (b *budgetBody) Close() error {
 	if b.budget != nil {
 		_ = b.flush()
 	}
-	return inner.Close()
+	err := inner.Close()
+	b.clearReadDeadline()
+	return err
 }
 
 func (b *budgetBody) charge(n int64) error {
@@ -201,11 +234,16 @@ func (b *budgetBody) release() {
 	b.unbilled = 0
 }
 
+// fail rejects the request and releases the budget. It deliberately leaves the idle
+// deadline armed across inner.Close(): that close can drain unread bytes from the
+// connection, and on the isReadIdleTimeout path the deadline is already in the past,
+// which fails that drain fast instead of leaving it to block with no deadline at all.
 func (b *budgetBody) fail(reason string, status int, message string, readErr error) {
 	b.release()
 	if b.inner != nil {
 		_ = b.inner.Close()
 		b.inner = nil
+		b.clearReadDeadline()
 	}
 	if b.outcome != nil && b.outcome.status == 0 {
 		b.outcome.status = status

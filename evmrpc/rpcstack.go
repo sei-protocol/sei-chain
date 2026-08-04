@@ -357,6 +357,7 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 		config.maxRequestBodyBytes,
 		config.maxConcurrentRequestBytes,
 		config.bodyReadIdleTimeout,
+		h.timeouts.ReadTimeout,
 	)
 	handler := limiter
 	if len(config.JwtSecret) != 0 {

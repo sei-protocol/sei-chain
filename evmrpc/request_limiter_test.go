@@ -39,7 +39,7 @@ func TestRequestSizeLimiter(t *testing.T) {
 		h := newRequestSizeLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ran = true
 			w.WriteHeader(http.StatusOK)
-		}), 1024, 4096, 0)
+		}), 1024, 4096, 0, 0)
 
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, newSizedRequest("hello", 5))
@@ -53,7 +53,7 @@ func TestRequestSizeLimiter(t *testing.T) {
 		h := newRequestSizeLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			b, _ := io.ReadAll(r.Body)
 			bodyRead = len(b) > 0
-		}), 100, 0, 0)
+		}), 100, 0, 0, 0)
 
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, newSizedRequest(strings.Repeat("x", 200), 200))
@@ -63,7 +63,7 @@ func TestRequestSizeLimiter(t *testing.T) {
 	})
 
 	t.Run("zero maxBody uses default cap", func(t *testing.T) {
-		l, ok := newRequestSizeLimiter(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), 0, 0, 0).(*requestSizeLimiter)
+		l, ok := newRequestSizeLimiter(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), 0, 0, 0, 0).(*requestSizeLimiter)
 		require.True(t, ok)
 		require.Equal(t, defaultMaxRequestBodyBytes, l.maxBody)
 	})
@@ -74,7 +74,7 @@ func TestRequestSizeLimiter(t *testing.T) {
 		h := newRequestSizeLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			innerRan = true
 			_, readErr = io.ReadAll(r.Body)
-		}), 100, 0, 0)
+		}), 100, 0, 0, 0)
 
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, newSizedRequest(strings.Repeat("x", 500), -1))
@@ -85,7 +85,7 @@ func TestRequestSizeLimiter(t *testing.T) {
 
 	t.Run("raises misconfigured budget to maxBody", func(t *testing.T) {
 		const maxBody int64 = 1000
-		l, ok := newRequestSizeLimiter(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), maxBody, 500, 0).(*requestSizeLimiter)
+		l, ok := newRequestSizeLimiter(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), maxBody, 500, 0, 0).(*requestSizeLimiter)
 		require.True(t, ok)
 		require.NotNil(t, l.budget)
 
@@ -94,7 +94,7 @@ func TestRequestSizeLimiter(t *testing.T) {
 			ran = true
 			_, _ = io.ReadAll(r.Body)
 			w.WriteHeader(http.StatusOK)
-		}), maxBody, 500, 0)
+		}), maxBody, 500, 0, 0)
 
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, newSizedRequest(strings.Repeat("x", int(maxBody)), maxBody))
@@ -110,7 +110,7 @@ func TestRequestSizeLimiter(t *testing.T) {
 			_, err := io.ReadAll(r.Body)
 			require.NoError(t, err)
 			w.WriteHeader(http.StatusOK)
-		}), 1024, 1024, 0)
+		}), 1024, 1024, 0, 0)
 
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, newSizedRequest("", 0))
@@ -141,6 +141,7 @@ func TestRequestSizeLimiter_budgetExhaustionAndRelease(t *testing.T) {
 		}),
 		maxBody,
 		budget,
+		0,
 		0,
 	)
 	oversizeBody := strings.Repeat("x", maxBody)
@@ -178,6 +179,7 @@ func TestRequestSizeLimiter_budgetDisabled(t *testing.T) {
 		blockUntilRelease(release, admitted.Done),
 		maxBody,
 		0, // budget disabled
+		0,
 		0,
 	)
 	oversizeBody := strings.Repeat("x", maxBody)
@@ -220,6 +222,7 @@ func TestRequestSizeLimiter_slowlorisDoesNotPinDeclaredSize(t *testing.T) {
 		maxBody,
 		budget,
 		0,
+		0,
 	)
 
 	startStaller := func() {
@@ -255,7 +258,7 @@ func TestRequestSizeLimiter_incrementalBudgetOnLargeBody(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	h := newRequestSizeLimiter(inner, maxBody, budget, 0)
+	h := newRequestSizeLimiter(inner, maxBody, budget, 0, 0)
 	h.ServeHTTP(rec, newSizedRequest(strings.Repeat("b", int(maxBody)), maxBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 }
@@ -275,6 +278,7 @@ func TestRequestSizeLimiter_bodyReadIdleTimeout(t *testing.T) {
 		1024,
 		4096,
 		idle,
+		0,
 	))
 	t.Cleanup(srv.Close)
 
@@ -310,6 +314,7 @@ func TestRequestSizeLimiter_steadySlowUploadSucceeds(t *testing.T) {
 		1024,
 		4096,
 		idle,
+		0,
 	))
 	t.Cleanup(srv.Close)
 
@@ -343,7 +348,7 @@ func TestJWTBeforeRequestSizeLimiter(t *testing.T) {
 		innerCalls++
 		w.WriteHeader(http.StatusOK)
 	})
-	limiter := newRequestSizeLimiter(inner, 1024, 1024, 0)
+	limiter := newRequestSizeLimiter(inner, 1024, 1024, 0, 0)
 	stack := newJWTHandler(secret, limiter)
 
 	rec := httptest.NewRecorder()
@@ -371,7 +376,7 @@ func TestRequestSizeLimiter_budgetOutcomeSurvivesInnerHandlerWrite(t *testing.T)
 		w.WriteHeader(http.StatusOK)
 	})
 	gated := wrapSeiLegacyHTTP(inner, map[string]struct{}{}, maxBody)
-	h := newRequestSizeLimiter(gated, maxBody, budget, 0)
+	h := newRequestSizeLimiter(gated, maxBody, budget, 0, 0)
 
 	makeRequest := func() *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
@@ -396,7 +401,7 @@ func BenchmarkRequestSizeLimiter_smallPOST(b *testing.B) {
 	h := newRequestSizeLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
-	}), defaultMaxRequestBodyBytes, 128*1024*1024, 10*time.Second)
+	}), defaultMaxRequestBodyBytes, 128*1024*1024, 10*time.Second, 0)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -414,7 +419,7 @@ func BenchmarkRequestSizeLimiter_maxBodyUpload(b *testing.B) {
 	h := newRequestSizeLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
-	}), defaultMaxRequestBodyBytes, 128*1024*1024, 10*time.Second)
+	}), defaultMaxRequestBodyBytes, 128*1024*1024, 10*time.Second, 0)
 
 	b.ReportAllocs()
 	b.ResetTimer()
