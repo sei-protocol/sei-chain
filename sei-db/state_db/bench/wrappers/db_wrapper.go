@@ -25,7 +25,9 @@ type DBWrapper interface {
 	// Version returns the latest committed version.
 	Version() int64
 
-	LoadVersion(version int64) error
+	// LoadLatest opens the DB at its latest committed version. Benchmarks only ever run against the tip, so
+	// there is no way to ask for a historical version.
+	LoadLatest() error
 
 	// Importer return an importer which load snapshot data into the database
 	Importer(version int64) (types.Importer, error)

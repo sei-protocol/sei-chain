@@ -167,7 +167,7 @@ func (h *historicalOffloadWrapper) Version() int64 {
 	return h.version.Load()
 }
 
-func (h *historicalOffloadWrapper) LoadVersion(_ int64) error {
+func (h *historicalOffloadWrapper) LoadLatest() error {
 	return nil
 }
 

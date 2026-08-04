@@ -29,7 +29,7 @@ func (c *compositeWrapper) Commit() (int64, error) {
 	return c.base.Commit()
 }
 
-func (c *compositeWrapper) LoadVersion(_ int64) error {
+func (c *compositeWrapper) LoadLatest() error {
 	return c.base.LoadLatest()
 }
 

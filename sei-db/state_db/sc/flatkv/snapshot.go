@@ -624,6 +624,13 @@ func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int6
 // PebbleDB. If the process crashes after truncation but before catchup
 // completes, the next restart will simply re-run catchup against the
 // already-truncated WAL, converging to targetVersion.
+//
+// A failure while resetting the WAL leaves the store mid-rollback: "current" and the working directory are
+// already at the rollback snapshot while the WAL still holds the blocks past targetVersion, and s.wal is
+// closed. Retrying in-process does not work, because establishing reachability reads the WAL's stored range
+// and that now fails as closed. Nothing is lost — snapshots above targetVersion are removed only at the very
+// end, so a restart replays the un-pruned WAL back to its old tail and the rollback can be retried. The
+// errors from that window say so.
 func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	obs := s.observeOp("Rollback", otelMetrics.RollbackLatency,
 		"targetVersion", targetVersion)
@@ -673,14 +680,20 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	if s.wal != nil {
 		cfg := stateWALConfig(&s.config)
 		if err := s.wal.Close(); err != nil {
-			return fmt.Errorf("close WAL for rollback: %w", err)
+			return fmt.Errorf("rollback to version %d (from snapshot %d): close WAL at %s: %w; "+
+				"store is mid-rollback, restart to recover then retry",
+				targetVersion, baseVersion, cfg.Path, err)
 		}
 		if err := statewal.PruneAfter(cfg, uint64(targetVersion)); err != nil { //nolint:gosec // targetVersion >= 0
-			return fmt.Errorf("prune WAL after version %d: %w", targetVersion, err)
+			return fmt.Errorf("rollback to version %d (from snapshot %d): prune WAL at %s: %w; "+
+				"store is mid-rollback, restart to recover then retry",
+				targetVersion, baseVersion, cfg.Path, err)
 		}
 		w, err := statewal.New(cfg)
 		if err != nil {
-			return fmt.Errorf("reopen WAL after rollback prune: %w", err)
+			return fmt.Errorf("rollback to version %d (from snapshot %d): reopen pruned WAL at %s: %w; "+
+				"store is mid-rollback, restart to recover then retry",
+				targetVersion, baseVersion, cfg.Path, err)
 		}
 		s.wal = w
 	}

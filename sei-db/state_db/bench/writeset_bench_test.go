@@ -88,7 +88,7 @@ func runWriteSetReplay(b *testing.B, backend wrappers.DBType, ws *WriteSet) Repl
 		importer, err := wrapper.Importer(snapshotHeight)
 		require.NoError(b, err)
 		require.NoError(b, importSnapshot(snapshotPath, importer))
-		require.NoError(b, wrapper.LoadVersion(0))
+		require.NoError(b, wrapper.LoadLatest())
 	}
 
 	b.StartTimer()
