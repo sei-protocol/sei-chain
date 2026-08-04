@@ -1717,11 +1717,16 @@ func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
 	require.True(t, s.workingLtHash.Equal(hashBefore))
 
 	// A subsequent Commit must not invent on-disk state for the failed apply.
+	// clearPendingWrites always empties the maps on success, so absence from
+	// pending is not enough — read the keys back and check committedLtHash
+	// (the AppHash input) stayed put.
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.True(t, s.workingLtHash.Equal(hashBefore))
-	require.Empty(t, s.accountWrites)
-	require.Empty(t, s.storageWrites)
+	require.True(t, s.committedLtHash.Equal(hashBefore))
+	_, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+	require.False(t, ok, "nonce row from the failed apply must not be persisted")
+	_, ok = s.Get(keys.EVMStoreKey, storageKey)
+	require.False(t, ok, "storage row from the failed apply must not be persisted")
 }
 
 // TestApplyChangeSetsKeepsPendingCleanOnComputeError covers the Bugbot finding:

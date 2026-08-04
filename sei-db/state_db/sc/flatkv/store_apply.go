@@ -81,18 +81,12 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 	s.pendingBlockHeight = version
 
 	s.phaseTimer.SetPhase("apply_change_done")
-	counts := prepared.counts
 	logger.Debug("FlatKV ApplyChangeSets complete",
 		"version", version,
 		"changesets", len(changeSets),
-		"writes", counts.accountWrites+counts.storageWrites+counts.codeWrites+counts.miscWrites,
+		"writes", len(prepared.accounts)+len(prepared.storage)+len(prepared.code)+len(prepared.misc),
 		"elapsed", obs.elapsed())
 	return nil
-}
-
-// applyCounts records per-DB write tallies for logging and metrics.
-type applyCounts struct {
-	accountWrites, storageWrites, codeWrites, miscWrites int
 }
 
 // preparedWrites holds the fully-validated per-DB rows and LtHash pairs for one
@@ -104,7 +98,6 @@ type preparedWrites struct {
 	code     map[string]*vtype.CodeData
 	misc     map[string]*vtype.MiscData
 	pairSets []lthash.DBPairs
-	counts   applyCounts
 }
 
 // prepareWrites reads prior values, applies EVM value semantics, and returns
@@ -164,12 +157,6 @@ func (s *CommitStore) prepareWrites(
 	out.storage = storageWrites
 	out.code = codeWrites
 	out.misc = miscWrites
-	out.counts = applyCounts{
-		accountWrites: len(newAccounts),
-		storageWrites: len(storageWrites),
-		codeWrites:    len(codeWrites),
-		miscWrites:    len(miscWrites),
-	}
 	out.pairSets = []lthash.DBPairs{
 		{Dir: storageDBDir, Pairs: gatherPairs(storageWrites, oldByDB[storageDBDir])},
 		{Dir: accountDBDir, Pairs: gatherPairs(newAccounts, oldByDB[accountDBDir])},
@@ -188,11 +175,10 @@ func (s *CommitStore) bufferPreparedWrites(prepared preparedWrites) {
 	maps.Copy(s.codeWrites, prepared.code)
 	maps.Copy(s.miscWrites, prepared.misc)
 
-	counts := prepared.counts
-	addKVPairs(s.ctx, accountDBDir, counts.accountWrites)
-	addKVPairs(s.ctx, storageDBDir, counts.storageWrites)
-	addKVPairs(s.ctx, codeDBDir, counts.codeWrites)
-	addKVPairs(s.ctx, miscDBDir, counts.miscWrites)
+	addKVPairs(s.ctx, accountDBDir, len(prepared.accounts))
+	addKVPairs(s.ctx, storageDBDir, len(prepared.storage))
+	addKVPairs(s.ctx, codeDBDir, len(prepared.code))
+	addKVPairs(s.ctx, miscDBDir, len(prepared.misc))
 	recordPendingWrites(s.ctx, accountDBDir, len(s.accountWrites))
 	recordPendingWrites(s.ctx, storageDBDir, len(s.storageWrites))
 	recordPendingWrites(s.ctx, codeDBDir, len(s.codeWrites))
