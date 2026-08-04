@@ -250,12 +250,25 @@ type Config struct {
 	// batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
 	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
 
-	// MaxRequestBodyBytes is the maximum size, in bytes, of a single HTTP
-	// JSON-RPC request body. Requests larger than this are rejected (HTTP 413)
-	// before the body is buffered or JSON-decoded. 0 uses the go-ethereum
-	// default (5 MiB).
+	// MaxRequestBodyBytes is the maximum size, in bytes, of a single HTTP (:8545)
+	// or WebSocket (:8546) JSON-RPC request/frame. HTTP requests larger than this
+	// are rejected (HTTP 413) before the body is buffered or JSON-decoded.
+	// WebSocket frames exceeding this limit close the connection with WebSocket
+	// close code 1009 (no JSON-RPC error response). Oversize WS rejections are
+	// recorded on evmrpc_requests_rejected_total{protocol="ws",reason="oversize"}.
+	// 0 uses the go-ethereum default (5 MiB). Upgrade note: WS previously used a
+	// hardcoded 10 MiB frame cap. With default config both planes now use 5 MiB.
 	MaxRequestBodyBytes int64 `mapstructure:"max_request_body_bytes"`
 
+	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP and
+	// WebSocket JSON-RPC request bodies admitted for processing concurrently.
+	// HTTP (:8545) and WebSocket (:8546) each get an independent budget, so peak
+	// in-flight request bytes process-wide can reach 2× this value (e.g. 256 MiB
+	// when set to the 128 MiB default). HTTP uses Content-Length weighting and
+	// rejects over-budget requests fast (HTTP 429). WebSocket blocks until budget
+	// frees or WSAdmissionTimeout elapses; on timeout the peer receives JSON-RPC
+	// error -32005 and the connection is closed (active subscriptions are dropped
+	// with the connection). Set to 0 to disable the limit on either protocol.
 	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP
 	// JSON-RPC request bodies admitted for processing concurrently, charged
 	// incrementally as body bytes are read. Requests that would exceed the
@@ -267,6 +280,13 @@ type Config struct {
 	// HTTP 408 and release any byte budget held so far. Zero disables the
 	// per-chunk idle guard (http.Server ReadTimeout remains the backstop).
 	BodyReadIdleTimeout time.Duration `mapstructure:"body_read_idle_timeout"`
+
+	// WSAdmissionTimeout bounds how long a WebSocket connection waits for
+	// concurrent-byte budget to free before the next frame is read or committed.
+	// When the wait expires the peer receives JSON-RPC error -32005
+	// ("timed out waiting for concurrent request-byte budget") and the connection
+	// is closed. Zero or negative values use the go-ethereum default (30s).
+	WSAdmissionTimeout time.Duration `mapstructure:"ws_admission_timeout"`
 
 	// MaxOpenConnections caps the number of simultaneously accepted connections
 	// on the EVM HTTP and WebSocket listeners. The limit is applied per listener
@@ -331,6 +351,7 @@ var DefaultConfig = Config{
 	BatchResponseMaxSize:      25 * 1000 * 1000,  // 25MB
 	MaxRequestBodyBytes:       5 * 1024 * 1024,   // 5 MiB (matches go-ethereum rpc default body limit)
 	MaxConcurrentRequestBytes: 128 * 1024 * 1024, // 128 MiB of request bodies admitted concurrently
+	WSAdmissionTimeout:        30 * time.Second,  // matches go-ethereum rpc defaultWSAdmissionTimeout
 	MaxOpenConnections:        2000,
 	BodyReadIdleTimeout:       10 * time.Second,
 }
@@ -387,6 +408,7 @@ const (
 	flagBatchResponseMaxSize         = "evm.batch_response_max_size"
 	flagMaxRequestBodyBytes          = "evm.max_request_body_bytes"
 	flagMaxConcurrentRequestBytes    = "evm.max_concurrent_request_bytes"
+	flagWSAdmissionTimeout           = "evm.ws_admission_timeout"
 	flagMaxOpenConnections           = "evm.max_open_connections"
 	flagBodyReadIdleTimeout          = "evm.body_read_idle_timeout"
 )
@@ -655,6 +677,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxConcurrentRequestBytes); v != nil {
 		if cfg.MaxConcurrentRequestBytes, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagWSAdmissionTimeout); v != nil {
+		if cfg.WSAdmissionTimeout, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -928,16 +955,32 @@ batch_request_limit = {{ .EVM.BatchRequestLimit }}
 # batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
 batch_response_max_size = {{ .EVM.BatchResponseMaxSize }}
 
-# max_request_body_bytes is the maximum size, in bytes, of a single HTTP
-# JSON-RPC request body. Larger requests are rejected (HTTP 413) before the body
-# is buffered or JSON-decoded. Set to 0 to use the default (5 MiB).
+# max_request_body_bytes is the maximum size, in bytes, of a single HTTP (:8545)
+# or WebSocket (:8546) JSON-RPC request/frame. HTTP larger requests are rejected
+# (HTTP 413) before decode. WS frames exceeding this limit close the connection
+# with WebSocket close code 1009 (no JSON-RPC error). Set to 0 to use the
+# default (5 MiB). Upgrade note: WS previously used a hardcoded 10 MiB frame cap;
+# if WS clients send frames in the 5-10 MiB range, set max_request_body_bytes
+# = 10485760 (10 MiB) in app.toml.
 max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
 
+# max_concurrent_request_bytes bounds total request bytes admitted concurrently
+# on HTTP (:8545) and WebSocket (:8546). Each protocol gets an independent
+# budget, so peak in-flight bytes process-wide can reach 2× this value. HTTP
+# rejects over-budget requests fast (HTTP 429). WS blocks until budget frees or
+# ws_admission_timeout elapses; on timeout the peer gets JSON-RPC error -32005
+# and the connection closes. Set to 0 to disable on either protocol.
 # max_concurrent_request_bytes bounds the total size, in bytes, of HTTP JSON-RPC
 # request bodies admitted for processing concurrently, charged incrementally as
 # body bytes are read. Requests that would exceed the budget mid-read are
 # rejected (HTTP 429). Set to 0 to disable.
 max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
+
+# ws_admission_timeout bounds how long a WebSocket connection waits for
+# concurrent-byte budget before the next frame is read or committed. On expiry
+# the peer receives JSON-RPC error -32005 and the connection closes. Zero or
+# negative values use the go-ethereum default (30s).
+ws_admission_timeout = "{{ .EVM.WSAdmissionTimeout }}"
 
 # body_read_idle_timeout is the maximum idle time allowed between body chunks
 # while reading an HTTP JSON-RPC request. Stalled body reads return HTTP 408 and

@@ -24,7 +24,6 @@ var ConnectionTypeWS ConnectionType = "websocket"
 var ConnectionTypeHTTP ConnectionType = "http"
 
 const LocalAddress = "0.0.0.0"
-const DefaultWebsocketMaxMessageSize = 10 * 1024 * 1024
 
 type EVMServer interface {
 	Start() error
@@ -340,7 +339,9 @@ func NewEVMWebSocketServer(
 	}
 
 	wsConfig := WsConfig{Origins: strings.Split(config.WSOrigins, ",")}
-	wsConfig.readLimit = DefaultWebsocketMaxMessageSize
+	wsConfig.readLimit = config.MaxRequestBodyBytes
+	wsConfig.maxConcurrentRequestBytes = config.MaxConcurrentRequestBytes
+	wsConfig.wsAdmissionTimeout = config.WSAdmissionTimeout
 	wsConfig.batchItemLimit = config.BatchRequestLimit
 	wsConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
 	if err := httpServer.EnableWS(apis, wsConfig); err != nil {

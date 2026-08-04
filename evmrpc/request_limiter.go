@@ -16,6 +16,13 @@ import (
 // max_request_body_bytes is left at 0 ("use the default").
 const defaultMaxRequestBodyBytes int64 = 5 * 1024 * 1024
 
+func effectiveMaxRequestBodyBytes(maxBody int64) int64 {
+	if maxBody <= 0 {
+		return defaultMaxRequestBodyBytes
+	}
+	return maxBody
+}
+
 // budgetAcquireBatch is the byte step for incremental global-budget accounting.
 // Batching limits semaphore contention on large uploads while still bounding what
 // a slow/stalled body pins (at most one batch, not the declared Content-Length).
@@ -47,9 +54,7 @@ type requestSizeLimiter struct {
 // bounds the per-chunk idle deadline so it can never extend past the server's own
 // absolute http.Server.ReadTimeout for the request.
 func newRequestSizeLimiter(inner http.Handler, maxBody, maxConcurrentBytes int64, bodyReadIdleTimeout, readTimeout time.Duration) http.Handler {
-	if maxBody <= 0 {
-		maxBody = defaultMaxRequestBodyBytes
-	}
+	maxBody = effectiveMaxRequestBodyBytes(maxBody)
 	l := &requestSizeLimiter{
 		inner:               inner,
 		maxBody:             maxBody,

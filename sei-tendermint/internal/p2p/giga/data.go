@@ -119,13 +119,12 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 			scope.Spawn(func() error {
 				defer release()
 				for first := true; ; first = false {
-					_, err := x.data.TryBlock(n)
-					if err == nil || errors.Is(err, types.ErrPruned) {
-						// Have it, or no longer needed (pruned past catch-up).
+					// NeedBlock (not TryBlock): gap-fills above nextBlock already
+					// satisfy this height. Re-fetching them while a lower hole is
+					// empty wastes the shared per-peer GetBlock queue and can
+					// starve the contiguous prefix.
+					if !x.data.NeedBlock(n) {
 						return nil
-					}
-					if !errors.Is(err, types.ErrNotFound) {
-						return fmt.Errorf("TryBlock(%d): %w", n, err)
 					}
 					// Back off between repeated requests for the same block —
 					// avoids hammering a peer that responded with an empty
