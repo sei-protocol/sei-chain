@@ -53,6 +53,7 @@ const (
 	defaultSnapshotRevertTxGasLimit = 100_000
 	defaultTxsPerBlock              = 1_000
 	defaultPersistBuffer            = 4 << 20
+	defaultGenesisTimestamp         = uint64(1_700_000_000)
 	defaultWorkerCount              = 1
 	defaultCoinbaseAddress          = "0x00000000000000000000000000000000000000cb"
 	workloadTransfer                = "transfer"
@@ -156,7 +157,7 @@ func parseConfig(args []string) (config, error) {
 	fs.StringVar(&cfg.metricsAddr, "metrics-addr", defaultMetricsAddr, "Prometheus listen address; empty disables HTTP metrics")
 	fs.StringVar(&cfg.resultSink, "result-sink", resultSinkDiscard, "result sink mode: discard or file")
 	fs.IntVar(&cfg.resultPoolSize, "result-pool-size", 0, "pooled executor BlockResult slots; 0 sizes for in-flight sink results, negative disables pooling")
-	fs.StringVar(&cfg.persistDir, "persist-dir", "", "directory for --result-sink=file append-only changeset and receipt files")
+	fs.StringVar(&cfg.persistDir, "persist-dir", "", "directory for --result-sink=file append-only changeset and receipt files, removed at shutdown")
 	fs.BoolVar(&cfg.persistSync, "persist-sync", false, "fsync persistent result files from the async sink writer")
 	fs.IntVar(&cfg.persistBufferSize, "persist-buffer-size", defaultPersistBuffer, "buffer size in bytes for --result-sink=file")
 	fs.IntVar(&cfg.persistQueueSize, "persist-queue-size", 0, "record queue size for async file persistence; 0 defaults to 2*queue-size")
@@ -232,6 +233,9 @@ func parseConfig(args []string) (config, error) {
 	}
 	if cfg.queueSize <= 0 {
 		return config{}, fmt.Errorf("queue-size must be positive")
+	}
+	if cfg.queueSize > math.MaxInt/2 {
+		return config{}, fmt.Errorf("queue-size must be at most %d", math.MaxInt/2)
 	}
 	if cfg.builders <= 0 {
 		return config{}, fmt.Errorf("builders must be positive")
@@ -779,7 +783,9 @@ func prepareBlocks(
 	metrics *loadMetrics,
 ) error {
 	unordered := make(chan preparedBlockEnvelope, cfg.queueSize)
-	group, groupCtx := errgroup.WithContext(ctx)
+	workerCtx, cancelWorkers := context.WithCancel(ctx)
+	defer cancelWorkers()
+	group, groupCtx := errgroup.WithContext(workerCtx)
 	for workerID := 0; workerID < cfg.prepareWorkers; workerID++ {
 		workerID := workerID
 		group.Go(func() error {
@@ -793,10 +799,10 @@ func prepareBlocks(
 					}
 					prepared, err := executor.PrepareBlock(groupCtx, block.request)
 					if err != nil {
-						metrics.recordPrepareError()
 						if groupCtx.Err() != nil {
 							return nil
 						}
+						metrics.recordPrepareError()
 						return fmt.Errorf("prepare worker %d prepare block %d: %w", workerID, block.number, err)
 					}
 					select {
@@ -816,6 +822,9 @@ func prepareBlocks(
 		done <- err
 	}()
 	orderErr := forwardPreparedBlocksInOrder(ctx, unordered, out)
+	if orderErr != nil {
+		cancelWorkers()
+	}
 	workerErr := <-done
 	if orderErr != nil {
 		return orderErr
@@ -887,10 +896,6 @@ func sendPreparedBlock(ctx context.Context, out chan<- preparedBlockEnvelope, bl
 	}
 }
 
-func maxInt() int {
-	return int(^uint(0) >> 1)
-}
-
 func checkedIntFromUint64(name string, value uint64) (int, error) {
 	if value > maxIntAsUint64() {
 		return 0, fmt.Errorf("%s cannot allocate %d blocks on this platform", name, value)
@@ -941,10 +946,10 @@ func executeBlocks(
 			}
 			result, err := executor.ExecutePreparedBlock(ctx, block.block)
 			if err != nil {
-				metrics.recordExecutionError()
 				if ctx.Err() != nil {
 					return nil
 				}
+				metrics.recordExecutionError()
 				return fmt.Errorf("worker %d execute block %d: %w", workerID, block.number, err)
 			}
 			metrics.recordFinished(len(result.Txs), result.GasUsed, result.OCCStats)
@@ -1247,7 +1252,7 @@ func blockContext(cfg config, number uint64) evmonly.BlockContext {
 	}
 	return evmonly.BlockContext{
 		Number:      number,
-		Time:        uint64FromNonNegativeInt64(time.Now().Unix()),
+		Time:        blockTimestamp(number),
 		GasLimit:    gasLimit,
 		ChainID:     new(big.Int).Set(cfg.chainID),
 		BaseFee:     big.NewInt(0),
@@ -1257,6 +1262,13 @@ func blockContext(cfg config, number uint64) evmonly.BlockContext {
 		BlockHash:   hashFromSeed("sei-evmonly-loadtest-block", number),
 		PrevRandao:  hashFromSeed("sei-evmonly-loadtest-randao", number),
 	}
+}
+
+func blockTimestamp(number uint64) uint64 {
+	if number > math.MaxUint64-defaultGenesisTimestamp {
+		return math.MaxUint64
+	}
+	return defaultGenesisTimestamp + number
 }
 
 func deterministicPrivateKey(index uint64) (*ecdsa.PrivateKey, error) {
@@ -1706,15 +1718,16 @@ func (s *asyncFileResultSinks) recordEnqueued(kind string) {
 
 func (s *asyncFileResultSinks) run() {
 	defer close(s.done)
+	var writeErr error
 	for record := range s.records {
 		if s.metrics != nil {
 			s.metrics.setSinkQueued(len(s.records))
 		}
-		if err := s.writeRecord(record); err != nil {
-			record.releaseResult()
-			s.setErr(err)
-			s.releaseQueuedResults()
-			return
+		if writeErr == nil {
+			if err := s.writeRecord(record); err != nil {
+				writeErr = err
+				s.setErr(err)
+			}
 		}
 		record.releaseResult()
 		if s.metrics != nil {
@@ -1723,20 +1736,6 @@ func (s *asyncFileResultSinks) run() {
 	}
 	if s.metrics != nil {
 		s.metrics.setSinkQueued(0)
-	}
-}
-
-func (s *asyncFileResultSinks) releaseQueuedResults() {
-	for {
-		select {
-		case record, ok := <-s.records:
-			if !ok {
-				return
-			}
-			record.releaseResult()
-		default:
-			return
-		}
 	}
 }
 
@@ -1822,10 +1821,10 @@ func (f *appendRLPFile) WriteRecord(height uint64, value any) (int, error) {
 	if _, err := f.writer.Write(payload); err != nil {
 		return 0, fmt.Errorf("write record payload for height %d: %w", height, err)
 	}
-	if err := f.writer.Flush(); err != nil {
-		return 0, fmt.Errorf("flush record for height %d: %w", height, err)
-	}
 	if f.syncOnWrite {
+		if err := f.writer.Flush(); err != nil {
+			return 0, fmt.Errorf("flush record for height %d: %w", height, err)
+		}
 		if err := f.file.Sync(); err != nil {
 			return 0, fmt.Errorf("sync record for height %d: %w", height, err)
 		}
@@ -1888,7 +1887,7 @@ type loadMetrics struct {
 	occConflictsTotal    prometheus.Counter
 
 	occFallbackReasonTotal *prometheus.CounterVec
-	occConflictTotal       *prometheus.CounterVec
+	occConflictAccessTotal *prometheus.CounterVec
 	sinkEnqueuedTotal      *prometheus.CounterVec
 	sinkWrittenTotal       *prometheus.CounterVec
 	sinkBytesTotal         *prometheus.CounterVec
@@ -1984,10 +1983,10 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 			Name: "evmonly_loadtest_occ_fallback_reasons_total",
 			Help: "OCC fallback count by reason.",
 		}, []string{"reason"}),
-		occConflictTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "evmonly_loadtest_occ_conflict_keys_total",
-			Help: "OCC conflict accesses by access type, state kind, address, and slot.",
-		}, []string{"access", "kind", "address", "slot"}),
+		occConflictAccessTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_occ_conflict_accesses_total",
+			Help: "OCC conflict accesses by access type and state kind.",
+		}, []string{"access", "kind"}),
 		sinkEnqueuedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_result_sink_records_enqueued_total",
 			Help: "Total records accepted by the result sink.",
@@ -2063,7 +2062,7 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		m.occRerunsTotal,
 		m.occConflictsTotal,
 		m.occFallbackReasonTotal,
-		m.occConflictTotal,
+		m.occConflictAccessTotal,
 		m.sinkEnqueuedTotal,
 		m.sinkWrittenTotal,
 		m.sinkBytesTotal,
@@ -2135,20 +2134,11 @@ func (m *loadMetrics) recordOCC(stats evmonly.OCCStats) {
 	m.occConflicts.Add(stats.ConflictCount)
 	m.occConflictsTotal.Add(float64(stats.ConflictCount))
 	for _, conflict := range stats.ConflictSamples {
-		m.occConflictTotal.WithLabelValues(
+		m.occConflictAccessTotal.WithLabelValues(
 			conflict.Access,
 			conflict.Kind,
-			conflict.Address.Hex(),
-			conflictSlotLabel(conflict),
 		).Add(float64(conflict.Count))
 	}
-}
-
-func conflictSlotLabel(conflict evmonly.OCCConflictCount) string {
-	if conflict.Kind != "storage" {
-		return ""
-	}
-	return conflict.Slot.Hex()
 }
 
 func (m *loadMetrics) recordExecutionError() {

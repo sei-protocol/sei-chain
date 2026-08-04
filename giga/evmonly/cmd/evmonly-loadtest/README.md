@@ -1,7 +1,8 @@
 # evmonly-loadtest
 
 `evmonly-loadtest` is a standalone executable for feeding synthetic blocks to
-the EVM-only executor without Cosmos SDK state, mempool, RPC, or persistence.
+the EVM-only executor without Cosmos SDK state, mempool, RPC, or chain
+persistence.
 
 It currently generates pure EVM legacy transfer transactions, ERC20 transfer
 transactions, and a contract-call workload that exercises nested StateDB
@@ -131,6 +132,14 @@ Useful knobs:
 - `--result-pool-size`: reusable executor result slots. The default `0`
   sizes the pool for in-flight executor and async sink results; negative
   disables result pooling.
+- `--result-sink`: executor output sink, either `discard` or `file`. The
+  default is `discard`.
+- `--persist-dir`: directory used by `--result-sink=file` for temporary
+  append-only changeset and receipt files. Files are removed on shutdown or
+  interrupt cleanup.
+- `--persist-buffer-size`: buffered writer size for `--result-sink=file`.
+- `--persist-queue-size`: async file-sink record queue size. The default `0`
+  uses `2 * --queue-size`.
 - `--target-blocks-per-sec`: cap block input rate. The default `0` feeds as
   fast as block generation and the queue allow.
 - `--prebuild-blocks`: generate all bounded blocks before starting executor
@@ -160,14 +169,26 @@ The command reports these saturation signals on stdout and at `/metrics`:
 - total gas consumed per second
 - total OCC transaction rerun attempts
 - prepared blocks queued for execution and cumulative totals
+- result-sink records queued, enqueued, written, bytes written, enqueue wait,
+  and write time
 
-The executor output is intentionally discarded through mocks:
+The default executor output path intentionally discards results through mocks:
 
 - `generatedState` implements `evmonly.StateReader` and supplies generated
   genesis balances, nonces, code, and storage.
 - `discardStateWriter` implements `evmonly.StateWriter` and sinks the
   executor `StateChangeSet`.
 - `discardReceiptSink` sinks Ethereum receipts.
+
+With `--result-sink=file`, the loadtest harness hands pooled
+`evmonly.BlockResult` values to an async writer through the executor's
+`evmonly.ResultSink` interface. The writer appends changesets to
+`changesets.rlp` and receipts to `receipts.rlp` under `--persist-dir`; each
+record is framed as an 8-byte big-endian block height, an 8-byte big-endian RLP
+payload length, and the RLP payload. The files are temporary calibration
+artifacts and are removed when the process exits normally or handles
+`SIGINT`/`SIGTERM`. `sink_enqueue_wait` is the primary backpressure signal: a
+non-zero value means executor workers waited for async sink queue capacity.
 
 Future workloads should add another workload builder beside `transferWorkload`,
 `erc20TransferWorkload`, and `snapshotRevertWorkload`, then reuse the same

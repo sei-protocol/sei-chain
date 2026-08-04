@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -384,6 +385,54 @@ func TestRunPrebuiltBlocks(t *testing.T) {
 	require.NoError(t, run(cfg))
 }
 
+func TestPrepareBlocksCancelsWorkersOnOrderingInvariantError(t *testing.T) {
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--report-interval=0",
+		"--queue-size=1",
+		"--prepare-workers=1",
+	})
+	require.NoError(t, err)
+	blocks := make(chan blockEnvelope, 2)
+	blocks <- blockEnvelope{number: 1}
+	blocks <- blockEnvelope{number: 1}
+	out := make(chan preparedBlockEnvelope, 1)
+	metrics := newLoadMetrics(prometheus.NewRegistry())
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- prepareBlocks(ctx, cfg, preparedOnlyExecutor{}, blocks, out, metrics)
+	}()
+
+	select {
+	case err := <-errCh:
+		require.ErrorContains(t, err, "prepared block 1 arrived after block 1")
+	case <-ctx.Done():
+		t.Fatal("prepareBlocks timed out after ordering invariant error")
+	}
+}
+
+func TestPrepareBlocksDrainsPreparedBlocksAfterWorkersFinish(t *testing.T) {
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--report-interval=0",
+		"--queue-size=2",
+		"--prepare-workers=1",
+	})
+	require.NoError(t, err)
+	blocks := make(chan blockEnvelope, 2)
+	blocks <- blockEnvelope{number: 1}
+	blocks <- blockEnvelope{number: 2}
+	close(blocks)
+	out := make(chan preparedBlockEnvelope, 2)
+	metrics := newLoadMetrics(prometheus.NewRegistry())
+
+	require.NoError(t, prepareBlocks(context.Background(), cfg, preparedOnlyExecutor{}, blocks, out, metrics))
+	require.Len(t, out, 2)
+}
+
 func TestLoadMetricsRecordsOCCRerunsWithoutConflicts(t *testing.T) {
 	metrics := newLoadMetrics(prometheus.NewRegistry())
 	metrics.recordFinished(4, 84_000, evmonly.OCCStats{
@@ -397,12 +446,29 @@ func TestLoadMetricsRecordsOCCRerunsWithoutConflicts(t *testing.T) {
 	require.Zero(t, snapshot.occConflicts)
 }
 
+func TestBlockContextTimestampIsDeterministic(t *testing.T) {
+	cfg, err := parseConfig([]string{"--metrics-addr="})
+	require.NoError(t, err)
+
+	require.Equal(t, defaultGenesisTimestamp+10, blockContext(cfg, 10).Time)
+	require.Equal(t, blockContext(cfg, 10).Time, blockContext(cfg, 10).Time)
+	require.Less(t, blockContext(cfg, 10).Time, blockContext(cfg, 11).Time)
+}
+
+func TestQueueSizeDefaultPersistQueueOverflowValidation(t *testing.T) {
+	_, err := parseConfig([]string{
+		"--queue-size=" + fmt.Sprint(math.MaxInt),
+	})
+	require.ErrorContains(t, err, "queue-size must be at most")
+}
+
 func TestFileResultSinkWritesRLPRecordsAndCleansUpOnCancel(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := parseConfig([]string{
 		"--metrics-addr=",
 		"--result-sink=file",
 		"--persist-dir=" + dir,
+		"--persist-sync",
 	})
 	require.NoError(t, err)
 	metrics := newLoadMetrics(prometheus.NewRegistry())
@@ -517,6 +583,40 @@ func TestAsyncFileResultSinkStoresBlockResultAndReleases(t *testing.T) {
 	require.Equal(t, uint64(2), snapshot.sinkWritten)
 }
 
+func TestAsyncFileResultSinkReleasesQueuedResultsAfterWriteError(t *testing.T) {
+	dir := t.TempDir()
+	recordFile, err := newAppendRLPFile(filepath.Join(dir, "records.rlp"), 1024, true)
+	require.NoError(t, err)
+	require.NoError(t, recordFile.file.Close())
+	metrics := newLoadMetrics(prometheus.NewRegistry())
+	sink := &asyncFileResultSinks{
+		files: &fileResultSinks{
+			changeSetFile: recordFile,
+			receiptFile:   recordFile,
+			metrics:       metrics,
+		},
+		metrics: metrics,
+		records: make(chan resultSinkRecord, 3),
+		done:    make(chan struct{}),
+	}
+
+	var releases atomic.Uint64
+	for i := 0; i < cap(sink.records); i++ {
+		sink.records <- resultSinkRecord{
+			kind:   resultSinkBlock,
+			result: &evmonly.BlockResult{},
+			release: func() {
+				releases.Add(1)
+			},
+		}
+	}
+	close(sink.records)
+	sink.run()
+
+	require.Error(t, sink.getErr())
+	require.Equal(t, uint64(3), releases.Load())
+}
+
 func TestRunPrebuiltBlocksWithFileResultSinkCleansUp(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := parseConfig([]string{
@@ -534,6 +634,20 @@ func TestRunPrebuiltBlocksWithFileResultSinkCleansUp(t *testing.T) {
 	require.NoError(t, run(cfg))
 	requireNoFileExists(t, filepath.Join(dir, "changesets.rlp"))
 	requireNoFileExists(t, filepath.Join(dir, "receipts.rlp"))
+}
+
+type preparedOnlyExecutor struct{}
+
+func (preparedOnlyExecutor) ExecuteBlock(context.Context, evmonly.BlockRequest) (*evmonly.BlockResult, error) {
+	return nil, errors.New("ExecuteBlock is unused")
+}
+
+func (preparedOnlyExecutor) PrepareBlock(_ context.Context, request evmonly.BlockRequest) (evmonly.PreparedBlock, error) {
+	return evmonly.PreparedBlock{Context: request.Context}, nil
+}
+
+func (preparedOnlyExecutor) ExecutePreparedBlock(context.Context, evmonly.PreparedBlock) (*evmonly.BlockResult, error) {
+	return nil, errors.New("ExecutePreparedBlock is unused")
 }
 
 func readPersistedRLPRecord(t *testing.T, path string, out any) uint64 {
