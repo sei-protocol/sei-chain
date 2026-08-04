@@ -29,6 +29,11 @@ var logger = seilog.NewLogger("db", "state-db", "sc", "composite")
 // For backward compatibility purpose reuse current interface
 var _ types.Committer = (*CompositeCommitStore)(nil)
 
+// errDerivedStore is returned when a load is attempted on a store that does not own the data directory. Loading
+// means re-opening backends, which only the owner may do; a derived store can only serve the version it was
+// built at.
+var errDerivedStore = errors.New("composite: cannot load on a derived store (read-only view or copy)")
+
 // CompositeCommitStore manages multiple commit store backends (Cosmos/memiavl and FlatKV)
 // and routes operations based on the configured migration strategy.
 type CompositeCommitStore struct {
@@ -105,6 +110,12 @@ type CompositeCommitStore struct {
 	// the between-blocks-write / unsynchronized-read contract used by the
 	// other sticky flags on this struct.
 	migrationBatchSize atomic.Int64
+
+	// derived marks a store that does not own the data directory: the read-only view returned by
+	// LoadVersionReadOnly and the in-memory snapshot returned by Copy. Such a store serves reads at the version
+	// it was built at and refuses every load, so a caller that adopted one cannot silently keep loading through
+	// it and end up served from the wrong height.
+	derived bool
 
 	// migrationAdvancedThisCommit gates per-block migration progress
 	// against rootmulti.Store's double-flush pattern. rootmulti calls
@@ -312,6 +323,9 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 // rewinding the flatkv data directory — and it produced a store that could not commit anyway — so callers that
 // ask for a past version get a view and must use the returned Committer rather than this one.
 func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
+	if cs.derived {
+		return nil, errDerivedStore
+	}
 	if readOnly || targetVersion != 0 {
 		return cs.LoadVersionReadOnly(targetVersion)
 	}
@@ -321,6 +335,9 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 // LoadLatest opens both backends at their latest persisted versions, reconciles a torn commit between them,
 // resolves the effective write mode and builds the router. The store is committable afterwards.
 func (cs *CompositeCommitStore) LoadLatest() error {
+	if cs.derived {
+		return errDerivedStore
+	}
 	if cs.memIAVL != nil {
 		// memiavl's Committer signature is pinned; (0, false) is its load-latest-writable path.
 		loaded, err := cs.memIAVL.LoadVersion(0, false)
@@ -375,6 +392,10 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 // LoadVersionReadOnly returns an isolated read-only composite view at targetVersion (0 = latest). This store
 // is left untouched and must stay open while the view is in use; the caller owns the view and must Close it.
 func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ types.Committer, retErr error) {
+	if cs.derived {
+		return nil, errDerivedStore
+	}
+
 	var memIAVLCommitter *memiavl.CommitStore
 	var flatKVStore flatkv.Store
 
@@ -431,6 +452,7 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 		homeDir: cs.homeDir,
 		config:  cs.config,
 		ctx:     cs.ctx,
+		derived: true,
 	}
 	if err := ro.resolveCurrentWriteMode(false); err != nil {
 		return nil, fmt.Errorf("failed to resolve effective write mode for read-only handle: %w", err)
@@ -1146,6 +1168,7 @@ func (cs *CompositeCommitStore) Copy() types.Committer {
 		config:           cs.config,
 		currentWriteMode: cs.currentWriteMode,
 		ctx:              cs.ctx,
+		derived:          true,
 	}
 	if err := snap.buildRouter(); err != nil {
 		if releaseErr := cosmosCopy.ReleaseSnapshotRefs(); releaseErr != nil {

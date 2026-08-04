@@ -110,3 +110,50 @@ func TestComposite_Auto_ReadOnlyPreEraHeightOnNeverLoadedStore(t *testing.T) {
 	defer func() { _ = inEraStore.Close() }()
 	require.NotNil(t, inEraStore.flatKV, "in-era heights must keep loading flatkv")
 }
+
+// TestDerivedStoreRefusesLoads pins that a store which does not own the data directory rejects every load.
+// Adopting a view and continuing to load through it used to depend on the view's backend mix to fail: a
+// flatkv-carrying view errored ("store is read-only") but a memiavl-only view silently succeeded, leaving reads
+// served from the version the view was built at. This fixture is deliberately memiavl-only, which is the
+// configuration that was silent.
+func TestDerivedStoreRefusesLoads(t *testing.T) {
+	dir := t.TempDir()
+	cfg := autoExportConfig()
+
+	cs := openAutoStoreWithConfig(t, dir, cfg, 100)
+	for i := 1; i <= 3; i++ {
+		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte("k"), Value: []byte{byte(0x10 + i)}},
+			}}},
+		}))
+		_, err := cs.Commit()
+		require.NoError(t, err)
+	}
+	require.Nil(t, cs.flatKV, "fixture precondition: flatkv must not be materialized")
+	require.NoError(t, cs.Close())
+
+	fresh, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	defer func() { _ = fresh.Close() }()
+	require.NoError(t, fresh.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+
+	view, err := fresh.LoadVersion(2, false)
+	require.NoError(t, err)
+	viewStore, ok := view.(*CompositeCommitStore)
+	require.True(t, ok)
+	defer func() { _ = viewStore.Close() }()
+	require.True(t, viewStore.derived, "a read-only view must be marked derived")
+
+	// Every load path must refuse, so a caller that adopted the view cannot keep loading through it.
+	require.ErrorIs(t, viewStore.LoadLatest(), errDerivedStore)
+	_, err = viewStore.LoadVersion(0, false)
+	require.ErrorIs(t, err, errDerivedStore)
+	_, err = viewStore.LoadVersion(2, false)
+	require.ErrorIs(t, err, errDerivedStore)
+	_, err = viewStore.LoadVersionReadOnly(0)
+	require.ErrorIs(t, err, errDerivedStore)
+
+	// The view still serves the height it was built at.
+	require.Equal(t, int64(2), viewStore.Version())
+}
