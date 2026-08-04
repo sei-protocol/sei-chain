@@ -105,8 +105,13 @@ func (k *Keeper) UpsertERCPointer(
 		var ret []byte
 		contractAddr = existingAddr
 		ret, remainingGas, err = evm.GetDeploymentCode(evmModuleAddress, bin, suppliedGas, utils.Big0, existingAddr)
+		if err != nil {
+			return
+		}
 		// Prefer the StateDB Multistore (correct for RunWithOneOff nested CMS) while
 		// billing KV gas to the caller's meter (finite precompile meter in deliver).
+		// Only write on success: a failed GetDeploymentCode can leave ret as nil or
+		// revert data, which must not clobber live pointer bytecode (even transiently).
 		if sdb := state.GetDBImpl(evm.StateDB); sdb != nil {
 			k.SetCode(sdb.Ctx().WithGasMeter(ctx.GasMeter()), contractAddr, ret)
 			sdb.RefreshCodeCache(contractAddr, ret)

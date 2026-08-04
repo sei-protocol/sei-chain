@@ -118,6 +118,55 @@ func TestUpsertERCNativePointerKeepsCodeCacheCoherent(t *testing.T) {
 	require.Equal(t, codeAfter, storeCode)
 }
 
+// TestUpsertERCNativePointerFailedRedeployPreservesCode ensures a failed
+// GetDeploymentCode path does not SetCode (or RefreshCodeCache) over live
+// pointer bytecode — even briefly — before returning the error.
+func TestUpsertERCNativePointerFailedRedeployPreservesCode(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+
+	preserved := []byte{9, 8, 7, 6, 5}
+	var codeAfterFail, storeAfterFail []byte
+	var sizeAfterFail int
+	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
+		addr, err := k.UpsertERCNativePointer(ctx, e, "fail-preserves", utils.ERCMetadata{
+			Name:     "before",
+			Symbol:   "before",
+			Decimals: 6,
+		})
+		if err != nil {
+			return err
+		}
+		sdb := state.GetDBImpl(e.StateDB)
+		if sdb == nil {
+			return errors.New("expected DBImpl StateDB")
+		}
+		sdb.SetCode(addr, preserved)
+		require.Equal(t, preserved, sdb.GetCode(addr))
+
+		// Finite cosmos meter large enough for the pointer-registry getter reads, but
+		// small enough that GetDeploymentCode OOGs (normalizer is 1 in tests). StateDB
+		// KV metering stays on the infinite RunWithOneOff meter.
+		lowGasCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, 50_000))
+		_, err = k.UpsertERCNativePointer(lowGasCtx, e, "fail-preserves", utils.ERCMetadata{
+			Name:     "after",
+			Symbol:   "after",
+			Decimals: 8,
+		})
+		require.Error(t, err)
+
+		codeAfterFail = sdb.GetCode(addr)
+		sizeAfterFail = sdb.GetCodeSize(addr)
+		storeAfterFail = k.GetCode(sdb.Ctx(), addr)
+		return nil
+	}, func(string, string) {})
+	require.NoError(t, err)
+	require.Equal(t, preserved, codeAfterFail)
+	require.Equal(t, len(preserved), sizeAfterFail)
+	require.Equal(t, preserved, storeAfterFail)
+}
+
 func TestUpsertERC20Pointer(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
