@@ -110,7 +110,7 @@ func (v View) Verify(ep *Epoch) error {
 		return fmt.Errorf("epoch_index = %d, want %d", got, want)
 	}
 	if rr := ep.RoadRange(); !rr.Has(v.Index) {
-		return fmt.Errorf("road_index %v not in epoch roads [%v, %v]", v.Index, rr.First, rr.Last)
+		return fmt.Errorf("road_index %v not in epoch roads [%v, %v)", v.Index, rr.First, rr.Next)
 	}
 	return nil
 }

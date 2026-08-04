@@ -321,15 +321,6 @@ func (s *State) loadFromBlockDB(blockDB types.BlockDB) error {
 // Registry returns the epoch registry.
 func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
 
-// FirstAppProposal is the first global number for which AppProposal may become
-// available. Requests below it return ErrPruned.
-func (s *State) FirstAppProposal() types.GlobalBlockNumber {
-	for inner := range s.inner.Lock() {
-		return inner.first
-	}
-	panic("unreachable")
-}
-
 // insertBlocksByHash matches byHash against stored (already verified) QC
 // headers over gr ∩ [nextBlock, nextQC) and inserts hits. Advances nextBlock
 // when the contiguous prefix grows. Caller must hold inner's lock.
@@ -673,18 +664,14 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 	return nil
 }
 
-// AppProposal returns the AppProposal containing the block n.
-// WARNING: currently we do not enforce all blocks to have AppProposal, therefore
-// an AppProposal for a later block might be returned instead.
-func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*types.AppProposal, *types.FullCommitQC, error) {
+// AppVote returns an appVote for a block >= n. 
+func (s *State) AppVote(ctx context.Context, n types.GlobalBlockNumber) (*types.AppVote, *types.FullCommitQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextAppProposal }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return max(inner.nextAppQC,n) < inner.nextAppProposal }); err != nil {
 			return nil, nil, err
 		}
-		if n < inner.first {
-			return nil, nil, types.ErrPruned
-		}
-		return inner.appProposals[n], inner.qcs[n], nil 
+		n := max(inner.nextAppQC,n)
+		return types.NewAppVote(inner.appProposals[n]), inner.qcs[n], nil 
 	}
 	panic("unreachable")
 }

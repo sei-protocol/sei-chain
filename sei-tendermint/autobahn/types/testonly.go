@@ -294,7 +294,7 @@ func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
 	first := RoadIndex(rng.Uint64() % 1000)
 	return NewEpoch(
 		GenEpochIndex(rng),
-		RoadRange{First: first, Last: first + RoadIndex(rng.Uint64()%10000) + 10},
+		RoadRange{First: first, Next: first + RoadIndex(rng.Uint64()%10000) + 10},
 		utils.GenTimestamp(rng),
 		committee,
 		GlobalBlockNumber(rng.Uint64()%1000000)+1,

@@ -12,15 +12,15 @@ type EpochIndex uint64
 // RoadRange is an inclusive range of RoadIndex values [First, Last].
 type RoadRange struct {
 	First RoadIndex
-	Last  RoadIndex
+	Next  RoadIndex
 }
 
 // OpenRoadRange returns a RoadRange covering all road indices from 0.
 // Use in tests and genesis epochs where no upper bound is known yet.
-func OpenRoadRange() RoadRange { return RoadRange{First: 0, Last: utils.Max[RoadIndex]()} }
+func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[RoadIndex]()} }
 
 // Has reports whether idx falls within this range (inclusive on both ends).
-func (r RoadRange) Has(idx RoadIndex) bool { return idx >= r.First && idx <= r.Last }
+func (r RoadRange) Has(idx RoadIndex) bool { return r.First <= idx && idx < r.Next }
 
 // Epoch holds the complete context for a single epoch.
 // Retrieved from the local Registry; never transmitted on the wire.

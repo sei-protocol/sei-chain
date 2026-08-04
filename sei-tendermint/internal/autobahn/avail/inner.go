@@ -52,7 +52,7 @@ type inner struct {
 // commitQCs are sorted by road index; blocks are sorted by number per lane.
 // newInner requires both to be contiguous and returns an error on gaps.
 type loadedAvailState struct {
-	commitQCs   []persist.LoadedCommitQC
+	commitQCs   []*types.CommitQC
 	blocks      map[types.LaneID][]persist.LoadedBlock
 }
 
@@ -95,14 +95,16 @@ func newInner(ds *data.State, loaded utils.Option[*loadedAvailState]) (*inner, e
 
 	// Restore persisted CommitQCs. prune() may have already pushed the
 	// anchor's CommitQC, so skip entries below commitQCs.next.
-	for _, lqc := range l.commitQCs {
-		if lqc.Index < i.roads.next {
+	for _, qc := range l.commitQCs {
+		if qc.Index() < i.roads.next {
 			continue
 		}
-		if lqc.Index != i.roads.next {
-			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", i.roads.next, lqc.Index)
+		if qc.Index() != i.roads.next {
+			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", i.roads.next, qc.Index())
 		}
-		i.roads.pushBack(newRoad(lqc.QC, epoch))
+		epoch,ok := ds.Registry().EpochByIndex(qc.Proposal().EpochIndex())
+		if !ok { return nil, fmt.Errorf("epoch not found") }
+		i.roads.pushBack(newRoad(qc, epoch))
 	}
 	if i.roads.Len()>0 {
 		i.latestCommitQC.Store(utils.Some(i.roads.q[i.roads.next-1].commitQC))

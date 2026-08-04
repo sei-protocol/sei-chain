@@ -116,17 +116,15 @@ type laneWAL struct {
 	state utils.Mutex[*laneWALState]
 }
 
-func (lw *laneWAL) maybePruneAndPersist(
+func (lw *laneWAL) persist(
 	lane types.LaneID,
-	anchor utils.Option[*types.CommitQC],
+	first types.BlockNumber,
 	proposals []*types.Signed[*types.LaneProposal],
 	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
 ) error {
 	for s := range lw.state.Lock() {
-		if qc, ok := anchor.Get(); ok {
-			if err := s.truncateForAnchor(lane, qc.LaneRange(lane).First()); err != nil {
-				return err
-			}
+		if err := s.truncateForAnchor(lane, first); err != nil {
+			return err
 		}
 		for _, p := range proposals {
 			if p.Msg().Block().Header().Lane() != lane {
@@ -294,9 +292,9 @@ func (bp *BlockPersister) getOrCreateLane(lane types.LaneID) (*laneWAL, error) {
 //
 // The per-lane lock is held for the entire truncate-then-append sequence,
 // so concurrent calls on the same lane serialize correctly.
-func (bp *BlockPersister) MaybePruneAndPersistLane(
+func (bp *BlockPersister) Persist(
 	lane types.LaneID,
-	anchor utils.Option[*types.CommitQC],
+	first types.BlockNumber,
 	proposals []*types.Signed[*types.LaneProposal],
 	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
 ) error {
@@ -313,7 +311,7 @@ func (bp *BlockPersister) MaybePruneAndPersistLane(
 	if err != nil {
 		return err
 	}
-	return lw.maybePruneAndPersist(lane, anchor, proposals, afterEach)
+	return lw.persist(lane, first, proposals, afterEach)
 }
 
 // close shuts down all per-lane WALs. Internal: only used by tests and
