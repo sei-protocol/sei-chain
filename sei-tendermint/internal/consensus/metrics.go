@@ -90,9 +90,10 @@ type Metrics struct {
 	BlockGossipPartsReceived tmprometheus.CounterIntVec `metrics_labels:"matches_current"`
 
 	// NonCanonicalProposalParts counts complete proposal assemblies rejected
-	// because the part bytes were not the canonical protobuf encoding of the
-	// decoded block (or the proposal BlockID hash mismatched). Labeled by the
-	// consensus step at rejection time so post-commit stalls are alertable.
+	// because the assembled PartSetHeader did not equal
+	// MakePartSet(block, BlockPartSizeBytes) — non-canonical encoding or
+	// non-default chunking. Labeled by the consensus step at rejection time so
+	// post-commit stalls are alertable.
 	//metrics:Number of non-canonical complete proposal part sets rejected, labeled by consensus step.
 	NonCanonicalProposalParts tmprometheus.CounterIntVec `metrics_labels:"step"`
 

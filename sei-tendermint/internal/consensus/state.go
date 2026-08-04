@@ -2173,7 +2173,7 @@ func (cs *State) addProposalBlockPart(
 		for m := range cs.metrics.Lock() {
 			m.MarkBlockGossipComplete()
 		}
-		block, _, err := cs.getBlockFromBlockParts()
+		block, err := cs.getBlockFromBlockParts()
 		if err != nil {
 			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
 			return false, err
@@ -2202,27 +2202,27 @@ func (cs *State) addProposalBlockPart(
 	return added, nil
 }
 
-func (cs *State) getBlockFromBlockParts() (*types.Block, []byte, error) {
+func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
 	bz, err := io.ReadAll(cs.roundState.ProposalBlockParts().GetReader())
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if err := protoutils.Scan[*tmproto.Block](bz); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	var pbb = new(tmproto.Block)
 	err = proto.Unmarshal(bz, pbb)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	block, err := types.BlockFromProto(pbb)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return block, bz, nil
+	return block, nil
 }
 
 func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
@@ -2245,7 +2245,7 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 	}
 	// If we just have all the parts, reconstruct the block.
 	if parts.IsComplete() {
-		block, _, err := cs.getBlockFromBlockParts()
+		block, err := cs.getBlockFromBlockParts()
 		if err != nil {
 			// This can happen if the BlockParts header is broken.
 			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())

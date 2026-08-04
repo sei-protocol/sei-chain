@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"io"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
@@ -161,18 +162,24 @@ func TestCanonicalPartBytesRoundTripShapes(t *testing.T) {
 			parts, err := tc.block.MakePartSet(types.BlockPartSizeBytes)
 			require.NoError(t, err)
 
+			// Production path: assemble part bytes → decode → remake PartSetHeader.
+			// Comparing MakePartSet(tc.block) to itself would be a tautology; the
+			// invariant is that MakePartSet(decoded) reproduces the proposer's header.
+			bz, err := io.ReadAll(parts.GetReader())
+			require.NoError(t, err)
+			var pbb tmproto.Block
+			require.NoError(t, proto.Unmarshal(bz, &pbb))
+			decoded, err := types.BlockFromProto(&pbb)
+			require.NoError(t, err)
+
 			cs.roundState.SetProposal(nil)
 			cs.roundState.SetProposalBlockParts(parts)
-			require.NoError(t, cs.verifyCanonicalProposalParts(tc.block))
+			require.NoError(t, cs.verifyCanonicalProposalParts(decoded))
 
 			// Trailing unknown field → different PartSetHeader under the same chunk size.
-			pbb, err := tc.block.ToProto()
-			require.NoError(t, err)
-			bz, err := proto.Marshal(pbb)
-			require.NoError(t, err)
 			junk := append(append([]byte{}, bz...), 0xba, 0x3e, 0x04, 'j', 'u', 'n', 'k')
 			cs.roundState.SetProposalBlockParts(types.NewPartSetFromData(junk, types.BlockPartSizeBytes))
-			err = cs.verifyCanonicalProposalParts(tc.block)
+			err = cs.verifyCanonicalProposalParts(decoded)
 			require.ErrorIs(t, err, ErrNonCanonicalProposalParts)
 		})
 	}
