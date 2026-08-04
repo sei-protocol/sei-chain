@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"encoding/binary"
+	"fmt"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -1666,14 +1668,88 @@ func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
 		}},
 	}
 
+	hashBefore := s.workingLtHash.Clone()
 	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid nonce value length")
 
-	// The storage write may have been buffered before the error.
-	// Verify the store doesn't panic and can still accept new operations.
+	// Failed Apply must leave pending maps and working hash untouched so a
+	// later Commit cannot flush orphaned rows against a stale AppHash.
+	require.Empty(t, s.storageWrites)
+	require.Empty(t, s.accountWrites)
+	require.Empty(t, s.pendingChangeSets)
+	require.Equal(t, int64(0), s.pendingBlockHeight)
+	require.True(t, s.workingLtHash.Equal(hashBefore))
+
 	validCS := makeChangeSet(storageKey, padLeft32(0xBB), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{validCS}))
+}
+
+// TestApplyChangeSetsKeepsPendingCleanOnLaterParseError covers the case where
+// an earlier DB kind would previously have been maps.Copy'd into the pending
+// overlay before a later process*Changes failure — leaving rows that Commit
+// could persist while working LtHash still reflected the pre-failure state.
+func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0xCC)
+	slot := slotN(0x02)
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+
+	hashBefore := s.workingLtHash.Clone()
+	cs := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: nonceBytes(7)},
+			{Key: storageKey, Value: []byte{0x01}}, // not 32 bytes — fails processStorageChanges
+		}},
+	}
+
+	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to parse storage changes")
+
+	require.Empty(t, s.accountWrites, "account rows must not buffer before storage validation finishes")
+	require.Empty(t, s.storageWrites)
+	require.Empty(t, s.pendingChangeSets)
+	require.Equal(t, int64(0), s.pendingBlockHeight)
+	require.True(t, s.workingLtHash.Equal(hashBefore))
+
+	// A subsequent Commit must not invent on-disk state for the failed apply.
+	_, err = s.Commit(s.Version() + 1)
+	require.NoError(t, err)
+	require.True(t, s.workingLtHash.Equal(hashBefore))
+	require.Empty(t, s.accountWrites)
+	require.Empty(t, s.storageWrites)
+}
+
+// TestApplyChangeSetsKeepsPendingCleanOnComputeError covers the Bugbot finding:
+// prepareWrites used to maps.Copy into pending maps before ltCalc.Compute. If
+// Compute then failed, pending rows could diverge from working LtHash metadata.
+func TestApplyChangeSetsKeepsPendingCleanOnComputeError(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	s.ltCalc = lthash.NewHashCalculator(s.ltHashPool, dataDBDirs, func([]byte) (string, error) {
+		return "", fmt.Errorf("injected moduleOf failure")
+	})
+
+	addr := addrN(0xDD)
+	slot := slotN(0x03)
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	hashBefore := s.workingLtHash.Clone()
+
+	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		makeChangeSet(storageKey, padLeft32(0xEE), false),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "injected moduleOf failure")
+
+	require.Empty(t, s.storageWrites)
+	require.Empty(t, s.pendingChangeSets)
+	require.Equal(t, int64(0), s.pendingBlockHeight)
+	require.True(t, s.workingLtHash.Equal(hashBefore))
 }
 
 func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {

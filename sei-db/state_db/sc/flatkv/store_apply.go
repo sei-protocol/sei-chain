@@ -57,17 +57,22 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 	if err != nil {
 		return err
 	}
-	pairSets, counts, err := s.prepareWrites(changesByType, version)
+	// Parse and gather first; do not touch pending-write maps or LtHash until
+	// Compute succeeds. Otherwise a later parse/Compute error would leave
+	// pending rows that Commit could flush while working hashes still reflect
+	// the pre-failure state.
+	prepared, err := s.prepareWrites(changesByType, version)
 	if err != nil {
 		return err
 	}
 
 	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
-	res, err := s.ltCalc.Compute(pairSets, s.perDBWorkingLtHash, s.perDBModuleWorkingLtHash, s.perDBModuleWorkingStats)
+	res, err := s.ltCalc.Compute(prepared.pairSets, s.perDBWorkingLtHash, s.perDBModuleWorkingLtHash, s.perDBModuleWorkingStats)
 	if err != nil {
 		return err
 	}
 
+	s.bufferPreparedWrites(prepared)
 	s.perDBWorkingLtHash = res.PerDB
 	s.perDBModuleWorkingLtHash = res.PerModule
 	s.perDBModuleWorkingStats = res.PerModuleStats
@@ -76,6 +81,7 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 	s.pendingBlockHeight = version
 
 	s.phaseTimer.SetPhase("apply_change_done")
+	counts := prepared.counts
 	logger.Debug("FlatKV ApplyChangeSets complete",
 		"version", version,
 		"changesets", len(changeSets),
@@ -89,15 +95,29 @@ type applyCounts struct {
 	accountWrites, storageWrites, codeWrites, miscWrites int
 }
 
-// prepareWrites reads prior values, applies EVM value semantics, buffers the
-// resulting rows into the pending-write maps, and returns per-DB LtHash pairs
-// for Compute. Only accounts need old values in structured form (to merge
-// partial nonce/codehash updates); other DBs pass raw old bytes through.
+// preparedWrites holds the fully-validated per-DB rows and LtHash pairs for one
+// ApplyChangeSets call. Pending maps and metrics are updated only after
+// ltCalc.Compute succeeds (see bufferPreparedWrites).
+type preparedWrites struct {
+	accounts map[string]*vtype.AccountData
+	storage  map[string]*vtype.StorageData
+	code     map[string]*vtype.CodeData
+	misc     map[string]*vtype.MiscData
+	pairSets []lthash.DBPairs
+	counts   applyCounts
+}
+
+// prepareWrites reads prior values, applies EVM value semantics, and returns
+// per-DB rows plus LtHash pairs for Compute. It does not mutate the store's
+// pending-write maps: every DB kind is validated first so a mid-batch parse
+// error cannot leave a partial overlay. Only accounts need old values in
+// structured form (to merge partial nonce/codehash updates); other DBs pass
+// raw old bytes through.
 func (s *CommitStore) prepareWrites(
 	changesByType map[keys.EVMKeyKind]map[string][]byte,
 	blockHeight int64,
-) ([]lthash.DBPairs, applyCounts, error) {
-	var counts applyCounts
+) (preparedWrites, error) {
+	var out preparedWrites
 
 	s.phaseTimer.SetPhase("apply_change_sets_batch_read")
 	readStart := time.Now()
@@ -105,7 +125,7 @@ func (s *CommitStore) prepareWrites(
 	otelMetrics.BatchReadOldValuesLatency.Record(s.ctx, secondsSince(readStart),
 		metric.WithAttributes(successAttr(err)))
 	if err != nil {
-		return nil, counts, fmt.Errorf("failed to batch read old values: %w", err)
+		return out, fmt.Errorf("failed to batch read old values: %w", err)
 	}
 
 	s.phaseTimer.SetPhase("apply_change_sets_gather_pairs")
@@ -113,7 +133,7 @@ func (s *CommitStore) prepareWrites(
 	// Account: merge partial nonce/codehash updates onto the old account.
 	accountOld, err := deserializeAccountOld(oldByDB[accountDBDir])
 	if err != nil {
-		return nil, counts, err
+		return out, err
 	}
 	accountUpdates, err := mergeAccountUpdates(
 		changesByType[keys.EVMKeyNonce],
@@ -121,37 +141,54 @@ func (s *CommitStore) prepareWrites(
 		nil, // TODO: update this when we add a balance key!
 	)
 	if err != nil {
-		return nil, counts, fmt.Errorf("failed to gather account updates: %w", err)
+		return out, fmt.Errorf("failed to gather account updates: %w", err)
 	}
 	newAccounts := deriveNewAccountValues(accountUpdates, accountOld, blockHeight)
-	accountPairs := gatherPairs(newAccounts, oldByDB[accountDBDir])
-	maps.Copy(s.accountWrites, newAccounts)
-	counts.accountWrites = len(newAccounts)
 
 	storageWrites, err := processStorageChanges(changesByType[keys.EVMKeyStorage], blockHeight)
 	if err != nil {
-		return nil, counts, fmt.Errorf("failed to parse storage changes: %w", err)
+		return out, fmt.Errorf("failed to parse storage changes: %w", err)
 	}
-	storagePairs := gatherPairs(storageWrites, oldByDB[storageDBDir])
-	maps.Copy(s.storageWrites, storageWrites)
-	counts.storageWrites = len(storageWrites)
 
 	codeWrites, err := processCodeChanges(changesByType[keys.EVMKeyCode], blockHeight)
 	if err != nil {
-		return nil, counts, fmt.Errorf("failed to parse code changes: %w", err)
+		return out, fmt.Errorf("failed to parse code changes: %w", err)
 	}
-	codePairs := gatherPairs(codeWrites, oldByDB[codeDBDir])
-	maps.Copy(s.codeWrites, codeWrites)
-	counts.codeWrites = len(codeWrites)
 
 	miscWrites, err := processMiscChanges(changesByType[keys.EVMKeyMisc], blockHeight)
 	if err != nil {
-		return nil, counts, fmt.Errorf("failed to parse misc changes: %w", err)
+		return out, fmt.Errorf("failed to parse misc changes: %w", err)
 	}
-	miscPairs := gatherPairs(miscWrites, oldByDB[miscDBDir])
-	maps.Copy(s.miscWrites, miscWrites)
-	counts.miscWrites = len(miscWrites)
 
+	out.accounts = newAccounts
+	out.storage = storageWrites
+	out.code = codeWrites
+	out.misc = miscWrites
+	out.counts = applyCounts{
+		accountWrites: len(newAccounts),
+		storageWrites: len(storageWrites),
+		codeWrites:    len(codeWrites),
+		miscWrites:    len(miscWrites),
+	}
+	out.pairSets = []lthash.DBPairs{
+		{Dir: storageDBDir, Pairs: gatherPairs(storageWrites, oldByDB[storageDBDir])},
+		{Dir: accountDBDir, Pairs: gatherPairs(newAccounts, oldByDB[accountDBDir])},
+		{Dir: codeDBDir, Pairs: gatherPairs(codeWrites, oldByDB[codeDBDir])},
+		{Dir: miscDBDir, Pairs: gatherPairs(miscWrites, oldByDB[miscDBDir])},
+	}
+	return out, nil
+}
+
+// bufferPreparedWrites copies a successful ApplyChangeSets batch into the
+// pending-write maps and records the corresponding metrics. Called only after
+// ltCalc.Compute has succeeded so pending rows and working hashes stay aligned.
+func (s *CommitStore) bufferPreparedWrites(prepared preparedWrites) {
+	maps.Copy(s.accountWrites, prepared.accounts)
+	maps.Copy(s.storageWrites, prepared.storage)
+	maps.Copy(s.codeWrites, prepared.code)
+	maps.Copy(s.miscWrites, prepared.misc)
+
+	counts := prepared.counts
 	addKVPairs(s.ctx, accountDBDir, counts.accountWrites)
 	addKVPairs(s.ctx, storageDBDir, counts.storageWrites)
 	addKVPairs(s.ctx, codeDBDir, counts.codeWrites)
@@ -160,13 +197,6 @@ func (s *CommitStore) prepareWrites(
 	recordPendingWrites(s.ctx, storageDBDir, len(s.storageWrites))
 	recordPendingWrites(s.ctx, codeDBDir, len(s.codeWrites))
 	recordPendingWrites(s.ctx, miscDBDir, len(s.miscWrites))
-
-	return []lthash.DBPairs{
-		{Dir: storageDBDir, Pairs: storagePairs},
-		{Dir: accountDBDir, Pairs: accountPairs},
-		{Dir: codeDBDir, Pairs: codePairs},
-		{Dir: miscDBDir, Pairs: miscPairs},
-	}, counts, nil
 }
 
 // keysByDBFromClassified maps the per-kind classified changes to the set of
