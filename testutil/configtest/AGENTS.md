@@ -134,6 +134,26 @@ go test ./<pkg>/ -run FuzzXxx -fuzz FuzzXxx -fuzztime 60s   # extend a target by
 Seeds cover every row on an ordinary run. Running the fuzzer by hand explores past
 the seeds and is worth doing when changing a reader's cast or its guard.
 
+## Comparing two resolved vipers
+
+Two managers, two boots, or a before/after both reduce to "did these resolve the same
+values". Compare `Settings`, and report with `DumpViper`.
+
+- `configtest.Settings` is the value you assert on: a flat map from dotted key to what
+  `Get` returns, one entry per `AllKeys` entry. Use it, not `Viper.AllSettings`.
+  `AllSettings` re-nests the flat key space by splitting on `.`, so when one key is a
+  dotted prefix of another it drops one of them depending on map iteration order, and
+  an equality assertion between two of them can fail on identical input. It also omits
+  every key whose `Get` returns nil, so a key one side enumerates and resolves to
+  nothing looks the same as a key the other side never enumerated at all.
+- `configtest.DumpViper` is for the failure message, not the assertion. It renders one
+  sorted, type-qualified line per key, which is what a human reads — but it joins with
+  newlines and does not quote keys, and a TOML key may legally contain a newline, so two
+  different key sets can render identically. Assert on the map; print the dump.
+- `Settings` panics on a nil viper, deliberately. A `server.Context` carries no viper
+  until `Apply` populates one, and a nil-tolerant comparison would let two contexts
+  nobody populated compare equal and report a parity that was never established.
+
 ## Hermeticity
 
 These tests control more than the arguments to the function under test, because the
