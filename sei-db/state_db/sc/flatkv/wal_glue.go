@@ -8,8 +8,9 @@ import (
 )
 
 // This file holds how FlatKV locates and opens its injected state WAL. The WAL's use during normal
-// operation lives with the operations that use it — writes in Commit (store_write.go), replay in catchup
-// (store_catchup.go), tail-truncate/prune in Rollback and tryTruncateWAL (snapshot.go), and the
+// operation lives with the operations that use it — writes in Commit (store_write.go), replay in
+// replayIntoMutableStore / replayIntoReadOnlyCopy (store_replay.go), tail-truncate/prune in Rollback and
+// tryTruncateWAL (snapshot.go), and the
 // import/restore reset in resetWAL (store.go, next to resetForImport).
 
 // OpenStateWAL opens (or creates, recovering any prior session) the state WAL for a FlatKV store configured

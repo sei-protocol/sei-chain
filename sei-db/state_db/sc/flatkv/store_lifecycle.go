@@ -70,7 +70,7 @@ func (s *CommitStore) closeDBsOnly() error {
 //
 // Close does not coordinate with concurrent operations: it releases resources they still hold, and no lock
 // guards them against it. Callers need not quiesce first — a background export replaying this store's WAL into
-// a read-only clone (see replayInto) ends with a closed-WAL error.
+// a read-only clone (see replayIntoReadOnlyCopy) ends with a closed-WAL error.
 //
 // That overlap includes an unsynchronized read of the WAL's closed flag. The racing read either observes the
 // flag or falls through to the WAL's own closed check, so it changes nothing a caller can see, but a test that

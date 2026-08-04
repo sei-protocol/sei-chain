@@ -1131,7 +1131,7 @@ func TestCatchupWithEmptyWAL(t *testing.T) {
 	defer s.Close()
 
 	// Store has no commits: catchup with empty WAL should be a no-op.
-	require.NoError(t, s.catchup(0))
+	require.NoError(t, s.replayIntoMutableStore(0))
 	require.Equal(t, int64(0), s.Version())
 }
 

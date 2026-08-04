@@ -473,7 +473,7 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 	// The clone is open at a snapshot boundary with a nil WAL. Replay this (primary) store's WAL into it up
 	// to targetVersion so it reflects the exact requested height. The clone is not yet marked read-only, so
 	// the replay's ApplyChangeSets calls are permitted; mark it read-only only once replay succeeds.
-	if err := s.replayInto(ro, targetVersion); err != nil {
+	if err := s.replayIntoReadOnlyCopy(ro, targetVersion); err != nil {
 		return nil, err
 	}
 
@@ -488,93 +488,12 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 	return ro, nil
 }
 
-// replayInto replays this store's WAL into a read-only clone, advancing the clone from the snapshot
-// boundary it opened at up to targetVersion (or this store's latest WAL block when targetVersion <= 0). It
-// exists because the clone has a nil WAL: the primary owns the WAL, so the primary reads it and feeds each
-// block into the clone via applyAndCommit (which never touches a WAL).
-//
-// The WAL must still reach back to the block after the clone's snapshot boundary. If it begins later than
-// that, the blocks the clone needs are gone and this fails rather than serving a clone with a hole in it.
-//
-// Concurrency: export runs in a background goroutine while this (primary) store may still be committing.
-// The iterator is constructed under s.mu, serializing against a concurrent Commit's WAL-wrapper access;
-// iteration then proceeds lock-free, because a seiwal iterator reads a consistent point-in-time (hard-link)
-// snapshot that concurrent appends/prunes cannot disturb. Teardown is the other overlap: a Close racing an
-// in-flight export ends it with a closed-WAL error rather than being held off (see Close).
-func (s *CommitStore) replayInto(clone *CommitStore, targetVersion int64) (retErr error) {
-	if s.wal == nil {
-		// nil WAL: the outer context owns the pipeline, so no between-snapshot replay is available here. The
-		// clone can only serve the snapshot boundary it opened at.
-		if targetVersion > 0 && clone.committedVersion != targetVersion {
-			return fmt.Errorf("readonly: nil WAL cannot replay to version %d (opened at %d)",
-				targetVersion, clone.committedVersion)
-		}
-		return nil
-	}
-
-	s.mu.Lock()
-	ok, first, last, err := s.wal.GetStoredRange()
-	if err != nil {
-		s.mu.Unlock()
-		return fmt.Errorf("readonly: WAL range: %w", err)
-	}
-	if !ok {
-		s.mu.Unlock()
-		return nil // empty WAL: nothing to replay
-	}
-
-	// Replay from the block after the snapshot boundary the clone opened at. Blocks are contiguous and the
-	// first block is 1, so a clone at version 0 must start at block 1; a WAL that begins later is a gap,
-	// caught below. Same rule as catchup, which this must match.
-	start := uint64(clone.committedVersion) + 1 //nolint:gosec // committedVersion >= 0
-	end := last
-	if targetVersion > 0 && uint64(targetVersion) < end {
-		end = uint64(targetVersion)
-	}
-	if end < start {
-		s.mu.Unlock()
-		return nil // clone already at or beyond target
-	}
-	if first > start {
-		// We are about to replay, but the primary's WAL no longer reaches back to this clone's snapshot, so
-		// the blocks the clone needs are gone. Only the export fails — the primary's own state is untouched.
-		s.mu.Unlock()
-		return fmt.Errorf("readonly: WAL starts at block %d but the clone needs block %d: "+
-			"blocks %d-%d are missing (data loss or corruption)", first, start, start, first-1)
-	}
-	it, err := s.wal.Iterator(start, end)
-	s.mu.Unlock()
-	if err != nil {
-		return fmt.Errorf("readonly: WAL iterator [%d,%d]: %w", start, end, err)
-	}
-	defer func() {
-		if cerr := it.Close(); cerr != nil && retErr == nil {
-			retErr = fmt.Errorf("readonly: close WAL iterator: %w", cerr)
-		}
-	}()
-
-	for {
-		hasNext, nErr := it.Next()
-		if nErr != nil {
-			return fmt.Errorf("readonly: WAL iterate: %w", nErr)
-		}
-		if !hasNext {
-			break
-		}
-		block, changesets := it.Entry()
-		if err := clone.applyAndCommit(int64(block), changesets); err != nil { //nolint:gosec // block <= end
-			return fmt.Errorf("readonly: replay block %d: %w", block, err)
-		}
-	}
-	return nil
-}
-
 // openReadOnly opens PebbleDBs in readOnlyWorkDir at the snapshot boundary at or below targetVersion,
 // leaving committedVersion at that snapshot version. It never modifies the global "current" symlink.
 //
 // This clone has a nil WAL of its own, so it does NOT replay: advancing from the snapshot boundary up to
-// targetVersion — and marking the store read-only — is driven by the primary via loadVersionReadOnly /
-// replayInto, which feeds the primary's WAL into this clone.
+// targetVersion — and marking the store read-only — is driven by the primary via LoadVersionReadOnly /
+// replayIntoReadOnlyCopy, which feeds the primary's WAL into this clone.
 func (s *CommitStore) openReadOnly(targetVersion int64) error {
 	s.clearPendingWrites()
 
@@ -619,7 +538,7 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 	if err := s.open(); err != nil {
 		return err
 	}
-	return s.catchup(catchupTarget)
+	return s.replayIntoMutableStore(catchupTarget)
 }
 
 // open opens all database instances.

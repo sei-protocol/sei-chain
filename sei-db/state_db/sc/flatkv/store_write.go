@@ -182,7 +182,7 @@ func (s *CommitStore) clearPendingWrites() {
 // commitBatches commits pending writes to their respective DBs atomically.
 // Each DB batch includes LocalMeta update for crash recovery.
 // Batches are built serially, then committed in parallel.
-// Also called by catchup to replay WAL without re-writing changelog.
+// Also called by the replay paths to replay WAL without re-writing changelog.
 func (s *CommitStore) commitBatches(version int64) error {
 	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
 

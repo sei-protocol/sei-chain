@@ -614,6 +614,12 @@ func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int6
 //
 // An unreachable target is rejected before anything is modified.
 //
+// Not safe to call concurrently with commits, reads or exports: it closes,
+// prunes and reopens the store's WAL, reassigning s.wal, so the caller must
+// have quiesced the store. This is how it is used today — recovery at
+// LoadVersion time — and long term rollback becomes a construction-time
+// concern rather than an action on a live store.
+//
 // Crash safety: the WAL is truncated BEFORE catchup writes any data to
 // PebbleDB. If the process crashes after truncation but before catchup
 // completes, the next restart will simply re-run catchup against the
@@ -679,7 +685,7 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 		s.wal = w
 	}
 
-	if err := s.catchup(targetVersion); err != nil {
+	if err := s.replayIntoMutableStore(targetVersion); err != nil {
 		return fmt.Errorf("catchup after rollback: %w", err)
 	}
 
