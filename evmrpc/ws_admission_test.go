@@ -4,8 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +14,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 )
+
+const errCodeBudgetWaitTimeout = -32005
 
 type wsAdmissionTestService struct{}
 
@@ -123,13 +124,7 @@ func TestEnableWSAdmissionTimeout(t *testing.T) {
 		waitTimeout   = 50 * time.Millisecond
 	)
 
-	makeMsg := func(id int) string {
-		return fmt.Sprintf(
-			`{"jsonrpc":"2.0","id":%d,"method":"test_sleep","params":[%d],"_pad":"%s"}`,
-			id, sleepDuration.Nanoseconds(), strings.Repeat("x", pad),
-		)
-	}
-	payload := makeMsg(1)
+	payload := makeSleepMsg(1, sleepDuration, pad)
 	frameSize := int64(len(payload))
 
 	srv := startWSTestServer(t, WsConfig{
@@ -144,16 +139,22 @@ func TestEnableWSAdmissionTimeout(t *testing.T) {
 	conn := dialWSTestServer(t, srv)
 	defer conn.Close()
 
-	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(payload)))
+	writeWSJSON(t, conn, makeSleepMsg(1, sleepDuration, pad))
+	writeWSJSON(t, conn, makeSleepMsg(2, sleepDuration, pad))
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		_, _, err := conn.ReadMessage()
+	require.Eventually(t, func() bool {
+		_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		_, data, err := conn.ReadMessage()
+		_ = conn.SetReadDeadline(time.Time{})
 		if err != nil {
-			return
+			return false
 		}
-	}
-	t.Fatal("expected websocket connection to close after admission timeout")
+		var resp rpcResponse
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return false
+		}
+		return resp.Error != nil && resp.Error.Code == errCodeBudgetWaitTimeout
+	}, waitTimeout+300*time.Millisecond, 10*time.Millisecond)
 }
 
 func TestWSAdmissionHookBudgetWaitTimeout(t *testing.T) {
@@ -178,47 +179,46 @@ func TestWSAdmissionHookBudgetWaitTimeout(t *testing.T) {
 	})
 	srv.SetWSAdmissionTimeout(waitTimeout)
 
-	makeMsg := func(id int) string {
-		return fmt.Sprintf(
-			`{"jsonrpc":"2.0","id":%d,"method":"test_sleep","params":[%d],"_pad":"%s"}`,
-			id, sleepDuration.Nanoseconds(), strings.Repeat("x", pad),
-		)
-	}
-	payload := makeMsg(1)
+	payload := makeSleepMsg(1, sleepDuration, pad)
 	frameSize := int64(len(payload))
 	srv.SetReadLimits(frameSize)
 	srv.SetWSConcurrentRequestBytes(frameSize)
 
-	p1, p2 := net.Pipe()
-	serveDone := make(chan struct{})
-	go func() {
-		srv.ServeCodec(rpc.NewCodec(p1), 0)
-		close(serveDone)
-	}()
+	httpsrv := httptest.NewServer(srv.WebsocketHandler([]string{"*"}))
 	t.Cleanup(func() {
-		p2.Close()
-		p1.Close()
-		select {
-		case <-serveDone:
-		case <-time.After(2 * time.Second):
-			t.Error("ServeCodec did not exit within 2s")
-		}
+		httpsrv.Close()
 		srv.Stop()
 	})
 
-	_, err := io.WriteString(p2, payload)
+	conn, _, err := websocket.DefaultDialer.Dial(wsTestURL(httpsrv), nil)
 	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+
+	writeWSJSON(t, conn, payload)
+
+	var firstResp rpcResponse
+	readJSON(t, conn, &firstResp)
+	require.Nil(t, firstResp.Error)
+
+	// After the first request completes the read loop blocks in NextReader without
+	// holding budget. The hook must not fire while idle.
+	idleDeadline := time.Now().Add(waitTimeout + 200*time.Millisecond)
+	for time.Now().Before(idleDeadline) {
+		mu.Lock()
+		got := append([]string(nil), reasons...)
+		mu.Unlock()
+		require.Empty(t, got, "hook fired while idle in NextReader")
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	writeWSJSON(t, conn, makeSleepMsg(2, sleepDuration, pad))
+	writeWSJSON(t, conn, makeSleepMsg(3, sleepDuration, pad))
 
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return len(reasons) > 0
-	}, 2*time.Second, 10*time.Millisecond)
-
-	mu.Lock()
-	got := append([]string(nil), reasons...)
-	mu.Unlock()
-	require.Equal(t, rpc.WSAdmissionReasonBudgetWaitTimeout, got[0])
+		return len(reasons) > 0 && reasons[0] == rpc.WSAdmissionReasonBudgetWaitTimeout
+	}, waitTimeout+300*time.Millisecond, 10*time.Millisecond)
 }
 
 type rpcResponse struct {
@@ -264,4 +264,20 @@ func readJSON(t *testing.T, conn *websocket.Conn, dest *rpcResponse) {
 	require.NoError(t, json.Unmarshal(data, dest))
 	require.Equal(t, websocket.TextMessage, msgType)
 	_ = conn.SetReadDeadline(time.Time{})
+}
+
+func wsTestURL(httpsrv *httptest.Server) string {
+	return "ws:" + strings.TrimPrefix(httpsrv.URL, "http:")
+}
+
+func writeWSJSON(t *testing.T, conn *websocket.Conn, payload string) {
+	t.Helper()
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(payload)))
+}
+
+func makeSleepMsg(id int, sleep time.Duration, pad int) string {
+	return fmt.Sprintf(
+		`{"jsonrpc":"2.0","id":%d,"method":"test_sleep","params":[%d],"_pad":"%s"}`,
+		id, sleep.Nanoseconds(), strings.Repeat("x", pad),
+	)
 }
