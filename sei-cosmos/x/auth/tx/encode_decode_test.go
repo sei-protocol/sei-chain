@@ -428,6 +428,20 @@ func TestRejectNonADR027(t *testing.T) {
 			}
 		})
 	}
+
+	// Lenient decoders must still accept last-wins duplicates of singular TxRaw
+	// fields that were valid before the v6.7 singularity check.
+	dupBodyBz := append(append(append(bodyBz, bodyBz...), authInfoBz...), sigsBz...)
+	_, err = DefaultTxDecoderWithoutBodyBloatRejection(cdc)(dupBodyBz)
+	require.NoError(t, err)
+	_, err = DefaultTxDecoderWithoutAuthInfoBloatRejection(cdc)(dupBodyBz)
+	require.NoError(t, err)
+
+	dupAuthBz := append(append(append(bodyBz, authInfoBz...), authInfoBz...), sigsBz...)
+	_, err = DefaultTxDecoderWithoutBodyBloatRejection(cdc)(dupAuthBz)
+	require.NoError(t, err)
+	_, err = DefaultTxDecoderWithoutAuthInfoBloatRejection(cdc)(dupAuthBz)
+	require.NoError(t, err)
 }
 
 func TestDefaultTxDecoderRejectsTxRawBloat(t *testing.T) {
@@ -461,10 +475,10 @@ func TestDefaultTxDecoderRejectsTxRawBloat(t *testing.T) {
 	_, err = DefaultTxDecoderWithoutBodyBloatRejection(cdc)(bloatedTxBz)
 	require.NoError(t, err)
 
-	// body-strict / AuthInfo-lenient still applies the TxRaw remashal check.
+	// v6.5-to-v6.7 body-strict / AuthInfo-lenient also skips the TxRaw remashal
+	// check (it did not exist during live execution in that window).
 	_, err = DefaultTxDecoderWithoutAuthInfoBloatRejection(cdc)(bloatedTxBz)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "tx raw")
+	require.NoError(t, err)
 }
 
 func TestVarintMinLength(t *testing.T) {

@@ -20,15 +20,17 @@ func DefaultTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 
 // DefaultTxDecoderWithoutBodyBloatRejection returns a protobuf TxDecoder that
 // preserves pre-v6.5 decode behavior for historical tooling: it does not reject
-// non-canonical TxBody or AuthInfo wire encodings. Do not use this for
-// mempool, CheckTx, or DeliverTx paths.
+// non-canonical TxBody, AuthInfo, or TxRaw envelope encodings, and does not
+// reject duplicate singular TxRaw fields. Do not use this for mempool, CheckTx,
+// or DeliverTx paths.
 func DefaultTxDecoderWithoutBodyBloatRejection(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 	return defaultTxDecoder(cdc, false, false)
 }
 
 // DefaultTxDecoderWithoutAuthInfoBloatRejection returns a protobuf TxDecoder that
 // rejects non-canonical TxBody encodings (v6.5+) but not non-canonical AuthInfo
-// encodings. Used for historical tooling that replays the v6.5-to-v6.7 window.
+// or TxRaw envelope encodings, and does not reject duplicate singular TxRaw
+// fields. Used for historical tooling that replays the v6.5-to-v6.7 window.
 // Do not use this for mempool, CheckTx, or DeliverTx paths.
 func DefaultTxDecoderWithoutAuthInfoBloatRejection(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 	return defaultTxDecoder(cdc, true, false)
@@ -36,8 +38,11 @@ func DefaultTxDecoderWithoutAuthInfoBloatRejection(cdc codec.ProtoCodecMarshaler
 
 func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat, rejectAuthInfoBloat bool) sdk.TxDecoder {
 	return func(txBytes []byte) (sdk.Tx, error) {
-		// Make sure txBytes follow ADR-027.
-		err := rejectNonADR027TxRaw(txBytes)
+		// Make sure txBytes follow ADR-027. Singular-field uniqueness for
+		// body_bytes/auth_info_bytes is only enforced once AuthInfo bloat
+		// rejection is on (v6.7+), so historical tooling can still decode
+		// last-wins duplicates that predate this check.
+		err := rejectNonADR027TxRaw(txBytes, rejectAuthInfoBloat)
 		if err != nil {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
@@ -56,8 +61,8 @@ func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat, rejectAuth
 		}
 
 		// Reject non-canonical TxRaw envelopes (e.g. explicit default encodings).
-		// Duplicate singular fields are also rejected earlier by rejectNonADR027TxRaw.
-		if rejectBodyBloat || rejectAuthInfoBloat {
+		// New in v6.7 — keep off the v6.5-to-v6.7 body-strict/AuthInfo-lenient path.
+		if rejectAuthInfoBloat {
 			if err := rejectBloatedProto(txBytes, &raw, "tx raw"); err != nil {
 				return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 			}
@@ -135,13 +140,18 @@ func DefaultJSONTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 // a generic ADR-027 checker, it only applies decoding TxRaw. Specifically, it
 // only checks that:
 //   - field numbers are in ascending order (1, 2, and potentially multiple 3s),
-//   - singular fields 1 (body_bytes) and 2 (auth_info_bytes) appear at most once
-//     (field 3 / signatures is repeated and may appear multiple times),
+//   - when rejectDuplicateSingularFields is set, singular fields 1 (body_bytes)
+//     and 2 (auth_info_bytes) appear at most once (field 3 / signatures is
+//     repeated and may appear multiple times),
 //   - and varints are as short as possible.
+//
+// rejectDuplicateSingularFields should be true for live (v6.7+) decoding and
+// false for historical tooling, which must still accept last-wins duplicates
+// that were valid before that check existed.
 //
 // All other ADR-027 edge cases (e.g. default values) are not applicable with
 // TxRaw.
-func rejectNonADR027TxRaw(txBytes []byte) error {
+func rejectNonADR027TxRaw(txBytes []byte, rejectDuplicateSingularFields bool) error {
 	// Make sure all fields are ordered in ascending order with this variable.
 	prevTagNum := protowire.Number(0)
 
@@ -159,7 +169,7 @@ func rejectNonADR027TxRaw(txBytes []byte) error {
 			return fmt.Errorf("txRaw must follow ADR-027, got tagNum %d after tagNum %d", tagNum, prevTagNum)
 		}
 		// body_bytes and auth_info_bytes are singular; only signatures may repeat.
-		if tagNum == prevTagNum && tagNum != 3 {
+		if rejectDuplicateSingularFields && tagNum == prevTagNum && tagNum != 3 {
 			return fmt.Errorf("txRaw must follow ADR-027, field %d appears more than once", tagNum)
 		}
 		prevTagNum = tagNum
@@ -189,10 +199,11 @@ func rejectNonADR027TxRaw(txBytes []byte) error {
 	return nil
 }
 
-// rejectBloatedProto rejects messages where the raw wire encoding is larger
-// than the canonical re-marshal of the decoded struct. This catches protobuf-level
-// bloat (e.g. padded sdk.Int fields, oversized Any.Value, non-canonical encodings)
-// that Unmarshal would otherwise silently canonicalize away before validation runs.
+// rejectBloatedProto rejects messages whose raw wire encoding does not match
+// the size of the canonical re-marshal of the decoded struct. This catches
+// protobuf-level bloat (e.g. padded sdk.Int fields, oversized Any.Value,
+// non-canonical encodings) that Unmarshal would otherwise silently canonicalize
+// away before validation runs.
 func rejectBloatedProto(rawBytes []byte, msg proto.Message, name string) error {
 	canonicalBytes, err := proto.Marshal(msg)
 	if err != nil {
