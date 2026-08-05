@@ -37,6 +37,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 			return
 		}
+		recordRequestRejected(r.Context(), rejectReasonReadError)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
