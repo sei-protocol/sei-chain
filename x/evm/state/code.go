@@ -44,6 +44,7 @@ func (s *DBImpl) SetCode(addr common.Address, code []byte) []byte {
 	}
 
 	s.k.SetCode(s.ctx, addr, code)
+	s.journalCodeCacheMutation(addr)
 	s.putCodeCache(addr, code)
 	return oldCode
 }
@@ -51,7 +52,19 @@ func (s *DBImpl) SetCode(addr common.Address, code []byte) []byte {
 // RefreshCodeCache updates the deliver-tx code memo after a keeper store write
 // that bypassed SetCode (so gas can be charged against a different ctx meter).
 func (s *DBImpl) RefreshCodeCache(addr common.Address, code []byte) {
+	s.journalCodeCacheMutation(addr)
 	s.putCodeCache(addr, code)
+}
+
+// journalCodeCacheMutation records the prior memo entry so RevertToSnapshot can
+// restore this address only. Call before putCodeCache / delete on mutation paths;
+// pure GetCode fills must not journal (nested reverts should keep those warms).
+func (s *DBImpl) journalCodeCacheMutation(addr common.Address) {
+	if s.codeCache == nil {
+		return
+	}
+	prev, had := s.codeCache[addr]
+	s.journal = append(s.journal, &codeCacheChange{account: addr, prev: prev, had: had})
 }
 
 func (s *DBImpl) putCodeCache(addr common.Address, code []byte) {

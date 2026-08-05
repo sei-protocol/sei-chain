@@ -28,9 +28,11 @@ type DBImpl struct {
 	// RPC / trace DBs leave it nil so those paths do not retain large bytecode
 	// for the statedb lifetime. Wasmd-entry deliver txs also leave it nil (see
 	// NewDBImpl) so a nested CallEVM DBImpl cannot Finalize code into the same
-	// Multistore while this memo stays warm. Non-nil (ordinary deliver) is
-	// cleared on snapshot revert and Cleanup, and kept in sync by SetCode.
-	// Copy() starts empty when the parent had caching enabled.
+	// Multistore while this memo stays warm. Mutations (SetCode /
+	// RefreshCodeCache / account-code clear) are journaled per address so
+	// RevertToSnapshot restores only those entries; GetCode fills are not
+	// journaled. Cleanup / tracer reset clear the whole map. Copy() starts
+	// empty when the parent had caching enabled.
 	codeCache map[common.Address][]byte
 
 	// If err is not nil at the end of the execution, the transaction will be rolled

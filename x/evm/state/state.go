@@ -166,13 +166,11 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 		}
 	}
 
-	// Truncate the journal to remove reverted entries
+	// Truncate the journal to remove reverted entries. codeCache mutations are
+	// journaled per address (codeCacheChange), so unrelated warmed entries survive.
 	if watermarkIndex >= 0 {
 		s.journal = s.journal[:watermarkIndex]
 	}
-
-	// Store was rewound via CacheMultiStore; drop any cached code that may now be stale.
-	clear(s.codeCache)
 }
 
 func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
@@ -219,6 +217,7 @@ func (s *DBImpl) clearAccountCodeAndNonce(acc common.Address) {
 	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
 	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
 	deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
+	s.journalCodeCacheMutation(acc)
 	if s.codeCache != nil {
 		delete(s.codeCache, acc)
 	}

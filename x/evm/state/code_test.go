@@ -65,6 +65,36 @@ func TestCodeCacheClearedOnRevert(t *testing.T) {
 	require.Equal(t, initial, statedb.GetCode(addr))
 }
 
+// TestCodeCacheUnrelatedWarmSurvivesRevert pins address-level journal restore:
+// nested reverts must not wipe warmed entries for accounts that were not
+// mutated, otherwise an attacker can force wholesale code re-fetch via
+// reverting subcalls. After revert we poison the Multistore for the
+// unrelated address without RefreshCodeCache; a surviving memo returns the
+// pre-poison bytes, while a blanket clear would re-read the poison.
+func TestCodeCacheUnrelatedWarmSurvivesRevert(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	_, addrA := testkeeper.MockAddressPair()
+	_, addrB := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, false)
+
+	codeA := []byte{1, 2, 3}
+	codeB := []byte{10, 11, 12, 13}
+	statedb.SetCode(addrA, codeA)
+	statedb.SetCode(addrB, codeB)
+	require.Equal(t, codeB, statedb.GetCode(addrB))
+
+	rev := statedb.Snapshot()
+	statedb.SetCode(addrA, []byte{9, 9, 9})
+	statedb.RevertToSnapshot(rev)
+	require.Equal(t, codeA, statedb.GetCode(addrA))
+
+	poison := []byte{7, 7, 7, 7, 7}
+	k.SetCode(statedb.Ctx(), addrB, poison)
+	require.Equal(t, codeB, statedb.GetCode(addrB), "unrelated warm must survive revert (not re-read poison)")
+	require.Equal(t, poison, k.GetCode(statedb.Ctx(), addrB))
+}
+
 func TestCodeCacheInvalidatedOnCreateAccount(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
