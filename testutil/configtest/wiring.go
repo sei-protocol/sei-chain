@@ -56,7 +56,7 @@ func CheckWiring(t testing.TB) {
 	}
 
 	path := goldenFilePath(t, wiringRecordName, wiringRecordSuffix)
-	record := strings.Join(got, "\n")
+	record := strings.Join(append(wiringRecordHeader(), got...), "\n")
 
 	if recordRewriteInProgress(t, wiringRecordName, path) {
 		writeGolden(t, wiringRecordName, path, record)
@@ -77,6 +77,21 @@ func CheckWiring(t testing.TB) {
 		"A line that disappeared is a check that was removed, which is the one edit the remaining "+
 		"checks cannot report. If the removal is deliberate, regenerate the record with `-update` so "+
 		"the lost coverage appears in the diff.", path, wiringDiff(recordText(raw), record))
+}
+
+// wiringRecordHeader says what the record is, so it reads without the reader having to find this
+// file.
+//
+// Part of the recorded text rather than a comment the comparison strips, because a header that is
+// not compared is a header someone can edit into something untrue.
+func wiringRecordHeader() []string {
+	return []string{
+		"# Which checks each of this package's configuration sections is wired to.",
+		"# One line per (section, check) pair, tab-separated, read from this package's own test files.",
+		"# A line that disappears is a check that was deleted, which is the one edit the remaining",
+		"# checks cannot report. Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update`.",
+		"",
+	}
 }
 
 // wiringOf returns the sorted "section\tcheck" pairs the package in dir calls.

@@ -131,12 +131,13 @@ func TestRecordWriteIsRefusedUnderCI(t *testing.T) {
 		})
 	}
 
-	// Nothing was written. A refusal that fails the test but leaves a rewritten file behind would
-	// still dirty the tree, so this is the in-process half of a two-layer guarantee: the other half
-	// is the "Records unchanged by the suite" step in .github/workflows/go-test.yml, which fails the
-	// job on a dirty tree after the whole suite. That step covers what this refusal cannot -- a
-	// package with its own -update flag writing a golden without routing through writeGolden, which
-	// sei-tendermint/internal/p2p/conn does.
+	// Nothing was written. A refusal that failed the test but left a rewritten file behind would be
+	// half a guard, since the file is the thing that matters.
+	//
+	// What this does not cover is a package that writes a golden without routing through
+	// writeGolden. sei-tendermint/internal/p2p/conn declares its own -update flag and writes
+	// directly, so the refusal cannot see it. That is out of scope here rather than covered
+	// elsewhere, and worth knowing before anyone reads this as protecting every record in the tree.
 	entries, err := os.ReadDir("testdata")
 	if err != nil {
 		t.Fatalf("read testdata: %v", err)

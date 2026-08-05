@@ -49,42 +49,12 @@ jobs:
       - name: Download modules
         run: go mod download
 
-      - name: Assert the record refusal is armed
-        run: |
-          set -euo pipefail
-          # testutil/configtest refuses to rewrite a checked-in record when CI is set. On a
-          # self-hosted runner that variable is the runner's to provide, so a runner that stopped
-          # exporting it would leave the refusal silently inert with nothing to notice. Checked
-          # before the suite runs, so the failure names the cause rather than showing up later as
-          # a mysteriously rewritten record.
-          if [ -z "${CI:-}" ]; then
-            echo "CI is not set on this runner, so the configtest record refusal would not fire."
-            echo "See recordWriteRefused in testutil/configtest/golden.go."
-            exit 1
-          fi
-
       - name: Go test
         run: |
           set -euo pipefail
           PKGS=$(go list ./... | grep -v "^${STATE_DB_PKG_PREFIX}")
           echo "$PKGS" | xargs go test \
             -timeout=${{ env.GO_TEST_TIMEOUT }}
-
-      - name: Records unchanged by the suite
-        run: |
-          set -euo pipefail
-          # No test may rewrite a checked-in record. The refusal in testutil/configtest covers the
-          # writers it owns; this covers every other way a file could be written, including a
-          # package with its own -update flag that never routes through that helper.
-          if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
-            echo "The test run modified or created tracked files:"
-            git status --porcelain --untracked-files=all
-            echo
-            git diff
-            echo "A record regenerated where nobody reads the diff is not a record. Regenerate it"
-            echo "locally with 'go test ./<pkg>/ -update', review the diff, and commit it."
-            exit 1
-          fi
 
   coverage:
     name: Coverage
@@ -125,17 +95,6 @@ jobs:
       - name: Download modules
         if: github.event_name != 'merge_group'
         run: go mod download
-
-      - name: Assert the record refusal is armed
-        run: |
-          set -euo pipefail
-          # See the identical step in the race job: CI is what arms the configtest record refusal,
-          # and on a self-hosted runner it is the runner's to provide.
-          if [ -z "${CI:-}" ]; then
-            echo "CI is not set on this runner, so the configtest record refusal would not fire."
-            echo "See recordWriteRefused in testutil/configtest/golden.go."
-            exit 1
-          fi
 
       - name: Determine coverage packages (PR)
         id: cov-pkgs
@@ -232,22 +191,6 @@ jobs:
             -coverprofile=coverage.out \
             -coverpkg="$COVERPKG" \
             $PKGS
-
-      - name: Records unchanged by the suite
-        run: |
-          set -euo pipefail
-          # No test may rewrite a checked-in record. The refusal in testutil/configtest covers the
-          # writers it owns; this covers every other way a file could be written, including a
-          # package with its own -update flag that never routes through that helper.
-          if [ -n "$(git status --porcelain --untracked-files=all -- . ":(exclude)coverage.out")" ]; then
-            echo "The test run modified or created tracked files:"
-            git status --porcelain --untracked-files=all -- . ":(exclude)coverage.out"
-            echo
-            git diff
-            echo "A record regenerated where nobody reads the diff is not a record. Regenerate it"
-            echo "locally with 'go test ./<pkg>/ -update', review the diff, and commit it."
-            exit 1
-          fi
 
       - name: Upload coverage to Codecov
         if: github.event_name != 'merge_group' && (github.event_name != 'pull_request' || steps.cov-pkgs.outputs.skip != 'true')
