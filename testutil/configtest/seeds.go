@@ -306,7 +306,7 @@ func requireKeyNameRecord(t testing.TB, name, path string, specs []KeySpec, also
 	// -update rewrites the record, and CheckKeyNames is what rewrites it. Comparing against a file
 	// being regenerated in the same run would report the rename someone is recording on purpose,
 	// and would do it or not depending on which of the two tests the runner reached first.
-	if goldenUpdateRequested() {
+	if recordRewriteInProgress(t, name, path) {
 		return
 	}
 
