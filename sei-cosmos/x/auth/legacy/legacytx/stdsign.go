@@ -156,20 +156,11 @@ func pubKeySigToSigData(cdc *codec.LegacyAmino, key cryptotypes.PubKey, sig []by
 	sigDatas := make([]signing.SignatureData, len(sigs))
 	pubKeys := multiPK.GetPubKeys()
 	bitArray := multiSig.BitArray
-	if bitArray == nil {
-		return nil, fmt.Errorf("multisig bit array is required")
-	}
-	n := bitArray.Count()
-	if n != len(pubKeys) {
-		return nil, fmt.Errorf("invalid multisig: bit array size %d, pubkey count %d", n, len(pubKeys))
-	}
+	n := multiSig.BitArray.Count()
 	signatures := multisig.NewMultisig(n)
 	sigIdx := 0
 	for i := 0; i < n; i++ {
 		if bitArray.GetIndex(i) {
-			if sigIdx >= len(multiSig.Sigs) {
-				return nil, fmt.Errorf("invalid multisig: not enough signatures for set bits")
-			}
 			data, err := pubKeySigToSigData(cdc, pubKeys[i], multiSig.Sigs[sigIdx])
 			if err != nil {
 				return nil, sdkerrors.Wrapf(err, "Unable to convert Signature to SigData %d", sigIdx)

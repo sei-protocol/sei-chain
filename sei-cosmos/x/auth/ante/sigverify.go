@@ -66,10 +66,6 @@ func (spkd SetPubKeyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		return ctx, err
 	}
 	signers := sigTx.GetSigners()
-	if len(pubkeys) != len(signers) {
-		return ctx, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized,
-			"invalid number of signers; expected: %d, got: %d", len(signers), len(pubkeys))
-	}
 
 	for i, pk := range pubkeys {
 		// PublicKey was omitted from slice since it has already been set in context
@@ -107,10 +103,6 @@ func (spkd SetPubKeyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	sigs, err := sigTx.GetSignaturesV2()
 	if err != nil {
 		return ctx, err
-	}
-	if len(sigs) != len(signers) {
-		return ctx, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized,
-			"invalid number of signers; expected: %d, got: %d", len(signers), len(sigs))
 	}
 
 	var events sdk.Events
@@ -170,10 +162,6 @@ func (sgcd SigGasConsumeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simula
 	// stdSigs contains the sequence number, account number, and signatures.
 	// When simulating, this would just be a 0-length slice.
 	signerAddrs := sigTx.GetSigners()
-	if len(sigs) != len(signerAddrs) {
-		return ctx, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized,
-			"invalid number of signers; expected: %d, got: %d", len(signerAddrs), len(sigs))
-	}
 
 	for i, sig := range sigs {
 		signerAcc, err := GetSignerAcc(ctx, sgcd.ak, signerAddrs[i])
