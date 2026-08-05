@@ -133,6 +133,16 @@ func newState(
 	return s, nil
 }
 
+// Close releases the availability state's WALs, and with them the exclusive lock each holds on its
+// directory.
+//
+// Production does not call this: a node exits by rugpull and the OS reclaims everything. It exists so
+// that a process which opens the same state directory more than once in its lifetime — a test
+// simulating a restart — can release the first State before constructing the second.
+func (s *State) Close() error {
+	return s.avail.Close()
+}
+
 func (s *State) timeoutQC() utils.AtomicRecv[utils.Option[*types.TimeoutQC]] {
 	for tv := range s.timeoutVotes.Lock() {
 		return tv.qc.Subscribe()

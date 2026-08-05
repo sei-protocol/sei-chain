@@ -1,12 +1,22 @@
 package persist
 
 import (
-	"context"
 	"fmt"
 	"os"
 
-	dbwal "github.com/sei-protocol/sei-chain/sei-db/wal"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 )
+
+// targetFileSize is the size a WAL file may reach before it is sealed and a fresh one is opened.
+//
+// This sits far below seiwal's default because a sealed file is deleted only once every record in it is
+// prunable, never partially, and the file being written is never deleted at all — so the volume of
+// pruned-but-still-present records scales with this value, and autobahn keeps one WAL per lane,
+// multiplying that cost by the committee size. Restart replays that whole volume before discarding all
+// but the live suffix, so a larger file would buy slightly later reclamation at the price of a
+// proportionally slower startup.
+const targetFileSize = 4 * unit.MB
 
 // codec is the marshal/unmarshal pair needed to store T in a WAL.
 // protoutils.Conv[T, P] satisfies this interface automatically.
@@ -15,197 +25,117 @@ type codec[T any] interface {
 	Unmarshal([]byte) (T, error)
 }
 
-// indexedWAL wraps a WAL with monotonic index tracking and typed entries.
-// Callers map domain-specific indices (BlockNumber, RoadIndex) to WAL
-// indices via Count() and firstIdx. Not safe for concurrent use.
-//
-// INVARIANT: firstIdx <= nextIdx (enforced by openIndexedWAL, Write,
-// TruncateBefore, and TruncateAll). Count() relies on this for unsigned
-// subtraction safety.
-type indexedWAL[T any] struct {
-	wal      *dbwal.WAL[T]
-	firstIdx uint64 // WAL index of the oldest entry; == nextIdx when empty
-	nextIdx  uint64 // WAL index that the next Write will be assigned
+// walEntry is one record read back from a WAL.
+type walEntry[T any] struct {
+	// The index the record is stored under: a block number in a lane WAL, a road index in the
+	// commitQC WAL.
+	index uint64
+	// The decoded record.
+	value T
 }
 
-// openIndexedWAL creates (or opens) a WAL in dir with synchronous, unbatched
-// writes and fsync. The prune anchor (persisted via A/B files) is the
-// crash-recovery watermark, but fsync on the WAL provides additional
-// durability for entries not yet covered by the anchor.
-// Initializes index tracking from the WAL's stored offsets so the caller can
-// immediately Write, ReadAll, or TruncateBefore.
-func openIndexedWAL[T any](dir string, codec codec[T]) (*indexedWAL[T], error) {
+// openWAL creates (or opens) a WAL in dir, recovering any files left behind by a previous session.
+//
+// name identifies the WAL in its metrics and has no effect on the on-disk layout.
+//
+// metricsEnabled must be false when other WALs live under the same name at the same time. Their counters
+// would aggregate, but seiwal's queue-depth gauge is keyed on the name alone, so concurrent instances
+// sharing one overwrite each other's samples rather than summing them.
+//
+// fileSize is the size a file may reach before it is sealed, which is also the granularity at which
+// pruning reclaims space. Production callers pass targetFileSize.
+//
+// Appends to the returned WAL are only durable once Flush returns; a caller that reports a record as
+// persisted must flush first.
+func openWAL[T any](
+	dir string,
+	name string,
+	codec codec[T],
+	fileSize uint,
+	metricsEnabled bool,
+) (seiwal.WAL[T], error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("create dir %s: %w", dir, err)
 	}
-	w, err := dbwal.NewWAL(
-		context.Background(),
+
+	config := seiwal.DefaultConfig(dir, name)
+	// Consensus safety rests on a persisted entry surviving power loss, not merely a process crash.
+	config.FsyncOnFlush = true
+	// When the prune anchor moves past every record a WAL holds, the next append lands above the
+	// highest index on disk rather than one past it. Contiguity within the live range is still
+	// enforced by the callers of Append, which reject an out-of-sequence block or road index.
+	config.PermitGaps = true
+	config.TargetFileSize = fileSize
+	config.DisableMetrics = !metricsEnabled
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid WAL config for %s: %w", dir, err)
+	}
+
+	wal, err := seiwal.NewGenericWAL[T](
+		config,
 		func(entry T) ([]byte, error) { return codec.Marshal(entry), nil },
 		codec.Unmarshal,
-		dir,
-		dbwal.Config{
-			WriteBufferSize: 0, // synchronous writes
-			WriteBatchSize:  1, // no batching
-			FsyncEnabled:    true,
-			AllowEmpty:      true,
-		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open WAL in %s: %w", dir, err)
 	}
-	iw := &indexedWAL[T]{wal: w}
-	first, err := w.FirstOffset()
-	if err != nil {
-		_ = w.Close()
-		return nil, fmt.Errorf("first offset: %w", err)
-	}
-	last, err := w.LastOffset()
-	if err != nil {
-		_ = w.Close()
-		return nil, fmt.Errorf("last offset: %w", err)
-	}
-	// CRITICAL: AllowEmpty must be true in the config above. With AllowEmpty,
-	// an empty log reports first > last (e.g. first=1, last=0 for a brand-new
-	// log, or first=N+1, last=N after TruncateAll). Without AllowEmpty, an
-	// empty log returns (0, 0), and the formula below would give Count() == 1.
-	// A non-empty log always has first <= last with first >= 1. In both cases,
-	// setting firstIdx = first and nextIdx = last + 1 yields Count() == 0
-	// when empty.
-	iw.firstIdx = first
-	iw.nextIdx = last + 1
-	return iw, nil
+	return wal, nil
 }
 
-// Write appends entry to the WAL, advancing nextIdx.
-func (w *indexedWAL[T]) Write(entry T) error {
-	if err := w.wal.Write(entry); err != nil {
-		return err
-	}
-	w.nextIdx++
-	return nil
-}
-
-// TruncateBefore reads the entry at walIdx, passes it to verify, and — if
-// verify returns nil — removes all entries before walIdx. The verify callback
-// lets callers assert that the WAL index maps to the expected domain object
-// before a destructive operation.
+// readAll returns every record the WAL currently holds in ascending index order, or nil when it holds
+// none.
 //
-// TruncateBefore assumes contiguous appending and removal. Callers that need
-// to fast-forward past gaps should use TruncateAll directly.
-// walIdx == nextIdx removes all entries (no entry to verify).
-// walIdx > nextIdx is an error (gap in contiguous sequence).
-func (w *indexedWAL[T]) TruncateBefore(walIdx uint64, verify func(T) error) error {
-	if walIdx < w.firstIdx {
-		return fmt.Errorf("WAL index %d below first index %d", walIdx, w.firstIdx)
+// Pruning is lazy, so the result may include records below the last requested prune point. Callers
+// decide what to do with those; see contiguousSuffix.
+func readAll[T any](w seiwal.WAL[T]) (entries []walEntry[T], err error) {
+	ok, first, last, err := w.Bounds()
+	if err != nil {
+		return nil, fmt.Errorf("read WAL bounds: %w", err)
 	}
-	if walIdx > w.nextIdx {
-		return fmt.Errorf("WAL index %d past next index %d (use TruncateAll for gaps)", walIdx, w.nextIdx)
-	}
-	// Verify the surviving entry when one exists.
-	if walIdx < w.nextIdx {
-		entry, err := w.wal.ReadAt(walIdx)
-		if err != nil {
-			return fmt.Errorf("read at WAL index %d: %w", walIdx, err)
-		}
-		if err := verify(entry); err != nil {
-			return err
-		}
-	}
-	if err := w.wal.TruncateBefore(walIdx); err != nil {
-		return fmt.Errorf("truncate before WAL index %d: %w", walIdx, err)
-	}
-	w.firstIdx = walIdx
-	return nil
-}
-
-// TruncateWhile scans entries from the front and removes all leading entries
-// for which the predicate returns true. Stops at the first entry where the
-// predicate returns false (that entry and all after it are kept).
-// If the predicate returns true for all entries, the WAL is emptied.
-func (w *indexedWAL[T]) TruncateWhile(pred func(T) bool) error {
-	keepIdx := w.firstIdx
-	for keepIdx < w.nextIdx {
-		entry, err := w.wal.ReadAt(keepIdx)
-		if err != nil {
-			return fmt.Errorf("read at WAL index %d: %w", keepIdx, err)
-		}
-		if !pred(entry) {
-			break
-		}
-		keepIdx++
-	}
-	if keepIdx == w.firstIdx {
-		return nil
-	}
-	if err := w.wal.TruncateBefore(keepIdx); err != nil {
-		return fmt.Errorf("truncate before WAL index %d: %w", keepIdx, err)
-	}
-	w.firstIdx = keepIdx
-	return nil
-}
-
-// ReadAll returns all entries in the WAL. Returns nil if empty.
-func (w *indexedWAL[T]) ReadAll() ([]T, error) {
-	if w.Count() == 0 {
+	if !ok {
 		return nil, nil
 	}
-	entries := make([]T, 0, w.Count())
-	err := w.wal.Replay(w.firstIdx, w.nextIdx-1, func(_ uint64, entry T) error {
-		entries = append(entries, entry)
-		return nil
-	})
+
+	it, err := w.Iterator(first, last)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open WAL iterator over [%d, %d]: %w", first, last, err)
 	}
-	if uint64(len(entries)) != w.Count() {
-		return nil, fmt.Errorf("WAL replay returned %d entries, expected %d (possible silent data loss)", len(entries), w.Count())
+	defer func() {
+		if closeErr := it.Close(); closeErr != nil && err == nil {
+			entries, err = nil, fmt.Errorf("close WAL iterator: %w", closeErr)
+		}
+	}()
+
+	for {
+		more, nextErr := it.Next()
+		if nextErr != nil {
+			return nil, fmt.Errorf("advance WAL iterator: %w", nextErr)
+		}
+		if !more {
+			return entries, nil
+		}
+		index, value := it.Entry()
+		entries = append(entries, walEntry[T]{index: index, value: value})
 	}
-	return entries, nil
 }
 
-// FirstIdx returns the WAL index of the oldest entry.
-// Equal to nextIdx when the WAL is empty.
-func (w *indexedWAL[T]) FirstIdx() uint64 {
-	return w.firstIdx
-}
-
-// Count returns the number of entries in the WAL.
-// Empty when firstIdx == nextIdx (both after fresh open and after TruncateAll).
-func (w *indexedWAL[T]) Count() uint64 {
-	return w.nextIdx - w.firstIdx
-}
-
-// TruncateAll removes all entries from the WAL, leaving it empty for new writes.
-// The underlying index counter is preserved (next Write continues from where
-// it left off); firstIdx is advanced to nextIdx so Count() == 0.
-// Used when all entries are stale (e.g. the prune anchor advanced past
-// everything persisted).
-func (w *indexedWAL[T]) TruncateAll() error {
-	if err := w.wal.TruncateAll(); err != nil {
-		return fmt.Errorf("truncate all WAL entries: %w", err)
+// contiguousSuffix returns the longest run of entries that ends at the final entry and whose indices
+// each exceed their predecessor by exactly one.
+//
+// A gap marks the boundary between garbage and live data. Pruning only deletes whole sealed files, so
+// records the prune anchor has moved past survive until every record in their file is below the
+// threshold; appending at the anchor's index then leaves a hole behind it. Everything before the last
+// hole was pruned and merely not yet reclaimed.
+//
+// Dropping that prefix is not a corruption check — a hole left by genuinely lost data is discarded here
+// just the same. What catches real loss is avail.newInner, which rejects loaded records that do not
+// begin exactly where the prune anchor says they should, so a lost sealed file fails startup instead of
+// resuming from a truncated history. This discard is only safe while that holds.
+func contiguousSuffix[T any](entries []walEntry[T]) []walEntry[T] {
+	for i := len(entries) - 1; i > 0; i-- {
+		if entries[i].index != entries[i-1].index+1 {
+			return entries[i:]
+		}
 	}
-	w.firstIdx = w.nextIdx
-	return nil
-}
-
-// TruncateAfter removes all entries >= walIdx (keeps entries < walIdx).
-// If walIdx <= firstIdx, all entries are removed.
-// If walIdx >= nextIdx, this is a no-op.
-func (w *indexedWAL[T]) TruncateAfter(walIdx uint64) error {
-	if walIdx <= w.firstIdx {
-		return w.TruncateAll()
-	}
-	if walIdx >= w.nextIdx {
-		return nil
-	}
-	if err := w.wal.TruncateAfter(walIdx - 1); err != nil {
-		return fmt.Errorf("truncate after WAL index %d: %w", walIdx-1, err)
-	}
-	w.nextIdx = walIdx
-	return nil
-}
-
-// Close shuts down the underlying WAL.
-func (w *indexedWAL[T]) Close() error {
-	return w.wal.Close()
+	return entries
 }
