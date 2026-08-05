@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"encoding/binary"
+	"fmt"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -1652,6 +1654,16 @@ func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
+	// Seed non-trivial per-module state so a failed Apply is checked against
+	// real buckets, not empty maps that would trivially equal a fresh clone.
+	seedAddr := addrN(0xAA)
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		makeChangeSet(keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(seedAddr, slotN(0x01))), padLeft32(0x11), false),
+		{Name: "gov", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("proposal"), Value: []byte{0x01}}}}},
+	}))
+	commitAndCheck(t, s)
+	before := snapshotWorkingHashes(s)
+
 	addr := addrN(0xBB)
 	slot := slotN(0x01)
 	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
@@ -1670,10 +1682,104 @@ func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid nonce value length")
 
-	// The storage write may have been buffered before the error.
-	// Verify the store doesn't panic and can still accept new operations.
+	// Failed Apply must leave pending maps and working lattice state untouched
+	// so a later Commit cannot flush orphaned rows against a stale AppHash.
+	require.Empty(t, s.storageWrites)
+	require.Empty(t, s.accountWrites)
+	require.Empty(t, s.pendingChangeSets)
+	require.Equal(t, int64(0), s.pendingBlockHeight)
+	requireWorkingHashesUnchanged(t, s, before)
+
 	validCS := makeChangeSet(storageKey, padLeft32(0xBB), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{validCS}))
+}
+
+// TestApplyChangeSetsKeepsPendingCleanOnLaterParseError covers the case where
+// an earlier DB kind would previously have been maps.Copy'd into the pending
+// overlay before a later process*Changes failure — leaving rows that Commit
+// could persist while working LtHash still reflected the pre-failure state.
+func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	seedAddr := addrN(0xAB)
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		makeChangeSet(keys.BuildEVMKey(keys.EVMKeyNonce, seedAddr[:]), nonceBytes(3), false),
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("bal"), Value: []byte{0x02}}}}},
+	}))
+	commitAndCheck(t, s)
+	before := snapshotWorkingHashes(s)
+
+	addr := addrN(0xCC)
+	slot := slotN(0x02)
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+
+	cs := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: nonceBytes(7)},
+			{Key: storageKey, Value: []byte{0x01}}, // not 32 bytes — fails processStorageChanges
+		}},
+	}
+
+	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to parse storage changes")
+
+	require.Empty(t, s.accountWrites, "account rows must not buffer before storage validation finishes")
+	require.Empty(t, s.storageWrites)
+	require.Empty(t, s.pendingChangeSets)
+	require.Equal(t, int64(0), s.pendingBlockHeight)
+	requireWorkingHashesUnchanged(t, s, before)
+
+	// A subsequent Commit must not invent on-disk state for the failed apply.
+	// clearPendingWrites always empties the maps on success, so absence from
+	// pending is not enough — read the keys back and check committedLtHash
+	// (the AppHash input) stayed put.
+	_, err = s.Commit(s.Version() + 1)
+	require.NoError(t, err)
+	require.True(t, s.committedLtHash.Equal(before.global))
+	_, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+	require.False(t, ok, "nonce row from the failed apply must not be persisted")
+	_, ok = s.Get(keys.EVMStoreKey, storageKey)
+	require.False(t, ok, "storage row from the failed apply must not be persisted")
+}
+
+// TestApplyChangeSetsKeepsPendingCleanOnComputeError covers the Bugbot finding:
+// prepareWrites used to maps.Copy into pending maps before ltCalc.Compute. If
+// Compute then failed, pending rows could diverge from working LtHash metadata.
+// Also pins that Compute's cloned prev* maps are not swapped onto the store on
+// the error path — global equality alone cannot catch a per-module rewrite.
+func TestApplyChangeSetsKeepsPendingCleanOnComputeError(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	seedAddr := addrN(0xAC)
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		makeChangeSet(keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(seedAddr, slotN(0x09))), padLeft32(0x99), false),
+		{Name: "gov", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("params"), Value: []byte{0x03}}}}},
+	}))
+	commitAndCheck(t, s)
+	before := snapshotWorkingHashes(s)
+
+	s.ltCalc = lthash.NewHashCalculator(s.ltHashPool, dataDBDirs, func([]byte) (string, error) {
+		return "", fmt.Errorf("injected moduleOf failure")
+	})
+
+	addr := addrN(0xDD)
+	slot := slotN(0x03)
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+
+	err := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		makeChangeSet(storageKey, padLeft32(0xEE), false),
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "injected moduleOf failure")
+
+	require.Empty(t, s.storageWrites)
+	require.Empty(t, s.pendingChangeSets)
+	require.Equal(t, int64(0), s.pendingBlockHeight)
+	requireWorkingHashesUnchanged(t, s, before)
 }
 
 func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {
