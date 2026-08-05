@@ -117,32 +117,100 @@ var ssKeys = []configtest.KeySpec{
 	{Key: FlagEVMSSSplit, Path: "EVMSplit", Cast: configtest.CastBool, Unguarded: true},
 }
 
+// lightInvarianceKeys is the [light_invariance] manifest: one key, guarded and checked.
+//
+// It sits at package scope rather than inside its fuzz target so that
+// TestKeyNamesMatchTheRecordedNames can hold its key name to the recorded one, which a
+// target-local table would be invisible to.
+var lightInvarianceKeys = []configtest.KeySpec{
+	{
+		Key: "light_invariance.supply_enabled", Path: "SupplyEnabled",
+		Cast: configtest.CastBool, Checked: true,
+		Why: "default true; absent must not disable the supply invariance check",
+	},
+}
+
+// genesisKeys is the [genesis] manifest for the one key that resolves through a plain
+// guarded checked cast. genesis.import-file is not among them: it is an unchecked type
+// assertion that panics on a non-string, so it has a target of its own.
+var genesisKeys = []configtest.KeySpec{
+	{
+		Key: "genesis.stream-import", Path: "StreamGenesisImport",
+		Cast: configtest.CastBool, Checked: true,
+	},
+}
+
+// scKeysWithTargetsOfTheirOwn records the operator-facing spelling of the three [state-commit]
+// keys that no row in scKeys can describe.
+//
+// Each is absent from the manifest because a row's prediction would be wrong for it, and each has
+// a fuzz target instead: sc-write-mode panics on a value ParseSCWriteMode rejects and is asserted
+// through assertPanics, sc-write-mode-enable-auto rewrites WriteMode as well as its own field
+// through ApplyWriteModeAuto, and sc-hash-logger-target-file-size adopts a cast result only when
+// it is positive. Those targets pin the resolution and go on doing so; what none of them pinned is
+// the key, and each spells it through the same exported constant parseSCConfigs passes to
+// appOpts.Get, so editing that constant moved the target and the read site together and left the
+// suite green about a key no app.toml on disk carries.
+//
+// The first two decide which storage engine a validator commits through, and WriteModeEnableAuto
+// defaults true, so a rename that strands an operator's explicit `sc-write-mode-enable-auto =
+// false` un-pins every deliberately pinned node. sei-db/config/toml.go states the consequence in
+// the template itself: such a node either fails every commit with a version mismatch or serves
+// reads from an empty memiavl. Recording the names is what makes that rename arrive as a diff.
+//
+// A configtest.KeyName is not a KeySpec, and that is the point: it claims the spelling and nothing
+// else, so the compiler keeps this list out of CheckRow and out of the discriminating-seed check,
+// where a row that predicted a resolved value would be wrong for all three.
+var scKeysWithTargetsOfTheirOwn = []configtest.KeyName{
+	FlagSCWriteMode,                // FuzzSCWriteMode
+	FlagSCWriteModeEnableAuto,      // FuzzSCWriteMode
+	FlagSCHashLoggerTargetFileSize, // FuzzSCHashLoggerTargetFileSize
+}
+
 func readSC(opts configtest.AppOpts) (any, error) { return parseSCConfigs(opts), nil }
 func readSS(opts configtest.AppOpts) (any, error) { return parseSSConfigs(opts), nil }
+
+func readLightInvariance(opts configtest.AppOpts) (any, error) {
+	return ReadLightInvarianceConfig(opts)
+}
+
+func readGenesis(opts configtest.AppOpts) (any, error) { return ReadGenesisImportConfig(opts) }
 
 // FuzzParseSCConfigs drives every plain [state-commit] key through arbitrary raw
 // values, holding each to its declared cast and guard.
 func FuzzParseSCConfigs(f *testing.F) {
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+
 	// Every row gets a nil and a malformed seed, so the two properties this table exists to
 	// state hold for every key on an ordinary `go test` run rather than only under -fuzz. A
 	// plain run replays seeds and nothing else, so a row with no seed is a row whose guard
 	// could be dropped without CI noticing. Same loop as
 	// FuzzGetConfigGuardedKeysPreserveDefaults in sei-cosmos/server/config.
 	for i := range len(scKeys) {
-		f.Add(uint(i), fuzzing.KindNil, "", int64(0), false)               // nil: a guarded read keeps the default
-		f.Add(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed: a checked read must refuse it
+		seeds.AddRow(uint(i), fuzzing.KindNil, "", int64(0), false)               // nil: a guarded read keeps the default
+		seeds.AddRow(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed: a checked read must refuse it
 	}
 
-	f.Add(uint(0), fuzzing.KindBool, "", int64(0), true)        // sc-enable as a TOML bool
-	f.Add(uint(0), fuzzing.KindBoolString, "", int64(0), false) // sc-enable as the string "false"
-	f.Add(uint(2), fuzzing.KindInt64, "", int64(100), false)    // async-commit-buffer
-	f.Add(uint(2), fuzzing.KindNil, "", int64(0), false)        // guarded nil must keep 100
-	f.Add(uint(4), fuzzing.KindInt64, "", int64(10000), false)  // snapshot-interval
-	f.Add(uint(4), fuzzing.KindInt64, "", int64(-1), false)     // negative into an unchecked unsigned cast: resolves 0
-	f.Add(uint(7), fuzzing.KindFloat64, "", int64(2), false)    // prefetch threshold as a float
-	f.Add(uint(1), fuzzing.KindString, "/var/lib/sei/sc", int64(0), false)
-	f.Add(uint(13), fuzzing.KindString, "not-a-bool", int64(0), false) // unchecked: resolves false, no error
-	f.Add(uint(15), fuzzing.KindInt64, "", int64(0), false)            // explicit 0 taken verbatim
+	seeds.AddRow(uint(0), fuzzing.KindBool, "", int64(0), true)        // sc-enable as a TOML bool
+	seeds.AddRow(uint(0), fuzzing.KindBoolString, "", int64(0), false) // sc-enable as the string "false"
+	seeds.AddRow(uint(2), fuzzing.KindInt64, "", int64(100), false)    // async-commit-buffer
+	seeds.AddRow(uint(2), fuzzing.KindNil, "", int64(0), false)        // guarded nil must keep 100
+	seeds.AddRow(uint(4), fuzzing.KindInt64, "", int64(10000), false)  // snapshot-interval
+	seeds.AddRow(uint(4), fuzzing.KindInt64, "", int64(-1), false)     // negative into an unchecked unsigned cast: resolves 0
+	seeds.AddRow(uint(7), fuzzing.KindFloat64, "", int64(2), false)    // prefetch threshold as a float
+	seeds.AddRow(uint(1), fuzzing.KindString, "/var/lib/sei/sc", int64(0), false)
+	seeds.AddRow(uint(13), fuzzing.KindString, "not-a-bool", int64(0), false) // unchecked: resolves false, no error
+	seeds.AddRow(uint(15), fuzzing.KindInt64, "", int64(0), false)            // explicit 0 taken verbatim
+
+	// Two rows default to their cast's zero, which is also what the malformed seed resolves
+	// to on an unchecked read, so neither of the per-row seeds above moves the field off the
+	// value an absent key produces. Each gets one value that converts to something else,
+	// which is what holds the reader to the key name rather than only to the cast.
+	seeds.AddRow(uint(9), fuzzing.KindBool, "", int64(0), true)         // flatkv read/write metrics on; the default is off
+	seeds.AddRow(uint(15), fuzzing.KindInt64, "", int64(100000), false) // block-count retention on; the default is 0, meaning disabled
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "state-commit", readSC, scKeys, seeds,
+		scKeysWithTargetsOfTheirOwn...)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(scKeys, keyIdx)
@@ -155,25 +223,39 @@ func FuzzParseSCConfigs(f *testing.F) {
 // value is the clobber itself: the resolved field must equal the cast's zero, not
 // the in-code default.
 func FuzzParseSSConfigs(f *testing.F) {
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+
 	// Every row gets a nil and a malformed seed, so the two properties this table exists to
 	// state hold for every key on an ordinary `go test` run rather than only under -fuzz. A
 	// plain run replays seeds and nothing else, so a row with no seed is a row whose guard
 	// could be dropped without CI noticing. Same loop as
 	// FuzzGetConfigGuardedKeysPreserveDefaults in sei-cosmos/server/config.
 	for i := range len(ssKeys) {
-		f.Add(uint(i), fuzzing.KindNil, "", int64(0), false)               // nil: a guarded read keeps the default
-		f.Add(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed: a checked read must refuse it
+		seeds.AddRow(uint(i), fuzzing.KindNil, "", int64(0), false)               // nil: a guarded read keeps the default
+		seeds.AddRow(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed: a checked read must refuse it
 	}
 
-	f.Add(uint(0), fuzzing.KindBool, "", int64(0), true)
-	f.Add(uint(0), fuzzing.KindNil, "", int64(0), false) // nil clobbers Enable to false
-	f.Add(uint(1), fuzzing.KindString, "pebbledb", int64(0), false)
-	f.Add(uint(1), fuzzing.KindNil, "", int64(0), false) // nil clobbers Backend to ""
-	f.Add(uint(2), fuzzing.KindInt64, "", int64(100), false)
-	f.Add(uint(3), fuzzing.KindInt64, "", int64(200000), false)
-	f.Add(uint(3), fuzzing.KindNil, "", int64(0), false) // nil clobbers KeepRecent to 0
-	f.Add(uint(6), fuzzing.KindString, "/var/lib/sei/ss", int64(0), false)
-	f.Add(uint(10), fuzzing.KindBoolString, "", int64(0), true)
+	seeds.AddRow(uint(0), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(0), fuzzing.KindNil, "", int64(0), false) // nil clobbers Enable to false
+	seeds.AddRow(uint(1), fuzzing.KindString, "pebbledb", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindNil, "", int64(0), false) // nil clobbers Backend to ""
+	seeds.AddRow(uint(2), fuzzing.KindInt64, "", int64(100), false)
+	seeds.AddRow(uint(3), fuzzing.KindInt64, "", int64(200000), false)
+	seeds.AddRow(uint(3), fuzzing.KindNil, "", int64(0), false) // nil clobbers KeepRecent to 0
+	seeds.AddRow(uint(6), fuzzing.KindString, "/var/lib/sei/ss", int64(0), false)
+	seeds.AddRow(uint(10), fuzzing.KindBoolString, "", int64(0), true)
+
+	// The clobber cuts both ways for the four rows below. Because the section is unguarded,
+	// an absent key resolves them to their cast's zero, and so does the malformed seed on an
+	// unchecked read — so the two per-row seeds agree with each other and with a reader that
+	// never looks the key up. The values here differ from both that zero and the in-code
+	// default, so each row states that its own key is the one being read.
+	seeds.AddRow(uint(4), fuzzing.KindInt64, "", int64(1800), false) // prune every 30 min rather than the default 600s
+	seeds.AddRow(uint(5), fuzzing.KindInt64, "", int64(4), false)    // four import workers rather than the default 1
+	seeds.AddRow(uint(7), fuzzing.KindBool, "", int64(0), true)      // pebbledb read/write metrics on; the default is off
+	seeds.AddRow(uint(9), fuzzing.KindBool, "", int64(0), true)      // EVM state in its own sub-DBs; the default is shared
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "state-store", readSS, ssKeys, seeds)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(ssKeys, keyIdx)
@@ -302,21 +384,19 @@ func FuzzSCHashLoggerTargetFileSize(f *testing.F) {
 // and a malformed value fails the boot rather than quietly disabling a
 // money-conservation assertion that panics the node when it is violated.
 func FuzzReadLightInvarianceConfig(f *testing.F) {
-	f.Add(fuzzing.KindBool, "", int64(0), true)
-	f.Add(fuzzing.KindBoolString, "", int64(0), false)
-	f.Add(fuzzing.KindNil, "", int64(0), false)
-	f.Add(fuzzing.KindString, "sometimes", int64(0), false)
-	f.Add(fuzzing.KindMap, "", int64(0), false)
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seeds.Add(fuzzing.KindBool, "", int64(0), true)
+	seeds.Add(fuzzing.KindBoolString, "", int64(0), false)
+	seeds.Add(fuzzing.KindNil, "", int64(0), false)
+	seeds.Add(fuzzing.KindString, "sometimes", int64(0), false)
+	seeds.Add(fuzzing.KindMap, "", int64(0), false)
 
-	spec := configtest.KeySpec{
-		Key: "light_invariance.supply_enabled", Path: "SupplyEnabled",
-		Cast: configtest.CastBool, Checked: true,
-		Why: "default true; absent must not disable the supply invariance check",
-	}
-	read := func(opts configtest.AppOpts) (any, error) { return ReadLightInvarianceConfig(opts) }
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "light_invariance", readLightInvariance,
+		lightInvarianceKeys, seeds)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
-		configtest.CheckRow(t, "light_invariance", read, spec, fuzzing.ConfigValue(kind, s, n, b))
+		configtest.CheckRow(t, "light_invariance", readLightInvariance, lightInvarianceKeys[0],
+			fuzzing.ConfigValue(kind, s, n, b))
 	})
 }
 
@@ -370,19 +450,17 @@ func FuzzReadGenesisImportConfig(f *testing.F) {
 // FuzzReadGenesisStreamImport pins the stream-import toggle, which is a plain
 // guarded checked cast.
 func FuzzReadGenesisStreamImport(f *testing.F) {
-	f.Add(fuzzing.KindBool, "", int64(0), true)
-	f.Add(fuzzing.KindBoolString, "", int64(0), false)
-	f.Add(fuzzing.KindNil, "", int64(0), false)
-	f.Add(fuzzing.KindString, "stream", int64(0), false)
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seeds.Add(fuzzing.KindBool, "", int64(0), true)
+	seeds.Add(fuzzing.KindBoolString, "", int64(0), false)
+	seeds.Add(fuzzing.KindNil, "", int64(0), false)
+	seeds.Add(fuzzing.KindString, "stream", int64(0), false)
 
-	spec := configtest.KeySpec{
-		Key: "genesis.stream-import", Path: "StreamGenesisImport",
-		Cast: configtest.CastBool, Checked: true,
-	}
-	read := func(opts configtest.AppOpts) (any, error) { return ReadGenesisImportConfig(opts) }
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "genesis", readGenesis, genesisKeys, seeds)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
-		configtest.CheckRow(t, "genesis", read, spec, fuzzing.ConfigValue(kind, s, n, b))
+		configtest.CheckRow(t, "genesis", readGenesis, genesisKeys[0],
+			fuzzing.ConfigValue(kind, s, n, b))
 	})
 }
 
@@ -435,6 +513,81 @@ func TestParseSSConfigsAbsentBaselineIsZeroClobbered(t *testing.T) {
 		t.Fatal("ss-async-write-buffer is no longer clobbered by an absent key; " +
 			"if a presence guard was added on purpose, update this test and the manifest")
 	}
+}
+
+// TestKeyNamesMatchTheRecordedNames pins the operator-facing spelling of every key these
+// four manifests name, and of the three [state-commit] keys that have a target instead of a row.
+//
+// This package is where the check earns its keep. Twenty-eight of its thirty rows reach
+// their key through the same exported constant the reader passes to appOpts.Get, so editing
+// that constant's value — which is how an app.toml key gets renamed — moves the row and the
+// read site together and leaves every row assertion, and the discriminating-seed check,
+// passing on a key no node has ever carried. The three keys in scKeysWithTargetsOfTheirOwn were
+// in the same position for the same reason, one step further out: their targets spell the key
+// through the constant too, and they had no row to record. The other places the same string
+// appears do not move with it: sei-db/config/toml.go writes ss-import-num-workers into the
+// generated app.toml as literal text, so a rename through the constant disconnects the template
+// from the reader silently.
+//
+// The record here is what fails instead, naming the old and the new spelling. It does not
+// fix the template, and nothing checks that; it makes the rename impossible to land without
+// someone reading a diff that says which key moved.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "state-commit", scKeys, scKeysWithTargetsOfTheirOwn...)
+	configtest.CheckKeyNames(t, "state-store", ssKeys)
+	configtest.CheckKeyNames(t, "light_invariance", lightInvarianceKeys)
+	configtest.CheckKeyNames(t, "genesis", genesisKeys)
+}
+
+// TestManifestNamesEveryField enforces the claim each manifest makes about itself: that it names
+// every key its reader looks up. Left as prose the claim can drift, and it is the artifact a
+// replacement implementation reads as the section's contract.
+//
+// Each section is a subtest because the check is fatal, and a package holding several sections
+// would otherwise report only the first: a field added to two structs in one change would be
+// found twice, one PR apart.
+//
+// [state-commit] is absent, and the reason is a property of the section rather than a gap here.
+// StateCommitConfig is populated by two readers that each read keys the other does not —
+// parseSCConfigs over the flat AppOpts map, and sei-cosmos/server/config.GetConfig over viper,
+// the only reader of four of the five state-commit.flatkv.* keys. The two are not disjoint:
+// eleven keys are read by both, sc-write-mode and flatkv.enable-read-write-metrics among them.
+// What makes the assertion untrue is the four keys only GetConfig reads, because "every field
+// of this struct is named by scKeys" has to claim those four fields are unread. Making it pass
+// would take 62 exemptions against this 17-row manifest, four of them making that claim.
+//
+// Fifty-seven of the 62 sit under FlatKVConfig, so the move to reach for is exempting the
+// subtree in one line. It does not work and should not: coveredElsewhere matches a whole Dump
+// path, so "FlatKVConfig" exempts nothing, and a prefix form would give up exactly what the
+// check is for — a new state-commit.flatkv.* key added to parseSCConfigs would go unflagged,
+// and parseSCConfigs already reads one of them. The shape that would work is per reader:
+// CheckManifestCoversEveryField takes defaults as an any, so it can be pointed at FlatKVConfig
+// alone inside sei-cosmos/server/config with that reader's five flatkv keys as rows, leaving 53
+// exemptions that each say truthfully that the field carries no configuration key. Unbuilt.
+func TestManifestNamesEveryField(t *testing.T) {
+	t.Run("state-store", func(t *testing.T) {
+		configtest.CheckManifestCoversEveryField(t, "state-store", config.DefaultStateStoreConfig(), ssKeys,
+			// Both are tagged mapstructure but no [state-store] key reaches either: parseSSConfigs
+			// reads neither, so both hold their in-code defaults on every node. pebbledb consumes
+			// them at construction (KeepLastVersion in mvcc pruning, UseDefaultComparer in the
+			// comparer selection), which is worth stating rather than omitting — a field a config
+			// struct carries that configuration cannot address is exactly what a replacement
+			// manager would otherwise try to map a key onto.
+			"KeepLastVersion",
+			"UseDefaultComparer",
+		)
+	})
+	t.Run("light_invariance", func(t *testing.T) {
+		configtest.CheckManifestCoversEveryField(t, "light_invariance", DefaultLightInvarianceConfig,
+			lightInvarianceKeys)
+	})
+	t.Run("genesis", func(t *testing.T) {
+		configtest.CheckManifestCoversEveryField(t, "genesis", DefaultGenesisConfig, genesisKeys,
+			// FuzzReadGenesisImportConfig: genesis.import-file is an unchecked type assertion that
+			// panics on a non-string, so a row would predict the wrong resolution.
+			"GenesisStreamFile",
+		)
+	})
 }
 
 // assertPanics runs fn and requires it to panic with a message containing want.

@@ -53,6 +53,7 @@ type Keepers interface {
 	FeegrantQ() FeegrantQuerier
 	MintQ() MintQuerier
 	ParamsQ() ParamsQuerier
+	SlashingMS() SlashingMsgServer
 	SlashingQ() SlashingQuerier
 	UpgradeQ() UpgradeQuerier
 	TransferK() TransferKeeper
@@ -88,6 +89,7 @@ func (ek *EmptyKeepers) EvidenceQ() EvidenceQuerier    { return nil }
 func (ek *EmptyKeepers) FeegrantQ() FeegrantQuerier    { return nil }
 func (ek *EmptyKeepers) MintQ() MintQuerier            { return nil }
 func (ek *EmptyKeepers) ParamsQ() ParamsQuerier        { return nil }
+func (ek *EmptyKeepers) SlashingMS() SlashingMsgServer { return nil }
 func (ek *EmptyKeepers) SlashingQ() SlashingQuerier    { return nil }
 func (ek *EmptyKeepers) UpgradeQ() UpgradeQuerier      { return nil }
 func (ek *EmptyKeepers) TransferK() TransferKeeper     { return nil }
@@ -111,6 +113,10 @@ type BankKeeper interface {
 
 type BankMsgServer interface {
 	Send(goCtx context.Context, msg *banktypes.MsgSend) (*banktypes.MsgSendResponse, error)
+}
+
+type SlashingMsgServer interface {
+	Unjail(goCtx context.Context, msg *slashingtypes.MsgUnjail) (*slashingtypes.MsgUnjailResponse, error)
 }
 
 type EVMKeeper interface {

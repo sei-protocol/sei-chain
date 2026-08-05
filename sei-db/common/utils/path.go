@@ -74,6 +74,12 @@ func GetReceiptStorePath(homePath string, backend string) string {
 	return filepath.Join(homePath, "data", "ledger", "receipt", backend)
 }
 
+// GetBlockStorePath returns the path for the ledger block store, which sits alongside the
+// receipt store under data/ledger. Today GetBlockStorePath has no caller besides DefaultGigaStorageConfig.
+func GetBlockStorePath(homePath string) string {
+	return filepath.Join(homePath, "data", "ledger", "block")
+}
+
 func GetChangelogPath(dbPath string) string {
 	return filepath.Join(dbPath, "changelog")
 }

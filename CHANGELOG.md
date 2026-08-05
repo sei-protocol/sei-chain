@@ -27,6 +27,15 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+
+## Unreleased
+
+### Improvements
+* [#3818](https://github.com/sei-protocol/sei-chain/pull/3818) feat(evmrpc): extend HTTP admission control (`max_request_body_bytes`, `max_concurrent_request_bytes`, `ws_admission_timeout`) to the WebSocket plane (:8546). WS oversize frames close with WebSocket close code 1009; budget-wait timeouts return JSON-RPC error `-32005` before the connection closes. `evmrpc_requests_rejected_total` gains a `protocol` label (`http` / `ws`).
+
+### Upgrade guide
+* **WebSocket frame size default drops from 10 MiB to 5 MiB.** Before this release, :8546 used a hardcoded 10 MiB frame cap. Both HTTP and WebSocket now share `[evm].max_request_body_bytes`, whose default is 5 MiB (`5242880`). WS clients that send frames in the 5-10 MiB range (large `eth_sendRawTransaction` batches, wide filter payloads, etc.) will be disconnected after upgrade unless the limit is raised. **Operators who relied on the old 10 MiB WS cap should set `max_request_body_bytes = 10485760` in `app.toml` before upgrading.** This also raises the HTTP body limit to 10 MiB. The exported `DefaultWebsocketMaxMessageSize` constant was removed; use the config knob instead.
+
 ## v6.6
 sei-chain
 * [#3781](https://github.com/sei-protocol/sei-chain/pull/3781) Backport `release/v6.6`: fix(giga): fall back to v2 on execution errors
