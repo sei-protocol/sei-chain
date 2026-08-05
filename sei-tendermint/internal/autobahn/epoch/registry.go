@@ -1,6 +1,7 @@
 package epoch
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -15,7 +16,7 @@ type registryState struct {
 // Registry is the authoritative source of epoch and committee information.
 // All layers (consensus, data, avail) read from it.
 type Registry struct {
-	state utils.RWMutex[registryState]
+	state utils.RWMutex[*registryState]
 }
 
 // NewRegistry creates a Registry with the genesis committee.
@@ -26,7 +27,7 @@ func NewRegistry(
 ) (*Registry, error) {
 	ep := types.NewEpoch(0, types.OpenRoadRange(), genesisTimestamp, committee, firstBlock)
 	return &Registry{
-		state: utils.NewRWMutex(registryState{
+		state: utils.NewRWMutex(&registryState{
 			m:      map[types.EpochIndex]*types.Epoch{0: ep},
 			latest: 0,
 		}),
@@ -63,6 +64,35 @@ func (r *Registry) EpochByIndex(idx types.EpochIndex) (*types.Epoch, bool) {
 func (r *Registry) LatestEpoch() *types.Epoch {
 	for s := range r.state.RLock() {
 		return s.m[s.latest]
+	}
+	panic("unreachable")
+}
+
+// ActivateEpoch appends epoch latest+1 with a committee derived from weights
+// via types.ActivateCommittee (copy e_join for continuous members, stamp e for joiners).
+// roads / firstTimestamp / firstBlock describe the new epoch's road range and start markers.
+// The previous epoch is left as stored; callers that need a closed RoadRange on the prior
+// epoch should pass a roads.First that continues after the prior end when wiring transitions.
+func (r *Registry) ActivateEpoch(
+	weights map[types.PublicKey]uint64,
+	roads types.RoadRange,
+	firstTimestamp time.Time,
+	firstBlock types.GlobalBlockNumber,
+) (*types.Epoch, error) {
+	for s := range r.state.Lock() {
+		prev := s.m[s.latest]
+		next := s.latest + 1
+		if _, exists := s.m[next]; exists {
+			return nil, fmt.Errorf("epoch %d already exists", next)
+		}
+		committee, err := types.ActivateCommittee(prev.Committee(), weights, next)
+		if err != nil {
+			return nil, err
+		}
+		ep := types.NewEpoch(next, roads, firstTimestamp, committee, firstBlock)
+		s.m[next] = ep
+		s.latest = next
+		return ep, nil
 	}
 	panic("unreachable")
 }

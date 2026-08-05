@@ -29,6 +29,7 @@ type blockSpec struct {
 
 type mempool struct {
 	capacity  uint64
+	lane      utils.Option[types.LaneID]
 	first     types.BlockNumber
 	next      types.BlockNumber
 	blocks    map[types.BlockNumber]*blockSpec

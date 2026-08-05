@@ -10,11 +10,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// TODO: when dynamic committee changes are supported, newly joined members
-// must be added to blocks, votes, nextBlockToPersist, and persistedBlockStart.
-// Currently all four are initialized once in newInner from c.Lanes().All().
-// BlockPersister creates lane WALs lazily inside MaybePruneAndPersistLane, but the new
-// member must also appear in inner.blocks before the next persist cycle.
+// Lane maps: joiners are added at ApplyEpoch; leavers stay until a durable
+// CommitQC watermark is in the current epoch, then pruneInactiveLanes + DeleteLane.
 type inner struct {
 	epoch          *types.Epoch
 	latestAppQC    utils.Option[*types.AppQC]
@@ -148,6 +145,42 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 	}
 
 	return i, nil
+}
+
+// addCommitteeLanes adds empty queues for LaneIDs in c that are not yet tracked.
+// Joiner tip catch-up is separate: new lanes start empty and fill via PushBlock / peer sync.
+func (i *inner) addCommitteeLanes(c *types.Committee) {
+	for lane := range c.Lanes().All() {
+		if _, ok := i.blocks[lane]; ok {
+			continue
+		}
+		i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+		i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+		i.nextBlockToPersist[lane] = 0
+		i.persistedBlockStart[lane] = 0
+	}
+}
+
+// pruneInactiveLanes removes lanes absent from c. Call only when the durable
+// CommitQC watermark is in the current epoch (see tryPruneLeaveLanes).
+// Returns pruned LaneIDs so callers can DeleteLane on the BlockPersister.
+func (i *inner) pruneInactiveLanes(c *types.Committee) []types.LaneID {
+	active := map[types.LaneID]struct{}{}
+	for lane := range c.Lanes().All() {
+		active[lane] = struct{}{}
+	}
+	var pruned []types.LaneID
+	for lane := range i.blocks {
+		if _, ok := active[lane]; ok {
+			continue
+		}
+		delete(i.blocks, lane)
+		delete(i.votes, lane)
+		delete(i.nextBlockToPersist, lane)
+		delete(i.persistedBlockStart, lane)
+		pruned = append(pruned, lane)
+	}
+	return pruned
 }
 
 // TODO: filter votes per-epoch committee once epoch transitions are wired up.

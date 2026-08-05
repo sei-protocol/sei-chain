@@ -25,11 +25,12 @@ func TestNewCommittee_FiltersOutZeroWeightValidators(t *testing.T) {
 	if committee.HasReplica(zeroWeightKey) {
 		t.Fatal("HasReplica() = true for zero-weight validator, want false")
 	}
-	if got := committee.Replicas().Len(); got != 1 {
-		t.Fatalf("Replicas().Len() = %v, want 1", got)
+	if got := committee.Lanes().Len(); got != 1 {
+		t.Fatalf("Lanes().Len() = %v, want 1", got)
 	}
-	if got := committee.Replicas().At(0); got != nonZeroWeightKey {
-		t.Fatalf("Replicas().At(0) = %v, want %v", got, nonZeroWeightKey)
+	wantLane := NewLaneID(nonZeroWeightKey, 0)
+	if got := committee.Lanes().At(0); got != wantLane {
+		t.Fatalf("Lanes().At(0) = %v, want %v", got, wantLane)
 	}
 	if got := committee.Weight(nonZeroWeightKey); got != 7 {
 		t.Fatalf("Weight() = %v, want 7", got)
@@ -91,7 +92,7 @@ func makeEpoch(rng utils.Rng) (*Epoch, []SecretKey) {
 func TestLaneQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewLaneVote(NewBlock(keys[0].Public(), 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
+	vote := NewLaneVote(NewBlock(NewLaneID(keys[0].Public(), 0), 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
 
 	heavyOnly := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[0], vote),

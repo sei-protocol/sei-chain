@@ -22,7 +22,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 4)
 
 	makeCommitQC := func(prev utils.Option[*types.CommitQC]) *types.CommitQC {
-		l := keys[0].Public()
+		l := types.NewLaneID(keys[0].Public(), 0)
 		lr := types.LaneRangeOpt(prev, l)
 		b := types.NewBlock(l, lr.Next(), lr.LastHash(), types.GenPayload(rng))
 		lqcs := map[types.LaneID]*types.LaneQC{
@@ -121,7 +121,7 @@ func TestNewInnerLoadedNoAnchor(t *testing.T) {
 func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := types.NewLaneID(keys[0].Public(), 0)
 
 	// Build 3 contiguous blocks: 0, 1, 2.
 	var parent types.BlockHeaderHash
@@ -159,7 +159,7 @@ func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 func TestNewInnerLoadedBlocksEmptySlice(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := types.NewLaneID(keys[0].Public(), 0)
 
 	loaded := &loadedAvailState{
 		blocks: map[types.LaneID][]persist.LoadedBlock{lane: {}},
@@ -178,7 +178,7 @@ func TestNewInnerLoadedBlocksUnknownLane(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 4)
 
 	unknownKey := types.GenSecretKey(rng)
-	unknownLane := unknownKey.Public()
+	unknownLane := types.NewLaneID(unknownKey.Public(), 0)
 
 	b := testSignedBlock(unknownKey, unknownLane, 0, types.BlockHeaderHash{}, rng)
 	loaded := &loadedAvailState{
@@ -199,8 +199,8 @@ func TestNewInnerLoadedBlocksUnknownLane(t *testing.T) {
 func TestNewInnerLoadedBlocksMultipleLanes(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane0 := keys[0].Public()
-	lane1 := keys[1].Public()
+	lane0 := types.NewLaneID(keys[0].Public(), 0)
+	lane1 := types.NewLaneID(keys[1].Public(), 0)
 
 	var parent0 types.BlockHeaderHash
 	var bs0 []persist.LoadedBlock
@@ -330,7 +330,7 @@ func TestNewInnerLoadedCommitQCsWithAppQC(t *testing.T) {
 func TestNewInnerLoadedAllThree(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := types.NewLaneID(keys[0].Public(), 0)
 
 	// AppQC at road index 2.
 	roadIdx := types.RoadIndex(2)
@@ -393,7 +393,7 @@ func TestNewInnerLoadedAllThree(t *testing.T) {
 func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := types.NewLaneID(keys[0].Public(), 0)
 
 	i, err := newInner(registry.LatestEpoch(), utils.None[*loadedAvailState]())
 	require.NoError(t, err)
@@ -686,7 +686,7 @@ func TestNewInnerLoadedCommitQCsGapAfterAnchorReturnsError(t *testing.T) {
 func TestNewInnerLoadedBlocksGapReturnsError(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := types.NewLaneID(keys[0].Public(), 0)
 
 	// Blocks 3, 4, 6, 7 with no anchor — queue starts at 0, so block 3
 	// fails the contiguity check immediately (expected 0, got 3).
@@ -710,7 +710,7 @@ func TestNewInnerLoadedBlocksGapReturnsError(t *testing.T) {
 func TestNewInnerLoadedBlocksParentHashMismatchReturnsError(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := types.NewLaneID(keys[0].Public(), 0)
 
 	// Build blocks 0, 1 with correct chaining, then block 2 with wrong parent.
 	var parent types.BlockHeaderHash
@@ -738,7 +738,7 @@ func TestNewInnerLoadedBlocksParentHashMismatchReturnsError(t *testing.T) {
 func TestNewInnerLoadedBlocksOverCapacityReturnsError(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := types.NewLaneID(keys[0].Public(), 0)
 
 	// Build BlocksPerLane + 5 contiguous blocks — more than the lane capacity.
 	// Since runtime enforces the capacity limit, exceeding it on disk indicates
@@ -779,7 +779,7 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 	pruneQC := qcs[2]
 
-	lane := keys[0].Public()
+	lane := types.NewLaneID(keys[0].Public(), 0)
 
 	// Persist some blocks starting at the lane range for the prune CommitQC.
 	lrFirst := pruneQC.LaneRange(lane).First()

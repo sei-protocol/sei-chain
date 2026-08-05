@@ -21,7 +21,10 @@ func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Serv
 		if err != nil {
 			return fmt.Errorf("StreamLaneProposalsReqConv.Decode(): %w", err)
 		}
-		sub := x.validatorState().Avail().SubscribeLaneProposals(req.FirstBlockNumber)
+		sub, err := x.validatorState().Avail().SubscribeLaneProposals(req.FirstBlockNumber)
+		if err != nil {
+			return err
+		}
 		for {
 			p, err := sub.Recv(ctx)
 			if err != nil {

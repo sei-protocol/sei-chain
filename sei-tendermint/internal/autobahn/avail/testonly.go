@@ -13,7 +13,10 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 		for _, from := range states {
 			for _, to := range states {
 				s.Spawn(func() error {
-					sub := from.SubscribeLaneProposals(0)
+					sub, err := from.SubscribeLaneProposals(0)
+					if err != nil {
+						return err
+					}
 					for {
 						p, err := sub.Recv(ctx)
 						if err != nil {

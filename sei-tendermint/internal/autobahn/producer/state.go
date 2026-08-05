@@ -2,6 +2,7 @@ package producer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -46,15 +47,20 @@ type State struct {
 }
 
 // NewState constructs a new block producer state.
-// Returns an error if the current node is NOT a producer.
+// The mempool tip is aligned to the current applied LocalLane when present;
+// otherwise it starts empty and is reset when a LaneID streak begins.
 func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State {
-	lane := consensus.Avail().PublicKey()
-	n := consensus.Avail().NextBlock(lane)
+	n := types.BlockNumber(0)
+	laneOpt := consensus.Avail().LocalLane()
+	if lane, ok := laneOpt.Get(); ok {
+		n = consensus.Avail().NextBlock(lane)
+	}
 	return &State{
 		cfg: cfg,
 		app: app,
 		mempool: utils.NewWatch(&mempool{
 			capacity:  avail.BlocksPerLane,
+			lane:      laneOpt,
 			first:     n,
 			next:      n,
 			blocks:    map[types.BlockNumber]*blockSpec{},
@@ -66,17 +72,50 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 	}
 }
 
+func (s *State) alignMempoolForLane(lane types.LaneID) types.BlockNumber {
+	n := s.consensus.Avail().NextBlock(lane)
+	for m, ctrl := range s.mempool.Lock() {
+		if cur, ok := m.lane.Get(); ok && cur == lane {
+			// Continuous streak (including first Run after NewState): keep tip + txs.
+			return m.first
+		}
+		// New LaneID streak: tip from avail for this lane.
+		m.lane = utils.Some(lane)
+		m.first = n
+		m.next = n
+		m.blocks = map[types.BlockNumber]*blockSpec{}
+		m.nextBlock = &blockSpec{evmNonces: map[common.Address]uint64{}}
+		m.evmNonces = map[common.Address]uint64{}
+		m.evmTxs = map[common.Hash]tmtypes.Tx{}
+		ctrl.Updated()
+	}
+	return n
+}
+
 // Run runs the background tasks of the producer state:
 // * prunes executed lane blocks from mempool
 // * pushes new lane blocks from mempool to avail state
 // Note that mempool capacity bounds the number of unexecuted blocks of the local lane.
 // This is needed so that we can track the evm nonces of sequenced txs - mempool admits txs
 // sequentially in the nonce order.
+//
+// Membership is epoch-scoped: stay continues the same LaneID streak; leave cancels
+// the streak; a later join starts a new Run for the new (v, e_join).
 func (s *State) Run(ctx context.Context) error {
+	availState := s.consensus.Avail()
+	return availState.LocalLaneUpdates().Iter(ctx, func(ctx context.Context, laneOpt utils.Option[types.LaneID]) error {
+		lane, ok := laneOpt.Get()
+		if !ok {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		return s.runLaneStreak(ctx, availState, lane)
+	})
+}
+
+func (s *State) runLaneStreak(ctx context.Context, availState *avail.State, lane types.LaneID) error {
+	firstBlock := s.alignMempoolForLane(lane)
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		availState := s.consensus.Avail()
-		lane := availState.PublicKey()
-		firstBlock := s.mempoolFirst()
 		scope.Spawn(func() error {
 			// Task pruning executed lane blocks from the mempool
 			dataState := s.consensus.Data()
@@ -99,8 +138,8 @@ func (s *State) Run(ctx context.Context) error {
 			limiter := rate.NewLimiter(limit, burst)
 			lastBlockTime := time.Now()
 			for toProduce := firstBlock; ; toProduce += 1 {
-				if err := availState.WaitForLocalCapacity(ctx, toProduce); err != nil {
-					return fmt.Errorf("availState.WaitForLocalCapacity(): %w", err)
+				if err := availState.WaitForLocalCapacity(ctx, lane, toProduce); err != nil {
+					return s.streakOpErr(lane, "availState.WaitForLocalCapacity()", err)
 				}
 				var payload *types.Payload
 				// Wait until either
@@ -147,7 +186,7 @@ func (s *State) Run(ctx context.Context) error {
 					}
 				}
 				if _, err := availState.ProduceLocalBlock(toProduce, payload); err != nil {
-					return fmt.Errorf("availState.ProduceLocalBlock(): %w", err)
+					return s.streakOpErr(lane, "availState.ProduceLocalBlock()", err)
 				}
 				lastBlockTime = time.Now()
 				if err := limiter.WaitN(ctx, len(payload.Txs())); err != nil {
@@ -157,4 +196,20 @@ func (s *State) Run(ctx context.Context) error {
 		})
 		return nil
 	})
+}
+
+// streakOpErr maps leave-race ErrBadLane onto context.Canceled so LocalLane
+// Iter continues (rejoin) instead of permanently killing producer.Run.
+// Covers both: LocalLane already Store'd, and maps/epoch swapped before Store.
+func (s *State) streakOpErr(lane types.LaneID, op string, err error) error {
+	if errors.Is(err, avail.ErrBadLane) {
+		availState := s.consensus.Avail()
+		if got, ok := availState.LocalLane().Get(); !ok || got != lane {
+			return context.Canceled
+		}
+		if !availState.HasLane(lane) {
+			return context.Canceled
+		}
+	}
+	return fmt.Errorf("%s: %w", op, err)
 }

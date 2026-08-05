@@ -19,6 +19,11 @@ import (
 // ErrBadLane .
 var ErrBadLane = errors.New("bad lane")
 
+// ErrLaneIdentityChanged is returned by SubscribeLaneProposals.Recv when this
+// node's pubkey leaves the applied committee (LocalLane → None). A LaneID change
+// without leave panics — stay across contiguous epochs keeps the same LaneID.
+var ErrLaneIdentityChanged = errors.New("lane identity changed")
+
 const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
 
 // State represents the Data Availability Plane and Ordered Event Log.
@@ -35,6 +40,11 @@ type State struct {
 	data  *data.State
 	inner utils.Watch[*inner]
 
+	// localLane is this node's LaneID in the applied availability committee
+	// (None if not a member). Updated in NewState and ApplyEpoch; producer and
+	// outbound proposal streams observe it via LocalLaneUpdates.
+	localLane utils.AtomicSend[utils.Option[types.LaneID]]
+
 	// persisters groups all disk persistence components.
 	// Always initialized: real when stateDir is set, no-op otherwise.
 	persisters persisters
@@ -42,6 +52,89 @@ type State struct {
 
 func (s *State) PublicKey() types.PublicKey {
 	return s.key.Public()
+}
+
+// LocalLane returns this node's LaneID in the applied availability committee.
+func (s *State) LocalLane() utils.Option[types.LaneID] {
+	return s.localLane.Load()
+}
+
+// LocalLaneUpdates observes ApplyEpoch membership changes for this node.
+func (s *State) LocalLaneUpdates() utils.AtomicRecv[utils.Option[types.LaneID]] {
+	return s.localLane.Subscribe()
+}
+
+func laneIDOptEqual(a, b utils.Option[types.LaneID]) bool {
+	av, aok := a.Get()
+	bv, bok := b.Get()
+	return aok == bok && (!aok || av == bv)
+}
+
+// ApplyEpoch updates the applied committee: joiner lanes are added; leavers stay
+// until tryPruneLeaveLanes sees a durable CommitQC in ep. Stay does not Store
+// localLane (same LaneID). localLane is Store'd after maps so rejoin streaks see
+// the new queues; leave races on ProduceLocalBlock are soft-canceled in producer.
+func (s *State) ApplyEpoch(ep *types.Epoch) error {
+	newLane := ep.Committee().Lane(s.key.Public())
+	for inner, ctrl := range s.inner.Lock() {
+		inner.epoch = ep
+		inner.addCommitteeLanes(ep.Committee())
+		ctrl.Updated()
+	}
+	if !laneIDOptEqual(s.localLane.Load(), newLane) {
+		s.localLane.Store(newLane)
+	}
+	return nil
+}
+
+// HasLane reports whether the applied availability committee contains lane.
+func (s *State) HasLane(lane types.LaneID) bool {
+	for inner := range s.inner.Lock() {
+		return inner.epoch.Committee().HasLane(lane)
+	}
+	panic("unreachable")
+}
+
+// tryPruneLeaveLanes drops inactive leave lanes from memory and deletes their
+// WALs once latestCommitQC is durable in the current epoch. Safe to call only
+// when no MaybePruneAndPersistLane is in flight for those lanes (e.g. after
+// runPersist's Parallel batch completes).
+func (s *State) tryPruneLeaveLanes() error {
+	var pruned []types.LaneID
+	var watermark *types.CommitQC
+	for inner, ctrl := range s.inner.Lock() {
+		qc, ok := inner.latestCommitQC.Load().Get()
+		if !ok || qc.Proposal().EpochIndex() < inner.epoch.EpochIndex() {
+			return nil
+		}
+		pruned = inner.pruneInactiveLanes(inner.epoch.Committee())
+		if len(pruned) == 0 {
+			return nil
+		}
+		watermark = qc
+		ctrl.Updated()
+	}
+	for _, lane := range pruned {
+		if err := s.persisters.blocks.DeleteLane(lane); err != nil {
+			return fmt.Errorf("DeleteLane(%s): %w", lane, err)
+		}
+	}
+	// Re-publish after disk delete so LastCommitQC waiters observe both memory
+	// and WAL gone (not just maps dropped).
+	for inner, ctrl := range s.inner.Lock() {
+		inner.latestCommitQC.Store(utils.Some(watermark))
+		ctrl.Updated()
+	}
+	return nil
+}
+
+// hasBlockLane reports whether lane maps still track lane (test helper).
+func (s *State) hasBlockLane(lane types.LaneID) bool {
+	for inner := range s.inner.Lock() {
+		_, ok := inner.blocks[lane]
+		return ok
+	}
+	panic("unreachable")
 }
 
 // persisters holds all disk persistence components. Either all are present
@@ -203,8 +296,9 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	// loadPersistedState.
 	if ls, ok := loaded.Get(); ok {
 		if anchor, ok := ls.pruneAnchor.Get(); ok {
-			for lane := range ep.Committee().Lanes().All() {
-				if err := pers.blocks.MaybePruneAndPersistLane(lane, utils.Some(anchor.CommitQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
+			c := ep.Committee()
+			for lane := range c.Lanes().All() {
+				if err := pers.blocks.MaybePruneAndPersistLane(lane, c, utils.Some(anchor.CommitQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
 					return nil, fmt.Errorf("prune stale block WAL entries: %w", err)
 				}
 			}
@@ -218,6 +312,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		key:        key,
 		data:       data,
 		inner:      utils.NewWatch(inner),
+		localLane:  utils.NewAtomicSend(ep.Committee().Lane(key.Public())),
 		persisters: pers,
 	}, nil
 }
@@ -460,7 +555,7 @@ func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumbe
 // Waits until all previous blocks are available.
 func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LaneProposal]) error {
 	h := p.Msg().Block().Header()
-	if p.Key() != h.Lane() {
+	if p.Key() != h.Lane().Validator() {
 		return fmt.Errorf("signer %v does not match lane %v", p.Key(), h.Lane())
 	}
 	if _, err := s.data.Registry().VerifyInWindow(func(c *types.Committee) error {
@@ -603,10 +698,12 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 	return types.NewFullCommitQC(qc, commitHeaders), nil
 }
 
-// WaitForLocalCapacity waits until the lane owned by this node has capacity for toProduce block.
-func (s *State) WaitForLocalCapacity(ctx context.Context, toProduce types.BlockNumber) error {
-	lane := s.key.Public()
+// WaitForLocalCapacity waits until lane has capacity for toProduce.
+func (s *State) WaitForLocalCapacity(ctx context.Context, lane types.LaneID, toProduce types.BlockNumber) error {
 	for inner, ctrl := range s.inner.Lock() {
+		if _, ok := inner.blocks[lane]; !ok {
+			return ErrBadLane
+		}
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			return toProduce < inner.persistedBlockStart[lane]+BlocksPerLane
 		}); err != nil {
@@ -653,9 +750,12 @@ func (s *State) ProduceLocalBlock(n types.BlockNumber, payload *types.Payload) (
 
 // TODO: produceLocalBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
 func (s *State) produceLocalBlock(n types.BlockNumber, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
-	lane := key.Public()
 	var result *types.Signed[*types.LaneProposal]
 	for inner, ctrl := range s.inner.Lock() {
+		lane, ok := inner.epoch.Committee().Lane(key.Public()).Get()
+		if !ok {
+			return nil, ErrBadLane
+		}
 		q, ok := inner.blocks[lane]
 		if !ok {
 			return nil, ErrBadLane
@@ -776,6 +876,11 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			blocksByLane[lane] = append(blocksByLane[lane], proposal)
 		}
 
+		var active *types.Committee
+		for inner := range s.inner.Lock() {
+			active = inner.epoch.Committee()
+		}
+
 		// 2. Persist commit-QCs and per-lane blocks in parallel.
 		// Callees handle empty inputs gracefully (no-op when nothing to write/truncate).
 		if err := scope.Parallel(func(ps scope.ParallelScope) error {
@@ -805,11 +910,18 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			for lane := range batchLanes {
 				proposals := blocksByLane[lane]
 				ps.Spawn(func() error {
-					return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))
+					// active is current-epoch committee: creates only for members;
+					// leavers still flush if their WAL is already open.
+					return pers.blocks.MaybePruneAndPersistLane(lane, active, anchorQC, proposals, utils.Some(markBlock))
 				})
 			}
 			return nil
 		}); err != nil {
+			return err
+		}
+		// After this batch's lane WAL work finishes: drop leavers if the
+		// durable CommitQC watermark is already in the current epoch.
+		if err := s.tryPruneLeaveLanes(); err != nil {
 			return err
 		}
 	}
