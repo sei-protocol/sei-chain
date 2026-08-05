@@ -89,6 +89,8 @@ var evmKeys = []configtest.KeySpec{
 	{Key: "evm.trace_bake_snapshot_window", Path: "TraceBakeSnapshotWindow", Cast: configtest.CastInt64, Checked: true},
 	{Key: "evm.ip_rate_limit_rps", Path: "IPRateLimitRPS", Cast: configtest.CastFloat64, Checked: true},
 	{Key: "evm.ip_rate_limit_burst", Path: "IPRateLimitBurst", Cast: configtest.CastInt, Checked: true},
+	{Key: "evm.rate_limiting_enabled", Path: "RateLimitingEnabled", Cast: configtest.CastBool, Checked: true},
+	{Key: "evm.trusted_proxy_cidrs", Path: "TrustedProxyCIDRs", Cast: configtest.CastStringSlice, Checked: true},
 	{Key: "evm.batch_request_limit", Path: "BatchRequestLimit", Cast: configtest.CastInt, Checked: true},
 	{Key: "evm.batch_response_max_size", Path: "BatchResponseMaxSize", Cast: configtest.CastInt, Checked: true},
 	{Key: "evm.max_request_body_bytes", Path: "MaxRequestBodyBytes", Cast: configtest.CastInt64, Checked: true},
