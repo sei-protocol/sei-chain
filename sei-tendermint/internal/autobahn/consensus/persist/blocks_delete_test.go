@@ -17,7 +17,7 @@ func TestMaybePruneAndPersistLane_InactiveDoesNotRecreateAfterDelete(t *testing.
 	dir := t.TempDir()
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = bp.close() })
+	t.Cleanup(func() { _ = bp.Close() })
 
 	leaver := types.GenSecretKey(rng)
 	stayer := types.GenSecretKey(rng)

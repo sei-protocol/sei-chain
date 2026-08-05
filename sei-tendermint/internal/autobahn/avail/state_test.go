@@ -823,7 +823,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 	t.Run("failed NewState releases WAL locks", func(t *testing.T) {
 		dir := t.TempDir()
 		ds := newTestDataState(&data.Config{Registry: registry})
-		lane := keys[0].Public()
+		lane := types.NewLaneID(keys[0].Public(), 0)
 
 		// Seed one lane so the failing NewState below has a lane WAL to leak, then release the seeder.
 		bp, _, err := persist.NewBlockPersister(utils.Some(dir))
@@ -831,8 +831,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 		var parent types.BlockHeaderHash
 		block := types.NewBlock(lane, 0, parent, types.GenPayload(rng))
 		proposals := []*types.Signed[*types.LaneProposal]{types.Sign(keys[0], types.NewLaneProposal(block))}
+		active := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{keys[0].Public(): 1}))
 		require.NoError(t, bp.MaybePruneAndPersistLane(
-			lane, utils.None[*types.CommitQC](), proposals, noBlockCB))
+			lane, active, utils.None[*types.CommitQC](), proposals, noBlockCB))
 		require.NoError(t, bp.Close())
 
 		// A prune anchor missing its CommitQC unmarshals as proto but fails PruneAnchorConv.Decode, so

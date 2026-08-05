@@ -480,7 +480,7 @@ func TestPersistBlockAutoCreatesLane(t *testing.T) {
 func TestPruneReclaimsSealedFiles(t *testing.T) {
 	rng := utils.TestRng()
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.NewLaneID(key.Public(), 0)
 	dir := t.TempDir()
 
 	const total = 40
@@ -519,7 +519,7 @@ func TestPersistBlockInvokesAfterEachOncePerBlock(t *testing.T) {
 	dir := t.TempDir()
 
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.NewLaneID(key.Public(), 0)
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
@@ -532,7 +532,7 @@ func TestPersistBlockInvokesAfterEachOncePerBlock(t *testing.T) {
 	cb := utils.Some(func(p *types.Signed[*types.LaneProposal]) {
 		seen = append(seen, p.Msg().Block().Header().BlockNumber())
 	})
-	require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), proposals, cb))
+	require.NoError(t, bp.MaybePruneAndPersistLane(lane, committeeForLane(lane), utils.None[*types.CommitQC](), proposals, cb))
 	require.NoError(t, bp.Close())
 
 	require.Equal(t, len(proposals), len(seen))
