@@ -706,7 +706,7 @@ func rollbackFixtureEmptyWALAtV2(t *testing.T) *CommitStore {
 	commitStorageEntry(t, s, ktype.Address{0x92}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0x92}, ktype.Slot{0x02}, []byte{0x02})
 	require.NoError(t, s.WriteSnapshot(""))
-	require.NoError(t, s.resetWAL())
+	resetWALForTest(t, s)
 	return s
 }
 
@@ -720,7 +720,7 @@ func TestRollbackRejectsTargetTheWALNoLongerCovers(t *testing.T) {
 	// at 2: reaching v4 would need block 3, which the WAL no longer holds.
 	for _, v := range []int64{3, 4} {
 		if v == 4 {
-			require.NoError(t, s.resetWAL())
+			resetWALForTest(t, s)
 		}
 		cs := makeChangeSet(evmStorageKey(ktype.Address{0x92}, ktype.Slot{byte(v)}), padLeft32(byte(v)), false)
 		require.NoError(t, s.ApplyChangeSets(v, []*proto.NamedChangeSet{cs}))

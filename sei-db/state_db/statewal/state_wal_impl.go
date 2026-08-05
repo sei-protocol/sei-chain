@@ -100,24 +100,6 @@ func VerifyIntegrity(config *Config) error {
 	return nil
 }
 
-// Delete removes the configured state WAL directory and everything in it, so a subsequent New yields a
-// fresh, empty WAL that recreates the directory. It is a no-op if the directory does not exist, and it does
-// not construct a live StateWAL.
-//
-// It takes the exclusive WAL directory lock, so it fails with commonerrors.ErrFileLockUnavailable if a
-// StateWAL is open on the same directory, and serializes against GetRange/PruneAfter/VerifyIntegrity there.
-// FlatKV closes the WAL before deleting and reopening it on a state-sync restore, so the receiving node
-// rebuilds a clean WAL aligned with the imported snapshot rather than splicing onto stale entries.
-//
-// Removing the directory unlinks the lock file, so exclusion ends there rather than when this returns. A
-// caller that must hold the directory across the delete-then-reopen sequence needs its own outer lock.
-func Delete(config *Config) error {
-	if err := seiwal.DeleteAll(config.Path); err != nil {
-		return fmt.Errorf("state WAL delete failed: %w", err)
-	}
-	return nil
-}
-
 func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
 	w := &stateWALImpl{wal: wal}
 

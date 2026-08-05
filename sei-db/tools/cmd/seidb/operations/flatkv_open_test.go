@@ -207,7 +207,7 @@ func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 	// front-truncation past the snapshot leaves behind.
 	walDir := filepath.Join(dbDir, "changelog")
 	walCfg := statewal.DefaultConfig(walDir, "flatkv")
-	require.NoError(t, statewal.Delete(walCfg))
+	require.NoError(t, os.RemoveAll(walDir)) // the store is closed above, so nothing holds the directory
 	w, err := statewal.New(walCfg)
 	require.NoError(t, err)
 	for v := uint64(4); v <= 5; v++ {

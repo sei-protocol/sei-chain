@@ -805,6 +805,11 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 		if err := s.open(); err != nil {
 			return nil, fmt.Errorf("reopen store for import: %w", err)
 		}
+		// The store must be able to commit once the import finishes, so make sure it holds a live WAL: the
+		// injected instance is normally closed along with the DBs.
+		if err := s.reopenWAL(); err != nil {
+			return nil, fmt.Errorf("reopen WAL for import: %w", err)
+		}
 	}
 	if err := s.resetForImport(); err != nil {
 		return nil, fmt.Errorf("reset store for import: %w", err)
@@ -853,12 +858,12 @@ func (s *CommitStore) resetForImport() error {
 		return fmt.Errorf("resetForImport: remove %s: %w", currentLink, err)
 	}
 
-	// Reset the WAL through the injected instance rather than removing its directory directly: the instance
-	// is still open here, so a raw removal would strand it (and break its Close). resetWAL wipes it to a
-	// clean empty log aligned with the import; it is a no-op when the outer context owns the WAL (nil).
-	if err := s.resetWAL(); err != nil {
-		return fmt.Errorf("resetForImport: reset WAL: %w", err)
-	}
+	// The WAL is deliberately left alone. Import bypasses it, so a pre-existing WAL is stale relative to the
+	// imported version — but a state-sync restore is a manual procedure in which the operator stops the node
+	// and removes its data directories, changelog included, so the restored node opens an empty WAL and its
+	// first commit at the restored height is accepted. Skipping that wipe leaves a WAL ending below the
+	// restored height: replay finds nothing to apply and the next commit is rejected by the state WAL's
+	// contiguity rule, which fails loudly rather than diverging silently.
 
 	// Reopen from a pristine empty state. open() will load metadata
 	// from the empty DB (a no-op), then we reset in-memory state below.
@@ -876,30 +881,26 @@ func (s *CommitStore) resetForImport() error {
 	return nil
 }
 
-// resetWAL discards this store's WAL and reopens an empty one, so a restore starts from a clean WAL aligned
-// with the imported snapshot (called by resetForImport). Import bypasses the WAL, so any pre-existing WAL is
-// stale relative to the imported version; under statewal's contiguity a stale non-empty WAL (a re-syncing
-// node's old-chain entries) would reject the next commit. Wiping is a no-op on a fresh node and the fix on
-// a re-sync.
+// reopenWAL replaces this store's WAL instance with a freshly opened one on the same directory, preserving
+// everything the directory holds. It is how a store that was closed and then reused (rootmulti.Restore closes
+// before importing) gets back a WAL it can commit into; nothing here discards WAL data.
 //
-// When the store does not manage a WAL (constructed with nil — the outer context owns the pipeline) this is
-// a no-op. The instance may already be closed here, since rootmulti.Restore closes the store before
-// importing; closing twice is a no-op. On failure the store keeps the closed instance rather than dropping to
-// nil, so a later write fails loudly instead of being skipped.
-func (s *CommitStore) resetWAL() error {
+// When the store does not manage a WAL (constructed with nil — the outer context owns the pipeline) this is a
+// no-op. On failure the store keeps the old instance rather than dropping to nil, so a later write fails
+// loudly instead of being skipped.
+func (s *CommitStore) reopenWAL() error {
 	if s.wal == nil {
 		return nil
 	}
-	cfg := stateWALConfig(&s.config)
+	// Close first. A closed store does not imply a closed WAL — closeDBsOnly deliberately leaves it open — and
+	// the WAL directory admits a single owner, so a live instance would block the reopen below. Closing an
+	// already-closed WAL is a no-op.
 	if err := s.wal.Close(); err != nil {
-		return fmt.Errorf("close WAL for reset: %w", err)
+		return fmt.Errorf("close state WAL: %w", err)
 	}
-	if err := statewal.Delete(cfg); err != nil {
-		return fmt.Errorf("delete WAL for reset: %w", err)
-	}
-	w, err := statewal.New(cfg)
+	w, err := statewal.New(stateWALConfig(&s.config))
 	if err != nil {
-		return fmt.Errorf("reopen WAL after reset: %w", err)
+		return fmt.Errorf("open state WAL: %w", err)
 	}
 	s.wal = w
 	return nil

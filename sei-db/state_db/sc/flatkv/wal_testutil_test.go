@@ -2,10 +2,12 @@ package flatkv
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,6 +21,22 @@ func newCommitStoreWithWAL(ctx context.Context, cfg *config.Config) (*CommitStor
 		return nil, err
 	}
 	return NewCommitStore(ctx, cfg, stateWAL)
+}
+
+// resetWALForTest closes the store's WAL, removes its directory and reopens an empty one in place, leaving the
+// store able to keep committing. It exists so a test can choose exactly which blocks the WAL retains: prune is
+// file-granular and asynchronous, so it cannot shape a small WAL deterministically.
+//
+// Test-only, and deliberately not available in production: a node whose WAL must be discarded (a state-sync
+// restore) has its changelog directory removed out of band while the node is stopped.
+func resetWALForTest(t *testing.T, s *CommitStore) {
+	t.Helper()
+	cfg := stateWALConfig(&s.config)
+	require.NoError(t, s.wal.Close())
+	require.NoError(t, os.RemoveAll(cfg.Path))
+	w, err := statewal.New(cfg)
+	require.NoError(t, err)
+	s.wal = w
 }
 
 // walBlockNumbers returns the block numbers stored in the store's WAL, in ascending order. Test-only.

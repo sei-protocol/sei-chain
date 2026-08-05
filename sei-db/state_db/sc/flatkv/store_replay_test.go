@@ -196,7 +196,7 @@ func TestReadOnlySurfacesReplayGap(t *testing.T) {
 	}
 
 	// Wipe the WAL and resume, so it no longer reaches back to the snapshot at version 2.
-	require.NoError(t, s.resetWAL())
+	resetWALForTest(t, s)
 	commit(5, 0x99)
 
 	_, err = s.LoadVersionReadOnly(3)

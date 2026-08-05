@@ -11,7 +11,7 @@ import (
 // operation lives with the operations that use it — writes in Commit (store_write.go), replay in
 // replayIntoMutableStore / replayIntoReadOnlyCopy (store_replay.go), tail-truncate/prune in Rollback and
 // tryTruncateWAL (snapshot.go), and the
-// import/restore reset in resetWAL (store.go, next to resetForImport).
+// reopen of a closed instance in reopenWAL (store.go, next to resetForImport).
 
 // OpenStateWAL opens (or creates, recovering any prior session) the state WAL for a FlatKV store configured
 // by cfg, at the conventional changelog directory under the store's data dir. The returned instance is

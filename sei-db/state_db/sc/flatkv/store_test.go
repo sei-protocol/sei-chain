@@ -1379,7 +1379,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	expectedVersion := s.Version()
 
 	// Clear the WAL entirely (simulate WAL lost after snapshot).
-	require.NoError(t, s.resetWAL())
+	resetWALForTest(t, s)
 	require.NoError(t, s.Close())
 
 	// Reopen: should work from snapshot alone.
@@ -1431,14 +1431,14 @@ func TestCloseRetainsWALInstance(t *testing.T) {
 	require.NotNil(t, s.wal, "Close must retain the closed WAL instance, not nil it")
 }
 
-// TestCommitWithClosedWALFailsLoudly verifies the state a failed resetWAL now leaves behind — DBs open, WAL
-// closed — refuses to commit rather than persisting to the four Pebble DBs with nothing to replay from. That
-// is the whole point of retaining the closed instance: against a nil WAL this commit would silently succeed.
+// TestCommitWithClosedWALFailsLoudly verifies that a store holding a closed WAL but open DBs refuses to commit
+// rather than persisting to the four Pebble DBs with nothing to replay from. That is the whole point of
+// retaining the closed instance: against a nil WAL this commit would silently succeed.
 func TestCommitWithClosedWALFailsLoudly(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s := walStoreAtV1(t, cfg)
 
-	// Exactly the state left by a resetWAL whose Delete or New failed after the old WAL was closed.
+	// The WAL dies under a store whose DBs are still open.
 	require.NoError(t, s.wal.Close())
 
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x02)))
@@ -1453,20 +1453,22 @@ func TestCommitWithClosedWALFailsLoudly(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
-// TestResetWALAfterCloseReopens covers the live import path: rootmulti.Restore closes the store before
-// calling Importer, so resetWAL runs against an already-closed instance. It must still read the config off
-// it and close it a second time without error.
-func TestResetWALAfterCloseReopens(t *testing.T) {
+// TestReopenWALAfterCloseKeepsContents covers the live import path: rootmulti.Restore closes the store before
+// calling Importer, so the WAL it must commit into afterwards has to be reopened. The reopened instance is
+// usable and still holds every block the closed one did — import discards no WAL data.
+func TestReopenWALAfterCloseKeepsContents(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s := walStoreAtV1(t, cfg)
 	require.NoError(t, s.Close())
 
-	require.NoError(t, s.resetWAL())
+	require.NoError(t, s.reopenWAL())
 	require.NotNil(t, s.wal)
 
-	ok, _, _, err := s.wal.GetStoredRange()
+	ok, first, last, err := s.wal.GetStoredRange()
 	require.NoError(t, err)
-	require.False(t, ok, "resetWAL must leave an empty WAL")
+	require.True(t, ok, "reopenWAL must not discard the stored blocks")
+	require.Equal(t, uint64(1), first)
+	require.Equal(t, uint64(1), last)
 	require.NoError(t, s.Close())
 }
 
