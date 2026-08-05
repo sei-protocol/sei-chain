@@ -49,10 +49,23 @@ checksum:
 snapshot:
   version_template: '{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}'
 
-# The GitHub Release itself already carries an auto-generated "What's Changed"
-# commit list and a "Full Changelog" compare link (release-publish.yml creates the
-# release with generate_release_notes). Disable goreleaser's changelog (and drop the
-# footer below) so we don't append a duplicate list and link.
+# The GitHub Release already carries an auto-generated "What's Changed" commit list and
+# a "Full Changelog" compare link: the uci reusable workflow
+# sei-protocol/uci/.github/workflows/release-publish.yml creates the release with
+# generate_release_notes: true, and the goreleaser job then appends to it (release.mode
+# below). goreleaser was adding a second copy of both, so its changelog is disabled here
+# and its footer removed.
+#
+# Disabling the changelog does NOT drop the release.header block below: header/footer are
+# applied by goreleaser's release pipe (internal/pipe/release/body.go), not the changelog
+# pipe, so `disable` only empties the middle of the release body. It is also the only
+# config-only way to get a header-only body: filtering out every commit still emits a bare
+# "## Changelog" heading. Deleting release.footer is likewise the only way to drop the
+# duplicate compare link, since footer rendering is independent of the changelog pipe.
+#
+# Caveat if the release args ever change: `disable` also discards flag-supplied notes
+# (--release-notes / --release-header / --release-footer). uci passes a fixed
+# `release --clean`, so nothing here relies on those.
 changelog:
   disable: true
 
