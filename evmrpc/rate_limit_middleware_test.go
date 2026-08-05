@@ -168,7 +168,7 @@ func TestRateLimitMiddleware_DisabledBypasses(t *testing.T) {
 	}
 }
 
-func TestRateLimitMiddleware_NonPostPassthrough(t *testing.T) {
+func TestRateLimitMiddleware_HealthCheckPassthrough(t *testing.T) {
 	reg := mustRateLimitRegistry(t, 0.001, 1)
 	gate := NewRateLimitGate(reg, 0, true, "evm")
 	called := false
@@ -178,11 +178,60 @@ func TestRateLimitMiddleware_NonPostPassthrough(t *testing.T) {
 	})
 	h := newRateLimitMiddleware(inner, gate)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			called = false
+			req := httptest.NewRequest(method, "/", nil)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.True(t, called)
+		})
+	}
+}
+
+func TestRateLimitMiddleware_OptionsPassthrough(t *testing.T) {
+	reg := mustRateLimitRegistry(t, 0.001, 1)
+	gate := NewRateLimitGate(reg, 0, true, "evm")
+	called := false
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+	h := newRateLimitMiddleware(inner, gate)
+
+	req := httptest.NewRequest(http.MethodOptions, "/", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.True(t, called)
+}
+
+func TestRateLimitMiddleware_GetWithBodyRateLimitedLikePost(t *testing.T) {
+	reg := mustRateLimitRegistry(t, 0.001, 1)
+	gate := NewRateLimitGate(reg, 0, true, "evm")
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := newRateLimitMiddleware(inner, gate)
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[]}`
+	remote := "203.0.113.99:1"
+
+	req1 := httptest.NewRequest(http.MethodGet, "/", strings.NewReader(body))
+	req1.RemoteAddr = remote
+	req1.Header.Set("Content-Type", "application/json")
+	rec1 := httptest.NewRecorder()
+	h.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	req2 := httptest.NewRequest(http.MethodGet, "/", strings.NewReader(body))
+	req2.RemoteAddr = remote
+	req2.Header.Set("Content-Type", "application/json")
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, req2)
+	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
+	require.Contains(t, rec2.Body.String(), "too many requests")
 }
 
 func TestComposedStack_RateLimitDistinctFromSizeBudget(t *testing.T) {

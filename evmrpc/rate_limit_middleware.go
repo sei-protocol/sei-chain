@@ -24,7 +24,7 @@ func newRateLimitMiddleware(inner http.Handler, gate *RateLimitGate) http.Handle
 }
 
 func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+	if isRateLimitExemptHTTPRequest(r) {
 		m.inner.ServeHTTP(w, r)
 		return
 	}
@@ -62,6 +62,20 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 
 	m.inner.ServeHTTP(w, r)
+}
+
+// isRateLimitExemptHTTPRequest reports requests that cannot carry a JSON-RPC
+// payload and should bypass the per-IP gate. Shapes match go-ethereum's
+// rpc.Server health-check fast path and CORS preflight handling.
+func isRateLimitExemptHTTPRequest(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodOptions:
+		return true
+	case http.MethodGet, http.MethodHead:
+		return r.ContentLength == 0 && r.URL.RawQuery == ""
+	default:
+		return false
+	}
 }
 
 // readBoundedBody reads the entire request body, rejecting when it exceeds
