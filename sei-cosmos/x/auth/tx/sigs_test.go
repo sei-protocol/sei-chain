@@ -52,16 +52,47 @@ func TestModeInfoAndSigToSignatureData(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, msig, got)
 
-	// fewer nested sigs than ModeInfos must error
-	rawShort, err := (&cryptotypes.MultiSignature{Signatures: [][]byte{[]byte("a")}}).Marshal()
-	require.NoError(t, err)
-	mi := &txtypes.ModeInfo_Single_{Single: &txtypes.ModeInfo_Single{Mode: signing.SignMode_SIGN_MODE_DIRECT}}
-	bad := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
+	single := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Single_{
+		Single: &txtypes.ModeInfo_Single{Mode: signing.SignMode_SIGN_MODE_DIRECT},
+	}}
+	mustMarshal := func(sigs [][]byte) []byte {
+		bz, err := (&cryptotypes.MultiSignature{Signatures: sigs}).Marshal()
+		require.NoError(t, err)
+		return bz
+	}
+	mustErr := func(mi *txtypes.ModeInfo, sig []byte) {
+		_, err := ModeInfoAndSigToSignatureData(mi, sig)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid multisig")
+	}
+
+	// fewer sigs than ModeInfos
+	mustErr(&txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
 		Multi: &txtypes.ModeInfo_Multi{
 			Bitarray:  cryptotypes.NewCompactBitArray(2),
-			ModeInfos: []*txtypes.ModeInfo{{Sum: mi}, {Sum: mi}},
+			ModeInfos: []*txtypes.ModeInfo{single, single},
+		},
+	}}, mustMarshal([][]byte{[]byte("a")}))
+
+	// more sigs than ModeInfos
+	mustErr(&txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
+		Multi: &txtypes.ModeInfo_Multi{
+			Bitarray:  cryptotypes.NewCompactBitArray(1),
+			ModeInfos: []*txtypes.ModeInfo{single},
+		},
+	}}, mustMarshal([][]byte{[]byte("a"), []byte("b")}))
+
+	// nested multi ModeInfo with mismatched child counts
+	inner := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
+		Multi: &txtypes.ModeInfo_Multi{
+			Bitarray:  cryptotypes.NewCompactBitArray(2),
+			ModeInfos: []*txtypes.ModeInfo{single, single},
 		},
 	}}
-	_, err = ModeInfoAndSigToSignatureData(bad, rawShort)
-	require.Error(t, err)
+	mustErr(&txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
+		Multi: &txtypes.ModeInfo_Multi{
+			Bitarray:  cryptotypes.NewCompactBitArray(1),
+			ModeInfos: []*txtypes.ModeInfo{inner},
+		},
+	}}, mustMarshal([][]byte{mustMarshal([][]byte{[]byte("inner-only")})}))
 }

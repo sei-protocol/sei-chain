@@ -72,10 +72,7 @@ func ModeInfoAndSigToSignatureData(modeInfo *tx.ModeInfo, sig []byte) (signing.S
 		}
 		// ModeInfos and nested signatures are 1:1 (see SignatureDataToModeInfoAndSig).
 		if len(multi.ModeInfos) != len(sigs) {
-			return nil, fmt.Errorf(
-				"invalid nested multisig: have %d mode infos, %d signatures",
-				len(multi.ModeInfos), len(sigs),
-			)
+			return nil, fmt.Errorf("invalid multisig: %d mode infos, %d signatures", len(multi.ModeInfos), len(sigs))
 		}
 
 		sigv2s := make([]signing.SignatureData, len(sigs))
