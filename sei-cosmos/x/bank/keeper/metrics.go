@@ -18,7 +18,7 @@ var (
 			metric.WithUnit("{utoken}"),
 		)),
 		newAccount: must(meter.Int64Counter(
-			"new_account",
+			"bank_new_account",
 			metric.WithDescription("Number of new accounts created during bank transfers"),
 			metric.WithUnit("{count}"),
 		)),
