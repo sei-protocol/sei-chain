@@ -2,10 +2,9 @@ package avail
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -16,11 +15,12 @@ import (
 // BlockPersister creates lane WALs lazily inside MaybePruneAndPersistLane, but the new
 // member must also appear in inner.blocks before the next persist cycle.
 type inner struct {
+	latestCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
+	roads *queue[types.RoadIndex, *road]
+	nextAppQC types.RoadIndex 
+
+	// Epoch is the current epoch for blocks votes collection.
 	epoch          *types.Epoch
-	latestAppQC    utils.Option[*types.AppQC]
-	latestCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]]
-	appVotes       *queue[types.GlobalBlockNumber, appVotes]
-	commitQCs      *queue[types.RoadIndex, *types.CommitQC]
 	blocks         map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes          map[types.LaneID]*queue[types.BlockNumber, blockVotes]
 	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
@@ -52,12 +52,12 @@ type inner struct {
 // commitQCs are sorted by road index; blocks are sorted by number per lane.
 // newInner requires both to be contiguous and returns an error on gaps.
 type loadedAvailState struct {
-	pruneAnchor utils.Option[*PruneAnchor]
-	commitQCs   []persist.LoadedCommitQC
+	commitQCs   []*types.CommitQC
 	blocks      map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+func newInner(ds *data.State, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+	epoch := ds.Registry().LatestEpoch()
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
 	for lane := range epoch.Committee().Lanes().All() {
@@ -66,18 +66,14 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 	}
 
 	i := &inner{
-		epoch:               epoch,
-		latestAppQC:         utils.None[*types.AppQC](),
 		latestCommitQC:      utils.NewAtomicSend(utils.None[*types.CommitQC]()),
-		appVotes:            newQueue[types.GlobalBlockNumber, appVotes](),
-		commitQCs:           newQueue[types.RoadIndex, *types.CommitQC](),
+		roads:               newQueue[types.RoadIndex, *road](),
+		epoch:               epoch,
 		blocks:              blocks,
 		votes:               votes,
 		nextBlockToPersist:  make(map[types.LaneID]types.BlockNumber, len(votes)),
 		persistedBlockStart: make(map[types.LaneID]types.BlockNumber, len(votes)),
 	}
-	i.appVotes.prune(epoch.FirstBlock())
-
 	l, ok := loaded.Get()
 	if !ok {
 		return i, nil
@@ -86,33 +82,32 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 	// Apply the persisted prune anchor first: prune() positions all queues
 	// (commitQCs, blocks, votes) so that subsequent pushBack calls insert
 	// at the correct indices without needing reset().
-	if anchor, ok := l.pruneAnchor.Get(); ok {
-		logger.Info("loaded persisted prune anchor",
-			slog.Uint64("roadIndex", uint64(anchor.AppQC.Proposal().RoadIndex())),
-			slog.Uint64("globalNumber", uint64(anchor.AppQC.Proposal().GlobalNumber())),
-		)
-		// TODO: use the committee of the anchor's epoch once epoch transitions are wired up.
-		if _, err := i.prune(epoch.Committee(), anchor.AppQC, anchor.CommitQC); err != nil {
-			return nil, fmt.Errorf("prune: %w", err)
-		}
-		for lane := range i.blocks {
-			i.persistedBlockStart[lane] = anchor.CommitQC.LaneRange(lane).First()
-		}
+	appQC, fQC := ds.LastAppQC()
+	r := newRoad(fQC.QC(),epoch)
+	r.appQC = utils.Some(appQC)
+	i.roads.prune(fQC.Index())
+	i.roads.pushBack(r)
+	i.nextAppQC = fQC.Index()+1
+
+	for lane := range i.blocks {
+		i.persistedBlockStart[lane] = fQC.QC().LaneRange(lane).Next()
 	}
 
 	// Restore persisted CommitQCs. prune() may have already pushed the
 	// anchor's CommitQC, so skip entries below commitQCs.next.
-	for _, lqc := range l.commitQCs {
-		if lqc.Index < i.commitQCs.next {
+	for _, qc := range l.commitQCs {
+		if qc.Index() < i.roads.next {
 			continue
 		}
-		if lqc.Index != i.commitQCs.next {
-			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", i.commitQCs.next, lqc.Index)
+		if qc.Index() != i.roads.next {
+			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", i.roads.next, qc.Index())
 		}
-		i.commitQCs.pushBack(lqc.QC)
+		epoch,ok := ds.Registry().EpochByIndex(qc.Proposal().EpochIndex())
+		if !ok { return nil, fmt.Errorf("epoch not found") }
+		i.roads.pushBack(newRoad(qc, epoch))
 	}
-	if i.commitQCs.next > i.commitQCs.first {
-		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
+	if i.roads.Len()>0 {
+		i.latestCommitQC.Store(utils.Some(i.roads.q[i.roads.next-1].commitQC))
 	}
 
 	// Restore persisted blocks. Since the anchor is persisted first and
@@ -158,24 +153,27 @@ func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, b
 	return nil, false
 }
 
+func (i *inner) updateNextAppQC() bool {
+	updated := false
+	for i.nextAppQC < i.roads.next && i.roads.q[i.nextAppQC].appQC.IsPresent() {
+		i.nextAppQC += 1
+		updated = true
+	}
+	return updated 
+}
+
 // prune advances the state to account for a new AppQC/CommitQC pair.
 // Returns true if pruning occurred, false if the QC was stale.
-func (i *inner) prune(c *types.Committee, appQC *types.AppQC, commitQC *types.CommitQC) (bool, error) {
-	idx := appQC.Proposal().RoadIndex()
-	if idx != commitQC.Proposal().Index() {
-		return false, fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", idx, commitQC.Proposal().Index())
+func (i *inner) prune(epoch *types.Epoch, commitQC *types.CommitQC, appQC *types.AppQC) {
+	idx := commitQC.Index()
+	if idx < i.roads.first { return }
+	i.roads.prune(idx)
+	i.nextAppQC = max(idx,i.nextAppQC)
+	if idx == i.roads.next {
+		i.roads.pushBack(newRoad(commitQC,epoch))
 	}
-	if idx < types.NextOpt(i.latestAppQC) {
-		return false, nil
-	}
-	i.latestAppQC = utils.Some(appQC)
-	metrics.ObserveAppQC(appQC)
-	i.commitQCs.prune(idx)
-	if i.commitQCs.next == idx {
-		i.commitQCs.pushBack(commitQC)
-		metrics.ObserveCommitQC(commitQC)
-	}
-	i.appVotes.prune(commitQC.GlobalRange().First)
+	i.roads.q[idx].appQC = utils.Some(appQC)
+	i.updateNextAppQC()
 	for lane := range i.votes {
 		lr := commitQC.LaneRange(lane)
 		i.votes[lr.Lane()].prune(lr.First())
@@ -184,5 +182,4 @@ func (i *inner) prune(c *types.Committee, appQC *types.AppQC, commitQC *types.Co
 			i.nextBlockToPersist[lr.Lane()] = lr.First()
 		}
 	}
-	return true, nil
 }

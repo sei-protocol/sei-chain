@@ -58,13 +58,7 @@ func TestCommitQC(
 			}
 		}
 	}
-	var appQC utils.Option[*types.AppQC]
-	if cqc, ok := prev.Get(); ok {
-		vs := types.ViewSpec{CommitQC: prev, Epoch: ep}
-		p := types.NewAppProposal(cqc.GlobalRange().Next-1, vs.View().Index, types.GenAppHash(rng), ep.EpochIndex())
-		appQC = utils.Some(TestAppQC(keys, p))
-	}
-	cqc := types.BuildCommitQC(ep, keys, prev, laneQCs, appQC)
+	cqc := types.BuildCommitQC(ep, keys, prev, laneQCs)
 	return types.NewFullCommitQC(cqc, headers), blockList
 }
 

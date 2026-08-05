@@ -42,6 +42,30 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 	return ctx.Err()
 }
 
+func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) error {
+	stream, err := StreamAppQCs.Call(ctx, c)
+	if err != nil {
+		return fmt.Errorf("client.StreamAppQCs(): %w", err)
+	}
+	defer stream.Close()
+	if err := stream.Send(ctx, &pb.StreamAppQCsReq{}); err != nil {
+		return err
+	}
+	for {
+		resp, err := stream.Recv(ctx)
+		if err != nil {
+			return fmt.Errorf("stream.Recv(): %w", err)
+		}
+		appQC, err := types.AppQCConv.Decode(resp)
+		if err != nil {
+			return fmt.Errorf("StreamAppQCsRespConv.Decode(): %w", err)
+		}
+		if err := x.data.PushAppQC(ctx,appQC); err != nil {
+			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
+		}
+	}
+}
+
 // MaxConcurrentBlockFetches is the maximum number of blocks that client fetches concurrently.
 const MaxConcurrentBlockFetches = 100
 
@@ -157,18 +181,37 @@ func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Serv
 		if err != nil {
 			return fmt.Errorf("StreamFullCommitQCsReqConv.Decode(): %w", err)
 		}
-		prev := utils.None[*types.FullCommitQC]()
-		for i := req.NextBlock; ; i++ {
-			qc, err := s.data.QC(ctx, i)
+		for next := req.NextBlock;; {
+			qc, err := s.data.QC(ctx, next)
 			if err != nil {
 				return fmt.Errorf("s.data.QC(): %w", err)
 			}
 			// Don't send the same QC twice.
-			if types.NextIndexOpt(prev) > qc.Index() {
-				continue
-			}
-			prev = utils.Some(qc)
+			next = qc.QC().GlobalRange().Next
 			if err := stream.Send(ctx, types.FullCommitQCConv.Encode(qc)); err != nil {
+				return fmt.Errorf("stream.Send(): %w", err)
+			}
+		}
+	})
+}
+
+func (x *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]) error {
+	return StreamAppQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.AppQC, *pb.StreamAppQCsReq]) error {
+		reqRaw, err := stream.Recv(ctx)
+		if err != nil {
+			return err
+		}
+		req, err := StreamAppQCsReqConv.Decode(reqRaw)
+		if err != nil {
+			return fmt.Errorf("StreamFullCommitQCsReqConv.Decode(): %w", err)
+		}
+		for next:=req.NextBlock;; {
+			appQC, commitQC, err := x.validatorState().Data().AppQC(ctx, next)
+			if err != nil {
+				return fmt.Errorf("x.validatorState().Avail().WaitForAppQC(): %w", err)
+			}
+			next = commitQC.QC().GlobalRange().Next
+			if err := stream.Send(ctx, types.AppQCConv.Encode(appQC)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
 		}

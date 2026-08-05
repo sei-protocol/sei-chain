@@ -21,8 +21,6 @@ type metrics struct {
 
 	// Global block number of the highest observed commitQC.
 	commitGlobalBlockNumber prometheus.GaugeIntVec
-	// Global block number of the highest observed appQC.
-	appGlobalBlockNumber prometheus.GaugeIntVec
 
 	// Latency from proposal being constructed to commit being observed.
 	proposalToCommitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.2, 35)"`
@@ -67,12 +65,10 @@ func ObserveCommitQC(qc *types.CommitQC) {
 func ObserveAppQC(qc *types.AppQC) {
 	now := time.Now()
 	for mLast := range observedAppQC.Lock() {
-		if last, ok := mLast.Get(); ok && last.val.Proposal().GlobalNumber() >= qc.Proposal().GlobalNumber() {
+		if last, ok := mLast.Get(); ok && last.val.Proposal().RoadIndex() >= qc.Proposal().RoadIndex() {
 			return
 		}
 		Global.appRoadIndexAt().Set(int64(qc.Proposal().RoadIndex())) // nolint: gosec
-		// +1 is for consistency with commitGlobalBlockNumber
-		Global.appGlobalBlockNumberAt().Set(int64(qc.Proposal().GlobalNumber() + 1)) // nolint: gosec
 		*mLast = utils.Some(observed[*types.AppQC]{now, qc})
 	}
 }

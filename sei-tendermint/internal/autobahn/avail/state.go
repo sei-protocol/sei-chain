@@ -48,9 +48,8 @@ func (s *State) PublicKey() types.PublicKey {
 // (real I/O) or all are no-op (testing). It is a pure I/O struct — all inner
 // state access goes through State methods.
 type persisters struct {
-	pruneAnchor persist.Persister[*pb.PersistedAvailPruneAnchor]
-	blocks      *persist.BlockPersister
-	commitQCs   *persist.CommitQCPersister
+	blocks    *persist.BlockPersister
+	commitQCs *persist.CommitQCPersister
 }
 
 // innerFile is the A/B file prefix for avail inner state persistence.
@@ -93,57 +92,19 @@ var PruneAnchorConv = protoutils.Conv[*PruneAnchor, *pb.PersistedAvailPruneAncho
 // and no state is loaded. When a prune anchor is present, stale commitQCs and
 // blocks below the anchor are filtered out before returning.
 func loadPersistedState(dir utils.Option[string]) (utils.Option[*loadedAvailState], persisters, error) {
-	prunePersister, persistedPruneAnchor, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](dir, innerFile)
-	if err != nil {
-		return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("NewPersister %s: %w", innerFile, err)
-	}
-
 	bp, blocks, err := persist.NewBlockPersister(dir)
 	if err != nil {
 		return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("NewBlockPersister: %w", err)
 	}
-
 	cp, commitQCs, err := persist.NewCommitQCPersister(dir)
 	if err != nil {
 		return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("NewCommitQCPersister: %w", err)
 	}
-
-	pers := persisters{pruneAnchor: prunePersister, blocks: bp, commitQCs: cp}
-
+	pers := persisters{blocks: bp, commitQCs: cp}
 	if _, ok := dir.Get(); !ok {
 		return utils.None[*loadedAvailState](), pers, nil
 	}
-
 	loaded := &loadedAvailState{commitQCs: commitQCs, blocks: blocks}
-
-	if raw, ok := persistedPruneAnchor.Get(); ok {
-		anchor, err := PruneAnchorConv.Decode(raw)
-		if err != nil {
-			return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("decode prune anchor: %w", err)
-		}
-		loaded.pruneAnchor = utils.Some(anchor)
-
-		anchorIdx := anchor.AppQC.Proposal().RoadIndex()
-		filtered := commitQCs[:0]
-		for _, lqc := range commitQCs {
-			if lqc.Index >= anchorIdx {
-				filtered = append(filtered, lqc)
-			}
-		}
-		loaded.commitQCs = filtered
-
-		for lane, bs := range blocks {
-			first := anchor.CommitQC.LaneRange(lane).First()
-			j := 0
-			for j < len(bs) && bs[j].Number < first {
-				j++
-			}
-			if j > 0 {
-				loaded.blocks[lane] = bs[j:]
-			}
-		}
-	}
-
 	return utils.Some(loaded), pers, nil
 }
 
@@ -155,28 +116,10 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	if err != nil {
 		return nil, err
 	}
-
-	ep := data.Registry().LatestEpoch()
-	inner, err := newInner(ep, loaded)
+	inner, err := newInner(data, loaded)
 	if err != nil {
 		return nil, err
 	}
-
-	// Truncate WAL entries below the prune anchor that were filtered out by
-	// loadPersistedState.
-	if ls, ok := loaded.Get(); ok {
-		if anchor, ok := ls.pruneAnchor.Get(); ok {
-			for lane := range ep.Committee().Lanes().All() {
-				if err := pers.blocks.MaybePruneAndPersistLane(lane, utils.Some(anchor.CommitQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
-					return nil, fmt.Errorf("prune stale block WAL entries: %w", err)
-				}
-			}
-			if err := pers.commitQCs.MaybePruneAndPersist(utils.Some(anchor.CommitQC), nil, utils.None[func(*types.CommitQC)]()); err != nil {
-				return nil, fmt.Errorf("prune stale commitQC WAL entries: %w", err)
-			}
-		}
-	}
-
 	return &State{
 		key:        key,
 		data:       data,
@@ -187,7 +130,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 
 func (s *State) FirstCommitQC() types.RoadIndex {
 	for inner := range s.inner.Lock() {
-		return inner.commitQCs.first
+		return inner.roads.first
 	}
 	panic("unreachable")
 }
@@ -205,19 +148,23 @@ func (s *State) LastCommitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
 	panic("unreachable")
 }
 
-func (s *State) waitForCommitQC(ctx context.Context, idx types.RoadIndex) error {
-	_, err := s.LastCommitQC().Wait(ctx, func(qc utils.Option[*types.CommitQC]) bool {
-		return types.NextIndexOpt(qc) > idx
-	})
-	return err
-}
-
-// LastAppQC returns the latest observed AppQC.
-func (s *State) LastAppQC() utils.Option[*types.AppQC] {
-	for inner := range s.inner.Lock() {
-		return inner.latestAppQC
+func (s *State) commitQC(ctx context.Context, idx types.RoadIndex) (*types.Epoch, *types.CommitQC, error) {
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return idx < inner.roads.next }); err != nil {
+			return nil, nil, err
+		}
+		if idx < inner.roads.first {
+			return nil, nil, types.ErrPruned
+		}
+		r := inner.roads.q[idx]
+		return r.epoch, r.commitQC, nil
 	}
 	panic("unreachable")
+}
+
+func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.CommitQC, error) {
+	_, qc, err := s.commitQC(ctx, idx)
+	return qc, err
 }
 
 // WaitForAppQC waits until there is an AppQC for the given index or higher.
@@ -225,58 +172,46 @@ func (s *State) LastAppQC() utils.Option[*types.AppQC] {
 // Together they provide enough information to prune the availability state.
 func (s *State) WaitForAppQC(ctx context.Context, idx types.RoadIndex) (*types.AppQC, *types.CommitQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		for {
-			if appQC, ok := inner.latestAppQC.Get(); ok {
-				if x := appQC.Proposal().RoadIndex(); x >= idx && inner.commitQCs.next > x {
-					return appQC, inner.commitQCs.q[x], nil
-				}
-			}
-			if err := ctrl.Wait(ctx); err != nil {
-				return nil, nil, err
-			}
+		if err := ctrl.WaitUntil(ctx, func() bool { return idx < inner.nextAppQC }); err != nil {
+			return nil, nil, err
 		}
+		r := inner.roads.q[max(inner.roads.first, idx)]
+		return r.appQC.OrPanic("missing appQC"), r.commitQC, nil
 	}
 	panic("unreachable")
 }
 
-// CommitQC returns the CommitQC for the given index.
-func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.CommitQC, error) {
-	if err := s.waitForCommitQC(ctx, idx); err != nil {
-		return nil, err
+func ignorePruned(err error) error {
+	if errors.Is(err, types.ErrPruned) {
+		return nil
 	}
-	for inner := range s.inner.Lock() {
-		if idx < inner.commitQCs.first {
-			return nil, types.ErrPruned
-		}
-		return inner.commitQCs.q[idx], nil
-	}
-	panic("unreachable")
+	return err
 }
 
 // PushCommitQC pushes a CommitQC to the state.
 // Waits until all previous CommitQCs are pushed.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	idx := qc.Proposal().Index()
-	if idx > 0 {
-		if err := s.waitForCommitQC(ctx, idx-1); err != nil {
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return idx <= inner.roads.next }); err != nil {
 			return err
 		}
+		if inner.roads.next > idx {
+			return nil
+		}
 	}
-	ep, ok := s.data.Registry().EpochByIndex(qc.Proposal().EpochIndex())
+	epoch, ok := s.data.Registry().EpochByIndex(qc.Proposal().EpochIndex())
 	if !ok {
 		return fmt.Errorf("unknown epoch_index %d", qc.Proposal().EpochIndex())
 	}
-	if err := qc.Verify(ep); err != nil {
+	if err := qc.Verify(epoch); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if idx != inner.commitQCs.next {
+		if idx != inner.roads.next {
 			return nil
 		}
-		if qc.Proposal().EpochIndex() != inner.epoch.EpochIndex() {
-			return fmt.Errorf("commitQC epoch_index %d != current epoch %d", qc.Proposal().EpochIndex(), inner.epoch.EpochIndex())
-		}
-		inner.commitQCs.pushBack(qc)
+		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
 		// The persist goroutine publishes latestCommitQC after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
@@ -289,44 +224,24 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 
 // PushAppVote pushes an AppVote to the state.
 func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]) error {
-	ep, ok := s.data.Registry().EpochByIndex(v.Msg().Proposal().EpochIndex())
-	if !ok {
-		return fmt.Errorf("unknown epoch_index %d", v.Msg().Proposal().EpochIndex())
-	}
-	committee := ep.Committee()
+	// Wait for the corresponding commitQC.
 	idx := v.Msg().Proposal().RoadIndex()
-	if err := v.VerifySig(committee); err != nil {
+	epoch, commitQC, err := s.commitQC(ctx, idx)
+	if err != nil {
+		return ignorePruned(err)
+	}
+	if err := v.Msg().Proposal().Verify(commitQC); err != nil {
+		return fmt.Errorf("invalid vote: %w", err)
+	}
+	if err := v.VerifySig(epoch.Committee()); err != nil {
 		return fmt.Errorf("v.VerifySig(): %w", err)
 	}
-	// Wait for the corresponding commitQC.
-	if err := s.waitForCommitQC(ctx, idx); err != nil {
-		return err
-	}
 	for inner, ctrl := range s.inner.Lock() {
-		// Early exit if not useful (we collect <=1 AppQC per road index).
-		if idx < types.NextOpt(inner.latestAppQC) {
+		if idx < inner.roads.first || inner.roads.next >= idx {
 			return nil
 		}
-		// Verify the vote against the CommitQC.
-		qc := inner.commitQCs.q[idx]
-		if err := v.Msg().Proposal().Verify(qc); err != nil {
-			return fmt.Errorf("invalid vote: %w", err)
-		}
-		// Push the vote.
-		n := v.Msg().Proposal().GlobalNumber()
-		q := inner.appVotes
-		for q.next <= n {
-			q.pushBack(newAppVotes())
-		}
-		appQC, ok := q.q[n].pushVote(committee, v)
-		if !ok {
-			return nil
-		}
-		updated, err := inner.prune(committee, appQC, qc)
-		if err != nil {
-			return err
-		}
-		if updated {
+		inner.roads.q[idx].pushAppVote(v)
+		if inner.updateNextAppQC() {
 			ctrl.Updated()
 		}
 	}
@@ -335,44 +250,38 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 
 // PushAppQC pushes an AppQC to the state. It requires a corresponding CommitQC
 // as a justification.
-func (s *State) PushAppQC(appQC *types.AppQC, commitQC *types.CommitQC) error {
+func (s *State) prune(appQC *types.AppQC, commitQC *types.CommitQC) error {
 	// Check whether it is needed before verifying.
 	for inner := range s.inner.Lock() {
-		if types.NextOpt(inner.latestAppQC) > appQC.Proposal().RoadIndex() {
+		if commitQC.Index() <= inner.roads.first {
 			return nil
 		}
 	}
-	ep, ok := s.data.Registry().EpochByIndex(commitQC.Proposal().EpochIndex())
+	if err := appQC.Proposal().Verify(commitQC); err != nil {
+		return fmt.Errorf("appQC proposal: %w", err)
+	}
+	epoch, ok := s.data.Registry().EpochByIndex(commitQC.Proposal().EpochIndex())
 	if !ok {
 		return fmt.Errorf("unknown epoch_index %d", commitQC.Proposal().EpochIndex())
 	}
-	if err := appQC.Verify(ep.Committee()); err != nil {
+	if err := appQC.Verify(epoch.Committee()); err != nil {
 		return fmt.Errorf("appQC.Verify(): %w", err)
 	}
-	if err := commitQC.Verify(ep); err != nil {
+	if err := commitQC.Verify(epoch); err != nil {
 		return fmt.Errorf("commitQC.Verify(): %w", err)
 	}
-	if appQC.Proposal().RoadIndex() != commitQC.Proposal().Index() {
-		return fmt.Errorf("mismatched QCs: appQC index %v, commitQC index %v", appQC.Proposal().RoadIndex(), commitQC.Proposal().Index())
-	}
-	if got, want := appQC.Proposal().EpochIndex(), commitQC.Proposal().EpochIndex(); got != want {
-		return fmt.Errorf("appQC epoch_index %d != commitQC epoch_index %d", got, want)
-	}
-	// Defense-in-depth check, it should never happen that >f validators sign
-	// a proposal which does not match the commitQC's global range.
-	if !commitQC.GlobalRange().Has(appQC.Proposal().GlobalNumber()) {
-		return fmt.Errorf("appQC GlobalNumber not in commitQC range")
-	}
 	for inner, ctrl := range s.inner.Lock() {
-		updated, err := inner.prune(ep.Committee(), appQC, commitQC)
-		if err != nil {
-			return err
-		}
-		if updated {
-			ctrl.Updated()
-		}
+		inner.prune(epoch, commitQC, appQC)
+		ctrl.Updated()
 	}
 	return nil
+}
+
+func (s *State) nextAppQC() types.RoadIndex {
+	for inner := range s.inner.Lock() {
+		return inner.nextAppQC
+	}
+	panic("unreachable")
 }
 
 // NextBlock returns the index of the next missing block in local storage for the given lane.
@@ -692,24 +601,10 @@ func (s *State) Run(ctx context.Context) error {
 // TODO: use a single WAL for anchor and CommitQCs to make
 // this atomic rather than relying on write order.
 func (s *State) runPersist(ctx context.Context, pers persisters) error {
-	var lastPersistedAppQCNext types.RoadIndex
 	for {
-		batch, err := s.collectPersistBatch(ctx, lastPersistedAppQCNext)
+		batch, err := s.collectPersistBatch(ctx)
 		if err != nil {
 			return err
-		}
-
-		// Prune CommitQC anchor: same Option drives commit-QC WAL and per-lane block WAL
-		// (truncate-then-append below this QC).
-		var anchorQC utils.Option[*types.CommitQC]
-		// 1. Persist prune anchor first — establishes the crash-recovery watermark.
-		if anchor, ok := batch.pruneAnchor.Get(); ok {
-			if err := pers.pruneAnchor.Persist(PruneAnchorConv.Encode(anchor)); err != nil {
-				return fmt.Errorf("persist prune anchor: %w", err)
-			}
-			s.advancePersistedBlockStart(anchor.CommitQC)
-			lastPersistedAppQCNext = anchor.CommitQC.Proposal().Index() + 1
-			anchorQC = utils.Some(anchor.CommitQC)
 		}
 
 		markBlock := func(p *types.Signed[*types.LaneProposal]) {
@@ -717,42 +612,21 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			s.markBlockPersisted(header.Lane(), header.BlockNumber()+1)
 		}
 
-		blocksByLane := make(map[types.LaneID][]*types.Signed[*types.LaneProposal])
-		for _, proposal := range batch.blocks {
-			lane := proposal.Msg().Block().Header().Lane()
-			blocksByLane[lane] = append(blocksByLane[lane], proposal)
-		}
-
 		// 2. Persist commit-QCs and per-lane blocks in parallel.
 		// Callees handle empty inputs gracefully (no-op when nothing to write/truncate).
 		if err := scope.Parallel(func(ps scope.ParallelScope) error {
 			ps.Spawn(func() error {
-				return pers.commitQCs.MaybePruneAndPersist(anchorQC, batch.commitQCs, utils.Some(func(qc *types.CommitQC) {
-					s.markCommitQCsPersisted(qc)
-				}))
+				if err := pers.commitQCs.PruneAndPersist(batch.commitQCs.first, batch.commitQCs.tail); err != nil {
+					return err
+				}
+				if t := batch.commitQCs.tail; len(t) > 0 {
+					s.markCommitQCsPersisted(t[len(t)-1])
+				}
+				return nil
 			})
-			// Collect lanes: any lane with blocks in this batch, plus all lanes
-			// in the anchor epoch (for WAL pruning).
-			// TODO: when epoch transitions land, also union in lanes from all
-			// epochs that appear in batch.commitQCs so new-epoch lanes are
-			// never skipped in a cross-epoch batch.
-			batchLanes := map[types.LaneID]struct{}{}
-			for lane := range blocksByLane {
-				batchLanes[lane] = struct{}{}
-			}
-			if anchor, ok := anchorQC.Get(); ok {
-				ep, epOK := s.data.Registry().EpochByIndex(anchor.Proposal().EpochIndex())
-				if !epOK {
-					return fmt.Errorf("unknown epoch_index %d", anchor.Proposal().EpochIndex())
-				}
-				for lane := range ep.Committee().Lanes().All() {
-					batchLanes[lane] = struct{}{}
-				}
-			}
-			for lane := range batchLanes {
-				proposals := blocksByLane[lane]
+			for lane, batch := range batch.blocks {
 				ps.Spawn(func() error {
-					return pers.blocks.MaybePruneAndPersistLane(lane, anchorQC, proposals, utils.Some(markBlock))
+					return pers.blocks.Persist(lane, batch.first, batch.tail, utils.Some(markBlock))
 				})
 			}
 			return nil
@@ -762,11 +636,19 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 	}
 }
 
+type batch[I any, T any] struct {
+	first I
+	tail  []T
+}
+
+type blocksBatch = batch[types.BlockNumber, *types.Signed[*types.LaneProposal]]
+type commitQCsBatch = batch[types.RoadIndex, *types.CommitQC]
+
 // persistBatch holds the data collected under lock for one persist iteration.
 type persistBatch struct {
-	blocks      []*types.Signed[*types.LaneProposal]
-	commitQCs   []*types.CommitQC
-	pruneAnchor utils.Option[*PruneAnchor]
+	epoch     *types.Epoch
+	blocks    map[types.LaneID]blocksBatch
+	commitQCs commitQCsBatch
 }
 
 // advancePersistedBlockStart updates the per-lane block admission watermark
@@ -798,15 +680,13 @@ func (s *State) markBlockPersisted(lane types.LaneID, next types.BlockNumber) {
 // markCommitQCsPersisted publishes the latest persisted CommitQC,
 // gating consensus from advancing until the QC is durable.
 func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
-	for inner, ctrl := range s.inner.Lock() {
+	for inner := range s.inner.Lock() {
 		inner.latestCommitQC.Store(utils.Some(qc))
-		ctrl.Updated()
 	}
 }
 
 // collectPersistBatch waits for new blocks or commitQCs and collects them under lock.
-func (s *State) collectPersistBatch(ctx context.Context, lastPersistedAppQCNext types.RoadIndex) (persistBatch, error) {
-	var b persistBatch
+func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		// Derive the CommitQC persist cursor from latestCommitQC. This is
 		// safe because latestCommitQC is only advanced by markCommitQCsPersisted
@@ -814,41 +694,32 @@ func (s *State) collectPersistBatch(ctx context.Context, lastPersistedAppQCNext 
 		// update latestCommitQC, so this always reflects persistence state.
 		// The max clamp with commitQCs.first handles the case where prune()
 		// fast-forwarded the queue past the cursor.
-		commitQCNext := types.NextIndexOpt(inner.latestCommitQC.Load())
+		next := types.NextIndexOpt(inner.latestCommitQC.Load())
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			if types.NextOpt(inner.latestAppQC) != lastPersistedAppQCNext {
-				return true
-			}
 			for lane, q := range inner.blocks {
 				if inner.nextBlockToPersist[lane] < q.next {
 					return true
 				}
 			}
-			return commitQCNext < inner.commitQCs.next
+			return next < inner.roads.next
 		}); err != nil {
-			return b, err
+			return nil, err
+		}
+		b := &persistBatch{
+			blocks:    map[types.LaneID]blocksBatch{},
+			commitQCs: commitQCsBatch{first: inner.roads.first},
+		}
+		for n := max(next, inner.roads.first); n < inner.roads.next; n++ {
+			b.commitQCs.tail = append(b.commitQCs.tail, inner.roads.q[n].commitQC)
 		}
 		for lane, q := range inner.blocks {
-			start := max(inner.nextBlockToPersist[lane], q.first)
-			for n := start; n < q.next; n++ {
-				b.blocks = append(b.blocks, q.q[n])
+			bb := blocksBatch{first: q.first}
+			for n := max(inner.nextBlockToPersist[lane], q.first); n < q.next; n++ {
+				bb.tail = append(bb.tail, q.q[n])
 			}
+			b.blocks[lane] = bb
 		}
-		commitQCNext = max(commitQCNext, inner.commitQCs.first)
-		for n := commitQCNext; n < inner.commitQCs.next; n++ {
-			b.commitQCs = append(b.commitQCs, inner.commitQCs.q[n])
-		}
-		if types.NextOpt(inner.latestAppQC) != lastPersistedAppQCNext {
-			if appQC, ok := inner.latestAppQC.Get(); ok {
-				idx := appQC.Proposal().RoadIndex()
-				if qc, ok := inner.commitQCs.q[idx]; ok {
-					b.pruneAnchor = utils.Some(&PruneAnchor{
-						AppQC:    appQC,
-						CommitQC: qc,
-					})
-				}
-			}
-		}
+		return b, nil
 	}
-	return b, nil
+	panic("unreachable")
 }

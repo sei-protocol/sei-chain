@@ -76,30 +76,6 @@ func (x *Service) serverStreamAppVotes(ctx context.Context, server rpc.Server[AP
 	})
 }
 
-func (x *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]) error {
-	return StreamAppQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.StreamAppQCsResp, *pb.StreamAppQCsReq]) error {
-		reqRaw, err := stream.Recv(ctx)
-		if err != nil {
-			return err
-		}
-		_ = reqRaw
-		next := types.RoadIndex(0)
-		for {
-			appQC, commitQC, err := x.validatorState().Avail().WaitForAppQC(ctx, next)
-			if err != nil {
-				return fmt.Errorf("x.validatorState().Avail().WaitForAppQC(): %w", err)
-			}
-			next = appQC.Next()
-			if err := stream.Send(ctx, StreamAppQCsRespConv.Encode(&StreamAppQCsResp{
-				AppQC:    appQC,
-				CommitQC: commitQC,
-			})); err != nil {
-				return fmt.Errorf("stream.Send(): %w", err)
-			}
-		}
-	})
-}
-
 func (x *Service) serverStreamCommitQCs(ctx context.Context, server rpc.Server[API]) error {
 	return StreamCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.CommitQC, *pb.StreamCommitQCsReq]) error {
 		next := types.RoadIndex(0)
@@ -222,30 +198,6 @@ func (x *Service) clientStreamAppVotes(ctx context.Context, c rpc.Client[API]) e
 		}
 		if err := x.validatorState().Avail().PushAppVote(ctx, vote); err != nil {
 			return fmt.Errorf("s.PushLaneVote(): %w", err)
-		}
-	}
-}
-
-func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) error {
-	stream, err := StreamAppQCs.Call(ctx, c)
-	if err != nil {
-		return fmt.Errorf("client.StreamAppQCs(): %w", err)
-	}
-	defer stream.Close()
-	if err := stream.Send(ctx, &pb.StreamAppQCsReq{}); err != nil {
-		return err
-	}
-	for {
-		resp, err := stream.Recv(ctx)
-		if err != nil {
-			return fmt.Errorf("stream.Recv(): %w", err)
-		}
-		msg, err := StreamAppQCsRespConv.Decode(resp)
-		if err != nil {
-			return fmt.Errorf("StreamAppQCsRespConv.Decode(): %w", err)
-		}
-		if err := x.validatorState().Avail().PushAppQC(msg.AppQC, msg.CommitQC); err != nil {
-			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
 		}
 	}
 }

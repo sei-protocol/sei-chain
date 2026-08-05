@@ -30,10 +30,8 @@ func TestPruneMismatchedIndices(t *testing.T) {
 		}
 		return makeCommitQC(registry.LatestEpoch(), keys, prev, lqcs, utils.None[*types.AppQC]())
 	}
-	makeAppQC := func(qcForRange *types.CommitQC, qcForIndex *types.CommitQC) *types.AppQC {
-		gr := qcForRange.GlobalRange()
-		require.True(t, gr.Len() > 0)
-		ap := types.NewAppProposal(gr.First, qcForIndex.Index(), types.GenAppHash(rng), 0)
+	makeAppQC := func(qc *types.CommitQC) *types.AppQC {
+		ap := types.NewAppProposal(qc.Proposal(), types.GenAppHash(rng))
 		return types.NewAppQC(makeAppVotes(keys, ap))
 	}
 
@@ -44,21 +42,19 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	ds := newTestDataState(&data.Config{Registry: registry})
 	state, err := NewState(keys[0], ds, utils.Some(t.TempDir()))
 	require.NoError(t, err)
-	require.Error(t, state.PushAppQC(makeAppQC(qc0, qc0), qc1), "bad range, bad index should fail")
-	require.Error(t, state.PushAppQC(makeAppQC(qc1, qc0), qc1), "good range, bad index should fail")
-	require.Error(t, state.PushAppQC(makeAppQC(qc0, qc1), qc1), "bad range, good index should fail")
-	require.NoError(t, state.PushAppQC(makeAppQC(qc1, qc1), qc1), "good range, good index should succeed")
+	require.Error(t, state.PushAppQC(makeAppQC(qc0), qc1), "mismatched proposal should fail")
+	require.NoError(t, state.PushAppQC(makeAppQC(qc1), qc1), "matching proposal should succeed")
 
 	t.Logf("test inner.prune")
 	ds = newTestDataState(&data.Config{Registry: registry})
 	state, err = NewState(keys[0], ds, utils.Some(t.TempDir()))
 	require.NoError(t, err)
 	for inner := range state.inner.Lock() {
-		_, err := inner.prune(registry.LatestEpoch().Committee(), makeAppQC(qc1, qc0), qc1)
-		require.Error(t, err, "good range, bad index should fail")
+		_, err := inner.prune(registry.LatestEpoch().Committee(), makeAppQC(qc0), qc1)
+		require.Error(t, err, "mismatched proposal should fail")
 		require.False(t, inner.latestAppQC.IsPresent(), "latestAppQC should not have been updated")
-		_, err = inner.prune(registry.LatestEpoch().Committee(), makeAppQC(qc1, qc1), qc1)
-		require.NoError(t, err, "good range, good index should succeed")
+		_, err = inner.prune(registry.LatestEpoch().Committee(), makeAppQC(qc1), qc1)
+		require.NoError(t, err, "matching proposal should succeed")
 	}
 }
 
@@ -93,7 +89,7 @@ func TestDecodePruneAnchorIncomplete(t *testing.T) {
 	rng := utils.TestRng()
 	_, keys := epoch.GenRegistry(rng, 4)
 
-	appProposal := types.NewAppProposal(42, 5, types.GenAppHash(rng), 0)
+	appProposal := types.GenAppProposal(rng)
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	_, err := PruneAnchorConv.Decode(&pb.PersistedAvailPruneAnchor{
@@ -281,9 +277,6 @@ func TestNewInnerLoadedCommitQCsWithAppQC(t *testing.T) {
 
 	// AppQC at road index 2.
 	roadIdx := types.RoadIndex(2)
-	globalNum := types.GlobalBlockNumber(10)
-	appProposal := types.NewAppProposal(globalNum, roadIdx, types.GenAppHash(rng), 0)
-	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	// Create 5 sequential CommitQCs (indices 0-4).
 	qcs := make([]*types.CommitQC, 5)
@@ -292,6 +285,8 @@ func TestNewInnerLoadedCommitQCsWithAppQC(t *testing.T) {
 		qcs[i] = makeCommitQC(registry.LatestEpoch(), keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
+	appProposal := types.NewAppProposal(qcs[roadIdx].Proposal(), types.GenAppHash(rng))
+	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	// Pre-filtered: only commitQCs >= anchor road index (2).
 	loadedQCs := []persist.LoadedCommitQC{
@@ -334,8 +329,6 @@ func TestNewInnerLoadedAllThree(t *testing.T) {
 
 	// AppQC at road index 2.
 	roadIdx := types.RoadIndex(2)
-	appProposal := types.NewAppProposal(10, roadIdx, types.GenAppHash(rng), 0)
-	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	// CommitQCs 0-4.
 	qcs := make([]*types.CommitQC, 5)
@@ -344,6 +337,8 @@ func TestNewInnerLoadedAllThree(t *testing.T) {
 		qcs[i] = makeCommitQC(registry.LatestEpoch(), keys, prev, nil, utils.None[*types.AppQC]())
 		prev = utils.Some(qcs[i])
 	}
+	appProposal := types.NewAppProposal(qcs[roadIdx].Proposal(), types.GenAppHash(rng))
+	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 	// Pre-filtered: only commitQCs >= anchor road index (2).
 	loadedQCs := []persist.LoadedCommitQC{
 		{Index: 2, QC: qcs[2]},
@@ -432,7 +427,7 @@ func TestPruneAdvancesNextBlockToPersist(t *testing.T) {
 		"CommitQC lane range should reference blocks for this test to be meaningful")
 
 	// AppQC at index 2 → prune will fast-forward blocks past the cursor.
-	appProposal := types.NewAppProposal(10, 2, types.GenAppHash(rng), 0)
+	appProposal := types.NewAppProposal(qcs[2].Proposal(), types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	updated, err := i.prune(registry.LatestEpoch().Committee(), appQC, qcs[2])
@@ -463,7 +458,7 @@ func TestNewInnerLoadedCommitQCsAllBeforeAppQCArePruned(t *testing.T) {
 		prev = utils.Some(qcs[i])
 	}
 
-	appProposal := types.NewAppProposal(20, 5, types.GenAppHash(rng), 0)
+	appProposal := types.NewAppProposal(qcs[5].Proposal(), types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loaded := &loadedAvailState{
@@ -492,7 +487,7 @@ func TestNewInnerAnchorWithNoCommitQCFiles(t *testing.T) {
 		prev = utils.Some(qcs[i])
 	}
 
-	appProposal := types.NewAppProposal(20, 3, types.GenAppHash(rng), 0)
+	appProposal := types.NewAppProposal(qcs[3].Proposal(), types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loaded := &loadedAvailState{
@@ -578,7 +573,7 @@ func TestNewInnerLoadedCommitQCsGapWithAppQCAnchor(t *testing.T) {
 		prev = utils.Some(qcs[i])
 	}
 
-	appProposal := types.NewAppProposal(50, 10, types.GenAppHash(rng), 0)
+	appProposal := types.NewAppProposal(qcs[10].Proposal(), types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loadedQCs := []persist.LoadedCommitQC{
@@ -623,7 +618,7 @@ func TestNewInnerLoadedCommitQCsBelowAnchorSkipped(t *testing.T) {
 		prev = utils.Some(qcs[i])
 	}
 
-	appProposal := types.NewAppProposal(20, 3, types.GenAppHash(rng), 0)
+	appProposal := types.NewAppProposal(qcs[3].Proposal(), types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loadedQCs := []persist.LoadedCommitQC{
@@ -664,7 +659,7 @@ func TestNewInnerLoadedCommitQCsGapAfterAnchorReturnsError(t *testing.T) {
 		prev = utils.Some(qcs[i])
 	}
 
-	appProposal := types.NewAppProposal(10, 2, types.GenAppHash(rng), 0)
+	appProposal := types.NewAppProposal(qcs[2].Proposal(), types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loadedQCs := []persist.LoadedCommitQC{
@@ -764,7 +759,6 @@ func TestNewInnerLoadedBlocksOverCapacityReturnsError(t *testing.T) {
 func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	initialBlock := types.GlobalBlockNumber(0)
 
 	// Build CommitQCs 0-2.
 	qcs := make([]*types.CommitQC, 3)
@@ -775,9 +769,9 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	}
 
 	// AppQC at road index 2, prune anchor is CommitQC[2].
-	appProposal := types.NewAppProposal(initialBlock, 2, types.GenAppHash(rng), 0)
-	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 	pruneQC := qcs[2]
+	appProposal := types.NewAppProposal(pruneQC.Proposal(), types.GenAppHash(rng))
+	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	lane := keys[0].Public()
 
@@ -813,7 +807,6 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 func TestNewInnerPruneAnchorCommitQCUsedForPrune(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	initialBlock := types.GlobalBlockNumber(0)
 
 	// Build CommitQCs 0-2.
 	qcs := make([]*types.CommitQC, 3)
@@ -824,7 +817,7 @@ func TestNewInnerPruneAnchorCommitQCUsedForPrune(t *testing.T) {
 	}
 
 	// AppQC at road index 1, prune anchor is CommitQC[1].
-	appProposal := types.NewAppProposal(initialBlock, 1, types.GenAppHash(rng), 0)
+	appProposal := types.NewAppProposal(qcs[1].Proposal(), types.GenAppHash(rng))
 	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 
 	loaded := &loadedAvailState{
