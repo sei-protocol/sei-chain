@@ -1,6 +1,7 @@
 package sink_test
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink"
 )
 
@@ -36,6 +38,36 @@ import (
 // exercises sink selection without touching disk.
 func memDBProvider(*config.DBContext) (dbm.DB, error) { return dbm.NewMemDB(), nil }
 
+// closeCounted records whether anything ever closed the store it wraps, which is the
+// difference between a store that was opened and one that was handed back.
+type closeCounted struct {
+	dbm.DB
+	closes *int
+}
+
+func (c closeCounted) Close() error {
+	*c.closes++
+	return c.DB.Close()
+}
+
+// resolvedTypes reports which sinks came back, sorted, since selection ranges over a map
+// and the slice order is not fixed even when the set is.
+//
+// The rows assert on these types rather than on the count because a count of one is equally
+// true of the null sink and of the kv sink null is supposed to have replaced: a node
+// indexing every transaction and a node indexing none agree on every count.
+func resolvedTypes(sinks []indexer.EventSink) []indexer.EventSinkType {
+	types := make([]indexer.EventSinkType, 0, len(sinks))
+	for _, s := range sinks {
+		types = append(types, s.Type())
+	}
+	slices.Sort(types)
+	return types
+}
+
+// nullAlone is what the null-wins rule promises: the null sink and nothing else.
+func nullAlone() []indexer.EventSinkType { return []indexer.EventSinkType{indexer.NULL} }
+
 // FuzzEventSinksFromConfig pins the list semantics: the null-wins rule, the
 // duplicate rejection, the unknown-name rejection, and the empty-list default.
 //
@@ -55,19 +87,19 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 	f.Add("null,null") // duplicate null still counts as a duplicate
 
 	f.Fuzz(func(t *testing.T, list string) {
-		var indexer []string
+		var names []string
 		if list != "" {
-			indexer = strings.Split(list, ",")
+			names = strings.Split(list, ",")
 		}
 
 		cfg := config.DefaultConfig()
-		cfg.TxIndex.Indexer = indexer
+		cfg.TxIndex.Indexer = names
 
 		sinks, err := sink.EventSinksFromConfig(cfg, memDBProvider, "sei-test")
 
 		// Restate the rules independently of the implementation.
-		lowered := make([]string, 0, len(indexer))
-		for _, s := range indexer {
+		lowered := make([]string, 0, len(names))
+		for _, s := range names {
 			lowered = append(lowered, strings.ToLower(s))
 		}
 		hasDuplicate := false
@@ -80,20 +112,20 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 		}
 
 		switch {
-		case len(indexer) == 0:
+		case len(names) == 0:
 			// An absent or empty list is not an error: the node gets the null sink,
 			// so transactions are simply not indexed.
 			if err != nil {
 				t.Fatalf("an empty indexer list must default to the null sink, got %v", err)
 			}
-			if len(sinks) != 1 {
-				t.Fatalf("an empty indexer list must yield exactly one sink, got %d", len(sinks))
+			if got := resolvedTypes(sinks); !slices.Equal(got, nullAlone()) {
+				t.Fatalf("an empty indexer list resolved to %v, want the null sink alone", got)
 			}
 			return
 
 		case hasDuplicate:
 			if err == nil {
-				t.Fatalf("indexer = %v repeats a sink and must be rejected", indexer)
+				t.Fatalf("indexer = %v repeats a sink and must be rejected", names)
 			}
 			return
 
@@ -115,11 +147,11 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 			}
 			if err != nil {
 				t.Fatalf("indexer = %v contains null alongside supported names and must resolve to "+
-					"the null sink, got %v", indexer, err)
+					"the null sink, got %v", names, err)
 			}
-			if len(sinks) != 1 {
-				t.Fatalf("indexer = %v contains null, so every other sink must be discarded; got %d sinks",
-					indexer, len(sinks))
+			if got := resolvedTypes(sinks); !slices.Equal(got, nullAlone()) {
+				t.Fatalf("indexer = %v contains null, so every other sink must be discarded; resolved "+
+					"to %v", names, got)
 			}
 			return
 		}
@@ -134,15 +166,20 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 		}
 		if !supported || slices.Contains(lowered, "psql") {
 			if err == nil {
-				t.Fatalf("indexer = %v must be rejected (unsupported name, or psql with no conn)", indexer)
+				t.Fatalf("indexer = %v must be rejected (unsupported name, or psql with no conn)", names)
 			}
 			return
 		}
 		if err != nil {
-			t.Fatalf("indexer = %v is all-supported and must be accepted, got %v", indexer, err)
+			t.Fatalf("indexer = %v is all-supported and must be accepted, got %v", names, err)
 		}
-		if len(sinks) != len(lowered) {
-			t.Fatalf("indexer = %v resolved to %d sinks, want %d", indexer, len(sinks), len(lowered))
+		want := make([]indexer.EventSinkType, 0, len(lowered))
+		for _, s := range lowered {
+			want = append(want, indexer.EventSinkType(s))
+		}
+		slices.Sort(want)
+		if got := resolvedTypes(sinks); !slices.Equal(got, want) {
+			t.Fatalf("indexer = %v resolved to %v, want %v", names, got, want)
 		}
 	})
 }
@@ -165,8 +202,10 @@ func FuzzEventSinksFromConfig(f *testing.F) {
 // The run count is sized so that a minority branch of the order this row was written against
 // is missed with negligible probability, and a one-sided sample escalates rather than failing
 // outright, so the exact split does not have to hold for the row to stay correct. The split
-// measured at authoring was about 16% minority over 200 runs; treat that as the origin of the
-// sizing, not as an invariant the code depends on.
+// comes from where the two names land: a two-key map puts the first-listed one in the first of
+// its eight slots and iteration starts at a slot chosen at random, so the second name is
+// reached first one time in eight. Measured 12.8% over 4000 runs. Treat that as the origin of
+// the sizing, not as an invariant the code depends on.
 func TestNullMixedWithAnUnsupportedSinkIsUnspecified(t *testing.T) {
 	const runs = 250
 	booted, failed := countMixedOutcomes(runs)
@@ -208,8 +247,8 @@ func countMixedOutcomes(n int) (booted, failed int) {
 // 2 from the others, but it cannot separate 1 from 3: at 250 runs a collapsed-but-nonzero
 // split and a deterministic outcome look identical. Drawing a much larger sample separates
 // them, and it costs nothing in the common case because it only runs when a row is about to
-// fail. Without it a split moving from the observed 16% to a fraction of a percent would
-// redden the shard while blaming a change in selection that never happened.
+// fail. Without it a split moving from the measured one-in-eight to a fraction of a percent
+// would redden the shard while blaming a change in selection that never happened.
 //
 // label names what the two counts mean, because the callers count different things.
 func resolveOneSidedOutcome(t *testing.T, label string, runs, majority, minority int, resample func(int) (int, int)) {
@@ -243,7 +282,8 @@ func resolveOneSidedOutcome(t *testing.T, label string, runs, majority, minority
 // smallMapIterationVaries reports whether this runtime still starts a two-element map range
 // at a varying key, which is the mechanism both probabilistic rows depend on.
 //
-// The split is not close to even in practice, around 90/10 for a two-element map. That is
+// The split is not close to even in practice: the two keys sit in the first two of eight slots
+// and the range starts at a slot chosen at random, so it runs 7 to 1. That is
 // enough to answer "does the order vary at all", which is all this is asked, and it is not a
 // yardstick for the sink's own split.
 func smallMapIterationVaries(runs int) bool {
@@ -312,77 +352,107 @@ func TestNullSinkAlwaysWinsOverARecognizedSink(t *testing.T) {
 			if err != nil {
 				t.Fatalf("indexer = %v: %v", list, err)
 			}
-			if len(sinks) != 1 {
-				t.Fatalf("indexer = %v resolved to %d sinks; null must discard the kv sink",
-					list, len(sinks))
+			if got := resolvedTypes(sinks); !slices.Equal(got, nullAlone()) {
+				t.Fatalf("indexer = %v resolved to %v; null must discard the kv sink", list, got)
 			}
 		}
 	}
 
-	// kv alone does produce a sink, so the assertion above is about null rather than
-	// about kv never working.
+	// kv alone does produce a kv sink, so the assertion above is about null rather than
+	// about kv never working — and it is the case the null rows have to be distinguished
+	// from, since a node that indexes everything and one that indexes nothing agree on
+	// every count.
 	cfg := config.DefaultConfig()
 	cfg.TxIndex.Indexer = []string{"kv"}
 	sinks, err := sink.EventSinksFromConfig(cfg, memDBProvider, "sei-test")
 	if err != nil {
 		t.Fatalf("indexer = [kv]: %v", err)
 	}
-	if len(sinks) != 1 {
-		t.Fatalf("indexer = [kv] resolved to %d sinks, want 1", len(sinks))
+	if got := resolvedTypes(sinks); !slices.Equal(got, []indexer.EventSinkType{indexer.KV}) {
+		t.Fatalf("indexer = [kv] resolved to %v, want the kv sink alone", got)
 	}
 }
 
 // TestNullSinkCanOpenAnIndexStoreItThenDiscards records the side effect the stable
 // result hides.
 //
-// With ["null","kv"], if the range reaches kv first the kv branch calls dbProvider,
-// opens the tx_index store and appends the sink — and then null is reached, returns a
-// fresh one-element slice, and the opened store goes out of scope with nothing left
-// holding it to close. The resolved config is identical either way, so the leak is
-// invisible from the configuration: it depends only on map order.
+// If the range reaches kv first, the kv branch calls dbProvider, opens the tx_index store
+// and appends the sink — and then null is reached, returns a fresh one-element slice, and
+// nothing ever closes what was opened. The resolved config is identical either way, so the
+// leak is invisible from the configuration: it depends only on map order.
 //
-// It is asserted as "sometimes" because that is what it is. The point is that the
-// config does not determine whether a store is opened, which is the fact a
-// replacement manager needs to know before it reuses this selection logic.
+// The discarded store is not garbage either. On the production provider it is a goleveldb
+// handle, and opening one starts five goroutines that hold a reference to it for the life of
+// the process — session.refLoop, DB.compactionError, DB.mpoolDrain, DB.tCompaction,
+// DB.mCompaction — so the memory is not reclaimable and the exclusive flock is never
+// released. A second open of the same path in the same process fails with
+// "resource temporarily unavailable", and a data/tendermint/tx_index.db directory with a
+// LOCK, a CURRENT, a MANIFEST and a write-ahead log materialises on a node configured to
+// index nothing.
+//
+// Both list orders are driven, because they are not the same measurement. A two-key map puts
+// the first-listed name in the first bucket slot and iteration starts at a random slot, so
+// the first name listed is reached first roughly seven times in eight: ["kv","null"] opens a
+// store on about 7/8 of boots and ["null","kv"] on about 1/8. ["kv","null"] is the order an
+// operator produces by appending null to an existing list, so it is the common case and it
+// is the worse one.
+//
+// It is asserted as "sometimes" because that is what it is. The point is that the config does
+// not determine whether a store is opened, which is the fact a replacement manager needs to
+// know before it reuses this selection logic.
 func TestNullSinkCanOpenAnIndexStoreItThenDiscards(t *testing.T) {
 	const runs = 250
 
-	// countNullKVOpens resolves ["null", "kv"] n times and reports how often the kv branch
-	// opened a store first. It also holds the invariant that must be true on every run,
-	// whichever order the range takes: exactly one sink comes back, and it is the null one.
-	countNullKVOpens := func(n int) (quiet, opened int) {
-		for range n {
-			opens := 0
-			provider := func(*config.DBContext) (dbm.DB, error) {
-				opens++
-				return dbm.NewMemDB(), nil
-			}
-			cfg := config.DefaultConfig()
-			cfg.TxIndex.Indexer = []string{"null", "kv"}
+	// countOpens resolves the given list n times and reports how often the kv branch opened a
+	// store first. It also holds the two invariants that must be true on every run, whichever
+	// order the range takes: exactly the null sink comes back, and nothing closes a store the
+	// kv branch opened.
+	countOpens := func(list []string) func(int) (quiet, opened int) {
+		return func(n int) (quiet, opened int) {
+			for range n {
+				opens, closes := 0, 0
+				provider := func(*config.DBContext) (dbm.DB, error) {
+					opens++
+					return closeCounted{DB: dbm.NewMemDB(), closes: &closes}, nil
+				}
+				cfg := config.DefaultConfig()
+				cfg.TxIndex.Indexer = list
 
-			sinks, err := sink.EventSinksFromConfig(cfg, provider, "sei-test")
-			if err != nil {
-				t.Fatalf("indexer = [null kv]: %v", err)
+				sinks, err := sink.EventSinksFromConfig(cfg, provider, "sei-test")
+				if err != nil {
+					t.Fatalf("indexer = %v: %v", list, err)
+				}
+				if got := resolvedTypes(sinks); !slices.Equal(got, nullAlone()) {
+					t.Fatalf("indexer = %v resolved to %v, want the null sink alone", list, got)
+				}
+				// Counting the opens alone cannot see the leak: it stays true of a build that
+				// closes what it discards. Closing it is the fix, and this is where that has to
+				// be recorded rather than merged as a green diff.
+				if closes > 0 {
+					t.Fatalf("indexer = %v: the discarded store was closed %d times. Selection now "+
+						"releases what it opens, which is a fix — record it here, and drop the leak "+
+						"this row describes", list, closes)
+				}
+				if opens > 0 {
+					opened++
+				} else {
+					quiet++
+				}
 			}
-			if len(sinks) != 1 {
-				t.Fatalf("indexer = [null kv] resolved to %d sinks, want the null sink alone", len(sinks))
-			}
-			if opens > 0 {
-				opened++
-			} else {
-				quiet++
-			}
+			return quiet, opened
 		}
-		return quiet, opened
 	}
 
-	quiet, opened := countNullKVOpens(runs)
-	if opened == 0 || quiet == 0 {
-		// Both directions are one-sided results of the same coin, so the shared resolver
-		// decides between a deterministic selection, a runtime that stopped randomizing, and a
-		// split that skewed past this sample.
-		resolveOneSidedOutcome(t, "runs without a store opened / runs with one", runs, quiet, opened,
-			countNullKVOpens)
-		return
+	for _, list := range [][]string{{"kv", "null"}, {"null", "kv"}} {
+		count := countOpens(list)
+		quiet, opened := count(runs)
+		t.Logf("indexer = %v: %d of %d runs opened a store", list, opened, runs)
+		if opened == 0 || quiet == 0 {
+			// Both directions are one-sided results of the same coin, so the shared resolver
+			// decides between a deterministic selection, a runtime that stopped randomizing, and a
+			// split that skewed past this sample.
+			resolveOneSidedOutcome(t, fmt.Sprintf("indexer = %v: runs without a store opened / runs "+
+				"with one", list), runs, quiet, opened, count)
+		}
 	}
 }
