@@ -56,14 +56,23 @@ func SignatureDataToModeInfoAndSig(data signing.SignatureData) (*tx.ModeInfo, []
 // ModeInfoAndSigToSignatureData converts a ModeInfo and raw bytes signature to a SignatureData or returns
 // an error
 func ModeInfoAndSigToSignatureData(modeInfo *tx.ModeInfo, sig []byte) (signing.SignatureData, error) {
+	if modeInfo == nil {
+		return nil, fmt.Errorf("mode info is required")
+	}
 	switch modeInfo := modeInfo.Sum.(type) {
 	case *tx.ModeInfo_Single_:
+		if modeInfo == nil || modeInfo.Single == nil {
+			return nil, fmt.Errorf("single mode info is required")
+		}
 		return &signing.SingleSignatureData{
 			SignMode:  modeInfo.Single.Mode,
 			Signature: sig,
 		}, nil
 
 	case *tx.ModeInfo_Multi_:
+		if modeInfo == nil || modeInfo.Multi == nil {
+			return nil, fmt.Errorf("multi mode info is required")
+		}
 		multi := modeInfo.Multi
 
 		sigs, err := decodeMultisignatures(sig)
@@ -88,8 +97,10 @@ func ModeInfoAndSigToSignatureData(modeInfo *tx.ModeInfo, sig []byte) (signing.S
 			Signatures: sigv2s,
 		}, nil
 
+	case nil:
+		return nil, fmt.Errorf("mode info is required")
 	default:
-		panic(fmt.Errorf("unexpected ModeInfo data type %T", modeInfo))
+		return nil, fmt.Errorf("unexpected ModeInfo data type %T", modeInfo)
 	}
 }
 

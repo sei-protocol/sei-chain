@@ -233,6 +233,10 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 	}
 
 	signers := sigTx.GetSigners()
+	if len(pubkeys) != len(signers) {
+		return oracleVote, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized,
+			"invalid number of signers; expected: %d, got: %d", len(signers), len(pubkeys))
+	}
 	for i, pk := range pubkeys {
 		// PublicKey was omitted from slice since it has already been set in context
 		if pk == nil {
@@ -453,6 +457,10 @@ func CheckPubKeys(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKe
 		return nil, err
 	}
 	signers := tx.(authsigning.SigVerifiableTx).GetSigners()
+	if len(pubkeys) != len(signers) {
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized,
+			"invalid number of signers; expected: %d, got: %d", len(signers), len(pubkeys))
+	}
 	signerAcounts := make([]authtypes.AccountI, len(signers))
 	for i, pk := range pubkeys {
 		acc, err := authante.GetSignerAcc(ctx, accountKeeper, signers[i])

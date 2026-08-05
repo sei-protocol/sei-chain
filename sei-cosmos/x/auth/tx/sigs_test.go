@@ -96,3 +96,20 @@ func TestModeInfoAndSigToSignatureData(t *testing.T) {
 		},
 	}}, mustMarshal([][]byte{mustMarshal([][]byte{[]byte("inner-only")})}))
 }
+
+func TestGetSignaturesV2_SignerInfoSigCountMismatch(t *testing.T) {
+	_, pubKey, addr := testdata.KeyTestPubAddr()
+	b := newBuilder()
+	require.NoError(t, b.SetMsgs(testdata.NewTestMsg(addr)))
+	require.NoError(t, b.SetSignatures(signing.SignatureV2{
+		PubKey: pubKey,
+		Data: &signing.SingleSignatureData{
+			SignMode:  signing.SignMode_SIGN_MODE_DIRECT,
+			Signature: []byte("sig"),
+		},
+	}))
+	b.tx.Signatures = nil
+	_, err := b.GetSignaturesV2()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid tx")
+}
