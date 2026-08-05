@@ -41,8 +41,8 @@ func (n *noOpWrapper) Version() int64 {
 	return n.version.Load()
 }
 
-func (n *noOpWrapper) LoadVersion(version int64) error {
-	n.version.Store(version)
+// LoadLatest is a no-op: the tracked version already is this store's latest, since only ApplyChangeSets moves it.
+func (n *noOpWrapper) LoadLatest() error {
 	return nil
 }
 

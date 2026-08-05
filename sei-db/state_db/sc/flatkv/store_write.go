@@ -28,7 +28,10 @@ func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChange
 	return nil
 }
 
-// Commit persists buffered writes at the given version (block height).
+// Commit persists buffered writes at the given version (block height). One Commit persists exactly one
+// block; version must equal the height the pending writes were stamped with. Consecutive commits must also
+// be contiguous: the state WAL rejects a version that skips a height, though the first block written to an
+// empty WAL may be any height.
 // Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit(version int64) (committed int64, err error) {
@@ -65,22 +68,29 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	if s.readOnly {
 		return 0, errReadOnly
 	}
-	if version <= s.committedVersion {
-		return 0, fmt.Errorf("flatkv: committing bad version: got %d, current %d", version, s.committedVersion)
-	}
-	if s.pendingBlockHeight != 0 && version != s.pendingBlockHeight {
-		return 0, fmt.Errorf("flatkv: commit version %d does not match applied block height %d",
-			version, s.pendingBlockHeight)
+	// Blocks are contiguous and the first block is 1, so the next commit is always committedVersion+1. On a
+	// fresh store that means block 1; a store whose history starts higher gets there via SetInitialVersion,
+	// which seeds committedVersion to one below its first block.
+	if version != s.committedVersion+1 {
+		return 0, fmt.Errorf("flatkv: committing bad version: got %d, want %d (current %d)",
+			version, s.committedVersion+1, s.committedVersion)
 	}
 
-	// Step 1: Write Changelog (WAL) - source of truth (always sync)
-	s.phaseTimer.SetPhase("commit_write_changelog")
-	changelogEntry := proto.ChangelogEntry{
-		Version:    version,
-		Changesets: s.pendingChangeSets,
-	}
-	if err := s.changelog.Write(changelogEntry); err != nil {
-		return version, fmt.Errorf("changelog write: %w", err)
+	// Step 1: Write the WAL (source of truth) before the DBs, so crash recovery via catchup stays valid.
+	// Write buffers this block's changesets, SignalEndOfBlock seals them as one record, and Flush makes the
+	// record durable. An empty block (no ApplyChangeSets) writes an empty but contiguous record. Skipped
+	// entirely when the WAL is nil — the outer context then owns the WAL pipeline.
+	if s.wal != nil {
+		s.phaseTimer.SetPhase("commit_write_wal")
+		if err := s.wal.Write(uint64(version), s.pendingChangeSets); err != nil { //nolint:gosec // version > committed >= 0
+			return version, fmt.Errorf("WAL write: %w", err)
+		}
+		if err := s.wal.SignalEndOfBlock(); err != nil {
+			return version, fmt.Errorf("WAL end of block: %w", err)
+		}
+		if err := s.wal.Flush(); err != nil {
+			return version, fmt.Errorf("WAL flush: %w", err)
+		}
 	}
 
 	// Step 2: Commit to each DB (data + LocalMeta.CommittedVersion atomically)
@@ -172,7 +182,7 @@ func (s *CommitStore) clearPendingWrites() {
 // commitBatches commits pending writes to their respective DBs atomically.
 // Each DB batch includes LocalMeta update for crash recovery.
 // Batches are built serially, then committed in parallel.
-// Also called by catchup to replay WAL without re-writing changelog.
+// Also called by the replay paths to replay WAL without re-writing changelog.
 func (s *CommitStore) commitBatches(version int64) error {
 	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
 

@@ -39,7 +39,7 @@ type FlatKVDBSize struct {
 
 // collectFlatKVStateSize iterates every physical row in the FlatKV store and
 // aggregates size stats per logical DB, plus a top-100 EVM contract table.
-func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, error) {
+func collectFlatKVStateSize(store flatkv.Store) (*FlatKVStateSizeResult, error) {
 	result := &FlatKVStateSizeResult{
 		DBSizes:       make(map[string]*FlatKVDBSize),
 		ContractSizes: make(map[string]*utils.ContractSizeEntry),

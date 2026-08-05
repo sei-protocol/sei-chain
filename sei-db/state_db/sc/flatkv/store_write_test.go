@@ -153,6 +153,35 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	requireAllLocalMetaAt(t, s, 2)
 }
 
+// TestCommitRejectsNonContiguousVersion verifies a forward jump in commit height is rejected by the WAL's
+// contiguity rule rather than silently accepted. The version guard only rejects versions at or below
+// committedVersion, so a gapped height reaches the WAL and must fail there.
+//
+// This is a behavior change from the old changelog, which permitted forward jumps for gapped/batch commits.
+// Note the asymmetry: the *first* block written to an empty WAL may be any number, which is why a fresh
+// store can start mid-chain (see TestCatchupRecoversGappedCommitBlockAfterMetadataLag) while an established
+// one cannot skip.
+func TestCommitRejectsNonContiguousVersion(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	key := evmStorageKey(ktype.Address{0x11}, ktype.Slot{0x22})
+	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(0xAA), false)}))
+	_, err := s.Commit(1)
+	require.NoError(t, err)
+
+	// Skipping version 2 is rejected at apply: blocks are contiguous, so the only legal height is 2.
+	err = s.ApplyChangeSets(3, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(0xBB), false)})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "plus one")
+
+	// And directly at commit, for an empty block that never buffered writes.
+	_, err = s.Commit(3)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "committing bad version")
+	require.Equal(t, int64(1), s.committedVersion, "a rejected commit must not advance the version")
+}
+
 func TestStoreWriteAccountAndCode(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
@@ -504,9 +533,9 @@ func TestStoreMiscEmptyCommitLocalMeta(t *testing.T) {
 func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("DefaultConfig", func(t *testing.T) {
 		cfg := config.DefaultTestConfig(t)
-		store, err := NewCommitStore(t.Context(), cfg)
+		store, err := newCommitStoreWithWAL(t.Context(), cfg)
 		require.NoError(t, err)
-		_, err = store.LoadVersion(0, false)
+		err = store.LoadLatest()
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -518,9 +547,9 @@ func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("FsyncDisabled", func(t *testing.T) {
 		cfg := config.DefaultTestConfig(t)
 		cfg.Fsync = false
-		store, err := NewCommitStore(t.Context(), cfg)
+		store, err := newCommitStoreWithWAL(t.Context(), cfg)
 		require.NoError(t, err)
-		_, err = store.LoadVersion(0, false)
+		err = store.LoadLatest()
 		require.NoError(t, err)
 		defer store.Close()
 
@@ -551,9 +580,9 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 5
 	cfg.SnapshotKeepRecent = 2
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -574,9 +603,9 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 10
 	cfg.SnapshotKeepRecent = 2
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -602,9 +631,9 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 0
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -695,9 +724,9 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 func TestLtHashDeterministicAcrossReopen(t *testing.T) {
 	writeAndGetHash := func() []byte {
 		cfg := config.DefaultTestConfig(t)
-		s, err := NewCommitStore(t.Context(), cfg)
+		s, err := newCommitStoreWithWAL(t.Context(), cfg)
 		require.NoError(t, err)
-		_, err = s.LoadVersion(0, false)
+		err = s.LoadLatest()
 		require.NoError(t, err)
 
 		commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
@@ -820,9 +849,9 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 func TestStoreFsyncEnabled(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.Fsync = true
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -842,9 +871,9 @@ func TestStoreFsyncEnabled(t *testing.T) {
 
 func TestLastSnapshotTimeUpdated(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -863,26 +892,16 @@ func TestLastSnapshotTimeUpdated(t *testing.T) {
 
 func TestWALRecordsChangesets(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
 	commitStorageEntry(t, s, ktype.Address{0x03}, ktype.Slot{0x03}, []byte{0xCC})
 
-	first, _ := s.changelog.FirstOffset()
-	last, _ := s.changelog.LastOffset()
-	require.Greater(t, last, uint64(0))
-
-	var versions []int64
-	err = s.changelog.Replay(first, last, func(_ uint64, entry proto.ChangelogEntry) error {
-		versions = append(versions, entry.Version)
-		return nil
-	})
-	require.NoError(t, err)
-	require.Equal(t, []int64{1, 2, 3}, versions)
+	require.Equal(t, []uint64{1, 2, 3}, walBlockNumbers(t, s))
 
 	require.NoError(t, s.Close())
 }
@@ -1009,26 +1028,11 @@ func TestEmptyCommitWALPayloadsDiffer(t *testing.T) {
 	require.NoError(t, sEmpty.ApplyChangeSets(sEmpty.Version()+1, []*proto.NamedChangeSet{emptyCS}))
 	commitAndCheck(t, sEmpty)
 
-	nilFirst, _ := sNil.changelog.FirstOffset()
-	nilLast, _ := sNil.changelog.LastOffset()
-	var nilEntry proto.ChangelogEntry
-	err := sNil.changelog.Replay(nilFirst, nilLast, func(_ uint64, e proto.ChangelogEntry) error {
-		nilEntry = e
-		return nil
-	})
-	require.NoError(t, err)
+	nilChangesets := singleWALBlockChangesets(t, sNil)
+	emptyChangesets := singleWALBlockChangesets(t, sEmpty)
 
-	emptyFirst, _ := sEmpty.changelog.FirstOffset()
-	emptyLast, _ := sEmpty.changelog.LastOffset()
-	var emptyEntry proto.ChangelogEntry
-	err = sEmpty.changelog.Replay(emptyFirst, emptyLast, func(_ uint64, e proto.ChangelogEntry) error {
-		emptyEntry = e
-		return nil
-	})
-	require.NoError(t, err)
-
-	require.Len(t, nilEntry.Changesets, 0, "nil ApplyChangeSets produces 0 WAL changesets")
-	require.Len(t, emptyEntry.Changesets, 1, "[empty NamedChangeSet] produces 1 WAL changeset")
+	require.Len(t, nilChangesets, 0, "nil ApplyChangeSets produces 0 WAL changesets")
+	require.Len(t, emptyChangesets, 1, "[empty NamedChangeSet] produces 1 WAL changeset")
 }
 
 // =============================================================================
@@ -1610,7 +1614,7 @@ func TestApplyChangeSetsOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -1855,7 +1859,7 @@ func TestCommitOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -1874,17 +1878,24 @@ func TestCommitRejectsVersionNotAhead(t *testing.T) {
 	require.Contains(t, err.Error(), "committing bad version")
 	require.Equal(t, int64(0), s.Version())
 
-	// Empty commits may jump ahead; there are no row stamps to mismatch.
-	v, err := s.Commit(5)
-	require.NoError(t, err)
-	require.Equal(t, int64(5), v)
-
+	// Empty commits may not jump ahead either: the first block is 1.
 	_, err = s.Commit(5)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "committing bad version")
+	require.Equal(t, int64(0), s.Version())
+
+	v, err := s.Commit(1)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), v)
+
+	_, err = s.Commit(1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "committing bad version")
 }
 
-func TestCommitRejectsApplyHeightMismatch(t *testing.T) {
+// TestRejectedCommitLeavesStoreIntact pins that a commit at the wrong version changes nothing: the version
+// does not advance and the buffered writes survive, so the correct commit still works afterwards.
+func TestRejectedCommitLeavesStoreIntact(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -1895,7 +1906,7 @@ func TestCommitRejectsApplyHeightMismatch(t *testing.T) {
 
 	_, err := s.Commit(5)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "does not match applied block height")
+	require.Contains(t, err.Error(), "committing bad version")
 	require.Equal(t, int64(0), s.Version(), "rejected commit must not advance version")
 	require.Len(t, s.storageWrites, 1, "rejected commit must leave pending writes intact")
 
@@ -1904,48 +1915,45 @@ func TestCommitRejectsApplyHeightMismatch(t *testing.T) {
 	require.Equal(t, int64(1), v)
 }
 
-// TestApplyChangeSetsAllowsBatchingMultipleHeightsBeforeCommit is a
-// regression test for a bug where ApplyChangeSets rejected any call whose
-// version did not exactly equal the previous pending call's version. That
-// broke two legitimate patterns: (1) a caller batching several blocks'
-// writes before a single Commit (each call at a strictly higher height),
-// and (2) a caller splitting one block's writes across multiple calls at
-// the same height. Only a version that goes backwards is a bug.
-func TestApplyChangeSetsAllowsBatchingMultipleHeightsBeforeCommit(t *testing.T) {
+// TestApplyChangeSetsAllowsSameHeightRepeatsOnly pins the one-block-per-commit
+// contract: a single block's writes may arrive across several ApplyChangeSets
+// calls at the same height, but any other height is rejected, in either
+// direction. Batching several blocks before one Commit is not supported —
+// changesets carry no block number, so the batch would collapse into a single WAL
+// entry at its highest height, leaving the skipped heights unreplayable.
+func TestApplyChangeSetsAllowsSameHeightRepeatsOnly(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	addr := addrN(0x01)
 	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x02)))
-	key3 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x03)))
 
 	// Same-height repeat: splitting one block's writes across two calls.
 	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x11), false)}))
 	require.NoError(t, s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key2, padLeft32(0x22), false)}))
+	require.Equal(t, int64(1), s.PendingVersion())
 
-	// Strictly increasing: a second block batched before the commit.
-	require.NoError(t, s.ApplyChangeSets(2, []*proto.NamedChangeSet{makeChangeSet(key3, padLeft32(0x33), false)}))
-	require.Equal(t, int64(2), s.PendingVersion())
-
-	// Going backwards is rejected.
-	err := s.ApplyChangeSets(1, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x44), false)})
+	// Advancing to the next block before committing this one is rejected.
+	err := s.ApplyChangeSets(2, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x33), false)})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "pending writes already stamped up to")
+	require.Contains(t, err.Error(), "plus one")
 
-	v, err := s.Commit(2)
+	// So is going backwards.
+	err = s.ApplyChangeSets(0, []*proto.NamedChangeSet{makeChangeSet(key1, padLeft32(0x44), false)})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "plus one")
+
+	v, err := s.Commit(1)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), v)
+	require.Equal(t, int64(1), v)
 	require.Equal(t, int64(0), s.PendingVersion())
 
-	for _, k := range []struct {
-		key    []byte
-		height int64
-	}{{key1, 1}, {key2, 1}, {key3, 2}} {
-		height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, k.key)
+	for _, key := range [][]byte{key1, key2} {
+		height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)
 		require.NoError(t, err)
 		require.True(t, found)
-		require.Equal(t, k.height, height)
+		require.Equal(t, int64(1), height)
 	}
 }
 
@@ -1957,6 +1965,8 @@ func TestCommitBlockStampsRowBlockHeight(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 
+	// Start at block 10 the legal way: seed the store so its history begins there.
+	require.NoError(t, s.SetInitialVersion(10))
 	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
 	require.Equal(t, int64(10), s.Version())
 

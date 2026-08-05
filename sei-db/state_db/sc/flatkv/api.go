@@ -19,29 +19,36 @@ type Options struct {
 
 // Store provides EVM state storage with LtHash integrity.
 //
-// Lifecycle: NewCommitStore (create) → LoadVersion (open) → ApplyChangeSets/Commit → Close.
+// Lifecycle: NewCommitStore (create) → LoadLatest (open) → ApplyChangeSets/Commit → Close.
 // Write path: ApplyChangeSets (buffer) → Commit (persist).
-// Read path: Get/Has/Iterator read committed state only.
+// Read path: Get/Has/Iterator read committed state only; LoadVersionReadOnly serves past versions.
 // Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
 type Store interface {
-	// LoadVersion opens the database at the given version (0 = latest).
-	// When readOnly is true an isolated, read-only store is returned;
-	// the caller must Close it when done.
-	LoadVersion(targetVersion int64, readOnly bool) (Store, error)
+	// LoadLatest opens this store at the latest persisted version, ready to commit. It must be called
+	// before any read or write, and is the only way to obtain a committable store. Use Rollback to move a
+	// committable store backwards.
+	LoadLatest() error
+
+	// LoadVersionReadOnly returns an isolated read-only view of the store at targetVersion (0 = latest).
+	// This store is left untouched and keeps committing; the caller owns the view and must Close it.
+	//
+	// The view is reconstructed from the newest snapshot at or below targetVersion plus this store's WAL,
+	// so a version whose history has been pruned fails rather than being served approximately.
+	LoadVersionReadOnly(targetVersion int64) (Store, error)
 
 	// ApplyChangeSets buffers changesets at the given version, to be
 	// persisted by the next Commit.
-	// May be called multiple times before a single Commit, either
-	// repeatedly at the same version (e.g. one block's writes split across
-	// several calls) or at increasing versions (e.g. batching several
-	// blocks together). version must never decrease across calls (see
-	// PendingVersion), and Commit must be called with the highest version
-	// applied since the last Commit.
+	//
+	// Exactly one block may be buffered per Commit: repeated calls at the
+	// same version are allowed, any other version is rejected (see
+	// PendingVersion), and Commit must be called with that version.
+	// Batching several blocks into one Commit is not supported.
 	ApplyChangeSets(version int64, cs []*proto.NamedChangeSet) error
 
 	// Commit persists buffered writes at the given version (block height).
-	// If ApplyChangeSets has buffered writes, version must equal the highest
-	// height those rows were stamped with (see PendingVersion).
+	// One Commit persists exactly one block. If ApplyChangeSets has buffered
+	// writes, version must equal the height those rows were stamped with
+	// (see PendingVersion).
 	Commit(version int64) (int64, error)
 
 	// CommitBlock is a Giga-only helper that applies changesets and commits
@@ -53,7 +60,7 @@ type Store interface {
 	CommitBlock(version int64, cs []*proto.NamedChangeSet) error
 
 	// SetInitialVersion seeds the store so that Commit(initialVersion) is
-	// accepted as the first commit. Must be called after LoadVersion, on a
+	// accepted as the first commit. Must be called after LoadLatest, on a
 	// truly fresh store (no prior commits) and before any writes. Returns an
 	// error on a read-only store, on a non-fresh store, or for
 	// initialVersion <= 0.
@@ -134,27 +141,25 @@ type Store interface {
 	// Version returns the latest committed version.
 	Version() int64
 
-	// PendingVersion returns the height stamped by the most recent
-	// ApplyChangeSets call since the last Commit, or 0 when there are no
-	// buffered writes. Multiple ApplyChangeSets calls may accumulate at
-	// strictly increasing heights before a single Commit persists them all
-	// (e.g. batching several blocks); callers that need to know "the next
-	// version to apply" should use PendingVersion()+1 when non-zero, falling
-	// back to Version()+1 otherwise, rather than assuming Version()+1 always
-	// reflects the next height.
+	// PendingVersion returns the height of the block currently buffered by
+	// ApplyChangeSets, or 0 when there are no buffered writes. It is the
+	// version the next Commit must be called with, and the only version
+	// further ApplyChangeSets calls may use.
 	PendingVersion() int64
 
 	// GetLatestVersion returns the latest committed version persisted to
-	// disk. Equivalent to Version() once LoadVersion has run; before
-	// LoadVersion it answers from on-disk metadata so callers can
+	// disk. Equivalent to Version() once LoadLatest has run; before
+	// LoadLatest it answers from on-disk metadata so callers can
 	// inspect the store's height without taking ownership of it.
 	GetLatestVersion() (int64, error)
 
 	// WriteSnapshot writes a complete snapshot to dir.
 	WriteSnapshot(dir string) error
 
-	// Rollback restores state to targetVersion by rewinding to the best
-	// snapshot, replaying WAL, and pruning snapshots/WAL beyond target.
+	// Rollback rewinds a store opened with LoadLatest to targetVersion and prunes everything above it:
+	// snapshots, WAL blocks and committed state. It is the only way to move a committable store backwards,
+	// and the result keeps committing from targetVersion+1. An unreachable target is rejected before
+	// anything is modified.
 	Rollback(targetVersion int64) error
 
 	// Exporter creates an exporter for the given version (0 = current).
