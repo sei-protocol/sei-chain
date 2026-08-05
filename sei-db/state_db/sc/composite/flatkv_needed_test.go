@@ -1,50 +1,114 @@
 package composite
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-// TestFlatKVNeededAtHeight_NilHandleMeansNotMaterialized pins the cheapest branch: under types.Auto the
-// constructor only builds flatkv when its directory already exists, so a nil handle is itself the answer and
-// must not be treated as "unknown".
-func TestFlatKVNeededAtHeight_NilHandleMeansNotMaterialized(t *testing.T) {
-	needed, err := FlatKVNeededAtHeight(nil, types.Auto, 5)
-	require.NoError(t, err)
-	require.False(t, needed)
+// TestFlatKVNeededAtHeight covers the classification table. Every row is a pure function of the cached
+// earliest-history record, the configured mode and the height — the function performs no I/O, which is what
+// lets historical queries call it per read.
+func TestFlatKVNeededAtHeight(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// present is whether the constructor materialized a flatkv backend at all.
+		present bool
+		// earliest is flatkv's earliest-history record, 0 when unseeded.
+		earliest int64
+		mode     types.WriteMode
+		height   int64
+		want     bool
+	}{
+		// Under types.Auto the constructor only builds flatkv when its directory already exists, so
+		// absence is itself the answer and must not be treated as "unknown".
+		{name: "not materialized", present: false, earliest: 0, mode: types.Auto, height: 5, want: false},
+
+		// A fixed configured mode cannot re-derive an effective memiavl-only layout, so it answers from
+		// config alone — even at a height the record would call pre-era.
+		{name: "fixed mode ignores era", present: true, earliest: 10, mode: types.EVMMigrated,
+			height: 5, want: true},
+
+		// The latest height is in-era by definition whenever flatkv exists at all.
+		{name: "latest", present: true, earliest: 10, mode: types.Auto, height: 0, want: true},
+
+		// The pre-era case this whole mechanism exists for, and its boundary: the record is the first
+		// in-era height, so height == earliest still needs flatkv.
+		{name: "below earliest", present: true, earliest: 10, mode: types.Auto, height: 9, want: false},
+		{name: "at earliest", present: true, earliest: 10, mode: types.Auto, height: 10, want: true},
+		{name: "above earliest", present: true, earliest: 10, mode: types.Auto, height: 11, want: true},
+
+		// An unseeded record means history begins at genesis or seeding never ran. Both resolve toward
+		// "yes": answering "no" would serve the height from a memiavl whose migrated keys are deleted,
+		// fabricating a nonexistence answer, whereas "yes" fails loudly on the flatkv open.
+		{name: "unseeded record", present: true, earliest: 0, mode: types.Auto, height: 5, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, FlatKVNeededAtHeight(tc.present, tc.earliest, tc.mode, tc.height))
+		})
+	}
 }
 
-// TestFlatKVNeededAtHeight_FixedModeSkipsClassification confirms a non-Auto configured mode answers from
-// config alone. The handle here fails every load, so reaching the classification path at all would surface as
-// an error — that is the assertion.
-func TestFlatKVNeededAtHeight_FixedModeSkipsClassification(t *testing.T) {
-	needed, err := FlatKVNeededAtHeight(&failingEVMStore{}, types.EVMMigrated, 5)
-	require.NoError(t, err)
-	require.True(t, needed)
-}
+// TestNewCompositeCommitStore_UnreadableFlatKVMetadataFails pins the fail-loud direction at the moment the
+// era record is read. A flatkv directory that exists but whose metadata cannot be read is corrupt or
+// mid-materialization from a crashed transition, and those are not distinguishable here. Defaulting to an
+// unseeded record would classify every height as in-era, which is safe, but defaulting the other way — or
+// treating the directory as absent — would serve heights from a memiavl whose migrated keys were deleted. So
+// the constructor refuses to produce a store at all.
+func TestNewCompositeCommitStore_UnreadableFlatKVMetadataFails(t *testing.T) {
+	dir := t.TempDir()
 
-// TestFlatKVNeededAtHeight_LatestNeedsFlatKV covers height 0 (latest), which is in-era by definition whenever
-// flatkv exists at all.
-func TestFlatKVNeededAtHeight_LatestNeedsFlatKV(t *testing.T) {
-	needed, err := FlatKVNeededAtHeight(&failingEVMStore{}, types.Auto, 0)
-	require.NoError(t, err)
-	require.True(t, needed)
-}
+	// A regular file where the working metadata DB belongs: the directory exists, so the constructor
+	// builds flatkv, but the point read cannot open it.
+	metaDir := filepath.Join(utils.GetFlatKVPath(dir), "working", "metadata")
+	require.NoError(t, os.MkdirAll(filepath.Dir(metaDir), 0o750))
+	require.NoError(t, os.WriteFile(metaDir, []byte("not a pebble db"), 0o600))
 
-// TestFlatKVNeededAtHeight_TipOpenFailureIsAnError pins the deliberate fail-loud choice. A flatkv whose tip
-// cannot be opened is either mid-materialization or corrupt, and those are indistinguishable here. Degrading
-// to "not needed" would serve the height from a memiavl whose migrated keys have been deleted, answering
-// "absent" for keys that exist, so this must error instead.
-func TestFlatKVNeededAtHeight_TipOpenFailureIsAnError(t *testing.T) {
-	needed, err := FlatKVNeededAtHeight(&failingEVMStore{}, types.Auto, 5)
+	_, err := NewCompositeCommitStore(t.Context(), dir, autoExportConfig())
 	require.Error(t, err)
-	require.ErrorContains(t, err, "failed to open flatkv tip to classify height 5")
-	require.False(t, needed, "the boolean must not be trusted alongside an error")
+	require.ErrorContains(t, err, "failed to read FlatKV earliest version")
+}
+
+// TestComposite_Auto_EraRecordTracksLiveTransition guards the one moment the constructor's on-disk read goes
+// stale: a MigrateEVM transition that materializes and seeds flatkv mid-run. A store that kept the value it
+// read at construction (0, because the directory did not exist yet) would classify every pre-transition
+// height as in-era and send historical reads into a flatkv that has no data there.
+func TestComposite_Auto_EraRecordTracksLiveTransition(t *testing.T) {
+	dir := t.TempDir()
+	cfg := autoExportConfig()
+
+	cs := openAutoStoreWithConfig(t, dir, cfg, 100)
+	defer func() { _ = cs.Close() }()
+
+	require.Nil(t, cs.flatKV, "fixture precondition: flatkv must not be materialized yet")
+	require.Zero(t, cs.flatKVEarliestVersion)
+
+	for i := 1; i <= 5; i++ {
+		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte("k"), Value: []byte{0x10 + byte(i)}},
+			}}},
+		}))
+		_, err := cs.Commit()
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	require.NotNil(t, cs.flatKV, "the transition must have materialized flatkv")
+	require.Equal(t, cs.flatKV.EarliestVersion(), cs.flatKVEarliestVersion,
+		"the cached record must follow the seeding the transition performed")
+	require.Equal(t, int64(5), cs.flatKVEarliestVersion)
+
+	// The classification must now split history at the transition height.
+	require.False(t, FlatKVNeededAtHeight(true, cs.flatKVEarliestVersion, cfg.WriteMode, 3))
+	require.True(t, FlatKVNeededAtHeight(true, cs.flatKVEarliestVersion, cfg.WriteMode, 5))
 }
 
 // TestComposite_Auto_ReadOnlyPreEraHeightOnNeverLoadedStore is the regression guard for the gap this function

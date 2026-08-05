@@ -573,3 +573,55 @@ func TestCommitStoreGetLatestVersionFallsBackToDiskWhenUnloaded(t *testing.T) {
 	require.Equal(t, int64(2), v,
 		"method on a not-yet-opened store must fall through to the on-disk helper")
 }
+
+// =============================================================================
+// GetEarliestVersion (free-standing helper)
+// =============================================================================
+
+func TestGetEarliestVersionFreshDirReturnsZero(t *testing.T) {
+	dir := t.TempDir()
+	v, err := GetEarliestVersion(filepath.Join(dir, flatkvRootDir))
+	require.NoError(t, err)
+	require.Equal(t, int64(0), v,
+		"never-opened flatkv dir must report an unseeded history, not an error")
+}
+
+func TestGetEarliestVersionUnseededStoreReturnsZero(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	require.NoError(t, s.Close())
+
+	v, err := GetEarliestVersion(dbDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), v,
+		"a store that was never seeded has no earliest-history record")
+}
+
+// TestGetEarliestVersionMatchesLoadedStore is the property the composite store depends on: the free-standing
+// read of working/metadata answers exactly what a loaded store reports in memory. The record is written by
+// SetInitialVersion and never travels through the state WAL, so no replay is needed to see it.
+func TestGetEarliestVersionMatchesLoadedStore(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	require.NoError(t, s.SetInitialVersion(43))
+	inMemory := s.EarliestVersion()
+	require.Equal(t, int64(42), inMemory, "the record stores initialVersion-1")
+	require.NoError(t, s.Close())
+
+	v, err := GetEarliestVersion(dbDir)
+	require.NoError(t, err)
+	require.Equal(t, inMemory, v)
+}

@@ -1,10 +1,6 @@
 package composite
 
 import (
-	"fmt"
-
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -20,73 +16,45 @@ import (
 //
 // Answering "no" when flatkv does hold state at that height is the far more dangerous direction: the migration
 // deletes migrated keys out of memiavl, so a memiavl-only reader would report a key as absent rather than
-// erroring — fabricating a nonexistence answer. Every uncertain case therefore resolves toward "yes" or toward
-// an error, never toward a silent "no".
+// erroring — fabricating a nonexistence answer. Every uncertain case therefore resolves toward "yes", never
+// toward a silent "no".
 //
-// The answer is derived from two records flatkv persists, read through a throwaway read-only view opened at
-// flatkv's tip:
+// The answer keys on flatkv's earliest-history record rather than on a flatkv open failing, because "no
+// snapshot at target" is also what a pruned or corrupt in-history height produces. Serving those from
+// post-migration memiavl is the fabricated-nonexistence case above, so they must keep failing loudly.
 //
-//   - the effective layout derived from the migration metadata, which distinguishes "the directory exists but
-//     no migration ever started" from a chain where flatkv participates;
-//   - flatkv's earliest-history record, written by the seeding SetInitialVersion, which marks where its
-//     history begins.
-//
-// It keys on the earliest-history record rather than on the flatkv open failing, because "no snapshot at
-// target" is also what a pruned or corrupt in-history height produces. Serving those from post-migration
-// memiavl is the fabricated-nonexistence case above, so they must keep failing loudly.
-//
-// The view is opened at the tip rather than at height because both records are properties of the store as a
-// whole, not of any one height. Opening it costs a directory clone and five Pebble opens; callers on
-// latency-sensitive paths should note that this runs per call, by design — the alternative is reading flatkv's
-// in-memory copy of these records, which is populated only as a side effect of a load and is therefore silently
-// stale on any handle that has not been loaded.
-//
-// A nil fkv means the backend was never materialized: under types.Auto the constructor only builds flatkv when
-// its directory already exists on disk, so absence is itself the answer. A non-Auto configured mode short
-// circuits to true, preserving the pinned fail-loud behavior of fixed modes, which cannot re-derive an
-// effective memiavl-only layout.
-func FlatKVNeededAtHeight(fkv flatkv.Store, configuredMode types.WriteMode, height int64) (bool, error) {
-	if fkv == nil {
-		return false, nil
+// This performs no I/O and cannot fail, which is what lets historical queries call it per read.
+func FlatKVNeededAtHeight(
+	// Whether a flatkv backend was materialized at all. Under types.Auto the constructor only builds
+	// flatkv when its directory already exists on disk, so absence is itself the answer: no flatkv
+	// instance means no height was ever served by one.
+	flatKVPresent bool,
+	// The height flatkv's history begins at, or 0 when that is unknown — history begins at genesis, or
+	// seeding never ran. Both zero cases resolve toward "yes" per the safety direction above. Callers
+	// pass CompositeCommitStore.flatKVEarliestVersion, which is read from disk once at construction;
+	// reading flatkv's own copy instead is wrong, because it is populated as a side effect of a load and
+	// so is zero on a handle that has never been loaded.
+	earliestVersion int64,
+	// The configured write mode, not the effective one. A fixed mode short circuits to "yes", preserving
+	// the pinned fail-loud behavior of modes that cannot re-derive an effective memiavl-only layout.
+	configuredMode types.WriteMode,
+	// The height being read, where 0 means latest.
+	height int64,
+) bool {
+	if !flatKVPresent {
+		return false
 	}
 	if configuredMode != types.Auto {
-		return true, nil
+		return true
 	}
 	if height <= 0 {
 		// The latest height is always in-era when flatkv exists at all.
-		return true, nil
+		return true
 	}
-
-	view, err := fkv.LoadVersionReadOnly(0)
-	if err != nil {
-		// Deliberately an error, not a false. A chain whose flatkv directory exists but whose tip cannot be
-		// opened is either mid-materialization from a crashed transition or corrupt, and those are not
-		// distinguishable here. Reporting "not needed" would serve the height from memiavl with the migrated
-		// keys already deleted, answering "absent" for keys that exist; a running node reaches the same
-		// conclusion loudly, by failing its own load.
-		return false, fmt.Errorf("failed to open flatkv tip to classify height %d: %w", height, err)
-	}
-	defer func() {
-		if closeErr := view.Close(); closeErr != nil {
-			logger.Error("failed to close flatkv classification view", "err", closeErr)
-		}
-	}()
-
-	derived, err := migration.DeriveWriteMode(view)
-	if err != nil {
-		return false, fmt.Errorf("failed to derive write mode while classifying height %d: %w", height, err)
-	}
-	if derived == types.MemiavlOnly {
-		logger.Info("flatkv directory exists but no migration has started; height is memiavl-only",
-			"height", height)
-		return false, nil
-	}
-
-	earliest := view.EarliestVersion()
-	if earliest > 0 && height < earliest {
+	if earliestVersion > 0 && height < earliestVersion {
 		logger.Info("height predates flatkv history; memiavl serves it alone",
-			"height", height, "flatkvEarliestVersion", earliest)
-		return false, nil
+			"height", height, "flatkvEarliestVersion", earliestVersion)
+		return false
 	}
-	return true, nil
+	return true
 }

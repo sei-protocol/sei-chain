@@ -1186,8 +1186,8 @@ func TestExportMemiavlOnlyHasNoFlatKVModule(t *testing.T) {
 // flatkv fails to load at an export version within flatkv's history
 // (version >= EarliestVersion), Exporter returns an error rather than
 // silently emitting a memiavl-only snapshot that would drop
-// consensus-visible flatkv state. Mirrors readOnlyTargetPredatesFlatKV's
-// fail-loud contract for pruned/corrupt in-history versions.
+// consensus-visible flatkv state. Mirrors FlatKVNeededAtHeight's fail-loud
+// contract for pruned/corrupt in-history versions.
 func TestExporterFailsLoudOnInHistoryFlatKVLoadFailure(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
@@ -1210,9 +1210,11 @@ func TestExporterFailsLoudOnInHistoryFlatKVLoadFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Inject a flatkv whose load fails at an in-history version: export
-	// version 1 is >= EarliestVersion 1, so the pre-era short-circuit does
-	// not apply and the load failure must surface as an error.
+	// version 1 is >= the earliest-history record of 1, so the pre-era
+	// short-circuit does not apply and the load failure must surface as an
+	// error.
 	cs.flatKV = &eraFailingEVMStore{earliest: 1}
+	cs.flatKVEarliestVersion = 1
 
 	_, err = cs.Exporter(1)
 	require.Error(t, err, "Exporter must fail loud on an in-history flatkv load failure")
@@ -1247,10 +1249,11 @@ func TestExporterOmitsFlatKVForPreEraVersion(t *testing.T) {
 	_, err = cs.Commit()
 	require.NoError(t, err)
 
-	// Inject a flatkv whose EarliestVersion is above the export height, so
-	// version 1 is pre-era. LoadVersion would fail, but the pre-era check
+	// Inject a flatkv whose history starts above the export height, so version
+	// 1 is pre-era. LoadVersion would fail, but the pre-era check
 	// short-circuits before it is called: flatkv is omitted, no error.
 	cs.flatKV = &eraFailingEVMStore{earliest: 10}
+	cs.flatKVEarliestVersion = 10
 
 	exporter, err := cs.Exporter(1)
 	require.NoError(t, err, "pre-era export must omit flatkv without error")
