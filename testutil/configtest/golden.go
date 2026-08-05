@@ -39,6 +39,77 @@ func goldenUpdateRequested() bool {
 	return f != nil && f.Value.String() == "true"
 }
 
+// allowRecordWriteUnderCI re-permits a write that writeGolden would otherwise refuse, for the one
+// caller that has to watch a write happen: this package's own contract tests, which drive the
+// writers against a temporary directory to prove they write what they claim.
+//
+// An unexported package variable and nothing else. Deliberately not an environment variable, not a
+// second flag, and not anything reachable through GOFLAGS, because whatever could set it would
+// reinstate the hole the refusal closes. Only a _test.go file in package configtest can assign it,
+// and only capture_test.go's withUpdateFlag does.
+var allowRecordWriteUnderCI bool
+
+// recordWriteRefused reports whether rewriting a checked-in record must be refused rather than done.
+//
+// Regenerating a record on purpose is a normal local operation, and the review of that diff is the
+// control that makes it safe. On CI nobody is reading the diff, so the same operation there produces
+// a record that agrees with the code because it was just written from it — and every test comparing
+// against that record then passes by construction. That is the most convincing kind of test that
+// proves nothing, which is why this is refused rather than merely discouraged.
+func recordWriteRefused() bool {
+	return runningUnderCI() && !allowRecordWriteUnderCI
+}
+
+// runningUnderCI reports whether this process is a CI run.
+//
+// Read live rather than captured once, so a test can provoke the refusal with t.Setenv; capturing at
+// init would make the branch unreachable from a test and the refusal unguarded.
+//
+// Reading the environment at all couples this to Isolate, which unsets everything outside
+// envAllowlist (env.go). CI is on that allowlist for this function's sake, with the reason recorded
+// there. Without it, a check that isolated before writing would find CI unset, the refusal would
+// no-op, and nothing would report it — so the two files have to be read together, which is why each
+// one names the other.
+func runningUnderCI() bool {
+	return os.Getenv("CI") != ""
+}
+
+// refuseRecordWrite fails the test naming the record it declined to rewrite.
+//
+// It names the file rather than the flag, because the reader's next question is which record was
+// about to be overwritten, and a message naming only -update sends them to the flag's documentation
+// instead of to the file whose contents were at stake.
+func refuseRecordWrite(t testing.TB, name, path string) {
+	t.Helper()
+	t.Fatalf("%s: refusing to rewrite %s because this is a CI run.\n"+
+		"A record regenerated where nobody reviews the diff is not a record: the suite would report "+
+		"success over values it had just overwritten with whatever the code currently does.\n"+
+		"Regenerate it locally with `go test ./<pkg>/ -update`, read the diff, and commit it as part "+
+		"of the change that moved the value.", name, path)
+}
+
+// recordRewriteInProgress reports whether this run is rewriting a record rather than comparing
+// against it, and refuses outright if that rewrite would go unreviewed.
+//
+// Only one caller needs this: requireKeyNameRecord, which stands its comparison down while
+// CheckKeyNames regenerates the file it would have compared against. Every other caller writes, and
+// a write is refused inside writeGolden itself, so it needs no guard of its own.
+//
+// The refusal has to be reachable from here as well as from writeGolden. -update is one
+// process-global switch over three records, and if only the writers refused, this comparison would
+// go on quietly returning early — which reads as a pass. A silently absent third record is worse
+// than a loudly refused one.
+func recordRewriteInProgress(t testing.TB, name, path string) bool {
+	t.Helper()
+	if !goldenUpdateRequested() {
+		return false
+	}
+	if recordWriteRefused() {
+		refuseRecordWrite(t, name, path)
+	}
+	return true
+}
+
 // DerivedDefault names a default that is computed from the machine rather than written
 // down, together with the value it must equal.
 //
@@ -104,6 +175,13 @@ func recordText(raw []byte) string {
 // about where the file goes.
 func writeGolden(t testing.TB, name, path, content string) {
 	t.Helper()
+	// Every record write in the tree lands here, which is why the refusal lives here rather than at
+	// the call sites. A guard repeated at each caller is a convention the next caller can forget; a
+	// guard at the single writer is an invariant they cannot.
+	if recordWriteRefused() {
+		refuseRecordWrite(t, name, path)
+		return
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("%s: create %s: %v", name, dir, err)
