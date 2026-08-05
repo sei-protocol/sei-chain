@@ -111,6 +111,19 @@ func (s *State) LastCommitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
 	panic("unreachable")
 }
 
+func (s *State) appQC(ctx context.Context, idx types.RoadIndex) (*types.AppQC, error) {
+	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return idx < inner.nextAppQC }); err != nil {
+			return nil, err
+		}
+		if idx < inner.roads.first {
+			return nil, types.ErrPruned
+		}
+		return inner.roads.q[idx].appQC.OrPanic("missing appQC"), nil
+	}
+	panic("unreachable")
+}
+
 func (s *State) commitQC(ctx context.Context, idx types.RoadIndex) (*types.Epoch, *types.CommitQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return idx < inner.roads.next }); err != nil {
@@ -128,27 +141,6 @@ func (s *State) commitQC(ctx context.Context, idx types.RoadIndex) (*types.Epoch
 func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.CommitQC, error) {
 	_, qc, err := s.commitQC(ctx, idx)
 	return qc, err
-}
-
-// WaitForAppQC waits until there is an AppQC for the given index or higher.
-// Returns this AppQC and the corresponding CommitQC.
-// Together they provide enough information to prune the availability state.
-func (s *State) WaitForAppQC(ctx context.Context, idx types.RoadIndex) (*types.AppQC, *types.CommitQC, error) {
-	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return idx < inner.nextAppQC }); err != nil {
-			return nil, nil, err
-		}
-		r := inner.roads.q[max(inner.roads.first, idx)]
-		return r.appQC.OrPanic("missing appQC"), r.commitQC, nil
-	}
-	panic("unreachable")
-}
-
-func ignorePruned(err error) error {
-	if errors.Is(err, types.ErrPruned) {
-		return nil
-	}
-	return err
 }
 
 // PushCommitQC pushes a CommitQC to the state.
@@ -191,7 +183,10 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	idx := v.Msg().Proposal().RoadIndex()
 	epoch, commitQC, err := s.commitQC(ctx, idx)
 	if err != nil {
-		return ignorePruned(err)
+		if errors.Is(err, types.ErrPruned) {
+			return nil
+		}
+		return err
 	}
 	if err := v.Msg().Proposal().Verify(commitQC); err != nil {
 		return fmt.Errorf("invalid vote: %w", err)
@@ -491,6 +486,22 @@ func (s *State) runPushQC(ctx context.Context) error {
 	}
 }
 
+// Task inserting AppQCs to data state.
+func (s *State) runPushAppQC(ctx context.Context) error {
+	for n := types.RoadIndex(0); ; n = max(n+1, s.FirstCommitQC()) {
+		appQC, err := s.appQC(ctx, n)
+		if err != nil {
+			if errors.Is(err, types.ErrPruned) {
+				continue
+			}
+			return err
+		}
+		if err := s.data.PushAppQC(ctx, appQC); err != nil {
+			return fmt.Errorf("s.data.PushAppQC(): %w", err)
+		}
+	}
+}
+
 func (s *State) runEvict(ctx context.Context) error {
 	return s.data.Anchor().Iter(ctx, func(ctx context.Context, anchor utils.Option[data.Anchor]) error {
 		if anchor, ok := anchor.Get(); ok {
@@ -513,6 +524,7 @@ func (s *State) Run(ctx context.Context) error {
 		scope.SpawnNamed("runEvict", func() error { return s.runEvict(ctx) })
 		scope.SpawnNamed("runPersist", func() error { return s.runPersist(ctx) })
 		scope.SpawnNamed("runPushQC", func() error { return s.runPushQC(ctx) })
+		scope.SpawnNamed("runPushAppQC", func() error { return s.runPushAppQC(ctx) })
 		return nil
 	})
 }
