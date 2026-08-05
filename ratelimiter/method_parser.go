@@ -89,9 +89,6 @@ func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err err
 		if err := expectEOF(dec, lr); err != nil {
 			return nil, false, classifyErr(err, lr)
 		}
-		if probeLimitExceeded(lr) {
-			return nil, false, ErrProbeLimit
-		}
 		return []string{method}, false, nil
 	case '[':
 		out, err := readBatchMethods(dec)
@@ -101,17 +98,10 @@ func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err err
 		if err := expectEOF(dec, lr); err != nil {
 			return nil, true, classifyErr(err, lr)
 		}
-		if probeLimitExceeded(lr) {
-			return nil, true, ErrProbeLimit
-		}
 		return out, true, nil
 	default:
 		return nil, false, ErrNotObject
 	}
-}
-
-func probeLimitExceeded(lr *io.LimitedReader) bool {
-	return lr.N <= 0
 }
 
 // expectEOF confirms the decoder has consumed the whole body, so we can reject
