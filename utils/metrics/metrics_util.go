@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/big"
@@ -15,9 +16,23 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/metric"
 	sdk "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 )
+
+var bankNewAccountCounter = mustCounter(otel.Meter("seicosmos_x_bank_keeper").Int64Counter(
+	"bank_new_account",
+	metric.WithDescription("Number of new accounts created during bank transfers"),
+	metric.WithUnit("{count}"),
+))
+
+func mustCounter(c metric.Int64Counter, err error) metric.Int64Counter {
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
 
 func SetupOtelMetricsProvider(chainID string) error {
 	if chainID == "" {
@@ -50,6 +65,14 @@ func SetupOtelMetricsProvider(chainID string) error {
 		sdk.WithReader(metricsExporter),
 	))
 	return nil
+}
+
+// RecordBankNewAccount dual-emits the legacy new-account counter and its OTel
+// counterpart (bank_new_account). Call from defer when creating an account.
+func RecordBankNewAccount(ctx context.Context) {
+	bankNewAccountCounter.Add(ctx, 1)
+	// TODO(PLT-353): remove once bank_new_account verified
+	SafeTelemetryIncrCounter(1, "new", "account")
 }
 
 func SafeTelemetryIncrCounter(val float32, keys ...string) {
