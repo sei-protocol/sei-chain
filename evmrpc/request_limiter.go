@@ -27,8 +27,6 @@ func effectiveMaxRequestBodyBytes(maxBody int64) int64 {
 //     over-budget requests get 429. The reservation is held for the full inner request
 //     (not just decode) and trusts the declared Content-Length — conservative by design,
 //     so slow or trickled requests can exhaust the budget even when little is buffered.
-//     Actual bytes stay hard-capped by MaxBytesReader; per-IP rate limiting will be
-//     wired in front of this handler.
 type requestSizeLimiter struct {
 	inner   http.Handler
 	maxBody int64               // always > 0 after construction

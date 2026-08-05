@@ -36,13 +36,25 @@ var receiptKeys = []configtest.KeySpec{
 func readReceipt(opts configtest.AppOpts) (any, error) { return ReadReceiptConfig(opts) }
 
 func FuzzReadReceiptConfig(f *testing.F) {
-	f.Add(uint(0), fuzzing.KindInt64, "", int64(100), false)
-	f.Add(uint(0), fuzzing.KindInt64, "", int64(0), false)
-	f.Add(uint(1), fuzzing.KindNumericString, "", int64(600), false)
-	f.Add(uint(2), fuzzing.KindBool, "", int64(0), true)
-	f.Add(uint(3), fuzzing.KindInt64, "", int64(16), false)
-	f.Add(uint(0), fuzzing.KindString, "many", int64(0), false)
-	f.Add(uint(1), fuzzing.KindNil, "", int64(0), false)
+	// Every row carries at least one value that differs from its in-code default,
+	// which is what lets the row tell a reader that resolves its key from one that
+	// never looks the key up: a seed spelling the default resolves the field to the
+	// value an absent key already resolves it to, so the assertion holds either way
+	// and the key could be renamed in production with this suite green. The prune
+	// interval arrives as a numeric string because that is the shape an environment
+	// variable has, and 1200 rather than the default 600 is what makes the read
+	// observable.
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seeds.AddRow(uint(0), fuzzing.KindInt64, "", int64(100), false)
+	seeds.AddRow(uint(0), fuzzing.KindInt64, "", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindNumericString, "", int64(1200), false)
+	seeds.AddRow(uint(2), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(3), fuzzing.KindInt64, "", int64(8), false)
+	seeds.AddRow(uint(0), fuzzing.KindString, "many", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindNil, "", int64(0), false)
+	seeds.AddRow(uint(3), fuzzing.KindNil, "", int64(0), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "receipt-store", readReceipt, receiptKeys, seeds)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(receiptKeys, keyIdx)
@@ -165,6 +177,17 @@ func TestReadReceiptConfigAbsentKeysKeepDefaults(t *testing.T) {
 // silently.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "receipt_store", DefaultReceiptStoreConfig())
+}
+
+// TestKeyNamesMatchTheRecordedNames pins the four key names themselves.
+//
+// The record is named for the TOML section, receipt-store, rather than for the underscored
+// stem the defaults golden uses, so the file listing keys that all begin "receipt-store." is
+// spelled the way those keys are. This section is also where a retired spelling is already
+// load-bearing: receipt-store.backend is a hard boot error because it was renamed to
+// rs-backend, which is what a rename costs when it is done without one.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "receipt-store", receiptKeys)
 }
 
 // TestManifestNamesEveryField enforces the claim receiptKeys makes about itself: that it names

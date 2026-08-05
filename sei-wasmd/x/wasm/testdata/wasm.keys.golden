@@ -1,0 +1,4 @@
+"wasm.query_gas_limit"
+"wasm.memory_cache_size"
+"trace"
+# keys with a target of their own

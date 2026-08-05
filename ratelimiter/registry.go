@@ -46,10 +46,11 @@ var DefaultTrustedProxyCIDRs = []string{
 // Config holds the configuration for a Registry
 type Config struct {
 	// RPS is the sustained request rate allowed per IP in requests/second.
-	// Zero disables per-IP rate limiting (all requests pass).
+	// Zero disables the token bucket (Allow always returns true). Callers may
+	// still perform method extraction and other admission checks independently.
 	RPS float64
 	// Burst is the maximum number of requests allowed in a single burst.
-	// Zero disables per-IP rate limiting (all requests pass).
+	// Zero disables the token bucket (same effect as RPS=0).
 	Burst int
 	// TrustedProxyCIDRs lists CIDRs whose X-Forwarded-For headers are trusted.
 	// Empty means trust no proxy; use RemoteAddr / peer address directly.
@@ -86,9 +87,9 @@ func New(cfg Config) (*Registry, error) {
 	}, nil
 }
 
-// Allow reports whether the request from ip should be allowed for the given protocol.
-// Rejections increment rpc_rate_limit_rejected_total{protocol}.
-func (r *Registry) Allow(ctx context.Context, ip, protocol string) bool {
+// Allow reports whether the request from ip should be allowed for the given plane.
+// Rejections increment rpc_rate_limit_rejected_total{plane, method_namespace}.
+func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
 	if r.cfg.RPS <= 0 || r.cfg.Burst <= 0 {
 		return true
 	}
@@ -99,7 +100,28 @@ func (r *Registry) Allow(ctx context.Context, ip, protocol string) bool {
 		ctx,
 		1,
 		metric.WithAttributes(
-			attribute.String("protocol", protocol),
+			attribute.String("plane", plane),
+			attribute.String("method_namespace", bucketRPCMethod(method)),
+		),
+	)
+	return false
+}
+
+// AllowN reports whether n requests (e.g. a batch) from ip should be allowed for the
+// given plane. It is atomic: on rejection no tokens are consumed.
+func (r *Registry) AllowN(ctx context.Context, ip, plane, method string, n int) bool {
+	if r.cfg.RPS <= 0 || r.cfg.Burst <= 0 {
+		return true
+	}
+	if r.getOrCreate(ip).AllowN(time.Now(), n) {
+		return true
+	}
+	registryMetrics.rejectedCounter.Add(
+		ctx,
+		1,
+		metric.WithAttributes(
+			attribute.String("plane", plane),
+			attribute.String("method_namespace", bucketRPCMethod(method)),
 		),
 	)
 	return false
