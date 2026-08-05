@@ -40,7 +40,7 @@ var (
 		contractIBCAckPacketDuration      metric.Float64Histogram
 		contractIBCTimeoutPacketDuration  metric.Float64Histogram
 		contractQuerySmartInvocation      metric.Int64Counter
-		contractQuerySmartGasUsed         metric.Int64Gauge
+		contractQuerySmartGasUsed         metric.Int64Histogram
 	}{
 		contractInstantiateDuration: must(meter.Float64Histogram(
 			"wasm_contract_instantiate_duration",
@@ -119,9 +119,9 @@ var (
 			metric.WithDescription("Number of wasm contract smart query invocations"),
 			metric.WithUnit("{count}"),
 		)),
-		contractQuerySmartGasUsed: must(meter.Int64Gauge(
+		contractQuerySmartGasUsed: must(meter.Int64Histogram(
 			"wasm_contract_query_smart_gas_used",
-			metric.WithDescription("Gas used by the last wasm contract smart query per contract address"),
+			metric.WithDescription("Gas used by wasm contract smart query invocations"),
 			metric.WithUnit("{gas}"),
 		)),
 	}
@@ -220,7 +220,7 @@ func recordContractQuerySmartInvocation(ctx context.Context, contractAddress str
 }
 
 func recordContractQuerySmartGasUsed(ctx context.Context, contractAddress string, gasUsed uint64) {
-	// contract_address omitted on the OTel gauge for the same unbounded-cardinality reason as
+	// contract_address omitted on the OTel histogram for the same unbounded-cardinality reason as
 	// recordContractQuerySmartInvocation above.
 	wasmKeeperMetrics.contractQuerySmartGasUsed.Record(ctx, int64(gasUsed)) //nolint:gosec
 	// TODO(PLT-910): remove once wasm_contract_query_smart_gas_used verified
