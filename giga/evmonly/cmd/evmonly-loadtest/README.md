@@ -167,7 +167,7 @@ The command reports these saturation signals on stdout and at `/metrics`:
 - block preparation throughput
 - prepared transactions per second
 - block finishing throughput
-- finished transactions per second
+- finished, successful, and failed transactions per second
 - total gas consumed per second
 - total OCC transaction rerun attempts
 - prepared blocks queued for execution and cumulative totals

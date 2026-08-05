@@ -20,6 +20,8 @@ type loadMetrics struct {
 	preparedTxs     atomic.Uint64
 	finishedBlocks  atomic.Uint64
 	finishedTxs     atomic.Uint64
+	successfulTxs   atomic.Uint64
+	failedTxs       atomic.Uint64
 	gasConsumed     atomic.Uint64
 	prepareErrors   atomic.Uint64
 	executionErrors atomic.Uint64
@@ -43,6 +45,8 @@ type loadMetrics struct {
 	preparedTxsTotal     prometheus.Counter
 	finishedBlocksTotal  prometheus.Counter
 	finishedTxsTotal     prometheus.Counter
+	successfulTxsTotal   prometheus.Counter
+	failedTxsTotal       prometheus.Counter
 	gasConsumedTotal     prometheus.Counter
 	prepareErrorsTotal   prometheus.Counter
 	executionErrorsTotal prometheus.Counter
@@ -65,6 +69,8 @@ type loadMetrics struct {
 	preparedTxRate     prometheus.Gauge
 	finishedBlockRate  prometheus.Gauge
 	txRate             prometheus.Gauge
+	finishedTxRate     prometheus.Gauge
+	failedTxRate       prometheus.Gauge
 	gasRate            prometheus.Gauge
 	queuedBlocks       prometheus.Gauge
 	sinkQueuedRecords  prometheus.Gauge
@@ -81,6 +87,8 @@ type metricsSnapshot struct {
 	preparedTxs     uint64
 	finishedBlocks  uint64
 	finishedTxs     uint64
+	successfulTxs   uint64
+	failedTxs       uint64
 	gasConsumed     uint64
 	prepareErrors   uint64
 	executionErrors uint64
@@ -121,6 +129,14 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		finishedTxsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_transactions_finished_total",
 			Help: "Total transactions that finished EVM-only executor execution.",
+		}),
+		successfulTxsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_transactions_successful_total",
+			Help: "Total successful transactions that finished EVM-only executor execution.",
+		}),
+		failedTxsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "evmonly_loadtest_transactions_failed_total",
+			Help: "Total failed transactions that finished EVM-only executor execution.",
 		}),
 		gasConsumedTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_gas_consumed_total",
@@ -200,7 +216,15 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		}),
 		txRate: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "evmonly_loadtest_transactions_per_second",
-			Help: "Most recent measured transaction execution throughput in transactions per second.",
+			Help: "Most recent measured successful transaction execution throughput in transactions per second.",
+		}),
+		finishedTxRate: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "evmonly_loadtest_transactions_finished_per_second",
+			Help: "Most recent measured total finished transaction execution throughput in transactions per second.",
+		}),
+		failedTxRate: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "evmonly_loadtest_transactions_failed_per_second",
+			Help: "Most recent measured failed transaction execution throughput in transactions per second.",
 		}),
 		gasRate: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "evmonly_loadtest_gas_consumed_per_second",
@@ -237,6 +261,8 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		m.preparedTxsTotal,
 		m.finishedBlocksTotal,
 		m.finishedTxsTotal,
+		m.successfulTxsTotal,
+		m.failedTxsTotal,
 		m.gasConsumedTotal,
 		m.prepareErrorsTotal,
 		m.executionErrorsTotal,
@@ -257,6 +283,8 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		m.preparedTxRate,
 		m.finishedBlockRate,
 		m.txRate,
+		m.finishedTxRate,
+		m.failedTxRate,
 		m.gasRate,
 		m.queuedBlocks,
 		m.sinkQueuedRecords,
@@ -285,12 +313,16 @@ func (m *loadMetrics) recordPrepareError() {
 	m.prepareErrorsTotal.Inc()
 }
 
-func (m *loadMetrics) recordFinished(txCount int, gasUsed uint64, occStats evmonly.OCCStats) {
+func (m *loadMetrics) recordFinished(counts txStatusCounts, gasUsed uint64, occStats evmonly.OCCStats) {
 	m.finishedBlocks.Add(1)
-	m.finishedTxs.Add(uint64FromNonNegativeInt(txCount))
+	m.finishedTxs.Add(uint64FromNonNegativeInt(counts.total))
+	m.successfulTxs.Add(uint64FromNonNegativeInt(counts.successful))
+	m.failedTxs.Add(uint64FromNonNegativeInt(counts.failed))
 	m.gasConsumed.Add(gasUsed)
 	m.finishedBlocksTotal.Inc()
-	m.finishedTxsTotal.Add(float64(txCount))
+	m.finishedTxsTotal.Add(float64(counts.total))
+	m.successfulTxsTotal.Add(float64(counts.successful))
+	m.failedTxsTotal.Add(float64(counts.failed))
 	m.gasConsumedTotal.Add(float64(gasUsed))
 	m.recordOCC(occStats)
 }
@@ -387,6 +419,8 @@ func (m *loadMetrics) snapshot() metricsSnapshot {
 		preparedTxs:     m.preparedTxs.Load(),
 		finishedBlocks:  m.finishedBlocks.Load(),
 		finishedTxs:     m.finishedTxs.Load(),
+		successfulTxs:   m.successfulTxs.Load(),
+		failedTxs:       m.failedTxs.Load(),
 		gasConsumed:     m.gasConsumed.Load(),
 		prepareErrors:   m.prepareErrors.Load(),
 		executionErrors: m.executionErrors.Load(),
@@ -416,13 +450,17 @@ func (m *loadMetrics) setRates(prev, curr metricsSnapshot, queued int) {
 	preparedRate := float64(curr.preparedBlocks-prev.preparedBlocks) / elapsed
 	preparedTxRate := float64(curr.preparedTxs-prev.preparedTxs) / elapsed
 	finishedRate := float64(curr.finishedBlocks-prev.finishedBlocks) / elapsed
-	txRate := float64(curr.finishedTxs-prev.finishedTxs) / elapsed
+	finishedTxRate := float64(curr.finishedTxs-prev.finishedTxs) / elapsed
+	txRate := float64(curr.successfulTxs-prev.successfulTxs) / elapsed
+	failedTxRate := float64(curr.failedTxs-prev.failedTxs) / elapsed
 	gasRate := float64(curr.gasConsumed-prev.gasConsumed) / elapsed
 	m.inputBlockRate.Set(inputRate)
 	m.preparedBlockRate.Set(preparedRate)
 	m.preparedTxRate.Set(preparedTxRate)
 	m.finishedBlockRate.Set(finishedRate)
 	m.txRate.Set(txRate)
+	m.finishedTxRate.Set(finishedTxRate)
+	m.failedTxRate.Set(failedTxRate)
 	m.gasRate.Set(gasRate)
 	m.queuedBlocks.Set(float64(queued))
 }
@@ -452,12 +490,14 @@ func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetric
 			sinkWaitSeconds := float64(curr.sinkWaitNanos-prev.sinkWaitNanos) / float64(time.Second)
 			sinkWriteSeconds := float64(curr.sinkWriteNanos-prev.sinkWriteNanos) / float64(time.Second)
 			fmt.Printf(
-				"input_blocks/s=%.2f prepared_blocks/s=%.2f prepared_tx/s=%.2f finished_blocks/s=%.2f tx/s=%.2f gas/s=%.2f queued_blocks=%d sink_queue=%d pool_available=%d pool_overflow=%d sink_enqueue_wait/s=%.6f sink_write/s=%.6f totals(input_blocks=%d prepared_blocks=%d prepared_txs=%d finished_blocks=%d txs=%d gas=%d prepare_errors=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_reruns=%d sink_enqueued=%d sink_written=%d)\n",
+				"input_blocks/s=%.2f prepared_blocks/s=%.2f prepared_tx/s=%.2f finished_blocks/s=%.2f finished_tx/s=%.2f success_tx/s=%.2f failed_tx/s=%.2f gas/s=%.2f queued_blocks=%d sink_queue=%d pool_available=%d pool_overflow=%d sink_enqueue_wait/s=%.6f sink_write/s=%.6f totals(input_blocks=%d prepared_blocks=%d prepared_txs=%d finished_blocks=%d txs=%d successful_txs=%d failed_txs=%d gas=%d prepare_errors=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_reruns=%d sink_enqueued=%d sink_written=%d)\n",
 				float64(curr.inputBlocks-prev.inputBlocks)/elapsed,
 				float64(curr.preparedBlocks-prev.preparedBlocks)/elapsed,
 				float64(curr.preparedTxs-prev.preparedTxs)/elapsed,
 				float64(curr.finishedBlocks-prev.finishedBlocks)/elapsed,
 				float64(curr.finishedTxs-prev.finishedTxs)/elapsed,
+				float64(curr.successfulTxs-prev.successfulTxs)/elapsed,
+				float64(curr.failedTxs-prev.failedTxs)/elapsed,
 				float64(curr.gasConsumed-prev.gasConsumed)/elapsed,
 				queued,
 				curr.sinkQueued,
@@ -470,6 +510,8 @@ func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetric
 				curr.preparedTxs,
 				curr.finishedBlocks,
 				curr.finishedTxs,
+				curr.successfulTxs,
+				curr.failedTxs,
 				curr.gasConsumed,
 				curr.prepareErrors,
 				curr.executionErrors,
@@ -490,13 +532,15 @@ func printFinalReport(startedAt time.Time, snapshot metricsSnapshot) {
 		elapsed = 1
 	}
 	fmt.Printf(
-		"complete elapsed=%s input_blocks=%d prepared_blocks=%d prepared_txs=%d finished_blocks=%d txs=%d gas=%d prepare_errors=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_reruns=%d sink_queue=%d sink_enqueued=%d sink_written=%d sink_bytes=%d sink_enqueue_wait=%s sink_enqueue_wait_events=%d sink_write=%s pool_capacity=%d pool_available=%d pool_overflow=%d avg_input_blocks/s=%.2f avg_prepared_blocks/s=%.2f avg_prepared_tx/s=%.2f avg_finished_blocks/s=%.2f avg_tx/s=%.2f avg_gas/s=%.2f\n",
+		"complete elapsed=%s input_blocks=%d prepared_blocks=%d prepared_txs=%d finished_blocks=%d txs=%d successful_txs=%d failed_txs=%d gas=%d prepare_errors=%d errors=%d occ_attempts=%d occ_fallbacks=%d occ_reruns=%d sink_queue=%d sink_enqueued=%d sink_written=%d sink_bytes=%d sink_enqueue_wait=%s sink_enqueue_wait_events=%d sink_write=%s pool_capacity=%d pool_available=%d pool_overflow=%d avg_input_blocks/s=%.2f avg_prepared_blocks/s=%.2f avg_prepared_tx/s=%.2f avg_finished_blocks/s=%.2f avg_finished_tx/s=%.2f avg_success_tx/s=%.2f avg_failed_tx/s=%.2f avg_gas/s=%.2f\n",
 		snapshot.at.Sub(startedAt).Round(time.Millisecond),
 		snapshot.inputBlocks,
 		snapshot.preparedBlocks,
 		snapshot.preparedTxs,
 		snapshot.finishedBlocks,
 		snapshot.finishedTxs,
+		snapshot.successfulTxs,
+		snapshot.failedTxs,
 		snapshot.gasConsumed,
 		snapshot.prepareErrors,
 		snapshot.executionErrors,
@@ -518,6 +562,8 @@ func printFinalReport(startedAt time.Time, snapshot metricsSnapshot) {
 		float64(snapshot.preparedTxs)/elapsed,
 		float64(snapshot.finishedBlocks)/elapsed,
 		float64(snapshot.finishedTxs)/elapsed,
+		float64(snapshot.successfulTxs)/elapsed,
+		float64(snapshot.failedTxs)/elapsed,
 		float64(snapshot.gasConsumed)/elapsed,
 	)
 }

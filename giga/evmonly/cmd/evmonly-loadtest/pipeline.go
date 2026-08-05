@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
@@ -381,9 +382,28 @@ func executeBlocks(
 				metrics.recordExecutionError()
 				return fmt.Errorf("worker %d execute block %d: %w", workerID, block.number, err)
 			}
-			metrics.recordFinished(len(result.Txs), result.GasUsed, result.OCCStats)
+			counts := countTxStatuses(result.Txs)
+			metrics.recordFinished(counts, result.GasUsed, result.OCCStats)
 			result.Release()
 			metrics.recordResultPoolStats(executor.ResultPoolStats())
 		}
 	}
+}
+
+type txStatusCounts struct {
+	total      int
+	successful int
+	failed     int
+}
+
+func countTxStatuses(txs []evmonly.TxResult) txStatusCounts {
+	counts := txStatusCounts{total: len(txs)}
+	for _, tx := range txs {
+		if tx.Status == ethtypes.ReceiptStatusSuccessful {
+			counts.successful++
+		} else {
+			counts.failed++
+		}
+	}
+	return counts
 }

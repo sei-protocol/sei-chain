@@ -501,7 +501,7 @@ func TestPrepareBlocksDrainsPreparedBlocksAfterWorkersFinish(t *testing.T) {
 
 func TestLoadMetricsRecordsOCCRerunsWithoutConflicts(t *testing.T) {
 	metrics := newLoadMetrics(prometheus.NewRegistry())
-	metrics.recordFinished(4, 84_000, evmonly.OCCStats{
+	metrics.recordFinished(txStatusCounts{total: 4, successful: 4}, 84_000, evmonly.OCCStats{
 		Attempted:  true,
 		RerunCount: 3,
 	})
@@ -510,6 +510,21 @@ func TestLoadMetricsRecordsOCCRerunsWithoutConflicts(t *testing.T) {
 	require.Equal(t, uint64(1), snapshot.occAttempts)
 	require.Equal(t, uint64(3), snapshot.occReruns)
 	require.Zero(t, snapshot.occConflicts)
+}
+
+func TestLoadMetricsCountsOnlySuccessfulTxsAsTPS(t *testing.T) {
+	metrics := newLoadMetrics(prometheus.NewRegistry())
+	counts := countTxStatuses([]evmonly.TxResult{
+		{Status: ethtypes.ReceiptStatusSuccessful},
+		{Status: ethtypes.ReceiptStatusFailed},
+		{Status: 99},
+	})
+	metrics.recordFinished(counts, 63_000, evmonly.OCCStats{})
+
+	snapshot := metrics.snapshot()
+	require.Equal(t, uint64(3), snapshot.finishedTxs)
+	require.Equal(t, uint64(1), snapshot.successfulTxs)
+	require.Equal(t, uint64(2), snapshot.failedTxs)
 }
 
 func TestBlockContextTimestampIsDeterministic(t *testing.T) {
