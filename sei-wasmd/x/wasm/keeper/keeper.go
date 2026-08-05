@@ -681,7 +681,7 @@ func (k Keeper) QuerySmartSafe(ctx sdk.Context, contractAddr sdk.AccAddress, req
 func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error) {
 	start := time.Now()
 	defer func() { recordContractQuerySmartDuration(ctx.Context(), start) }()
-	recordContractQuerySmartInvocation(ctx.Context(), contractAddr.String())
+	recordContractQuerySmartInvocation(contractAddr.String())
 
 	// checks and increase query stack size
 	ctx, err := checkAndIncreaseQueryStackSize(ctx, k.maxQueryStackSize)

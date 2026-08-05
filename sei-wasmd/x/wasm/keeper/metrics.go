@@ -39,7 +39,6 @@ var (
 		contractIBCRecvPacketDuration     metric.Float64Histogram
 		contractIBCAckPacketDuration      metric.Float64Histogram
 		contractIBCTimeoutPacketDuration  metric.Float64Histogram
-		contractQuerySmartInvocation      metric.Int64Counter
 		contractQuerySmartGasUsed         metric.Int64Histogram
 	}{
 		contractInstantiateDuration: must(meter.Float64Histogram(
@@ -113,11 +112,6 @@ var (
 			metric.WithDescription("Duration of wasm contract IBC timeout-packet callbacks"),
 			metric.WithUnit("s"),
 			contractLatencyBuckets,
-		)),
-		contractQuerySmartInvocation: must(meter.Int64Counter(
-			"wasm_contract_query_smart_invocation",
-			metric.WithDescription("Number of wasm contract smart query invocations"),
-			metric.WithUnit("{count}"),
 		)),
 		contractQuerySmartGasUsed: must(meter.Int64Histogram(
 			"wasm_contract_query_smart_gas_used",
@@ -206,12 +200,10 @@ func recordContractIBCTimeoutPacketDuration(ctx context.Context, start time.Time
 	telemetry.MeasureSince(start, "wasm", "contract", "ibc-timeout-packet")
 }
 
-func recordContractQuerySmartInvocation(ctx context.Context, contractAddress string) {
-	// contract_address is intentionally omitted on the OTel counter: unlike the legacy
-	// Prometheus sink, the OTel SDK has no series expiration, so a per-contract label here
-	// would retain one series per distinct contract address queried for the process lifetime.
-	wasmKeeperMetrics.contractQuerySmartInvocation.Add(ctx, 1)
-	// TODO(PLT-910): remove once wasm_contract_query_smart_invocation verified
+func recordContractQuerySmartInvocation(contractAddress string) {
+	// No OTel counter here: it would be redundant with wasm_contract_query_smart_duration's
+	// count, which is recorded unconditionally on every QuerySmart call just like this one.
+	// TODO(PLT-910): remove once wasm_contract_query_smart_duration verified
 	telemetry.IncrCounterWithLabels(
 		[]string{"wasm", "contract", "query-smart", "invocation"},
 		1,
@@ -220,8 +212,9 @@ func recordContractQuerySmartInvocation(ctx context.Context, contractAddress str
 }
 
 func recordContractQuerySmartGasUsed(ctx context.Context, contractAddress string, gasUsed uint64) {
-	// contract_address omitted on the OTel histogram for the same unbounded-cardinality reason as
-	// recordContractQuerySmartInvocation above.
+	// contract_address omitted on the OTel histogram: unlike the legacy Prometheus sink, the
+	// OTel SDK has no series expiration, so a per-contract label here would retain one series
+	// per distinct contract address queried for the process lifetime.
 	wasmKeeperMetrics.contractQuerySmartGasUsed.Record(ctx, int64(gasUsed)) //nolint:gosec
 	// TODO(PLT-910): remove once wasm_contract_query_smart_gas_used verified
 	telemetry.SetGaugeWithLabels(
