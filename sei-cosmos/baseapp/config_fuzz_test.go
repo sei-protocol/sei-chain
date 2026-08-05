@@ -1,9 +1,12 @@
 package baseapp
 
 import (
+	"context"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
@@ -13,6 +16,10 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 	"github.com/spf13/cast"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // BaseApp reads four keys straight out of appOpts during construction, after every
@@ -288,20 +295,282 @@ func TestBaseAppArchivalVersionZeroSkipsTheArchivalStore(t *testing.T) {
 // during construction and, when false, a no-op provider is installed — construction
 // never reaches the real tracer builder, which panics on failure.
 //
-// Enabling it is not driven here: it constructs a real tracer provider against a
-// hardcoded URL and replaces the process-global OTEL provider, neither of which
-// belongs in a config characterization run.
+// The property is that nothing traces, so that is what is asserted. Surviving construction
+// does not show it: the builder panics only when the exporter cannot be created, and an
+// unreachable Jaeger endpoint creates fine, so a build that installed a real provider would
+// construct just as quietly. Both things the read controls are checked — the flag it stores on
+// TracingInfo, which gates every ABCI path, and the process-global provider it installs for
+// every otel caller in the process.
+//
+// A live span context is checked alongside IsRecording because IsRecording alone cannot tell
+// the no-op provider from a real Jaeger provider whose sampler is off. Both report false,
+// while the second has already started the exporter goroutine, so a build that traded the flag
+// for a sampler would pass on IsRecording. SpanContext().IsValid() is false for the no-op
+// provider and true for any SDK provider whatever its sampler.
+//
+// TestBaseAppTracingEnabledInstallsAProviderNothingShutsDown drives the other value.
 func TestBaseAppTracingDisabledByDefault(t *testing.T) {
 	opts := baseOpts()
 	opts[tracing.FlagTracing] = false
-
-	if !panicsNot(t, func() { _ = newTestBaseApp(t, opts) }) {
-		t.Fatal("tracing = false must install the no-op provider without failing")
-	}
+	checkNothingTraces(t, opts, "tracing = false")
 
 	// An absent key resolves the same way, since the read is an unguarded cast.ToBool.
-	if !panicsNot(t, func() { _ = newTestBaseApp(t, baseOpts()) }) {
-		t.Fatal("an absent tracing key must behave as false")
+	checkNothingTraces(t, baseOpts(), "an absent tracing key")
+
+	// A positive control, so the two signals above are known to distinguish the cases rather
+	// than to always report false, for the same reason archivalWiring is paired with one. A
+	// provider with no exporter still records, and it still mints a span context. The sampler
+	// is passed explicitly because the SDK applies OTEL_TRACES_SAMPLER first and a passed
+	// option overrides it: without this, always_off in the environment reddens the shard here
+	// and blames sei for it.
+	control := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()))
+	_, span := control.Tracer("component-main").Start(context.Background(), "control")
+	if !span.IsRecording() || !span.SpanContext().IsValid() {
+		t.Fatalf("a provider that definitely samples reported recording=%v valid=%v (%T); the "+
+			"assertions above prove nothing until both hold", span.IsRecording(),
+			span.SpanContext().IsValid(), span)
+	}
+}
+
+// checkNothingTraces constructs an app from opts and asserts it traces nowhere, on two signals:
+// what TracingInfo hands back, and the process-global provider.
+//
+// The first covers the flag, not the tracer. Info.Start returns the tracing package's NoOpSpan
+// on !tracingEnabled.Load() and never reaches i.tracer, so what it pins is that construction
+// stored a false flag — the gate every ABCI path passes through, which is the property. The
+// tracer stored beside it is deferred rather than covered: behind that short-circuit a live one
+// cannot produce a span either way. If the short-circuit ever goes, this signal starts covering
+// the tracer, and that is the change to notice here.
+//
+// It captures the global before constructing so the failure can name both values. Reading it
+// after is sound because construction installs the no-op provider unconditionally before
+// consulting the flag, so the window between that install and this read is the whole exposure.
+// A build that dropped the unconditional install would make the same read report a provider
+// some earlier row left behind, which is why the message says the global traces after
+// construction rather than that construction installed it.
+//
+// It is also why no row in this file calls t.Parallel. Being the only file to abstain is not
+// enough on its own: TestBaseAppCreateQueryContext and
+// TestCreateQueryContextUsesCheckStateBeforeFirstCommit do call it, and they construct
+// BaseApps that set the same global. What keeps them out of the window is that Go parks a
+// top-level parallel test until every sequential top-level test in the binary has finished, so
+// a parallel row cannot overlap a sequential one. A row here that called t.Parallel would join
+// that pool and give the guarantee up.
+func checkNothingTraces(t *testing.T, opts configtest.AppOpts, what string) {
+	t.Helper()
+
+	globalBefore := otel.GetTracerProvider()
+
+	var app *BaseApp
+	if !panicsNot(t, func() { app = newTestBaseApp(t, opts) }) {
+		t.Fatalf("%s: construction must install the no-op provider without failing", what)
+	}
+	if app == nil {
+		t.Fatalf("%s: construction must succeed", what)
+	}
+	if app.TracingInfo == nil {
+		t.Fatalf("%s: the app carries no TracingInfo, so nothing here can tell whether tracing "+
+			"is on", what)
+	}
+	if _, span := app.TracingInfo.Start("component-main"); span.IsRecording() || span.SpanContext().IsValid() {
+		t.Errorf("%s: the app handed back a live span through TracingInfo (%T, recording=%v "+
+			"valid=%v), so every ABCI path allocates and records a span for a node that asked for "+
+			"none", what, span, span.IsRecording(), span.SpanContext().IsValid())
+	}
+	global := otel.GetTracerProvider()
+	_, span := global.Tracer("component-main").Start(context.Background(), "probe")
+	if span.IsRecording() || span.SpanContext().IsValid() {
+		t.Errorf("%s: the process-global tracer provider traces after construction (%T, "+
+			"recording=%v valid=%v; it was %T before), so every otel caller in the process gets a "+
+			"live tracer for a node that asked for none", what, global, span.IsRecording(),
+			span.SpanContext().IsValid(), globalBefore)
+	}
+	// And a Set is known to have happened, because otherwise the assertion above is a
+	// tautology. otel's untouched global is a delegating placeholder whose Start returns a
+	// non-recording span with no span context, so a build that dropped the unconditional
+	// otel.SetTracerProvider call would read false on both signals forever while leaving
+	// whatever the process already had in place.
+	if _, ok := global.(noop.TracerProvider); !ok {
+		t.Errorf("%s: the process-global provider is %T, not the no-op provider construction "+
+			"installs. Installing a different one is a behavior change to record here; installing "+
+			"none leaves the assertion above unable to fail", what, global)
+	}
+}
+
+// TestBaseAppTracingEnabledInstallsAProviderNothingShutsDown drives the other value of the
+// flag and pins the two things construction leaves behind.
+//
+// tracing = true builds a real Jaeger provider with trace.WithBatcher, which starts one
+// background goroutine that stops only on Shutdown. NewBaseApp never calls it: the enabled
+// branch declares its own tp with :=, shadowing the one the function opened with. The provider
+// stays referenced — the tracer it hands TracingInfo holds it on an unexported field, and the
+// provider's own named-tracer map holds that tracer — but no exported handle reaches it, which
+// is why this row goes through otel.GetTracerProvider to clean up what construction started. A
+// node with tracing on therefore pays one goroutine per BaseApp for the life of the process, and
+// nothing in baseapp gives it back: app.Close, production's lifecycle close, releases the db, the
+// commit store, the snapshot manager and the close handler, and never touches the provider. This
+// row drives Close so that claim is falsifiable rather than narrated — see the assertion below.
+//
+// A live span context is asserted rather than IsRecording because the provider is built with
+// no sampler option, so OTEL_TRACES_SAMPLER in the environment decides whether it records.
+// Whether a real provider was installed is the property; whether it samples is not, and
+// making the row depend on it would hand a stray environment variable a red shard.
+//
+// No span is ended, so nothing is ever enqueued and nothing here touches the network: the
+// collector exporter is a struct holding an http.Client it has not called yet, so neither
+// construction nor Shutdown opens a connection and an unreachable collector is not a
+// dependency of this row.
+func TestBaseAppTracingEnabledInstallsAProviderNothingShutsDown(t *testing.T) {
+	globalBefore := otel.GetTracerProvider()
+	// Registered first so it runs last, because the Shutdown registered below has to precede it.
+	// Restoring the handle is not all of what construction changed: otel wires the placeholder
+	// global's delegate to the first real provider it is handed and never unwires it, so after
+	// this restore the placeholder still resolves tracers through this row's provider. That is
+	// harmless only because a provider that has been shut down hands out no-op tracers — which
+	// is why the Shutdown is a Cleanup rather than the last statement of the body, where a
+	// Fatalf above it would skip it and leave the process global delegating to a live provider.
+	t.Cleanup(func() { otel.SetTracerProvider(globalBefore) })
+	exportersBefore := batchSpanProcessorGoroutines()
+
+	opts := baseOpts()
+	opts[tracing.FlagTracing] = true
+
+	var app *BaseApp
+	if !panicsNot(t, func() { app = newTestBaseApp(t, opts) }) {
+		t.Fatal("tracing = true must construct without failing: the exporter is created rather " +
+			"than connected, so an unreachable collector cannot stop a node booting")
+	}
+	if app == nil || app.TracingInfo == nil {
+		t.Fatal("construction must succeed and carry TracingInfo")
+	}
+
+	if _, span := app.TracingInfo.Start("component-main"); !span.SpanContext().IsValid() {
+		t.Errorf("tracing = true left the app's tracer on the no-op provider (%T), so no ABCI path "+
+			"would produce a span on a node that asked for tracing", span)
+	}
+	global := otel.GetTracerProvider()
+	if _, span := global.Tracer("component-main").Start(context.Background(), "probe"); !span.SpanContext().IsValid() {
+		t.Errorf("tracing = true left the process-global provider on the no-op one (%T), so every "+
+			"otel caller outside baseapp would keep dropping spans", global)
+	}
+
+	// The leak as a measurement rather than a note.
+	provider, ok := global.(*sdktrace.TracerProvider)
+	if !ok {
+		t.Fatalf("the process-global provider is %T, so this row has no handle to shut down what "+
+			"construction installed and would leak it into every later row", global)
+	}
+	t.Cleanup(func() {
+		// Bounded, because Shutdown flushes through the exporter and this row must not be able to
+		// hang a shard on a collector endpoint that neither refuses nor answers.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := provider.Shutdown(ctx); err != nil {
+			t.Errorf("Shutdown of the provider construction installed failed (%v), so the goroutine "+
+				"it started cannot be given back and this row leaks it into the rest of the binary", err)
+		}
+		if got := waitForBatchSpanProcessorGoroutines(exportersBefore) - exportersBefore; got != 0 {
+			t.Errorf("%d batch-processor goroutines outlived Shutdown, so this row leaks what it "+
+				"created", got)
+		}
+	})
+
+	leaked := batchSpanProcessorGoroutines() - exportersBefore
+	if leaked != 1 {
+		t.Errorf("tracing = true started %d batch-processor goroutines, want 1. Zero has four causes "+
+			"and this line cannot tell them apart: construction now shuts the provider down, the "+
+			"provider is built with WithSyncer, it is built with no span-processor option at all, or "+
+			"the SDK renamed the frame the counter matches — which is what the control at the end of "+
+			"this row separates from the other three. More than one means the enabled branch builds "+
+			"more than one batcher. Each is a change to record here rather than a number to widen; "+
+			"while it stays at one, this is what a node with tracing on pays for the life of the "+
+			"process", leaked)
+	}
+
+	// The name's claim, driven rather than read off the shape of the code. Close is production's
+	// only lifecycle close and it does not release the provider, so the count has to survive it.
+	// A build that unshadowed the enabled branch's tp, kept the handle on BaseApp and shut it down
+	// here — the fix this row's own message asks for — reddens the two assertions below. Without
+	// driving Close, nothing in this row can see that fix land.
+	if err := app.Close(); err != nil {
+		t.Fatalf("app.Close failed (%v), so this row cannot say whether Close releases the provider",
+			err)
+	}
+	// Asked of the provider rather than only of the goroutine count, because a shut-down provider
+	// answers Tracer with a no-op one the moment its flag flips, while its goroutine takes a
+	// moment to unwind. The delta below measures the cost; this decides the question.
+	if _, span := provider.Tracer("component-main").Start(context.Background(), "after-close"); !span.SpanContext().IsValid() {
+		t.Errorf("app.Close shut the tracer provider down (its tracer is now %T), so a node with "+
+			"tracing on stops paying for it at shutdown. That is the fix this row exists to record — "+
+			"rewrite the row against the new lifecycle rather than deleting this line", span)
+	}
+	// Compared against the count taken before Close rather than against a literal 1, so that a
+	// build which never started a batch processor reddens only the assertion above — the one whose
+	// message names that cause — instead of also being reported here as a change to Close.
+	if got := batchSpanProcessorGoroutines() - exportersBefore; got != leaked {
+		t.Errorf("app.Close took the batch-processor delta from %d to %d: Close now releases the "+
+			"tracer provider, so a node with tracing on stops paying for it at shutdown. That is the "+
+			"fix this row exists to record — rewrite the row against the new lifecycle rather than "+
+			"deleting this line", leaked, got)
+	}
+
+	// A positive control, so the counter is known to see a batch processor rather than to always
+	// report none, for the same reason archivalWiring and the disabled row's two signals are each
+	// paired with one. It is what separates a renamed SDK frame from a change in sei: on a rename
+	// this fails too, and on a change in sei only the assertions above do.
+	controlBefore := batchSpanProcessorGoroutines()
+	control := sdktrace.NewTracerProvider(sdktrace.WithBatcher(tracetest.NewInMemoryExporter()))
+	if got := batchSpanProcessorGoroutines() - controlBefore; got != 1 {
+		t.Errorf("a provider built with exactly one batcher moved the count by %d, want 1. The frame "+
+			"batchSpanProcessorGoroutines matches no longer names a batch-processor goroutine, so "+
+			"every count in this row reads zero and none of its assertions can fail", got)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := control.Shutdown(ctx); err != nil {
+		t.Errorf("shutting down the control provider failed (%v), so this row leaks the goroutine it "+
+			"started to prove the counter works", err)
+	}
+	if got := waitForBatchSpanProcessorGoroutines(controlBefore) - controlBefore; got != 0 {
+		t.Errorf("%d batch-processor goroutines outlived the control provider's Shutdown", got)
+	}
+}
+
+// batchSpanProcessorGoroutines counts the batch-processor goroutines the otel SDK has running.
+// Every trace.WithBatcher starts exactly one and only Shutdown stops it, so the count is how
+// the row above sees a provider nobody owns rather than describing one.
+//
+// It counts the creator line the runtime records for each such goroutine. That line is present
+// from creation rather than from first scheduling, since runtime.Stack dumps runnable goroutines
+// too and the creator PC is set before the new goroutine becomes runnable; it appears exactly
+// once per goroutine; and it names an exported constructor rather than an internal. If the SDK
+// renames it this reads zero for every provider, sei's and the row's control alike — which is
+// why the row above pairs it with one, since a zero delta on its own says nothing about whether
+// sei stopped leaking.
+func batchSpanProcessorGoroutines() int {
+	const frame = "created by go.opentelemetry.io/otel/sdk/trace.NewBatchSpanProcessor"
+	buf := make([]byte, 1<<16)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			return strings.Count(string(buf[:n]), frame)
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+}
+
+// waitForBatchSpanProcessorGoroutines polls until the count reaches want, or gives up and
+// reports what it saw. Shutdown returns once the processor has signalled completion, which is
+// a moment before the goroutine itself finishes unwinding, so an immediate read can still see
+// it and the wait is what keeps that from being a flake.
+func waitForBatchSpanProcessorGoroutines(want int) int {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got := batchSpanProcessorGoroutines()
+		if got == want || time.Now().After(deadline) {
+			return got
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

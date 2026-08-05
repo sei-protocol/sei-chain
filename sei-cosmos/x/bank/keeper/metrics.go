@@ -10,11 +10,17 @@ var (
 
 	bankMetrics = struct {
 		sendAmount metric.Int64Gauge
+		newAccount metric.Int64Counter
 	}{
 		sendAmount: must(meter.Int64Gauge(
 			"last_send_amount",
 			metric.WithDescription("Amount sent in the last MsgSend transaction by denomination"),
 			metric.WithUnit("{utoken}"),
+		)),
+		newAccount: must(meter.Int64Counter(
+			"bank_new_account",
+			metric.WithDescription("Number of new accounts created during bank transfers"),
+			metric.WithUnit("{count}"),
 		)),
 	}
 )

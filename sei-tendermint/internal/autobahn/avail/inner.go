@@ -50,7 +50,10 @@ type inner struct {
 // commitQCs and blocks are pre-filtered: stale entries below the
 // anchor have already been removed by loadPersistedState.
 // commitQCs are sorted by road index; blocks are sorted by number per lane.
-// newInner requires both to be contiguous and returns an error on gaps.
+// newInner requires both to be contiguous and returns an error on gaps. That
+// requirement is what makes persist.contiguousSuffix safe: it silently drops
+// everything before the last hole it finds, so this is the only thing that
+// distinguishes a lazily pruned record from genuinely lost data.
 type loadedAvailState struct {
 	pruneAnchor utils.Option[*PruneAnchor]
 	commitQCs   []persist.LoadedCommitQC

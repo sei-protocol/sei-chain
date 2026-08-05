@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"go.opentelemetry.io/otel/metric"
 )
 
 var _ WAL[[]byte] = (*serializingWAL[[]byte])(nil)
@@ -71,8 +69,9 @@ type serializingWAL[T any] struct {
 	// Deserializes stored bytes back to a payload; runs inline in the iterator.
 	deserialize func([]byte) (T, error)
 
-	// The measurement option tagging this instance's metrics with its name. Read-only after construction.
-	metricAttrs metric.MeasurementOption
+	// Records this instance's measurements, or drops them when its metrics are disabled. Read-only after
+	// construction.
+	metrics walMetrics
 
 	// Caller entry points funnel through serializerChan as a single ordered stream to the serializer.
 	serializerChan chan any
@@ -117,7 +116,7 @@ func newSerializingWAL[T any](
 		inner:          inner,
 		serialize:      serialize,
 		deserialize:    deserialize,
-		metricAttrs:    walNameAttr(config.Name),
+		metrics:        newWALMetrics(config, "serializer"),
 		serializerChan: make(chan any, config.SerializerBufferSize),
 		ctx:            ctx,
 		cancel:         cancel,
@@ -129,9 +128,9 @@ func newSerializingWAL[T any](
 	s.wg.Add(1)
 	go s.serializerLoop()
 
-	if config.MetricsSampleInterval > 0 {
+	if !config.DisableMetrics && config.MetricsSampleInterval > 0 {
 		s.wg.Add(1)
-		go s.sampleQueueDepth(config.Name, config.MetricsSampleInterval)
+		go s.sampleQueueDepth(config.MetricsSampleInterval)
 	}
 
 	return s
@@ -139,9 +138,8 @@ func newSerializingWAL[T any](
 
 // sampleQueueDepth periodically records the serializer channel's buffered depth until Close stops it
 // (samplerStop) or a fatal shutdown cancels ctx.
-func (s *serializingWAL[T]) sampleQueueDepth(name string, interval time.Duration) {
+func (s *serializingWAL[T]) sampleQueueDepth(interval time.Duration) {
 	defer s.wg.Done()
-	attrs := queueDepthAttrs(name, "serializer")
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -151,7 +149,7 @@ func (s *serializingWAL[T]) sampleQueueDepth(name string, interval time.Duration
 		case <-s.samplerStop:
 			return
 		case <-ticker.C:
-			walQueueDepth.Record(s.ctx, int64(len(s.serializerChan)), attrs)
+			s.metrics.recordQueueDepth(s.ctx, len(s.serializerChan))
 		}
 	}
 }
@@ -305,12 +303,11 @@ func (s *serializingWAL[T]) serializerLoop() {
 			start := time.Now()
 			data, err := m.serialize()
 			if err != nil {
-				walSerializeErrors.Add(s.ctx, 1, s.metricAttrs)
+				s.metrics.recordSerializeError(s.ctx)
 				s.fail(fmt.Errorf("failed to serialize record for index %d: %w", m.index, err))
 				return
 			}
-			walSerializeDuration.Record(s.ctx, time.Since(start).Seconds(), s.metricAttrs)
-			walSerializedBytes.Add(s.ctx, int64(len(data)), s.metricAttrs)
+			s.metrics.recordSerialized(s.ctx, time.Since(start), len(data))
 			if err := s.inner.Append(m.index, data); err != nil {
 				s.fail(fmt.Errorf("failed to append record for index %d: %w", m.index, err))
 				return

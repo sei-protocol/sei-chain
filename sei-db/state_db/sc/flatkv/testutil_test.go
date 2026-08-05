@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"encoding/binary"
+	"maps"
 	"path/filepath"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/stretchr/testify/require"
 )
@@ -202,4 +204,65 @@ func CountKeys(s *CommitStore) (int64, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// workingHashSnapshot captures the full working lattice state — global,
+// per-DB, and per-module hashes plus per-module stats — so a failed
+// ApplyChangeSets can assert none of it moved. Global equality alone is not
+// enough: two different per-module maps can sum to the same root.
+type workingHashSnapshot struct {
+	global         *lthash.LtHash
+	perDB          map[string]*lthash.LtHash
+	perModule      map[string]map[string]*lthash.LtHash
+	perModuleStats map[string]map[string]lthash.ModuleStats
+}
+
+func snapshotWorkingHashes(s *CommitStore) workingHashSnapshot {
+	perDB := make(map[string]*lthash.LtHash, len(s.perDBWorkingLtHash))
+	for dir, h := range s.perDBWorkingLtHash {
+		perDB[dir] = h.Clone()
+	}
+	perModule := make(map[string]map[string]*lthash.LtHash, len(s.perDBModuleWorkingLtHash))
+	for dir, mods := range s.perDBModuleWorkingLtHash {
+		cloned := make(map[string]*lthash.LtHash, len(mods))
+		for module, h := range mods {
+			cloned[module] = h.Clone()
+		}
+		perModule[dir] = cloned
+	}
+	perModuleStats := make(map[string]map[string]lthash.ModuleStats, len(s.perDBModuleWorkingStats))
+	for dir, mods := range s.perDBModuleWorkingStats {
+		perModuleStats[dir] = maps.Clone(mods)
+	}
+	return workingHashSnapshot{
+		global:         s.workingLtHash.Clone(),
+		perDB:          perDB,
+		perModule:      perModule,
+		perModuleStats: perModuleStats,
+	}
+}
+
+func requireWorkingHashesUnchanged(t *testing.T, s *CommitStore, before workingHashSnapshot) {
+	t.Helper()
+	// Compute clones prev* before folding; a regression that mutates those
+	// clones in place or swaps them onto the store on the error path must
+	// fail these checks. Global equality alone cannot catch a per-module rewrite.
+	require.True(t, s.workingLtHash.Equal(before.global), "workingLtHash mutated on failed Apply")
+	require.Equal(t, len(before.perDB), len(s.perDBWorkingLtHash), "perDBWorkingLtHash dir set changed")
+	for dir, want := range before.perDB {
+		got := s.perDBWorkingLtHash[dir]
+		require.NotNil(t, got, "perDBWorkingLtHash[%s] missing", dir)
+		require.True(t, got.Equal(want), "perDBWorkingLtHash[%s] mutated on failed Apply", dir)
+	}
+	require.Equal(t, len(before.perModule), len(s.perDBModuleWorkingLtHash), "perDBModuleWorkingLtHash dir set changed")
+	for dir, wantMods := range before.perModule {
+		gotMods := s.perDBModuleWorkingLtHash[dir]
+		require.Equal(t, len(wantMods), len(gotMods), "perDBModuleWorkingLtHash[%s] module set changed", dir)
+		for module, want := range wantMods {
+			got := gotMods[module]
+			require.NotNil(t, got, "perDBModuleWorkingLtHash[%s][%s] missing", dir, module)
+			require.True(t, got.Equal(want), "perDBModuleWorkingLtHash[%s][%s] mutated on failed Apply", dir, module)
+		}
+	}
+	require.Equal(t, before.perModuleStats, s.perDBModuleWorkingStats, "perDBModuleWorkingStats mutated on failed Apply")
 }
