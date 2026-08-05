@@ -24,7 +24,6 @@ var ConnectionTypeWS ConnectionType = "websocket"
 var ConnectionTypeHTTP ConnectionType = "http"
 
 const LocalAddress = "0.0.0.0"
-const DefaultWebsocketMaxMessageSize = 10 * 1024 * 1024
 
 type EVMServer interface {
 	Start() error
@@ -168,7 +167,7 @@ func NewEVMHTTPServer(
 				k,
 				ctxProvider,
 				txConfigProvider,
-				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog},
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog},
 				ConnectionTypeHTTP,
 				"eth",
 				dbReadSemaphore,
@@ -185,7 +184,7 @@ func NewEVMHTTPServer(
 				k,
 				ctxProvider,
 				txConfigProvider,
-				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog},
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog},
 				ConnectionTypeHTTP,
 				"sei",
 				dbReadSemaphore,
@@ -330,7 +329,7 @@ func NewEVMWebSocketServer(
 				cacheCreationMutex: cacheCreationMutex,
 				globalLogSlicePool: globalLogSlicePool,
 				watermarks:         watermarks,
-			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS, blockHeaderNotifier),
+			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS, blockHeaderNotifier),
 		},
 		{
 			Namespace: "web3",
@@ -339,7 +338,9 @@ func NewEVMWebSocketServer(
 	}
 
 	wsConfig := WsConfig{Origins: strings.Split(config.WSOrigins, ",")}
-	wsConfig.readLimit = DefaultWebsocketMaxMessageSize
+	wsConfig.readLimit = config.MaxRequestBodyBytes
+	wsConfig.maxConcurrentRequestBytes = config.MaxConcurrentRequestBytes
+	wsConfig.wsAdmissionTimeout = config.WSAdmissionTimeout
 	wsConfig.batchItemLimit = config.BatchRequestLimit
 	wsConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
 	if err := httpServer.EnableWS(apis, wsConfig); err != nil {

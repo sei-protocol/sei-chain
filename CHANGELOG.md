@@ -27,10 +27,20 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+
+## Unreleased
+
+### Improvements
+* [#3818](https://github.com/sei-protocol/sei-chain/pull/3818) feat(evmrpc): extend HTTP admission control (`max_request_body_bytes`, `max_concurrent_request_bytes`, `ws_admission_timeout`) to the WebSocket plane (:8546). WS oversize frames close with WebSocket close code 1009; budget-wait timeouts return JSON-RPC error `-32005` before the connection closes. `evmrpc_requests_rejected_total` gains a `protocol` label (`http` / `ws`).
+
+### Upgrade guide
+* **WebSocket frame size default drops from 10 MiB to 5 MiB.** Before this release, :8546 used a hardcoded 10 MiB frame cap. Both HTTP and WebSocket now share `[evm].max_request_body_bytes`, whose default is 5 MiB (`5242880`). WS clients that send frames in the 5-10 MiB range (large `eth_sendRawTransaction` batches, wide filter payloads, etc.) will be disconnected after upgrade unless the limit is raised. **Operators who relied on the old 10 MiB WS cap should set `max_request_body_bytes = 10485760` in `app.toml` before upgrading.** This also raises the HTTP body limit to 10 MiB. The exported `DefaultWebsocketMaxMessageSize` constant was removed; use the config knob instead.
+
 ## v6.6
 sei-chain
 * [#3781](https://github.com/sei-protocol/sei-chain/pull/3781) Backport `release/v6.6`: fix(giga): fall back to v2 on execution errors
 * [#3766](https://github.com/sei-protocol/sei-chain/pull/3766) Bump version in prep to release v6.6-rc4
+* [#3759](https://github.com/sei-protocol/sei-chain/pull/3759) feat(evmrpc): bound `eth_getLogs` peak memory with matched-log count and byte budgets. `max_log_no_block` caps log count; `max_log_bytes` caps estimated heap bytes (default 64 MiB). Limits are enforced per matched log at append time; exceeding either returns an error instead of silently truncating. `max_log_no_block` now applies to bounded-range queries too (previously only open-ended queries were capped), so a bounded `eth_getLogs` matching more than the configured limit (default 10000) now errors instead of returning all matches.
 * [#3757](https://github.com/sei-protocol/sei-chain/pull/3757) Backport `release/v6.6`: fix(giga): route EVM validation failures to v2 fallback (CON-368)
 * [#3748](https://github.com/sei-protocol/sei-chain/pull/3748) Bump version in prep to release v6.6-rc3
 * [#3746](https://github.com/sei-protocol/sei-chain/pull/3746) Backport `release/v6.6`: Update v6.6 changelog in prep to cut rc3

@@ -1022,6 +1022,10 @@ func (c *fixedBlockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (c *fixedBlockClient) GenesisInitialHeight() int64 {
+	return 1
+}
+
 func (c *fixedBlockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }

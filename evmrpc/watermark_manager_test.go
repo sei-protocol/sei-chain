@@ -35,7 +35,7 @@ func TestWatermarksAggregatesSources(t *testing.T) {
 	stateStore := &fakeStateStore{latest: 8, earliest: 3}
 	wm := newTestWatermarkManager(tmClient, 12, stateStore, 9)
 
-	blockEarliest, stateEarliest, latest, err := wm.Watermarks(context.Background())
+	blockEarliest, stateEarliest, latest, err := wm.Watermarks(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int64(2), blockEarliest)
 	require.Equal(t, int64(3), stateEarliest)
@@ -52,7 +52,7 @@ func TestWatermarksIncludesCtxProviderHeight(t *testing.T) {
 	}
 	wm := NewWatermarkManager(tmClient, func(int64) sdk.Context { return ctx }, nil, &fakeReceiptStore{latest: 14})
 
-	blockEarliest, stateEarliest, latest, err := wm.Watermarks(context.Background())
+	blockEarliest, stateEarliest, latest, err := wm.Watermarks(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int64(5), blockEarliest)
 	require.Equal(t, int64(12), stateEarliest)
@@ -61,7 +61,7 @@ func TestWatermarksIncludesCtxProviderHeight(t *testing.T) {
 
 func TestWatermarksPropagatesHeightSourceError(t *testing.T) {
 	wm := NewWatermarkManager(&fakeTMClient{statusErr: errNoHeightSource}, watermarkTestCtxProvider(0), nil, &fakeReceiptStore{})
-	_, _, _, err := wm.Watermarks(context.Background())
+	_, _, _, err := wm.Watermarks(t.Context())
 	require.ErrorIs(t, err, errNoHeightSource)
 }
 
@@ -73,12 +73,12 @@ func TestResolveHeightGating(t *testing.T) {
 	wm := newTestWatermarkManager(tmClient, 5, stateStore, 5)
 
 	tooHigh := rpc.BlockNumber(6)
-	_, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &tooHigh})
+	_, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &tooHigh})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not yet available")
 
 	within := rpc.BlockNumber(4)
-	height, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &within})
+	height, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &within})
 	require.NoError(t, err)
 	require.Equal(t, int64(4), height)
 }
@@ -91,7 +91,7 @@ func TestResolveHeightByHash(t *testing.T) {
 	stateStore := &fakeStateStore{latest: 5, earliest: 1}
 	wm := newTestWatermarkManager(tmClient, 5, stateStore, 5)
 	h := common.HexToHash("0x1")
-	blockHeight, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockHash: &h})
+	blockHeight, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockHash: &h})
 	require.NoError(t, err)
 	require.Equal(t, int64(4), blockHeight)
 }
@@ -102,10 +102,10 @@ func TestEnsureBlockHeightAvailableBounds(t *testing.T) {
 	}
 	wm := newTestWatermarkManager(tmClient, 6, nil, 6)
 
-	require.NoError(t, wm.EnsureBlockHeightAvailable(context.Background(), 5))
+	require.NoError(t, wm.EnsureBlockHeightAvailable(t.Context(), 5))
 
-	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(context.Background(), 7), "not yet available")
-	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(context.Background(), 2), "has been pruned")
+	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(t.Context(), 7), "not yet available")
+	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(t.Context(), 2), "has been pruned")
 }
 
 func TestEnsureReceiptHeightAvailable(t *testing.T) {
@@ -140,13 +140,13 @@ func TestLatestAndEarliestHeightHelpers(t *testing.T) {
 	}
 	stateStore := &fakeStateStore{latest: 22, earliest: 11}
 	wm := newTestWatermarkManager(tmClient, 22, stateStore, 22)
-	earliest, err := wm.EarliestHeight(context.Background())
+	earliest, err := wm.EarliestHeight(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int64(11), earliest)
-	earliestState, err := wm.EarliestStateHeight(context.Background())
+	earliestState, err := wm.EarliestStateHeight(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int64(11), earliestState)
-	latest, err := wm.LatestHeight(context.Background())
+	latest, err := wm.LatestHeight(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int64(22), latest)
 }
@@ -159,12 +159,12 @@ func TestResolveHeightUsesStateEarliest(t *testing.T) {
 	wm := newTestWatermarkManager(tmClient, 20, stateStore, 20)
 
 	belowState := rpc.BlockNumber(9)
-	_, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &belowState})
+	_, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &belowState})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "has been pruned")
 
 	within := rpc.BlockNumber(12)
-	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &within})
+	resolved, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &within})
 	require.NoError(t, err)
 	require.Equal(t, int64(12), resolved)
 }
@@ -176,11 +176,128 @@ func TestStateWatermarksCanLagBlocks(t *testing.T) {
 	stateStore := &fakeStateStore{latest: 28, earliest: 15}
 	wm := newTestWatermarkManager(tmClient, 30, stateStore, 29)
 
-	blockEarliest, stateEarliest, latest, err := wm.Watermarks(context.Background())
+	blockEarliest, stateEarliest, latest, err := wm.Watermarks(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int64(12), blockEarliest)
 	require.Equal(t, int64(15), stateEarliest)
 	require.Equal(t, int64(28), latest)
+}
+
+// TestResolveEarliestToGenesisOnUnprunedNode is the SEI-10383 regression guard:
+// an unpruned store reports GetEarliestVersion()==0, and `earliest` must resolve
+// to the genesis InitialHeight, not 0 (which CreateQueryContext coerces to the
+// tip). The floor lives in Watermarks and uses the injected InitialHeight.
+func TestResolveEarliestToGenesisOnUnprunedNode(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 1}},
+	}
+	stateStore := &fakeStateStore{latest: 200, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 200, stateStore, 200)
+
+	earliest := rpc.EarliestBlockNumber
+	resolved, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), resolved, "earliest must resolve to the genesis InitialHeight, not 0")
+}
+
+// TestResolveEarliestForChainStartedAboveOne is the key correctness win over a
+// literal-1 floor: a chain whose genesis InitialHeight is >1 never committed
+// version 1, so flooring to 1 would make CreateQueryContext fail. Using the real
+// InitialHeight resolves `earliest` to that committed genesis height instead.
+func TestResolveEarliestForChainStartedAboveOne(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status:               &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 300, EarliestBlockHeight: 100}},
+		genesisInitialHeight: 100,
+	}
+	stateStore := &fakeStateStore{latest: 300, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 300, stateStore, 300)
+
+	earliest := rpc.EarliestBlockNumber
+	resolved, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+	require.Equal(t, int64(100), resolved, "earliest must resolve to the real InitialHeight, not a never-committed height 1")
+}
+
+// TestWatermarksFloorsStateEarliestToGenesis checks the floor at the Watermarks
+// level (which backs every read path), not just the `earliest` tag.
+func TestWatermarksFloorsStateEarliestToGenesis(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status:               &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 1}},
+		genesisInitialHeight: 5,
+	}
+	stateStore := &fakeStateStore{latest: 200, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 200, stateStore, 200)
+
+	_, stateEarliest, latest, err := wm.Watermarks(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, int64(5), stateEarliest, "unpruned state floor must be raised to genesis InitialHeight")
+	require.Equal(t, int64(200), latest)
+}
+
+// TestResolveEarliestClampedToLatestBeforeFirstCommit guards the no-blocks-yet
+// window: with no committed blocks latest is 0 and the state store is empty, so
+// the genesis floor is skipped (stateEarliest == latest) and `earliest` resolves
+// to 0 (the pre-commit checkState path), never a future height.
+func TestResolveEarliestClampedToLatestBeforeFirstCommit(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 0, EarliestBlockHeight: 1}},
+	}
+	stateStore := &fakeStateStore{latest: 0, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 0, stateStore, 0)
+
+	earliest := rpc.EarliestBlockNumber
+	resolved, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), resolved, "earliest must not resolve to a future height before the first commit")
+}
+
+// TestResolveEarliestUsesStatePruneFloorWhenPruned confirms a pruned store's
+// earliest state version is used as-is when it already exceeds genesis: the
+// genesis floor only raises an unset (0) floor, it never lowers a real prune
+// floor.
+func TestResolveEarliestUsesStatePruneFloorWhenPruned(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 100, EarliestBlockHeight: 40}},
+	}
+	stateStore := &fakeStateStore{latest: 100, earliest: 20}
+	wm := newTestWatermarkManager(tmClient, 100, stateStore, 100)
+
+	earliest := rpc.EarliestBlockNumber
+	resolved, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &earliest})
+	require.NoError(t, err)
+	require.Equal(t, int64(20), resolved, "earliest must use the state-prune floor")
+}
+
+// TestExplicitReadWithinRetainedRangeAdmitted confirms an explicit historical
+// read at or above the genesis floor is admitted on an unpruned node.
+func TestExplicitReadWithinRetainedRangeAdmitted(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 100, EarliestBlockHeight: 5}},
+	}
+	stateStore := &fakeStateStore{latest: 100, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 100, stateStore, 100)
+
+	within := rpc.BlockNumber(3)
+	resolved, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &within})
+	require.NoError(t, err, "explicit read at/above the genesis floor must be admitted")
+	require.Equal(t, int64(3), resolved)
+}
+
+// TestExplicitReadBelowGenesisFloorRejected documents the hardening from moving
+// the floor into Watermarks: an explicit read below the genesis InitialHeight is
+// rejected as pruned rather than silently coerced to the tip.
+func TestExplicitReadBelowGenesisFloorRejected(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status:               &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 300, EarliestBlockHeight: 100}},
+		genesisInitialHeight: 100,
+	}
+	stateStore := &fakeStateStore{latest: 300, earliest: 0}
+	wm := newTestWatermarkManager(tmClient, 300, stateStore, 300)
+
+	below := rpc.BlockNumber(50)
+	_, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &below})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "has been pruned")
 }
 
 func newTestWatermarkManager(tmClient client.LocalClient, ctxHeight int64, stateStore types.StateStore, receiptLatest int64) *WatermarkManager {
@@ -197,12 +314,17 @@ func watermarkTestCtxProvider(height int64) func(int64) sdk.Context {
 
 type fakeTMClient struct {
 	client.Client
-	status         *coretypes.ResultStatus
-	statusErr      error
-	blockByHash    *coretypes.ResultBlock
-	blockByHashErr error
-	blocksByHeight map[int64]*coretypes.ResultBlock
-	genesis        *coretypes.ResultGenesis
+	status               *coretypes.ResultStatus
+	statusErr            error
+	blockByHash          *coretypes.ResultBlock
+	blockByHashErr       error
+	blocksByHeight       map[int64]*coretypes.ResultBlock
+	genesis              *coretypes.ResultGenesis
+	genesisInitialHeight int64
+}
+
+func (f *fakeTMClient) GenesisInitialHeight() int64 {
+	return f.genesisInitialHeight
 }
 
 func (*fakeTMClient) EvmNextPendingNonce(common.Address) uint64 {
@@ -322,7 +444,7 @@ func (f *fakeReceiptStore) SetReceipts(sdk.Context, []receipt.ReceiptRecord) err
 	return nil
 }
 
-func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.FilterCriteria) ([]*ethtypes.Log, error) {
+func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.FilterCriteria, *receipt.LogBudget) ([]*ethtypes.Log, error) {
 	return nil, receipt.ErrRangeQueryNotSupported
 }
 
@@ -382,7 +504,7 @@ func TestBlockByNumberOrNullForJSONRPC(t *testing.T) {
 		c := &fakeTMClient{status: stat, blocksByHeight: map[int64]*coretypes.ResultBlock{150: makeBlockResult(150)}}
 		wm := newTestWatermarkManager(c, 100, nil, 100)
 		h := int64(150) // above latest=100
-		block, err := blockByNumberOrNullForJSONRPC(context.Background(), c, wm, &h, 0)
+		block, err := blockByNumberOrNullForJSONRPC(t.Context(), c, wm, &h, 0)
 		require.NoError(t, err)
 		require.Nil(t, block)
 	})
@@ -391,7 +513,7 @@ func TestBlockByNumberOrNullForJSONRPC(t *testing.T) {
 		c := &fakeTMClient{status: stat, blocksByHeight: map[int64]*coretypes.ResultBlock{50: makeBlockResult(50)}}
 		wm := newTestWatermarkManager(c, 100, nil, 100)
 		h := int64(50)
-		block, err := blockByNumberOrNullForJSONRPC(context.Background(), c, wm, &h, 0)
+		block, err := blockByNumberOrNullForJSONRPC(t.Context(), c, wm, &h, 0)
 		require.NoError(t, err)
 		require.NotNil(t, block)
 		require.Equal(t, int64(50), block.Block.Height)
@@ -403,7 +525,7 @@ func TestBlockByNumberOrNullForJSONRPC(t *testing.T) {
 		c := &fakeTMClient{statusErr: errNoHeightSource}
 		wm := newTestWatermarkManager(c, 100, nil, 100)
 		h := int64(50)
-		_, err := blockByNumberOrNullForJSONRPC(context.Background(), c, wm, &h, 0)
+		_, err := blockByNumberOrNullForJSONRPC(t.Context(), c, wm, &h, 0)
 		require.Error(t, err)
 		require.False(t, errors.Is(err, ErrBlockHeightNotYetAvailable))
 	})
@@ -419,7 +541,7 @@ func TestBlockByHashOrNullForJSONRPC(t *testing.T) {
 	t.Run("above watermark returns (nil, nil)", func(t *testing.T) {
 		c := &fakeTMClient{status: stat, blockByHash: makeBlockResult(150)} // height above latest=100
 		wm := newTestWatermarkManager(c, 100, nil, 100)
-		block, err := blockByHashOrNullForJSONRPC(context.Background(), c, wm, []byte{0xaa}, 0)
+		block, err := blockByHashOrNullForJSONRPC(t.Context(), c, wm, []byte{0xaa}, 0)
 		require.NoError(t, err)
 		require.Nil(t, block)
 	})
@@ -429,7 +551,7 @@ func TestBlockByHashOrNullForJSONRPC(t *testing.T) {
 		// the helper must catch that sentinel too.
 		c := &fakeTMClient{status: stat, blockByHash: &coretypes.ResultBlock{Block: nil}}
 		wm := newTestWatermarkManager(c, 100, nil, 100)
-		block, err := blockByHashOrNullForJSONRPC(context.Background(), c, wm, []byte{0xbb}, 0)
+		block, err := blockByHashOrNullForJSONRPC(t.Context(), c, wm, []byte{0xbb}, 0)
 		require.NoError(t, err)
 		require.Nil(t, block)
 	})
@@ -437,7 +559,7 @@ func TestBlockByHashOrNullForJSONRPC(t *testing.T) {
 	t.Run("in-range hash returns block", func(t *testing.T) {
 		c := &fakeTMClient{status: stat, blockByHash: makeBlockResult(50)}
 		wm := newTestWatermarkManager(c, 100, nil, 100)
-		block, err := blockByHashOrNullForJSONRPC(context.Background(), c, wm, []byte{0xcc}, 0)
+		block, err := blockByHashOrNullForJSONRPC(t.Context(), c, wm, []byte{0xcc}, 0)
 		require.NoError(t, err)
 		require.NotNil(t, block)
 		require.Equal(t, int64(50), block.Block.Height)
@@ -448,7 +570,7 @@ func TestBlockByHashOrNullForJSONRPC(t *testing.T) {
 		// failure) must NOT be silently swallowed into null.
 		c := &fakeTMClient{status: stat, blockByHashErr: io.ErrUnexpectedEOF}
 		wm := newTestWatermarkManager(c, 100, nil, 100)
-		_, err := blockByHashOrNullForJSONRPC(context.Background(), c, wm, []byte{0xdd}, 0)
+		_, err := blockByHashOrNullForJSONRPC(t.Context(), c, wm, []byte{0xdd}, 0)
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	})
 }

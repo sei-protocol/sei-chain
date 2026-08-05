@@ -5,7 +5,7 @@ go 1.25.6
 require (
 	cosmossdk.io/errors v1.0.2
 	github.com/99designs/keyring v1.2.1
-	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c
+	github.com/BurntSushi/toml v1.5.0
 	github.com/adlio/schema v1.3.9
 	github.com/alitto/pond v1.8.3
 	github.com/armon/go-metrics v0.4.1
@@ -70,6 +70,7 @@ require (
 	github.com/sasha-s/go-deadlock v0.3.5
 	github.com/segmentio/kafka-go v0.4.50
 	github.com/sei-protocol/goutils v0.0.2
+	github.com/sei-protocol/sei-config v0.0.21
 	github.com/sei-protocol/sei-load v0.0.0-20251007135253-78fbdc141082
 	github.com/sei-protocol/sei-tm-db v0.0.5
 	github.com/sei-protocol/seilog v0.0.3
@@ -114,6 +115,8 @@ require (
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
+	github.com/dlclark/regexp2/v2 v2.5.2 // indirect
+	github.com/dop251/goja v0.0.0-20260723142020-b4aef50fa347 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.8.0 // indirect
@@ -172,11 +175,9 @@ require (
 	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f // indirect
 	github.com/dgraph-io/badger/v3 v3.2103.2 // indirect
 	github.com/dgraph-io/ristretto v0.2.0 // indirect
-	github.com/dlclark/regexp2 v1.7.0 // indirect
 	github.com/docker/cli v24.0.7+incompatible // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/dop251/goja v0.0.0-20230605162241-28ee0ee714f3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ethereum/c-kzg-4844 v1.0.0 // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
@@ -187,7 +188,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
-	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/godbus/dbus v0.0.0-20190726142602-4481cbc300e2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
@@ -278,7 +279,7 @@ replace (
 	github.com/99designs/keyring => github.com/cosmos/keyring v1.1.7-0.20210622111912-ef00f8ac3d76
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.23.2
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-17
+	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-19
 	github.com/gin-gonic/gin => github.com/gin-gonic/gin v1.7.0
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/keybase/go-keychain => github.com/keybase/go-keychain v0.0.0-20190712205309-48d3d31d256d

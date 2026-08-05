@@ -15,7 +15,7 @@ import (
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
 
-	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v66"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )

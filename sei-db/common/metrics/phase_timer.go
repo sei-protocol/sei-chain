@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -14,13 +15,24 @@ type PhaseTimerFactory struct {
 	phaseDurationTotal metric.Float64Counter
 	phaseLatency       metric.Float64Histogram
 	timerName          string
+	staticAttrs        []attribute.KeyValue
 }
 
 // NewPhaseTimerFactory creates a factory that records to the given meter with the
 // specified timer name (e.g., "main_thread" or "transaction"). Metric names are
 // {timerName}_phase_duration_seconds_total and {timerName}_phase_latency_seconds
 // to match existing Grafana dashboards.
-func NewPhaseTimerFactory(meter metric.Meter, timerName string) *PhaseTimerFactory {
+//
+// Every measurement recorded by the built timers carries staticAttrs in addition to the
+// "phase" attribute. Use staticAttrs to distinguish instances (e.g. cache="state") rather
+// than encoding the instance into timerName: attribute values may contain characters that
+// are illegal in a Prometheus metric name, and dashboards can filter or aggregate over a
+// label but not over a name.
+func NewPhaseTimerFactory(
+	meter metric.Meter,
+	timerName string,
+	staticAttrs ...attribute.KeyValue,
+) *PhaseTimerFactory {
 	phaseDurationTotal, _ := meter.Float64Counter(
 		timerName+"_phase_duration_seconds_total",
 		metric.WithDescription("Total seconds spent in each phase"),
@@ -36,13 +48,15 @@ func NewPhaseTimerFactory(meter metric.Meter, timerName string) *PhaseTimerFacto
 		phaseDurationTotal: phaseDurationTotal,
 		phaseLatency:       phaseLatency,
 		timerName:          timerName,
+		staticAttrs:        slices.Clone(staticAttrs),
 	}
 }
 
 // NewPhaseTimer creates a factory and builds a single PhaseTimer. Convenient when
-// only one timer is needed (e.g., for a single-threaded main loop).
-func NewPhaseTimer(meter metric.Meter, timerName string) *PhaseTimer {
-	return NewPhaseTimerFactory(meter, timerName).Build()
+// only one timer is needed (e.g., for a single-threaded main loop). staticAttrs are
+// attached to every measurement, as described on NewPhaseTimerFactory.
+func NewPhaseTimer(meter metric.Meter, timerName string, staticAttrs ...attribute.KeyValue) *PhaseTimer {
+	return NewPhaseTimerFactory(meter, timerName, staticAttrs...).Build()
 }
 
 // Build returns a new PhaseTimer that records to this factory's metrics.
@@ -51,6 +65,7 @@ func (f *PhaseTimerFactory) Build() *PhaseTimer {
 	return &PhaseTimer{
 		phaseDurationTotal:  f.phaseDurationTotal,
 		phaseLatency:        f.phaseLatency,
+		staticAttrs:         f.staticAttrs,
 		lastPhase:           "",
 		lastPhaseChangeTime: time.Time{},
 	}
@@ -62,6 +77,7 @@ func (f *PhaseTimerFactory) Build() *PhaseTimer {
 type PhaseTimer struct {
 	phaseDurationTotal  metric.Float64Counter
 	phaseLatency        metric.Float64Histogram
+	staticAttrs         []attribute.KeyValue
 	lastPhase           string
 	lastPhaseChangeTime time.Time
 }
@@ -74,11 +90,10 @@ func (p *PhaseTimer) SetPhase(phase string) {
 	now := time.Now()
 	ctx := context.Background()
 	if p.lastPhase != "" {
-		latency := now.Sub(p.lastPhaseChangeTime)
-		seconds := latency.Seconds()
-		phaseAttr := attribute.String("phase", p.lastPhase)
-		p.phaseDurationTotal.Add(ctx, seconds, metric.WithAttributes(phaseAttr))
-		p.phaseLatency.Record(ctx, seconds, metric.WithAttributes(phaseAttr))
+		seconds := now.Sub(p.lastPhaseChangeTime).Seconds()
+		attrs := p.measurement(p.lastPhase)
+		p.phaseDurationTotal.Add(ctx, seconds, attrs)
+		p.phaseLatency.Record(ctx, seconds, attrs)
 	}
 	p.lastPhase = phase
 	p.lastPhaseChangeTime = now
@@ -90,11 +105,24 @@ func (p *PhaseTimer) Reset() {
 		return
 	}
 	if p.lastPhase != "" {
-		latency := time.Since(p.lastPhaseChangeTime)
-		seconds := latency.Seconds()
-		phaseAttr := attribute.String("phase", p.lastPhase)
-		p.phaseDurationTotal.Add(context.Background(), seconds, metric.WithAttributes(phaseAttr))
-		p.phaseLatency.Record(context.Background(), seconds, metric.WithAttributes(phaseAttr))
+		ctx := context.Background()
+		seconds := time.Since(p.lastPhaseChangeTime).Seconds()
+		attrs := p.measurement(p.lastPhase)
+		p.phaseDurationTotal.Add(ctx, seconds, attrs)
+		p.phaseLatency.Record(ctx, seconds, attrs)
 	}
 	p.lastPhase = ""
+}
+
+// measurement returns the recording option for the given phase: the timer's static
+// attributes plus phase={phase}.
+func (p *PhaseTimer) measurement(phase string) metric.MeasurementOption {
+	phaseAttr := attribute.String("phase", phase)
+	if len(p.staticAttrs) == 0 {
+		return metric.WithAttributes(phaseAttr)
+	}
+	attrs := make([]attribute.KeyValue, 0, len(p.staticAttrs)+1)
+	attrs = append(attrs, p.staticAttrs...)
+	attrs = append(attrs, phaseAttr)
+	return metric.WithAttributes(attrs...)
 }

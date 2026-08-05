@@ -54,6 +54,26 @@ func newReverseIterator(table *DiskTable, segs []*segment.Segment) *reverseItera
 	}
 }
 
+// newReverseIteratorAt creates a reverse iterator over the given snapshot positioned so that the first
+// Next returns keys[keyPos] in segs[segPos], after which iteration walks backward in insertion order.
+// keys must be the pre-read key list of segs[segPos] (from GetKeys), letting the iterator resume
+// mid-segment without re-reading it.
+func newReverseIteratorAt(
+	table *DiskTable,
+	segs []*segment.Segment,
+	segPos int,
+	keys []*types.ScopedKey,
+	keyPos int,
+) *reverseIterator {
+	return &reverseIterator{
+		table:  table,
+		segs:   segs,
+		segPos: segPos,
+		keys:   keys,
+		keyPos: keyPos,
+	}
+}
+
 // Next advances the iterator to the next key in reverse insertion order.
 func (it *reverseIterator) Next() (bool, error) {
 	if it.closed {
@@ -62,6 +82,9 @@ func (it *reverseIterator) Next() (bool, error) {
 
 	for {
 		if it.segPos < 0 {
+			// Exhausted: drop the position so the accessors report misuse rather than serving the
+			// stale final key.
+			it.current = nil
 			return false, nil
 		}
 
@@ -91,14 +114,28 @@ func (it *reverseIterator) Next() (bool, error) {
 }
 
 // GetKey returns the current key and whether it is a primary key.
-func (it *reverseIterator) GetKey() (key []byte, isPrimary bool) {
-	return it.current.Key, it.current.Kind.IsPrimary()
+func (it *reverseIterator) GetKey() (key []byte, isPrimary bool, err error) {
+	if it.closed {
+		return nil, false, fmt.Errorf("iterator is closed")
+	}
+	if it.current == nil {
+		return nil, false, fmt.Errorf("iterator is not positioned on a key")
+	}
+	return it.current.Key, it.current.Kind.IsPrimary(), nil
 }
 
 // GetValue reads and returns the value associated with the current key. Reverse iteration always reads
 // directly from the value file (the forward secondary-key optimization does not apply because a
 // secondary is reached before its primary).
 func (it *reverseIterator) GetValue() (value []byte, err error) {
+	if it.closed {
+		// Close released the snapshot's segment reservations, so reading now would touch segments
+		// GC is free to have deleted.
+		return nil, fmt.Errorf("iterator is closed")
+	}
+	if it.current == nil {
+		return nil, fmt.Errorf("iterator is not positioned on a key")
+	}
 	value, err = it.currentSeg.Read(it.current.Key, it.current.Address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read value: %w", err)

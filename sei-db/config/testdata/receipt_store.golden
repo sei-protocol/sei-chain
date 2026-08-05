@@ -1,0 +1,7 @@
+DBDirectory = string("")
+Backend = string("pebbledb")
+AsyncWriteBuffer = int(100)
+KeepRecent = int(0)
+PruneIntervalSeconds = int(600)
+EnableReadWriteMetrics = bool(false)
+LogFilterParallelism = int(16)

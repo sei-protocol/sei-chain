@@ -11,6 +11,13 @@ import (
 // max_request_body_bytes is left at 0 ("use the default").
 const defaultMaxRequestBodyBytes int64 = 5 * 1024 * 1024
 
+func effectiveMaxRequestBodyBytes(maxBody int64) int64 {
+	if maxBody <= 0 {
+		return defaultMaxRequestBodyBytes
+	}
+	return maxBody
+}
+
 // requestSizeLimiter is an HTTP middleware that bounds peak decode-time memory by
 // admitting JSON-RPC requests *before* the body is buffered or decoded. It enforces:
 //
@@ -34,9 +41,7 @@ type requestSizeLimiter struct {
 // global budget. If a positive budget is smaller than maxBody it is raised to maxBody
 // so that a single maximum-size request can always be admitted.
 func newRequestSizeLimiter(inner http.Handler, maxBody, maxConcurrentBytes int64) http.Handler {
-	if maxBody <= 0 {
-		maxBody = defaultMaxRequestBodyBytes
-	}
+	maxBody = effectiveMaxRequestBodyBytes(maxBody)
 	l := &requestSizeLimiter{inner: inner, maxBody: maxBody}
 	if maxConcurrentBytes > 0 {
 		if maxConcurrentBytes < maxBody {

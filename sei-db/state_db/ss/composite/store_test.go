@@ -1,6 +1,7 @@
 package composite
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -1206,6 +1207,114 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 			require.Nil(t, wrongModule, "bank legacy key should NOT land under evm store key")
 		})
 	}
+}
+
+// TestImport_LegacyKeyMimickingEVMShapeStaysLegacy is a regression test for a
+// production-scale import failure: a non-EVM module key that coincidentally
+// starts with an EVM prefix byte and matches that kind's length check must
+// still be treated as legacy MiscData, not deserialized as an EVM vtype.
+// EVM kind parsing is only valid under the "evm" module, mirroring the write
+// side (classifyAndPrefix) and read routing (routePhysicalKey).
+func TestImport_LegacyKeyMimickingEVMShapeStaysLegacy(t *testing.T) {
+	addr := make([]byte, 20)
+	addr[0] = 0x11
+	slot := make([]byte, 32)
+	slot[31] = 0x22
+
+	// Inner key with the exact shape of an EVM storage key (prefix + addr +
+	// slot), but under a legacy module. The value is MiscData whose payload
+	// length differs from the fixed StorageData length, so a misclassified
+	// conversion would fail (or worse, silently corrupt).
+	mimicInnerKey := commonevm.BuildEVMKey(commonevm.EVMKeyStorage, append(addr, slot...))
+	mimicPhysKey := ktype.ModulePhysicalKey("staking", mimicInnerKey)
+
+	// Two pre-fix failure shapes, selected by payload length:
+	// - 50 bytes: serialized MiscData (9-byte header) is 59 bytes, so a
+	//   misclassified DeserializeStorageData errors out — the crash variant.
+	// - 32 bytes: serialized MiscData is exactly storageDataLength (41), so a
+	//   misclassified deserialization *succeeds* and the row is silently
+	//   written under StoreKey "evm" instead of its module — the corruption
+	//   variant, which no failing import would ever surface.
+	payloads := map[string][]byte{
+		"crash-shape":      []byte("legacy-value-that-is-not-32-bytes-long-at-all-...."),
+		"corruption-shape": bytes.Repeat([]byte{0x5A}, 32),
+	}
+
+	// The misroute's landing spot also differs per mode: with EVMSplit a
+	// misclassified node would land in the EVM store; without it, in the
+	// cosmos store under "evm". Pin both.
+	for _, mode := range []bool{true, false} {
+		for name, payload := range payloads {
+			t.Run(fmt.Sprintf("EVMSplit=%v/%s", mode, name), func(t *testing.T) {
+				mimicVal := vtype.NewMiscData().SetValue(payload).Serialize()
+
+				store, cleanup := setupImportTestStore(t, mode)
+				defer cleanup()
+
+				ch := make(chan types.SnapshotNode, 10)
+				go feedNodes(ch, []types.SnapshotNode{
+					{StoreKey: commonevm.FlatKVStoreKey, Key: mimicPhysKey, Value: mimicVal},
+				})
+
+				require.NoError(t, store.Import(1, ch))
+
+				got, err := store.cosmosStore.Get("staking", 1, mimicInnerKey)
+				require.NoError(t, err)
+				require.Equal(t, payload, got, "legacy key mimicking EVM storage shape must round-trip as MiscData under its module")
+
+				misrouted, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, mimicInnerKey)
+				require.NoError(t, err)
+				require.Nil(t, misrouted, "mimic key must not land under the evm module in the cosmos store")
+				if store.evmStore != nil {
+					misrouted, err = store.evmStore.Get(evm.EVMStoreKey, 1, mimicInnerKey)
+					require.NoError(t, err)
+					require.Nil(t, misrouted, "mimic key must not land in the EVM store")
+				}
+			})
+		}
+	}
+}
+
+// TestImport_FlatKVEmptyModuleKeyRejected pins the empty-module guard shared
+// with classifyAndPrefix and routePhysicalKey: a physical key of the form
+// "/<key>" must fail the import instead of producing a StoreKey "" node that
+// the SS importer would silently drop.
+func TestImport_FlatKVEmptyModuleKeyRejected(t *testing.T) {
+	store, cleanup := setupImportTestStore(t, false)
+	defer cleanup()
+
+	ch := make(chan types.SnapshotNode, 10)
+	go feedNodes(ch, []types.SnapshotNode{
+		{
+			StoreKey: commonevm.FlatKVStoreKey,
+			Key:      []byte("/orphan"),
+			Value:    vtype.NewMiscData().SetValue([]byte("x")).Serialize(),
+		},
+	})
+
+	err := store.Import(1, ch)
+	require.ErrorContains(t, err, "empty module name")
+}
+
+// TestImport_FlatKVEmptyInnerKeyRejected pins the degenerate "module/" shape:
+// such a key cannot be produced by a healthy writer, and letting it take the
+// misc path would end in the SS importer silently skipping the empty-key
+// node. The import must fail loudly instead.
+func TestImport_FlatKVEmptyInnerKeyRejected(t *testing.T) {
+	store, cleanup := setupImportTestStore(t, false)
+	defer cleanup()
+
+	ch := make(chan types.SnapshotNode, 10)
+	go feedNodes(ch, []types.SnapshotNode{
+		{
+			StoreKey: commonevm.FlatKVStoreKey,
+			Key:      []byte("staking/"),
+			Value:    vtype.NewMiscData().SetValue([]byte("x")).Serialize(),
+		},
+	})
+
+	err := store.Import(1, ch)
+	require.ErrorContains(t, err, "empty inner key")
 }
 
 func TestImport_NonEvmModulesUnaffected(t *testing.T) {

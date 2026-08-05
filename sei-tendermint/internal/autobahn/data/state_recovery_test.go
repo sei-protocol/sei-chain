@@ -14,6 +14,16 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
+type recoveryStartBlockDB struct {
+	types.BlockDB
+	start types.GlobalBlockNumber
+}
+
+func (db *recoveryStartBlockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
+	db.start = n
+	return db.BlockDB.Iterator(n)
+}
+
 // TestRecoveryEmpty verifies that NewState is a no-op on a fresh BlockDB.
 func TestRecoveryEmpty(t *testing.T) {
 	rng := utils.TestRng()
@@ -96,6 +106,140 @@ func TestRecoveryNormal(t *testing.T) {
 	db3 := newTestBlockDB(t, dir)
 	state3 := newTestState(t, &Config{Registry: registry}, db3)
 	require.Equal(t, gr2.Next, state3.NextBlock())
+}
+
+func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	gr2 := qc2.QC().GlobalRange()
+	require.Greater(t, gr2.Len(), 2)
+
+	db := &recoveryStartBlockDB{BlockDB: newTestBlockDB(t, t.TempDir())}
+	writeToBlockDB(t, db,
+		[]*types.FullCommitQC{qc1, qc2},
+		[][]*types.Block{blocks1, blocks2})
+
+	offset := gr2.Len() / 2
+	lastExecuted := gr2.First + types.GlobalBlockNumber(offset)
+	state := newTestState(t, &Config{
+		Registry:          registry,
+		LastExecutedBlock: utils.Some(lastExecuted),
+	}, db)
+
+	require.Equal(t, lastExecuted, db.start)
+	require.Equal(t, lastExecuted, state.FirstAppProposal())
+	require.Equal(t, gr2.Next, state.NextBlock())
+	got, err := state.TryBlock(lastExecuted)
+	require.NoError(t, err)
+	require.Equal(t, blocks2[offset].Header().Hash(), got.Header().Hash())
+
+	appHash := types.GenAppHash(rng)
+	require.NoError(t, state.PushAppHash(t.Context(), lastExecuted, appHash))
+	proposal, err := state.AppProposal(t.Context(), lastExecuted)
+	require.NoError(t, err)
+	require.Equal(t, appHash, proposal.AppHash())
+}
+
+func TestRecoveryCapsAppTipAtLastBlockInBlockDB(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange()
+	gr2 := qc2.QC().GlobalRange()
+
+	dir := t.TempDir()
+	db1 := newTestBlockDB(t, dir)
+	writeToBlockDB(t, db1, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
+	require.NoError(t, db1.Close())
+
+	db := &recoveryStartBlockDB{BlockDB: newTestBlockDB(t, dir)}
+
+	state, err := NewState(&Config{
+		Registry:          registry,
+		LastExecutedBlock: utils.Some(gr2.First),
+	}, db)
+	require.NoError(t, err)
+	require.Equal(t, gr1.Next-1, db.start)
+	require.Equal(t, gr2.First, state.NextBlock())
+
+	require.NoError(t, state.PushQC(t.Context(), qc2, blocks2))
+	got, err := state.GlobalBlock(t.Context(), gr2.First)
+	require.NoError(t, err)
+	require.Equal(t, blocks2[0].Header().Hash(), got.Header.Hash())
+
+	require.NoError(t, pushAppHashesRunning(t.Context(), state, rng, gr2.First, gr2.First+1))
+}
+
+func TestRecoveryRejectsAppTipBeyondCrashWindow(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+
+	db := newTestBlockDB(t, t.TempDir())
+	writeToBlockDB(t, db, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
+	dbNextBlock := db.Status().NextBlock
+	lastExecuted := dbNextBlock + 1
+
+	_, err := NewState(&Config{
+		Registry:          registry,
+		LastExecutedBlock: utils.Some(lastExecuted),
+	}, db)
+	require.ErrorIs(t, err, types.ErrNotFound)
+}
+
+func TestRecoveryStartsAtRegistryFloorWhenBlockDBMissingFirstCommittedBlock(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr := qc.QC().GlobalRange()
+
+	db := &recoveryStartBlockDB{BlockDB: newTestBlockDB(t, t.TempDir())}
+	require.NoError(t, db.WriteQC(qc))
+	require.NoError(t, db.Flush())
+
+	state, err := NewState(&Config{
+		Registry:          registry,
+		LastExecutedBlock: utils.Some(gr.First),
+	}, db)
+	require.NoError(t, err)
+	require.Equal(t, registry.FirstBlock(), db.start)
+	require.Equal(t, gr.First, state.NextBlock())
+}
+
+func TestRecoveryRejectsEmptyBlockDBAfterFirstCommittedBlock(t *testing.T) {
+	rng := utils.TestRng()
+	registry, _ := epoch.GenRegistry(rng, 3)
+	lastExecuted := registry.FirstBlock() + 1
+
+	_, err := NewState(&Config{
+		Registry:          registry,
+		LastExecutedBlock: utils.Some(lastExecuted),
+	}, newTestBlockDB(t, t.TempDir()))
+	require.ErrorIs(t, err, types.ErrNotFound)
+}
+
+func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+
+	db := newTestBlockDB(t, t.TempDir())
+	writeToBlockDB(t, db,
+		[]*types.FullCommitQC{qc1, qc2},
+		[][]*types.Block{blocks1, blocks2})
+	require.NoError(t, db.PruneBefore(qc2.QC().GlobalRange().First))
+
+	state, err := NewState(&Config{
+		Registry:          registry,
+		LastExecutedBlock: utils.Some(qc1.QC().GlobalRange().First),
+	}, db)
+	require.NoError(t, err)
+	_, err = state.GlobalBlock(t.Context(), qc1.QC().GlobalRange().First)
+	require.ErrorIs(t, err, types.ErrPruned)
 }
 
 // TestPruningDiscards verifies that PruneBefore advances BlockDB's watermark so
@@ -196,8 +340,8 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 
 	// Write both QCs but only qc1's blocks (simulate crash before qc2 blocks).
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
-	require.NoError(t, db1.WriteQC(gr2.First, gr2.Next, qc2))
+	require.NoError(t, db1.WriteQC(qc1))
+	require.NoError(t, db1.WriteQC(qc2))
 	for i, n := 0, gr1.First; n < gr1.Next; n++ {
 		require.NoError(t, db1.WriteBlock(n, blocks1[i]))
 		i++
@@ -227,9 +371,11 @@ func TestRecoveryBlocksBehind(t *testing.T) {
 	require.Equal(t, gr2.Next, state2.NextBlock())
 }
 
-// TestRecoveryPartialQCPrefix verifies that a QC covering a wider range than
-// the available blocks (block prefix missing) is rejected — we do not normalize
-// by advancing the recovery floor (skipTo) to the first present block.
+// TestRecoveryPartialQCPrefix verifies recovery from a store whose blocks begin partway into
+// their covering QC. The first block may be written anywhere inside that QC (see
+// types.BlockDB.WriteBlock), so BlockDB.Iterator opens on it and the recovery floor follows —
+// landing on the first present block, not on the QC's start. Flooring at the QC start would
+// leave the blockless prefix inside [first, nextBlock), which inner's density invariant forbids.
 func TestRecoveryPartialQCPrefix(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -244,7 +390,7 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 	// Write the QC for the full range, but write blocks only from mid onwards.
 	mid := gr1.First + (gr1.Next-gr1.First)/2
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, db1.WriteQC(qc1))
 	for i, n := 0, gr1.First; n < gr1.Next; n++ {
 		if n >= mid {
 			require.NoError(t, db1.WriteBlock(n, blocks1[i]))
@@ -254,8 +400,27 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 
-	_, err := NewState(&Config{Registry: registry}, newTestBlockDB(t, dir))
-	require.Error(t, err)
+	state2 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, dir))
+
+	// The floor is the first present block, and the contiguous prefix runs from there to the
+	// end of the QC's coverage.
+	require.Equal(t, gr1.Next, state2.NextBlock())
+	for inner := range state2.inner.Lock() {
+		require.Equal(t, mid, inner.first, "floor must be the first present block")
+		require.Equal(t, mid, inner.nextAppProposal)
+		require.Equal(t, gr1.Next, inner.nextQC)
+	}
+
+	// Nothing was ever written below the floor, so those heights are not served.
+	for n := gr1.First; n < mid; n++ {
+		_, err := state2.TryBlock(n)
+		require.ErrorIs(t, err, types.ErrPruned)
+	}
+	for n := mid; n < gr1.Next; n++ {
+		got, err := state2.TryBlock(n)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	}
 }
 
 // TestRecoveryAfterPruneNoGC verifies that restarting before async GC reclaims
@@ -316,7 +481,7 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 	gr1 := qc1.QC().GlobalRange()
 
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
+	require.NoError(t, db1.WriteQC(qc1))
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 
@@ -351,7 +516,7 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 
 	// First WriteQC on an empty DB may start past genesis (crash / partial retain).
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr2.First, gr2.Next, qc2))
+	require.NoError(t, db1.WriteQC(qc2))
 	require.NoError(t, db1.Flush())
 	require.NoError(t, db1.Close())
 
@@ -385,9 +550,12 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 	}))
 }
 
-// TestRecoveryBlockGap verifies that NewState returns an error when blocks in
-// BlockDB are not contiguous. WriteBlock only enforces strictly-ascending and
-// QC coverage, not continuity, so a gap can arise from corruption.
+// TestRecoveryBlockGap verifies that a block gap can never enter BlockDB in the
+// first place: WriteBlock enforces contiguity, so skipping a covered number is
+// rejected at write time. (A gap on disk can therefore only be corruption, which
+// the ledger iterator reports as ErrBlockGap during replay — pinned by
+// littblock's TestLittblockIteratorGapIsCorruption — and loadFromBlockDB
+// propagates.)
 func TestRecoveryBlockGap(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -401,17 +569,27 @@ func TestRecoveryBlockGap(t *testing.T) {
 	mid := gr1.First + (gr1.Next-gr1.First)/2
 
 	db1 := newTestBlockDB(t, dir)
-	require.NoError(t, db1.WriteQC(gr1.First, gr1.Next, qc1))
-	for i, n := 0, gr1.First; n < gr1.Next; n++ {
-		if n != mid {
-			require.NoError(t, db1.WriteBlock(n, blocks1[i]))
-		}
+	defer func() { _ = db1.Close() }()
+	require.NoError(t, db1.WriteQC(qc1))
+
+	// Blocks up to the skip point write normally.
+	i := 0
+	for n := gr1.First; n < mid; n++ {
+		require.NoError(t, db1.WriteBlock(n, blocks1[i]))
 		i++
 	}
-	require.NoError(t, db1.Flush())
-	require.NoError(t, db1.Close())
+	// Skipping mid: every subsequent (non-contiguous) write is rejected.
+	i++
+	for n := mid + 1; n < gr1.Next; n++ {
+		err := db1.WriteBlock(n, blocks1[i])
+		require.ErrorIs(t, err, types.ErrBlockOutOfOrder,
+			"write at %d after skipping %d must be rejected", n, mid)
+		i++
+	}
 
-	db2 := newTestBlockDB(t, dir)
-	_, err := NewState(&Config{Registry: registry}, db2)
-	require.ErrorIs(t, err, types.ErrBlockGap)
+	// The store recovers cleanly: the surviving prefix is contiguous, so replay
+	// sees blocks up to the skip point and QC-only positions after it.
+	state, err := NewState(&Config{Registry: registry}, db1)
+	require.NoError(t, err)
+	require.Equal(t, mid, state.NextBlock(), "replay must resume at the first unfilled number")
 }

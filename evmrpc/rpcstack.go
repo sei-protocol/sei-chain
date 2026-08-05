@@ -53,9 +53,10 @@ type HTTPConfig struct {
 
 // WsConfig is the JSON-RPC/Websocket configuration
 type WsConfig struct {
-	Origins []string
-	Modules []string
-	prefix  string // path prefix on which to mount ws handler
+	Origins            []string
+	Modules            []string
+	prefix             string // path prefix on which to mount ws handler
+	wsAdmissionTimeout time.Duration
 	RPCEndpointConfig
 }
 
@@ -381,7 +382,17 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
-	srv.SetReadLimits(config.readLimit)
+	readLimit := effectiveMaxRequestBodyBytes(config.readLimit)
+	srv.SetReadLimits(readLimit)
+	// maxConcurrentRequestBytes is passed through raw; rpc.Server.recomputeWSConcurrentBudget
+	// raises it to readLimit when smaller, matching
+	// newRequestSizeLimiter's max(budget, maxBody) rule on the HTTP protocol.
+	srv.SetWSConcurrentRequestBytes(config.maxConcurrentRequestBytes)
+	srv.SetWSAdmissionTimeout(config.wsAdmissionTimeout)
+	srv.SetWSAdmissionEventHook(func(reason string) {
+		// Hook carries no request context, and the fork's own connCtx is context.Background() too.
+		recordWSAdmissionRejected(context.Background(), reason)
+	})
 	logger.Info("Registering apis for evm websocket")
 	if err := RegisterApis(apis, config.Modules, srv); err != nil {
 		return err

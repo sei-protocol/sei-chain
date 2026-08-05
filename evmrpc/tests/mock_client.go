@@ -42,6 +42,10 @@ func (c *MockClient) EvmNextPendingNonce(_ common.Address) uint64 {
 	return 0
 }
 
+func (c *MockClient) GenesisInitialHeight() int64 {
+	return 1
+}
+
 func (*MockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }

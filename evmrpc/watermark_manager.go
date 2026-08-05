@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -44,6 +45,16 @@ func NewWatermarkManager(
 	}
 }
 
+// genesisInitialHeight returns the chain's genesis InitialHeight, sourced from
+// the local client's in-memory genesis doc, falling back to
+// genesis.DefaultGenesisInitialHeight when the client cannot supply it.
+func (m *WatermarkManager) genesisInitialHeight() int64 {
+	if h := m.tmClient.GenesisInitialHeight(); h > 0 {
+		return h
+	}
+	return genesistypes.DefaultGenesisInitialHeight
+}
+
 // Watermarks returns the earliest block height, earliest state height, and
 // latest height that are safe to serve. Earliest heights are inclusive.
 // It is possible that block latest < block earliest, in case there are no blocks yet.
@@ -65,6 +76,19 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 	if m.stateStore != nil {
 		latest = min(latest, m.stateStore.GetLatestVersion())
 		stateEarliest = m.stateStore.GetEarliestVersion()
+	}
+
+	// Floor the earliest state height at genesis. A never-pruned store reports
+	// its earliest version as 0 (the earliest-version key is only written by
+	// pruning or state-sync), which would otherwise resolve `earliest` to the
+	// tip via CreateQueryContext's height-0 coercion. Guarding on
+	// stateEarliest < latest leaves the pre-commit window (no blocks yet, where
+	// stateEarliest == latest) reading the genesis checkState, and the clamp to
+	// latest keeps the floor from ever exceeding the safe latest. Using the real
+	// InitialHeight (not a literal 1) keeps this correct for chains started
+	// above height 1, whose version 1 was never committed.
+	if stateEarliest < latest {
+		stateEarliest = max(stateEarliest, min(m.genesisInitialHeight(), latest))
 	}
 	return blockEarliest, stateEarliest, latest, nil
 }

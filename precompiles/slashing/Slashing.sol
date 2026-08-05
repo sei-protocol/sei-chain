@@ -6,6 +6,11 @@ address constant SLASHING_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000
 ISlashing constant SLASHING_CONTRACT = ISlashing(SLASHING_PRECOMPILE_ADDRESS);
 
 interface ISlashing {
+    // Transactions
+    // Unjails the validator whose operator address is the caller's associated
+    // Sei address.
+    function unjail() external returns (bool success);
+
     // Queries
     function params() external view returns (SlashingParams memory params);
 

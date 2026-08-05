@@ -43,6 +43,15 @@ type keymapManagerSyncRequest struct {
 	doneChan chan struct{}
 }
 
+// keymapManagerSyncPutsRequest asks the manager to apply every buffered put and then signal, without
+// stopping and without draining the delete backlog. FIFO ordering means every put scheduled before this
+// request has been applied by the time it signals. Used by IteratorAt to close the window between a write
+// becoming durable and its key landing in the keymap; skipping the delete backlog keeps the barrier cheap
+// even under a large GC backlog.
+type keymapManagerSyncPutsRequest struct {
+	doneChan chan struct{}
+}
+
 // pendingDelete is a garbage-collected segment's keys awaiting deletion from the keymap. The manager drains
 // it incrementally (deleteBatchSize keys per sub-batch) so a large delete never blocks latency-critical
 // puts. offset is the number of keys already deleted from the front of keys.
@@ -232,6 +241,20 @@ func (m *keymapManager) sync() error {
 	return nil
 }
 
+// syncPuts blocks until every put scheduled before this call has been applied to the keymap, leaving the
+// delete backlog untouched. The manager keeps running afterwards.
+func (m *keymapManager) syncPuts() error {
+	doneChan := make(chan struct{}, 1)
+	request := &keymapManagerSyncPutsRequest{doneChan: doneChan}
+	if err := util.Send(m.errorMonitor, m.requestChan, request); err != nil {
+		return fmt.Errorf("failed to send keymap manager sync-puts request: %w", err)
+	}
+	if _, err := util.Await(m.errorMonitor, doneChan); err != nil {
+		return fmt.Errorf("failed to await keymap manager sync-puts: %w", err)
+	}
+	return nil
+}
+
 // run is the manager's event loop. It exits when it receives a shutdown request (clean shutdown, after
 // draining all queued work) or when the error monitor signals an immediate shutdown (panic).
 //
@@ -312,8 +335,9 @@ func (m *keymapManager) awaitWork() bool {
 }
 
 // routeRequest dispatches one received request. Puts append to the put batch; deletes append to the backlog;
-// sync/shutdown barriers drain all buffered work first (FIFO guarantee) and then signal. Returns true iff the
-// manager must stop (shutdown, or a panic during a barrier drain).
+// sync/shutdown barriers drain all buffered work first (FIFO guarantee) and then signal, while the puts-only
+// barrier applies just the buffered puts. Returns true iff the manager must stop (shutdown, or a panic
+// during a barrier drain).
 func (m *keymapManager) routeRequest(msg any) bool {
 	switch req := msg.(type) {
 	case *keymapWriteRequest:
@@ -323,6 +347,11 @@ func (m *keymapManager) routeRequest(msg any) bool {
 		m.enqueueDelete(req)
 	case *keymapManagerSyncRequest:
 		if !m.drainAll() {
+			return true
+		}
+		req.doneChan <- struct{}{}
+	case *keymapManagerSyncPutsRequest:
+		if !m.flushPuts() {
 			return true
 		}
 		req.doneChan <- struct{}{}
