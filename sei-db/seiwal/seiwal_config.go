@@ -53,11 +53,13 @@ type Config struct {
 	// seiwal_queue_depth gauge. Zero or negative disables sampling.
 	MetricsSampleInterval time.Duration
 
-	// Whether this instance records metrics at all. Every instrument is labeled by Name alone, and
-	// seiwal_queue_depth is a gauge, so two instances that are live at the same time under one Name
-	// overwrite each other's samples. An instance whose Name is not unique in the process must set this
-	// false; give it a unique Name instead if its metrics are wanted.
-	MetricsEnabled bool
+	// Whether this instance stops recording metrics. Metrics are on by default, including for a
+	// zero-valued Config, so a caller has to ask for silence rather than remember to ask for data.
+	//
+	// Set this only when the Name is not unique among instances that are live at the same time: every
+	// instrument is labeled by Name alone, and seiwal_queue_depth is a gauge, so such instances overwrite
+	// each other's samples. Prefer giving each a unique Name and leaving this false.
+	DisableMetrics bool
 }
 
 // DefaultConfig returns a default WAL configuration for the WAL at path, identified by name.
@@ -72,7 +74,7 @@ func DefaultConfig(path string, name string) *Config {
 		PermitGaps:            false,
 		IteratorPrefetchSize:  32,
 		MetricsSampleInterval: 15 * time.Second,
-		MetricsEnabled:        true,
+		DisableMetrics:        false,
 	}
 }
 

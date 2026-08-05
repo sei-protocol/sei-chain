@@ -245,7 +245,7 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 	w.wg.Add(1)
 	go w.writerLoop()
 
-	if config.MetricsEnabled && config.MetricsSampleInterval > 0 {
+	if !config.DisableMetrics && config.MetricsSampleInterval > 0 {
 		w.wg.Add(1)
 		go w.sampleQueueDepth(config.MetricsSampleInterval)
 	}

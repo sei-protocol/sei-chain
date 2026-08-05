@@ -10,11 +10,13 @@ import (
 
 // targetFileSize is the size a WAL file may reach before it is sealed and a fresh one is opened.
 //
-// File size is the granularity at which space is reclaimed: a sealed file is deleted only once every
-// record in it is prunable, never partially, and the file being written is never deleted at all. Raising
-// this trades later reclamation for fewer files to track. A large value costs autobahn little because
-// these records are consumed by new proposals and pruned shortly after, so few accumulate either way.
-const targetFileSize = 1 * unit.GB
+// This sits far below seiwal's default because a sealed file is deleted only once every record in it is
+// prunable, never partially, and the file being written is never deleted at all — so the volume of
+// pruned-but-still-present records scales with this value, and autobahn keeps one WAL per lane,
+// multiplying that cost by the committee size. Restart replays that whole volume before discarding all
+// but the live suffix, so a larger file would buy slightly later reclamation at the price of a
+// proportionally slower startup.
+const targetFileSize = 4 * unit.MB
 
 // codec is the marshal/unmarshal pair needed to store T in a WAL.
 // protoutils.Conv[T, P] satisfies this interface automatically.
@@ -64,7 +66,7 @@ func openWAL[T any](
 	// enforced by the callers of Append, which reject an out-of-sequence block or road index.
 	config.PermitGaps = true
 	config.TargetFileSize = fileSize
-	config.MetricsEnabled = metricsEnabled
+	config.DisableMetrics = !metricsEnabled
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid WAL config for %s: %w", dir, err)
 	}

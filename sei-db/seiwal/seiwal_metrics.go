@@ -84,7 +84,7 @@ var (
 //
 // Every instrument above is labeled by the instance name alone, and seiwal_queue_depth is a gauge, so two
 // live instances sharing a name overwrite each other's samples. Disabling metrics is how such an instance
-// opts out; see Config.MetricsEnabled.
+// opts out; see Config.DisableMetrics.
 type walMetrics struct {
 	// Whether measurements are recorded at all.
 	enabled bool
@@ -103,7 +103,7 @@ type walMetrics struct {
 // WAL and the outer serializing WAL share a name, and this label is what keeps their samples apart.
 func newWALMetrics(config *Config, queue string) walMetrics {
 	return walMetrics{
-		enabled:   config.MetricsEnabled,
+		enabled:   !config.DisableMetrics,
 		nameAttrs: metric.WithAttributeSet(attribute.NewSet(attribute.String("wal", config.Name))),
 		queueAttrs: metric.WithAttributeSet(attribute.NewSet(
 			attribute.String("wal", config.Name), attribute.String("queue", queue))),

@@ -128,7 +128,7 @@ func newSerializingWAL[T any](
 	s.wg.Add(1)
 	go s.serializerLoop()
 
-	if config.MetricsEnabled && config.MetricsSampleInterval > 0 {
+	if !config.DisableMetrics && config.MetricsSampleInterval > 0 {
 		s.wg.Add(1)
 		go s.sampleQueueDepth(config.MetricsSampleInterval)
 	}
