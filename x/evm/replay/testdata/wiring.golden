@@ -1,0 +1,6 @@
+eth_replay	CheckAbsent
+eth_replay	CheckDefaults
+eth_replay	CheckEveryRowHasADiscriminatingSeed
+eth_replay	CheckKeyNames
+eth_replay	CheckManifestCoversEveryField
+eth_replay	CheckRow

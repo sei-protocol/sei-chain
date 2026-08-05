@@ -51,6 +51,12 @@ func FuzzReadReceiptConfig(f *testing.F) {
 	seeds.AddRow(uint(2), fuzzing.KindBool, "", int64(0), true)
 	seeds.AddRow(uint(3), fuzzing.KindInt64, "", int64(8), false)
 	seeds.AddRow(uint(0), fuzzing.KindString, "many", int64(0), false)
+	// A non-numeric string for each remaining row, so every Checked column here is exercised rather
+	// than asserted. Row 0 already had one; 1 and 3 are int casts and 2 is a bool, and all three
+	// reject a word.
+	seeds.AddRow(uint(1), fuzzing.KindString, "often", int64(0), false)
+	seeds.AddRow(uint(2), fuzzing.KindString, "maybe", int64(0), false)
+	seeds.AddRow(uint(3), fuzzing.KindString, "several", int64(0), false)
 	seeds.AddRow(uint(1), fuzzing.KindNil, "", int64(0), false)
 	seeds.AddRow(uint(3), fuzzing.KindNil, "", int64(0), false)
 
@@ -176,7 +182,7 @@ func TestReadReceiptConfigAbsentKeysKeepDefaults(t *testing.T) {
 // recording, so a default that moves shows the new value in a diff instead of passing
 // silently.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
-	configtest.CheckDefaults(t, "receipt_store", DefaultReceiptStoreConfig())
+	configtest.CheckDefaults(t, "receipt-store", DefaultReceiptStoreConfig())
 }
 
 // TestKeyNamesMatchTheRecordedNames pins the four key names themselves.
@@ -203,4 +209,12 @@ func TestManifestNamesEveryField(t *testing.T) {
 		// thing a replacement manager would otherwise try to map a key onto.
 		"KeepRecent",
 	)
+}
+
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
+// Every other check here reports a change to what it asserts. None reports a check being removed, so
+// this records the wiring and fails when it thins out.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }

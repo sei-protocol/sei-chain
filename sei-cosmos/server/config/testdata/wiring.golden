@@ -1,0 +1,6 @@
+server_config	CheckDefaults
+state-sync	CheckDefaults
+state-sync	CheckEveryRowHasADiscriminatingSeed
+state-sync	CheckKeyNames
+state-sync	CheckManifestCoversEveryField
+state-sync	CheckRow

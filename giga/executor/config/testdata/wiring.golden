@@ -1,0 +1,6 @@
+giga_executor	CheckAbsent
+giga_executor	CheckDefaults
+giga_executor	CheckEveryRowHasADiscriminatingSeed
+giga_executor	CheckKeyNames
+giga_executor	CheckManifestCoversEveryField
+giga_executor	CheckRow

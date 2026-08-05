@@ -1,0 +1,6 @@
+receipt-store	CheckAbsent
+receipt-store	CheckDefaults
+receipt-store	CheckEveryRowHasADiscriminatingSeed
+receipt-store	CheckKeyNames
+receipt-store	CheckRow
+receipt_store	CheckManifestCoversEveryField

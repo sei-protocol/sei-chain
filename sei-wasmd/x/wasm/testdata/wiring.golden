@@ -1,0 +1,6 @@
+wasm	CheckAbsent
+wasm	CheckDefaults
+wasm	CheckEveryRowHasADiscriminatingSeed
+wasm	CheckKeyNames
+wasm	CheckManifestCoversEveryField
+wasm	CheckRow

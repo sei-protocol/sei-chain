@@ -532,6 +532,20 @@ func TestParseSSConfigsAbsentBaselineIsZeroClobbered(t *testing.T) {
 // The record here is what fails instead, naming the old and the new spelling. It does not
 // fix the template, and nothing checks that; it makes the rename impossible to land without
 // someone reading a diff that says which key moved.
+// TestDefaultsMatchTheRecordedValues pins these sections' in-code defaults.
+//
+// Each section already records its key names, which catches a rename. None recorded its values, so a
+// default could move with nothing to compare against: CheckAbsent-style assertions move both sides
+// together, and the manifest rows assert how a value is read rather than what it is when absent. The
+// four sections here are the ones whose values reach a node with no line in any generated file, so the
+// record is the only place the value is written down.
+func TestDefaultsMatchTheRecordedValues(t *testing.T) {
+	configtest.CheckDefaults(t, "state-commit", config.DefaultStateCommitConfig())
+	configtest.CheckDefaults(t, "state-store", config.DefaultStateStoreConfig())
+	configtest.CheckDefaults(t, "light_invariance", DefaultLightInvarianceConfig)
+	configtest.CheckDefaults(t, "genesis", DefaultGenesisConfig)
+}
+
 func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
 	configtest.CheckKeyNames(t, "state-commit", scKeys, scKeysWithTargetsOfTheirOwn...)
 	configtest.CheckKeyNames(t, "state-store", ssKeys)
@@ -618,4 +632,12 @@ func panicMessage(r any) string {
 	// payload at the one moment it matters, leaving the caller to report that it expected a
 	// message and got nothing.
 	return fmt.Sprint(r)
+}
+
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
+// Every other check here reports a change to what it asserts. None reports a check being removed, so
+// this records the wiring and fails when it thins out.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }

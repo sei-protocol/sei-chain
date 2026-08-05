@@ -1,0 +1,6 @@
+admin_server	CheckAbsent
+admin_server	CheckDefaults
+admin_server	CheckEveryRowHasADiscriminatingSeed
+admin_server	CheckKeyNames
+admin_server	CheckManifestCoversEveryField
+admin_server	CheckRow

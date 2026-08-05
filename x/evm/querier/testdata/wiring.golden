@@ -1,0 +1,6 @@
+evm_query	CheckAbsent
+evm_query	CheckDefaults
+evm_query	CheckEveryRowHasADiscriminatingSeed
+evm_query	CheckKeyNames
+evm_query	CheckManifestCoversEveryField
+evm_query	CheckRow

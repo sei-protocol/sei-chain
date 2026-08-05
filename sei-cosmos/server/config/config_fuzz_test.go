@@ -735,10 +735,23 @@ func FuzzConfigValidateBasic(f *testing.F) {
 // recording, so a default that moves shows the new value in a diff instead of passing
 // silently.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
+	// [state-sync] has its own manifest and its own struct, so it gets its own record rather than
+	// riding on server_config's: a change to one of its defaults would otherwise only surface as a
+	// line moving inside the whole-file record.
+	configtest.CheckDefaults(t, "state-sync", DefaultConfig().StateSync)
+
 	configtest.CheckDefaults(t, "server_config", DefaultConfig(),
 		configtest.DerivedDefault{
 			Path: "ConcurrencyWorkers", Want: max(10, min(runtime.NumCPU()*2, 128)),
 			Why: "max(10, min(runtime.NumCPU()*2, 128))",
 		},
 	)
+}
+
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
+// Every other check here reports a change to what it asserts. None reports a check being removed, so
+// this records the wiring and fails when it thins out.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }

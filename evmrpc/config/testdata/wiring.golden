@@ -1,0 +1,6 @@
+evm	CheckAbsent
+evm	CheckDefaults
+evm	CheckEveryRowHasADiscriminatingSeed
+evm	CheckKeyNames
+evm	CheckManifestCoversEveryField
+evm	CheckRow

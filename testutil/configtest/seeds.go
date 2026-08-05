@@ -150,6 +150,7 @@ func CheckEveryRowHasADiscriminatingSeed(
 
 	recordPath := goldenFilePath(t, name, keyNameRecordSuffix)
 	requireKeyNameRecord(t, name, recordPath, specs, alsoRecorded)
+	requireCheckedRowsReachTheirErrorPath(t, name, read, specs, seeds)
 
 	baseline, err := read(AppOpts{})
 	if err != nil {
@@ -388,4 +389,95 @@ func discriminationHint(spec KeySpec, absent string) string {
 	return fmt.Sprintf(" (the absent-key leaf is already the %s zero and the read is unchecked, "+
 		"so a nil and a value the cast rejects both resolve to it; only a value that converts to "+
 		"something else can discriminate)", spec.Cast)
+}
+
+// requireCheckedRowsReachTheirErrorPath holds a row's Checked column to what it claims.
+//
+// Checked says the reader propagates a conversion failure as an error instead of swallowing it and
+// keeping the zero value. That difference is what an operator sees for a malformed entry in their
+// config file: a boot that stops and names the key, or a value that is silently inert while the node
+// runs on a default they did not choose. It is the kind of behaviour a suite is worth having for.
+//
+// Nothing required a seed that reaches the error path, so a row could carry the column while every
+// seed it declares casts cleanly. The column then records an intention rather than an observation, and
+// a reader changed from the checked cast to the unchecked one leaves the suite green. This closes that
+// by requiring the corpus to contain at least one value the reader actually rejects.
+//
+// Rows without the column are skipped rather than checked for the opposite: a reader that swallows
+// failures has no error to provoke, and requiring one would be asserting the absence of behaviour by
+// trying to make it happen.
+func requireCheckedRowsReachTheirErrorPath(
+	t testing.TB, name string, read func(AppOpts) (any, error), specs []KeySpec, seeds *Seeds,
+) {
+	t.Helper()
+
+	// Counted alongside the range for the same reason the discriminating loop does it: the comparison
+	// against Pick's reduction stays in uint.
+	var row uint
+	for _, spec := range specs {
+		current := row
+		row++
+
+		if !spec.Checked {
+			continue
+		}
+		if _, rejected := aRejectedSeed(read, spec, seeds, current, specs); rejected {
+			continue
+		}
+
+		example, reachable := aRejectedValue(read, spec)
+		if !reachable {
+			t.Errorf("%s: %s is declared Checked, but no value this suite can produce makes the "+
+				"reader return an error, so the column cannot be true of it. Either the read swallows "+
+				"conversion failures and the column comes off, or the cast rejects a shape the value "+
+				"generator does not build and the generator needs it.", name, spec.Key)
+			continue
+		}
+		t.Errorf("%s: %s is declared Checked, meaning a malformed value is rejected rather than "+
+			"silently kept as the zero value, but none of its seeds is malformed, so nothing exercises "+
+			"that branch and the column records an intention rather than a behaviour. A reader changed "+
+			"to the unchecked cast would leave this row green. Seed it with a value the cast rejects — "+
+			"%#v is one.", name, spec.Key, example)
+	}
+}
+
+// aRejectedSeed reports whether any of the row's own seeds makes the reader return an error.
+func aRejectedSeed(
+	read func(AppOpts) (any, error), spec KeySpec, seeds *Seeds, current uint, specs []KeySpec,
+) (any, bool) {
+	for _, e := range seeds.entries {
+		// uint(len(specs)) rather than a converted count, so the reduction stays in uint the way the
+		// discriminating loop's does and gosec can see the width is safe.
+		if e.row%uint(len(specs)) != current {
+			continue
+		}
+		if readRejects(read, spec, e.value) {
+			return e.value, true
+		}
+	}
+	return nil, false
+}
+
+// aRejectedValue finds a value the reader rejects, so a failure can name one an engineer could write.
+//
+// Reuses the discrimination probes rather than deriving a failing value per cast kind. Their own
+// documentation already notes that on a checked row the shapes a cast rejects discriminate through the
+// error, so the set is known to reach the error path of every cast the manifest declares, and a second
+// table of per-cast failing values would be the same knowledge written twice.
+func aRejectedValue(read func(AppOpts) (any, error), spec KeySpec) (any, bool) {
+	for _, v := range discriminationProbes {
+		if readRejects(read, spec, v) {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+// readRejects reports whether the reader returns an error for this value under this key.
+//
+// The AppOpts carries the row's key alone, so an error is attributable to it rather than to some other
+// key's cast in the same document.
+func readRejects(read func(AppOpts) (any, error), spec KeySpec, value any) bool {
+	_, err := read(AppOpts{spec.Key: value})
+	return err != nil
 }

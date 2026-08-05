@@ -55,6 +55,11 @@ func FuzzReadConfig(f *testing.F) {
 	seeds.AddRow(uint(3), fuzzing.KindBoolString, "", int64(0), true)
 	seeds.AddRow(uint(1), fuzzing.KindAnySlice, "", int64(0), false)
 	seeds.AddRow(uint(0), fuzzing.KindString, "enabled", int64(0), false)
+	// contract_state_checks is a bool cast, so a word reaches its error path.
+	seeds.AddRow(uint(3), fuzzing.KindString, "sometimes", int64(0), false)
+	// eth_data_dir is a string cast, and cast.ToStringE accepts every scalar, so only a non-scalar
+	// shape is malformed for it.
+	seeds.AddRow(uint(2), fuzzing.KindStringSlice, "", int64(0), false)
 	seeds.AddRow(uint(2), fuzzing.KindNil, "", int64(0), false)
 
 	configtest.CheckEveryRowHasADiscriminatingSeed(f, "eth_replay", readETHReplay, ethReplayKeys, seeds)
@@ -115,4 +120,12 @@ func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
 // replacement implementation reads as this section's contract.
 func TestManifestNamesEveryField(t *testing.T) {
 	configtest.CheckManifestCoversEveryField(t, "eth_replay", replay.DefaultConfig, ethReplayKeys)
+}
+
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
+// Every other check here reports a change to what it asserts. None reports a check being removed, so
+// this records the wiring and fails when it thins out.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }
