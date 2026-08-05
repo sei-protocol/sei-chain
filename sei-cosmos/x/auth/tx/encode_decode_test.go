@@ -400,6 +400,21 @@ func TestRejectNonADR027(t *testing.T) {
 			append(append(longVarintBodyBz, authInfoBz...), sigsBz...),
 			true,
 		},
+		{
+			"body_bytes field encoded twice",
+			append(append(append(bodyBz, bodyBz...), authInfoBz...), sigsBz...),
+			true,
+		},
+		{
+			"auth_info_bytes field encoded twice",
+			append(append(append(bodyBz, authInfoBz...), authInfoBz...), sigsBz...),
+			true,
+		},
+		{
+			"signatures field encoded twice (valid repeated field)",
+			append(append(append(bodyBz, authInfoBz...), sigsBz...), sigsBz...),
+			false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -413,6 +428,43 @@ func TestRejectNonADR027(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDefaultTxDecoderRejectsTxRawBloat(t *testing.T) {
+	registry := codectypes.NewInterfaceRegistry()
+	testdata.RegisterInterfaces(registry)
+	cdc := codec.NewProtoCodec(registry)
+
+	builder := newBuilder()
+	require.NoError(t, builder.SetMsgs(testdata.NewTestMsg()))
+	builder.SetGasLimit(127)
+
+	txBz, err := DefaultTxEncoder()(builder.GetTx())
+	require.NoError(t, err)
+
+	var raw tx.TxRaw
+	require.NoError(t, raw.Unmarshal(txBz))
+
+	bodyField := protowire.AppendTag(nil, 1, protowire.BytesType)
+	bodyField = protowire.AppendBytes(bodyField, raw.BodyBytes)
+	// Explicit empty auth_info_bytes (omitted by canonical remashal).
+	emptyAuthField := protowire.AppendTag(nil, 2, protowire.BytesType)
+	emptyAuthField = protowire.AppendBytes(emptyAuthField, []byte{})
+	bloatedTxBz := append(bodyField, emptyAuthField...)
+
+	_, err = DefaultTxDecoder(cdc)(bloatedTxBz)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match canonical size")
+	require.Contains(t, err.Error(), "tx raw")
+
+	// Fully lenient decoder skips the TxRaw remashal check.
+	_, err = DefaultTxDecoderWithoutBodyBloatRejection(cdc)(bloatedTxBz)
+	require.NoError(t, err)
+
+	// body-strict / AuthInfo-lenient still applies the TxRaw remashal check.
+	_, err = DefaultTxDecoderWithoutAuthInfoBloatRejection(cdc)(bloatedTxBz)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tx raw")
 }
 
 func TestVarintMinLength(t *testing.T) {

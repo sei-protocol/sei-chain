@@ -55,6 +55,14 @@ func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat, rejectAuth
 			return nil, err
 		}
 
+		// Reject non-canonical TxRaw envelopes (e.g. explicit default encodings).
+		// Duplicate singular fields are also rejected earlier by rejectNonADR027TxRaw.
+		if rejectBodyBloat || rejectAuthInfoBloat {
+			if err := rejectBloatedProto(txBytes, &raw, "tx raw"); err != nil {
+				return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
+			}
+		}
+
 		var body tx.TxBody
 
 		// allow non-critical unknown fields in TxBody
@@ -126,8 +134,11 @@ func DefaultJSONTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 // rejectNonADR027TxRaw rejects txBytes that do not follow ADR-027. This is NOT
 // a generic ADR-027 checker, it only applies decoding TxRaw. Specifically, it
 // only checks that:
-// - field numbers are in ascending order (1, 2, and potentially multiple 3s),
-// - and varints are as short as possible.
+//   - field numbers are in ascending order (1, 2, and potentially multiple 3s),
+//   - singular fields 1 (body_bytes) and 2 (auth_info_bytes) appear at most once
+//     (field 3 / signatures is repeated and may appear multiple times),
+//   - and varints are as short as possible.
+//
 // All other ADR-027 edge cases (e.g. default values) are not applicable with
 // TxRaw.
 func rejectNonADR027TxRaw(txBytes []byte) error {
@@ -146,6 +157,10 @@ func rejectNonADR027TxRaw(txBytes []byte) error {
 		// Make sure fields are ordered in ascending order.
 		if tagNum < prevTagNum {
 			return fmt.Errorf("txRaw must follow ADR-027, got tagNum %d after tagNum %d", tagNum, prevTagNum)
+		}
+		// body_bytes and auth_info_bytes are singular; only signatures may repeat.
+		if tagNum == prevTagNum && tagNum != 3 {
+			return fmt.Errorf("txRaw must follow ADR-027, field %d appears more than once", tagNum)
 		}
 		prevTagNum = tagNum
 
