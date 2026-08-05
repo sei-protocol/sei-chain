@@ -138,6 +138,59 @@ func TestRateLimitMiddleware_ProbeLimitRejected413(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "request body too large")
 }
 
+func TestRateLimitMiddleware_OversizeChargesPerIP(t *testing.T) {
+	reg := mustRateLimitRegistry(t, 0.001, 1)
+	gate := NewRateLimitGate(reg, 64, true, "evm")
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner should not be called")
+	})
+	h := newRateLimitMiddleware(inner, gate)
+
+	remote := "203.0.113.88:1"
+	oversizeBody := strings.Repeat("x", 100)
+
+	req1 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(oversizeBody))
+	req1.RemoteAddr = remote
+	rec1 := httptest.NewRecorder()
+	h.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec1.Code)
+
+	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(oversizeBody))
+	req2.RemoteAddr = remote
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, req2)
+	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
+	require.Contains(t, rec2.Body.String(), "too many requests")
+}
+
+func TestComposedStack_ChunkedOversizeRateLimitedAfterBurst(t *testing.T) {
+	const maxBody = 100
+	reg := mustRateLimitRegistry(t, 0.001, 1)
+	gate := NewRateLimitGate(reg, maxBody, true, "evm")
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner should not be called")
+	})
+	stack := newRequestSizeLimiter(newRateLimitMiddleware(inner, gate), maxBody, 0)
+
+	remote := "203.0.113.89:1"
+	oversizeBody := strings.Repeat("x", maxBody+64)
+
+	req1 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(oversizeBody))
+	req1.ContentLength = -1
+	req1.RemoteAddr = remote
+	rec1 := httptest.NewRecorder()
+	stack.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec1.Code)
+
+	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(oversizeBody))
+	req2.ContentLength = -1
+	req2.RemoteAddr = remote
+	rec2 := httptest.NewRecorder()
+	stack.ServeHTTP(rec2, req2)
+	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
+}
+
 func TestRateLimitMiddleware_ParseErrorRejected(t *testing.T) {
 	reg := mustRateLimitRegistry(t, 100, 10)
 	gate := NewRateLimitGate(reg, 0, true, "evm")

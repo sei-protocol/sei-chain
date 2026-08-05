@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -33,12 +34,10 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	body, err := readBoundedBody(r.Body, m.gate.maxBodyBytes)
 	if err != nil {
 		if isRequestBodyTooLarge(err) {
-			recordRequestRejected(r.Context(), rejectReasonOversize)
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			m.rejectAdmission(r.Context(), w, ip, rejectReasonOversize, http.StatusRequestEntityTooLarge, "request body too large")
 			return
 		}
-		recordRequestRejected(r.Context(), rejectReasonReadError)
-		http.Error(w, "bad request", http.StatusBadRequest)
+		m.rejectAdmission(r.Context(), w, ip, rejectReasonReadError, http.StatusBadRequest, "bad request")
 		return
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -46,8 +45,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	allowed, rejectMethod, checkErr := m.gate.Check(r.Context(), ip, bytes.NewReader(body))
 	if checkErr != nil {
 		if ratelimiter.IsBodyTooLarge(checkErr) {
-			recordRequestRejected(r.Context(), rejectReasonOversize)
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			m.rejectAdmission(r.Context(), w, ip, rejectReasonOversize, http.StatusRequestEntityTooLarge, "request body too large")
 			return
 		}
 		recordRequestRejected(r.Context(), rejectReasonUnparseable)
@@ -62,6 +60,16 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 
 	m.inner.ServeHTTP(w, r)
+}
+
+func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.ResponseWriter, ip, reason string, status int, msg string) {
+	if m.gate.chargeAdmissionRejection(ctx, ip) {
+		recordRequestRejected(ctx, rejectReasonRateLimited)
+		http.Error(w, "too many requests", http.StatusTooManyRequests)
+		return
+	}
+	recordRequestRejected(ctx, reason)
+	http.Error(w, msg, status)
 }
 
 // isRateLimitExemptHTTPRequest reports requests that cannot carry a JSON-RPC

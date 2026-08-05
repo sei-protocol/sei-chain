@@ -39,6 +39,16 @@ func NewRateLimitGate(registry *ratelimiter.Registry, maxBodyBytes int64, enable
 	}
 }
 
+// chargeAdmissionRejection consumes one token for a fail-closed rejection that
+// never reaches method parsing (oversize body, read error). Returns true when
+// the bucket is exhausted and the caller should respond with HTTP 429.
+func (g *RateLimitGate) chargeAdmissionRejection(ctx context.Context, ip string) bool {
+	if !g.enabled {
+		return false
+	}
+	return !g.registry.Allow(ctx, ip, g.plane, ratelimiter.MethodInvalid)
+}
+
 // Check parses body for JSON-RPC method names and applies per-IP rate limits.
 // rejectMethod is the method that exhausted the bucket when allowed=false.
 // Parse errors still charge the bucket under ratelimiter.MethodInvalid so
