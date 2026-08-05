@@ -442,12 +442,14 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg
 	}
+	height := tmBlock.Block.Height
+	decoder := traceCompatTxDecoder(
+		b.txConfigProvider(height),
+		b.isV65ActiveAtHeight(height),
+		b.isV67ActiveAtHeight(height),
+	)
 	for i := range tmBlock.Block.Txs {
-		decoded, err := traceCompatTxDecoder(
-			b.txConfigProvider(tmBlock.Block.Height),
-			b.isV65ActiveAtHeight(tmBlock.Block.Height),
-			b.isV67ActiveAtHeight(tmBlock.Block.Height),
-		)(tmBlock.Block.Txs[i])
+		decoded, err := decoder(tmBlock.Block.Txs[i])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -645,6 +647,12 @@ func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtype
 		success = true
 		return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, release, nil
 	}
+	height := block.Number().Int64()
+	decoder := traceCompatTxDecoder(
+		b.txConfigProvider(height),
+		b.isV65ActiveAtHeight(height),
+		b.isV67ActiveAtHeight(height),
+	)
 	for idx, tx := range tmBlock.Block.Txs {
 		if idx > txIndex {
 			break
@@ -652,11 +660,7 @@ func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtype
 		if err := ctx.Err(); err != nil {
 			return nil, nil, emptyRelease, err
 		}
-		sdkTx, err := traceCompatTxDecoder(
-			b.txConfigProvider(block.Number().Int64()),
-			b.isV65ActiveAtHeight(block.Number().Int64()),
-			b.isV67ActiveAtHeight(block.Number().Int64()),
-		)(tx)
+		sdkTx, err := decoder(tx)
 		if err != nil {
 			panic(err)
 		}

@@ -461,7 +461,7 @@ func TestDefaultTxDecoderRejectsTxRawBloat(t *testing.T) {
 
 	bodyField := protowire.AppendTag(nil, 1, protowire.BytesType)
 	bodyField = protowire.AppendBytes(bodyField, raw.BodyBytes)
-	// Explicit empty auth_info_bytes (omitted by canonical remashal).
+	// Explicit empty auth_info_bytes (omitted by canonical remarshal).
 	emptyAuthField := protowire.AppendTag(nil, 2, protowire.BytesType)
 	emptyAuthField = protowire.AppendBytes(emptyAuthField, []byte{})
 	bloatedTxBz := append(bodyField, emptyAuthField...)
@@ -471,11 +471,11 @@ func TestDefaultTxDecoderRejectsTxRawBloat(t *testing.T) {
 	require.Contains(t, err.Error(), "does not match canonical size")
 	require.Contains(t, err.Error(), "tx raw")
 
-	// Fully lenient decoder skips the TxRaw remashal check.
+	// Fully lenient decoder skips the TxRaw remarshal check.
 	_, err = DefaultTxDecoderWithoutBodyBloatRejection(cdc)(bloatedTxBz)
 	require.NoError(t, err)
 
-	// v6.5-to-v6.7 body-strict / AuthInfo-lenient also skips the TxRaw remashal
+	// v6.5-to-v6.7 body-strict / AuthInfo-lenient also skips the TxRaw remarshal
 	// check (it did not exist during live execution in that window).
 	_, err = DefaultTxDecoderWithoutAuthInfoBloatRejection(cdc)(bloatedTxBz)
 	require.NoError(t, err)
