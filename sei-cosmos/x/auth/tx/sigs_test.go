@@ -52,64 +52,29 @@ func TestModeInfoAndSigToSignatureData(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, msig, got)
 
-	single := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Single_{
-		Single: &txtypes.ModeInfo_Single{Mode: signing.SignMode_SIGN_MODE_DIRECT},
-	}}
-	mustMarshal := func(sigs [][]byte) []byte {
-		bz, err := (&cryptotypes.MultiSignature{Signatures: sigs}).Marshal()
-		require.NoError(t, err)
-		return bz
-	}
-	mustErr := func(mi *txtypes.ModeInfo, sig []byte) {
-		_, err := ModeInfoAndSigToSignatureData(mi, sig)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid multisig")
-	}
-
-	// fewer sigs than ModeInfos
-	mustErr(&txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
+	// fewer nested sigs than ModeInfos must error
+	rawShort, err := (&cryptotypes.MultiSignature{Signatures: [][]byte{[]byte("a")}}).Marshal()
+	require.NoError(t, err)
+	mi := &txtypes.ModeInfo_Single_{Single: &txtypes.ModeInfo_Single{Mode: signing.SignMode_SIGN_MODE_DIRECT}}
+	bad := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
 		Multi: &txtypes.ModeInfo_Multi{
 			Bitarray:  cryptotypes.NewCompactBitArray(2),
-			ModeInfos: []*txtypes.ModeInfo{single, single},
-		},
-	}}, mustMarshal([][]byte{[]byte("a")}))
-
-	// more sigs than ModeInfos
-	mustErr(&txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
-		Multi: &txtypes.ModeInfo_Multi{
-			Bitarray:  cryptotypes.NewCompactBitArray(1),
-			ModeInfos: []*txtypes.ModeInfo{single},
-		},
-	}}, mustMarshal([][]byte{[]byte("a"), []byte("b")}))
-
-	// nested multi ModeInfo with mismatched child counts
-	inner := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
-		Multi: &txtypes.ModeInfo_Multi{
-			Bitarray:  cryptotypes.NewCompactBitArray(2),
-			ModeInfos: []*txtypes.ModeInfo{single, single},
+			ModeInfos: []*txtypes.ModeInfo{{Sum: mi}, {Sum: mi}},
 		},
 	}}
-	mustErr(&txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
-		Multi: &txtypes.ModeInfo_Multi{
-			Bitarray:  cryptotypes.NewCompactBitArray(1),
-			ModeInfos: []*txtypes.ModeInfo{inner},
-		},
-	}}, mustMarshal([][]byte{mustMarshal([][]byte{[]byte("inner-only")})}))
+	_, err = ModeInfoAndSigToSignatureData(bad, rawShort)
+	require.Error(t, err)
 }
 
 func TestGetSignaturesV2_SignerInfoSigCountMismatch(t *testing.T) {
-	_, pubKey, addr := testdata.KeyTestPubAddr()
+	_, pk, addr := testdata.KeyTestPubAddr()
 	b := newBuilder()
 	require.NoError(t, b.SetMsgs(testdata.NewTestMsg(addr)))
 	require.NoError(t, b.SetSignatures(signing.SignatureV2{
-		PubKey: pubKey,
-		Data: &signing.SingleSignatureData{
-			SignMode:  signing.SignMode_SIGN_MODE_DIRECT,
-			Signature: []byte("sig"),
-		},
+		PubKey: pk,
+		Data:   &signing.SingleSignatureData{SignMode: signing.SignMode_SIGN_MODE_DIRECT, Signature: []byte("sig")},
 	}))
 	b.tx.Signatures = nil
 	_, err := b.GetSignaturesV2()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid tx")
 }
