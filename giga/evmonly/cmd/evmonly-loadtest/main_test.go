@@ -34,7 +34,8 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	require.NoError(t, err)
 
 	state := newGeneratedState()
-	workload := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+	workload, err := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+	require.NoError(t, err)
 	request, err := workload.BuildBlock(t.Context(), 1)
 	require.NoError(t, err)
 
@@ -97,7 +98,8 @@ func TestTransferWorkloadOCCScenarios(t *testing.T) {
 			require.NoError(t, err)
 
 			state := newGeneratedState()
-			workload := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+			workload, err := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+			require.NoError(t, err)
 			request, err := workload.BuildBlock(t.Context(), 1)
 			require.NoError(t, err)
 
@@ -273,7 +275,8 @@ func TestTransferWorkloadRecipientConflictRate(t *testing.T) {
 	require.NoError(t, err)
 
 	state := newGeneratedState()
-	workload := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+	workload, err := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+	require.NoError(t, err)
 	request, err := workload.BuildBlock(t.Context(), 1)
 	require.NoError(t, err)
 
@@ -719,7 +722,8 @@ func TestExecutorResultPoolReusesSlotsWithFileSink(t *testing.T) {
 	})
 	require.NoError(t, err)
 	state := newGeneratedState()
-	workload := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+	workload, err := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+	require.NoError(t, err)
 	metrics := newLoadMetrics(prometheus.NewRegistry())
 	sinks, err := newResultSinks(cfg, metrics)
 	require.NoError(t, err)
@@ -847,7 +851,8 @@ func BenchmarkExecuteTransferBlock(b *testing.B) {
 			require.NoError(b, err)
 
 			state := newGeneratedState()
-			workload := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+			workload, err := scenarios.NewTransferWorkload(scenarioConfig(cfg), state)
+			require.NoError(b, err)
 			request, err := workload.BuildBlock(b.Context(), 1)
 			require.NoError(b, err)
 			executor := evmonly.NewExecutor(evmonly.Config{

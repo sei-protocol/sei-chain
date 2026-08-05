@@ -5,7 +5,8 @@ the EVM-only executor without Cosmos SDK state, mempool, RPC, or chain
 persistence.
 
 It currently generates pure EVM legacy transfer transactions, ERC20 transfer
-transactions, and a contract-call workload that exercises nested StateDB
+transactions using `sei-load`'s compiled contract runtime, and a contract-call
+workload that exercises nested StateDB
 snapshot/revert behavior. By default, each generated sender account has one
 nonce-0 transaction and is funded in the command's in-memory genesis state
 before its block is queued. Recipients are unique by default so the transfer
@@ -192,6 +193,9 @@ artifacts and are removed when the process exits normally or handles
 `SIGINT`/`SIGTERM`. `sink_enqueue_wait` is the primary backpressure signal: a
 non-zero value means executor workers waited for async sink queue capacity.
 
-Future workloads should add another workload builder beside `transferWorkload`,
-`erc20TransferWorkload`, and `snapshotRevertWorkload`, then reuse the same
-block producer/prepare/executor/metrics pipeline.
+Native and ERC20 transaction construction and genesis seeding come from
+`github.com/sei-protocol/sei-load/generator/offline`. Future reusable EVM
+workloads should add an offline scenario there and a block/recipient adapter in
+this command. Executor-specific workloads can remain beside
+`TransferWorkload`, `ERC20TransferWorkload`, and `SnapshotRevertWorkload` and
+reuse the same block producer/prepare/executor/metrics pipeline.

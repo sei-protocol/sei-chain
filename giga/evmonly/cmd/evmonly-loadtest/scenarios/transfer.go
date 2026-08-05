@@ -2,30 +2,36 @@ package scenarios
 
 import (
 	"context"
-	"math/big"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	loadoffline "github.com/sei-protocol/sei-load/generator/offline"
 )
 
 type TransferWorkload struct {
 	cfg                  Config
 	state                State
-	signer               ethtypes.Signer
+	scenario             loadoffline.Scenario
 	conflictParticipants int
 	accountCursor        atomic.Uint64
 }
 
-func NewTransferWorkload(cfg Config, state State) *TransferWorkload {
+func NewTransferWorkload(cfg Config, state State) (*TransferWorkload, error) {
+	scenario, err := loadoffline.NewScenario(loadoffline.Transfer, offlineConfig(cfg))
+	if err != nil {
+		return nil, err
+	}
+	if err := scenario.SetupGenesis(state); err != nil {
+		return nil, err
+	}
 	return &TransferWorkload{
 		cfg:                  cfg,
 		state:                state,
-		signer:               ethtypes.LatestSignerForChainID(cfg.ChainID),
+		scenario:             scenario,
 		conflictParticipants: recipientConflictParticipants(cfg.TxsPerBlock, cfg.RecipientConflictRate),
-	}
+	}, nil
 }
 
 func (w *TransferWorkload) BuildBlock(ctx context.Context, number uint64) (evmonly.BlockRequest, error) {
@@ -48,7 +54,7 @@ func (w *TransferWorkload) BuildBlock(ctx context.Context, number uint64) (evmon
 		if err != nil {
 			return evmonly.BlockRequest{}, err
 		}
-		w.state.SetBalance(sender, w.cfg.SenderBalance)
+		w.scenario.SeedSender(w.state, sender)
 		txs[i] = raw
 	}
 	return evmonly.BlockRequest{
@@ -63,14 +69,7 @@ func (w *TransferWorkload) buildTransferTx(accountIndex, nonce uint64, recipient
 		return nil, common.Address{}, err
 	}
 	sender := crypto.PubkeyToAddress(key.PublicKey)
-	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
-		Nonce:    nonce,
-		GasPrice: new(big.Int).Set(w.cfg.GasPrice),
-		Gas:      w.cfg.TxGasLimit,
-		To:       &recipient,
-		Value:    new(big.Int).Set(w.cfg.TransferValue),
-	})
-	signed, err := ethtypes.SignTx(tx, w.signer, key)
+	signed, err := w.scenario.BuildTransaction(key, nonce, recipient)
 	if err != nil {
 		return nil, common.Address{}, err
 	}
@@ -83,4 +82,15 @@ func (w *TransferWorkload) buildTransferTx(accountIndex, nonce uint64, recipient
 
 func (w *TransferWorkload) Recipient(blockNumber uint64, txIndex int, accountIndex uint64) common.Address {
 	return workloadRecipient(w.cfg, w.conflictParticipants, "sei-evmonly-loadtest-recipient", "sei-evmonly-loadtest-conflict-recipient", blockNumber, txIndex, accountIndex)
+}
+
+func offlineConfig(cfg Config) loadoffline.Config {
+	return loadoffline.Config{
+		ChainID:       cfg.ChainID,
+		GasPrice:      cfg.GasPrice,
+		SenderBalance: cfg.SenderBalance,
+		TransferValue: cfg.TransferValue,
+		GasLimit:      cfg.TxGasLimit,
+		ERC20Contract: cfg.ERC20Contract,
+	}
 }

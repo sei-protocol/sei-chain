@@ -47,9 +47,9 @@ type Workload interface {
 func NewWorkload(kind string, cfg Config, state State) (Workload, error) {
 	switch kind {
 	case WorkloadTransfer:
-		return NewTransferWorkload(cfg, state), nil
+		return NewTransferWorkload(cfg, state)
 	case WorkloadERC20Transfer:
-		return NewERC20TransferWorkload(cfg, state), nil
+		return NewERC20TransferWorkload(cfg, state)
 	case WorkloadSnapshotRevert:
 		return NewSnapshotRevertWorkload(cfg, state), nil
 	default:
