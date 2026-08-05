@@ -85,7 +85,7 @@ func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote],
 		if err != nil {
 			return nil, err
 		}
-		r.next = qc.QC().GlobalRange().Next	
+		r.next = qc.QC().GlobalRange().Next
 		return types.Sign(r.state.key, vote), nil
 	}
 }

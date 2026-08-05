@@ -16,17 +16,17 @@ type voteSet[V any] struct {
 }
 
 type road struct {
-	epoch *types.Epoch
-	commitQC *types.CommitQC
+	epoch     *types.Epoch
+	commitQC  *types.CommitQC
 	appByKey  map[types.PublicKey]struct{}
 	appByHash map[types.Hash[*types.AppVote]]*voteSet[*types.Signed[*types.AppVote]]
-	appQC utils.Option[*types.AppQC]
+	appQC     utils.Option[*types.AppQC]
 }
 
 func newRoad(commitQC *types.CommitQC, epoch *types.Epoch) *road {
 	return &road{
-		epoch: epoch, 
-		commitQC: commitQC,
+		epoch:     epoch,
+		commitQC:  commitQC,
 		appByKey:  map[types.PublicKey]struct{}{},
 		appByHash: map[types.Hash[*types.AppVote]]*voteSet[*types.Signed[*types.AppVote]]{},
 	}
@@ -34,9 +34,13 @@ func newRoad(commitQC *types.CommitQC, epoch *types.Epoch) *road {
 
 // Returns qc if a new qc has been reached.
 func (r *road) pushAppVote(vote *types.Signed[*types.AppVote]) {
-	if r.appQC.IsPresent() { return }
+	if r.appQC.IsPresent() {
+		return
+	}
 	k := vote.Key()
-	if _, ok := r.appByKey[k]; ok { return }
+	if _, ok := r.appByKey[k]; ok {
+		return
+	}
 	r.appByKey[k] = struct{}{}
 	byHash, ok := r.appByHash[vote.Hash()]
 	if !ok {

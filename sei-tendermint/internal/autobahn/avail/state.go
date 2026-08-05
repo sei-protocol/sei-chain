@@ -10,8 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -37,7 +35,7 @@ type State struct {
 
 	// persisters groups all disk persistence components.
 	// Always initialized: real when stateDir is set, no-op otherwise.
-	persisters persisters
+	persisters *persisters
 }
 
 func (s *State) PublicKey() types.PublicKey {
@@ -55,57 +53,22 @@ type persisters struct {
 // innerFile is the A/B file prefix for avail inner state persistence.
 const innerFile = "avail_inner"
 
-// PruneAnchor is the decoded form of the persisted prune anchor
-// (AppQC + matching CommitQC pair). It serves as the crash-recovery
-// pruning watermark.
-type PruneAnchor struct {
-	AppQC    *types.AppQC
-	CommitQC *types.CommitQC
-}
-
-// PruneAnchorConv converts between PruneAnchor and its protobuf representation.
-var PruneAnchorConv = protoutils.Conv[*PruneAnchor, *pb.PersistedAvailPruneAnchor]{
-	Encode: func(a *PruneAnchor) *pb.PersistedAvailPruneAnchor {
-		return &pb.PersistedAvailPruneAnchor{
-			AppQc:    types.AppQCConv.Encode(a.AppQC),
-			CommitQc: types.CommitQCConv.Encode(a.CommitQC),
-		}
-	},
-	Decode: func(p *pb.PersistedAvailPruneAnchor) (*PruneAnchor, error) {
-		if p.AppQc == nil || p.CommitQc == nil {
-			return nil, fmt.Errorf("incomplete prune anchor: AppQC=%v CommitQC=%v", p.AppQc != nil, p.CommitQc != nil)
-		}
-		appQC, err := types.AppQCConv.Decode(p.AppQc)
-		if err != nil {
-			return nil, fmt.Errorf("decode AppQC: %w", err)
-		}
-		commitQC, err := types.CommitQCConv.Decode(p.CommitQc)
-		if err != nil {
-			return nil, fmt.Errorf("decode CommitQC: %w", err)
-		}
-		return &PruneAnchor{AppQC: appQC, CommitQC: commitQC}, nil
-	},
-}
-
 // loadPersistedState creates persisters for the given directory option and loads
 // any existing state from disk. When dir is None, all persisters are no-op
 // and no state is loaded. When a prune anchor is present, stale commitQCs and
 // blocks below the anchor are filtered out before returning.
-func loadPersistedState(dir utils.Option[string]) (utils.Option[*loadedAvailState], persisters, error) {
+func loadPersistedState(dir utils.Option[string]) (*loadedState, *persisters, error) {
 	bp, blocks, err := persist.NewBlockPersister(dir)
 	if err != nil {
-		return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("NewBlockPersister: %w", err)
+		return nil, nil, fmt.Errorf("NewBlockPersister: %w", err)
 	}
 	cp, commitQCs, err := persist.NewCommitQCPersister(dir)
 	if err != nil {
-		return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("NewCommitQCPersister: %w", err)
+		return nil, nil, fmt.Errorf("NewCommitQCPersister: %w", err)
 	}
-	pers := persisters{blocks: bp, commitQCs: cp}
-	if _, ok := dir.Get(); !ok {
-		return utils.None[*loadedAvailState](), pers, nil
-	}
-	loaded := &loadedAvailState{commitQCs: commitQCs, blocks: blocks}
-	return utils.Some(loaded), pers, nil
+	pers := &persisters{blocks: bp, commitQCs: cp}
+	loaded := &loadedState{commitQCs: commitQCs, blocks: blocks}
+	return loaded, pers, nil
 }
 
 // NewState constructs a new availability state.
@@ -143,7 +106,7 @@ func (s *State) Data() *data.State {
 // LastCommitQC returns receiver of the LastCommitQC.
 func (s *State) LastCommitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
 	for inner := range s.inner.Lock() {
-		return inner.latestCommitQC.Subscribe()
+		return inner.persistedCommitQC.Subscribe()
 	}
 	panic("unreachable")
 }
@@ -213,7 +176,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
 		metrics.ObserveCommitQC(qc)
-		// The persist goroutine publishes latestCommitQC after writing to disk
+		// The persist goroutine publishes persistedCommitQC after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
 		// until the CommitQC is durable.
 		ctrl.Updated()
@@ -246,42 +209,6 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		}
 	}
 	return nil
-}
-
-// PushAppQC pushes an AppQC to the state. It requires a corresponding CommitQC
-// as a justification.
-func (s *State) prune(appQC *types.AppQC, commitQC *types.CommitQC) error {
-	// Check whether it is needed before verifying.
-	for inner := range s.inner.Lock() {
-		if commitQC.Index() <= inner.roads.first {
-			return nil
-		}
-	}
-	if err := appQC.Proposal().Verify(commitQC); err != nil {
-		return fmt.Errorf("appQC proposal: %w", err)
-	}
-	epoch, ok := s.data.Registry().EpochByIndex(commitQC.Proposal().EpochIndex())
-	if !ok {
-		return fmt.Errorf("unknown epoch_index %d", commitQC.Proposal().EpochIndex())
-	}
-	if err := appQC.Verify(epoch.Committee()); err != nil {
-		return fmt.Errorf("appQC.Verify(): %w", err)
-	}
-	if err := commitQC.Verify(epoch); err != nil {
-		return fmt.Errorf("commitQC.Verify(): %w", err)
-	}
-	for inner, ctrl := range s.inner.Lock() {
-		inner.prune(epoch, commitQC, appQC)
-		ctrl.Updated()
-	}
-	return nil
-}
-
-func (s *State) nextAppQC() types.RoadIndex {
-	for inner := range s.inner.Lock() {
-		return inner.nextAppQC
-	}
-	panic("unreachable")
 }
 
 // NextBlock returns the index of the next missing block in local storage for the given lane.
@@ -439,26 +366,22 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 	return headers, nil
 }
 
-func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.FullCommitQC, error) {
+func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Epoch, *types.FullCommitQC, error) {
 	// Collect the CommitQC.
-	qc, err := s.CommitQC(ctx, n)
+	epoch, qc, err := s.commitQC(ctx, n)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Collect the headers from the votes.
 	var commitHeaders []*types.BlockHeader
-	ep, ok := s.data.Registry().EpochByIndex(qc.Proposal().EpochIndex())
-	if !ok {
-		return nil, fmt.Errorf("unknown epoch_index %d", qc.Proposal().EpochIndex())
-	}
-	for lane := range ep.Committee().Lanes().All() {
+	for lane := range epoch.Committee().Lanes().All() {
 		headers, err := s.headers(ctx, qc.LaneRange(lane))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		commitHeaders = append(commitHeaders, headers...)
 	}
-	return types.NewFullCommitQC(qc, commitHeaders), nil
+	return epoch, types.NewFullCommitQC(qc, commitHeaders), nil
 }
 
 // WaitForLocalCapacity waits until the lane owned by this node has capacity for toProduce block.
@@ -535,72 +458,72 @@ func (s *State) produceLocalBlock(n types.BlockNumber, key types.SecretKey, payl
 	return result, nil
 }
 
-// Run runs the background tasks of the state.
-//
-// Goroutines: this method spawns long-lived goroutines via scope.SpawnNamed
-// (the persist loop and the FullCommitQC→data-state pusher). Inside
-// runPersist, scope.Parallel spawns short-lived goroutines for concurrent
-// per-lane block and commit-QC persistence. The persist package itself does
-// not spawn goroutines.
-func (s *State) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		scope.SpawnNamed("persist", func() error {
-			return s.runPersist(ctx, s.persisters)
-		})
-		// Task inserting FullCommitQCs and local blocks to data state.
-		scope.SpawnNamed("s.data.PushQC", func() error {
-			for n := types.RoadIndex(0); ; n = max(n+1, s.FirstCommitQC()) {
-				qc, err := s.fullCommitQC(ctx, n)
-				if err != nil {
-					if errors.Is(err, types.ErrPruned) {
-						continue
-					}
-					return err
-				}
+// Task inserting CommitQCs and local blocks to data state.
+func (s *State) runPushQC(ctx context.Context) error {
+	for n := types.RoadIndex(0); ; n = max(n+1, s.FirstCommitQC()) {
+		epoch, qc, err := s.fullCommitQC(ctx, n)
+		if err != nil {
+			if errors.Is(err, types.ErrPruned) {
+				continue
+			}
+			return err
+		}
 
-				// Collect the blocks we have locally.
-				ep, ok := s.data.Registry().EpochByIndex(qc.QC().Proposal().EpochIndex())
-				if !ok {
-					return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
-				}
-				c := ep.Committee()
-				var blocks []*types.Block
-				for inner := range s.inner.Lock() {
-					for lane := range c.Lanes().All() {
-						lr := qc.QC().LaneRange(lane)
-						for n := lr.First(); n < lr.Next(); n++ {
-							// We are not expected to have all the blocks locally - only the available ones.
-							if b, ok := inner.blocks[lr.Lane()].q[n]; ok {
-								// We don't need to check the blocks against the headers,
-								// as bad blocks will be filtered out by PushQC anyway.
-								blocks = append(blocks, b.Msg().Block())
-							}
-						}
+		// Collect the blocks we have locally.
+		c := epoch.Committee()
+		var blocks []*types.Block
+		for inner := range s.inner.Lock() {
+			for lane := range c.Lanes().All() {
+				lr := qc.QC().LaneRange(lane)
+				for n := lr.First(); n < lr.Next(); n++ {
+					// We are not expected to have all the blocks locally - only the available ones.
+					if b, ok := inner.blocks[lr.Lane()].q[n]; ok {
+						// We don't need to check the blocks against the headers,
+						// as bad blocks will be filtered out by PushQC anyway.
+						blocks = append(blocks, b.Msg().Block())
 					}
-				}
-				if err := s.data.PushQC(ctx, qc, blocks); err != nil {
-					return fmt.Errorf("s.data.PushQC(): %w", err)
 				}
 			}
-		})
+		}
+		if err := s.data.PushQC(ctx, qc, blocks); err != nil {
+			return fmt.Errorf("s.data.PushQC(): %w", err)
+		}
+	}
+}
+
+func (s *State) runEvict(ctx context.Context) error {
+	return s.data.Anchor().Iter(ctx, func(ctx context.Context, anchor utils.Option[data.Anchor]) error {
+		if anchor, ok := anchor.Get(); ok {
+			for inner, ctrl := range s.inner.Lock() {
+				epoch, ok := s.data.Registry().EpochByIndex(anchor.CommitQC.Proposal().EpochIndex())
+				if !ok {
+					return fmt.Errorf("epoch not found")
+				}
+				inner.prune(epoch, anchor)
+				ctrl.Updated()
+			}
+		}
+		return nil
+	})
+}
+
+// Run runs the background tasks of the state.
+func (s *State) Run(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+		scope.SpawnNamed("runEvict", func() error { return s.runEvict(ctx) })
+		scope.SpawnNamed("runPersist", func() error { return s.runPersist(ctx) })
+		scope.SpawnNamed("runPushQC", func() error { return s.runPushQC(ctx) })
 		return nil
 	})
 }
 
 // runPersist is the main loop for the persist goroutine.
-// Write order:
-//  1. Prune anchor (AppQC + CommitQC pair) — the crash-recovery watermark (sequential).
 //  2. commitQCs.MaybePruneAndPersist and each lane's blocks.MaybePruneAndPersistLane run
 //     concurrently via scope.Parallel (separate WALs, no early cancellation; first error
 //     is returned after all tasks finish).
 //     Each path publishes (markCommitQCsPersisted / markBlockPersisted) per entry so voting
 //     unblocks ASAP.
-//
-// The prune anchor is a pruning watermark: on restart we resume from it.
-//
-// TODO: use a single WAL for anchor and CommitQCs to make
-// this atomic rather than relying on write order.
-func (s *State) runPersist(ctx context.Context, pers persisters) error {
+func (s *State) runPersist(ctx context.Context) error {
 	for {
 		batch, err := s.collectPersistBatch(ctx)
 		if err != nil {
@@ -616,7 +539,7 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 		// Callees handle empty inputs gracefully (no-op when nothing to write/truncate).
 		if err := scope.Parallel(func(ps scope.ParallelScope) error {
 			ps.Spawn(func() error {
-				if err := pers.commitQCs.PruneAndPersist(batch.commitQCs.first, batch.commitQCs.tail); err != nil {
+				if err := s.persisters.commitQCs.Persist(batch.commitQCs.first, batch.commitQCs.tail); err != nil {
 					return err
 				}
 				if t := batch.commitQCs.tail; len(t) > 0 {
@@ -626,7 +549,7 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 			})
 			for lane, batch := range batch.blocks {
 				ps.Spawn(func() error {
-					return pers.blocks.Persist(lane, batch.first, batch.tail, utils.Some(markBlock))
+					return s.persisters.blocks.Persist(lane, batch.first, batch.tail, utils.Some(markBlock))
 				})
 			}
 			return nil
@@ -651,21 +574,6 @@ type persistBatch struct {
 	commitQCs commitQCsBatch
 }
 
-// advancePersistedBlockStart updates the per-lane block admission watermark
-// after durably writing the prune anchor. This unblocks PushBlock/ProduceBlock
-// waiters that are gated on persistedBlockStart + BlocksPerLane.
-func (s *State) advancePersistedBlockStart(commitQC *types.CommitQC) {
-	for inner, ctrl := range s.inner.Lock() {
-		for lane := range inner.blocks {
-			start := commitQC.LaneRange(lane).First()
-			if start > inner.persistedBlockStart[lane] {
-				inner.persistedBlockStart[lane] = start
-			}
-		}
-		ctrl.Updated()
-	}
-}
-
 // markBlockPersisted advances the per-lane block persistence cursor.
 // Called after each block is persisted so that RecvBatch (and therefore
 // voting) can unblock as soon as the block is durable. Safe for concurrent
@@ -681,20 +589,20 @@ func (s *State) markBlockPersisted(lane types.LaneID, next types.BlockNumber) {
 // gating consensus from advancing until the QC is durable.
 func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 	for inner := range s.inner.Lock() {
-		inner.latestCommitQC.Store(utils.Some(qc))
+		inner.persistedCommitQC.Store(utils.Some(qc))
 	}
 }
 
 // collectPersistBatch waits for new blocks or commitQCs and collects them under lock.
 func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		// Derive the CommitQC persist cursor from latestCommitQC. This is
-		// safe because latestCommitQC is only advanced by markCommitQCsPersisted
+		// Derive the CommitQC persist cursor from persistedCommitQC. This is
+		// safe because persistedCommitQC is only advanced by markCommitQCsPersisted
 		// (after disk write) and on startup (from disk). prune() does NOT
-		// update latestCommitQC, so this always reflects persistence state.
+		// update persistedCommitQC, so this always reflects persistence state.
 		// The max clamp with commitQCs.first handles the case where prune()
 		// fast-forwarded the queue past the cursor.
-		next := types.NextIndexOpt(inner.latestCommitQC.Load())
+		next := types.NextIndexOpt(inner.persistedCommitQC.Load())
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			for lane, q := range inner.blocks {
 				if inner.nextBlockToPersist[lane] < q.next {

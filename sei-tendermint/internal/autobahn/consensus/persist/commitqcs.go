@@ -13,7 +13,7 @@ const commitqcsDir = "commitqcs"
 
 // commitQCState is the mutable state protected by CommitQCPersister's mutex.
 type commitQCState struct {
-	iw   utils.Option[*indexedWAL[*types.CommitQC]]
+	iw        utils.Option[*indexedWAL[*types.CommitQC]]
 	persisted types.RoadRange
 }
 
@@ -42,7 +42,7 @@ func (s *commitQCState) persist(qc *types.CommitQC) error {
 func (s *commitQCState) deleteBefore(idx types.RoadIndex) error {
 	iw, ok := s.iw.Get()
 	if idx >= s.persisted.Next {
-		s.persisted = types.RoadRange{First:idx,Next:idx}
+		s.persisted = types.RoadRange{First: idx, Next: idx}
 		if ok && iw.Count() > 0 {
 			if err := iw.TruncateAll(); err != nil {
 				return err
@@ -100,9 +100,9 @@ func NewCommitQCPersister(stateDir utils.Option[string]) (*CommitQCPersister, []
 		return nil, nil, err
 	}
 	if len(loaded) > 0 {
-		s.persisted = types.RoadRange {
+		s.persisted = types.RoadRange{
 			First: loaded[0].Index(),
-			Next: loaded[len(loaded)-1].Index() + 1,
+			Next:  loaded[len(loaded)-1].Index() + 1,
 		}
 	}
 	return &CommitQCPersister{state: utils.NewMutex(s)}, loaded, nil
@@ -131,7 +131,7 @@ func (cp *CommitQCPersister) Next() types.RoadIndex {
 // need not coordinate ordering.
 // afterEach, when present, is called after each successful append. It is
 // invoked while the lock is held, so it must not re-enter the persister.
-func (cp *CommitQCPersister) PruneAndPersist(deleteBefore types.RoadIndex, commitQCs []*types.CommitQC) error {
+func (cp *CommitQCPersister) Persist(deleteBefore types.RoadIndex, commitQCs []*types.CommitQC) error {
 	for s := range cp.state.Lock() {
 		if err := s.deleteBefore(deleteBefore); err != nil {
 			return err
