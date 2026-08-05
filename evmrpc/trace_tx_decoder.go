@@ -22,10 +22,10 @@ type protoCodecProvider interface {
 
 // traceCompatTxConfig selects a historical-compatible decoder for debug_trace*:
 //   - pre-v6.5: skip TxBody and AuthInfo canonical-size checks
-//   - v6.5 to v6.8: enforce TxBody checks, skip AuthInfo checks
-//   - v6.8+: use the live (fully strict) decoder
-func traceCompatTxConfig(txConfig client.TxConfig, v65ActiveAtHeight, v68ActiveAtHeight bool) client.TxConfig {
-	if v68ActiveAtHeight {
+//   - v6.5 to v6.7: enforce TxBody checks, skip AuthInfo checks
+//   - v6.7+: use the live (fully strict) decoder
+func traceCompatTxConfig(txConfig client.TxConfig, v65ActiveAtHeight, v67ActiveAtHeight bool) client.TxConfig {
+	if v67ActiveAtHeight {
 		return txConfig
 	}
 	provider, ok := txConfig.(protoCodecProvider)
@@ -47,17 +47,17 @@ func traceCompatTxConfig(txConfig client.TxConfig, v65ActiveAtHeight, v68ActiveA
 func traceCompatTxConfigProvider(
 	txConfigProvider func(int64) client.TxConfig,
 	isV65ActiveAtHeight func(int64) bool,
-	isV68ActiveAtHeight func(int64) bool,
+	isV67ActiveAtHeight func(int64) bool,
 ) func(int64) client.TxConfig {
 	return func(height int64) client.TxConfig {
 		return traceCompatTxConfig(
 			txConfigProvider(height),
 			isV65ActiveAtHeight(height),
-			isV68ActiveAtHeight(height),
+			isV67ActiveAtHeight(height),
 		)
 	}
 }
 
-func traceCompatTxDecoder(txConfig client.TxConfig, v65ActiveAtHeight, v68ActiveAtHeight bool) sdk.TxDecoder {
-	return traceCompatTxConfig(txConfig, v65ActiveAtHeight, v68ActiveAtHeight).TxDecoder()
+func traceCompatTxDecoder(txConfig client.TxConfig, v65ActiveAtHeight, v67ActiveAtHeight bool) sdk.TxDecoder {
+	return traceCompatTxConfig(txConfig, v65ActiveAtHeight, v67ActiveAtHeight).TxDecoder()
 }

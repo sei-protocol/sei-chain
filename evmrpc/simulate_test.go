@@ -1162,17 +1162,17 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 
 func TestTraceBlockByNumberUsesCompatDecoderForHistoricalAuthInfo(t *testing.T) {
 	const (
-		preV68Height = int64(150)
+		preV67Height = int64(150)
 		v65Height    = int64(100)
-		v68Height    = int64(200)
+		v67Height    = int64(200)
 	)
 
 	testApp := app.Setup(t, false, false, false)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(v65Height).WithClosestUpgradeName("v6.5")
 	testApp.UpgradeKeeper.SetDone(ctx, "v6.5")
-	ctx = ctx.WithBlockHeight(v68Height).WithClosestUpgradeName("v6.8")
-	testApp.UpgradeKeeper.SetDone(ctx, "v6.8")
-	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), v68Height)
+	ctx = ctx.WithBlockHeight(v67Height).WithClosestUpgradeName("v6.7")
+	testApp.UpgradeKeeper.SetDone(ctx, "v6.7")
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), v67Height)
 	ctxProvider := func(height int64) sdk.Context {
 		if height == evmrpc.LatestCtxHeight {
 			return ctx
@@ -1221,8 +1221,8 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalAuthInfo(t *testing.T) 
 		}
 	}
 
-	// v6.5-to-v6.8 window: AuthInfo checks are skipped for tracing.
-	compatTmClient := &fixedBlockClient{block: makeBlock(preV68Height)}
+	// v6.5-to-v6.7 window: AuthInfo checks are skipped for tracing.
+	compatTmClient := &fixedBlockClient{block: makeBlock(preV67Height)}
 	compatWatermarks := evmrpc.NewWatermarkManager(compatTmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	compatBackend := evmrpc.NewBackend(
 		ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
@@ -1230,15 +1230,15 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalAuthInfo(t *testing.T) 
 		testApp.BaseApp, testApp.TracerAnteHandler,
 		evmrpc.NewBlockCache(3000), &sync.Mutex{}, compatWatermarks,
 	)
-	ethBlock, metadata, err := compatBackend.BlockByNumber(context.Background(), rpc.BlockNumber(preV68Height))
+	ethBlock, metadata, err := compatBackend.BlockByNumber(context.Background(), rpc.BlockNumber(preV67Height))
 	require.NoError(t, err)
 	require.Len(t, ethBlock.Transactions(), 0)
 	require.Len(t, metadata, 1)
 	require.False(t, metadata[0].ShouldIncludeInTraceResult)
 	require.NotNil(t, metadata[0].TraceRunnable)
 
-	// v6.8+: AuthInfo checks are enforced for tracing.
-	strictTmClient := &fixedBlockClient{block: makeBlock(v68Height)}
+	// v6.7+: AuthInfo checks are enforced for tracing.
+	strictTmClient := &fixedBlockClient{block: makeBlock(v67Height)}
 	strictWatermarks := evmrpc.NewWatermarkManager(strictTmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	strictBackend := evmrpc.NewBackend(
 		ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
@@ -1246,7 +1246,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalAuthInfo(t *testing.T) 
 		testApp.BaseApp, testApp.TracerAnteHandler,
 		evmrpc.NewBlockCache(3000), &sync.Mutex{}, strictWatermarks,
 	)
-	_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(v68Height))
+	_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(v67Height))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "does not match canonical size")
 	require.Contains(t, err.Error(), "auth info")

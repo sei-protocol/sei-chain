@@ -28,7 +28,7 @@ func DefaultTxDecoderWithoutBodyBloatRejection(cdc codec.ProtoCodecMarshaler) sd
 
 // DefaultTxDecoderWithoutAuthInfoBloatRejection returns a protobuf TxDecoder that
 // rejects non-canonical TxBody encodings (v6.5+) but not non-canonical AuthInfo
-// encodings. Used for historical tooling that replays the v6.5-to-v6.8 window.
+// encodings. Used for historical tooling that replays the v6.5-to-v6.7 window.
 // Do not use this for mempool, CheckTx, or DeliverTx paths.
 func DefaultTxDecoderWithoutAuthInfoBloatRejection(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 	return defaultTxDecoder(cdc, true, false)

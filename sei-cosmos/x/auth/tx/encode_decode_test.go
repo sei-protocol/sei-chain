@@ -187,7 +187,7 @@ func TestDefaultTxDecoderRejectsAuthInfoBloat(t *testing.T) {
 			require.Contains(t, err.Error(), "does not match canonical size")
 			require.Contains(t, err.Error(), "auth info")
 
-			// v6.5-to-v6.8 window: body checks on, AuthInfo checks off.
+			// v6.5-to-v6.7 window: body checks on, AuthInfo checks off.
 			decoded, err := DefaultTxDecoderWithoutAuthInfoBloatRejection(cdc)(bloatedTxBz)
 			require.NoError(t, err)
 			tt.assert(t, decoded.(*wrapper))
