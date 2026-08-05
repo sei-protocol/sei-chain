@@ -107,6 +107,26 @@ func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
 	return false
 }
 
+// AllowN reports whether n requests (e.g. a batch) from ip should be allowed for the
+// given plane. It is atomic: on rejection no tokens are consumed.
+func (r *Registry) AllowN(ctx context.Context, ip, plane, method string, n int) bool {
+	if r.cfg.RPS <= 0 || r.cfg.Burst <= 0 {
+		return true
+	}
+	if r.getOrCreate(ip).AllowN(time.Now(), n) {
+		return true
+	}
+	registryMetrics.rejectedCounter.Add(
+		ctx,
+		1,
+		metric.WithAttributes(
+			attribute.String("plane", plane),
+			attribute.String("method_namespace", bucketRPCMethod(method)),
+		),
+	)
+	return false
+}
+
 // IPFromHTTPRequest extracts the client IP from an HTTP request.
 // If RemoteAddr belongs to a trusted proxy CIDR, the rightmost untrusted X-Forwarded-For
 // entry is used. Walking right-to-left and skipping trusted CIDRs prevents a client from

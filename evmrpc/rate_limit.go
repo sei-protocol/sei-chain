@@ -50,7 +50,6 @@ func (g *RateLimitGate) chargeAdmissionRejection(ctx context.Context, ip string)
 }
 
 // Check parses body for JSON-RPC method names and applies per-IP rate limits.
-// rejectMethod is the method that exhausted the bucket when allowed=false.
 // Parse errors still charge the bucket under ratelimiter.MethodInvalid so
 // malformed bodies can't bypass rate limiting; if that exhausts the bucket,
 // Check reports a rate-limit rejection instead of returning the parse error.
@@ -67,10 +66,8 @@ func (g *RateLimitGate) Check(ctx context.Context, ip string, body io.Reader) (a
 		return false, "", parseErr
 	}
 
-	for _, method := range methods {
-		if !g.registry.Allow(ctx, ip, g.plane, method) {
-			return false, method, nil
-		}
+	if n := len(methods); n > 0 && !g.registry.AllowN(ctx, ip, g.plane, methods[0], n) {
+		return false, methods[0], nil
 	}
 	return true, "", nil
 }
