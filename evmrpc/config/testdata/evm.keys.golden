@@ -43,6 +43,8 @@
 "evm.trace_bake_snapshot_window"
 "evm.ip_rate_limit_rps"
 "evm.ip_rate_limit_burst"
+"evm.rate_limiting_enabled"
+"evm.trusted_proxy_cidrs"
 "evm.batch_request_limit"
 "evm.batch_response_max_size"
 "evm.max_request_body_bytes"
