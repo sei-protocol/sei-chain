@@ -57,11 +57,17 @@ snapshot:
 # and its footer removed.
 #
 # Disabling the changelog does NOT drop the release.header block below: header/footer are
-# applied by goreleaser's release pipe (internal/pipe/release/body.go), not the changelog
-# pipe, so `disable` only empties the middle of the release body. It is also the only
-# config-only way to get a header-only body: filtering out every commit still emits a bare
-# "## Changelog" heading. Deleting release.footer is likewise the only way to drop the
-# duplicate compare link, since footer rendering is independent of the changelog pipe.
+# applied by goreleaser's release pipe, not the changelog pipe, so `disable` only empties
+# the middle of the release body. It is also the only config-only way to get a header-only
+# body: filtering out every commit still emits a bare "## Changelog" heading. Deleting
+# release.footer is likewise the only way to drop the duplicate compare link, since footer
+# rendering is independent of the changelog pipe.
+#
+# Verified against goreleaser v2.15.4 (release pipe composes the body from release.header +
+# ctx.ReleaseNotes + release.footer in internal/pipe/release/body.go; changelog.disable only
+# empties ctx.ReleaseNotes). uci pins the floating range `~> v2`, so if a future v2.x ever
+# drops the header from a release body, re-check that composition first. The header content
+# includes the checksum-verification instructions, so losing it would be user-visible.
 #
 # Caveat if the release args ever change: `disable` also discards flag-supplied notes
 # (--release-notes / --release-header / --release-footer). uci passes a fixed
