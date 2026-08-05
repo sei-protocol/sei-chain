@@ -474,7 +474,7 @@ func reportLoop(ctx context.Context, interval time.Duration, metrics *loadMetric
 	defer ticker.Stop()
 
 	prev := metrics.snapshot()
-	for {
+	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
 			return

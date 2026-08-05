@@ -4,6 +4,9 @@
 the EVM-only executor without Cosmos SDK state, mempool, RPC, or chain
 persistence.
 
+The synthetic workload defaults to local EVM chain ID `1337`; override it with
+`--chain-id` when testing another signing domain.
+
 It currently generates pure EVM legacy transfer transactions, ERC20 transfer
 transactions using `sei-load`'s compiled contract runtime, and a contract-call
 workload that exercises nested StateDB

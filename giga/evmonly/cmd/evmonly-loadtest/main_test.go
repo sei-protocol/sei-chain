@@ -331,6 +331,12 @@ func TestBlocksRequiresBoundedRun(t *testing.T) {
 	require.ErrorContains(t, err, "blocks must be positive")
 }
 
+func TestDefaultChainIDIsLocal(t *testing.T) {
+	cfg, err := parseConfig([]string{"--blocks=1"})
+	require.NoError(t, err)
+	require.Equal(t, "1337", cfg.chainID.String())
+}
+
 func TestRecipientConflictRateValidation(t *testing.T) {
 	_, err := parseConfig([]string{
 		"--blocks=1",

@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultChainID                  = "713715"
+	defaultChainID                  = "1337"
 	defaultGasPriceWei              = "1000000000"
 	defaultMinGasPriceWei           = "1000000000"
 	defaultSenderBalance            = "1000000000000000000"

@@ -164,7 +164,7 @@ func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorklo
 	group, groupCtx := errgroup.WithContext(ctx)
 	for builderID := 0; builderID < cfg.builders; builderID++ {
 		group.Go(func() error {
-			for {
+			for groupCtx.Err() == nil {
 				number := nextBlock.Add(1)
 				if number > cfg.blocks {
 					return nil
@@ -181,6 +181,7 @@ func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorklo
 					request: request,
 				}
 			}
+			return nil
 		})
 	}
 	if err := group.Wait(); err != nil {
@@ -216,7 +217,7 @@ func prepareBlocks(
 	for workerID := 0; workerID < cfg.prepareWorkers; workerID++ {
 		workerID := workerID
 		group.Go(func() error {
-			for {
+			for groupCtx.Err() == nil {
 				select {
 				case <-groupCtx.Done():
 					return nil
@@ -240,6 +241,7 @@ func prepareBlocks(
 					}
 				}
 			}
+			return nil
 		})
 	}
 	done := make(chan error, 1)
@@ -265,12 +267,8 @@ func prepareBlocks(
 func forwardPreparedBlocksInOrder(ctx context.Context, in <-chan preparedBlockEnvelope, out chan<- preparedBlockEnvelope) error {
 	next := uint64(1)
 	pending := make(map[uint64]preparedBlockEnvelope)
-	for {
-		for {
-			block, ok := pending[next]
-			if !ok {
-				break
-			}
+	for ctx.Err() == nil {
+		for block, ok := pending[next]; ok; block, ok = pending[next] {
 			if err := sendPreparedBlock(ctx, out, block); err != nil {
 				return err
 			}
@@ -315,6 +313,7 @@ func forwardPreparedBlocksInOrder(ctx context.Context, in <-chan preparedBlockEn
 			pending[block.number] = block
 		}
 	}
+	return nil
 }
 
 func sendPreparedBlock(ctx context.Context, out chan<- preparedBlockEnvelope, block preparedBlockEnvelope) error {
@@ -366,7 +365,7 @@ func executeBlocks(
 	blocks <-chan preparedBlockEnvelope,
 	metrics *loadMetrics,
 ) error {
-	for {
+	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
 			return nil
@@ -388,6 +387,7 @@ func executeBlocks(
 			metrics.recordResultPoolStats(executor.ResultPoolStats())
 		}
 	}
+	return nil
 }
 
 type txStatusCounts struct {
