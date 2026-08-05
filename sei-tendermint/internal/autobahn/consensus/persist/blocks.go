@@ -300,10 +300,11 @@ func (bp *BlockPersister) getLane(lane types.LaneID, allowCreate bool) (lw *lane
 //   - anchor empty, proposals non-empty: append only, no truncation.
 //   - anchor empty, proposals empty:     no-op.
 //
-// active is the current committee: new WALs are created only for lanes in
-// active (HasLane). Inactive lanes with an already-open WAL may still be
-// flushed/truncated (deferred leave); inactive lanes with no WAL are skipped
-// so DeleteLane is not undone by recreation.
+// active is the current committee: new WALs are created for active.HasLane lanes.
+// Leavers with an already-open WAL may still flush/truncate. If a leave lane has
+// proposals in this batch but no WAL yet (leave raced the first persist), we still
+// create+write so tips are not silently dropped — post-DeleteLane batches do not
+// include that lane, so recreation after prune stays prevented.
 //
 // afterEach, when present, is called once per appended proposal in order, after the whole batch has
 // been flushed — never before, because an append is not durable until then and afterEach is what
@@ -330,7 +331,8 @@ func (bp *BlockPersister) MaybePruneAndPersistLane(
 		return nil
 	}
 
-	lw, ok, err := bp.getLane(lane, active.HasLane(lane))
+	allowCreate := active.HasLane(lane) || len(proposals) > 0
+	lw, ok, err := bp.getLane(lane, allowCreate)
 	if err != nil {
 		return err
 	}
