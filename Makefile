@@ -188,6 +188,15 @@ dblint:
 build:
 	mkdir -p ./build
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
+# Prove the gate can fail, then trust it. The order is the point: an instrument nobody has shown can
+# fail cannot certify anything, so the unit tests run first and a failure there stops the run before
+# any verdict is reported.
+mutation-gate:
+	go test ./testutil/configtest/mutations/gate/ -count=1
+	go run ./testutil/configtest/mutations/cmd/gate
+
+.PHONY: mutation-gate
+
 .PHONY: build
 
 build-verbose:

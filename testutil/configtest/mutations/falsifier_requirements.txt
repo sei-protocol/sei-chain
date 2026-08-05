@@ -1,0 +1,15 @@
+# Requirements from spec.md that name a falsifier AND whose phase has landed.
+#
+# The gate fails when an entry here has no row in expectations.tsv, so a falsifier cannot be named
+# in the spec and then never executed. It lists landed phases only: a requirement from a phase still
+# to come has no patch yet by design, and listing it would make the gate red for work not started.
+#
+# Grow this file in the same change that lands the phase. Reconciled against spec.md by the design
+# repo's synth.py, because a copy-vs-copy check inside sei-chain catches a drop from the copy and
+# never an addition to the source.
+# FR-003 and FR-004 are deliberately absent. They are properties of THIS GATE, so their falsifiers
+# mutate run.sh, and mutating a shell script while it executes is not something to build a guarantee
+# on. selftest.sh verifies them instead, as differentials: it builds a copy of run.sh with one arm
+# removed and requires the real gate to fail where the copy passes. Same reasoning that keeps the
+# -shuffle=on run-mode obligation out of expectations.tsv -- a row is a production mutation.
+FR-005

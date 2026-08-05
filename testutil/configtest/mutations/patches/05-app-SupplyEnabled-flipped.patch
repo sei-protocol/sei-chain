@@ -1,0 +1,13 @@
+diff --git a/app/invariance.go b/app/invariance.go
+index b7ea17246..f5df1ccdb 100644
+--- a/app/invariance.go
++++ b/app/invariance.go
+@@ -25,7 +25,7 @@ type LightInvarianceConfig struct {
+ }
+ 
+ var DefaultLightInvarianceConfig = LightInvarianceConfig{
+-	SupplyEnabled: true,
++	SupplyEnabled: false,
+ }
+ 
+ const (

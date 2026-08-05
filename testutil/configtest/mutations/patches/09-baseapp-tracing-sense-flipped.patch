@@ -1,0 +1,13 @@
+diff --git a/sei-cosmos/baseapp/baseapp.go b/sei-cosmos/baseapp/baseapp.go
+index 43d8e41cf..04332607a 100644
+--- a/sei-cosmos/baseapp/baseapp.go
++++ b/sei-cosmos/baseapp/baseapp.go
+@@ -263,7 +263,7 @@ func NewBaseApp(
+ 	tp := noop.NewTracerProvider()
+ 	otel.SetTracerProvider(noop.NewTracerProvider())
+ 	tr := tp.Tracer("component-main")
+-	tracingEnabled := cast.ToBool(appOpts.Get(tracing.FlagTracing))
++	tracingEnabled := !cast.ToBool(appOpts.Get(tracing.FlagTracing))
+ 	if tracingEnabled {
+ 		tp, err := tracing.DefaultTracerProvider()
+ 		if err != nil {

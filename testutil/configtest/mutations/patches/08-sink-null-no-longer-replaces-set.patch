@@ -1,0 +1,13 @@
+diff --git a/sei-tendermint/internal/state/indexer/sink/sink.go b/sei-tendermint/internal/state/indexer/sink/sink.go
+index 804557051..8413755fc 100644
+--- a/sei-tendermint/internal/state/indexer/sink/sink.go
++++ b/sei-tendermint/internal/state/indexer/sink/sink.go
+@@ -33,7 +33,7 @@ func EventSinksFromConfig(cfg *config.Config, dbProvider config.DBProvider, chai
+ 		case indexer.NULL:
+ 			// When we see null in the config, the eventsinks will be reset with the
+ 			// nullEventSink.
+-			return []indexer.EventSink{null.NewEventSink()}, nil
++			eventSinks = append(eventSinks, null.NewEventSink())
+ 
+ 		case indexer.KV:
+ 			store, err := dbProvider(&config.DBContext{ID: "tx_index", Config: cfg})

@@ -1,0 +1,14 @@
+diff --git a/testutil/configtest/keyspec.go b/testutil/configtest/keyspec.go
+index 6b3f3d5eb..9a7caa385 100644
+--- a/testutil/configtest/keyspec.go
++++ b/testutil/configtest/keyspec.go
+@@ -364,8 +364,7 @@ func leafAt(dump, path string) (string, bool) {
+ // what lets an AlsoWrites entry name a whole sub-struct. The prefix is path+"." rather than
+ // path, so a sibling named FooBar is not swallowed by a path of Foo.
+ func isLeafLine(line, path string) bool {
+-	return line == path+" = <nil>" || strings.HasPrefix(line, path+" = ") ||
+-		strings.HasPrefix(line, path+"[") || strings.HasPrefix(line, path+".")
++	return strings.HasPrefix(line, path)
+ }
+ 
+ // leafOf renders a bare value the way Dump renders it at path, minus the path.

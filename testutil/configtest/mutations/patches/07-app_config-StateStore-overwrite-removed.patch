@@ -1,0 +1,13 @@
+diff --git a/cmd/seid/cmd/app_config.go b/cmd/seid/cmd/app_config.go
+index b984c12c2..bdf1c9869 100644
+--- a/cmd/seid/cmd/app_config.go
++++ b/cmd/seid/cmd/app_config.go
+@@ -41,7 +41,7 @@ func NewCustomAppConfig(baseConfig *srvconfig.Config, evmConfig evmrpcconfig.Con
+ 	return CustomAppConfig{
+ 		Config:       *baseConfig,
+ 		StateCommit:  seidbconfig.DefaultStateCommitConfig(),
+-		StateStore:   seidbconfig.DefaultStateStoreConfig(),
++		StateStore:   baseConfig.StateStore,
+ 		ReceiptStore: seidbconfig.DefaultReceiptStoreConfig(),
+ 		WASM: WASMConfig{
+ 			QueryGasLimit: 300000,

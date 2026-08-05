@@ -1,0 +1,60 @@
+name: Config Mutation Gate
+
+# Decides, per named falsifier, whether the configuration characterization suite would actually catch
+# a change to production code. A prior audit renamed 27 operator-facing config keys with the whole
+# suite green, so "the suite covers these keys" and "the suite would catch a change to them" are
+# different claims, and this job settles the second one by experiment.
+#
+# Its own job with its own timeout, rather than a step in the test workflow, because it runs go test
+# once per row against real packages and would otherwise spend the test job's budget.
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main, seiv2]
+
+concurrency:
+  group: config-mutation-gate-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation-gate:
+    name: Mutation Gate
+    runs-on: uci-default
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The gate creates a worktree at HEAD, which needs the commit object rather than a shallow
+          # tip. fetch-depth 0 is the simple guarantee that `git worktree add HEAD` resolves.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      # First, because a gate that has not been shown to be able to fail cannot certify anything. This
+      # replaces the shell predecessor's in-process selftest with a pipeline step, so the ordering is
+      # visible here rather than buried in the tool.
+      - name: Prove the gate can fail
+        run: go test ./testutil/configtest/mutations/gate/ -count=1
+
+      - name: Observe every recorded falsifier
+        run: go run ./testutil/configtest/mutations/cmd/gate
+
+      # The gate works in a throwaway worktree and reverts every patch, so a dirty checkout here means
+      # a revert did not take and no verdict above can be trusted.
+      - name: Checkout unchanged by the gate
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+            echo "The gate left the checkout modified, so a patch was not reverted:"
+            git status --porcelain --untracked-files=all
+            git diff
+            exit 1
+          fi
