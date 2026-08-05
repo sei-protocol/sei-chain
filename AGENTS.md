@@ -51,6 +51,38 @@ gofmt -s -l .
 goimports -l .
 ```
 
+## Structural corrections
+
+When a defect is found, the change that closes it has to leave the code readable as a
+sequence of named steps a new engineer can follow top to bottom without someone
+narrating it. Three rules make that checkable, and they are what review looks for.
+
+**Guard at the choke point, never at each caller.** A guard repeated at every call
+site is a convention the next caller can forget, where a guard at the single function
+every path passes through is an invariant they cannot. When there is no such function,
+that is evidence the abstraction is wrong, so say so rather than distributing the
+guard.
+
+*Worked example, from the configuration record refusal.* The refusal was first written
+at each of `writeGolden`'s two call sites plus a third site that suppresses a
+comparison. Moved inside `writeGolden`, one of the three files needed no change at
+all, and a record writer added later is covered without having to remember anything.
+The third site kept a call of its own because it suppresses a comparison rather than
+performing a write, and a suppressed comparison reads as a pass.
+
+**The step name carries the *what*, and the doc comment carries the *why*.** A long
+comment sitting inline in a flow means the step was never named. Extract the step and
+move the rationale to its doc comment. Relocating a load-bearing invariant is the
+move, never deleting one to tidy up.
+
+**Behaviour never changes in a readability refactor,** and the proof is the existing
+tests passing *unchanged*. A refactor that requires editing a test is not a refactor.
+
+Run `/idiomatic` after any restructuring. None of this is checked by a linter, which is
+why it is written down. The failure it prevents is a codebase where found problems
+accumulated fixes instead of corrections, and that is indistinguishable from a healthy
+one on any green test run.
+
 ## Lint, build & test
 
 Linting and formatting are driven by the root `Makefile` and `.golangci.yml`
