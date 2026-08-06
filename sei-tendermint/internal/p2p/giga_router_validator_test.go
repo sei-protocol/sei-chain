@@ -68,7 +68,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			// In giga mode the CometBFT handshaker is skipped; the router's
 			// runExecute calls InitChain itself on fresh start.
 			dir := t.TempDir()
-			// Same resolve path as config.AutobahnBlockDBConfig{}.BlockDBConfig
+			// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 			// (zero overrides); p2p can't import config (import cycle).
 			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
 			require.NoError(t, err, "littblock.DefaultConfig[%v]", i)
@@ -237,7 +237,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	require.NoError(t, genDoc.ValidateAndComplete())
 
 	dir := t.TempDir()
-	// Same resolve path as config.AutobahnBlockDBConfig{}.BlockDBConfig
+	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 	// (zero overrides); p2p can't import config (import cycle).
 	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)

@@ -471,7 +471,25 @@ func (s *littReceiptStore) startPruning() {
 //
 // Shared by both retention drivers: startPruning above, and the collector via
 // PruneBelow. Exactly one of them is live — see the type doc.
+//
+// cutoff may sit above this store's head, because the collector's PruneBelow
+// carries a minimum taken across every managed store and this one can lag or be
+// empty. Such a request is capped at the head rather than honored: taking it
+// literally would drop every tag entry the store holds and leave the floor above
+// anything it could serve. The collector's own head minimum makes that request
+// unlikely, but that is a property of the caller, and the floor here should not
+// depend on reasoning about one.
 func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
+	head := s.latestVersion.Load()
+	if head <= 0 {
+		// Nothing ingested, so nothing to drop, and a floor above an empty store
+		// would only have to be walked back when blocks finally arrive.
+		return nil
+	}
+	if cutoff > uint64(head) { //nolint:gosec // guarded positive above
+		cutoff = uint64(head)
+	}
+
 	floor := uint64(0)
 	if earliest := s.earliestVersion.Load(); earliest > 0 {
 		floor = uint64(earliest) //nolint:gosec // earliest is non-negative

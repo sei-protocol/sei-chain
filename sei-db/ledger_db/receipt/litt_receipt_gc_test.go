@@ -179,3 +179,33 @@ func TestReceiptGCPruningBoundaryAndPruneBelow(t *testing.T) {
 	require.NoError(t, prunable.PruneBelow(1))
 	require.Equal(t, int64(3), store.EarliestVersion())
 }
+
+// PruneBelow carries a minimum taken across every managed store, so it can arrive above this
+// store's head whenever this one lags or has ingested nothing. Both cases are the store's own to
+// survive: the collector's head minimum makes them unlikely, but that is a property of the caller.
+func TestReceiptGCPruneBelowAboveHead(t *testing.T) {
+	addr := common.HexToAddress("0xabcd")
+	topic := common.HexToHash("0x1111")
+
+	t.Run("empty store keeps its floor at zero", func(t *testing.T) {
+		store, prunable, _ := setupLittIdxForGC(t, 0)
+
+		require.NoError(t, prunable.PruneBelow(1_000))
+		require.Equal(t, int64(0), store.EarliestVersion(),
+			"a floor above an empty store would have to be walked back once blocks arrive")
+	})
+
+	t.Run("lagging store is capped at its head", func(t *testing.T) {
+		store, prunable, ctx := setupLittIdxForGC(t, 0)
+		for block := uint64(1); block <= 3; block++ {
+			writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
+		}
+
+		require.NoError(t, prunable.PruneBelow(1_000))
+		require.Equal(t, int64(3), store.EarliestVersion(), "the floor stops at the head, not the request")
+
+		kept, err := store.GetReceiptFromStore(ctx, litTxHash(3, 0))
+		require.NoError(t, err, "honoring the request literally would drop every block the store holds")
+		require.Equal(t, uint64(3), kept.BlockNumber)
+	})
+}

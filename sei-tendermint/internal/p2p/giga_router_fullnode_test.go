@@ -60,7 +60,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	proxyApp := proxy.New(app)
 
 	dir := t.TempDir()
-	// Same resolve path as config.AutobahnBlockDBConfig{}.BlockDBConfig
+	// Same resolve path as config.AutobahnBlockDBConfig{}.LittBlockConfig
 	// (zero overrides); p2p can't import config (import cycle).
 	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
