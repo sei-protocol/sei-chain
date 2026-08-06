@@ -201,6 +201,31 @@ func buildCachedMemKeyDiskTable(
 	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
+// buildCacheDisabledMemKeyDiskTable wraps a base table in cachedTable with caches that can never hold an
+// entry (max weight 0, which is what DefaultTableConfig configures and therefore what every table in this
+// repo runs with today). Every read must fall through to the base table, so this covers the wrapper's
+// delegation path — which the builders above cannot, since their caches are large enough that a written
+// value is always still resident.
+func buildCacheDisabledMemKeyDiskTable(
+	clock func() time.Time,
+	name string,
+	path string) (litt.ManagedTable, error) {
+
+	baseTable, err := buildMemKeyDiskTable(clock, name, path)
+	if err != nil {
+		return nil, err
+	}
+
+	writeCache := util.NewFIFOCache[string, []byte](0, func(k string, v []byte) uint64 {
+		return uint64(len(k) + len(v))
+	}, nil)
+	readCache := util.NewFIFOCache[string, []byte](0, func(k string, v []byte) uint64 {
+		return uint64(len(k) + len(v))
+	}, nil)
+
+	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
+}
+
 func buildCachedPebbleDBKeyDiskTable(
 	clock func() time.Time,
 	name string,
@@ -562,6 +587,165 @@ func TestSecondaryKeyBasics(t *testing.T) {
 		t.Run(tb.name, func(t *testing.T) {
 			t.Parallel()
 			secondaryKeyBasicsTest(t, tb)
+		})
+	}
+}
+
+// getSubrangeParityTest runs against every implementation, cached and uncached, and pins the property
+// that makes it safe for a cached table to serve a subrange read by slicing a cached value: the read is
+// indistinguishable from the same read against the base table. It covers a primary key, a secondary key
+// (whose offsets are relative to its own aliased region, not to the parent value), out-of-bounds ranges,
+// and the requirement that a subrange read never poisons a later full Get.
+func getSubrangeParityTest(t *testing.T, tb *tableBuilder) {
+	rand := util.NewTestRandom()
+	directory := t.TempDir()
+	tableName := rand.String(8)
+	table, err := tb.builder(time.Now, tableName, directory)
+	require.NoError(t, err)
+
+	//                     0         1
+	//                     0123456789012345678
+	value := []byte("the quick brown fox")
+	primary := []byte("primary")
+	// A secondary aliasing the strict sub-range "brown fox". Its cache entry holds only those bytes, and
+	// its on-disk address points at the same region, so both paths measure offsets from "brown".
+	sk := &types.SecondaryKey{Key: []byte("brown-fox"), Offset: 10, Length: 9}
+	require.NoError(t, table.Put(primary, value, sk))
+
+	verify := func(stage string) {
+		t.Helper()
+
+		got, ok, err := table.GetSubrange(primary, 4, 5)
+		require.NoError(t, err, stage)
+		require.True(t, ok, stage)
+		require.Equal(t, []byte("quick"), got, stage)
+		// A hit slices a buffer holding the whole value (an unflushed write, or a cache entry), so the
+		// capacity must stop at the length or an append by the caller would corrupt the rest of it.
+		require.Equal(t, len(got), cap(got), stage)
+
+		got, ok, err = table.GetSubrange(sk.Key, 6, 3)
+		require.NoError(t, err, stage)
+		require.True(t, ok, stage)
+		require.Equal(t, []byte("fox"), got, stage)
+		require.Equal(t, len(got), cap(got), stage)
+
+		// A zero-length range is valid and yields an empty, non-nil slice.
+		got, ok, err = table.GetSubrange(primary, uint32(len(value)), 0)
+		require.NoError(t, err, stage)
+		require.True(t, ok, stage)
+		require.NotNil(t, got, stage)
+		require.Empty(t, got, stage)
+
+		// A range past the end of the value errors, for the primary against the whole value and for the
+		// secondary against its (shorter) aliased region.
+		_, _, err = table.GetSubrange(primary, uint32(len(value)), 1)
+		require.Error(t, err, stage)
+		_, _, err = table.GetSubrange(sk.Key, 0, sk.Length+1)
+		require.Error(t, err, stage)
+
+		// A key that was never written misses both caches and must report not-found from the base table,
+		// without an error.
+		got, ok, err = table.GetSubrange([]byte("does-not-exist"), 0, 1)
+		require.NoError(t, err, stage)
+		require.False(t, ok, stage)
+		require.Nil(t, got, stage)
+
+		// A subrange read must never be cached under the key it was read from: a later Get still sees
+		// the whole value.
+		got, ok, err = table.Get(primary)
+		require.NoError(t, err, stage)
+		require.True(t, ok, stage)
+		require.Equal(t, value, got, stage)
+	}
+
+	verify("before flush")
+	require.NoError(t, table.Flush())
+	verify("after flush")
+
+	require.NoError(t, table.Drop())
+}
+
+func TestGetSubrangeParity(t *testing.T) {
+	t.Parallel()
+
+	// tableBuilders' cached entries hold every written value for the life of the test, so on their own
+	// they only ever exercise cache hits. Add a cache-disabled wrapper so the same assertions also run
+	// against the wrapper's fall-through to the base table.
+	builders := make([]*tableBuilder, 0, len(tableBuilders)+1)
+	builders = append(builders, tableBuilders...)
+	builders = append(builders, &tableBuilder{
+		"cache-disabled mem keymap disk table",
+		buildCacheDisabledMemKeyDiskTable,
+	})
+
+	for _, tb := range builders {
+		tb := tb
+		t.Run(tb.name, func(t *testing.T) {
+			t.Parallel()
+			getSubrangeParityTest(t, tb)
+		})
+	}
+}
+
+// TestGetSubrangeServedFromCache proves that a cached table actually consults its caches rather than
+// always reaching the base table, by seeding a cache entry for a key the base table has never heard of:
+// only a cache hit can answer it. This is also the shape of the case that matters in production — a key
+// still resident in a cache after the base table reclaimed it via GC or TTL expiry — and it shows that
+// GetSubrange and Get agree about such a key existing.
+func TestGetSubrangeServedFromCache(t *testing.T) {
+	t.Parallel()
+
+	cacheWeight := func(k string, v []byte) uint64 { return uint64(len(k) + len(v)) }
+
+	for _, cacheName := range []string{"write cache", "read cache"} {
+		cacheName := cacheName
+		t.Run(cacheName, func(t *testing.T) {
+			t.Parallel()
+			rand := util.NewTestRandom()
+			directory := t.TempDir()
+			tableName := rand.String(8)
+
+			base, err := buildMemKeyDiskTable(time.Now, tableName, directory)
+			require.NoError(t, err)
+
+			writeCache := util.NewFIFOCache[string, []byte](500, cacheWeight, nil)
+			readCache := util.NewFIFOCache[string, []byte](500, cacheWeight, nil)
+			table := dbcache.NewCachedTable(base, writeCache, readCache, nil)
+
+			// Seed only the cache under test. The base table is left empty, so any answer for this key
+			// must have come from that cache.
+			value := []byte("the quick brown fox")
+			key := "cache-only"
+			if cacheName == "write cache" {
+				writeCache.Put(key, value)
+			} else {
+				readCache.Put(key, value)
+			}
+
+			got, ok, err := table.GetSubrange([]byte(key), 4, 5)
+			require.NoError(t, err)
+			require.True(t, ok, "a cache-resident key must be served from the cache")
+			require.Equal(t, []byte("quick"), got)
+
+			// The slice aliases the cache entry, so its capacity must stop at its length: an append by
+			// the caller must not be able to write into the cached value every later reader shares.
+			require.Equal(t, len(got), cap(got))
+			got = append(got, "-appended"...) //nolint:gocritic // the point is that this must not alias
+			require.Equal(t, []byte("the quick brown fox"), value, "append must not touch the cached value")
+
+			// Bounds are checked against the cached value's length, matching the base table's behavior.
+			_, _, err = table.GetSubrange([]byte(key), uint32(len(value)), 1)
+			require.Error(t, err)
+
+			// GetSubrange and Get agree that the key exists, and the base table still does not have it.
+			_, ok, err = table.Get([]byte(key))
+			require.NoError(t, err)
+			require.True(t, ok)
+			_, ok, err = base.GetSubrange([]byte(key), 4, 5)
+			require.NoError(t, err)
+			require.False(t, ok, "the base table was never written to")
+
+			require.NoError(t, table.Drop())
 		})
 	}
 }

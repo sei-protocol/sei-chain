@@ -78,6 +78,34 @@ type Table interface {
 	// method.
 	Get(key []byte) (value []byte, exists bool, err error)
 
+	// GetSubrange retrieves only the [offset, offset+length) byte range of the value stored under key,
+	// without materializing the whole value. The returned boolean indicates whether the key exists (false
+	// if it does not, in which case value is nil).
+	//
+	// This is intended for large values where a caller knows the exact byte range it needs (for example, a
+	// single serialized transaction within a serialized block): rather than read the entire value and slice
+	// it, an uncompressed on-disk value is read with a bounded, seek-then-read of exactly length bytes, so
+	// the I/O cost scales with length rather than the full value size. (A value stored in a compressed
+	// segment is a single compressed unit that cannot be sliced on disk, so for those the full value is
+	// read and decompressed before the sub-range is sliced out — still correct, but without the I/O
+	// savings. The default table configuration is uncompressed.)
+	//
+	// The requested range must be within the value: if offset+length exceeds the value's length, an error
+	// is returned. A zero-length range is valid and returns an empty (non-nil) slice when the key exists.
+	//
+	// Caching note: for a table with caching enabled, GetSubrange consults the read/write value caches
+	// like Get does — a cached value is already in memory, so slicing it is cheaper than any disk read —
+	// but unlike Get it never populates them, since a sub-range stored under the full key would corrupt a
+	// later Get. A subrange read of an uncached key therefore always reaches the base table (see the
+	// cachedTable implementation for the full rationale).
+	//
+	// As with Get, the returned data is NOT safe to mutate, and the key byte slice must not be modified
+	// after it is passed to this method. The returned slice may alias internal memory holding the whole
+	// value (an unflushed write or a cache entry), but its capacity is always capped to its length, so an
+	// append allocates a new array rather than overwriting whatever follows the range in that shared
+	// buffer.
+	GetSubrange(key []byte, offset uint32, length uint32) (value []byte, exists bool, err error)
+
 	// Exists returns true if the key exists in the database, and false otherwise. This is faster than calling Get.
 	//
 	// It is not safe to modify the key byte slice after it is passed to this method.

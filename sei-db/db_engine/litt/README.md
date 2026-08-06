@@ -121,6 +121,7 @@ type Table interface {
 	Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error
 	PutBatch(batch []*types.PutRequest) error
 	Get(key []byte) ([]byte, bool, error)
+	GetSubrange(key []byte, offset uint32, length uint32) ([]byte, bool, error)
 	Exists(key []byte) (bool, error)
 	Flush() error
 	Size() uint64

@@ -162,6 +162,60 @@ func TestCompressionFullValueAliasSecondary(t *testing.T) {
 	verify("after flush")
 }
 
+// TestGetSubrangeCompressed proves GetSubrange stays correct on a compressed table: since a compressed
+// on-disk blob cannot be sliced, Segment.ReadSubrange falls back to reading and decompressing the whole
+// value and then slicing the requested range out of the plaintext (see Segment.ReadSubrange). This checks
+// that fallback for both a compressible value (stored S2-tagged) and an incompressible one (stored
+// CompressionNone-tagged on the same compressed segment), before and after flush.
+func TestGetSubrangeCompressed(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	table := buildCompressedMemKeyDiskTable(t, time.Now, "subrange-compressed", []string{dir}, types.CompressionS2)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	compressible := compressiblePayload()
+	incompressible := incompressiblePayload()
+	require.NoError(t, table.Put([]byte("compressible"), compressible))
+	require.NoError(t, table.Put([]byte("incompressible"), incompressible))
+
+	verifyKey := func(stage string, key string, value []byte) {
+		t.Helper()
+		n := uint32(len(value))
+
+		// Full range.
+		got, ok, err := table.GetSubrange([]byte(key), 0, n)
+		require.NoError(t, err, stage)
+		require.True(t, ok, stage)
+		require.Equal(t, value, got, stage)
+
+		// Prefix, middle, suffix, and a zero-length read.
+		for _, r := range []struct{ off, length uint32 }{
+			{0, 10},
+			{n / 2, 10},
+			{n - 10, 10},
+			{n / 2, 0},
+		} {
+			got, ok, err := table.GetSubrange([]byte(key), r.off, r.length)
+			require.NoError(t, err, stage)
+			require.True(t, ok, stage)
+			require.Equal(t, value[r.off:r.off+r.length], got, stage)
+		}
+
+		// Out of bounds is still an error against the decompressed (logical) length.
+		_, _, err = table.GetSubrange([]byte(key), n-1, 10)
+		require.Error(t, err, stage)
+	}
+
+	verify := func(stage string) {
+		verifyKey(stage, "compressible", compressible)
+		verifyKey(stage, "incompressible", incompressible)
+	}
+
+	verify("before flush")
+	require.NoError(t, table.Flush())
+	verify("after flush")
+}
+
 func TestCompressionRejectsSubRangeSecondary(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

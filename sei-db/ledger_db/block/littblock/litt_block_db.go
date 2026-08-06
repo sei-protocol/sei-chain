@@ -2,6 +2,7 @@ package littblock
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 
@@ -531,6 +532,78 @@ func (s *blockDB) Close() error {
 		return fmt.Errorf("failed to close litt db: %w", err)
 	}
 	return nil
+}
+
+// ReadBlockSubrange reads a byte range out of the block stored at GlobalBlockNumber n, without decoding
+// the block. offset and length identify a range within the block's marshalled body — the proto(Block)
+// bytes alone — typically the (offset, length) of one transaction recorded at write time.
+//
+// The range is returned verbatim, with no interpretation: this method does not know or check whether it
+// delimits a transaction, a field, or the middle of either. Naming a range is the caller's job, so a
+// caller that holds recorded transaction locations is the right place for a tx-shaped wrapper over this.
+//
+// Offsets are body-relative, not value-relative: encodeBlock frames the stored value as
+// [version:1][GlobalBlockNumber:8][proto(Block)], and this method adds that fixed prefix itself. A writer
+// locating each transaction inside the marshalled body therefore records exactly what it computed, with no
+// conversion step to forget, and the framing stays a private detail of this package rather than something
+// baked into every offset persisted elsewhere (e.g. a receipt's stored tx location).
+//
+// It reads only the requested bytes via LittDB's GetSubrange, skipping both the full-block disk read and
+// the protobuf unmarshal that ReadBlockByNumber performs. The I/O savings apply while the ledger table is
+// uncompressed (the default); on a compressed table GetSubrange still returns the correct bytes but must
+// read and decompress the whole block value first.
+//
+// The returned bytes are NOT safe to mutate. Unlike ReadBlockByNumber, which hands back a freshly decoded
+// block, this returns a slice aliasing LittDB's internal memory: before a flush it is a sub-slice of the
+// live unflushed entry holding the whole block value, and on a cache hit a sub-slice of the cached copy.
+// Writing through it would corrupt the block for every later reader. Copy the bytes first if they must be
+// modified or must outlive the read.
+//
+// A recorded (offset, length) is meaningful only against the marshalled body it was computed from. Being
+// body-relative, it survives a change to the value framing — the prefix is applied here, at read time,
+// from the same constant encodeBlock uses — but not a change to how the body itself is marshalled, which
+// moves the transactions within it. Should the prefix width ever vary by block version, this method is
+// where the block's version would have to be resolved to pick the right one.
+//
+// This lives outside the types.BlockDB interface because the offset space is defined by this
+// implementation's serialization. The result is one of:
+//
+//   - Some(bytes) with a nil error: the byte range was read.
+//   - types.ErrPruned: n is strictly below the retention watermark (matches ReadBlockByNumber). A block
+//     below the watermark may be stranded from its covering QC and is never served.
+//   - None with a nil error: no block is present at n (never written, or not yet written).
+//   - a non-nil error: offset is too large to be prefixed without overflowing, the range is out of bounds
+//     for the block value, or the read failed.
+func (s *blockDB) ReadBlockSubrange(
+	n types.GlobalBlockNumber,
+	offset uint32,
+	length uint32,
+) (utils.Option[[]byte], error) {
+	// Refuse below-watermark blocks first: they may be stranded (covering QC reclaimed). Mirrors
+	// ReadBlockByNumber, and keeps ErrPruned the outcome a caller observes for a pruned n regardless of
+	// whether the offset is also malformed.
+	if uint64(n) < s.watermark.Load() {
+		return utils.None[[]byte](), types.ErrPruned
+	}
+
+	// Translate the body-relative offset into the stored value's frame. The addition is checked: an offset
+	// near the top of the uint32 range would otherwise wrap to a small value and quietly read bytes from
+	// the start of the block instead of failing.
+	if offset > math.MaxUint32-blockValuePrefixLen {
+		return utils.None[[]byte](), fmt.Errorf(
+			"tx offset %d is too large to address within a block value", offset)
+	}
+	valueOffset := offset + blockValuePrefixLen
+
+	value, exists, err := s.table.GetSubrange(blockKey(n), valueOffset, length)
+	if err != nil {
+		return utils.None[[]byte](), fmt.Errorf(
+			"failed to read tx range [%d, %d) of block %d's body: %w", offset, uint64(offset)+uint64(length), n, err)
+	}
+	if !exists {
+		return utils.None[[]byte](), nil
+	}
+	return utils.Some(value), nil
 }
 
 // ForceGC runs a synchronous garbage-collection pass over the table backing db,

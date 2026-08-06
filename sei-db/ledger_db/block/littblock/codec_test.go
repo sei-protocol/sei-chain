@@ -82,6 +82,28 @@ func TestBlockRoundTrip(t *testing.T) {
 	}
 }
 
+// TestBlockValueFraming pins the exact framing of a stored block value: the version byte, the embedded
+// block number, and — most importantly — that the marshalled body begins precisely at
+// blockValuePrefixLen. ReadBlockSubrange translates body-relative offsets by adding that constant without
+// re-reading the value's prefix, so it is correct only while the constant matches the real layout. Any
+// change to the framing that leaves blockValuePrefixLen stale fails here, loudly, rather than silently
+// shifting every sub-range read.
+func TestBlockValueFraming(t *testing.T) {
+	rng := utils.TestRngFromSeed(3)
+	for i := range 8 {
+		n := types.GlobalBlockNumber(i * 1000)
+		blk := types.GenBlock(rng)
+		body := types.BlockConv.Marshal(blk)
+		value := encodeBlock(n, blk)
+
+		require.Len(t, value, blockValuePrefixLen+len(body))
+		require.Equal(t, blockSerializationVersion, value[0])
+		require.Equal(t, n, decodeKey(value[1:blockValuePrefixLen]))
+		require.Equal(t, body, value[blockValuePrefixLen:],
+			"marshalled body must begin exactly at blockValuePrefixLen")
+	}
+}
+
 func TestQCRoundTrip(t *testing.T) {
 	rng := utils.TestRngFromSeed(2)
 	for range 16 {
