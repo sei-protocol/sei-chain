@@ -5,6 +5,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // FilteredPaginate does pagination of all the results in the PrefixStore based on the
@@ -20,7 +22,29 @@ func FilteredPaginate(
 	pageRequest *PageRequest,
 	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
 ) (*PageResponse, error) {
+	return filteredPaginate(prefixStore, pageRequest, onResult, false)
+}
 
+// FilteredPaginateV66 preserves release/v6.6 behavior for EVM precompiles.
+//
+// Precompiles invoke Cosmos query handlers during transaction execution.
+// Relaxing the historical scan limit there can change gas consumption and
+// success/revert control flow, causing AppHash and LastResultsHash divergence.
+// Node-local LCD/gRPC queries must continue using FilteredPaginate.
+func FilteredPaginateV66(
+	prefixStore types.KVStore,
+	pageRequest *PageRequest,
+	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
+) (*PageResponse, error) {
+	return filteredPaginate(prefixStore, pageRequest, onResult, true)
+}
+
+func filteredPaginate(
+	prefixStore types.KVStore,
+	pageRequest *PageRequest,
+	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
+	enforceV66ScanLimit bool,
+) (*PageResponse, error) {
 	// if the PageRequest is nil, use default PageRequest
 	if pageRequest == nil {
 		pageRequest = &PageRequest{}
@@ -47,14 +71,20 @@ func FilteredPaginate(
 		defer func() { _ = iterator.Close() }()
 
 		var (
-			numHits uint64
-			nextKey []byte
+			numHits   uint64
+			nextKey   []byte
+			totalIter uint64
 		)
 
 		for ; iterator.Valid(); iterator.Next() {
+			totalIter++
 			if numHits == limit {
 				nextKey = iterator.Key()
 				break
+			}
+			if enforceV66ScanLimit && totalIter > MaxScanLimit {
+				return nil, nil, status.Errorf(codes.InvalidArgument,
+					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
 			}
 
 			if iterator.Error() != nil {
@@ -80,13 +110,27 @@ func FilteredPaginate(
 	defer func() { _ = iterator.Close() }()
 
 	end := paginationEnd(offset, limit)
-
 	var (
-		numHits uint64
-		nextKey []byte
+		numHits          uint64
+		nextKey          []byte
+		totalIter        uint64
+		pageCompleteIter uint64
 	)
 
 	for ; iterator.Valid(); iterator.Next() {
+		totalIter++
+		if enforceV66ScanLimit && numHits < end && totalIter > paginationEnd(offset, MaxScanLimit) {
+			return nil, status.Errorf(codes.InvalidArgument,
+				"scanned more than %d entries without filling the page; use key-based pagination instead", MaxScanLimit)
+		}
+		if enforceV66ScanLimit && pageCompleteIter > MaxScanLimit {
+			if !countTotal {
+				break
+			}
+			return nil, status.Errorf(codes.InvalidArgument,
+				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
+		}
+
 		if iterator.Error() != nil {
 			return nil, iterator.Error()
 		}
@@ -99,6 +143,10 @@ func FilteredPaginate(
 
 		if hit {
 			numHits++
+		}
+
+		if numHits >= end {
+			pageCompleteIter++
 		}
 
 		if numHits > end {
@@ -137,6 +185,29 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	onResult func(key []byte, value T) (F, error),
 	constructor func() T,
 ) ([]F, *PageResponse, error) {
+	return genericFilteredPaginate(cdc, prefixStore, pageRequest, onResult, constructor, false)
+}
+
+// GenericFilteredPaginateV66 preserves release/v6.6 behavior for EVM
+// precompiles. Node-local LCD/gRPC queries must use GenericFilteredPaginate.
+func GenericFilteredPaginateV66[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
+	cdc codec.BinaryCodec,
+	prefixStore types.KVStore,
+	pageRequest *PageRequest,
+	onResult func(key []byte, value T) (F, error),
+	constructor func() T,
+) ([]F, *PageResponse, error) {
+	return genericFilteredPaginate(cdc, prefixStore, pageRequest, onResult, constructor, true)
+}
+
+func genericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
+	cdc codec.BinaryCodec,
+	prefixStore types.KVStore,
+	pageRequest *PageRequest,
+	onResult func(key []byte, value T) (F, error),
+	constructor func() T,
+	enforceV66ScanLimit bool,
+) ([]F, *PageResponse, error) {
 	// if the PageRequest is nil, use default PageRequest
 	if pageRequest == nil {
 		pageRequest = &PageRequest{}
@@ -164,14 +235,20 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 		defer func() { _ = iterator.Close() }()
 
 		var (
-			numHits uint64
-			nextKey []byte
+			numHits   uint64
+			nextKey   []byte
+			totalIter uint64
 		)
 
 		for ; iterator.Valid(); iterator.Next() {
+			totalIter++
 			if numHits == limit {
 				nextKey = iterator.Key()
 				break
+			}
+			if enforceV66ScanLimit && totalIter > MaxScanLimit {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
 			}
 
 			if iterator.Error() != nil {
@@ -205,13 +282,27 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	defer func() { _ = iterator.Close() }()
 
 	end := paginationEnd(offset, limit)
-
 	var (
-		numHits uint64
-		nextKey []byte
+		numHits          uint64
+		nextKey          []byte
+		totalIter        uint64
+		pageCompleteIter uint64
 	)
 
 	for ; iterator.Valid(); iterator.Next() {
+		totalIter++
+		if enforceV66ScanLimit && numHits < end && totalIter > paginationEnd(offset, MaxScanLimit) {
+			return nil, nil, status.Errorf(codes.InvalidArgument,
+				"scanned more than %d entries without filling the page; use key-based pagination instead", MaxScanLimit)
+		}
+		if enforceV66ScanLimit && pageCompleteIter > MaxScanLimit {
+			if !countTotal {
+				break
+			}
+			return nil, nil, status.Errorf(codes.InvalidArgument,
+				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
+		}
+
 		if iterator.Error() != nil {
 			return nil, nil, iterator.Error()
 		}
@@ -234,6 +325,10 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 				results = append(results, val)
 			}
 			numHits++
+		}
+
+		if numHits >= end {
+			pageCompleteIter++
 		}
 
 		if numHits > end {

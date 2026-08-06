@@ -18,6 +18,9 @@ const DefaultLimit = 100
 // which equals the maximum value that can be stored in uint64
 const MaxLimit = uint64(math.MaxUint64)
 
+// MaxScanLimit is retained by the v6.6-compatible precompile paginators.
+const MaxScanLimit = uint64(10_000)
+
 // ParsePagination validate PageRequest and returns page number & limit.
 // Note that page math is performed in int space, so limits and offsets above
 // math.MaxInt64 are rejected as negative values.

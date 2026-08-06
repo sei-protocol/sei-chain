@@ -42,7 +42,12 @@ func (q Keeper) Proposals(c context.Context, req *types.QueryProposalsRequest) (
 	store := ctx.KVStore(q.storeKey)
 	proposalStore := prefix.NewStore(store, types.ProposalsKeyPrefix)
 
-	pageRes, err := query.FilteredPaginate(proposalStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
+	paginate := query.FilteredPaginate
+	if ctx.IsEVM() {
+		paginate = query.FilteredPaginateV66
+	}
+
+	pageRes, err := paginate(proposalStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
 		var p types.Proposal
 		if err := q.cdc.Unmarshal(value, &p); err != nil {
 			return false, status.Error(codes.Internal, err.Error())
