@@ -55,6 +55,24 @@ type ReceiptStoreConfig struct {
 	// default to every 600 seconds
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
 
+	// ExternalPruning hands retention to the StorageGarbageCollector: the littidx backend
+	// stops running its own KeepRecent pruner and answers gc.PrunableStore.ExternalPruning
+	// with this value, so the collector prunes it instead.
+	//
+	// Like KeepRecent this is not read from the receipt-store config. It is set by whatever
+	// constructs the collector, because it is only correct when this store is actually
+	// registered with a running one — nothing here can check that, and the failure is silent
+	// and unbounded: the retention floor simply stops advancing.
+	//
+	// It is one field rather than two so the KeepRecent pruner and the collector can never
+	// both be enforcing retention. They would disagree, and the local pruner would win by
+	// deleting the rollback headroom the collector exists to preserve.
+	//
+	// Only the littidx backend honors this. The pebbledb backend is not a gc.PrunableStore,
+	// so the collector would not prune it and setting this would leave it with no pruner at
+	// all; newReceiptBackend rejects that combination rather than growing without bound.
+	ExternalPruning bool `mapstructure:"-"`
+
 	// EnableReadWriteMetrics emits simple estimated read/write counters for Pebble-backed receipt storage.
 	// defaults to false
 	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`

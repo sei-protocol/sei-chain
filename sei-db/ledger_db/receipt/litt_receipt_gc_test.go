@@ -2,6 +2,7 @@ package receipt_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
@@ -13,8 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// setupLittIdxForGC opens a littidx store with the given KeepRecent and no background pruner, so
-// the only thing that moves the retention floor is the collector call under test.
+// setupLittIdxForGC opens a littidx store configured the way a collector-managed one actually is,
+// so the only thing that moves the retention floor is the collector call under test. Note that this
+// is the real mechanism rather than a test-only dodge: zeroing PruneIntervalSeconds would silence
+// the local pruner just as well, and would not exercise the flag the collector depends on.
 func setupLittIdxForGC(t *testing.T, keepRecent int) (receipt.ReceiptStore, gc.PrunableStore, sdk.Context) {
 	t.Helper()
 	storeKey := storetypes.NewKVStoreKey("evm")
@@ -25,7 +28,7 @@ func setupLittIdxForGC(t *testing.T, keepRecent int) (receipt.ReceiptStore, gc.P
 	cfg.Backend = "littidx"
 	cfg.DBDirectory = t.TempDir()
 	cfg.KeepRecent = keepRecent
-	cfg.PruneIntervalSeconds = 0
+	cfg.ExternalPruning = true
 
 	store, err := receipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
@@ -34,6 +37,73 @@ func setupLittIdxForGC(t *testing.T, keepRecent int) (receipt.ReceiptStore, gc.P
 	prunable, ok := store.(gc.PrunableStore)
 	require.True(t, ok, "a littidx receipt store must satisfy gc.PrunableStore")
 	return store, prunable, ctx
+}
+
+// ExternalPruning is off unless asked for: a store built without a collector must keep pruning
+// itself, since standing down with nothing to replace it grows the tag index without bound.
+func TestReceiptGCExternalPruningDefaultsOff(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey("evm")
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "littidx"
+	cfg.DBDirectory = t.TempDir()
+	require.False(t, cfg.ExternalPruning, "the default must leave retention with the store")
+
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	prunable, ok := store.(gc.PrunableStore)
+	require.True(t, ok)
+	require.False(t, prunable.ExternalPruning())
+
+	_, managed, _ := setupLittIdxForGC(t, 0)
+	require.True(t, managed.ExternalPruning())
+}
+
+// The pebble backend is not a gc.PrunableStore, so the collector would never prune it and honoring
+// ExternalPruning would leave it with no pruner at all. Refused at startup rather than discovered
+// later from a full disk.
+func TestReceiptExternalPruningRejectedOnPebbleBackend(t *testing.T) {
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.DBDirectory = t.TempDir()
+	cfg.ExternalPruning = true
+
+	_, err := receipt.NewReceiptStore(cfg, storetypes.NewKVStoreKey("evm"))
+	require.ErrorContains(t, err, "does not support external pruning")
+}
+
+// The standalone shape, and the one a collector-shaped change is most likely to break: with
+// ExternalPruning unset there is no collector, and the store's own pruner has to advance the
+// retention floor or the tag index grows without bound. Nodes running rs-backend = "littidx" with
+// KeepRecent from min-retain-blocks depend on exactly this.
+//
+// Pays a real wait because the pruner is on a jittered timer and there is no way to observe it
+// otherwise; TestRunsLocalPruner covers the decision itself without waiting.
+func TestReceiptLocalPrunerAdvancesFloorWithoutCollector(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
+
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "littidx"
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 2
+	cfg.PruneIntervalSeconds = 1 // the shortest cadence there is; the pruner jitters to 1-2s
+
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	addr := common.HexToAddress("0xabcd")
+	topic := common.HexToHash("0x1111")
+	for block := uint64(1); block <= 5; block++ {
+		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
+	}
+
+	// KeepRecent 2 at head 5 keeps [4, 5], so the floor lands on 4.
+	require.Eventually(t, func() bool {
+		return store.EarliestVersion() == 4
+	}, 6*time.Second, 25*time.Millisecond, "the local pruner must advance the floor with no collector present")
 }
 
 // KeepRecent and GetRetentionWindow disagree about 0, so the translation is the behavior worth

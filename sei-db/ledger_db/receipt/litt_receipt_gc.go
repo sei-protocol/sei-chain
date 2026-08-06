@@ -13,11 +13,19 @@ func (s *littReceiptStore) Name() string {
 	return "ReceiptDB"
 }
 
-// ExternalPruning is unconditionally true: the background pruner this store used to run was removed
-// when it joined the collector, precisely because it pruned to latest-KeepRecent with no knowledge of
-// the shared rollback window. Nothing here prunes on its own any more.
+// ExternalPruning reports config.ExternalPruning, and runsLocalPruner asks this same method before
+// starting the KeepRecent pruner. One read behind both is what makes "the collector prunes this
+// store" and "this store does not prune itself" a single fact, so the local pruner can never race
+// the collector to a shallower floor and delete the rollback headroom it is holding.
+//
+// It is not unconditionally true because this store still runs without a collector — a node with
+// rs-backend = "littidx" and KeepRecent from min-retain-blocks depends on the local pruner, and
+// standing that down with nothing to replace it grows the tag index without bound.
+//
+// It is a construction-time value, so the answer is stable for the life of the store and safe to
+// read from the collector's goroutine.
 func (s *littReceiptStore) ExternalPruning() bool {
-	return true
+	return s.externalPruning
 }
 
 // PruneBelow advances the retention floor to blockNumber and drops the tag-index entries below
