@@ -146,9 +146,9 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 		accExists := k.ak.HasAccount(ctx, outAddress)
 		if !accExists {
 			defer func() {
-				bankMetrics.newAccount.Add(ctx.Context(), 1)
 				// TODO(PLT-353): remove once bank_new_account verified
 				telemetry.IncrCounter(1, "new", "account")
+				bankMetrics.newAccount.Add(ctx.Context(), 1)
 			}()
 			k.ak.SetAccount(ctx, k.ak.NewAccountWithAddress(ctx, outAddress))
 		}
@@ -171,9 +171,9 @@ func (k BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAd
 	accExists := k.ak.HasAccount(ctx, toAddr)
 	if !accExists {
 		defer func() {
-			bankMetrics.newAccount.Add(ctx.Context(), 1)
 			// TODO(PLT-353): remove once bank_new_account verified
 			telemetry.IncrCounter(1, "new", "account")
+			bankMetrics.newAccount.Add(ctx.Context(), 1)
 		}()
 		k.ak.SetAccount(ctx, k.ak.NewAccountWithAddress(ctx, toAddr))
 	}

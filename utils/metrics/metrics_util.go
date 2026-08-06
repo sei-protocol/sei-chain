@@ -82,9 +82,9 @@ func RecordBankNewAccount(ctx context.Context) {
 			debug.PrintStack()
 		}
 	}()
-	bankNewAccountCounter.Add(ctx, 1)
 	// TODO(PLT-353): remove once bank_new_account verified
 	SafeTelemetryIncrCounter(1, "new", "account")
+	bankNewAccountCounter.Add(ctx, 1)
 }
 
 func SafeTelemetryIncrCounter(val float32, keys ...string) {
