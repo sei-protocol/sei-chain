@@ -1,8 +1,14 @@
 import fs from 'fs/promises';
+import path from 'path';
 import type { ReplayFidelity } from './evmAdapters';
 import type { ReplayLane } from './replayMetrics';
 
-export type BucketOutcome = 'included' | 'included_failed' | 'rejected' | 'skipped';
+export type BucketOutcome =
+    | 'included'
+    | 'included_failed'
+    | 'poll_timeout'
+    | 'rejected'
+    | 'skipped';
 
 export interface BucketAuditRecord {
     recordedAt: string;
@@ -52,6 +58,10 @@ export class BucketAuditWriter {
 
     async initialize(): Promise<void> {
         await Promise.all([
+            fs.mkdir(path.dirname(this.auditPath), { recursive: true }),
+            fs.mkdir(path.dirname(this.unmatchedPath), { recursive: true }),
+        ]);
+        await Promise.all([
             fs.writeFile(this.auditPath, '', 'utf8'),
             fs.writeFile(this.unmatchedPath, '', 'utf8'),
         ]);
@@ -63,7 +73,7 @@ export class BucketAuditWriter {
         const isUnmatched = record.fidelity !== 'semantic';
         if (isUnmatched) this.unmatched++;
         const line = `${JSON.stringify(record)}\n`;
-        this.queue = this.queue.then(async () => {
+        const write = this.queue.then(async () => {
             await fs.appendFile(this.auditPath, line, 'utf8');
             if (isUnmatched) await fs.appendFile(this.unmatchedPath, line, 'utf8');
             if (this.logToConsole) {
@@ -75,7 +85,8 @@ export class BucketAuditWriter {
                 );
             }
         });
-        return this.queue;
+        this.queue = write.catch(() => undefined);
+        return write;
     }
 
     async flush(): Promise<void> {

@@ -81,6 +81,7 @@ async function main(): Promise<void> {
     await source.verifyChain();
     await fs.mkdir(OUTPUT_DIRECTORY, { recursive: true });
     const existingManifest = await readOptionalJson<CaptureManifest>(MANIFEST_PATH);
+    if (existingManifest) validateCaptureManifest(existingManifest);
     if (existingManifest?.complete) {
         console.log(
             `Capture already complete: ${existingManifest.source.firstBlock}..` +
@@ -92,7 +93,6 @@ async function main(): Promise<void> {
     let start: number;
     let end: number;
     if (existingManifest) {
-        validateCaptureManifest(existingManifest);
         start = existingManifest.source.firstBlock;
         end = existingManifest.source.lastBlock;
     } else {
@@ -227,10 +227,12 @@ function validateCaptureManifest(manifest: CaptureManifest): void {
         manifest.source.network !== 'pacific-1' ||
         manifest.source.evmRpcUrl !== EVM_RPC ||
         manifest.source.cosmosRpcUrl !== COSMOS_RPC ||
-        manifest.segmentBlocks !== SEGMENT_BLOCKS
+        manifest.segmentBlocks !== SEGMENT_BLOCKS ||
+        (START_BLOCK !== undefined && manifest.source.firstBlock !== START_BLOCK) ||
+        (END_BLOCK !== undefined && manifest.source.lastBlock !== END_BLOCK)
     ) {
         throw new Error(
-            `Existing capture manifest does not match the configured source or segment size: ` +
+            `Existing capture manifest does not match the configured source, range, or segment size: ` +
                 MANIFEST_PATH,
         );
     }

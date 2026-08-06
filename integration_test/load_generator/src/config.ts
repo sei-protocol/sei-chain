@@ -200,6 +200,16 @@ export async function verifyTargetRpc(
     }
 }
 
+export async function verifyTargetCosmosRpc(
+    config: TargetConfig,
+    client: { getChainId(): Promise<string> },
+): Promise<void> {
+    const actual = await client.getChainId();
+    if (actual !== config.cosmosChainId) {
+        throw new Error(`Refusing Cosmos chain ${actual}; expected ${config.cosmosChainId}`);
+    }
+}
+
 function privilegedMode(env: Environment): 'shape' | 'skip' {
     const value = string(env, 'PRIVILEGED_REPLAY_MODE', 'shape');
     if (value !== 'shape' && value !== 'skip') {

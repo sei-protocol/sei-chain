@@ -1,12 +1,14 @@
 import { expect } from 'chai';
 import { ethers } from 'ethers';
 import { Encoder } from '@sei-js/cosmos/encoding';
+import { MsgSend } from 'cosmjs-types/cosmos/bank/v1beta1/tx';
 import { Writer } from 'protobufjs';
 import {
     loadCaptureConfig,
     loadBufferedConfig,
     loadReplayConfig,
     loadTargetConfig,
+    verifyTargetCosmosRpc,
 } from '../src/config';
 import { correlateEvmWrapper } from '../src/replay/evmCorrelation';
 import {
@@ -19,9 +21,12 @@ import {
 import {
     REPLAY_DEPLOYMENT_SCHEMA_VERSION,
     ReplayBlock,
+    ReplayCosmosTransaction,
     ReplayEvmTransaction,
     ReplaySegment,
 } from '../src/replay/replayTypes';
+import { buildCosmosReplay } from '../src/replay/cosmosAdapters';
+import { orderRpcBatchResponses } from '../src/replay/pacificSource';
 import { validateReplaySegments } from '../src/replay/corpus';
 import {
     normalizeCallTrace,
@@ -103,6 +108,23 @@ const context = (): EvmAdapterContext => ({
     maxCalldataBytes: 1024,
 });
 
+const cosmosSource = (
+    messages: ReplayCosmosTransaction['messages'],
+    overrides: Partial<ReplayCosmosTransaction> = {},
+): ReplayCosmosTransaction => ({
+    index: 0,
+    hash: 'cosmos-hash',
+    rawBase64: '',
+    transactionBytes: 200,
+    memo: '',
+    messages,
+    fee: { usei: '25000' },
+    gasLimit: '200000',
+    result: { code: 0, gasWanted: '200000', gasUsed: '100000', eventCount: 1 },
+    isEvm: false,
+    ...overrides,
+});
+
 describe('load generator pure behavior', () => {
     it('parses centralized defaults and environment overrides', () => {
         const capture = loadCaptureConfig({
@@ -178,6 +200,75 @@ describe('load generator pure behavior', () => {
         expect(() => loadBufferedConfig({ TRACE_MAX_FRAMES: '257' })).to.throw(
             'TRACE_MAX_FRAMES',
         );
+    });
+
+    it('rejects a mismatched Cosmos target chain', async () => {
+        const target = loadTargetConfig({ TARGET_NETWORK: 'arctic-1' });
+        await verifyTargetCosmosRpc(target, { getChainId: async () => 'arctic-1' });
+        try {
+            await verifyTargetCosmosRpc(target, { getChainId: async () => 'pacific-1' });
+            expect.fail('expected Cosmos chain mismatch');
+        } catch (error) {
+            expect(String(error)).to.contain('expected arctic-1');
+        }
+    });
+
+    it('orders RPC batch responses by request id and rejects omissions', () => {
+        expect(
+            orderRpcBatchResponses(
+                [{ id: 2 }, { id: 1 }],
+                [
+                    { id: 1, result: 'one' },
+                    { id: 2, result: 'two' },
+                ],
+            ).map(response => response.result),
+        ).to.deep.equal(['two', 'one']);
+        expect(() =>
+            orderRpcBatchResponses(
+                [{ id: 1 }, { id: 2 }],
+                [{ id: 1, result: 'one' }],
+            ),
+        ).to.throw('omitted batch id 2');
+    });
+
+    it('builds bounded Cosmos bank traffic and handles privileged messages', () => {
+        const users = context().users;
+        const encoded = MsgSend.encode({
+            fromAddress: 'sei1source',
+            toAddress: 'sei1destination',
+            amount: [{ denom: 'usei', amount: '5000' }],
+        }).finish();
+        const bank = buildCosmosReplay(
+            cosmosSource([
+                {
+                    typeUrl: '/cosmos.bank.v1beta1.MsgSend',
+                    valueBase64: Buffer.from(encoded).toString('base64'),
+                },
+            ]),
+            { users, workerIndex: 0, maxMessages: 10 },
+        );
+        expect(bank.adapter).to.equal('cosmosBankSend');
+        expect((bank.messages?.[0].value as MsgSend).amount[0].amount).to.equal('1000');
+
+        const privileged = cosmosSource([
+            { typeUrl: '/seiprotocol.seichain.oracle.MsgVote', valueBase64: '' },
+        ]);
+        expect(
+            buildCosmosReplay(privileged, {
+                users,
+                workerIndex: 0,
+                maxMessages: 10,
+                privilegedMode: 'skip',
+            }).fidelity,
+        ).to.equal('skipped');
+        expect(
+            buildCosmosReplay(privileged, {
+                users,
+                workerIndex: 0,
+                maxMessages: 10,
+                privilegedMode: 'shape',
+            }).adapter,
+        ).to.equal('cosmosPrivilegedShape');
     });
 
     it('queries associations through the supported Cosmos ABCI service', async () => {
@@ -362,6 +453,22 @@ describe('load generator pure behavior', () => {
         expectSemanticRoute('0x441a3e70', 'masterChefWithdraw', 'masterChef');
     });
 
+    it('bounds the MasterChef amount argument rather than the pool id', () => {
+        const farm = new ethers.Interface(['function deposit(uint256 pid,uint256 amount)']);
+        const input = farm.encodeFunctionData('deposit', [3n, ethers.parseEther('5')]);
+        const built = buildEvmReplay(
+            source({
+                selector: '0xe2bbb158',
+                input,
+                inputBytes: ethers.getBytes(input).length,
+            }),
+            context(),
+        );
+        const decoded = farm.decodeFunctionData('deposit', built.transaction!.data!);
+        expect(decoded[0]).to.equal(0n);
+        expect(decoded[1]).to.equal(ethers.parseEther('0.01'));
+    });
+
     it('routes Aave and cToken selectors to lending', () => {
         expectSemanticRoute('0x617ba037', 'aaveShapedSupply', 'lendingPoolProxy');
         expectSemanticRoute('0x69328dec', 'aaveShapedWithdraw', 'lendingPoolProxy');
@@ -420,6 +527,15 @@ describe('load generator pure behavior', () => {
         expect(truncated.truncated).to.equal(true);
         // Truncation bounds the retained frames but not the source frame count.
         expect(truncated.sourceFrameCount).to.equal(4);
+    });
+
+    it('counts deeply truncated trace subtrees without recursive overflow', () => {
+        let raw: { type: string; calls?: unknown[] } = { type: 'CALL' };
+        for (let i = 0; i < 2_000; i++) raw = { type: 'CALL', calls: [raw] };
+        const normalized = normalizeCallTrace(raw, { maxDepth: 8, maxFrames: 64 });
+        expect(normalized.frames).to.have.length(9);
+        expect(normalized.sourceFrameCount).to.equal(2_001);
+        expect(normalized.truncated).to.equal(true);
     });
 
     it('summarizes opcode and prestate diff profiles without values', () => {
@@ -532,6 +648,40 @@ describe('load generator pure behavior', () => {
         expect(spec).to.have.length(32);
         expect(spec[16]).to.equal(2);
         expect(spec[17]).to.equal(1);
+    });
+
+    it('falls back when a captured call graph exceeds harness bounds', () => {
+        const frame = (index: number, depth: number) => ({
+            index,
+            parent: index === 0 ? null : 0,
+            depth,
+            type: 'CALL' as const,
+            selector: null,
+            inputBytes: 0,
+            valueNonZero: false,
+            reverted: false,
+        });
+        const traced = (frames: ReturnType<typeof frame>[]) =>
+            source({
+                trace: {
+                    requestedMode: 'calls',
+                    availability: 'available',
+                    calls: { frames, truncated: false, sourceFrameCount: frames.length },
+                },
+            });
+
+        expect(
+            buildEvmReplay(
+                traced([frame(0, 0), ...Array.from({ length: 64 }, (_, i) => frame(i + 1, 1))]),
+                context(),
+            ).adapter,
+        ).to.equal('profileHarness');
+        expect(
+            buildEvmReplay(
+                traced(Array.from({ length: 10 }, (_, depth) => frame(depth, depth))),
+                context(),
+            ).adapter,
+        ).to.equal('profileHarness');
     });
 
     it('routes successful contract creations through the synthetic creation harness', () => {

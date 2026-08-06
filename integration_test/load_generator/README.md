@@ -6,7 +6,7 @@ Standalone TypeScript package for capturing canonical Pacific-1 blocks and repla
 
 - Capture and validation are read-only.
 - Deployment, provisioning, and replay are dry-run unless `EXECUTE=1`.
-- EVM and Cosmos chain IDs, user/deployment manifests, and deployed bytecode are verified before submission.
+- Executed replays verify EVM and Cosmos chain IDs, user/deployment manifests, and deployed bytecode before submission.
 - Wrapped EVM transactions are correlated by reconstructing their signed hash from `MsgEVMTransaction`; Cosmos and EVM indexes are never assumed to align.
 - Privileged module traffic becomes labelled bank-shaped load by default (`PRIVILEGED_REPLAY_MODE=skip` omits it).
 - Successful unknown contract creations use `SyntheticCreationHarness` for bounded safe CREATE/CREATE2 load. Unknown traced calls use the allowlisted `CallGraphHarness`; untraced calls use `ProfileLoadHarness`. None executes source-selected target addresses or untrusted Pacific initcode.

@@ -15,6 +15,7 @@ export type ReplayOutcome =
     | 'submitted'
     | 'included'
     | 'included_failed'
+    | 'poll_timeout'
     | 'rejected'
     | 'skipped';
 export type ReplayByteKind =

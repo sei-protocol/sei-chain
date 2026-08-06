@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { maxBigInt, minBigInt } from '../numeric';
 import {
+    ReplayCallFrame,
     ReplayDeploymentManifest,
     ReplayEvmTransaction,
     ReplayUserManifest,
@@ -94,6 +95,8 @@ const HARNESS = new ethers.Interface([
 const CALL_GRAPH_HARNESS = new ethers.Interface([
     'function execute(bytes spec,uint256 salt)',
 ]);
+const CALL_GRAPH_MAX_DEPTH = 8;
+const CALL_GRAPH_MAX_FRAMES = 64;
 const SYNTHETIC_CREATION_HARNESS = new ethers.Interface([
     'function deploy(uint16 runtimeBytes,uint16 stores,uint32 gasBurn,uint32 requestedInitcodeBytes,bool useCreate2,bytes32 salt) returns(address)',
 ]);
@@ -489,7 +492,11 @@ export function buildEvmReplay(
         }
     }
 
-    if (source.trace?.calls?.frames.length && contracts.callGraphHarness) {
+    if (
+        source.trace?.calls?.frames.length &&
+        contracts.callGraphHarness &&
+        isExecutableCallGraph(source.trace.calls.frames)
+    ) {
         const naturalData = encodeCallGraphHarness(source, context.sequence);
         if (ethers.getBytes(naturalData).length <= context.maxCalldataBytes) {
             // Solidity's ABI decoder permits trailing calldata. Preserve the
@@ -543,6 +550,9 @@ export function buildEvmReplay(
 
 export function encodeCallGraphHarness(source: ReplayEvmTransaction, seed: number): string {
     const frames = source.trace?.calls?.frames ?? [];
+    if (!isExecutableCallGraph(frames)) {
+        throw new Error('Call graph exceeds harness bounds or has invalid depth ordering');
+    }
     const operation = source.trace?.operations;
     const state = source.trace?.stateDiff;
     const bytes = new Uint8Array(frames.length * 16);
@@ -562,7 +572,7 @@ export function encodeCallGraphHarness(source: ReplayEvmTransaction, seed: numbe
                     : frame.type === 'CREATE2'
                       ? 4
                       : 0;
-        bytes[offset + 1] = Math.min(8, frame.depth);
+        bytes[offset + 1] = frame.depth;
         const root = index === 0;
         putU16(bytes, offset + 2, root ? Math.min(16, operation?.sload ?? 0) : 0);
         putU16(
@@ -582,6 +592,19 @@ export function encodeCallGraphHarness(source: ReplayEvmTransaction, seed: numbe
         );
     }
     return CALL_GRAPH_HARNESS.encodeFunctionData('execute', [bytes, seed]);
+}
+
+function isExecutableCallGraph(frames: ReplayCallFrame[]): boolean {
+    if (frames.length === 0 || frames.length > CALL_GRAPH_MAX_FRAMES) return false;
+    return frames.every(
+        (frame, index) =>
+            Number.isInteger(frame.depth) &&
+            frame.depth >= 0 &&
+            frame.depth <= CALL_GRAPH_MAX_DEPTH &&
+            (index === 0
+                ? frame.depth === 0
+                : frame.depth <= frames[index - 1].depth + 1),
+    );
 }
 
 export function encodeSyntheticCreationHarness(
@@ -716,7 +739,9 @@ function syntheticDepositAmount(
     const candidate =
         decoded && method === 'exactInputSingle'
             ? decoded[0]?.amountIn
-            : decoded?.[method === 'supply' ? 1 : 0];
+            : decoded?.[
+                  method === 'supply' || source.selector === SELECTORS.farmDeposit ? 1 : 0
+              ];
     return maxBigInt(1n, minBigInt(toBigInt(candidate), ethers.parseEther('0.01')));
 }
 

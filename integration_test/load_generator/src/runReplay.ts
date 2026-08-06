@@ -8,7 +8,7 @@
  *   TARGET_NETWORK=arctic-1 REPLAY_DIR=... EXECUTE=1 npm run replay:run
  */
 import path from 'path';
-import { SigningStargateClient, TimeoutError } from '@cosmjs/stargate';
+import { SigningStargateClient, StargateClient, TimeoutError } from '@cosmjs/stargate';
 import { TxRaw } from 'cosmjs-types/cosmos/tx/v1beta1/tx';
 import { ethers } from 'ethers';
 import { buildCosmosReplay, BuiltCosmosReplay } from './replay/cosmosAdapters';
@@ -39,7 +39,12 @@ import {
     BucketAuditWriter,
     BucketOutcome,
 } from './replay/bucketAudit';
-import { loadReplayConfig, loadTargetConfig, verifyTargetRpc } from './config';
+import {
+    loadReplayConfig,
+    loadTargetConfig,
+    verifyTargetCosmosRpc,
+    verifyTargetRpc,
+} from './config';
 import { readJson, readOptionalJson, writeJsonAtomic } from './io';
 import { prepareSemanticFixtures } from './fixturePreparation';
 import { cosmosWalletAt, privateKeyAt, replayRegistry } from './keys';
@@ -171,6 +176,12 @@ async function main(): Promise<void> {
     const provider = new ethers.JsonRpcProvider(target.evmRpcUrl);
     provider.pollingInterval = 200;
     await verifyTargetRpc(target, provider);
+    const cosmosVerifier = await StargateClient.connect(target.cosmosRpcUrl);
+    try {
+        await verifyTargetCosmosRpc(target, cosmosVerifier);
+    } finally {
+        cosmosVerifier.disconnect();
+    }
     await verifyDeploymentCode(deployment, provider);
     const users = { ...manifest, users: manifest.users.slice(0, WORKER_COUNT) };
     const workers = await createWorkers(users, target.mnemonic, provider);
@@ -272,11 +283,9 @@ async function main(): Promise<void> {
             checkpoint?.targetNetwork === target.network
                 ? checkpoint.lastCompletedSourceBlock + 1
                 : selected[0].source.firstBlock;
-        const firstTimestamp =
-            selected
-                .flatMap(segment => segment.blocks)
-                .find(block => block.number >= nextSourceBlock)?.timestamp ??
-            selected[0].source.startTimestamp;
+        let firstTimestamp = selected
+            .flatMap(segment => segment.blocks)
+            .find(block => block.number >= nextSourceBlock)?.timestamp;
         const replayStartedAt = Date.now();
         const runDeadline = RUN_DURATION_SECONDS
             ? replayStartedAt + RUN_DURATION_SECONDS * 1_000
@@ -394,6 +403,7 @@ async function main(): Promise<void> {
                 ) {
                     break;
                 }
+                firstTimestamp ??= block.timestamp;
                 const targetElapsedMs =
                     ((block.timestamp - firstTimestamp) * 1_000) / TIME_SCALE;
                 await sleepUntil(replayStartedAt + pausedMilliseconds + targetElapsedMs);
@@ -865,16 +875,20 @@ async function executeCosmos(
             targetTransactionBytes,
         });
     } catch (error) {
-        if (error instanceof TimeoutError) {
+        const timedOut = error instanceof TimeoutError;
+        const outcome: BucketOutcome = timedOut ? 'poll_timeout' : 'rejected';
+        if (timedOut) {
             // The node accepted the transaction; it just missed the poll window.
             metrics.submitted++;
             liveMetrics.recordOutcome('cosmos', 'submitted');
+            liveMetrics.recordOutcome('cosmos', 'poll_timeout');
+        } else {
+            metrics.rejected++;
+            liveMetrics.recordOutcome('cosmos', 'rejected');
         }
-        metrics.rejected++;
-        liveMetrics.recordOutcome('cosmos', 'rejected');
         liveMetrics.observeSubmission(
             'cosmos',
-            'rejected',
+            outcome,
             Number(process.hrtime.bigint() - startedAt) / 1e9,
         );
         worker.cosmosClient?.disconnect();
@@ -887,7 +901,7 @@ async function executeCosmos(
                 targetNetwork,
                 built.adapter,
                 built.fidelity,
-                'rejected',
+                outcome,
                 built.reason,
             ),
             targetHash,

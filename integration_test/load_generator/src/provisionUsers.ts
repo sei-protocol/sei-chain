@@ -11,7 +11,12 @@ import { EncodeObject } from '@cosmjs/proto-signing';
 import { SigningStargateClient } from '@cosmjs/stargate';
 import { Encoder } from '@sei-js/cosmos/encoding';
 import { ethers } from 'ethers';
-import { loadProvisionConfig, loadTargetConfig, verifyTargetRpc } from './config';
+import {
+    loadProvisionConfig,
+    loadTargetConfig,
+    verifyTargetCosmosRpc,
+    verifyTargetRpc,
+} from './config';
 import { writeJsonAtomic } from './io';
 import { mapConcurrent } from './concurrency';
 import { cosmosWalletAt, privateKeyAt, replayRegistry } from './keys';
@@ -57,12 +62,11 @@ async function main(): Promise<void> {
         adminWallet,
         { registry: replayRegistry(), broadcastPollIntervalMs: 200 },
     );
-    const cosmosChainId = await admin.getChainId();
-    if (cosmosChainId !== target.cosmosChainId) {
+    try {
+        await verifyTargetCosmosRpc(target, admin);
+    } catch (error) {
         admin.disconnect();
-        throw new Error(
-            `Refusing Cosmos chain ${cosmosChainId}; expected ${target.cosmosChainId}`,
-        );
+        throw error;
     }
 
     const initialBalances = await Promise.all(

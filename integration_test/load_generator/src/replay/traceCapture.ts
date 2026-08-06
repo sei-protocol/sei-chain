@@ -54,11 +54,18 @@ export function normalizeCallTrace(root: unknown, bounds: TraceBounds): Normaliz
     let truncated = false;
 
     function countSubtree(value: unknown): number {
-        if (!value || typeof value !== 'object') return 0;
-        const children = Array.isArray((value as CallTracerFrame).calls)
-            ? (value as CallTracerFrame).calls!
-            : [];
-        return 1 + children.reduce((sum, child) => sum + countSubtree(child), 0);
+        const pending = [value];
+        let count = 0;
+        while (pending.length > 0) {
+            const current = pending.pop();
+            if (!current || typeof current !== 'object') continue;
+            count++;
+            const children = (current as CallTracerFrame).calls;
+            if (Array.isArray(children)) {
+                for (const child of children) pending.push(child);
+            }
+        }
+        return count;
     }
 
     function visit(value: unknown, depth: number, parent: number | null): void {

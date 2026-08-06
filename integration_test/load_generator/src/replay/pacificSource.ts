@@ -41,6 +41,25 @@ interface RpcResponse<T> {
     error?: { code: number; message: string };
 }
 
+export function orderRpcBatchResponses<T>(
+    requests: Pick<RpcRequest, 'id'>[],
+    responses: RpcResponse<T>[],
+): RpcResponse<T>[] {
+    const expectedIds = new Set(requests.map(request => request.id));
+    const byId = new Map<number, RpcResponse<T>>();
+    for (const item of responses) {
+        if (!expectedIds.has(item.id) || byId.has(item.id)) {
+            throw new Error(`EVM RPC returned unexpected or duplicate batch id ${item.id}`);
+        }
+        byId.set(item.id, item);
+    }
+    return requests.map(request => {
+        const item = byId.get(request.id);
+        if (!item) throw new Error(`EVM RPC omitted batch id ${request.id}`);
+        return item;
+    });
+}
+
 interface RpcTransaction {
     hash: string;
     blockNumber: string;
@@ -618,7 +637,7 @@ export class PacificSource {
                 }
                 const error = body.find(item => item.error);
                 if (error?.error) throw new Error(`RPC ${error.error.code}: ${error.error.message}`);
-                return body.sort((a, b) => a.id - b.id);
+                return orderRpcBatchResponses(requests, body);
             } catch (error) {
                 lastError = error;
                 await retryDelay(attempt);
