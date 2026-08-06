@@ -45,6 +45,39 @@ visible change into an invisible one:
 If a pinned behavior is genuinely wrong and worth fixing, fix it in the production
 reader and update the row in the same PR. The row then records the improvement.
 
+## Primitives
+
+Nine exported calls, eight properties, because `CheckRow` is `CheckKey` plus
+`CheckDeterministic`. A fuzz target names only `CheckRow` and gets both.
+
+| Check | The failure it prevents |
+|---|---|
+| `CheckDefaults` | a declared default moves with nothing independent to compare against |
+| `CheckKeyNames` | an operator-facing key is renamed while the row and the reader move together |
+| `CheckKey` | a reader does not resolve `Key` into `Path` through `Cast` |
+| `CheckDeterministic` | a reader is not a pure function of its `AppOpts` |
+| `CheckAbsent` | an omitted key resolves to something other than the declared default |
+| `CheckManifestCoversEveryField` | a resolved field no row claims |
+| `CheckEveryRowHasADiscriminatingSeed` | a row whose every seed would also pass against a reader that never looks its key up |
+| `CheckWiring` | one of the calls above is deleted |
+
+Two of them read no prediction column, and that is the invariant any new check
+inherits. `CheckKeyNames` is blind to `Path`, `Cast`, `Unguarded` and `Checked`, and
+`CheckEveryRowHasADiscriminatingSeed` to `Cast`, `Unguarded` and `Checked`. A check that
+read the column it exists to hold could be silenced by editing that column, which is
+forbidden move 4 above.
+
+`CheckKey` compares against the reader's own empty-`AppOpts` result rather than the
+declared defaults, because some readers fill fields from outside the config.
+`CheckAbsent` is what ties that result to the declared defaults, so a section wired for
+rows and not for `CheckAbsent` has an unanchored baseline.
+
+**Before adding one.** Advancing coverage is normally wiring an existing check to another
+section, and that is the first thing to try. A new check earns its place by naming a
+failure none of the eight can see. A signature that changes twice, or a second check
+proposed for a property one of these already touches, is the signal to redesign rather
+than patch.
+
 ## Adding a Key to an Existing Section
 
 A section's manifest is a `[]configtest.KeySpec`, one row per key its reader looks
