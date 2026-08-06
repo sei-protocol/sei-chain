@@ -19,7 +19,7 @@ var (
 		)),
 		incarnations: must(meter.Int64Counter(
 			"scheduler_incarnations",
-			metric.WithDescription("Maximum incarnation seen in OCC scheduler round"),
+			metric.WithDescription("Sum of per-round maximum incarnations in the OCC scheduler"),
 			metric.WithUnit("{count}"),
 		)),
 	}
