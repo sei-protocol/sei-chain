@@ -120,7 +120,6 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 		)
 	}
 
-	var newAccountCount int
 	for _, out := range outputs {
 		outAddress, err := sdk.AccAddressFromBech32(out.Address)
 		if err != nil {
@@ -145,11 +144,12 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 		// such as delegated fee messages.
 		accExists := k.ak.HasAccount(ctx, outAddress)
 		if !accExists {
-			newAccountCount++
+			defer func() {
+				recordNewAccounts(ctx.Context(), 1)
+			}()
 			k.ak.SetAccount(ctx, k.ak.NewAccountWithAddress(ctx, outAddress))
 		}
 	}
-	recordNewAccounts(ctx.Context(), int64(newAccountCount))
 
 	return nil
 }
@@ -167,8 +167,10 @@ func (k BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAd
 	// such as delegated fee messages.
 	accExists := k.ak.HasAccount(ctx, toAddr)
 	if !accExists {
+		defer func() {
+			recordNewAccounts(ctx.Context(), 1)
+		}()
 		k.ak.SetAccount(ctx, k.ak.NewAccountWithAddress(ctx, toAddr))
-		recordNewAccounts(ctx.Context(), 1)
 	}
 
 	return nil
