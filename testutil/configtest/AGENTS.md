@@ -321,8 +321,9 @@ covered by this check", so `evm CheckAbsent` means some test in the package call
 `configtest.CheckAbsent` naming `"evm"`. A line that disappears is coverage that was deleted,
 and that is the failure the file exists to report.
 
-Read the file as an inventory compared exactly, the way `go.sum` is compared. Every line has
-to still be there. It is not a lint baseline, which records violations to ignore and wants to
+This is the **coverage record**, the third of the suite's three record kinds, alongside the
+defaults record (`<section>.golden`) and the key-names record (`<section>.keys.golden`). It is
+compared exactly, the way `go.sum` is compared, so every line has to still be there. It is not a lint baseline, which records violations to ignore and wants to
 shrink to nothing. This wants to stay complete, so adding a check also fails until the record
 is regenerated, and the failure names what was added separately from what was removed.
 
