@@ -271,13 +271,7 @@ type GRPCWebConfig struct {
 
 // PaginationConfig defines the bounds enforced on paginated gRPC/LCD queries
 // (query.Paginate, query.FilteredPaginate, query.GenericFilteredPaginate).
-// These bound the raw KV-store work a single paginated request can force —
-// see sei-cosmos/types/query for what each field caps and PLT-361/PLT-956 for
-// why the bounds exist and are overridable. Lower values reduce the store
-// iteration a single request can force at the cost of needing more
-// round-trips over sparse or unindexed filtered queries (e.g. validator
-// delegations); raising them accepts that cost in exchange for fewer
-// round-trips, and does not, on its own, disable the caps.
+// These bound the raw KV-store work a single paginated request can force.
 type PaginationConfig struct {
 	// MaxLimit is the maximum page size (PageRequest.Limit) a single
 	// pagination call accepts.
