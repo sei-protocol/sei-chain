@@ -8,9 +8,8 @@ import "errors"
 // means the height is below the retention / eviction floor.
 var ErrNotFound = errors.New("not found")
 
-// ErrBlockGap is returned when the persisted blocks are not contiguous,
-// surfaced by BlockDBIterator.Next during a scan. WriteBlock rejects gapped
-// writes, so a gap on disk indicates store corruption.
+// ErrBlockGap is returned when persisted blocks are not contiguous. WriteBlock
+// rejects gapped writes, so a gap on disk indicates store corruption.
 var ErrBlockGap = errors.New("block gap in BlockDB")
 
 // ErrBlockOutOfOrder is returned by WriteBlock when the supplied

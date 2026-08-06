@@ -120,23 +120,16 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 		require.True(t, qc.IsPresent(), "covering QC for served block %d must be readable", n)
 	}
 
-	// The ledger never yields a stranded position, and every yielded position
-	// has a covering QC.
-	it, err := db3.Iterator(0)
+	// Recent recovery data never includes stranded blocks, and every returned
+	// block has a covering QC.
+	recent, err := db3.ReadRecent()
 	require.NoError(t, err)
-	defer func() { _ = it.Close() }()
-	for {
-		pos, ok, err := it.Next()
+	for _, block := range recent.Blocks {
+		n := block.Number
+		require.GreaterOrEqual(t, uint64(n), uint64(5), "recent data must not include stranded block %d", n)
+		qc, err := db3.ReadQCByBlockNumber(n)
 		require.NoError(t, err)
-		if !ok {
-			break
-		}
-		n := pos.Number
-		require.GreaterOrEqual(t, uint64(n), uint64(5), "ledger must not yield stranded position %d", n)
-		require.NotNil(t, pos.QC, "position %d must have a covering QC", n)
-		blkOpt, err := it.Block()
-		require.NoError(t, err)
-		require.True(t, blkOpt.IsPresent(), "position %d must have a block", n)
+		require.True(t, qc.IsPresent(), "block %d must have a covering QC", n)
 	}
 }
 

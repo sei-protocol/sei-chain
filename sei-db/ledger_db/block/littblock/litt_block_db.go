@@ -2,6 +2,7 @@ package littblock
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -465,87 +466,85 @@ func (s *blockDB) Status() types.DBStatus {
 	return tips
 }
 
-func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
-	// One consistent read of the cursors. The watermark stays on its atomic because the GC goroutine
-	// writes it, but everything else is taken together so the floors below cannot disagree about
-	// which instant they describe.
+// ReadRecent() reads the latest AppQC and all Blocks and CommitQCs, for indices >= AppQC.GlobalRange().First.
+// WARNING: ReadRecent() will return an error if watermark is moved during iteration.
+func (s *blockDB) ReadRecent() (types.RecentData, error) {
+	// Determine the targetFloor: it is either all the data, or data since the lastestAppQC.
 	s.mu.Lock()
-	hasQC, nextQC, oldestQCStart := s.hasQC, s.lastQCNext, s.oldestQCStart
-	hasBlocks, firstBlock := s.hasBlocks, s.firstBlockNumber
+	watermark := s.watermark.Load()
+	targetFloor := types.GlobalBlockNumber(watermark)
+	if s.hasAppQC {
+		targetFloor = s.latestAppQCStartBlock
+	}
 	s.mu.Unlock()
-	watermark := types.GlobalBlockNumber(s.watermark.Load())
-
-	if !hasQC {
-		// An empty store covers nothing.
-		return &blockDBIterator{}, nil
+	// Collect data >= targetFloor.
+	it, err := s.table.Iterator(true)
+	if err != nil {
+		return types.RecentData{}, fmt.Errorf("failed to open recent-data iterator: %w", err)
 	}
-
-	// Clamp up to the lowest number this store can serve. The watermark is the retention gate and
-	// oldestQCStart is where coverage begins on a store that never had data below it (bootstrapped
-	// mid-chain); either may be the higher.
-	start := max(n, watermark, oldestQCStart)
-
-	if !hasBlocks {
-		// No block has ever been written, so there is no block to open on and the QC floor governs.
-		// This is the one case blockDBIterator cannot serve safely — see simpleIterator.
-		if start >= nextQC {
-			return &blockDBIterator{}, nil
-		}
-		appQCs, err := snapshotAppQCs(s.table, start, nextQC)
+	defer func() { _ = it.Close() }()
+	var recent types.RecentData
+	for done := false; !done; {
+		ok, err := it.Next()
 		if err != nil {
-			return nil, err
+			return types.RecentData{}, fmt.Errorf("failed to advance recent-data iterator: %w", err)
 		}
-		return newSimpleIterator(s.table, start, nextQC, appQCs)
-	}
-
-	// firstBlock is where the block history begins, which can sit inside its covering QC's range
-	// because the first block is free to start there. Clamping to it is what makes the scan open on a
-	// block that exists rather than on blockless numbers below it.
-	start = max(start, firstBlock)
-
-	if start >= nextQC {
-		// Nothing is covered at or above start.
-		return &blockDBIterator{}, nil
-	}
-
-	appQCs, err := snapshotAppQCs(s.table, start, nextQC)
-	if err != nil {
-		return nil, err
-	}
-
-	// A QC is stored under its First as the primary key with a covered-number alias for every
-	// other number in its range, and an alias carries the full QC value. Positioning the scan at
-	// qcKey(start) therefore lands on the covering QC no matter where start falls in its range.
-	it, found, err := s.table.IteratorAt(qcKey(start), false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open iterator at %d: %w", start, err)
-	}
-	if !found {
-		// start was clamped into [oldestQCStart, NextQC) and retained QCs cover that interval
-		// contiguously, so some QC's primary or covered-number alias is stored under qcKey(start)
-		// — unless the retention floor moved past start while we were positioning. Either way we
-		// refuse rather than scanning from the beginning of the table, which would read exactly
-		// the history the caller passed n to skip. Which of the two it was decides the diagnosis,
-		// and getting that wrong is expensive: reporting corruption on a healthy store sends an
-		// operator hunting for damage that isn't there.
-		if s.watermark.Load() > uint64(start) {
-			// A concurrent PruneBefore advanced the floor past start, and GC reclaimed the record
-			// (litt surfaces a prune/GC boundary as not-found — see DiskTable.IteratorAt). GC's
-			// filter only clears a segment once the watermark exceeds every number in it, so a
-			// watermark above start is exactly the condition that makes this benign rather than
-			// corrupt. Racing a pruner has no deterministic answer, so report the floor honestly
-			// and let the caller decide whether to retry.
-			return nil, fmt.Errorf("%w: start %d fell below the retention floor while positioning",
-				types.ErrPruned, start)
+		if !ok {
+			break
 		}
-		return nil, fmt.Errorf("corrupt store: no QC record at %d despite coverage to %d", start, nextQC)
+		key, isPrimary, err := it.GetKey()
+		if err != nil {
+			return types.RecentData{}, fmt.Errorf("failed to read recent-data key: %w", err)
+		}
+		if !isPrimary {
+			continue
+		}
+		value, err := it.GetValue()
+		if err != nil {
+			return types.RecentData{}, fmt.Errorf("failed to read recent-data value: %w", err)
+		}
+		switch keyKind(key) {
+		case kindBlock:
+			n, block, err := decodeBlock(value)
+			if err != nil {
+				return types.RecentData{}, fmt.Errorf("failed to decode recent block: %w", err)
+			}
+			if targetFloor <= n {
+				recent.Blocks = append(recent.Blocks, types.RecentBlock{Number: n, Block: block})
+			}
+		case kindAppQC:
+			appQC, err := decodeAppQC(value)
+			if err != nil {
+				return types.RecentData{}, fmt.Errorf("failed to decode recent AppQC: %w", err)
+			}
+			if targetFloor <= appQC.Proposal().GlobalRange().First {
+				recent.AppQC = utils.Some(appQC)
+			}
+		case kindQC:
+			qc, err := decodeQC(value)
+			if err != nil {
+				return types.RecentData{}, fmt.Errorf("failed to decode recent CommitQC: %w", err)
+			}
+			first := qc.QC().GlobalRange().First
+			if targetFloor <= first {
+				recent.CommitQCs = append(recent.CommitQCs, qc)
+			}
+			if first <= targetFloor {
+				// targetFloor has been reached - since CommitQC is persisted before covered Blocks and AppQC,
+				// reaching CommitQC for targetFloor means we finished the read
+				done = true
+			}
+		default:
+		}
 	}
-	return &blockDBIterator{
-		it:            it,
-		appQCs:        appQCs,
-		startN:        start,
-		expectStartQC: true,
-	}, nil
+	// Safety check: if watermark has been moved and GC happened to get executed during iteration,
+	// the loaded data might be inconsistent with the targetFloor we computed.
+	if got := s.watermark.Load(); got != watermark {
+		return types.RecentData{}, fmt.Errorf("watermark has moved while iterating")
+	}
+	slices.Reverse(recent.CommitQCs)
+	slices.Reverse(recent.Blocks)
+	return recent, nil
 }
 
 func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {

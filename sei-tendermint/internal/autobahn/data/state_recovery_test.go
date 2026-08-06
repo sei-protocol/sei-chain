@@ -14,16 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-type recoveryStartBlockDB struct {
-	types.BlockDB
-	start types.GlobalBlockNumber
-}
-
-func (db *recoveryStartBlockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
-	db.start = n
-	return db.BlockDB.Iterator(n)
-}
-
 // TestRecoveryEmpty verifies that NewState is a no-op on a fresh BlockDB.
 func TestRecoveryEmpty(t *testing.T) {
 	rng := utils.TestRng()
@@ -113,10 +103,11 @@ func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
+	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 	require.Greater(t, gr2.Len(), 2)
 
-	db := &recoveryStartBlockDB{BlockDB: newTestBlockDB(t, t.TempDir())}
+	db := newTestBlockDB(t, t.TempDir())
 	writeToBlockDB(t, db,
 		[]*types.FullCommitQC{qc1, qc2},
 		[][]*types.Block{blocks1, blocks2})
@@ -127,26 +118,13 @@ func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
 		LastExecutedBlock: utils.Some(lastExecuted),
 	}, db)
 
-	require.Equal(t, lastExecuted, db.start)
 	for inner := range state.inner.Lock() {
-		require.Equal(t, lastExecuted, inner.nextAppProposal)
+		require.Equal(t, gr1.First, inner.nextAppProposal)
 	}
 	require.Equal(t, gr2.Next, state.NextBlock())
 	got, err := state.TryBlock(lastExecuted)
 	require.NoError(t, err)
 	require.Equal(t, blocks2[0].Header().Hash(), got.Header().Hash())
-
-	appHash := types.GenAppHash(rng)
-	for n := gr2.First; n < gr2.Next; n++ {
-		hash := types.GenAppHash(rng)
-		if n == gr2.Next-1 {
-			hash = appHash
-		}
-		require.NoError(t, state.PushAppHash(t.Context(), n, hash))
-	}
-	appVote, _, err := state.AppVote(t.Context(), lastExecuted)
-	require.NoError(t, err)
-	require.Equal(t, appHash, appVote.Proposal().AppHash())
 }
 
 func TestRecoveryCapsAppTipAtLastBlockInBlockDB(t *testing.T) {
@@ -154,7 +132,6 @@ func TestRecoveryCapsAppTipAtLastBlockInBlockDB(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
 	dir := t.TempDir()
@@ -162,14 +139,13 @@ func TestRecoveryCapsAppTipAtLastBlockInBlockDB(t *testing.T) {
 	writeToBlockDB(t, db1, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
 	require.NoError(t, db1.Close())
 
-	db := &recoveryStartBlockDB{BlockDB: newTestBlockDB(t, dir)}
+	db := newTestBlockDB(t, dir)
 
 	state, err := NewState(&Config{
 		Registry:          registry,
 		LastExecutedBlock: utils.Some(gr2.First),
 	}, db)
 	require.NoError(t, err)
-	require.Equal(t, gr1.Next-1, db.start)
 	require.Equal(t, gr2.First, state.NextBlock())
 
 	require.NoError(t, state.PushQC(t.Context(), qc2, blocks2))
@@ -191,11 +167,12 @@ func TestRecoveryRejectsAppTipBeyondCrashWindow(t *testing.T) {
 	dbNextBlock := db.Status().NextBlock
 	lastExecuted := dbNextBlock + 1
 
-	_, err := NewState(&Config{
+	state, err := NewState(&Config{
 		Registry:          registry,
 		LastExecutedBlock: utils.Some(lastExecuted),
 	}, db)
-	require.ErrorIs(t, err, types.ErrNotFound)
+	require.NoError(t, err)
+	require.Equal(t, dbNextBlock, state.NextBlock())
 }
 
 func TestRecoveryStartsAtRegistryFloorWhenBlockDBMissingFirstCommittedBlock(t *testing.T) {
@@ -204,7 +181,7 @@ func TestRecoveryStartsAtRegistryFloorWhenBlockDBMissingFirstCommittedBlock(t *t
 	qc, _ := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	gr := qc.QC().GlobalRange()
 
-	db := &recoveryStartBlockDB{BlockDB: newTestBlockDB(t, t.TempDir())}
+	db := newTestBlockDB(t, t.TempDir())
 	require.NoError(t, db.WriteQC(qc))
 	require.NoError(t, db.Flush())
 
@@ -213,7 +190,6 @@ func TestRecoveryStartsAtRegistryFloorWhenBlockDBMissingFirstCommittedBlock(t *t
 		LastExecutedBlock: utils.Some(gr.First),
 	}, db)
 	require.NoError(t, err)
-	require.Equal(t, registry.FirstBlock(), db.start)
 	require.Equal(t, gr.First, state.NextBlock())
 }
 
@@ -222,11 +198,12 @@ func TestRecoveryRejectsEmptyBlockDBAfterFirstCommittedBlock(t *testing.T) {
 	registry, _ := epoch.GenRegistry(rng, 3)
 	lastExecuted := registry.FirstBlock() + 1
 
-	_, err := NewState(&Config{
+	state, err := NewState(&Config{
 		Registry:          registry,
 		LastExecutedBlock: utils.Some(lastExecuted),
 	}, newTestBlockDB(t, t.TempDir()))
-	require.ErrorIs(t, err, types.ErrNotFound)
+	require.NoError(t, err)
+	require.Equal(t, registry.FirstBlock(), state.NextBlock())
 }
 
 func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
@@ -561,10 +538,7 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 
 // TestRecoveryBlockGap verifies that a block gap can never enter BlockDB in the
 // first place: WriteBlock enforces contiguity, so skipping a covered number is
-// rejected at write time. (A gap on disk can therefore only be corruption, which
-// the ledger iterator reports as ErrBlockGap during replay — pinned by
-// littblock's TestLittblockIteratorGapIsCorruption — and loadFromBlockDB
-// propagates.)
+// rejected at write time.
 func TestRecoveryBlockGap(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)

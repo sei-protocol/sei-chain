@@ -82,6 +82,7 @@ func newInner(first types.GlobalBlockNumber) *inner {
 		nextBlockToPersist: first,
 		nextBlock:          first,
 		nextQC:             first,
+		anchor:             utils.NewAtomicSend(utils.None[Anchor]()),
 	}
 }
 
@@ -207,68 +208,55 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	}, nil
 }
 
-// loadFromBlockDB replays QCs and blocks from blockDB into s.inner.
+// loadFromBlockDB replays the recent persisted suffix from blockDB into s.inner.
 // Called from NewState before any goroutines are spawned.
-//
-// Recovery starts at the app tip so runExecute can replay its AppHash. If the
-// app tip equals BlockDB's next block, recovery starts at the last stored block:
-// app.Commit may finish before BlockDB is durable. A larger gap violates the
-// PushAppHash durability invariant. An empty BlockDB allows only no app tip or
-// the first committed block.
-//
-// Without an app tip, recovery starts at the registry's first block.
-// BlockDB.Iterator clamps the start to its retained floor. skipTo uses the first
-// returned position, even inside a QC, to keep blocks dense over
-// [first, nextBlock).
-//
-// Each iterator position has its covering QC and an optional block. Missing
-// blocks are allowed only at the tail. BlockDB enforces other consistency; this
-// method only rejects a first QC before committee genesis.
 func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	firstBlock := cfg.Registry.FirstBlock()
 	status := blockDB.Status()
-	status.NextQC = max(status.NextQC, firstBlock)
-	status.NextBlock = max(status.NextBlock, firstBlock)
-	status.NextAppQC = max(status.NextAppQC, firstBlock)
-	first := status.NextAppQC
-	inner := newInner(first)
-	it, err := blockDB.Iterator(first)
+
+	recent, err := blockDB.ReadRecent()
 	if err != nil {
-		return nil, fmt.Errorf("open block db iterator: %w", err)
+		return nil, fmt.Errorf("blockDB.ReadRecent(): %w", err)
 	}
-	defer func() { _ = it.Close() }()
-	for {
-		pos, ok, err := it.Next()
-		if err != nil {
-			return nil, fmt.Errorf("advance block db iterator: %w", err)
-		}
-		if !ok {
-			break
-		}
-		if err := inner.insertQC(cfg.Registry, pos.QC); err != nil {
+
+	first := firstBlock
+	if appQC, ok := recent.AppQC.Get(); ok {
+		first = appQC.Proposal().GlobalRange().First
+	} else if len(recent.Blocks) > 0 {
+		first = recent.Blocks[0].Number
+	} else if len(recent.CommitQCs) > 0 {
+		first = recent.CommitQCs[0].QC().GlobalRange().First
+	}
+	if first < firstBlock {
+		return nil, fmt.Errorf("db contains data before genesis")
+	}
+	status.NextQC = max(status.NextQC, first)
+	status.NextBlock = max(status.NextBlock, first)
+	status.NextAppQC = max(status.NextAppQC, first)
+
+	inner := newInner(first)
+	for _, qc := range recent.CommitQCs {
+		if err := inner.insertQC(cfg.Registry, qc); err != nil {
 			return nil, fmt.Errorf("load QC from BlockDB: %w", err)
 		}
-		b, err := it.Block()
-		if err != nil {
-			return nil, fmt.Errorf("read block %d from BlockDB: %w", pos.Number, err)
+	}
+	if appQC, ok := recent.AppQC.Get(); ok {
+		if err := inner.insertAppQC(cfg.Registry, appQC); err != nil {
+			return nil, fmt.Errorf("load AppQC from BlockDB: %w", err)
 		}
-		if b, ok := b.Get(); ok {
-			ei := pos.QC.QC().Proposal().EpochIndex()
-			e, ok := cfg.Registry.EpochByIndex(ei)
-			if !ok {
-				return nil, fmt.Errorf("unknown epoch_index %d", ei)
-			}
-			if err := b.Verify(e.Committee()); err != nil {
-				return nil, fmt.Errorf("verify block %d from BlockDB: %w", pos.Number, err)
-			}
-			if err := inner.insertBlock(pos.Number, b); err != nil {
-				return nil, fmt.Errorf("insert block %d from BlockDB: %w", pos.Number, err)
-			}
+	}
+	for _, b := range recent.Blocks {
+		qc := inner.qcs[b.Number]
+		ei := qc.QC().Proposal().EpochIndex()
+		e, ok := cfg.Registry.EpochByIndex(ei)
+		if !ok {
+			return nil, fmt.Errorf("unknown epoch_index %d", ei)
 		}
-		if pos.HasAppQC {
-			if err := inner.insertAppQC(cfg.Registry, pos.AppQC); err != nil {
-				return nil, fmt.Errorf("load AppQC from BlockDB: %w", err)
-			}
+		if err := b.Block.Verify(e.Committee()); err != nil {
+			return nil, fmt.Errorf("verify block %d from BlockDB: %w", b.Number, err)
+		}
+		if err := inner.insertBlock(b.Number, b.Block); err != nil {
+			return nil, fmt.Errorf("insert block %d from BlockDB: %w", b.Number, err)
 		}
 	}
 	// Advance nextBlock through contiguous loaded blocks. Don't use
@@ -704,6 +692,17 @@ func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
 	panic("unreachable")
 }
 
+func (s *State) LastAppQC() (*types.AppQC, *types.FullCommitQC) {
+	for inner := range s.inner.Lock() {
+		if inner.nextAppQC <= inner.first {
+			return nil, nil
+		}
+		n := inner.nextAppQC - 1
+		return inner.appQCs[n], inner.qcs[n]
+	}
+	panic("unreachable")
+}
+
 func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	// TODO(gprusak): decide whether 0 is a good result in this case in general.
 	// Empty maps (first == nextQC) only on fresh start / after skipTo with no QC.
@@ -774,6 +773,8 @@ func (s *State) runPersist(ctx context.Context) error {
 			}); err != nil {
 				return err
 			}
+			nextBlock = inner.nextBlockToPersist
+			nextAppQC = inner.nextAppQCToPersist
 			for nextBlock < inner.nextBlock {
 				qc := inner.qcs[nextBlock]
 				if nextBlock == qc.QC().GlobalRange().First {

@@ -62,10 +62,7 @@ type blockDB struct {
 	// AppQC cohort remains readable together with its CommitQC and blocks.
 	latestAppQCStartBlock types.GlobalBlockNumber
 
-	// firstBlockNumber is the lowest block number written. Iterator clamps its start up to
-	// it so a scan always opens on a block that exists; the first block may land anywhere
-	// inside its covering QC, so this can sit above that QC's start with no block in
-	// between. Meaningful only while hasBlocks.
+	// firstBlockNumber is the lowest block number written. Meaningful only while hasBlocks.
 	firstBlockNumber types.GlobalBlockNumber
 
 	// watermark is the (clamped) retention floor set by PruneBefore. Reads
@@ -245,25 +242,36 @@ func (s *blockDB) Status() types.DBStatus {
 	return tips
 }
 
-func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
+func (s *blockDB) ReadRecent() (types.RecentData, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Clamp up to the lowest number this store can serve: the retention gate, and the start of
-	// the block history so a scan opens on a block that exists rather than on blockless numbers
-	// below it (the first block may land inside its covering QC's range). With no block at all
-	// the per-entry clamp in iteratorLocked governs, so a QC written ahead of its blocks is
-	// still iterable.
-	start := max(n, s.watermark)
-	if s.hasBlocks {
-		start = max(start, s.firstBlockNumber)
+	var recent types.RecentData
+	floor := s.watermark
+	var targetIndex types.RoadIndex
+	if s.hasAppQC {
+		appQC := s.appQCs[s.latestAppQCStartBlock].appQC
+		recent.AppQC = utils.Some(appQC)
+		floor = max(floor, s.latestAppQCStartBlock)
+		targetIndex = appQC.Proposal().RoadIndex()
 	}
-	entries := s.sortedQCsLocked()
-	if len(entries) == 0 || start >= entries[len(entries)-1].upper {
-		// Nothing is covered at or above the (clamped) start.
-		return &memBlockDBIterator{idx: -1}, nil
+
+	for _, e := range s.sortedQCsLocked() {
+		if e.upper <= s.watermark {
+			continue
+		}
+		if s.hasAppQC && e.qc.Index() < targetIndex {
+			continue
+		}
+		recent.CommitQCs = append(recent.CommitQCs, e.qc)
 	}
-	return s.iteratorLocked(entries, start), nil
+	for _, n := range s.sortedBlockNumbersLocked() {
+		if n < floor {
+			continue
+		}
+		recent.Blocks = append(recent.Blocks, types.RecentBlock{Number: n, Block: s.byNumber[n]})
+	}
+	return recent, nil
 }
 
 // sortedQCsLocked returns the retained QC entries ascending by lower bound. Caller holds mu.
@@ -276,27 +284,6 @@ func (s *blockDB) sortedQCsLocked() []qcEntry {
 	return entries
 }
 
-// iteratorLocked snapshots every covered number from start upward (clamping up to the first
-// covered number when start falls below all coverage), pairing each with its covering QC and
-// (possibly absent) block. Caller holds mu and guarantees some entry's range ends above start.
-//
-// Copying the whole range up front is how this store satisfies the iterator's snapshot
-// guarantee: the records live in maps that later writes and prunes mutate in place, so a
-// lazy walk would observe them. Residency is not something BlockDB.Iterator promises, and a
-// store that already holds every record in memory has nothing to stream anyway.
-func (s *blockDB) iteratorLocked(entries []qcEntry, start types.GlobalBlockNumber) *memBlockDBIterator {
-	it := &memBlockDBIterator{idx: -1}
-	for _, e := range entries {
-		for num := max(e.lower, start); num < e.upper; num++ {
-			it.nums = append(it.nums, num)
-			it.qcs = append(it.qcs, e.qc)
-			it.blocks = append(it.blocks, s.byNumber[num])
-			it.appQCs = append(it.appQCs, s.appQCCoveringLocked(num))
-		}
-	}
-	return it
-}
-
 func (s *blockDB) appQCCoveringLocked(n types.GlobalBlockNumber) *types.AppQC {
 	for _, e := range s.appQCs {
 		if e.lower <= n && n < e.upper {
@@ -306,64 +293,13 @@ func (s *blockDB) appQCCoveringLocked(n types.GlobalBlockNumber) *types.AppQC {
 	return nil
 }
 
-var _ types.BlockDBIterator = (*memBlockDBIterator)(nil)
-
-// memBlockDBIterator steps through a snapshot of covered numbers captured at creation.
-type memBlockDBIterator struct {
-	// nums holds every covered number, ascending.
-	nums []types.GlobalBlockNumber
-
-	// qcs holds the covering QC per position.
-	qcs []*types.FullCommitQC
-
-	// blocks holds the block per position; nil where no block is persisted.
-	blocks []*types.Block
-
-	// appQCs holds the AppQC per position; nil where no AppQC is persisted.
-	appQCs []*types.AppQC
-
-	// idx is the current position; -1 before the first Next and len(nums) once exhausted.
-	idx int
-
-	// closed is true once Close has been called. Block rejects calls made afterward.
-	closed bool
-}
-
-func (it *memBlockDBIterator) Next() (types.Position, bool, error) {
-	if it.idx < len(it.nums) {
-		it.idx++
+func (s *blockDB) sortedBlockNumbersLocked() []types.GlobalBlockNumber {
+	nums := make([]types.GlobalBlockNumber, 0, len(s.byNumber))
+	for n := range s.byNumber {
+		nums = append(nums, n)
 	}
-	if !it.positioned() {
-		return types.Position{}, false, nil
-	}
-	return types.Position{
-		Number:   it.nums[it.idx],
-		QC:       it.qcs[it.idx],
-		HasBlock: it.blocks[it.idx] != nil,
-		AppQC:    it.appQCs[it.idx],
-		HasAppQC: it.appQCs[it.idx] != nil,
-	}, true, nil
-}
-
-func (it *memBlockDBIterator) Block() (utils.Option[*types.Block], error) {
-	if !it.positioned() {
-		return utils.None[*types.Block](), fmt.Errorf("iterator is not positioned on a block number")
-	}
-	if it.blocks[it.idx] == nil {
-		return utils.None[*types.Block](), nil
-	}
-	return utils.Some(it.blocks[it.idx]), nil
-}
-
-func (it *memBlockDBIterator) Close() error {
-	// Mirrors littblock: a closed iterator holds no position, so Block reports misuse.
-	it.closed = true
-	return nil
-}
-
-// positioned reports whether the iterator sits on a number Next yielded.
-func (it *memBlockDBIterator) positioned() bool {
-	return !it.closed && it.idx >= 0 && it.idx < len(it.nums)
+	sort.Slice(nums, func(i, j int) bool { return nums[i] < nums[j] })
+	return nums
 }
 
 func (s *blockDB) ReadBlockByNumber(
