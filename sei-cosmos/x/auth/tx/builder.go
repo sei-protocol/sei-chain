@@ -1,8 +1,6 @@
 package tx
 
 import (
-	"fmt"
-
 	"github.com/gogo/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -168,7 +166,8 @@ func (w *wrapper) GetSignaturesV2() ([]signing.SignatureV2, error) {
 	sigs := w.tx.Signatures
 	// SignerInfos and Signatures are 1:1 (see SetSignatures).
 	if len(sigs) != len(signerInfos) {
-		return nil, fmt.Errorf("invalid tx: %d signer infos, %d signatures", len(signerInfos), len(sigs))
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized,
+			"wrong number of SignerInfos; expected %d, got %d", len(sigs), len(signerInfos))
 	}
 	pubKeys, err := w.GetPubKeys()
 	if err != nil {

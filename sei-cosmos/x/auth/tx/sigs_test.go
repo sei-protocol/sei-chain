@@ -8,6 +8,7 @@ import (
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 )
@@ -77,4 +78,6 @@ func TestGetSignaturesV2_SignerInfoSigCountMismatch(t *testing.T) {
 	b.tx.Signatures = nil
 	_, err := b.GetSignaturesV2()
 	require.Error(t, err)
+	_, code, _ := sdkerrors.ABCIInfo(err, false)
+	require.Equal(t, sdkerrors.ErrUnauthorized.ABCICode(), code)
 }
