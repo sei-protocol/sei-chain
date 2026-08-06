@@ -65,34 +65,13 @@ func TestGCLatestBlockRecoveredOnOpen(t *testing.T) {
 	require.Equal(t, uint64(5), latest)
 }
 
-// The window is the configured one, sentinel included: -1 has to survive the trip verbatim or an
-// operator asking for "never prune" gets a 1-block window instead. The default is 0, which asks for
-// no history of its own — what holds the WAL back then is SC/SS answering their oldest live snapshot,
-// which the collector applies to every store as the shared minimum.
-func TestGCRetentionWindowComesFromConfig(t *testing.T) {
+// The WAL asks for no history of its own, and there is no configuration that changes that. What
+// holds it back is SC/SS answering their oldest live snapshot as a boundary, which the collector
+// applies to every store as the shared minimum — so its depth tracks its consumers automatically
+// (see GetRetentionWindow).
+func TestGCRetentionWindowIsZero(t *testing.T) {
 	_, store := openWALForGC(t, testConfig(t.TempDir()))
-	require.Equal(t, int64(0), store.GetRetentionWindow(), "the default asks for no history of its own")
-
-	for _, retentionWindow := range []int64{gc.InfiniteRetentionWindow, 100_000} {
-		cfg := testConfig(t.TempDir())
-		cfg.RetentionWindow = retentionWindow
-		_, configured := openWALForGC(t, cfg)
-		require.Equal(t, retentionWindow, configured.GetRetentionWindow())
-	}
-}
-
-func TestConfigValidateRetentionWindow(t *testing.T) {
-	cfg := testConfig(t.TempDir())
-
-	for _, retentionWindow := range []int64{gc.InfiniteRetentionWindow, 0, 1} {
-		cfg.RetentionWindow = retentionWindow
-		require.NoError(t, cfg.Validate())
-	}
-
-	// Below InfiniteRetentionWindow there is no meaning left to assign, and GetRetentionWindow reads any
-	// negative value as infinite retention — so a typo'd -2 would silently disable pruning.
-	cfg.RetentionWindow = -2
-	require.ErrorContains(t, cfg.Validate(), "RetentionWindow")
+	require.Equal(t, int64(0), store.GetRetentionWindow())
 }
 
 // A contiguous store answers the cut line it was given whatever it holds, including on an empty WAL

@@ -22,11 +22,6 @@ type stateWALImpl struct {
 	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
 	wal seiwal.WAL[[]*proto.NamedChangeSet]
 
-	// Config.RetentionWindow, the history this WAL asks the garbage collector to keep beyond the shared
-	// rollback window. Immutable after construction, so the collector reads it off-goroutine without
-	// synchronization (GetRetentionWindow).
-	retentionWindow int64
-
 	// Set by Close() so subsequent calls fail fast. A plain field: like the write-ordering state below, it
 	// is only ever touched by the single caller, which must not invoke methods concurrently.
 	closed bool
@@ -68,7 +63,7 @@ func New(config *Config) (StateWAL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state WAL: %w", err)
 	}
-	return newStateWAL(wal, config.RetentionWindow)
+	return newStateWAL(wal)
 }
 
 // GetRange reports the range of block numbers stored in the state WAL directory configured by config,
@@ -119,8 +114,8 @@ func VerifyIntegrity(config *Config) error {
 	return nil
 }
 
-func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet], retentionWindow int64) (StateWAL, error) {
-	w := &stateWALImpl{wal: wal, retentionWindow: retentionWindow}
+func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
+	w := &stateWALImpl{wal: wal}
 
 	// Recover the write-ordering position from the highest block already on disk.
 	ok, _, last, err := wal.Bounds()

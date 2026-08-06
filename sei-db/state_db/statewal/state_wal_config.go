@@ -1,10 +1,8 @@
 package statewal
 
 import (
-	"fmt"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 )
 
@@ -41,38 +39,9 @@ type Config struct {
 	// The interval at which the underlying WAL samples the buffered depth of its internal channels into the
 	// seiwal_queue_depth gauge. Zero or negative disables sampling.
 	MetricsSampleInterval time.Duration
-
-	// RetentionWindow is how much history this WAL keeps beyond the shared rollback window of the
-	// StorageGarbageCollector that manages it, in blocks. It is what gc.PrunableStore.GetRetentionWindow
-	// answers:
-	//
-	//	> 0  → that many blocks of history beyond the rollback window
-	//	0    → the rollback window only, plus whatever the other managed stores hold it back for
-	//	-1   → never prune this WAL (gc.InfiniteRetentionWindow)
-	//
-	// Zero does NOT mean "keep everything" here, unlike the KeepRecent fields on StateStoreConfig and
-	// ReceiptStoreConfig, where 0 disables pruning. It is the most aggressive setting this field has;
-	// "keep everything" is -1. Assigning a KeepRecent value to this field inverts the retention it
-	// asks for.
-	//
-	// Leave this at 0 unless something outside SC/SS needs the history. The WAL is what SC and SS replay
-	// from, and they already hold it back on their own: each answers its oldest live snapshot as its
-	// pruning boundary, and the collector prunes every store to the shared minimum. Depth declared here is
-	// additive on top of that, and — because the minimum is shared — it retains the whole fleet that much
-	// further back, not just this WAL. Its purpose is a need the snapshot stores do not express, such as
-	// serving catch-up to a peer further behind than any live snapshot.
-	//
-	// -1 is for a WAL that must never be reclaimed at all. It is not a way to protect a replay range: a
-	// store with no cut line is never asked for a boundary and never pruned, so the WAL simply grows
-	// without bound. Must be >= gc.InfiniteRetentionWindow.
-	RetentionWindow int64
 }
 
 // Constructor for a default state WAL configuration for the WAL at path, identified by name.
-//
-// RetentionWindow defaults to 0 — no history beyond what SC and SS hold the WAL back for — because that is
-// the depth the WAL is actually required to have, and any other default would retain every managed store
-// that much further back. See the field for when to raise it.
 func DefaultConfig(path string, name string) *Config {
 	s := seiwal.DefaultConfig(path, name)
 	return &Config{
@@ -84,16 +53,11 @@ func DefaultConfig(path string, name string) *Config {
 		FsyncOnFlush:          s.FsyncOnFlush,
 		IteratorPrefetchSize:  s.IteratorPrefetchSize,
 		MetricsSampleInterval: s.MetricsSampleInterval,
-		RetentionWindow:       0,
 	}
 }
 
 // Validate the configuration, returning nil if valid, or an error describing the problem if invalid.
 func (c *Config) Validate() error {
-	if c.RetentionWindow < gc.InfiniteRetentionWindow {
-		return fmt.Errorf("RetentionWindow must be >= %d (got %d)",
-			gc.InfiniteRetentionWindow, c.RetentionWindow)
-	}
 	return c.toSeiwalConfig().Validate()
 }
 

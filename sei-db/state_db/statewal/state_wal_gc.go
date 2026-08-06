@@ -47,16 +47,17 @@ func (w *stateWALImpl) PruneBelow(blockNumber uint64) error {
 	return nil
 }
 
-// GetRetentionWindow reports the configured history beyond the collector's shared rollback window.
-// See Config.RetentionWindow for the meaning of each value and why its default of 0 is the depth this
-// WAL actually needs: SC and SS hold it back to their oldest live snapshot on their own, by answering
-// that snapshot as their pruning boundary, so history declared here is additive on top of that and
-// applies to every managed store rather than to this WAL alone.
+// GetRetentionWindow reports 0, and this is a property of what the WAL is rather than a default
+// something might want to raise. How deep this WAL must go is not its own to declare: it is a replay
+// source, and the depth it needs is whatever its consumers need it to be. SC and SS express that by
+// answering their oldest live snapshot as a pruning boundary, and the collector prunes every store
+// to the shared minimum, so the WAL is already held exactly as far back as they can replay from.
+//
+// A window here would be additive on top of that, and — because the minimum is shared — it would
+// retain every managed store that much further back rather than this WAL alone. That is a fleet-wide
+// retention decision wearing a per-store name, which is what RollbackWindow already is.
 func (w *stateWALImpl) GetRetentionWindow() int64 {
-	if w.retentionWindow < 0 {
-		return gc.InfiniteRetentionWindow
-	}
-	return w.retentionWindow
+	return 0
 }
 
 // GetPruningBoundary returns cutLine, the contract's answer for a contiguous store: the WAL holds
