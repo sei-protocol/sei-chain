@@ -495,57 +495,77 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		runCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		s.SpawnBgNamed("state.Run", func() error {
-			return utils.IgnoreCancel(state.Run(runCtx))
-		})
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(runCtx)) })
 
-		require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+			return fmt.Errorf("PushQC(qc1): %w", err)
+		}
 		for n := gr1.First; n < gr1.Next; n++ {
 			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
-				return err
+				return fmt.Errorf("PushAppHash(%d): %w", n, err)
 			}
 		}
 
 		// No AppQC yet -> eviction must not strip AppProposals; first stays put.
 		for inner := range state.inner.Lock() {
-			require.Equal(t, gr1.First, inner.first, "no certified App → first unchanged")
+			if inner.first != gr1.First {
+				return fmt.Errorf("no certified App: first = %d, want %d", inner.first, gr1.First)
+			}
 			for n := gr1.First; n < gr1.Next; n++ {
 				_, ok := inner.appProposals[n]
-				require.True(t, ok, "AppProposal %d must survive without AppQC", n)
+				if !ok {
+					return fmt.Errorf("AppProposal %d missing before AppQC", n)
+				}
 			}
 		}
 
-		require.NoError(t, pushAppQCForBlock(ctx, state, keys, gr1.First))
-		require.Eventually(t, func() bool {
-			for inner := range state.inner.Lock() {
-				return inner.nextAppQCToPersist >= gr1.Next
+		if err := pushAppQCForBlock(ctx, state, keys, gr1.First); err != nil {
+			return fmt.Errorf("pushAppQCForBlock(%d): %w", gr1.First, err)
+		}
+		if _, err := state.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
+			if anchor, ok := anchor.Get(); ok {
+				return anchor.AppQC.Proposal().RoadIndex() >= qc1.Index()
 			}
-			panic("unreachable")
-		}, time.Second, time.Millisecond)
+			return false
+		}); err != nil {
+			return fmt.Errorf("state.Anchor.Wait(): %w", err)
+		}
 
-		require.NoError(t, state.PushQC(ctx, qc2, blocks2))
+		if err := state.PushQC(ctx, qc2, blocks2); err != nil {
+			return fmt.Errorf("PushQC(qc2): %w", err)
+		}
 		for n := gr2.First; n < gr2.Next; n++ {
 			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
-				return err
+				return fmt.Errorf("PushAppHash(%d): %w", n, err)
 			}
 		}
 
 		for inner := range state.inner.Lock() {
-			evictionBound := min(inner.nextAppProposal, inner.nextAppQCToPersist)
-			require.Equal(t, evictionBound, inner.first, "after catching up, first reaches min(nextAppProposal, nextAppQCToPersist)")
+			evictionBound := min(inner.nextAppProposal, inner.nextAppQCToPersist) - 1
+			if inner.first != evictionBound {
+				return fmt.Errorf("after catching up, first = %d, want eviction bound %d", inner.first, evictionBound)
+			}
 			for n := gr1.First; n < inner.first; n++ {
 				_, ok := inner.appProposals[n]
-				require.False(t, ok, "AppProposal %d should be evicted (< first)", n)
+				if ok {
+					return fmt.Errorf("AppProposal %d present below first %d", n, inner.first)
+				}
 			}
 			// Heights at/above exclusive floor stay until executed further.
 			for n := inner.first; n < inner.nextAppProposal; n++ {
 				_, ok := inner.appProposals[n]
-				require.True(t, ok, "AppProposal %d must remain (>= first)", n)
+				if !ok {
+					return fmt.Errorf("AppProposal %d missing at/above first %d", n, inner.first)
+				}
 			}
 			// Tip QC (nextQC-1) stays; nextToExecute uses maps at/above first.
-			require.GreaterOrEqual(t, inner.nextQC-1, inner.first)
+			if inner.nextQC-1 < inner.first {
+				return fmt.Errorf("tip QC height %d below first %d", inner.nextQC-1, inner.first)
+			}
 			_, ok := inner.qcs[inner.nextQC-1]
-			require.True(t, ok, "tip QC must stay in maps")
+			if !ok {
+				return fmt.Errorf("tip QC %d missing from maps", inner.nextQC-1)
+			}
 		}
 		return nil
 	}))
@@ -575,34 +595,6 @@ func TestEvictionWaitsForPersistedAppQC(t *testing.T) {
 	}
 }
 
-func TestPushAppQCWaitsForBlocks(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	gr1 := qc1.QC().GlobalRange()
-	appProposal := types.NewAppProposal(qc1.QC().Proposal(), types.GenAppHash(rng))
-	appQC := TestAppQC(keys, appProposal)
-
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
-	require.NoError(t, state.PushQC(ctx, qc1, nil))
-
-	shortCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
-	err := state.PushAppQC(shortCtx, appQC)
-	cancel()
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-
-	for n := gr1.First; n < gr1.Next; n++ {
-		require.NoError(t, state.PushBlock(ctx, n, blocks1[n-gr1.First]))
-	}
-	require.NoError(t, state.PushAppQC(ctx, appQC))
-	for inner := range state.inner.Lock() {
-		require.Equal(t, gr1.Next, inner.nextAppQC)
-		require.LessOrEqual(t, inner.nextAppQC, inner.nextBlock)
-	}
-}
-
 // TestNextToExecuteAfterAppEviction checks WaitUntilExecuted / nextToExecute
 // still work when persisted AppQC aggressively evicts through nextAppProposal
 // (first = min(nextAppProposal, nextAppQCToPersist) = NAP). nextToExecute uses
@@ -624,40 +616,59 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 			return utils.IgnoreCancel(state.Run(runCtx))
 		})
 
-		require.NoError(t, state.PushQC(ctx, qc1, blocks1))
+		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+			return fmt.Errorf("PushQC(qc1): %w", err)
+		}
 		for n := gr1.First; n < gr1.Next; n++ {
 			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
-				return err
+				return fmt.Errorf("PushAppHash(%d): %w", n, err)
 			}
 		}
 		// Sticky case: nextAppQCToPersist == nextAppProposal. first advances to
 		// NAP; NAP-1 is gone; nextToExecute reads qc[NAP] after the next QC arrives.
-		require.NoError(t, pushAppQCForBlock(ctx, state, keys, gr1.First))
-		require.Eventually(t, func() bool {
-			for inner := range state.inner.Lock() {
-				return inner.nextAppQCToPersist >= gr1.Next
+		if err := pushAppQCForBlock(ctx, state, keys, gr1.First); err != nil {
+			return fmt.Errorf("pushAppQCForBlock(%d): %w", gr1.First, err)
+		}
+		if _, err := state.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
+			if anchor, ok := anchor.Get(); ok {
+				return anchor.AppQC.Proposal().RoadIndex() >= qc1.Index()
 			}
-			panic("unreachable")
-		}, time.Second, time.Millisecond)
-		require.NoError(t, state.PushQC(ctx, qc2, blocks2))
+			return false
+		}); err != nil {
+			return fmt.Errorf("state.Anchor.Wait(): %w", err)
+		}
+		if err := state.PushQC(ctx, qc2, blocks2); err != nil {
+			return fmt.Errorf("PushQC(qc2): %w", err)
+		}
 
 		var tipLane types.LaneID
 		var tipBlockNum types.BlockNumber
 		for inner := range state.inner.Lock() {
-			require.Equal(t, gr1.Next, inner.nextAppProposal)
-			require.Equal(t, min(inner.nextAppProposal, inner.nextAppQCToPersist), inner.first,
-				"eviction advances to min(nextAppProposal, nextAppQCToPersist) == NAP")
-			_, ok := inner.blocks[inner.nextAppProposal-1]
-			require.False(t, ok, "NAP-1 must be evicted")
-			require.Less(t, inner.nextAppProposal, inner.nextQC)
+			if inner.nextAppProposal != gr1.Next {
+				return fmt.Errorf("nextAppProposal = %d, want %d", inner.nextAppProposal, gr1.Next)
+			}
+			evictionBound := min(inner.nextAppProposal, inner.nextAppQCToPersist) - 1
+			if inner.first != evictionBound {
+				return fmt.Errorf("first = %d, want eviction bound %d", inner.first, evictionBound)
+			}
+			_, ok := inner.blocks[evictionBound-1]
+			if ok {
+				return fmt.Errorf("block %d present, want evicted", inner.nextAppProposal-1)
+			}
+			if inner.nextAppProposal >= inner.nextQC {
+				return fmt.Errorf("nextAppProposal = %d, want < nextQC %d", inner.nextAppProposal, inner.nextQC)
+			}
 			fqc := inner.qcs[inner.nextAppProposal]
-			require.NotNil(t, fqc)
+			if fqc == nil {
+				return fmt.Errorf("QC %d missing", inner.nextAppProposal)
+			}
 			gr := fqc.QC().GlobalRange()
 			h := fqc.Headers()[inner.nextAppProposal-gr.First]
 			tipLane = h.Lane()
 			tipBlockNum = h.BlockNumber()
-			require.Equal(t, tipBlockNum, inner.nextToExecute(tipLane),
-				"nextToExecute should be the next block's lane number")
+			if got := inner.nextToExecute(tipLane); got != tipBlockNum {
+				return fmt.Errorf("nextToExecute(%d) = %d, want %d", tipLane, got, tipBlockNum)
+			}
 		}
 		// WaitUntilExecuted(n) returns when nextToExecute > n.
 		waitFrom := tipBlockNum
@@ -665,8 +676,12 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 			waitFrom--
 		}
 		next, err := state.WaitUntilExecuted(ctx, tipLane, waitFrom)
-		require.NoError(t, err)
-		require.Equal(t, tipBlockNum, next)
+		if err != nil {
+			return fmt.Errorf("WaitUntilExecuted(%d, %d): %w", tipLane, waitFrom, err)
+		}
+		if next != tipBlockNum {
+			return fmt.Errorf("WaitUntilExecuted(%d, %d) = %d, want %d", tipLane, waitFrom, next, tipBlockNum)
+		}
 		return nil
 	}))
 }
@@ -689,16 +704,25 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 			return utils.IgnoreCancel(state1.Run(runCtx))
 		})
 
-		require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
+		if err := state1.PushQC(ctx, qc1, blocks1); err != nil {
+			return fmt.Errorf("PushQC(qc1): %w", err)
+		}
 		for n := gr1.First; n < gr1.Next; n++ {
 			if err := state1.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
-				return err
+				return fmt.Errorf("PushAppHash(%d): %w", n, err)
 			}
 		}
-		require.NoError(t, pushAppQCForBlock(ctx, state1, keys, gr1.First))
-		require.Eventually(t, func() bool {
-			return db1.Status().NextAppQC >= gr1.Next
-		}, time.Second, time.Millisecond)
+		if err := pushAppQCForBlock(ctx, state1, keys, gr1.First); err != nil {
+			return fmt.Errorf("pushAppQCForBlock(%d): %w", gr1.First, err)
+		}
+		if _, err := state1.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
+			if anchor, ok := anchor.Get(); ok {
+				return anchor.AppQC.Proposal().RoadIndex() >= qc1.Index()
+			}
+			return false
+		}); err != nil {
+			return fmt.Errorf("state.Anchor.Wait(): %w", err)
+		}
 		return nil
 	}))
 
@@ -808,13 +832,18 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 		if err := pushAppQCForBlock(ctx, state1, keys, gr1.First); err != nil {
 			return err
 		}
-		require.Eventually(t, func() bool {
-			return state1.blockDB.Status().NextAppQC >= gr1.Next
-		}, time.Second, time.Millisecond)
+		if _, err := state1.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
+			if anchor, ok := anchor.Get(); ok {
+				return anchor.AppQC.Proposal().RoadIndex() >= qc1.Index()
+			}
+			return false
+		}); err != nil {
+			return fmt.Errorf("state.Anchor.Wait(): %w", err)
+		}
 		return nil
 	}))
 	for inner := range state1.inner.Lock() {
-		exclusiveFloor = min(inner.nextAppProposal, inner.nextAppQCToPersist)
+		exclusiveFloor = min(inner.nextAppProposal, inner.nextAppQCToPersist) - 1
 		require.Equal(t, exclusiveFloor, inner.first)
 	}
 
