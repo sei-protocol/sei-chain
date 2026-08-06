@@ -753,6 +753,152 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 
 // TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
 //
+// apiKeys covers the [api] keys GetConfig reads.
+//
+// Every read is a bare viper getter with no IsSet guard (config.go:579-586), so an absent key
+// resolves to that getter's zero rather than to what DefaultConfig declares. Unlike [state-sync],
+// no api.* flag is registered anywhere in this tree, so nothing supplies a fallback and the zero
+// is what a node gets. TestGetConfigAPIReadsAreUnguarded records which fields that changes.
+var apiKeys = []configtest.KeySpec{
+	{
+		Key: "api.enable", Path: "Enable", Cast: configtest.CastBool, Unguarded: true,
+		Why: "whether the node serves the REST API at all; false is also the declared default, so " +
+			"this row states the key is read rather than recording a divergence",
+	},
+	{
+		Key: "api.swagger", Path: "Swagger", Cast: configtest.CastBool, Unguarded: true,
+		Why: "the declared default is true and an absent key resolves false, so a node whose " +
+			"app.toml lacks the section serves the API without its documentation",
+	},
+	{
+		Key: "api.enabled-unsafe-cors", Path: "EnableUnsafeCORS", Cast: configtest.CastBool,
+		Unguarded: true,
+		Why: "cross-origin access to the REST API; false either way, so the clobber cannot turn " +
+			"this on, which is the direction that would matter",
+	},
+	{
+		Key: "api.address", Path: "Address", Cast: configtest.CastString, Unguarded: true,
+		Why: "the declared default is tcp://0.0.0.0:1317 and an absent key resolves empty, so the " +
+			"listener address a node binds comes from the file or from nowhere",
+	},
+	{
+		Key: "api.max-open-connections", Path: "MaxOpenConnections", Cast: configtest.CastUint,
+		Unguarded: true,
+		Why: "the declared default is 1000 and an absent key resolves 0, so the connection ceiling " +
+			"a node enforces is whichever of those the server treats as a limit",
+	},
+	{
+		Key: "api.rpc-read-timeout", Path: "RPCReadTimeout", Cast: configtest.CastUint,
+		Unguarded: true,
+		Why: "the declared default is 10 seconds and an absent key resolves 0, so a node whose " +
+			"app.toml lacks the section reads a request body with no deadline",
+	},
+	{
+		Key: "api.rpc-write-timeout", Path: "RPCWriteTimeout", Cast: configtest.CastUint,
+		Unguarded: true,
+		Why: "0 is both the declared default and what an absent key resolves to, so this row " +
+			"states the key is read rather than recording a divergence",
+	},
+	{
+		Key: "api.rpc-max-body-bytes", Path: "RPCMaxBodyBytes", Cast: configtest.CastUint,
+		Unguarded: true,
+		Why: "the declared default is 1000000 and an absent key resolves 0, so the response body " +
+			"ceiling a node applies is whichever of those the server treats as a limit",
+	},
+}
+
+// readAPI resolves [api] through GetConfig, the way readStateSync does for its section.
+func readAPI(t testing.TB) func(configtest.AppOpts) (any, error) {
+	return func(opts configtest.AppOpts) (any, error) {
+		cfg, err := GetConfig(newAppViper(t, opts))
+		if err != nil {
+			return nil, err
+		}
+		return cfg.API, nil
+	}
+}
+
+// FuzzAPIConfig drives every [api] row.
+//
+// Two seeds per row and three on the numeric ones. Every row here is unguarded, so an absent key,
+// a nil value and a value the cast rejects all land on the same zero, and only a value that
+// converts to something else states the key is read at all. The string row stops at two because a
+// string cast has no malformed input to swallow.
+func FuzzAPIConfig(f *testing.F) {
+	read := readAPI(f)
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+
+	for i := range len(apiKeys) {
+		seeds.AddRow(uint(i), fuzzing.KindNil, "", int64(0), false)
+		seeds.AddRow(uint(i), fuzzing.KindString, "not-a-number", int64(0), false)
+	}
+
+	// The discriminating value per row, each chosen away from both the cast's zero and the
+	// declared default so the row states its own key is the one being read.
+	seeds.AddRow(uint(0), fuzzing.KindBool, "", int64(0), true) // enable
+	seeds.AddRow(uint(1), fuzzing.KindBool, "", int64(0), true) // swagger
+	seeds.AddRow(uint(2), fuzzing.KindBool, "", int64(0), true) // unsafe CORS
+	seeds.AddRow(uint(3), fuzzing.KindString, "tcp://127.0.0.1:11317", int64(0), false)
+	seeds.AddRow(uint(4), fuzzing.KindInt64, "", int64(250), false)     // max-open-connections
+	seeds.AddRow(uint(5), fuzzing.KindInt64, "", int64(30), false)      // rpc-read-timeout
+	seeds.AddRow(uint(6), fuzzing.KindInt64, "", int64(45), false)      // rpc-write-timeout
+	seeds.AddRow(uint(7), fuzzing.KindInt64, "", int64(2000000), false) // rpc-max-body-bytes
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "api", read, apiKeys, seeds)
+
+	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
+		spec := configtest.Pick(apiKeys, keyIdx)
+		configtest.CheckRow(t, "api", readAPI(t), spec, fuzzing.ConfigValue(kind, s, n, b))
+	})
+}
+
+// TestAPIKeyNamesMatchTheRecordedNames pins the operator-facing spelling of the eight [api] keys.
+func TestAPIKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "api", apiKeys)
+}
+
+// TestAPIManifestNamesEveryField enforces the claim apiKeys makes about itself, that it names every
+// key the reader looks up.
+func TestAPIManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "api", DefaultConfig().API, apiKeys)
+}
+
+// TestGetConfigAPIReadsAreUnguarded records which [api] fields an absent section changes.
+//
+// Five of the eight resolve to something other than what DefaultConfig declares. The generated
+// app.toml writes the section with those defaults interpolated (toml.go:130), so a freshly
+// initialised node is fine; what this describes is a node whose file lacks the section. There is no
+// flag fallback, which is where [api] differs from [state-sync]: no api.* flag is registered in
+// this tree, so the zero is the value, not a placeholder a bound flag replaces.
+//
+// Recorded rather than repaired, because a characterization test does not change readers. Either
+// side moving fails this: a guard makes an absent read return the declared default, and a default
+// moved to the zero makes the divergence stop being one.
+func TestGetConfigAPIReadsAreUnguarded(t *testing.T) {
+	cfg, err := GetConfig(newAppViper(t, nil))
+	if err != nil {
+		t.Fatalf("GetConfig: %v", err)
+	}
+	def := DefaultConfig().API
+
+	for _, c := range []struct {
+		key              string
+		absent, declared any
+	}{
+		{"api.swagger", cfg.API.Swagger, def.Swagger},
+		{"api.address", cfg.API.Address, def.Address},
+		{"api.max-open-connections", cfg.API.MaxOpenConnections, def.MaxOpenConnections},
+		{"api.rpc-read-timeout", cfg.API.RPCReadTimeout, def.RPCReadTimeout},
+		{"api.rpc-max-body-bytes", cfg.API.RPCMaxBodyBytes, def.RPCMaxBodyBytes},
+	} {
+		if c.absent == c.declared {
+			t.Errorf("%s no longer diverges: an absent key and the declared default are both %v. "+
+				"If a guard was added, or the default moved to the getter's zero, update apiKeys "+
+				"and this list in the same PR", c.key, c.absent)
+		}
+	}
+}
+
 // Every other check here reports a change to what it asserts. None reports a check being removed, so
 // this records the wiring and fails when it thins out.
 func TestWiringMatchesTheRecord(t *testing.T) {

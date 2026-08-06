@@ -50,16 +50,21 @@ reader and update the row in the same PR. The row then records the improvement.
 Nine exported calls, eight properties, because `CheckRow` is `CheckKey` plus
 `CheckDeterministic`. A fuzz target names only `CheckRow` and gets both.
 
-| Check | The failure it prevents |
-|---|---|
-| `CheckDefaults` | a declared default moves with nothing independent to compare against |
-| `CheckKeyNames` | an operator-facing key is renamed while the row and the reader move together |
-| `CheckKey` | a reader does not resolve `Key` into `Path` through `Cast` |
-| `CheckDeterministic` | a reader is not a pure function of its `AppOpts` |
-| `CheckAbsent` | an omitted key resolves to something other than the declared default |
-| `CheckManifestCoversEveryField` | a resolved field no row claims |
-| `CheckEveryRowHasADiscriminatingSeed` | a row whose every seed would also pass against a reader that never looks its key up |
-| `CheckWiring` | one of the calls above is deleted |
+| Check | The failure it prevents | Held against |
+|---|---|---|
+| `CheckDefaults` | a declared default moves with nothing independent to compare against | `testdata/<section>.golden` |
+| `CheckKeyNames` | an operator-facing key is renamed while the row and the reader move together | `testdata/<section>.keys.golden` |
+| `CheckKey` | a reader does not resolve `Key` into `Path` through `Cast` | the reader's own empty-`AppOpts` result, with the row's leaf spliced in |
+| `CheckDeterministic` | a reader is not a pure function of its `AppOpts` | a second read of the same input |
+| `CheckAbsent` | an omitted key resolves to something other than the declared default | the declared defaults struct |
+| `CheckManifestCoversEveryField` | a resolved field no row claims | the manifest's `Path` and `AlsoWrites` entries |
+| `CheckEveryRowHasADiscriminatingSeed` | a row whose every seed would also pass against a reader that never looks its key up | the recorded seed corpus |
+| `CheckWiring` | one of the calls above is deleted | `testdata/wiring_coverage.txt` |
+
+The third column is the spec. Two checks compare against a checked-in file, one against the
+declared defaults, one against the reader's own output, and one against the seeds the target
+declared. A check whose right-hand side comes from the same place as its left-hand side holds
+for any reader, which is the whole reason the column is worth reading before wiring anything.
 
 Two of them read no prediction column, and that is the invariant any new check
 inherits. `CheckKeyNames` is blind to `Path`, `Cast`, `Unguarded` and `Checked`, and

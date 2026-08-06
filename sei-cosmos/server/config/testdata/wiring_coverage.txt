@@ -6,6 +6,10 @@
 # so this records which checks cover a section rather than how many times.
 # Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update` and read the diff.
 
+api	CheckEveryRowHasADiscriminatingSeed
+api	CheckKeyNames
+api	CheckManifestCoversEveryField
+api	CheckRow
 server_config	CheckDefaults
 state-sync	CheckDefaults
 state-sync	CheckEveryRowHasADiscriminatingSeed
