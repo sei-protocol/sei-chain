@@ -17,6 +17,11 @@ var (
 			metric.WithDescription("Amount sent in the last MsgSend transaction by denomination"),
 			metric.WithUnit("{utoken}"),
 		)),
+		// newAccount is mirrored by utils/metrics.bankNewAccountCounter (bank
+		// precompiles) and giga/deps/xbank/keeper.bankMetrics.newAccount (the
+		// Giga fork) on the same name/scope, so all three merge into one
+		// bank_new_account series. Keep description/unit byte-identical
+		// across all three or the OTel SDK stops deduping the instrument.
 		newAccount: must(meter.Int64Counter(
 			"bank_new_account",
 			metric.WithDescription("Number of new accounts created during bank transfers"),
