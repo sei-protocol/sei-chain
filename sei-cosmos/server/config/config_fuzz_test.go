@@ -1151,6 +1151,10 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"rosetta.retries", cfg.Rosetta.Retries, def.Rosetta.Retries, true},
 		{"grpc-web.enable", cfg.GRPCWeb.Enable, def.GRPCWeb.Enable, true},
 		{"grpc-web.address", cfg.GRPCWeb.Address, def.GRPCWeb.Address, true},
+		// The two [grpc] keys read as plain casts. Its other nine are guarded or clamped and are
+		// held to not diverging by TestGetConfigGRPCGuardedKeys.
+		{"grpc.enable", cfg.GRPC.Enable, def.GRPC.Enable, true},
+		{"grpc.address", cfg.GRPC.Address, def.GRPC.Address, true},
 		{"telemetry.enabled", cfg.Telemetry.Enabled, def.Telemetry.Enabled, true},
 		{
 			"telemetry.prometheus-retention-time",
