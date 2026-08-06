@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -118,6 +119,70 @@ type Batch interface {
 // plus a flushed manifest.
 type Checkpointable interface {
 	Checkpoint(destDir string) error
+}
+
+// DrainBarrier is an optional capability for engines that apply changesets from
+// an async queue. It lets a caller place work at an exact point in the write
+// order without waiting for the queue to drain.
+type DrainBarrier interface {
+	ScheduleAtDrain(fn func())
+}
+
+// CheckpointScheduler is Checkpointable for stores whose writes are still in
+// flight. A store may sit in front of several engines, each with its own apply
+// queue, so only the store can place a barrier in every one of them and report
+// once they have all captured the same version.
+//
+// The checkpoint reflects the state as of the last write enqueued before the
+// call, so callers get an exact version rather than "whatever had landed".
+// done is called exactly once, on an unspecified goroutine, and may be called
+// before ScheduleCheckpoint returns.
+type CheckpointScheduler interface {
+	// SupportsCheckpoint reports whether every engine behind the store can
+	// produce a checkpoint. Wrappers implement ScheduleCheckpoint uniformly,
+	// so callers must use this capability check before enabling periodic work.
+	SupportsCheckpoint() bool
+	ScheduleCheckpoint(destDir string, done func(error))
+}
+
+// ScheduleCheckpoint checkpoints a single engine into destDir at the point
+// where the writes already enqueued on it have been applied, reporting the
+// outcome to done. An engine with no apply queue is already at rest and is
+// checkpointed inline. It is the building block store wrappers use to
+// implement CheckpointScheduler.
+func ScheduleCheckpoint(db StateStore, destDir string, done func(error)) {
+	cp, ok := db.(Checkpointable)
+	if !ok {
+		done(fmt.Errorf("state store backend %T does not support checkpoints", db))
+		return
+	}
+	barrier, ok := db.(DrainBarrier)
+	if !ok {
+		done(cp.Checkpoint(destDir))
+		return
+	}
+	barrier.ScheduleAtDrain(func() { done(cp.Checkpoint(destDir)) })
+}
+
+// Rollbackable is an optional capability for versioned engines that can discard
+// every version above a target height.
+type Rollbackable interface {
+	Rollback(targetVersion int64) error
+}
+
+// RollbackCoverageChecker is an optional preflight for multi-backend rollback.
+// It lets a composite store verify all backends can roll back before mutating
+// any individual backend.
+type RollbackCoverageChecker interface {
+	CheckRollbackCoverage(targetVersion int64) error
+}
+
+// ChangelogPrunePauser keeps a backend's retained changelog range stable while
+// a coordinated rollback preflights and mutates several stores. Calls may nest;
+// every suspension must have a matching resume.
+type ChangelogPrunePauser interface {
+	SuspendChangelogPruning()
+	ResumeChangelogPruning()
 }
 
 // ---------------------------------------------------------------------------

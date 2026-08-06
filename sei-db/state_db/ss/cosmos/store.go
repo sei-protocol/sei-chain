@@ -1,6 +1,8 @@
 package cosmos
 
 import (
+	"fmt"
+
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -69,10 +71,66 @@ func (s *CosmosStateStore) Prune(version int64) error {
 	return s.db.Prune(version)
 }
 
+func (s *CosmosStateStore) CheckRollbackCoverage(targetVersion int64) error {
+	checker, ok := s.db.(types.RollbackCoverageChecker)
+	if !ok {
+		return fmt.Errorf("state store backend %T does not support rollback coverage checks", s.db)
+	}
+	return checker.CheckRollbackCoverage(targetVersion)
+}
+
+func (s *CosmosStateStore) Rollback(targetVersion int64) error {
+	rb, ok := s.db.(types.Rollbackable)
+	if !ok {
+		return fmt.Errorf("state store backend %T does not support rollback", s.db)
+	}
+	return rb.Rollback(targetVersion)
+}
+
 func (s *CosmosStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
 	return s.db.Import(version, ch)
 }
 
 func (s *CosmosStateStore) Close() error {
 	return s.db.Close()
+}
+
+// Checkpoint delegates to the wrapped MVCC DB when its engine supports
+// hardlink checkpoints (PebbleDB does). Satisfies types.Checkpointable.
+func (s *CosmosStateStore) Checkpoint(destDir string) error {
+	cp, ok := s.db.(types.Checkpointable)
+	if !ok {
+		return fmt.Errorf("state store backend %T does not support checkpoints", s.db)
+	}
+	return cp.Checkpoint(destDir)
+}
+
+func (s *CosmosStateStore) SupportsCheckpoint() bool {
+	_, ok := s.db.(types.Checkpointable)
+	return ok
+}
+
+// ScheduleCheckpoint implements types.CheckpointScheduler.
+func (s *CosmosStateStore) ScheduleCheckpoint(destDir string, done func(error)) {
+	types.ScheduleCheckpoint(s.db, destDir, done)
+}
+
+func (s *CosmosStateStore) SuspendChangelogPruning() {
+	if pauser, ok := s.db.(types.ChangelogPrunePauser); ok {
+		pauser.SuspendChangelogPruning()
+	}
+}
+
+func (s *CosmosStateStore) ResumeChangelogPruning() {
+	if pauser, ok := s.db.(types.ChangelogPrunePauser); ok {
+		pauser.ResumeChangelogPruning()
+	}
+}
+
+// WaitForPendingWrites drains the wrapped MVCC DB's async apply queue when
+// the backend exposes a barrier; no-op otherwise.
+func (s *CosmosStateStore) WaitForPendingWrites() {
+	if w, ok := s.db.(interface{ WaitForPendingWrites() }); ok {
+		w.WaitForPendingWrites()
+	}
 }

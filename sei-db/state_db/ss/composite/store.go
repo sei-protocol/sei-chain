@@ -34,6 +34,7 @@ type CompositeStateStore struct {
 	cosmosStore    types.StateStore // CosmosStateStore wrapping MVCC DB
 	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
+	snapshotMgr    *snapshotManager
 	config         config.StateStoreConfig
 	closeOnce      sync.Once
 	closeErr       error
@@ -104,6 +105,9 @@ func NewCompositeStateStore(
 	}
 
 	cs.StartPruning()
+	if ssConfig.SnapshotInterval > 0 {
+		cs.startSnapshotManager(utils.GetStateStoreSnapshotsPath(homeDir))
+	}
 
 	return cs, nil
 }
@@ -221,6 +225,9 @@ func (s *CompositeStateStore) GetEarliestVersion() int64 {
 
 func (s *CompositeStateStore) Close() error {
 	s.closeOnce.Do(func() {
+		if s.snapshotMgr != nil {
+			s.snapshotMgr.stop()
+		}
 		if s.pruningManager != nil {
 			s.pruningManager.Stop()
 		}
@@ -253,6 +260,9 @@ func (s *CompositeStateStore) SetLatestVersion(version int64) error {
 			logger.Error("failed to set EVM store latest version", "error", err)
 		}
 	}
+	// Empty blocks come through here rather than ApplyChangesetAsync, and an
+	// interval boundary that happens to be empty should still be snapshotted.
+	s.snapshotMgr.maybeSnapshot(version)
 	return nil
 }
 
@@ -289,7 +299,11 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 
 func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
 	if s.evmStore == nil {
-		return s.cosmosStore.ApplyChangesetAsync(version, changesets)
+		if err := s.cosmosStore.ApplyChangesetAsync(version, changesets); err != nil {
+			return err
+		}
+		s.snapshotMgr.maybeSnapshot(version)
+		return nil
 	}
 
 	evmChangesets := filterEVMChangesets(changesets)
@@ -303,7 +317,26 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 			return fmt.Errorf("evm store async enqueue failed: %w", err)
 		}
 	}
+	s.snapshotMgr.maybeSnapshot(version)
 	return nil
+}
+
+// pendingWaiter is the optional barrier a backend exposes to drain its async
+// apply queue (implemented by the Pebble MVCC DB and the SS wrappers).
+type pendingWaiter interface {
+	WaitForPendingWrites()
+}
+
+// waitForPendingWrites drains every backend's async apply queue.
+func (s *CompositeStateStore) waitForPendingWrites() {
+	if w, ok := s.cosmosStore.(pendingWaiter); ok {
+		w.WaitForPendingWrites()
+	}
+	if s.evmStore != nil {
+		if w, ok := s.evmStore.(pendingWaiter); ok {
+			w.WaitForPendingWrites()
+		}
+	}
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {
@@ -522,6 +555,94 @@ func (s *CompositeStateStore) Prune(version int64) error {
 	return s.cosmosStore.Prune(version)
 }
 
+func (s *CompositeStateStore) CheckRollbackCoverage(targetVersion int64) error {
+	if checker, ok := s.cosmosStore.(types.RollbackCoverageChecker); ok {
+		if err := checker.CheckRollbackCoverage(targetVersion); err != nil {
+			return fmt.Errorf("cosmos state store rollback preflight failed: %w", err)
+		}
+	} else {
+		return fmt.Errorf("cosmos state store backend %T does not support rollback coverage checks", s.cosmosStore)
+	}
+	if s.evmStore != nil {
+		if checker, ok := s.evmStore.(types.RollbackCoverageChecker); ok {
+			if err := checker.CheckRollbackCoverage(targetVersion); err != nil {
+				return fmt.Errorf("EVM state store rollback preflight failed: %w", err)
+			}
+		} else {
+			return fmt.Errorf("EVM state store backend %T does not support rollback coverage checks", s.evmStore)
+		}
+	}
+	return nil
+}
+
+// suspendRollbackChangelogPruning freezes every backend's retained WAL range
+// before the first coverage check. The returned release function resumes in
+// reverse order, matching the order in which the suspensions were acquired.
+func (s *CompositeStateStore) suspendRollbackChangelogPruning() func() {
+	pausers := make([]types.ChangelogPrunePauser, 0, 2)
+	for _, store := range []types.StateStore{s.cosmosStore, s.evmStore} {
+		if store == nil {
+			continue
+		}
+		if pauser, ok := store.(types.ChangelogPrunePauser); ok {
+			pauser.SuspendChangelogPruning()
+			pausers = append(pausers, pauser)
+		}
+	}
+	return func() {
+		for i := len(pausers) - 1; i >= 0; i-- {
+			pausers[i].ResumeChangelogPruning()
+		}
+	}
+}
+
+// Rollback discards every state-store version above targetVersion. It is an
+// offline operation: the caller must have stopped feeding the store new blocks.
+//
+// Background maintenance is stopped outright rather than paused, because all of
+// it races the rollback — the pruning manager deletes in the same key space the
+// undo replay is walking, and the snapshot manager would publish a `current`
+// symlink pointing at a half-rolled-back store. Stopping is one-way (the
+// managers are not restartable), which is fine because the store has to be
+// reopened after a rollback regardless.
+func (s *CompositeStateStore) Rollback(targetVersion int64) error {
+	if s.pruningManager != nil {
+		s.pruningManager.Stop()
+	}
+	if s.snapshotMgr != nil {
+		s.snapshotMgr.stop()
+	}
+	resumeChangelogPruning := s.suspendRollbackChangelogPruning()
+	defer resumeChangelogPruning()
+
+	if err := s.CheckRollbackCoverage(targetVersion); err != nil {
+		return err
+	}
+	rb, ok := s.cosmosStore.(types.Rollbackable)
+	if !ok {
+		return fmt.Errorf("cosmos state store backend %T does not support rollback", s.cosmosStore)
+	}
+	if err := rb.Rollback(targetVersion); err != nil {
+		return fmt.Errorf("cosmos state store rollback failed: %w", err)
+	}
+	if s.evmStore != nil {
+		rb, ok := s.evmStore.(types.Rollbackable)
+		if !ok {
+			return fmt.Errorf("EVM state store backend %T does not support rollback", s.evmStore)
+		}
+		if err := rb.Rollback(targetVersion); err != nil {
+			return fmt.Errorf("EVM state store rollback failed: %w", err)
+		}
+	}
+	// Snapshots above the target image a chain the node just abandoned. Leaving
+	// them would let an archive or a state-sync restore serve that discarded
+	// branch, and `current` would point straight at it.
+	if s.snapshotMgr != nil {
+		s.snapshotMgr.discardAbove(targetVersion)
+	}
+	return nil
+}
+
 // =============================================================================
 // Recovery
 // =============================================================================
@@ -592,7 +713,10 @@ func ReplayWAL(
 	toVersion int64,
 	handler WALEntryHandler,
 ) error {
-	streamHandler, err := wal.NewChangelogWAL(changelogPath, wal.Config{})
+	// AllowEmpty must match the writer (pebbledb/mvcc.OpenDB): a rollback deep
+	// enough to remove every retained entry leaves the log empty, and opening
+	// an empty log without AllowEmpty fails with ErrEmptyLog.
+	streamHandler, err := wal.NewChangelogWAL(changelogPath, wal.Config{AllowEmpty: true})
 	if err != nil {
 		return fmt.Errorf("failed to open WAL at %s: %w", changelogPath, err)
 	}
@@ -611,6 +735,11 @@ func ReplayWAL(
 		return fmt.Errorf("failed to read WAL last offset: %w", err)
 	}
 	if lastOffset <= 0 {
+		return nil
+	}
+	// An emptied log reports first == last+1 rather than zero for either bound,
+	// so neither check above catches it and the ReadAt below would fail.
+	if firstOffset > lastOffset {
 		return nil
 	}
 

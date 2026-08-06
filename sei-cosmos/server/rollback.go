@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const flagSkipStateStore = "skip-state-store"
+
 // rollbackTendermintState rolls back the tendermint state by one height.
 // Returns the new height and app hash.
 func rollbackTendermintState(cfg *tmcfg.Config, targetHeight int64) (int64, []byte, error) {
@@ -20,18 +22,35 @@ func rollbackTendermintState(cfg *tmcfg.Config, targetHeight int64) (int64, []by
 	return tmHeight, hash, nil
 }
 
+// commitStoreOnlyRollbacker is the optional capability a multistore exposes to
+// roll back its state commit layer while leaving the state store alone.
+type commitStoreOnlyRollbacker interface {
+	RollbackCommitStoreToVersion(target int64) error
+}
+
 // rollbackAppState rolls back the app state to the target height.
 // Returns the final app hash.
-func rollbackAppState(app types.Application, targetHeight int64) ([]byte, error) {
-	lastCommit := app.CommitMultiStore().LastCommitID()
+func rollbackAppState(app types.Application, targetHeight int64, skipStateStore bool) ([]byte, error) {
+	cms := app.CommitMultiStore()
+	lastCommit := cms.LastCommitID()
 	fmt.Printf("CMS app state height %d and hash %X\n", lastCommit.GetVersion(), lastCommit.GetHash())
 	fmt.Printf("Attempting to rollback app state to height=%d\n", targetHeight)
 
-	if err := app.CommitMultiStore().RollbackToVersion(targetHeight); err != nil {
+	rollback := cms.RollbackToVersion
+	if skipStateStore {
+		scOnly, ok := cms.(commitStoreOnlyRollbacker)
+		if !ok {
+			return nil, fmt.Errorf("--skip-state-store is not supported by multistore %T", cms)
+		}
+		fmt.Println("Skipping the state store; it will be left ahead of state commit and " +
+			"re-written as the node replays the rolled-back blocks.")
+		rollback = scOnly.RollbackCommitStoreToVersion
+	}
+	if err := rollback(targetHeight); err != nil {
 		return nil, fmt.Errorf("failed to rollback to version: %w", err)
 	}
 
-	lastCommit = app.CommitMultiStore().LastCommitID()
+	lastCommit = cms.LastCommitID()
 	fmt.Printf("Rolled back app state to height %d and hash %X\n", lastCommit.GetVersion(), lastCommit.GetHash())
 
 	return lastCommit.GetHash(), nil
@@ -48,9 +67,17 @@ when Tendermint has persisted an incorrect app hash and is thus unable to make
 progress. Rollback overwrites a state at height n with the state at height n - 1.
 The application also rolls back to height n - 1. The last block is removed, so upon
 restarting Tendermint the node will re-fetch and re-execute the transactions in block n.
+
+When the state store (state-store.ss-enable) is on, it is rolled back alongside the
+state commit layer so historical queries stay consistent with the chain. The state
+store undoes writes by replaying its changelog, which retains roughly the last 1,000
+blocks, so a deeper -n fails without changing anything. Use --skip-state-store to roll
+back only the state commit layer in that case; the state store is then left ahead and
+the versions above the target are overwritten as the node replays those blocks.
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := GetServerContextFromCmd(cmd)
+			skipStateStore, _ := cmd.Flags().GetBool(flagSkipStateStore)
 
 			app := appCreator(
 				nil,
@@ -83,7 +110,7 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 				fmt.Printf("Both app and tendermint are at height %d, performing normal rollback to target height %d\n", appHeight, targetHeight)
 
 				// Rollback app state first
-				appHash, err := rollbackAppState(app, targetHeight)
+				appHash, err := rollbackAppState(app, targetHeight, skipStateStore)
 				if err != nil {
 					return err
 				}
@@ -120,7 +147,7 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 				// Scenario 3: App is ahead of tendermint - rollback app only
 				fmt.Printf("App is at height %d, tendermint is at height %d. Rolling back app to target height %d\n", appHeight, tmHeight, tmHeight)
 
-				appHash, err := rollbackAppState(app, tmHeight)
+				appHash, err := rollbackAppState(app, tmHeight, skipStateStore)
 				if err != nil {
 					return err
 				}
@@ -139,6 +166,9 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 	}
 
 	cmd.Flags().Int64P("num-blocks", "n", 1, "number of blocks to rollback")
+	cmd.Flags().Bool(flagSkipStateStore, false,
+		"roll back only the state commit layer, leaving the state store untouched; "+
+			"use for rollbacks deeper than the state store changelog can undo")
 	cmd.Flags().String(flags.FlagChainID, "sei-chain", "genesis file chain-id, if left blank will use sei")
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
 	return cmd

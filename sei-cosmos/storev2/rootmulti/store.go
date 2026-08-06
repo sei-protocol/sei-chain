@@ -136,11 +136,13 @@ func NewStore(
 		scDir:              scDir,
 	}
 	if ssConfig.Enable {
+		config.AlignSSSnapshotWithSC(scConfig, &ssConfig)
 		ssStore, err := ss.NewStateStore(homeDir, ssConfig)
 		if err != nil {
 			panic(err)
 		}
-		// Check whether SC was enabled before but SS was not
+		// SS has already replayed its changelog by this point, so anything it
+		// is still missing relative to SC is missing for good.
 		ssVersion := ssStore.GetLatestVersion()
 		scVersion, err := scStore.GetLatestVersion()
 		if err != nil {
@@ -148,6 +150,19 @@ func NewStore(
 		}
 		if ssVersion <= 0 && scVersion > 0 {
 			panic("Enabling SS store without state sync could cause data corruption")
+		}
+		// An SS behind SC serves stale results for every height in between
+		// without any error, so refuse to start instead. The reachable cause is
+		// a rollback that rolled SS back and then failed before SC; SS ahead of
+		// SC is fine, since replay overwrites those versions.
+		if ssVersion < scVersion {
+			panic(fmt.Sprintf(
+				"state store is at version %d but state commit is at version %d: "+
+					"queries below %d would return stale results. This usually means a rollback "+
+					"was interrupted after the state store rolled back. Re-run the rollback to "+
+					"bring state commit down to %d, or state sync the state store.",
+				ssVersion, scVersion, scVersion, ssVersion,
+			))
 		}
 		store.ssStore = ssStore
 	}
@@ -793,15 +808,58 @@ func (rs *Store) GetMigrationBatchSize() (int, bool) {
 func (rs *Store) SetLazyLoading(_ bool) {
 }
 
-// RollbackToVersion delete the versions after `target` and update the latest version.
-// it should only be called in standalone cli commands.
+// RollbackToVersion deletes the versions after `target` in both the state
+// commit and state store layers and updates the latest version. It should only
+// be called from standalone CLI commands, against a stopped node.
+//
+// SS is rolled back before SC because only SS can refuse: it undoes writes by
+// replaying its changelog, so its depth is bounded by how far back that log
+// reaches, and a target beyond it has to abort with SC still intact. Rolling SC
+// back first would leave SC at the target with SS unreachably ahead.
 func (rs *Store) RollbackToVersion(target int64) error {
+	return rs.rollbackToVersion(target, true)
+}
+
+// RollbackCommitStoreToVersion rolls back only the state commit layer and
+// leaves the state store where it is. It is the escape hatch for rollbacks
+// deeper than the SS changelog can undo: the node comes back with SS ahead of
+// SC, which is the pre-SS-rollback behavior — the replayed blocks overwrite
+// those SS versions as the node catches back up.
+func (rs *Store) RollbackCommitStoreToVersion(target int64) error {
+	return rs.rollbackToVersion(target, false)
+}
+
+func (rs *Store) rollbackToVersion(target int64, includeStateStore bool) error {
 	if target <= 0 {
 		return fmt.Errorf("invalid rollback height target: %d", target)
 	}
 
 	if target > math.MaxUint32 {
 		return fmt.Errorf("rollback height target %d exceeds max uint32", target)
+	}
+	if rs.ssStore != nil && includeStateStore {
+		rb, ok := rs.ssStore.(seidbtypes.Rollbackable)
+		if !ok {
+			return fmt.Errorf("state store backend %T does not support rollback", rs.ssStore)
+		}
+		// Reject a target SC cannot reach before touching SS, so the common
+		// operator mistake fails with both layers untouched rather than
+		// stranding a rolled-back SS behind an unchanged SC.
+		scVersion, err := rs.scStore.GetLatestVersion()
+		if err != nil {
+			return fmt.Errorf("failed to read state commit version before rollback: %w", err)
+		}
+		if target > scVersion {
+			return fmt.Errorf("rollback height target %d is above the state commit version %d", target, scVersion)
+		}
+		if checker, ok := rs.ssStore.(seidbtypes.RollbackCoverageChecker); ok {
+			if err := checker.CheckRollbackCoverage(target); err != nil {
+				return fmt.Errorf("state store cannot roll back to version %d: %w", target, err)
+			}
+		}
+		if err := rb.Rollback(target); err != nil {
+			return fmt.Errorf("failed to rollback state store to version %d: %w", target, err)
+		}
 	}
 	err := rs.scStore.Rollback(target)
 	if err != nil {

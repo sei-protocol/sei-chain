@@ -2,6 +2,7 @@ package evm
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -20,10 +21,13 @@ var _ types.StateStore = (*EVMStateStore)(nil)
 // EVM sub-type, depending on config. In both modes, the logical store key and
 // key encoding remain unchanged.
 type EVMStateStore struct {
-	subDBs      map[EVMStoreType]types.StateStore
-	managedDBs  []types.StateStore
-	dir         string
-	separateDBs bool
+	subDBs     map[EVMStoreType]types.StateStore
+	managedDBs []types.StateStore
+	// managedNames labels managedDBs positionally, so an error about one
+	// backend can say which of the per-type DBs it came from.
+	managedNames []string
+	dir          string
+	separateDBs  bool
 }
 
 // NewEVMStateStore opens either a single unified MVCC DB for all EVM state
@@ -48,6 +52,7 @@ func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateSt
 			}
 			store.subDBs[storeType] = db
 			store.managedDBs = append(store.managedDBs, db)
+			store.managedNames = append(store.managedNames, StoreTypeName(storeType))
 		}
 		return store, nil
 	}
@@ -58,6 +63,7 @@ func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateSt
 		return nil, fmt.Errorf("failed to open unified EVM MVCC DB: %w", err)
 	}
 	store.managedDBs = append(store.managedDBs, db)
+	store.managedNames = append(store.managedNames, "unified")
 	for _, storeType := range AllEVMStoreTypes() {
 		store.subDBs[storeType] = db
 	}
@@ -360,6 +366,45 @@ func (s *EVMStateStore) Prune(version int64) error {
 	return nil
 }
 
+// managedDBName labels the managed DB at index i. In separate-sub-DBs mode the
+// label is the EVM sub-type, which is what an operator needs to know when one
+// sub-store is the one blocking a rollback.
+func (s *EVMStateStore) managedDBName(i int) string {
+	if i < len(s.managedNames) {
+		return s.managedNames[i]
+	}
+	return fmt.Sprintf("db-%d", i)
+}
+
+func (s *EVMStateStore) CheckRollbackCoverage(targetVersion int64) error {
+	for i, db := range s.managedDBs {
+		checker, ok := db.(types.RollbackCoverageChecker)
+		if !ok {
+			return fmt.Errorf("EVM state store %s backend %T does not support rollback coverage checks", s.managedDBName(i), db)
+		}
+		if err := checker.CheckRollbackCoverage(targetVersion); err != nil {
+			return fmt.Errorf("EVM state store %s: %w", s.managedDBName(i), err)
+		}
+	}
+	return nil
+}
+
+func (s *EVMStateStore) Rollback(targetVersion int64) error {
+	if err := s.CheckRollbackCoverage(targetVersion); err != nil {
+		return err
+	}
+	for i, db := range s.managedDBs {
+		rb, ok := db.(types.Rollbackable)
+		if !ok {
+			return fmt.Errorf("EVM state store %s backend %T does not support rollback", s.managedDBName(i), db)
+		}
+		if err := rb.Rollback(targetVersion); err != nil {
+			return fmt.Errorf("EVM state store %s: %w", s.managedDBName(i), err)
+		}
+	}
+	return nil
+}
+
 func (s *EVMStateStore) Close() error {
 	var lastErr error
 	for _, db := range s.managedDBs {
@@ -368,6 +413,124 @@ func (s *EVMStateStore) Close() error {
 		}
 	}
 	return lastErr
+}
+
+// Checkpoint writes a point-in-time snapshot of the EVM store into destDir,
+// mirroring the live on-disk layout: the unified DB checkpoints straight into
+// destDir; per-type sub-DBs checkpoint into destDir/<type> just as they live
+// under the EVM dir. Satisfies types.Checkpointable.
+func (s *EVMStateStore) Checkpoint(destDir string) error {
+	checkpointDB := func(db types.StateStore, dest string) error {
+		cp, ok := db.(types.Checkpointable)
+		if !ok {
+			return fmt.Errorf("EVM state store backend %T does not support checkpoints", db)
+		}
+		return cp.Checkpoint(dest)
+	}
+
+	if !s.separateDBs {
+		db := s.primaryDB()
+		if db == nil {
+			return nil
+		}
+		return checkpointDB(db, destDir)
+	}
+
+	if err := os.MkdirAll(destDir, 0o750); err != nil {
+		return fmt.Errorf("create EVM checkpoint dir %q: %w", destDir, err)
+	}
+	for _, storeType := range AllEVMStoreTypes() {
+		if err := checkpointDB(s.subDBs[storeType], filepath.Join(destDir, StoreTypeName(storeType))); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *EVMStateStore) SupportsCheckpoint() bool {
+	for _, db := range s.managedDBs {
+		if _, ok := db.(types.Checkpointable); !ok {
+			return false
+		}
+	}
+	return len(s.managedDBs) > 0
+}
+
+// ScheduleCheckpoint implements types.CheckpointScheduler over however many
+// sub-DBs this store spans, into the same layout Checkpoint produces.
+//
+// Each sub-DB is barriered independently, which is the whole reason this cannot
+// be a plain Checkpoint: a block that touches only storage keys is enqueued only
+// on the storage DB, so the others never see that version and no amount of
+// waiting would tell them it had passed. A barrier per queue pins each sub-DB at
+// the last version it was given, and together those are exactly the state as of
+// the caller's version.
+func (s *EVMStateStore) ScheduleCheckpoint(destDir string, done func(error)) {
+	if !s.separateDBs {
+		db := s.primaryDB()
+		if db == nil {
+			done(nil)
+			return
+		}
+		types.ScheduleCheckpoint(db, destDir, done)
+		return
+	}
+
+	if err := os.MkdirAll(destDir, 0o750); err != nil {
+		done(fmt.Errorf("create EVM checkpoint dir %q: %w", destDir, err))
+		return
+	}
+
+	storeTypes := AllEVMStoreTypes()
+	var (
+		mu        sync.Mutex
+		remaining = len(storeTypes)
+		firstErr  error
+	)
+	// Set up before scheduling: a sub-DB without an apply queue reports back
+	// from inside ScheduleCheckpoint, before the loop has finished.
+	for _, storeType := range storeTypes {
+		dest := filepath.Join(destDir, StoreTypeName(storeType))
+		name := StoreTypeName(storeType)
+		types.ScheduleCheckpoint(s.subDBs[storeType], dest, func(err error) {
+			mu.Lock()
+			if err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("checkpoint EVM sub-DB %s: %w", name, err)
+			}
+			remaining--
+			last, outcome := remaining == 0, firstErr
+			mu.Unlock()
+			if last {
+				done(outcome)
+			}
+		})
+	}
+}
+
+func (s *EVMStateStore) SuspendChangelogPruning() {
+	for _, db := range s.managedDBs {
+		if pauser, ok := db.(types.ChangelogPrunePauser); ok {
+			pauser.SuspendChangelogPruning()
+		}
+	}
+}
+
+func (s *EVMStateStore) ResumeChangelogPruning() {
+	for i := len(s.managedDBs) - 1; i >= 0; i-- {
+		if pauser, ok := s.managedDBs[i].(types.ChangelogPrunePauser); ok {
+			pauser.ResumeChangelogPruning()
+		}
+	}
+}
+
+// WaitForPendingWrites drains every managed DB's async apply queue when the
+// backend exposes a barrier; no-op otherwise.
+func (s *EVMStateStore) WaitForPendingWrites() {
+	for _, db := range s.managedDBs {
+		if w, ok := db.(interface{ WaitForPendingWrites() }); ok {
+			w.WaitForPendingWrites()
+		}
+	}
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {

@@ -101,6 +101,9 @@ type VersionedChangesets struct {
 	Version    int64
 	Changesets []*proto.NamedChangeSet
 	Done       chan struct{} // non-nil for barrier: closed when this entry is processed
+	// AtDrain, when non-nil, is run by the apply goroutine in queue order
+	// instead of applying a changeset. See ScheduleAtDrain.
+	AtDrain func()
 }
 
 func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, error) {
@@ -211,6 +214,12 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
 		KeepRecent:    uint64(walKeepRecent),
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
+		// Rolling back to a version below every retained changelog entry has to
+		// remove them all, and a rollback that deep is reachable whenever the
+		// front of the log has been pruned. Background pruning never empties
+		// the log (it always keeps KeepRecent entries), so this only widens
+		// what an explicit rollback may do.
+		AllowEmpty: true,
 	})
 	if err != nil {
 		return nil, err
@@ -276,6 +285,18 @@ func (db *Database) PebbleMetrics() *pebble.Metrics {
 		return nil
 	}
 	return db.storage.Metrics()
+}
+
+// Checkpoint writes a point-in-time snapshot of the database into destDir
+// (which must not exist yet) without blocking concurrent reads or writes.
+// Pebble implements this with hardlinks to already-fsynced SSTs plus a
+// flushed WAL, so the cost is independent of database size and the result
+// is a complete, crash-safe Pebble database. Satisfies types.Checkpointable.
+func (db *Database) Checkpoint(destDir string) error {
+	if err := db.storage.Checkpoint(destDir, pebble.WithFlushedWAL()); err != nil {
+		return fmt.Errorf("pebble checkpoint to %q: %w", destDir, err)
+	}
+	return nil
 }
 
 func (db *Database) SetLatestVersion(version int64) error {
@@ -490,6 +511,10 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 func (db *Database) writeAsyncInBackground() {
 	defer db.asyncWriteWG.Done()
 	for nextChange := range db.pendingChanges {
+		if nextChange.AtDrain != nil {
+			nextChange.AtDrain()
+			continue
+		}
 		if nextChange.Done != nil {
 			close(nextChange.Done)
 			continue
@@ -506,6 +531,19 @@ func (db *Database) WaitForPendingWrites() {
 	done := make(chan struct{})
 	db.pendingChanges <- VersionedChangesets{Done: done}
 	<-done
+}
+
+// ScheduleAtDrain runs fn on the apply goroutine at the point in the queue
+// where every changeset enqueued before this call has been applied and none
+// enqueued after it has. Unlike WaitForPendingWrites it does not block the
+// caller, which is what lets a caller capture the DB at an exact version
+// without stalling the block it is committing: the version is pinned by fn's
+// position in the queue rather than by when it runs.
+//
+// fn runs on the writer, so it must not enqueue more work on this DB (that
+// deadlocks once the buffer fills) and must not panic.
+func (db *Database) ScheduleAtDrain(fn func()) {
+	db.pendingChanges <- VersionedChangesets{AtDrain: fn}
 }
 
 // Prune dispatches between descending- and ascending-mode implementations

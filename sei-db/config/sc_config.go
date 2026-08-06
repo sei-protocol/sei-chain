@@ -16,6 +16,24 @@ const (
 	legacySCWriteModeCosmosOnly = "cosmos_only"
 )
 
+// EffectiveMemIAVLSnapshotCadence resolves memIAVL's snapshot cadence the way
+// Options.FillDefaults resolves it at OpenDB, so a caller mirroring the cadence
+// onto another backend sees the values memIAVL will actually run with rather
+// than the raw config. A zero means "unset" here, not "disabled": memIAVL heals
+// it to the default, so mirroring the raw zero would silently disable snapshots
+// on the mirroring backend.
+func EffectiveMemIAVLSnapshotCadence(cfg memiavl.Config) (interval, keepRecent uint32) {
+	interval = cfg.SnapshotInterval
+	if interval == 0 {
+		interval = memiavl.DefaultSnapshotInterval
+	}
+	keepRecent = cfg.SnapshotKeepRecent
+	if keepRecent == 0 {
+		keepRecent = memiavl.DefaultSnapshotKeepRecent
+	}
+	return interval, keepRecent
+}
+
 // StateCommitConfig defines configuration for the state commit (SC) layer.
 type StateCommitConfig struct {
 	// Enable defines if the state-commit (SeiDB) should be enabled.

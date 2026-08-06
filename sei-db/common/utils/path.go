@@ -63,6 +63,11 @@ func GetEVMStateStorePath(homePath string, backend string) string {
 	return filepath.Join(homePath, "data", "state_store", "evm", backend)
 }
 
+// GetStateStoreSnapshotsPath returns the path for online state-store snapshots.
+func GetStateStoreSnapshotsPath(homePath string) string {
+	return filepath.Join(homePath, "data", "state_store", "snapshots")
+}
+
 // GetReceiptStorePath returns the path for the receipt store.
 // New nodes use data/ledger/receipt/{backend}; existing nodes with
 // data/receipt.db continue using the legacy path for backward compatibility.

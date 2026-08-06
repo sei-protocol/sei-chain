@@ -63,6 +63,23 @@ type StateStoreConfig struct {
 	// defaults to false (use MVCCComparer for backwards compatibility)
 	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
 
+	// SnapshotEnable controls whether the state store takes periodic online
+	// snapshots. Snapshots are Pebble checkpoints (hardlink trees), so each
+	// retained snapshot pins the SSTs it references and prevents compaction
+	// from reclaiming them. Steady-state disk overhead is therefore the
+	// compaction churn accumulated over SnapshotInterval blocks, per retained
+	// snapshot — significant on a multi-TB state store. Disable this on nodes
+	// that do not serve archives or state sync from SS.
+	// defaults to true
+	SnapshotEnable bool `mapstructure:"snapshot-enable"`
+
+	// SnapshotInterval and SnapshotKeepRecent are mirrored from the state-commit
+	// snapshot settings at runtime by AlignSSSnapshotWithSC. They are
+	// intentionally not exposed in app.toml so SS and SC cannot drift onto
+	// different cadences; SnapshotEnable is the only SS-side knob.
+	SnapshotInterval   int64
+	SnapshotKeepRecent int
+
 	// --- EVM optimization fields ---
 
 	// EVMSplit controls whether EVM data is routed to a dedicated SS backend.
@@ -93,7 +110,23 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		ImportNumWorkers:     DefaultSSImportWorkers,
 		KeepLastVersion:      true,
 		UseDefaultComparer:   false,
+		SnapshotEnable:       true,
 		EVMSplit:             false,
 		SeparateEVMSubDBs:    false,
 	}
+}
+
+// AlignSSSnapshotWithSC mirrors the state-commit snapshot cadence onto the
+// state store, so a height retained by SC is also retained by SS. When SS
+// snapshots are disabled the cadence is zeroed rather than mirrored, which is
+// what the snapshot manager reads as "do not run".
+func AlignSSSnapshotWithSC(scConfig StateCommitConfig, ssConfig *StateStoreConfig) {
+	if !ssConfig.SnapshotEnable {
+		ssConfig.SnapshotInterval = 0
+		ssConfig.SnapshotKeepRecent = 0
+		return
+	}
+	interval, keepRecent := EffectiveMemIAVLSnapshotCadence(scConfig.MemIAVLConfig)
+	ssConfig.SnapshotInterval = int64(interval)
+	ssConfig.SnapshotKeepRecent = int(keepRecent)
 }

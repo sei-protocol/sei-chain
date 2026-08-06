@@ -508,6 +508,13 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		memIAVLConfig.SnapshotPrefetchThreshold = v.GetFloat64("state-commit.sc-snapshot-prefetch-threshold")
 	}
 
+	// Absent key means an app.toml rendered before SS snapshots existed, which
+	// should get the in-code default (on) rather than viper's zero value (off).
+	ssSnapshotEnable := config.DefaultStateStoreConfig().SnapshotEnable
+	if v.IsSet("state-store.ss-snapshot-enable") {
+		ssSnapshotEnable = v.GetBool("state-store.ss-snapshot-enable")
+	}
+
 	// Apply the in-code default when the key is absent so that nodes upgrading
 	// with an older app.toml (which lacks this key) are still bounded rather
 	// than running with unlimited connections.
@@ -636,6 +643,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			EnableReadWriteMetrics: v.GetBool(
 				"state-store.ss-enable-read-write-metrics",
 			),
+			SnapshotEnable:    ssSnapshotEnable,
 			EVMSplit:          v.GetBool("state-store.evm-ss-split"),
 			EVMDBDirectory:    v.GetString("state-store.evm-ss-db-directory"),
 			SeparateEVMSubDBs: v.GetBool("state-store.evm-ss-separate-dbs"),

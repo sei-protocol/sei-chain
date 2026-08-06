@@ -658,6 +658,47 @@ func TestConcurrentTruncateBeforeWithAsyncWrites(t *testing.T) {
 	require.NoError(t, changelog.Close())
 }
 
+// A rollback reads an offset range and then replays it, so it suspends pruning
+// to keep that range readable. Pin that the ticker actually stops, and resumes.
+func TestSuspendPruneHoldsFirstOffsetStill(t *testing.T) {
+	dir := t.TempDir()
+	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{
+		KeepRecent:    10,
+		PruneInterval: 1 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, changelog.Close()) })
+
+	changelog.SuspendPrune()
+	changelog.SuspendPrune()
+
+	for i := 1; i <= 50; i++ {
+		entry := proto.ChangelogEntry{
+			Changesets: []*proto.NamedChangeSet{{
+				Name:      "test",
+				Changeset: proto.ChangeSet{Pairs: MockKVPairs(fmt.Sprintf("k-%d", i), "v")},
+			}},
+		}
+		require.NoError(t, changelog.Write(entry))
+	}
+
+	// Releasing an inner suspension must leave the outer rollback-wide
+	// suspension in force.
+	changelog.ResumePrune()
+
+	// Well past several prune intervals, the front must not have moved.
+	time.Sleep(50 * time.Millisecond)
+	first, err := changelog.FirstOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), first, "prune must not run while suspended")
+
+	changelog.ResumePrune()
+	require.Eventually(t, func() bool {
+		first, err := changelog.FirstOffset()
+		return err == nil && first > 1
+	}, 3*time.Second, 10*time.Millisecond, "prune must resume")
+}
+
 func TestTruncateAll(t *testing.T) {
 	dir := t.TempDir()
 	changelog, err := NewWAL(t.Context(), marshalEntry, unmarshalEntry, dir, Config{AllowEmpty: true})
