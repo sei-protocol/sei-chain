@@ -5,17 +5,16 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // FilteredPaginate does pagination of all the results in the PrefixStore based on the
-// provided PageRequest. onResult does the unmarshaling and filtering.
-// Key-based pagination is optimized; offset-based pagination lazily walks all records.
-//
-// Iteration is capped at MaxScanLimit entries to prevent unbounded store walks. Use key-based
-// pagination for reliable traversal of sparse datasets, as the nextKey could be nil when the
-// page is full and the scan limit is reached.
+// provided PageRequest. onResult should be used to do actual unmarshaling and filter the results.
+// If key is provided, the pagination uses the optimized querying.
+// If offset is used, the pagination uses lazy filtering i.e., searches through all the records.
+// The accumulate parameter represents if the response is valid based on the offset given.
+// It will be false for the results (filtered) < offset and true for offset <= accumulate < end.
+// When accumulate is true, the current result should be appended to the result set returned
+// to the client.
 func FilteredPaginate(
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
@@ -37,16 +36,10 @@ func FilteredPaginate(
 		return nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
 	}
 
-	if err := VerifyPaginationOffset(offset); err != nil {
-		return nil, err
-	}
-
+	// Note: unlike upstream cosmos-sdk, limit == 0 must NOT implicitly enable
+	// countTotal; see the note in Paginate.
 	if limit == 0 {
 		limit = DefaultLimit
-	}
-
-	if err := VerifyPaginationLimit(limit); err != nil {
-		return nil, err
 	}
 
 	if len(key) != 0 {
@@ -54,20 +47,14 @@ func FilteredPaginate(
 		defer func() { _ = iterator.Close() }()
 
 		var (
-			numHits   uint64
-			nextKey   []byte
-			totalIter uint64
+			numHits uint64
+			nextKey []byte
 		)
 
 		for ; iterator.Valid(); iterator.Next() {
-			totalIter++
 			if numHits == limit {
 				nextKey = iterator.Key()
 				break
-			}
-			if totalIter > MaxScanLimit {
-				return nil, status.Errorf(codes.InvalidArgument,
-					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
 			}
 
 			if iterator.Error() != nil {
@@ -92,33 +79,14 @@ func FilteredPaginate(
 	iterator := getIterator(prefixStore, nil, reverse)
 	defer func() { _ = iterator.Close() }()
 
-	end := offset + limit
+	end := paginationEnd(offset, limit)
 
 	var (
-		numHits          uint64
-		nextKey          []byte
-		totalIter        uint64
-		pageCompleteIter uint64
+		numHits uint64
+		nextKey []byte
 	)
 
 	for ; iterator.Valid(); iterator.Next() {
-		totalIter++
-		// Phase 1: page not yet complete — cap raw iterations to prevent full-store
-		// walks when the filter produces too few hits to fill the page.
-		if numHits < end && totalIter > offset+MaxScanLimit {
-			return nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries without filling the page; use key-based pagination instead", MaxScanLimit)
-		}
-		// Phase 2: page complete — cap how far past the page we scan for nextKey/count_total.
-		if pageCompleteIter > MaxScanLimit {
-			if !countTotal {
-				// Page is already assembled; no next hit found within scan window → no next page.
-				break
-			}
-			return nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
-		}
-
 		if iterator.Error() != nil {
 			return nil, iterator.Error()
 		}
@@ -133,12 +101,12 @@ func FilteredPaginate(
 			numHits++
 		}
 
-		if numHits >= end {
-			pageCompleteIter++
-		}
-
-		if numHits == end+1 {
-			nextKey = iterator.Key()
+		if numHits > end {
+			// Only the first entry past the end of the page is the next key;
+			// do not overwrite it while scanning the remainder for countTotal.
+			if nextKey == nil {
+				nextKey = iterator.Key()
+			}
 
 			if !countTotal {
 				break
@@ -162,8 +130,6 @@ func FilteredPaginate(
 // If offset is used, the pagination uses lazy filtering i.e., searches through all the records.
 // The resulting slice (of type F) can be of a different type than the one being iterated through
 // (type T), so it's possible to do any necessary transformation inside the onResult function.
-//
-// Scan limits: same semantics as FilteredPaginate — see its documentation for details.
 func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	cdc codec.BinaryCodec,
 	prefixStore types.KVStore,
@@ -187,16 +153,10 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 		return results, nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
 	}
 
-	if err := VerifyPaginationOffset(offset); err != nil {
-		return results, nil, err
-	}
-
+	// Note: unlike upstream cosmos-sdk, limit == 0 must NOT implicitly enable
+	// countTotal; see the note in Paginate.
 	if limit == 0 {
 		limit = DefaultLimit
-	}
-
-	if err := VerifyPaginationLimit(limit); err != nil {
-		return results, nil, err
 	}
 
 	if len(key) != 0 {
@@ -204,20 +164,14 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 		defer func() { _ = iterator.Close() }()
 
 		var (
-			numHits   uint64
-			nextKey   []byte
-			totalIter uint64
+			numHits uint64
+			nextKey []byte
 		)
 
 		for ; iterator.Valid(); iterator.Next() {
-			totalIter++
 			if numHits == limit {
 				nextKey = iterator.Key()
 				break
-			}
-			if totalIter > MaxScanLimit {
-				return nil, nil, status.Errorf(codes.InvalidArgument,
-					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
 			}
 
 			if iterator.Error() != nil {
@@ -250,33 +204,14 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	iterator := getIterator(prefixStore, nil, reverse)
 	defer func() { _ = iterator.Close() }()
 
-	end := offset + limit
+	end := paginationEnd(offset, limit)
 
 	var (
-		numHits          uint64
-		nextKey          []byte
-		totalIter        uint64
-		pageCompleteIter uint64
+		numHits uint64
+		nextKey []byte
 	)
 
 	for ; iterator.Valid(); iterator.Next() {
-		totalIter++
-		// Phase 1: page not yet complete — cap raw iterations to prevent full-store
-		// walks when the filter produces too few hits to fill the page.
-		if numHits < end && totalIter > offset+MaxScanLimit {
-			return nil, nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries without filling the page; use key-based pagination instead", MaxScanLimit)
-		}
-		// Phase 2: page complete — cap how far past the page we scan for nextKey/count_total.
-		if pageCompleteIter > MaxScanLimit {
-			if !countTotal {
-				// Page is already assembled; no next hit found within scan window → no next page.
-				break
-			}
-			return nil, nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
-		}
-
 		if iterator.Error() != nil {
 			return nil, nil, iterator.Error()
 		}
@@ -301,11 +236,9 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 			numHits++
 		}
 
-		if numHits >= end {
-			pageCompleteIter++
-		}
-
-		if numHits == end+1 {
+		if numHits > end {
+			// Only the first entry past the end of the page is the next key;
+			// do not overwrite it while scanning the remainder for countTotal.
 			if nextKey == nil {
 				nextKey = iterator.Key()
 			}
