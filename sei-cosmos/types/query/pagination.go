@@ -168,7 +168,7 @@ func Paginate(
 	for ; iterator.Valid(); iterator.Next() {
 		count++
 
-		if count > end+MaxScanLimit {
+		if count > saturatingAdd(end, MaxScanLimit) {
 			return nil, status.Errorf(codes.InvalidArgument,
 				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
 		}
@@ -181,7 +181,7 @@ func Paginate(
 			if err != nil {
 				return nil, err
 			}
-		} else if count == end+1 {
+		} else if count == saturatingAdd(end, 1) {
 			nextKey = iterator.Key()
 
 			if !countTotal {
@@ -207,10 +207,19 @@ func Paginate(
 // SetPaginationLimits, so the sum can no longer be assumed to fit in a
 // uint64 without this guard.
 func paginationEnd(offset, limit uint64) uint64 {
-	if limit > math.MaxUint64-offset {
+	return saturatingAdd(offset, limit)
+}
+
+// saturatingAdd returns a+b, saturating at math.MaxUint64 instead of
+// wrapping. Every scan-cap comparison below adds MaxScanLimit (or 1) to a
+// value derived from offset/limit, both of which an operator can raise via
+// SetPaginationLimits, so none of those sums can be assumed to fit in a
+// uint64 without this guard either.
+func saturatingAdd(a, b uint64) uint64 {
+	if b > math.MaxUint64-a {
 		return math.MaxUint64
 	}
-	return offset + limit
+	return a + b
 }
 
 func getIterator(prefixStore types.KVStore, start []byte, reverse bool) db.Iterator {

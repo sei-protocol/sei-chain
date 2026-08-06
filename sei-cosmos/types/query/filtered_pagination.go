@@ -113,7 +113,7 @@ func FilteredPaginate(
 		totalIter++
 		// Phase 1: page not yet complete — cap raw iterations to prevent full-store
 		// walks when the filter produces too few hits to fill the page.
-		if numHits < end && totalIter > offset+MaxScanLimit {
+		if numHits < end && totalIter > saturatingAdd(offset, MaxScanLimit) {
 			if !countTotal && numHits >= offset {
 				// The page may be partial (fewer than limit hits, possibly zero), but
 				// those hits are real and already reported to onResult — hand them
@@ -164,7 +164,7 @@ func FilteredPaginate(
 			pageCompleteIter++
 		}
 
-		if numHits == end+1 {
+		if numHits == saturatingAdd(end, 1) {
 			nextKey = iterator.Key()
 
 			if !countTotal {
@@ -297,7 +297,7 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 		totalIter++
 		// Phase 1: page not yet complete — cap raw iterations to prevent full-store
 		// walks when the filter produces too few hits to fill the page.
-		if numHits < end && totalIter > offset+MaxScanLimit {
+		if numHits < end && totalIter > saturatingAdd(offset, MaxScanLimit) {
 			if !countTotal && numHits >= offset {
 				// The page may be partial (fewer than limit results, possibly none),
 				// but those results are real — hand them back with a resumable key
@@ -355,7 +355,7 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 			pageCompleteIter++
 		}
 
-		if numHits == end+1 {
+		if numHits == saturatingAdd(end, 1) {
 			if nextKey == nil {
 				nextKey = iterator.Key()
 			}
