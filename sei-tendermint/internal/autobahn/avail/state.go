@@ -50,9 +50,6 @@ type persisters struct {
 	commitQCs *persist.CommitQCPersister
 }
 
-// innerFile is the A/B file prefix for avail inner state persistence.
-const innerFile = "avail_inner"
-
 // loadPersistedState creates persisters for the given directory option and loads
 // any existing state from disk. When dir is None, all persisters are no-op
 // and no state is loaded. When a prune anchor is present, stale commitQCs and
@@ -195,7 +192,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		return fmt.Errorf("v.VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if idx < inner.roads.first || inner.roads.next >= idx {
+		if idx < inner.roads.first || inner.roads.next <= idx {
 			return nil
 		}
 		inner.roads.q[idx].pushAppVote(v)
@@ -295,13 +292,19 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 // Waits until the lane has enough capacity for the new vote.
 // It does NOT wait for the previous votes.
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
-	if _, err := s.data.Registry().VerifyInWindow(func(c *types.Committee) error {
-		if err := vote.Msg().Verify(c); err != nil {
+	var epoch *types.Epoch
+	for inner,ctrl := range s.inner.Lock() {
+		// TODO(gprusak): we should wait only if LaneID is from the future.
+		if err:=ctrl.WaitUntil(ctx, func() bool { return inner.epoch.Committee().HasLane(vote.Key()) }); err!=nil {
 			return err
 		}
-		return vote.VerifySig(c)
-	}); err != nil {
+		epoch = inner.epoch
+	}
+	if err := vote.Msg().Verify(epoch.Committee()); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
+	}
+	if err := vote.VerifySig(epoch.Committee()); err!=nil {
+		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
 	h := vote.Msg().Header()
 	for inner, ctrl := range s.inner.Lock() {

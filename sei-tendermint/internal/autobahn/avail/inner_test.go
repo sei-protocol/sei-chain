@@ -148,7 +148,7 @@ func TestNewInnerLoadedCommitQCsNoAppQC(t *testing.T) {
 	qcs := make([]*types.CommitQC, 3)
 	prev := utils.None[*types.CommitQC]()
 	for i := range qcs {
-		qcs[i] = makeCommitQC(registry.LatestEpoch(), keys, prev, nil)
+		qcs[i] = types.BuildCommitQC(registry.LatestEpoch(), keys, prev, nil)
 		prev = utils.Some(qcs[i])
 	}
 
@@ -167,9 +167,9 @@ func TestNewInnerLoadedCommitQCsGapReturnsError(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 
-	qc0 := makeCommitQC(registry.LatestEpoch(), keys, utils.None[*types.CommitQC](), nil)
-	qc1 := makeCommitQC(registry.LatestEpoch(), keys, utils.Some(qc0), nil)
-	qc2 := makeCommitQC(registry.LatestEpoch(), keys, utils.Some(qc1), nil)
+	qc0 := types.BuildCommitQC(registry.LatestEpoch(), keys, utils.None[*types.CommitQC](), nil)
+	qc1 := types.BuildCommitQC(registry.LatestEpoch(), keys, utils.Some(qc0), nil)
+	qc2 := types.BuildCommitQC(registry.LatestEpoch(), keys, utils.Some(qc1), nil)
 
 	_, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{commitQCs: []*types.CommitQC{qc0, qc2}})
 	require.Error(t, err)

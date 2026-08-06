@@ -38,15 +38,6 @@ func makeLaneVotes(keys []types.SecretKey, h *types.BlockHeader) []*types.Signed
 	return votes
 }
 
-func makeCommitQC(
-	ep *types.Epoch,
-	keys []types.SecretKey,
-	prev utils.Option[*types.CommitQC],
-	laneQCs map[types.LaneID]*types.LaneQC,
-) *types.CommitQC {
-	return types.BuildCommitQC(ep, keys, prev, laneQCs)
-}
-
 func qcPayloadHashes(qc *types.FullCommitQC) byLane[types.PayloadHash] {
 	x := byLane[types.PayloadHash]{}
 	for _, h := range qc.Headers() {
@@ -56,8 +47,8 @@ func qcPayloadHashes(qc *types.FullCommitQC) byLane[types.PayloadHash] {
 }
 
 func TestState(t *testing.T) {
-	t.Skip("requires current AppQC/prune progression semantics to be recharacterized")
-	testState(t, utils.None[string]())
+	rng := utils.TestRng()
+	testState(t, rng, utils.None[string]())
 }
 
 // TestStateWithPersistence runs the same flow as TestState but with disk
@@ -65,29 +56,26 @@ func TestState(t *testing.T) {
 // run concurrently, exercising the cursor-clamp logic that prevents reading
 // pruned map entries.
 func TestStateWithPersistence(t *testing.T) {
-	t.Skip("requires current AppQC/prune progression semantics to be recharacterized")
+	rng := utils.TestRng()
 	for range 5 {
-		testState(t, utils.Some(t.TempDir()))
+		testState(t, rng, utils.Some(t.TempDir()))
 	}
 }
 
-func testState(t *testing.T, stateDir utils.Option[string]) {
+func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 	t.Helper()
 	ctx := t.Context()
-	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	committee := registry.LatestEpoch().Committee()
 
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		ds := newTestDataState(&data.Config{Registry: registry})
-		s.SpawnBgNamed("data.State.Run()", func() error {
-			return utils.IgnoreCancel(ds.Run(ctx))
-		})
+		s.SpawnBgNamed("ds.Run()", func() error { return utils.IgnoreCancel(ds.Run(ctx)) })
 		state, err := NewState(keys[0], ds, stateDir)
-		require.NoError(t, err)
-		s.SpawnBgNamed("da.State.Run()", func() error {
-			return utils.IgnoreCancel(state.Run(ctx))
-		})
+		if err != nil {
+			return fmt.Errorf("NewState(): %w", err)
+		}
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
 		for i := range 3 {
 			t.Logf("iteration %v", i)
@@ -130,7 +118,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 			if err != nil {
 				return fmt.Errorf("state.WaitForNewLaneQCs(): %w", err)
 			}
-			qc := makeCommitQC(registry.LatestEpoch(), keys, prev, laneQCs)
+			qc := types.BuildCommitQC(registry.LatestEpoch(), keys, prev, laneQCs)
 			if err := state.PushCommitQC(ctx, qc); err != nil {
 				return fmt.Errorf("state.PushCommitQC(): %w", err)
 			}
@@ -199,7 +187,6 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 // stale entries by shutdown, restart exercises the gap-filtering path in
 // loadPersistedState (stale entries below the prune anchor are discarded).
 func TestStateRestartFromPersisted(t *testing.T) {
-	t.Skip("requires current restart semantics for data.State anchor and avail persistence to be recharacterized")
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	committee := registry.LatestEpoch().Committee()
@@ -252,7 +239,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("WaitForLaneQCs: %w", err)
 			}
-			qc := makeCommitQC(registry.LatestEpoch(), keys, prev, laneQCs)
+			qc := types.BuildCommitQC(registry.LatestEpoch(), keys, prev, laneQCs)
 			if err := state.PushCommitQC(ctx, qc); err != nil {
 				return fmt.Errorf("PushCommitQC: %w", err)
 			}
@@ -391,7 +378,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		qcs := make([]*types.CommitQC, 3)
 		prev := utils.None[*types.CommitQC]()
 		for i := range qcs {
-			qcs[i] = makeCommitQC(registry.LatestEpoch(), keys, prev, nil)
+			qcs[i] = types.BuildCommitQC(registry.LatestEpoch(), keys, prev, nil)
 			prev = utils.Some(qcs[i])
 			require.NoError(t, cp.Persist(0, []*types.CommitQC{qcs[i]}))
 		}
@@ -412,7 +399,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		allQCs := make([]*types.CommitQC, 6)
 		prev := utils.None[*types.CommitQC]()
 		for i := range allQCs {
-			allQCs[i] = makeCommitQC(registry.LatestEpoch(), keys, prev, nil)
+			allQCs[i] = types.BuildCommitQC(registry.LatestEpoch(), keys, prev, nil)
 			prev = utils.Some(allQCs[i])
 		}
 
