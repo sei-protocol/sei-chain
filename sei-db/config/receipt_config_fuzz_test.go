@@ -174,11 +174,11 @@ func TestReadReceiptConfigAbsentKeysKeepDefaults(t *testing.T) {
 	configtest.CheckAbsent(t, "receipt-store", readReceipt, DefaultReceiptStoreConfig())
 }
 
-// TestDefaultsMatchTheRecordedValues pins the receipt_store defaults themselves.
+// TestDefaultsMatchTheRecordedValues pins the receipt-store defaults themselves.
 //
 // The absent-keys coverage in this file proves the reader returns the declared defaults; it
 // cannot prove which values those are, because both sides of that comparison come from the
-// same package. This compares them against testdata/receipt_store.golden, an independent
+// same package. This compares them against testdata/receipt-store.golden, an independent
 // recording, so a default that moves shows the new value in a diff instead of passing
 // silently.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
@@ -187,11 +187,9 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 
 // TestKeyNamesMatchTheRecordedNames pins the four key names themselves.
 //
-// The record is named for the TOML section, receipt-store, rather than for the underscored
-// stem the defaults golden uses, so the file listing keys that all begin "receipt-store." is
-// spelled the way those keys are. This section is also where a retired spelling is already
-// load-bearing: receipt-store.backend is a hard boot error because it was renamed to
-// rs-backend, which is what a rename costs when it is done without one.
+// This section is where a retired spelling is already load-bearing. receipt-store.backend is a
+// hard boot error because it was renamed to rs-backend, which is what a rename costs when it is
+// done without a record of the name it replaced.
 func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
 	configtest.CheckKeyNames(t, "receipt-store", receiptKeys)
 }
@@ -200,7 +198,7 @@ func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
 // every key the reader looks up. Left as prose the claim can drift, and it is the artifact a
 // replacement implementation reads as this section's contract.
 func TestManifestNamesEveryField(t *testing.T) {
-	configtest.CheckManifestCoversEveryField(t, "receipt_store", DefaultReceiptStoreConfig(), receiptKeys,
+	configtest.CheckManifestCoversEveryField(t, "receipt-store", DefaultReceiptStoreConfig(), receiptKeys,
 		"Backend",     // FuzzReceiptBackend: fail-closed allowlist, not a plain cast
 		"DBDirectory", // FuzzReceiptDBDirectory: the trim is the behavior under test
 		// KeepRecent is tagged mapstructure:"-", so no [receipt-store] key reaches it. The app

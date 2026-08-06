@@ -520,22 +520,29 @@ func TestParseSSConfigsAbsentBaselineIsZeroClobbered(t *testing.T) {
 //
 // This package is where the check earns its keep. Twenty-eight of its thirty rows reach
 // their key through the same exported constant the reader passes to appOpts.Get, so editing
-// that constant's value — which is how an app.toml key gets renamed — moves the row and the
+// that constant's value, which is how an app.toml key gets renamed, moves the row and the
 // read site together and leaves every row assertion, and the discriminating-seed check,
 // passing on a key no node has ever carried. The three keys in scKeysWithTargetsOfTheirOwn were
-// in the same position for the same reason, one step further out: their targets spell the key
+// in the same position for the same reason, one step further out. Their targets spell the key
 // through the constant too, and they had no row to record. The other places the same string
-// appears do not move with it: sei-db/config/toml.go writes ss-import-num-workers into the
+// appears do not move with it. sei-db/config/toml.go writes ss-import-num-workers into the
 // generated app.toml as literal text, so a rename through the constant disconnects the template
 // from the reader silently.
 //
 // The record here is what fails instead, naming the old and the new spelling. It does not
 // fix the template, and nothing checks that; it makes the rename impossible to land without
 // someone reading a diff that says which key moved.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "state-commit", scKeys, scKeysWithTargetsOfTheirOwn...)
+	configtest.CheckKeyNames(t, "state-store", ssKeys)
+	configtest.CheckKeyNames(t, "light_invariance", lightInvarianceKeys)
+	configtest.CheckKeyNames(t, "genesis", genesisKeys)
+}
+
 // TestDefaultsMatchTheRecordedValues pins these sections' in-code defaults.
 //
 // Each section already records its key names, which catches a rename. None recorded its values, so a
-// default could move with nothing to compare against: CheckAbsent-style assertions move both sides
+// default could move with nothing to compare against. CheckAbsent-style assertions move both sides
 // together, and the manifest rows assert how a value is read rather than what it is when absent. The
 // four sections here are the ones whose values reach a node with no line in any generated file, so the
 // record is the only place the value is written down.
@@ -544,13 +551,6 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "state-store", config.DefaultStateStoreConfig())
 	configtest.CheckDefaults(t, "light_invariance", DefaultLightInvarianceConfig)
 	configtest.CheckDefaults(t, "genesis", DefaultGenesisConfig)
-}
-
-func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
-	configtest.CheckKeyNames(t, "state-commit", scKeys, scKeysWithTargetsOfTheirOwn...)
-	configtest.CheckKeyNames(t, "state-store", ssKeys)
-	configtest.CheckKeyNames(t, "light_invariance", lightInvarianceKeys)
-	configtest.CheckKeyNames(t, "genesis", genesisKeys)
 }
 
 // TestManifestNamesEveryField enforces the claim each manifest makes about itself: that it names

@@ -12,26 +12,27 @@ import (
 // TestNodeModeStateStoreOverlayIsDiscarded pins that a node's mode does not reach its state-store
 // settings, which is what happens today and is not what the code reads as intending.
 //
-// SetAppConfigByMode assigns per mode: validator and seed turn the state store off
-// (app/params/config.go:146), and archive sets KeepRecent to 0 with the comment "keep all state
-// history" (:173). NewCustomAppConfig then assigns StateStore from the sei-db defaults, and because
+// SetAppConfigByMode assigns per mode. setValidatorTypeAppConfig turns the state store off, for seed
+// as well as validator, and setArchiveTypeAppConfig sets KeepRecent to 0 with the comment "keep all
+// state history". NewCustomAppConfig then assigns StateStore from the sei-db defaults, and because
 // CustomAppConfig embeds srvconfig.Config the outer field shadows the embedded one. So the assignment
 // the mode made survives at Config.StateStore and is read from nowhere, while the value a node runs on
 // is the default.
 //
-// The consequence is operator-visible and the reverse of the intent: an archive node, whose purpose is
+// The consequence is operator-visible and the reverse of the intent. An archive node, whose purpose is
 // retaining history, prunes state at the default KeepRecent instead of keeping all of it.
 //
-// Asserted rather than repaired. Changing which value wins would change what every existing archive
-// node prunes on its next restart, so this suite records the behaviour and the repair belongs to a
-// change that can be rolled out deliberately. What this stops is the behaviour changing by accident in
-// either direction: removing the overwrite makes the modes take effect, and nothing reported that.
+// Asserted rather than repaired, and tracked as PLT-955. Changing which value wins would change what
+// every existing archive node prunes on its next restart, so this suite records the behaviour and the
+// repair belongs to a change that can be rolled out deliberately. What this stops is the behaviour
+// changing by accident in either direction. Removing the overwrite makes the modes take effect, and
+// nothing reported that.
 func TestNodeModeStateStoreOverlayIsDiscarded(t *testing.T) {
 	defaults := seidbconfig.DefaultStateStoreConfig()
 
 	// What each mode assigns, written down here rather than read back from the code that assigns it.
 	// Deriving the expectation from SetAppConfigByMode's own output would compare the code against
-	// itself: a mode that stopped assigning would move both sides together and the assertion would hold.
+	// itself. A mode that stopped assigning would move both sides together and the assertion would hold.
 	// That is the defect this suite exists to find, and the first version of this test had it.
 	for _, c := range []struct {
 		mode   params.NodeMode
@@ -39,7 +40,7 @@ func TestNodeModeStateStoreOverlayIsDiscarded(t *testing.T) {
 	}{
 		{params.NodeModeValidator, func(t *testing.T, e seidbconfig.StateStoreConfig) {
 			if e.Enable {
-				t.Error("validator mode no longer disables the state store (app/params/config.go:146)")
+				t.Error("validator mode no longer disables the state store in setValidatorTypeAppConfig")
 			}
 		}},
 		{params.NodeModeSeed, func(t *testing.T, e seidbconfig.StateStoreConfig) {
@@ -54,8 +55,8 @@ func TestNodeModeStateStoreOverlayIsDiscarded(t *testing.T) {
 		}},
 		{params.NodeModeArchive, func(t *testing.T, e seidbconfig.StateStoreConfig) {
 			if e.KeepRecent != 0 {
-				t.Errorf("archive mode no longer sets KeepRecent to 0 for keeping all state history, "+
-					"got %d (app/params/config.go:173)", e.KeepRecent)
+				t.Errorf("setArchiveTypeAppConfig no longer sets KeepRecent to 0 for keeping all "+
+					"state history, got %d", e.KeepRecent)
 			}
 		}},
 	} {

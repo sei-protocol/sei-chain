@@ -7,5 +7,5 @@ receipt-store	CheckAbsent
 receipt-store	CheckDefaults
 receipt-store	CheckEveryRowHasADiscriminatingSeed
 receipt-store	CheckKeyNames
+receipt-store	CheckManifestCoversEveryField
 receipt-store	CheckRow
-receipt_store	CheckManifestCoversEveryField

@@ -78,10 +78,12 @@ move, never deleting one to tidy up.
 **Behaviour never changes in a readability refactor,** and the proof is the existing
 tests passing *unchanged*. A refactor that requires editing a test is not a refactor.
 
-Run `/idiomatic` after any restructuring. None of this is checked by a linter, which is
-why it is written down. The failure it prevents is a codebase where found problems
-accumulated fixes instead of corrections, and that is indistinguishable from a healthy
-one on any green test run.
+After restructuring, re-read the result top to bottom as that sequence of named steps, and
+check each step against the shapes the surrounding package already uses rather than a pattern
+introduced for this one change. None of this is checked by a linter, which is why it is
+written down. The failure it prevents is a codebase where found problems accumulated fixes
+instead of corrections, and that is indistinguishable from a healthy one on any green test
+run.
 
 ## Lint, build & test
 

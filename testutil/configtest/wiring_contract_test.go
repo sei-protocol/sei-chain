@@ -26,9 +26,13 @@ func TestEveryWiredPackageRecordsItsWiring(t *testing.T) {
 		t.Skipf("cannot locate the repository root, so the tree cannot be walked: %v", err)
 	}
 
-	wired, err := packagesCallingACheck(root)
+	wired, unparseable, err := packagesCallingACheck(root)
 	if err != nil {
 		t.Fatalf("walk the tree: %v", err)
+	}
+	for _, dir := range unparseable {
+		t.Logf("skipped %s, whose sources do not parse, so no wiring could be read from it",
+			mustRel(root, dir))
 	}
 	if len(wired) == 0 {
 		t.Fatal("found no packages calling a configtest check, so this check proved nothing. It walks " +
@@ -55,7 +59,7 @@ func TestEveryWiredPackageRecordsItsWiring(t *testing.T) {
 			"Add a test calling configtest.CheckWiring(t) and generate its record with -update.",
 			strings.Join(missing, "\n  "))
 	}
-	t.Logf("checked %d package(s) importing this helper", len(wired))
+	t.Logf("checked %d package(s) calling a configtest check", len(wired))
 }
 
 // repoRoot walks up from the working directory to the directory holding go.mod.
@@ -76,17 +80,29 @@ func repoRoot() (string, error) {
 	}
 }
 
-// packagesCallingACheck returns the directories that call at least one configtest check.
+// packagesCallingACheck returns the directories that call at least one configtest check, and
+// separately the directories whose sources do not parse.
 //
 // Keyed on calling a check rather than on importing the package. Several packages import this helper
 // for Isolate, AppOpts or Home and assert nothing through a section, so requiring a wiring record of
 // them would mean a record with nothing in it. The package holding the helper is excluded too: its own
 // tests drive the checks against fakes and temporary directories rather than against sections of its
 // own.
-func packagesCallingACheck(root string) ([]string, error) {
-	seen := make(map[string]bool)
+//
+// Whether a directory has been scanned is tracked apart from whether it is wired, because one
+// directory holds many test files and wiringOf parses every .go file in it. Tracked together, a
+// directory calling no check would never be marked and would be reparsed once per test file it
+// contains, which across the tree is thousands of redundant parses.
+//
+// An unparseable directory is reported rather than returned as an error. Failing the walk on a parse
+// error anywhere in the tree, the vendored sub-repos included, would fail this test over a file it
+// makes no claim about and bury what it does assert. CheckWiring is right to give up on the same
+// error, because there the unparseable file is the package under test.
+func packagesCallingACheck(root string) (wired, unparseable []string, err error) {
+	scanned := make(map[string]bool)
+	callsACheck := make(map[string]bool)
 
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err //nolint:wrapcheck // returned to WalkDir, which reports it
 		}
@@ -102,28 +118,32 @@ func packagesCallingACheck(root string) ([]string, error) {
 			return nil
 		}
 		dir := filepath.Dir(path)
-		if seen[dir] || dir == thisPackage(root) {
+		if scanned[dir] || dir == thisPackage(root) {
 			return nil
 		}
-		pairs, err := wiringOf(dir)
-		if err != nil {
-			return err //nolint:wrapcheck // returned to WalkDir
+		scanned[dir] = true
+
+		pairs, parseErr := wiringOf(dir)
+		if parseErr != nil {
+			unparseable = append(unparseable, dir)
+			return nil
 		}
 		if len(pairs) > 0 {
-			seen[dir] = true
+			callsACheck[dir] = true
 		}
 		return nil
 	})
-	if err != nil {
-		return nil, err
+	if walkErr != nil {
+		return nil, nil, walkErr
 	}
 
-	dirs := make([]string, 0, len(seen))
-	for dir := range seen {
+	dirs := make([]string, 0, len(callsACheck))
+	for dir := range callsACheck {
 		dirs = append(dirs, dir)
 	}
 	sort.Strings(dirs)
-	return dirs, nil
+	sort.Strings(unparseable)
+	return dirs, unparseable, nil
 }
 
 // callsCheckWiring reports whether the package in dir calls configtest.CheckWiring.
