@@ -1,7 +1,12 @@
 package config_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -276,6 +281,143 @@ func TestNativeTracerSetIsNonJSInGeth(t *testing.T) {
 		if tracers.DefaultDirectory.IsJS(name) {
 			t.Errorf("native tracer constant %q is not registered as non-JS in geth", name)
 		}
+	}
+}
+
+// TestEveryNativeTracerEntryIsNonJSInGeth holds every entry of nativeTraceTracers to being non-JS,
+// by enumerating the set rather than a list written beside it.
+//
+// TestNativeTracerSetIsNonJSInGeth above walks DefaultTraceAllowedTracers and then a literal list of
+// the six constants. Neither is the map IsNativeTraceTracer answers from, so an entry added to that
+// map is reached by neither loop. The second loop's comment claims to catch exactly that omission and
+// cannot, because it is a hand-written list rather than the set.
+//
+// The gap is allowlistable and it opens the JS evaluator. Adding "jsStubTracer" to the map leaves
+// this package green while IsNativeTraceTracer accepts the name and geth's IsJS reports true for it,
+// so an operator who allowlisted only that name would be running request-supplied JavaScript
+// in-process. That is the failure this closes.
+//
+// The set is read from the source rather than through an accessor, because it is unexported and a
+// characterization test does not widen a production API to observe itself. Reading the literal is
+// also the stronger form: it sees an entry however it was spelled, including one added as a bare
+// string that no constant names.
+func TestEveryNativeTracerEntryIsNonJSInGeth(t *testing.T) {
+	names := nativeTracerSetFromSource(t)
+
+	// A parse that found nothing would pass while checking nothing, which is the defect one level up.
+	if len(names) == 0 {
+		t.Fatal("no entries were read from the nativeTraceTracers literal, so this proved nothing " +
+			"about the set. Either the map was renamed or the source layout changed")
+	}
+
+	for _, name := range names {
+		if !config.IsNativeTraceTracer(name) {
+			t.Errorf("%q is in the nativeTraceTracers literal but IsNativeTraceTracer rejects it, so "+
+				"the set and its accessor disagree", name)
+			continue
+		}
+		if tracers.DefaultDirectory.IsJS(name) {
+			t.Errorf("%q is in nativeTraceTracers but geth resolves it through the JS evaluator. "+
+				"IsNativeTraceTracer accepts it, so an operator allowlisting only this name would "+
+				"let debug_trace* run JavaScript in-process", name)
+		}
+	}
+}
+
+// nativeTracerSetFromSource returns the tracer names the nativeTraceTracers map literal holds.
+//
+// Keys are written as constants, so the const declarations in the same file are read first and the
+// keys resolved through them. A key written as a bare string is taken verbatim, which is the case a
+// list of constants would miss.
+func nativeTracerSetFromSource(t *testing.T) []string {
+	t.Helper()
+
+	const (
+		sourceFile = "config.go"
+		setName    = "nativeTraceTracers"
+	)
+
+	file, err := parser.ParseFile(token.NewFileSet(), sourceFile, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", sourceFile, err)
+	}
+
+	constants := stringConstants(file)
+
+	var names []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.ValueSpec)
+		if !ok || len(spec.Names) == 0 || spec.Names[0].Name != setName || len(spec.Values) == 0 {
+			return true
+		}
+		literal, ok := spec.Values[0].(*ast.CompositeLit)
+		if !ok {
+			t.Fatalf("%s is no longer a composite literal, so its entries cannot be read", setName)
+		}
+		for _, element := range literal.Elts {
+			pair, ok := element.(*ast.KeyValueExpr)
+			if !ok {
+				t.Fatalf("%s holds an entry with no key, which this cannot read", setName)
+			}
+			names = append(names, resolveTracerKey(t, pair.Key, constants))
+		}
+		return false
+	})
+	sort.Strings(names)
+	return names
+}
+
+// stringConstants returns the string-valued constants a file declares, by name.
+func stringConstants(file *ast.File) map[string]string {
+	out := map[string]string{}
+	for _, decl := range file.Decls {
+		general, ok := decl.(*ast.GenDecl)
+		if !ok || general.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range general.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range value.Names {
+				if i >= len(value.Values) {
+					continue
+				}
+				literal, ok := value.Values[i].(*ast.BasicLit)
+				if !ok || literal.Kind != token.STRING {
+					continue
+				}
+				if unquoted, err := strconv.Unquote(literal.Value); err == nil {
+					out[name.Name] = unquoted
+				}
+			}
+		}
+	}
+	return out
+}
+
+// resolveTracerKey turns one map key into the tracer name it stands for.
+func resolveTracerKey(t *testing.T, key ast.Expr, constants map[string]string) string {
+	t.Helper()
+
+	switch k := key.(type) {
+	case *ast.Ident:
+		name, ok := constants[k.Name]
+		if !ok {
+			t.Fatalf("nativeTraceTracers names the constant %s, which is not a string constant in "+
+				"the same file, so its value cannot be read here", k.Name)
+		}
+		return name
+	case *ast.BasicLit:
+		name, err := strconv.Unquote(k.Value)
+		if err != nil {
+			t.Fatalf("nativeTraceTracers holds an unreadable key %s: %v", k.Value, err)
+		}
+		return name
+	default:
+		t.Fatalf("nativeTraceTracers holds a key this cannot read (%T)", key)
+		return ""
 	}
 }
 
