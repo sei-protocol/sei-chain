@@ -37,9 +37,9 @@ func (k Querier) Validators(c context.Context, req *types.QueryValidatorsRequest
 	store := ctx.KVStore(k.storeKey)
 	valStore := prefix.NewStore(store, types.ValidatorsKey)
 
-	paginate := query.FilteredPaginate
-	if ctx.IsEVM() {
-		paginate = query.FilteredPaginateV66
+	paginate := query.FilteredPaginateV66
+	if ctx.IsABCIQuery() {
+		paginate = query.FilteredPaginate
 	}
 
 	pageRes, err := paginate(valStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
@@ -105,11 +105,11 @@ func (k Querier) ValidatorDelegations(c context.Context, req *types.QueryValidat
 	store := ctx.KVStore(k.storeKey)
 	valStore := prefix.NewStore(store, types.DelegationKey)
 
-	// LCD/gRPC receives the repaired behavior. EVM precompiles must retain
-	// release/v6.6 behavior because this query executes inside transactions.
-	paginate := query.FilteredPaginate
-	if ctx.IsEVM() {
-		paginate = query.FilteredPaginateV66
+	// Consensus execution defaults to release/v6.6 behavior. Only contexts
+	// created by BaseApp.Query may use the repaired LCD/gRPC behavior.
+	paginate := query.FilteredPaginateV66
+	if ctx.IsABCIQuery() {
+		paginate = query.FilteredPaginate
 	}
 
 	pageRes, err := paginate(valStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {

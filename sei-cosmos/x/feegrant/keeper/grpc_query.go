@@ -112,9 +112,9 @@ func (q Keeper) AllowancesByGranter(c context.Context, req *feegrant.QueryAllowa
 	store := ctx.KVStore(q.storeKey)
 	prefixStore := prefix.NewStore(store, feegrant.FeeAllowanceKeyPrefix)
 
-	paginate := query.FilteredPaginate
-	if ctx.IsEVM() {
-		paginate = query.FilteredPaginateV66
+	paginate := query.FilteredPaginateV66
+	if ctx.IsABCIQuery() {
+		paginate = query.FilteredPaginate
 	}
 	pageRes, err := paginate(prefixStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
 		// ParseAddressesFromFeeAllowanceKey expects the full key including the prefix.

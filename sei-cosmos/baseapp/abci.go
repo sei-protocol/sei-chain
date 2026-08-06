@@ -725,7 +725,9 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 	// branch the commit-multistore for safety
 	ctx := sdk.NewContext(
 		cacheMS, checkStateCtx.BlockHeader(), true,
-	).WithMinGasPrices(app.minGasPrices).WithBlockHeight(height)
+	).WithMinGasPrices(app.minGasPrices).
+		WithBlockHeight(height).
+		WithIsABCIQuery(true)
 
 	return ctx, nil
 }

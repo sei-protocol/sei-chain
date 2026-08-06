@@ -90,9 +90,9 @@ func (k Keeper) ValidatorSlashes(c context.Context, req *types.QueryValidatorSla
 	}
 	slashesStore := prefix.NewStore(store, types.GetValidatorSlashEventPrefix(valAddr))
 
-	paginate := query.FilteredPaginate
-	if ctx.IsEVM() {
-		paginate = query.FilteredPaginateV66
+	paginate := query.FilteredPaginateV66
+	if ctx.IsABCIQuery() {
+		paginate = query.FilteredPaginate
 	}
 
 	pageRes, err := paginate(slashesStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {

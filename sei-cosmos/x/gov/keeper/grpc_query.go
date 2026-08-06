@@ -42,9 +42,9 @@ func (q Keeper) Proposals(c context.Context, req *types.QueryProposalsRequest) (
 	store := ctx.KVStore(q.storeKey)
 	proposalStore := prefix.NewStore(store, types.ProposalsKeyPrefix)
 
-	paginate := query.FilteredPaginate
-	if ctx.IsEVM() {
-		paginate = query.FilteredPaginateV66
+	paginate := query.FilteredPaginateV66
+	if ctx.IsABCIQuery() {
+		paginate = query.FilteredPaginate
 	}
 
 	pageRes, err := paginate(proposalStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
