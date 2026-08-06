@@ -28,6 +28,7 @@ The `evmonly` package currently provides:
 - go-ethereum `core.ApplyMessage` execution against an SDK-free `vm.StateDB`
 - key-addressable state reads for balance, nonce, code, and storage
 - deterministic post-block `StateChangeSet` construction
+- direct snapshot reads and ordered state commits through `giga.Store`
 - optional executor-internal Block-STM-style execution for optimistic parallel
   transaction execution with granular validation and reruns
 - Ethereum receipt construction with logs, bloom, gas, tx hash, block metadata,
@@ -68,11 +69,32 @@ prepare then execute in one call. `PreparedBlock` is trusted executor-produced
 data: callers should pass the result of `PrepareBlock` unchanged, because
 `ExecutePreparedBlock` does not recover senders again.
 
-The executor should be commit-neutral. It executes an ordered EVM block and
-returns the state writes and receipts produced by that block. The caller owns
-durable persistence, state commitment, block indexing, and receipt publication.
-The concrete `Executor` accepts a `StateReader` backend through `WithState(...)`;
-callers can persist the returned `ChangeSet` with a matching `StateWriter`.
+The executor is commit-neutral by default. It executes an ordered EVM block and
+returns the state writes and receipts produced by that block. In this mode the
+caller owns durable persistence, state commitment, block indexing, and receipt
+publication. The concrete `Executor` accepts a `StateReader` backend through
+`WithState(...)`; callers can persist the returned `ChangeSet` with a matching
+`StateWriter`.
+
+`WithGigaStore(...)` enables the integrated store path. For each block the
+executor opens a current `giga.StateSnapshot`, executes against its EVM-native
+read methods, converts the resulting `StateChangeSet` with the supplied
+`NamedChangeSetEncoder`, and calls `CommitStateChanges`. Store-backed block
+execution and commit on an executor are serialized so blocks cannot share a
+stale snapshot or overlap commits; callers must still submit block heights in
+order. The snapshot stays open through the commit and is always closed
+afterward. An empty block still commits an empty encoded changeset so the store
+can advance its height. A store-backed executor ignores `WithState` for block
+execution; stateless preparation can still run concurrently.
+
+The encoder is explicit because `giga.Store` defines the protobuf commit
+transport but does not define an on-disk key layout. In particular, an encoder
+must preserve `StorageClears` as prefix clears rather than silently dropping
+persisted slots that were not read during execution. Encoding or commit failures
+release the block result and return an error without invoking `ResultSink`.
+When both integrations are configured, `ResultSink` runs after the state commit
+succeeds; a sink error does not roll back that commit.
+
 Every `StateReader` method must be safe for concurrent calls because speculative
 transactions and overlapping block executions may read the backend at the same
 time. Values returned by `GetBalance` and `GetCode` must remain stable while

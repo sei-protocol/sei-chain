@@ -15,17 +15,21 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 )
 
 // Executor runs raw EVM transactions against an EVM-native state backend.
 type Executor struct {
-	cfg         Config
-	state       StateReader
-	resultSink  ResultSink
-	occPool     *occWorkerPool
-	resultPool  *blockResultPool
-	stateDBPool sync.Pool
-	closed      atomic.Bool
+	cfg              Config
+	state            StateReader
+	resultSink       ResultSink
+	occPool          *occWorkerPool
+	resultPool       *blockResultPool
+	stateDBPool      sync.Pool
+	storeMu          sync.Mutex
+	gigaStore        gigastore.Store
+	changeSetEncoder NamedChangeSetEncoder
+	closed           atomic.Bool
 }
 
 type Option func(*Executor)
@@ -41,6 +45,20 @@ func WithState(state StateReader) Option {
 func WithResultSink(sink ResultSink) Option {
 	return func(e *Executor) {
 		e.resultSink = sink
+	}
+}
+
+// WithGigaStore makes the executor read each block from a store snapshot and
+// commit its successful state output through Store.CommitStateChanges. The
+// encoder owns the store-specific conversion from the executor's EVM-native
+// StateChangeSet to the store's protobuf changesets.
+func WithGigaStore(store gigastore.Store, encoder NamedChangeSetEncoder) Option {
+	return func(e *Executor) {
+		if store == nil {
+			return
+		}
+		e.gigaStore = store
+		e.changeSetEncoder = encoder
 	}
 }
 
@@ -110,7 +128,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return nil, err
 	}
-	result, err := e.executePreparedBlock(ctx, req)
+	result, err := e.executeAndCommitPreparedBlock(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -121,14 +139,21 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	return result, nil
 }
 
-func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
+func (e *Executor) executeAndCommitPreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
+	if e.gigaStore == nil {
+		return e.executePreparedBlock(ctx, req, e.state)
+	}
+	return e.executePreparedBlockWithGigaStore(ctx, req)
+}
+
+func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
 		return e.acquireBlockResult(ctx, 0)
 	}
 	if e.useOCC(len(req.Txs)) {
-		return e.executeBlockOCC(ctx, req)
+		return e.executeBlockOCC(ctx, req, source)
 	}
-	return e.executeBlockSequential(ctx, req)
+	return e.executeBlockSequential(ctx, req, source)
 }
 
 func (e *Executor) acquireBlockResult(ctx context.Context, txCapacity int) (*BlockResult, error) {
@@ -182,10 +207,10 @@ func (e *Executor) releaseStateDB(stateDB *nativeStateDB) {
 	e.stateDBPool.Put(stateDB)
 }
 
-func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
+func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
 	chainConfig := e.chainConfig(req.Context)
 
-	stateDB := e.acquireStateDB(e.state)
+	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
 	blockCtx := buildBlockContext(req.Context)
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
