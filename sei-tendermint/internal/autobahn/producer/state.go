@@ -200,7 +200,6 @@ func (s *State) runLaneStreak(ctx context.Context, availState *avail.State, lane
 
 // streakOpErr maps leave-race ErrBadLane onto context.Canceled so LocalLane
 // Iter continues (rejoin) instead of permanently killing producer.Run.
-// Covers both: LocalLane already Store'd, and maps/epoch swapped before Store.
 func (s *State) streakOpErr(lane types.LaneID, op string, err error) error {
 	if errors.Is(err, avail.ErrBadLane) {
 		availState := s.consensus.Avail()

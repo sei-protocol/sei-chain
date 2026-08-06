@@ -18,7 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-func TestApplyEpoch_AddsJoinerDefersLeaverUntilAppQCWatermark(t *testing.T) {
+func TestApplyEpoch_AddsJoinerDefersLeaverUntilTipcutOmits(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	a, b := keys[0], keys[1]
@@ -59,6 +59,7 @@ func TestApplyEpoch_AddsJoinerDefersLeaverUntilAppQCWatermark(t *testing.T) {
 	_, err = os.Stat(laneBPath)
 	require.NoError(t, err)
 
+	ep0 := registry.LatestEpoch()
 	weights := map[types.PublicKey]uint64{
 		a.Public():    1,
 		cKey.Public(): 1,
@@ -79,17 +80,31 @@ func TestApplyEpoch_AddsJoinerDefersLeaverUntilAppQCWatermark(t *testing.T) {
 	require.Equal(t, types.BlockNumber(0), state.NextBlock(laneC))
 	require.False(t, ep.Committee().HasLane(laneB))
 	require.True(t, state.hasBlockLane(laneB))
-	require.NoError(t, state.tryPruneLeaveLanes()) // no AppQC prune floor yet
+	require.NoError(t, state.tryPruneLeaveLanes()) // no tipcut CommitQC yet
 	require.True(t, state.hasBlockLane(laneB))
 
-	// AppQC prune floor in epoch 1: leave laneB (e_join=0) is eligible; joiner C (e_join=1) is not.
-	qc := makeCommitQC(ep, []types.SecretKey{a, cKey}, utils.None[*types.CommitQC](), nil, utils.None[*types.AppQC]())
-	require.Equal(t, types.EpochIndex(1), qc.Proposal().EpochIndex())
-	appProposal := types.NewAppProposal(0, qc.Proposal().Index(), types.GenAppHash(rng), ep.EpochIndex())
-	appQC := types.NewAppQC(makeAppVotes([]types.SecretKey{a, cKey}, appProposal))
+	// Tipcut still in leave epoch: committee names laneB → keep.
+	qc0 := makeCommitQC(ep0, []types.SecretKey{a, b, keys[2]}, utils.None[*types.CommitQC](), nil, utils.None[*types.AppQC]())
+	require.Equal(t, types.EpochIndex(0), qc0.Proposal().EpochIndex())
+	require.True(t, ep0.Committee().HasLane(laneB))
 	for inner, ctrl := range state.inner.Lock() {
-		inner.latestAppQC = utils.Some(appQC)
-		inner.latestCommitQC.Store(utils.Some(qc))
+		inner.commitQCs.pushBack(qc0)
+		inner.latestCommitQC.Store(utils.Some(qc0))
+		ctrl.Updated()
+	}
+	require.NoError(t, state.tryPruneLeaveLanes())
+	require.True(t, state.hasBlockLane(laneB))
+
+	// Tipcut advances to post-leave epoch: committee omits laneB → remove.
+	qc1 := makeCommitQC(ep, []types.SecretKey{a, cKey}, utils.None[*types.CommitQC](), nil, utils.None[*types.AppQC]())
+	require.Equal(t, types.EpochIndex(1), qc1.Proposal().EpochIndex())
+	for inner, ctrl := range state.inner.Lock() {
+		idx := qc1.Proposal().Index()
+		inner.commitQCs = newQueue[types.RoadIndex, *types.CommitQC]()
+		inner.commitQCs.first = idx
+		inner.commitQCs.next = idx
+		inner.commitQCs.pushBack(qc1)
+		inner.latestCommitQC.Store(utils.Some(qc1))
 		ctrl.Updated()
 	}
 	require.NoError(t, state.tryPruneLeaveLanes())
@@ -99,9 +114,7 @@ func TestApplyEpoch_AddsJoinerDefersLeaverUntilAppQCWatermark(t *testing.T) {
 	require.True(t, os.IsNotExist(err))
 }
 
-// Orphan leave WAL: maps no longer track the leave lane (as on pre-fix restart
-// skip) but the BlockPersister still holds the dir — tryPruneLeaveLanes must
-// DeleteLane via KnownLanes once the AppQC floor advances.
+// Orphan leave WAL (not in maps) is DeleteLane'd once tipcut omits the lane.
 func TestTryPruneLeaveLanes_OrphanWALWithoutMaps(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -139,7 +152,6 @@ func TestTryPruneLeaveLanes_OrphanWALWithoutMaps(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, state.ApplyEpoch(ep))
 
-	// Detach maps only — WAL remains (restart skip of leave lanes).
 	for inner := range state.inner.Lock() {
 		delete(inner.blocks, laneB)
 		delete(inner.votes, laneB)
@@ -151,10 +163,8 @@ func TestTryPruneLeaveLanes_OrphanWALWithoutMaps(t *testing.T) {
 	require.NoError(t, err)
 
 	qc := makeCommitQC(ep, []types.SecretKey{a, cKey}, utils.None[*types.CommitQC](), nil, utils.None[*types.AppQC]())
-	appProposal := types.NewAppProposal(0, qc.Proposal().Index(), types.GenAppHash(rng), ep.EpochIndex())
-	appQC := types.NewAppQC(makeAppVotes([]types.SecretKey{a, cKey}, appProposal))
 	for inner, ctrl := range state.inner.Lock() {
-		inner.latestAppQC = utils.Some(appQC)
+		inner.commitQCs.pushBack(qc)
 		inner.latestCommitQC.Store(utils.Some(qc))
 		ctrl.Updated()
 	}
