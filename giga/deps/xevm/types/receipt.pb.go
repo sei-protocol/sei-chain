@@ -116,6 +116,9 @@ type Receipt struct {
 	Logs              []*Log `protobuf:"bytes,13,rep,name=logs,proto3" json:"logs,omitempty"`
 	// buf:lint:ignore FIELD_LOWER_SNAKE_CASE We have caught this late; keeping to avoid breaking changes.
 	LogsBloom []byte `protobuf:"bytes,14,opt,name=logsBloom,proto3" json:"logsBloom,omitempty"`
+	// True when the tx failed in state-transition checks before Create/Call
+	// (e.g. EIP-7623 floor data gas).
+	PreExecutionFailure bool `protobuf:"varint,15,opt,name=pre_execution_failure,json=preExecutionFailure,proto3" json:"pre_execution_failure,omitempty" yaml:"pre_execution_failure"`
 }
 
 func (m *Receipt) Reset()         { *m = Receipt{} }
@@ -247,6 +250,13 @@ func (m *Receipt) GetLogsBloom() []byte {
 		return m.LogsBloom
 	}
 	return nil
+}
+
+func (m *Receipt) GetPreExecutionFailure() bool {
+	if m != nil {
+		return m.PreExecutionFailure
+	}
+	return false
 }
 
 func init() {
@@ -381,6 +391,16 @@ func (m *Receipt) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.PreExecutionFailure {
+		i--
+		if m.PreExecutionFailure {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x78
+	}
 	if len(m.LogsBloom) > 0 {
 		i -= len(m.LogsBloom)
 		copy(dAtA[i:], m.LogsBloom)
@@ -571,6 +591,9 @@ func (m *Receipt) Size() (n int) {
 	l = len(m.LogsBloom)
 	if l > 0 {
 		n += 1 + l + sovReceipt(uint64(l))
+	}
+	if m.PreExecutionFailure {
+		n += 2
 	}
 	return n
 }
@@ -1158,6 +1181,26 @@ func (m *Receipt) Unmarshal(dAtA []byte) error {
 				m.LogsBloom = []byte{}
 			}
 			iNdEx = postIndex
+		case 15:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PreExecutionFailure", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowReceipt
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.PreExecutionFailure = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skipReceipt(dAtA[iNdEx:])

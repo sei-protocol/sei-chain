@@ -382,6 +382,7 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 			txHash,
 			uint64(21000+i*1000),
 			"",
+			false,
 		)
 		require.Nil(t, err)
 	}

@@ -442,6 +442,7 @@ func assertReceiptsEqual(
 	require.Equal(t, expected.BlockNumber, actual.BlockNumber, "%s: BlockNumber", prefix)
 	require.Equal(t, expected.TransactionIndex, actual.TransactionIndex, "%s: TransactionIndex", prefix)
 	require.Equal(t, expected.VmError, actual.VmError, "%s: VmError", prefix)
+	require.Equal(t, expected.PreExecutionFailure, actual.PreExecutionFailure, "%s: PreExecutionFailure", prefix)
 	require.True(t, bytes.Equal(expected.LogsBloom, actual.LogsBloom),
 		"%s: LogsBloom differs (expected len=%d, actual len=%d)", prefix, len(expected.LogsBloom), len(actual.LogsBloom))
 
@@ -1950,28 +1951,73 @@ func TestGiga_FailedExecutionFallsBackToV2(t *testing.T) {
 		fundAccount(t, testCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
 		testCtx.TestApp.EvmKeeper.SetAddressMapping(testCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
 
-		_, results, runErr := RunBlock(t, testCtx, [][]byte{txBytes})
-		require.NoError(t, runErr)
-		require.Len(t, results, 1)
-		require.NotEqual(t, uint32(0), results[0].Code)
-		require.Contains(t, results[0].Log, "floor data gas")
-
-		receipt, receiptErr := testCtx.GetTransientReceipt(t, signedTx.Hash(), 0)
-		require.NoError(t, receiptErr)
-		require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
-
 		getBalance := func(address sdk.AccAddress) balance {
 			return balance{
 				usei: testCtx.TestApp.BankKeeper.GetBalance(testCtx.Ctx, address, "usei").Amount,
 				wei:  testCtx.TestApp.BankKeeper.GetWeiBalance(testCtx.Ctx, address),
 			}
 		}
+		totalWei := func(b balance) *big.Int {
+			total := new(big.Int).Mul(b.usei.BigInt(), evmstate.UseiToSweiMultiplier)
+			return total.Add(total, b.wei.BigInt())
+		}
+
+		// Elevate next base fee so gasLimit vs 0 produce distinct adjustments.
+		elevatedBaseFee := sdk.NewDec(10_000_000_000) // 10 gwei
+		require.True(t, elevatedBaseFee.GT(testCtx.TestApp.EvmKeeper.GetMinimumFeePerGas(testCtx.Ctx)))
+		testCtx.Ctx = testCtx.Ctx.WithConsensusParams(app.DefaultConsensusParams)
+		testCtx.TestApp.EvmKeeper.SetNextBaseFeePerGas(testCtx.Ctx, elevatedBaseFee)
+
+		cacheWithGas, _ := testCtx.Ctx.CacheContext()
+		expectedWithGas := testCtx.TestApp.EvmKeeper.AdjustDynamicBaseFeePerGas(cacheWithGas, gasLimit)
+		cacheWithZero, _ := testCtx.Ctx.CacheContext()
+		expectedWithZeroGas := testCtx.TestApp.EvmKeeper.AdjustDynamicBaseFeePerGas(cacheWithZero, 0)
+		require.NotNil(t, expectedWithGas)
+		require.NotNil(t, expectedWithZeroGas)
+		require.False(t, expectedWithGas.Equal(*expectedWithZeroGas),
+			"test setup: gasLimit vs 0 must move next base fee differently")
+
+		senderBefore := getBalance(signer.AccountAddress)
+
+		_, results, runErr := RunBlock(t, testCtx, [][]byte{txBytes})
+		require.NoError(t, runErr)
+		require.Len(t, results, 1)
+		require.NotEqual(t, uint32(0), results[0].Code)
+		require.Contains(t, results[0].Log, "floor data gas")
+		require.NotNil(t, results[0].EvmTxInfo)
+		require.Equal(t, signedTx.Hash().Hex(), results[0].EvmTxInfo.TxHash)
+		require.Equal(t, int64(gasLimit), results[0].GasUsed)
+		require.Equal(t, int64(gasLimit), results[0].GasWanted)
+
+		receipt, receiptErr := testCtx.GetTransientReceipt(t, signedTx.Hash(), 0)
+		require.NoError(t, receiptErr)
+		require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
+		require.Equal(t, gasLimit, receipt.GasUsed)
+		require.Contains(t, receipt.VmError, "floor data gas")
+		require.True(t, receipt.PreExecutionFailure)
+
+		gotNextBaseFee := testCtx.TestApp.EvmKeeper.GetNextBaseFeePerGas(testCtx.Ctx)
+		require.True(t, gotNextBaseFee.Equal(*expectedWithGas),
+			"next base fee should use GasUsed=%d (got %s, want %s; zero-gas would be %s)",
+			gasLimit, gotNextBaseFee, expectedWithGas, expectedWithZeroGas)
+
+		// Ante BuyGas debits gasLimit * effectiveGasPrice with no Execute refund.
+		effectiveGasPrice := new(big.Int).Add(signedTx.GasTipCap(), elevatedBaseFee.TruncateInt().BigInt())
+		if effectiveGasPrice.Cmp(signedTx.GasFeeCap()) > 0 {
+			effectiveGasPrice = new(big.Int).Set(signedTx.GasFeeCap())
+		}
+		expectedFee := new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), effectiveGasPrice)
+		senderAfter := getBalance(signer.AccountAddress)
+		require.Equal(t, 0, new(big.Int).Sub(totalWei(senderBefore), totalWei(senderAfter)).Cmp(expectedFee),
+			"sender should be charged gasLimit*effectiveGasPrice=%s (before=%s after=%s)",
+			expectedFee, totalWei(senderBefore), totalWei(senderAfter))
+
 		return outcome{
 			ctx:          testCtx,
 			results:      results,
 			nonce:        testCtx.TestApp.EvmKeeper.GetNonce(testCtx.Ctx, signer.EvmAddress),
 			receipt:      receipt,
-			sender:       getBalance(signer.AccountAddress),
+			sender:       senderAfter,
 			feeCollector: getBalance(testCtx.TestApp.AccountKeeper.GetModuleAddress(authtypes.FeeCollectorName)),
 			coinbase:     getBalance(evmstate.GetCoinbaseAddress(0)),
 		}
