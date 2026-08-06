@@ -57,7 +57,9 @@ func (app *BaseApp) RegisterGRPCServer(server gogogrpc.Server) {
 			height = sdkCtx.BlockHeight() // If height was not set in the request, set it to the latest
 		}
 
-		// Attach the sdk.Context into the gRPC's context.Context.
+		// Direct Cosmos gRPC queries may use client-facing pagination semantics.
+		// Other CreateQueryContext consumers remain v6.6-compatible by default.
+		sdkCtx = sdkCtx.WithIsABCIQuery(true)
 		grpcCtx = context.WithValue(grpcCtx, sdk.SdkContextKey, sdkCtx)
 
 		md = metadata.Pairs(grpctypes.GRPCBlockHeightHeader, strconv.FormatInt(height, 10))
