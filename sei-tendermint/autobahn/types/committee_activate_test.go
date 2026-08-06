@@ -47,6 +47,13 @@ func TestActivateCommittee_StayLeaveRejoin(t *testing.T) {
 	require.False(t, c12.HasLane(NewLaneID(d, 0)))
 }
 
+func TestActivateCommittee_NilPrev(t *testing.T) {
+	rng := utils.TestRng()
+	a := GenSecretKey(rng).Public()
+	_, err := ActivateCommittee(nil, map[PublicKey]uint64{a: 1}, 1)
+	require.Error(t, err)
+}
+
 func TestFinalizeCommittee_RejectsDuplicatePubKeyDifferentEJoin(t *testing.T) {
 	rng := utils.TestRng()
 	v := GenSecretKey(rng).Public()

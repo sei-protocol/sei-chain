@@ -185,7 +185,7 @@ func (s *State) runLaneStreak(ctx context.Context, availState *avail.State, lane
 						panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
 					}
 				}
-				if _, err := availState.ProduceLocalBlock(toProduce, payload); err != nil {
+				if _, err := availState.ProduceLocalBlock(lane, toProduce, payload); err != nil {
 					return s.streakOpErr(lane, "availState.ProduceLocalBlock()", err)
 				}
 				lastBlockTime = time.Now()

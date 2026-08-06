@@ -10,8 +10,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// Lane maps: joiners are added at ApplyEpoch; leavers stay until a durable
-// CommitQC watermark is in the current epoch, then pruneInactiveLanes + DeleteLane.
+// Lane maps: joiners are added at ApplyEpoch; leavers stay until the AppQC
+// prune floor advances past leave.e_join, then pruneInactiveLanes + DeleteLane.
 type inner struct {
 	epoch          *types.Epoch
 	latestAppQC    utils.Option[*types.AppQC]
@@ -115,12 +115,26 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
 	}
 
-	// Restore persisted blocks. Since the anchor is persisted first and
-	// blocks are written sequentially per lane, gaps, parent-hash
-	// mismatches, and over-capacity indicate corruption or a bug.
+	// Restore persisted blocks. Leave-lane WALs (absent from the current
+	// committee) are re-attached into maps so tryPruneLeaveLanes can delete
+	// them once the AppQC floor advances — skipping them orphans the WAL.
+	// Since the anchor is persisted first and blocks are written sequentially
+	// per lane, gaps, parent-hash mismatches, and over-capacity indicate
+	// corruption or a bug.
 	for lane, bs := range l.blocks {
 		q, ok := i.blocks[lane]
-		if !ok || len(bs) == 0 {
+		if !ok {
+			i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+			i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+			first := types.BlockNumber(0)
+			if anchor, aok := l.pruneAnchor.Get(); aok {
+				first = anchor.CommitQC.LaneRange(lane).First()
+			}
+			i.persistedBlockStart[lane] = first
+			i.nextBlockToPersist[lane] = 0
+			q = i.blocks[lane]
+		}
+		if len(bs) == 0 {
 			continue
 		}
 		var lastHash types.BlockHeaderHash
@@ -161,10 +175,11 @@ func (i *inner) addCommitteeLanes(c *types.Committee) {
 	}
 }
 
-// pruneInactiveLanes removes lanes absent from c. Call only when the durable
-// CommitQC watermark is in the current epoch (see tryPruneLeaveLanes).
-// Returns pruned LaneIDs so callers can DeleteLane on the BlockPersister.
-func (i *inner) pruneInactiveLanes(c *types.Committee) []types.LaneID {
+// pruneInactiveLanes removes inactive leave lanes whose e_join is strictly
+// before watermarkEpoch (the AppQC / prune-anchor epoch floor). Same-epoch
+// joiners (e_join == watermarkEpoch) are retained. Returns pruned LaneIDs so
+// callers can DeleteLane on the BlockPersister.
+func (i *inner) pruneInactiveLanes(c *types.Committee, watermarkEpoch types.EpochIndex) []types.LaneID {
 	active := map[types.LaneID]struct{}{}
 	for lane := range c.Lanes().All() {
 		active[lane] = struct{}{}
@@ -172,6 +187,9 @@ func (i *inner) pruneInactiveLanes(c *types.Committee) []types.LaneID {
 	var pruned []types.LaneID
 	for lane := range i.blocks {
 		if _, ok := active[lane]; ok {
+			continue
+		}
+		if lane.EJoin() >= watermarkEpoch {
 			continue
 		}
 		delete(i.blocks, lane)
@@ -186,7 +204,15 @@ func (i *inner) pruneInactiveLanes(c *types.Committee) []types.LaneID {
 // TODO: filter votes per-epoch committee once epoch transitions are wired up.
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
 	c := i.epoch.Committee()
-	for _, byHash := range i.votes[lane].q[n].byHash {
+	votes, ok := i.votes[lane]
+	if !ok {
+		return nil, false
+	}
+	entry, ok := votes.q[n]
+	if !ok {
+		return nil, false
+	}
+	for _, byHash := range entry.byHash {
 		if byHash.weight >= c.LaneQuorum() {
 			return types.NewLaneQC(byHash.votes[:]), true
 		}

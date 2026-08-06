@@ -149,7 +149,7 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 				lane := types.NewLaneID(key.Public(), 0)
 				p := types.GenPayload(rng)
 				want[lane] = append(want[lane], p.Hash())
-				b, err := state.produceLocalBlock(state.NextBlock(lane), key, p)
+				b, err := state.produceLocalBlock(lane, state.NextBlock(lane), key, p)
 				if err != nil {
 					return fmt.Errorf("state.produceLocalBlock(): %w", err)
 				}
@@ -280,7 +280,8 @@ func TestStateRestartFromPersisted(t *testing.T) {
 
 			for range 5 {
 				key := keys[rng.Intn(len(keys))]
-				if _, err := state.produceLocalBlock(state.NextBlock(types.NewLaneID(key.Public(), 0)), key, types.GenPayload(rng)); err != nil {
+				lane := types.NewLaneID(key.Public(), 0)
+				if _, err := state.produceLocalBlock(lane, state.NextBlock(lane), key, types.GenPayload(rng)); err != nil {
 					return fmt.Errorf("produceLocalBlock: %w", err)
 				}
 			}
@@ -390,7 +391,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 	// 1. Produce a block so we have a non-empty range
 	lane := types.NewLaneID(keys[0].Public(), 0)
 	p := types.GenPayload(rng)
-	b, err := state.ProduceLocalBlock(state.NextBlock(lane), p)
+	b, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), p)
 	require.NoError(t, err)
 
 	// 2. Form a LaneQC for it
@@ -424,11 +425,11 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	state := utils.OrPanic1(NewState(keys[0], ds, utils.Some(t.TempDir())))
 
 	// Produce a valid first block on our lane.
-	_, err := state.ProduceLocalBlock(state.NextBlock(types.NewLaneID(keys[0].Public(), 0)), types.GenPayload(rng))
+	lane := types.NewLaneID(keys[0].Public(), 0)
+	_, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
 	require.NoError(t, err)
 
 	// Create a second block with a fake parentHash.
-	lane := types.NewLaneID(keys[0].Public(), 0)
 	fakeBlock := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	fakeProp := types.Sign(keys[0], types.NewLaneProposal(fakeBlock))
 

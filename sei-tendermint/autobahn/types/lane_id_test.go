@@ -31,3 +31,14 @@ func TestLaneID_BytesRoundtrip(t *testing.T) {
 		require.Equal(t, want, gotHex)
 	}
 }
+
+func TestLaneIDFromBytes_ExactLength(t *testing.T) {
+	rng := utils.TestRng()
+	good := NewLaneID(GenSecretKey(rng).Public(), 1).Bytes()
+	_, err := LaneIDFromBytes(good[:len(good)-1])
+	require.Error(t, err)
+	_, err = LaneIDFromBytes(append(append([]byte{}, good...), 0))
+	require.Error(t, err)
+	_, err = LaneIDFromBytes(nil)
+	require.Error(t, err)
+}

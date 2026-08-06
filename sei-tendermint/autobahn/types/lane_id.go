@@ -2,6 +2,7 @@ package types
 
 import (
 	"cmp"
+	"crypto/ed25519"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -45,13 +46,14 @@ func (l LaneID) Bytes() []byte {
 	return binary.BigEndian.AppendUint64(b, uint64(l.eJoin))
 }
 
-// LaneIDFromBytes parses Bytes() encoding.
+// LaneIDFromBytes parses Bytes() encoding (exactly ed25519 pubkey || u64be e_join).
 func LaneIDFromBytes(b []byte) (LaneID, error) {
-	if len(b) < 8 {
-		return LaneID{}, fmt.Errorf("LaneID: too short")
+	want := ed25519.PublicKeySize + 8
+	if len(b) != want {
+		return LaneID{}, fmt.Errorf("LaneID: got %d bytes, want %d", len(b), want)
 	}
-	eJoin := EpochIndex(binary.BigEndian.Uint64(b[len(b)-8:]))
-	validator, err := PublicKeyFromBytes(b[:len(b)-8])
+	eJoin := EpochIndex(binary.BigEndian.Uint64(b[ed25519.PublicKeySize:]))
+	validator, err := PublicKeyFromBytes(b[:ed25519.PublicKeySize])
 	if err != nil {
 		return LaneID{}, fmt.Errorf("LaneID validator: %w", err)
 	}

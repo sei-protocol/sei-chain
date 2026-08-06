@@ -16,9 +16,10 @@ var errGotProposal = errors.New("got proposal")
 // SubscribeLaneProposals streams proposals for this node's pubkey, bound to the
 // applied LaneID at subscribe time. Stay across epochs (pubkey still in
 // committee) keeps the same LaneID and must not restart the stream. Leave
-// (LocalLane → None) ends the stream with ErrLaneIdentityChanged; callers
-// recreate after a later rejoin. A LaneID change without leave is impossible
-// under contiguous ActivateCommittee stay and panics.
+// (LocalLane → None) or a new LaneID after rejoin ends the stream with
+// ErrLaneIdentityChanged; callers recreate on the new streak (block 0).
+// AtomicSend may coalesce leave→rejoin into Some(new) without an intermediate
+// None; that still ends the bound streak — never continue on a different LaneID.
 func (s *State) SubscribeLaneProposals(first types.BlockNumber) (*LaneProposalsRecv, error) {
 	lane, ok := s.LocalLane().Get()
 	if !ok {
@@ -33,18 +34,12 @@ type LaneProposalsRecv struct {
 	next  types.BlockNumber
 }
 
-// checkBound returns nil while LocalLane is still this streak, ErrLaneIdentityChanged
-// on leave, and panics if the pubkey's LaneID changed without a leave.
+// checkBound returns nil while LocalLane is still this streak, or
+// ErrLaneIdentityChanged on leave / rejoin under a new LaneID.
 func (r *LaneProposalsRecv) checkBound(opt utils.Option[types.LaneID]) error {
 	got, ok := opt.Get()
-	if !ok {
+	if !ok || got != r.lane {
 		return ErrLaneIdentityChanged
-	}
-	if got != r.lane {
-		panic(fmt.Sprintf(
-			"SubscribeLaneProposals: LaneID changed without leave: bound %v got %v",
-			r.lane, got,
-		))
 	}
 	return nil
 }

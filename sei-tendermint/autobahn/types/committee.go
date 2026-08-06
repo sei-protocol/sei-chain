@@ -25,6 +25,7 @@ func (s ImSlice[T]) All() iter.Seq[T] { return slices.Values(s.s) }
 // Membership is the lane list (validator + e_join); voting stake is weights.
 type Committee struct {
 	lanes       ImSlice[LaneID] // sorted; one lane per member
+	byValidator map[PublicKey]LaneID
 	weights     map[PublicKey]uint64
 	totalWeight uint64
 }
@@ -37,21 +38,17 @@ func (c *Committee) HasReplica(k PublicKey) bool {
 }
 
 func (c *Committee) HasLane(l LaneID) bool {
-	got, ok := c.Lane(l.validator).Get()
+	got, ok := c.byValidator[l.validator]
 	return ok && got == l
 }
 
 // Lane returns the LaneID for validator v in this committee, if present.
 func (c *Committee) Lane(v PublicKey) utils.Option[LaneID] {
-	if _, ok := c.weights[v]; !ok {
+	lane, ok := c.byValidator[v]
+	if !ok {
 		return utils.None[LaneID]()
 	}
-	for lane := range c.lanes.All() {
-		if lane.validator == v {
-			return utils.Some(lane)
-		}
-	}
-	return utils.None[LaneID]()
+	return utils.Some(lane)
 }
 
 // Lanes is the list of nodes which are eligible to produce blocks.
@@ -144,6 +141,9 @@ func NewCommittee(weights map[PublicKey]uint64) (*Committee, error) {
 // e_join from prev for continuous members and stamping e_join = e for joiners.
 // prev is required; e must be > 0.
 func ActivateCommittee(prev *Committee, weights map[PublicKey]uint64, e EpochIndex) (*Committee, error) {
+	if prev == nil {
+		return nil, errors.New("ActivateCommittee: prev is required")
+	}
 	if e == 0 {
 		return nil, errors.New("ActivateCommittee: epoch must be > 0")
 	}
@@ -196,8 +196,13 @@ func finalizeCommittee(lanes []LaneID, weights map[PublicKey]uint64, totalWeight
 			)
 		}
 	}
+	byValidator := make(map[PublicKey]LaneID, len(lanes))
+	for _, lane := range lanes {
+		byValidator[lane.validator] = lane
+	}
 	return &Committee{
 		lanes:       ImSlice[LaneID]{lanes},
+		byValidator: byValidator,
 		weights:     weights,
 		totalWeight: totalWeight,
 	}, nil

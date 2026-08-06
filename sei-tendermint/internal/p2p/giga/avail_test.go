@@ -66,7 +66,7 @@ func TestAvailClientServer(t *testing.T) {
 			// ProduceLocalBlock will fail loudly if this bound is raised past it.
 			for range avail.BlocksPerLane {
 				n := corruptAvail.NextBlock(lane0)
-				b, err := corruptAvail.ProduceLocalBlock(n, types.GenPayload(corruptRng))
+				b, err := corruptAvail.ProduceLocalBlock(lane0, n, types.GenPayload(corruptRng))
 				if err != nil {
 					return utils.IgnoreCancel(fmt.Errorf("corrupt.ProduceLocalBlock(%d): %w", n, err))
 				}
@@ -89,7 +89,7 @@ func TestAvailClientServer(t *testing.T) {
 					if err := a.WaitForLocalCapacity(ctx, lane, n); err != nil {
 						return fmt.Errorf("waitForLocalCapacity(): %w", err)
 					}
-					if _, err := a.ProduceLocalBlock(n, types.GenPayload(rng)); err != nil {
+					if _, err := a.ProduceLocalBlock(lane, n, types.GenPayload(rng)); err != nil {
 						return fmt.Errorf("produceLocalBlock(): %w", err)
 					}
 				}

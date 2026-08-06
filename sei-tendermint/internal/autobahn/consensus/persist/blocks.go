@@ -257,6 +257,19 @@ func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[type
 	return bp, allBlocks, nil
 }
 
+// KnownLanes returns every LaneID with an open WAL (including leave orphans
+// not loaded into avail maps). Snapshot under the map lock.
+func (bp *BlockPersister) KnownLanes() []types.LaneID {
+	for lanes := range bp.lanes.RLock() {
+		out := make([]types.LaneID, 0, len(lanes))
+		for lane := range lanes {
+			out = append(out, lane)
+		}
+		return out
+	}
+	panic("unreachable")
+}
+
 // getLane returns the laneWAL for the given lane. If allowCreate is true and
 // the lane is absent, a WAL is created. If allowCreate is false and the lane is
 // absent, ok is false (caller should no-op — used so leave DeleteLane is not
