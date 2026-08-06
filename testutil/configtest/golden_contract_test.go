@@ -8,6 +8,8 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -259,4 +261,73 @@ func TestNoTestInThisPackageIsParallel(t *testing.T) {
 	if scanned == 0 {
 		t.Fatal("parsed no _test.go files, so this check proved nothing about the package")
 	}
+}
+
+// TestNoRecordedKeyIsNamedCI closes the premise the CI allowlist entry rests on.
+//
+// env.go allows CI through Isolate because the record refusal reads it, and argues the cost is nil
+// because no configuration key is named ci. That argument was written down and nothing checked it, which
+// is the shape of claim this suite exists to convert into a check. A key whose last path segment is ci
+// would be resolvable from the empty-prefix viper the moment Isolate stopped stripping the variable, and
+// the symptom would be a value arriving from the environment with nothing pointing at why.
+//
+// Read from the key-name records across the tree rather than from a list here, so a key added later is
+// covered without anyone remembering this test.
+func TestNoRecordedKeyIsNamedCI(t *testing.T) {
+	root, err := repoRoot()
+	if err != nil {
+		t.Skipf("cannot locate the repository root, so the records cannot be read: %v", err)
+	}
+
+	var offenders []string
+	records := 0
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err //nolint:wrapcheck // returned to WalkDir, which reports it
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "vendor", ".git", "node_modules":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), keyNameRecordSuffix) {
+			return nil
+		}
+		records++
+		data, readErr := os.ReadFile(path) //nolint:gosec // a record found by walking the repo
+		if readErr != nil {
+			return readErr //nolint:wrapcheck // returned to WalkDir
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			key, unquoteErr := strconv.Unquote(strings.TrimSpace(line))
+			if unquoteErr != nil {
+				continue // a comment, a marker line, or the trailing blank
+			}
+			segments := strings.Split(key, ".")
+			if strings.EqualFold(segments[len(segments)-1], "ci") {
+				offenders = append(offenders, key)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk the tree for key-name records: %v", err)
+	}
+
+	// A walk that read nothing would pass while checking nothing, the same defect one level up.
+	if records == 0 {
+		t.Fatal("found no key-name records, so this check proved nothing about the allowlist premise")
+	}
+
+	if len(offenders) > 0 {
+		sort.Strings(offenders)
+		t.Errorf("these keys end in a segment named ci, which the CI entry in envAllowlist (env.go) "+
+			"assumes cannot exist:\n  %s\n"+
+			"Isolate lets CI through so the record refusal can read it, and the empty-prefix viper can "+
+			"resolve such a key from the environment. Either rename the key or key the refusal on "+
+			"something the config surface cannot name.", strings.Join(offenders, "\n  "))
+	}
+	t.Logf("checked %d key-name record(s)", records)
 }

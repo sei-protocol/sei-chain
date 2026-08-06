@@ -543,9 +543,19 @@ func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
 //
 // Each section already records its key names, which catches a rename. None recorded its values, so a
 // default could move with nothing to compare against. CheckAbsent-style assertions move both sides
-// together, and the manifest rows assert how a value is read rather than what it is when absent. The
-// four sections here are the ones whose values reach a node with no line in any generated file, so the
-// record is the only place the value is written down.
+// together, and the manifest rows assert how a value is read rather than what it is when absent.
+//
+// Two of the four records here are deliberate duplicates, and it is worth knowing which before
+// changing a default. genesis and light_invariance are recorded nowhere else. state-commit and
+// state-store are, because srvconfig.DefaultConfig calls the same DefaultStateCommitConfig and
+// DefaultStateStoreConfig these rows pass, so their fields already sit inside
+// sei-cosmos/server/config/testdata/server_config.golden. They are recorded again under their own
+// section names so the coverage record shows each section carrying its own defaults check rather than
+// inheriting one from a struct that embeds it.
+//
+// The cost is two regeneration sites. Moving a StateStoreConfig or StateCommitConfig default reddens
+// this package and sei-cosmos/server/config, and regenerating only one leaves the other red, so
+// regenerate both and read both diffs.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "state-commit", config.DefaultStateCommitConfig())
 	configtest.CheckDefaults(t, "state-store", config.DefaultStateStoreConfig())

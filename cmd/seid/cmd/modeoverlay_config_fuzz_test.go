@@ -102,6 +102,49 @@ func TestNodeModeStateStoreOverlayIsDiscarded(t *testing.T) {
 			// ignored. Checked against what the mode is supposed to assign, so a mode that stopped
 			// assigning is caught rather than absorbed.
 			c.assert(t, got.Config.StateStore)
+
+			// And the other half of the claim, that shadowing reaches only the fields CustomAppConfig
+			// redeclares. It redeclares StateStore and ten siblings; MinRetainBlocks and API sit on the
+			// embedded struct untouched, so their mode values do reach a node. Asserting it here is what
+			// stops the defect widening quietly: adding MinRetainBlocks to CustomAppConfig's own fields
+			// would discard it too, taking the failure from partial to total, and nothing else would say
+			// so while this file's comment went on calling the blast radius narrow.
+			assertModeOverlaySurvives(t, c.mode, got)
 		})
+	}
+}
+
+// assertModeOverlaySurvives pins the fields a node mode reaches, as opposed to the state-store fields
+// it does not.
+//
+// Only the arms that discriminate are asserted, and the ones that cannot are named rather than written
+// as assertions that would pass whatever the code did. srvconfig.DefaultConfig carries API.Enable false
+// and MinRetainBlocks 0, and validator and seed assign exactly those, so neither mode's survival is
+// observable from the result. Full assigns API.Enable true and MinRetainBlocks 100000, both away from
+// the default, and archive assigns API.Enable true, so those three arms are real.
+//
+// Archive's MinRetainBlocks is 0, which is the default too, so it is left out for the same reason.
+func assertModeOverlaySurvives(t *testing.T, mode params.NodeMode, got CustomAppConfig) {
+	t.Helper()
+
+	switch mode {
+	case params.NodeModeFull:
+		if !got.API.Enable {
+			t.Error("full mode's API.Enable no longer reaches the resolved config, so shadowing now " +
+				"covers a field it did not: the discarded overlay is wider than this file claims")
+		}
+		if got.MinRetainBlocks != 100000 {
+			t.Errorf("full mode's MinRetainBlocks no longer reaches the resolved config, got %d, want "+
+				"100000. Shadowing now covers a field on the embedded struct, so the discarded overlay "+
+				"is wider than this file claims", got.MinRetainBlocks)
+		}
+	case params.NodeModeArchive:
+		if !got.API.Enable {
+			t.Error("archive mode's API.Enable no longer reaches the resolved config, so shadowing now " +
+				"covers a field it did not: the discarded overlay is wider than this file claims")
+		}
+	case params.NodeModeValidator, params.NodeModeSeed:
+		// Both assign what the default already holds, so nothing here can tell survival from
+		// coincidence. Named rather than asserted.
 	}
 }

@@ -14,7 +14,7 @@ import (
 // leaf spliced in (assertResolvedView). When the value a seed carries resolves that
 // leaf to what an absent key already resolves it to, the two sides of the comparison
 // are identical and the assertion holds for a reader that reads the key and for one
-// that never looks it up — the resolved documents are the same document. A row whose
+// that never looks it up, because the resolved documents are the same document. A row whose
 // every seed is of that shape is pinned in appearance only: renaming its key in the
 // production reader leaves the suite green.
 //
@@ -102,9 +102,9 @@ func (s *Seeds) Add(kind uint8, str string, n int64, b bool) {
 // written, spread over the two shapes discriminationHint names.
 //
 // It runs before f.Fuzz rather than inside the fuzz function on purpose. Only the
-// corpus as a whole can answer the question — a nil value on a guarded row is
+// corpus as a whole can answer the question, since a nil value on a guarded row is
 // legitimately non-discriminating, and asserting per value would forbid the seed
-// that pins the guard — and only the target body sees the corpus as a whole. That
+// that pins the guard, and only the target body sees the corpus as a whole. That
 // also makes the verdict identical in every mode the suite runs in: it depends on
 // the seeds the target declares, not on which of them a given process happens to
 // execute, so a single-seed -run filter and a -fuzz worker reach the same answer as
@@ -120,7 +120,7 @@ func (s *Seeds) Add(kind uint8, str string, n int64, b bool) {
 // One consequence is worth knowing before it surprises someone. F.Fuzz returns
 // without running anything when the target has already failed, so a section whose
 // seeds fail here does not run its row assertions until the seeds are repaired.
-// Asserting after f.Fuzz instead — which would let both run — is worse than it
+// Asserting after f.Fuzz instead, which would let both run, is worse than it
 // looks: under -fuzz, F.Fuzz does not return until a problem is found, fuzztime runs
 // out, or a signal interrupts the process (testing/fuzz.go:208-210), so the verdict
 // would be withheld for the whole fuzzing window and skipped altogether on an
@@ -131,7 +131,7 @@ func (s *Seeds) Add(kind uint8, str string, n int64, b bool) {
 //
 // specs is the same table the fuzz function picks from, and row indices are reduced
 // modulo its length exactly as Pick reduces them. alsoRecorded names the section's
-// keys that have no row — the ones a target of their own asserts — and is here
+// keys that have no row, the ones a target of their own asserts, and is here
 // because this is where the record is compared: it must be the same list
 // CheckKeyNames is given, or the two disagree with the file and both say so.
 func CheckEveryRowHasADiscriminatingSeed(
@@ -150,7 +150,6 @@ func CheckEveryRowHasADiscriminatingSeed(
 
 	recordPath := goldenFilePath(t, name, keyNameRecordSuffix)
 	requireKeyNameRecord(t, name, recordPath, specs, alsoRecorded)
-	requireCheckedRowsReachTheirErrorPath(t, name, read, specs, seeds)
 
 	baseline, err := read(AppOpts{})
 	if err != nil {
@@ -158,9 +157,17 @@ func CheckEveryRowHasADiscriminatingSeed(
 	}
 	baselineDump := Dump(baseline)
 
+	// After the baseline read, not before it, and the ordering is load-bearing. readRejects treats any
+	// error from read as this value being rejected for this key, which is only sound once an empty
+	// AppOpts is known to read cleanly. A reader that errored unconditionally would otherwise make
+	// every Checked row look exercised and satisfy this check vacuously over the whole section, which
+	// is the defect class it was added to close. The Fatalf above already stops such a section, so this
+	// moves the guarantee off that coincidence and onto the order.
+	requireCheckedRowsReachTheirErrorPath(t, name, read, specs, seeds)
+
 	// row counts up alongside the range rather than converting the index, so the comparison
 	// against Pick's reduction happens entirely in uint. The conversion this replaces was
-	// provably in range — a value reduced modulo len(specs) cannot exceed an int — but gosec's
+	// provably in range, since a value reduced modulo len(specs) cannot exceed an int, but gosec's
 	// G115 cannot see that, and a //nolint on arithmetic this check depends on would be a
 	// suppression a reader has to take on trust.
 	var row uint
@@ -217,14 +224,14 @@ func CheckEveryRowHasADiscriminatingSeed(
 				"resolves to, so every assertion the row makes is satisfied by a reader that never "+
 				"looks %s up. Renaming the key in the reader would leave this suite green, which is "+
 				"the one thing the manifest exists to prevent. Seed the row with a value that resolves "+
-				"to a different leaf%s — %#v is one that does.",
+				"to a different leaf%s. %#v is one that does.",
 				name, spec.Key, resolve, absent, spec.Key, hint, example)
 			continue
 		}
 		t.Errorf("%s: %s resolves %s to %s no matter what value is put under it, which is what a "+
 			"reader that does not read that key looks like: an AppOpts holding only %s reads "+
 			"identically to an empty one. So this is not a seeding problem and adding seeds will "+
-			"not fix it — the likely cause is a read site renamed while the row kept the old "+
+			"not fix it. The likely cause is a read site renamed while the row kept the old "+
 			"spelling, so compare the key in the reader against the row, and against %s. The other "+
 			"possibility is that %s is not the field this key reaches. %d seed(s) were tried, and "+
 			"so were %d further value shapes.",
@@ -258,9 +265,9 @@ func aDiscriminatingValue(read func(AppOpts) (any, error), spec KeySpec, absent 
 //
 // Every entry is a shape fuzzing.ConfigValue can produce, so one reported back as an
 // example is a seed an engineer can actually write. Between them they move the leaf of
-// every cast the manifest declares — a bool either way, a numeric that is neither zero nor
+// every cast the manifest declares, meaning a bool either way, a numeric that is neither zero nor
 // a plausible default, a non-empty string, a duration spelling, a float, a slice and a map
-// — and on a checked row the ones a cast rejects discriminate through the error instead.
+// and on a checked row the ones a cast rejects discriminate through the error instead.
 //
 // A number is tried first because it is the one shape that reads sensibly whatever the row's
 // cast is: cast turns it into a string, a duration, a float and a non-zero bool, so a row of
@@ -341,7 +348,7 @@ func requireKeyNameRecord(t testing.TB, name, path string, specs []KeySpec, also
 //
 // The test is observational rather than predictive. A reader consults an AppOpts
 // only through Get, so one that no longer looks spec.Key up resolves an AppOpts
-// holding nothing but that key exactly as it resolves an empty one — the absent-key
+// holding nothing but that key exactly as it resolves an empty one, which is the absent-key
 // view. A value therefore discriminates precisely when the read it produces differs
 // from that view, either by failing where the absent-key read succeeded (the shape a
 // checked row's malformed seed pins) or by moving the leaf the row nominates.
@@ -373,7 +380,7 @@ func seedDiscriminates(read func(AppOpts) (any, error), spec KeySpec, value any,
 // The failure it decorates is nearly always one of two shapes, and they need
 // different repairs. A row whose absent-key leaf is already its cast's zero gets
 // nothing from a nil or from a value the cast rejects, because both resolve to that
-// same zero — every unguarded row is in this position, since an absent key reaches
+// same zero. Every unguarded row is in this position, since an absent key reaches
 // its reader as a nil. A row whose absent-key leaf is a real default is instead
 // undone by a seed that happens to carry that default.
 func discriminationHint(spec KeySpec, absent string) string {
@@ -436,7 +443,7 @@ func requireCheckedRowsReachTheirErrorPath(
 		t.Errorf("%s: %s is declared Checked, meaning a malformed value is rejected rather than "+
 			"silently kept as the zero value, but none of its seeds is malformed, so nothing exercises "+
 			"that branch and the column records an intention rather than a behaviour. A reader changed "+
-			"to the unchecked cast would leave this row green. Seed it with a value the cast rejects — "+
+			"to the unchecked cast would leave this row green. Seed it with a value the cast rejects, "+
 			"%#v is one.", name, spec.Key, example)
 	}
 }

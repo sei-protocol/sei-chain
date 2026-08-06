@@ -60,6 +60,7 @@ func TestEveryWiredPackageRecordsItsWiring(t *testing.T) {
 			"Add a test calling configtest.CheckWiring(t) and generate its record with -update.",
 			strings.Join(missing, "\n  "))
 	}
+	requireNoOrphanedRecord(t, root, wired)
 	t.Logf("checked %d package(s) calling a configtest check", len(wired))
 }
 
@@ -245,4 +246,54 @@ func mustRel(root, dir string) string {
 		return dir
 	}
 	return rel
+}
+
+// requireNoOrphanedRecord fails when a coverage record has no package behind it any more.
+//
+// The check above reaches a package by finding a check in it, so deleting every check in a package at
+// once drops it from the wired set and leaves its record sitting in the tree looking like coverage. That
+// was documented as conceded, on the grounds that removing whole test files is conspicuous. It does not
+// need conceding: the walk already visits every directory, so the inverse assertion is to collect the
+// records and require each one to have a wired package behind it.
+func requireNoOrphanedRecord(t *testing.T, root string, wired []string) {
+	t.Helper()
+
+	hasPackage := make(map[string]bool, len(wired))
+	for _, dir := range wired {
+		hasPackage[dir] = true
+	}
+
+	var orphaned []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err //nolint:wrapcheck // returned to WalkDir, which reports it
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "vendor", ".git", "node_modules":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != wiringRecordName+wiringRecordSuffix {
+			return nil
+		}
+		// The record lives in testdata, so the package that owns it is the parent of that directory.
+		pkg := filepath.Dir(filepath.Dir(path))
+		if !hasPackage[pkg] {
+			orphaned = append(orphaned, mustRel(root, path))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk the tree for coverage records: %v", err)
+	}
+
+	if len(orphaned) > 0 {
+		sort.Strings(orphaned)
+		t.Errorf("these coverage records have no package calling a configtest check behind them, so "+
+			"they record coverage that no longer exists:\n  %s\n"+
+			"Either restore the checks the record lists or delete the record with them.",
+			strings.Join(orphaned, "\n  "))
+	}
 }
