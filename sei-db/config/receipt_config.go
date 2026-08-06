@@ -71,7 +71,7 @@ type ReceiptStoreConfig struct {
 	// Only the littidx backend honors this. The pebbledb backend is not a gc.PrunableStore,
 	// so the collector would not prune it and setting this would leave it with no pruner at
 	// all; newReceiptBackend rejects that combination rather than growing without bound.
-	ExternalPruning bool `mapstructure:"-"`
+	ExternalPruning bool `mapstructure:"external-pruning"`
 
 	// EnableReadWriteMetrics emits simple estimated read/write counters for Pebble-backed receipt storage.
 	// defaults to false

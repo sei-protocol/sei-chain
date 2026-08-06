@@ -47,10 +47,18 @@ type Config struct {
 	// own snapshots (SnapshotKeepRecent) and stops truncating the state WAL, and answers
 	// gc.PrunableStore.ExternalPruning with this value so the collector takes both over.
 	//
-	// Set this only when the store is actually registered with a running collector. Nothing here
-	// can check that, and the failure is silent in the expensive direction: snapshots and the WAL
-	// then grow without bound, because the machinery that used to bound them has stood down and
-	// nothing replaced it.
+	// Like ReceiptStoreConfig.ExternalPruning this is not read from app.toml, and for the same
+	// reason: it is only correct when this store is registered with a running collector, which is
+	// a property of how the process was wired and not something an operator can assert. It is set
+	// by whatever constructs the collector. The stakes are higher here than on the receipt side —
+	// this one flag stands down two mechanisms, pruneSnapshots and tryTruncateWAL, so a stray key
+	// would leave both the snapshots and the state WAL with nothing bounding them, and the failure
+	// is silent in the expensive direction.
+	//
+	// Unlike the receipt path, which rejects pebble + ExternalPruning in newReceiptBackend, there
+	// is no equivalent check to make here: "a collector exists" is not knowable from this package.
+	// Keeping the field unreachable from config is what replaces that guard; the collector-exists
+	// check belongs wherever the collector is eventually constructed.
 	//
 	// It is one field rather than two so the count-based pruner and the collector can never both
 	// be enforcing retention — they would disagree, and SnapshotKeepRecent would win by deleting
