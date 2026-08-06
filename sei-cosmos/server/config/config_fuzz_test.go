@@ -899,6 +899,282 @@ func TestGetConfigAPIReadsAreUnguarded(t *testing.T) {
 	}
 }
 
+// rosetta covers the [rosetta] keys GetConfig reads. Every read is a bare viper getter
+// (config.go:589-594), so an absent key resolves to that getter's zero.
+var rosettaKeys = []configtest.KeySpec{
+	{
+		Key: "rosetta.enable", Path: "Enable", Cast: configtest.CastBool, Unguarded: true,
+		Why: "whether the node serves the Rosetta API; false either way, so this row states the " +
+			"key is read rather than recording a divergence",
+	},
+	{
+		Key: "rosetta.address", Path: "Address", Cast: configtest.CastString, Unguarded: true,
+		Why: "the declared default is :8080 and an absent key resolves empty, so the listener " +
+			"address comes from the file or from nowhere",
+	},
+	{
+		Key: "rosetta.blockchain", Path: "Blockchain", Cast: configtest.CastString, Unguarded: true,
+		Why: "the declared default is app and an absent key resolves empty, so the blockchain name " +
+			"Rosetta reports identifies nothing",
+	},
+	{
+		Key: "rosetta.network", Path: "Network", Cast: configtest.CastString, Unguarded: true,
+		Why: "the declared default is network and an absent key resolves empty, so the network name " +
+			"Rosetta reports identifies nothing",
+	},
+	{
+		Key: "rosetta.retries", Path: "Retries", Cast: configtest.CastInt, Unguarded: true,
+		Why: "the declared default is 3 and an absent key resolves 0, so a node retries a failed " +
+			"Rosetta operation as many times as its file says and no more",
+	},
+	{
+		Key: "rosetta.offline", Path: "Offline", Cast: configtest.CastBool, Unguarded: true,
+		Why: "whether Rosetta runs without a live node; false either way, so this row states the " +
+			"key is read rather than recording a divergence",
+	},
+}
+
+// grpcWebKeys covers the [grpc-web] keys GetConfig reads.
+//
+// Three of the four are bare getters. max-open-connections is not: config.go:514-517 reads it
+// behind v.IsSet and falls back to the in-code default, with a comment saying the guard is there so
+// a node upgrading with an older app.toml stays bounded. That is the same hazard
+// api.max-open-connections and api.rpc-max-body-bytes carry unguarded, which is why this section is
+// worth reading beside apiKeys rather than on its own.
+var grpcWebKeys = []configtest.KeySpec{
+	{
+		Key: "grpc-web.enable", Path: "Enable", Cast: configtest.CastBool, Unguarded: true,
+		Why: "the declared default is true and an absent key resolves false, so a node whose " +
+			"app.toml lacks the section serves no gRPC-Web",
+	},
+	{
+		Key: "grpc-web.address", Path: "Address", Cast: configtest.CastString, Unguarded: true,
+		Why: "the declared default is 0.0.0.0:9091 and an absent key resolves empty",
+	},
+	{
+		Key: "grpc-web.enable-unsafe-cors", Path: "EnableUnsafeCORS", Cast: configtest.CastBool,
+		Unguarded: true,
+		Why: "cross-origin access to gRPC-Web; false either way, so the clobber cannot turn this " +
+			"on, which is the direction that would matter",
+	},
+	{
+		Key: "grpc-web.max-open-connections", Path: "MaxOpenConnections", Cast: configtest.CastUint,
+		Why: "the one guarded read in this section (config.go:514-517), so an absent key keeps the " +
+			"declared 1000 rather than resolving 0; the guard exists so an upgrading node stays bounded",
+	},
+}
+
+// telemetryKeys covers the [telemetry] keys GetConfig reads as scalars.
+//
+// global-labels is not a row. It is read as a bare type assertion whose absence fails GetConfig
+// outright and whose shape rules are their own subject, so it has dedicated targets above
+// (FuzzGetConfigGlobalLabels, TestGetConfigRequiresGlobalLabels, TestGetConfigPanicsOnNonStringLabel)
+// and is recorded by name rather than driven as a row.
+var telemetryKeys = []configtest.KeySpec{
+	{
+		Key: "telemetry.service-name", Path: "ServiceName", Cast: configtest.CastString,
+		Unguarded: true,
+		Why:       "empty either way, so this row states the key is read rather than recording a divergence",
+	},
+	{
+		Key: "telemetry.enabled", Path: "Enabled", Cast: configtest.CastBool, Unguarded: true,
+		Why: "the declared default is true and an absent key resolves false, so a node whose " +
+			"app.toml lacks the section emits no telemetry",
+	},
+	{
+		Key: "telemetry.enable-hostname", Path: "EnableHostname", Cast: configtest.CastBool,
+		Unguarded: true,
+		Why:       "false either way, so this row states the key is read",
+	},
+	{
+		Key: "telemetry.enable-hostname-label", Path: "EnableHostnameLabel",
+		Cast: configtest.CastBool, Unguarded: true,
+		Why: "false either way, so this row states the key is read",
+	},
+	{
+		Key: "telemetry.enable-service-label", Path: "EnableServiceLabel", Cast: configtest.CastBool,
+		Unguarded: true,
+		Why:       "false either way, so this row states the key is read",
+	},
+	{
+		Key: "telemetry.prometheus-retention-time", Path: "PrometheusRetentionTime",
+		Cast: configtest.CastInt64, Unguarded: true,
+		Why: "the declared default is 7200 seconds and an absent key resolves 0, which telemetry " +
+			"reads as retaining nothing, so a scrape finds an empty store",
+	},
+}
+
+// telemetryKeysWithTargetsOfTheirOwn is global-labels, recorded for its name because its behaviour
+// is driven by targets rather than by a row.
+var telemetryKeysWithTargetsOfTheirOwn = []configtest.KeyName{"telemetry.global-labels"}
+
+func readRosetta(t testing.TB) func(configtest.AppOpts) (any, error) {
+	return sectionOfGetConfig(t, func(c Config) any { return c.Rosetta })
+}
+
+func readGRPCWeb(t testing.TB) func(configtest.AppOpts) (any, error) {
+	return sectionOfGetConfig(t, func(c Config) any { return c.GRPCWeb })
+}
+
+func readTelemetry(t testing.TB) func(configtest.AppOpts) (any, error) {
+	return sectionOfGetConfig(t, func(c Config) any { return c.Telemetry })
+}
+
+// sectionOfGetConfig adapts GetConfig to the reader shape the checks take, for one section.
+//
+// One helper rather than a function per section, because every one of these differs only in which
+// field it returns, and a per-section copy is a place for the newAppViper call to drift.
+func sectionOfGetConfig(t testing.TB, section func(Config) any) func(configtest.AppOpts) (any, error) {
+	return func(opts configtest.AppOpts) (any, error) {
+		cfg, err := GetConfig(newAppViper(t, opts))
+		if err != nil {
+			return nil, err
+		}
+		return section(cfg), nil
+	}
+}
+
+// seedEveryRow gives each row a nil and a malformed seed, which is the pair every unguarded section
+// needs so an ordinary go test run reaches the clobber and the swallowed conversion.
+func seedEveryRow(seeds *configtest.Seeds, rows int) {
+	for i := range rows {
+		seeds.AddRow(uint(i), fuzzing.KindNil, "", int64(0), false)
+		seeds.AddRow(uint(i), fuzzing.KindString, "not-a-value", int64(0), false)
+	}
+}
+
+func FuzzRosettaConfig(f *testing.F) {
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seedEveryRow(seeds, len(rosettaKeys))
+
+	// One discriminating value per row, away from both the getter's zero and the declared default.
+	seeds.AddRow(uint(0), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(1), fuzzing.KindString, ":18080", int64(0), false)
+	seeds.AddRow(uint(2), fuzzing.KindString, "sei-app", int64(0), false)
+	seeds.AddRow(uint(3), fuzzing.KindString, "sei-network", int64(0), false)
+	seeds.AddRow(uint(4), fuzzing.KindInt64, "", int64(9), false)
+	seeds.AddRow(uint(5), fuzzing.KindBool, "", int64(0), true)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "rosetta", readRosetta(f), rosettaKeys, seeds)
+
+	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
+		spec := configtest.Pick(rosettaKeys, keyIdx)
+		configtest.CheckRow(t, "rosetta", readRosetta(t), spec, fuzzing.ConfigValue(kind, s, n, b))
+	})
+}
+
+func FuzzGRPCWebConfig(f *testing.F) {
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seedEveryRow(seeds, len(grpcWebKeys))
+
+	seeds.AddRow(uint(0), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(1), fuzzing.KindString, "127.0.0.1:19091", int64(0), false)
+	seeds.AddRow(uint(2), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(3), fuzzing.KindInt64, "", int64(250), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "grpc-web", readGRPCWeb(f), grpcWebKeys, seeds)
+
+	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
+		spec := configtest.Pick(grpcWebKeys, keyIdx)
+		configtest.CheckRow(t, "grpc-web", readGRPCWeb(t), spec, fuzzing.ConfigValue(kind, s, n, b))
+	})
+}
+
+func FuzzTelemetryConfig(f *testing.F) {
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seedEveryRow(seeds, len(telemetryKeys))
+
+	seeds.AddRow(uint(0), fuzzing.KindString, "sei-node", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(2), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(3), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(4), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(5), fuzzing.KindInt64, "", int64(3600), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "telemetry", readTelemetry(f), telemetryKeys,
+		seeds, telemetryKeysWithTargetsOfTheirOwn...)
+
+	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
+		spec := configtest.Pick(telemetryKeys, keyIdx)
+		configtest.CheckRow(t, "telemetry", readTelemetry(t), spec, fuzzing.ConfigValue(kind, s, n, b))
+	})
+}
+
+func TestRosettaKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "rosetta", rosettaKeys)
+}
+
+func TestGRPCWebKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "grpc-web", grpcWebKeys)
+}
+
+func TestTelemetryKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "telemetry", telemetryKeys, telemetryKeysWithTargetsOfTheirOwn...)
+}
+
+func TestRosettaManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "rosetta", DefaultConfig().Rosetta, rosettaKeys)
+}
+
+func TestGRPCWebManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "grpc-web", DefaultConfig().GRPCWeb, grpcWebKeys)
+}
+
+func TestTelemetryManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "telemetry", DefaultConfig().Telemetry, telemetryKeys,
+		// FuzzGetConfigGlobalLabels drives this field; it is not a plain guarded cast.
+		"GlobalLabels",
+	)
+}
+
+// TestGetConfigAbsentSectionDivergences records every field these sections resolve away from its
+// declared default when the section is absent from app.toml.
+//
+// One table rather than a test per section, because the divergence is one property and a reader
+// comparing sections wants them side by side. The guarded read is in here too, asserting that it does
+// not diverge, which is what keeps the contrast between grpc-web and api from being prose.
+func TestGetConfigAbsentSectionDivergences(t *testing.T) {
+	cfg, err := GetConfig(newAppViper(t, nil))
+	if err != nil {
+		t.Fatalf("GetConfig: %v", err)
+	}
+	def := DefaultConfig()
+
+	for _, c := range []struct {
+		key              string
+		absent, declared any
+		diverges         bool
+	}{
+		{"rosetta.address", cfg.Rosetta.Address, def.Rosetta.Address, true},
+		{"rosetta.blockchain", cfg.Rosetta.Blockchain, def.Rosetta.Blockchain, true},
+		{"rosetta.network", cfg.Rosetta.Network, def.Rosetta.Network, true},
+		{"rosetta.retries", cfg.Rosetta.Retries, def.Rosetta.Retries, true},
+		{"grpc-web.enable", cfg.GRPCWeb.Enable, def.GRPCWeb.Enable, true},
+		{"grpc-web.address", cfg.GRPCWeb.Address, def.GRPCWeb.Address, true},
+		{"telemetry.enabled", cfg.Telemetry.Enabled, def.Telemetry.Enabled, true},
+		{
+			"telemetry.prometheus-retention-time",
+			cfg.Telemetry.PrometheusRetentionTime, def.Telemetry.PrometheusRetentionTime, true,
+		},
+		// The guarded read. Its absent value is the declared default, which is the property the
+		// guard exists to provide.
+		{
+			"grpc-web.max-open-connections",
+			cfg.GRPCWeb.MaxOpenConnections, def.GRPCWeb.MaxOpenConnections, false,
+		},
+	} {
+		if got := c.absent != c.declared; got != c.diverges {
+			verb := "no longer diverges from"
+			if c.diverges == false {
+				verb = "now diverges from"
+			}
+			t.Errorf("%s %s its declared default: absent=%v declared=%v. If a guard was added or "+
+				"removed, or a default moved onto the getter's zero, update the row and this table "+
+				"in the same PR", c.key, verb, c.absent, c.declared)
+		}
+	}
+}
+
 // Every other check here reports a change to what it asserts. None reports a check being removed, so
 // this records the wiring and fails when it thins out.
 func TestWiringMatchesTheRecord(t *testing.T) {
