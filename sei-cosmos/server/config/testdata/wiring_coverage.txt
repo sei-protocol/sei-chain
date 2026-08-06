@@ -14,6 +14,10 @@ base_config	CheckEveryRowHasADiscriminatingSeed
 base_config	CheckKeyNames
 base_config	CheckManifestCoversEveryField
 base_config	CheckRow
+grpc	CheckEveryRowHasADiscriminatingSeed
+grpc	CheckKeyNames
+grpc	CheckManifestCoversEveryField
+grpc	CheckRow
 grpc-web	CheckEveryRowHasADiscriminatingSeed
 grpc-web	CheckKeyNames
 grpc-web	CheckManifestCoversEveryField

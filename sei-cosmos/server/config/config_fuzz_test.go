@@ -1326,6 +1326,136 @@ func TestGetConfigBaseConfigDivergences(t *testing.T) {
 	}
 }
 
+// grpcKeys covers the three [grpc] keys read as plain casts.
+//
+// The section is where the guarding in this reader is most complete, which is why only three keys
+// are rows. Eight others are read behind v.IsSet or through clampNonNegativeDuration and so resolve
+// an absent key to the in-code default rather than to a zero; CheckRow would predict the wrong
+// resolution for each, so they are driven by FuzzGetConfigGRPCDurationClamps and
+// TestGetConfigGRPCGuardedKeys and recorded by name below.
+//
+// Read this beside apiKeys. Both sections expose a listener with a connection ceiling and a message
+// size ceiling, and here every ceiling is guarded while there none is.
+var grpcKeys = []configtest.KeySpec{
+	{
+		Key: "grpc.enable", Path: "Enable", Cast: configtest.CastBool, Unguarded: true,
+		Why: "the declared default is true and an absent key resolves false, so a node whose " +
+			"app.toml lacks the section serves no gRPC",
+	},
+	{
+		Key: "grpc.address", Path: "Address", Cast: configtest.CastString, Unguarded: true,
+		Why: "the declared default is 0.0.0.0:9090 and an absent key resolves empty",
+	},
+	{
+		Key: "grpc.keepalive-permit-without-stream", Path: "KeepalivePermitWithoutStream",
+		Cast: configtest.CastBool, Unguarded: true,
+		Why: "whether a client may ping with no active stream; false either way, so this row states " +
+			"the key is read rather than recording a divergence",
+	},
+}
+
+// grpcKeysWithTargetsOfTheirOwn are the [grpc] keys whose resolution a row cannot describe, recorded
+// for their names alone.
+//
+// Every one is read behind a guard or through the negative-duration clamp, so an absent key keeps
+// the in-code default.
+//
+// What the record adds is narrower than it looks, and worth stating exactly. Each of these keys is a
+// literal at its read site, so renaming one already reddens its clamp target. The record puts the
+// operator-facing spelling in a reviewable diff, and it is what would catch the rename if any of
+// these moved to a shared constant the way twenty-eight of app's thirty rows have, since then the
+// row and the read site would move together and the behavioural target would stay green.
+var grpcKeysWithTargetsOfTheirOwn = []configtest.KeyName{
+	"grpc.max-recv-msg-size",
+	"grpc.max-open-connections",
+	"grpc.max-connection-idle",
+	"grpc.max-connection-age",
+	"grpc.max-connection-age-grace",
+	"grpc.keepalive-time",
+	"grpc.keepalive-timeout",
+	"grpc.keepalive-min-time",
+}
+
+func readGRPC(t testing.TB) func(configtest.AppOpts) (any, error) {
+	return sectionOfGetConfig(t, func(c Config) any { return c.GRPC })
+}
+
+func FuzzGRPCConfig(f *testing.F) {
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seedEveryRow(seeds, len(grpcKeys))
+
+	seeds.AddRow(uint(0), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(1), fuzzing.KindString, "127.0.0.1:19090", int64(0), false)
+	seeds.AddRow(uint(2), fuzzing.KindBool, "", int64(0), true)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "grpc", readGRPC(f), grpcKeys, seeds,
+		grpcKeysWithTargetsOfTheirOwn...)
+
+	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
+		spec := configtest.Pick(grpcKeys, keyIdx)
+		configtest.CheckRow(t, "grpc", readGRPC(t), spec, fuzzing.ConfigValue(kind, s, n, b))
+	})
+}
+
+// TestGRPCKeyNamesMatchTheRecordedNames pins all eleven [grpc] key names, the three rows and the
+// eight driven elsewhere.
+//
+// The eight had no record before this, because their target carries a local struct rather than a
+// KeySpec table, so nothing held their spelling. That is the gap this closes.
+func TestGRPCKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "grpc", grpcKeys, grpcKeysWithTargetsOfTheirOwn...)
+}
+
+func TestGRPCManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "grpc", DefaultConfig().GRPC, grpcKeys,
+		// Guarded reads, so an absent key keeps the in-code default rather than clobbering it.
+		"MaxRecvMsgSize",
+		"MaxOpenConnections",
+		// Clamped reads: a negative resolves to the in-code default rather than passing through.
+		"MaxConnectionIdle",
+		"MaxConnectionAge",
+		"MaxConnectionAgeGrace",
+		"KeepaliveTime",
+		"KeepaliveTimeout",
+		"KeepaliveMinTime",
+	)
+}
+
+// TestGetConfigGRPCGuardedKeys records that the eight guarded and clamped [grpc] keys resolve an
+// absent key to the in-code default.
+//
+// This is the assertion the exemptions above rest on. Without it the exemption list would be a claim
+// that those fields are covered elsewhere, with nothing checking that they are, and a guard removed
+// from any of them would pass every check in this file.
+func TestGetConfigGRPCGuardedKeys(t *testing.T) {
+	cfg, err := GetConfig(newAppViper(t, nil))
+	if err != nil {
+		t.Fatalf("GetConfig: %v", err)
+	}
+	def := DefaultConfig().GRPC
+	got := cfg.GRPC
+
+	for _, c := range []struct {
+		key              string
+		absent, declared any
+	}{
+		{"grpc.max-recv-msg-size", got.MaxRecvMsgSize, def.MaxRecvMsgSize},
+		{"grpc.max-open-connections", got.MaxOpenConnections, def.MaxOpenConnections},
+		{"grpc.max-connection-idle", got.MaxConnectionIdle, def.MaxConnectionIdle},
+		{"grpc.max-connection-age", got.MaxConnectionAge, def.MaxConnectionAge},
+		{"grpc.max-connection-age-grace", got.MaxConnectionAgeGrace, def.MaxConnectionAgeGrace},
+		{"grpc.keepalive-time", got.KeepaliveTime, def.KeepaliveTime},
+		{"grpc.keepalive-timeout", got.KeepaliveTimeout, def.KeepaliveTimeout},
+		{"grpc.keepalive-min-time", got.KeepaliveMinTime, def.KeepaliveMinTime},
+	} {
+		if c.absent != c.declared {
+			t.Errorf("an absent %s resolved to %v rather than the declared %v, so its guard is "+
+				"gone. That is the failure the guard exists to prevent, and config.go:519-521 says "+
+				"why: a node upgrading with an older app.toml stays bounded", c.key, c.absent, c.declared)
+		}
+	}
+}
+
 // Every other check here reports a change to what it asserts. None reports a check being removed, so
 // this records the wiring and fails when it thins out.
 func TestWiringMatchesTheRecord(t *testing.T) {
