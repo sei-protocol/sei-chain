@@ -83,7 +83,7 @@ func filteredPaginate(
 				break
 			}
 			if enforceV66ScanLimit && totalIter > MaxScanLimit {
-				return nil, nil, status.Errorf(codes.InvalidArgument,
+				return nil, status.Errorf(codes.InvalidArgument,
 					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
 			}
 
@@ -247,7 +247,7 @@ func genericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 				break
 			}
 			if enforceV66ScanLimit && totalIter > MaxScanLimit {
-				return nil, status.Errorf(codes.InvalidArgument,
+				return nil, nil, status.Errorf(codes.InvalidArgument,
 					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
 			}
 
