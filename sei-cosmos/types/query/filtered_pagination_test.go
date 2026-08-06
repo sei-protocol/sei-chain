@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
@@ -272,6 +273,176 @@ func (s *paginationTestSuite) TestFilteredPaginateSparseFilterFillsPageWithinSca
 	s.Require().Equal(5, len(hits))
 	s.Require().Equal(uint64(10), res.Total)
 	s.Require().NotNil(res.NextKey)
+}
+
+// TestFilteredPaginateSparseFilterExceedsScanLimitReturnsPartialPage reproduces the
+// PLT-956 / Sergei Mishin repro: an unindexed filtered query (e.g. validator
+// delegations, keyed by delegator and queried by validator) whose real matches are
+// too sparse to fill the requested page within one MaxScanLimit scan window. Before
+// this fix, FilteredPaginate discarded the hits already found and returned an
+// InvalidArgument error — failing below the caller's actual match count rather than
+// above it. It must instead return the partial page plus a resumable NextKey, and
+// following that key across repeated calls must eventually surface every match.
+func (s *paginationTestSuite) TestFilteredPaginateSparseFilterExceedsScanLimitReturnsPartialPage() {
+	app, ctx, _ := setupTest(s.T())
+	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("filteredsparsepartial/"))
+
+	numItems := int(query.MaxScanLimit)*2 + 500
+	numHits := 0
+	for i := 0; i < numItems; i++ {
+		value := "miss"
+		if i%3000 == 0 {
+			value = "hit"
+			numHits++
+		}
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte(value))
+	}
+	s.Require().Less(numHits, 250, "the filter must be too sparse to ever fill a 250-entry page")
+
+	onResult := func(hits *[][]byte) func(key []byte, value []byte, accumulate bool) (bool, error) {
+		return func(key []byte, value []byte, accumulate bool) (bool, error) {
+			if string(value) != "hit" {
+				return false, nil
+			}
+			if accumulate {
+				*hits = append(*hits, append([]byte{}, key...))
+			}
+			return true, nil
+		}
+	}
+
+	var hits [][]byte
+	res, err := query.FilteredPaginate(kvStore, &query.PageRequest{Limit: 250}, onResult(&hits))
+	s.Require().NoError(err, "hitting the scan cap before the page fills must not error when count_total is unset")
+	s.Require().NotNil(res)
+	s.Require().NotEmpty(hits, "hits found before the scan cap must be returned, not discarded")
+	s.Require().Less(len(hits), 250, "fewer real hits exist within one scan window than the requested limit")
+	s.Require().NotNil(res.NextKey, "a resumable key must be returned rather than erroring the whole page away")
+
+	s.T().Log("following NextKey makes bounded progress and eventually surfaces every real hit")
+	allHits := append([][]byte{}, hits...)
+	key := res.NextKey
+	for i := 0; i < 5 && key != nil; i++ {
+		hits = nil
+		res, err = query.FilteredPaginate(kvStore, &query.PageRequest{Key: key, Limit: 250}, onResult(&hits))
+		s.Require().NoError(err)
+		allHits = append(allHits, hits...)
+		key = res.NextKey
+	}
+	s.Require().Len(allHits, numHits, "resuming from NextKey must eventually surface every real match")
+}
+
+// TestFilteredPaginatePastPageHitBeyondScanWindowReturnsResumableKey covers the
+// "silent data loss" bug: once the page fills, the old Phase 2 logic gave up after
+// MaxScanLimit further entries and returned NextKey: nil whenever it hadn't found
+// the next hit yet — which a caller reads as "this was the last page" even though a
+// real match exists beyond the scan window. It must instead return a non-nil,
+// resumable NextKey whenever the scan was cut short rather than the store being
+// genuinely exhausted.
+func (s *paginationTestSuite) TestFilteredPaginatePastPageHitBeyondScanWindowReturnsResumableKey() {
+	app, ctx, _ := setupTest(s.T())
+	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("filteredpastpage/"))
+
+	const farHitIndex = 15000
+	numItems := farHitIndex + 1
+	for i := 0; i < numItems; i++ {
+		value := "miss"
+		if i == 0 || i == 1 || i == farHitIndex {
+			value = "hit"
+		}
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte(value))
+	}
+
+	var hits [][]byte
+	onResult := func(key []byte, value []byte, accumulate bool) (bool, error) {
+		if string(value) != "hit" {
+			return false, nil
+		}
+		if accumulate {
+			hits = append(hits, append([]byte{}, key...))
+		}
+		return true, nil
+	}
+
+	res, err := query.FilteredPaginate(kvStore, &query.PageRequest{Limit: 2}, onResult)
+	s.Require().NoError(err)
+	s.Require().Equal(2, len(hits), "the requested page fills from the first two hits")
+	s.Require().NotNil(res.NextKey,
+		"a third hit exists beyond the scan window; NextKey must point past the page rather than "+
+			"nil, which would claim this was the last page and silently drop it")
+
+	s.T().Log("resuming from NextKey eventually reaches the far hit")
+	hits = nil
+	key := res.NextKey
+	for i := 0; i < 5 && key != nil; i++ {
+		res, err = query.FilteredPaginate(kvStore, &query.PageRequest{Key: key, Limit: 1}, onResult)
+		s.Require().NoError(err)
+		key = res.NextKey
+	}
+	s.Require().Len(hits, 1)
+	s.Require().Equal(fmt.Sprintf("%08d", farHitIndex), string(hits[0]))
+}
+
+// TestFilteredPaginateSparseFilterWithCountTotalStillErrors pins the one
+// deliberate exception to the partial-page fix above: count_total=true asks for an
+// exact Total, which cannot be honored once the scan is cut short before the page
+// even fills, so that combination must still fail loud rather than return a Total
+// that looks exact but is actually a lower bound.
+func (s *paginationTestSuite) TestFilteredPaginateSparseFilterWithCountTotalStillErrors() {
+	app, ctx, _ := setupTest(s.T())
+	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("filteredsparsecounttotal/"))
+
+	numItems := int(query.MaxScanLimit) + 2
+	for i := 0; i < numItems; i++ {
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("miss"))
+	}
+
+	_, err := query.FilteredPaginate(kvStore, &query.PageRequest{Limit: 250, CountTotal: true},
+		func(_ []byte, value []byte, _ bool) (bool, error) {
+			return string(value) == "hit", nil
+		})
+	s.Require().Error(err)
+	s.Require().Contains(err.Error(), "scanned more than")
+	s.Require().Contains(err.Error(), "count_total")
+}
+
+// TestGenericFilteredPaginateSparseFilterReturnsPartialResults is the
+// GenericFilteredPaginate counterpart of the FilteredPaginate fix above — the code
+// path x/authz's GranteeGrants and x/feegrant's granter-allowances queries use.
+// codectypes.Any is used as both T and F because its zero value marshals to zero
+// bytes, which is exactly the "no hit" signal GenericFilteredPaginate reads via
+// val.Size() != 0.
+func (s *paginationTestSuite) TestGenericFilteredPaginateSparseFilterReturnsPartialResults() {
+	app, ctx, appCodec := setupTest(s.T())
+	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("genericsparse/"))
+
+	numItems := int(query.MaxScanLimit) + 2000
+	numHits := 0
+	for i := 0; i < numItems; i++ {
+		typeURL := "miss"
+		if i%4000 == 0 {
+			typeURL = "hit"
+			numHits++
+		}
+		bz, err := appCodec.Marshal(&codectypes.Any{TypeUrl: typeURL})
+		s.Require().NoError(err)
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), bz)
+	}
+	s.Require().Less(numHits, 50, "the filter must be too sparse to ever fill a 50-entry page")
+
+	results, res, err := query.GenericFilteredPaginate(appCodec, kvStore, &query.PageRequest{Limit: 50},
+		func(_ []byte, value *codectypes.Any) (*codectypes.Any, error) {
+			if value.TypeUrl != "hit" {
+				return &codectypes.Any{}, nil
+			}
+			return value, nil
+		},
+		func() *codectypes.Any { return &codectypes.Any{} },
+	)
+	s.Require().NoError(err, "hitting the scan cap before the page fills must not error when count_total is unset")
+	s.Require().NotEmpty(results, "hits found before the scan cap must be returned, not discarded")
+	s.Require().Less(len(results), 50, "fewer real hits exist within one scan window than the requested limit")
+	s.Require().NotNil(res.NextKey, "a resumable key must be returned rather than erroring the whole page away")
 }
 
 func execFilterPaginate(store sdk.KVStore, pageReq *query.PageRequest, appCodec codec.Codec) (balances sdk.Coins, res *query.PageResponse, err error) {

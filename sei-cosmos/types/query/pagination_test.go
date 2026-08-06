@@ -352,6 +352,70 @@ func (s *paginationTestSuite) TestPaginateCountTotalScanLimitExceeded() {
 	s.Require().Contains(err.Error(), fmt.Sprintf("scanned more than %d entries", query.MaxScanLimit))
 }
 
+// TestSetPaginationLimits pins SetPaginationLimits' zero-means-unchanged contract:
+// a zero argument leaves the corresponding bound where it was rather than zeroing
+// it out, which matters because GetConfig (sei-cosmos/server/config) calls it with
+// whatever an operator's app.toml resolves to, and an app.toml with an absent
+// [pagination] section resolves every field to its Go zero value.
+func (s *paginationTestSuite) TestSetPaginationLimits() {
+	origLimit, origOffset, origScan := query.MaxLimit, query.MaxOffset, query.MaxScanLimit
+	defer query.SetPaginationLimits(origLimit, origOffset, origScan)
+
+	query.SetPaginationLimits(5000, 50000, 60000)
+	s.Require().Equal(uint64(5000), query.MaxLimit)
+	s.Require().Equal(uint64(50000), query.MaxOffset)
+	s.Require().Equal(uint64(60000), query.MaxScanLimit)
+
+	s.T().Log("a zero argument leaves the corresponding bound unchanged")
+	query.SetPaginationLimits(0, 0, 0)
+	s.Require().Equal(uint64(5000), query.MaxLimit)
+	s.Require().Equal(uint64(50000), query.MaxOffset)
+	s.Require().Equal(uint64(60000), query.MaxScanLimit)
+
+	query.SetPaginationLimits(7000, 0, 0)
+	s.Require().Equal(uint64(7000), query.MaxLimit)
+	s.Require().Equal(uint64(50000), query.MaxOffset)
+	s.Require().Equal(uint64(60000), query.MaxScanLimit)
+}
+
+// TestPaginateOffsetLimitOverflowSaturates pins that raising MaxOffset/MaxLimit
+// through SetPaginationLimits (the app.toml-driven override) cannot make
+// offset+limit wrap around uint64. Under the old hardcoded caps (offset<=10_000,
+// limit<=1_000) the sum never overflowed, so this was unreachable; it becomes
+// reachable the moment those bounds are configurable, and a wrapped `end` would
+// resolve to a small value that admits far fewer results than requested instead of
+// erroring or paginating correctly.
+func (s *paginationTestSuite) TestPaginateOffsetLimitOverflowSaturates() {
+	app, ctx, _ := setupTest(s.T())
+	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("overflow/"))
+
+	const numItems = 10
+	for i := 0; i < numItems; i++ {
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("v"))
+	}
+
+	origLimit, origOffset, origScan := query.MaxLimit, query.MaxOffset, query.MaxScanLimit
+	defer query.SetPaginationLimits(origLimit, origOffset, origScan)
+	// A operator raising both bounds near the uint64 ceiling is exactly the
+	// configuration this test exists to protect: offset+limit would wrap to a
+	// small number without the saturating add in paginationEnd.
+	query.SetPaginationLimits(query.MaxLimit-1, ^uint64(0)-1, query.MaxScanLimit)
+
+	var count int
+	res, err := query.Paginate(kvStore, &query.PageRequest{Offset: ^uint64(0) - 1, Limit: query.MaxLimit - 1},
+		func(_, _ []byte) error {
+			count++
+			return nil
+		})
+	s.Require().NoError(err)
+	s.Require().NotNil(res)
+	// The offset is already past the end of a 10-item store, so no result should be
+	// produced — the point is that this returns cleanly rather than panicking or
+	// wrapping into a small `end` that reads back into the store from the start.
+	s.Require().Equal(0, count)
+	s.Require().Nil(res.NextKey)
+}
+
 func setupTest(t *testing.T) (*app.App, sdk.Context, codec.Codec) {
 	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{Height: 1})

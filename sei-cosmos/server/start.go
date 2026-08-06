@@ -27,6 +27,7 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
@@ -304,6 +305,7 @@ func startInProcess(
 	if err != nil {
 		return err
 	}
+	query.SetPaginationLimits(config.Pagination.MaxLimit, config.Pagination.MaxOffset, config.Pagination.MaxScanLimit)
 
 	if err := config.ValidateBasic(ctx.Config); err != nil {
 		logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +

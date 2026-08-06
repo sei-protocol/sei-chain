@@ -320,6 +320,9 @@ var guardedKeys = []guardedKey{
 	{Key: "grpc.max-recv-msg-size", Path: "GRPC.MaxRecvMsgSize", Set: 8 * 1024 * 1024},
 	{Key: "grpc.max-open-connections", Path: "GRPC.MaxOpenConnections", Set: 123},
 	{Key: "grpc-web.max-open-connections", Path: "GRPCWeb.MaxOpenConnections", Set: 456},
+	{Key: "pagination.max-limit", Path: "Pagination.MaxLimit", Set: uint64(5000)},
+	{Key: "pagination.max-offset", Path: "Pagination.MaxOffset", Set: uint64(50000)},
+	{Key: "pagination.max-scan-limit", Path: "Pagination.MaxScanLimit", Set: uint64(50000)},
 }
 
 // FuzzGetConfigGuardedKeysPreserveDefaults pins the guarded half of GetConfig: an
@@ -331,6 +334,10 @@ var guardedKeys = []guardedKey{
 // finite limit, and an unguarded read of an absent key would resolve 0 — which
 // gRPC reads as unlimited. A node upgrading with an older app.toml would go from
 // bounded to unbounded connections and message sizes with nothing said about it.
+// The three pagination.* keys guard the same way: an unguarded read of an absent
+// key would resolve 0, and query.SetPaginationLimits (server/start.go) treats a
+// zero argument as "leave the bound unchanged" rather than as "unlimited" — but
+// GetConfig itself must not report 0 for a bound it never actually relaxed.
 func FuzzGetConfigGuardedKeysPreserveDefaults(f *testing.F) {
 	for i := range len(guardedKeys) {
 		f.Add(uint(i), false)

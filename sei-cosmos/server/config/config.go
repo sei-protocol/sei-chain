@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/viper"
@@ -268,6 +269,30 @@ type GRPCWebConfig struct {
 	MaxOpenConnections uint `mapstructure:"max-open-connections"`
 }
 
+// PaginationConfig defines the bounds enforced on paginated gRPC/LCD queries
+// (query.Paginate, query.FilteredPaginate, query.GenericFilteredPaginate).
+// These bound the raw KV-store work a single paginated request can force —
+// see sei-cosmos/types/query for what each field caps and PLT-361/PLT-956 for
+// why the bounds exist and are overridable. Lower values reduce the store
+// iteration a single request can force at the cost of needing more
+// round-trips over sparse or unindexed filtered queries (e.g. validator
+// delegations); raising them accepts that cost in exchange for fewer
+// round-trips, and does not, on its own, disable the caps.
+type PaginationConfig struct {
+	// MaxLimit is the maximum page size (PageRequest.Limit) a single
+	// pagination call accepts.
+	MaxLimit uint64 `mapstructure:"max-limit"`
+
+	// MaxOffset is the maximum PageRequest.Offset a single pagination call
+	// accepts.
+	MaxOffset uint64 `mapstructure:"max-offset"`
+
+	// MaxScanLimit is the maximum number of raw KV-store entries a single
+	// pagination call will iterate — past the page end (count_total) or
+	// while searching for enough matches to fill a page (filtered queries).
+	MaxScanLimit uint64 `mapstructure:"max-scan-limit"`
+}
+
 // StateSyncConfig defines the state sync snapshot configuration.
 type StateSyncConfig struct {
 	// SnapshotInterval sets the interval at which state sync snapshots are taken.
@@ -306,6 +331,7 @@ type Config struct {
 	StateCommit config.StateCommitConfig `mapstructure:"state-commit"`
 	StateStore  config.StateStoreConfig  `mapstructure:"state-store"`
 	Genesis     GenesisConfig            `mapstructure:"genesis"`
+	Pagination  PaginationConfig         `mapstructure:"pagination"`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.
@@ -401,6 +427,11 @@ func DefaultConfig() *Config {
 		Genesis: GenesisConfig{
 			StreamImport:      false,
 			GenesisStreamFile: "",
+		},
+		Pagination: PaginationConfig{
+			MaxLimit:     query.DefaultMaxLimit,
+			MaxOffset:    query.DefaultMaxOffset,
+			MaxScanLimit: query.DefaultMaxScanLimit,
 		},
 	}
 }
@@ -551,6 +582,22 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
 	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
 
+	// Apply in-code defaults when keys are absent so that nodes upgrading with an
+	// older app.toml (which lacks this section) remain bounded rather than running
+	// with unlimited pagination scans (PLT-361 / PLT-956).
+	paginationMaxLimit := query.DefaultMaxLimit
+	if v.IsSet("pagination.max-limit") {
+		paginationMaxLimit = v.GetUint64("pagination.max-limit")
+	}
+	paginationMaxOffset := query.DefaultMaxOffset
+	if v.IsSet("pagination.max-offset") {
+		paginationMaxOffset = v.GetUint64("pagination.max-offset")
+	}
+	paginationMaxScanLimit := query.DefaultMaxScanLimit
+	if v.IsSet("pagination.max-scan-limit") {
+		paginationMaxScanLimit = v.GetUint64("pagination.max-scan-limit")
+	}
+
 	return Config{
 		BaseConfig: BaseConfig{
 			MinGasPrices:       v.GetString("minimum-gas-prices"),
@@ -643,6 +690,11 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		Genesis: GenesisConfig{
 			StreamImport:      v.GetBool("genesis.stream-import"),
 			GenesisStreamFile: v.GetString("genesis.genesis-stream-file"),
+		},
+		Pagination: PaginationConfig{
+			MaxLimit:     paginationMaxLimit,
+			MaxOffset:    paginationMaxOffset,
+			MaxScanLimit: paginationMaxScanLimit,
 		},
 	}, nil
 }

@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	db "github.com/tendermint/tm-db"
@@ -13,15 +14,46 @@ import (
 // if the `limit` is not supplied, paginate will use `DefaultLimit`
 const DefaultLimit = 100
 
-// MaxLimit is the maximum limit per page the paginate function can handle
-const MaxLimit = uint64(1_000)
+// DefaultMaxLimit is the default maximum limit per page the paginate
+// function can handle, absent an operator override.
+const DefaultMaxLimit = uint64(1_000)
 
-// MaxScanLimit is the maximum number of store entries the paginate function
-// will iterate past the page end when count_total is requested.
-const MaxScanLimit = uint64(10_000)
+// DefaultMaxScanLimit is the default maximum number of store entries the
+// paginate function will iterate past the page end when count_total is
+// requested, absent an operator override.
+const DefaultMaxScanLimit = uint64(10_000)
 
-// MaxOffset is the maximum offset allowed in a PageRequest.
-const MaxOffset = uint64(10_000)
+// DefaultMaxOffset is the default maximum offset allowed in a PageRequest,
+// absent an operator override.
+const DefaultMaxOffset = uint64(10_000)
+
+// MaxLimit, MaxScanLimit and MaxOffset are the pagination bounds enforced by
+// ParsePagination, Paginate, FilteredPaginate and GenericFilteredPaginate.
+// They start at their Default* values and are overridable at process
+// startup via SetPaginationLimits (wired from the node's [pagination] app.toml
+// section); nothing in this package mutates them afterwards.
+var (
+	MaxLimit     = DefaultMaxLimit
+	MaxScanLimit = DefaultMaxScanLimit
+	MaxOffset    = DefaultMaxOffset
+)
+
+// SetPaginationLimits overrides the package-level pagination bounds. It is
+// intended to be called once, at node startup, from the resolved
+// [pagination] app.toml configuration. A zero argument leaves the
+// corresponding bound unchanged, so an app.toml that omits a key (or a caller
+// that passes a partial override) cannot accidentally zero out a cap.
+func SetPaginationLimits(maxLimit, maxOffset, maxScanLimit uint64) {
+	if maxLimit != 0 {
+		MaxLimit = maxLimit
+	}
+	if maxOffset != 0 {
+		MaxOffset = maxOffset
+	}
+	if maxScanLimit != 0 {
+		MaxScanLimit = maxScanLimit
+	}
+}
 
 // ParsePagination validate PageRequest and returns page number & limit.
 func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
@@ -128,7 +160,7 @@ func Paginate(
 	iterator := getIterator(prefixStore, nil, reverse)
 	defer func() { _ = iterator.Close() }()
 
-	end := offset + limit
+	end := paginationEnd(offset, limit)
 
 	var count uint64
 	var nextKey []byte
@@ -167,6 +199,18 @@ func Paginate(
 	}
 
 	return res, nil
+}
+
+// paginationEnd returns offset+limit, saturating at math.MaxUint64 instead of
+// wrapping. offset and limit are independently bounded by MaxOffset and
+// MaxLimit in the callers below, but an operator can raise those bounds via
+// SetPaginationLimits, so the sum can no longer be assumed to fit in a
+// uint64 without this guard.
+func paginationEnd(offset, limit uint64) uint64 {
+	if limit > math.MaxUint64-offset {
+		return math.MaxUint64
+	}
+	return offset + limit
 }
 
 func getIterator(prefixStore types.KVStore, start []byte, reverse bool) db.Iterator {

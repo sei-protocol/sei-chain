@@ -250,6 +250,35 @@ stream-import = {{ .Genesis.StreamImport }}
 # genesis-stream-file specifies the path of the genesis json file to stream from.
 genesis-stream-file = "{{ .Genesis.GenesisStreamFile }}"
 
+###############################################################################
+###                       Pagination Configuration                          ###
+###############################################################################
+
+# Pagination bounds the raw KV-store work a single paginated gRPC/LCD query (e.g.
+# delegations, grants, allowances) is allowed to force. Lower values reduce that
+# per-request work at the cost of needing more round-trips over sparse or
+# unindexed filtered queries; raising them accepts more per-request work in
+# exchange for fewer round-trips. See PLT-361 / PLT-956 for why these bounds
+# exist. Raising them is a deliberate tradeoff, not a way to disable the caps.
+[pagination]
+
+# max-limit is the maximum page size (pagination.limit) a single paginated query
+# accepts. A request above this is rejected rather than served.
+max-limit = {{ .Pagination.MaxLimit }}
+
+# max-offset is the maximum pagination.offset a single paginated query accepts.
+# A request above this is rejected rather than served.
+max-offset = {{ .Pagination.MaxOffset }}
+
+# max-scan-limit is the maximum number of raw KV-store entries a single paginated
+# query will iterate — past the requested page when count_total is set, or while
+# searching for enough matches to fill a page on a filtered query. Hitting this
+# limit on a filtered query without count_total returns the matches already
+# found plus a key to resume from, rather than an error; with count_total set it
+# returns an error, since an exact total cannot be honored once the scan is cut
+# short.
+max-scan-limit = {{ .Pagination.MaxScanLimit }}
+
 `
 
 // DefaultConfigTemplate combines manual and auto-managed templates for backward compatibility
