@@ -475,7 +475,7 @@ func TestBaseAppTracingEnabledInstallsAProviderNothingShutsDown(t *testing.T) {
 		}
 	})
 
-	leaked := batchSpanProcessorGoroutines() - exportersBefore
+	leaked := waitForBatchSpanProcessorGoroutines(exportersBefore+1) - exportersBefore
 	if leaked != 1 {
 		t.Errorf("tracing = true started %d batch-processor goroutines, want 1. Zero has four causes "+
 			"and this line cannot tell them apart: construction now shuts the provider down, the "+
@@ -520,7 +520,7 @@ func TestBaseAppTracingEnabledInstallsAProviderNothingShutsDown(t *testing.T) {
 	// this fails too, and on a change in sei only the assertions above do.
 	controlBefore := batchSpanProcessorGoroutines()
 	control := sdktrace.NewTracerProvider(sdktrace.WithBatcher(tracetest.NewInMemoryExporter()))
-	if got := batchSpanProcessorGoroutines() - controlBefore; got != 1 {
+	if got := waitForBatchSpanProcessorGoroutines(controlBefore+1) - controlBefore; got != 1 {
 		t.Errorf("a provider built with exactly one batcher moved the count by %d, want 1. The frame "+
 			"batchSpanProcessorGoroutines matches no longer names a batch-processor goroutine, so "+
 			"every count in this row reads zero and none of its assertions can fail", got)
@@ -540,15 +540,14 @@ func TestBaseAppTracingEnabledInstallsAProviderNothingShutsDown(t *testing.T) {
 // Every trace.WithBatcher starts exactly one and only Shutdown stops it, so the count is how
 // the row above sees a provider nobody owns rather than describing one.
 //
-// It counts the creator line the runtime records for each such goroutine. That line is present
-// from creation rather than from first scheduling, since runtime.Stack dumps runnable goroutines
-// too and the creator PC is set before the new goroutine becomes runnable; it appears exactly
-// once per goroutine; and it names an exported constructor rather than an internal. If the SDK
-// renames it this reads zero for every provider, sei's and the row's control alike — which is
-// why the row above pairs it with one, since a zero delta on its own says nothing about whether
-// sei stopped leaking.
+// It counts the processQueue frame that remains on the stack for the goroutine's lifetime. The
+// SDK starts that goroutine through sync.WaitGroup.Go, so its creator frame no longer identifies
+// NewBatchSpanProcessor. The startup assertions poll until processQueue is scheduled. If the SDK
+// renames it this reads zero for every provider, sei's and the row's control alike — which is why
+// the row above pairs it with one, since a zero delta on its own says nothing about whether sei
+// stopped leaking.
 func batchSpanProcessorGoroutines() int {
-	const frame = "created by go.opentelemetry.io/otel/sdk/trace.NewBatchSpanProcessor"
+	const frame = "go.opentelemetry.io/otel/sdk/trace.(*batchSpanProcessor).processQueue"
 	buf := make([]byte, 1<<16)
 	for {
 		n := runtime.Stack(buf, true)
@@ -560,9 +559,9 @@ func batchSpanProcessorGoroutines() int {
 }
 
 // waitForBatchSpanProcessorGoroutines polls until the count reaches want, or gives up and
-// reports what it saw. Shutdown returns once the processor has signalled completion, which is
-// a moment before the goroutine itself finishes unwinding, so an immediate read can still see
-// it and the wait is what keeps that from being a flake.
+// reports what it saw. A new processor may not have reached processQueue when construction
+// returns. Shutdown can return a moment before that frame finishes unwinding. Waiting keeps
+// both transitions from making the characterization flaky.
 func waitForBatchSpanProcessorGoroutines(want int) int {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
