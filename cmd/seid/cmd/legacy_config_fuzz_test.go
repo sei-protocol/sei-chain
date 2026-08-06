@@ -252,16 +252,25 @@ func TestHashVaultDisabledUnsafeDefaultsToEnabledGuard(t *testing.T) {
 // interacting with bindFlags' write-back rather than anything stated in one place.
 // Pinning it is what makes it a contract.
 func FuzzApplyPrecedenceTendermint(f *testing.F) {
-	f.Add(uint(0), false, false, false)
-	f.Add(uint(0), true, false, false)
-	f.Add(uint(0), false, true, false)
-	f.Add(uint(0), false, false, true)
-	f.Add(uint(0), true, true, false)
-	f.Add(uint(0), true, false, true)
-	f.Add(uint(0), false, true, true)
-	f.Add(uint(0), true, true, true)
-	f.Add(uint(4), true, true, true)
-	f.Add(uint(3), false, true, true)
+	// Every row against every presence combination, generated rather than listed. A plain go test
+	// run replays seeds and nothing else, and the row index is reduced modulo len(tmKeys), so a
+	// hand-written list leaves any row it omits unexercised. It did: the list here named rows 0, 3
+	// and 4, so rpc.pprof-laddr and p2p.laddr never ran outside a -fuzz session. Generating the
+	// product means a row added later is driven without anyone remembering to seed it.
+	for row := range len(tmKeys) {
+		for _, layers := range [][3]bool{
+			{false, false, false}, // no layer supplies a value, so the in-code default stands
+			{true, false, false},  // config.toml alone
+			{false, true, false},  // environment alone
+			{false, false, true},  // flag alone
+			{true, true, false},   // environment beats the file
+			{true, false, true},   // flag beats the file
+			{false, true, true},   // flag beats the environment
+			{true, true, true},    // all three, so the flag must win
+		} {
+			f.Add(uint(row), layers[0], layers[1], layers[2])
+		}
+	}
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, inFile, inEnv, inFlag bool) {
 		configtest.Isolate(t)
@@ -1188,6 +1197,25 @@ func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
 	configtest.CheckKeyNames(t, "state-sync", nil,
 		server.FlagStateSyncSnapshotKeepRecent,
 		server.FlagStateSyncSnapshotDir)
+}
+
+// TestTendermintKeyNamesMatchTheRecordedNames pins the operator-facing spelling of the five
+// Tendermint keys FuzzApplyPrecedenceTendermint drives.
+//
+// tmKeys carries a local struct rather than a KeySpec table, because a precedence row needs three
+// distinct legal values and a KeySpec has nowhere to put them. The consequence is that no manifest
+// check reaches these keys, so their spelling had nothing holding it. A KeyName claims the spelling
+// and nothing else, which is the same thing the state-sync record above does and for the same
+// reason.
+//
+// Read from tmKeys rather than listed here, so a row added later is recorded without anyone
+// remembering this call.
+func TestTendermintKeyNamesMatchTheRecordedNames(t *testing.T) {
+	names := make([]configtest.KeyName, 0, len(tmKeys))
+	for _, row := range tmKeys {
+		names = append(names, configtest.KeyName(row.Key))
+	}
+	configtest.CheckKeyNames(t, "tendermint", nil, names...)
 }
 
 // TestApplyLeavesBothChannelsPopulated states the seam's minimum contract, the one

@@ -7,3 +7,4 @@
 # Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update` and read the diff.
 
 state-sync	CheckKeyNames
+tendermint	CheckKeyNames
