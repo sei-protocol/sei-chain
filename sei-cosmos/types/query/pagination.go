@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	db "github.com/tendermint/tm-db"
@@ -13,15 +14,16 @@ import (
 // if the `limit` is not supplied, paginate will use `DefaultLimit`
 const DefaultLimit = 100
 
-// MaxLimit is the maximum limit per page the paginate function can handle
-const MaxLimit = uint64(1_000)
+// MaxLimit is the maximum limit the paginate function can handle.
+const MaxLimit = uint64(math.MaxUint64)
 
-// MaxScanLimit is the maximum number of store entries the paginate function
-// will iterate past the page end when count_total is requested.
-const MaxScanLimit = uint64(10_000)
+// MaxOffset is retained for compatibility. Pagination no longer applies an
+// application-level offset cap.
+const MaxOffset = uint64(math.MaxUint64)
 
-// MaxOffset is the maximum offset allowed in a PageRequest.
-const MaxOffset = uint64(10_000)
+// MaxScanLimit is retained for compatibility. Pagination no longer stops a
+// valid request before the iterator is exhausted.
+const MaxScanLimit = uint64(math.MaxUint64)
 
 // ParsePagination validate PageRequest and returns page number & limit.
 func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
@@ -35,20 +37,10 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 	if offset < 0 {
 		return 1, 0, status.Error(codes.InvalidArgument, "offset must greater than 0")
 	}
-	// #nosec G115 -- offset is non-negative after validation above; fits in uint64
-	if offsetErr := VerifyPaginationOffset(uint64(offset)); offsetErr != nil {
-		return 1, 0, offsetErr
-	}
-
 	if limit < 0 {
 		return 1, 0, status.Error(codes.InvalidArgument, "limit must greater than 0")
 	} else if limit == 0 {
 		limit = DefaultLimit
-	}
-
-	// #nosec G115 -- limit is positive after validation above; fits in uint64
-	if limitErr := VerifyPaginationLimit(uint64(limit)); limitErr != nil {
-		return 1, 0, limitErr
 	}
 
 	page = offset/limit + 1
@@ -56,17 +48,13 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 	return page, limit, nil
 }
 
-func VerifyPaginationLimit(limit uint64) error {
-	if limit > MaxLimit {
-		return status.Errorf(codes.InvalidArgument, "limit %d exceeds maximum allowed limit %d", limit, MaxLimit)
-	}
+// VerifyPaginationLimit is retained for compatibility. Every uint64 limit is valid.
+func VerifyPaginationLimit(uint64) error {
 	return nil
 }
 
-func VerifyPaginationOffset(offset uint64) error {
-	if offset > MaxOffset {
-		return status.Errorf(codes.InvalidArgument, "offset %d exceeds maximum allowed offset %d", offset, MaxOffset)
-	}
+// VerifyPaginationOffset is retained for compatibility. Every uint64 offset is valid.
+func VerifyPaginationOffset(uint64) error {
 	return nil
 }
 
@@ -83,20 +71,14 @@ func Paginate(
 	offset := pageRequest.Offset
 	key := pageRequest.Key
 	limit := pageRequest.Limit
+	countTotal := pageRequest.CountTotal
+	reverse := pageRequest.Reverse
 	if limit == 0 {
 		limit = DefaultLimit
 	}
 	if offset > 0 && key != nil {
 		return nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
 	}
-	if err := VerifyPaginationLimit(limit); err != nil {
-		return nil, err
-	}
-	if err := VerifyPaginationOffset(offset); err != nil {
-		return nil, err
-	}
-	countTotal := pageRequest.CountTotal
-	reverse := pageRequest.Reverse
 
 	if len(key) != 0 {
 		iterator := getIterator(prefixStore, key, reverse)
@@ -128,18 +110,13 @@ func Paginate(
 	iterator := getIterator(prefixStore, nil, reverse)
 	defer func() { _ = iterator.Close() }()
 
-	end := offset + limit
+	end := paginationEnd(offset, limit)
 
 	var count uint64
 	var nextKey []byte
 
 	for ; iterator.Valid(); iterator.Next() {
 		count++
-
-		if count > end+MaxScanLimit {
-			return nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
-		}
 
 		if count <= offset {
 			continue
@@ -167,6 +144,13 @@ func Paginate(
 	}
 
 	return res, nil
+}
+
+func paginationEnd(offset, limit uint64) uint64 {
+	if limit > math.MaxUint64-offset {
+		return math.MaxUint64
+	}
+	return offset + limit
 }
 
 func getIterator(prefixStore types.KVStore, start []byte, reverse bool) db.Iterator {

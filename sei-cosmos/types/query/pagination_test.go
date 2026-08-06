@@ -57,37 +57,6 @@ func (s *paginationTestSuite) TestParsePagination() {
 	s.Require().NoError(err)
 	s.Require().Equal(page, 1)
 	s.Require().Equal(limit, 10)
-
-	s.T().Log("verify limit equal to MaxLimit is accepted")
-	pageReq = &query.PageRequest{Limit: query.MaxLimit}
-	_, _, err = query.ParsePagination(pageReq)
-	s.Require().NoError(err)
-
-	s.T().Log("verify limit exceeding MaxLimit is rejected")
-	pageReq = &query.PageRequest{Limit: query.MaxLimit + 1}
-	_, _, err = query.ParsePagination(pageReq)
-	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "exceeds maximum allowed limit")
-
-	s.T().Log("verify offset equal to MaxOffset is accepted")
-	pageReq = &query.PageRequest{Offset: query.MaxOffset, Limit: 1}
-	_, _, err = query.ParsePagination(pageReq)
-	s.Require().NoError(err)
-
-	s.T().Log("verify offset exceeding MaxOffset is rejected")
-	pageReq = &query.PageRequest{Offset: query.MaxOffset + 1, Limit: 1}
-	_, _, err = query.ParsePagination(pageReq)
-	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "exceeds maximum allowed offset")
-}
-
-func (s *paginationTestSuite) TestPaginateMaxLimitExceeded() {
-	app, ctx, _ := setupTest(s.T())
-	store := ctx.KVStore(app.GetKey(types.StoreKey))
-
-	_, err := query.Paginate(store, &query.PageRequest{Limit: query.MaxLimit + 1}, func(_, _ []byte) error { return nil })
-	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "exceeds maximum allowed limit")
 }
 
 func (s *paginationTestSuite) TestPagination() {
@@ -323,33 +292,18 @@ func (s *paginationTestSuite) TestReversePagination() {
 	s.Require().Nil(res.Pagination.NextKey)
 }
 
-func (s *paginationTestSuite) TestPaginateOffsetExceedsMax() {
+func (s *paginationTestSuite) TestPaginateCountTotalLargeStore() {
 	app, ctx, _ := setupTest(s.T())
-	kvStore := ctx.KVStore(app.GetKey(types.StoreKey))
+	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("largetotal/"))
 
-	_, err := query.Paginate(kvStore, &query.PageRequest{Offset: query.MaxOffset + 1}, func(_, _ []byte) error { return nil })
-	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "exceeds maximum allowed offset")
-
-	_, err = query.Paginate(kvStore, &query.PageRequest{Offset: query.MaxOffset}, func(_, _ []byte) error { return nil })
-	s.Require().NoError(err)
-}
-
-func (s *paginationTestSuite) TestPaginateCountTotalScanLimitExceeded() {
-	app, ctx, _ := setupTest(s.T())
-	// Use a dedicated prefix to isolate test data from other store entries.
-	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("scanlimit/"))
-
-	// With offset=1, scan cap fires when count > offset+MaxScanLimit = 10,001.
-	// Insert 10,002 items to guarantee the cap is exceeded.
-	numItems := int(query.MaxScanLimit) + 2
+	const numItems = 10_002
 	for i := 0; i < numItems; i++ {
 		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("v"))
 	}
 
-	_, err := query.Paginate(kvStore, &query.PageRequest{Limit: 1, CountTotal: true}, func(_, _ []byte) error { return nil })
-	s.Require().Error(err)
-	s.Require().Contains(err.Error(), fmt.Sprintf("scanned more than %d entries", query.MaxScanLimit))
+	res, err := query.Paginate(kvStore, &query.PageRequest{Limit: 1, CountTotal: true}, func(_, _ []byte) error { return nil })
+	s.Require().NoError(err)
+	s.Require().Equal(uint64(numItems), res.Total)
 }
 
 func setupTest(t *testing.T) (*app.App, sdk.Context, codec.Codec) {
