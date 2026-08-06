@@ -219,7 +219,7 @@ func (p *Payload) Hash() PayloadHash {
 var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 	Encode: func(h *BlockHeader) *pb.BlockHeader {
 		return &pb.BlockHeader{
-			Lane:        LaneIDConv.Encode(h.lane),
+			LaneId:      LaneIDConv.Encode(h.lane),
 			BlockNumber: utils.Alloc(uint64(h.blockNumber)),
 			ParentHash:  h.parentHash[:],
 			PayloadHash: h.payloadHash[:],
@@ -234,7 +234,7 @@ var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 		if err != nil {
 			return nil, fmt.Errorf("ParentHash: %w", err)
 		}
-		lane, err := LaneIDConv.DecodeReq(h.Lane)
+		lane, err := LaneIDConv.DecodeReq(h.LaneId)
 		if err != nil {
 			return nil, fmt.Errorf("lane: %w", err)
 		}

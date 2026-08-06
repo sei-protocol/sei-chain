@@ -527,14 +527,14 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 var LaneRangeConv = protoutils.Conv[*LaneRange, *pb.LaneRange]{
 	Encode: func(m *LaneRange) *pb.LaneRange {
 		return &pb.LaneRange{
-			Lane:     LaneIDConv.Encode(m.lane),
+			LaneId:   LaneIDConv.Encode(m.lane),
 			First:    utils.Alloc(uint64(m.first)),
 			Next:     utils.Alloc(uint64(m.next)),
 			LastHash: m.lastHash[:],
 		}
 	},
 	Decode: func(m *pb.LaneRange) (*LaneRange, error) {
-		lane, err := LaneIDConv.DecodeReq(m.Lane)
+		lane, err := LaneIDConv.DecodeReq(m.LaneId)
 		if err != nil {
 			return nil, fmt.Errorf("Lane: %w", err)
 		}

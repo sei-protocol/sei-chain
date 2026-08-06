@@ -179,10 +179,10 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.BlockHeader.
 	runtime.MustRegister[*BlockHeader](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LaneID]())},
 		2: {MaxCount: 1},
 		3: {MaxCount: 1, MaxSize: 32},
 		4: {MaxCount: 1, MaxSize: 32},
+		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LaneID]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Payload.
@@ -207,10 +207,10 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.LaneRange.
 	runtime.MustRegister[*LaneRange](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LaneID]())},
 		2: {MaxCount: 1},
 		3: {MaxCount: 1},
 		4: {MaxCount: 1, MaxSize: 32},
+		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LaneID]())},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.View.

@@ -81,10 +81,14 @@ message Signature {
 message BlockHeader {
   option (hashable.hashable) = true;
   option (wireguard.sized) = true;
-  optional LaneID lane = 1; // required
+  // Field 1 was PublicKey "lane"; LaneID is additive on a new number/name so
+  // WIRE / WIRE_JSON stay compatible (must reserve the old name).
+  reserved 1;
+  reserved "lane";
   optional uint64 block_number = 2; // required
   optional bytes parent_hash = 3 [(wireguard.max_size) = 32]; // required
   optional bytes payload_hash = 4 [(wireguard.max_size) = 32]; // required
+  optional LaneID lane_id = 5; // required
 }
 
 message Payload {
@@ -117,10 +121,14 @@ message LaneQC {
 message LaneRange {
   option (hashable.hashable) = true;
   option (wireguard.sized) = true;
-  optional LaneID lane = 1; // required
+  // Field 1 was PublicKey "lane"; LaneID is additive on a new number/name so
+  // WIRE / WIRE_JSON stay compatible (must reserve the old name).
+  reserved 1;
+  reserved "lane";
   optional uint64 first = 2; // required
   optional uint64 next = 3; // required
   optional bytes last_hash = 4 [(wireguard.max_size) = 32]; // required
+  optional LaneID lane_id = 5; // required
 }
 
 message View {
