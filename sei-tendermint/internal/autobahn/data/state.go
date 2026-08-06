@@ -761,32 +761,31 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 // PushAppQC (evictBelowBound); AppQC entries are retained until their own
 // persistence cursor catches up.
 func (s *State) runPersist(ctx context.Context) error {
+	status := s.blockDB.Status()
 	for {
 		var qcs []*types.FullCommitQC
 		var blocks []blockEntry
 		var appQCs []*types.AppQC
-		var nextBlock types.GlobalBlockNumber
-		var nextAppQC types.GlobalBlockNumber
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return inner.nextBlockToPersist < inner.nextBlock || inner.nextAppQCToPersist < inner.nextAppQC
+				return status.NextQC < inner.nextQC || status.NextBlock < inner.nextBlock || status.NextAppQC < inner.nextAppQC
 			}); err != nil {
 				return err
 			}
-			nextBlock = inner.nextBlockToPersist
-			nextAppQC = inner.nextAppQCToPersist
-			for nextBlock < inner.nextBlock {
-				qc := inner.qcs[nextBlock]
-				if nextBlock == qc.QC().GlobalRange().First {
-					qcs = append(qcs, qc)
-				}
-				blocks = append(blocks, blockEntry{n: nextBlock, block: inner.blocks[nextBlock]})
-				nextBlock++
+			for status.NextQC < inner.nextQC {
+				qc := inner.qcs[status.NextQC]
+				qcs = append(qcs, qc)
+				status.NextQC = qc.QC().GlobalRange().Next
 			}
-			for nextAppQC < inner.nextAppQC {
-				appQC := inner.appQCs[nextAppQC]
+
+			for status.NextAppQC < inner.nextAppQC {
+				appQC := inner.appQCs[status.NextAppQC]
 				appQCs = append(appQCs, appQC)
-				nextAppQC = appQC.Proposal().GlobalRange().Next
+				status.NextAppQC = appQC.Proposal().GlobalRange().Next
+			}
+			for status.NextBlock < inner.nextBlock {
+				blocks = append(blocks, blockEntry{n: status.NextBlock, block: inner.blocks[status.NextBlock]})
+				status.NextBlock += 1
 			}
 		}
 		// Write QCs first (BlockDB contract: QC must precede covered blocks).
@@ -809,15 +808,15 @@ func (s *State) runPersist(ctx context.Context) error {
 			return fmt.Errorf("flush BlockDB: %w", err)
 		}
 		for inner, ctrl := range s.inner.Lock() {
-			inner.nextBlockToPersist = nextBlock
-			if inner.nextAppQCToPersist < nextAppQC {
-				inner.nextAppQCToPersist = nextAppQC
+			inner.nextBlockToPersist = status.NextBlock
+			if inner.nextAppQCToPersist < status.NextAppQC {
+				inner.nextAppQCToPersist = status.NextAppQC
 				inner.anchor.Store(utils.Some(Anchor{
-					CommitQC: inner.qcs[nextAppQC-1].QC(),
-					AppQC:    inner.appQCs[nextAppQC-1],
+					CommitQC: inner.qcs[status.NextAppQC-1].QC(),
+					AppQC:    inner.appQCs[status.NextAppQC-1],
 				}))
+				inner.evict()
 			}
-			inner.evict()
 			ctrl.Updated()
 		}
 	}
