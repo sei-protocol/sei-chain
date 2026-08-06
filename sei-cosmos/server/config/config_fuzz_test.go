@@ -1175,6 +1175,157 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 	}
 }
 
+// baseConfigKeys covers the twelve keys GetConfig reads at the top level of app.toml, the ones
+// written without a section header (config.go:555-568). Every one is a bare viper getter.
+var baseConfigKeys = []configtest.KeySpec{
+	{
+		Key: "minimum-gas-prices", Path: "MinGasPrices", Cast: configtest.CastString,
+		Unguarded: true,
+		Why: "the declared default is 0.01usei and an absent key resolves empty, which is the " +
+			"spelling for accepting a transaction at any fee",
+	},
+	{
+		Key: "inter-block-cache", Path: "InterBlockCache", Cast: configtest.CastBool,
+		Unguarded: true,
+		Why: "the declared default is true and an absent key resolves false, so the node reads " +
+			"every store access from disk",
+	},
+	{
+		Key: "pruning", Path: "Pruning", Cast: configtest.CastString, Unguarded: true,
+		Why: "the declared default is nothing, meaning keep all history, and an absent key resolves " +
+			"empty, which is not one of the strategy names",
+	},
+	{
+		Key: "pruning-keep-recent", Path: "PruningKeepRecent", Cast: configtest.CastString,
+		Unguarded: true,
+		Why:       "the declared default is the string 0 and an absent key resolves empty",
+	},
+	{
+		Key: "pruning-interval", Path: "PruningInterval", Cast: configtest.CastString,
+		Unguarded: true,
+		Why:       "the declared default is the string 0 and an absent key resolves empty",
+	},
+	{
+		Key: "halt-height", Path: "HaltHeight", Cast: configtest.CastUint64, Unguarded: true,
+		Why: "0 is both the declared default and the spelling for never halting, so this row states " +
+			"the key is read rather than recording a divergence",
+	},
+	{
+		Key: "halt-time", Path: "HaltTime", Cast: configtest.CastUint64, Unguarded: true,
+		Why: "0 is both the declared default and the spelling for never halting",
+	},
+	{
+		Key: "index-events", Path: "IndexEvents", Cast: configtest.CastStringSlice, Unguarded: true,
+		Why: "which events the node indexes; nil either way, and the only slice-cast row here, so " +
+			"it is where a value the cast turns into a one-element slice would show up",
+	},
+	{
+		Key: "min-retain-blocks", Path: "MinRetainBlocks", Cast: configtest.CastUint64,
+		Unguarded: true,
+		Why:       "0 is both the declared default and the spelling for retaining everything",
+	},
+	{
+		Key: "compaction-interval", Path: "CompactionInterval", Cast: configtest.CastUint64,
+		Unguarded: true,
+		Why:       "0 is both the declared default and the spelling for never compacting",
+	},
+	{
+		Key: "concurrency-workers", Path: "ConcurrencyWorkers", Cast: configtest.CastInt,
+		Unguarded: true,
+		Why: "the declared default is derived from the machine and an absent key resolves 0, so the " +
+			"worker count a node runs with comes from the file or is nothing",
+	},
+	{
+		Key: "occ-enabled", Path: "OccEnabled", Cast: configtest.CastBool, Unguarded: true,
+		Why: "the declared default is true and an absent key resolves false, so a node whose " +
+			"app.toml lacks the key executes without optimistic concurrency control",
+	},
+}
+
+func readBaseConfig(t testing.TB) func(configtest.AppOpts) (any, error) {
+	return sectionOfGetConfig(t, func(c Config) any { return c.BaseConfig })
+}
+
+func FuzzBaseConfig(f *testing.F) {
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seedEveryRow(seeds, len(baseConfigKeys))
+
+	// One discriminating value per row, away from both the getter's zero and the declared default.
+	seeds.AddRow(uint(0), fuzzing.KindString, "0.5usei", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(2), fuzzing.KindString, "everything", int64(0), false)
+	seeds.AddRow(uint(3), fuzzing.KindString, "500", int64(0), false)
+	seeds.AddRow(uint(4), fuzzing.KindString, "17", int64(0), false)
+	seeds.AddRow(uint(5), fuzzing.KindInt64, "", int64(9000000), false)
+	seeds.AddRow(uint(6), fuzzing.KindInt64, "", int64(1893456000), false)
+	seeds.AddRow(uint(7), fuzzing.KindString, "message.action", int64(0), false)
+	seeds.AddRow(uint(8), fuzzing.KindInt64, "", int64(200000), false)
+	seeds.AddRow(uint(9), fuzzing.KindInt64, "", int64(1000), false)
+	seeds.AddRow(uint(10), fuzzing.KindInt64, "", int64(7), false)
+	seeds.AddRow(uint(11), fuzzing.KindBool, "", int64(0), true)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "base_config", readBaseConfig(f),
+		baseConfigKeys, seeds)
+
+	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
+		spec := configtest.Pick(baseConfigKeys, keyIdx)
+		configtest.CheckRow(t, "base_config", readBaseConfig(t), spec,
+			fuzzing.ConfigValue(kind, s, n, b))
+	})
+}
+
+func TestBaseConfigKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "base_config", baseConfigKeys)
+}
+
+// TestBaseConfigManifestNamesEveryField enforces the manifest's claim, and records the one field
+// that has no key.
+//
+// PruningKeepEvery carries a mapstructure tag of pruning-keep-every and a declared default of "0",
+// and GetConfig never reads it. So no app.toml value reaches it through this reader, and the
+// exemption below is the record of that rather than a gap in the manifest. It is the shape of thing
+// a replacement manager would otherwise try to map a key onto.
+func TestBaseConfigManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "base_config", DefaultConfig().BaseConfig,
+		baseConfigKeys,
+		"PruningKeepEvery",
+	)
+}
+
+// TestGetConfigBaseConfigDivergences records the top-level fields an app.toml with none of these
+// keys resolves away from their declared defaults.
+//
+// Two of the seven change how a node executes rather than what it logs. occ-enabled resolving false
+// turns off optimistic concurrency control, and concurrency-workers resolving 0 leaves no worker
+// count behind it. minimum-gas-prices resolving empty is the spelling for accepting any fee.
+func TestGetConfigBaseConfigDivergences(t *testing.T) {
+	cfg, err := GetConfig(newAppViper(t, nil))
+	if err != nil {
+		t.Fatalf("GetConfig: %v", err)
+	}
+	def := DefaultConfig().BaseConfig
+	got := cfg.BaseConfig
+
+	for _, c := range []struct {
+		key              string
+		absent, declared any
+	}{
+		{"minimum-gas-prices", got.MinGasPrices, def.MinGasPrices},
+		{"inter-block-cache", got.InterBlockCache, def.InterBlockCache},
+		{"pruning", got.Pruning, def.Pruning},
+		{"pruning-keep-recent", got.PruningKeepRecent, def.PruningKeepRecent},
+		{"pruning-interval", got.PruningInterval, def.PruningInterval},
+		{"concurrency-workers", got.ConcurrencyWorkers, def.ConcurrencyWorkers},
+		{"occ-enabled", got.OccEnabled, def.OccEnabled},
+	} {
+		if c.absent == c.declared {
+			t.Errorf("%s no longer diverges: an absent key and the declared default are both %v. "+
+				"If a guard was added, or the default moved onto the getter's zero, update the row "+
+				"and this table in the same PR", c.key, c.absent)
+		}
+	}
+}
+
 // Every other check here reports a change to what it asserts. None reports a check being removed, so
 // this records the wiring and fails when it thins out.
 func TestWiringMatchesTheRecord(t *testing.T) {
