@@ -27,8 +27,8 @@ import (
 // GRPCWeb.Enable sit on the embedded struct and do take effect. Archive mode works for those and not
 // for its state store.
 //
-// The blast radius is narrower than it first looks, and stating it wrongly is how a repair gets
-// deprioritised. SetAppConfigByMode has one non-test caller, cmd/seid/cmd/init.go, which runs during
+// The blast radius is narrow, and worth stating precisely, because it sets what a repair costs.
+// SetAppConfigByMode has one non-test caller, cmd/seid/cmd/init.go, which runs during
 // seid init and hands its result to WriteConfigFile. initAppConfig in root.go builds the default
 // template without consulting the mode. So the overlay only ever reaches the app.toml that seid init
 // renders once. An existing node reads the app.toml already on its disk, so repairing the ordering
@@ -45,7 +45,7 @@ func TestNodeModeStateStoreOverlayIsDiscarded(t *testing.T) {
 	// What each mode assigns, written down here rather than read back from the code that assigns it.
 	// Deriving the expectation from SetAppConfigByMode's own output would compare the code against
 	// itself. A mode that stopped assigning would move both sides together and the assertion would hold.
-	// That is the defect this suite exists to find, and the first version of this test had it.
+	// That is the defect this suite exists to find.
 	for _, c := range []struct {
 		mode   params.NodeMode
 		assert func(t *testing.T, embedded seidbconfig.StateStoreConfig)
@@ -62,7 +62,7 @@ func TestNodeModeStateStoreOverlayIsDiscarded(t *testing.T) {
 		}},
 		// Full mode's overlay is identical to the sei-db default, so nothing about the resolved value
 		// distinguishes the assignment from its absence. Deleting setFullnodeTypeAppConfig's two
-		// StateStore lines leaves this case green, which was confirmed by mutation rather than assumed.
+		// StateStore lines leaves this case green.
 		//
 		// The literals below are still worth asserting, and it is worth being exact about which
 		// failures they reach. A changed assignment reddens. So does the sei-db default drifting away
@@ -105,10 +105,9 @@ func TestNodeModeStateStoreOverlayIsDiscarded(t *testing.T) {
 
 			// And the other half of the claim, that shadowing reaches only the fields CustomAppConfig
 			// redeclares. It redeclares StateStore and ten siblings; MinRetainBlocks and API sit on the
-			// embedded struct untouched, so their mode values do reach a node. Asserting it here is what
-			// stops the defect widening quietly: adding MinRetainBlocks to CustomAppConfig's own fields
-			// would discard it too, taking the failure from partial to total, and nothing else would say
-			// so while this file's comment went on calling the blast radius narrow.
+			// embedded struct untouched, so their mode values do reach a node. Adding MinRetainBlocks to
+			// CustomAppConfig's own fields would discard it too, taking the failure from partial to
+			// total, and this is what reports that.
 			assertModeOverlaySurvives(t, c.mode, got)
 		})
 	}

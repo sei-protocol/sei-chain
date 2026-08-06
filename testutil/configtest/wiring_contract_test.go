@@ -251,10 +251,8 @@ func mustRel(root, dir string) string {
 // requireNoOrphanedRecord fails when a coverage record has no package behind it any more.
 //
 // The check above reaches a package by finding a check in it, so deleting every check in a package at
-// once drops it from the wired set and leaves its record sitting in the tree looking like coverage. That
-// was documented as conceded, on the grounds that removing whole test files is conspicuous. It does not
-// need conceding: the walk already visits every directory, so the inverse assertion is to collect the
-// records and require each one to have a wired package behind it.
+// once drops it from the wired set and would leave its record in the tree looking like coverage. This is
+// the inverse assertion over the same walk. Every record must have a wired package behind it.
 func requireNoOrphanedRecord(t *testing.T, root string, wired []string) {
 	t.Helper()
 

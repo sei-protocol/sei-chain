@@ -20,10 +20,10 @@ import (
 // Each suppression says the path it reads is testdata/<section><suffix> and nothing else, and
 // what makes that true is this function refusing everything else. Both halves are checked
 // because both are joined: a validated section name with an unvalidated suffix appended to it is
-// not a validated path, and `goldenFilePath(t, "app", "/../../../../../../etc/crontab")` used to
-// return a path outside the repository. No call site can reach that today — the suffix is a
-// constant at both of them — which is the reason to hold it here rather than in an argument about
-// reachability that the next call site invalidates.
+// not a validated path. `goldenFilePath(t, "app", "/../../../../../../etc/crontab")` composes a path
+// outside the repository unless the suffix is validated with the name. Every call site passes a constant
+// suffix, which is the reason to hold the property here rather than in an argument about reachability
+// that the next call site invalidates.
 func TestGoldenFilePathConfinesBothHalvesOfTheFileName(t *testing.T) {
 	for _, accepted := range []struct{ name, suffix string }{
 		{"app", ".golden"},
@@ -61,7 +61,7 @@ func TestGoldenFilePathConfinesBothHalvesOfTheFileName(t *testing.T) {
 // TestRecordWriteIsRefusedUnderCI pins the refusal that keeps -update from rewriting a checked-in
 // record where nobody reviews the diff.
 //
-// The three cases are the three records one process-global switch used to silence together. Two are
+// The three cases are the three records one process-global switch reaches. Two are
 // writers; the third is a comparison requireKeyNameRecord skips, which is why its absence reads as
 // a pass rather than a failure and why it needs its own case. A test covering only the writers
 // would pass while the cross-check went on quietly returning early.
@@ -214,9 +214,8 @@ func TestRefusalSurvivesIsolate(t *testing.T) {
 // to stop trusting.
 //
 // Parsed rather than grepped. A textual search for "t.Parallel()" matches the string literal in this
-// function's own failure message, and matched it on the first run — a check that counts occurrences
-// in text is satisfied by prose, which is the defect one level up from the one being prevented. The
-// AST sees calls only.
+// function's own failure message. A check that counts occurrences in text is satisfied by prose, which
+// is the defect one level up from the one being prevented. The AST sees calls only.
 func TestNoTestInThisPackageIsParallel(t *testing.T) {
 	// Read the directory and parse each file rather than using go/parser.ParseDir, for the reason
 	// wiringOf gives: the standard library deprecates ParseDir for ignoring build tags, and ignoring
@@ -265,11 +264,10 @@ func TestNoTestInThisPackageIsParallel(t *testing.T) {
 
 // TestNoRecordedKeyIsNamedCI closes the premise the CI allowlist entry rests on.
 //
-// env.go allows CI through Isolate because the record refusal reads it, and argues the cost is nil
-// because no configuration key is named ci. That argument was written down and nothing checked it, which
-// is the shape of claim this suite exists to convert into a check. A key whose last path segment is ci
-// would be resolvable from the empty-prefix viper the moment Isolate stopped stripping the variable, and
-// the symptom would be a value arriving from the environment with nothing pointing at why.
+// env.go allows CI through Isolate so the record refusal can read it, and the cost of that entry is nil
+// only while no configuration key is named ci. This is what holds that premise. A key whose last path
+// segment is ci is resolvable from the empty-prefix viper, so one appearing would show up as a value
+// arriving from the environment with nothing pointing at why.
 //
 // Read from the key-name records across the tree rather than from a list here, so a key added later is
 // covered without anyone remembering this test.

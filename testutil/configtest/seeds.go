@@ -112,10 +112,9 @@ func (s *Seeds) Add(kind uint8, str string, n int64, b bool) {
 //
 // What makes that last claim true is that the corpus it reads is the recorder's and
 // nothing else: seeds.entries, never the entries a -fuzz run has cached under
-// GOCACHE. One target was measured at 140 cached corpus entries against 6 declared
-// seeds, so a cached entry that happens to discriminate a row cannot stand in for a
-// seed the target does not declare, and a row's verdict does not depend on whose
-// machine it runs on.
+// GOCACHE. One target carries 140 cached corpus entries against 6 declared seeds, so a
+// cached entry that happens to discriminate a row cannot stand in for a seed the target
+// does not declare, and a row's verdict does not depend on whose machine it runs on.
 //
 // One consequence is worth knowing before it surprises someone. F.Fuzz returns
 // without running anything when the target has already failed, so a section whose
@@ -157,12 +156,10 @@ func CheckEveryRowHasADiscriminatingSeed(
 	}
 	baselineDump := Dump(baseline)
 
-	// After the baseline read, not before it, and the ordering is load-bearing. readRejects treats any
-	// error from read as this value being rejected for this key, which is only sound once an empty
-	// AppOpts is known to read cleanly. A reader that errored unconditionally would otherwise make
-	// every Checked row look exercised and satisfy this check vacuously over the whole section, which
-	// is the defect class it was added to close. The Fatalf above already stops such a section, so this
-	// moves the guarantee off that coincidence and onto the order.
+	// Ordered after the baseline read, and the order is load-bearing. readRejects treats any error from
+	// read as this value being rejected for this key, which holds only once an empty AppOpts is known to
+	// read cleanly. A reader that errored unconditionally would otherwise make every Checked row look
+	// exercised and satisfy this check vacuously across the section.
 	requireCheckedRowsReachTheirErrorPath(t, name, read, specs, seeds)
 
 	// row counts up alongside the range rather than converting the index, so the comparison
@@ -450,9 +447,8 @@ func requireCheckedRowsReachTheirErrorPath(
 
 // aRejectedSeed reports whether any of the row's own seeds makes the reader return an error.
 //
-// Returns only the verdict. It used to return the rejecting value too, which no caller read, because
-// the failure below names a value from aRejectedValue instead: a seed that already rejects means there
-// is no failure to report, so the value would have been information for nobody.
+// A verdict and nothing more. A row with a rejecting seed has no failure to report, and the failure for
+// a row without one names a value from aRejectedValue, so the rejecting value itself has no reader.
 func aRejectedSeed(
 	read func(AppOpts) (any, error), spec KeySpec, seeds *Seeds, current uint, specs []KeySpec,
 ) bool {
