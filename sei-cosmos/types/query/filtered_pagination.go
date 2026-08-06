@@ -114,17 +114,21 @@ func FilteredPaginate(
 		// Phase 1: page not yet complete — cap raw iterations to prevent full-store
 		// walks when the filter produces too few hits to fill the page.
 		if numHits < end && totalIter > offset+MaxScanLimit {
-			if !countTotal {
+			if !countTotal && numHits >= offset {
 				// The page may be partial (fewer than limit hits, possibly zero), but
 				// those hits are real and already reported to onResult — hand them
 				// back with a resumable key instead of discarding them behind an
 				// error. A client that keeps following NextKey makes bounded
 				// progress even on a store where matches are sparse.
+				//
+				// Only resume when the offset skip is complete.
 				nextKey = iterator.Key()
 				break
 			}
 			// count_total asked for an exact Total, which this call cannot produce
-			// once the scan is cut short before the page even filled.
+			// once the scan is cut short before the page even filled. When numHits
+			// is still below offset the scan cap was hit before the skip finished,
+			// so there is no faithful resume point either.
 			return nil, status.Errorf(codes.InvalidArgument,
 				"scanned more than %d entries without filling the page; retry without count_total, "+
 					"or use key-based pagination", MaxScanLimit)
@@ -294,15 +298,18 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 		// Phase 1: page not yet complete — cap raw iterations to prevent full-store
 		// walks when the filter produces too few hits to fill the page.
 		if numHits < end && totalIter > offset+MaxScanLimit {
-			if !countTotal {
+			if !countTotal && numHits >= offset {
 				// The page may be partial (fewer than limit results, possibly none),
 				// but those results are real — hand them back with a resumable key
-				// instead of discarding them behind an error.
+				// instead of discarding them behind an error. Only when the offset
+				// skip is complete; see FilteredPaginate's Phase 1 guard.
 				nextKey = iterator.Key()
 				break
 			}
 			// count_total asked for an exact Total, which this call cannot produce
-			// once the scan is cut short before the page even filled.
+			// once the scan is cut short before the page even filled. When numHits
+			// is still below offset the scan cap was hit before the skip finished,
+			// so there is no faithful resume point either.
 			return nil, nil, status.Errorf(codes.InvalidArgument,
 				"scanned more than %d entries without filling the page; retry without count_total, "+
 					"or use key-based pagination", MaxScanLimit)

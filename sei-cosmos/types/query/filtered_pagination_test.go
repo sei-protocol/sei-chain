@@ -275,6 +275,79 @@ func (s *paginationTestSuite) TestFilteredPaginateSparseFilterFillsPageWithinSca
 	s.Require().NotNil(res.NextKey)
 }
 
+// TestFilteredPaginateSparseFilterPhase1BeforeOffsetConsumedErrors covers the case
+// where the scan cap trips while numHits is still below the requested offset.
+// NextKey cannot faithfully resume offset-based pagination (the key branch applies
+// no skip), so this must error rather than return an empty page plus a misleading
+// NextKey.
+func (s *paginationTestSuite) TestFilteredPaginateSparseFilterPhase1BeforeOffsetConsumedErrors() {
+	app, ctx, _ := setupTest(s.T())
+	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("filteredsparseoffset/"))
+
+	const offset = uint64(100)
+	numItems := int(offset) + int(query.MaxScanLimit) + 2
+	for i := 0; i < numItems; i++ {
+		value := "miss"
+		if i%5000 == 0 {
+			value = "hit"
+		}
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte(value))
+	}
+
+	var hits [][]byte
+	_, err := query.FilteredPaginate(kvStore, &query.PageRequest{Offset: offset, Limit: 100},
+		func(key []byte, value []byte, accumulate bool) (bool, error) {
+			if string(value) != "hit" {
+				return false, nil
+			}
+			if accumulate {
+				hits = append(hits, key)
+			}
+			return true, nil
+		})
+	s.Require().Error(err, "scan cap before offset is consumed must not return a misleading NextKey")
+	s.Require().Contains(err.Error(), "scanned more than")
+	s.Require().Empty(hits)
+}
+
+// TestFilteredPaginateSparseFilterPhase1AfterOffsetConsumedReturnsPartialPage verifies
+// that once the offset skip is complete, Phase 1 still returns a partial page plus a
+// resumable NextKey rather than erroring.
+func (s *paginationTestSuite) TestFilteredPaginateSparseFilterPhase1AfterOffsetConsumedReturnsPartialPage() {
+	app, ctx, _ := setupTest(s.T())
+	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("filteredsparseoffsetpartial/"))
+
+	const offset = uint64(100)
+	numItems := int(offset) + int(query.MaxScanLimit) + 2
+	for i := 0; i < numItems; i++ {
+		value := "miss"
+		if i%100 == 0 {
+			value = "hit"
+		}
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte(value))
+	}
+
+	var hits [][]byte
+	onResult := func(hits *[][]byte) func(key []byte, value []byte, accumulate bool) (bool, error) {
+		return func(key []byte, value []byte, accumulate bool) (bool, error) {
+			if string(value) != "hit" {
+				return false, nil
+			}
+			if accumulate {
+				*hits = append(*hits, append([]byte{}, key...))
+			}
+			return true, nil
+		}
+	}
+
+	res, err := query.FilteredPaginate(kvStore, &query.PageRequest{Offset: offset, Limit: 100}, onResult(&hits))
+	s.Require().NoError(err, "once offset is consumed, partial page plus NextKey is well-defined")
+	s.Require().NotNil(res)
+	s.Require().NotEmpty(hits, "hits beyond the offset must be returned")
+	s.Require().Less(len(hits), 100, "fewer hits exist within one scan window than the requested limit")
+	s.Require().NotNil(res.NextKey)
+}
+
 func (s *paginationTestSuite) TestFilteredPaginateSparseFilterExceedsScanLimitReturnsPartialPage() {
 	app, ctx, _ := setupTest(s.T())
 	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("filteredsparsepartial/"))
