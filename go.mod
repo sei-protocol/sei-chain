@@ -71,7 +71,7 @@ require (
 	github.com/segmentio/kafka-go v0.4.50
 	github.com/sei-protocol/goutils v0.0.2
 	github.com/sei-protocol/sei-config v0.0.21
-	github.com/sei-protocol/sei-load v0.0.0-20260805043403-e5d7c2f19be9
+	github.com/sei-protocol/sei-load v0.0.1
 	github.com/sei-protocol/sei-tm-db v0.0.5
 	github.com/sei-protocol/seilog v0.0.3
 	github.com/snikch/goodman v0.0.0-20171125024755-10e37e294daa

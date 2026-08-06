@@ -1813,8 +1813,8 @@ github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQp
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
 github.com/sei-protocol/sei-config v0.0.21 h1:0VXOz91v9YeM2dmpKi1XaIFy+p3EamDAJtnj02XLKIw=
 github.com/sei-protocol/sei-config v0.0.21/go.mod h1:zcEdLzyIH2AyP0/QRBE3s4Y9eGn0C/qAUx1c4o4EROU=
-github.com/sei-protocol/sei-load v0.0.0-20260805043403-e5d7c2f19be9 h1:EMBaskpKgbohE6b6leYyGVdlP8JVzlsbH8THUzKVFQk=
-github.com/sei-protocol/sei-load v0.0.0-20260805043403-e5d7c2f19be9/go.mod h1:AjEkVo91siRmr5r7REcK3fSSbHC59hq+nCNtxwJUG8Q=
+github.com/sei-protocol/sei-load v0.0.1 h1:sGlG1QRbc2pKCeeD4P0H2lkqFcljlup5l6JNi6HydyM=
+github.com/sei-protocol/sei-load v0.0.1/go.mod h1:AjEkVo91siRmr5r7REcK3fSSbHC59hq+nCNtxwJUG8Q=
 github.com/sei-protocol/sei-tm-db v0.0.5 h1:3WONKdSXEqdZZeLuWYfK5hP37TJpfaUa13vAyAlvaQY=
 github.com/sei-protocol/sei-tm-db v0.0.5/go.mod h1:Cpa6rGyczgthq7/0pI31jys2Fw0Nfrc+/jKdP1prVqY=
 github.com/sei-protocol/seilog v0.0.3 h1:Zi7oWXdX5jv92dY8n482xH032LtNebC89Y+qYZlBn0Y=
