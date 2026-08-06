@@ -148,34 +148,39 @@ func packagesCallingACheck(root string) (wired, unparseable []string, err error)
 
 // callsCheckWiring reports whether the package in dir calls configtest.CheckWiring.
 //
-// Parsed rather than grepped, so the string appearing in a comment does not satisfy it.
+// Parsed rather than grepped, so the string appearing in a comment does not satisfy it. Reads the
+// directory and parses each test file for the same reason wiringOf does, which is that build tags are
+// ignored on purpose and go/parser.ParseDir is deprecated for doing exactly that.
 func callsCheckWiring(dir string) (bool, error) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, nil, 0)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false, err
 	}
+
+	fset := token.NewFileSet()
 	found := false
-	for _, pkg := range pkgs {
-		for path, file := range pkg.Files {
-			if !strings.HasSuffix(path, "_test.go") {
-				continue
-			}
-			ast.Inspect(file, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				selector, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok || selector.Sel.Name != "CheckWiring" {
-					return true
-				}
-				if pkgIdent, ok := selector.X.(*ast.Ident); ok && pkgIdent.Name == "configtest" {
-					found = true
-				}
-				return true
-			})
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
 		}
+		file, err := parser.ParseFile(fset, filepath.Join(dir, entry.Name()), nil, 0)
+		if err != nil {
+			return false, err
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || selector.Sel.Name != "CheckWiring" {
+				return true
+			}
+			if pkgIdent, ok := selector.X.(*ast.Ident); ok && pkgIdent.Name == "configtest" {
+				found = true
+			}
+			return true
+		})
 	}
 	return found, nil
 }
