@@ -258,8 +258,7 @@ genesis-stream-file = "{{ .Genesis.GenesisStreamFile }}"
 # delegations, grants, allowances) is allowed to force. Lower values reduce that
 # per-request work at the cost of needing more round-trips over sparse or
 # unindexed filtered queries; raising them accepts more per-request work in
-# exchange for fewer round-trips. See PLT-361 / PLT-956 for why these bounds
-# exist. Raising them is a deliberate tradeoff, not a way to disable the caps.
+# exchange for fewer round-trips.
 [pagination]
 
 # max-limit is the maximum page size (pagination.limit) a single paginated query

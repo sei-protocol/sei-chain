@@ -275,14 +275,6 @@ func (s *paginationTestSuite) TestFilteredPaginateSparseFilterFillsPageWithinSca
 	s.Require().NotNil(res.NextKey)
 }
 
-// TestFilteredPaginateSparseFilterExceedsScanLimitReturnsPartialPage reproduces the
-// PLT-956 / Sergei Mishin repro: an unindexed filtered query (e.g. validator
-// delegations, keyed by delegator and queried by validator) whose real matches are
-// too sparse to fill the requested page within one MaxScanLimit scan window. Before
-// this fix, FilteredPaginate discarded the hits already found and returned an
-// InvalidArgument error — failing below the caller's actual match count rather than
-// above it. It must instead return the partial page plus a resumable NextKey, and
-// following that key across repeated calls must eventually surface every match.
 func (s *paginationTestSuite) TestFilteredPaginateSparseFilterExceedsScanLimitReturnsPartialPage() {
 	app, ctx, _ := setupTest(s.T())
 	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("filteredsparsepartial/"))

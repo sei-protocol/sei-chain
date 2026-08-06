@@ -584,7 +584,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 
 	// Apply in-code defaults when keys are absent so that nodes upgrading with an
 	// older app.toml (which lacks this section) remain bounded rather than running
-	// with unlimited pagination scans (PLT-361 / PLT-956).
+	// with unlimited pagination scans.
 	paginationMaxLimit := query.DefaultMaxLimit
 	if v.IsSet("pagination.max-limit") {
 		paginationMaxLimit = v.GetUint64("pagination.max-limit")
