@@ -279,11 +279,11 @@ type schedulerMetrics struct {
 	retries int
 }
 
-func (s *scheduler) emitMetrics() {
-	taskMetrics.retries.Add(context.Background(), int64(s.metrics.retries))
+func (s *scheduler) emitMetrics(ctx context.Context) {
+	taskMetrics.retries.Add(ctx, int64(s.metrics.retries))
 	// TODO(PLT-353): remove once scheduler_retries verified
 	telemetry.IncrCounter(float32(s.metrics.retries), "scheduler", "retries")
-	taskMetrics.incarnations.Add(context.Background(), int64(s.metrics.maxIncarnation))
+	taskMetrics.incarnations.Add(ctx, int64(s.metrics.maxIncarnation))
 	// TODO(PLT-353): remove once scheduler_incarnations verified
 	telemetry.IncrCounter(float32(s.metrics.maxIncarnation), "scheduler", "incarnations")
 }
@@ -299,7 +299,7 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 	s.conflictKeyCounts = make(map[string]int)
 	s.executeCh = make(chan func(), len(tasks))
 	s.validateCh = make(chan func(), len(tasks))
-	defer s.emitMetrics()
+	defer s.emitMetrics(ctx.Context())
 
 	// default to number of tasks if workers is negative or 0 by this point
 	workers := s.workers
