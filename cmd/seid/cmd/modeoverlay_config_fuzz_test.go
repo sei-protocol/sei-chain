@@ -22,11 +22,23 @@ import (
 // The consequence is operator-visible and the reverse of the intent. An archive node, whose purpose is
 // retaining history, prunes state at the default KeepRecent instead of keeping all of it.
 //
-// Asserted rather than repaired, and tracked as PLT-955. Changing which value wins would change what
-// every existing archive node prunes on its next restart, so this suite records the behaviour and the
-// repair belongs to a change that can be rolled out deliberately. What this stops is the behaviour
-// changing by accident in either direction. Removing the overwrite makes the modes take effect, and
-// nothing reported that.
+// It fails partially rather than wholly, which is worth knowing before reading a failure here.
+// Shadowing only reaches the fields CustomAppConfig redeclares, so MinRetainBlocks and API.Enable and
+// GRPCWeb.Enable sit on the embedded struct and do take effect. Archive mode works for those and not
+// for its state store.
+//
+// The blast radius is narrower than it first looks, and stating it wrongly is how a repair gets
+// deprioritised. SetAppConfigByMode has one non-test caller, cmd/seid/cmd/init.go, which runs during
+// seid init and hands its result to WriteConfigFile. initAppConfig in root.go builds the default
+// template without consulting the mode. So the overlay only ever reaches the app.toml that seid init
+// renders once. An existing node reads the app.toml already on its disk, so repairing the ordering
+// would change what a newly initialised node gets rather than what a running fleet prunes on restart.
+//
+// Asserted rather than repaired all the same, and tracked as PLT-955. The standing decision for this
+// suite is to pin how configuration resolves today and to correct it in the versioned manager, so that
+// a correction arrives as a deliberate change rather than inside a test PR. What this test stops
+// meanwhile is the behaviour moving by accident in either direction. Removing the overwrite makes the
+// modes take effect, and nothing reported that.
 func TestNodeModeStateStoreOverlayIsDiscarded(t *testing.T) {
 	defaults := seidbconfig.DefaultStateStoreConfig()
 
@@ -66,10 +78,10 @@ func TestNodeModeStateStoreOverlayIsDiscarded(t *testing.T) {
 			got := NewCustomAppConfig(base, evmrpcconfig.DefaultConfig)
 
 			if got.StateStore != defaults {
-				t.Errorf("the state-store config a %s node runs on is no longer the sei-db default.\n"+
-					"got:  %+v\nwant: %+v\n"+
-					"If the mode overlay now reaches the value a node reads, that is a behaviour change "+
-					"for every node of this mode on its next restart, and it needs recording here "+
+				t.Errorf("the state-store config seid init serialises for a %s node is no longer the "+
+					"sei-db default.\ngot:  %+v\nwant: %+v\n"+
+					"If the mode overlay now reaches the rendered value, that is a change to the app.toml "+
+					"every newly initialised node of this mode gets, and it needs recording here "+
 					"deliberately rather than arriving as a passing test.", c.mode, got.StateStore, defaults)
 			}
 

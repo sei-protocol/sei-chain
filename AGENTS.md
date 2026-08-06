@@ -63,12 +63,12 @@ every path passes through is an invariant they cannot. When there is no such fun
 that is evidence the abstraction is wrong, so say so rather than distributing the
 guard.
 
-*Worked example, from the configuration record refusal.* The refusal was first written
-at each of `writeGolden`'s two call sites plus a third site that suppresses a
-comparison. Moved inside `writeGolden`, one of the three files needed no change at
-all, and a record writer added later is covered without having to remember anything.
-The third site kept a call of its own because it suppresses a comparison rather than
-performing a write, and a suppressed comparison reads as a pass.
+*Worked example, from the configuration record refusal.* The refusal to rewrite a record
+on CI lives inside `writeGolden`, the one function every record write passes through, so a
+record writer added later is covered without anyone having to remember it. One caller keeps
+a guard of its own, `requireKeyNameRecord`, and the reason is the distinction to copy: it
+suppresses a comparison rather than performing a write, and a suppressed comparison reads
+as a pass.
 
 **The step name carries the *what*, and the doc comment carries the *why*.** A long
 comment sitting inline in a flow means the step was never named. Extract the step and

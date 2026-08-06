@@ -167,6 +167,13 @@ func callsCheckWiring(dir string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
+		// The name the file binds this package to, rather than the literal "configtest", for the same
+		// reason wiringIn resolves it. A package that aliased the import would otherwise read as one
+		// that never calls CheckWiring.
+		local, ok := configtestPackageName(file)
+		if !ok {
+			continue
+		}
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
@@ -176,7 +183,7 @@ func callsCheckWiring(dir string) (bool, error) {
 			if !ok || selector.Sel.Name != "CheckWiring" {
 				return true
 			}
-			if pkgIdent, ok := selector.X.(*ast.Ident); ok && pkgIdent.Name == "configtest" {
+			if pkgIdent, ok := selector.X.(*ast.Ident); ok && pkgIdent.Name == local {
 				found = true
 			}
 			return true

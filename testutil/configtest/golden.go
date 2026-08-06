@@ -79,25 +79,32 @@ func runningUnderCI() bool {
 // It names the file rather than the flag, because the reader's next question is which record was
 // about to be overwritten, and a message naming only -update sends them to the flag's documentation
 // instead of to the file whose contents were at stake.
+//
+// It also names the variable the refusal rests on and how to unset it. Plenty of environments that are
+// not CI export CI, devcontainers and some task runners among them, and a developer in one who is told
+// to regenerate locally is being told to do the thing they were already doing.
 func refuseRecordWrite(t testing.TB, name, path string) {
 	t.Helper()
-	t.Fatalf("%s: refusing to rewrite %s because this is a CI run.\n"+
-		"A record regenerated where nobody reviews the diff is not a record: the suite would report "+
+	t.Fatalf("%s: refusing to rewrite %s because the CI environment variable is set.\n"+
+		"A record regenerated where nobody reviews the diff is not a record. The suite would report "+
 		"success over values it had just overwritten with whatever the code currently does.\n"+
 		"Regenerate it locally with `go test ./<pkg>/ -update`, read the diff, and commit it as part "+
-		"of the change that moved the value.", name, path)
+		"of the change that moved the value.\n"+
+		"If this is not a CI run, some devcontainers and task runners set CI too, so regenerate with "+
+		"`env -u CI go test ./<pkg>/ -update`.", name, path)
 }
 
 // recordRewriteInProgress reports whether this run is rewriting a record rather than comparing
 // against it, and refuses outright if that rewrite would go unreviewed.
 //
-// Only one caller needs this: requireKeyNameRecord, which stands its comparison down while
+// One caller needs this, and it is requireKeyNameRecord, which stands its comparison down while
 // CheckKeyNames regenerates the file it would have compared against. Every other caller writes, and
-// a write is refused inside writeGolden itself, so it needs no guard of its own.
+// a write is refused inside writeGolden itself, so it needs no guard of its own. A writer calling
+// this instead would be a second guard at a call site the choke point already covers.
 //
 // The refusal has to be reachable from here as well as from writeGolden. -update is one
 // process-global switch over three records, and if only the writers refused, this comparison would
-// go on quietly returning early — which reads as a pass. A silently absent third record is worse
+// go on quietly returning early, which reads as a pass. A silently absent third record is worse
 // than a loudly refused one.
 func recordRewriteInProgress(t testing.TB, name, path string) bool {
 	t.Helper()
