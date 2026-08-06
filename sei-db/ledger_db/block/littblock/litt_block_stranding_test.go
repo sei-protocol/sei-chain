@@ -15,7 +15,7 @@ import (
 // MaxSegmentKeyCount, so a test can place a segment boundary at a precise key.
 // Retention is tiny (the prune watermark is the sole reclamation gate) and GC is
 // effectively background-disabled so ForceGC is the only thing that reclaims.
-func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *LittBlockConfig {
+func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *BlockDBConfig {
 	cfg, err := DefaultConfig(dir)
 	require.NoError(t, err)
 	cfg.Retention = time.Nanosecond

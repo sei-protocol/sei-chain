@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -51,8 +50,15 @@ import (
 // missing body. The tight interval is only affordable because litt flushes its
 // keymap asynchronously off the control loop. Retention: receipt values
 // expire via litt's per-table TTL (time based), tag keys are pruned by block
-// range, and reads enforce the KeepRecent floor, so visible retention never
-// exceeds KeepRecent regardless of GC timing.
+// range, and reads enforce the retention floor, so visible retention never
+// exceeds that floor regardless of GC timing.
+//
+// Pruning is driven from outside, by the StorageGarbageCollector through the
+// gc.PrunableStore implementation in litt_receipt_gc.go. This store deliberately
+// runs no pruner of its own: KeepRecent alone sees neither the shared rollback
+// window nor the other stores' floors, so a local pruner would delete the
+// rollback headroom the collector exists to preserve. KeepRecent remains what
+// this store asks the collector to retain, and what sizes the litt TTL.
 type littReceiptStore struct {
 	values   litt.DB
 	receipts litt.Table
@@ -63,7 +69,6 @@ type littReceiptStore struct {
 	earliestVersion atomic.Int64
 
 	keepRecent           int64
-	pruneInterval        int64
 	logFilterParallelism int
 	stopBackground       chan struct{}
 	backgroundWg         sync.WaitGroup
@@ -162,13 +167,11 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		index:                index,
 		storeKey:             storeKey,
 		keepRecent:           int64(cfg.KeepRecent),
-		pruneInterval:        int64(cfg.PruneIntervalSeconds),
 		logFilterParallelism: logFilterParallelism,
 		stopBackground:       make(chan struct{}),
 	}
 	s.latestVersion.Store(s.readMeta(receiptLatestVersionKey))
 	s.earliestVersion.Store(s.readMeta(receiptEarliestVersionKey))
-	s.startPruning()
 	s.startFlusher()
 	return s, nil
 }
@@ -398,36 +401,12 @@ func (s *littReceiptStore) Close() error {
 	return err
 }
 
-func (s *littReceiptStore) startPruning() {
-	if s.keepRecent <= 0 || s.pruneInterval <= 0 {
-		return
-	}
-	s.backgroundWg.Add(1)
-	go func() {
-		defer s.backgroundWg.Done()
-		for {
-			// Keep exactly keepRecent blocks, [latest-keepRecent+1, latest]; the
-			// +1 matches the pebble backend (which retains keepRecent, not +1).
-			pruneBefore := s.latestVersion.Load() - s.keepRecent + 1
-			if pruneBefore > 0 {
-				if err := s.pruneBlocksBelow(uint64(pruneBefore)); err != nil {
-					logger.Error("failed to prune littdb receipt store", "before-block", pruneBefore, "err", err)
-				}
-			}
-			// Jittered cadence, matching the other receipt pruners.
-			sleep := time.Duration(float64(s.pruneInterval)*(1+rand.Float64())) * time.Second
-			select {
-			case <-s.stopBackground:
-				return
-			case <-time.After(sleep):
-			}
-		}
-	}()
-}
-
 // pruneBlocksBelow deletes the tag entries in [earliest, cutoff) and advances
 // the retention floor. Receipt values are reclaimed independently by litt's TTL
 // GC; the read-time floor keeps them invisible in the meantime.
+//
+// Called by the StorageGarbageCollector via PruneBelow, which is the only thing
+// that advances this floor in production — see the type doc.
 func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 	floor := uint64(0)
 	if earliest := s.earliestVersion.Load(); earliest > 0 {

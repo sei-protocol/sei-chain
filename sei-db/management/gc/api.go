@@ -36,8 +36,29 @@ type PrunableStore interface {
 	Name() string
 
 	// PruneBelow may drop data for all blocks below blockNumber. The store may perform the
-	// deletion asynchronously.
+	// deletion asynchronously. Only called when ExternalPruning reports true.
 	PruneBelow(blockNumber uint64) error
+
+	// ExternalPruning reports whether this store's retention is the collector's to enforce.
+	//
+	//	true  → the collector prunes it; any pruner inside the store must stand down
+	//	false → the store prunes itself; the collector never calls PruneBelow on it
+	//
+	// This exists so that "the collector manages this store" and "the store's own pruner is
+	// off" are one fact rather than two settings that can disagree. A store with an internal
+	// pruner answers from the same field that pruner consults, which is what makes the two
+	// mutually exclusive by construction instead of by wiring discipline. A store with no
+	// pruner of its own returns true unconditionally.
+	//
+	// false does NOT withdraw the store from the decision. It is still asked for
+	// GetLatestBlock and GetPruningBoundary, and still holds the shared minimum down, because
+	// what a self-pruning store retains can be exactly what another store must replay from —
+	// SC's snapshots are useless if the WAL beneath them has been pruned away. Dropping it
+	// from the vote would prune that range out from under it. Opting out of being pruned and
+	// opting out of protecting others are different things, and only the first is on offer.
+	//
+	// Read once per cycle, so a store may change its answer between cycles but not within one.
+	ExternalPruning() bool
 
 	// GetRetentionWindow is how many extra blocks beyond the shared RollbackWindow this store
 	// needs to keep servable, where head is the min non-zero GetLatestBlock. Three answers:

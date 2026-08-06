@@ -12,18 +12,19 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// ledgerTableName is the single table holding both blocks and QCs. They share
+// TableName is the single table holding both blocks and QCs. They share
 // one table so a crash leaves a contiguous write-order prefix spanning both
 // record kinds (see NewBlockDB), which is what guarantees a persisted block is
 // always covered by a persisted QC.
-const ledgerTableName = "ledger"
+const TableName = "blocks"
 
 var _ types.BlockDB = (*blockDB)(nil)
 
 // blockDB is a durable types.BlockDB backed by LittDB
 type blockDB struct {
-	db    littdb.DB
-	table littdb.Table
+	db     littdb.DB
+	table  littdb.Table
+	config *BlockDBConfig
 
 	// watermark is a retention floor, always a QC boundary (a GlobalRange().First):
 	// PruneBefore rounds a requested prune point down to the start of the cohort
@@ -77,7 +78,7 @@ type blockDB struct {
 // underlying LittDB is built from config.Litt, and the two tables apply
 // config.Retention as a TTL failsafe (pruning never reclaims data younger than
 // that even once the watermark has advanced past it).
-func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
+func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid block db config: %w", err)
 	}
@@ -96,7 +97,7 @@ func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 	// guarantees a persisted block is always covered by a persisted QC. It also
 	// backs the write-order cursors and contiguous-QC recovery. ShardingFactor
 	// > 1, or splitting blocks and QCs across two tables, would void this.
-	tableConfig := littdb.DefaultTableConfig(ledgerTableName)
+	tableConfig := littdb.DefaultTableConfig(TableName)
 	tableConfig.TTL = config.Retention
 	tableConfig.GCFilter = s.gcFilter
 	tableConfig.ShardingFactor = 1 // DO NOT CHANGE!!
@@ -107,6 +108,7 @@ func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 	}
 
 	s.table = table
+	s.config = config
 
 	if err := s.recoverCursors(); err != nil {
 		_ = db.Close()

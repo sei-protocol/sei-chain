@@ -24,7 +24,7 @@ var logger = seilog.NewLogger("db", "gc")
 //  3. ask GetPruningBoundary(cutLine): a positive answer votes, and CannotServeRollback
 //     abandons the cycle while RollbackWindow > 0
 //  4. pruneHeight = min of the positive answers; PruneBelow(pruneHeight) on every store
-//     that answered positively
+//     that answered positively and reports ExternalPruning
 //
 // Step 4 prunes to the shared minimum rather than to each store's own boundary so that a
 // retained snapshot stays restorable: contiguous stores must still hold the blocks that follow
@@ -147,6 +147,7 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 		}
 
 		decisions[i].cutLine = cutLine
+		decisions[i].externalPruning = store.ExternalPruning()
 		decisions[i].boundary = store.GetPruningBoundary(cutLine)
 		if decisions[i].boundary == CannotServeRollback {
 			// One blocker is enough to abandon the cycle, but the rest are still asked rather than
@@ -192,6 +193,12 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 		if decisions[i].boundary == 0 {
 			continue
 		}
+		// A self-pruning store still voted above, and is still protected by the minimum that
+		// vote produced. What it does not get is a PruneBelow, because its own pruner is the
+		// one enforcing its retention (see PrunableStore.ExternalPruning).
+		if !decisions[i].externalPruning {
+			continue
+		}
 		if err := store.PruneBelow(pruneHeight); err != nil {
 			pruneErrs = errors.Join(pruneErrs, fmt.Errorf("failed to prune %s below %d: %w", store.Name(), pruneHeight, err))
 		}
@@ -203,14 +210,19 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 // log. cutLine == 0 means the store was never asked, which is what separates it from a store that
 // was asked and answered 0.
 type storeDecision struct {
-	cutLine  uint64
-	boundary uint64
+	cutLine         uint64
+	boundary        uint64
+	externalPruning bool
 }
 
 // describeDecisions renders one entry per store, in store order, for the prune log. The three
 // outcomes render differently on purpose — never asked, cannot serve a rollback, and reported a
 // boundary — since collapsing them would cost exactly the distinction wanted when auditing a
 // deletion after the fact. Each asked store carries the cut line its answer is a function of.
+//
+// A store that voted but prunes itself is tagged selfPruned, because its boundary is in the
+// minimum below while no deletion follows on it — without the tag that reads like a prune that
+// silently did nothing.
 func describeDecisions(stores []PrunableStore, decisions []storeDecision) string {
 	var sb strings.Builder
 	for i, store := range stores {
@@ -222,6 +234,8 @@ func describeDecisions(stores []PrunableStore, decisions []storeDecision) string
 			fmt.Fprintf(&sb, "%s=notAsked", store.Name())
 		case decisions[i].boundary == CannotServeRollback:
 			fmt.Fprintf(&sb, "%s=cannotServeRollback(cutLine=%d)", store.Name(), decisions[i].cutLine)
+		case !decisions[i].externalPruning:
+			fmt.Fprintf(&sb, "%s=%d(cutLine=%d,selfPruned)", store.Name(), decisions[i].boundary, decisions[i].cutLine)
 		default:
 			fmt.Fprintf(&sb, "%s=%d(cutLine=%d)", store.Name(), decisions[i].boundary, decisions[i].cutLine)
 		}

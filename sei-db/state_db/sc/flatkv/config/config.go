@@ -39,8 +39,30 @@ type Config struct {
 
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
+	// Ignored entirely when ExternalPruning is set.
 	// Default: 1
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
+
+	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its
+	// own snapshots (SnapshotKeepRecent) and stops truncating the state WAL, and answers
+	// gc.PrunableStore.ExternalPruning with this value so the collector takes both over.
+	//
+	// Set this only when the store is actually registered with a running collector. Nothing here
+	// can check that, and the failure is silent in the expensive direction: snapshots and the WAL
+	// then grow without bound, because the machinery that used to bound them has stood down and
+	// nothing replaced it.
+	//
+	// It is one field rather than two so the count-based pruner and the collector can never both
+	// be enforcing retention — they would disagree, and SnapshotKeepRecent would win by deleting
+	// the snapshot the collector was holding for the rollback window.
+	//
+	// Retention changes shape when this is on, it does not merely move: snapshots are kept by
+	// height rather than by count, so how many exist becomes RollbackWindow / SnapshotInterval
+	// instead of SnapshotKeepRecent + 1. A deep rollback window with a short interval retains far
+	// more snapshots than the count-based default.
+	//
+	// Default: false
+	ExternalPruning bool `mapstructure:"external-pruning"`
 
 	// EnablePebbleMetrics defines if the Pebble metrics should be enabled.
 	// Default: true

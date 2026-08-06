@@ -3,6 +3,7 @@ package statewal
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
@@ -12,10 +13,19 @@ var _ StateWAL = (*stateWALImpl)(nil)
 
 // A WAL for storing state changesets by block number.
 //
-// Not safe for concurrent use; see the StateWAL interface doc.
+// Not safe for concurrent use; see the StateWAL interface doc. The gc.PrunableStore surface in
+// state_wal_gc.go is the one exception, and it is why lastCompletedBlock below is atomic: the
+// collector runs on its own goroutine, so it reads a head one atomic wide and otherwise touches
+// none of the plain fields here. It prunes by calling straight through to the WAL underneath,
+// which permits a concurrent PruneBefore (see seiwal.WAL).
 type stateWALImpl struct {
 	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
 	wal seiwal.WAL[[]*proto.NamedChangeSet]
+
+	// Config.RetentionWindow, the history this WAL asks the garbage collector to keep beyond the shared
+	// rollback window. Immutable after construction, so the collector reads it off-goroutine without
+	// synchronization (GetRetentionWindow).
+	retentionWindow int64
 
 	// Set by Close() so subsequent calls fail fast. A plain field: like the write-ordering state below, it
 	// is only ever touched by the single caller, which must not invoke methods concurrently.
@@ -39,6 +49,15 @@ type stateWALImpl struct {
 	// end-of-block. Ownership is handed to the WAL at end-of-block and a fresh buffer starts for the next
 	// block, so the serialization goroutine never races the wrapper over the backing array.
 	buf []*proto.NamedChangeSet
+
+	// The highest block that has been ended by SignalEndOfBlock, and so is actually a record in the WAL.
+	// Distinct from currentBlock, which may name a block still accumulating in buf. Atomic because the
+	// garbage collector reads it off-goroutine (GetLatestBlock); the writer is its only mutator.
+	//
+	// 0 doubles as "no block completed yet", which is what GetLatestBlock reports. A WAL whose only
+	// completed block is block 0 is indistinguishable from an empty one, and that is the safe direction:
+	// it drops out of the collector's head rather than pulling every store's cut line down to 0.
+	lastCompletedBlock atomic.Uint64
 }
 
 // New opens (or creates) a state WAL in the configured directory, recovering any files left behind by a
@@ -49,7 +68,7 @@ func New(config *Config) (StateWAL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state WAL: %w", err)
 	}
-	return newStateWAL(wal)
+	return newStateWAL(wal, config.RetentionWindow)
 }
 
 // GetRange reports the range of block numbers stored in the state WAL directory configured by config,
@@ -100,8 +119,8 @@ func VerifyIntegrity(config *Config) error {
 	return nil
 }
 
-func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
-	w := &stateWALImpl{wal: wal}
+func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet], retentionWindow int64) (StateWAL, error) {
+	w := &stateWALImpl{wal: wal, retentionWindow: retentionWindow}
 
 	// Recover the write-ordering position from the highest block already on disk.
 	ok, _, last, err := wal.Bounds()
@@ -113,6 +132,7 @@ func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
 		w.currentBlock = last
 		w.currentBlockEnded = true
 		w.hasCurrentBlock = true
+		w.lastCompletedBlock.Store(last)
 	}
 	return w, nil
 }
@@ -156,6 +176,7 @@ func (w *stateWALImpl) SignalEndOfBlock() error {
 		return w.fail(fmt.Errorf("failed to append block %d: %w", w.currentBlock, err))
 	}
 	w.currentBlockEnded = true
+	w.lastCompletedBlock.Store(w.currentBlock)
 	w.buf = nil // hand ownership to the WAL; the next block starts a fresh buffer
 	return nil
 }

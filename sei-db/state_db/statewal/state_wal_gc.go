@@ -1,0 +1,81 @@
+package statewal
+
+import (
+	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
+)
+
+// stateWALImpl joins the shared prune cycle as a contiguous store: it holds every block from its
+// retention floor up to its head, so any height in between can serve a rollback.
+//
+// This is the only surface of stateWALImpl that may be used from another goroutine (see the type
+// doc). Every method here reads a constant, a single atomic, or the WAL underneath — which permits a
+// concurrent PruneBefore by contract. None of them touch the plain fields the writer owns.
+//
+// Precondition beyond the collector's own: SC and SS must be managed alongside this WAL. The WAL is
+// what they replay from, and it is their boundaries — the oldest snapshot each still needs — that
+// hold it back, since the collector prunes every store to the shared minimum. Managed without them,
+// the WAL is pruned to its own cut line and the replay range they depend on goes with it.
+var _ gc.PrunableStore = (*stateWALImpl)(nil)
+
+func (w *stateWALImpl) Name() string {
+	return "StateWAL"
+}
+
+// ExternalPruning is unconditionally true: the WAL prunes only when told to, by Prune or PruneBelow.
+//
+// Note that its owner may still prune it directly — FlatKV does, in tryTruncateWAL — which this
+// cannot report on, since it is a property of the caller rather than of the WAL. FlatKV stands that
+// down under its own ExternalPruning for the same reason this exists.
+func (w *stateWALImpl) ExternalPruning() bool {
+	return true
+}
+
+// PruneBelow schedules removal of the blocks below blockNumber, going straight to the underlying WAL
+// from the collector's goroutine. Prune is the equivalent for the WAL's own owner; this exists
+// separately only because it must not read the closed/fatalErr bookkeeping that Prune does.
+//
+// Deliberately does not brick the WAL on failure, unlike every writer-goroutine path here. Bricking
+// means writing fatalErr, which the writer reads unsynchronized, so doing it from this goroutine would
+// be a data race. Nothing is lost by declining: a prune fails only when the WAL is already closed or
+// dead underneath, and the writer's next operation discovers that on its own.
+func (w *stateWALImpl) PruneBelow(blockNumber uint64) error {
+	if err := w.wal.PruneBefore(blockNumber); err != nil {
+		return fmt.Errorf("failed to prune state WAL below block %d: %w", blockNumber, err)
+	}
+	return nil
+}
+
+// GetRetentionWindow reports the configured history beyond the collector's shared rollback window.
+// See Config.RetentionWindow for the meaning of each value and why its default of 0 is the depth this
+// WAL actually needs: SC and SS hold it back to their oldest live snapshot on their own, by answering
+// that snapshot as their pruning boundary, so history declared here is additive on top of that and
+// applies to every managed store rather than to this WAL alone.
+func (w *stateWALImpl) GetRetentionWindow() int64 {
+	if w.retentionWindow < 0 {
+		return gc.InfiniteRetentionWindow
+	}
+	return w.retentionWindow
+}
+
+// GetPruningBoundary returns cutLine, the contract's answer for a contiguous store: the WAL holds
+// every block from its floor to its head, so cutLine itself is replayable and nothing below it has
+// to be held back.
+//
+// Unconditional on purpose. A WAL whose floor already sits above cutLine — pruned there by an
+// earlier cycle, or freshly created above it — also answers cutLine, because the PruneBelow that
+// follows is a no-op on it while a lower answer would hold every other store back to this WAL's
+// floor. CannotServeRollback is never right here: it is the replay source, not a replay consumer.
+func (w *stateWALImpl) GetPruningBoundary(cutLine uint64) uint64 {
+	return cutLine
+}
+
+// GetLatestBlock returns the highest block ended by SignalEndOfBlock, or 0 when none has been.
+//
+// A block that has been written but not yet ended is deliberately excluded: it is still buffered,
+// not a record, and reporting it would put the collector's head one block above what the WAL can
+// actually replay. See stateWALImpl.lastCompletedBlock for the 0 case.
+func (w *stateWALImpl) GetLatestBlock() (uint64, error) {
+	return w.lastCompletedBlock.Load(), nil
+}
