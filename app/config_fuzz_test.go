@@ -515,6 +515,27 @@ func TestParseSSConfigsAbsentBaselineIsZeroClobbered(t *testing.T) {
 	}
 }
 
+// TestGuardedSectionsAbsentBaseline pins that a reader handed no keys returns the defaults it declares,
+// for the two sections in this package whose reads are guarded.
+//
+// Every other check on these sections compares against something the reader itself produced. The nil
+// seed compares a nil key against the reader's own absent-key result, and CheckDefaults compares the
+// declared default against a record. Neither ties the absent-key result to the declared default, so a
+// reader that started from a different struct resolves an omitted key to the wrong value with all of
+// them green.
+//
+// For light_invariance that value decides whether the supply-conservation check runs at all, so an
+// app.toml predating the key would silently stop running it. That is the failure this pins, and the
+// standing rule this suite asserts is exactly that an omitted key resolves to the declared default.
+//
+// The two clobbering sections in this package cannot use this check, because an absent key there does
+// not resolve to the declared default. TestParseSCConfigsAbsentBaseline and
+// TestParseSSConfigsAbsentBaselineIsZeroClobbered record what they resolve to instead.
+func TestGuardedSectionsAbsentBaseline(t *testing.T) {
+	configtest.CheckAbsent(t, "genesis", readGenesis, DefaultGenesisConfig)
+	configtest.CheckAbsent(t, "light_invariance", readLightInvariance, DefaultLightInvarianceConfig)
+}
+
 // TestKeyNamesMatchTheRecordedNames pins the operator-facing spelling of every key these
 // four manifests name, and of the three [state-commit] keys that have a target instead of a row.
 //
