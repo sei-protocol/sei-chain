@@ -23,11 +23,20 @@ func (w *stateWALImpl) Name() string {
 	return "StateWAL"
 }
 
-// ExternalPruning is unconditionally true: the WAL prunes only when told to, by Prune or PruneBelow.
+// ExternalPruning is unconditionally true: the WAL prunes only when told to, by Prune or PruneBelow,
+// so there is never a pruner inside it for the collector to collide with.
 //
-// Note that its owner may still prune it directly — FlatKV does, in tryTruncateWAL — which this
-// cannot report on, since it is a property of the caller rather than of the WAL. FlatKV stands that
-// down under its own ExternalPruning for the same reason this exists.
+// FlatKV does prune this WAL directly today, in tryTruncateWAL, which can look like the store
+// enforcing its own retention and so like a reason to answer false. It is not. This method is read
+// only from a prune cycle, so it has an effect only where a collector exists — and FlatKV stands
+// tryTruncateWAL down under its own config.ExternalPruning precisely so the collector can take the
+// WAL over. False would leave that handover with nothing on either side of it: tryTruncateWAL
+// stopped, the collector declining, and the WAL growing without bound.
+//
+// Where FlatKV has not handed over, both prune, and the shared minimum makes that safe rather than
+// merely redundant: a store is asked for its boundary whatever it answers here, so FlatKV holds the
+// collector back to the oldest snapshot it still replays from. That relies on FlatKV being
+// registered at all, which is the precondition on the type above.
 func (w *stateWALImpl) ExternalPruning() bool {
 	return true
 }

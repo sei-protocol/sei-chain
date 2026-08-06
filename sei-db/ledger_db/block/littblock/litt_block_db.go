@@ -12,11 +12,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// TableName is the single table holding both blocks and QCs. They share
-// one table so a crash leaves a contiguous write-order prefix spanning both
-// record kinds (see NewBlockDB), which is what guarantees a persisted block is
-// always covered by a persisted QC.
-const TableName = "blocks"
+// tableName is the single table holding blocks and QCs both, despite the name. They share one
+// table so a crash leaves a contiguous write-order prefix spanning both record kinds (see
+// NewBlockDB), which is what guarantees a persisted block is always covered by a persisted QC.
+//
+// This value is persisted layout, not just an identifier: littdb puts a table's data at
+// <root>/<tableName>/segments, so changing it makes NewBlockDB open a fresh empty table while the
+// old data sits untouched under the previous name — neither served nor reclaimed.
+const tableName = "blocks"
 
 var _ types.BlockDB = (*blockDB)(nil)
 
@@ -97,7 +100,7 @@ func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
 	// guarantees a persisted block is always covered by a persisted QC. It also
 	// backs the write-order cursors and contiguous-QC recovery. ShardingFactor
 	// > 1, or splitting blocks and QCs across two tables, would void this.
-	tableConfig := littdb.DefaultTableConfig(TableName)
+	tableConfig := littdb.DefaultTableConfig(tableName)
 	tableConfig.TTL = config.Retention
 	tableConfig.GCFilter = s.gcFilter
 	tableConfig.ShardingFactor = 1 // DO NOT CHANGE!!
