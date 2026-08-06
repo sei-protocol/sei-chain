@@ -23,6 +23,14 @@ type DBImpl struct {
 	tempState *TemporaryState
 	journal   []journalEntry
 
+	// codeCache memos runtime bytecode so repeated GetCode calls do not re-read
+	// the KV store. nil disables caching (never lazily allocated): simulation /
+	// RPC / trace DBs leave it nil. Mutations (SetCode / RefreshCodeCache /
+	// account-code clear) are journaled per address so RevertToSnapshot restores
+	// only those entries; GetCode fills are not journaled. Cleanup / tracer reset
+	// clear the whole map. Copy() starts empty when the parent had caching enabled.
+	codeCache map[common.Address][]byte
+
 	// If err is not nil at the end of the execution, the transaction will be rolled
 	// back.
 	err error
@@ -57,6 +65,10 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 		journal:            []journalEntry{},
 		coinbaseEvmAddress: feeCollector,
 	}
+	// Enable the memo only for ordinary deliver txs (parity with x/evm/state).
+	if !simulation {
+		s.codeCache = make(map[common.Address][]byte)
+	}
 	s.Snapshot() // take an initial snapshot for GetCommitted
 	return s
 }
@@ -86,6 +98,7 @@ func (s *DBImpl) Cleanup() {
 	s.tempState = nil
 	s.logger = nil
 	s.snapshottedCtxs = nil
+	clear(s.codeCache)
 }
 
 func (s *DBImpl) CleanupForTracer() {
@@ -98,6 +111,7 @@ func (s *DBImpl) CleanupForTracer() {
 	s.tempState = NewTemporaryState()
 	s.journal = []journalEntry{}
 	s.snapshottedCtxs = []sdk.Context{}
+	clear(s.codeCache)
 	s.Snapshot()
 }
 
@@ -110,6 +124,7 @@ func (s *DBImpl) ResetForTracer() {
 	s.coinbaseEvmAddress = feeCollector
 	s.tempState = NewTemporaryState()
 	s.journal = []journalEntry{}
+	clear(s.codeCache)
 	s.Snapshot()
 }
 
@@ -175,7 +190,7 @@ func (s *DBImpl) Copy() vm.StateDB {
 	snapshots := make([]sdk.Context, len(s.snapshottedCtxs)+1)
 	copy(snapshots, s.snapshottedCtxs)
 	snapshots[len(s.snapshottedCtxs)] = s.ctx
-	return &DBImpl{
+	copied := &DBImpl{
 		ctx:                newCtx,
 		snapshottedCtxs:    snapshots,
 		tempState:          s.tempState.DeepCopy(),
@@ -188,6 +203,12 @@ func (s *DBImpl) Copy() vm.StateDB {
 		precompileErr:      s.precompileErr,
 		logger:             s.logger,
 	}
+	// Deliver copies start with an empty cache (reload on demand). If the parent
+	// had caching disabled (nil), keep it disabled — do not allocate.
+	if s.codeCache != nil {
+		copied.codeCache = make(map[common.Address][]byte)
+	}
+	return copied
 }
 
 func (s *DBImpl) Finalise(bool) {

@@ -40,7 +40,7 @@ func (m *mockDBWrapper) Version() int64 {
 	return m.commitVersion
 }
 
-func (m *mockDBWrapper) LoadVersion(_ int64) error {
+func (m *mockDBWrapper) LoadLatest() error {
 	return nil
 }
 

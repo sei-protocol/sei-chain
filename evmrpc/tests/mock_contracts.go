@@ -3,13 +3,11 @@ package tests
 import (
 	"encoding/hex"
 	"fmt"
-	"math"
 	"os"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app"
@@ -17,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
@@ -43,13 +40,13 @@ func cw20Initializer(mnemonic string, pointer bool) func(ctx sdk.Context, a *app
 		a.EvmKeeper.SetAddressMapping(ctx, contractAddr, evmAddr)
 
 		if pointer {
-			blockCtx, err := a.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64))
-			if err != nil {
-				panic(err)
-			}
-			cfg := types.DefaultChainConfig().EthereumConfig(a.EvmKeeper.ChainID(ctx))
-			evmInstance := vm.NewEVM(*blockCtx, state.NewDBImpl(ctx, &a.EvmKeeper, false), cfg, vm.Config{}, a.EvmKeeper.CustomPrecompiles(ctx))
-			_, err = a.EvmKeeper.UpsertERCCW20Pointer(ctx, evmInstance, contractAddr.String(), utils.ERCMetadata{Name: "test", Symbol: "test"})
+			// Upsert writes via StateDB; Finalize so pointer registry persists.
+			err = a.EvmKeeper.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
+				_, err := a.EvmKeeper.UpsertERCCW20Pointer(ctx, e, contractAddr.String(), utils.ERCMetadata{Name: "test", Symbol: "test"})
+				return err
+			}, func(step, msg string) {
+				panic(fmt.Sprintf("UpsertERCCW20Pointer %s: %s", step, msg))
+			})
 			if err != nil {
 				panic(err)
 			}

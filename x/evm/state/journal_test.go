@@ -139,3 +139,29 @@ func TestStorageOverrideInstallRevert_Restore(t *testing.T) {
 	change.revert(db)
 	require.Equal(t, common.Hash{15}, db.tempState.storageOverrides[addr].current[slot.Hex()])
 }
+
+func TestCodeCacheChangeRevert_Restore(t *testing.T) {
+	db := &DBImpl{codeCache: map[common.Address][]byte{}}
+	addr := common.Address{20}
+	prev := []byte{1, 2, 3}
+	db.codeCache[addr] = []byte{9, 9}
+	change := &codeCacheChange{account: addr, prev: prev, had: true}
+	change.revert(db)
+	require.Equal(t, prev, db.codeCache[addr])
+}
+
+func TestCodeCacheChangeRevert_Delete(t *testing.T) {
+	db := &DBImpl{codeCache: map[common.Address][]byte{}}
+	addr := common.Address{21}
+	db.codeCache[addr] = []byte{4, 5}
+	change := &codeCacheChange{account: addr, had: false}
+	change.revert(db)
+	_, ok := db.codeCache[addr]
+	require.False(t, ok)
+}
+
+func TestCodeCacheChangeRevert_NilCacheNoop(t *testing.T) {
+	db := &DBImpl{}
+	change := &codeCacheChange{account: common.Address{22}, prev: []byte{1}, had: true}
+	require.NotPanics(t, func() { change.revert(db) })
+}

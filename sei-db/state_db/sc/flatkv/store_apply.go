@@ -31,26 +31,16 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 	if s.readOnly {
 		return errReadOnly
 	}
-	if version <= s.committedVersion {
-		return fmt.Errorf("flatkv: apply version %d must be ahead of committed version %d",
+	// Blocks are contiguous and the first block is 1, so writes always land at committedVersion+1. See the
+	// Commit contract: a store whose history starts higher is seeded by SetInitialVersion.
+	if version != s.committedVersion+1 {
+		return fmt.Errorf("flatkv: apply version %d must be committed version %d plus one",
 			version, s.committedVersion)
 	}
-	// Two legitimate multi-call patterns must both be accepted here:
-	//   - Same-height repeats: a single block's writes may arrive across
-	//     several ApplyChangeSets calls at the same height (e.g. a
-	//     ModuleRouter fanning one block's changesets out to multiple
-	//     routes that all target flatKV).
-	//   - Strictly increasing heights: several blocks' writes may be
-	//     batched before a single Commit (e.g. a benchmark harness with
-	//     BlocksPerCommit > 1), each call stamping its own rows with its
-	//     own height.
-	// Only a height that goes backwards indicates a bug.
-	// Commit(version) below requires version == pendingBlockHeight, i.e.
-	// the highest height applied since the last Commit.
-	if s.pendingBlockHeight != 0 && version < s.pendingBlockHeight {
-		return fmt.Errorf("flatkv: cannot apply at height %d; pending writes already stamped up to %d",
-			version, s.pendingBlockHeight)
-	}
+	// A single block's writes may arrive across several ApplyChangeSets calls at the same height (e.g. a
+	// ModuleRouter fanning one block's changesets out to multiple routes that all target flatKV). The check
+	// above already restricts those to committedVersion+1, which is the only height pending writes can be
+	// stamped at, so same-height repeats are accepted and no other height can reach here.
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 	changesByType, err := classifyAndPrefix(changeSets)

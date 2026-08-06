@@ -36,9 +36,11 @@ func migrationVersionInFlatKV(t *testing.T, dir string, cfg seidbconfig.StateCom
 	t.Helper()
 	flatkvCfg := cfg.FlatKVConfig
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
-	s, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg)
+	stateWAL, err := flatkv.OpenStateWAL(&flatkvCfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	s, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg, stateWAL)
+	require.NoError(t, err)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 	defer func() { require.NoError(t, s.Close()) }()
 	reader := migration.DBReader(func(store string, key []byte) ([]byte, bool, error) {

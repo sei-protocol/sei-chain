@@ -443,7 +443,7 @@ func (g *Generator) transitionToLoadPhase() {
 		panic("benchmark: No scenarios available for load generation")
 	}
 
-	g.loadGenerator = generator.NewWeightedGenerator(weightedConfigs...)
+	g.loadGenerator = generator.NewWeightedGenerator(nil, weightedConfigs...)
 	logger.Info("benchmark: Load generator initialized and ready", "scenarios", len(weightedConfigs))
 }
 
