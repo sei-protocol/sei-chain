@@ -559,9 +559,9 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	// Phase 1: create state and close
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dir
-	s1, err := NewCommitStore(t.Context(), cfg)
+	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	for i := 1; i <= 10; i++ {
@@ -580,9 +580,9 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	// Phase 2: reopen and verify
 	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = dir
-	s2, err := NewCommitStore(t.Context(), cfg)
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -1148,9 +1148,9 @@ func TestLtHashReadOnlyMatchesParent(t *testing.T) {
 	cfg.SnapshotInterval = 1
 	cfg.SnapshotKeepRecent = 5
 
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 5; i++ {
@@ -1169,7 +1169,7 @@ func TestLtHashReadOnlyMatchesParent(t *testing.T) {
 	parentHash := s.CommittedRootHash()
 	verifyLtHashAtHeight(t, s, 5)
 
-	ro, err := s.LoadVersion(0, true)
+	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer ro.Close()
 
@@ -1273,9 +1273,9 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
-	s1, err := NewCommitStore(t.Context(), cfg)
+	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	// Blocks 1-3: mixed state
@@ -1295,9 +1295,9 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 	// Reopen — snapshot is at v3, WAL catchup replays v4-v7
 	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = dbDir
-	s2, err := NewCommitStore(t.Context(), cfg2)
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -1321,9 +1321,9 @@ func TestLtHashRollbackFullScan(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 5; i++ {
@@ -1400,9 +1400,9 @@ func TestLtHashMultipleRollbacks(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 5; i++ {

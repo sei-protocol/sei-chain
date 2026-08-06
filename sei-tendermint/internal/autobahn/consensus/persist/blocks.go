@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/seilog"
@@ -17,6 +18,17 @@ var logger = seilog.NewLogger("tendermint", "internal", "autobahn", "consensus",
 
 const blocksDir = "blocks"
 
+// blocksWALName identifies every lane WAL in metrics. All lanes share it rather than deriving a name from
+// the lane, which would make a metric label out of a validator's public key.
+//
+// Because the lanes are live at the same time under one name, their metrics are disabled: seiwal's
+// queue-depth gauge is keyed on the name alone, so the lanes would overwrite each other's samples. Giving
+// each lane a unique name — folding in laneDir(lane) — is what it would take to turn them back on.
+const blocksWALName = "autobahn_blocks"
+
+// blocksWALMetrics is whether lane WALs record metrics. See blocksWALName for why they cannot.
+const blocksWALMetrics = false
+
 // LoadedBlock is a block loaded from disk during state restoration.
 type LoadedBlock struct {
 	Number   types.BlockNumber
@@ -24,88 +36,76 @@ type LoadedBlock struct {
 }
 
 // laneWALState is the mutable state of a lane WAL, protected by laneWAL's
-// mutex. Block numbers within a lane are contiguous, so the first block
-// number is derived: nextBlockNum - Count().
+// mutex. Each block is stored under its own block number, so no mapping
+// between block numbers and WAL indices is needed.
 type laneWALState struct {
-	*indexedWAL[*types.Signed[*types.LaneProposal]]
+	wal          seiwal.WAL[*types.Signed[*types.LaneProposal]]
 	nextBlockNum types.BlockNumber
 }
 
-func (s *laneWALState) firstBlockNum() utils.Option[types.BlockNumber] {
-	if s.Count() == 0 {
-		return utils.None[types.BlockNumber]()
-	}
-	return utils.Some(s.nextBlockNum - types.BlockNumber(s.Count()))
-}
-
-// persistBlock writes a proposal to the WAL and advances nextBlockNum.
-// Caller must hold the per-lane lock.
+// persistBlock schedules a proposal for the WAL and advances nextBlockNum. The block is not durable
+// until flush returns. Caller must hold the per-lane lock.
 func (s *laneWALState) persistBlock(proposal *types.Signed[*types.LaneProposal]) error {
 	h := proposal.Msg().Block().Header()
-	if (s.Count() > 0 || s.nextBlockNum > 0) && h.BlockNumber() != s.nextBlockNum {
+	// A lane whose cursor is still zero has never held a block, so its first block sets the baseline
+	// and may carry any number.
+	if s.nextBlockNum > 0 && h.BlockNumber() != s.nextBlockNum {
 		return fmt.Errorf("block %s/%d out of sequence (next=%d)", h.Lane(), h.BlockNumber(), s.nextBlockNum)
 	}
-	if err := s.Write(proposal); err != nil {
+	if err := s.wal.Append(uint64(h.BlockNumber()), proposal); err != nil {
 		return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
 	}
 	s.nextBlockNum = h.BlockNumber() + 1
 	return nil
 }
 
-// truncateForAnchor truncates the WAL so that `first` becomes the oldest
-// retained block number. Caller must hold the per-lane lock.
-func (s *laneWALState) truncateForAnchor(lane types.LaneID, first types.BlockNumber) error {
-	firstBN, ok := s.firstBlockNum().Get()
-	if !ok {
-		// WAL is empty; nothing to truncate but advance the cursor so
-		// the next persistBlock expects the right block number.
-		if first > s.nextBlockNum {
-			s.nextBlockNum = first
-		}
-		return nil
-	}
-	if first <= firstBN {
-		return nil
-	}
-	if first >= s.nextBlockNum {
-		if err := s.TruncateAll(); err != nil {
-			return fmt.Errorf("truncate all lane %s WAL: %w", lane, err)
-		}
-		s.nextBlockNum = first
-		return nil
-	}
-	walIdx := s.FirstIdx() + uint64(first-firstBN)
-	if err := s.TruncateBefore(walIdx, func(entry *types.Signed[*types.LaneProposal]) error {
-		if got := entry.Msg().Block().Header().BlockNumber(); got != first {
-			return fmt.Errorf("block at WAL index %d has number %d, expected %d (index mapping broken)", walIdx, got, first)
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("truncate lane %s WAL before block %d: %w", lane, first, err)
+// flush makes every block scheduled by persistBlock durable. Caller must hold the per-lane lock.
+func (s *laneWALState) flush(lane types.LaneID) error {
+	if err := s.wal.Flush(); err != nil {
+		return fmt.Errorf("flush lane %s WAL: %w", lane, err)
 	}
 	return nil
 }
 
-// loadAll reads all entries from the lane WAL and returns the loaded blocks.
-// Also restores nextBlockNum from the last entry.
-func (s *laneWALState) loadAll() ([]LoadedBlock, error) {
-	entries, err := s.ReadAll()
-	if err != nil {
-		return nil, err
+// truncateForAnchor prunes the WAL so that `first` becomes the oldest retained block number, and moves
+// the cursor up when the anchor has advanced past every block the lane holds.
+//
+// Pruning is lazy: blocks below `first` may remain on disk until the file holding them falls entirely
+// below the threshold. Caller must hold the per-lane lock.
+func (s *laneWALState) truncateForAnchor(lane types.LaneID, first types.BlockNumber) error {
+	if err := s.wal.PruneBefore(uint64(first)); err != nil {
+		return fmt.Errorf("prune lane %s WAL before block %d: %w", lane, first, err)
 	}
-	loaded := make([]LoadedBlock, 0, len(entries))
-	for i, proposal := range entries {
-		h := proposal.Msg().Block().Header()
-		if i > 0 && h.BlockNumber() != s.nextBlockNum {
-			return nil, fmt.Errorf("gap in lane %s: block %d follows %d", h.Lane(), h.BlockNumber(), s.nextBlockNum-1)
-		}
+	if first > s.nextBlockNum {
+		// The anchor moved past every block persisted for this lane, so the next block to persist is
+		// the anchor's first. That leaves a gap, which the WAL is configured to permit.
+		s.nextBlockNum = first
+	}
+	return nil
+}
+
+// loadAll reads the lane WAL and returns the blocks that are still live, restoring nextBlockNum from
+// the last one.
+//
+// Blocks stranded below a lazy prune are discarded: a gap in the stored block numbers marks where
+// pruning has already logically removed everything before it.
+func (s *laneWALState) loadAll(lane types.LaneID) ([]LoadedBlock, error) {
+	entries, err := readAll(s.wal)
+	if err != nil {
+		return nil, fmt.Errorf("read lane %s WAL: %w", lane, err)
+	}
+	live := contiguousSuffix(entries)
+
+	loaded := make([]LoadedBlock, 0, len(live))
+	for _, entry := range live {
+		h := entry.value.Msg().Block().Header()
 		s.nextBlockNum = h.BlockNumber() + 1
-		loaded = append(loaded, LoadedBlock{Number: h.BlockNumber(), Proposal: proposal})
+		loaded = append(loaded, LoadedBlock{Number: h.BlockNumber(), Proposal: entry.value})
 	}
 	if len(loaded) > 0 {
 		first, last := loaded[0].Number, loaded[len(loaded)-1].Number
-		logger.Debug("loaded persisted blocks", "lane", entries[0].Msg().Block().Header().Lane().String(),
-			"first", first, "last", last, "count", len(loaded))
+		logger.Debug("loaded persisted blocks", "lane", lane.String(),
+			"first", first, "last", last, "count", len(loaded), "discarded", len(entries)-len(live))
 	}
 	return loaded, nil
 }
@@ -135,7 +135,16 @@ func (lw *laneWAL) maybePruneAndPersist(
 			if err := s.persistBlock(p); err != nil {
 				return err
 			}
-			if fn, ok := afterEach.Get(); ok {
+		}
+		if len(proposals) > 0 {
+			// persistBlock only schedules the write, so the blocks are not durable — and must not be
+			// reported as persisted — until this returns.
+			if err := s.flush(lane); err != nil {
+				return err
+			}
+		}
+		if fn, ok := afterEach.Get(); ok {
+			for _, p := range proposals {
 				fn(p)
 			}
 		}
@@ -146,7 +155,7 @@ func (lw *laneWAL) maybePruneAndPersist(
 
 func (lw *laneWAL) close() error {
 	for s := range lw.state.Lock() {
-		return s.Close()
+		return s.wal.Close()
 	}
 	panic("unreachable")
 }
@@ -179,17 +188,24 @@ func laneDir(lane types.LaneID) string {
 }
 
 func newLaneWALState(dir string) (*laneWALState, error) {
-	iw, err := openIndexedWAL(dir, types.SignedLaneProposalConv)
+	wal, err := openWAL(dir, blocksWALName, types.SignedLaneProposalConv, targetFileSize, blocksWALMetrics)
 	if err != nil {
 		return nil, err
 	}
-	return &laneWALState{indexedWAL: iw}, nil
+	return &laneWALState{wal: wal}, nil
 }
 
 // NewBlockPersister opens (or creates) per-lane WALs in subdirectories of
 // blocks/ and replays all persisted entries. Returns the persister and loaded
-// blocks grouped by lane (sorted by block number). Corrupt tail entries are
-// auto-truncated by the WAL library.
+// blocks grouped by lane (sorted by block number). A torn entry at the end of a
+// lane WAL, left by a crash mid-write, is discarded by the WAL on open.
+//
+// The blocks returned for a lane are a superset of what the prune anchor
+// considers live: pruning is lazy, so blocks the anchor has moved past can still
+// be on disk. Blocks stranded behind a gap are dropped, but those directly below
+// the anchor are indistinguishable from live ones here and are filtered by the
+// caller, which is what holds the anchor.
+//
 // When stateDir is None, returns a no-op persister.
 func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[types.LaneID][]LoadedBlock, error) {
 	sd, ok := stateDir.Get()
@@ -227,13 +243,13 @@ func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[type
 		lanePath := filepath.Join(dir, e.Name())
 		s, err := newLaneWALState(lanePath)
 		if err != nil {
-			_ = bp.close()
+			_ = bp.Close()
 			return nil, nil, fmt.Errorf("open lane WAL in %s: %w", lanePath, err)
 		}
-		loaded, err := s.loadAll()
+		loaded, err := s.loadAll(lane)
 		if err != nil {
-			_ = s.Close()
-			_ = bp.close()
+			_ = s.wal.Close()
+			_ = bp.Close()
 			return nil, nil, fmt.Errorf("load lane WAL in %s: %w", lanePath, err)
 		}
 		lanes[lane] = &laneWAL{state: utils.NewMutex(s)}
@@ -286,9 +302,10 @@ func (bp *BlockPersister) getOrCreateLane(lane types.LaneID) (*laneWAL, error) {
 //   - anchor empty, proposals non-empty: append only, no truncation.
 //   - anchor empty, proposals empty:     no-op.
 //
-// afterEach, when present, is called after each successful append. It is
-// invoked while the per-lane lock is held, so it must not re-enter the
-// persister.
+// afterEach, when present, is called once per appended proposal in order, after the whole batch has
+// been flushed — never before, because an append is not durable until then and afterEach is what
+// releases a block to the rest of consensus. It is invoked while the per-lane lock is held, so it must
+// not re-enter the persister. If any append fails, afterEach is not called for the batch at all.
 // No-op persister (dir=None): skips disk I/O but still invokes afterEach.
 // Does not spawn goroutines — the caller schedules parallelism per lane.
 //
@@ -316,11 +333,14 @@ func (bp *BlockPersister) MaybePruneAndPersistLane(
 	return lw.maybePruneAndPersist(lane, anchor, proposals, afterEach)
 }
 
-// close shuts down all per-lane WALs. Internal: only used by tests and
-// NewBlockPersister (error cleanup). Production code does not close WALs
-// at shutdown — the OS reclaims resources on process exit.
+// Close shuts down all per-lane WALs, releasing the exclusive lock each one holds on its directory.
+//
+// Production does not call this: a node exits by rugpull and the OS reclaims everything. It exists so
+// that a process which opens the same state directory more than once in its lifetime — a test
+// simulating a restart — can release the first owner before the second opens.
+//
 // Safe for concurrent use.
-func (bp *BlockPersister) close() error {
+func (bp *BlockPersister) Close() error {
 	if _, ok := bp.dir.Get(); !ok {
 		return nil // no-op persister (persistence disabled)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"math/big"
 	"testing"
+	"time"
 
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -12,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authztypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -323,6 +325,158 @@ func TestGovPrecompile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestVoteAuthorizationFlow(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	blockTime := time.Unix(1_700_000_000, 0).UTC()
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2).WithBlockTime(blockTime)
+	k := &testApp.EvmKeeper
+
+	content := govtypes.ContentFromProposalType("authorized vote", "authorized vote", govtypes.ProposalTypeText, false)
+	proposal, err := testApp.GovKeeper.SubmitProposal(ctx, content)
+	require.NoError(t, err)
+	testApp.GovKeeper.ActivateVotingPeriod(ctx, proposal)
+
+	granterSeiAddr, granterEVMAddr := testkeeper.MockAddressPair()
+	granteeSeiAddr, granteeEVMAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, granterSeiAddr, granterEVMAddr)
+	k.SetAddressMapping(ctx, granteeSeiAddr, granteeEVMAddr)
+
+	p, err := gov.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.NoError(t, err)
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{StateDB: statedb}
+
+	call := func(caller common.Address, methodName string, value *big.Int, readOnly bool, delegateCall bool, args ...interface{}) ([]byte, error) {
+		t.Helper()
+		input, packErr := p.ABI.Pack(methodName, args...)
+		require.NoError(t, packErr)
+		ret, _, callErr := p.RunAndCalculateGas(&evm, caller, caller, input, 1_000_000, value, nil, readOnly, delegateCall)
+		return ret, callErr
+	}
+	assertSuccess := func(methodName string, ret []byte) {
+		t.Helper()
+		outputs, unpackErr := p.ABI.Methods[methodName].Outputs.Unpack(ret)
+		require.NoError(t, unpackErr)
+		require.Equal(t, []interface{}{true}, outputs)
+	}
+
+	expiration := blockTime.Add(time.Hour)
+	ret, err := call(
+		granterEVMAddr,
+		gov.GrantVoteMethod,
+		nil,
+		false,
+		false,
+		granteeEVMAddr,
+		expiration.Unix(),
+	)
+	require.NoError(t, err)
+	assertSuccess(gov.GrantVoteMethod, ret)
+
+	voteMsgType := sdk.MsgTypeURL(&govtypes.MsgVote{})
+	authorization, storedExpiration := testApp.AuthzKeeper.GetCleanAuthorization(
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		voteMsgType,
+	)
+	require.IsType(t, &authztypes.GenericAuthorization{}, authorization)
+	require.Equal(t, expiration, storedExpiration)
+	weightedAuthorization, _ := testApp.AuthzKeeper.GetCleanAuthorization(
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		sdk.MsgTypeURL(&govtypes.MsgVoteWeighted{}),
+	)
+	require.Nil(t, weightedAuthorization)
+
+	ret, err = call(
+		granteeEVMAddr,
+		gov.VoteWithAuthzMethod,
+		nil,
+		false,
+		false,
+		granterEVMAddr,
+		proposal.ProposalId,
+		int32(govtypes.OptionYes),
+	)
+	require.NoError(t, err)
+	assertSuccess(gov.VoteWithAuthzMethod, ret)
+	vote, found := testApp.GovKeeper.GetVote(statedb.Ctx(), proposal.ProposalId, granterSeiAddr)
+	require.True(t, found)
+	require.Equal(t, govtypes.OptionYes, vote.Options[0].Option)
+
+	ret, err = call(granterEVMAddr, gov.RevokeVoteMethod, nil, false, false, granteeEVMAddr)
+	require.NoError(t, err)
+	assertSuccess(gov.RevokeVoteMethod, ret)
+	authorization, _ = testApp.AuthzKeeper.GetCleanAuthorization(
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		voteMsgType,
+	)
+	require.Nil(t, authorization)
+
+	_, err = call(
+		granteeEVMAddr,
+		gov.VoteWithAuthzMethod,
+		nil,
+		false,
+		false,
+		granterEVMAddr,
+		proposal.ProposalId,
+		int32(govtypes.OptionNo),
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	vote, found = testApp.GovKeeper.GetVote(statedb.Ctx(), proposal.ProposalId, granterSeiAddr)
+	require.True(t, found)
+	require.Equal(t, govtypes.OptionYes, vote.Options[0].Option)
+
+	_, err = call(
+		granterEVMAddr,
+		gov.GrantVoteMethod,
+		nil,
+		false,
+		false,
+		granteeEVMAddr,
+		blockTime.Unix(),
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+
+	_, err = call(
+		granterEVMAddr,
+		gov.GrantVoteMethod,
+		big.NewInt(1),
+		false,
+		false,
+		granteeEVMAddr,
+		expiration.Unix(),
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+
+	_, err = call(
+		granterEVMAddr,
+		gov.GrantVoteMethod,
+		nil,
+		true,
+		false,
+		granteeEVMAddr,
+		expiration.Unix(),
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+
+	_, err = call(
+		granterEVMAddr,
+		gov.GrantVoteMethod,
+		nil,
+		false,
+		true,
+		granteeEVMAddr,
+		expiration.Unix(),
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
 }
 
 func TestPrecompileExecutor_submitProposal(t *testing.T) {

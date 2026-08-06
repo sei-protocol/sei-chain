@@ -216,7 +216,8 @@ func DumpFlatKVData(dbDir, outputDir string, height int64, bucket string, withLt
 	version := store.Version()
 	fmt.Printf("Opened FlatKV at version %d\n", version)
 
-	return dumpFlatKVFromStore(store.CommitStore, outputDir, version, bucket, withLtHash, lthashOnly, committedIsFullState, readLimitMiBps)
+	return dumpFlatKVFromStore(store, outputDir, version, bucket, withLtHash, lthashOnly,
+		committedIsFullState, readLimitMiBps)
 }
 
 // snapshotMetadataMakesCommittedHashFullState decides, from the snapshot's own
@@ -313,7 +314,9 @@ func selectedSnapshotHasLtHashMetadata(dbDir, snapshotName string) (bool, error)
 // dumpFlatKVFromStore is the core scan+write path, split out so tests can
 // exercise it against an in-memory store without going through the
 // snapshot clone machinery used by the CLI.
-func dumpFlatKVFromStore(store *flatkv.CommitStore, outputDir string, version int64, bucket string, withLtHash bool, lthashOnly bool, committedIsFullState bool, readLimitMiBps float64) error {
+func dumpFlatKVFromStore(store flatkv.Store, outputDir string, version int64, bucket string,
+	withLtHash bool, lthashOnly bool, committedIsFullState bool, readLimitMiBps float64,
+) error {
 	limiter := newReadLimiter(readLimitMiBps)
 	ctx := context.Background()
 
@@ -510,7 +513,7 @@ func printFlatKVLtHash(hashers map[string]*bucketLtHasher, version int64) {
 // (CommittedRootHash). A PASS means the physical bytes on disk hash to exactly
 // the committed root recorded at this version. Returns an error on mismatch so
 // the CLI exits non-zero.
-func verifyFlatKVLtHash(store *flatkv.CommitStore, hashers map[string]*bucketLtHasher) error {
+func verifyFlatKVLtHash(store flatkv.Store, hashers map[string]*bucketLtHasher) error {
 	committedTotal := store.CommittedRootHash()
 
 	// A store that loaded no LtHash from metadata reports the checksum of the

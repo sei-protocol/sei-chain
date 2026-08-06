@@ -49,14 +49,17 @@ var wasmKeys = []configtest.KeySpec{
 func readWasm(opts configtest.AppOpts) (any, error) { return wasm.ReadWasmConfig(opts) }
 
 func FuzzReadWasmConfig(f *testing.F) {
-	f.Add(uint(0), fuzzing.KindInt64, "", int64(300000), false)
-	f.Add(uint(0), fuzzing.KindNumericString, "", int64(3000000), false)
-	f.Add(uint(0), fuzzing.KindInt64, "", int64(-1), false) // negative into an unsigned cast: rejected
-	f.Add(uint(1), fuzzing.KindInt64, "", int64(256), false)
-	f.Add(uint(2), fuzzing.KindBool, "", int64(0), true)
-	f.Add(uint(2), fuzzing.KindString, "not-a-bool", int64(0), false)
-	f.Add(uint(0), fuzzing.KindNil, "", int64(0), false)
-	f.Add(uint(1), fuzzing.KindMap, "", int64(0), false)
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seeds.AddRow(uint(0), fuzzing.KindInt64, "", int64(300000), false)
+	seeds.AddRow(uint(0), fuzzing.KindNumericString, "", int64(3000000), false)
+	seeds.AddRow(uint(0), fuzzing.KindInt64, "", int64(-1), false) // negative into an unsigned cast: rejected
+	seeds.AddRow(uint(1), fuzzing.KindInt64, "", int64(256), false)
+	seeds.AddRow(uint(2), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(2), fuzzing.KindString, "not-a-bool", int64(0), false)
+	seeds.AddRow(uint(0), fuzzing.KindNil, "", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindMap, "", int64(0), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "wasm", readWasm, wasmKeys, seeds)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(wasmKeys, keyIdx)
@@ -188,6 +191,19 @@ func FuzzWasmSimulationGasLimit(f *testing.F) {
 // silently.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "wasm", types.DefaultWasmConfig())
+}
+
+// TestKeyNamesMatchTheRecordedNames pins the three key names themselves.
+//
+// Two are literals and the third, server.FlagTrace, is the global --trace flag reached
+// through the sei-cosmos constant that declares it — a key whose value can be edited in
+// another module entirely, where nothing suggests that a wasm contract debug switch rides on
+// it. The recorded name is why that edit fails here.
+//
+// The record holds "trace" without a section prefix for that row, which is correct: the
+// third row is not a [wasm] key at all.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "wasm", wasmKeys)
 }
 
 // TestManifestNamesEveryField enforces the claim wasmKeys makes about itself: that it names

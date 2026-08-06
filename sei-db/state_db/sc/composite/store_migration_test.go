@@ -242,7 +242,7 @@ func driveMigrationWorkload(
 	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 
 	for i := 0; i < phase1Blocks; i++ {
@@ -267,7 +267,7 @@ func driveMigrationWorkload(
 	require.NoError(t, err)
 	require.NoError(t, cs.SetMigrationBatchSize(keysToMigratePerBlock))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 
 	// Phase 1 reads must still resolve through the migration router.
@@ -295,7 +295,7 @@ func reopenInMigrateEVM(t *testing.T, dir string, batch int) *CompositeCommitSto
 	require.NoError(t, err)
 	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 	return cs
 }
@@ -311,7 +311,7 @@ func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *test
 	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 
 	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -449,7 +449,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
@@ -507,7 +507,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	cs, err = NewCompositeCommitStore(t.Context(), dir, finalCfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
 
@@ -701,7 +701,7 @@ func TestComposite_MigrateEVM_CrashAndResume(t *testing.T) {
 		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 		require.NoError(t, err)
 		require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-		_, err = cs.LoadVersion(0, false)
+		err = cs.LoadLatest()
 		require.NoError(t, err)
 		for i := 0; i < phase1Blocks; i++ {
 			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
@@ -790,7 +790,7 @@ func TestComposite_MigrateEVM_DeterministicAcrossTwoStores(t *testing.T) {
 		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
 		require.NoError(t, err)
 		require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-		_, err = cs.LoadVersion(0, false)
+		err = cs.LoadLatest()
 		require.NoError(t, err)
 		for i := 0; i < phase1Blocks; i++ {
 			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
@@ -858,7 +858,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	cs, err := NewCompositeCommitStore(t.Context(), dir, finalCfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
 
@@ -966,7 +966,7 @@ func openCompositeForRollback(
 	require.NoError(t, err)
 	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 	return cs
 }

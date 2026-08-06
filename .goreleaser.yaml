@@ -49,18 +49,31 @@ checksum:
 snapshot:
   version_template: '{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}'
 
+# The GitHub Release already carries an auto-generated "What's Changed" commit list and
+# a "Full Changelog" compare link: the uci reusable workflow
+# sei-protocol/uci/.github/workflows/release-publish.yml creates the release with
+# generate_release_notes: true, and the goreleaser job then appends to it (release.mode
+# below). goreleaser was adding a second copy of both, so its changelog is disabled here
+# and its footer removed.
+#
+# Disabling the changelog does NOT drop the release.header block below: header/footer are
+# applied by goreleaser's release pipe, not the changelog pipe, so `disable` only empties
+# the middle of the release body. It is also the only config-only way to get a header-only
+# body: filtering out every commit still emits a bare "## Changelog" heading. Deleting
+# release.footer is likewise the only way to drop the duplicate compare link, since footer
+# rendering is independent of the changelog pipe.
+#
+# Verified against goreleaser v2.15.4 (release pipe composes the body from release.header +
+# ctx.ReleaseNotes + release.footer in internal/pipe/release/body.go; changelog.disable only
+# empties ctx.ReleaseNotes). uci pins the floating range `~> v2`, so if a future v2.x ever
+# drops the header from a release body, re-check that composition first. The header content
+# includes the checksum-verification instructions, so losing it would be user-visible.
+#
+# Caveat if the release args ever change: `disable` also discards flag-supplied notes
+# (--release-notes / --release-header / --release-footer). uci passes a fixed
+# `release --clean`, so nothing here relies on those.
 changelog:
-  use: github
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-      - 'merge conflict'
-      - Merge pull request
-      - Merge remote-tracking branch
-      - Merge branch
+  disable: true
 
 release:
   github:
@@ -82,5 +95,3 @@ release:
     ```
 
     For Docker images, see `ghcr.io/sei-protocol/sei`.
-  footer: |
-    **Full Changelog**: https://github.com/sei-protocol/sei-chain/compare/{{ .PreviousTag }}...{{ .Tag }}

@@ -355,9 +355,11 @@ func newTestFlatKVStoreAtHome(t *testing.T, homeDir string) *flatkv.CommitStore 
 	t.Helper()
 	cfg := flatkvconfig.DefaultTestConfig(t)
 	cfg.DataDir = utils.GetFlatKVPath(homeDir)
-	store, err := flatkv.NewCommitStore(context.Background(), cfg)
+	stateWAL, err := flatkv.OpenStateWAL(cfg)
 	require.NoError(t, err)
-	_, err = store.LoadVersion(0, false)
+	store, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
+	require.NoError(t, err)
+	err = store.LoadLatest()
 	require.NoError(t, err)
 	return store
 }

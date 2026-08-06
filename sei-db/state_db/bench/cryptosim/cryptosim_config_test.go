@@ -50,6 +50,25 @@ func TestLoadConfigFromFile_InvalidStateStoreBackend(t *testing.T) {
 	require.ErrorContains(t, err, `StateStoreConfig.Backend must be one of "pebbledb" or "rocksdb"`)
 }
 
+// TestShippedConfigsAreValid keeps every config file under config/ runnable: a
+// config that fails Validate is a broken benchmark nobody discovers until they run
+// it.
+func TestShippedConfigsAreValid(t *testing.T) {
+	t.Parallel()
+
+	paths, err := filepath.Glob(filepath.Join("config", "*.json"))
+	require.NoError(t, err)
+	require.NotEmpty(t, paths, "no shipped configs found")
+
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			t.Parallel()
+			_, err := LoadConfigFromFile(path)
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestLoadConfigFromFile_DisableTransactionReadsOverride(t *testing.T) {
 	t.Parallel()
 

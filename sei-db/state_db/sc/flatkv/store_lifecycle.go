@@ -17,17 +17,12 @@ func (s *CommitStore) isClosed() bool {
 		s.codeDB == nil && s.storageDB == nil && s.miscDB == nil
 }
 
-// closeDBsOnly closes all database handles and the WAL but retains the
-// file lock, preventing a race window during Rollback or LoadVersion.
+// closeDBsOnly closes all database handles but retains the file lock, preventing a race window during
+// Rollback or LoadVersion. It deliberately does NOT close the WAL: the injected WAL's lifecycle is decoupled
+// from the DB open/close cycle and must survive the reopen that Rollback/LoadVersion perform. The WAL is
+// closed only by top-level Close (or replaced in place by Rollback/restore).
 func (s *CommitStore) closeDBsOnly() error {
 	var errs []error
-
-	if s.changelog != nil {
-		if err := s.changelog.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("changelog close: %w", err))
-		}
-	}
-	s.changelog = nil
 
 	if s.metadataDB != nil {
 		if err := s.metadataDB.Close(); err != nil {
@@ -70,9 +65,16 @@ func (s *CommitStore) closeDBsOnly() error {
 	return nil
 }
 
-// Close drains thread pools, closes all database instances, cancels the
-// store's context to stop background goroutines (caches, metrics), and
-// releases the file lock.
+// Close drains thread pools, closes all database instances, cancels the store's context to stop background
+// goroutines (caches, metrics), and releases the file lock.
+//
+// Close does not coordinate with concurrent operations: it releases resources they still hold, and no lock
+// guards them against it. Callers need not quiesce first — a background export replaying this store's WAL into
+// a read-only clone (see replayIntoReadOnlyCopy) ends with a closed-WAL error.
+//
+// That overlap includes an unsynchronized read of the WAL's closed flag. The racing read either observes the
+// flag or falls through to the WAL's own closed check, so it changes nothing a caller can see, but a test that
+// closes the store while an export runs would trip the race detector.
 func (s *CommitStore) Close() error {
 	if s.readPool != nil {
 		s.readPool.Close()
@@ -91,6 +93,18 @@ func (s *CommitStore) Close() error {
 	s.ltCalc = nil
 
 	err := s.closeDBsOnly()
+
+	// FlatKV owns Close of whatever WAL instance it currently holds (the injected one, or a replacement made
+	// by rollback/restore). A nil WAL means the outer context owns the pipeline — nothing to close. The
+	// closed instance is deliberately retained rather than nilled: a store constructed with a WAL holds one
+	// for its whole life, so a later write fails loudly against the closed WAL instead of being silently
+	// skipped as it would be against a nil one.
+	if s.wal != nil {
+		if walErr := s.wal.Close(); walErr != nil {
+			err = errors.Join(err, fmt.Errorf("WAL close: %w", walErr))
+		}
+	}
+
 	s.cancel()
 
 	if s.fileLock != nil {
@@ -118,7 +132,7 @@ func (s *CommitStore) Close() error {
 // working directories left behind by a previous process crash. It is a
 // startup-only API and must be called before any read-only instances are
 // created in the current process. The acquired writer lock is retained for
-// subsequent LoadVersion(..., false) calls.
+// subsequent LoadLatest calls.
 func (s *CommitStore) CleanupOrphanedReadOnlyDirs() error {
 	dir := s.flatkvDir()
 	if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -156,14 +170,14 @@ func (s *CommitStore) Exporter(version int64) (types.Exporter, error) {
 	if s.readOnly {
 		return nil, errReadOnly
 	}
-	roStore, err := s.LoadVersion(version, true)
+	roStore, err := s.LoadVersionReadOnly(version)
 	if err != nil {
 		return nil, fmt.Errorf("load readonly version for export: %w", err)
 	}
 	cs, ok := roStore.(*CommitStore)
 	if !ok {
 		_ = roStore.Close()
-		return nil, fmt.Errorf("unexpected store type from LoadVersion")
+		return nil, fmt.Errorf("unexpected store type from LoadVersionReadOnly")
 	}
 	return NewKVExporter(cs, version), nil
 }

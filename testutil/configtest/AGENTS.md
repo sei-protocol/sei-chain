@@ -16,12 +16,21 @@ path and prove the replacement resolves every key the same way.
 
 ## Standing Rule
 
-A change to how a configuration value is read, defaulted, named, or cast is a
-change to a pinned contract, so the suite fails. That failure is the review prompt.
-Record the new behavior and put the old and new value in the diff, rather than
-loosening the assertion until it passes.
+Inside the surface the suite covers, a change to how a configuration value is read,
+defaulted, named, or cast is a change to a pinned contract, so the suite fails. That
+failure is the review prompt. Record the new behavior and put the old and new value in
+the diff, rather than loosening the assertion until it passes.
 
-Three ways of making a failure go away are wrong here, because each one turns a
+What that surface is has to be read alongside the rule, because the rule is
+unconditional only inside it. A key added to a struct field some row already claims is
+not caught, and nothing mechanical will prompt you (`Adding a Key to an Existing
+Section`). A rename fails here and still has to be carried by hand into the app.toml
+template, the flag registration and the documentation (`Renaming a Key`). And whole
+classes of read sit outside the suite (`Out of Scope`). None of that softens the
+paragraph above for the reads the suite does cover: there, the failure is not optional
+and not something to route around.
+
+Four ways of making a failure go away are wrong here, because each one turns a
 visible change into an invisible one:
 
 1. `t.Skip` on a row whose behavior changed. CI stays green and a skip line in
@@ -56,12 +65,39 @@ both omitted fields default to false. Those are real properties of the legacy pa
 and recording them is the difference between pinned and accidentally still true.
 
 Then seed the row so an ordinary `go test` run reaches it rather than only the
-fuzzer. Seeds name their shape through the `fuzzing.Kind*` constants:
+fuzzer. Seeds name their shape through the `fuzzing.Kind*` constants and go through
+the recorder rather than `f.Add`, which is what lets the harness read back the
+corpus it is being asked to trust:
 
 ```go
-f.Add(uint(idx), fuzzing.KindNil, "", int64(0), false)          // absent-key path
-f.Add(uint(idx), fuzzing.KindString, "not-a-number", int64(0), false) // malformed input
+seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+seeds.AddRow(uint(idx), fuzzing.KindNil, "", int64(0), false)                 // absent-key path
+seeds.AddRow(uint(idx), fuzzing.KindString, "not-a-number", int64(0), false)  // malformed input
 ```
+
+At least one of a row's seeds has to resolve the row's field to something other
+than what an absent key resolves it to, and
+`CheckEveryRowHasADiscriminatingSeed` fails the section when none does. Where the
+predicted leaf and the absent-key leaf agree, the row's assertion is comparing a
+document against itself: it holds for a reader that resolves the key and equally
+for one that never looks it up, so the key can be renamed in production with the
+suite green. Nine of the ninety-six rows the suite then held were in that position when this
+check was written.
+
+The two seeds above do not settle it on their own. An unguarded row resolves an
+absent key to its cast's zero, and so does any value that cast rejects on an
+unchecked read, so both of those seeds land on the absent-key value and only a
+value that converts to something else discriminates. A guarded row is undone the
+other way, by a seed that happens to carry the in-code default.
+
+Finally, record the row's key and review the line it adds:
+
+```bash
+go test ./evmrpc/config/ -run TestKeyNames -update
+```
+
+`Renaming a Key` below says what that record catches which the seeds cannot, and
+why a row that reaches its key through the reader's own flag constant needs it.
 
 Write one row per key, including when two keys land in the same struct field. The
 manifest is what the differential enumerates, so a key with no row is a key the
@@ -73,6 +109,133 @@ call site. It works on fields rather than keys, so it catches a field no row cla
 and cannot catch a second key landing in a field some other row already claims. That
 case is the one the per-key rule above exists for, and nothing mechanical will
 prompt you.
+
+Each exemption says which of two things it is — a key driven by a dedicated target in the
+same file, or a field carrying no configuration key at all — and says it in a comment
+beside the path. A bulk exemption is the same move as widening an assertion: it makes the
+check green over the surface it was there to measure.
+
+It assumes one reader per struct, which is what keeps it out of `[state-commit]`.
+`StateCommitConfig` is populated by two readers that each read keys the other does not —
+`parseSCConfigs` over the flat `AppOpts` map, and `sei-cosmos/server/config.GetConfig` over
+viper, the only reader of four of the five `state-commit.flatkv.*` keys. They are not
+disjoint: eleven keys are read by both, `sc-write-mode` and
+`flatkv.enable-read-write-metrics` among them. So "every field of this struct is named by
+`scKeys`" is not a true statement to assert, and making it pass would take 62 exemptions
+against a 17-row manifest, four of them claiming a key is unread when the other reader
+reads it.
+
+Fifty-seven of those 62 sit under `FlatKVConfig`, so the move to reach for is waving the
+subtree through in one line. Exemptions match a whole `Dump` path, so `"FlatKVConfig"`
+exempts nothing and the count does not drop — and were it a prefix it would surrender the
+protection the check exists for, since a new `state-commit.flatkv.*` key in
+`parseSCConfigs` would go unflagged and that reader already reads one of them. The shape
+that would work is per reader rather than per section: `defaults` is an `any`, so the check
+can be pointed at `FlatKVConfig` alone inside `sei-cosmos/server/config` with that reader's
+five flatkv keys as rows, and the 53 exemptions left would each say truthfully that the
+field carries no configuration key. Unbuilt. Meanwhile, wire the check where the section
+has one reader; a demotion is caught for every section by the record's marker regardless.
+
+## Renaming a Key
+
+Key names are recorded in `testdata/<section>.keys.golden`, one quoted key per line — the
+manifest's rows in order, then a `# keys with a target of their own` marker, then any keys
+recorded for their name alone (`A key with no row`) — and compared by `CheckKeyNames` on
+every run. So the file is longer than the manifest has rows, and that is not staleness:
+trimming it to the row count deletes rows, which is one of the four forbidden moves.
+Renaming a key fails the comparison with the old and the new spelling in the report.
+Regenerate and keep the diff in the review:
+
+```bash
+go test ./app/ -run TestKeyNames -update
+```
+
+The record exists because the seeds cannot cover this case, and the reason is worth
+knowing before trying to satisfy one with the other. A row's assertions and the
+discriminating-seed check both take the key from the row, so when the row names its
+key through the same constant the reader passes to `appOpts.Get` —
+`{Key: FlagSSImportNumWorkers}` against `opts.Get(FlagSSImportNumWorkers)` — editing
+that constant's value moves both halves together. Every assertion still passes, and
+now passes about a key no node has ever been configured with. Thirty-one rows are
+spelled that way, and editing that constant is exactly how an app.toml key gets
+renamed. The count of rows is deliberately not stated here: it moves whenever anyone
+adds a key, and a number in prose goes stale silently where the records do not.
+
+So the two checks divide the work, and which one fires tells you what happened:
+
+- The reader's key moved and the row kept the old spelling: nothing can discriminate
+  the row any more, so `CheckEveryRowHasADiscriminatingSeed` fails. It distinguishes
+  this from badly chosen seeds by trying whether *any* value discriminates, and says
+  which case it found — a report naming the reader is not asking for another seed.
+- The row and the reader moved together: the recorded name is the only copy that did
+  not, so `CheckKeyNames` fails and the seeds stay green.
+
+Neither is a substitute for the other. `CheckEveryRowHasADiscriminatingSeed` compares the
+same record, so a section cannot acquire seeds without acquiring the record, and deleting
+the `CheckKeyNames` call does not turn a rename back into a green run. Deleting a check to
+clear a failure is the same move the four above forbid for rows. That is why a genuine
+rename is reported twice, once from each check, with the same diff.
+
+The tie runs one way only, and the direction is worth knowing before relying on it: seeds
+imply the record, not the reverse. A section wired for `CheckKeyNames` alone — one with no
+manifest, so no seeds to check — acquires no seeds check, and nothing detects that its one
+call has been deleted. `[state-sync]` in `cmd/seid/cmd` is such a section: `NewApp` reads its
+three keys into a baseapp, which no row can describe, so the record is all that package has
+and the call holding it is deletable. The same three keys do have rows in
+`sei-cosmos/server/config`, where `GetConfig` resolves them into a struct — what admits a row
+is the reader, not the section. Wire a manifest where a manifest is possible.
+
+Renaming a key is a migration, and the record is not the whole of it. The app.toml
+template that renders the old spelling (`sei-db/config/toml.go` writes
+`ss-import-num-workers` as literal text), the flag registration and the documentation
+are separate places holding the same string, and nothing here checks them. What the
+record buys is that the rename cannot land without a reviewer seeing which
+operator-facing key moved.
+
+### A key with no row
+
+Some keys cannot be described by a row at all. `sc-write-mode` panics on a value its
+parser rejects, `sc-hash-logger-target-file-size` adopts a cast result only when it is
+positive, `sc-write-mode-enable-auto` rewrites a second field through
+`ApplyWriteModeAuto` — `CheckRow` would predict the wrong resolution for each, so each
+has a fuzz target of its own that asserts it directly. Those targets spell the key
+through the reader's own constant, which puts the name in exactly the position this
+record exists for.
+
+Record such a key as a `configtest.KeyName`, and pass the list to both checks:
+
+```go
+var scKeysWithTargetsOfTheirOwn = []configtest.KeyName{
+    FlagSCWriteMode,                // FuzzSCWriteMode
+    FlagSCWriteModeEnableAuto,      // FuzzSCWriteMode
+    FlagSCHashLoggerTargetFileSize, // FuzzSCHashLoggerTargetFileSize
+}
+
+configtest.CheckEveryRowHasADiscriminatingSeed(f, "state-commit", readSC, scKeys, seeds,
+    scKeysWithTargetsOfTheirOwn...)
+configtest.CheckKeyNames(t, "state-commit", scKeys, scKeysWithTargetsOfTheirOwn...)
+```
+
+A `KeyName` is a distinct type from `KeySpec` so the compiler keeps it out of `CheckRow`,
+`Pick` and the discriminating-seed check: it claims the spelling and predicts nothing
+about the resolved value, and the target that can express the prediction keeps it. Both
+call sites take the same list because both compare the whole record, so a list passed to
+one and not the other fails on the next run rather than recording half of it. The names
+go after the rows, which is what keeps adding one from rebinding the row index a
+section's seeds select by.
+
+`specs` may be nil where a package's reader admits no row — `[state-sync]` in `cmd/seid/cmd`
+is recorded that way, because the reader there is `NewApp`. The record is then the marker and
+the names, and read at a glance it says that nothing in that file is held to a resolved
+value.
+
+This is not a place to park a key a row could describe. A row is held to the resolution
+on every value the fuzzer reaches; a `KeyName` states one string, which is the least the
+suite can say about a key. The record enforces that distinction rather than trusting it:
+the two halves are separated by a `# keys with a target of their own` line, so deleting a
+row and re-recording the same key below the marker moves a line across it and fails. That
+edit used to produce a byte-identical file, and because each one made the next row the last
+one, a manifest could be emptied one green run at a time.
 
 ## Changing a Default
 
@@ -86,6 +249,12 @@ go test ./evmrpc/config/ -run TestDefaultsMatchTheRecordedValues -update
 Pass `-update` per package rather than tree-wide. The flag is only registered in
 binaries that link the harness, so `go test ./... -update` makes every other package
 exit with "flag provided but not defined".
+
+Name the package before the flag, as every command here does. `go test -run TestKeyNames
+-update ./app/` puts an unrecognized flag ahead of the package list, so `go test` reads
+`./app/` as an argument to the test binary and runs the package in the current directory
+instead — which does not link the harness, and exits with the same `flag provided but not
+defined: -update`. That failure looks like a broken check rather than a mis-ordered command.
 
 The recorded file is the anchor a self-comparison cannot provide. A test that reads
 a section with no keys set and compares the result against that same package's
@@ -114,14 +283,25 @@ configtest.CheckDefaults(t, "evm", config.DefaultConfig,
 
 ## Adding a Section
 
-A new section needs four things, and the fourth is the one that is easy to miss:
+A new section needs five things, and the last two are the ones that are easy to miss:
 
 1. `CheckDefaults` against a checked-in `testdata/<section>.golden`.
 2. `CheckAbsent`, asserting that a reader handed no keys returns exactly the
-   package's declared defaults.
-3. A `[]KeySpec` manifest with a `CheckRow` fuzz target, seeded per row.
-4. `CheckManifestCoversEveryField`, so the manifest cannot silently fall behind the
-   reader.
+   package's declared defaults — unless the reader clobbers, in which case
+   `CheckAbsent` would assert the opposite of the truth and the divergence gets a test
+   that names it instead. `[state-sync]` in `sei-cosmos/server/config` is that case:
+   `snapshot-keep-recent` defaults to 2 and an absent key resolves 0.
+3. A `[]KeySpec` manifest with a `CheckRow` fuzz target, seeded per row through
+   `NewSeeds` and asserted by `CheckEveryRowHasADiscriminatingSeed`.
+4. `CheckKeyNames` against a checked-in `testdata/<section>.keys.golden`, in a
+   `TestKeyNamesMatchTheRecordedNames`. `CheckEveryRowHasADiscriminatingSeed` compares
+   the same record, so a section that has the seeds cannot lack the record and deleting
+   this call does not re-green a rename. The reverse does not hold — see `Renaming a Key`.
+5. `CheckManifestCoversEveryField`, so the manifest cannot silently fall behind the
+   reader, unless the section's struct has a second reader covering different keys.
+
+The manifest has to be a package-level `var` for the fourth, since a table declared
+inside its fuzz target is not something a `Test` function can name.
 
 ## Running
 
@@ -179,7 +359,7 @@ process environment, `$HOME`, and the executable basename all feed the result.
 ## Out of Scope
 
 The suite covers the viper resolution and the keys `app.New` reads back out of the
-flat map. Two classes sit outside it:
+flat map. Three classes sit outside it:
 
 - Reads that need a running node, tracked in PLT-851.
 - Direct environment and file reads that bypass the boot path entirely, such as

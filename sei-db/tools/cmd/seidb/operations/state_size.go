@@ -137,7 +137,7 @@ func maybeCollectFlatKV(flatkvDir, dbDir, module string, height int64) (*FlatKVS
 
 	actualHeight := store.Version()
 	fmt.Printf("Opened FlatKV at version %d\n", actualHeight)
-	result, err := collectFlatKVStateSize(store.CommitStore)
+	result, err := collectFlatKVStateSize(store)
 	if err != nil {
 		fmt.Printf("FlatKV analysis skipped: %v\n", err)
 		return nil, 0

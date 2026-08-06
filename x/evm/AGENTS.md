@@ -69,6 +69,7 @@ Key design choices:
 
 - **Balance representation** — Sei uses 6-decimal `usei` while EVM expects 18-decimal wei. The StateDB converts between them, tracking the sub-usei remainder (`wei`) separately.
 - **Snapshots and reverts** — uses Cosmos `CacheMultiStore` for state snapshots. A journal records every state mutation so it can be rolled back on revert.
+- **Deliver-tx code memo** — ordinary deliver `DBImpl` memos `GetCode` bytecode (`codeCache`). Simulation / RPC / trace / wasmd-entry leave it nil. Mutations go through `SetCode` or `RefreshCodeCache` (keeper bypasses) and are journaled per address so nested reverts do not wipe unrelated warms. `GetCodeSize` / `GetCodeHash` still read the store.
 - **Transient state** — logs, transient storage (EIP-1153), access lists, and gas refunds are held in memory per-transaction and not persisted until finalization.
 - **Coinbase collection** — each transaction gets a deterministic coinbase address for collecting fee surplus, which is swept to the fee collector at end-of-block.
 
