@@ -57,11 +57,10 @@ async function main(): Promise<void> {
     const users = await deriveUsers(target.mnemonic);
     const adminWallet = await cosmosWalletAt(target.mnemonic, 0);
     const adminAddress = (await adminWallet.getAccounts())[0].address;
-    const admin = await SigningStargateClient.connectWithSigner(
-        target.cosmosRpcUrl,
-        adminWallet,
-        { registry: replayRegistry(), broadcastPollIntervalMs: 200 },
-    );
+    const admin = await SigningStargateClient.connectWithSigner(target.cosmosRpcUrl, adminWallet, {
+        registry: replayRegistry(),
+        broadcastPollIntervalMs: 200,
+    });
     try {
         await verifyTargetCosmosRpc(target, admin);
     } catch (error) {
@@ -69,6 +68,22 @@ async function main(): Promise<void> {
         throw error;
     }
 
+    const associations = await mapConcurrent(users, 5, async user => {
+        const mapping = await queryEvmAssociation(target.cosmosRpcUrl, user.seiAddress);
+        if (
+            mapping.associated &&
+            mapping.evmAddress.toLowerCase() !== user.evmAddress.toLowerCase()
+        ) {
+            throw new Error(
+                `User ${user.index} is associated with ${mapping.evmAddress}, ` +
+                    `expected ${user.evmAddress}`,
+            );
+        }
+        return mapping;
+    });
+    const associationByAddress = new Map(
+        users.map((user, index) => [user.seiAddress, associations[index]]),
+    );
     const initialBalances = await Promise.all(
         users.map(async user => BigInt((await admin.getBalance(user.seiAddress, 'usei')).amount)),
     );
@@ -78,7 +93,7 @@ async function main(): Promise<void> {
         users.map((user, index) => ({
             address: user.seiAddress,
             amount:
-                initialBalances[index] >= ASSOCIATION_BUFFER_USEI
+                associations[index].associated || initialBalances[index] >= ASSOCIATION_BUFFER_USEI
                     ? 0n
                     : ASSOCIATION_BUFFER_USEI - initialBalances[index],
         })),
@@ -88,34 +103,32 @@ async function main(): Promise<void> {
     let associated = 0;
     let newAssociations = 0;
     await mapConcurrent(users, 5, async user => {
-        const mapping = await queryEvmAssociation(target.cosmosRpcUrl, user.seiAddress);
+        const mapping = associationByAddress.get(user.seiAddress)!;
         if (mapping.associated) {
-            if (mapping.evmAddress.toLowerCase() !== user.evmAddress.toLowerCase()) {
-                throw new Error(
-                    `User ${user.index} is associated with ${mapping.evmAddress}, ` +
-                        `expected ${user.evmAddress}`,
-                );
-            }
             associated++;
             return;
         }
         const wallet = await cosmosWalletAt(target.mnemonic, user.index);
-        const client = await SigningStargateClient.connectWithSigner(
-            target.cosmosRpcUrl,
-            wallet,
-            { registry: replayRegistry(), broadcastPollIntervalMs: 200 },
-        );
+        const client = await SigningStargateClient.connectWithSigner(target.cosmosRpcUrl, wallet, {
+            registry: replayRegistry(),
+            broadcastPollIntervalMs: 200,
+        });
         const message = Encoder.evm.MsgAssociate.fromPartial({
             sender: user.seiAddress,
             custom_message: `${target.network} Pacific replay`,
         });
-        const result = await client.signAndBroadcast(
-            user.seiAddress,
-            [{ typeUrl: `/${Encoder.evm.MsgAssociate.$type}`, value: message }],
-            { amount: coins('21000', 'usei'), gas: '200000' },
-            `associate ${target.network} replay user`,
-        );
-        client.disconnect();
+        const result = await (async () => {
+            try {
+                return await client.signAndBroadcast(
+                    user.seiAddress,
+                    [{ typeUrl: `/${Encoder.evm.MsgAssociate.$type}`, value: message }],
+                    { amount: coins('21000', 'usei'), gas: '200000' },
+                    `associate ${target.network} replay user`,
+                );
+            } finally {
+                client.disconnect();
+            }
+        })();
         if (result.code !== 0 && !/already|associated/i.test(result.rawLog ?? '')) {
             throw new Error(`Association failed for user ${user.index}: ${result.rawLog}`);
         }

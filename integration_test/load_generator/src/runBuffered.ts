@@ -14,7 +14,7 @@ import { ChildProcess, spawn } from 'child_process';
 import { PacificSource, writeSegmentAtomic } from './replay/pacificSource';
 import { ReplayCheckpoint, ReplaySegment } from './replay/replayTypes';
 import { loadBufferedConfig } from './config';
-import { writeJsonAtomic } from './io';
+import { readOptionalJson, writeJsonAtomic } from './io';
 import {
     readReplaySegments,
     removeAllReplaySegments,
@@ -84,9 +84,9 @@ async function main(): Promise<void> {
     );
 
     if (!EXECUTE) {
-        const through = initialSegments[
-            Math.min(REPLAY_BATCH_SEGMENTS, initialSegments.length) - 1
-        ].source.lastBlock;
+        const through =
+            initialSegments[Math.min(REPLAY_BATCH_SEGMENTS, initialSegments.length) - 1].source
+                .lastBlock;
         console.log(
             `Dry-run: inspect first ${Math.min(REPLAY_BATCH_SEGMENTS, initialSegments.length)} ` +
                 `segments through block ${through}. Set EXECUTE=1 for continuous collection and replay.`,
@@ -138,9 +138,7 @@ async function ensureInitialBuffer(source: PacificSource): Promise<void> {
                     `${error instanceof Error ? error.message : error}`,
             );
         }
-        console.log(
-            `Resuming buffered capture after block ${existing.at(-1)!.source.lastBlock}`,
-        );
+        console.log(`Resuming buffered capture after block ${existing.at(-1)!.source.lastBlock}`);
         return;
     }
     if (BUFFER_START_MODE === 'latest') {
@@ -173,9 +171,7 @@ async function archiveExistingCorpus(): Promise<void> {
         const suffix = new Date().toISOString().replace(/[-:.]/g, '');
         const archive = `${REPLAY_DIRECTORY}-archive-${suffix}`;
         await fs.rename(REPLAY_DIRECTORY, archive);
-        const removed = CLEANUP_CONSUMED_SEGMENTS
-            ? await removeAllReplaySegments(archive)
-            : [];
+        const removed = CLEANUP_CONSUMED_SEGMENTS ? await removeAllReplaySegments(archive) : [];
         console.log(
             `Archived previous replay artifacts to ${archive}` +
                 (removed.length > 0 ? `; removed ${removed.length} captured segment(s)` : ''),
@@ -190,10 +186,28 @@ async function collectContinuously(source: PacificSource): Promise<void> {
     while (!stopping) {
         try {
             const segments = await readReplaySegments(REPLAY_DIRECTORY, true, segmentCache);
-            if (segments.length === 0) throw new Error('Initial replay buffer disappeared');
             validateReplaySegments(segments);
-            const previous = segments[segments.length - 1];
-            const start = previous.source.lastBlock + 1;
+            const previous = segments.at(-1);
+            const fallbackCheckpoint = previous
+                ? undefined
+                : await readOptionalJson<ReplayCheckpoint>(CAPTURE_CHECKPOINT);
+            if (
+                !previous &&
+                (!fallbackCheckpoint ||
+                    fallbackCheckpoint.schemaVersion !== 1 ||
+                    fallbackCheckpoint.sourceNetwork !== 'pacific-1')
+            ) {
+                throw new Error('Replay buffer and capture checkpoint disappeared');
+            }
+            const start = previous
+                ? previous.source.lastBlock + 1
+                : fallbackCheckpoint!.nextCollectHeight;
+            const previousEvmHash = previous
+                ? previous.continuity.lastBlockHash
+                : fallbackCheckpoint!.lastCollectedEvmHash;
+            const previousCosmosHash = previous
+                ? previous.continuity.lastCosmosBlockHash
+                : fallbackCheckpoint!.lastCollectedCosmosHash;
             const safeTip = (await source.latestHeight()) - TIP_LAG_BLOCKS;
             if (safeTip < start) {
                 await sleep(SOURCE_POLL_MS);
@@ -204,10 +218,10 @@ async function collectContinuously(source: PacificSource): Promise<void> {
             const segment = await source.captureSegment(start, end, TIP_LAG_BLOCKS);
             if (
                 segment.continuity.firstParentHash.toLowerCase() !==
-                    previous.continuity.lastBlockHash.toLowerCase() ||
+                    previousEvmHash.toLowerCase() ||
                 (segment.continuity.firstCosmosParentHash &&
                     segment.continuity.firstCosmosParentHash.toLowerCase() !==
-                        previous.continuity.lastCosmosBlockHash.toLowerCase())
+                        previousCosmosHash.toLowerCase())
             ) {
                 throw new Error(`Source continuity mismatch before block ${start}`);
             }

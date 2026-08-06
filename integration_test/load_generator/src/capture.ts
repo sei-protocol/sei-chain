@@ -16,14 +16,10 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { PacificSource, segmentFilename, writeSegmentAtomic } from './replay/pacificSource';
-import {
-    REPLAY_SCHEMA_VERSION,
-    ReplayCheckpoint,
-    ReplaySegment,
-} from './replay/replayTypes';
+import { REPLAY_SCHEMA_VERSION, ReplayCheckpoint, ReplaySegment } from './replay/replayTypes';
 import { loadCaptureConfig } from './config';
 import { readOptionalJson, writeJsonAtomic } from './io';
-import { SEGMENT_FILENAME } from './replay/corpus';
+import { SEGMENT_FILENAME, validateReplaySegments } from './replay/corpus';
 
 const captureConfig = loadCaptureConfig();
 const {
@@ -156,7 +152,8 @@ async function main(): Promise<void> {
         const segmentEnd = Math.min(end, cursor + SEGMENT_BLOCKS - 1);
         const existingPath = path.join(OUTPUT_DIRECTORY, segmentFilename(cursor, segmentEnd));
         const existing = await readExistingSegment(existingPath);
-        const segment = existing ?? (await source.captureSegment(cursor, segmentEnd, TIP_LAG_BLOCKS));
+        const segment =
+            existing ?? (await source.captureSegment(cursor, segmentEnd, TIP_LAG_BLOCKS));
         validateAgainstCheckpoint(segment, checkpoint);
         if (!existing) await writeSegmentAtomic(OUTPUT_DIRECTORY, segment);
         checkpoint = {
@@ -177,12 +174,30 @@ async function main(): Promise<void> {
     }
 
     const elapsedSeconds = Math.max(0.001, (Date.now() - startedAt) / 1_000);
-    const segmentFiles = (await fs.readdir(OUTPUT_DIRECTORY))
+    const candidateFiles = (await fs.readdir(OUTPUT_DIRECTORY))
         .filter(file => SEGMENT_FILENAME.test(file))
         .sort();
-    const completedSegments = await Promise.all(
-        segmentFiles.map(file => readExistingSegment(path.join(OUTPUT_DIRECTORY, file))),
+    const completed = await Promise.all(
+        candidateFiles.map(async file => ({
+            file,
+            segment: await readExistingSegment(path.join(OUTPUT_DIRECTORY, file)),
+        })),
     );
+    const inRange = completed.filter(
+        (item): item is { file: string; segment: ReplaySegment } =>
+            item.segment !== undefined &&
+            item.segment.source.firstBlock >= start &&
+            item.segment.source.lastBlock <= end,
+    );
+    const completedSegments = inRange.map(item => item.segment);
+    validateReplaySegments(completedSegments);
+    if (
+        completedSegments[0]?.source.firstBlock !== start ||
+        completedSegments.at(-1)?.source.lastBlock !== end
+    ) {
+        throw new Error(`Captured segments do not exactly cover ${start}..${end}`);
+    }
+    const segmentFiles = inRange.map(item => item.file);
     const capturedTransactions = completedSegments.reduce(
         (sum, segment) => sum + (segment?.totals.canonicalTransactions ?? 0),
         0,

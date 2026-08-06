@@ -34,11 +34,7 @@ import {
     readReplaySegments,
     validateReplaySegments,
 } from './replay/corpus';
-import {
-    BucketAuditRecord,
-    BucketAuditWriter,
-    BucketOutcome,
-} from './replay/bucketAudit';
+import { BucketAuditRecord, BucketAuditWriter, BucketOutcome } from './replay/bucketAudit';
 import {
     loadReplayConfig,
     loadTargetConfig,
@@ -50,10 +46,7 @@ import { prepareSemanticFixtures } from './fixturePreparation';
 import { cosmosWalletAt, privateKeyAt, replayRegistry } from './keys';
 import { replayEntriesForBlock } from './replay/replayScheduling';
 import { sourceTraceCounts } from './replay/traceCapture';
-import {
-    SUSHI_V2_PROVENANCE,
-    validateSushiV2Provenance,
-} from './sushiV2';
+import { SUSHI_V2_PROVENANCE, validateSushiV2Provenance } from './sushiV2';
 
 const replayConfig = loadReplayConfig();
 const {
@@ -79,6 +72,7 @@ const {
     maxCosmosBytes: MAX_COSMOS_BYTES,
     maxValueWei: MAX_VALUE_WEI,
     maxCosmosMessages: MAX_COSMOS_MESSAGES,
+    evmReceiptTimeoutMs: EVM_RECEIPT_TIMEOUT_MS,
     fixturePrepareGasLimit: FIXTURE_PREPARE_GAS_LIMIT,
     cleanupConsumedSegments: CLEANUP_CONSUMED_SEGMENTS,
     retainCompletedSegments: RETAIN_COMPLETED_SEGMENTS,
@@ -125,16 +119,14 @@ interface ReplayBlockCheckpoint {
 
 async function main(): Promise<void> {
     if (FOLLOW_SEGMENTS && (MAX_SEGMENTS || REPLAY_THROUGH_BLOCK)) {
-        throw new Error('FOLLOW_SEGMENTS cannot be combined with MAX_SEGMENTS or REPLAY_THROUGH_BLOCK');
+        throw new Error(
+            'FOLLOW_SEGMENTS cannot be combined with MAX_SEGMENTS or REPLAY_THROUGH_BLOCK',
+        );
     }
     if (LIVE_REPLAY && !FOLLOW_SEGMENTS) {
         throw new Error('LIVE_REPLAY requires FOLLOW_SEGMENTS=1');
     }
-    if (
-        FOLLOW_SEGMENTS &&
-        !LIVE_REPLAY &&
-        MIN_BUFFER_MINUTES >= RESUME_BUFFER_MINUTES
-    ) {
+    if (FOLLOW_SEGMENTS && !LIVE_REPLAY && MIN_BUFFER_MINUTES >= RESUME_BUFFER_MINUTES) {
         throw new Error('MIN_BUFFER_MINUTES must be below RESUME_BUFFER_MINUTES');
     }
     const target = loadTargetConfig();
@@ -202,17 +194,11 @@ async function main(): Promise<void> {
     const bucketAudit = new BucketAuditWriter(
         path.resolve(
             replayConfig.bucketAuditPath ??
-                path.join(
-                    replayDirectory,
-                    `bucket-audit-${target.network}-${auditRunId}.jsonl`,
-                ),
+                path.join(replayDirectory, `bucket-audit-${target.network}-${auditRunId}.jsonl`),
         ),
         path.resolve(
             replayConfig.unbucketedAuditPath ??
-                path.join(
-                    replayDirectory,
-                    `unbucketed-${target.network}-${auditRunId}.jsonl`,
-                ),
+                path.join(replayDirectory, `unbucketed-${target.network}-${auditRunId}.jsonl`),
         ),
         LOG_BUCKETS,
     );
@@ -230,11 +216,7 @@ async function main(): Promise<void> {
 
     try {
         if (!replayConfig.skipFixturePrepare) {
-            await prepareSemanticFixtures(
-                workers,
-                deployment,
-                FIXTURE_PREPARE_GAS_LIMIT,
-            );
+            await prepareSemanticFixtures(workers, deployment, FIXTURE_PREPARE_GAS_LIMIT);
         }
         let fees = await readFees(provider);
         let feeUpdatedAt = Date.now();
@@ -313,10 +295,7 @@ async function main(): Promise<void> {
                 0,
             );
 
-        while (
-            !stopRequested &&
-            (runDeadline === undefined || Date.now() < runDeadline)
-        ) {
+        while (!stopRequested && (runDeadline === undefined || Date.now() < runDeadline)) {
             const availableSegments = FOLLOW_SEGMENTS
                 ? await readReplaySegments(replayDirectory, false, segmentCache)
                 : selected;
@@ -325,8 +304,7 @@ async function main(): Promise<void> {
                 segment => segment.source.firstBlock > peakCheckedThroughBlock,
             );
             if (newSegments.length > 0) {
-                peakCheckedThroughBlock =
-                    newSegments[newSegments.length - 1].source.lastBlock;
+                peakCheckedThroughBlock = newSegments[newSegments.length - 1].source.lastBlock;
                 const peak = scaledPeakTps(newSegments);
                 if (peak > MAX_TPS) {
                     // Aborting a long follow run mid-flight would be worse than
@@ -363,11 +341,7 @@ async function main(): Promise<void> {
                 0,
                 lastAvailableBlock.timestamp - pendingBlocks[0].timestamp + 1,
             );
-            if (
-                FOLLOW_SEGMENTS &&
-                !LIVE_REPLAY &&
-                bufferSeconds < MIN_BUFFER_MINUTES * 60
-            ) {
+            if (FOLLOW_SEGMENTS && !LIVE_REPLAY && bufferSeconds < MIN_BUFFER_MINUTES * 60) {
                 bufferPaused = true;
             }
             if (
@@ -397,21 +371,14 @@ async function main(): Promise<void> {
                 false,
             );
             for (const block of pendingBlocks) {
-                if (
-                    stopRequested ||
-                    (runDeadline !== undefined && Date.now() >= runDeadline)
-                ) {
+                if (stopRequested || (runDeadline !== undefined && Date.now() >= runDeadline)) {
                     break;
                 }
                 firstTimestamp ??= block.timestamp;
-                const targetElapsedMs =
-                    ((block.timestamp - firstTimestamp) * 1_000) / TIME_SCALE;
+                const targetElapsedMs = ((block.timestamp - firstTimestamp) * 1_000) / TIME_SCALE;
                 const scheduledAt = replayStartedAt + pausedMilliseconds + targetElapsedMs;
                 await sleepBounded(Math.max(0, scheduledAt - Date.now()), runDeadline);
-                if (
-                    stopRequested ||
-                    (runDeadline !== undefined && Date.now() >= runDeadline)
-                ) {
+                if (stopRequested || (runDeadline !== undefined && Date.now() >= runDeadline)) {
                     break;
                 }
                 if (Date.now() - feeUpdatedAt > 60_000) {
@@ -437,17 +404,19 @@ async function main(): Promise<void> {
                         const worker = workers[evmCursor++ % workers.length];
                         if (worker.evmPending >= MAX_PENDING_PER_LANE) {
                             recordSkip(metrics, 'EVM worker queue full', liveMetrics, 'evm');
-                            await bucketAudit.record(evmAuditRecord(
-                                evm,
-                                entry.sourceCosmosHash,
-                                block.number,
-                                currentSequence,
-                                target.network,
-                                'queueFull',
-                                'skipped',
-                                'skipped',
-                                'EVM worker queue full',
-                            ));
+                            await bucketAudit.record(
+                                evmAuditRecord(
+                                    evm,
+                                    entry.sourceCosmosHash,
+                                    block.number,
+                                    currentSequence,
+                                    target.network,
+                                    'queueFull',
+                                    'skipped',
+                                    'skipped',
+                                    'EVM worker queue full',
+                                ),
+                            );
                             continue;
                         }
                         worker.evmPending++;
@@ -481,12 +450,7 @@ async function main(): Promise<void> {
                         if (!source) throw new Error('Replay schedule entry has no transaction');
                         const worker = workers[cosmosCursor++ % workers.length];
                         if (worker.cosmosPending >= MAX_PENDING_PER_LANE) {
-                            recordSkip(
-                                metrics,
-                                'Cosmos worker queue full',
-                                liveMetrics,
-                                'cosmos',
-                            );
+                            recordSkip(metrics, 'Cosmos worker queue full', liveMetrics, 'cosmos');
                             await bucketAudit.record(
                                 auditRecord(
                                     source,
@@ -556,10 +520,7 @@ async function main(): Promise<void> {
         await bucketAudit.flush();
         const reportPath = path.resolve(
             replayConfig.replayReportPath ??
-                path.join(
-                    replayDirectory,
-                    `replay-report-${target.network}-${Date.now()}.json`,
-                ),
+                path.join(replayDirectory, `replay-report-${target.network}-${Date.now()}.json`),
         );
         await writeJsonAtomic(reportPath, {
             schemaVersion: 1,
@@ -624,17 +585,19 @@ async function executeEvm(
         recordBuilt(metrics, 'adapterError', 'skipped');
         liveMetrics.recordAdapted('evm', 'adapterError', 'skipped');
         recordSkip(metrics, reason, liveMetrics, 'evm');
-        await bucketAudit.record(evmAuditRecord(
-            source,
-            sourceCosmosHash,
-            source.blockNumber,
-            sequence,
-            targetNetwork,
-            'adapterError',
-            'skipped',
-            'skipped',
-            reason,
-        ));
+        await bucketAudit.record(
+            evmAuditRecord(
+                source,
+                sourceCosmosHash,
+                source.blockNumber,
+                sequence,
+                targetNetwork,
+                'adapterError',
+                'skipped',
+                'skipped',
+                reason,
+            ),
+        );
         console.error(`EVM adapter user ${worker.index}: ${reason}`);
         return;
     }
@@ -686,11 +649,7 @@ async function executeEvm(
         const signed = await worker.wallet.signTransaction(transaction);
         targetTransactionBytes = ethers.getBytes(signed).length;
         metrics.producedBytes += targetTransactionBytes;
-        liveMetrics.recordBytes(
-            'evm',
-            'produced_transaction',
-            targetTransactionBytes,
-        );
+        liveMetrics.recordBytes('evm', 'produced_transaction', targetTransactionBytes);
         const response = await provider.broadcastTransaction(signed);
         targetHash = response.hash;
         // A type-4 transaction consumes two nonces: one for the transaction and
@@ -699,7 +658,7 @@ async function executeEvm(
         metrics.submitted++;
         liveMetrics.recordOutcome('evm', 'submitted');
         try {
-            const receipt = await response.wait();
+            const receipt = await response.wait(1, EVM_RECEIPT_TIMEOUT_MS);
             if (!receipt) throw new Error('EVM receipt unavailable');
             metrics.included++;
             liveMetrics.recordOutcome('evm', 'included');
@@ -740,11 +699,17 @@ async function executeEvm(
             targetCalldataBytes: built.producedCalldataBytes,
         });
     } catch (error) {
-        metrics.rejected++;
-        liveMetrics.recordOutcome('evm', 'rejected');
+        const broadcast = targetHash !== undefined;
+        const failedOutcome: BucketOutcome = broadcast ? 'poll_timeout' : 'rejected';
+        if (broadcast) {
+            liveMetrics.recordOutcome('evm', 'poll_timeout');
+        } else {
+            metrics.rejected++;
+            liveMetrics.recordOutcome('evm', 'rejected');
+        }
         liveMetrics.observeSubmission(
             'evm',
-            'rejected',
+            failedOutcome,
             Number(process.hrtime.bigint() - startedAt) / 1e9,
         );
         await bucketAudit.record({
@@ -756,17 +721,19 @@ async function executeEvm(
                 targetNetwork,
                 built.adapter,
                 built.fidelity,
-                'rejected',
+                failedOutcome,
             ),
             targetHash,
             targetTransactionBytes,
             targetCalldataBytes: built.producedCalldataBytes,
             error: error instanceof Error ? error.message : String(error),
         });
-        try {
-            worker.evmNonce = await provider.getTransactionCount(worker.evmAddress, 'pending');
-        } catch {
-            // Retain the local nonce and retry synchronization after the next rejection.
+        if (!broadcast) {
+            try {
+                worker.evmNonce = await provider.getTransactionCount(worker.evmAddress, 'pending');
+            } catch {
+                // Retain the local nonce and retry synchronization after the next rejection.
+            }
         }
         console.error(
             `EVM ${built.adapter} user ${worker.index}: ` +
@@ -1042,7 +1009,8 @@ function inspectSegments(
                     metrics.sourceBytes += evm.sourceSerializedBytes ?? 0;
                     metrics.sourceCalldataBytes += built.sourceCalldataBytes;
                     metrics.producedCalldataBytes += built.producedCalldataBytes;
-                    if (!built.transaction) recordSkip(metrics, built.reason ?? 'EVM adapter skipped');
+                    if (!built.transaction)
+                        recordSkip(metrics, built.reason ?? 'EVM adapter skipped');
                 } else {
                     if (!source) throw new Error('Replay schedule entry has no transaction');
                     const built = buildCosmosReplay(source, {
@@ -1142,8 +1110,9 @@ function dryRunContext(
     network: ReplayUserManifest['network'],
     chainId: bigint,
 ): { users: ReplayUserManifest; deployment: ReplayDeploymentManifest } {
-    const addresses = Array.from({ length: 31 }, (_, index) =>
-        new ethers.Wallet(ethers.id(`dry-run-${index}`)).address,
+    const addresses = Array.from(
+        { length: 31 },
+        (_, index) => new ethers.Wallet(ethers.id(`dry-run-${index}`)).address,
     );
     return {
         users: {
@@ -1342,7 +1311,9 @@ function printSummary(metrics: AdapterMetrics): void {
 
 async function sleepBounded(milliseconds: number, deadline: number | undefined): Promise<void> {
     const bounded =
-        deadline === undefined ? milliseconds : Math.min(milliseconds, Math.max(0, deadline - Date.now()));
+        deadline === undefined
+            ? milliseconds
+            : Math.min(milliseconds, Math.max(0, deadline - Date.now()));
     if (bounded > 0) await new Promise(resolve => setTimeout(resolve, bounded));
 }
 

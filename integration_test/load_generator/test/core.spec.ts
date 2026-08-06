@@ -314,6 +314,21 @@ describe('load generator pure behavior', () => {
         }
     });
 
+    it('treats an empty successful association response as unassociated', async () => {
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async () =>
+            new Response(JSON.stringify({ result: { response: { code: 0 } } }), {
+                status: 200,
+            });
+        try {
+            expect(
+                await queryEvmAssociation('https://rpc.example', 'sei1example'),
+            ).to.deep.equal({ associated: false, evmAddress: '' });
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
     it('keeps malformed EVM wrappers unresolved instead of guessing', () => {
         const result = correlateEvmWrapper(Uint8Array.from([255, 255, 255]));
         expect(result.method).to.equal('unresolved');

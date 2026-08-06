@@ -64,7 +64,10 @@ export function loadCaptureConfig(env: Environment = process.env) {
     const captureId = string(
         env,
         'CAPTURE_ID',
-        new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z'),
+        new Date()
+            .toISOString()
+            .replace(/[-:]/g, '')
+            .replace(/\.\d{3}Z$/, 'Z'),
     );
     return {
         evmRpcUrl: string(env, 'MAINNET_RPC', string(env, 'PACIFIC_EVM_RPC', PACIFIC_EVM_RPC)),
@@ -112,6 +115,7 @@ export function loadReplayConfig(env: Environment = process.env) {
         maxCosmosBytes: positiveInteger(env, 'MAX_COSMOS_BYTES', 1_000_000),
         maxValueWei: positiveBigInt(env, 'MAX_VALUE_WEI', 1_000_000_000_000_000n),
         maxCosmosMessages: positiveInteger(env, 'MAX_COSMOS_MESSAGES', 10),
+        evmReceiptTimeoutMs: positiveInteger(env, 'EVM_RECEIPT_TIMEOUT_MS', 60_000),
         replayDirectory: resolvePath(env, 'REPLAY_DIR', DEFAULT_REPLAY_DIR),
         bucketAuditPath: env.BUCKET_AUDIT_PATH,
         unbucketedAuditPath: env.UNBUCKETED_AUDIT_PATH,
@@ -137,11 +141,7 @@ export function loadBufferedConfig(env: Environment = process.env) {
         execute: flag(env, 'EXECUTE'),
         replayDirectory: resolvePath(env, 'REPLAY_DIR', DEFAULT_REPLAY_DIR),
         startMode,
-        initialBufferBlocks: positiveInteger(
-            env,
-            'INITIAL_BUFFER_BLOCKS',
-            segmentBlocks,
-        ),
+        initialBufferBlocks: positiveInteger(env, 'INITIAL_BUFFER_BLOCKS', segmentBlocks),
         minBufferMinutes: positiveNumber(env, 'MIN_BUFFER_MINUTES', 5),
         resumeBufferMinutes: positiveNumber(env, 'RESUME_BUFFER_MINUTES', 20),
         segmentBlocks,
@@ -259,12 +259,7 @@ function nonNegativeInteger(env: Environment, key: string, fallback: number): nu
     return value;
 }
 
-function minimumInteger(
-    env: Environment,
-    key: string,
-    fallback: number,
-    minimum: number,
-): number {
+function minimumInteger(env: Environment, key: string, fallback: number, minimum: number): number {
     const value = positiveInteger(env, key, fallback);
     if (value < minimum) throw new Error(`${key} must be at least ${minimum}`);
     return value;
@@ -280,10 +275,7 @@ function optionalPositiveInteger(env: Environment, key: string): number | undefi
     return value;
 }
 
-function runDurationSeconds(
-    env: Environment,
-    fallback?: number,
-): number | undefined {
+function runDurationSeconds(env: Environment, fallback?: number): number | undefined {
     if (env.RUN_DURATION_SECONDS?.trim()) {
         return positiveInteger(env, 'RUN_DURATION_SECONDS', fallback ?? 1);
     }

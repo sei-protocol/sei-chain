@@ -14,30 +14,39 @@ export async function readReplaySegments(
     allowMissing = false,
     cache?: Map<string, ReplaySegment>,
 ): Promise<ReplaySegment[]> {
+    let files: string[];
     try {
-        const files = (await fs.readdir(directory)).filter(file => SEGMENT_FILENAME.test(file)).sort();
-        const segments = await Promise.all(
-            files.map(async file => {
-                const cached = cache?.get(file);
-                if (cached) return cached;
-                const parsed = JSON.parse(
-                    await fs.readFile(path.join(directory, file), 'utf8'),
-                ) as ReplaySegment;
-                cache?.set(file, parsed);
-                return parsed;
-            }),
-        );
-        if (cache) {
-            const present = new Set(files);
-            for (const key of [...cache.keys()]) {
-                if (!present.has(key)) cache.delete(key);
-            }
-        }
-        return segments;
+        files = (await fs.readdir(directory)).filter(file => SEGMENT_FILENAME.test(file)).sort();
     } catch (error) {
         if (allowMissing && (error as NodeJS.ErrnoException).code === 'ENOENT') return [];
         throw error;
     }
+    const loaded = await Promise.all(
+        files.map(async file => {
+            const cached = cache?.get(file);
+            if (cached) return { file, segment: cached };
+            try {
+                const parsed = JSON.parse(
+                    await fs.readFile(path.join(directory, file), 'utf8'),
+                ) as ReplaySegment;
+                cache?.set(file, parsed);
+                return { file, segment: parsed };
+            } catch (error) {
+                if (allowMissing && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+                    cache?.delete(file);
+                    return undefined;
+                }
+                throw error;
+            }
+        }),
+    );
+    const present = new Set(loaded.flatMap(item => item?.file ?? []));
+    if (cache) {
+        for (const key of [...cache.keys()]) {
+            if (!present.has(key)) cache.delete(key);
+        }
+    }
+    return loaded.flatMap(item => item?.segment ?? []);
 }
 
 export async function cleanupConsumedReplaySegments(
@@ -65,11 +74,13 @@ async function listSegmentFiles(
     return entries.flatMap(name => {
         const match = SEGMENT_FILENAME.exec(name);
         if (!match) return [];
-        return [{
-            name,
-            firstBlock: Number(match[1]),
-            lastBlock: Number(match[2]),
-        }];
+        return [
+            {
+                name,
+                firstBlock: Number(match[1]),
+                lastBlock: Number(match[2]),
+            },
+        ];
     });
 }
 

@@ -38,7 +38,12 @@ export function buildCosmosReplay(
     context: CosmosAdapterContext,
 ): BuiltCosmosReplay {
     if (source.isEvm) {
-        return skipped(source, 'Wrapped EVM transaction is replayed through the EVM lane');
+        return skipped(
+            source,
+            source.evm
+                ? 'Wrapped EVM transaction is replayed through the EVM lane'
+                : 'Wrapped EVM transaction has no linked EVM entry (ante-failed)',
+        );
     }
     const types = source.messages.map(message => message.typeUrl);
     const isPrivileged = types.some(type =>

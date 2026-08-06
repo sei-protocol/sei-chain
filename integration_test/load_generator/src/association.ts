@@ -42,10 +42,10 @@ export async function queryEvmAssociation(
         throw new Error(`Association query failed: ${payload.error.message ?? 'unknown error'}`);
     }
     const result = payload.result?.response;
-    if (!result || result.code !== 0 || !result.value) {
+    if (!result || result.code !== 0) {
         throw new Error(`Association query failed: ${result?.log ?? 'empty ABCI response'}`);
     }
-    const reader = Reader.create(Buffer.from(result.value, 'base64'));
+    const reader = Reader.create(Buffer.from(result.value ?? '', 'base64'));
     let evmAddress = '';
     let associated = false;
     while (reader.pos < reader.len) {

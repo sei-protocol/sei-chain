@@ -236,10 +236,8 @@ export class PacificSource {
             this.fetchEvmChunk(range.start, range.end),
         );
         const cosmosRanges = blockRanges(start, end, 5);
-        const cosmosChunks = await mapConcurrent(
-            cosmosRanges,
-            this.cosmosConcurrency,
-            range => this.fetchCosmosChunk(range.start, range.end),
+        const cosmosChunks = await mapConcurrent(cosmosRanges, this.cosmosConcurrency, range =>
+            this.fetchCosmosChunk(range.start, range.end),
         );
         const evmBlocks = evmChunks
             .flatMap(chunk => chunk.blocks)
@@ -269,7 +267,9 @@ export class PacificSource {
             const enrichedEvm = evmBlock.transactions.map(transaction => {
                 const receipt = receipts.get(transaction.hash.toLowerCase());
                 if (!receipt) {
-                    throw new Error(`Missing receipt for ${transaction.hash} in block ${cosmosBlock.height}`);
+                    throw new Error(
+                        `Missing receipt for ${transaction.hash} in block ${cosmosBlock.height}`,
+                    );
                 }
                 return toReplayEvmTransaction(transaction, receipt, codeHashes);
             });
@@ -278,9 +278,7 @@ export class PacificSource {
             for (const transaction of enrichedEvm) {
                 if (transaction.kind !== 'contractCreation') continue;
                 transaction.creationMethod =
-                    transaction.trace?.calls?.frames[0]?.type === 'CREATE2'
-                        ? 'CREATE2'
-                        : 'CREATE';
+                    transaction.trace?.calls?.frames[0]?.type === 'CREATE2' ? 'CREATE2' : 'CREATE';
             }
             const decodedCosmos = decodeCosmosTransactions(cosmosBlock);
             const wrapped = decodedCosmos.filter(transaction => transaction.isEvm);
@@ -300,9 +298,7 @@ export class PacificSource {
                     unresolvedEvmWrappers++;
                     continue;
                 }
-                const link = correlateEvmWrapper(
-                    Buffer.from(evmMessages[0].valueBase64, 'base64'),
-                );
+                const link = correlateEvmWrapper(Buffer.from(evmMessages[0].valueBase64, 'base64'));
                 transaction.evmLink = link;
                 if (!link.hash) {
                     unresolvedEvmWrappers++;
@@ -327,7 +323,10 @@ export class PacificSource {
             evmTransactions += enrichedEvm.length;
             wrappedEvmTransactions += wrapped.length;
             unlinkedEvmTransactions += unlinked.length;
-            sourceBytes += decodedCosmos.reduce((sum, transaction) => sum + transaction.transactionBytes, 0);
+            sourceBytes += decodedCosmos.reduce(
+                (sum, transaction) => sum + transaction.transactionBytes,
+                0,
+            );
             blocks.push({
                 number: cosmosBlock.height,
                 hash: evmBlock.hash,
@@ -425,20 +424,22 @@ export class PacificSource {
                 transaction.receipt.contractAddress,
         );
         if (creations.length === 0) return;
-        const responses = await this.rpcBatch<string>(
-            creations.map(transaction => ({
-                jsonrpc: '2.0' as const,
-                id: this.nextRpcId++,
-                method: 'eth_getCode',
-                params: [transaction.receipt.contractAddress, toHex(blockTag)],
-            })),
-        );
-        responses.forEach((response, index) => {
-            const code = response.result;
-            if (!code || code === '0x') return;
-            creations[index].deployedRuntimeCodeBytes = ethers.getBytes(code).length;
-            creations[index].deployedRuntimeCodeHash = ethers.keccak256(code);
-        });
+        for (const batch of chunk(creations, 50)) {
+            const responses = await this.rpcBatch<string>(
+                batch.map(transaction => ({
+                    jsonrpc: '2.0' as const,
+                    id: this.nextRpcId++,
+                    method: 'eth_getCode',
+                    params: [transaction.receipt.contractAddress, toHex(blockTag)],
+                })),
+            );
+            responses.forEach((response, index) => {
+                const code = response.result;
+                if (!code || code === '0x') return;
+                batch[index].deployedRuntimeCodeBytes = ethers.getBytes(code).length;
+                batch[index].deployedRuntimeCodeHash = ethers.keccak256(code);
+            });
+        }
     }
 
     private async attachTraces(transactions: ReplayEvmTransaction[]): Promise<void> {
@@ -492,10 +493,12 @@ export class PacificSource {
             }
         }
         const requested = this.traceCaptureMode === 'full' ? 3 : 1;
-        const available = Number(Boolean(calls)) + Number(Boolean(operations)) + Number(Boolean(stateDiff));
+        const available =
+            Number(Boolean(calls)) + Number(Boolean(operations)) + Number(Boolean(stateDiff));
         return {
             requestedMode: this.traceCaptureMode === 'full' ? 'full' : 'calls',
-            availability: available === 0 ? 'error' : available === requested ? 'available' : 'partial',
+            availability:
+                available === 0 ? 'error' : available === requested ? 'available' : 'partial',
             calls,
             operations,
             stateDiff,
@@ -524,7 +527,8 @@ export class PacificSource {
                 if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
                 const body = (await response.json()) as RpcResponse<unknown>;
                 if (body.error) throw new Error(`RPC ${body.error.code}: ${body.error.message}`);
-                if (body.result === undefined) throw new Error('debug_traceTransaction returned no result');
+                if (body.result === undefined)
+                    throw new Error('debug_traceTransaction returned no result');
                 return body.result;
             } catch (error) {
                 lastError = error;
@@ -536,7 +540,10 @@ export class PacificSource {
         throw lastError;
     }
 
-    private async fetchEvmChunk(start: number, end: number): Promise<{
+    private async fetchEvmChunk(
+        start: number,
+        end: number,
+    ): Promise<{
         blocks: RpcBlock[];
         receipts: Map<string, RpcReceipt>;
     }> {
@@ -636,19 +643,18 @@ export class PacificSource {
                     throw new Error(body.error?.message ?? 'EVM RPC returned a non-batch response');
                 }
                 const error = body.find(item => item.error);
-                if (error?.error) throw new Error(`RPC ${error.error.code}: ${error.error.message}`);
+                if (error?.error)
+                    throw new Error(`RPC ${error.error.code}: ${error.error.message}`);
                 return orderRpcBatchResponses(requests, body);
             } catch (error) {
                 lastError = error;
-                await retryDelay(attempt);
+                if (attempt + 1 < this.maxRetries) await retryDelay(attempt);
             }
         }
         throw lastError;
     }
 
-    private async cosmosRpcBatch(
-        requests: CosmosRpcRequest[],
-    ): Promise<
+    private async cosmosRpcBatch(requests: CosmosRpcRequest[]): Promise<
         Array<{
             id: string;
             result?: CosmosBlockResult | CosmosBlockResultsResult;
@@ -674,14 +680,16 @@ export class PacificSource {
                       }>
                     | { error?: { message: string } };
                 if (!Array.isArray(body)) {
-                    throw new Error(body.error?.message ?? 'Cosmos RPC returned a non-batch response');
+                    throw new Error(
+                        body.error?.message ?? 'Cosmos RPC returned a non-batch response',
+                    );
                 }
                 const error = body.find(item => item.error);
                 if (error?.error) throw new Error(`Cosmos RPC: ${error.error.message}`);
                 return body;
             } catch (error) {
                 lastError = error;
-                await retryDelay(attempt);
+                if (attempt + 1 < this.maxRetries) await retryDelay(attempt);
             }
         }
         throw lastError;
@@ -692,7 +700,10 @@ export function segmentFilename(start: number, end: number): string {
     return `pacific-1-${String(start).padStart(10, '0')}-${String(end).padStart(10, '0')}.json`;
 }
 
-export async function writeSegmentAtomic(outputDirectory: string, segment: ReplaySegment): Promise<string> {
+export async function writeSegmentAtomic(
+    outputDirectory: string,
+    segment: ReplaySegment,
+): Promise<string> {
     const output = path.join(
         outputDirectory,
         segmentFilename(segment.source.firstBlock, segment.source.lastBlock),
@@ -749,8 +760,8 @@ export function toReplayEvmTransaction(
     const kind = !transaction.to
         ? 'contractCreation'
         : transaction.input === '0x'
-          ? 'transfer'
-          : 'contractCall';
+        ? 'transfer'
+        : 'contractCall';
     return {
         hash: transaction.hash,
         blockNumber: hexNumber(transaction.blockNumber),
@@ -805,9 +816,7 @@ function serializedTransactionBytes(transaction: RpcTransaction): number | undef
             signature: {
                 r: transaction.r,
                 s: transaction.s,
-                v: transaction.v
-                    ? hexNumber(transaction.v)
-                    : 27 + hexNumber(transaction.yParity),
+                v: transaction.v ? hexNumber(transaction.v) : 27 + hexNumber(transaction.yParity),
             },
         });
         return ethers.getBytes(parsed.serialized).length;
@@ -831,7 +840,10 @@ function validateBlockCoverage(
     }
     for (let index = 0; index < expected; index++) {
         const height = start + index;
-        if (hexNumber(evmBlocks[index].number) !== height || cosmosBlocks[index].height !== height) {
+        if (
+            hexNumber(evmBlocks[index].number) !== height ||
+            cosmosBlocks[index].height !== height
+        ) {
             throw new Error(`Non-contiguous segment at expected block ${height}`);
         }
         if (cosmosBlocks[index].chainId !== PACIFIC_COSMOS_CHAIN_ID) {
@@ -842,11 +854,7 @@ function validateBlockCoverage(
     }
 }
 
-function validateBlockPair(
-    evm: RpcBlock,
-    cosmos: CosmosBlockData,
-    previous?: ReplayBlock,
-): void {
+function validateBlockPair(evm: RpcBlock, cosmos: CosmosBlockData, previous?: ReplayBlock): void {
     const evmTimestamp = hexNumber(evm.timestamp);
     if (Math.abs(evmTimestamp - cosmos.timestamp) > 1) {
         throw new Error(
@@ -865,9 +873,16 @@ function validateBlockPair(
     }
 }
 
-function blockRanges(start: number, end: number, size: number): Array<{ start: number; end: number }> {
+function blockRanges(
+    start: number,
+    end: number,
+    size: number,
+): Array<{ start: number; end: number }> {
     const heights = Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
-    return chunk(heights, size).map(range => ({ start: range[0], end: range[range.length - 1] }));
+    return chunk(heights, size).map(range => ({
+        start: range[0],
+        end: range[range.length - 1],
+    }));
 }
 
 function chunk<T>(values: T[], size: number): T[][] {
