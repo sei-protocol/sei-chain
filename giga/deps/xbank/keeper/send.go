@@ -7,7 +7,6 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	cosmosbanktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -121,6 +120,7 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 		)
 	}
 
+	var newAccountCount int
 	for _, out := range outputs {
 		outAddress, err := sdk.AccAddressFromBech32(out.Address)
 		if err != nil {
@@ -145,14 +145,11 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 		// such as delegated fee messages.
 		accExists := k.ak.HasAccount(ctx, outAddress)
 		if !accExists {
-			defer func() {
-				// TODO(PLT-353): remove once bank_new_account verified
-				telemetry.IncrCounter(1, "new", "account")
-				bankMetrics.newAccount.Add(ctx.Context(), 1)
-			}()
+			newAccountCount++
 			k.ak.SetAccount(ctx, k.ak.NewAccountWithAddress(ctx, outAddress))
 		}
 	}
+	recordNewAccounts(ctx.Context(), int64(newAccountCount))
 
 	return nil
 }
@@ -170,12 +167,8 @@ func (k BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAd
 	// such as delegated fee messages.
 	accExists := k.ak.HasAccount(ctx, toAddr)
 	if !accExists {
-		defer func() {
-			// TODO(PLT-353): remove once bank_new_account verified
-			telemetry.IncrCounter(1, "new", "account")
-			bankMetrics.newAccount.Add(ctx.Context(), 1)
-		}()
 		k.ak.SetAccount(ctx, k.ak.NewAccountWithAddress(ctx, toAddr))
+		recordNewAccounts(ctx.Context(), 1)
 	}
 
 	return nil
