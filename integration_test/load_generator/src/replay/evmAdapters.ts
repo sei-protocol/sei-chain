@@ -26,6 +26,7 @@ export interface EvmAdapterContext {
     users: ReplayUserManifest['users'];
     workerIndex: number;
     sequence: number;
+    runSalt: number;
     nonce: number;
     fees: ReplayFeeState;
     maxGasPerTransaction: bigint;
@@ -379,18 +380,26 @@ export function buildEvmReplay(
         contracts.strategyVaultProxy
     ) {
         // 0x6e553f65 is shared by ERC4626-style protocols. A captured recipient
-        // code hash deterministically partitions ambiguous sources; an exact
-        // liquid-staking fixture hash and otherwise sequence parity remain stable.
+        // code hash deterministically partitions ambiguous sources: exact fixture
+        // hashes win, then hash parity, then sequence parity.
         const liquidHash = context.deployment.codeHashes?.liquidStakingProxy;
+        const strategyHash = context.deployment.codeHashes?.strategyVaultProxy;
+        const matchesLiquid =
+            source.recipientCodeHash !== undefined &&
+            liquidHash !== undefined &&
+            source.recipientCodeHash.toLowerCase() === liquidHash.toLowerCase();
+        const matchesStrategy =
+            source.recipientCodeHash !== undefined &&
+            strategyHash !== undefined &&
+            source.recipientCodeHash.toLowerCase() === strategyHash.toLowerCase();
         const hashChoosesLiquid =
             source.recipientCodeHash !== undefined &&
             BigInt(source.recipientCodeHash) % 2n === 0n;
         const useLiquid =
-            (source.recipientCodeHash !== undefined &&
-                liquidHash !== undefined &&
-                source.recipientCodeHash.toLowerCase() === liquidHash.toLowerCase()) ||
-            hashChoosesLiquid ||
-            (source.recipientCodeHash === undefined && context.sequence % 2 === 0);
+            matchesLiquid ||
+            (!matchesStrategy &&
+                (hashChoosesLiquid ||
+                    (source.recipientCodeHash === undefined && context.sequence % 2 === 0)));
         const target = useLiquid
             ? contracts.liquidStakingProxy
             : contracts.strategyVaultProxy;
@@ -471,7 +480,11 @@ export function buildEvmReplay(
         source.receipt.status !== '0x0' &&
         contracts.syntheticCreationHarness
     ) {
-        const naturalData = encodeSyntheticCreationHarness(source, context.sequence);
+        const naturalData = encodeSyntheticCreationHarness(
+            source,
+            context.sequence,
+            context.runSalt,
+        );
         if (ethers.getBytes(naturalData).length <= context.maxCalldataBytes) {
             return built(
                 source,
@@ -610,6 +623,7 @@ function isExecutableCallGraph(frames: ReplayCallFrame[]): boolean {
 export function encodeSyntheticCreationHarness(
     source: ReplayEvmTransaction,
     seed: number,
+    runSalt = 0,
 ): string {
     const runtimeBytes = Math.min(
         24_576,
@@ -633,7 +647,7 @@ export function encodeSyntheticCreationHarness(
         gasBurn,
         initcodeBytes,
         useCreate2,
-        ethers.zeroPadValue(ethers.toBeHex(seed), 32),
+        ethers.solidityPackedKeccak256(['uint256', 'uint256'], [runSalt, seed]),
     ]);
 }
 

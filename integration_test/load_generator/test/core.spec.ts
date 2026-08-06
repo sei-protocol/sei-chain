@@ -101,6 +101,7 @@ const context = (): EvmAdapterContext => ({
     ],
     workerIndex: 0,
     sequence: 7,
+    runSalt: 1,
     nonce: 3,
     fees: { gasPrice: 1n, maxFeePerGas: 2n, maxPriorityFeePerGas: 1n },
     maxGasPerTransaction: 5_000_000n,
@@ -164,6 +165,7 @@ describe('load generator pure behavior', () => {
             `${process.cwd()}/runtime/replay/pacific-1/pacific-1-20m`,
         );
         expect(loadReplayConfig({}).cleanupConsumedSegments).to.equal(false);
+        expect(loadReplayConfig({}).metricsHost).to.equal('127.0.0.1');
         expect(
             loadReplayConfig({ CLEANUP_CONSUMED_SEGMENTS: '1' }).cleanupConsumedSegments,
         ).to.equal(true);
@@ -200,6 +202,8 @@ describe('load generator pure behavior', () => {
         expect(() => loadBufferedConfig({ TRACE_MAX_FRAMES: '257' })).to.throw(
             'TRACE_MAX_FRAMES',
         );
+        expect(() => loadCaptureConfig({ START_BLOCK: '0' })).to.throw('START_BLOCK');
+        expect(() => loadCaptureConfig({ START_BLOCK: ' ' })).to.throw('START_BLOCK');
     });
 
     it('rejects a mismatched Cosmos target chain', async () => {
@@ -496,6 +500,22 @@ describe('load generator pure behavior', () => {
         expectSemanticRoute('0x6e553f65', 'strategyVaultDeposit', 'strategyVaultProxy');
         expectSemanticRoute('0xb460af94', 'strategyVaultWithdraw', 'strategyVaultProxy');
         expectSemanticRoute('0xba087652', 'strategyVaultRedeem', 'strategyVaultProxy');
+
+        const ctx = context();
+        const strategyHash = `0x${'00'.repeat(31)}02`;
+        ctx.sequence = 2;
+        ctx.deployment.codeHashes = {
+            strategyVaultProxy: strategyHash,
+            liquidStakingProxy: `0x${'00'.repeat(31)}03`,
+        };
+        const exact = buildEvmReplay(
+            source({
+                ...semanticSource('0x6e553f65'),
+                recipientCodeHash: strategyHash,
+            }),
+            ctx,
+        );
+        expect(exact.adapter).to.equal('strategyVaultDeposit');
     });
 
     it('normalizes nested call traces and deterministically truncates them', () => {
@@ -746,7 +766,18 @@ describe('load generator pure behavior', () => {
             ctx.deployment.contracts.syntheticCreationHarness,
         );
         expect(ethers.getBytes(built.transaction?.data ?? '0x')).to.have.length(600);
-        expect(encodeSyntheticCreationHarness(creation, 7)).to.match(/^0x/);
+        const creationHarness = new ethers.Interface([
+            'function deploy(uint16 runtimeBytes,uint16 stores,uint32 gasBurn,uint32 requestedInitcodeBytes,bool useCreate2,bytes32 salt)',
+        ]);
+        const first = creationHarness.decodeFunctionData(
+            'deploy',
+            encodeSyntheticCreationHarness(creation, 7, 1),
+        );
+        const second = creationHarness.decodeFunctionData(
+            'deploy',
+            encodeSyntheticCreationHarness(creation, 7, 2),
+        );
+        expect(first.salt).not.to.equal(second.salt);
     });
 
     it('includes unlinked EVM transactions exactly once in replay scheduling', () => {

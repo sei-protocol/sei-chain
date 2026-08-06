@@ -185,13 +185,13 @@ Run length is configured with `RUN_DURATION_HOURS` (default `2` for buffered mod
 
 ## Metrics, audits, and observability
 
-Executed replay exposes Prometheus metrics on `0.0.0.0:9465/metrics` and `/healthz`; set `METRICS_PORT=0` to disable.
+Executed replay exposes Prometheus metrics on `127.0.0.1:9465/metrics` and `/healthz` by default; set `METRICS_PORT=0` to disable.
 
 ```bash
-npm run dashboard:up
+GRAFANA_ADMIN_PASSWORD='<choose-a-password>' npm run dashboard:up
 ```
 
-Grafana is at `http://localhost:3000/d/pacific-replay`; Prometheus is at `http://localhost:9090`. Prometheus scrapes the host runner at `host.docker.internal:9465`, so keep `METRICS_HOST=0.0.0.0` and `METRICS_PORT=9465` when using the bundled stack. The dashboard shows scrape/process health, throughput, successful and failed inclusion, latency, pending work, adapter/fidelity mix, source-vs-target bytes and gas, calldata-size fidelity, trace availability and operation pressure, skips, and source cursors. The defaults are `admin` / `replay`; override them with `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD`. These credentials and the stack are for local development only. Stop the stack with `npm run dashboard:down`.
+Grafana is at `http://localhost:3000/d/pacific-replay`; Prometheus is at `http://localhost:9090`. Both ports bind to localhost. Prometheus scrapes the host runner at `host.docker.internal:9465`, so keep `METRICS_HOST=0.0.0.0` and `METRICS_PORT=9465` when using the bundled stack. The dashboard shows scrape/process health, throughput, successful and failed inclusion, latency, pending work, adapter/fidelity mix, source-vs-target bytes and gas, calldata-size fidelity, trace availability and operation pressure, skips, and source cursors. The Grafana user defaults to `admin`; `GRAFANA_ADMIN_PASSWORD` is required. Stop the stack with `npm run dashboard:down`.
 
 Each executed run writes:
 

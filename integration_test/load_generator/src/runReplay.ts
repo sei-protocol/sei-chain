@@ -330,10 +330,10 @@ async function main(): Promise<void> {
                 const peak = scaledPeakTps(newSegments);
                 if (peak > MAX_TPS) {
                     // Aborting a long follow run mid-flight would be worse than
-                    // the burst; worker-queue backpressure bounds the overflow.
+                    // the burst; excess traffic is dropped and audited.
                     console.warn(
                         `Newly collected segments peak at ${peak.toFixed(1)} tx/s, ` +
-                            `above MAX_TPS=${MAX_TPS}; relying on worker-queue backpressure`,
+                            `above MAX_TPS=${MAX_TPS}; excess traffic will be dropped`,
                     );
                 }
             }
@@ -406,7 +406,14 @@ async function main(): Promise<void> {
                 firstTimestamp ??= block.timestamp;
                 const targetElapsedMs =
                     ((block.timestamp - firstTimestamp) * 1_000) / TIME_SCALE;
-                await sleepUntil(replayStartedAt + pausedMilliseconds + targetElapsedMs);
+                const scheduledAt = replayStartedAt + pausedMilliseconds + targetElapsedMs;
+                await sleepBounded(Math.max(0, scheduledAt - Date.now()), runDeadline);
+                if (
+                    stopRequested ||
+                    (runDeadline !== undefined && Date.now() >= runDeadline)
+                ) {
+                    break;
+                }
                 if (Date.now() - feeUpdatedAt > 60_000) {
                     try {
                         fees = await readFees(provider);
@@ -451,6 +458,7 @@ async function main(): Promise<void> {
                                 entry.sourceCosmosHash,
                                 worker,
                                 currentSequence,
+                                auditRunId,
                                 users,
                                 deployment,
                                 target.evmChainId,
@@ -575,6 +583,7 @@ async function main(): Promise<void> {
         await bucketAudit.flush();
         for (const worker of workers) worker.cosmosClient?.disconnect();
         await liveMetrics.close();
+        provider.destroy();
     }
 }
 
@@ -583,6 +592,7 @@ async function executeEvm(
     sourceCosmosHash: string | undefined,
     worker: Worker,
     sequence: number,
+    runSalt: number,
     users: ReplayUserManifest,
     deployment: ReplayDeploymentManifest,
     chainId: bigint,
@@ -602,6 +612,7 @@ async function executeEvm(
             users: users.users,
             workerIndex: worker.slot,
             sequence,
+            runSalt,
             nonce: worker.evmNonce,
             fees,
             maxGasPerTransaction: MAX_GAS_PER_TX,
@@ -1020,6 +1031,7 @@ function inspectSegments(
                         users: users.users,
                         workerIndex: sequence % users.users.length,
                         sequence,
+                        runSalt: 0,
                         nonce: sequence,
                         fees,
                         maxGasPerTransaction: MAX_GAS_PER_TX,
@@ -1326,11 +1338,6 @@ function printSummary(metrics: AdapterMetrics): void {
     if (Object.keys(metrics.skipReasons).length > 0) {
         console.log(`  skips=${JSON.stringify(metrics.skipReasons)}`);
     }
-}
-
-async function sleepUntil(timestamp: number): Promise<void> {
-    const delay = timestamp - Date.now();
-    if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
 }
 
 async function sleepBounded(milliseconds: number, deadline: number | undefined): Promise<void> {

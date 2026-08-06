@@ -102,7 +102,7 @@ export function loadReplayConfig(env: Environment = process.env) {
         minBufferMinutes: positiveNumber(env, 'MIN_BUFFER_MINUTES', 5),
         resumeBufferMinutes: positiveNumber(env, 'RESUME_BUFFER_MINUTES', 20),
         metricsPort: nonNegativeInteger(env, 'METRICS_PORT', 9465),
-        metricsHost: string(env, 'METRICS_HOST', '0.0.0.0'),
+        metricsHost: string(env, 'METRICS_HOST', '127.0.0.1'),
         privilegedReplayMode: privilegedMode(env),
         logBuckets: flag(env, 'LOG_BUCKETS'),
         workerCount: positiveInteger(env, 'WORKER_COUNT', 20),
@@ -271,8 +271,13 @@ function minimumInteger(
 }
 
 function optionalPositiveInteger(env: Environment, key: string): number | undefined {
-    if (!env[key]) return undefined;
-    return positiveInteger(env, key, 1);
+    const raw = env[key];
+    if (raw === undefined) return undefined;
+    const value = Number(raw.trim());
+    if (!Number.isInteger(value) || value <= 0) {
+        throw new Error(`${key} must be a positive integer`);
+    }
+    return value;
 }
 
 function runDurationSeconds(

@@ -227,6 +227,8 @@ function validateCaptureManifest(manifest: CaptureManifest): void {
         manifest.source.network !== 'pacific-1' ||
         manifest.source.evmRpcUrl !== EVM_RPC ||
         manifest.source.cosmosRpcUrl !== COSMOS_RPC ||
+        manifest.source.requestedMinutes !== RECORD_MINUTES ||
+        manifest.source.tipLagBlocks !== TIP_LAG_BLOCKS ||
         manifest.segmentBlocks !== SEGMENT_BLOCKS ||
         (START_BLOCK !== undefined && manifest.source.firstBlock !== START_BLOCK) ||
         (END_BLOCK !== undefined && manifest.source.lastBlock !== END_BLOCK)

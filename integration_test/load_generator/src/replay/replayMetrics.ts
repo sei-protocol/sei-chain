@@ -203,7 +203,7 @@ export class ReplayMetrics {
     }
 
     recordTraceProfile(source: ReplayEvmTransaction): void {
-        this.traceAvailability.inc({ availability: source.trace?.availability ?? 'not_captured' });
+        this.traceAvailability.inc({ availability: source.trace?.availability ?? 'not-captured' });
         const counts = sourceTraceCounts(source.trace);
         const values: Record<string, number> = {
             frames: counts.frames,

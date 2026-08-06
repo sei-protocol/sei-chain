@@ -60,4 +60,14 @@ describe('replay observability', () => {
         expect(new Set(ids).size).to.equal(ids.length);
         expect(new Set(titles).size).to.equal(titles.length);
     });
+
+    it('binds dashboard services to localhost', () => {
+        const compose = fs.readFileSync(
+            path.resolve('observability/docker-compose.yml'),
+            'utf8',
+        );
+        expect(compose).to.include('127.0.0.1:9090:9090');
+        expect(compose).to.include('127.0.0.1:3000:3000');
+        expect(compose).to.include('GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD');
+    });
 });
