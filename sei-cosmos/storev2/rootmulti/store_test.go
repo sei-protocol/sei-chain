@@ -2,6 +2,7 @@ package rootmulti
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -11,6 +12,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
@@ -43,6 +47,134 @@ func TestGetCommitKVStore_ReaderRespectsWriteLock(t *testing.T) {
 	store.mtx.Unlock()
 
 	require.Same(t, newVal, <-readDone)
+}
+
+// recordingStateStore records rollback calls and can be made to fail either the
+// preflight or the rollback itself.
+type recordingStateStore struct {
+	seidbtypes.StateStore
+	coverageErr    error
+	rollbackErr    error
+	rollbackCalled bool
+}
+
+func (s *recordingStateStore) CheckRollbackCoverage(_ int64) error {
+	return s.coverageErr
+}
+
+func (s *recordingStateStore) Rollback(_ int64) error {
+	s.rollbackCalled = true
+	return s.rollbackErr
+}
+
+// recordingCommitter is a Committer stub that reports a version and records
+// rollbacks. It answers the calls rollbackToVersion makes around the SS step —
+// GetLatestVersion for the preflight, Version and LastCommitInfo afterwards —
+// so the tests exercise the real path instead of relying on an early return.
+type recordingCommitter struct {
+	sctypes.Committer
+	version        int64
+	rollbackErr    error
+	rollbackCalled bool
+}
+
+func (c *recordingCommitter) Version() int64 { return c.version }
+
+func (c *recordingCommitter) GetLatestVersion() (int64, error) { return c.version, nil }
+
+func (c *recordingCommitter) LastCommitInfo() *proto.CommitInfo {
+	return &proto.CommitInfo{Version: c.version}
+}
+
+func (c *recordingCommitter) Rollback(target int64) error {
+	c.rollbackCalled = true
+	if c.rollbackErr != nil {
+		return c.rollbackErr
+	}
+	c.version = target
+	return nil
+}
+
+func newRollbackTestStore(scStore sctypes.Committer, ssStore seidbtypes.StateStore) *Store {
+	return &Store{
+		scStore:      scStore,
+		ssStore:      ssStore,
+		storesParams: make(map[types.StoreKey]storeParams),
+		storeKeys:    make(map[string]types.StoreKey),
+		ckvStores:    make(map[types.StoreKey]types.CommitKVStore),
+	}
+}
+
+func TestRollbackToVersionAbortsBeforeSCWhenSSRollbackFails(t *testing.T) {
+	scStore := &recordingCommitter{version: 10}
+	ssErr := errors.New("ss rollback coverage gap")
+	ssStore := &recordingStateStore{rollbackErr: ssErr}
+	store := newRollbackTestStore(scStore, ssStore)
+
+	err := store.RollbackToVersion(1)
+	require.ErrorIs(t, err, ssErr)
+	require.False(t, scStore.rollbackCalled, "SC rollback must not start when SS rollback fails")
+}
+
+// The SS preflight has to run before anything mutates, so a target SS cannot
+// reach leaves both layers untouched.
+func TestRollbackToVersionAbortsBeforeMutatingWhenSSCoverageFails(t *testing.T) {
+	scStore := &recordingCommitter{version: 10}
+	coverageErr := errors.New("changelog does not reach that far")
+	ssStore := &recordingStateStore{coverageErr: coverageErr}
+	store := newRollbackTestStore(scStore, ssStore)
+
+	err := store.RollbackToVersion(1)
+	require.ErrorIs(t, err, coverageErr)
+	require.False(t, ssStore.rollbackCalled, "SS rollback must not start when the preflight fails")
+	require.False(t, scStore.rollbackCalled, "SC rollback must not start when the preflight fails")
+}
+
+// Rolling back above SC's own version is the common operator mistake, and it
+// must be caught before SS is touched — otherwise SS ends up behind SC.
+func TestRollbackToVersionAboveSCVersionLeavesSSUntouched(t *testing.T) {
+	scStore := &recordingCommitter{version: 5}
+	ssStore := &recordingStateStore{}
+	store := newRollbackTestStore(scStore, ssStore)
+
+	err := store.RollbackToVersion(9)
+	require.ErrorContains(t, err, "above the state commit version 5")
+	require.False(t, ssStore.rollbackCalled)
+	require.False(t, scStore.rollbackCalled)
+}
+
+// SS succeeding and SC then failing is the direction that leaves SS behind SC;
+// the error has to surface rather than being swallowed.
+func TestRollbackToVersionSurfacesSCFailureAfterSSSucceeds(t *testing.T) {
+	scErr := errors.New("sc rollback failed")
+	scStore := &recordingCommitter{version: 10, rollbackErr: scErr}
+	ssStore := &recordingStateStore{}
+	store := newRollbackTestStore(scStore, ssStore)
+
+	err := store.RollbackToVersion(3)
+	require.ErrorIs(t, err, scErr)
+	require.True(t, ssStore.rollbackCalled, "SS is rolled back first by design")
+}
+
+func TestRollbackToVersionWithoutStateStore(t *testing.T) {
+	scStore := &recordingCommitter{version: 10}
+	store := newRollbackTestStore(scStore, nil)
+
+	require.NoError(t, store.RollbackToVersion(3))
+	require.True(t, scStore.rollbackCalled)
+	require.Equal(t, int64(3), store.lastCommitInfo.Version)
+}
+
+// The escape hatch for rollbacks deeper than the SS changelog can undo: SC moves
+// and SS is deliberately left ahead.
+func TestRollbackCommitStoreToVersionSkipsStateStore(t *testing.T) {
+	scStore := &recordingCommitter{version: 10}
+	ssStore := &recordingStateStore{rollbackErr: errors.New("would have failed")}
+	store := newRollbackTestStore(scStore, ssStore)
+
+	require.NoError(t, store.RollbackCommitStoreToVersion(3))
+	require.False(t, ssStore.rollbackCalled, "state store must be left alone")
+	require.True(t, scStore.rollbackCalled)
 }
 
 func TestLastCommitID(t *testing.T) {

@@ -120,6 +120,27 @@ type Checkpointable interface {
 	Checkpoint(destDir string) error
 }
 
+// Rollbackable is an optional capability for versioned engines that can discard
+// every version above a target height.
+type Rollbackable interface {
+	Rollback(targetVersion int64) error
+}
+
+// RollbackCoverageChecker is an optional preflight for multi-backend rollback.
+// It lets a composite store verify all backends can roll back before mutating
+// any individual backend.
+type RollbackCoverageChecker interface {
+	CheckRollbackCoverage(targetVersion int64) error
+}
+
+// ChangelogPrunePauser keeps a backend's retained changelog range stable while
+// a coordinated rollback preflights and mutates several stores. Calls may nest;
+// every suspension must have a matching resume.
+type ChangelogPrunePauser interface {
+	SuspendChangelogPruning()
+	ResumeChangelogPruning()
+}
+
 // ---------------------------------------------------------------------------
 // SS DB layer
 // ---------------------------------------------------------------------------

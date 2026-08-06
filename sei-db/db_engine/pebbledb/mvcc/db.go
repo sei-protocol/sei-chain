@@ -211,6 +211,12 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
 		KeepRecent:    uint64(walKeepRecent),
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
+		// Rolling back to a version below every retained changelog entry has to
+		// remove them all, and a rollback that deep is reachable whenever the
+		// front of the log has been pruned. Background pruning never empties
+		// the log (it always keeps KeepRecent entries), so this only widens
+		// what an explicit rollback may do.
+		AllowEmpty: true,
 	})
 	if err != nil {
 		return nil, err

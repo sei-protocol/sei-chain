@@ -20,10 +20,13 @@ var _ types.StateStore = (*EVMStateStore)(nil)
 // EVM sub-type, depending on config. In both modes, the logical store key and
 // key encoding remain unchanged.
 type EVMStateStore struct {
-	subDBs      map[EVMStoreType]types.StateStore
-	managedDBs  []types.StateStore
-	dir         string
-	separateDBs bool
+	subDBs     map[EVMStoreType]types.StateStore
+	managedDBs []types.StateStore
+	// managedNames labels managedDBs positionally, so an error about one
+	// backend can say which of the per-type DBs it came from.
+	managedNames []string
+	dir          string
+	separateDBs  bool
 }
 
 // NewEVMStateStore opens either a single unified MVCC DB for all EVM state
@@ -48,6 +51,7 @@ func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateSt
 			}
 			store.subDBs[storeType] = db
 			store.managedDBs = append(store.managedDBs, db)
+			store.managedNames = append(store.managedNames, StoreTypeName(storeType))
 		}
 		return store, nil
 	}
@@ -58,6 +62,7 @@ func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateSt
 		return nil, fmt.Errorf("failed to open unified EVM MVCC DB: %w", err)
 	}
 	store.managedDBs = append(store.managedDBs, db)
+	store.managedNames = append(store.managedNames, "unified")
 	for _, storeType := range AllEVMStoreTypes() {
 		store.subDBs[storeType] = db
 	}
@@ -360,6 +365,45 @@ func (s *EVMStateStore) Prune(version int64) error {
 	return nil
 }
 
+// managedDBName labels the managed DB at index i. In separate-sub-DBs mode the
+// label is the EVM sub-type, which is what an operator needs to know when one
+// sub-store is the one blocking a rollback.
+func (s *EVMStateStore) managedDBName(i int) string {
+	if i < len(s.managedNames) {
+		return s.managedNames[i]
+	}
+	return fmt.Sprintf("db-%d", i)
+}
+
+func (s *EVMStateStore) CheckRollbackCoverage(targetVersion int64) error {
+	for i, db := range s.managedDBs {
+		checker, ok := db.(types.RollbackCoverageChecker)
+		if !ok {
+			return fmt.Errorf("EVM state store %s backend %T does not support rollback coverage checks", s.managedDBName(i), db)
+		}
+		if err := checker.CheckRollbackCoverage(targetVersion); err != nil {
+			return fmt.Errorf("EVM state store %s: %w", s.managedDBName(i), err)
+		}
+	}
+	return nil
+}
+
+func (s *EVMStateStore) Rollback(targetVersion int64) error {
+	if err := s.CheckRollbackCoverage(targetVersion); err != nil {
+		return err
+	}
+	for i, db := range s.managedDBs {
+		rb, ok := db.(types.Rollbackable)
+		if !ok {
+			return fmt.Errorf("EVM state store %s backend %T does not support rollback", s.managedDBName(i), db)
+		}
+		if err := rb.Rollback(targetVersion); err != nil {
+			return fmt.Errorf("EVM state store %s: %w", s.managedDBName(i), err)
+		}
+	}
+	return nil
+}
+
 func (s *EVMStateStore) Close() error {
 	var lastErr error
 	for _, db := range s.managedDBs {
@@ -368,6 +412,30 @@ func (s *EVMStateStore) Close() error {
 		}
 	}
 	return lastErr
+}
+
+func (s *EVMStateStore) SuspendChangelogPruning() {
+	for _, db := range s.managedDBs {
+		if pauser, ok := db.(types.ChangelogPrunePauser); ok {
+			pauser.SuspendChangelogPruning()
+		}
+	}
+}
+
+func (s *EVMStateStore) ResumeChangelogPruning() {
+	for i := len(s.managedDBs) - 1; i >= 0; i-- {
+		if pauser, ok := s.managedDBs[i].(types.ChangelogPrunePauser); ok {
+			pauser.ResumeChangelogPruning()
+		}
+	}
+}
+
+func (s *EVMStateStore) WaitForPendingWrites() {
+	for _, db := range s.managedDBs {
+		if w, ok := db.(interface{ WaitForPendingWrites() }); ok {
+			w.WaitForPendingWrites()
+		}
+	}
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {

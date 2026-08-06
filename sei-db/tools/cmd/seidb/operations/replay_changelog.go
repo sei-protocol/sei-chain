@@ -40,7 +40,8 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	}
 
 	logDir := filepath.Join(dbDir, "changelog")
-	stream, err := wal.NewChangelogWAL(logDir, wal.Config{})
+	// AllowEmpty so an SS changelog that a deep rollback emptied still opens.
+	stream, err := wal.NewChangelogWAL(logDir, wal.Config{AllowEmpty: true})
 	if err != nil {
 		panic(err)
 	}

@@ -17,6 +17,11 @@ type GenericWAL[T any] interface {
 	// TruncateAfter will remove all entries that are after the provided `offset`
 	TruncateAfter(offset uint64) error
 
+	// TruncateAll removes every entry from the log. It requires the log to have
+	// been opened with Config.AllowEmpty; without it, truncation must leave at
+	// least one entry behind and this fails.
+	TruncateAll() error
+
 	// ReadAt will read the replay log at the given index
 	ReadAt(offset uint64) (T, error)
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -45,6 +46,12 @@ type WAL[T any] struct {
 	// This is to accommodate callers who are running in async mode and don't wait for the
 	// success/failure of individual writes.
 	asyncError atomic.Pointer[error]
+
+	// pruneMu makes SuspendPrune a barrier against a prune already in progress.
+	// pruneSuspensions is a count because composite rollback pauses a backend
+	// around the whole operation while the backend rollback also pauses itself.
+	pruneMu          sync.Mutex
+	pruneSuspensions int
 }
 
 // A request to truncate the log.
@@ -478,7 +485,33 @@ func (walLog *WAL[T]) Replay(start uint64, end uint64, processFn func(index uint
 	return nil
 }
 
+// SuspendPrune stops the background prune ticker from dropping entries off the
+// front of the log. A caller that reads a range of offsets it discovered
+// earlier — a rollback replaying the changelog as an undo index, say — needs
+// that range to stay readable throughout; prune runs on the WAL's own
+// goroutine and would otherwise truncate entries out from under the reader.
+// Calls may nest. Pruning resumes after every suspension has been released.
+func (walLog *WAL[T]) SuspendPrune() {
+	walLog.pruneMu.Lock()
+	walLog.pruneSuspensions++
+	walLog.pruneMu.Unlock()
+}
+
+// ResumePrune re-enables the background prune ticker suspended by SuspendPrune.
+func (walLog *WAL[T]) ResumePrune() {
+	walLog.pruneMu.Lock()
+	if walLog.pruneSuspensions > 0 {
+		walLog.pruneSuspensions--
+	}
+	walLog.pruneMu.Unlock()
+}
+
 func (walLog *WAL[T]) prune() {
+	walLog.pruneMu.Lock()
+	defer walLog.pruneMu.Unlock()
+	if walLog.pruneSuspensions > 0 {
+		return
+	}
 	keepRecent := walLog.config.KeepRecent
 	if keepRecent <= 0 || walLog.config.PruneInterval <= 0 {
 		// Pruning is disabled. This is a defensive check, since
