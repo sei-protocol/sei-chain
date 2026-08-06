@@ -98,7 +98,7 @@ func (t *Tx) ValidateBasic() error {
 		)
 	}
 
-	// SignerInfos and Signatures are 1:1 (see SetSignatures / GetSignaturesV2).
+	// SignerInfos and Signatures are 1:1 (see SetSignatures).
 	if len(authInfo.SignerInfos) != len(sigs) {
 		return sdkerrors.Wrapf(
 			sdkerrors.ErrUnauthorized,

@@ -164,11 +164,6 @@ func (w *wrapper) GetTimeoutHeight() uint64 {
 func (w *wrapper) GetSignaturesV2() ([]signing.SignatureV2, error) {
 	signerInfos := w.tx.AuthInfo.SignerInfos
 	sigs := w.tx.Signatures
-	// SignerInfos and Signatures are 1:1 (see SetSignatures).
-	if len(sigs) != len(signerInfos) {
-		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized,
-			"wrong number of SignerInfos; expected %d, got %d", len(sigs), len(signerInfos))
-	}
 	pubKeys, err := w.GetPubKeys()
 	if err != nil {
 		return nil, err

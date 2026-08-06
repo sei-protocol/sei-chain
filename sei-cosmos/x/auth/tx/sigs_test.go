@@ -8,7 +8,6 @@ import (
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 )
@@ -65,19 +64,4 @@ func TestModeInfoAndSigToSignatureData(t *testing.T) {
 	}}
 	_, err = ModeInfoAndSigToSignatureData(bad, rawShort)
 	require.Error(t, err)
-}
-
-func TestGetSignaturesV2_SignerInfoSigCountMismatch(t *testing.T) {
-	_, pk, addr := testdata.KeyTestPubAddr()
-	b := newBuilder()
-	require.NoError(t, b.SetMsgs(testdata.NewTestMsg(addr)))
-	require.NoError(t, b.SetSignatures(signing.SignatureV2{
-		PubKey: pk,
-		Data:   &signing.SingleSignatureData{SignMode: signing.SignMode_SIGN_MODE_DIRECT, Signature: []byte("sig")},
-	}))
-	b.tx.Signatures = nil
-	_, err := b.GetSignaturesV2()
-	require.Error(t, err)
-	_, code, _ := sdkerrors.ABCIInfo(err, false)
-	require.Equal(t, sdkerrors.ErrUnauthorized.ABCICode(), code)
 }
