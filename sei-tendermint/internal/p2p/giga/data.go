@@ -60,7 +60,7 @@ func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) err
 		if err != nil {
 			return fmt.Errorf("StreamAppQCsRespConv.Decode(): %w", err)
 		}
-		if err := x.data.PushAppQC(ctx,appQC); err != nil {
+		if err := x.data.PushAppQC(ctx, appQC); err != nil {
 			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
 		}
 	}
@@ -181,7 +181,7 @@ func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Serv
 		if err != nil {
 			return fmt.Errorf("StreamFullCommitQCsReqConv.Decode(): %w", err)
 		}
-		for next := req.NextBlock;; {
+		for next := req.NextBlock; ; {
 			qc, err := s.data.QC(ctx, next)
 			if err != nil {
 				return fmt.Errorf("s.data.QC(): %w", err)
@@ -205,7 +205,7 @@ func (x *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]
 		if err != nil {
 			return fmt.Errorf("StreamFullCommitQCsReqConv.Decode(): %w", err)
 		}
-		for next:=req.NextBlock;; {
+		for next := req.NextBlock; ; {
 			appQC, commitQC, err := x.validatorState().Data().AppQC(ctx, next)
 			if err != nil {
 				return fmt.Errorf("x.validatorState().Avail().WaitForAppQC(): %w", err)

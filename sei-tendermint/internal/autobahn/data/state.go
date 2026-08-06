@@ -762,22 +762,29 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 // persistence cursor catches up.
 func (s *State) runPersist(ctx context.Context) error {
 	status := s.blockDB.Status()
+	// Account for empty blockDB.
+	for inner := range s.inner.Lock() {
+		status.NextQC = max(status.NextQC, inner.first)
+		status.NextAppQC = max(status.NextAppQC, inner.first)
+		status.NextBlock = max(status.NextBlock, inner.first)
+	}
 	for {
 		var qcs []*types.FullCommitQC
 		var blocks []blockEntry
 		var appQCs []*types.AppQC
 		for inner, ctrl := range s.inner.Lock() {
+			// Wait until there is anythin to persist.
 			if err := ctrl.WaitUntil(ctx, func() bool {
 				return status.NextQC < inner.nextQC || status.NextBlock < inner.nextBlock || status.NextAppQC < inner.nextAppQC
 			}); err != nil {
 				return err
 			}
+			// Collect data to persist.
 			for status.NextQC < inner.nextQC {
 				qc := inner.qcs[status.NextQC]
 				qcs = append(qcs, qc)
 				status.NextQC = qc.QC().GlobalRange().Next
 			}
-
 			for status.NextAppQC < inner.nextAppQC {
 				appQC := inner.appQCs[status.NextAppQC]
 				appQCs = append(appQCs, appQC)
@@ -788,7 +795,7 @@ func (s *State) runPersist(ctx context.Context) error {
 				status.NextBlock += 1
 			}
 		}
-		// Write QCs first (BlockDB contract: QC must precede covered blocks).
+		// Write QCs first (BlockDB contract: QC must precede covered blocks and AppQC).
 		for _, qc := range qcs {
 			if err := s.blockDB.WriteQC(qc); err != nil {
 				return fmt.Errorf("write QC %d: %w", qc.QC().Index(), err)
