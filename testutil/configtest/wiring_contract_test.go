@@ -1,6 +1,7 @@
 package configtest
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -121,7 +122,18 @@ func packagesCallingACheck(root string) (wired, unparseable []string, err error)
 		if scanned[dir] || dir == thisPackage(root) {
 			return nil
 		}
+		// Marked before the prefilter, not after, so a directory is examined once whichever way the
+		// prefilter goes. Marking only on a hit would re-scan every unrelated directory per test file.
 		scanned[dir] = true
+
+		mentions, readErr := someFileMentionsThisPackage(dir)
+		if readErr != nil {
+			unparseable = append(unparseable, dir)
+			return nil
+		}
+		if !mentions {
+			return nil
+		}
 
 		pairs, parseErr := wiringOf(dir)
 		if parseErr != nil {
@@ -144,6 +156,36 @@ func packagesCallingACheck(root string) (wired, unparseable []string, err error)
 	sort.Strings(dirs)
 	sort.Strings(unparseable)
 	return dirs, unparseable, nil
+}
+
+// someFileMentionsThisPackage reports whether any test file in dir contains this package's import
+// path, as bytes.
+//
+// A prefilter in front of wiringOf, which parses every .go file in a directory. The walk reaches around
+// 440 directories holding roughly 1500 test files, the vendored sub-repos included, to assert a property
+// over 11 of them, and a directory that never names this package cannot contribute a pair. Reading bytes
+// to decide that is two orders of magnitude cheaper than parsing to find out.
+//
+// A prefilter rather than a checked-in list of packages, so the discovered-not-declared property holds.
+// A package added later is still found without anyone editing this file.
+func someFileMentionsThisPackage(dir string) (bool, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name())) //nolint:gosec // a _test.go file found by walking the repo
+		if err != nil {
+			return false, err
+		}
+		if bytes.Contains(data, []byte("testutil/configtest")) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // callsCheckWiring reports whether the package in dir calls configtest.CheckWiring.

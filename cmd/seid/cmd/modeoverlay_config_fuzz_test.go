@@ -60,9 +60,22 @@ func TestNodeModeStateStoreOverlayIsDiscarded(t *testing.T) {
 				t.Error("seed mode no longer disables the state store; it shares validator's assignments")
 			}
 		}},
+		// Full mode's overlay is identical to the sei-db default, so nothing about the resolved value
+		// distinguishes the assignment from its absence. Deleting setFullnodeTypeAppConfig's two
+		// StateStore lines leaves this case green, which was confirmed by mutation rather than assumed.
+		//
+		// The literals below are still worth asserting, and it is worth being exact about which
+		// failures they reach. A changed assignment reddens. So does the sei-db default drifting away
+		// from what this mode intends while the assignment is missing, because these numbers are
+		// written here rather than read back from the default. Deletion on its own is what cannot be
+		// caught, and that is a property of the two values coinciding rather than of the assertion.
 		{params.NodeModeFull, func(t *testing.T, e seidbconfig.StateStoreConfig) {
 			if !e.Enable {
 				t.Error("full mode no longer leaves the state store enabled")
+			}
+			if e.KeepRecent != 100000 {
+				t.Errorf("full mode no longer keeps 100000 recent versions for queries, got %d",
+					e.KeepRecent)
 			}
 		}},
 		{params.NodeModeArchive, func(t *testing.T, e seidbconfig.StateStoreConfig) {

@@ -216,36 +216,42 @@ func TestRefusalSurvivesIsolate(t *testing.T) {
 // in text is satisfied by prose, which is the defect one level up from the one being prevented. The
 // AST sees calls only.
 func TestNoTestInThisPackageIsParallel(t *testing.T) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
+	// Read the directory and parse each file rather than using go/parser.ParseDir, for the reason
+	// wiringOf gives: the standard library deprecates ParseDir for ignoring build tags, and ignoring
+	// them is what this wants. A t.Parallel behind a build tag is still a t.Parallel.
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("parse package directory: %v", err)
+		t.Fatalf("read package directory: %v", err)
 	}
 
+	fset := token.NewFileSet()
 	scanned := 0
-	for _, pkg := range pkgs {
-		for path, file := range pkg.Files {
-			if !strings.HasSuffix(path, "_test.go") {
-				continue
-			}
-			scanned++
-			ast.Inspect(file, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				sel, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok || sel.Sel.Name != "Parallel" {
-					return true
-				}
-				t.Errorf("%s calls %s.Parallel() at %s. allowRecordWriteUnderCI is a mutable package "+
-					"variable that withUpdateFlag turns on for one test at a time, so a concurrent test "+
-					"can observe the window in which the record refusal is off. Either drop the call or "+
-					"replace the override with something a concurrent test cannot see.",
-					path, types.ExprString(sel.X), fset.Position(call.Pos()))
-				return true
-			})
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
 		}
+		name := entry.Name()
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		scanned++
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Parallel" {
+				return true
+			}
+			t.Errorf("%s calls %s.Parallel() at %s. allowRecordWriteUnderCI is a mutable package "+
+				"variable that withUpdateFlag turns on for one test at a time, so a concurrent test "+
+				"can observe the window in which the record refusal is off. Either drop the call or "+
+				"replace the override with something a concurrent test cannot see.",
+				name, types.ExprString(sel.X), fset.Position(call.Pos()))
+			return true
+		})
 	}
 
 	// A scan that parsed nothing would pass while checking nothing — the same defect this package

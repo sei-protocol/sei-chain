@@ -421,7 +421,7 @@ func requireCheckedRowsReachTheirErrorPath(
 		if !spec.Checked {
 			continue
 		}
-		if _, rejected := aRejectedSeed(read, spec, seeds, current, specs); rejected {
+		if aRejectedSeed(read, spec, seeds, current, specs) {
 			continue
 		}
 
@@ -442,9 +442,13 @@ func requireCheckedRowsReachTheirErrorPath(
 }
 
 // aRejectedSeed reports whether any of the row's own seeds makes the reader return an error.
+//
+// Returns only the verdict. It used to return the rejecting value too, which no caller read, because
+// the failure below names a value from aRejectedValue instead: a seed that already rejects means there
+// is no failure to report, so the value would have been information for nobody.
 func aRejectedSeed(
 	read func(AppOpts) (any, error), spec KeySpec, seeds *Seeds, current uint, specs []KeySpec,
-) (any, bool) {
+) bool {
 	for _, e := range seeds.entries {
 		// uint(len(specs)) rather than a converted count, so the reduction stays in uint the way the
 		// discriminating loop's does and gosec can see the width is safe.
@@ -452,10 +456,10 @@ func aRejectedSeed(
 			continue
 		}
 		if readRejects(read, spec, e.value) {
-			return e.value, true
+			return true
 		}
 	}
-	return nil, false
+	return false
 }
 
 // aRejectedValue finds a value the reader rejects, so a failure can name one an engineer could write.

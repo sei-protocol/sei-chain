@@ -32,8 +32,13 @@ var envAllowlist = map[string]bool{
 	// CI is required by recordWriteRefused in golden.go: it refuses to rewrite a checked-in record
 	// on a CI run, and a refusal keyed on a variable Isolate strips would silently no-op in any
 	// test that isolates before writing — reopening the hole with nothing to notice. Its cost here
-	// is nil rather than merely small: no key in the closed read-key set is named ci, and the env
-	// lane recorded no bare CI resolution, so the empty-prefix viper has nothing to resolve it to.
+	// is nil rather than merely small, in that no key in the closed read-key set is named ci, and the
+	// env lane recorded no bare CI resolution, so the empty-prefix viper has nothing to resolve it to.
+	//
+	// Two consequences are worth having next to the entry. Isolate is no longer hermetic with respect
+	// to CI, and the nil cost above rests on no read key ever being named ci, which nothing asserts.
+	// And -update cannot run wherever CI is set, which is the intended posture, so refuseRecordWrite
+	// names the variable and gives the env -u form rather than saying only "regenerate it locally".
 	"CI":                true,
 	"PATH":              true,
 	"TMPDIR":            true,
