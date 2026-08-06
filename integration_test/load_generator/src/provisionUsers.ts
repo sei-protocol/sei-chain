@@ -117,20 +117,20 @@ async function main(): Promise<void> {
             sender: user.seiAddress,
             custom_message: `${target.network} Pacific replay`,
         });
-        const result = await (async () => {
-            try {
-                return await client.signAndBroadcast(
-                    user.seiAddress,
-                    [{ typeUrl: `/${Encoder.evm.MsgAssociate.$type}`, value: message }],
-                    { amount: coins('21000', 'usei'), gas: '200000' },
-                    `associate ${target.network} replay user`,
+        try {
+            const result = await client.signAndBroadcast(
+                user.seiAddress,
+                [{ typeUrl: `/${Encoder.evm.MsgAssociate.$type}`, value: message }],
+                { amount: coins('21000', 'usei'), gas: '200000' },
+                `associate ${target.network} replay user`,
+            );
+            if (result.code !== 0 && !/already|associated/i.test(result.rawLog ?? '')) {
+                throw new Error(
+                    `Association failed for user ${user.index}: ${result.rawLog}`,
                 );
-            } finally {
-                client.disconnect();
             }
-        })();
-        if (result.code !== 0 && !/already|associated/i.test(result.rawLog ?? '')) {
-            throw new Error(`Association failed for user ${user.index}: ${result.rawLog}`);
+        } finally {
+            client.disconnect();
         }
         associated++;
         newAssociations++;

@@ -145,6 +145,10 @@ describe('load generator pure behavior', () => {
         );
         expect(loadReplayConfig({ EXECUTE: '0' }).execute).to.equal(false);
         expect(loadReplayConfig({ EXECUTE: '1' }).execute).to.equal(true);
+        expect(loadReplayConfig({}).evmReceiptTimeoutMs).to.equal(60_000);
+        expect(loadReplayConfig({ EVM_RECEIPT_TIMEOUT_MS: '2500' }).evmReceiptTimeoutMs).to.equal(
+            2_500,
+        );
         expect(loadReplayConfig({ REPLAY_FROM_START: '1' }).replayFromStart).to.equal(
             true,
         );
@@ -273,6 +277,13 @@ describe('load generator pure behavior', () => {
                 privilegedMode: 'shape',
             }).adapter,
         ).to.equal('cosmosPrivilegedShape');
+        expect(
+            buildCosmosReplay(cosmosSource([], { isEvm: true }), {
+                users,
+                workerIndex: 0,
+                maxMessages: 10,
+            }).reason,
+        ).to.equal('Wrapped EVM transaction has no linked EVM entry (ante-failed)');
     });
 
     it('queries associations through the supported Cosmos ABCI service', async () => {

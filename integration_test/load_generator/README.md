@@ -115,7 +115,7 @@ Execute a bounded segment at low speed:
 TARGET_NETWORK=arctic-1 MAX_SEGMENTS=1 TIME_SCALE=0.1 EXECUTE=1 npm run replay:run
 ```
 
-Important bounds are `MAX_TPS`, `WORKER_COUNT`, `MAX_PENDING_PER_LANE`, `MAX_GAS_PER_TX`, `FIXTURE_PREPARE_GAS_LIMIT`, `MAX_CALLDATA_BYTES`, `MAX_COSMOS_BYTES`, `MAX_COSMOS_MESSAGES`, and `MAX_VALUE_WEI`. `TIME_SCALE=1` preserves source-relative timing. Completed source blocks are checkpointed separately per target.
+Important bounds are `MAX_TPS`, `WORKER_COUNT`, `MAX_PENDING_PER_LANE`, `MAX_GAS_PER_TX`, `EVM_RECEIPT_TIMEOUT_MS`, `FIXTURE_PREPARE_GAS_LIMIT`, `MAX_CALLDATA_BYTES`, `MAX_COSMOS_BYTES`, `MAX_COSMOS_MESSAGES`, and `MAX_VALUE_WEI`. `TIME_SCALE=1` preserves source-relative timing. Completed source blocks are checkpointed separately per target.
 
 `npm run replay:run` resumes from that target checkpoint. Set `REPLAY_FROM_START=1` only when intentionally replaying the selected corpus again from its first block; the new run then replaces the checkpoint as blocks complete.
 

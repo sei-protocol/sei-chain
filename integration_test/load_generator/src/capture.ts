@@ -178,18 +178,28 @@ async function main(): Promise<void> {
         .filter(file => SEGMENT_FILENAME.test(file))
         .sort();
     const completed = await Promise.all(
-        candidateFiles.map(async file => ({
-            file,
-            segment: await readExistingSegment(path.join(OUTPUT_DIRECTORY, file)),
-        })),
+        candidateFiles.map(async file => {
+            const match = SEGMENT_FILENAME.exec(file)!;
+            const firstBlock = Number(match[1]);
+            const lastBlock = Number(match[2]);
+            const segment = await readExistingSegment(path.join(OUTPUT_DIRECTORY, file));
+            if (
+                segment &&
+                (segment.source.firstBlock !== firstBlock ||
+                    segment.source.lastBlock !== lastBlock)
+            ) {
+                throw new Error(`Segment filename does not match its block range: ${file}`);
+            }
+            return { file, firstBlock, lastBlock, segment };
+        }),
     );
     const inRange = completed.filter(
-        (item): item is { file: string; segment: ReplaySegment } =>
+        item =>
             item.segment !== undefined &&
-            item.segment.source.firstBlock >= start &&
-            item.segment.source.lastBlock <= end,
+            item.firstBlock >= start &&
+            item.lastBlock <= end,
     );
-    const completedSegments = inRange.map(item => item.segment);
+    const completedSegments = inRange.map(item => item.segment!);
     validateReplaySegments(completedSegments);
     if (
         completedSegments[0]?.source.firstBlock !== start ||
@@ -199,11 +209,11 @@ async function main(): Promise<void> {
     }
     const segmentFiles = inRange.map(item => item.file);
     const capturedTransactions = completedSegments.reduce(
-        (sum, segment) => sum + (segment?.totals.canonicalTransactions ?? 0),
+        (sum, segment) => sum + segment.totals.canonicalTransactions,
         0,
     );
     const capturedBytes = completedSegments.reduce(
-        (sum, segment) => sum + (segment?.totals.sourceBytes ?? 0),
+        (sum, segment) => sum + segment.totals.sourceBytes,
         0,
     );
     const manifest: CaptureManifest = {
