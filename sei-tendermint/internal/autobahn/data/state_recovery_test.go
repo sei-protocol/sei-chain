@@ -369,7 +369,7 @@ func TestRecoveryPartialQCPrefix(t *testing.T) {
 
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
-	require.True(t,gr1.Next-gr1.First < 3, "need at least 3 blocks in QC range to test split")
+	require.True(t, gr1.Next-gr1.First >= 3, "need at least 3 blocks in QC range to test split")
 
 	// Write the QC for the full range, but write blocks only from mid onwards.
 	mid := gr1.First + (gr1.Next-gr1.First)/2

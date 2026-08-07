@@ -110,6 +110,21 @@ type BlockDB interface {
 	// so loss of non-durable data after a crash never leaves gaps.
 	WriteQC(qc *FullCommitQC) error
 
+	// WriteAppProposal persists an AppProposal. The AppProposal carries the
+	// exact CommitQC range it certifies by execution result. A matching CommitQC
+	// must already be written: the CommitQC covering GlobalRange.First must have
+	// the same GlobalRange.
+	//
+	// AppProposals form a contiguous prefix aligned with retained CommitQCs. The
+	// first AppProposal must start at the retained CommitQC floor; each
+	// subsequent AppProposal's First must equal the previous AppProposal's Next.
+	// Re-writing, gaps, overlaps, mid-QC starts, and ranges that do not exactly
+	// match the next persisted CommitQC range are rejected.
+	//
+	// May return before the AppProposal is on disk. See the BlockDB type doc for
+	// the two-phase write/flush contract.
+	WriteAppProposal(appProposal *AppProposal) error
+
 	// WriteAppQC persists an AppQC. The AppQC's proposal carries the exact
 	// CommitQC range it certifies. A matching CommitQC must already be written:
 	// the CommitQC covering GlobalRange.First must have the same GlobalRange.
@@ -233,6 +248,20 @@ type BlockDB interface {
 	// Non-blocking.
 	ReadQCByBlockNumber(n GlobalBlockNumber) (utils.Option[*FullCommitQC], error)
 
+	// ReadAppProposalByBlockNumber returns the AppProposal whose
+	// GlobalRange().First ≤ n < GlobalRange().Next. Because a single AppProposal
+	// covers a CommitQC range, the same *AppProposal is returned for every n in
+	// its range.
+	//
+	// The result is one of:
+	//   - utils.Some with a nil error: an AppProposal covering n is present.
+	//   - ErrPruned: n is strictly below the current retention watermark.
+	//   - utils.None with a nil error: n is at or above the watermark but no
+	//     AppProposal covers it.
+	//
+	// Non-blocking.
+	ReadAppProposalByBlockNumber(n GlobalBlockNumber) (utils.Option[*AppProposal], error)
+
 	// ReadAppQCByBlockNumber returns the AppQC whose
 	// AppProposal.GlobalRange().First ≤ n < AppProposal.GlobalRange().Next.
 	// Because a single AppQC covers a CommitQC range, the same *AppQC is
@@ -269,6 +298,10 @@ type DBStatus struct {
 	// NextAppQC is one past the highest GlobalBlockNumber covered by the last
 	// AppQC accepted by WriteAppQC. Zero if no AppQC has been written.
 	NextAppQC GlobalBlockNumber
+	// NextAppProposal is one past the highest GlobalBlockNumber covered by the
+	// last AppProposal accepted by WriteAppProposal. Zero if no AppProposal has
+	// been written.
+	NextAppProposal GlobalBlockNumber
 }
 
 // RecentBlock is one block returned by BlockDB.ReadRecent.
@@ -279,7 +312,9 @@ type RecentBlock struct {
 
 // RecentData is the materialized suffix used by data.State startup recovery.
 type RecentData struct {
-	CommitQCs []*FullCommitQC
-	Blocks    []RecentBlock
-	AppQC     utils.Option[*AppQC]
+	First        GlobalBlockNumber
+	CommitQCs    []*FullCommitQC
+	Blocks       []RecentBlock
+	AppProposals []*AppProposal
+	AppQC        utils.Option[*AppQC]
 }

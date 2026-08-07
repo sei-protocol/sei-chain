@@ -26,6 +26,14 @@ type appQCEntry struct {
 	upper types.GlobalBlockNumber
 }
 
+// appProposalEntry pairs an AppProposal with the half-open range [lower, upper)
+// it covers.
+type appProposalEntry struct {
+	appProposal *types.AppProposal
+	lower       types.GlobalBlockNumber
+	upper       types.GlobalBlockNumber
+}
+
 // hashEntry pairs a block with its GlobalBlockNumber so ReadBlockByHash can
 // return the number, mirroring the littblock implementation which embeds it in
 // the stored value.
@@ -43,12 +51,15 @@ type blockDB struct {
 	byHash     map[types.BlockHeaderHash]hashEntry
 	qcsByLower map[types.GlobalBlockNumber]qcEntry
 	appQCs     map[types.GlobalBlockNumber]appQCEntry
+	appProps   map[types.GlobalBlockNumber]appProposalEntry
 
 	// Write-order cursors (see types.BlockDB contract).
 	hasBlocks       bool
 	lastBlockNumber types.GlobalBlockNumber
 	hasQC           bool
 	lastQCNext      types.GlobalBlockNumber
+	hasAppProposal  bool
+	lastAppPropNext types.GlobalBlockNumber
 	hasAppQC        bool
 	lastAppQCNext   types.GlobalBlockNumber
 
@@ -61,6 +72,10 @@ type blockDB struct {
 	// block number. When AppQCs exist, PruneBefore clamps to it so the newest
 	// AppQC cohort remains readable together with its CommitQC and blocks.
 	latestAppQCStartBlock types.GlobalBlockNumber
+
+	// latestAppProposalStartBlock is the most recently written AppProposal's
+	// starting block number.
+	latestAppProposalStartBlock types.GlobalBlockNumber
 
 	// firstBlockNumber is the lowest block number written. Meaningful only while hasBlocks.
 	firstBlockNumber types.GlobalBlockNumber
@@ -79,6 +94,7 @@ func NewBlockDB() types.BlockDB {
 		byHash:     make(map[types.BlockHeaderHash]hashEntry),
 		qcsByLower: make(map[types.GlobalBlockNumber]qcEntry),
 		appQCs:     make(map[types.GlobalBlockNumber]appQCEntry),
+		appProps:   make(map[types.GlobalBlockNumber]appProposalEntry),
 	}
 }
 
@@ -133,8 +149,52 @@ func (s *blockDB) WriteQC(qc *types.FullCommitQC) error {
 }
 
 func appQCRange(appQC *types.AppQC) (types.GlobalBlockNumber, types.GlobalBlockNumber) {
-	gr := appQC.Proposal().GlobalRange()
+	return appProposalRange(appQC.Proposal())
+}
+
+func appProposalRange(appProposal *types.AppProposal) (types.GlobalBlockNumber, types.GlobalBlockNumber) {
+	gr := appProposal.GlobalRange()
 	return gr.First, gr.Next
+}
+
+func (s *blockDB) WriteAppProposal(appProposal *types.AppProposal) error {
+	first, next := appProposalRange(appProposal)
+	if first >= next {
+		return fmt.Errorf("AppProposal at %d covers no blocks: %w", first, types.ErrAppProposalNonContiguous)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasQC {
+		return fmt.Errorf("AppProposal [%d,%d) has no matching QC: %w", first, next, types.ErrAppProposalMissingQC)
+	}
+	if s.hasAppProposal {
+		if first != s.lastAppPropNext {
+			return fmt.Errorf("AppProposal starts at %d, expected %d: %w",
+				first, s.lastAppPropNext, types.ErrAppProposalNonContiguous)
+		}
+	} else {
+		entries := s.sortedQCsLocked()
+		if len(entries) == 0 {
+			return fmt.Errorf("AppProposal [%d,%d) has no retained QC floor: %w", first, next, types.ErrAppProposalMissingQC)
+		}
+		if first != entries[0].lower {
+			return fmt.Errorf("first AppProposal starts at %d, expected retained QC floor %d: %w",
+				first, entries[0].lower, types.ErrAppProposalNonContiguous)
+		}
+	}
+	qc, ok := s.qcsByLower[first]
+	if !ok || qc.upper != next {
+		return fmt.Errorf("AppProposal [%d,%d) has no exact matching QC: %w",
+			first, next, types.ErrAppProposalMissingQC)
+	}
+	if err := appProposal.Verify(qc.qc.QC()); err != nil {
+		return fmt.Errorf("AppProposal [%d,%d) does not verify against matching QC: %w", first, next, err)
+	}
+	s.appProps[first] = appProposalEntry{appProposal: appProposal, lower: first, upper: next}
+	s.latestAppProposalStartBlock = first
+	s.lastAppPropNext = next
+	s.hasAppProposal = true
+	return nil
 }
 
 func (s *blockDB) WriteAppQC(appQC *types.AppQC) error {
@@ -187,6 +247,9 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	// for a QC written ahead of its blocks. Keeps the newest cohort whole and
 	// pruning monotonic. See littblock and the BlockDB PruneBefore contract.
 	ceiling := min(s.latestQCStartBlock, s.lastBlockNumber)
+	if s.hasAppProposal {
+		ceiling = min(s.latestAppProposalStartBlock, s.lastBlockNumber)
+	}
 	if s.hasAppQC {
 		ceiling = min(s.latestAppQCStartBlock, s.lastBlockNumber)
 	}
@@ -221,6 +284,11 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 			delete(s.appQCs, lower)
 		}
 	}
+	for lower, e := range s.appProps {
+		if e.upper <= s.watermark {
+			delete(s.appProps, lower)
+		}
+	}
 	return nil
 }
 
@@ -239,6 +307,9 @@ func (s *blockDB) Status() types.DBStatus {
 	if s.hasAppQC {
 		tips.NextAppQC = s.lastAppQCNext
 	}
+	if s.hasAppProposal {
+		tips.NextAppProposal = s.lastAppPropNext
+	}
 	return tips
 }
 
@@ -249,12 +320,24 @@ func (s *blockDB) ReadRecent() (types.RecentData, error) {
 	var recent types.RecentData
 	floor := s.watermark
 	var targetIndex types.RoadIndex
+	bounded := false
 	if s.hasAppQC {
-		appQC := s.appQCs[s.latestAppQCStartBlock].appQC
+		evictionBound := min(s.lastAppPropNext, s.lastAppQCNext)
+		if s.hasAppProposal && evictionBound > floor {
+			floor = evictionBound - 1
+			bounded = true
+		}
+		appQC := s.appQCCoveringLocked(floor)
+		if appQC == nil {
+			appQC = s.appQCs[s.latestAppQCStartBlock].appQC
+		}
 		recent.AppQC = utils.Some(appQC)
-		floor = max(floor, s.latestAppQCStartBlock)
 		targetIndex = appQC.Proposal().RoadIndex()
 	}
+	if !bounded && s.hasBlocks {
+		floor = max(floor, s.firstBlockNumber)
+	}
+	recent.First = floor
 
 	for _, e := range s.sortedQCsLocked() {
 		if e.upper <= s.watermark {
@@ -265,11 +348,20 @@ func (s *blockDB) ReadRecent() (types.RecentData, error) {
 		}
 		recent.CommitQCs = append(recent.CommitQCs, e.qc)
 	}
+	for _, e := range s.sortedAppProposalsLocked() {
+		if e.upper <= floor {
+			continue
+		}
+		recent.AppProposals = append(recent.AppProposals, e.appProposal)
+	}
 	for _, n := range s.sortedBlockNumbersLocked() {
 		if n < floor {
 			continue
 		}
 		recent.Blocks = append(recent.Blocks, types.RecentBlock{Number: n, Block: s.byNumber[n]})
+	}
+	if !bounded && len(recent.Blocks) > 0 {
+		recent.First = recent.Blocks[0].Number
 	}
 	return recent, nil
 }
@@ -284,10 +376,28 @@ func (s *blockDB) sortedQCsLocked() []qcEntry {
 	return entries
 }
 
+func (s *blockDB) sortedAppProposalsLocked() []appProposalEntry {
+	entries := make([]appProposalEntry, 0, len(s.appProps))
+	for _, e := range s.appProps {
+		entries = append(entries, e)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].lower < entries[j].lower })
+	return entries
+}
+
 func (s *blockDB) appQCCoveringLocked(n types.GlobalBlockNumber) *types.AppQC {
 	for _, e := range s.appQCs {
 		if e.lower <= n && n < e.upper {
 			return e.appQC
+		}
+	}
+	return nil
+}
+
+func (s *blockDB) appProposalCoveringLocked(n types.GlobalBlockNumber) *types.AppProposal {
+	for _, e := range s.appProps {
+		if e.lower <= n && n < e.upper {
+			return e.appProposal
 		}
 	}
 	return nil
@@ -341,6 +451,20 @@ func (s *blockDB) ReadQCByBlockNumber(
 		}
 	}
 	return utils.None[*types.FullCommitQC](), nil
+}
+
+func (s *blockDB) ReadAppProposalByBlockNumber(
+	n types.GlobalBlockNumber,
+) (utils.Option[*types.AppProposal], error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if n < s.watermark {
+		return utils.None[*types.AppProposal](), types.ErrPruned
+	}
+	if appProposal := s.appProposalCoveringLocked(n); appProposal != nil {
+		return utils.Some(appProposal), nil
+	}
+	return utils.None[*types.AppProposal](), nil
 }
 
 func (s *blockDB) ReadAppQCByBlockNumber(

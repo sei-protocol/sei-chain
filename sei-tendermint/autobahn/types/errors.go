@@ -27,6 +27,17 @@ var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
 // before that block (see the BlockDB ordering contract).
 var ErrBlockMissingQC = errors.New("block: WriteBlock without covering QC")
 
+// ErrAppProposalNonContiguous is returned by WriteAppProposal when the supplied
+// AppProposal does not extend the existing AppProposal prefix. AppProposals must
+// be written as a contiguous, ascending sequence aligned with the retained
+// CommitQC prefix.
+var ErrAppProposalNonContiguous = errors.New("block: WriteAppProposal non-contiguous")
+
+// ErrAppProposalMissingQC is returned by WriteAppProposal when no previously
+// written CommitQC exactly matches the AppProposal's GlobalRange. The matching
+// CommitQC must be written before the AppProposal.
+var ErrAppProposalMissingQC = errors.New("block: WriteAppProposal without matching CommitQC")
+
 // ErrAppQCNonContiguous is returned by WriteAppQC when the supplied AppQC does
 // not extend the existing AppQC prefix. AppQCs must be written as a contiguous,
 // ascending sequence aligned with the retained CommitQC prefix.

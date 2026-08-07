@@ -42,8 +42,7 @@ type blockEntry struct {
 type inner struct {
 	// Map key ranges (low end = first):
 	//
-	// Durable copies below first live in BlockDB. AppProposals are not
-	// persisted; they are rebuilt via PushAppHash / re-execution after restart.
+	// Durable copies below first live in BlockDB.
 	qcs          map[types.GlobalBlockNumber]*types.FullCommitQC   // [first, nextQC)
 	blocks       map[types.GlobalBlockNumber]*types.Block          // [first, nextBlock) + gap-fills in [nextBlock, nextQC)
 	appProposals map[types.GlobalBlockNumber]*types.AppProposal    // [first, nextAppProposal)
@@ -113,11 +112,14 @@ func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error
 
 func (i *inner) insertAppQC(registry *epoch.Registry, appQC *types.AppQC) error {
 	gr := appQC.Proposal().GlobalRange()
+	if gr.Next <= i.nextAppQC {
+		return nil
+	}
 	if gr.Next > i.nextQC {
 		return fmt.Errorf("Missing CommitQC for this AppQC")
 	}
-	if gr.First != i.nextAppQC {
-		return fmt.Errorf("AppQC gap: expected first=%d, got %d", i.nextAppQC, gr.First)
+	if gr.First > i.nextAppQC {
+		return fmt.Errorf("AppQC gap: expected first<=%d, got %d", i.nextAppQC, gr.First)
 	}
 	ei := appQC.Proposal().EpochIndex()
 	epoch, ok := registry.EpochByIndex(ei)
@@ -132,6 +134,27 @@ func (i *inner) insertAppQC(registry *epoch.Registry, appQC *types.AppQC) error 
 		i.nextAppQC++
 	}
 	i.nextAppQC = gr.Next
+	return nil
+}
+
+func (i *inner) insertAppProposal(appProposal *types.AppProposal) error {
+	gr := appProposal.GlobalRange()
+	if gr.Next <= i.nextAppProposal {
+		return nil
+	}
+	if gr.Next > i.nextQC {
+		return fmt.Errorf("Missing CommitQC for this AppProposal")
+	}
+	if gr.First > i.nextAppProposal {
+		return fmt.Errorf("AppProposal gap: expected first<=%d, got %d", i.nextAppProposal, gr.First)
+	}
+	if err := appProposal.Verify(i.qcs[i.nextAppProposal].QC()); err != nil {
+		return fmt.Errorf("appProposal.Verify(): %w", err)
+	}
+	for i.nextAppProposal < gr.Next {
+		i.appProposals[i.nextAppProposal] = appProposal
+		i.nextAppProposal++
+	}
 	return nil
 }
 
@@ -220,7 +243,10 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	}
 
 	first := firstBlock
-	if appQC, ok := recent.AppQC.Get(); ok {
+	if (len(recent.CommitQCs) > 0 || len(recent.Blocks) > 0 || len(recent.AppProposals) > 0 || recent.AppQC.IsPresent()) &&
+		recent.First >= firstBlock {
+		first = recent.First
+	} else if appQC, ok := recent.AppQC.Get(); ok {
 		first = appQC.Proposal().GlobalRange().First
 	} else if len(recent.Blocks) > 0 {
 		first = recent.Blocks[0].Number
@@ -233,6 +259,7 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	status.NextQC = max(status.NextQC, first)
 	status.NextBlock = max(status.NextBlock, first)
 	status.NextAppQC = max(status.NextAppQC, first)
+	status.NextAppProposal = max(status.NextAppProposal, first)
 
 	inner := newInner(first)
 	for _, qc := range recent.CommitQCs {
@@ -243,6 +270,11 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	if appQC, ok := recent.AppQC.Get(); ok {
 		if err := inner.insertAppQC(cfg.Registry, appQC); err != nil {
 			return nil, fmt.Errorf("load AppQC from BlockDB: %w", err)
+		}
+	}
+	for _, appProposal := range recent.AppProposals {
+		if err := inner.insertAppProposal(appProposal); err != nil {
+			return nil, fmt.Errorf("load AppProposal from BlockDB: %w", err)
 		}
 	}
 	for _, b := range recent.Blocks {
@@ -263,6 +295,7 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	// updateNextBlock: stale timestamps would skew metrics.
 	inner.nextBlock = status.NextBlock
 	inner.nextBlockToPersist = status.NextBlock
+	inner.nextAppProposal = status.NextAppProposal
 	inner.nextAppQCToPersist = status.NextAppQC
 	if inner.first < inner.nextAppQCToPersist {
 		n := inner.nextAppQCToPersist - 1
@@ -733,9 +766,9 @@ func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n type
 }
 
 // PruneBefore asks BlockDB to drop data before retainFrom. This is independent
-// of in-memory retention: RAM is cleared only by evictBelowBound (AppQC floor),
-// and AppProposals are not persisted. BlockDB enforces its own never-empty
-// retention and refuses reads below its watermark.
+// of in-memory retention: RAM is cleared only by evictBelowBound (AppQC floor).
+// BlockDB enforces its own never-empty retention and refuses reads below its
+// watermark.
 func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 	return s.blockDB.PruneBefore(retainFrom)
 }
@@ -768,16 +801,19 @@ func (s *State) runPersist(ctx context.Context) error {
 	for inner := range s.inner.Lock() {
 		status.NextQC = max(status.NextQC, inner.first)
 		status.NextAppQC = max(status.NextAppQC, inner.first)
+		status.NextAppProposal = max(status.NextAppProposal, inner.first)
 		status.NextBlock = max(status.NextBlock, inner.first)
 	}
 	for {
 		var qcs []*types.FullCommitQC
 		var blocks []blockEntry
+		var appProposals []*types.AppProposal
 		var appQCs []*types.AppQC
 		for inner, ctrl := range s.inner.Lock() {
 			// Wait until there is anythin to persist.
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return status.NextQC < inner.nextQC || status.NextBlock < inner.nextBlock || status.NextAppQC < inner.nextAppQC
+				return status.NextQC < inner.nextQC || status.NextBlock < inner.nextBlock ||
+					status.NextAppProposal < inner.nextAppProposal || status.NextAppQC < inner.nextAppQC
 			}); err != nil {
 				return err
 			}
@@ -791,6 +827,11 @@ func (s *State) runPersist(ctx context.Context) error {
 				appQC := inner.appQCs[status.NextAppQC]
 				appQCs = append(appQCs, appQC)
 				status.NextAppQC = appQC.Proposal().GlobalRange().Next
+			}
+			for status.NextAppProposal < inner.nextAppProposal {
+				appProposal := inner.appProposals[status.NextAppProposal]
+				appProposals = append(appProposals, appProposal)
+				status.NextAppProposal = appProposal.GlobalRange().Next
 			}
 			for status.NextBlock < inner.nextBlock {
 				blocks = append(blocks, blockEntry{n: status.NextBlock, block: inner.blocks[status.NextBlock]})
@@ -806,6 +847,11 @@ func (s *State) runPersist(ctx context.Context) error {
 		for _, lb := range blocks {
 			if err := s.blockDB.WriteBlock(lb.n, lb.block); err != nil {
 				return fmt.Errorf("write block %d: %w", lb.n, err)
+			}
+		}
+		for _, appProposal := range appProposals {
+			if err := s.blockDB.WriteAppProposal(appProposal); err != nil {
+				return fmt.Errorf("write AppProposal %d: %w", appProposal.RoadIndex(), err)
 			}
 		}
 		for _, appQC := range appQCs {
@@ -831,15 +877,14 @@ func (s *State) runPersist(ctx context.Context) error {
 	}
 }
 
-// evict pushes first to min(i.nextAppProposal, i.nextAppQCToPersist-1)
+// evict pushes first to min(i.nextAppProposal, i.nextAppQCToPersist)-1
 // I.e. it makes sure that at least 1 persisted appQC is still in memory:
 // it is passed to avail.State.
 func (i *inner) evict() {
-	bound := i.nextAppQCToPersist
+	bound := min(i.nextAppQCToPersist, i.nextAppProposal)
 	if bound > i.first {
 		bound -= 1
 	}
-	bound = min(bound, i.nextAppProposal)
 	for i.first < bound {
 		n := i.first
 		delete(i.blockHashes, i.blocks[n].Header().Hash())

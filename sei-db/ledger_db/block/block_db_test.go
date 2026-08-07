@@ -53,6 +53,7 @@ func TestBlockDB(t *testing.T) {
 			t.Run("EmptyDB", func(t *testing.T) { testEmptyDB(t, impl.build) })
 			t.Run("ReadRoundTrip", func(t *testing.T) { testReadRoundTrip(t, impl.build) })
 			t.Run("QCByBlockNumber", func(t *testing.T) { testQCByBlockNumber(t, impl.build) })
+			t.Run("AppProposalByBlockNumber", func(t *testing.T) { testAppProposalByBlockNumber(t, impl.build) })
 			t.Run("AppQCByBlockNumber", func(t *testing.T) { testAppQCByBlockNumber(t, impl.build) })
 			t.Run("ReadRecent", func(t *testing.T) { testReadRecent(t, impl.build) })
 			t.Run("RestartPersistsData", func(t *testing.T) { testRestartPersistsData(t, impl.build) })
@@ -129,12 +130,17 @@ func testEmptyDB(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, appQC.IsPresent())
 
+	appProposal, err := db.ReadAppProposalByBlockNumber(0)
+	require.NoError(t, err)
+	require.False(t, appProposal.IsPresent())
+
 	require.Empty(t, drainRecent(t, db), "empty db should yield no recent records")
 
 	tips := db.Status()
 	require.Zero(t, tips.NextBlock, "empty db has no block write tip")
 	require.Zero(t, tips.NextQC, "empty db has no QC write tip")
 	require.Zero(t, tips.NextAppQC, "empty db has no AppQC write tip")
+	require.Zero(t, tips.NextAppProposal, "empty db has no AppProposal write tip")
 }
 
 // iterEntry is one position observed while draining an iterator.
@@ -150,6 +156,9 @@ type iterEntry struct {
 
 	// appQC is the AppQC at the position; nil when no AppQC is persisted there.
 	appQC *types.AppQC
+
+	// appProposal is the AppProposal at the position; nil when no AppProposal is persisted there.
+	appProposal *types.AppProposal
 }
 
 // drainRecent reads the recovery-visible recent batch.
@@ -161,7 +170,7 @@ func drainRecent(t *testing.T, db types.BlockDB) []iterEntry {
 	for _, qc := range recent.CommitQCs {
 		first := qc.QC().GlobalRange().First
 		next := first + gbn(len(qc.Headers()))
-		for n := first; n < next; n++ {
+		for n := max(first, recent.First); n < next; n++ {
 			entries = append(entries, iterEntry{n: n, qc: qc})
 		}
 	}
@@ -181,6 +190,14 @@ func drainRecent(t *testing.T, db types.BlockDB) []iterEntry {
 		for i := range entries {
 			if gr.Has(entries[i].n) {
 				entries[i].appQC = appQC
+			}
+		}
+	}
+	for _, appProposal := range recent.AppProposals {
+		gr := appProposal.GlobalRange()
+		for i := range entries {
+			if gr.Has(entries[i].n) {
+				entries[i].appProposal = appProposal
 			}
 		}
 	}
@@ -278,6 +295,13 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockDB) {
 		require.True(t, ok, "NextAppQC must point past a readable AppQC")
 		require.Equal(t, tips.NextAppQC, got.Proposal().GlobalRange().Next)
 	}
+	if tips.NextAppProposal != 0 {
+		appProposal, err := db.ReadAppProposalByBlockNumber(tips.NextAppProposal - 1)
+		require.NoError(t, err)
+		got, ok := appProposal.Get()
+		require.True(t, ok, "NextAppProposal must point past a readable AppProposal")
+		require.Equal(t, tips.NextAppProposal, got.GlobalRange().Next)
+	}
 }
 
 func testReadRoundTrip(t *testing.T, build builder) {
@@ -314,6 +338,56 @@ func testQCByBlockNumber(t *testing.T, build builder) {
 	require.False(t, miss.IsPresent())
 }
 
+func testAppProposalByBlockNumber(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, o := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+	writeAll(t, db, batches)
+
+	rng := utils.TestRngFromSeed(testSeed + 90)
+	appProposals := []*types.AppProposal{
+		appProposalForBatch(rng, batches[0]),
+		appProposalForBatch(rng, batches[1]),
+	}
+	for _, appProposal := range appProposals {
+		require.NoError(t, db.WriteAppProposal(appProposal))
+	}
+
+	for _, appProposal := range appProposals {
+		gr := appProposal.GlobalRange()
+		for n := gr.First; n < gr.Next; n++ {
+			opt, err := db.ReadAppProposalByBlockNumber(n)
+			require.NoError(t, err)
+			got, ok := opt.Get()
+			require.True(t, ok, "AppProposal covering %d should exist", n)
+			require.Equal(t, gr, got.GlobalRange())
+			require.Equal(t, appProposal.AppHash(), got.AppHash())
+		}
+	}
+	miss, err := db.ReadAppProposalByBlockNumber(batches[2].first)
+	require.NoError(t, err)
+	require.False(t, miss.IsPresent(), "CommitQCs/blocks past the AppProposal prefix should not imply AppProposal presence")
+
+	entries := drainRecent(t, db)
+	for _, e := range entries {
+		switch {
+		case e.n < batches[2].first:
+			require.NotNil(t, e.appProposal, "iterator should expose AppProposal at %d", e.n)
+		default:
+			require.Nil(t, e.appProposal, "iterator should not expose AppProposal past the persisted AppProposal prefix at %d", e.n)
+		}
+	}
+
+	tips := db.Status()
+	require.Equal(t, batches[1].next, tips.NextAppProposal)
+	db = restart(t, o, db)
+	tips = db.Status()
+	require.Equal(t, batches[1].next, tips.NextAppProposal, "AppProposal tip must survive restart")
+	assertTipsMatchPresent(t, db)
+
+}
+
 func testAppQCByBlockNumber(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
@@ -327,6 +401,7 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 		appQCForBatch(rng, keys, batches[1]),
 	}
 	for _, appQC := range appQCs {
+		require.NoError(t, db.WriteAppProposal(appQC.Proposal()))
 		require.NoError(t, db.WriteAppQC(appQC))
 	}
 
@@ -798,6 +873,7 @@ func testReadRecent(t *testing.T, build builder) {
 
 	writeAll(t, db, batches[:2])
 	appQC := appQCForBatch(utils.TestRngFromSeed(testSeed+400), keys, batches[0])
+	require.NoError(t, db.WriteAppProposal(appQC.Proposal()))
 	require.NoError(t, db.WriteAppQC(appQC))
 	require.NoError(t, db.WriteQC(batches[2].qc))
 	for i, blk := range batches[2].blocks {
@@ -810,9 +886,11 @@ func testReadRecent(t *testing.T, build builder) {
 	require.True(t, ok)
 	require.Equal(t, appQC.Proposal().RoadIndex(), gotAppQC.Proposal().RoadIndex())
 	entries := drainRecent(t, db)
+	recoveryFloor := appQC.Proposal().GlobalRange().Next - 1
 	require.Equal(t, []types.GlobalBlockNumber{batches[0].first, batches[1].first, batches[2].first}, qcFirsts(entries))
-	require.Equal(t, batches[2].next-batches[0].first, types.GlobalBlockNumber(len(entries)))
-	require.Len(t, presentBlockNumbers(entries), int(batches[2].next-batches[0].first))
+	require.Equal(t, batches[2].next-recoveryFloor, types.GlobalBlockNumber(len(entries)))
+	require.Equal(t, recoveryFloor, entries[0].n)
+	require.Len(t, presentBlockNumbers(entries), int(batches[2].next-recoveryFloor))
 }
 
 func testWriteOrderRejected(t *testing.T, build builder) {
@@ -1356,7 +1434,11 @@ func testLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC
 }
 
 func appQCForBatch(rng utils.Rng, keys []types.SecretKey, b batch) *types.AppQC {
-	return testAppQC(keys, types.NewAppProposal(b.qc.QC().Proposal(), types.GenAppHash(rng)))
+	return testAppQC(keys, appProposalForBatch(rng, b))
+}
+
+func appProposalForBatch(rng utils.Rng, b batch) *types.AppProposal {
+	return types.NewAppProposal(b.qc.QC().Proposal(), types.GenAppHash(rng))
 }
 
 func testAppQC(keys []types.SecretKey, proposal *types.AppProposal) *types.AppQC {
