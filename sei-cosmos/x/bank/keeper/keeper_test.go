@@ -157,10 +157,9 @@ func (suite *IntegrationTestSuite) TestSendCoinsAndWei() {
 	require.Equal(sdk.NewInt(53), keeper.GetBalance(ctx, addr3, sdk.DefaultBondDenom).Amount)
 }
 
-func (suite *IntegrationTestSuite) TestGetPaginatedTotalSupplyMaxLimitExceeded() {
-	_, _, err := suite.app.BankKeeper.GetPaginatedTotalSupply(suite.ctx, &query.PageRequest{Limit: query.MaxLimit + 1})
-	suite.Require().Error(err)
-	suite.Require().Contains(err.Error(), "exceeds maximum allowed limit")
+func (suite *IntegrationTestSuite) TestGetPaginatedTotalSupplyMaxLimit() {
+	_, _, err := suite.app.BankKeeper.GetPaginatedTotalSupply(suite.ctx, &query.PageRequest{Limit: query.MaxLimit})
+	suite.Require().NoError(err)
 }
 
 func (suite *IntegrationTestSuite) TestSupply() {
@@ -199,10 +198,10 @@ func (suite *IntegrationTestSuite) TestCollectAllTotalSupplyMultiPage() {
 
 	_, bk := suite.initKeepersWithmAccPerms(make(map[string]bool))
 
-	// 2.5x MaxLimit denoms so CollectAllTotalSupply must merge three pages (two
-	// full, one partial). Distinct amounts per denom so a dropped or duplicated
-	// page boundary changes the result, not just the count.
-	numDenoms := int(query.MaxLimit*2 + query.MaxLimit/2)
+	// 2.5x CollectAllTotalSupply's internal page size (1,000) so it must merge
+	// three pages (two full, one partial). Distinct amounts per denom so a
+	// dropped or duplicated page boundary changes the result, not just the count.
+	const numDenoms = 2_500
 	coins := make(sdk.Coins, numDenoms)
 	for i := 0; i < numDenoms; i++ {
 		coins[i] = sdk.NewInt64Coin(fmt.Sprintf("denom%05d", i), int64(i+1))

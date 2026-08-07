@@ -41,6 +41,11 @@ type Context struct {
 	blockGasMeter      GasMeter
 	checkTx            bool
 	recheckTx          bool // if recheckTx == true, then checkTx must also be true
+<<<<<<< HEAD
+=======
+	abciQuery          bool // true only for BaseApp.Query; never transaction/block execution
+	isGenesis          bool
+>>>>>>> 8e06e53 (Restore LCD pagination while preserving v6.6 precompile semantics (#3867))
 	minGasPrice        DecCoins
 	consParams         *tmproto.ConsensusParams
 	eventManager       *EventManager
@@ -132,6 +137,17 @@ func (c Context) IsReCheckTx() bool {
 	return c.recheckTx
 }
 
+<<<<<<< HEAD
+=======
+func (c Context) IsABCIQuery() bool {
+	return c.abciQuery
+}
+
+func (c Context) IsGenesis() bool {
+	return c.isGenesis
+}
+
+>>>>>>> 8e06e53 (Restore LCD pagination while preserving v6.6 precompile semantics (#3867))
 func (c Context) IsOCCEnabled() bool {
 	return c.occEnabled
 }
@@ -379,6 +395,19 @@ func (c Context) WithIsReCheckTx(isRecheckTx bool) Context {
 	return c
 }
 
+<<<<<<< HEAD
+=======
+func (c Context) WithIsABCIQuery(isABCIQuery bool) Context {
+	c.abciQuery = isABCIQuery
+	return c
+}
+
+func (c Context) WithIsGenesis(isGenesis bool) Context {
+	c.isGenesis = isGenesis
+	return c
+}
+
+>>>>>>> 8e06e53 (Restore LCD pagination while preserving v6.6 precompile semantics (#3867))
 // WithMinGasPrices returns a Context with an updated minimum gas price value
 func (c Context) WithMinGasPrices(gasPrices DecCoins) Context {
 	c.minGasPrice = gasPrices

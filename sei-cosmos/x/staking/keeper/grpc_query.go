@@ -37,7 +37,12 @@ func (k Querier) Validators(c context.Context, req *types.QueryValidatorsRequest
 	store := ctx.KVStore(k.storeKey)
 	valStore := prefix.NewStore(store, types.ValidatorsKey)
 
-	pageRes, err := query.FilteredPaginate(valStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
+	paginate := query.FilteredPaginateV66
+	if ctx.IsABCIQuery() {
+		paginate = query.FilteredPaginate
+	}
+
+	pageRes, err := paginate(valStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
 		val, err := types.UnmarshalValidator(k.cdc, value)
 		if err != nil {
 			return false, err
@@ -99,7 +104,15 @@ func (k Querier) ValidatorDelegations(c context.Context, req *types.QueryValidat
 
 	store := ctx.KVStore(k.storeKey)
 	valStore := prefix.NewStore(store, types.DelegationKey)
-	pageRes, err := query.FilteredPaginate(valStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
+
+	// Consensus execution defaults to release/v6.6 behavior. Only contexts
+	// created by BaseApp.Query may use the repaired LCD/gRPC behavior.
+	paginate := query.FilteredPaginateV66
+	if ctx.IsABCIQuery() {
+		paginate = query.FilteredPaginate
+	}
+
+	pageRes, err := paginate(valStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
 		delegation, err := types.UnmarshalDelegation(k.cdc, value)
 		if err != nil {
 			return false, err

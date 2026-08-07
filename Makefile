@@ -23,8 +23,7 @@ export PROJECT_HOME=$(shell git rev-parse --show-toplevel)
 export GO_PKG_PATH=$(HOME)/go/pkg
 export GO111MODULE = on
 
-# process build tags
-
+# Process build tags.
 LEDGER_ENABLED ?= true
 build_tags = netgo
 ifeq ($(LEDGER_ENABLED),true)
