@@ -244,18 +244,18 @@ func TestGeneratedAppTOMLLruSizeDisagreesWithTheStruct(t *testing.T) {
 		t.Fatalf("wasm.lru_size = %#v does not convert to uint64: %v", raw, castErr)
 	}
 
-	// Both sides pinned, not just their inequality. Asserting only that they differ would leave the
-	// template free to render any other value with this row still green, and the doc above claims it
-	// renders 0.
+	// Both sides pinned as literals, not just their inequality. Asserting only that they differ would
+	// leave the template free to render any other value with this row still green, and the doc above
+	// claims it renders 0.
+	//
+	// One assertion rather than two. A separate `fromTemplate == fromStruct` check could only fire on
+	// an input this one already rejects, since agreeing with the struct means differing from 0, so it
+	// would report the same failure twice and never on its own.
 	const templateLiteral = uint64(0)
 	if fromTemplate != templateLiteral {
 		t.Errorf("a generated app.toml renders wasm.lru_size as %d rather than %d. The template "+
-			"literal in root.go moved, so update this row and say whether anything reads the key yet",
-			fromTemplate, templateLiteral)
-	}
-	if fromTemplate == fromStruct {
-		t.Fatalf("the template and NewCustomAppConfig now agree on wasm.lru_size at %d, so this row "+
-			"no longer describes a divergence. Closing it is a fine end state; say which value won "+
-			"and whether anything reads the key yet", fromTemplate)
+			"literal in root.go moved. If it moved to %d the two generators now agree and this row no "+
+			"longer describes a divergence, which is a fine end state; either way say which value won "+
+			"and whether anything reads the key yet", fromTemplate, templateLiteral, fromStruct)
 	}
 }
