@@ -515,17 +515,24 @@ func (s *blockDB) recentFloor() types.GlobalBlockNumber {
 	return s.statusLocked().Floor()
 }
 
+func (s *blockDB) recentFloorAndStatus() (types.GlobalBlockNumber, types.DBStatus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	status := s.statusLocked()
+	return status.Floor(), status
+}
+
 // ReadRecent() reads the latest AppQC/AppProposal recovery suffix.
 // WARNING: ReadRecent() will return an error if watermark is moved during iteration.
 func (s *blockDB) ReadRecent() (types.RecentData, error) {
-	targetFloor := s.recentFloor()
+	targetFloor, status := s.recentFloorAndStatus()
 	// Collect data >= targetFloor.
 	it, err := s.table.Iterator(true)
 	if err != nil {
 		return types.RecentData{}, fmt.Errorf("failed to open recent-data iterator: %w", err)
 	}
 	defer func() { _ = it.Close() }()
-	recent := types.RecentData{First: targetFloor}
+	recent := types.RecentData{Status: status}
 	for {
 		ok, err := it.Next()
 		if err != nil {
@@ -594,9 +601,6 @@ func (s *blockDB) ReadRecent() (types.RecentData, error) {
 	slices.Reverse(recent.CommitQCs)
 	slices.Reverse(recent.Blocks)
 	slices.Reverse(recent.AppProposals)
-	if len(recent.Blocks) > 0 {
-		recent.First = recent.Blocks[0].Number
-	}
 	return recent, nil
 }
 

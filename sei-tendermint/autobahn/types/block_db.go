@@ -283,8 +283,8 @@ type BlockDB interface {
 }
 
 // DBStatus is the in-memory write tips returned by BlockDB.Status.
-// Both fields are exclusive "next to write" cursors (matching data.State's
-// nextQC / nextBlock). Zero means no write of that kind has occurred yet
+// Its fields are exclusive "next to write" cursors (matching data.State's
+// DBStatus). Zero means no write of that kind has occurred yet
 // (NextBlock/NextQC are never zero after a successful write: the first
 // written block number N yields NextBlock = N+1 ≥ 1).
 type DBStatus struct {
@@ -323,7 +323,8 @@ type RecentBlock struct {
 
 // RecentData is the materialized suffix used by data.State startup recovery.
 type RecentData struct {
-	First        GlobalBlockNumber
+	// Status is the durable write status observed while selecting the recent suffix.
+	Status       DBStatus
 	CommitQCs    []*FullCommitQC
 	Blocks       []RecentBlock
 	AppProposals []*AppProposal

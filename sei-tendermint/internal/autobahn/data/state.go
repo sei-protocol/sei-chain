@@ -55,8 +55,6 @@ type inner struct {
 	// first <= persisted.NextBlock <= nextBlock <= nextQC
 	// first <= persisted.NextAppProposal <= nextAppProposal <= nextQC
 	// first <= persisted.NextAppQC <= nextAppQC <= nextQC
-	//
-	// AppProposals require block persistence (nextAppProposal <= persisted.NextBlock).
 	first           types.GlobalBlockNumber
 	nextAppProposal types.GlobalBlockNumber
 	nextAppQC       types.GlobalBlockNumber
@@ -238,28 +236,28 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 // loadFromBlockDB replays the recent persisted suffix from blockDB into s.inner.
 // Called from NewState before any goroutines are spawned.
 func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
-	firstBlock := cfg.Registry.FirstBlock()
-	status := blockDB.Status()
-
 	recent, err := blockDB.ReadRecent()
 	if err != nil {
 		return nil, fmt.Errorf("blockDB.ReadRecent(): %w", err)
 	}
-
+	firstBlock := cfg.Registry.FirstBlock()
 	first := firstBlock
-	if (len(recent.CommitQCs) > 0 || len(recent.Blocks) > 0 || len(recent.AppProposals) > 0 || recent.AppQC.IsPresent()) &&
-		recent.First >= firstBlock {
-		first = recent.First
+	if len(recent.Blocks) > 0 {
+		first = recent.Blocks[0].Number
 	} else if appQC, ok := recent.AppQC.Get(); ok {
 		first = appQC.Proposal().GlobalRange().First
-	} else if len(recent.Blocks) > 0 {
-		first = recent.Blocks[0].Number
+	} else if len(recent.AppProposals) > 0 {
+		first = recent.AppProposals[0].GlobalRange().First
 	} else if len(recent.CommitQCs) > 0 {
 		first = recent.CommitQCs[0].QC().GlobalRange().First
+	} else if floor := recent.Status.Floor(); floor >= firstBlock {
+		first = floor
 	}
 	if first < firstBlock {
 		return nil, fmt.Errorf("db contains data before genesis")
 	}
+
+	status := recent.Status
 	status.NextQC = max(status.NextQC, first)
 	status.NextBlock = max(status.NextBlock, first)
 	status.NextAppQC = max(status.NextAppQC, first)

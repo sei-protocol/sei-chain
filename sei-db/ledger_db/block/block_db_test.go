@@ -167,10 +167,11 @@ func drainRecent(t *testing.T, db types.BlockDB) []iterEntry {
 	recent, err := db.ReadRecent()
 	require.NoError(t, err)
 	var entries []iterEntry
+	floor := recent.Status.Floor()
 	for _, qc := range recent.CommitQCs {
 		first := qc.QC().GlobalRange().First
 		next := first + gbn(len(qc.Headers()))
-		for n := max(first, recent.First); n < next; n++ {
+		for n := max(first, floor); n < next; n++ {
 			entries = append(entries, iterEntry{n: n, qc: qc})
 		}
 	}
@@ -948,6 +949,7 @@ func testReadRecent(t *testing.T, build builder) {
 
 	recent, err := db.ReadRecent()
 	require.NoError(t, err)
+	require.Equal(t, db.Status(), recent.Status)
 	gotAppQC, ok := recent.AppQC.Get()
 	require.True(t, ok)
 	require.Equal(t, appQC.Proposal().RoadIndex(), gotAppQC.Proposal().RoadIndex())
