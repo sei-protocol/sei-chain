@@ -18,29 +18,20 @@ import (
 	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 )
 
-// Executor runs raw EVM transactions against an EVM-native state backend.
+// Executor runs raw EVM transactions against snapshots from a giga store.
 type Executor struct {
 	cfg              Config
-	state            StateReader
 	resultSink       ResultSink
 	occPool          *occWorkerPool
 	resultPool       *blockResultPool
 	stateDBPool      sync.Pool
 	storeMu          sync.Mutex
-	gigaStore        gigastore.Store
+	store            gigastore.Store
 	changeSetEncoder NamedChangeSetEncoder
 	closed           atomic.Bool
 }
 
 type Option func(*Executor)
-
-func WithState(state StateReader) Option {
-	return func(e *Executor) {
-		if state != nil {
-			e.state = state
-		}
-	}
-}
 
 func WithResultSink(sink ResultSink) Option {
 	return func(e *Executor) {
@@ -48,16 +39,12 @@ func WithResultSink(sink ResultSink) Option {
 	}
 }
 
-// WithGigaStore makes the executor read each block from a store snapshot and
-// commit its successful state output through Store.CommitStateChanges. The
-// encoder owns the store-specific conversion from the executor's EVM-native
-// StateChangeSet to the store's protobuf changesets.
-func WithGigaStore(store gigastore.Store, encoder NamedChangeSetEncoder) Option {
+// WithStore selects the giga store implementation used for all state reads and
+// commits. The encoder owns the implementation-specific conversion from the
+// executor's EVM-native StateChangeSet to the store's protobuf changesets.
+func WithStore(store gigastore.Store, encoder NamedChangeSetEncoder) Option {
 	return func(e *Executor) {
-		if store == nil {
-			return
-		}
-		e.gigaStore = store
+		e.store = store
 		e.changeSetEncoder = encoder
 	}
 }
@@ -67,7 +54,6 @@ func WithGigaStore(store gigastore.Store, encoder NamedChangeSetEncoder) Option 
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
 		cfg:        cfg.WithDefaults(),
-		state:      NewMemoryState(),
 		resultPool: newBlockResultPool(cfg.BlockResultPoolSize),
 	}
 	if e.cfg.OCCWorkers > 1 {
@@ -128,7 +114,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return nil, err
 	}
-	result, err := e.executeAndCommitPreparedBlock(ctx, req)
+	result, err := e.executePreparedBlockWithStore(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -137,13 +123,6 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 		return nil, err
 	}
 	return result, nil
-}
-
-func (e *Executor) executeAndCommitPreparedBlock(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
-	if e.gigaStore == nil {
-		return e.executePreparedBlock(ctx, req, e.state)
-	}
-	return e.executePreparedBlockWithGigaStore(ctx, req)
 }
 
 func (e *Executor) executePreparedBlock(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
