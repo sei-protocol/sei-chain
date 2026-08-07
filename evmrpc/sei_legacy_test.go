@@ -296,7 +296,7 @@ func TestComposedStack_OverLimitRejectedConsistently(t *testing.T) {
 				_, _ = io.ReadAll(r.Body)
 				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
 			})
-			stack := newRequestSizeLimiter(wrapSeiLegacyHTTP(base, enabled, maxBody), maxBody, 0)
+			stack := newRequestSizeLimiter(wrapSeiLegacyHTTP(base, enabled, maxBody), maxBody, 0, 0)
 
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(mkBody(tc.bodyLen)))
 			req.Header.Set("Content-Type", "application/json")

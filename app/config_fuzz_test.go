@@ -520,12 +520,12 @@ func TestParseSSConfigsAbsentBaselineIsZeroClobbered(t *testing.T) {
 //
 // This package is where the check earns its keep. Twenty-eight of its thirty rows reach
 // their key through the same exported constant the reader passes to appOpts.Get, so editing
-// that constant's value — which is how an app.toml key gets renamed — moves the row and the
+// that constant's value, which is how an app.toml key gets renamed, moves the row and the
 // read site together and leaves every row assertion, and the discriminating-seed check,
 // passing on a key no node has ever carried. The three keys in scKeysWithTargetsOfTheirOwn were
-// in the same position for the same reason, one step further out: their targets spell the key
+// in the same position for the same reason, one step further out. Their targets spell the key
 // through the constant too, and they had no row to record. The other places the same string
-// appears do not move with it: sei-db/config/toml.go writes ss-import-num-workers into the
+// appears do not move with it. sei-db/config/toml.go writes ss-import-num-workers into the
 // generated app.toml as literal text, so a rename through the constant disconnects the template
 // from the reader silently.
 //
@@ -537,6 +537,30 @@ func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
 	configtest.CheckKeyNames(t, "state-store", ssKeys)
 	configtest.CheckKeyNames(t, "light_invariance", lightInvarianceKeys)
 	configtest.CheckKeyNames(t, "genesis", genesisKeys)
+}
+
+// TestDefaultsMatchTheRecordedValues pins these sections' in-code defaults.
+//
+// Each section already records its key names, which catches a rename. None recorded its values, so a
+// default could move with nothing to compare against. CheckAbsent-style assertions move both sides
+// together, and the manifest rows assert how a value is read rather than what it is when absent.
+//
+// Two of the four records here are deliberate duplicates, and it is worth knowing which before
+// changing a default. genesis and light_invariance are recorded nowhere else. state-commit and
+// state-store are, because srvconfig.DefaultConfig calls the same DefaultStateCommitConfig and
+// DefaultStateStoreConfig these rows pass, so their fields already sit inside
+// sei-cosmos/server/config/testdata/server_config.golden. They are recorded again under their own
+// section names so the coverage record shows each section carrying its own defaults check rather than
+// inheriting one from a struct that embeds it.
+//
+// The cost is two regeneration sites. Moving a StateStoreConfig or StateCommitConfig default reddens
+// this package and sei-cosmos/server/config, and regenerating only one leaves the other red, so
+// regenerate both and read both diffs.
+func TestDefaultsMatchTheRecordedValues(t *testing.T) {
+	configtest.CheckDefaults(t, "state-commit", config.DefaultStateCommitConfig())
+	configtest.CheckDefaults(t, "state-store", config.DefaultStateStoreConfig())
+	configtest.CheckDefaults(t, "light_invariance", DefaultLightInvarianceConfig)
+	configtest.CheckDefaults(t, "genesis", DefaultGenesisConfig)
 }
 
 // TestManifestNamesEveryField enforces the claim each manifest makes about itself: that it names
@@ -618,4 +642,12 @@ func panicMessage(r any) string {
 	// payload at the one moment it matters, leaving the caller to report that it expected a
 	// message and got nothing.
 	return fmt.Sprint(r)
+}
+
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
+// Every other check here reports a change to what it asserts. None reports a check being removed, so
+// this records the wiring and fails when it thins out.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }
