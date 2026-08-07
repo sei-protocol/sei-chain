@@ -726,7 +726,7 @@ func New(
 	}
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
-		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
+		&app.AccountKeeper, &app.StakingKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
 	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
@@ -797,7 +797,7 @@ func New(
 
 	app.GigaEvmKeeper = *gigaevmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.GigaBankKeeper,
-		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
+		&app.AccountKeeper, &app.StakingKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
 	app.GigaEvmKeeper.UseRegularStore = true
 	app.GigaBankKeeper.UseRegularStore = true
