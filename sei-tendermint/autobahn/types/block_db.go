@@ -304,6 +304,17 @@ type DBStatus struct {
 	NextAppProposal GlobalBlockNumber
 }
 
+// Floor returns the startup recovery floor implied by the durable data tips.
+// Until blocks, AppProposals, and AppQCs are all present, there is no app
+// recovery floor yet, so Floor returns zero.
+func (s DBStatus) Floor() GlobalBlockNumber {
+	f := min(s.NextQC, s.NextBlock, s.NextAppProposal, s.NextAppQC)
+	if f > 0 {
+		f -= 1
+	}
+	return f
+}
+
 // RecentBlock is one block returned by BlockDB.ReadRecent.
 type RecentBlock struct {
 	Number GlobalBlockNumber

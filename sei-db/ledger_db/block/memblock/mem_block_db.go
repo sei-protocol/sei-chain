@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"slices"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -242,9 +243,7 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 		// future block whose coverage check still passes. Mirrors littblock.
 		return nil
 	}
-	if ceiling := s.recentFloorLocked(); n > ceiling {
-		n = ceiling
-	}
+	n = min(n,s.statusLocked().Floor())
 	// Round the watermark down to the covering QC's First. A QC's cohort of
 	// blocks changes readability atomically, so the watermark must never fall
 	// strictly inside a QC's range (see littblock): otherwise a read would
@@ -281,28 +280,16 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	return nil
 }
 
-// recentFloorLocked returns the recovery floor under s.mu. When AppProposals,
-// AppQCs, and Blocks are persisted, data.State eviction keeps one height before
-// the lower of their durable tips. That height can be inside a QC range.
-func (s *blockDB) recentFloorLocked() types.GlobalBlockNumber {
-	floor := s.watermark
-	if s.hasAppProposal && s.hasAppQC && s.hasBlocks {
-		nextAppProposal := s.lastAppPropNext
-		nextAppQC := s.lastAppQCNext
-		nextBlock := s.lastBlockNumber + 1
-		evictionBound := min(nextAppProposal, nextAppQC, nextBlock)
-		if evictionBound > floor {
-			floor = evictionBound - 1
-		}
-	}
-	return floor
-}
 
 func (s *blockDB) Flush() error { return nil }
 
 func (s *blockDB) Status() types.DBStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.statusLocked()
+}
+
+func (s *blockDB) statusLocked() types.DBStatus {
 	var tips types.DBStatus
 	if s.hasBlocks {
 		tips.NextBlock = s.lastBlockNumber + 1
@@ -323,8 +310,8 @@ func (s *blockDB) ReadRecent() (types.RecentData, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	floor := s.statusLocked().Floor()
 	var recent types.RecentData
-	floor := s.recentFloorLocked()
 	var targetIndex types.RoadIndex
 	bounded := s.hasAppProposal && s.hasAppQC && s.hasBlocks
 	if s.hasAppQC {
@@ -409,7 +396,7 @@ func (s *blockDB) sortedBlockNumbersLocked() []types.GlobalBlockNumber {
 	for n := range s.byNumber {
 		nums = append(nums, n)
 	}
-	sort.Slice(nums, func(i, j int) bool { return nums[i] < nums[j] })
+	slices.Sort(nums)
 	return nums
 }
 

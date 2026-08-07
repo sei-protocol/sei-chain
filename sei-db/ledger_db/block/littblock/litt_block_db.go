@@ -424,12 +424,8 @@ func (s *blockDB) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 		return nil
 	}
 
-	if ceiling := s.recentFloorLocked(); blockHeight > ceiling {
-		blockHeight = ceiling
-	}
-
 	// Round the watermark down to the start of a QC's range, to avoid pruning a QC before its blocks.
-	blockHeight, err := s.clampPruneBoundary(blockHeight)
+	blockHeight, err := s.clampPruneBoundary(min(blockHeight, s.statusLocked().Floor()))
 	if err != nil {
 		return err
 	}
@@ -493,6 +489,10 @@ func (s *blockDB) Flush() error {
 func (s *blockDB) Status() types.DBStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.statusLocked()
+}
+
+func (s *blockDB) statusLocked() types.DBStatus {
 	var status types.DBStatus
 	if s.hasBlocks {
 		status.NextBlock = s.lastBlockNumber + 1
@@ -509,29 +509,10 @@ func (s *blockDB) Status() types.DBStatus {
 	return status
 }
 
-// recentFloor returns the recovery floor under s.mu. When AppProposals,
-// AppQCs, and Blocks are persisted, data.State eviction keeps one height before
-// the lower of their durable tips. That height can be inside a QC range.
-func (s *blockDB) recentFloorLocked() types.GlobalBlockNumber {
-	floor := types.GlobalBlockNumber(s.watermark.Load())
-	appProposal, hasAppProposal := s.lastAppProposal.Get()
-	appQC, hasAppQC := s.lastAppQC.Get()
-	if hasAppProposal && hasAppQC && s.hasBlocks {
-		nextAppProposal := appProposal.GlobalRange().Next
-		nextAppQC := appQC.Proposal().GlobalRange().Next
-		nextBlock := s.lastBlockNumber + 1
-		evictionBound := min(nextAppProposal, nextAppQC, nextBlock)
-		if evictionBound > floor {
-			floor = evictionBound - 1
-		}
-	}
-	return floor
-}
-
 func (s *blockDB) recentFloor() types.GlobalBlockNumber {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.recentFloorLocked()
+	return s.statusLocked().Floor()
 }
 
 // ReadRecent() reads the latest AppQC/AppProposal recovery suffix.

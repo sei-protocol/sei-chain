@@ -78,6 +78,16 @@ func writeToBlockDB(t *testing.T, db types.BlockDB, qcs []*types.FullCommitQC, b
 	utils.OrPanic(db.Flush())
 }
 
+func writeAppDataToBlockDB(t testing.TB, rng utils.Rng, db types.BlockDB, keys []types.SecretKey, qcs ...*types.FullCommitQC) {
+	t.Helper()
+	for _, qc := range qcs {
+		appProposal := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+		utils.OrPanic(db.WriteAppProposal(appProposal))
+		utils.OrPanic(db.WriteAppQC(TestAppQC(keys, appProposal)))
+	}
+	utils.OrPanic(db.Flush())
+}
+
 // pushAppHashesRunning runs state.Run under scope.Run long enough to accept
 // PushAppHash for [first, next), then cancels Run. Prefers scope.Run over a
 // raw goroutine so cleanup is structured.
@@ -452,7 +462,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 		s.SpawnBgNamed("state.Run", func() error {
 			return utils.IgnoreCancel(state.Run(runCtx))
 		})
-		// PushAppHash waits on nextBlockToPersist, so success implies Flush.
+		// PushAppHash waits on persisted.NextBlock, so success implies Flush.
 		for n := gr1.First; n < gr1.Next; n++ {
 			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
 				cancel()
@@ -478,9 +488,9 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	}
 }
 
-// TestEvictionWaitsForAppQC checks that evictBelowBound does not drop
+// TestEvictionWaitsForAppQC checks that setPersisted does not drop
 // AppProposals until AppQC is persisted, and that once it is, heights below
-// min(nextAppProposal, nextAppQCToPersist) are evicted.
+// persisted.Floor() are evicted.
 func TestEvictionWaitsForAppQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -541,9 +551,12 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 		}
 
 		for inner := range state.inner.Lock() {
-			evictionBound := min(inner.nextAppProposal, inner.nextAppQCToPersist) - 1
+			evictionBound := inner.persisted.Floor()
 			if inner.first != evictionBound {
 				return fmt.Errorf("after catching up, first = %d, want eviction bound %d", inner.first, evictionBound)
+			}
+			if anchor, ok := inner.anchor.Load().Get(); !ok || anchor.AppQC != inner.appQCs[inner.first] || anchor.CommitQC != inner.qcs[inner.first].QC() {
+				return fmt.Errorf("anchor must cover inner.first %d", inner.first)
 			}
 			for n := gr1.First; n < inner.first; n++ {
 				_, ok := inner.appProposals[n]
@@ -586,7 +599,7 @@ func TestEvictionWaitsForPersistedAppQC(t *testing.T) {
 
 	for inner := range state.inner.Lock() {
 		require.Equal(t, gr1.Next, inner.nextAppQC)
-		require.Equal(t, gr1.First, inner.nextAppQCToPersist)
+		require.Equal(t, gr1.First, inner.persisted.NextAppQC)
 		require.Equal(t, gr1.First, inner.first, "accepted but unpersisted AppQC must not advance eviction")
 		for n := gr1.First; n < gr1.Next; n++ {
 			_, ok := inner.appProposals[n]
@@ -597,8 +610,8 @@ func TestEvictionWaitsForPersistedAppQC(t *testing.T) {
 
 // TestNextToExecuteAfterAppEviction checks WaitUntilExecuted / nextToExecute
 // still work when persisted AppQC aggressively evicts through nextAppProposal
-// (first = min(nextAppProposal, nextAppQCToPersist) = NAP). nextToExecute uses
-// qc[NAP], not NAP-1.
+// (first = persisted.Floor()).
+// nextToExecute uses the retained boundary QC.
 func TestNextToExecuteAfterAppEviction(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -624,8 +637,8 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 				return fmt.Errorf("PushAppHash(%d): %w", n, err)
 			}
 		}
-		// Sticky case: nextAppQCToPersist == nextAppProposal. first advances to
-		// NAP; NAP-1 is gone; nextToExecute reads qc[NAP] after the next QC arrives.
+		// Sticky case: persisted.NextAppQC == nextAppProposal. first advances to
+		// NAP-1; NAP-2 is gone; nextToExecute reads qc[NAP-1] until the next QC executes.
 		if err := pushAppQCForBlock(ctx, state, keys, gr1.First); err != nil {
 			return fmt.Errorf("pushAppQCForBlock(%d): %w", gr1.First, err)
 		}
@@ -647,7 +660,7 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 			if inner.nextAppProposal != gr1.Next {
 				return fmt.Errorf("nextAppProposal = %d, want %d", inner.nextAppProposal, gr1.Next)
 			}
-			evictionBound := min(inner.nextAppProposal, inner.nextAppQCToPersist) - 1
+			evictionBound := inner.persisted.Floor()
 			if inner.first != evictionBound {
 				return fmt.Errorf("first = %d, want eviction bound %d", inner.first, evictionBound)
 			}
@@ -726,6 +739,9 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 		return nil
 	}))
 
+	storedProposal, err := db1.ReadAppProposalByBlockNumber(gr1.First)
+	require.NoError(t, err)
+	require.True(t, storedProposal.IsPresent(), "PushAppHash must persist the AppProposal")
 	stored, err := db1.ReadAppQCByBlockNumber(gr1.First)
 	require.NoError(t, err)
 	require.True(t, stored.IsPresent(), "PushAppQC must persist the AppQC")
@@ -734,6 +750,7 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 	db2 := newTestBlockDB(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 	for inner := range state2.inner.Lock() {
+		require.Equal(t, gr1.Next, inner.nextAppProposal)
 		require.Equal(t, gr1.Next, inner.nextAppQC)
 	}
 	appQC, fQC := state2.LastAppQC()
@@ -805,7 +822,7 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 // readability), so a mid-range prune does not refuse heights inside that QC.
 //
 // PruneBefore is BlockDB-only: heights still retained in RAM for AppVotes
-// (at/above min(nextAppProposal, nextAppQCToPersist) exclusive floor) remain
+// (at/above persisted.Floor()) remain
 // readable via TryBlock even after the store watermark advances past them.
 func TestPruningWithPartialQCRange(t *testing.T) {
 	ctx := t.Context()
@@ -843,7 +860,7 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 		return nil
 	}))
 	for inner := range state1.inner.Lock() {
-		exclusiveFloor = min(inner.nextAppProposal, inner.nextAppQCToPersist) - 1
+		exclusiveFloor = inner.persisted.Floor()
 		require.Equal(t, exclusiveFloor, inner.first)
 	}
 

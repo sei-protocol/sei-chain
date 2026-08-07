@@ -216,6 +216,7 @@ func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
 	writeToBlockDB(t, db,
 		[]*types.FullCommitQC{qc1, qc2},
 		[][]*types.Block{blocks1, blocks2})
+	writeAppDataToBlockDB(t, rng, db, keys, qc1, qc2)
 	require.NoError(t, db.PruneBefore(qc2.QC().GlobalRange().First))
 
 	state, err := NewState(&Config{
@@ -485,8 +486,8 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 
 // TestRunPersistSeedsFromRecoveryFloor verifies that runPersist does not walk
 // [genesis, recoveryFloor) when Status lacks NextBlock (QC-only store
-// whose first QC starts past FirstBlock). Seeding from nextBlockToPersist
-// avoids collecting nil block pointers.
+// whose first QC starts past FirstBlock). Seeding persisted DBStatus from the
+// recovery floor avoids collecting nil block pointers.
 func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
