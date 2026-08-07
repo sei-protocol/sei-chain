@@ -45,6 +45,8 @@ type Store interface {
 //
 // Until Close, the underlying resources (e.g. an ephemeral SC snapshot or a
 // pinned SS version) stay alive, even concurrently with later writes/commits.
+// All read methods must be safe for concurrent calls because EVM executor
+// workers may share one snapshot while executing a block.
 type StateSnapshot interface {
 	EVMStateSnapshot
 
