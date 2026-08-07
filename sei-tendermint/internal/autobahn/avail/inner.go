@@ -154,7 +154,14 @@ func (i *inner) updateNextAppQC() bool {
 }
 
 // prune advances the state to account for a new AppQC/CommitQC pair.
-// Returns true if pruning occurred, false if the QC was stale.
+// Returns true iff pruning occurred.
+// It is safe to prune on data.Anchor, because it proves that:
+// * AppQC was formed for the given height (and it will be available on restart)
+// * some honest nodes have voted for AppHash
+// * AppHash voting is allowed only after persisting the executed blocks i blockDB.
+// * blocks and FullCommitQC (sequencing proof) are available in data.State.
+// TODO(gprusak): consider simplifying this invariant by making Anchor require
+// locally persisted blocks as well.
 func (i *inner) prune(epoch *types.Epoch, anchor data.Anchor) {
 	idx := anchor.CommitQC.Index()
 	if idx < i.roads.first {

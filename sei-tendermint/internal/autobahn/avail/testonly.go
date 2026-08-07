@@ -56,7 +56,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 						qc, err := from.CommitQC(ctx, next)
 						if err != nil {
 							if errors.Is(err, types.ErrPruned) {
-								next = from.FirstCommitQC()
+								next = from.First()
 								continue
 							}
 							return err

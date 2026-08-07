@@ -131,14 +131,14 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 				}
 			}
 
-			t.Logf("Previous one should be pruned because of appQC.")
+			t.Logf("Previous one should be eventually evicted")
+			for inner,ctrl := range state.inner.Lock() {
+				if err:=ctrl.WaitUntil(ctx, func() bool { return inner.roads.first == appProposal.RoadIndex() }); err!=nil {
+					return err
+				}
+			}
 			if _, err := state.appQC(ctx, appProposal.RoadIndex()); err != nil {
 				return fmt.Errorf("state.WaitForAppQC(): %w", err)
-			}
-			if prev, ok := prev.Get(); ok {
-				if _, err := state.CommitQC(ctx, prev.Proposal().Index()); !errors.Is(err, types.ErrPruned) {
-					return fmt.Errorf("state.CommitQC(): %w, want %v", err, types.ErrPruned)
-				}
 			}
 
 			t.Logf("Check that the executed local blocks have been pruned")
@@ -278,7 +278,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	state2, err := NewState(keys[0], ds2, utils.Some(dir))
 	require.NoError(t, err)
 
-	require.GreaterOrEqual(t, state2.FirstCommitQC(), wantAppQCIdx)
+	require.GreaterOrEqual(t, state2.First(), wantAppQCIdx)
 
 	_, ok := state2.LastCommitQC().Load().Get()
 	require.True(t, ok, "LastCommitQC should be set after restart")
@@ -340,7 +340,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.NoError(t, err)
 
 		// Queues start at 0.
-		require.Equal(t, types.RoadIndex(0), state.FirstCommitQC())
+		require.Equal(t, types.RoadIndex(0), state.First())
 	})
 
 	t.Run("loads persisted blocks", func(t *testing.T) {
@@ -387,7 +387,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.NoError(t, err)
 
 		// All 3 commitQCs should be loaded (no AppQC to skip past).
-		require.Equal(t, types.RoadIndex(0), state.FirstCommitQC())
+		require.Equal(t, types.RoadIndex(0), state.First())
 		// LastCommitQC should be set to the last loaded one.
 		require.NoError(t, utils.TestDiff(utils.Some(qcs[2]), state.LastCommitQC().Load()))
 	})

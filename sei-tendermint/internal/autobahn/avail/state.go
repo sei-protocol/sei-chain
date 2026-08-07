@@ -88,7 +88,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	}, nil
 }
 
-func (s *State) FirstCommitQC() types.RoadIndex {
+func (s *State) First() types.RoadIndex {
 	for inner := range s.inner.Lock() {
 		return inner.roads.first
 	}
@@ -458,7 +458,7 @@ func (s *State) produceLocalBlock(n types.BlockNumber, key types.SecretKey, payl
 
 // Task inserting CommitQCs and local blocks to data state.
 func (s *State) runPushQC(ctx context.Context) error {
-	for n := types.RoadIndex(0); ; n = max(n+1, s.FirstCommitQC()) {
+	for n := types.RoadIndex(0); ; n = max(n+1, s.First()) {
 		epoch, qc, err := s.fullCommitQC(ctx, n)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
@@ -491,7 +491,7 @@ func (s *State) runPushQC(ctx context.Context) error {
 
 // Task inserting AppQCs to data state.
 func (s *State) runPushAppQC(ctx context.Context) error {
-	for n := types.RoadIndex(0); ; n = max(n+1, s.FirstCommitQC()) {
+	for n := types.RoadIndex(0); ; n = max(n+1, s.First()) {
 		appQC, err := s.appQC(ctx, n)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {

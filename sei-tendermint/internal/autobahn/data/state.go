@@ -685,6 +685,8 @@ type Anchor struct {
 	AppQC    *types.AppQC
 }
 
+// Anchor represents the latest persisted AppQC.
+// It is used by avail.State.
 func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
 	for inner := range s.inner.Lock() {
 		return inner.anchor.Subscribe()
