@@ -161,10 +161,41 @@ var genesisKeys = []configtest.KeySpec{
 // A configtest.KeyName is not a KeySpec, and that is the point: it claims the spelling and nothing
 // else, so the compiler keeps this list out of CheckRow and out of the discriminating-seed check,
 // where a row that predicted a resolved value would be wrong for all three.
+//
+// The four flatkv names are here for a different reason than the three above them. Nothing in this
+// package reads them: sei-cosmos/server/config.GetConfig is their only reader, and its guardedKeys
+// target drives them. They are recorded on this section's record rather than on a second one in that
+// package so that [state-commit] has one list of operator-facing names, which is where someone
+// checking a spelling will look.
+//
+// What that record does and does not do is worth being exact about. Renaming one of these four in
+// GetConfig fails that package's own targets, not this record, because nothing compares this list
+// against the read site. So the record puts the spelling in a checked-in file a reviewer sees, and the
+// behavioural catch stays where the reader is. Verified by renaming
+// state-commit.flatkv.snapshot-interval in GetConfig, which reddens three tests in sei-cosmos and
+// none here.
 var scKeysWithTargetsOfTheirOwn = []configtest.KeyName{
 	FlagSCWriteMode,                // FuzzSCWriteMode
 	FlagSCWriteModeEnableAuto,      // FuzzSCWriteMode
 	FlagSCHashLoggerTargetFileSize, // FuzzSCHashLoggerTargetFileSize
+
+	// Read only by GetConfig, driven by its guardedKeys target.
+	"state-commit.flatkv.fsync",
+	"state-commit.flatkv.async-write-buffer",
+	"state-commit.flatkv.snapshot-interval",
+	"state-commit.flatkv.snapshot-keep-recent",
+}
+
+// genesisKeysWithTargetsOfTheirOwn are the [genesis] names no row claims.
+//
+// genesis.import-file is read as an unchecked type assertion rather than a guarded cast, so a row
+// would predict the wrong resolution and FuzzReadGenesisImportConfig drives it instead.
+// genesis.genesis-stream-file is not read by this package at all: GetConfig reads it into its own
+// Genesis section, and TestGetConfigGenesisKeyDivergesFromTheAppSideKey records that the two parsers
+// read different keys for the same intent. Both are recorded here so the section has one list.
+var genesisKeysWithTargetsOfTheirOwn = []configtest.KeyName{
+	"genesis.import-file",         // FuzzReadGenesisImportConfig
+	"genesis.genesis-stream-file", // sei-cosmos/server/config, GetConfig's own Genesis section
 }
 
 func readSC(opts configtest.AppOpts) (any, error) { return parseSCConfigs(opts), nil }
@@ -456,7 +487,8 @@ func FuzzReadGenesisStreamImport(f *testing.F) {
 	seeds.Add(fuzzing.KindNil, "", int64(0), false)
 	seeds.Add(fuzzing.KindString, "stream", int64(0), false)
 
-	configtest.CheckEveryRowHasADiscriminatingSeed(f, "genesis", readGenesis, genesisKeys, seeds)
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "genesis", readGenesis, genesisKeys, seeds,
+		genesisKeysWithTargetsOfTheirOwn...)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		configtest.CheckRow(t, "genesis", readGenesis, genesisKeys[0],
@@ -557,7 +589,7 @@ func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
 	configtest.CheckKeyNames(t, "state-commit", scKeys, scKeysWithTargetsOfTheirOwn...)
 	configtest.CheckKeyNames(t, "state-store", ssKeys)
 	configtest.CheckKeyNames(t, "light_invariance", lightInvarianceKeys)
-	configtest.CheckKeyNames(t, "genesis", genesisKeys)
+	configtest.CheckKeyNames(t, "genesis", genesisKeys, genesisKeysWithTargetsOfTheirOwn...)
 }
 
 // TestDefaultsMatchTheRecordedValues pins these sections' in-code defaults.
