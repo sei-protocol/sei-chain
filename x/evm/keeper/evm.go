@@ -155,6 +155,10 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 }
 
 func (k *Keeper) StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, data []byte) ([]byte, error) {
+	// Static EVM execution must reproduce consensus precompile behavior, even
+	// when entered from an ABCI query or historical RPC context.
+	ctx = ctx.WithIsABCIQuery(false)
+
 	evm, err := k.createReadOnlyEVM(ctx, from)
 	if err != nil {
 		return nil, err

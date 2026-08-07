@@ -106,10 +106,15 @@ func (k BaseKeeper) GetPaginatedTotalSupply(ctx sdk.Context, pagination *query.P
 	return supply, pageRes, nil
 }
 
-// CollectAllTotalSupply returns the full supply by paging with MaxLimit.
+// supplyPageSize bounds how many supply entries CollectAllTotalSupply fetches
+// per page while merging the full supply.
+const supplyPageSize = uint64(1_000)
+
+// CollectAllTotalSupply returns the full supply by following next_key until
+// the supply store is exhausted.
 func CollectAllTotalSupply(ctx sdk.Context, k Keeper) (sdk.Coins, error) {
 	totalSupply := sdk.NewCoins()
-	pageReq := &query.PageRequest{Limit: query.MaxLimit}
+	pageReq := &query.PageRequest{Limit: supplyPageSize}
 
 	for {
 		page, pageRes, err := k.GetPaginatedTotalSupply(ctx, pageReq)
@@ -123,7 +128,7 @@ func CollectAllTotalSupply(ctx sdk.Context, k Keeper) (sdk.Coins, error) {
 		}
 		pageReq = &query.PageRequest{
 			Key:   pageRes.NextKey,
-			Limit: query.MaxLimit,
+			Limit: supplyPageSize,
 		}
 	}
 }
