@@ -243,7 +243,13 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 		// future block whose coverage check still passes. Mirrors littblock.
 		return nil
 	}
-	n = min(n, s.statusLocked().Or(types.DBStatus{}).Floor())
+	n = min(n, s.statusLocked().Or(types.DBStatus{
+		First:           0,
+		NextBlock:       0,
+		NextQC:          0,
+		NextAppQC:       0,
+		NextAppProposal: 0,
+	}).Floor())
 	// Round the watermark down to the covering QC's First. A QC's cohort of
 	// blocks changes readability atomically, so the watermark must never fall
 	// strictly inside a QC's range (see littblock): otherwise a read would
@@ -285,7 +291,13 @@ func (s *blockDB) Flush() error { return nil }
 func (s *blockDB) Status() types.DBStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.statusLocked().Or(types.DBStatus{})
+	return s.statusLocked().Or(types.DBStatus{
+		First:           0,
+		NextBlock:       0,
+		NextQC:          0,
+		NextAppQC:       0,
+		NextAppProposal: 0,
+	})
 }
 
 func (s *blockDB) statusLocked() utils.Option[types.DBStatus] {
@@ -294,7 +306,12 @@ func (s *blockDB) statusLocked() utils.Option[types.DBStatus] {
 		return utils.None[types.DBStatus]()
 	}
 	oldestQCStart := entries[0].lower
+	first := max(oldestQCStart, s.watermark)
+	if blockNumbers := s.sortedBlockNumbersLocked(); len(blockNumbers) > 0 {
+		first = max(first, blockNumbers[0])
+	}
 	status := types.DBStatus{
+		First:           first,
 		NextBlock:       oldestQCStart,
 		NextQC:          s.lastQCNext,
 		NextAppQC:       oldestQCStart,
@@ -317,7 +334,13 @@ func (s *blockDB) ReadRecent() (types.RecentData, error) {
 	defer s.mu.RUnlock()
 
 	status := s.statusLocked()
-	floor := status.Or(types.DBStatus{}).Floor()
+	floor := status.Or(types.DBStatus{
+		First:           0,
+		NextBlock:       0,
+		NextQC:          0,
+		NextAppQC:       0,
+		NextAppProposal: 0,
+	}).Floor()
 	recent := types.RecentData{Status: status}
 	var targetIndex types.RoadIndex
 	bounded := s.hasAppProposal && s.hasAppQC && s.hasBlocks

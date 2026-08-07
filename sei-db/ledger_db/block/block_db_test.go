@@ -167,7 +167,13 @@ func drainRecent(t *testing.T, db types.BlockDB) []iterEntry {
 	recent, err := db.ReadRecent()
 	require.NoError(t, err)
 	var entries []iterEntry
-	floor := recent.Status.Or(types.DBStatus{}).Floor()
+	floor := recent.Status.Or(types.DBStatus{
+		First:           0,
+		NextBlock:       0,
+		NextQC:          0,
+		NextAppQC:       0,
+		NextAppProposal: 0,
+	}).Floor()
 	for _, qc := range recent.CommitQCs {
 		first := qc.QC().GlobalRange().First
 		next := first + gbn(len(qc.Headers()))
@@ -239,8 +245,11 @@ func testStatus(t *testing.T, build builder) {
 
 	require.NoError(t, db.WriteQC(batches[0].qc))
 	tips := db.Status()
+	require.Equal(t, batches[0].first, tips.First)
 	require.Equal(t, batches[0].next, tips.NextQC)
-	require.Zero(t, tips.NextBlock, "QC-only store has no block tip")
+	require.Equal(t, tips.First, tips.NextBlock, "QC-only store has no block tip")
+	require.Equal(t, tips.First, tips.NextAppQC, "QC-only store has no AppQC tip")
+	require.Equal(t, tips.First, tips.NextAppProposal, "QC-only store has no AppProposal tip")
 	assertTipsMatchPresent(t, db)
 
 	for i, blk := range batches[0].blocks {
@@ -275,13 +284,13 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockDB) {
 	t.Helper()
 	tips := db.Status()
 
-	if tips.NextBlock != 0 {
+	if tips.NextBlock > tips.First {
 		blk, err := db.ReadBlockByNumber(tips.NextBlock - 1)
 		require.NoError(t, err)
 		require.True(t, blk.IsPresent(), "NextBlock must point past a readable block")
 	}
 
-	if tips.NextQC != 0 {
+	if tips.NextQC > tips.First {
 		qc, err := db.ReadQCByBlockNumber(tips.NextQC - 1)
 		require.NoError(t, err)
 		got, ok := qc.Get()
@@ -289,14 +298,14 @@ func assertTipsMatchPresent(t *testing.T, db types.BlockDB) {
 		require.Equal(t, tips.NextQC, got.QC().GlobalRange().Next)
 	}
 
-	if tips.NextAppQC != 0 {
+	if tips.NextAppQC > tips.First {
 		appQC, err := db.ReadAppQCByBlockNumber(tips.NextAppQC - 1)
 		require.NoError(t, err)
 		got, ok := appQC.Get()
 		require.True(t, ok, "NextAppQC must point past a readable AppQC")
 		require.Equal(t, tips.NextAppQC, got.Proposal().GlobalRange().Next)
 	}
-	if tips.NextAppProposal != 0 {
+	if tips.NextAppProposal > tips.First {
 		appProposal, err := db.ReadAppProposalByBlockNumber(tips.NextAppProposal - 1)
 		require.NoError(t, err)
 		got, ok := appProposal.Get()

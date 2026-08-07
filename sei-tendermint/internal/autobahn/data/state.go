@@ -220,6 +220,7 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	}
 	firstBlock := cfg.Registry.FirstBlock()
 	status := recent.Status.Or(types.DBStatus{
+		First:           firstBlock,
 		NextQC:          firstBlock,
 		NextAppProposal: firstBlock,
 		NextAppQC:       firstBlock,

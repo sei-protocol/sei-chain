@@ -425,7 +425,13 @@ func (s *blockDB) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 	}
 
 	// Round the watermark down to the start of a QC's range, to avoid pruning a QC before its blocks.
-	blockHeight, err := s.clampPruneBoundary(min(blockHeight, s.statusLocked().Or(types.DBStatus{}).Floor()))
+	blockHeight, err := s.clampPruneBoundary(min(blockHeight, s.statusLocked().Or(types.DBStatus{
+		First:           0,
+		NextBlock:       0,
+		NextQC:          0,
+		NextAppQC:       0,
+		NextAppProposal: 0,
+	}).Floor()))
 	if err != nil {
 		return err
 	}
@@ -489,7 +495,13 @@ func (s *blockDB) Flush() error {
 func (s *blockDB) Status() types.DBStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.statusLocked().Or(types.DBStatus{})
+	return s.statusLocked().Or(types.DBStatus{
+		First:           0,
+		NextBlock:       0,
+		NextQC:          0,
+		NextAppQC:       0,
+		NextAppProposal: 0,
+	})
 }
 
 func (s *blockDB) statusLocked() utils.Option[types.DBStatus] {
@@ -497,7 +509,12 @@ func (s *blockDB) statusLocked() utils.Option[types.DBStatus] {
 	if !ok {
 		return utils.None[types.DBStatus]()
 	}
+	first := max(s.oldestQCStart, types.GlobalBlockNumber(s.watermark.Load()))
+	if s.hasBlocks {
+		first = max(first, s.firstBlockNumber)
+	}
 	status := types.DBStatus{
+		First:           first,
 		NextBlock:       s.oldestQCStart,
 		NextQC:          qc.QC().GlobalRange().Next,
 		NextAppQC:       s.oldestQCStart,
@@ -515,14 +532,15 @@ func (s *blockDB) statusLocked() utils.Option[types.DBStatus] {
 	return utils.Some(status)
 }
 
-
 // ReadRecent() reads the latest AppQC/AppProposal recovery suffix.
 // WARNING: ReadRecent() will return an error if watermark is moved during iteration.
 func (s *blockDB) ReadRecent() (types.RecentData, error) {
 	s.mu.Lock()
-	status,ok := s.statusLocked().Get()
+	status, ok := s.statusLocked().Get()
 	s.mu.Unlock()
-	if !ok { return types.RecentData{},nil }
+	if !ok {
+		return types.RecentData{}, nil
+	}
 	targetFloor := status.Floor()
 
 	// Collect data >= targetFloor.

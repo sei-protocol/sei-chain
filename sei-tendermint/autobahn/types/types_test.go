@@ -105,6 +105,7 @@ func TestDBStatusFloor(t *testing.T) {
 		{
 			name: "empty",
 			in: DBStatus{
+				First:           0,
 				NextBlock:       0,
 				NextQC:          0,
 				NextAppProposal: 0,
@@ -115,22 +116,35 @@ func TestDBStatusFloor(t *testing.T) {
 		{
 			name: "missing app proposal",
 			in: DBStatus{
+				First:           5,
 				NextBlock:       10,
 				NextQC:          10,
-				NextAppProposal: 0,
+				NextAppProposal: 5,
 				NextAppQC:       8,
 			},
-			want: 0,
+			want: 5,
 		},
 		{
 			name: "minimum durable tip minus one",
 			in: DBStatus{
+				First:           5,
 				NextBlock:       12,
 				NextQC:          12,
 				NextAppProposal: 10,
 				NextAppQC:       8,
 			},
 			want: 7,
+		},
+		{
+			name: "first lower bound",
+			in: DBStatus{
+				First:           10,
+				NextBlock:       12,
+				NextQC:          15,
+				NextAppProposal: 5,
+				NextAppQC:       10,
+			},
+			want: 10,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

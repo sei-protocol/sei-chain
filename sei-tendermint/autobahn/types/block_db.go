@@ -288,6 +288,10 @@ type BlockDB interface {
 // (NextBlock/NextQC are never zero after a successful write: the first
 // written block number N yields NextBlock = N+1 ≥ 1).
 type DBStatus struct {
+	// First is the recovery floor used by Floor. It is the oldest readable block
+	// when blocks are present, otherwise the oldest retained CommitQC start.
+	// Zero if no QC has been written.
+	First GlobalBlockNumber
 	// NextBlock is one past the highest GlobalBlockNumber accepted by WriteBlock
 	// (the next block number that may be written). Zero if no block has been written.
 	NextBlock GlobalBlockNumber
@@ -309,10 +313,10 @@ type DBStatus struct {
 // recovery floor yet, so Floor returns zero.
 func (s DBStatus) Floor() GlobalBlockNumber {
 	f := min(s.NextQC, s.NextBlock, s.NextAppProposal, s.NextAppQC)
-	if f > 0 {
-		f -= 1
+	if f <= s.First {
+		return s.First
 	}
-	return f
+	return f - 1
 }
 
 // RecentBlock is one block returned by BlockDB.ReadRecent.
