@@ -18,11 +18,32 @@ env:
   # state_db tests run in their own workflow (sei-db-tests.yml); exclude
   # that subtree everywhere in this workflow to avoid double-running them.
   STATE_DB_PKG_PREFIX: github.com/sei-protocol/sei-chain/sei-db/state_db
+  # Number of race-detection shards. Matches `NUM_SPLIT` passed to
+  # `make test-group-N` so shards are locally reproducible.
+  NUM_SPLIT: 3
 
 jobs:
+  shard-indexes:
+    name: Generate race shard indexes
+    runs-on: ubuntu-latest
+    outputs:
+      json: ${{ steps.generate-index-list.outputs.json }}
+    steps:
+      - id: generate-index-list
+        run: |
+          MAX_INDEX=$((${{ env.NUM_SPLIT }}-1))
+          INDEX_LIST=$(seq 0 ${MAX_INDEX})
+          INDEX_JSON=$(jq --null-input --compact-output '. |= [inputs]' <<< ${INDEX_LIST})
+          echo "json=${INDEX_JSON}" >> "$GITHUB_OUTPUT"
+
   test:
-    name: Race Detection
+    name: "Race Detection (shard ${{ matrix.shard }})"
     runs-on: uci-default
+    needs: shard-indexes
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.shard-indexes.outputs.json) }}
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
     steps:
@@ -52,9 +73,27 @@ jobs:
       - name: Go test
         run: |
           set -euo pipefail
-          PKGS=$(go list ./... | grep -v "^${STATE_DB_PKG_PREFIX}")
-          echo "$PKGS" | xargs go test \
-            -timeout=${{ env.GO_TEST_TIMEOUT }}
+          make split-test-packages NUM_SPLIT=${{ env.NUM_SPLIT }}
+          SHARD_FILE=build/packages.txt.${{ matrix.shard }}
+          PARALLEL=()
+          if grep -qx "github.com/sei-protocol/sei-chain/occ_tests" "$SHARD_FILE"; then
+            echo "occ_tests present in this shard; forcing -parallel=1"
+            PARALLEL=(-parallel=1)
+          fi
+          xargs go test "${PARALLEL[@]}" -timeout=${{ env.GO_TEST_TIMEOUT }} < "$SHARD_FILE"
+
+  test-check:
+    name: Race Detection
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+    steps:
+      - name: Check shard results
+        run: |
+          if [[ "${{ needs.test.result }}" != "success" ]]; then
+            echo "One or more Race Detection shards failed"
+            exit 1
+          fi
 
   coverage:
     name: Coverage

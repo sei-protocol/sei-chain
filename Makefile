@@ -569,6 +569,10 @@ GO_TEST_FILES != find $(CURDIR) -name "*_test.go"
 # default to four splits by default
 NUM_SPLIT ?= 4
 
+# state_db tests run in their own workflow (sei-db-tests.yml); exclude that
+# subtree here too so local shards match the CI shards exactly.
+STATE_DB_PKG_PREFIX := github.com/sei-protocol/sei-chain/sei-db/state_db
+
 $(BUILDDIR):
 	mkdir -p $@
 
@@ -576,7 +580,7 @@ $(BUILDDIR):
 # Note we need to check for both in-package tests (.TestGoFiles) and
 # out-of-package tests (.XTestGoFiles).
 $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
-	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... | sort > $@
+	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... | grep -v "^$(STATE_DB_PKG_PREFIX)" | sort > $@
 
 TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
 
