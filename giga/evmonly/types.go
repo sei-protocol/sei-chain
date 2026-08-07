@@ -25,9 +25,9 @@ type PreparedBlockExecutor interface {
 
 // ResultSink persists executor-produced block outputs. The sink can retain the
 // complete BlockResult without forcing the executor to copy changesets or
-// receipts before handing them to an async sink. When the executor is backed by
-// a giga store, the sink is invoked only after CommitStateChanges succeeds.
-// Consequently, a sink error in that mode does not roll back the state commit.
+// receipts before handing them to an async sink. The sink is invoked only after
+// CommitStateChanges succeeds, so a sink error does not roll back the state
+// commit.
 // The sink must invoke release exactly once after it no longer references
 // result. If StoreBlockResult returns an error, the executor releases that sink
 // reference.

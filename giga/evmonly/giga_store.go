@@ -14,7 +14,10 @@ import (
 
 const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 
-var errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
+var (
+	errMissingStore                 = errors.New("executor requires a giga store")
+	errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
+)
 
 var _ StateReader = gigaSnapshotStateReader{}
 
@@ -24,7 +27,10 @@ var _ StateReader = gigaSnapshotStateReader{}
 // immutable and must not retain references to it after returning.
 type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
 
-func (e *Executor) executePreparedBlockWithGigaStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
+func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
+	if e.store == nil {
+		return nil, errMissingStore
+	}
 	if e.changeSetEncoder == nil {
 		return nil, errMissingNamedChangeSetEncoder
 	}
@@ -41,7 +47,7 @@ func (e *Executor) executePreparedBlockWithGigaStore(ctx context.Context, req Pr
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	snapshot := e.gigaStore.OpenSnapshot()
+	snapshot := e.store.OpenSnapshot()
 	if snapshot == nil {
 		return nil, errors.New("giga store returned a nil snapshot")
 	}
@@ -68,7 +74,7 @@ func (e *Executor) executePreparedBlockWithGigaStore(ctx context.Context, req Pr
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := e.gigaStore.CommitStateChanges(int64(req.Context.Number), changesets); err != nil {
+	if err := e.store.CommitStateChanges(int64(req.Context.Number), changesets); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
