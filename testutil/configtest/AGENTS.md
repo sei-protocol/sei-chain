@@ -47,8 +47,9 @@ reader and update the row in the same PR. The row then records the improvement.
 
 ## Primitives
 
-Nine exported calls, eight properties, because `CheckRow` is `CheckKey` plus
-`CheckDeterministic`. A fuzz target names only `CheckRow` and gets both.
+`CheckRow` is `CheckKey` plus `CheckDeterministic`, so there is one fewer property than there
+are calls. A fuzz target names only `CheckRow` and gets both. The table below is the enumeration,
+and `TestGuideListsEveryPrimitive` holds it to the exported surface.
 
 | Check | The failure it prevents | Held against |
 |---|---|---|
@@ -61,10 +62,11 @@ Nine exported calls, eight properties, because `CheckRow` is `CheckKey` plus
 | `CheckEveryRowHasADiscriminatingSeed` | a row whose every seed would also pass against a reader that never looks its key up | the recorded seed corpus |
 | `CheckWiring` | one of the calls above is deleted | `testdata/wiring_coverage.txt` |
 
-The third column is the spec. Two checks compare against a checked-in file, one against the
-declared defaults, one against the reader's own output, and one against the seeds the target
-declared. A check whose right-hand side comes from the same place as its left-hand side holds
-for any reader, which is the whole reason the column is worth reading before wiring anything.
+The third column is the spec, and it is the one to read before wiring anything. Three of these
+compare against a checked-in file, one against the declared defaults, one against the reader's own
+output, one against a second read of the same input, one against the manifest, and one against the
+seeds the target declared. A check whose right-hand side comes from the same place as its left-hand
+side holds for any reader.
 
 Two of them read no prediction column, and that is the invariant any new check
 inherits. `CheckKeyNames` is blind to `Path`, `Cast`, `Unguarded` and `Checked`, and

@@ -273,10 +273,9 @@ func TestNativeTracerSetIsNonJSInGeth(t *testing.T) {
 // TestEveryNativeTracerEntryIsNonJSInGeth holds every entry of nativeTraceTracers to being non-JS,
 // by enumerating the set rather than a list written beside it.
 //
-// TestNativeTracerSetIsNonJSInGeth above walks DefaultTraceAllowedTracers and then a literal list of
-// the six constants. Neither is the map IsNativeTraceTracer answers from, so an entry added to that
-// map is reached by neither loop. The second loop's comment claims to catch exactly that omission and
-// cannot, because it is a hand-written list rather than the set.
+// TestNativeTracerSetIsNonJSInGeth above walks DefaultTraceAllowedTracers, which is the
+// operator-facing half. That list is not the map IsNativeTraceTracer answers from, so an entry added
+// to the map without being added to the defaults is reached only here.
 //
 // The gap is allowlistable and it opens the JS evaluator. Adding "jsStubTracer" to the map leaves
 // this package green while IsNativeTraceTracer accepts the name and geth's IsJS reports true for it,
@@ -284,11 +283,12 @@ func TestNativeTracerSetIsNonJSInGeth(t *testing.T) {
 // in-process. That is the failure this closes.
 //
 // The set is read at runtime through export_test.go, which is compiled only under test and so widens
-// nothing the package ships. It is read through an accessor rather than a captured var, so a
-// reassignment of the map cannot leave this asserting over a set nothing consults. That is also the stronger observation: it is the same map
-// IsNativeTraceTracer consults, so it sees every entry however it arrived, including one added in an
-// init, one added by a helper, one spelled as a bare string that no constant names, or the
-// declaration moving to another file in the package.
+// nothing the package ships. Through an accessor rather than a captured var, so a reassignment of the
+// map cannot leave this asserting over a set nothing consults.
+//
+// That runtime read is the stronger observation. It is the same map IsNativeTraceTracer consults, so
+// it sees every entry however it arrived, including one added in an init, one added by a helper, one
+// spelled as a bare string that no constant names, or the declaration moving to another file.
 func TestEveryNativeTracerEntryIsNonJSInGeth(t *testing.T) {
 	// An empty set would pass while checking nothing, which is the defect one level up.
 	if len(config.NativeTraceTracers()) == 0 {
