@@ -164,10 +164,15 @@ func tryPrepareMemIAVLToolingClone(dbDir string, height int64) (*toolClone, erro
 }
 
 // verifyClonedMemIAVLWALCovers is the memiavl counterpart to
-// verifyClonedFlatKVWALCovers. memiavl still stores its changelog in the
-// offset-indexed changelog WAL, where the offset says nothing about the
-// version, so the range has to be read by replaying the first and last entries
-// rather than from sealed file names as the block-keyed state WAL allows.
+// verifyClonedWALCovers: it ensures the cloned changelog either is empty, ends
+// at or before snapshotVersion (no replay needed), or starts at or before
+// firstNeeded (catchup can resume cleanly).
+//
+// It cannot share the FlatKV implementation. FlatKV moved to the block-keyed
+// state WAL, whose stored range comes straight from sealed file names, while
+// memiavl still keeps its changelog in the offset-indexed changelog WAL, where
+// the offset says nothing about the version. The range therefore has to be read
+// by replaying the first and last entries.
 func verifyClonedMemIAVLWALCovers(dstChangelogDir string, snapshotVersion, firstNeeded int64) error {
 	walLog, err := wal.NewChangelogWAL(dstChangelogDir, wal.Config{})
 	if err != nil {
@@ -195,7 +200,15 @@ func verifyClonedMemIAVLWALCovers(dstChangelogDir string, snapshotVersion, first
 	if err != nil {
 		return fmt.Errorf("read last cloned changelog entry: %w", err)
 	}
-	return checkClonedWALCoverage(firstVer, lastVer, snapshotVersion, firstNeeded)
+
+	if lastVer <= snapshotVersion {
+		return nil
+	}
+	if firstVer <= firstNeeded {
+		return nil
+	}
+	return fmt.Errorf("%w: cloned WAL starts at version %d but catchup needs %d over snapshot %d (truncated past snapshot mid-clone)",
+		errSourceChurning, firstVer, firstNeeded, snapshotVersion)
 }
 
 func readWALEntryVersion(walLog wal.ChangelogWAL, off uint64) (int64, error) {

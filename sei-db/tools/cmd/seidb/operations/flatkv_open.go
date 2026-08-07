@@ -232,7 +232,7 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (*toolClone, error
 		// snapshotVersion+1 here (unlike memiavl, whose bootstrap
 		// snapshot-0 hides a configurable initial version).
 		sizeBefore := changelogByteSize(dstChangelogDir)
-		if err := verifyClonedFlatKVWALCovers(dstChangelogDir, snapshotVersion); err != nil {
+		if err := verifyClonedWALCovers(dstChangelogDir, snapshotVersion); err != nil {
 			return cleanup(err)
 		}
 		clone.walRepaired = changelogByteSize(dstChangelogDir) < sizeBefore
@@ -241,19 +241,12 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (*toolClone, error
 	return clone, nil
 }
 
-// verifyClonedFlatKVWALCovers inspects the cloned WAL just long enough to
-// ensure it either is empty, ends at or before snapshotVersion (no replay
-// needed), or starts at or before snapshotVersion+1 (catchup can resume
-// cleanly). The state WAL is keyed by block number, so its stored range is
-// directly the version range; GetRange reads it offline without a live WAL
-// instance.
-//
-// FlatKV snapshots are always named with a real committed version —
-// SetInitialVersion(N) seeds committedVersion N-1 and writes snapshot-<N-1> —
-// so the first version catchup needs is unconditionally snapshotVersion+1,
-// unlike memiavl, whose bootstrap snapshot-0 hides a configurable initial
-// version.
-func verifyClonedFlatKVWALCovers(dstChangelogDir string, snapshotVersion int64) error {
+// verifyClonedWALCovers inspects the cloned WAL just long enough to ensure it
+// either is empty, ends at or before snapshotVersion (no replay needed), or
+// starts at or before snapshotVersion+1 (catchup can resume cleanly). The state
+// WAL is keyed by block number, so its stored range is directly the version
+// range; GetRange reads it offline without a live WAL instance.
+func verifyClonedWALCovers(dstChangelogDir string, snapshotVersion int64) error {
 	ok, firstVer, lastVer, err := statewal.GetRange(statewal.DefaultConfig(dstChangelogDir, flatkvStateWALName))
 	if err != nil {
 		return fmt.Errorf("read cloned changelog range: %w", err)
@@ -261,21 +254,14 @@ func verifyClonedFlatKVWALCovers(dstChangelogDir string, snapshotVersion int64) 
 	if !ok {
 		return nil
 	}
-	//nolint:gosec // version fits int64
-	return checkClonedWALCoverage(int64(firstVer), int64(lastVer), snapshotVersion, snapshotVersion+1)
-}
-
-// checkClonedWALCoverage is the shared verdict for both backends: an empty or
-// fully-superseded WAL needs no replay, and otherwise the WAL must begin at or
-// before firstNeeded — the first version catchup replays on top of the
-// snapshot. A later start means the source truncated past our snapshot
-// mid-clone, so the caller should retry with a freshly selected snapshot.
-func checkClonedWALCoverage(firstVer, lastVer, snapshotVersion, firstNeeded int64) error {
-	if lastVer <= snapshotVersion || firstVer <= firstNeeded {
+	if int64(lastVer) <= snapshotVersion { //nolint:gosec // version fits int64
 		return nil
 	}
-	return fmt.Errorf("%w: cloned WAL starts at version %d but catchup needs %d over snapshot %d (truncated past snapshot mid-clone)",
-		errSourceChurning, firstVer, firstNeeded, snapshotVersion)
+	if int64(firstVer) <= snapshotVersion+1 { //nolint:gosec // version fits int64
+		return nil
+	}
+	return fmt.Errorf("%w: cloned WAL starts at version %d but snapshot is %d (truncated past snapshot mid-clone)",
+		errSourceChurning, firstVer, snapshotVersion)
 }
 
 func selectFlatKVSnapshot(dbDir string, height int64) (string, error) {
