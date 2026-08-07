@@ -257,6 +257,11 @@ func FuzzApplyPrecedenceTendermint(f *testing.F) {
 	// hand-written list leaves any row it omits unexercised. It did: the list here named rows 0, 3
 	// and 4, so rpc.pprof-laddr and p2p.laddr never ran outside a -fuzz session. Generating the
 	// product means a row added later is driven without anyone remembering to seed it.
+	//
+	// It is not free. Each seed runs Isolate and a full Apply that materialises config files, at
+	// roughly 1.75ms, so this target went from about 0.02s at ten seeds to 0.07s at forty. Against a
+	// package that runs in about a second that is the trade, and it buys two of the five rows being
+	// exercised at all.
 	for row := range len(tmKeys) {
 		for _, layers := range [][3]bool{
 			{false, false, false}, // no layer supplies a value, so the in-code default stands

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -1105,6 +1106,8 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 	}
 	def := DefaultConfig()
 
+	covered := map[string]bool{}
+
 	for _, c := range []struct {
 		key              string
 		absent, declared any
@@ -1121,6 +1124,11 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		// or clamped and held by TestGetConfigGRPCAbsentReads.
 		{"grpc.enable", cfg.GRPC.Enable, def.GRPC.Enable, true},
 		{"grpc.address", cfg.GRPC.Address, def.GRPC.Address, true},
+		{"telemetry.enabled", cfg.Telemetry.Enabled, def.Telemetry.Enabled, true},
+		{
+			"telemetry.prometheus-retention-time",
+			cfg.Telemetry.PrometheusRetentionTime, def.Telemetry.PrometheusRetentionTime, true,
+		},
 
 		// [api]. Five diverge. The three set false have a declared default that is already the
 		// getter's zero, so nothing about the resolved value distinguishes a guard from its absence.
@@ -1148,8 +1156,8 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"min-retain-blocks", cfg.MinRetainBlocks, def.MinRetainBlocks, false},
 		{"compaction-interval", cfg.CompactionInterval, def.CompactionInterval, false},
 
-		// The remaining plain casts across the six sections. Every one has a declared default equal to
-		// its getter's zero, so none diverges today, and each is here for the reason api.enable is: this
+		// The remaining plain casts. Every row from here down has a declared default equal to its
+		// getter's zero, so none diverges today, and each is here for the reason api.enable is. This
 		// table is the only thing tying these sections' absent-key resolution to their declared
 		// defaults, since none of them is wired to CheckAbsent.
 		{"rosetta.enable", cfg.Rosetta.Enable, def.Rosetta.Enable, false},
@@ -1173,11 +1181,6 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		// index-events resolves to a []string, which is why the comparison is reflect.DeepEqual rather
 		// than !=. Both sides are nil today, so it is a false row.
 		{"index-events", cfg.IndexEvents, def.IndexEvents, false},
-		{"telemetry.enabled", cfg.Telemetry.Enabled, def.Telemetry.Enabled, true},
-		{
-			"telemetry.prometheus-retention-time",
-			cfg.Telemetry.PrometheusRetentionTime, def.Telemetry.PrometheusRetentionTime, true,
-		},
 		// The guarded read. Its absent value is the declared default, which is the property the
 		// guard exists to provide.
 		{
@@ -1185,6 +1188,7 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 			cfg.GRPCWeb.MaxOpenConnections, def.GRPCWeb.MaxOpenConnections, false,
 		},
 	} {
+		covered[c.key] = true
 		if got := !reflect.DeepEqual(c.absent, c.declared); got != c.diverges {
 			verb := "no longer diverges from"
 			if !c.diverges {
@@ -1194,6 +1198,37 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 				"removed, or a default moved onto the getter's zero, update the row and this table "+
 				"in the same PR", c.key, verb, c.absent, c.declared)
 		}
+	}
+
+	requireEveryManifestRowIsAnchored(t, covered)
+}
+
+// requireEveryManifestRowIsAnchored holds the table above to the manifests it is meant to anchor.
+//
+// The rows are hand-listed, because the diverges column is a judgement about each key that nothing
+// derives. What can be derived is which keys need a row at all, and this does that: a key added to any
+// of the six manifests gets a row, a seed and a name record from the checks already wired, and would
+// otherwise get no absent-key entry while this table is stated to be the only thing tying these
+// sections to their declared defaults.
+func requireEveryManifestRowIsAnchored(t *testing.T, covered map[string]bool) {
+	t.Helper()
+
+	var missing []string
+	for _, manifest := range [][]configtest.KeySpec{
+		apiKeys, rosettaKeys, grpcWebKeys, telemetryKeys, grpcKeys, baseConfigKeys,
+	} {
+		for _, spec := range manifest {
+			if !covered[spec.Key] {
+				missing = append(missing, spec.Key)
+			}
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Errorf("these manifest rows have no entry in the absent-key table above, so nothing ties "+
+			"their absent-key resolution to the declared defaults:\n  %s\n"+
+			"Add a row with the diverges value the key actually has, which is a decision rather than "+
+			"something this can fill in.", strings.Join(missing, "\n  "))
 	}
 }
 

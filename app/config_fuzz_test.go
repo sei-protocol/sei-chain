@@ -168,12 +168,15 @@ var genesisKeys = []configtest.KeySpec{
 // package so that [state-commit] has one list of operator-facing names, which is where someone
 // checking a spelling will look.
 //
-// What that record does and does not do is worth being exact about. Renaming one of these four in
-// GetConfig fails that package's own targets, not this record, because nothing compares this list
-// against the read site. So the record puts the spelling in a checked-in file a reviewer sees, and the
-// behavioural catch stays where the reader is. Verified by renaming
+// What that record does and does not do is worth being exact about, in both directions. Renaming one
+// of these four in GetConfig fails that package's own targets, not this record, because nothing
+// compares this list against the read site. Verified by renaming
 // state-commit.flatkv.snapshot-interval in GetConfig, which reddens three tests in sei-cosmos and
-// none here.
+// none here. And deleting one of them from GetConfig leaves this record green while it names a key no
+// reader in the tree consults, which matters because CheckKeyNames' own doc calls the record the
+// operator-facing contract, so a stale entry reads as evidence the key still resolves. The same holds
+// for genesis.genesis-stream-file below. What the record buys is that the spelling sits in a
+// checked-in file a reviewer sees; the behavioural catch stays where the reader is.
 var scKeysWithTargetsOfTheirOwn = []configtest.KeyName{
 	FlagSCWriteMode,                // FuzzSCWriteMode
 	FlagSCWriteModeEnableAuto,      // FuzzSCWriteMode
@@ -564,8 +567,22 @@ func TestParseSSConfigsAbsentBaselineIsZeroClobbered(t *testing.T) {
 // not resolve to the declared default. TestParseSCConfigsAbsentBaseline and
 // TestParseSSConfigsAbsentBaselineIsZeroClobbered record what they resolve to instead.
 func TestGuardedSectionsAbsentBaseline(t *testing.T) {
-	configtest.CheckAbsent(t, "genesis", readGenesis, DefaultGenesisConfig)
-	configtest.CheckAbsent(t, "light_invariance", readLightInvariance, DefaultLightInvarianceConfig)
+	// A subtest per section, because CheckAbsent reports through t.Fatalf. Both calls in one function
+	// would let a genesis regression stop the run before light_invariance is read, and
+	// light_invariance is the section whose silent downgrade motivated adding this. Same reason
+	// TestManifestNamesEveryField wraps its sections.
+	//
+	// Written out rather than driven from a table, because the section name has to stay a literal.
+	// CheckWiring reads the section from the call's second argument, so a table would record one
+	// "(section not a literal)" pair in place of these two named ones, and deleting either call would
+	// stop being visible in the coverage record. The first attempt here did exactly that and the
+	// record caught it.
+	t.Run("genesis", func(t *testing.T) {
+		configtest.CheckAbsent(t, "genesis", readGenesis, DefaultGenesisConfig)
+	})
+	t.Run("light_invariance", func(t *testing.T) {
+		configtest.CheckAbsent(t, "light_invariance", readLightInvariance, DefaultLightInvarianceConfig)
+	})
 }
 
 // TestKeyNamesMatchTheRecordedNames pins the operator-facing spelling of every key these four
