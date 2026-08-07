@@ -38,9 +38,13 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.6
 sei-chain
+* [#3857](https://github.com/sei-protocol/sei-chain/pull/3857) Backport `release/v6.6`: goreleaser: drop duplicate changelog + Full Changelog link from release notes
+* [#3821](https://github.com/sei-protocol/sei-chain/pull/3821) Fix PebbleDB iterator for stackoverflow
+* [#3802](https://github.com/sei-protocol/sei-chain/pull/3802) Backport `release/v6.6`: Fix static seid SIGSEGV (pin pre-gcc-12 libgcc unwinder), boot smoke gate, manual-tag binary builds (#3749)
+* [#3783](https://github.com/sei-protocol/sei-chain/pull/3783) Bump version file in prep to cut v6.6 RC5
+* [#3782](https://github.com/sei-protocol/sei-chain/pull/3782) Backport `release/v6.6`: Update v6.6 changelog in prep to cut rc4
 * [#3781](https://github.com/sei-protocol/sei-chain/pull/3781) Backport `release/v6.6`: fix(giga): fall back to v2 on execution errors
 * [#3766](https://github.com/sei-protocol/sei-chain/pull/3766) Bump version in prep to release v6.6-rc4
-* [#3759](https://github.com/sei-protocol/sei-chain/pull/3759) feat(evmrpc): bound `eth_getLogs` peak memory with matched-log count and byte budgets. `max_log_no_block` caps log count; `max_log_bytes` caps estimated heap bytes (default 64 MiB). Limits are enforced per matched log at append time; exceeding either returns an error instead of silently truncating. `max_log_no_block` now applies to bounded-range queries too (previously only open-ended queries were capped), so a bounded `eth_getLogs` matching more than the configured limit (default 10000) now errors instead of returning all matches.
 * [#3757](https://github.com/sei-protocol/sei-chain/pull/3757) Backport `release/v6.6`: fix(giga): route EVM validation failures to v2 fallback (CON-368)
 * [#3748](https://github.com/sei-protocol/sei-chain/pull/3748) Bump version in prep to release v6.6-rc3
 * [#3746](https://github.com/sei-protocol/sei-chain/pull/3746) Backport `release/v6.6`: Update v6.6 changelog in prep to cut rc3
