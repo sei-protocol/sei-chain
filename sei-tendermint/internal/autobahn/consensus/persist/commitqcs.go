@@ -171,7 +171,7 @@ func loadAllCommitQCs(s *commitQCState) ([]*types.CommitQC, error) {
 	loaded := make([]*types.CommitQC, 0, len(entries))
 	for i, qc := range entries {
 		if i > 0 && qc.Index() != loaded[i-1].Index()+1 {
-			return nil, fmt.Errorf("gap in commitqcs: index %d follows %d", qc.Index(), loaded[i-1].Index)
+			return nil, fmt.Errorf("gap in commitqcs: index %d follows %d", qc.Index(), loaded[i-1].Index())
 		}
 		loaded = append(loaded, qc)
 	}
