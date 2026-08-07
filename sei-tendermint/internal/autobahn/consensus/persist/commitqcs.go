@@ -37,9 +37,11 @@ func (s *commitQCState) persist(qc *types.CommitQC) error {
 	return nil
 }
 
-// deleteBefore truncates WAL entries below the anchor's index, then
-// re-persists the anchor for crash recovery. Caller must hold the lock.
+// deleteBefore truncates WAL entries below idx. Caller must hold the lock.
 func (s *commitQCState) deleteBefore(idx types.RoadIndex) error {
+	if idx <= s.persisted.First {
+		return nil
+	}
 	iw, ok := s.iw.Get()
 	if idx >= s.persisted.Next {
 		s.persisted = types.RoadRange{First: idx, Next: idx}
@@ -49,17 +51,16 @@ func (s *commitQCState) deleteBefore(idx types.RoadIndex) error {
 			}
 		}
 	} else if ok && iw.Count() > 0 {
-		if s.persisted.First < idx {
-			walIdx := iw.FirstIdx() + uint64(idx-s.persisted.First)
-			if err := iw.TruncateBefore(walIdx, func(entry *types.CommitQC) error {
-				if entry.Index() != idx {
-					return fmt.Errorf("commitqc at WAL index %d has road index %d, expected %d (index mapping broken)", walIdx, entry.Index(), idx)
-				}
-				return nil
-			}); err != nil {
-				return fmt.Errorf("truncate commitqc WAL before %d: %w", walIdx, err)
+		walIdx := iw.FirstIdx() + uint64(idx-s.persisted.First)
+		if err := iw.TruncateBefore(walIdx, func(entry *types.CommitQC) error {
+			if entry.Index() != idx {
+				return fmt.Errorf("commitqc at WAL index %d has road index %d, expected %d (index mapping broken)", walIdx, entry.Index(), idx)
 			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("truncate commitqc WAL before %d: %w", walIdx, err)
 		}
+		s.persisted.First = idx
 	}
 	return nil
 }

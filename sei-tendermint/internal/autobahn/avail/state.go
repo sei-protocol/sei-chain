@@ -254,7 +254,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 			return ErrBadLane
 		}
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return h.BlockNumber() <= min(q.next, inner.persistedBlockStart[h.Lane()]+BlocksPerLane-1)
+			return h.BlockNumber() <= min(q.next, q.first+BlocksPerLane-1)
 		}); err != nil {
 			return err
 		}
@@ -293,9 +293,9 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 // It does NOT wait for the previous votes.
 func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote]) error {
 	var epoch *types.Epoch
-	for inner,ctrl := range s.inner.Lock() {
+	for inner, ctrl := range s.inner.Lock() {
 		// TODO(gprusak): we should wait only if LaneID is from the future.
-		if err:=ctrl.WaitUntil(ctx, func() bool { return inner.epoch.Committee().HasLane(vote.Key()) }); err!=nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return inner.epoch.Committee().HasLane(vote.Key()) }); err != nil {
 			return err
 		}
 		epoch = inner.epoch
@@ -303,7 +303,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	if err := vote.Msg().Verify(epoch.Committee()); err != nil {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
-	if err := vote.VerifySig(epoch.Committee()); err!=nil {
+	if err := vote.VerifySig(epoch.Committee()); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
 	h := vote.Msg().Header()
@@ -313,7 +313,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 			return ErrBadLane
 		}
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return h.BlockNumber() < inner.persistedBlockStart[h.Lane()]+BlocksPerLane
+			return h.BlockNumber() < q.first+BlocksPerLane
 		}); err != nil {
 			return err
 		}
@@ -386,8 +386,9 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Epo
 func (s *State) WaitForLocalCapacity(ctx context.Context, toProduce types.BlockNumber) error {
 	lane := s.key.Public()
 	for inner, ctrl := range s.inner.Lock() {
+		q := inner.blocks[lane]
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return toProduce < inner.persistedBlockStart[lane]+BlocksPerLane
+			return toProduce < q.first+BlocksPerLane
 		}); err != nil {
 			return err
 		}
@@ -439,7 +440,7 @@ func (s *State) produceLocalBlock(n types.BlockNumber, key types.SecretKey, payl
 		if !ok {
 			return nil, ErrBadLane
 		}
-		if n >= inner.persistedBlockStart[lane]+BlocksPerLane {
+		if n >= q.first+BlocksPerLane {
 			return nil, fmt.Errorf("lane full")
 		}
 		if q.next != n {

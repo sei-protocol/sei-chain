@@ -10,7 +10,7 @@ import (
 )
 
 // TODO: when dynamic committee changes are supported, newly joined members
-// must be added to blocks, votes, nextBlockToPersist, and persistedBlockStart.
+// must be added to blocks, votes, and nextBlockToPersist.
 // Currently all four are initialized once in newInner from c.Lanes().All().
 // BlockPersister creates lane WALs lazily inside MaybePruneAndPersistLane, but the new
 // member must also appear in inner.blocks before the next persist cycle.
@@ -36,13 +36,6 @@ type inner struct {
 	// ideal. Only RecvBatch needs to be notified of cursor changes;
 	// collectPersistBatch is in the same goroutine and reads it directly.
 	nextBlockToPersist map[types.LaneID]types.BlockNumber
-
-	// persistedBlockStart is the per-lane block number derived from the last
-	// durably persisted prune anchor. Block admission (PushBlock, ProduceBlock,
-	// WaitForCapacity, PushVote) uses persistedBlockStart + BlocksPerLane as
-	// the capacity limit, ensuring we never admit more blocks than can be
-	// recovered after a crash.
-	persistedBlockStart map[types.LaneID]types.BlockNumber
 }
 
 // loadedState holds data loaded from disk on restart.
@@ -59,13 +52,12 @@ type loadedState struct {
 func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	epoch := ds.Registry().LatestEpoch()
 	i := &inner{
-		persistedCommitQC:   utils.NewAtomicSend(utils.None[*types.CommitQC]()),
-		roads:               newQueue[types.RoadIndex, *road](),
-		epoch:               epoch,
-		blocks:              map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
-		votes:               map[types.LaneID]*queue[types.BlockNumber, blockVotes]{},
-		nextBlockToPersist:  map[types.LaneID]types.BlockNumber{},
-		persistedBlockStart: map[types.LaneID]types.BlockNumber{},
+		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
+		roads:              newQueue[types.RoadIndex, *road](),
+		epoch:              epoch,
+		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
+		votes:              map[types.LaneID]*queue[types.BlockNumber, blockVotes]{},
+		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
 	}
 	for lane := range epoch.Committee().Lanes().All() {
 		i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
