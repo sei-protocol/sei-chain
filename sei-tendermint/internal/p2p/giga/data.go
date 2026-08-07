@@ -208,7 +208,7 @@ func (x *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]
 		for next := req.NextBlock; ; {
 			appQC, commitQC, err := x.validatorState().Data().AppQC(ctx, next)
 			if err != nil {
-				return fmt.Errorf("x.validatorState().Avail().WaitForAppQC(): %w", err)
+				return fmt.Errorf("x.validatorState().Data().AppQC(): %w", err)
 			}
 			next = commitQC.QC().GlobalRange().Next
 			if err := stream.Send(ctx, types.AppQCConv.Encode(appQC)); err != nil {

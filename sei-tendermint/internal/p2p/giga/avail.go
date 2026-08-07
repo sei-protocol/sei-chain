@@ -83,10 +83,10 @@ func (x *Service) serverStreamCommitQCs(ctx context.Context, server rpc.Server[A
 			qc, err := x.validatorState().Avail().CommitQC(ctx, next)
 			if err != nil {
 				if errors.Is(err, types.ErrPruned) {
-					next = x.validatorState().Avail().FirstCommitQC()
+					next = x.validatorState().Avail().First()
 					continue
 				}
-				return fmt.Errorf("x.validatorState().Avail().FirstCommitQC(): %w", err)
+				return fmt.Errorf("x.validatorState().Avail().CommitQC(): %w", err)
 			}
 			next = qc.Index() + 1
 			if err := stream.Send(ctx, types.CommitQCConv.Encode(qc)); err != nil {
@@ -173,7 +173,7 @@ func (x *Service) clientStreamCommitQCs(ctx context.Context, c rpc.Client[API]) 
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
 		if err := x.validatorState().Avail().PushCommitQC(ctx, qc); err != nil {
-			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
+			return fmt.Errorf("s.PushCommitQC(): %w", err)
 		}
 	}
 }
