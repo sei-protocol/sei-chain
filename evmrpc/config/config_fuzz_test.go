@@ -251,10 +251,13 @@ func FuzzTracerAllowlists(f *testing.F) {
 // for a registered non-JS tracer, and true for anything unregistered, because an
 // unregistered name is treated as JS source.
 //
-// So the property is: every name IsNativeTraceTracer accepts must be non-JS in
-// geth. Adding a name to the set that geth does not register would open an
-// in-process JS path on a node whose operator only listed a tracer, and this is
-// the assertion that catches it.
+// So the property is that every name IsNativeTraceTracer accepts must be non-JS in geth. Adding a
+// name to the set that geth does not register would open an in-process JS path on a node whose
+// operator only listed a tracer.
+//
+// This walks the default list, which is the operator-facing half. The set itself is walked by
+// TestEveryNativeTracerEntryIsNonJSInGeth, which enumerates nativeTraceTracers from source, so an
+// entry added to the map without being added to the defaults is caught there rather than here.
 func TestNativeTracerSetIsNonJSInGeth(t *testing.T) {
 	for _, name := range config.DefaultTraceAllowedTracers() {
 		if !config.IsNativeTraceTracer(name) {
@@ -266,16 +269,48 @@ func TestNativeTracerSetIsNonJSInGeth(t *testing.T) {
 				"allowlisting it lets debug_trace* run JavaScript in-process", name)
 		}
 	}
+}
 
-	// The default list is the whole set today. If a tracer is added to the set
-	// without being added to the defaults, this catches the omission so the check
-	// above cannot silently stop covering it.
-	for _, name := range []string{
-		config.TraceTracerCall, config.TraceTracerPrestate, config.TraceTracerFlatCall,
-		config.TraceTracer4Byte, config.TraceTracerNoop, config.TraceTracerMux,
-	} {
+// TestEveryNativeTracerEntryIsNonJSInGeth holds every entry of nativeTraceTracers to being non-JS,
+// by enumerating the set rather than a list written beside it.
+//
+// TestNativeTracerSetIsNonJSInGeth above walks DefaultTraceAllowedTracers, which is the
+// operator-facing half. That list is not the map IsNativeTraceTracer answers from, so an entry added
+// to the map without being added to the defaults is reached only here.
+//
+// The gap is allowlistable and it opens the JS evaluator. Adding "jsStubTracer" to the map leaves
+// this package green while IsNativeTraceTracer accepts the name and geth's IsJS reports true for it,
+// so an operator who allowlisted only that name would be running request-supplied JavaScript
+// in-process. That is the failure this closes.
+//
+// The set is read at runtime through export_test.go, which is compiled only under test and so widens
+// nothing the package ships. Through an accessor rather than a captured var, so a reassignment of the
+// map cannot leave this asserting over a set nothing consults.
+//
+// That runtime read is the stronger observation. It is the same map IsNativeTraceTracer consults, so
+// it sees every entry however it arrived, including one added in an init, one added by a helper, one
+// spelled as a bare string that no constant names, or the declaration moving to another file.
+func TestEveryNativeTracerEntryIsNonJSInGeth(t *testing.T) {
+	// An empty set would pass while checking nothing, which is the defect one level up.
+	if len(config.NativeTraceTracers()) == 0 {
+		t.Fatal("nativeTraceTracers is empty, so this proved nothing about the set and " +
+			"IsNativeTraceTracer accepts no name at all")
+	}
+
+	for name := range config.NativeTraceTracers() {
+		// Cannot fire while IsNativeTraceTracer is a bare lookup in this same map, and that is the
+		// point: it holds the accessor to answering from the set and nothing else. A condition added
+		// to it later, a feature gate or a build tag, would make the two disagree and land here.
+		if !config.IsNativeTraceTracer(name) {
+			t.Errorf("%q is in nativeTraceTracers but IsNativeTraceTracer rejects it, so the accessor "+
+				"no longer answers from the set alone and an operator's allowlist is filtered by "+
+				"something this test cannot see", name)
+			continue
+		}
 		if tracers.DefaultDirectory.IsJS(name) {
-			t.Errorf("native tracer constant %q is not registered as non-JS in geth", name)
+			t.Errorf("%q is in nativeTraceTracers but geth resolves it through the JS evaluator. "+
+				"IsNativeTraceTracer accepts it, so an operator allowlisting only this name would "+
+				"let debug_trace* run JavaScript in-process", name)
 		}
 	}
 }
