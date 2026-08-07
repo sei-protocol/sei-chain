@@ -282,23 +282,14 @@ type BlockDB interface {
 	Close() error
 }
 
-// DBStatus is the in-memory write tips returned by BlockDB.Status.
-// Its fields are exclusive "next to write" cursors (matching data.State's
-// DBStatus). Zero means no write of that kind has occurred yet
-// (NextBlock/NextQC are never zero after a successful write: the first
-// written block number N yields NextBlock = N+1 ≥ 1).
+// DBStatus represents the suffix of BlockDB data that data.State can append to/would load on recovery.
+// Elements since the last anchor (last full row which contains AppQC,AppProposal,Block,QC) to
+// the tips persisted in the DB. These are the elements that would be loaded by data.State on restart
+// via BlockDB.ReadRecent.
+// First <= NextAppQC <= NextAppProposal <= NextBlock <= NextQC
 type DBStatus struct {
-	// First is the recovery floor used by Floor. It is the oldest readable block
-	// when blocks are present, otherwise the oldest retained CommitQC start.
-	// Zero if no QC has been written.
+	// First is either NextAppQC, or NextAppQC-1, depending on whether there is at least 1 AppQC in the BlockDB.
 	First GlobalBlockNumber
-	// NextBlock is one past the highest GlobalBlockNumber accepted by WriteBlock
-	// (the next block number that may be written). Zero if no block has been written.
-	NextBlock GlobalBlockNumber
-	// NextQC is one past the highest GlobalBlockNumber covered by the last QC
-	// accepted by WriteQC (the next QC's range must start here). Zero if no QC
-	// has been written.
-	NextQC GlobalBlockNumber
 	// NextAppQC is one past the highest GlobalBlockNumber covered by the last
 	// AppQC accepted by WriteAppQC. Zero if no AppQC has been written.
 	NextAppQC GlobalBlockNumber
@@ -306,17 +297,13 @@ type DBStatus struct {
 	// last AppProposal accepted by WriteAppProposal. Zero if no AppProposal has
 	// been written.
 	NextAppProposal GlobalBlockNumber
-}
-
-// Floor returns the startup recovery floor implied by the durable data tips.
-// Until blocks, AppProposals, and AppQCs are all present, there is no app
-// recovery floor yet, so Floor returns zero.
-func (s DBStatus) Floor() GlobalBlockNumber {
-	f := min(s.NextQC, s.NextBlock, s.NextAppProposal, s.NextAppQC)
-	if f <= s.First {
-		return s.First
-	}
-	return f - 1
+	// NextBlock is one past the highest GlobalBlockNumber accepted by WriteBlock
+	// (the next block number that may be written). Zero if no block has been written.
+	NextBlock GlobalBlockNumber
+	// NextQC is one past the highest GlobalBlockNumber covered by the last QC
+	// accepted by WriteQC (the next QC's range must start here). Zero if no QC
+	// has been written.
+	NextQC GlobalBlockNumber
 }
 
 // RecentBlock is one block returned by BlockDB.ReadRecent.
@@ -327,10 +314,12 @@ type RecentBlock struct {
 
 // RecentData is the materialized suffix used by data.State startup recovery.
 type RecentData struct {
-	// Status is the durable write status observed while selecting the recent suffix.
-	Status       utils.Option[DBStatus]
+	// Ranges of elements in the suffix.
+	// None if the BlockDB is empty.
+	Status utils.Option[DBStatus]
+	// Elements which constitute the suffix.
 	CommitQCs    []*FullCommitQC
 	Blocks       []RecentBlock
 	AppProposals []*AppProposal
-	AppQC        utils.Option[*AppQC]
+	AppQCs       []*AppQC
 }

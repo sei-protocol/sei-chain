@@ -22,17 +22,6 @@ type Config struct {
 	LastExecutedBlock utils.Option[types.GlobalBlockNumber]
 }
 
-// StateAPI is the interface of the State for consuming global blocks
-// and reporting AppHashes.
-type StateAPI interface {
-	GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*types.GlobalBlock, error)
-	// PushAppHash blocks until block n and its QC are durably persisted,
-	// ensuring AppVotes are only issued for data that survives a crash.
-	PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash) error
-}
-
-var _ StateAPI = (*State)(nil)
-
 // blockEntry is a (number, block) pair collected in runPersist batches.
 type blockEntry struct {
 	n     types.GlobalBlockNumber
@@ -50,14 +39,12 @@ type inner struct {
 	blockHashes  map[types.BlockHeaderHash]types.GlobalBlockNumber // blockHashes mirrors blocks (insertBlock / setPersisted)
 
 	// first is the exclusive low end of retained in-memory state: maps keep [first, next*).
-	// Advanced by setPersisted to persisted.Floor().
+	// Advanced by runPersist()
 	//
-	// first <= persisted.NextBlock <= nextBlock <= nextQC
-	// first <= persisted.NextAppProposal <= nextAppProposal <= nextQC
-	// first <= persisted.NextAppQC <= nextAppQC <= nextQC
+	// first <= nextAppQC <= nextAppProposal <= nextBlock <= nextQC
 	first           types.GlobalBlockNumber
-	nextAppProposal types.GlobalBlockNumber
 	nextAppQC       types.GlobalBlockNumber
+	nextAppProposal types.GlobalBlockNumber
 	nextBlock       types.GlobalBlockNumber
 	nextQC          types.GlobalBlockNumber
 	persisted       types.DBStatus
@@ -95,8 +82,8 @@ func (i *inner) insertAppQC(registry *epoch.Registry, appQC *types.AppQC) error 
 	if gr.Next <= i.nextAppQC {
 		return nil
 	}
-	if gr.Next > i.nextQC {
-		return fmt.Errorf("Missing CommitQC for this AppQC")
+	if gr.Next > i.nextAppProposal {
+		return fmt.Errorf("Missing AppProposal for this AppQC")
 	}
 	if gr.First > i.nextAppQC {
 		return fmt.Errorf("AppQC gap: expected first<=%d, got %d", i.nextAppQC, gr.First)
@@ -226,7 +213,7 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 		NextAppQC:       firstBlock,
 		NextBlock:       firstBlock,
 	})
-	first := status.Floor()
+	first := status.First
 	inner := &inner{
 		qcs:             map[types.GlobalBlockNumber]*types.FullCommitQC{},
 		blocks:          map[types.GlobalBlockNumber]*types.Block{},
@@ -246,16 +233,6 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 			return nil, fmt.Errorf("load QC from BlockDB: %w", err)
 		}
 	}
-	if appQC, ok := recent.AppQC.Get(); ok {
-		if err := inner.insertAppQC(cfg.Registry, appQC); err != nil {
-			return nil, fmt.Errorf("load AppQC from BlockDB: %w", err)
-		}
-	}
-	for _, appProposal := range recent.AppProposals {
-		if err := inner.insertAppProposal(appProposal); err != nil {
-			return nil, fmt.Errorf("load AppProposal from BlockDB: %w", err)
-		}
-	}
 	for _, b := range recent.Blocks {
 		qc := inner.qcs[b.Number]
 		ei := qc.QC().Proposal().EpochIndex()
@@ -273,7 +250,17 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	// Advance nextBlock through contiguous loaded blocks. Don't use
 	// updateNextBlock: stale timestamps would skew metrics.
 	inner.nextBlock = max(inner.first, status.NextBlock)
-	inner.setPersisted(status)
+	for _, appProposal := range recent.AppProposals {
+		if err := inner.insertAppProposal(appProposal); err != nil {
+			return nil, fmt.Errorf("load AppProposal from BlockDB: %w", err)
+		}
+	}
+	for _, appQC := range recent.AppQCs {
+		if err := inner.insertAppQC(cfg.Registry, appQC); err != nil {
+			return nil, fmt.Errorf("load AppQC from BlockDB: %w", err)
+		}
+	}
+	inner.setAnchor()
 	return inner, nil
 }
 
@@ -310,7 +297,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return gr.First <= inner.nextQC && gr.First < inner.nextAppProposal+blocksCacheSize
+				return gr.First <= inner.nextQC && gr.First < inner.first+blocksCacheSize
 			}); err != nil {
 				return false, err
 			}
@@ -596,13 +583,10 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 	return utils.Some(assembleGlobalBlock(bn.Number, bn.Block, qc)), nil
 }
 
-// PushAppHash marks blocks up to n as executed. Hash is the execution result.
-// Waits for the block to be durably persisted before proceeding.
+// PushAppHash marks blocks up to n as executed.
 func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash) error {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool {
-			return n < inner.persisted.NextBlock
-		}); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextBlock }); err != nil {
 			return err
 		}
 		p := inner.qcs[n].QC().Proposal()
@@ -646,7 +630,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC) error {
 	gr := appQC.Proposal().GlobalRange()
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return gr.Next <= inner.nextQC
+			return gr.Next <= inner.nextAppProposal
 		}); err != nil {
 			return err
 		}
@@ -742,13 +726,11 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 	return s.blockDB.PruneBefore(retainFrom)
 }
 
-// runPersist is a background goroutine that persists blocks, QCs,
+// runPersist is a background goroutine that persists QCs, blocks,
 // AppProposals, and AppQCs to BlockDB. It waits for in-memory data to advance
-// past the DBStatus persistence cursor, then writes covering QCs (first, per
-// the BlockDB contract), blocks, AppProposals, and AppQCs, then flushes once per
-// batch. persisted.NextBlock advances with the block tip to unblock PushAppHash
-// only when data is durable. AppProposals and AppQCs are persisted once their
-// matching CommitQC range is already durable.
+// past the DBStatus persistence cursor, then writes each stream in cursor
+// order and flushes once per batch. persisted.NextBlock advances with the
+// block tip to unblock PushAppHash only when data is durable.
 // Errors propagate vertically (kill the component).
 //
 // Cursors seed from BlockDB.Status() when non-zero so PushQC-before-Run heights
@@ -763,8 +745,7 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 // in-memory QC, and no rewrite of QCs already on disk).
 //
 // In-memory block/QC/AppProposal/AppQC eviction is driven by persisted DBStatus
-// changes. Entries are retained until all three durable data streams (blocks,
-// AppProposals, and AppQCs) have caught up.
+// changes.
 func (s *State) runPersist(ctx context.Context) error {
 	for {
 		var qcs []*types.FullCommitQC
@@ -787,22 +768,24 @@ func (s *State) runPersist(ctx context.Context) error {
 				qcs = append(qcs, qc)
 				status.NextQC = qc.QC().GlobalRange().Next
 			}
-			for status.NextAppQC < inner.nextAppQC {
-				appQC := inner.appQCs[status.NextAppQC]
-				appQCs = append(appQCs, appQC)
-				status.NextAppQC = appQC.Proposal().GlobalRange().Next
+			for status.NextBlock < inner.nextBlock {
+				blocks = append(blocks, blockEntry{n: status.NextBlock, block: inner.blocks[status.NextBlock]})
+				status.NextBlock += 1
 			}
 			for status.NextAppProposal < inner.nextAppProposal {
 				appProposal := inner.appProposals[status.NextAppProposal]
 				appProposals = append(appProposals, appProposal)
 				status.NextAppProposal = appProposal.GlobalRange().Next
 			}
-			for status.NextBlock < inner.nextBlock {
-				blocks = append(blocks, blockEntry{n: status.NextBlock, block: inner.blocks[status.NextBlock]})
-				status.NextBlock += 1
+			for status.NextAppQC < inner.nextAppQC {
+				appQC := inner.appQCs[status.NextAppQC]
+				appQCs = append(appQCs, appQC)
+				status.NextAppQC = appQC.Proposal().GlobalRange().Next
+				status.First = status.NextAppQC - 1
 			}
 		}
-		// Write QCs first (BlockDB contract: QC must precede covered blocks and AppQC).
+		// Write data in order: QCs,blocks,appProposals,appQCs
+		// to maintain the invariants.
 		for _, qc := range qcs {
 			if err := s.blockDB.WriteQC(qc); err != nil {
 				return fmt.Errorf("write QC %d: %w", qc.QC().Index(), err)
@@ -823,33 +806,30 @@ func (s *State) runPersist(ctx context.Context) error {
 				return fmt.Errorf("write AppQC %d: %w", appQC.Proposal().RoadIndex(), err)
 			}
 		}
+		// Flush the new data.
 		if err := s.blockDB.Flush(); err != nil {
 			return fmt.Errorf("flush BlockDB: %w", err)
 		}
+		// Prune the inner state.
 		for inner, ctrl := range s.inner.Lock() {
-			inner.setPersisted(status)
+			inner.persisted = status
+			for inner.first < inner.persisted.First {
+				n := inner.first
+				delete(inner.blockHashes, inner.blocks[n].Header().Hash())
+				delete(inner.blocks, n)
+				delete(inner.qcs, n)
+				delete(inner.appQCs, n)
+				delete(inner.appProposals, n)
+				inner.first += 1
+			}
+			inner.setAnchor()
 			ctrl.Updated()
 		}
 	}
 }
 
-// setPersisted publishes a new durable cursor and pushes first to
-// persisted.Floor().
-// I.e. it keeps the same recovery suffix in memory that BlockDB.ReadRecent would
-// return.
-func (i *inner) setPersisted(persisted types.DBStatus) {
-	i.persisted = persisted
-	bound := persisted.Floor()
-	for i.first < bound {
-		n := i.first
-		delete(i.blockHashes, i.blocks[n].Header().Hash())
-		delete(i.blocks, n)
-		delete(i.qcs, n)
-		delete(i.appQCs, n)
-		delete(i.appProposals, n)
-		i.first += 1
-	}
-	if i.first < persisted.NextAppQC {
+func (i *inner) setAnchor() {
+	if i.first < i.persisted.NextAppQC {
 		i.anchor.Store(utils.Some(Anchor{
 			CommitQC: i.qcs[i.first].QC(),
 			AppQC:    i.appQCs[i.first],

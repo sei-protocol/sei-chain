@@ -173,7 +173,7 @@ func drainRecent(t *testing.T, db types.BlockDB) []iterEntry {
 		NextQC:          0,
 		NextAppQC:       0,
 		NextAppProposal: 0,
-	}).Floor()
+	}).First
 	for _, qc := range recent.CommitQCs {
 		first := qc.QC().GlobalRange().First
 		next := first + gbn(len(qc.Headers()))
@@ -192,7 +192,7 @@ func drainRecent(t *testing.T, db types.BlockDB) []iterEntry {
 		}
 		require.True(t, found, "block %d must be covered by a recent QC", b.Number)
 	}
-	if appQC, ok := recent.AppQC.Get(); ok {
+	for _, appQC := range recent.AppQCs {
 		gr := appQC.Proposal().GlobalRange()
 		for i := range entries {
 			if gr.Has(entries[i].n) {
@@ -959,8 +959,8 @@ func testReadRecent(t *testing.T, build builder) {
 	recent, err := db.ReadRecent()
 	require.NoError(t, err)
 	require.Equal(t, db.Status(), recent.Status.OrPanic("recent status"))
-	gotAppQC, ok := recent.AppQC.Get()
-	require.True(t, ok)
+	require.NotEmpty(t, recent.AppQCs)
+	gotAppQC := recent.AppQCs[0]
 	require.Equal(t, appQC.Proposal().RoadIndex(), gotAppQC.Proposal().RoadIndex())
 	entries := drainRecent(t, db)
 	recoveryFloor := appQC.Proposal().GlobalRange().Next - 1
@@ -1025,6 +1025,9 @@ func testWriteAppProposalOrderRejected(t *testing.T, build builder) {
 	err = db.WriteAppProposal(appProposalForBatch(rng, b1))
 	require.ErrorIs(t, err, types.ErrAppProposalNonContiguous, "first AppProposal must start at retained QC floor")
 
+	for i, blk := range b0.blocks {
+		require.NoError(t, db.WriteBlock(b0.first+gbn(i), blk))
+	}
 	appProposal0 := appProposalForBatch(rng, b0)
 	require.NoError(t, db.WriteAppProposal(appProposal0))
 
@@ -1035,6 +1038,9 @@ func testWriteAppProposalOrderRejected(t *testing.T, build builder) {
 	err = db.WriteAppProposal(appProposalForBatch(rng, b2))
 	require.ErrorIs(t, err, types.ErrAppProposalNonContiguous, "AppProposal gap must fail")
 
+	for i, blk := range b1.blocks {
+		require.NoError(t, db.WriteBlock(b1.first+gbn(i), blk))
+	}
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b1)))
 	tips := db.Status()
 	require.Equal(t, b1.next, tips.NextAppProposal)
@@ -1059,6 +1065,10 @@ func testWriteAppQCOrderRejected(t *testing.T, build builder) {
 	err = db.WriteAppQC(appQCForBatch(rng, keys, b1))
 	require.ErrorIs(t, err, types.ErrAppQCNonContiguous, "first AppQC must start at retained QC floor")
 
+	for i, blk := range b0.blocks {
+		require.NoError(t, db.WriteBlock(b0.first+gbn(i), blk))
+	}
+	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b0)))
 	appQC0 := appQCForBatch(rng, keys, b0)
 	require.NoError(t, db.WriteAppQC(appQC0))
 
@@ -1069,6 +1079,10 @@ func testWriteAppQCOrderRejected(t *testing.T, build builder) {
 	err = db.WriteAppQC(appQCForBatch(rng, keys, b2))
 	require.ErrorIs(t, err, types.ErrAppQCNonContiguous, "AppQC gap must fail")
 
+	for i, blk := range b1.blocks {
+		require.NoError(t, db.WriteBlock(b1.first+gbn(i), blk))
+	}
+	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b1)))
 	require.NoError(t, db.WriteAppQC(appQCForBatch(rng, keys, b1)))
 	tips := db.Status()
 	require.Equal(t, b1.next, tips.NextAppQC)

@@ -183,6 +183,9 @@ func (s *blockDB) WriteAppProposal(appProposal *types.AppProposal) error {
 				first, entries[0].lower, types.ErrAppProposalNonContiguous)
 		}
 	}
+	if !s.hasBlocks || next > s.lastBlockNumber+1 {
+		return fmt.Errorf("AppProposal [%d,%d) is not covered by written blocks: %w", first, next, types.ErrAppProposalMissingQC)
+	}
 	qc, ok := s.qcsByLower[first]
 	if !ok || qc.upper != next {
 		return fmt.Errorf("AppProposal [%d,%d) has no exact matching QC: %w",
@@ -223,6 +226,9 @@ func (s *blockDB) WriteAppQC(appQC *types.AppQC) error {
 				first, entries[0].lower, types.ErrAppQCNonContiguous)
 		}
 	}
+	if !s.hasAppProposal || next > s.lastAppPropNext {
+		return fmt.Errorf("AppQC [%d,%d) is not covered by written AppProposals: %w", first, next, types.ErrAppQCMissingQC)
+	}
 	qc, ok := s.qcsByLower[first]
 	if !ok || qc.upper != next {
 		return fmt.Errorf("AppQC [%d,%d) has no exact matching QC: %w",
@@ -249,7 +255,7 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 		NextQC:          0,
 		NextAppQC:       0,
 		NextAppProposal: 0,
-	}).Floor())
+	}).First)
 	// Round the watermark down to the covering QC's First. A QC's cohort of
 	// blocks changes readability atomically, so the watermark must never fall
 	// strictly inside a QC's range (see littblock): otherwise a read would
@@ -312,16 +318,17 @@ func (s *blockDB) statusLocked() utils.Option[types.DBStatus] {
 	}
 	status := types.DBStatus{
 		First:           first,
-		NextBlock:       oldestQCStart,
+		NextBlock:       first,
 		NextQC:          s.lastQCNext,
-		NextAppQC:       oldestQCStart,
-		NextAppProposal: oldestQCStart,
+		NextAppQC:       first,
+		NextAppProposal: first,
 	}
 	if s.hasBlocks {
 		status.NextBlock = s.lastBlockNumber + 1
 	}
 	if s.hasAppQC {
 		status.NextAppQC = s.lastAppQCNext
+		status.First = status.NextAppQC - 1
 	}
 	if s.hasAppProposal {
 		status.NextAppProposal = s.lastAppPropNext
@@ -340,30 +347,23 @@ func (s *blockDB) ReadRecent() (types.RecentData, error) {
 		NextQC:          0,
 		NextAppQC:       0,
 		NextAppProposal: 0,
-	}).Floor()
+	}).First
 	recent := types.RecentData{Status: status}
-	var targetIndex types.RoadIndex
-	bounded := s.hasAppProposal && s.hasAppQC && s.hasBlocks
-	if s.hasAppQC {
-		appQC := s.appQCCoveringLocked(floor)
-		if appQC == nil {
-			appQC = s.appQCs[s.latestAppQCStartBlock].appQC
-		}
-		recent.AppQC = utils.Some(appQC)
-		targetIndex = appQC.Proposal().RoadIndex()
-	}
-	if !bounded && s.hasBlocks {
-		floor = max(floor, s.firstBlockNumber)
-	}
 
 	for _, e := range s.sortedQCsLocked() {
 		if e.upper <= s.watermark {
 			continue
 		}
-		if s.hasAppQC && e.qc.Index() < targetIndex {
+		if e.upper <= floor {
 			continue
 		}
 		recent.CommitQCs = append(recent.CommitQCs, e.qc)
+	}
+	for _, e := range s.sortedAppQCsLocked() {
+		if e.upper <= floor {
+			continue
+		}
+		recent.AppQCs = append(recent.AppQCs, e.appQC)
 	}
 	for _, e := range s.sortedAppProposalsLocked() {
 		if e.upper <= floor {
@@ -393,6 +393,15 @@ func (s *blockDB) sortedQCsLocked() []qcEntry {
 func (s *blockDB) sortedAppProposalsLocked() []appProposalEntry {
 	entries := make([]appProposalEntry, 0, len(s.appProps))
 	for _, e := range s.appProps {
+		entries = append(entries, e)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].lower < entries[j].lower })
+	return entries
+}
+
+func (s *blockDB) sortedAppQCsLocked() []appQCEntry {
+	entries := make([]appQCEntry, 0, len(s.appQCs))
+	for _, e := range s.appQCs {
 		entries = append(entries, e)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].lower < entries[j].lower })

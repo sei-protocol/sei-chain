@@ -96,65 +96,6 @@ func TestMarshal(t *testing.T) {
 	}
 }
 
-func TestDBStatusFloor(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		in   DBStatus
-		want GlobalBlockNumber
-	}{
-		{
-			name: "empty",
-			in: DBStatus{
-				First:           0,
-				NextBlock:       0,
-				NextQC:          0,
-				NextAppProposal: 0,
-				NextAppQC:       0,
-			},
-			want: 0,
-		},
-		{
-			name: "missing app proposal",
-			in: DBStatus{
-				First:           5,
-				NextBlock:       10,
-				NextQC:          10,
-				NextAppProposal: 5,
-				NextAppQC:       8,
-			},
-			want: 5,
-		},
-		{
-			name: "minimum durable tip minus one",
-			in: DBStatus{
-				First:           5,
-				NextBlock:       12,
-				NextQC:          12,
-				NextAppProposal: 10,
-				NextAppQC:       8,
-			},
-			want: 7,
-		},
-		{
-			name: "first lower bound",
-			in: DBStatus{
-				First:           10,
-				NextBlock:       12,
-				NextQC:          15,
-				NextAppProposal: 5,
-				NextAppQC:       10,
-			},
-			want: 10,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.in.Floor(); got != tc.want {
-				t.Fatalf("Floor() = %d, want %d", got, tc.want)
-			}
-		})
-	}
-}
-
 func makePrepareQC(keys []SecretKey, vote *PrepareVote) *PrepareQC {
 	var votes []*Signed[*PrepareVote]
 	for _, k := range keys {

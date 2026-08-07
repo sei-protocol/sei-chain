@@ -490,7 +490,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 
 // TestEvictionWaitsForAppQC checks that setPersisted does not drop
 // AppProposals until AppQC is persisted, and that once it is, heights below
-// persisted.Floor() are evicted.
+// persisted.First are evicted.
 func TestEvictionWaitsForAppQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -551,7 +551,7 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 		}
 
 		for inner := range state.inner.Lock() {
-			evictionBound := inner.persisted.Floor()
+			evictionBound := inner.persisted.First
 			if inner.first != evictionBound {
 				return fmt.Errorf("after catching up, first = %d, want eviction bound %d", inner.first, evictionBound)
 			}
@@ -610,7 +610,7 @@ func TestEvictionWaitsForPersistedAppQC(t *testing.T) {
 
 // TestNextToExecuteAfterAppEviction checks WaitUntilExecuted / nextToExecute
 // still work when persisted AppQC aggressively evicts through nextAppProposal
-// (first = persisted.Floor()).
+// (first = persisted.First).
 // nextToExecute uses the retained boundary QC.
 func TestNextToExecuteAfterAppEviction(t *testing.T) {
 	ctx := t.Context()
@@ -660,7 +660,7 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 			if inner.nextAppProposal != gr1.Next {
 				return fmt.Errorf("nextAppProposal = %d, want %d", inner.nextAppProposal, gr1.Next)
 			}
-			evictionBound := inner.persisted.Floor()
+			evictionBound := inner.persisted.First
 			if inner.first != evictionBound {
 				return fmt.Errorf("first = %d, want eviction bound %d", inner.first, evictionBound)
 			}
@@ -822,7 +822,7 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 // readability), so a mid-range prune does not refuse heights inside that QC.
 //
 // PruneBefore is BlockDB-only: heights still retained in RAM for AppVotes
-// (at/above persisted.Floor()) remain
+// (at/above persisted.First) remain
 // readable via TryBlock even after the store watermark advances past them.
 func TestPruningWithPartialQCRange(t *testing.T) {
 	ctx := t.Context()
@@ -860,7 +860,7 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 		return nil
 	}))
 	for inner := range state1.inner.Lock() {
-		exclusiveFloor = inner.persisted.Floor()
+		exclusiveFloor = inner.persisted.First
 		require.Equal(t, exclusiveFloor, inner.first)
 	}
 
