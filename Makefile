@@ -576,11 +576,13 @@ STATE_DB_PKG_PREFIX := github.com/sei-protocol/sei-chain/sei-db/state_db
 $(BUILDDIR):
 	mkdir -p $@
 
-# The format statement filters out all packages that don't have tests.
-# Note we need to check for both in-package tests (.TestGoFiles) and
-# out-of-package tests (.XTestGoFiles).
+# Includes every package, not just ones with test files: `go test` on a
+# package with no tests still compiles it (reported as "no test files"),
+# which is how go-test.yml's Race Detection job also acts as a compile
+# check under -race -tags=ledger,test_ledger_mock for the whole tree.
+# Filtering to test-only packages here would silently drop that coverage.
 $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
-	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... | grep -v "^$(STATE_DB_PKG_PREFIX)" | sort > $@
+	go list ./... | grep -v "^$(STATE_DB_PKG_PREFIX)" | sort > $@
 
 TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
 
