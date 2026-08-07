@@ -324,7 +324,7 @@ type RecentBlock struct {
 // RecentData is the materialized suffix used by data.State startup recovery.
 type RecentData struct {
 	// Status is the durable write status observed while selecting the recent suffix.
-	Status       DBStatus
+	Status       utils.Option[DBStatus]
 	CommitQCs    []*FullCommitQC
 	Blocks       []RecentBlock
 	AppProposals []*AppProposal

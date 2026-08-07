@@ -65,28 +65,6 @@ type inner struct {
 	anchor utils.AtomicSend[utils.Option[Anchor]]
 }
 
-func newInner(first types.GlobalBlockNumber) *inner {
-	return &inner{
-		qcs:             map[types.GlobalBlockNumber]*types.FullCommitQC{},
-		blocks:          map[types.GlobalBlockNumber]*types.Block{},
-		appQCs:          map[types.GlobalBlockNumber]*types.AppQC{},
-		appProposals:    map[types.GlobalBlockNumber]*types.AppProposal{},
-		blockHashes:     map[types.BlockHeaderHash]types.GlobalBlockNumber{},
-		first:           first,
-		nextAppProposal: first,
-		nextAppQC:       first,
-		nextBlock:       first,
-		nextQC:          first,
-		persisted: types.DBStatus{
-			NextQC:          first,
-			NextAppProposal: first,
-			NextAppQC:       first,
-			NextBlock:       first,
-		},
-		anchor: utils.NewAtomicSend(utils.None[Anchor]()),
-	}
-}
-
 // insertQC verifies and inserts a FullCommitQC into the inner state.
 // Accepts QCs whose range starts at or before nextQC (partially pruned
 // prefix is silently skipped). Rejects gaps where gr.First > nextQC.
@@ -240,7 +218,28 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("blockDB.ReadRecent(): %w", err)
 	}
-	inner := newInner(max(cfg.Registry.FirstBlock(),recent.Status.Floor()))
+	firstBlock := cfg.Registry.FirstBlock()
+	status := recent.Status.Or(types.DBStatus{
+		NextQC:          firstBlock,
+		NextAppProposal: firstBlock,
+		NextAppQC:       firstBlock,
+		NextBlock:       firstBlock,
+	})
+	first := status.Floor()
+	inner := &inner{
+		qcs:             map[types.GlobalBlockNumber]*types.FullCommitQC{},
+		blocks:          map[types.GlobalBlockNumber]*types.Block{},
+		appQCs:          map[types.GlobalBlockNumber]*types.AppQC{},
+		appProposals:    map[types.GlobalBlockNumber]*types.AppProposal{},
+		blockHashes:     map[types.BlockHeaderHash]types.GlobalBlockNumber{},
+		first:           first,
+		nextAppProposal: first,
+		nextAppQC:       first,
+		nextBlock:       first,
+		nextQC:          first,
+		persisted:       status,
+		anchor:          utils.NewAtomicSend(utils.None[Anchor]()),
+	}
 	for _, qc := range recent.CommitQCs {
 		if err := inner.insertQC(cfg.Registry, qc); err != nil {
 			return nil, fmt.Errorf("load QC from BlockDB: %w", err)
@@ -272,8 +271,8 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	}
 	// Advance nextBlock through contiguous loaded blocks. Don't use
 	// updateNextBlock: stale timestamps would skew metrics.
-	inner.nextBlock = max(inner.first,recent.Status.NextBlock)
-	inner.setPersisted(recent.Status)
+	inner.nextBlock = max(inner.first, status.NextBlock)
+	inner.setPersisted(status)
 	return inner, nil
 }
 

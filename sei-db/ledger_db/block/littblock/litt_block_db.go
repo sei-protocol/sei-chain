@@ -425,7 +425,7 @@ func (s *blockDB) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 	}
 
 	// Round the watermark down to the start of a QC's range, to avoid pruning a QC before its blocks.
-	blockHeight, err := s.clampPruneBoundary(min(blockHeight, s.statusLocked().Floor()))
+	blockHeight, err := s.clampPruneBoundary(min(blockHeight, s.statusLocked().Or(types.DBStatus{}).Floor()))
 	if err != nil {
 		return err
 	}
@@ -489,16 +489,22 @@ func (s *blockDB) Flush() error {
 func (s *blockDB) Status() types.DBStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.statusLocked()
+	return s.statusLocked().Or(types.DBStatus{})
 }
 
-func (s *blockDB) statusLocked() types.DBStatus {
-	var status types.DBStatus
+func (s *blockDB) statusLocked() utils.Option[types.DBStatus] {
+	qc, ok := s.lastQC.Get()
+	if !ok {
+		return utils.None[types.DBStatus]()
+	}
+	status := types.DBStatus{
+		NextBlock:       s.oldestQCStart,
+		NextQC:          qc.QC().GlobalRange().Next,
+		NextAppQC:       s.oldestQCStart,
+		NextAppProposal: s.oldestQCStart,
+	}
 	if s.hasBlocks {
 		status.NextBlock = s.lastBlockNumber + 1
-	}
-	if qc, ok := s.lastQC.Get(); ok {
-		status.NextQC = qc.QC().GlobalRange().Next
 	}
 	if appQC, ok := s.lastAppQC.Get(); ok {
 		status.NextAppQC = appQC.Proposal().GlobalRange().Next
@@ -506,33 +512,26 @@ func (s *blockDB) statusLocked() types.DBStatus {
 	if appProposal, ok := s.lastAppProposal.Get(); ok {
 		status.NextAppProposal = appProposal.GlobalRange().Next
 	}
-	return status
+	return utils.Some(status)
 }
 
-func (s *blockDB) recentFloor() types.GlobalBlockNumber {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.statusLocked().Floor()
-}
-
-func (s *blockDB) recentFloorAndStatus() (types.GlobalBlockNumber, types.DBStatus) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status := s.statusLocked()
-	return status.Floor(), status
-}
 
 // ReadRecent() reads the latest AppQC/AppProposal recovery suffix.
 // WARNING: ReadRecent() will return an error if watermark is moved during iteration.
 func (s *blockDB) ReadRecent() (types.RecentData, error) {
-	targetFloor, status := s.recentFloorAndStatus()
+	s.mu.Lock()
+	status,ok := s.statusLocked().Get()
+	s.mu.Unlock()
+	if !ok { return types.RecentData{},nil }
+	targetFloor := status.Floor()
+
 	// Collect data >= targetFloor.
 	it, err := s.table.Iterator(true)
 	if err != nil {
 		return types.RecentData{}, fmt.Errorf("failed to open recent-data iterator: %w", err)
 	}
 	defer func() { _ = it.Close() }()
-	recent := types.RecentData{Status: status}
+	recent := types.RecentData{Status: utils.Some(status)}
 	for {
 		ok, err := it.Next()
 		if err != nil {
@@ -595,7 +594,7 @@ func (s *blockDB) ReadRecent() (types.RecentData, error) {
 	}
 	// Safety check: if watermark has been moved and GC happened to get executed during iteration,
 	// the loaded data might be inconsistent with the targetFloor we computed.
-	if got := s.recentFloor(); got != targetFloor {
+	if newFloor := s.Status().Floor(); newFloor != targetFloor {
 		return types.RecentData{}, fmt.Errorf("watermark has moved while iterating")
 	}
 	slices.Reverse(recent.CommitQCs)
