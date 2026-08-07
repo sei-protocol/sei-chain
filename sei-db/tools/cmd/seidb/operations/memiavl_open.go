@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 // openedMemIAVL is a memiavl DB opened against a temp clone of the source.
@@ -152,11 +154,55 @@ func tryPrepareMemIAVLToolingClone(dbDir string, height int64) (*toolClone, erro
 		// version — leaving a copy that no longer covers the snapshot's
 		// successor and a catchup that would silently skip versions. Retryable.
 		sizeBefore := changelogByteSize(dstChangelogDir)
-		if err := verifyClonedWALCovers(dstChangelogDir, snapshotVersion, firstNeeded); err != nil {
+		if err := verifyClonedMemIAVLWALCovers(dstChangelogDir, snapshotVersion, firstNeeded); err != nil {
 			return cleanup(err)
 		}
 		clone.walRepaired = changelogByteSize(dstChangelogDir) < sizeBefore
 	}
 
 	return clone, nil
+}
+
+// verifyClonedMemIAVLWALCovers is the memiavl counterpart to
+// verifyClonedFlatKVWALCovers. memiavl still stores its changelog in the
+// offset-indexed changelog WAL, where the offset says nothing about the
+// version, so the range has to be read by replaying the first and last entries
+// rather than from sealed file names as the block-keyed state WAL allows.
+func verifyClonedMemIAVLWALCovers(dstChangelogDir string, snapshotVersion, firstNeeded int64) error {
+	walLog, err := wal.NewChangelogWAL(dstChangelogDir, wal.Config{})
+	if err != nil {
+		return fmt.Errorf("open cloned changelog for validation: %w", err)
+	}
+	defer func() { _ = walLog.Close() }()
+
+	firstOff, err := walLog.FirstOffset()
+	if err != nil {
+		return fmt.Errorf("cloned changelog first offset: %w", err)
+	}
+	lastOff, err := walLog.LastOffset()
+	if err != nil {
+		return fmt.Errorf("cloned changelog last offset: %w", err)
+	}
+	if firstOff == 0 || lastOff == 0 || firstOff > lastOff {
+		return nil
+	}
+
+	firstVer, err := readWALEntryVersion(walLog, firstOff)
+	if err != nil {
+		return fmt.Errorf("read first cloned changelog entry: %w", err)
+	}
+	lastVer, err := readWALEntryVersion(walLog, lastOff)
+	if err != nil {
+		return fmt.Errorf("read last cloned changelog entry: %w", err)
+	}
+	return checkClonedWALCoverage(firstVer, lastVer, snapshotVersion, firstNeeded)
+}
+
+func readWALEntryVersion(walLog wal.ChangelogWAL, off uint64) (int64, error) {
+	var ver int64
+	err := walLog.Replay(off, off, func(_ uint64, entry proto.ChangelogEntry) error {
+		ver = entry.Version
+		return nil
+	})
+	return ver, err
 }

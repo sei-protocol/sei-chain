@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -18,9 +19,15 @@ const (
 	errorClassKey   = "error_class"
 	jsonrpcCodeKey  = "jsonrpc_code"
 	rejectReasonKey = "reason"
+	protocolKey     = "protocol"
+	protocolHTTP    = "http"
+	protocolWS      = "ws"
 	// reject reason values for requestRejectedCount.
-	rejectReasonOversize = "oversize" // body exceeded max_request_body_bytes
-	rejectReasonBusy     = "busy"     // max_concurrent_request_bytes budget exhausted
+	rejectReasonOversize    = "oversize"     // body exceeded max_request_body_bytes
+	rejectReasonBusy        = "busy"         // max_concurrent_request_bytes budget exhausted
+	rejectReasonRateLimited = "rate_limited" // per-IP token bucket exhausted
+	rejectReasonUnparseable = "unparseable"  // rate-limit method parse failed (malformed JSON-RPC)
+	rejectReasonReadError   = "read_error"   // request body could not be read (I/O error, missing body)
 	// error_class values; empty string ("") means success.
 	errorClassPanic              = "panic"
 	errorClassExecutionReverted  = "execution_reverted"
@@ -76,7 +83,7 @@ var (
 		)),
 		requestRejectedCount: must(rpcTelemetryMeter.Int64Counter(
 			"evmrpc_requests_rejected_total",
-			metric.WithDescription("Number of HTTP JSON-RPC requests rejected by pre-decode admission control (labeled by reason)"),
+			metric.WithDescription("Number of JSON-RPC requests rejected by admission control (labeled by protocol and reason: oversize or busy)"),
 			metric.WithUnit("{count}"),
 		)),
 	}
@@ -167,13 +174,36 @@ func recordHistoricalDebugTraceAttempt(ctx context.Context, endpoint, connection
 }
 
 // recordRequestRejected counts an HTTP JSON-RPC request dropped by pre-decode
-// admission control. reason is one of rejectReasonOversize / rejectReasonBusy.
+// admission control.
 // No endpoint dimension is recorded: the rejection happens before the JSON-RPC
 // method is decoded, so it is not yet known.
 func recordRequestRejected(ctx context.Context, reason string) {
 	metrics.requestRejectedCount.Add(ctx, 1,
 		metric.WithAttributes(
+			attribute.String(protocolKey, protocolHTTP),
 			attribute.String(rejectReasonKey, reason),
+		),
+	)
+}
+
+// mapWSAdmissionRejectReason normalizes sei go-ethereum WS admission-hook reasons
+// to the same oversize/busy vocabulary HTTP uses on evmrpc_requests_rejected_total.
+func mapWSAdmissionRejectReason(reason string) string {
+	switch reason {
+	case rpc.WSAdmissionReasonOversizeFrame:
+		return rejectReasonOversize
+	case rpc.WSAdmissionReasonBudgetWaitTimeout, rpc.WSAdmissionReasonFrameAdmissionTimeout:
+		return rejectReasonBusy
+	default:
+		return reason
+	}
+}
+
+func recordWSAdmissionRejected(ctx context.Context, reason string) {
+	metrics.requestRejectedCount.Add(ctx, 1,
+		metric.WithAttributes(
+			attribute.String(protocolKey, protocolWS),
+			attribute.String(rejectReasonKey, mapWSAdmissionRejectReason(reason)),
 		),
 	)
 }

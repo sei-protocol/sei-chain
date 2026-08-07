@@ -58,8 +58,8 @@ func (c *combinedWrapper) Version() int64 {
 	return c.ssVersion.Load()
 }
 
-func (c *combinedWrapper) LoadVersion(version int64) error {
-	return c.sc.LoadVersion(version)
+func (c *combinedWrapper) LoadLatest() error {
+	return c.sc.LoadLatest()
 }
 
 func (c *combinedWrapper) Importer(version int64) (scTypes.Importer, error) {

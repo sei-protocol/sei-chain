@@ -58,6 +58,7 @@ func TestRequestSizeLimiter(t *testing.T) {
 	})
 
 	t.Run("zero maxBody uses default cap", func(t *testing.T) {
+		require.Equal(t, defaultMaxRequestBodyBytes, effectiveMaxRequestBodyBytes(0))
 		l, ok := newRequestSizeLimiter(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), 0, 0).(*requestSizeLimiter)
 		require.True(t, ok)
 		require.Equal(t, defaultMaxRequestBodyBytes, l.maxBody)

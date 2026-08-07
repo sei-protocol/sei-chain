@@ -44,13 +44,20 @@ var ethReplayKeys = []configtest.KeySpec{
 func readETHReplay(opts configtest.AppOpts) (any, error) { return replay.ReadConfig(opts) }
 
 func FuzzReadConfig(f *testing.F) {
-	f.Add(uint(0), fuzzing.KindBool, "true", int64(1), true)
-	f.Add(uint(1), fuzzing.KindString, "http://127.0.0.1:8545", int64(0), false)
-	f.Add(uint(2), fuzzing.KindString, "/root/.ethereum/chaindata", int64(0), false)
-	f.Add(uint(3), fuzzing.KindBoolString, "", int64(0), true)
-	f.Add(uint(1), fuzzing.KindAnySlice, "", int64(0), false)
-	f.Add(uint(0), fuzzing.KindString, "enabled", int64(0), false)
-	f.Add(uint(2), fuzzing.KindNil, "", int64(0), false)
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seeds.AddRow(uint(0), fuzzing.KindBool, "true", int64(1), true)
+	seeds.AddRow(uint(1), fuzzing.KindString, "http://127.0.0.1:8545", int64(0), false)
+	// A path an operator would relocate chaindata to, and deliberately not
+	// "/root/.ethereum/chaindata": that is the in-code default, so a seed carrying it
+	// resolves EthDataDir exactly as the absent key does and the row would hold for a
+	// reader that never looks eth_replay.eth_data_dir up.
+	seeds.AddRow(uint(2), fuzzing.KindString, "/mnt/eth/chaindata", int64(0), false)
+	seeds.AddRow(uint(3), fuzzing.KindBoolString, "", int64(0), true)
+	seeds.AddRow(uint(1), fuzzing.KindAnySlice, "", int64(0), false)
+	seeds.AddRow(uint(0), fuzzing.KindString, "enabled", int64(0), false)
+	seeds.AddRow(uint(2), fuzzing.KindNil, "", int64(0), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "eth_replay", readETHReplay, ethReplayKeys, seeds)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(ethReplayKeys, keyIdx)
@@ -91,6 +98,16 @@ func TestTemplateKeyIsInert(t *testing.T) {
 // moves shows the new value in a diff instead of passing silently.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "eth_replay", replay.DefaultConfig)
+}
+
+// TestKeyNamesMatchTheRecordedNames pins the four key names themselves.
+//
+// This section already carries the cost of an unrecorded rename: the app.toml template renders
+// eth_replay_contract_state_checks and the reader looks up contract_state_checks, so the key an
+// operator edits in a generated file does nothing. The record holds the spelling that
+// resolves, which is the one a fix has to migrate from rather than quietly replace.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "eth_replay", ethReplayKeys)
 }
 
 // TestManifestNamesEveryField enforces the claim ethReplayKeys makes about itself: that it names

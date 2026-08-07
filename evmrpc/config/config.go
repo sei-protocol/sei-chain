@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/spf13/cast"
@@ -236,11 +237,25 @@ type Config struct {
 	TraceBakeSnapshotWindow int64 `mapstructure:"trace_bake_snapshot_window"` // recent snapshots to keep (default 64)
 
 	// IPRateLimitRPS is the per-IP sustained request rate in requests/second.
-	// Zero disables per-IP rate limiting (all requests pass through).
+	// Zero disables the token bucket (no HTTP 429 rejections). When
+	// rate_limiting_enabled is true, the admission middleware still runs: bodies
+	// are parsed and oversize/malformed requests are rejected before dispatch.
 	IPRateLimitRPS float64 `mapstructure:"ip_rate_limit_rps"`
 
-	// IPRateLimitBurst is the maximum per-IP burst size.
+	// IPRateLimitBurst is the maximum per-IP burst size. Zero disables the token
+	// bucket (same effect as ip_rate_limit_rps = 0) and does not bypass the
+	// admission middleware when rate_limiting_enabled is true. Should be at least
+	// batch_request_limit because the rate limiter charges one token per batch element.
 	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
+
+	// RateLimitingEnabled is the master switch for the rate-limit admission
+	// middleware on the EVM HTTP plane. When false, requests bypass method
+	// extraction and all rejections from that layer (HTTP 400/413/429).
+	RateLimitingEnabled bool `mapstructure:"rate_limiting_enabled"`
+
+	// TrustedProxyCIDRs lists CIDRs whose X-Forwarded-For headers are trusted when
+	// resolving the client IP for rate limiting. Empty means trust no proxy.
+	TrustedProxyCIDRs []string `mapstructure:"trusted_proxy_cidrs"`
 
 	// BatchRequestLimit is the maximum number of requests allowed in a single
 	// JSON-RPC batch (HTTP and WebSocket). Set to 0 to disable the limit.
@@ -250,18 +265,34 @@ type Config struct {
 	// batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
 	BatchResponseMaxSize int `mapstructure:"batch_response_max_size"`
 
-	// MaxRequestBodyBytes is the maximum size, in bytes, of a single HTTP
-	// JSON-RPC request body. Requests larger than this are rejected (HTTP 413)
-	// before the body is buffered or JSON-decoded. 0 uses the go-ethereum
-	// default (5 MiB).
+	// MaxRequestBodyBytes is the maximum size, in bytes, of a single HTTP (:8545)
+	// or WebSocket (:8546) JSON-RPC request body/frame. HTTP requests larger than
+	// this are rejected (HTTP 413) before the body is buffered or JSON-decoded,
+	// including at the rate limiter method-extraction layer. WebSocket frames
+	// exceeding this limit close the connection with WebSocket close code 1009
+	// (no JSON-RPC error response). Oversize WS rejections are recorded on
+	// evmrpc_requests_rejected_total{protocol="ws",reason="oversize"}. 0 uses the
+	// go-ethereum default (5 MiB). Upgrade note: WS previously used a hardcoded
+	// 10 MiB frame cap. With default config both planes now use 5 MiB.
 	MaxRequestBodyBytes int64 `mapstructure:"max_request_body_bytes"`
 
-	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP
-	// JSON-RPC request bodies admitted for processing concurrently, weighted by
-	// each request's Content-Length. Requests that would exceed the budget are
-	// rejected fast (HTTP 429) before decode, capping peak memory under load.
-	// Set to 0 to disable the limit.
+	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP and
+	// WebSocket JSON-RPC request bodies admitted for processing concurrently.
+	// HTTP (:8545) and WebSocket (:8546) each get an independent budget, so peak
+	// in-flight request bytes process-wide can reach 2× this value (e.g. 256 MiB
+	// when set to the 128 MiB default). HTTP uses Content-Length weighting and
+	// rejects over-budget requests fast (HTTP 429). WebSocket blocks until budget
+	// frees or WSAdmissionTimeout elapses; on timeout the peer receives JSON-RPC
+	// error -32005 and the connection is closed (active subscriptions are dropped
+	// with the connection). Set to 0 to disable the limit on either protocol.
 	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
+
+	// WSAdmissionTimeout bounds how long a WebSocket connection waits for
+	// concurrent-byte budget to free before the next frame is read or committed.
+	// When the wait expires the peer receives JSON-RPC error -32005
+	// ("timed out waiting for concurrent request-byte budget") and the connection
+	// is closed. Zero or negative values use the go-ethereum default (30s).
+	WSAdmissionTimeout time.Duration `mapstructure:"ws_admission_timeout"`
 
 	// MaxOpenConnections caps the number of simultaneously accepted connections
 	// on the EVM HTTP and WebSocket listeners. The limit is applied per listener
@@ -269,6 +300,8 @@ type Config struct {
 	// accept queue until an active connection closes. Zero disables the limit.
 	MaxOpenConnections int `mapstructure:"max_open_connections"`
 }
+
+const defaultBatchRequestLimit = 1000
 
 var DefaultConfig = Config{
 	HTTPEnabled:                  true,
@@ -321,11 +354,14 @@ var DefaultConfig = Config{
 	TraceBakeUseSnapshot:      false,
 	TraceBakeSnapshotWindow:   64,
 	IPRateLimitRPS:            200,
-	IPRateLimitBurst:          400,
-	BatchRequestLimit:         1000,
+	IPRateLimitBurst:          defaultBatchRequestLimit,
+	RateLimitingEnabled:       false,
+	TrustedProxyCIDRs:         nil,
+	BatchRequestLimit:         defaultBatchRequestLimit,
 	BatchResponseMaxSize:      25 * 1000 * 1000,  // 25MB
 	MaxRequestBodyBytes:       5 * 1024 * 1024,   // 5 MiB (matches go-ethereum rpc default body limit)
 	MaxConcurrentRequestBytes: 128 * 1024 * 1024, // 128 MiB of request bodies admitted concurrently
+	WSAdmissionTimeout:        30 * time.Second,  // matches go-ethereum rpc defaultWSAdmissionTimeout
 	MaxOpenConnections:        2000,
 }
 
@@ -377,10 +413,13 @@ const (
 	flagTraceBakeSnapshotWindow      = "evm.trace_bake_snapshot_window"
 	flagIPRateLimitRPS               = "evm.ip_rate_limit_rps"
 	flagIPRateLimitBurst             = "evm.ip_rate_limit_burst"
+	flagRateLimitingEnabled          = "evm.rate_limiting_enabled"
+	flagTrustedProxyCIDRs            = "evm.trusted_proxy_cidrs"
 	flagBatchRequestLimit            = "evm.batch_request_limit"
 	flagBatchResponseMaxSize         = "evm.batch_response_max_size"
 	flagMaxRequestBodyBytes          = "evm.max_request_body_bytes"
 	flagMaxConcurrentRequestBytes    = "evm.max_concurrent_request_bytes"
+	flagWSAdmissionTimeout           = "evm.ws_admission_timeout"
 	flagMaxOpenConnections           = "evm.max_open_connections"
 )
 
@@ -631,6 +670,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagRateLimitingEnabled); v != nil {
+		if cfg.RateLimitingEnabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagTrustedProxyCIDRs); v != nil {
+		if cfg.TrustedProxyCIDRs, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, err
+		}
+	}
 	if v := opts.Get(flagBatchRequestLimit); v != nil {
 		if cfg.BatchRequestLimit, err = cast.ToIntE(v); err != nil {
 			return cfg, err
@@ -651,6 +700,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagWSAdmissionTimeout); v != nil {
+		if cfg.WSAdmissionTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
 	if v := opts.Get(flagMaxOpenConnections); v != nil {
 		if cfg.MaxOpenConnections, err = cast.ToIntE(v); err != nil {
 			return cfg, err
@@ -658,6 +712,14 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 		if cfg.MaxOpenConnections < 0 {
 			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the limit), got %d", flagMaxOpenConnections, cfg.MaxOpenConnections)
 		}
+	}
+	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
+		cfg.IPRateLimitBurst < cfg.BatchRequestLimit {
+		return cfg, fmt.Errorf(
+			"%s (%d) must be >= %s (%d): the rate limiter charges one token per batch element, "+
+				"so a lower burst would permanently reject any full-size batch",
+			flagIPRateLimitBurst, cfg.IPRateLimitBurst, flagBatchRequestLimit, cfg.BatchRequestLimit,
+		)
 	}
 	return cfg, nil
 }
@@ -680,6 +742,15 @@ func normalizeNativeTracerNames(flagName string, names []string) ([]string, erro
 		out = append(out, trimmed)
 	}
 	return out, nil
+}
+
+// RateLimiterConfig builds the ratelimiter.Config used by EVM JSON-RPC admission.
+func (c Config) RateLimiterConfig() ratelimiter.Config {
+	return ratelimiter.Config{
+		RPS:               c.IPRateLimitRPS,
+		Burst:             c.IPRateLimitBurst,
+		TrustedProxyCIDRs: c.TrustedProxyCIDRs,
+	}
 }
 
 // ConfigTemplate defines the TOML configuration template for EVM RPC
@@ -902,11 +973,27 @@ trace_bake_use_snapshot = {{ .EVM.TraceBakeUseSnapshot }}
 trace_bake_snapshot_window = {{ .EVM.TraceBakeSnapshotWindow }}
 
 # ip_rate_limit_rps is the per-IP sustained request rate in requests/second.
-# Set to 0 to disable per-IP rate limiting (all requests pass through).
+# Set to 0 to disable per-IP throttling (no HTTP 429). Does not bypass the
+# admission middleware; set rate_limiting_enabled = false for a full bypass.
 ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
 
 # ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
+# Set to 0 to disable per-IP throttling (same effect as ip_rate_limit_rps = 0).
+# Must be at least batch_request_limit when both are positive and rate_limiting_enabled
+# is true (one token is charged per batch element) - enforced at startup.
 ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
+
+# rate_limiting_enabled is the master switch for the rate-limit admission
+# middleware on the EVM HTTP plane (:8545). When false, requests bypass method
+# extraction and all rejections from that layer (HTTP 400/413/429).
+rate_limiting_enabled = {{ .EVM.RateLimitingEnabled }}
+
+# trusted_proxy_cidrs lists CIDRs whose X-Forwarded-For headers are trusted when
+# resolving the client IP for rate limiting. Empty means trust no proxy — set
+# this to your ingress/LB CIDRs when the node sits behind a reverse proxy.
+# Do NOT use the full RFC-1918 private ranges unless every address in them is
+# your own controlled infrastructure.
+trusted_proxy_cidrs = [{{- range $i, $c := .EVM.TrustedProxyCIDRs }}{{- if $i }}, {{ end }}"{{ $c }}"{{- end }}]
 
 # batch_request_limit is the maximum number of requests allowed in a single
 # JSON-RPC batch (HTTP and WebSocket). Set to 0 to disable the limit.
@@ -916,16 +1003,29 @@ batch_request_limit = {{ .EVM.BatchRequestLimit }}
 # batched JSON-RPC call (HTTP and WebSocket). Set to 0 to disable the limit.
 batch_response_max_size = {{ .EVM.BatchResponseMaxSize }}
 
-# max_request_body_bytes is the maximum size, in bytes, of a single HTTP
-# JSON-RPC request body. Larger requests are rejected (HTTP 413) before the body
-# is buffered or JSON-decoded. Set to 0 to use the default (5 MiB).
+# max_request_body_bytes is the maximum size, in bytes, of a single HTTP (:8545)
+# or WebSocket (:8546) JSON-RPC request/frame. HTTP larger requests are rejected
+# (HTTP 413) before decode, including at the rate limiter method-extraction
+# layer. WS frames exceeding this limit close the connection with WebSocket
+# close code 1009 (no JSON-RPC error). Set to 0 to use the default (5 MiB).
+# Upgrade note: WS previously used a hardcoded 10 MiB frame cap; if WS clients
+# send frames in the 5-10 MiB range, set max_request_body_bytes = 10485760
+# (10 MiB) in app.toml.
 max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
 
-# max_concurrent_request_bytes bounds the total size, in bytes, of HTTP JSON-RPC
-# request bodies admitted for processing concurrently (weighted by each request's
-# Content-Length). Requests that would exceed the budget are rejected fast
-# (HTTP 429) before decode, capping peak memory under load. Set to 0 to disable.
+# max_concurrent_request_bytes bounds total request bytes admitted concurrently
+# on HTTP (:8545) and WebSocket (:8546). Each protocol gets an independent
+# budget, so peak in-flight bytes process-wide can reach 2× this value. HTTP
+# rejects over-budget requests fast (HTTP 429). WS blocks until budget frees or
+# ws_admission_timeout elapses; on timeout the peer gets JSON-RPC error -32005
+# and the connection closes. Set to 0 to disable on either protocol.
 max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
+
+# ws_admission_timeout bounds how long a WebSocket connection waits for
+# concurrent-byte budget before the next frame is read or committed. On expiry
+# the peer receives JSON-RPC error -32005 and the connection closes. Zero or
+# negative values use the go-ethereum default (30s).
+ws_admission_timeout = "{{ .EVM.WSAdmissionTimeout }}"
 
 # max_open_connections caps the number of simultaneously accepted connections on
 # the EVM HTTP and WebSocket listeners. Set to 0 to disable the limit.

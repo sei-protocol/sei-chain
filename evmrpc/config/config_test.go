@@ -44,10 +44,13 @@ type opts struct {
 	workerQueueSize              interface{}
 	ipRateLimitRPS               interface{}
 	ipRateLimitBurst             interface{}
+	rateLimitingEnabled          interface{}
+	trustedProxyCIDRs            interface{}
 	batchRequestLimit            interface{}
 	batchResponseMaxSize         interface{}
 	maxRequestBodyBytes          interface{}
 	maxConcurrentRequestBytes    interface{}
+	wsAdmissionTimeout           interface{}
 	maxOpenConnections           interface{}
 	maxTraceStructLogBytes       interface{}
 	traceAllowedTracers          interface{}
@@ -177,6 +180,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.ip_rate_limit_burst" {
 		return o.ipRateLimitBurst
 	}
+	if k == "evm.rate_limiting_enabled" {
+		return o.rateLimitingEnabled
+	}
+	if k == "evm.trusted_proxy_cidrs" {
+		return o.trustedProxyCIDRs
+	}
 	if k == "evm.batch_request_limit" {
 		return o.batchRequestLimit
 	}
@@ -188,6 +197,9 @@ func (o *opts) Get(k string) interface{} {
 	}
 	if k == "evm.max_concurrent_request_bytes" {
 		return o.maxConcurrentRequestBytes
+	}
+	if k == "evm.ws_admission_timeout" {
+		return o.wsAdmissionTimeout
 	}
 	if k == "evm.max_open_connections" {
 		return o.maxOpenConnections
@@ -247,11 +259,14 @@ func getDefaultOpts() opts {
 		32,
 		1000,
 		200.0,
-		400,
+		1000,
+		nil,
+		nil,
 		1000,
 		25 * 1000 * 1000,
 		int64(5 * 1024 * 1024),
 		int64(128 * 1024 * 1024),
+		30 * time.Second,
 		2000,
 		uint64(256 * 1024 * 1024),
 		[]string{"callTracer", "prestateTracer"},
@@ -519,15 +534,18 @@ func TestReadConfigRequestSizeLimits(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, config.DefaultConfig.MaxRequestBodyBytes, cfg.MaxRequestBodyBytes)
 	require.Equal(t, config.DefaultConfig.MaxConcurrentRequestBytes, cfg.MaxConcurrentRequestBytes)
+	require.Equal(t, config.DefaultConfig.WSAdmissionTimeout, cfg.WSAdmissionTimeout)
 
 	// Custom values (including 0 to use default / disable) flow through.
 	o := getDefaultOpts()
 	o.maxRequestBodyBytes = int64(1024)
 	o.maxConcurrentRequestBytes = int64(0)
+	o.wsAdmissionTimeout = 10 * time.Second
 	cfg, err = config.ReadConfig(&o)
 	require.NoError(t, err)
 	require.Equal(t, int64(1024), cfg.MaxRequestBodyBytes)
 	require.Equal(t, int64(0), cfg.MaxConcurrentRequestBytes)
+	require.Equal(t, 10*time.Second, cfg.WSAdmissionTimeout)
 }
 
 func TestReadConfigMaxOpenConnections(t *testing.T) {
@@ -631,4 +649,62 @@ func TestReadConfigMaxSubscriptionsLogs(t *testing.T) {
 	opts.maxSubscriptionsLogs = "bad"
 	_, err = config.ReadConfig(&opts)
 	require.Error(t, err)
+}
+
+func TestReadConfigRateLimiting(t *testing.T) {
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.False(t, cfg.RateLimitingEnabled)
+	require.Nil(t, cfg.TrustedProxyCIDRs)
+	require.Equal(t, config.DefaultConfig.IPRateLimitRPS, cfg.IPRateLimitRPS)
+	require.Equal(t, config.DefaultConfig.IPRateLimitBurst, cfg.IPRateLimitBurst)
+	require.GreaterOrEqual(t, cfg.IPRateLimitBurst, cfg.BatchRequestLimit)
+
+	o := getDefaultOpts()
+	o.rateLimitingEnabled = false
+	o.trustedProxyCIDRs = []string{"10.0.0.0/8", "203.0.113.0/24"}
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.False(t, cfg.RateLimitingEnabled)
+	require.Equal(t, []string{"10.0.0.0/8", "203.0.113.0/24"}, cfg.TrustedProxyCIDRs)
+
+	rlCfg := cfg.RateLimiterConfig()
+	require.Equal(t, cfg.IPRateLimitRPS, rlCfg.RPS)
+	require.Equal(t, cfg.IPRateLimitBurst, rlCfg.Burst)
+	require.Equal(t, cfg.TrustedProxyCIDRs, rlCfg.TrustedProxyCIDRs)
+}
+
+func TestReadConfigRateLimitingBurstBelowBatchLimitRejected(t *testing.T) {
+	// A burst below batch_request_limit would permanently reject full-size
+	// batches (one token is charged per batch element), so ReadConfig refuses
+	// it outright rather than letting an operator discover it in production.
+	o := getDefaultOpts()
+	o.rateLimitingEnabled = true
+	o.ipRateLimitBurst = 400
+	o.batchRequestLimit = 1000
+	_, err := config.ReadConfig(&o)
+	require.Error(t, err)
+
+	// Equal burst and batch limit is allowed.
+	o.ipRateLimitBurst = 1000
+	_, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+
+	// The check is skipped when rate limiting is disabled...
+	o.rateLimitingEnabled = false
+	o.ipRateLimitBurst = 400
+	_, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+
+	// ...when the token bucket itself is disabled (burst <= 0)...
+	o.rateLimitingEnabled = true
+	o.ipRateLimitBurst = 0
+	_, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+
+	// ...and when the batch limit is unbounded (batch_request_limit <= 0).
+	o.ipRateLimitBurst = 400
+	o.batchRequestLimit = 0
+	_, err = config.ReadConfig(&o)
+	require.NoError(t, err)
 }

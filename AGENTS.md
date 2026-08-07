@@ -19,12 +19,14 @@ progressively the deeper you go. Existing package guides include:
 ## Configuration reads
 
 How a seid node resolves configuration is pinned by the characterization suite in
-`testutil/configtest`, so adding a configuration key, renaming one, changing a
-default, or changing how a value is cast will fail that suite. The failure is the
-review prompt: record the new behavior so the old and new value land in a diff,
+`testutil/configtest`. Renaming a key the suite covers, changing a default, or changing
+how a value is cast will fail that suite. **Adding** a key does not always: the completeness
+check compares struct fields, so a second key landing in a field some row already
+claims is uncaught and the row has to be written by hand. Where there is a failure it
+is the review prompt: record the new behavior so the old and new value land in a diff,
 rather than skipping the row or widening the assertion until it passes. Read
 [`testutil/configtest/AGENTS.md`](testutil/configtest/AGENTS.md) before changing a
-configuration read.
+configuration read, and before adding one.
 
 ## Code style
 

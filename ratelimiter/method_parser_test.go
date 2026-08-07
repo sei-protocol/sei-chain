@@ -234,21 +234,36 @@ func TestParse_ExactProbeLimitBodyParses(t *testing.T) {
 	require.Equal(t, []string{"a"}, methods)
 }
 
-// --- probe limit / partial read ---
+// --- body size limit (MaxProbeBytes) ---
 
 func TestParse_ProbeLimitExceeded(t *testing.T) {
-	// "method" sits after a params array larger than the probe budget.
+	// "method" sits after a params array larger than MaxProbeBytes.
 	body := `{"params":[` + strings.Repeat("1,", 500) + `1],"method":"eth_call"}`
 	_, _, err := NewMethodParser(64).Parse(strings.NewReader(body))
 	require.ErrorIs(t, err, ErrProbeLimit)
+	require.True(t, IsBodyTooLarge(err))
 }
 
 func TestParse_LargeTrailingParamsHitProbeLimit(t *testing.T) {
-	// The whole object is read (bounded by the probe) so a trailing duplicate
-	// "method" can be rejected; a params array larger than a tiny probe therefore
+	// The whole object is read (bounded by MaxProbeBytes) so a trailing duplicate
+	// "method" can be rejected; a params array larger than a tiny limit therefore
 	// yields ErrProbeLimit even though "method" appears first.
 	body := `{"method":"eth_call","params":[` + strings.Repeat("9,", 100_000) + `9]}`
 	_, _, err := NewMethodParser(128).Parse(strings.NewReader(body))
+	require.ErrorIs(t, err, ErrProbeLimit)
+}
+
+func TestParse_DuplicateMethodBeyondBodyLimitRejected(t *testing.T) {
+	padding := strings.Repeat("0", 200)
+	body := `{"method":"cheap","params":["` + padding + `"],"method":"expensive"}`
+	_, _, err := NewMethodParser(128).Parse(strings.NewReader(body))
+	require.ErrorIs(t, err, ErrProbeLimit)
+	require.True(t, IsBodyTooLarge(err))
+}
+
+func TestParse_BodyOneByteOverLimitRejected(t *testing.T) {
+	body := `{"method":"eth_call","id":1}`
+	_, _, err := NewMethodParser(int64(len(body) - 1)).Parse(strings.NewReader(body))
 	require.ErrorIs(t, err, ErrProbeLimit)
 }
 

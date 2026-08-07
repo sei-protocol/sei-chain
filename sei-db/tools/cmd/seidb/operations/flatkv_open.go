@@ -12,15 +12,18 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
-	"github.com/sei-protocol/sei-chain/sei-db/wal"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 const (
 	flatkvSnapshotPrefix = "snapshot-"
 	flatkvSnapshotDirLen = len(flatkvSnapshotPrefix) + 20
+
+	// flatkvStateWALName matches the WAL instance name FlatKV opens its state WAL with; it only labels
+	// metrics, and the offline GetRange used here does not emit any, but keep it consistent.
+	flatkvStateWALName = "flatkv"
 
 	// maxCloneRetries bounds the number of retries when the source snapshot
 	// is pruned mid-clone by a live writer (atomicRemoveDir race) or when the
@@ -39,14 +42,14 @@ var errSourceChurning = errors.New("source kept churning during clone")
 // The tools intentionally operate on a temp clone of the selected snapshot +
 // WAL so they do not compete with a live node for the FlatKV writer lock.
 type openedFlatKV struct {
-	*flatkv.CommitStore
+	flatkv.Store
 	clone *toolClone
 }
 
 func (o *openedFlatKV) Close() error {
 	var err error
-	if o.CommitStore != nil {
-		err = o.CommitStore.Close()
+	if o.Store != nil {
+		err = o.Store.Close()
 	}
 	if rmErr := o.clone.Remove(); rmErr != nil {
 		if err != nil {
@@ -91,21 +94,36 @@ func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
 	cfg := config.DefaultConfig()
 	cfg.DataDir = clone.dir
 
-	store, err := flatkv.NewCommitStore(context.Background(), cfg)
+	stateWAL, err := flatkv.OpenStateWAL(cfg)
 	if err != nil {
+		_ = clone.Remove()
+		return nil, fmt.Errorf("failed to open FlatKV state WAL: %w", err)
+	}
+	primary, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
+	if err != nil {
+		_ = stateWAL.Close()
 		_ = clone.Remove()
 		return nil, fmt.Errorf("failed to create FlatKV store: %w", err)
 	}
 
-	if _, err := store.LoadVersion(height, false); err != nil {
-		_ = store.Close()
+	// The view is built from the clone's snapshot and WAL by primary, which is disposable once the replay
+	// has finished: primary was never opened, so it holds no writer lock of its own and the lock it takes
+	// lazily is handed to the view.
+	view, err := primary.LoadVersionReadOnly(height)
+	if err != nil {
+		_ = primary.Close()
 		_ = clone.Remove()
 		return nil, fmt.Errorf("failed to open FlatKV at version %d: %w", height, err)
 	}
+	if err := primary.Close(); err != nil {
+		_ = view.Close()
+		_ = clone.Remove()
+		return nil, fmt.Errorf("failed to close FlatKV clone writer: %w", err)
+	}
 
 	return &openedFlatKV{
-		CommitStore: store,
-		clone:       clone,
+		Store: view,
+		clone: clone,
 	}, nil
 }
 
@@ -214,7 +232,7 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (*toolClone, error
 		// snapshotVersion+1 here (unlike memiavl, whose bootstrap
 		// snapshot-0 hides a configurable initial version).
 		sizeBefore := changelogByteSize(dstChangelogDir)
-		if err := verifyClonedWALCovers(dstChangelogDir, snapshotVersion, snapshotVersion+1); err != nil {
+		if err := verifyClonedFlatKVWALCovers(dstChangelogDir, snapshotVersion); err != nil {
 			return cleanup(err)
 		}
 		clone.walRepaired = changelogByteSize(dstChangelogDir) < sizeBefore
@@ -223,56 +241,41 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (*toolClone, error
 	return clone, nil
 }
 
-// verifyClonedWALCovers opens the cloned WAL just long enough to ensure it
-// either is empty, ends at or before snapshotVersion (no replay needed), or
-// starts at or before firstNeeded — the first version catchup must replay on
-// top of the snapshot (snapshotVersion+1, except for a memiavl bootstrap
-// snapshot-0 whose successor is the configured initial version).
-func verifyClonedWALCovers(dstChangelogDir string, snapshotVersion, firstNeeded int64) error {
-	walLog, err := wal.NewChangelogWAL(dstChangelogDir, wal.Config{})
+// verifyClonedFlatKVWALCovers inspects the cloned WAL just long enough to
+// ensure it either is empty, ends at or before snapshotVersion (no replay
+// needed), or starts at or before snapshotVersion+1 (catchup can resume
+// cleanly). The state WAL is keyed by block number, so its stored range is
+// directly the version range; GetRange reads it offline without a live WAL
+// instance.
+//
+// FlatKV snapshots are always named with a real committed version —
+// SetInitialVersion(N) seeds committedVersion N-1 and writes snapshot-<N-1> —
+// so the first version catchup needs is unconditionally snapshotVersion+1,
+// unlike memiavl, whose bootstrap snapshot-0 hides a configurable initial
+// version.
+func verifyClonedFlatKVWALCovers(dstChangelogDir string, snapshotVersion int64) error {
+	ok, firstVer, lastVer, err := statewal.GetRange(statewal.DefaultConfig(dstChangelogDir, flatkvStateWALName))
 	if err != nil {
-		return fmt.Errorf("open cloned changelog for validation: %w", err)
+		return fmt.Errorf("read cloned changelog range: %w", err)
 	}
-	defer func() { _ = walLog.Close() }()
-
-	firstOff, err := walLog.FirstOffset()
-	if err != nil {
-		return fmt.Errorf("cloned changelog first offset: %w", err)
-	}
-	lastOff, err := walLog.LastOffset()
-	if err != nil {
-		return fmt.Errorf("cloned changelog last offset: %w", err)
-	}
-	if firstOff == 0 || lastOff == 0 || firstOff > lastOff {
+	if !ok {
 		return nil
 	}
+	//nolint:gosec // version fits int64
+	return checkClonedWALCoverage(int64(firstVer), int64(lastVer), snapshotVersion, snapshotVersion+1)
+}
 
-	firstVer, err := readWALEntryVersion(walLog, firstOff)
-	if err != nil {
-		return fmt.Errorf("read first cloned changelog entry: %w", err)
-	}
-	lastVer, err := readWALEntryVersion(walLog, lastOff)
-	if err != nil {
-		return fmt.Errorf("read last cloned changelog entry: %w", err)
-	}
-
-	if lastVer <= snapshotVersion {
-		return nil
-	}
-	if firstVer <= firstNeeded {
+// checkClonedWALCoverage is the shared verdict for both backends: an empty or
+// fully-superseded WAL needs no replay, and otherwise the WAL must begin at or
+// before firstNeeded — the first version catchup replays on top of the
+// snapshot. A later start means the source truncated past our snapshot
+// mid-clone, so the caller should retry with a freshly selected snapshot.
+func checkClonedWALCoverage(firstVer, lastVer, snapshotVersion, firstNeeded int64) error {
+	if lastVer <= snapshotVersion || firstVer <= firstNeeded {
 		return nil
 	}
 	return fmt.Errorf("%w: cloned WAL starts at version %d but catchup needs %d over snapshot %d (truncated past snapshot mid-clone)",
 		errSourceChurning, firstVer, firstNeeded, snapshotVersion)
-}
-
-func readWALEntryVersion(walLog wal.ChangelogWAL, off uint64) (int64, error) {
-	var ver int64
-	err := walLog.Replay(off, off, func(_ uint64, entry proto.ChangelogEntry) error {
-		ver = entry.Version
-		return nil
-	})
-	return ver, err
 }
 
 func selectFlatKVSnapshot(dbDir string, height int64) (string, error) {

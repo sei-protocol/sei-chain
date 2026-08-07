@@ -89,10 +89,13 @@ var evmKeys = []configtest.KeySpec{
 	{Key: "evm.trace_bake_snapshot_window", Path: "TraceBakeSnapshotWindow", Cast: configtest.CastInt64, Checked: true},
 	{Key: "evm.ip_rate_limit_rps", Path: "IPRateLimitRPS", Cast: configtest.CastFloat64, Checked: true},
 	{Key: "evm.ip_rate_limit_burst", Path: "IPRateLimitBurst", Cast: configtest.CastInt, Checked: true},
+	{Key: "evm.rate_limiting_enabled", Path: "RateLimitingEnabled", Cast: configtest.CastBool, Checked: true},
+	{Key: "evm.trusted_proxy_cidrs", Path: "TrustedProxyCIDRs", Cast: configtest.CastStringSlice, Checked: true},
 	{Key: "evm.batch_request_limit", Path: "BatchRequestLimit", Cast: configtest.CastInt, Checked: true},
 	{Key: "evm.batch_response_max_size", Path: "BatchResponseMaxSize", Cast: configtest.CastInt, Checked: true},
 	{Key: "evm.max_request_body_bytes", Path: "MaxRequestBodyBytes", Cast: configtest.CastInt64, Checked: true},
 	{Key: "evm.max_concurrent_request_bytes", Path: "MaxConcurrentRequestBytes", Cast: configtest.CastInt64, Checked: true},
+	{Key: "evm.ws_admission_timeout", Path: "WSAdmissionTimeout", Cast: configtest.CastDuration, Checked: true},
 }
 
 func readEVM(opts configtest.AppOpts) (any, error) { return config.ReadConfig(opts) }
@@ -100,30 +103,34 @@ func readEVM(opts configtest.AppOpts) (any, error) { return config.ReadConfig(op
 // FuzzReadConfig drives every plain [evm] key through arbitrary raw values,
 // holding each to the cast its manifest row declares.
 func FuzzReadConfig(f *testing.F) {
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+
 	// Every row gets a nil and a malformed seed, so the two properties this table exists to
 	// state hold for every key on an ordinary `go test` run rather than only under -fuzz. A
 	// plain run replays seeds and nothing else, so a row with no seed is a row whose guard
 	// could be dropped without CI noticing. Same loop as
 	// FuzzGetConfigGuardedKeysPreserveDefaults in sei-cosmos/server/config.
 	for i := range len(evmKeys) {
-		f.Add(uint(i), fuzzing.KindNil, "", int64(0), false)               // nil: a guarded read keeps the default
-		f.Add(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed: a checked read must refuse it
+		seeds.AddRow(uint(i), fuzzing.KindNil, "", int64(0), false)               // nil: a guarded read keeps the default
+		seeds.AddRow(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed: a checked read must refuse it
 	}
 
 	// Seeds span the shapes an operator produces from the three layers that reach
 	// this reader: TOML scalars, environment strings (always strings, never
 	// typed), and cobra flag values.
-	f.Add(uint(0), fuzzing.KindBool, "true", int64(1), true)                          // TOML bool
-	f.Add(uint(1), fuzzing.KindNumericString, "", int64(8545), false)                 // env-style numeric string
-	f.Add(uint(4), fuzzing.KindString, "30s", int64(0), false)                        // duration spelling
-	f.Add(uint(4), fuzzing.KindInt64, "", int64(30), false)                           // bare number as a duration (nanoseconds)
-	f.Add(uint(16), fuzzing.KindStringSlice, "eth_call eth_getLogs", int64(0), false) // whitespace-split slice
-	f.Add(uint(16), fuzzing.KindAnySlice, "eth_call", int64(1), false)                // []any slice
-	f.Add(uint(8), fuzzing.KindInt64, "", int64(-1), false)                           // negative into an unsigned cast: rejected
-	f.Add(uint(8), fuzzing.KindUint64, "", int64(-1), false)                          // the same bits unsigned, near 2^64: accepted
-	f.Add(uint(10), fuzzing.KindMap, "", int64(0), false)                             // a table where a scalar belongs
-	f.Add(uint(0), fuzzing.KindString, "not-a-bool", int64(0), false)                 // must error, never resolve false
-	f.Add(uint(42), fuzzing.KindFloat64, "", int64(7), false)                         // float into a float key
+	seeds.AddRow(uint(0), fuzzing.KindBool, "true", int64(1), true)                          // TOML bool
+	seeds.AddRow(uint(1), fuzzing.KindNumericString, "", int64(8545), false)                 // env-style numeric string
+	seeds.AddRow(uint(4), fuzzing.KindString, "30s", int64(0), false)                        // duration spelling
+	seeds.AddRow(uint(4), fuzzing.KindInt64, "", int64(30), false)                           // bare number as a duration (nanoseconds)
+	seeds.AddRow(uint(16), fuzzing.KindStringSlice, "eth_call eth_getLogs", int64(0), false) // whitespace-split slice
+	seeds.AddRow(uint(16), fuzzing.KindAnySlice, "eth_call", int64(1), false)                // []any slice
+	seeds.AddRow(uint(8), fuzzing.KindInt64, "", int64(-1), false)                           // negative into an unsigned cast: rejected
+	seeds.AddRow(uint(8), fuzzing.KindUint64, "", int64(-1), false)                          // the same bits unsigned, near 2^64: accepted
+	seeds.AddRow(uint(10), fuzzing.KindMap, "", int64(0), false)                             // a table where a scalar belongs
+	seeds.AddRow(uint(0), fuzzing.KindString, "not-a-bool", int64(0), false)                 // must error, never resolve false
+	seeds.AddRow(uint(42), fuzzing.KindFloat64, "", int64(7), false)                         // float into a float key
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "evm", readEVM, evmKeys, seeds)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(evmKeys, keyIdx)
@@ -324,6 +331,18 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 			Why: "min(MaxWorkerPoolSize, runtime.NumCPU()*2)",
 		},
 	)
+}
+
+// TestKeyNamesMatchTheRecordedNames pins all forty-nine key names themselves.
+//
+// The table's header states the decision to spell these keys as literals rather than through
+// the package's flag constants, precisely so that a rename in the reader leaves the row
+// behind and fails. That decision is a comment, and a comment does not survive a later
+// refactor that tidies the duplication away. The record does: it holds the resolved string, so
+// a row converted to reference a constant is checked against the same name, and editing that
+// constant then fails here.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "evm", evmKeys)
 }
 
 // TestManifestNamesEveryField enforces the claim evmKeys makes about itself.

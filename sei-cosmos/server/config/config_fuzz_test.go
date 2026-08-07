@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
+	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 	"github.com/spf13/viper"
 )
 
@@ -493,6 +494,198 @@ func TestGetConfigStateStoreReadsAreUnguarded(t *testing.T) {
 		t.Fatalf("absent [state-store] must resolve to zeros, got buffer=%d keep-recent=%d",
 			cfg.StateStore.AsyncWriteBuffer, cfg.StateStore.KeepRecent)
 	}
+}
+
+// stateSyncKeys is the [state-sync] manifest as GetConfig resolves it.
+//
+// The section is read three ways and this describes one of them — counted by mechanism, because
+// a count of readers goes stale: simd is a fourth call site (sei-ibc-go/testing/simapp/simd/cmd/
+// root.go:273-274) and a second instance of the first mechanism, not a fourth way. NewApp reads
+// the same three keys out of an AppOpts and hands them to a baseapp (cmd/seid/cmd/root.go:255
+// and :304-306), which no row can predict. ParseConfig (toml.go:272-277) unmarshals them by mapstructure tag
+// over a DefaultConfig base, so an absent snapshot-keep-recent keeps 2 where this reader
+// returns 0 — a second describable reader, undescribed. GetConfig reads them as literals
+// through one unguarded typed getter each, which is the shape CheckRow holds a reader to.
+//
+// All three reads are unguarded and one of them clobbers, which is why this section gets no
+// CheckAbsent: an empty viper does not resolve to DefaultConfig's [state-sync].
+// TestGetConfigStateSyncReadsAreUnguarded pins that divergence directly.
+var stateSyncKeys = []configtest.KeySpec{
+	{
+		Key: "state-sync.snapshot-interval", Path: "SnapshotInterval",
+		Cast: configtest.CastUint64, Unguarded: true,
+		Why: "0 is both the in-code default and \"disabled\", so what this row protects is an " +
+			"explicit interval reaching the field rather than an absent one: it is the only " +
+			"[state-sync] key with a consumer inside this Config (ValidateBasic, config.go:655), " +
+			"and a serving node's cadence is NewApp's read (root.go:304)",
+	},
+	{
+		Key: "state-sync.snapshot-keep-recent", Path: "SnapshotKeepRecent",
+		Cast: configtest.CastUint32, Unguarded: true,
+		Why: "the in-code default is 2 and toml.go:78 documents 0 as keep all, so the clobber " +
+			"inverts the declared retention; what a node retains is NewApp's read (root.go:305)",
+	},
+	{
+		Key: "state-sync.snapshot-directory", Path: "SnapshotDirectory",
+		Cast: configtest.CastString, Unguarded: true,
+		Why: "toml.go:82 documents empty as store under the home directory, and the fallback that " +
+			"implements it is NewApp's read (root.go:255-257) rather than this one",
+	},
+}
+
+// readStateSync drives GetConfig from an AppOpts, which is what lets the manifest engine
+// describe a viper-based reader.
+//
+// The two transports differ by an adapter and not by a wall: newAppViper already takes the
+// map[string]any an AppOpts is, so a row's key and raw value reach v.Set and then the same
+// typed getter an app.toml value reaches. It returns the section rather than the whole
+// Config so a row's Path names its field the way every other section's rows do, which is
+// also what lets CheckManifestCoversEveryField point at StateSyncConfig alone.
+func readStateSync(t testing.TB) func(configtest.AppOpts) (any, error) {
+	return func(opts configtest.AppOpts) (any, error) {
+		cfg, err := GetConfig(newAppViper(t, opts))
+		if err != nil {
+			return nil, err
+		}
+		return cfg.StateSync, nil
+	}
+}
+
+// FuzzGetConfigStateSync drives the [state-sync] manifest.
+//
+// Two of the three keys had no assertion on a resolved value anywhere in the tree: cmd/seid/cmd
+// records snapshot-keep-recent's and snapshot-directory's spelling and cannot predict what NewApp
+// does with them, and the whole-Config defaults golden says what DefaultConfig declares rather
+// than what a parse returns. snapshot-interval was already held twice — FuzzConfigValidateBasic
+// below drives it through GetConfig with a wantErr that is a function of its resolved value, and
+// appKeys[5] in cmd/seid/cmd's FuzzApplyPrecedenceApp holds it to a resolved value and Go type
+// across every layer combination that sets it — so for that key this target adds arbitrary values
+// rather than a first assertion.
+func FuzzGetConfigStateSync(f *testing.F) {
+	read := readStateSync(f)
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+
+	// Rows 0 and 1 get three seeds and row 2 gets two, and only the first seed of each row
+	// discriminates. An unguarded read resolves an absent key to its cast's zero, and every one
+	// of these rows resolves to that same zero from an absent key, so a nil seed lands on the
+	// absent-key value and so does a value the cast rejects: those pin the clobber and, on the
+	// two numeric rows, the swallowed conversion. Row 2 stops at two because a string cast has
+	// no malformed input, so there is no swallowed conversion to pin there. A value that
+	// converts to something else is what states the key is read at all.
+	seeds.AddRow(uint(0), fuzzing.KindInt64, "", int64(1000), false)
+	seeds.AddRow(uint(0), fuzzing.KindNil, "", int64(0), false)
+	seeds.AddRow(uint(0), fuzzing.KindString, "not-a-number", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindInt64, "", int64(10), false)
+	seeds.AddRow(uint(1), fuzzing.KindNil, "", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindString, "not-a-number", int64(0), false)
+	seeds.AddRow(uint(2), fuzzing.KindString, "/var/lib/sei/snapshots", int64(0), false)
+	seeds.AddRow(uint(2), fuzzing.KindNil, "", int64(0), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "state-sync", read, stateSyncKeys, seeds)
+
+	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
+		spec := configtest.Pick(stateSyncKeys, keyIdx)
+		configtest.CheckRow(t, "state-sync", readStateSync(t), spec, fuzzing.ConfigValue(kind, s, n, b))
+	})
+}
+
+// TestGetConfigStateSyncReadsAreUnguarded records the [state-sync] clobber as a divergence
+// rather than as two facts that happen to disagree.
+//
+// snapshot-keep-recent is a registered flag defaulting to 2 (server/start.go:234) and
+// DefaultConfig declares 2, but GetConfig reads it with a bare v.GetUint32, so a viper that
+// never saw the key resolves 0 — which toml.go:78 documents as "keep all". That viper is this
+// file's layer and not a booted node's: start.go:117 binds the flag in PreRunE, ahead of both
+// production calls (start.go:168 and :303), so there the same read takes the flag's 2 whenever
+// app.toml is silent.
+//
+// It is recorded and not repaired, because a characterization PR does not change readers. The
+// guard is not hypothetical: ParseConfig already resolves this section that way and returns 2 for
+// the absent key this read returns 0 for. The guard would not change the fleet either: with the
+// flag bound IsSet is false, so a guarded read falls back to the in-code 2 the unguarded read
+// already takes from the flag default. The point of the assertion is that either side moving fails
+// it — a guard makes the absent read return 2, and a default moved to 0 makes the clobber stop
+// being one — so the divergence can neither close nor widen without a diff.
+func TestGetConfigStateSyncReadsAreUnguarded(t *testing.T) {
+	cfg, err := GetConfig(newAppViper(t, nil))
+	if err != nil {
+		t.Fatalf("GetConfig: %v", err)
+	}
+	def := DefaultConfig().StateSync
+	if def.SnapshotKeepRecent == 0 {
+		t.Fatal("state-sync.snapshot-keep-recent's in-code default is now 0, so an absent key " +
+			"clobbers nothing and this recording no longer describes a divergence. If the default " +
+			"moved deliberately, say what a serving node now retains — 0 is keep-all, not keep-none")
+	}
+	if cfg.StateSync.SnapshotKeepRecent != 0 {
+		t.Fatalf("an absent state-sync.snapshot-keep-recent resolved to %d rather than 0, so the "+
+			"read is no longer unguarded. That is a fine end state and a no-op for a booted node, "+
+			"which takes 2 from the bound flag either way (start.go:117 and :234); what it changes "+
+			"is this recording, so update the row and this assertion in the PR that adds the guard",
+			cfg.StateSync.SnapshotKeepRecent)
+	}
+	if cfg.StateSync.SnapshotInterval != 0 || cfg.StateSync.SnapshotDirectory != "" {
+		t.Fatalf("absent [state-sync] must resolve to zeros, got interval=%d directory=%q",
+			cfg.StateSync.SnapshotInterval, cfg.StateSync.SnapshotDirectory)
+	}
+}
+
+// TestParseConfigAndGetConfigDisagree pins the disagreement between this package's two exported
+// readers of [state-sync], which is what the guard above would close.
+//
+// Handed the same flagless viper, ParseConfig unmarshals over a DefaultConfig base and keeps
+// snapshot-keep-recent at 2 while GetConfig's bare v.GetUint32 resolves 0. That is what makes the
+// deferral above a deferral rather than an open question: the guard is not a retention anyone has
+// to choose, it is ParseConfig's resolution moved into GetConfig, and this states the behavior
+// being moved. Nothing else in the tree does — TestParseConfig (config_test.go:358) asserts only
+// MinGasPrices.
+//
+// The disagreement is between the two readers and not between two nodes. GetConfig's production
+// calls (start.go:168 and :303) run with the flag bound, where it takes the same 2, and the one
+// non-test caller of ParseConfig is server/util.go:308's empty-template branch, which no binary in
+// this tree reaches. So what fails when either side moves is the rationale, which is the point.
+func TestParseConfigAndGetConfigDisagree(t *testing.T) {
+	v := newAppViper(t, nil)
+	parsed, err := ParseConfig(v)
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	direct, err := GetConfig(v)
+	if err != nil {
+		t.Fatalf("GetConfig: %v", err)
+	}
+	if parsed.StateSync.SnapshotKeepRecent != 2 || direct.StateSync.SnapshotKeepRecent != 0 {
+		t.Fatalf("an absent state-sync.snapshot-keep-recent resolved to %d through ParseConfig and "+
+			"%d through GetConfig, want 2 and 0. If GetConfig gained the guard the two readers now "+
+			"agree, which is the end state — update this test, the row and the deferral note "+
+			"together. If ParseConfig stopped resolving the section over DefaultConfig, the deferral "+
+			"note above is now wrong about there being an implemented guard to copy, and whoever "+
+			"adds one is choosing a retention rather than matching one. A third cause is that the "+
+			"in-code default moved off 2, which the defaults golden names and this literal does "+
+			"not: a default of 3 reaches here rather than the unguarded-read check, whose guard "+
+			"fires only at exactly 0",
+			parsed.StateSync.SnapshotKeepRecent, direct.StateSync.SnapshotKeepRecent)
+	}
+}
+
+// TestKeyNamesMatchTheRecordedNames records the [state-sync] spellings GetConfig looks up.
+//
+// The rows name them as literals, so a rename here fails the row assertions as well; the
+// record is what makes the diff name the old and the new operator-facing key rather than a
+// resolved value. cmd/seid/cmd holds its own state-sync record for NewApp's two constants,
+// and the two files are independent because the readers they describe are.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "state-sync", stateSyncKeys)
+}
+
+// TestManifestNamesEveryField enforces the claim stateSyncKeys makes about itself.
+//
+// StateSyncConfig is the one struct in this file's surface with a single reader populating
+// it, so the check costs no exemptions: a fourth [state-sync] key added to GetConfig fails
+// here until it has a row. The [state-commit] and [state-store] structs are shared with
+// app/seidb.go and are not assertable this way — see app/config_fuzz_test.go.
+func TestManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "state-sync", DefaultConfig().StateSync, stateSyncKeys)
 }
 
 // FuzzConfigValidateBasic pins the two conditions that reject an otherwise

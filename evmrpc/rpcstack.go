@@ -49,13 +49,16 @@ type HTTPConfig struct {
 	SeiLegacyAllowlist map[string]struct{}
 	prefix             string // path prefix on which to mount http handler
 	RPCEndpointConfig
+	// rateLimitGate applies per-IP JSON-RPC rate limiting when non-nil and enabled.
+	rateLimitGate *RateLimitGate
 }
 
 // WsConfig is the JSON-RPC/Websocket configuration
 type WsConfig struct {
-	Origins []string
-	Modules []string
-	prefix  string // path prefix on which to mount ws handler
+	Origins            []string
+	Modules            []string
+	prefix             string // path prefix on which to mount ws handler
+	wsAdmissionTimeout time.Duration
 	RPCEndpointConfig
 }
 
@@ -348,8 +351,14 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 
 	// maxRequestBodyBytes feeds all three body-cap layers (requestSizeLimiter, the gate, and
 	// srv.SetHTTPBodyLimit above) so they agree; change the cap via the config value, not one layer.
-	handler := newRequestSizeLimiter(
+	// requestSizeLimiter is outermost so declared oversize bodies are rejected from Content-Length
+	// before the rate limiter reads the full body (bounded by max_request_body_bytes).
+	handler := newRateLimitMiddleware(
 		wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
+		config.rateLimitGate,
+	)
+	handler = newRequestSizeLimiter(
+		handler,
 		config.maxRequestBodyBytes,
 		config.maxConcurrentRequestBytes,
 	)
@@ -381,7 +390,17 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
-	srv.SetReadLimits(config.readLimit)
+	readLimit := effectiveMaxRequestBodyBytes(config.readLimit)
+	srv.SetReadLimits(readLimit)
+	// maxConcurrentRequestBytes is passed through raw; rpc.Server.recomputeWSConcurrentBudget
+	// raises it to readLimit when smaller, matching
+	// newRequestSizeLimiter's max(budget, maxBody) rule on the HTTP protocol.
+	srv.SetWSConcurrentRequestBytes(config.maxConcurrentRequestBytes)
+	srv.SetWSAdmissionTimeout(config.wsAdmissionTimeout)
+	srv.SetWSAdmissionEventHook(func(reason string) {
+		// Hook carries no request context, and the fork's own connCtx is context.Background() too.
+		recordWSAdmissionRejected(context.Background(), reason)
+	})
 	logger.Info("Registering apis for evm websocket")
 	if err := RegisterApis(apis, config.Modules, srv); err != nil {
 		return err
