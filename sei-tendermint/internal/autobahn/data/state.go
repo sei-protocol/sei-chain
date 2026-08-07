@@ -264,6 +264,13 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	return inner, nil
 }
 
+func (s *State) First() types.GlobalBlockNumber {
+	for inner := range s.inner.Lock() {
+		return inner.first
+	}
+	panic("unreachable")
+}
+
 // Registry returns the epoch registry.
 func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
 
@@ -616,12 +623,15 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 // AppVote returns an appVote for a block >= n.
 // Vote is available ONLY once AppHash has been pushed AND persisted.
 // This prevents any possible equivocation and ensures that local node has the executed blocks persisted (since nextAppProposa <= nextBlock).
-func (s *State) AppVote(ctx context.Context, n types.GlobalBlockNumber) (*types.AppVote, *types.FullCommitQC, error) {
+func (s *State) AppVote(ctx context.Context, n types.GlobalBlockNumber) (*types.AppVote, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.persisted.NextAppProposal }); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		return types.NewAppVote(inner.appProposals[n]), inner.qcs[n], nil
+		if n < inner.first {
+			return nil, types.ErrPruned
+		}
+		return types.NewAppVote(inner.appProposals[n]), nil
 	}
 	panic("unreachable")
 }
@@ -677,17 +687,6 @@ type Anchor struct {
 func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
 	for inner := range s.inner.Lock() {
 		return inner.anchor.Subscribe()
-	}
-	panic("unreachable")
-}
-
-func (s *State) LastAppQC() (*types.AppQC, *types.FullCommitQC) {
-	for inner := range s.inner.Lock() {
-		if inner.nextAppQC <= inner.first {
-			return nil, nil
-		}
-		n := inner.nextAppQC - 1
-		return inner.appQCs[n], inner.qcs[n]
 	}
 	panic("unreachable")
 }

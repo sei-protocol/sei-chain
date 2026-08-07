@@ -109,7 +109,7 @@ func pushAppHashesRunning(ctx context.Context, state *State, rng utils.Rng, firs
 }
 
 func pushAppQCForBlock(ctx context.Context, state *State, keys []types.SecretKey, n types.GlobalBlockNumber) error {
-	vote, _, err := state.AppVote(ctx, n)
+	vote, err := state.AppVote(ctx, n)
 	if err != nil {
 		return err
 	}
@@ -753,9 +753,8 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 		require.Equal(t, gr1.Next, inner.nextAppProposal)
 		require.Equal(t, gr1.Next, inner.nextAppQC)
 	}
-	appQC, fQC := state2.LastAppQC()
-	require.NotNil(t, appQC)
-	require.NotNil(t, fQC)
+	appQC, fQC, err := state2.AppQC(ctx, gr1.First)
+	require.NoError(t, err)
 	require.Equal(t, gr1, appQC.Proposal().GlobalRange())
 	require.Equal(t, gr1, fQC.QC().GlobalRange())
 	require.NoError(t, db2.Close())
