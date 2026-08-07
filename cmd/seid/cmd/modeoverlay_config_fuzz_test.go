@@ -196,7 +196,7 @@ func TestNewCustomAppConfigKeepsOnlyWhatItIsHanded(t *testing.T) {
 	}
 }
 
-// TestGeneratedAppTOMLLruSizeIsWrittenTwiceAndReadNever pins a key two generators disagree about.
+// TestGeneratedAppTOMLLruSizeDisagreesWithTheStruct pins a key two generators disagree about.
 //
 // The app.toml template renders `lru_size = 0` as a bare literal (root.go), and NewCustomAppConfig's
 // WASM struct sets LruSize to 1. A generated file therefore carries 0 while the struct that names the
@@ -207,7 +207,11 @@ func TestNewCustomAppConfigKeepsOnlyWhatItIsHanded(t *testing.T) {
 // a reader is wired later it will resolve 0 from a generated file and 1 from the struct depending on
 // which path it takes, and this assertion is what forces that decision into the open instead of
 // letting one of the two silently become the answer.
-func TestGeneratedAppTOMLLruSizeIsWrittenTwiceAndReadNever(t *testing.T) {
+//
+// That no first-party code reads the key was established by inspection and is not asserted here, so
+// the name says what this holds rather than claiming the absence of a reader. Wiring one would leave
+// this row green and correct.
+func TestGeneratedAppTOMLLruSizeDisagreesWithTheStruct(t *testing.T) {
 	configtest.Isolate(t)
 	home := configtest.NewHome(t)
 
@@ -240,6 +244,15 @@ func TestGeneratedAppTOMLLruSizeIsWrittenTwiceAndReadNever(t *testing.T) {
 		t.Fatalf("wasm.lru_size = %#v does not convert to uint64: %v", raw, castErr)
 	}
 
+	// Both sides pinned, not just their inequality. Asserting only that they differ would leave the
+	// template free to render any other value with this row still green, and the doc above claims it
+	// renders 0.
+	const templateLiteral = uint64(0)
+	if fromTemplate != templateLiteral {
+		t.Errorf("a generated app.toml renders wasm.lru_size as %d rather than %d. The template "+
+			"literal in root.go moved, so update this row and say whether anything reads the key yet",
+			fromTemplate, templateLiteral)
+	}
 	if fromTemplate == fromStruct {
 		t.Fatalf("the template and NewCustomAppConfig now agree on wasm.lru_size at %d, so this row "+
 			"no longer describes a divergence. Closing it is a fine end state; say which value won "+

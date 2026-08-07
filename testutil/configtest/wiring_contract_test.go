@@ -314,8 +314,17 @@ func TestGuideListsEveryPrimitive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the package guide: %v", err)
 	}
+	// Scoped to the Primitives section rather than the whole guide. Scanning everything would let any
+	// later markdown table whose first cell is a Check* code span satisfy this, so the required row
+	// could be deleted with the test still green, which is the drift it exists to catch.
+	section, ok := primitivesSection(string(guide))
+	if !ok {
+		t.Fatal("AGENTS.md has no `## Primitives` section, so the table this holds to the code has " +
+			"been removed or renamed")
+	}
+
 	documented := map[string]bool{}
-	for _, m := range regexp.MustCompile(`\| `+"`"+`(Check\w+)`+"`").FindAllStringSubmatch(string(guide), -1) {
+	for _, m := range regexp.MustCompile(`\| `+"`"+`(Check\w+)`+"`").FindAllStringSubmatch(section, -1) {
 		documented[m[1]] = true
 	}
 	if len(documented) == 0 {
@@ -350,6 +359,20 @@ func TestGuideListsEveryPrimitive(t *testing.T) {
 			t.Errorf("the Primitives table lists %s, which this package does not export", name)
 		}
 	}
+}
+
+// primitivesSection returns the guide's Primitives section, from its heading to the next one.
+func primitivesSection(guide string) (string, bool) {
+	const heading = "## Primitives"
+	start := strings.Index(guide, heading)
+	if start < 0 {
+		return "", false
+	}
+	rest := guide[start+len(heading):]
+	if next := strings.Index(rest, "\n## "); next >= 0 {
+		return rest[:next], true
+	}
+	return rest, true
 }
 
 // exportedChecks returns the names of the exported Check functions the package in dir declares.

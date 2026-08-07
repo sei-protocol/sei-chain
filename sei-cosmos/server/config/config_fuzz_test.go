@@ -807,31 +807,20 @@ var apiKeys = []configtest.KeySpec{
 	},
 }
 
-// readAPI resolves [api] through GetConfig, the way readStateSync does for its section.
 func readAPI(t testing.TB) func(configtest.AppOpts) (any, error) {
-	return func(opts configtest.AppOpts) (any, error) {
-		cfg, err := GetConfig(newAppViper(t, opts))
-		if err != nil {
-			return nil, err
-		}
-		return cfg.API, nil
-	}
+	return sectionOfGetConfig(t, func(c Config) any { return c.API })
 }
 
 // FuzzAPIConfig drives every [api] row.
 //
-// Two seeds per row and three on the numeric ones. Every row here is unguarded, so an absent key,
-// a nil value and a value the cast rejects all land on the same zero, and only a value that
-// converts to something else states the key is read at all. The string row stops at two because a
-// string cast has no malformed input to swallow.
+// Three seeds per row, uniformly. Every row here is unguarded, so an absent key, a nil value and a
+// value the cast rejects all land on the same zero, and only a value that converts to something else
+// states the key is read at all. The nil and malformed pair comes from seedEveryRow, the same shape
+// the other five sections use.
 func FuzzAPIConfig(f *testing.F) {
 	read := readAPI(f)
 	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
-
-	for i := range len(apiKeys) {
-		seeds.AddRow(uint(i), fuzzing.KindNil, "", int64(0), false)
-		seeds.AddRow(uint(i), fuzzing.KindString, "not-a-number", int64(0), false)
-	}
+	seedEveryRow(seeds, len(apiKeys))
 
 	// The discriminating value per row, each chosen away from both the cast's zero and the
 	// declared default so the row states its own key is the one being read.
@@ -861,42 +850,6 @@ func TestAPIKeyNamesMatchTheRecordedNames(t *testing.T) {
 // key the reader looks up.
 func TestAPIManifestNamesEveryField(t *testing.T) {
 	configtest.CheckManifestCoversEveryField(t, "api", DefaultConfig().API, apiKeys)
-}
-
-// TestGetConfigAPIReadsAreUnguarded records which [api] fields an absent section changes.
-//
-// Five of the eight resolve to something other than what DefaultConfig declares. The generated
-// app.toml writes the section with those defaults interpolated (toml.go:130), so a freshly
-// initialised node is fine; what this describes is a node whose file lacks the section. There is no
-// flag fallback, which is where [api] differs from [state-sync]: no api.* flag is registered in
-// this tree, so the zero is the value, not a placeholder a bound flag replaces.
-//
-// Recorded rather than repaired, because a characterization test does not change readers. Either
-// side moving fails this: a guard makes an absent read return the declared default, and a default
-// moved to the zero makes the divergence stop being one.
-func TestGetConfigAPIReadsAreUnguarded(t *testing.T) {
-	cfg, err := GetConfig(newAppViper(t, nil))
-	if err != nil {
-		t.Fatalf("GetConfig: %v", err)
-	}
-	def := DefaultConfig().API
-
-	for _, c := range []struct {
-		key              string
-		absent, declared any
-	}{
-		{"api.swagger", cfg.API.Swagger, def.Swagger},
-		{"api.address", cfg.API.Address, def.Address},
-		{"api.max-open-connections", cfg.API.MaxOpenConnections, def.MaxOpenConnections},
-		{"api.rpc-read-timeout", cfg.API.RPCReadTimeout, def.RPCReadTimeout},
-		{"api.rpc-max-body-bytes", cfg.API.RPCMaxBodyBytes, def.RPCMaxBodyBytes},
-	} {
-		if c.absent == c.declared {
-			t.Errorf("%s no longer diverges: an absent key and the declared default are both %v. "+
-				"If a guard was added, or the default moved to the getter's zero, update apiKeys "+
-				"and this list in the same PR", c.key, c.absent)
-		}
-	}
 }
 
 // rosetta covers the [rosetta] keys GetConfig reads. Every read is a bare viper getter
@@ -1130,9 +1083,14 @@ func TestTelemetryManifestNamesEveryField(t *testing.T) {
 // TestGetConfigAbsentSectionDivergences records every field these sections resolve away from its
 // declared default when the section is absent from app.toml.
 //
-// One table rather than a test per section, because the divergence is one property and a reader
-// comparing sections wants them side by side. The guarded read is in here too, asserting that it does
-// not diverge, which is what keeps the contrast between grpc-web and api from being prose.
+// One table for all of them, because the divergence is one property and a reader comparing sections
+// wants them side by side. It puts api.max-open-connections and api.rpc-max-body-bytes beside the
+// guarded grpc-web.max-open-connections, which is the contrast worth seeing.
+//
+// The diverges column asserts both directions, so every key is anchored whether or not it moves
+// today. A declared default later shifting onto the getter's zero, or off it, fails here rather than
+// changing the divergence set quietly. The rows set false are the keys whose declared default already
+// equals that zero.
 func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 	cfg, err := GetConfig(newAppViper(t, nil))
 	if err != nil {
@@ -1152,9 +1110,35 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"grpc-web.enable", cfg.GRPCWeb.Enable, def.GRPCWeb.Enable, true},
 		{"grpc-web.address", cfg.GRPCWeb.Address, def.GRPCWeb.Address, true},
 		// The two [grpc] keys read as plain casts. Its other nine are guarded or clamped and are
-		// held to not diverging by TestGetConfigGRPCGuardedKeys.
+		// held to not diverging by TestGetConfigGRPCAbsentReads.
 		{"grpc.enable", cfg.GRPC.Enable, def.GRPC.Enable, true},
 		{"grpc.address", cfg.GRPC.Address, def.GRPC.Address, true},
+
+		// [api]. Five diverge. The three set false have a declared default that is already the
+		// getter's zero, so nothing about the resolved value distinguishes a guard from its absence.
+		{"api.swagger", cfg.API.Swagger, def.API.Swagger, true},
+		{"api.address", cfg.API.Address, def.API.Address, true},
+		{"api.max-open-connections", cfg.API.MaxOpenConnections, def.API.MaxOpenConnections, true},
+		{"api.rpc-read-timeout", cfg.API.RPCReadTimeout, def.API.RPCReadTimeout, true},
+		{"api.rpc-max-body-bytes", cfg.API.RPCMaxBodyBytes, def.API.RPCMaxBodyBytes, true},
+		{"api.enable", cfg.API.Enable, def.API.Enable, false},
+		{"api.enabled-unsafe-cors", cfg.API.EnableUnsafeCORS, def.API.EnableUnsafeCORS, false},
+		{"api.rpc-write-timeout", cfg.API.RPCWriteTimeout, def.API.RPCWriteTimeout, false},
+
+		// The top-level keys, written with no section header. occ-enabled resolving false runs a node
+		// without optimistic concurrency control, and minimum-gas-prices resolving empty is the
+		// spelling for accepting a transaction at any fee.
+		{"minimum-gas-prices", cfg.MinGasPrices, def.MinGasPrices, true},
+		{"inter-block-cache", cfg.InterBlockCache, def.InterBlockCache, true},
+		{"pruning", cfg.Pruning, def.Pruning, true},
+		{"pruning-keep-recent", cfg.PruningKeepRecent, def.PruningKeepRecent, true},
+		{"pruning-interval", cfg.PruningInterval, def.PruningInterval, true},
+		{"concurrency-workers", cfg.ConcurrencyWorkers, def.ConcurrencyWorkers, true},
+		{"occ-enabled", cfg.OccEnabled, def.OccEnabled, true},
+		{"halt-height", cfg.HaltHeight, def.HaltHeight, false},
+		{"halt-time", cfg.HaltTime, def.HaltTime, false},
+		{"min-retain-blocks", cfg.MinRetainBlocks, def.MinRetainBlocks, false},
+		{"compaction-interval", cfg.CompactionInterval, def.CompactionInterval, false},
 		{"telemetry.enabled", cfg.Telemetry.Enabled, def.Telemetry.Enabled, true},
 		{
 			"telemetry.prometheus-retention-time",
@@ -1169,7 +1153,7 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 	} {
 		if got := c.absent != c.declared; got != c.diverges {
 			verb := "no longer diverges from"
-			if c.diverges == false {
+			if !c.diverges {
 				verb = "now diverges from"
 			}
 			t.Errorf("%s %s its declared default: absent=%v declared=%v. If a guard was added or "+
@@ -1296,47 +1280,13 @@ func TestBaseConfigManifestNamesEveryField(t *testing.T) {
 	)
 }
 
-// TestGetConfigBaseConfigDivergences records the top-level fields an app.toml with none of these
-// keys resolves away from their declared defaults.
-//
-// Two of the seven change how a node executes rather than what it logs. occ-enabled resolving false
-// turns off optimistic concurrency control, and concurrency-workers resolving 0 leaves no worker
-// count behind it. minimum-gas-prices resolving empty is the spelling for accepting any fee.
-func TestGetConfigBaseConfigDivergences(t *testing.T) {
-	cfg, err := GetConfig(newAppViper(t, nil))
-	if err != nil {
-		t.Fatalf("GetConfig: %v", err)
-	}
-	def := DefaultConfig().BaseConfig
-	got := cfg.BaseConfig
-
-	for _, c := range []struct {
-		key              string
-		absent, declared any
-	}{
-		{"minimum-gas-prices", got.MinGasPrices, def.MinGasPrices},
-		{"inter-block-cache", got.InterBlockCache, def.InterBlockCache},
-		{"pruning", got.Pruning, def.Pruning},
-		{"pruning-keep-recent", got.PruningKeepRecent, def.PruningKeepRecent},
-		{"pruning-interval", got.PruningInterval, def.PruningInterval},
-		{"concurrency-workers", got.ConcurrencyWorkers, def.ConcurrencyWorkers},
-		{"occ-enabled", got.OccEnabled, def.OccEnabled},
-	} {
-		if c.absent == c.declared {
-			t.Errorf("%s no longer diverges: an absent key and the declared default are both %v. "+
-				"If a guard was added, or the default moved onto the getter's zero, update the row "+
-				"and this table in the same PR", c.key, c.absent)
-		}
-	}
-}
-
 // grpcKeys covers the three [grpc] keys read as plain casts.
 //
 // The section is where the guarding in this reader is most complete, which is why only three keys
 // are rows. Eight others are read behind v.IsSet or through clampNonNegativeDuration and so resolve
 // an absent key to the in-code default rather than to a zero; CheckRow would predict the wrong
 // resolution for each, so they are driven by FuzzGetConfigGRPCDurationClamps and
-// TestGetConfigGRPCGuardedKeys and recorded by name below.
+// TestGetConfigGRPCAbsentReads and recorded by name below.
 //
 // Read this beside apiKeys. Both sections expose a listener with a connection ceiling and a message
 // size ceiling, and here every ceiling is guarded while there none is.
@@ -1361,8 +1311,12 @@ var grpcKeys = []configtest.KeySpec{
 // grpcKeysWithTargetsOfTheirOwn are the [grpc] keys whose resolution a row cannot describe, recorded
 // for their names alone.
 //
-// Every one is read behind a guard or through the negative-duration clamp, so an absent key keeps
-// the in-code default.
+// Six are read behind v.IsSet, so an absent key keeps the in-code default. The other two,
+// max-connection-age and max-connection-age-grace, are read unconditionally through the clamp
+// (config.go:551-552), and their absent value matches the declared default only because both
+// defaults are 0. The clamp rescues a negative value and does nothing for an absent one, so they are
+// unguarded reads whose clobber is invisible. TestGetConfigGRPCAbsentReads holds the two groups
+// apart for that reason.
 //
 // What the record adds is narrower than it looks, and worth stating exactly. Each of these keys is a
 // literal at its read site, so renaming one already reddens its clamp target. The record puts the
@@ -1425,13 +1379,20 @@ func TestGRPCManifestNamesEveryField(t *testing.T) {
 	)
 }
 
-// TestGetConfigGRPCGuardedKeys records that the eight guarded and clamped [grpc] keys resolve an
-// absent key to the in-code default.
+// TestGetConfigGRPCAbsentReads records what an absent [grpc] key resolves to, holding the guarded
+// reads apart from the two that only look guarded.
 //
-// This is the assertion the exemptions above rest on. Without it the exemption list would be a claim
-// that those fields are covered elsewhere, with nothing checking that they are, and a guard removed
+// This is the assertion the exemptions in TestGRPCManifestNamesEveryField rest on. Without it that
+// list would claim those fields are covered elsewhere with nothing checking it, and a guard removed
 // from any of them would pass every check in this file.
-func TestGetConfigGRPCGuardedKeys(t *testing.T) {
+//
+// The split matters because the two groups fail for different reasons and a reader needs the right
+// one. Six keys are read behind v.IsSet, so a guard is what returns the declared default and losing
+// it is the failure. max-connection-age and max-connection-age-grace have no guard at all: they are
+// read unconditionally and clamped, so an absent key resolves 0 and that happens to equal their
+// declared default. Moving either default off 0 turns them into a visible clobber, which is a
+// different event from a guard disappearing.
+func TestGetConfigGRPCAbsentReads(t *testing.T) {
 	cfg, err := GetConfig(newAppViper(t, nil))
 	if err != nil {
 		t.Fatalf("GetConfig: %v", err)
@@ -1439,6 +1400,7 @@ func TestGetConfigGRPCGuardedKeys(t *testing.T) {
 	def := DefaultConfig().GRPC
 	got := cfg.GRPC
 
+	// Read behind v.IsSet, so the guard is what restores the declared default.
 	for _, c := range []struct {
 		key              string
 		absent, declared any
@@ -1446,16 +1408,37 @@ func TestGetConfigGRPCGuardedKeys(t *testing.T) {
 		{"grpc.max-recv-msg-size", got.MaxRecvMsgSize, def.MaxRecvMsgSize},
 		{"grpc.max-open-connections", got.MaxOpenConnections, def.MaxOpenConnections},
 		{"grpc.max-connection-idle", got.MaxConnectionIdle, def.MaxConnectionIdle},
-		{"grpc.max-connection-age", got.MaxConnectionAge, def.MaxConnectionAge},
-		{"grpc.max-connection-age-grace", got.MaxConnectionAgeGrace, def.MaxConnectionAgeGrace},
 		{"grpc.keepalive-time", got.KeepaliveTime, def.KeepaliveTime},
 		{"grpc.keepalive-timeout", got.KeepaliveTimeout, def.KeepaliveTimeout},
 		{"grpc.keepalive-min-time", got.KeepaliveMinTime, def.KeepaliveMinTime},
 	} {
 		if c.absent != c.declared {
-			t.Errorf("an absent %s resolved to %v rather than the declared %v, so its guard is "+
-				"gone. That is the failure the guard exists to prevent, and config.go:519-521 says "+
+			t.Errorf("an absent %s resolved to %v rather than the declared %v, so its v.IsSet guard "+
+				"is gone. That is the failure the guard exists to prevent, and config.go:519-521 says "+
 				"why: a node upgrading with an older app.toml stays bounded", c.key, c.absent, c.declared)
+		}
+	}
+
+	// Read unconditionally and clamped. Nothing guards these, so the assertion is on the coincidence
+	// itself: the declared default is the getter's zero, which is why an absent key looks correct.
+	for _, c := range []struct {
+		key      string
+		absent   time.Duration
+		declared time.Duration
+	}{
+		{"grpc.max-connection-age", got.MaxConnectionAge, def.MaxConnectionAge},
+		{"grpc.max-connection-age-grace", got.MaxConnectionAgeGrace, def.MaxConnectionAgeGrace},
+	} {
+		if c.declared != 0 {
+			t.Errorf("%s's declared default is now %v rather than 0. It is read unconditionally and "+
+				"only clamped, so an absent key still resolves 0, which is now a clobber the manifest "+
+				"should carry as a row rather than an exemption", c.key, c.declared)
+			continue
+		}
+		if c.absent != 0 {
+			t.Errorf("an absent %s resolved to %v rather than 0. That means a guard was added or the "+
+				"clamp changed, which is a fine end state and moves this key into the guarded group "+
+				"above", c.key, c.absent)
 		}
 	}
 }

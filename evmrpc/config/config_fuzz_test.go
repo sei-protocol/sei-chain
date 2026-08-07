@@ -255,10 +255,13 @@ func FuzzTracerAllowlists(f *testing.F) {
 // for a registered non-JS tracer, and true for anything unregistered, because an
 // unregistered name is treated as JS source.
 //
-// So the property is: every name IsNativeTraceTracer accepts must be non-JS in
-// geth. Adding a name to the set that geth does not register would open an
-// in-process JS path on a node whose operator only listed a tracer, and this is
-// the assertion that catches it.
+// So the property is that every name IsNativeTraceTracer accepts must be non-JS in geth. Adding a
+// name to the set that geth does not register would open an in-process JS path on a node whose
+// operator only listed a tracer.
+//
+// This walks the default list, which is the operator-facing half. The set itself is walked by
+// TestEveryNativeTracerEntryIsNonJSInGeth, which enumerates nativeTraceTracers from source, so an
+// entry added to the map without being added to the defaults is caught there rather than here.
 func TestNativeTracerSetIsNonJSInGeth(t *testing.T) {
 	for _, name := range config.DefaultTraceAllowedTracers() {
 		if !config.IsNativeTraceTracer(name) {
@@ -268,18 +271,6 @@ func TestNativeTracerSetIsNonJSInGeth(t *testing.T) {
 		if tracers.DefaultDirectory.IsJS(name) {
 			t.Errorf("%q is allowlisted as native but geth resolves it through the JS evaluator; "+
 				"allowlisting it lets debug_trace* run JavaScript in-process", name)
-		}
-	}
-
-	// The default list is the whole set today. If a tracer is added to the set
-	// without being added to the defaults, this catches the omission so the check
-	// above cannot silently stop covering it.
-	for _, name := range []string{
-		config.TraceTracerCall, config.TraceTracerPrestate, config.TraceTracerFlatCall,
-		config.TraceTracer4Byte, config.TraceTracerNoop, config.TraceTracerMux,
-	} {
-		if tracers.DefaultDirectory.IsJS(name) {
-			t.Errorf("native tracer constant %q is not registered as non-JS in geth", name)
 		}
 	}
 }
