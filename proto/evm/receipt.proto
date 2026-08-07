@@ -29,4 +29,7 @@ message Receipt {
   repeated Log logs = 13;
   // buf:lint:ignore FIELD_LOWER_SNAKE_CASE We have caught this late; keeping to avoid breaking changes.
   bytes logsBloom = 14;
+  // True when the tx failed in state-transition checks before Create/Call
+  // (e.g. EIP-7623 floor data gas).
+  bool pre_execution_failure = 15 [(gogoproto.moretags) = "yaml:\"pre_execution_failure\""];
 }

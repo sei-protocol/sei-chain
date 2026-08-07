@@ -367,6 +367,9 @@ func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 //     never reached the VM. WriteReceipt for any executed tx sets both
 //     fields > 0 (intrinsic gas at minimum, msg.GasPrice for the fee on
 //     a chain with positive min fee), so reverts and OOG pass through.
+//   - PreExecutionFailure: state-transition returned before Create/Call
+//     (e.g. EIP-7623 floor data gas). Those receipts still get WriteReceipt
+//     with GasUsed/EffectiveGasPrice set; the flag is set at write time.
 //
 // This is intentionally narrower than isReceiptFromAnteError's
 // post-v5.8.0 branch: that helper is tuned to keep insufficient-funds
@@ -374,7 +377,8 @@ func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 // PR #2343). *ExcludeTraceFail wants the opposite per evmrpc/README.md.
 func isReceiptUntraceable(receipt *types.Receipt) bool {
 	return receipt.TxType == types.ShellEVMTxType ||
-		(receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0)
+		(receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0) ||
+		receipt.PreExecutionFailure
 }
 
 type ParallelRunner struct {

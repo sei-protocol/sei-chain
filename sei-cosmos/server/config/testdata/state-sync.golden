@@ -1,0 +1,3 @@
+SnapshotInterval = uint64(0)
+SnapshotKeepRecent = uint32(2)
+SnapshotDirectory = string("")
