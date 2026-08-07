@@ -165,6 +165,14 @@ func TestNewCustomAppConfigKeepsOnlyWhatItIsHanded(t *testing.T) {
 	base := srvconfig.DefaultConfig()
 	base.API.Enable = !base.API.Enable // an embedded field, which must survive
 
+	// srvconfig.Config declares StateCommit and StateStore too (config.go:306-307) and DefaultConfig
+	// seeds both from sei-db, so leaving them at their defaults would make the two assertions below
+	// unable to tell a hardcoded section from a forwarded one. Moved off the default here so
+	// forwarding either would redden, which is the property CheckEveryRowHasADiscriminatingSeed
+	// enforces for manifest rows and which a hand-written assertion needs just as much.
+	base.StateCommit.Enable = !base.StateCommit.Enable
+	base.StateStore.KeepRecent = base.StateStore.KeepRecent + 12345
+
 	evm := evmrpcconfig.DefaultConfig
 	evm.HTTPEnabled = !evm.HTTPEnabled // an EVM field, which must survive
 	evm.HTTPPort = 18545
@@ -182,8 +190,10 @@ func TestNewCustomAppConfigKeepsOnlyWhatItIsHanded(t *testing.T) {
 			got.EVM.HTTPEnabled, got.EVM.HTTPPort)
 	}
 
-	// And the sections it hardcodes. Each is compared against the default it is built from, so a
-	// section that started forwarding a caller value fails here and gets a decision.
+	// And the sections it hardcodes, each compared against the default it is built from. base carries
+	// non-default values for the two it could forward, so a section that started forwarding fails here
+	// and gets a decision. ReceiptStore is not a field on srvconfig.Config at all, so it cannot be
+	// forwarded from base and its row holds only that the hardcoded default has not moved.
 	if got.StateStore != seidbconfig.DefaultStateStoreConfig() {
 		t.Error("the state-store section is no longer the sei-db default, so it now carries " +
 			"something the caller supplied; see TestNodeModeStateStoreOverlayIsDiscarded")

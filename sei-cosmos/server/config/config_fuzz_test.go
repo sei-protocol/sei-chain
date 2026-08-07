@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -1091,9 +1092,12 @@ func TestTelemetryManifestNamesEveryField(t *testing.T) {
 // the divergence set quietly. The rows set false are the keys whose declared default already equals
 // that zero.
 //
-// Every plain cast across the six sections is here except index-events, which resolves to a []string
-// and cannot be compared with != through an any. None of these sections is wired to CheckAbsent, so
-// this table is the only thing tying their absent-key resolution to their declared defaults.
+// Every plain cast across the six sections is here. None of these sections is wired to CheckAbsent,
+// so this table is the only thing tying their absent-key resolution to their declared defaults.
+//
+// Compared with reflect.DeepEqual rather than !=, because != on two any values panics rather than
+// reporting when either side holds a slice or a map. index-events already holds a []string, and a
+// field type changing to one later would otherwise turn this table into a panic.
 func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 	cfg, err := GetConfig(newAppViper(t, nil))
 	if err != nil {
@@ -1166,9 +1170,9 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 			cfg.Telemetry.EnableServiceLabel, def.Telemetry.EnableServiceLabel, false,
 		},
 
-		// index-events is the one plain cast that cannot join this table. It resolves to a []string, and
-		// the comparison below is != on an any, which panics on a slice rather than reporting. Its
-		// absent-key resolution is held by its row in baseConfigKeys instead.
+		// index-events resolves to a []string, which is why the comparison is reflect.DeepEqual rather
+		// than !=. Both sides are nil today, so it is a false row.
+		{"index-events", cfg.IndexEvents, def.IndexEvents, false},
 		{"telemetry.enabled", cfg.Telemetry.Enabled, def.Telemetry.Enabled, true},
 		{
 			"telemetry.prometheus-retention-time",
@@ -1181,7 +1185,7 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 			cfg.GRPCWeb.MaxOpenConnections, def.GRPCWeb.MaxOpenConnections, false,
 		},
 	} {
-		if got := c.absent != c.declared; got != c.diverges {
+		if got := !reflect.DeepEqual(c.absent, c.declared); got != c.diverges {
 			verb := "no longer diverges from"
 			if !c.diverges {
 				verb = "now diverges from"
