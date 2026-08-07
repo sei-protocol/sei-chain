@@ -68,12 +68,15 @@ make install  # install seid into $GOBIN
 Tests run with the race detector and coverage. `go-test.yml`'s Race Detection job
 shards into `NUM_SPLIT` (currently 3) parallel matrix jobs, split by
 [`.github/scripts/testsplit`](.github/scripts/testsplit): it bin-packs packages
-by historical per-package duration (queried from the last successful `main`
-run) when that data is available, falling back to a deterministic round-robin
-split otherwise. `make test-group-N` runs the same tool locally — without a
-`GITHUB_TOKEN` env var it always takes the round-robin path, so the local
-split won't exactly match a given CI shard, but the package set and flags
-(`-race`, `occ_tests` `-parallel=1`) are otherwise identical:
+by historical per-package duration, querying the current branch's own last
+successful run first (so a long-lived PR's shards reflect its own test
+changes) and falling back to `main`'s last successful run if the branch has
+no history yet (e.g. a PR's first push), then falling back further to a
+deterministic round-robin split if neither has usable data. `make test-group-N`
+runs the same tool locally — without a `GITHUB_TOKEN` env var it always takes
+the round-robin path, so the local split won't exactly match a given CI
+shard, but the package set and flags (`-race`, `occ_tests` `-parallel=1`)
+are otherwise identical:
 
 ```bash
 NUM_SPLIT=3 make test-group-0   # run one local shard (round-robin without GITHUB_TOKEN)

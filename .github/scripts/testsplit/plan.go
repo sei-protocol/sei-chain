@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -21,13 +22,17 @@ import (
 // plain round-robin split.
 const minTimingCoverage = 0.5
 
+// apiBase is overridden in tests to point at an httptest server.
+var apiBase = "https://api.github.com"
+
 func runPlan(args []string) error {
 	fs := flag.NewFlagSet("plan", flag.ExitOnError)
 	numSplit := fs.Int("num-split", 0, "number of shards to split packages into")
 	outDir := fs.String("out-dir", "build", "directory to write packages.txt.N shard files into")
 	repo := fs.String("repo", os.Getenv("GITHUB_REPOSITORY"), "owner/repo to query for prior timing data")
 	workflow := fs.String("workflow", "go-test.yml", "workflow file name to query for the last successful run")
-	branch := fs.String("branch", "main", "branch to source prior timing data from")
+	branch := fs.String("branch", defaultBranch(), "this run's own branch, tried before falling back to --base-branch")
+	baseBranch := fs.String("base-branch", "main", "branch to fall back to if --branch has no timing history yet")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -44,7 +49,7 @@ func runPlan(args []string) error {
 	}
 
 	var shards [][]string
-	timings, err := fetchTimings(*repo, *workflow, *branch, os.Getenv("GITHUB_TOKEN"))
+	timings, source, err := fetchTimings(*repo, *workflow, *branch, *baseBranch, os.Getenv("GITHUB_TOKEN"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "testsplit: could not fetch prior timings, falling back to round-robin: %v\n", err)
 		shards = roundRobin(packages, *numSplit)
@@ -52,7 +57,7 @@ func runPlan(args []string) error {
 		fmt.Fprintf(os.Stderr, "testsplit: only %.0f%% of packages have known timings, falling back to round-robin\n", coverage*100)
 		shards = roundRobin(packages, *numSplit)
 	} else {
-		fmt.Fprintf(os.Stderr, "testsplit: bin-packing %d packages across %d shards using historical timings\n", len(packages), *numSplit)
+		fmt.Fprintf(os.Stderr, "testsplit: bin-packing %d packages across %d shards using timings from %s\n", len(packages), *numSplit, source)
 		shards = binPack(packages, timings, *numSplit)
 	}
 
@@ -163,21 +168,62 @@ func meanDuration(timings map[string]float64) float64 {
 	return total / float64(len(timings))
 }
 
-// fetchTimings finds the most recent successful push-triggered run of
-// `workflow` on `branch` and downloads the per-package timing data it
-// recorded, if any. It intentionally only looks at `branch` runs so a
-// noisy or unusually slow PR branch can never skew another PR's shard
-// assignment.
-func fetchTimings(repo, workflow, branch, token string) (map[string]float64, error) {
+// defaultBranch reports this run's own branch from the environment GitHub
+// Actions already sets: GITHUB_HEAD_REF for pull_request-triggered runs
+// (the PR's head branch), falling back to GITHUB_REF_NAME otherwise (e.g.
+// "main" or "release/v1.2" on a push-triggered run).
+func defaultBranch() string {
+	if head := os.Getenv("GITHUB_HEAD_REF"); head != "" {
+		return head
+	}
+	return os.Getenv("GITHUB_REF_NAME")
+}
+
+// fetchTimings looks for per-package timing data recorded by a prior run
+// of `workflow`, trying `branch` (this run's own branch) first and falling
+// back to `baseBranch` if `branch` has no successful run yet — e.g. a PR's
+// first push, before it has any history of its own. Using each branch's
+// own latest run first means a long-lived PR gets timings that reflect
+// exactly its own test changes; falling back to `baseBranch` means a
+// brand-new branch still benefits from steady-state history instead of
+// dropping straight to round-robin.
+func fetchTimings(repo, workflow, branch, baseBranch, token string) (map[string]float64, string, error) {
 	if repo == "" {
-		return nil, fmt.Errorf("repo is empty (set --repo or GITHUB_REPOSITORY)")
+		return nil, "", fmt.Errorf("repo is empty (set --repo or GITHUB_REPOSITORY)")
 	}
 	if token == "" {
-		return nil, fmt.Errorf("no GITHUB_TOKEN provided")
+		return nil, "", fmt.Errorf("no GITHUB_TOKEN provided")
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
+	var errs []error
+	for _, candidate := range dedupBranches(branch, baseBranch) {
+		timings, err := fetchTimingsFromBranch(client, repo, workflow, candidate, token)
+		if err == nil {
+			return timings, candidate, nil
+		}
+		errs = append(errs, fmt.Errorf("%s: %w", candidate, err))
+	}
+	return nil, "", fmt.Errorf("no timing history on any of %v: %w", []string{branch, baseBranch}, errors.Join(errs...))
+}
+
+// dedupBranches returns the non-empty, order-preserved, de-duplicated
+// branch candidates to try.
+func dedupBranches(branches ...string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, b := range branches {
+		if b == "" || seen[b] {
+			continue
+		}
+		seen[b] = true
+		out = append(out, b)
+	}
+	return out
+}
+
+func fetchTimingsFromBranch(client *http.Client, repo, workflow, branch, token string) (map[string]float64, error) {
 	runID, err := latestSuccessfulRun(client, repo, workflow, branch, token)
 	if err != nil {
 		return nil, err
@@ -215,8 +261,8 @@ func apiGet(client *http.Client, url, token string, out any) error {
 
 func latestSuccessfulRun(client *http.Client, repo, workflow, branch, token string) (int64, error) {
 	url := fmt.Sprintf(
-		"https://api.github.com/repos/%s/actions/workflows/%s/runs?branch=%s&status=success&event=push&per_page=1",
-		repo, workflow, branch,
+		"%s/repos/%s/actions/workflows/%s/runs?branch=%s&status=success&per_page=1",
+		apiBase, repo, workflow, branch,
 	)
 	var result struct {
 		WorkflowRuns []struct {
@@ -235,7 +281,7 @@ func latestSuccessfulRun(client *http.Client, repo, workflow, branch, token stri
 const timingsArtifactName = "package-timings"
 
 func findTimingsArtifactURL(client *http.Client, repo string, runID int64, token string) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/actions/runs/%d/artifacts", repo, runID)
+	url := fmt.Sprintf("%s/repos/%s/actions/runs/%d/artifacts", apiBase, repo, runID)
 	var result struct {
 		Artifacts []struct {
 			Name               string `json:"name"`
