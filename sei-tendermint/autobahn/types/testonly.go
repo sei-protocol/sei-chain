@@ -3,6 +3,7 @@ package types
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -89,7 +90,9 @@ func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 		panic(err)
 	}
 	lanes := make([]LaneID, 0, len(weights))
-	for v := range weights {
+	vs := slices.Collect(maps.Keys(weights))
+	slices.SortFunc(vs, PublicKey.Compare)
+	for _, v := range vs {
 		lanes = append(lanes, NewLaneID(v, GenEpochIndex(rng)))
 	}
 	return utils.OrPanic1(finalizeCommittee(lanes, weights, total)), sks

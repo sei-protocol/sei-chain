@@ -41,8 +41,9 @@ func (l LaneID) Compare(other LaneID) int {
 
 // Bytes returns a stable encoding: pubkey bytes || big-endian e_join.
 func (l LaneID) Bytes() []byte {
-	b := make([]byte, 0, len(l.validator.Bytes())+8)
-	b = append(b, l.validator.Bytes()...)
+	vb := l.validator.Bytes()
+	b := make([]byte, 0, len(vb)+8)
+	b = append(b, vb...)
 	return binary.BigEndian.AppendUint64(b, uint64(l.eJoin))
 }
 
@@ -60,15 +61,11 @@ func LaneIDFromBytes(b []byte) (LaneID, error) {
 	return NewLaneID(validator, eJoin), nil
 }
 
-// String returns a log-friendly representation.
 func (l LaneID) String() string {
 	return fmt.Sprintf("%s@e%d", l.validator.String(), l.eJoin)
 }
 
-// GoString returns the same as String.
-func (l LaneID) GoString() string { return l.String() }
-
-// HexString encodes Bytes() as hex (used for WAL directory names).
+// HexString encodes Bytes() as hex (WAL directory names).
 func (l LaneID) HexString() string { return hex.EncodeToString(l.Bytes()) }
 
 // LaneIDConv is a protobuf converter for LaneID.

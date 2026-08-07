@@ -39,7 +39,7 @@ func (c *Committee) HasReplica(k PublicKey) bool {
 
 func (c *Committee) HasLane(l LaneID) bool {
 	got, ok := c.byValidator[l.validator]
-	return ok && got == l
+	return ok && got.eJoin == l.eJoin
 }
 
 // Lane returns the LaneID for validator v in this committee, if present.
@@ -141,9 +141,6 @@ func NewCommittee(weights map[PublicKey]uint64) (*Committee, error) {
 // e_join from prev for continuous members and stamping e_join = e for joiners.
 // prev is required; e must be > 0.
 func ActivateCommittee(prev *Committee, weights map[PublicKey]uint64, e EpochIndex) (*Committee, error) {
-	if prev == nil {
-		return nil, errors.New("ActivateCommittee: prev is required")
-	}
 	if e == 0 {
 		return nil, errors.New("ActivateCommittee: epoch must be > 0")
 	}
@@ -184,10 +181,10 @@ func normalizeWeights(weights map[PublicKey]uint64) (map[PublicKey]uint64, uint6
 	return weights, totalWeight, nil
 }
 
-// finalizeCommittee sorts by pubkey only and rejects duplicate validators
+// finalizeCommittee sorts lanes and rejects duplicate validators
 // (one pubkey must not appear with multiple e_join values).
 func finalizeCommittee(lanes []LaneID, weights map[PublicKey]uint64, totalWeight uint64) (*Committee, error) {
-	slices.SortFunc(lanes, func(a, b LaneID) int { return a.validator.Compare(b.validator) })
+	slices.SortFunc(lanes, LaneID.Compare)
 	for i := 1; i < len(lanes); i++ {
 		if lanes[i].validator == lanes[i-1].validator {
 			return nil, fmt.Errorf(
@@ -206,13 +203,4 @@ func finalizeCommittee(lanes []LaneID, weights map[PublicKey]uint64, totalWeight
 		weights:     weights,
 		totalWeight: totalWeight,
 	}, nil
-}
-
-// NewRoundRobinElection creates a Committee with equal weights for each replica (e_join = 0).
-func NewRoundRobinElection(replicas []PublicKey) (*Committee, error) {
-	weights := map[PublicKey]uint64{}
-	for _, k := range replicas {
-		weights[k] = 1
-	}
-	return NewCommittee(weights)
 }
