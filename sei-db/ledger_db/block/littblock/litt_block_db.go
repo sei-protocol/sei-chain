@@ -80,16 +80,14 @@ func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to build ledger table: %w", err)
 	}
-
 	s.table = table
-
+	if err := s.recoverWatermark(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to recover watermark: %w", err)
+	}
 	if err := s.recoverCursors(); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to recover write cursors: %w", err)
-	}
-	if err := s.recoverReadFloors(); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to recover read floors: %w", err)
 	}
 	return s, nil
 }
@@ -102,14 +100,7 @@ func (s *blockDB) recoverCursors() error {
 	if err != nil {
 		return fmt.Errorf("read recent data: %w", err)
 	}
-	status, ok := recent.Status.Get()
-	if !ok {
-		if len(recent.Blocks) > 0 {
-			return fmt.Errorf("corrupt store: newest block %d has no surviving QC covering it", recent.Blocks[len(recent.Blocks)-1].Number)
-		}
-		return nil
-	}
-	s.status = utils.Some(status)
+	s.status = recent.Status
 	return nil
 }
 
@@ -123,7 +114,7 @@ func (s *blockDB) recoverCursors() error {
 // The block search is skipped when the store holds no blocks — status.NextBlock
 // comes from recoverCursors, which runs first — so a QC-only store does not walk
 // the whole table looking for a block that is not there.
-func (s *blockDB) recoverReadFloors() error {
+func (s *blockDB) recoverWatermark() error {
 	status, ok := s.status.Get()
 	if !ok {
 		return nil
@@ -133,9 +124,7 @@ func (s *blockDB) recoverReadFloors() error {
 		return fmt.Errorf("failed to open read floor recovery iterator: %w", err)
 	}
 	defer func() { _ = it.Close() }()
-
-	needQC, needBlock := true, status.NextBlock != 0
-	for needQC || needBlock {
+	for {
 		ok, err := it.Next()
 		if err != nil {
 			return fmt.Errorf("failed to advance read floor recovery iterator: %w", err)
@@ -150,59 +139,34 @@ func (s *blockDB) recoverReadFloors() error {
 		if !isPrimary {
 			continue
 		}
-		switch keyKind(key) {
-		case kindQC:
-			if needQC {
-				oldest := decodeNumberKey(key)
-				s.watermark.Store(uint64(oldest))
-				needQC = false
-			}
-		case kindBlock:
-			if needBlock {
-				needBlock = false
-			}
+		if keyKind(key) != kindQC {
+			continue
 		}
+		s.watermark.Store(uint64(decodeNumberKey(key)))
+		return nil
 	}
-
-	if needQC && status.NextBlock != 0 {
-		// No QC survives. The never-empty prune invariant guarantees at least one
-		// (block, QC) pair is always retained, so blocks-without-QC is unreachable
-		// through normal operation — it means the store is corrupt (e.g. a QC WAL
-		// file was removed out of band). Refuse to open rather than serve blocks we
-		// can no longer trust.
-		return fmt.Errorf("corrupt store: newest block %d has no surviving QC covering it", status.NextBlock-1)
-	}
-	return nil
-}
-
-func setUnstartedFloor(status *types.DBStatus, first types.GlobalBlockNumber) {
-	oldFirst := status.First
-	if status.NextAppQC == oldFirst {
-		status.NextAppQC = first
-	}
-	if status.NextAppProposal == oldFirst {
-		status.NextAppProposal = first
-	}
-	if status.NextBlock == oldFirst {
-		status.NextBlock = first
-	}
-	status.First = first
+	// No QC survives. The never-empty prune invariant guarantees at least one
+	// (block, QC) pair is always retained, so blocks-without-QC is unreachable
+	// through normal operation — it means the store is corrupt (e.g. a QC WAL
+	// file was removed out of band). Refuse to open rather than serve blocks we
+	// can no longer trust.
+	return fmt.Errorf("corrupt store: newest block %d has no surviving QC covering it", status.NextBlock-1)
 }
 
 func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	status, ok := s.status.Get()
-	if ok && status.NextBlock > status.First && n != status.NextBlock {
-		return fmt.Errorf("block number %d not contiguous with last written %d: %w",
-			n, status.NextBlock-1, types.ErrBlockOutOfOrder)
-	}
 	// A covering QC must already be written. Since QCs are contiguous and blocks
 	// strictly ascending, n is covered iff n < status.NextQC. This guard also fixes
 	// the QC-before-block write order: the covering QC's Put has already issued
 	// under this mutex, so on a crash a surviving block implies a surviving QC.
 	if !ok || n >= status.NextQC {
 		return fmt.Errorf("block number %d not covered by any written QC: %w", n, types.ErrBlockMissingQC)
+	}
+	if n != status.NextBlock {
+		return fmt.Errorf("block number %d not contiguous with last written %d: %w",
+			n, status.NextBlock-1, types.ErrBlockOutOfOrder)
 	}
 
 	value := encodeBlock(n, blk)
@@ -214,10 +178,6 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 	}
 	if err := s.table.Put(blockKey(n), value, hashAlias); err != nil {
 		return fmt.Errorf("failed to put block %d: %w", n, err)
-	}
-
-	if status.NextBlock == status.First {
-		setUnstartedFloor(&status, n)
 	}
 	status.NextBlock = n + 1
 	s.status = utils.Some(status)
@@ -452,13 +412,10 @@ func (s *blockDB) readRecent() (types.RecentData, error) {
 	}
 	defer func() { _ = it.Close() }()
 	var recent types.RecentData
-	var recoveredStatus types.DBStatus
-	var oldestQCStart types.GlobalBlockNumber
-	var oldestBlock types.GlobalBlockNumber
-	var anchorFloor types.GlobalBlockNumber
+	var status types.DBStatus
+	var oldestQC *types.FullCommitQC
 	var gotBlock, gotQC, gotAppProposal, gotAppQC bool
-	var gotAnchorQC bool
-	for {
+	for !gotAppQC || !gotQC || status.NextAppQC <= oldestQC.QC().GlobalRange().Next {
 		ok, err := it.Next()
 		if err != nil {
 			return types.RecentData{}, fmt.Errorf("failed to advance recent-data iterator: %w", err)
@@ -484,10 +441,9 @@ func (s *blockDB) readRecent() (types.RecentData, error) {
 				return types.RecentData{}, fmt.Errorf("failed to decode recent block: %w", err)
 			}
 			if !gotBlock {
-				recoveredStatus.NextBlock = n + 1
+				status.NextBlock = n + 1
 				gotBlock = true
 			}
-			oldestBlock = n
 			recent.Blocks = append(recent.Blocks, types.RecentBlock{Number: n, Block: block})
 		case kindAppQC:
 			appQC, err := decodeAppQC(value)
@@ -496,10 +452,8 @@ func (s *blockDB) readRecent() (types.RecentData, error) {
 			}
 			gr := appQC.Proposal().GlobalRange()
 			if !gotAppQC {
-				recoveredStatus.NextAppQC = gr.Next
-				recoveredStatus.First = gr.Next - 1
-				anchorFloor = recoveredStatus.First
-				gotAnchorQC = commitQCCovers(recent.CommitQCs, anchorFloor)
+				status.NextAppQC = gr.Next
+				status.First = gr.Next - 1
 				gotAppQC = true
 			}
 			recent.AppQCs = append(recent.AppQCs, appQC)
@@ -510,7 +464,7 @@ func (s *blockDB) readRecent() (types.RecentData, error) {
 			}
 			gr := appProposal.GlobalRange()
 			if !gotAppProposal {
-				recoveredStatus.NextAppProposal = gr.Next
+				status.NextAppProposal = gr.Next
 				gotAppProposal = true
 			}
 			recent.AppProposals = append(recent.AppProposals, appProposal)
@@ -521,69 +475,45 @@ func (s *blockDB) readRecent() (types.RecentData, error) {
 			}
 			gr := qc.QC().GlobalRange()
 			if !gotQC {
-				recoveredStatus.NextQC = gr.Next
+				status.NextQC = gr.Next
 				gotQC = true
 			}
-			oldestQCStart = gr.First
-			if gotAppQC && gr.First <= anchorFloor && anchorFloor < gr.Next {
-				gotAnchorQC = true
-			}
+			oldestQC = qc
 			recent.CommitQCs = append(recent.CommitQCs, qc)
-		default:
-		}
-		if gotAppQC && gotAnchorQC {
-			break
 		}
 	}
-	if gotQC {
-		if !gotAppQC {
-			recoveredStatus.First = oldestQCStart
-			if gotBlock {
-				recoveredStatus.First = max(recoveredStatus.First, oldestBlock)
-			}
-		}
-		if !gotBlock {
-			recoveredStatus.NextBlock = recoveredStatus.First
-		}
-		if !gotAppProposal {
-			recoveredStatus.NextAppProposal = recoveredStatus.First
-		}
-		if !gotAppQC {
-			recoveredStatus.NextAppQC = recoveredStatus.First
-		}
-		recent.Status = utils.Some(recoveredStatus)
-		filterRecent(&recent, recoveredStatus.First)
+	if !gotQC {
+		// Empty db.
+		return types.RecentData{}, nil
 	}
+	// Set fields for missing resources.
+	first := oldestQC.QC().GlobalRange().First
+	status.NextQC = max(status.NextQC, first)
+	status.NextBlock = max(status.NextBlock, first)
+	status.NextAppProposal = max(status.NextAppProposal, first)
+	status.NextAppQC = max(status.NextAppQC, first)
+	status.First = max(status.First, first)
+	recent.Status = utils.Some(status)
+
+	// Prune resources fully below status.First.
+	recent.CommitQCs = slices.DeleteFunc(recent.CommitQCs, func(qc *types.FullCommitQC) bool {
+		return qc.QC().GlobalRange().Next <= status.First
+	})
+	recent.Blocks = slices.DeleteFunc(recent.Blocks, func(block types.RecentBlock) bool {
+		return block.Number < status.First
+	})
+	recent.AppProposals = slices.DeleteFunc(recent.AppProposals, func(appProposal *types.AppProposal) bool {
+		return appProposal.GlobalRange().Next <= status.First
+	})
+	recent.AppQCs = slices.DeleteFunc(recent.AppQCs, func(appQC *types.AppQC) bool {
+		return appQC.Proposal().GlobalRange().Next <= status.First
+	})
+	// Put resources in increasing order.
 	slices.Reverse(recent.CommitQCs)
 	slices.Reverse(recent.Blocks)
 	slices.Reverse(recent.AppProposals)
 	slices.Reverse(recent.AppQCs)
 	return recent, nil
-}
-
-func commitQCCovers(qcs []*types.FullCommitQC, n types.GlobalBlockNumber) bool {
-	for _, qc := range qcs {
-		gr := qc.QC().GlobalRange()
-		if gr.First <= n && n < gr.Next {
-			return true
-		}
-	}
-	return false
-}
-
-func filterRecent(recent *types.RecentData, floor types.GlobalBlockNumber) {
-	recent.CommitQCs = slices.DeleteFunc(recent.CommitQCs, func(qc *types.FullCommitQC) bool {
-		return qc.QC().GlobalRange().Next <= floor
-	})
-	recent.Blocks = slices.DeleteFunc(recent.Blocks, func(block types.RecentBlock) bool {
-		return block.Number < floor
-	})
-	recent.AppProposals = slices.DeleteFunc(recent.AppProposals, func(appProposal *types.AppProposal) bool {
-		return appProposal.GlobalRange().Next <= floor
-	})
-	recent.AppQCs = slices.DeleteFunc(recent.AppQCs, func(appQC *types.AppQC) bool {
-		return appQC.Proposal().GlobalRange().Next <= floor
-	})
 }
 
 func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
