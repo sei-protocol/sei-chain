@@ -131,6 +131,7 @@ type budgetBody struct {
 	idleMu      sync.Mutex
 	idleTimer   *time.Timer
 	idleReading bool
+	idleGen     uint64 // bumped on every beginIdleWatch; lets onIdleTimeout detect it fired for a read that has since ended
 }
 
 func (b *budgetBody) Read(p []byte) (int, error) {
@@ -174,10 +175,13 @@ func (b *budgetBody) beginIdleWatch() {
 	}
 	b.idleMu.Lock()
 	defer b.idleMu.Unlock()
+	b.idleGen++
+	gen := b.idleGen
 	if b.idleTimer == nil {
-		b.idleTimer = time.AfterFunc(b.idleTimeout, b.onIdleTimeout)
+		b.idleTimer = time.AfterFunc(b.idleTimeout, func() { b.onIdleTimeout(gen) })
 	} else {
-		b.idleTimer.Reset(b.idleTimeout)
+		b.idleTimer.Stop()
+		b.idleTimer = time.AfterFunc(b.idleTimeout, func() { b.onIdleTimeout(gen) })
 	}
 	b.idleReading = true
 }
@@ -194,17 +198,21 @@ func (b *budgetBody) endIdleWatch() {
 	}
 }
 
-func (b *budgetBody) onIdleTimeout() {
+// onIdleTimeout fires for the read that was current when it was armed (gen). If a
+// newer read has since begun, or the read it was armed for has already completed,
+// idleGen/idleReading will have moved past it and it must not touch the deadline —
+// otherwise a timer stale by even one scheduler hop can 408 the next, healthy read.
+// The deadline mutation happens while still holding idleMu so that check and act are
+// atomic with respect to begin/endIdleWatch.
+func (b *budgetBody) onIdleTimeout(gen uint64) {
 	b.idleMu.Lock()
-	reading := b.idleReading
-	rc := b.rc
-	b.idleMu.Unlock()
-	if !reading || rc == nil {
+	defer b.idleMu.Unlock()
+	if gen != b.idleGen || !b.idleReading || b.rc == nil {
 		return
 	}
 	// Only touch the socket deadline once the idle period has actually expired.
 	// net/http's ReadTimeout stays armed until then.
-	_ = rc.SetReadDeadline(time.Now())
+	_ = b.rc.SetReadDeadline(time.Now())
 }
 
 // clearReadDeadline clears any deadline this wrapper set after an idle timeout.
