@@ -14,7 +14,7 @@ import (
 // leaf spliced in (assertResolvedView). When the value a seed carries resolves that
 // leaf to what an absent key already resolves it to, the two sides of the comparison
 // are identical and the assertion holds for a reader that reads the key and for one
-// that never looks it up — the resolved documents are the same document. A row whose
+// that never looks it up, because the resolved documents are the same document. A row whose
 // every seed is of that shape is pinned in appearance only: renaming its key in the
 // production reader leaves the suite green.
 //
@@ -102,9 +102,9 @@ func (s *Seeds) Add(kind uint8, str string, n int64, b bool) {
 // written, spread over the two shapes discriminationHint names.
 //
 // It runs before f.Fuzz rather than inside the fuzz function on purpose. Only the
-// corpus as a whole can answer the question — a nil value on a guarded row is
+// corpus as a whole can answer the question, since a nil value on a guarded row is
 // legitimately non-discriminating, and asserting per value would forbid the seed
-// that pins the guard — and only the target body sees the corpus as a whole. That
+// that pins the guard, and only the target body sees the corpus as a whole. That
 // also makes the verdict identical in every mode the suite runs in: it depends on
 // the seeds the target declares, not on which of them a given process happens to
 // execute, so a single-seed -run filter and a -fuzz worker reach the same answer as
@@ -112,15 +112,14 @@ func (s *Seeds) Add(kind uint8, str string, n int64, b bool) {
 //
 // What makes that last claim true is that the corpus it reads is the recorder's and
 // nothing else: seeds.entries, never the entries a -fuzz run has cached under
-// GOCACHE. One target was measured at 140 cached corpus entries against 6 declared
-// seeds, so a cached entry that happens to discriminate a row cannot stand in for a
-// seed the target does not declare, and a row's verdict does not depend on whose
-// machine it runs on.
+// GOCACHE. One target carries 140 cached corpus entries against 6 declared seeds, so a
+// cached entry that happens to discriminate a row cannot stand in for a seed the target
+// does not declare, and a row's verdict does not depend on whose machine it runs on.
 //
 // One consequence is worth knowing before it surprises someone. F.Fuzz returns
 // without running anything when the target has already failed, so a section whose
 // seeds fail here does not run its row assertions until the seeds are repaired.
-// Asserting after f.Fuzz instead — which would let both run — is worse than it
+// Asserting after f.Fuzz instead, which would let both run, is worse than it
 // looks: under -fuzz, F.Fuzz does not return until a problem is found, fuzztime runs
 // out, or a signal interrupts the process (testing/fuzz.go:208-210), so the verdict
 // would be withheld for the whole fuzzing window and skipped altogether on an
@@ -131,7 +130,7 @@ func (s *Seeds) Add(kind uint8, str string, n int64, b bool) {
 //
 // specs is the same table the fuzz function picks from, and row indices are reduced
 // modulo its length exactly as Pick reduces them. alsoRecorded names the section's
-// keys that have no row — the ones a target of their own asserts — and is here
+// keys that have no row, the ones a target of their own asserts, and is here
 // because this is where the record is compared: it must be the same list
 // CheckKeyNames is given, or the two disagree with the file and both say so.
 func CheckEveryRowHasADiscriminatingSeed(
@@ -157,9 +156,15 @@ func CheckEveryRowHasADiscriminatingSeed(
 	}
 	baselineDump := Dump(baseline)
 
+	// Ordered after the baseline read, and the order is load-bearing. readRejects treats any error from
+	// read as this value being rejected for this key, which holds only once an empty AppOpts is known to
+	// read cleanly. A reader that errored unconditionally would otherwise make every Checked row look
+	// exercised and satisfy this check vacuously across the section.
+	requireCheckedRowsReachTheirErrorPath(t, name, read, specs, seeds)
+
 	// row counts up alongside the range rather than converting the index, so the comparison
 	// against Pick's reduction happens entirely in uint. The conversion this replaces was
-	// provably in range — a value reduced modulo len(specs) cannot exceed an int — but gosec's
+	// provably in range, since a value reduced modulo len(specs) cannot exceed an int, but gosec's
 	// G115 cannot see that, and a //nolint on arithmetic this check depends on would be a
 	// suppression a reader has to take on trust.
 	var row uint
@@ -216,14 +221,14 @@ func CheckEveryRowHasADiscriminatingSeed(
 				"resolves to, so every assertion the row makes is satisfied by a reader that never "+
 				"looks %s up. Renaming the key in the reader would leave this suite green, which is "+
 				"the one thing the manifest exists to prevent. Seed the row with a value that resolves "+
-				"to a different leaf%s — %#v is one that does.",
+				"to a different leaf%s. %#v is one that does.",
 				name, spec.Key, resolve, absent, spec.Key, hint, example)
 			continue
 		}
 		t.Errorf("%s: %s resolves %s to %s no matter what value is put under it, which is what a "+
 			"reader that does not read that key looks like: an AppOpts holding only %s reads "+
 			"identically to an empty one. So this is not a seeding problem and adding seeds will "+
-			"not fix it — the likely cause is a read site renamed while the row kept the old "+
+			"not fix it. The likely cause is a read site renamed while the row kept the old "+
 			"spelling, so compare the key in the reader against the row, and against %s. The other "+
 			"possibility is that %s is not the field this key reaches. %d seed(s) were tried, and "+
 			"so were %d further value shapes.",
@@ -257,9 +262,9 @@ func aDiscriminatingValue(read func(AppOpts) (any, error), spec KeySpec, absent 
 //
 // Every entry is a shape fuzzing.ConfigValue can produce, so one reported back as an
 // example is a seed an engineer can actually write. Between them they move the leaf of
-// every cast the manifest declares — a bool either way, a numeric that is neither zero nor
+// every cast the manifest declares, meaning a bool either way, a numeric that is neither zero nor
 // a plausible default, a non-empty string, a duration spelling, a float, a slice and a map
-// — and on a checked row the ones a cast rejects discriminate through the error instead.
+// and on a checked row the ones a cast rejects discriminate through the error instead.
 //
 // A number is tried first because it is the one shape that reads sensibly whatever the row's
 // cast is: cast turns it into a string, a duration, a float and a non-zero bool, so a row of
@@ -306,7 +311,7 @@ func requireKeyNameRecord(t testing.TB, name, path string, specs []KeySpec, also
 	// -update rewrites the record, and CheckKeyNames is what rewrites it. Comparing against a file
 	// being regenerated in the same run would report the rename someone is recording on purpose,
 	// and would do it or not depending on which of the two tests the runner reached first.
-	if goldenUpdateRequested() {
+	if recordRewriteInProgress(t, name, path) {
 		return
 	}
 
@@ -340,7 +345,7 @@ func requireKeyNameRecord(t testing.TB, name, path string, specs []KeySpec, also
 //
 // The test is observational rather than predictive. A reader consults an AppOpts
 // only through Get, so one that no longer looks spec.Key up resolves an AppOpts
-// holding nothing but that key exactly as it resolves an empty one — the absent-key
+// holding nothing but that key exactly as it resolves an empty one, which is the absent-key
 // view. A value therefore discriminates precisely when the read it produces differs
 // from that view, either by failing where the absent-key read succeeded (the shape a
 // checked row's malformed seed pins) or by moving the leaf the row nominates.
@@ -372,7 +377,7 @@ func seedDiscriminates(read func(AppOpts) (any, error), spec KeySpec, value any,
 // The failure it decorates is nearly always one of two shapes, and they need
 // different repairs. A row whose absent-key leaf is already its cast's zero gets
 // nothing from a nil or from a value the cast rejects, because both resolve to that
-// same zero — every unguarded row is in this position, since an absent key reaches
+// same zero. Every unguarded row is in this position, since an absent key reaches
 // its reader as a nil. A row whose absent-key leaf is a real default is instead
 // undone by a seed that happens to carry that default.
 func discriminationHint(spec KeySpec, absent string) string {
@@ -388,4 +393,98 @@ func discriminationHint(spec KeySpec, absent string) string {
 	return fmt.Sprintf(" (the absent-key leaf is already the %s zero and the read is unchecked, "+
 		"so a nil and a value the cast rejects both resolve to it; only a value that converts to "+
 		"something else can discriminate)", spec.Cast)
+}
+
+// requireCheckedRowsReachTheirErrorPath holds a row's Checked column to what it claims.
+//
+// Checked says the reader propagates a conversion failure as an error instead of swallowing it and
+// keeping the zero value. That difference is what an operator sees for a malformed entry in their
+// config file: a boot that stops and names the key, or a value that is silently inert while the node
+// runs on a default they did not choose. It is the kind of behaviour a suite is worth having for.
+//
+// Nothing required a seed that reaches the error path, so a row could carry the column while every
+// seed it declares casts cleanly. The column then records an intention rather than an observation, and
+// a reader changed from the checked cast to the unchecked one leaves the suite green. This closes that
+// by requiring the corpus to contain at least one value the reader actually rejects.
+//
+// Rows without the column are skipped rather than checked for the opposite: a reader that swallows
+// failures has no error to provoke, and requiring one would be asserting the absence of behaviour by
+// trying to make it happen.
+func requireCheckedRowsReachTheirErrorPath(
+	t testing.TB, name string, read func(AppOpts) (any, error), specs []KeySpec, seeds *Seeds,
+) {
+	t.Helper()
+
+	// Counted alongside the range for the same reason the discriminating loop does it: the comparison
+	// against Pick's reduction stays in uint.
+	var row uint
+	for _, spec := range specs {
+		current := row
+		row++
+
+		if !spec.Checked {
+			continue
+		}
+		if aRejectedSeed(read, spec, seeds, current, specs) {
+			continue
+		}
+
+		example, reachable := aRejectedValue(read, spec)
+		if !reachable {
+			t.Errorf("%s: %s is declared Checked, but no value this suite can produce makes the "+
+				"reader return an error, so the column cannot be true of it. Either the read swallows "+
+				"conversion failures and the column comes off, or the cast rejects a shape the value "+
+				"generator does not build and the generator needs it.", name, spec.Key)
+			continue
+		}
+		t.Errorf("%s: %s is declared Checked, meaning a malformed value is rejected rather than "+
+			"silently kept as the zero value, but none of its seeds is malformed, so nothing exercises "+
+			"that branch and the column records an intention rather than a behaviour. A reader changed "+
+			"to the unchecked cast would leave this row green. Seed it with a value the cast rejects, "+
+			"%#v is one.", name, spec.Key, example)
+	}
+}
+
+// aRejectedSeed reports whether any of the row's own seeds makes the reader return an error.
+//
+// A verdict and nothing more. A row with a rejecting seed has no failure to report, and the failure for
+// a row without one names a value from aRejectedValue, so the rejecting value itself has no reader.
+func aRejectedSeed(
+	read func(AppOpts) (any, error), spec KeySpec, seeds *Seeds, current uint, specs []KeySpec,
+) bool {
+	for _, e := range seeds.entries {
+		// uint(len(specs)) rather than a converted count, so the reduction stays in uint the way the
+		// discriminating loop's does and gosec can see the width is safe.
+		if e.row%uint(len(specs)) != current {
+			continue
+		}
+		if readRejects(read, spec, e.value) {
+			return true
+		}
+	}
+	return false
+}
+
+// aRejectedValue finds a value the reader rejects, so a failure can name one an engineer could write.
+//
+// Reuses the discrimination probes rather than deriving a failing value per cast kind. Their own
+// documentation already notes that on a checked row the shapes a cast rejects discriminate through the
+// error, so the set is known to reach the error path of every cast the manifest declares, and a second
+// table of per-cast failing values would be the same knowledge written twice.
+func aRejectedValue(read func(AppOpts) (any, error), spec KeySpec) (any, bool) {
+	for _, v := range discriminationProbes {
+		if readRejects(read, spec, v) {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+// readRejects reports whether the reader returns an error for this value under this key.
+//
+// The AppOpts carries the row's key alone, so an error is attributable to it rather than to some other
+// key's cast in the same document.
+func readRejects(read func(AppOpts) (any, error), spec KeySpec, value any) bool {
+	_, err := read(AppOpts{spec.Key: value})
+	return err != nil
 }

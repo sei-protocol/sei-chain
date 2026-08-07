@@ -735,10 +735,26 @@ func FuzzConfigValidateBasic(f *testing.F) {
 // recording, so a default that moves shows the new value in a diff instead of passing
 // silently.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
+	// [state-sync] has its own manifest and its own struct, so it gets its own record. The three
+	// values are also inside server_config.golden, which does catch a change to them, so this is for
+	// discoverability rather than detection. A reader asking what [state-sync] defaults to reads three
+	// lines here instead of finding them among two hundred, and the section shows its own defaults
+	// check in the coverage record. Regenerating one of the two records without the other leaves that
+	// other one red.
+	configtest.CheckDefaults(t, "state-sync", DefaultConfig().StateSync)
+
 	configtest.CheckDefaults(t, "server_config", DefaultConfig(),
 		configtest.DerivedDefault{
 			Path: "ConcurrencyWorkers", Want: max(10, min(runtime.NumCPU()*2, 128)),
 			Why: "max(10, min(runtime.NumCPU()*2, 128))",
 		},
 	)
+}
+
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
+// Every other check here reports a change to what it asserts. None reports a check being removed, so
+// this records the wiring and fails when it thins out.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }
