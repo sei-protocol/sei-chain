@@ -26,19 +26,82 @@ func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *LittB
 	return cfg
 }
 
-// writeSyntheticBatches writes numBatches contiguous batches of perQC blocks each
-// (global numbers 0.., QC ranges [0,perQC), [perQC,2*perQC), ...). Each QC's own
-// GlobalRange matches the range it is written at, so littblock's clamp can trust
-// it; littblock does not verify signatures, so no committee is needed.
 func writeSyntheticBatches(t *testing.T, db types.BlockDB, rng utils.Rng, numBatches int, perQC int) {
+	t.Helper()
+	committee, keys := types.GenCommittee(rng, 4)
+	prev := utils.None[*types.CommitQC]()
+	for range numBatches {
+		qc, blocks := syntheticFullCommitQC(rng, committee, keys, prev, perQC)
+		first := qc.QC().GlobalRange().First
+		require.NoError(t, db.WriteQC(qc))
+		for j, block := range blocks {
+			require.NoError(t, db.WriteBlock(first+types.GlobalBlockNumber(j), block)) //nolint:gosec
+		}
+		prev = utils.Some(qc.QC())
+	}
+}
+
+func syntheticFullCommitQC(
+	rng utils.Rng,
+	committee *types.Committee,
+	keys []types.SecretKey,
+	prev utils.Option[*types.CommitQC],
+	perQC int,
+) (*types.FullCommitQC, []*types.Block) {
+	blocksByLane := map[types.LaneID][]*types.Block{}
+	makeBlock := func(producer types.LaneID) *types.Block {
+		if blocks := blocksByLane[producer]; len(blocks) > 0 {
+			parent := blocks[len(blocks)-1]
+			return types.NewBlock(producer, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
+		}
+		return types.NewBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	}
+	for range perQC {
+		producer := committee.Lanes().At(rng.Intn(committee.Lanes().Len()))
+		blocksByLane[producer] = append(blocksByLane[producer], makeBlock(producer))
+	}
+
+	laneQCs := map[types.LaneID]*types.LaneQC{}
+	headers := make([]*types.BlockHeader, 0, perQC)
+	blocks := make([]*types.Block, 0, perQC)
+	for lane := range committee.Lanes().All() {
+		if bs := blocksByLane[lane]; len(bs) > 0 {
+			laneQCs[lane] = syntheticLaneQC(keys, bs[len(bs)-1].Header())
+			for _, block := range bs {
+				headers = append(headers, block.Header())
+				blocks = append(blocks, block)
+			}
+		}
+	}
+	epoch := types.NewEpoch(0, types.OpenRoadRange(), time.Unix(1_700_000_000, 0), committee, 0)
+	qc := types.BuildCommitQC(epoch, keys, prev, laneQCs)
+	return types.NewFullCommitQC(qc, headers), blocks
+}
+
+func syntheticLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC {
+	vote := types.NewLaneVote(header)
+	votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
+	for _, key := range keys {
+		votes = append(votes, types.Sign(key, vote))
+	}
+	return types.NewLaneQC(votes)
+}
+
+func writeSyntheticAppData(t *testing.T, db types.BlockDB, rng utils.Rng, numBatches int, perQC int) {
+	t.Helper()
 	for i := 0; i < numBatches; i++ {
 		first := types.GlobalBlockNumber(i * perQC) //nolint:gosec // small test indices
-		next := first + types.GlobalBlockNumber(perQC)
-		qc := types.GenFullCommitQCRange(rng, first, next)
-		require.NoError(t, db.WriteQC(qc))
-		for j := 0; j < perQC; j++ {
-			require.NoError(t, db.WriteBlock(first+types.GlobalBlockNumber(j), types.GenBlock(rng))) //nolint:gosec
-		}
+		qc, err := db.ReadQCByBlockNumber(first)
+		require.NoError(t, err)
+		gotQC, ok := qc.Get()
+		require.True(t, ok, "synthetic QC %d must exist before writing app data", first)
+		proposal := types.NewAppProposal(gotQC.QC().Proposal(), types.GenAppHash(rng))
+		require.NoError(t, db.WriteAppProposal(proposal))
+		vote := types.NewAppVote(proposal)
+		appQC := types.NewAppQC([]*types.Signed[*types.AppVote]{
+			types.Sign(types.GenSecretKey(rng), vote),
+		})
+		require.NoError(t, db.WriteAppQC(appQC))
 	}
 }
 
@@ -71,6 +134,7 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 	db, err := NewBlockDB(strandingConfig(t, dir, 8))
 	require.NoError(t, err)
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19; QCs [0,5),[5,10),[10,15),[15,20)
+	writeSyntheticAppData(t, db, rng, 4, 5)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 
@@ -152,6 +216,7 @@ func TestLittblockReclaimsAcrossRestart(t *testing.T) {
 	db, err := NewBlockDB(strandingConfig(t, dir, 8))
 	require.NoError(t, err)
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19
+	writeSyntheticAppData(t, db, rng, 4, 5)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 
@@ -226,6 +291,7 @@ func TestLittblockPruneIntoCohortRoundsDown(t *testing.T) {
 	db, err := NewBlockDB(strandingConfig(t, dir, 8))
 	require.NoError(t, err)
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19; QC[5,10) covers blocks 5..9
+	writeSyntheticAppData(t, db, rng, 4, 5)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 

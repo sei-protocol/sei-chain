@@ -549,6 +549,7 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 	writeAll(t, db, batches)
+	writeAppData(t, db, utils.TestRngFromSeed(testSeed+500), keys, batches)
 
 	// Prune at the start of the second batch: all of the first batch is below it.
 	watermark := batches[1].first
@@ -591,6 +592,7 @@ func testPrunedDistinctFromNotFound(t *testing.T, build builder) {
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
 	writeAll(t, db, batches)
+	writeAppData(t, db, utils.TestRngFromSeed(testSeed+501), keys, batches)
 
 	straddled := batches[1]
 	pruneAt := straddled.first + 2
@@ -710,6 +712,7 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 			db, _ := openFresh(t, build)
 			defer func() { _ = db.Close() }()
 			writeAll(t, db, batches)
+			writeAppData(t, db, utils.TestRngFromSeed(testSeed+502), keys, batches)
 
 			require.NoError(t, db.PruneBefore(prune))
 
@@ -741,17 +744,13 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 			require.ErrorIs(t, err, types.ErrPruned, "blocks below the newest cohort must be reported pruned")
 			require.False(t, below.IsPresent(), "blocks below the newest cohort must not be served")
 
-			// The iterator yields exactly the newest cohort's numbers, every one with a
-			// block, all covered by the single remaining QC.
-			var expected []types.GlobalBlockNumber
-			for i := range last.blocks {
-				expected = append(expected, last.first+gbn(i))
-			}
+			// ReadRecent starts at recentFloor(), while the prune watermark still
+			// rounds down to keep the whole newest QC cohort readable.
 			entries := drainRecent(t, db)
-			require.Equal(t, expected, presentBlockNumbers(entries),
-				"exactly the newest cohort must remain after PruneBefore(%d)", prune)
+			require.Equal(t, []types.GlobalBlockNumber{newest}, presentBlockNumbers(entries),
+				"ReadRecent must start at recentFloor() after PruneBefore(%d)", prune)
 			require.Equal(t, []types.GlobalBlockNumber{last.first}, qcFirsts(entries),
-				"exactly one QC (covering the newest cohort) must remain")
+				"ReadRecent must include the QC covering the recent floor")
 		})
 	}
 }
@@ -766,7 +765,9 @@ func testPruneWithAppQCNeverEmpties(t *testing.T, build builder) {
 
 	rng := utils.TestRngFromSeed(testSeed + 300)
 	for _, b := range batches[:3] {
-		require.NoError(t, db.WriteAppQC(appQCForBatch(rng, keys, b)))
+		appQC := appQCForBatch(rng, keys, b)
+		require.NoError(t, db.WriteAppProposal(appQC.Proposal()))
+		require.NoError(t, db.WriteAppQC(appQC))
 	}
 
 	latestApp := batches[2]
@@ -1357,6 +1358,15 @@ func writeAll(t *testing.T, db types.BlockDB, batches []batch) {
 		for i, blk := range b.blocks {
 			require.NoError(t, db.WriteBlock(b.first+gbn(i), blk))
 		}
+	}
+}
+
+func writeAppData(t *testing.T, db types.BlockDB, rng utils.Rng, keys []types.SecretKey, batches []batch) {
+	t.Helper()
+	for _, b := range batches {
+		appQC := appQCForBatch(rng, keys, b)
+		require.NoError(t, db.WriteAppProposal(appQC.Proposal()))
+		require.NoError(t, db.WriteAppQC(appQC))
 	}
 }
 
