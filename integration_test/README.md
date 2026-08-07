@@ -19,6 +19,13 @@ on your local machine for development and testing purposes.
    ```
    To run other tests, use paths under `integration_test/` such as `integration_test/bank_module/send_funds_test.yaml`.
 
+### Pacific replay load generator
+
+`integration_test/load_generator/` is a standalone TypeScript package for capturing
+canonical Pacific-1 traffic and replaying safe, newly signed equivalents on a Sei
+testnet. See its [README](./load_generator/README.md) for capture, fixture
+deployment, user provisioning, replay, and observability instructions.
+
 ## Writing Tests
 Each integration test is defined in a YAML file under its specific module folder under the integration_test directory
 
