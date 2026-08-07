@@ -19,8 +19,9 @@ requestSizeLimiter → seiLegacyHTTPGate → gzip → vhost → cors → rpc.Ser
 `requestSizeLimiter` caps each body with `http.MaxBytesReader`, charges the
 global `max_concurrent_request_bytes` budget incrementally as body bytes are
 read (64 KiB batches), and enforces `body_read_idle_timeout` between body
-chunks via `http.ResponseController.SetReadDeadline` (HTTP 408 on stall, HTTP
-429 on mid-read budget exhaustion).
+chunks via an idle timer that only sets the connection read deadline when a
+stall actually expires (HTTP 408 on stall, HTTP 429 on mid-read budget
+exhaustion). net/http's `ReadTimeout` is left untouched during normal reads.
 
 EVM RPCs prefixed by `eth_` and `debug_` on Sei generally follows [Ethereum's spec](https://www.quicknode.com/docs/ethereum/api-overview). However, there are some notable distinctions.
 
