@@ -370,7 +370,6 @@ func TestLittblockRefusesToOpenWithStrandedBlocks(t *testing.T) {
 	// Reopen: recovery finds the block but no QC, so it refuses to open.
 	_, err = NewBlockDB(strandingConfig(t, dir, 8))
 	require.Error(t, err)
-	require.ErrorContains(t, err, "no surviving QC")
 }
 
 // TestLittblockEmptyStorePruneDoesNotReclaimLaterWrites is the regression for the

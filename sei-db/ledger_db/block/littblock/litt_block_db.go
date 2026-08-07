@@ -115,15 +115,12 @@ func (s *blockDB) recoverCursors() error {
 // comes from recoverCursors, which runs first — so a QC-only store does not walk
 // the whole table looking for a block that is not there.
 func (s *blockDB) recoverWatermark() error {
-	status, ok := s.status.Get()
-	if !ok {
-		return nil
-	}
 	it, err := s.table.Iterator(false)
 	if err != nil {
 		return fmt.Errorf("failed to open read floor recovery iterator: %w", err)
 	}
 	defer func() { _ = it.Close() }()
+	empty := true
 	for {
 		ok, err := it.Next()
 		if err != nil {
@@ -132,6 +129,7 @@ func (s *blockDB) recoverWatermark() error {
 		if !ok {
 			break
 		}
+		empty = false
 		key, isPrimary, err := it.GetKey()
 		if err != nil {
 			return fmt.Errorf("failed to read read floor recovery key: %w", err)
@@ -150,7 +148,10 @@ func (s *blockDB) recoverWatermark() error {
 	// through normal operation — it means the store is corrupt (e.g. a QC WAL
 	// file was removed out of band). Refuse to open rather than serve blocks we
 	// can no longer trust.
-	return fmt.Errorf("corrupt store: newest block %d has no surviving QC covering it", status.NextBlock-1)
+	if !empty {
+		return fmt.Errorf("corrupt store: no QC in non-empty store")
+	}
+	return nil
 }
 
 func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error {
