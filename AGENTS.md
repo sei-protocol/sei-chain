@@ -99,12 +99,15 @@ make build    # build the seid binary into ./build/seid
 make install  # install seid into $GOBIN
 ```
 
-Tests run with the race detector and coverage. CI shards them into groups; while
-iterating, run a single package directly:
+Tests run with the race detector and coverage. `go-test.yml`'s Race Detection job
+shards into `NUM_SPLIT` (currently 3) parallel matrix jobs, round-robin split
+(package `i` goes to shard `i % NUM_SPLIT`, not a contiguous chunk — see the
+`split-test-packages` Makefile target). `make test-group-N` reproduces a given
+shard locally with the same package split:
 
 ```bash
-make test-group-0       # one CI test shard (race + coverage)
-go test ./<pkg>/...     # run a single package
+NUM_SPLIT=3 make test-group-0   # reproduce CI race shard 0 locally
+go test ./<pkg>/...              # run a single package
 ```
 
 CI mirrors these checks: `.github/workflows/golangci.yml` runs golangci-lint

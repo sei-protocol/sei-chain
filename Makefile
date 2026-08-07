@@ -569,19 +569,32 @@ GO_TEST_FILES != find $(CURDIR) -name "*_test.go"
 # default to four splits by default
 NUM_SPLIT ?= 4
 
+# state_db tests run in their own workflow (sei-db-tests.yml); exclude that
+# subtree here too so local shards match the CI shards exactly.
+STATE_DB_PKG_PREFIX := github.com/sei-protocol/sei-chain/sei-db/state_db
+
 $(BUILDDIR):
 	mkdir -p $@
 
-# The format statement filters out all packages that don't have tests.
-# Note we need to check for both in-package tests (.TestGoFiles) and
-# out-of-package tests (.XTestGoFiles).
+# Includes every package, not just ones with test files: `go test` on a
+# package with no tests still compiles it (reported as "no test files"),
+# which is how go-test.yml's Race Detection job also acts as a compile
+# check under -race -tags=ledger,test_ledger_mock for the whole tree.
+# Filtering to test-only packages here would silently drop that coverage.
 $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
-	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... | sort > $@
+	go list ./... | grep -v "^$(STATE_DB_PKG_PREFIX)" | sort > $@
 
 TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
 
+# Round-robin (not contiguous-chunk) split: package i goes to shard i%N.
+# Interleaving avoids dumping a whole cluster of alphabetically-adjacent
+# (and often runtime-correlated, e.g. a module's many keeper packages)
+# packages into one shard, unlike a straight `split -d -n l/N` chunk split.
+# Pre-touch all N files first so a shard with zero packages (NUM_SPLIT >
+# package count) still gets an (empty) file instead of breaking test-group-%.
 split-test-packages:$(BUILDDIR)/packages.txt
-	split -d -n l/$(NUM_SPLIT) $< $<.
+	@for i in $$(seq 0 $$(($(NUM_SPLIT)-1))); do : > $(BUILDDIR)/packages.txt.$$i; done
+	@awk -v n=$(NUM_SPLIT) -v dir=$(BUILDDIR) '{print > (dir "/packages.txt." (NR-1)%n)}' $<
 test-group-%:split-test-packages
 	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
 	@if grep -q "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
