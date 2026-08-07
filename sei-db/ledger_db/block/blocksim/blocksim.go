@@ -200,7 +200,10 @@ func recoverResumeState(
 	prev := tmutils.None[*types.CommitQC]()
 	highest := tmutils.None[uint64]()
 
-	status := db.Status()
+	status, ok := db.Status().Get()
+	if !ok {
+		return prev, highest, nil
+	}
 	if status.NextBlock > 0 {
 		highest = tmutils.Some(uint64(status.NextBlock - 1))
 	}

@@ -453,9 +453,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 
 	// Transport-race window: PushQC before data.Run / runPersist starts.
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
-	tips := db.Status()
-	require.Zero(t, tips.NextBlock, "PushQC must not write BlockDB before Run")
-	require.Zero(t, tips.NextQC)
+	require.False(t, db.Status().IsPresent(), "PushQC must not write BlockDB before Run")
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		runCtx, cancel := context.WithCancel(ctx)
@@ -473,7 +471,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 		return nil
 	}))
 
-	tips = db.Status()
+	tips := db.Status().OrPanic("non-empty BlockDB status")
 	require.Equal(t, gr1.Next, tips.NextBlock)
 	require.Equal(t, gr1.Next, tips.NextQC)
 

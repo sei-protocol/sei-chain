@@ -375,16 +375,10 @@ func (s *blockDB) Flush() error {
 	return nil
 }
 
-func (s *blockDB) Status() types.DBStatus {
+func (s *blockDB) Status() utils.Option[types.DBStatus] {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.status.Or(types.DBStatus{
-		First:           0,
-		NextBlock:       0,
-		NextQC:          0,
-		NextAppQC:       0,
-		NextAppProposal: 0,
-	})
+	return s.status
 }
 
 // ReadRecent() reads the latest AppQC/AppProposal recovery suffix.
@@ -400,7 +394,8 @@ func (s *blockDB) ReadRecent() (types.RecentData, error) {
 	}
 	// Safety check: if watermark has been moved and GC happened to get executed during iteration,
 	// the loaded data might be inconsistent with the targetFloor we computed.
-	if current := s.Status(); current.First != status.First {
+	current, ok := s.Status().Get()
+	if !ok || current.First != status.First {
 		return types.RecentData{}, fmt.Errorf("watermark has moved while iterating: recovered status %+v, current status %+v", status, current)
 	}
 	return recent, nil

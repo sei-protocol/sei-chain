@@ -189,7 +189,8 @@ type BlockDB interface {
 	Flush() error
 
 	// Status returns a consistent snapshot of the in-memory write tips (no I/O).
-	Status() DBStatus
+	// None means the DB is empty.
+	Status() utils.Option[DBStatus]
 
 	// ReadRecent returns the materialized startup-recovery suffix.
 	//

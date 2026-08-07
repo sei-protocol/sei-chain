@@ -110,6 +110,11 @@ func restart(t *testing.T, o open, db types.BlockDB) types.BlockDB {
 	return reopened
 }
 
+func status(t *testing.T, db types.BlockDB) types.DBStatus {
+	t.Helper()
+	return db.Status().OrPanic("non-empty BlockDB status")
+}
+
 func testEmptyDB(t *testing.T, build builder) {
 	db, _ := openFresh(t, build)
 	defer func() { _ = db.Close() }()
@@ -136,11 +141,7 @@ func testEmptyDB(t *testing.T, build builder) {
 
 	require.Empty(t, drainRecent(t, db), "empty db should yield no recent records")
 
-	tips := db.Status()
-	require.Zero(t, tips.NextBlock, "empty db has no block write tip")
-	require.Zero(t, tips.NextQC, "empty db has no QC write tip")
-	require.Zero(t, tips.NextAppQC, "empty db has no AppQC write tip")
-	require.Zero(t, tips.NextAppProposal, "empty db has no AppProposal write tip")
+	require.False(t, db.Status().IsPresent(), "empty db has no write tips")
 }
 
 // iterEntry is one position observed while draining an iterator.
@@ -244,7 +245,7 @@ func testStatus(t *testing.T, build builder) {
 	defer func() { _ = db.Close() }()
 
 	require.NoError(t, db.WriteQC(batches[0].qc))
-	tips := db.Status()
+	tips := status(t, db)
 	require.Equal(t, batches[0].first, tips.First)
 	require.Equal(t, batches[0].next, tips.NextQC)
 	require.Equal(t, tips.First, tips.NextBlock, "QC-only store has no block tip")
@@ -257,7 +258,7 @@ func testStatus(t *testing.T, build builder) {
 	}
 	writeAll(t, db, batches[1:])
 	last := batches[len(batches)-1]
-	tips = db.Status()
+	tips = status(t, db)
 	require.Equal(t, last.next, tips.NextBlock)
 	require.Equal(t, last.next, tips.NextQC)
 	assertTipsMatchPresent(t, db)
@@ -267,13 +268,13 @@ func testStatus(t *testing.T, build builder) {
 	require.Greater(t, len(batches), 1)
 	require.NoError(t, db.PruneBefore(batches[1].first))
 	assertTipsMatchPresent(t, db)
-	tips = db.Status()
+	tips = status(t, db)
 	require.Equal(t, last.next, tips.NextBlock, "prune must not move the block write tip")
 	require.Equal(t, last.next, tips.NextQC, "prune must not move the QC write tip")
 
 	db = restart(t, o, db)
 	assertTipsMatchPresent(t, db)
-	tips = db.Status()
+	tips = status(t, db)
 	require.Equal(t, last.next, tips.NextBlock, "block tip must survive restart")
 	require.Equal(t, last.next, tips.NextQC, "QC tip must survive restart")
 }
@@ -282,7 +283,7 @@ func testStatus(t *testing.T, build builder) {
 // public read API still serves.
 func assertTipsMatchPresent(t *testing.T, db types.BlockDB) {
 	t.Helper()
-	tips := db.Status()
+	tips := status(t, db)
 
 	if tips.NextBlock > tips.First {
 		blk, err := db.ReadBlockByNumber(tips.NextBlock - 1)
@@ -389,10 +390,10 @@ func testAppProposalByBlockNumber(t *testing.T, build builder) {
 		}
 	}
 
-	tips := db.Status()
+	tips := status(t, db)
 	require.Equal(t, batches[1].next, tips.NextAppProposal)
 	db = restart(t, o, db)
-	tips = db.Status()
+	tips = status(t, db)
 	require.Equal(t, batches[1].next, tips.NextAppProposal, "AppProposal tip must survive restart")
 	assertTipsMatchPresent(t, db)
 
@@ -448,10 +449,10 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 		}
 	}
 
-	tips := db.Status()
+	tips := status(t, db)
 	require.Equal(t, batches[1].next, tips.NextAppQC)
 	db = restart(t, o, db)
-	tips = db.Status()
+	tips = status(t, db)
 	require.Equal(t, batches[1].next, tips.NextAppQC, "AppQC tip must survive restart")
 	assertTipsMatchPresent(t, db)
 
@@ -958,7 +959,7 @@ func testReadRecent(t *testing.T, build builder) {
 
 	recent, err := db.ReadRecent()
 	require.NoError(t, err)
-	require.Equal(t, db.Status(), recent.Status.OrPanic("recent status"))
+	require.Equal(t, status(t, db), recent.Status.OrPanic("recent status"))
 	require.NotEmpty(t, recent.AppQCs)
 	gotAppQC := recent.AppQCs[0]
 	require.Equal(t, appQC.Proposal().RoadIndex(), gotAppQC.Proposal().RoadIndex())
@@ -1042,7 +1043,7 @@ func testWriteAppProposalOrderRejected(t *testing.T, build builder) {
 		require.NoError(t, db.WriteBlock(b1.first+gbn(i), blk))
 	}
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b1)))
-	tips := db.Status()
+	tips := status(t, db)
 	require.Equal(t, b1.next, tips.NextAppProposal)
 }
 
@@ -1084,7 +1085,7 @@ func testWriteAppQCOrderRejected(t *testing.T, build builder) {
 	}
 	require.NoError(t, db.WriteAppProposal(appProposalForBatch(rng, b1)))
 	require.NoError(t, db.WriteAppQC(appQCForBatch(rng, keys, b1)))
-	tips := db.Status()
+	tips := status(t, db)
 	require.Equal(t, b1.next, tips.NextAppQC)
 }
 
@@ -1166,7 +1167,7 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 	require.Equal(t, last.first, prevQC.GlobalRange().First, "recovered QC must be the last persisted QC")
 	require.Equal(t, last.next, prevQC.GlobalRange().Next)
 
-	tips := db.Status()
+	tips := status(t, db)
 	require.Equal(t, highest+1, tips.NextBlock, "Status block tip must match the iterator scan")
 	require.Equal(t, prevQC.GlobalRange().Next, tips.NextQC, "Status QC tip must match the iterator scan")
 	covering, err := db.ReadQCByBlockNumber(tips.NextQC - 1)
@@ -1265,9 +1266,9 @@ func testWriteQCCoversNoBlocksRejected(t *testing.T, build builder) {
 
 	// The rejection persisted nothing: the store is still empty, so a QC that
 	// does cover blocks is still accepted at 0.
-	require.Zero(t, db.Status().NextQC)
+	require.False(t, db.Status().IsPresent())
 	require.NoError(t, db.WriteQC(types.GenFullCommitQCRange(rng, 0, 3)))
-	require.Equal(t, gbn(3), db.Status().NextQC)
+	require.Equal(t, gbn(3), status(t, db).NextQC)
 }
 
 // testWriteBlockGapRejected asserts that blocks must be written densely: a

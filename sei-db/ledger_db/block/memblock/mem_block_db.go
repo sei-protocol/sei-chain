@@ -207,16 +207,10 @@ func pruneRanges[T any](
 
 func (s *blockDB) Flush() error { return nil }
 
-func (s *blockDB) Status() types.DBStatus {
+func (s *blockDB) Status() utils.Option[types.DBStatus] {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.status.Or(types.DBStatus{
-		First:           0,
-		NextAppQC:       0,
-		NextAppProposal: 0,
-		NextBlock:       0,
-		NextQC:          0,
-	})
+	return s.status
 }
 
 func (s *blockDB) ReadRecent() (types.RecentData, error) {

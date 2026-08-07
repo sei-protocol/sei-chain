@@ -164,7 +164,7 @@ func TestRecoveryRejectsAppTipBeyondCrashWindow(t *testing.T) {
 
 	db := newTestBlockDB(t, t.TempDir())
 	writeToBlockDB(t, db, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
-	dbNextBlock := db.Status().NextBlock
+	dbNextBlock := db.Status().OrPanic("non-empty BlockDB status").NextBlock
 	lastExecuted := dbNextBlock + 1
 
 	state, err := NewState(&Config{
@@ -456,7 +456,7 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 	require.NoError(t, db1.Close())
 
 	db2 := newTestBlockDB(t, dir)
-	tips := db2.Status()
+	tips := db2.Status().OrPanic("non-empty BlockDB status")
 	require.Equal(t, gr2.First, tips.First)
 	require.Equal(t, tips.First, tips.NextBlock)
 	require.NotZero(t, tips.NextQC)
