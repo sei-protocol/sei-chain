@@ -234,6 +234,7 @@ func NewEVMHTTPServer(
 	httpConfig.batchResponseSizeLimit = config.BatchResponseMaxSize
 	httpConfig.maxRequestBodyBytes = config.MaxRequestBodyBytes
 	httpConfig.maxConcurrentRequestBytes = config.MaxConcurrentRequestBytes
+	httpConfig.bodyReadIdleTimeout = config.BodyReadIdleTimeout
 	rateLimitRegistry, err := ratelimiter.New(config.RateLimiterConfig())
 	if err != nil {
 		return nil, fmt.Errorf("evm rate limiter: %w", err)

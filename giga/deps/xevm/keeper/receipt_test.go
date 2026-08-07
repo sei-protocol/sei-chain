@@ -78,7 +78,7 @@ func TestWriteReceiptStoresMsgGasPriceAsEffectiveGasPrice(t *testing.T) {
 		From:      common.HexToAddress("0x000000000000000000000000000000000000beef"),
 	}
 
-	r, err := k.WriteReceipt(ctx, stateDB, msg, uint32(ethtypes.DynamicFeeTxType), txHash, gasUsed, "")
+	r, err := k.WriteReceipt(ctx, stateDB, msg, uint32(ethtypes.DynamicFeeTxType), txHash, gasUsed, "", false)
 	require.NoError(t, err)
 	require.NotNil(t, r)
 	require.Equal(t, effectiveGasPrice, r.EffectiveGasPrice,

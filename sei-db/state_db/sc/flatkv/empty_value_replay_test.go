@@ -74,3 +74,41 @@ func TestEmptyValueSurvivesWALReplay(t *testing.T) {
 		"WAL-replay (read-only clone) committed root must match the live store; "+
 			"empty-value keys must not be dropped on replay")
 }
+
+func TestEmptyValueVisibleBeforeCommit(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	s := setupTestStoreWithConfig(t, cfg)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	key := []byte("empty-marker")
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, emptyValueBankCS(&proto.KVPair{
+		Key:   key,
+		Value: []byte{},
+	})))
+
+	value, found := s.Get("bank", key)
+	require.True(t, found)
+	require.NotNil(t, value, "empty value is present data, not absence")
+	require.Empty(t, value)
+	require.True(t, s.Has("bank", key))
+
+	iter, err := s.Iterator("bank", nil, nil, true)
+	require.NoError(t, err)
+	require.True(t, iter.Valid())
+	require.Equal(t, key, iter.Key())
+	require.NotNil(t, iter.Value(), "pending iterator should preserve empty value presence")
+	require.Empty(t, iter.Value())
+	iter.Next()
+	require.False(t, iter.Valid())
+	require.NoError(t, iter.Error())
+	require.NoError(t, iter.Close())
+
+	_, err = s.Commit(s.Version() + 1)
+	require.NoError(t, err)
+
+	value, found = s.Get("bank", key)
+	require.True(t, found)
+	require.NotNil(t, value)
+	require.Empty(t, value)
+	require.True(t, s.Has("bank", key))
+}
