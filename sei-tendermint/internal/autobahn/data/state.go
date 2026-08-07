@@ -614,12 +614,13 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 }
 
 // AppVote returns an appVote for a block >= n.
+// Vote is available ONLY once AppHash has been pushed AND persisted.
+// This prevents any possible equivocation and ensures that local node has the executed blocks persisted (since nextAppProposa <= nextBlock).
 func (s *State) AppVote(ctx context.Context, n types.GlobalBlockNumber) (*types.AppVote, *types.FullCommitQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return max(inner.nextAppQC, n) < inner.nextAppProposal }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.persisted.NextAppProposal }); err != nil {
 			return nil, nil, err
 		}
-		n := max(inner.nextAppQC, n)
 		return types.NewAppVote(inner.appProposals[n]), inner.qcs[n], nil
 	}
 	panic("unreachable")

@@ -401,7 +401,7 @@ func (s *blockDB) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	status,ok := s.statusLocked().Get()
+	status, ok := s.statusLocked().Get()
 	if !ok {
 		// Ignore prune requests if we've not got any data yet. Simplifies several edge cases
 		// and is technically a legal implementation of the contract in the godocs.
