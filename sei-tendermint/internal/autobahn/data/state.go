@@ -240,30 +240,7 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("blockDB.ReadRecent(): %w", err)
 	}
-	firstBlock := cfg.Registry.FirstBlock()
-	first := firstBlock
-	if len(recent.Blocks) > 0 {
-		first = recent.Blocks[0].Number
-	} else if appQC, ok := recent.AppQC.Get(); ok {
-		first = appQC.Proposal().GlobalRange().First
-	} else if len(recent.AppProposals) > 0 {
-		first = recent.AppProposals[0].GlobalRange().First
-	} else if len(recent.CommitQCs) > 0 {
-		first = recent.CommitQCs[0].QC().GlobalRange().First
-	} else if floor := recent.Status.Floor(); floor >= firstBlock {
-		first = floor
-	}
-	if first < firstBlock {
-		return nil, fmt.Errorf("db contains data before genesis")
-	}
-
-	status := recent.Status
-	status.NextQC = max(status.NextQC, first)
-	status.NextBlock = max(status.NextBlock, first)
-	status.NextAppQC = max(status.NextAppQC, first)
-	status.NextAppProposal = max(status.NextAppProposal, first)
-
-	inner := newInner(first)
+	inner := newInner(max(cfg.Registry.FirstBlock(),recent.Status.Floor()))
 	for _, qc := range recent.CommitQCs {
 		if err := inner.insertQC(cfg.Registry, qc); err != nil {
 			return nil, fmt.Errorf("load QC from BlockDB: %w", err)
@@ -295,9 +272,8 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	}
 	// Advance nextBlock through contiguous loaded blocks. Don't use
 	// updateNextBlock: stale timestamps would skew metrics.
-	inner.nextBlock = status.NextBlock
-	inner.nextAppProposal = status.NextAppProposal
-	inner.setPersisted(status)
+	inner.nextBlock = max(inner.first,recent.Status.NextBlock)
+	inner.setPersisted(recent.Status)
 	return inner, nil
 }
 
