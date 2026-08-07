@@ -280,15 +280,14 @@ type Config struct {
 	// WebSocket JSON-RPC request bodies admitted for processing concurrently.
 	// HTTP (:8545) and WebSocket (:8546) each get an independent budget, so peak
 	// in-flight request bytes process-wide can reach 2× this value (e.g. 256 MiB
-	// when set to the 128 MiB default). HTTP uses Content-Length weighting and
-	// rejects over-budget requests fast (HTTP 429). WebSocket blocks until budget
-	// frees or WSAdmissionTimeout elapses; on timeout the peer receives JSON-RPC
-	// error -32005 and the connection is closed (active subscriptions are dropped
-	// with the connection). Set to 0 to disable the limit on either protocol.
-	// MaxConcurrentRequestBytes bounds the total size, in bytes, of HTTP
-	// JSON-RPC request bodies admitted for processing concurrently, charged
-	// incrementally as body bytes are read. Requests that would exceed the
-	// budget mid-read are rejected (HTTP 429). Set to 0 to disable the limit.
+	// when set to the 128 MiB default). HTTP charges the budget incrementally as
+	// body bytes are read, bounding what a slow/stalled upload can pin to about
+	// one read batch rather than the full declared Content-Length; requests that
+	// would exceed the budget mid-read are rejected (HTTP 429). WebSocket blocks
+	// until budget frees or WSAdmissionTimeout elapses; on timeout the peer
+	// receives JSON-RPC error -32005 and the connection is closed (active
+	// subscriptions are dropped with the connection). Set to 0 to disable the
+	// limit on either protocol.
 	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
 
 	// BodyReadIdleTimeout is the maximum idle time allowed between body chunks
@@ -729,6 +728,9 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 		if cfg.BodyReadIdleTimeout, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
 		}
+		if cfg.BodyReadIdleTimeout < 0 {
+			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the idle guard), got %s", flagBodyReadIdleTimeout, cfg.BodyReadIdleTimeout)
+		}
 	}
 	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
 		cfg.IPRateLimitBurst < cfg.BatchRequestLimit {
@@ -1033,13 +1035,12 @@ max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
 # max_concurrent_request_bytes bounds total request bytes admitted concurrently
 # on HTTP (:8545) and WebSocket (:8546). Each protocol gets an independent
 # budget, so peak in-flight bytes process-wide can reach 2× this value. HTTP
-# rejects over-budget requests fast (HTTP 429). WS blocks until budget frees or
-# ws_admission_timeout elapses; on timeout the peer gets JSON-RPC error -32005
-# and the connection closes. Set to 0 to disable on either protocol.
-# max_concurrent_request_bytes bounds the total size, in bytes, of HTTP JSON-RPC
-# request bodies admitted for processing concurrently, charged incrementally as
-# body bytes are read. Requests that would exceed the budget mid-read are
-# rejected (HTTP 429). Set to 0 to disable.
+# charges the budget incrementally as body bytes are read, bounding what a
+# slow/stalled upload can pin to about one read batch rather than the full
+# declared Content-Length; requests that would exceed the budget mid-read are
+# rejected (HTTP 429). WS blocks until budget frees or ws_admission_timeout
+# elapses; on timeout the peer gets JSON-RPC error -32005 and the connection
+# closes. Set to 0 to disable on either protocol.
 max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
 
 # ws_admission_timeout bounds how long a WebSocket connection waits for

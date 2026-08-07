@@ -98,6 +98,13 @@ func (l *requestSizeLimiter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if outcome.status != 0 && !cw.wroteHeader {
 		recordRequestRejected(r.Context(), outcome.reason)
+		// The inner handler chain may have already mutated the shared response header
+		// map before a failing body read caused its status/body to be suppressed. For
+		// example, the gzip wrapper can set Content-Encoding: gzip. The limiter's
+		// replacement http.Error response is written as plain text, not through that
+		// gzip wrapper, so remove Content-Encoding to avoid advertising compression
+		// that the bytes on the wire do not use.
+		w.Header().Del("Content-Encoding")
 		http.Error(w, outcome.message, outcome.status)
 	}
 }
@@ -127,6 +134,10 @@ type budgetBody struct {
 }
 
 func (b *budgetBody) Read(p []byte) (int, error) {
+	if b.inner == nil {
+		return 0, http.ErrBodyReadAfterClose
+	}
+
 	b.beginIdleWatch()
 
 	n, err := b.inner.Read(p)
@@ -207,6 +218,9 @@ func (b *budgetBody) clearReadDeadline() {
 
 // Close stops the body and charges any trailing unflushed bytes. It does not release
 // the budget; requestSizeLimiter does that once, after the inner handler returns.
+// If the trailing bytes don't fit the budget (e.g. the inner handler stopped
+// reading short of EOF), the request is rejected the same way a mid-read charge
+// failure is, so those bytes can't go unbilled and unrejected.
 func (b *budgetBody) Close() error {
 	if b.inner == nil {
 		return nil
@@ -214,12 +228,18 @@ func (b *budgetBody) Close() error {
 	inner := b.inner
 	b.inner = nil
 	b.endIdleWatch()
+	var flushErr error
 	if b.budget != nil {
-		_ = b.flush()
+		if flushErr = b.flush(); flushErr != nil {
+			b.setOutcome(rejectReasonBudgetMidread, http.StatusTooManyRequests, "server busy")
+		}
 	}
 	err := inner.Close()
 	b.clearReadDeadline()
-	return err
+	if err != nil {
+		return err
+	}
+	return flushErr
 }
 
 func (b *budgetBody) charge(n int64) error {
@@ -267,12 +287,19 @@ func (b *budgetBody) fail(reason string, status int, message string, readErr err
 		b.inner = nil
 		b.clearReadDeadline()
 	}
+	b.setOutcome(reason, status, message)
+	_ = readErr
+}
+
+// setOutcome records the first rejection reason/status/message seen for this
+// body, so whichever of fail (mid-read) or Close (trailing bytes at EOF) wins
+// the race is what the caller's response reflects.
+func (b *budgetBody) setOutcome(reason string, status int, message string) {
 	if b.outcome != nil && b.outcome.status == 0 {
 		b.outcome.status = status
 		b.outcome.message = message
 		b.outcome.reason = reason
 	}
-	_ = readErr
 }
 
 var errBudgetExhausted = errors.New("request byte budget exhausted")
