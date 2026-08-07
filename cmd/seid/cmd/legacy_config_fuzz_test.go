@@ -6,6 +6,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -15,6 +16,8 @@ import (
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
@@ -1057,6 +1060,134 @@ func TestGeneratedAppTOMLUsesTheSpellingsTheReadersLookUp(t *testing.T) {
 			"Generation has started following the struct tags, and the reader looks up "+
 			"eth_blocktest, so the section it writes is ignored", v)
 	}
+}
+
+// TestStateCommitAsyncCommitBufferTagAddressesNoReader records a second inert mapstructure
+// tag, and one with a sharper edge than eth_block_test's.
+//
+// Two fields carry the tag async-commit-buffer: StateCommitConfig.AsyncCommitBuffer, which
+// nothing reads, and memiavl.Config.AsyncCommitBuffer, which decides whether a node commits
+// synchronously. MemIAVLConfig carries no tag, so a tag-driven binder would reach the live
+// field only at state-commit.memiavlconfig.async-commit-buffer while the dead one sits at the
+// shallower state-commit.async-commit-buffer — and sc-async-commit-buffer, the spelling the
+// template renders and both readers resolve, would address no field at all. So the shallower
+// spelling shadows the live knob: an operator correcting an app.toml to the tag-advertised name
+// has their value land in the dead field, and what the node then commits with depends on
+// something the tags do not say. A binder that unmarshals over DefaultStateCommitConfig leaves
+// the live buffer at 100; one that unmarshals into a zero struct leaves it at 0, which memiavl
+// reads as synchronous commit. Neither outcome is the value the operator wrote.
+//
+// Recorded here rather than repaired: retagging either field changes what a tag-driven
+// manager binds, and PLT-775 is where that is chosen. The binder is not hypothetical —
+// sei-cosmos/server/util.go:302 unmarshals the root viper into the custom app config on the
+// app.toml-absent branch, and reaches the dead field only once some layer makes
+// state-commit.async-commit-buffer a key that viper holds. What this holds is that the divergence
+// stays the one described above — the dead field keeps the tag the live field also carries,
+// and neither is addressable at the spelling the readers use.
+func TestStateCommitAsyncCommitBufferTagAddressesNoReader(t *testing.T) {
+	const (
+		tag        = "async-commit-buffer"
+		readerName = "sc-async-commit-buffer"
+	)
+	tagOf := func(structType reflect.Type, field string) string {
+		t.Helper()
+		f, ok := structType.FieldByName(field)
+		if !ok {
+			t.Fatalf("%s has no field %s; this recording names fields that no longer exist",
+				structType, field)
+		}
+		return f.Tag.Get("mapstructure")
+	}
+
+	if got := tagOf(reflect.TypeOf(seidbconfig.StateCommitConfig{}), "AsyncCommitBuffer"); got != tag {
+		t.Errorf("StateCommitConfig.AsyncCommitBuffer is now tagged %q, was %q. That field is read by "+
+			"nothing, so retagging it to %q would make the dead field the one a tag-driven manager "+
+			"binds under the spelling operators write, and the live memiavl field unreachable. If the "+
+			"field was deleted or the collision closed, this recording is what has to change with it",
+			got, tag, readerName)
+	}
+	if got := tagOf(reflect.TypeOf(memiavl.Config{}), "AsyncCommitBuffer"); got != tag {
+		t.Errorf("memiavl.Config.AsyncCommitBuffer is now tagged %q, was %q. This is the live field: "+
+			"<= 0 means synchronous commit. Both readers reach it through %q, which is a literal in "+
+			"the app.toml template and in each reader, so moving the tag changes only what a "+
+			"tag-driven binder addresses — and that is the change worth reviewing on its own",
+			got, tag, readerName)
+	}
+	if got := tagOf(reflect.TypeOf(seidbconfig.StateCommitConfig{}), "MemIAVLConfig"); got != "" {
+		t.Errorf("StateCommitConfig.MemIAVLConfig is now tagged %q, where it carried no tag. That "+
+			"moves the live async-commit-buffer to state-commit.%s.%s for a tag-driven binder, and "+
+			"whether it now shadows or is shadowed by the dead field is the whole of the review",
+			got, got, tag)
+	}
+
+	// The live anchor: what a generated app.toml actually carries is the readers' spelling, and
+	// not the tag's. Without it the assertions above would hold equally in a tree where
+	// generation had started following the tags.
+	configtest.Isolate(t)
+	got := applyLegacy(t, configtest.NewHome(t), nil)
+	if got.err != nil {
+		t.Fatalf("Apply: %v", got.err)
+	}
+	if v := got.ctx.Viper.Get("state-commit." + readerName); v == nil {
+		t.Fatalf("a generated app.toml no longer carries state-commit.%s, which both readers look "+
+			"up. Every app.toml on disk addresses that spelling, so the async commit queue on every "+
+			"node just fell back to its in-code default", readerName)
+	}
+	if v := got.ctx.Viper.Get("state-commit." + tag); v != nil {
+		t.Fatalf("a generated app.toml now carries state-commit.%s (%#v). Generation has started "+
+			"following the struct tags, and that spelling reaches the field nothing reads, so the "+
+			"key an operator sets no longer changes how the node commits", tag, v)
+	}
+}
+
+// TestKeyNamesMatchTheRecordedNames records the two [state-sync] keys whose constant nothing
+// else in the tree holds.
+//
+// NewApp reads all three state-sync keys through the constants declared in
+// sei-cosmos/server/start.go — `appOpts.Get(server.FlagStateSyncSnapshotDir)` at root.go:255 and
+// the three baseapp.Set* calls at root.go:304-306. It is not the only reader, and the readers
+// that name the keys name them as literals: sei-cosmos/server/config.GetConfig reads all three
+// into StateSyncConfig at config.go:615-619, and the app.toml template writes all three as
+// literal text at sei-cosmos/server/config/toml.go:76, :79 and :83. Those namings are what make
+// this record necessary rather than redundant: a constant rename moves NewApp and leaves every
+// literal where it was, so the suite stays green, the readers now disagree about which key they
+// resolve, and the key an operator wrote reaches only one of them.
+//
+// A third reader names them neither way: ParseConfig (sei-cosmos/server/config/toml.go:272-277)
+// unmarshals the section by mapstructure tag, so a tag rename moves it and leaves both the
+// literals and the constants where they were — the mirror of the case above, and the same seam
+// TestStateCommitAsyncCommitBufferTagAddressesNoReader records for [state-commit]. It reaches
+// seid only on util.go:308's empty-template branch, and initAppConfig always supplies a template
+// (root.go:426 assembles it, non-empty), so nothing here holds it. That unreachability is prose
+// rather than an assertion: the branch goes live the moment any caller passes an empty template.
+//
+// snapshot-interval is the exception, and by accident of spelling rather than by design: appKeys
+// above names it as a literal, so it does not move when the constant moves and a constant-only
+// rename fails six seeds of FuzzApplyPrecedenceApp. The other two have no such assertion, so
+// editing the constant renames an operator-facing key with this whole suite green.
+//
+// What each rename costs is why they are worth a record rather than a deferral:
+//
+//   - snapshot-keep-recent is a registered flag defaulting to 2 (start.go:234), so a rename does
+//     not surface as a missing flag — it silently reverts an explicit `= 10` to 2, and the serving
+//     node prunes snapshots a joining node is part-way through downloading. It presents on the
+//     joining node, as state-sync failure against a serving node that looks healthy.
+//   - snapshot-directory is registered nowhere, so a rename silently drops an explicit path and
+//     snapshots land in $HOME/data/snapshots instead (root.go:255-257). It presents as disk
+//     pressure on whichever volume the home directory is on.
+//
+// They are recorded with no rows because a row predicts a resolved leaf and NewApp builds a whole
+// baseapp against a materialized node directory rather than resolving an AppOpts into a struct.
+// That is a property of this reader and not of the section: GetConfig's reading of the same three
+// keys is describable and is described, by a three-row manifest and a state-sync record of its own
+// in sei-cosmos/server/config. Here a KeyName claims the spelling and nothing else, which is what
+// can be said truthfully about NewApp. The consequence is that no seeds check ties this record —
+// that tie needs a manifest — so this call is the only thing holding it, unlike the thirteen
+// sections where CheckEveryRowHasADiscriminatingSeed compares the record as well.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "state-sync", nil,
+		server.FlagStateSyncSnapshotKeepRecent,
+		server.FlagStateSyncSnapshotDir)
 }
 
 // TestApplyLeavesBothChannelsPopulated states the seam's minimum contract, the one

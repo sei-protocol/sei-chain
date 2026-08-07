@@ -360,7 +360,7 @@ func (imp *KVImporter) Close() error {
 		}
 
 		// Write a snapshot so the imported data survives store reopen / restart.
-		// Import bypasses the WAL, so without a snapshot the next LoadVersion
+		// Import bypasses the WAL, so without a snapshot the next LoadLatest
 		// would clone from the pre-import snapshot and lose all imported data.
 		if err = imp.store.WriteSnapshot(""); err != nil {
 			err = fmt.Errorf("failed to import when writing snapshot: %w", err)

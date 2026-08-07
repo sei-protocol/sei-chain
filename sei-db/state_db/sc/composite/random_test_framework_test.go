@@ -1506,7 +1506,7 @@ func openComposite(t *testing.T, dir string, cfg config.StateCommitConfig) *Comp
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize(keys.MemIAVLStoreKeys))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 	applyTestMigrationBatchSize(t, cs)
 	t.Cleanup(func() { _ = cs.Close() })
@@ -1556,7 +1556,7 @@ func stateSyncClone(
 	// Open then close the writable handle so the importer takes over a
 	// freshly-initialized, unlocked store (matches the production state-sync
 	// import path and TestExportImportEVMMigrated).
-	_, err = dst.LoadVersion(0, false)
+	err = dst.LoadLatest()
 	require.NoError(t, err)
 	require.NoError(t, dst.Close())
 
@@ -1565,8 +1565,8 @@ func stateSyncClone(
 	replayImport(t, importer, items)
 	require.NoError(t, importer.Close())
 
-	_, err = dst.LoadVersion(version, false)
-	require.NoError(t, err)
+	require.NoError(t, dst.LoadLatest())
+	require.Equal(t, version, dst.Version(), "import must land at the exported version")
 	applyTestMigrationBatchSize(t, dst)
 	t.Cleanup(func() { _ = dst.Close() })
 
@@ -1590,7 +1590,7 @@ func stateSyncClone(
 // randomTestConfig), so version need not be snapshot-aligned.
 func readHistoricalSnapshot(t *testing.T, cs *CompositeCommitStore, version int64, snap *storeOracle, stores []string) {
 	t.Helper()
-	committer, err := cs.LoadVersion(version, true)
+	committer, err := cs.LoadVersionReadOnly(version)
 	require.NoError(t, err, "read-only LoadVersion at historical version %d", version)
 	ro, ok := committer.(*CompositeCommitStore)
 	require.True(t, ok, "read-only LoadVersion must return *CompositeCommitStore")
@@ -1608,9 +1608,11 @@ func rollbackFlatKVIndependently(t *testing.T, dir string, cfg config.StateCommi
 	t.Helper()
 	flatkvCfg := cfg.FlatKVConfig
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
-	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg)
+	flatkvWAL, err := flatkv.OpenStateWAL(&flatkvCfg)
 	require.NoError(t, err)
-	_, err = evmStore.LoadVersion(0, false)
+	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg, flatkvWAL)
+	require.NoError(t, err)
+	err = evmStore.LoadLatest()
 	require.NoError(t, err)
 	require.NoError(t, evmStore.Rollback(target))
 	require.NoError(t, evmStore.Close())

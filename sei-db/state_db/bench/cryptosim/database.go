@@ -22,9 +22,6 @@ type Database struct {
 	// A count of the number of transactions in the current batch.
 	transactionsInCurrentBlock int64
 
-	// The number of blocks that have been executed since the last commit.
-	uncommittedBlockCount int64
-
 	// The next block number to be persisted. Tracked internally and incremented after each finalized block.
 	nextBlockNumber uint64
 
@@ -108,7 +105,7 @@ func (d *Database) MaybeFinalizeBlock(
 	nextErc20ContractID int64,
 ) (bool, error) {
 	if d.transactionsInCurrentBlock >= int64(d.config.TransactionsPerBlock) {
-		err := d.FinalizeBlock(nextAccountID, nextErc20ContractID, false)
+		err := d.FinalizeBlock(nextAccountID, nextErc20ContractID)
 		if err != nil {
 			return false, fmt.Errorf("failed to finalize block: %w", err)
 		}
@@ -121,7 +118,6 @@ func (d *Database) MaybeFinalizeBlock(
 func (d *Database) FinalizeBlock(
 	nextAccountID int64,
 	nextErc20ContractID int64,
-	forceCommit bool,
 ) error {
 
 	d.metrics.SetMainThreadPhase("execute_block")
@@ -191,17 +187,12 @@ func (d *Database) FinalizeBlock(
 	d.metrics.ReportBlockFinalized(d.transactionsInCurrentBlock)
 	d.transactionsInCurrentBlock = 0
 
-	// Periodically commit the changes to the database.
-	d.uncommittedBlockCount++
-	if forceCommit || d.uncommittedBlockCount >= int64(d.config.BlocksPerCommit) {
-		d.metrics.SetMainThreadPhase("committing")
-		_, err := d.db.Commit()
-		if err != nil {
-			return fmt.Errorf("failed to commit: %w", err)
-		}
-		d.metrics.ReportDBCommit()
-		d.uncommittedBlockCount = 0
+	// One commit per block: that is the store contract, so the benchmark must not batch.
+	d.metrics.SetMainThreadPhase("committing")
+	if _, err := d.db.Commit(); err != nil {
+		return fmt.Errorf("failed to commit: %w", err)
 	}
+	d.metrics.ReportDBCommit()
 
 	d.metrics.SetMainThreadPhase("executing")
 
@@ -212,7 +203,7 @@ func (d *Database) FinalizeBlock(
 func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64) error {
 	fmt.Printf("Committing final batch.\n")
 
-	if err := d.FinalizeBlock(nextAccountID, nextErc20ContractID, true); err != nil {
+	if err := d.FinalizeBlock(nextAccountID, nextErc20ContractID); err != nil {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
 

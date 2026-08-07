@@ -27,6 +27,9 @@ const (
 	rejectReasonBudgetMidread = "budget_midread" // global byte budget exhausted mid-body read
 	rejectReasonSlowBody      = "slow_body"      // body read idle timeout exceeded
 	rejectReasonBusy          = "busy"           // WS admission budget/frame wait timed out
+	rejectReasonRateLimited   = "rate_limited"   // per-IP token bucket exhausted
+	rejectReasonUnparseable   = "unparseable"    // rate-limit method parse failed (malformed JSON-RPC)
+	rejectReasonReadError     = "read_error"     // request body could not be read (I/O error, missing body)
 	// error_class values; empty string ("") means success.
 	errorClassPanic              = "panic"
 	errorClassExecutionReverted  = "execution_reverted"
@@ -173,7 +176,8 @@ func recordHistoricalDebugTraceAttempt(ctx context.Context, endpoint, connection
 }
 
 // recordRequestRejected counts an HTTP JSON-RPC request dropped by pre-decode
-// admission control. reason is one of rejectReasonOversize / rejectReasonBudgetMidread / rejectReasonSlowBody.
+// admission control. reason is one of rejectReasonOversize, rejectReasonBudgetMidread,
+// rejectReasonSlowBody, rejectReasonRateLimited, rejectReasonUnparseable, or rejectReasonReadError.
 // No endpoint dimension is recorded: the rejection happens before the JSON-RPC
 // method is decoded, so it is not yet known.
 func recordRequestRejected(ctx context.Context, reason string) {

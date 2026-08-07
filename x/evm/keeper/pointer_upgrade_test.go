@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,6 +68,110 @@ func TestUpsertERCNativePointer(t *testing.T) {
 	require.Equal(t, uint8(12), res.(uint8))
 	_, err = k.QueryERCSingleOutput(ctx, "native", addr, "nonexist")
 	require.NotNil(t, err)
+}
+
+// TestUpsertERCNativePointerKeepsCodeCacheCoherent covers the mid-tx redeploy
+// path: plant a warm memo, re-upsert (exists → keeper SetCode + RefreshCodeCache),
+// and assert GetCode follows the store.
+func TestUpsertERCNativePointerKeepsCodeCacheCoherent(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+
+	stalePlant := []byte{1, 2, 3, 4, 5}
+	var warmed, codeAfter, storeCode []byte
+	var sizeAfter int
+	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
+		addr, err := k.UpsertERCNativePointer(ctx, e, "cache-coherent", utils.ERCMetadata{
+			Name:     "before",
+			Symbol:   "before",
+			Decimals: 6,
+		})
+		if err != nil {
+			return err
+		}
+		sdb := state.GetDBImpl(e.StateDB)
+		if sdb == nil {
+			return errors.New("expected DBImpl StateDB")
+		}
+		// Distinct warm entry so a missed memo update is observable (metadata-only
+		// redeploys often produce identical runtime bytecode).
+		sdb.SetCode(addr, stalePlant)
+		warmed = sdb.GetCode(addr)
+
+		_, err = k.UpsertERCNativePointer(ctx, e, "cache-coherent", utils.ERCMetadata{
+			Name:     "after",
+			Symbol:   "after",
+			Decimals: 8,
+		})
+		if err != nil {
+			return err
+		}
+		codeAfter = sdb.GetCode(addr)
+		sizeAfter = sdb.GetCodeSize(addr)
+		storeCode = k.GetCode(sdb.Ctx(), addr)
+		// Registry must be written on the live Multistore layer (sdb.Ctx), not the
+		// Prepare-time ctx that GetDeploymentCode may have frozen.
+		got, _, found := k.GetERC20NativePointer(sdb.Ctx(), "cache-coherent")
+		if !found || got != addr {
+			return fmt.Errorf("pointer registry not visible on live StateDB ctx: found=%v got=%s want=%s", found, got.Hex(), addr.Hex())
+		}
+		return nil
+	}, func(string, string) {})
+	require.NoError(t, err)
+	require.Equal(t, stalePlant, warmed)
+	require.NotEqual(t, warmed, codeAfter)
+	require.Equal(t, len(codeAfter), sizeAfter)
+	require.Equal(t, codeAfter, storeCode)
+}
+
+// TestUpsertERCNativePointerFailedRedeployPreservesCode ensures a failed
+// GetDeploymentCode path does not SetCode (or RefreshCodeCache) over live
+// pointer bytecode — even briefly — before returning the error.
+func TestUpsertERCNativePointerFailedRedeployPreservesCode(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+
+	preserved := []byte{9, 8, 7, 6, 5}
+	var codeAfterFail, storeAfterFail []byte
+	var sizeAfterFail int
+	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
+		addr, err := k.UpsertERCNativePointer(ctx, e, "fail-preserves", utils.ERCMetadata{
+			Name:     "before",
+			Symbol:   "before",
+			Decimals: 6,
+		})
+		if err != nil {
+			return err
+		}
+		sdb := state.GetDBImpl(e.StateDB)
+		if sdb == nil {
+			return errors.New("expected DBImpl StateDB")
+		}
+		sdb.SetCode(addr, preserved)
+		require.Equal(t, preserved, sdb.GetCode(addr))
+
+		// Finite cosmos meter large enough for the pointer-registry getter reads, but
+		// small enough that GetDeploymentCode OOGs (normalizer is 1 in tests). StateDB
+		// KV metering stays on the infinite RunWithOneOff meter.
+		lowGasCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, 50_000))
+		_, err = k.UpsertERCNativePointer(lowGasCtx, e, "fail-preserves", utils.ERCMetadata{
+			Name:     "after",
+			Symbol:   "after",
+			Decimals: 8,
+		})
+		require.Error(t, err)
+
+		codeAfterFail = sdb.GetCode(addr)
+		sizeAfterFail = sdb.GetCodeSize(addr)
+		storeAfterFail = k.GetCode(sdb.Ctx(), addr)
+		return nil
+	}, func(string, string) {})
+	require.NoError(t, err)
+	require.Equal(t, preserved, codeAfterFail)
+	require.Equal(t, len(preserved), sizeAfterFail)
+	require.Equal(t, preserved, storeAfterFail)
 }
 
 func TestUpsertERC20Pointer(t *testing.T) {

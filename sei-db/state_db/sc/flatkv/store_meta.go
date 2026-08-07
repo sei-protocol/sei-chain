@@ -359,7 +359,7 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 			s.committedVersion)
 	}
 	if s.metadataDB == nil {
-		return fmt.Errorf("flatkv: SetInitialVersion called before LoadVersion")
+		return fmt.Errorf("flatkv: SetInitialVersion called before LoadLatest")
 	}
 
 	seededVersion := initialVersion - 1
@@ -426,7 +426,7 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 // GetLatestVersion returns the latest committed version persisted under
 // dir without holding an open *CommitStore. Mirrors memiavl.GetLatestVersion
 // in role: a side-channel for callers that need the on-disk watermark
-// before LoadVersion has run (e.g. the rootmulti sanity check at
+// before LoadLatest has run (e.g. the rootmulti sanity check at
 // process startup). Returns 0 when the store has never been opened or
 // has no commits yet.
 //
@@ -437,6 +437,27 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 // CommitStore on dir, because the underlying PebbleDB takes an
 // exclusive file lock.
 func GetLatestVersion(dir string) (int64, error) {
+	return readVersionRecord(dir, ktype.MetaVersionKey)
+}
+
+// GetEarliestVersion returns the version the history of the store under dir
+// begins at, without holding an open *CommitStore. It is the on-disk twin of
+// CommitStore.EarliestVersion, and carries the same meaning: a non-zero result
+// means versions below it predate the store entirely, as opposed to pruned or
+// corrupt in-history versions. Returns 0 when the store was never seeded.
+//
+// The truth source is MetaEarliestVersionKey in working/metadata, written once
+// by SetInitialVersion. It never travels through the state WAL, so no replay
+// can change it and this answer does not depend on one. Like GetLatestVersion,
+// it must not be called concurrently with a running CommitStore on dir.
+func GetEarliestVersion(dir string) (int64, error) {
+	return readVersionRecord(dir, ktype.MetaEarliestVersionKey)
+}
+
+// readVersionRecord reads one 8-byte big-endian version record out of the
+// working metadata DB under dir, opening and closing that single PebbleDB
+// around the read. An absent directory or key reads as 0.
+func readVersionRecord(dir string, key []byte) (int64, error) {
 	metaDir := filepath.Join(dir, workingDirName, metadataDir)
 	if _, err := os.Stat(metaDir); err != nil {
 		if os.IsNotExist(err) {
@@ -454,26 +475,26 @@ func GetLatestVersion(dir string) (int64, error) {
 	}
 	defer func() { _ = db.Close() }()
 
-	data, err := db.Get(ktype.MetaVersionKey)
+	data, err := db.Get(key)
 	if errorutils.IsNotFound(err) {
 		return 0, nil
 	}
 	if err != nil {
-		return 0, fmt.Errorf("flatkv: read MetaVersionKey: %w", err)
+		return 0, fmt.Errorf("flatkv: read %s: %w", key, err)
 	}
 	if len(data) != 8 {
-		return 0, fmt.Errorf("flatkv: invalid metadata version length: got %d, want 8", len(data))
+		return 0, fmt.Errorf("flatkv: invalid %s length: got %d, want 8", key, len(data))
 	}
 	v := binary.BigEndian.Uint64(data)
 	if v > math.MaxInt64 {
-		return 0, fmt.Errorf("flatkv: metadata version overflow: %d exceeds max int64", v)
+		return 0, fmt.Errorf("flatkv: %s overflow: %d exceeds max int64", key, v)
 	}
 	return int64(v), nil //nolint:gosec // overflow checked above
 }
 
 // GetLatestVersion returns the latest committed version. When the store
 // is open, the in-memory committed watermark is authoritative; before
-// LoadVersion has run, it falls back to the free-standing on-disk
+// LoadLatest has run, it falls back to the free-standing on-disk
 // helper. Either path returns 0 on a fresh store.
 func (s *CommitStore) GetLatestVersion() (int64, error) {
 	if s.metadataDB != nil {

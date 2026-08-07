@@ -272,11 +272,15 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view0))
 
 	// Session 1: push PrepareQC + TimeoutQC, let runOutputs persist.
+	// Hoisted so session 1's WALs can be released after its goroutines have stopped: they hold an
+	// exclusive lock on the state directory that session 2 reopens.
+	var session1 *State
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		s, err := NewState(makeCfg(), makeDataState())
 		if err != nil {
 			return fmt.Errorf("NewState: %w", err)
 		}
+		session1 = s
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
 		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
@@ -295,6 +299,9 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+
+	// scope.Run has stopped session 1's goroutines, so its WALs can be released.
+	require.NoError(t, session1.Close())
 
 	// Session 2: restart from persisted state, verify PrepareQC inheritance.
 	err = scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {

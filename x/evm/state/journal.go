@@ -66,6 +66,15 @@ type (
 		delta sdk.Int
 	}
 
+	// codeCacheChange restores a single memo entry on revert. GetCode fills are
+	// not journaled — only SetCode / RefreshCodeCache / account-code clears —
+	// so nested reverts do not wipe unrelated warmed bytecode.
+	codeCacheChange struct {
+		account common.Address
+		prev    []byte
+		had     bool // whether account was present in the memo before the mutation
+	}
+
 	watermark struct {
 		version int
 	}
@@ -158,6 +167,17 @@ func (e *storageOverrideInstall) revert(s *DBImpl) {
 }
 
 func (e *watermark) revert(s *DBImpl) {}
+
+func (e *codeCacheChange) revert(s *DBImpl) {
+	if s.codeCache == nil {
+		return
+	}
+	if e.had {
+		s.codeCache[e.account] = e.prev
+		return
+	}
+	delete(s.codeCache, e.account)
+}
 
 func (e *accountStatusChange) revert(s *DBImpl) {
 	accts := s.tempState.transientAccounts

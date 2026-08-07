@@ -34,6 +34,10 @@ func TestFileLockPreventsOfflineWhileLive(t *testing.T) {
 
 	err = VerifyIntegrity(dir)
 	require.ErrorIs(t, err, commonerrors.ErrFileLockUnavailable)
+
+	err = DeleteAll(dir)
+	require.ErrorIs(t, err, commonerrors.ErrFileLockUnavailable)
+	require.DirExists(t, dir, "a wipe blocked by the lock must not have removed anything")
 }
 
 // TestFileLockReleasedOnClose verifies that Close releases the lock so a later WAL and the offline utilities
@@ -60,6 +64,47 @@ func TestFileLockReleasedOnClose(t *testing.T) {
 
 	w2 := openWAL(t, testConfig(dir))
 	require.NoError(t, w2.Close())
+
+	require.NoError(t, DeleteAll(dir))
+}
+
+// TestDeleteAllRemovesDirectoryAndLockStillExcludes verifies that DeleteAll removes the whole directory,
+// lock file included, and that the lock recreated by the next open still excludes a second owner. Asserting
+// only that the directory is gone would pass even if the replacement lock file no longer excluded anything.
+func TestDeleteAllRemovesDirectoryAndLockStillExcludes(t *testing.T) {
+	dir := t.TempDir()
+
+	w := openWAL(t, testConfig(dir))
+	for index := uint64(1); index <= 5; index++ {
+		appendRecord(t, w, index)
+	}
+	require.NoError(t, w.Flush())
+	require.NoError(t, w.Close())
+	require.FileExists(t, filepath.Join(dir, lockFileName))
+
+	require.NoError(t, DeleteAll(dir))
+	require.NoDirExists(t, dir)
+
+	// Reopening recreates the directory and its lock file, and that fresh lock must exclude just as the
+	// original did.
+	w2 := openWAL(t, testConfig(dir))
+	defer func() { require.NoError(t, w2.Close()) }()
+	require.FileExists(t, filepath.Join(dir, lockFileName))
+
+	_, err := NewWAL(testConfig(dir))
+	require.ErrorIs(t, err, commonerrors.ErrFileLockUnavailable)
+
+	ok, _, _, err := w2.Bounds()
+	require.NoError(t, err)
+	require.False(t, ok, "WAL should be empty after DeleteAll")
+}
+
+// TestDeleteAllMissingDirIsNoop verifies DeleteAll is a clean no-op on a directory that does not exist, and
+// that it does not create one on the way out.
+func TestDeleteAllMissingDirIsNoop(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "never-created")
+	require.NoError(t, DeleteAll(dir))
+	require.NoDirExists(t, dir)
 }
 
 // TestFileLockSequentialOpenClose verifies that repeated open/close cycles succeed: the lock leaves no stale

@@ -49,6 +49,8 @@ type HTTPConfig struct {
 	SeiLegacyAllowlist map[string]struct{}
 	prefix             string // path prefix on which to mount http handler
 	RPCEndpointConfig
+	// rateLimitGate applies per-IP JSON-RPC rate limiting when non-nil and enabled.
+	rateLimitGate *RateLimitGate
 }
 
 // WsConfig is the JSON-RPC/Websocket configuration
@@ -353,15 +355,19 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 
 	// maxRequestBodyBytes feeds all three body-cap layers (requestSizeLimiter, the gate, and
 	// srv.SetHTTPBodyLimit above) so they agree; change the cap via the config value, not one layer.
-	limiter := newRequestSizeLimiter(
-		wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
+	// requestSizeLimiter is outermost (after JWT) so declared oversize bodies are rejected from
+	// Content-Length before the rate limiter reads the full body (bounded by max_request_body_bytes).
+	handler := newRequestSizeLimiter(
+		newRateLimitMiddleware(
+			wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
+			config.rateLimitGate,
+		),
 		config.maxRequestBodyBytes,
 		config.maxConcurrentRequestBytes,
 		config.bodyReadIdleTimeout,
 	)
-	handler := limiter
 	if len(config.JwtSecret) != 0 {
-		handler = newJWTHandler(config.JwtSecret, limiter)
+		handler = newJWTHandler(config.JwtSecret, handler)
 	}
 	h.httpHandler.Store(&rpcHandler{
 		Handler: handler,

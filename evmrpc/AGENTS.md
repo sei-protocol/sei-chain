@@ -7,13 +7,13 @@ When JWT is configured, unauthenticated requests are rejected before the byte
 budget is touched:
 
 ```
-jwt → requestSizeLimiter → seiLegacyHTTPGate → gzip → vhost → cors → rpc.Server
+jwt → requestSizeLimiter → rateLimitMiddleware → seiLegacyHTTPGate → gzip → vhost → cors → rpc.Server
 ```
 
 Without JWT:
 
 ```
-requestSizeLimiter → seiLegacyHTTPGate → gzip → vhost → cors → rpc.Server
+requestSizeLimiter → rateLimitMiddleware → seiLegacyHTTPGate → gzip → vhost → cors → rpc.Server
 ```
 
 `requestSizeLimiter` caps each body with `http.MaxBytesReader`, charges the
