@@ -588,11 +588,16 @@ split-test-packages:$(BUILDDIR)/packages.txt
 	split -d -n l/$(NUM_SPLIT) $< $<.
 test-group-%:split-test-packages
 	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
-	@if grep -q "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
+	@SHARD_FILE=$$(ls $(BUILDDIR)/packages.txt.* | sort | sed -n "$$(( $* + 1 ))p"); \
+	if [ -z "$$SHARD_FILE" ]; then \
+		echo "no shard file found for index $*" >&2; \
+		exit 1; \
+	fi; \
+	if grep -q "$(TARGET_PACKAGE)" "$$SHARD_FILE"; then \
 		echo "🔒 Found $(TARGET_PACKAGE), running with -parallel=1"; \
 		PARALLEL="-parallel=1"; \
 	else \
 		echo "⚡ Not found, running with -parallel=4"; \
 		PARALLEL="-parallel=4"; \
 	fi; \
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...
+	cat "$$SHARD_FILE" | xargs go test $$PARALLEL -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...

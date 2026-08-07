@@ -74,7 +74,14 @@ jobs:
         run: |
           set -euo pipefail
           make split-test-packages NUM_SPLIT=${{ env.NUM_SPLIT }}
-          SHARD_FILE=build/packages.txt.${{ matrix.shard }}
+          # `split`'s numeric-suffix width isn't guaranteed to match NUM_SPLIT's
+          # digit count (e.g. it may emit packages.txt.00 instead of .0), so
+          # pick the shard file by sorted position rather than assumed name.
+          SHARD_FILE=$(ls build/packages.txt.* | sort | sed -n "$(( ${{ matrix.shard }} + 1 ))p")
+          if [[ -z "$SHARD_FILE" ]]; then
+            echo "no shard file found for index ${{ matrix.shard }}" >&2
+            exit 1
+          fi
           PARALLEL=()
           if grep -qx "github.com/sei-protocol/sei-chain/occ_tests" "$SHARD_FILE"; then
             echo "occ_tests present in this shard; forcing -parallel=1"
