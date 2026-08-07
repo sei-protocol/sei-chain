@@ -584,20 +584,21 @@ $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
 
 TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
 
+# testsplit balances shards by historical per-package test duration (queried
+# from the last successful `main` run of go-test.yml) when available, and
+# falls back to a deterministic round-robin split otherwise — see
+# .github/scripts/testsplit. It writes packages.txt.0 .. packages.txt.N-1
+# next to packages.txt, replacing the old `split -d -n l/N` approach (whose
+# numeric-suffix width isn't guaranteed to match NUM_SPLIT's digit count).
 split-test-packages:$(BUILDDIR)/packages.txt
-	split -d -n l/$(NUM_SPLIT) $< $<.
+	go run ./.github/scripts/testsplit plan --num-split=$(NUM_SPLIT) --out-dir=$(BUILDDIR) < $<
 test-group-%:split-test-packages
 	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
-	@SHARD_FILE=$$(ls $(BUILDDIR)/packages.txt.* | sort | sed -n "$$(( $* + 1 ))p"); \
-	if [ -z "$$SHARD_FILE" ]; then \
-		echo "no shard file found for index $*" >&2; \
-		exit 1; \
-	fi; \
-	if grep -q "$(TARGET_PACKAGE)" "$$SHARD_FILE"; then \
+	@if grep -q "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
 		echo "🔒 Found $(TARGET_PACKAGE), running with -parallel=1"; \
 		PARALLEL="-parallel=1"; \
 	else \
 		echo "⚡ Not found, running with -parallel=4"; \
 		PARALLEL="-parallel=4"; \
 	fi; \
-	cat "$$SHARD_FILE" | xargs go test $$PARALLEL -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...
+	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...

@@ -40,6 +40,11 @@ jobs:
     name: "Race Detection (shard ${{ matrix.shard }})"
     runs-on: uci-default
     needs: shard-indexes
+    permissions:
+      contents: read
+      # testsplit queries the Actions API for the last successful `main`
+      # run's timing artifact; this is the read-only scope that allows it.
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -71,23 +76,42 @@ jobs:
         run: go mod download
 
       - name: Go test
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           make split-test-packages NUM_SPLIT=${{ env.NUM_SPLIT }}
-          # `split`'s numeric-suffix width isn't guaranteed to match NUM_SPLIT's
-          # digit count (e.g. it may emit packages.txt.00 instead of .0), so
-          # pick the shard file by sorted position rather than assumed name.
-          SHARD_FILE=$(ls build/packages.txt.* | sort | sed -n "$(( ${{ matrix.shard }} + 1 ))p")
-          if [[ -z "$SHARD_FILE" ]]; then
-            echo "no shard file found for index ${{ matrix.shard }}" >&2
-            exit 1
-          fi
+          SHARD_FILE=build/packages.txt.${{ matrix.shard }}
           PARALLEL=()
           if grep -qx "github.com/sei-protocol/sei-chain/occ_tests" "$SHARD_FILE"; then
             echo "occ_tests present in this shard; forcing -parallel=1"
             PARALLEL=(-parallel=1)
           fi
-          xargs go test "${PARALLEL[@]}" -timeout=${{ env.GO_TEST_TIMEOUT }} < "$SHARD_FILE"
+          set +e
+          xargs go test "${PARALLEL[@]}" -timeout=${{ env.GO_TEST_TIMEOUT }} < "$SHARD_FILE" 2>&1 | tee test-output.txt
+          TEST_EXIT=${PIPESTATUS[0]}
+          set -e
+          exit "$TEST_EXIT"
+
+      - name: Record test timings
+        # Captures per-package duration even when tests fail, so a shard
+        # that fails partway through still contributes what it learned.
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          if [ -f test-output.txt ]; then
+            go run ./.github/scripts/testsplit record --input=test-output.txt --out=build/timings.shard-${{ matrix.shard }}.json
+          else
+            echo '{}' > build/timings.shard-${{ matrix.shard }}.json
+          fi
+
+      - name: Upload shard timings
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: race-timings-shard-${{ matrix.shard }}
+          path: build/timings.shard-${{ matrix.shard }}.json
 
   test-check:
     name: Race Detection
@@ -101,6 +125,45 @@ jobs:
             echo "One or more Race Detection shards failed"
             exit 1
           fi
+
+  record-timings:
+    name: Record package timings
+    runs-on: ubuntu-latest
+    needs: test
+    # Timings are only ever queried from the last successful `main` push
+    # run (see testsplit's fetchTimings), so there's no point recording
+    # them on PR/merge-group runs nobody will look up.
+    if: always() && github.event_name == 'push'
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Download shard timings
+        uses: actions/download-artifact@v4
+        with:
+          pattern: race-timings-shard-*
+          path: build/shard-timings
+          merge-multiple: true
+
+      - name: Merge package timings
+        run: |
+          set -euo pipefail
+          go run ./.github/scripts/testsplit merge --out=build/package_timings.json build/shard-timings/*.json
+
+      - name: Upload package timings
+        uses: actions/upload-artifact@v5
+        with:
+          name: package-timings
+          path: build/package_timings.json
 
   coverage:
     name: Coverage
