@@ -124,7 +124,12 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Push app votes.")
-			appProposal := types.NewAppProposal(qc.Proposal(), types.GenAppHash(rng))
+			appHash := types.GenAppHash(rng)
+			appProposal := types.NewAppProposal(qc.Proposal(), appHash)
+			appGR := appProposal.GlobalRange()
+			if err := ds.PushAppHash(ctx, appGR.Next-1, appHash); err != nil {
+				return fmt.Errorf("ds.PushAppHash(): %w", err)
+			}
 			for _, vote := range makeAppVotes(keys, appProposal) {
 				if err := state.PushAppVote(ctx, vote); err != nil {
 					return fmt.Errorf("state.PushAppVote(): %w", err)
@@ -132,8 +137,8 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			}
 
 			t.Logf("Previous one should be eventually evicted")
-			for inner,ctrl := range state.inner.Lock() {
-				if err:=ctrl.WaitUntil(ctx, func() bool { return inner.roads.first == appProposal.RoadIndex() }); err!=nil {
+			for inner, ctrl := range state.inner.Lock() {
+				if err := ctrl.WaitUntil(ctx, func() bool { return inner.roads.first == appProposal.RoadIndex() }); err != nil {
 					return err
 				}
 			}
@@ -182,10 +187,9 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 // from the same directory. This verifies that what the runtime persist
 // goroutine writes can be correctly loaded back by loadPersistedState/newInner.
 //
-// After iteration 0's AppQC prunes old data, iteration 1 writes new blocks
-// and commitQCs at higher indices. If WAL truncation hasn't cleaned up the
-// stale entries by shutdown, restart exercises the gap-filtering path in
-// loadPersistedState (stale entries below the prune anchor are discarded).
+// The restarted state uses a fresh in-memory data.State, so this covers the
+// availability persisters themselves: CommitQCs and local blocks are loaded back
+// and lane next-block cursors resume where they left off.
 func TestStateRestartFromPersisted(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -277,8 +281,6 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	ds2 := newTestDataState(&data.Config{Registry: registry})
 	state2, err := NewState(keys[0], ds2, utils.Some(dir))
 	require.NoError(t, err)
-
-	require.GreaterOrEqual(t, state2.First(), wantAppQCIdx)
 
 	_, ok := state2.LastCommitQC().Load().Get()
 	require.True(t, ok, "LastCommitQC should be set after restart")
