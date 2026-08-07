@@ -192,9 +192,6 @@ func (s txServer) GetBlockWithTxs(ctx context.Context, req *txtypes.GetBlockWith
 	if req.Pagination != nil {
 		offset = req.Pagination.Offset
 		limit = req.Pagination.Limit
-		if err = pagination.VerifyPaginationLimit(limit); err != nil {
-			return nil, sdkerrors.ErrInvalidRequest.Wrapf("invalid pagination limit: %d. Max allowed limit is %d", limit, pagination.MaxLimit)
-		}
 	}
 	if limit == 0 {
 		limit = pagination.DefaultLimit
@@ -202,10 +199,12 @@ func (s txServer) GetBlockWithTxs(ctx context.Context, req *txtypes.GetBlockWith
 
 	blockTxs := block.Data.Txs
 	blockTxsLn := uint64(len(blockTxs))
-	txs := make([]*txtypes.Tx, 0, limit)
 	if offset >= blockTxsLn {
 		return nil, sdkerrors.ErrInvalidRequest.Wrapf("out of range: cannot paginate %d txs with offset %d and limit %d", blockTxsLn, offset, limit)
 	}
+	// Cap the allocation by the number of txs actually in the block so a huge
+	// user-supplied limit cannot trigger a huge allocation.
+	txs := make([]*txtypes.Tx, 0, min(limit, blockTxsLn))
 	decodeTxAt := func(i uint64) error {
 		tx := blockTxs[i]
 		txb, err := s.txConfig.TxDecoder()(tx)
