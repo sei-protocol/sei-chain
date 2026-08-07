@@ -751,14 +751,12 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	)
 }
 
-// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
-//
 // apiKeys covers the [api] keys GetConfig reads.
 //
 // Every read is a bare viper getter with no IsSet guard (config.go:579-586), so an absent key
 // resolves to that getter's zero rather than to what DefaultConfig declares. Unlike [state-sync],
 // no api.* flag is registered anywhere in this tree, so nothing supplies a fallback and the zero
-// is what a node gets. TestGetConfigAPIReadsAreUnguarded records which fields that changes.
+// is what a node gets. TestGetConfigAbsentSectionDivergences records which fields that changes.
 var apiKeys = []configtest.KeySpec{
 	{
 		Key: "api.enable", Path: "Enable", Cast: configtest.CastBool, Unguarded: true,
@@ -822,8 +820,9 @@ func FuzzAPIConfig(f *testing.F) {
 	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
 	seedEveryRow(seeds, len(apiKeys))
 
-	// The discriminating value per row, each chosen away from both the cast's zero and the
-	// declared default so the row states its own key is the one being read.
+	// The discriminating value per row, each chosen away from the value an absent key resolves to, which
+	// is what CheckEveryRowHasADiscriminatingSeed holds them to. For a bool whose declared default is
+	// not the zero that is the default itself, since a bool has only the two.
 	seeds.AddRow(uint(0), fuzzing.KindBool, "", int64(0), true) // enable
 	seeds.AddRow(uint(1), fuzzing.KindBool, "", int64(0), true) // swagger
 	seeds.AddRow(uint(2), fuzzing.KindBool, "", int64(0), true) // unsafe CORS
@@ -1000,7 +999,7 @@ func FuzzRosettaConfig(f *testing.F) {
 	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
 	seedEveryRow(seeds, len(rosettaKeys))
 
-	// One discriminating value per row, away from both the getter's zero and the declared default.
+	// One discriminating value per row, away from the value an absent key resolves to.
 	seeds.AddRow(uint(0), fuzzing.KindBool, "", int64(0), true)
 	seeds.AddRow(uint(1), fuzzing.KindString, ":18080", int64(0), false)
 	seeds.AddRow(uint(2), fuzzing.KindString, "sei-app", int64(0), false)
@@ -1087,10 +1086,14 @@ func TestTelemetryManifestNamesEveryField(t *testing.T) {
 // wants them side by side. It puts api.max-open-connections and api.rpc-max-body-bytes beside the
 // guarded grpc-web.max-open-connections, which is the contrast worth seeing.
 //
-// The diverges column asserts both directions, so every key is anchored whether or not it moves
-// today. A declared default later shifting onto the getter's zero, or off it, fails here rather than
-// changing the divergence set quietly. The rows set false are the keys whose declared default already
-// equals that zero.
+// The diverges column asserts both directions, so a key is anchored whether or not it moves today. A
+// declared default later shifting onto the getter's zero, or off it, fails here rather than changing
+// the divergence set quietly. The rows set false are the keys whose declared default already equals
+// that zero.
+//
+// Every plain cast across the six sections is here except index-events, which resolves to a []string
+// and cannot be compared with != through an any. None of these sections is wired to CheckAbsent, so
+// this table is the only thing tying their absent-key resolution to their declared defaults.
 func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 	cfg, err := GetConfig(newAppViper(t, nil))
 	if err != nil {
@@ -1109,8 +1112,9 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"rosetta.retries", cfg.Rosetta.Retries, def.Rosetta.Retries, true},
 		{"grpc-web.enable", cfg.GRPCWeb.Enable, def.GRPCWeb.Enable, true},
 		{"grpc-web.address", cfg.GRPCWeb.Address, def.GRPCWeb.Address, true},
-		// The two [grpc] keys read as plain casts. Its other nine are guarded or clamped and are
-		// held to not diverging by TestGetConfigGRPCAbsentReads.
+		// The [grpc] keys read as plain casts. keepalive-permit-without-stream is the third, further
+		// down with the other rows whose default is already the zero. Its remaining eight are guarded
+		// or clamped and held by TestGetConfigGRPCAbsentReads.
 		{"grpc.enable", cfg.GRPC.Enable, def.GRPC.Enable, true},
 		{"grpc.address", cfg.GRPC.Address, def.GRPC.Address, true},
 
@@ -1139,6 +1143,32 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"halt-time", cfg.HaltTime, def.HaltTime, false},
 		{"min-retain-blocks", cfg.MinRetainBlocks, def.MinRetainBlocks, false},
 		{"compaction-interval", cfg.CompactionInterval, def.CompactionInterval, false},
+
+		// The remaining plain casts across the six sections. Every one has a declared default equal to
+		// its getter's zero, so none diverges today, and each is here for the reason api.enable is: this
+		// table is the only thing tying these sections' absent-key resolution to their declared
+		// defaults, since none of them is wired to CheckAbsent.
+		{"rosetta.enable", cfg.Rosetta.Enable, def.Rosetta.Enable, false},
+		{"rosetta.offline", cfg.Rosetta.Offline, def.Rosetta.Offline, false},
+		{"grpc-web.enable-unsafe-cors", cfg.GRPCWeb.EnableUnsafeCORS, def.GRPCWeb.EnableUnsafeCORS, false},
+		{
+			"grpc.keepalive-permit-without-stream",
+			cfg.GRPC.KeepalivePermitWithoutStream, def.GRPC.KeepalivePermitWithoutStream, false,
+		},
+		{"telemetry.service-name", cfg.Telemetry.ServiceName, def.Telemetry.ServiceName, false},
+		{"telemetry.enable-hostname", cfg.Telemetry.EnableHostname, def.Telemetry.EnableHostname, false},
+		{
+			"telemetry.enable-hostname-label",
+			cfg.Telemetry.EnableHostnameLabel, def.Telemetry.EnableHostnameLabel, false,
+		},
+		{
+			"telemetry.enable-service-label",
+			cfg.Telemetry.EnableServiceLabel, def.Telemetry.EnableServiceLabel, false,
+		},
+
+		// index-events is the one plain cast that cannot join this table. It resolves to a []string, and
+		// the comparison below is != on an any, which panics on a slice rather than reporting. Its
+		// absent-key resolution is held by its row in baseConfigKeys instead.
 		{"telemetry.enabled", cfg.Telemetry.Enabled, def.Telemetry.Enabled, true},
 		{
 			"telemetry.prometheus-retention-time",
@@ -1238,7 +1268,7 @@ func FuzzBaseConfig(f *testing.F) {
 	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
 	seedEveryRow(seeds, len(baseConfigKeys))
 
-	// One discriminating value per row, away from both the getter's zero and the declared default.
+	// One discriminating value per row, away from the value an absent key resolves to.
 	seeds.AddRow(uint(0), fuzzing.KindString, "0.5usei", int64(0), false)
 	seeds.AddRow(uint(1), fuzzing.KindBool, "", int64(0), true)
 	seeds.AddRow(uint(2), fuzzing.KindString, "everything", int64(0), false)
@@ -1443,6 +1473,8 @@ func TestGetConfigGRPCAbsentReads(t *testing.T) {
 	}
 }
 
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
 // Every other check here reports a change to what it asserts. None reports a check being removed, so
 // this records the wiring and fails when it thins out.
 func TestWiringMatchesTheRecord(t *testing.T) {

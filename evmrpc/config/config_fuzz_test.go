@@ -284,21 +284,26 @@ func TestNativeTracerSetIsNonJSInGeth(t *testing.T) {
 // in-process. That is the failure this closes.
 //
 // The set is read at runtime through export_test.go, which is compiled only under test and so widens
-// nothing the package ships. That is also the stronger observation: it is the same map
+// nothing the package ships. It is read through an accessor rather than a captured var, so a
+// reassignment of the map cannot leave this asserting over a set nothing consults. That is also the stronger observation: it is the same map
 // IsNativeTraceTracer consults, so it sees every entry however it arrived, including one added in an
 // init, one added by a helper, one spelled as a bare string that no constant names, or the
 // declaration moving to another file in the package.
 func TestEveryNativeTracerEntryIsNonJSInGeth(t *testing.T) {
 	// An empty set would pass while checking nothing, which is the defect one level up.
-	if len(config.NativeTraceTracers) == 0 {
+	if len(config.NativeTraceTracers()) == 0 {
 		t.Fatal("nativeTraceTracers is empty, so this proved nothing about the set and " +
 			"IsNativeTraceTracer accepts no name at all")
 	}
 
-	for name := range config.NativeTraceTracers {
+	for name := range config.NativeTraceTracers() {
+		// Cannot fire while IsNativeTraceTracer is a bare lookup in this same map, and that is the
+		// point: it holds the accessor to answering from the set and nothing else. A condition added
+		// to it later, a feature gate or a build tag, would make the two disagree and land here.
 		if !config.IsNativeTraceTracer(name) {
-			t.Errorf("%q is in nativeTraceTracers but IsNativeTraceTracer rejects it, so "+
-				"the set and its accessor disagree", name)
+			t.Errorf("%q is in nativeTraceTracers but IsNativeTraceTracer rejects it, so the accessor "+
+				"no longer answers from the set alone and an operator's allowlist is filtered by "+
+				"something this test cannot see", name)
 			continue
 		}
 		if tracers.DefaultDirectory.IsJS(name) {

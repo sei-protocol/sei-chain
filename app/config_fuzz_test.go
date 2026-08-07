@@ -568,8 +568,12 @@ func TestGuardedSectionsAbsentBaseline(t *testing.T) {
 	configtest.CheckAbsent(t, "light_invariance", readLightInvariance, DefaultLightInvarianceConfig)
 }
 
-// TestKeyNamesMatchTheRecordedNames pins the operator-facing spelling of every key these
-// four manifests name, and of the three [state-commit] keys that have a target instead of a row.
+// TestKeyNamesMatchTheRecordedNames pins the operator-facing spelling of every key these four
+// manifests name, and of the keys in each section that have a target instead of a row.
+//
+// How many of those there are is left unstated on purpose, the way keynames.go leaves the row count
+// unstated: it changes whenever anyone adds a key, and a number in prose goes stale where the records
+// do not.
 //
 // This package is where the check earns its keep. Twenty-eight of its thirty rows reach
 // their key through the same exported constant the reader passes to appOpts.Get, so editing
