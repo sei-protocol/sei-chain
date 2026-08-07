@@ -1282,6 +1282,7 @@ func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
 	batches := generateBatches(committee, keys)
 	db := memblock.NewBlockDB()
 	writeAll(t, db, batches)
+	writeAppData(t, db, utils.TestRngFromSeed(testSeed+503), keys, batches)
 
 	watermark := batches[1].first
 	require.NoError(t, db.PruneBefore(watermark))
@@ -1321,6 +1322,7 @@ func TestMemblockPruneIntoCohortRoundsDown(t *testing.T) {
 	batches := generateBatches(committee, keys)
 	db := memblock.NewBlockDB()
 	writeAll(t, db, batches)
+	writeAppData(t, db, utils.TestRngFromSeed(testSeed+504), keys, batches)
 
 	straddled := batches[1]
 	pruneAt := straddled.first + 2

@@ -242,18 +242,7 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 		// future block whose coverage check still passes. Mirrors littblock.
 		return nil
 	}
-	// Never let the watermark enter the newest block's cohort: clamp its ceiling
-	// at the cohort's first block (latestQCStartBlock), guarded by lastBlockNumber
-	// for a QC written ahead of its blocks. Keeps the newest cohort whole and
-	// pruning monotonic. See littblock and the BlockDB PruneBefore contract.
-	ceiling := min(s.latestQCStartBlock, s.lastBlockNumber)
-	if s.hasAppProposal {
-		ceiling = min(s.latestAppProposalStartBlock, s.lastBlockNumber)
-	}
-	if s.hasAppQC {
-		ceiling = min(s.latestAppQCStartBlock, s.lastBlockNumber)
-	}
-	if n > ceiling {
+	if ceiling := s.recentFloorLocked(); n > ceiling {
 		n = ceiling
 	}
 	// Round the watermark down to the covering QC's First. A QC's cohort of
@@ -292,6 +281,23 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	return nil
 }
 
+// recentFloorLocked returns the recovery floor under s.mu. When AppProposals,
+// AppQCs, and Blocks are persisted, data.State eviction keeps one height before
+// the lower of their durable tips. That height can be inside a QC range.
+func (s *blockDB) recentFloorLocked() types.GlobalBlockNumber {
+	floor := s.watermark
+	if s.hasAppProposal && s.hasAppQC && s.hasBlocks {
+		nextAppProposal := s.lastAppPropNext
+		nextAppQC := s.lastAppQCNext
+		nextBlock := s.lastBlockNumber + 1
+		evictionBound := min(nextAppProposal, nextAppQC, nextBlock)
+		if evictionBound > floor {
+			floor = evictionBound - 1
+		}
+	}
+	return floor
+}
+
 func (s *blockDB) Flush() error { return nil }
 
 func (s *blockDB) Status() types.DBStatus {
@@ -318,15 +324,10 @@ func (s *blockDB) ReadRecent() (types.RecentData, error) {
 	defer s.mu.RUnlock()
 
 	var recent types.RecentData
-	floor := s.watermark
+	floor := s.recentFloorLocked()
 	var targetIndex types.RoadIndex
-	bounded := false
+	bounded := s.hasAppProposal && s.hasAppQC && s.hasBlocks
 	if s.hasAppQC {
-		evictionBound := min(s.lastAppPropNext, s.lastAppQCNext)
-		if s.hasAppProposal && evictionBound > floor {
-			floor = evictionBound - 1
-			bounded = true
-		}
 		appQC := s.appQCCoveringLocked(floor)
 		if appQC == nil {
 			appQC = s.appQCs[s.latestAppQCStartBlock].appQC
