@@ -110,16 +110,17 @@ and cannot catch a second key landing in a field some other row already claims. 
 case is the one the per-key rule above exists for, and nothing mechanical will
 prompt you.
 
-Each exemption says which of two things it is — a key driven by a dedicated target in the
-same file, or a field carrying no configuration key at all — and says it in a comment
-beside the path. A bulk exemption is the same move as widening an assertion: it makes the
-check green over the surface it was there to measure.
+Each exemption says which of two things it is, either a key driven by a dedicated target in
+the same file or a field carrying no configuration key at all, and says it in a comment
+beside the path. A bulk exemption is the same move as widening an assertion, in that it makes
+the check green over the surface it was there to measure.
 
 It assumes one reader per struct, which is what keeps it out of `[state-commit]`.
-`StateCommitConfig` is populated by two readers that each read keys the other does not —
-`parseSCConfigs` over the flat `AppOpts` map, and `sei-cosmos/server/config.GetConfig` over
-viper, the only reader of four of the five `state-commit.flatkv.*` keys. They are not
-disjoint: eleven keys are read by both, `sc-write-mode` and
+`StateCommitConfig` is populated by two readers that each read keys the other does not. One
+is `parseSCConfigs` over the flat `AppOpts` map, the other is
+`sei-cosmos/server/config.GetConfig` over viper, the only reader of four of the five
+`state-commit.flatkv.*` keys. They are not disjoint, since eleven keys are read by both,
+`sc-write-mode` and
 `flatkv.enable-read-write-metrics` among them. So "every field of this struct is named by
 `scKeys`" is not a true statement to assert, and making it pass would take 62 exemptions
 against a 17-row manifest, four of them claiming a key is unread when the other reader
@@ -127,10 +128,10 @@ reads it.
 
 Fifty-seven of those 62 sit under `FlatKVConfig`, so the move to reach for is waving the
 subtree through in one line. Exemptions match a whole `Dump` path, so `"FlatKVConfig"`
-exempts nothing and the count does not drop — and were it a prefix it would surrender the
+exempts nothing and the count does not drop. Were it a prefix it would surrender the
 protection the check exists for, since a new `state-commit.flatkv.*` key in
 `parseSCConfigs` would go unflagged and that reader already reads one of them. The shape
-that would work is per reader rather than per section: `defaults` is an `any`, so the check
+that would work is per reader rather than per section. `defaults` is an `any`, so the check
 can be pointed at `FlatKVConfig` alone inside `sei-cosmos/server/config` with that reader's
 five flatkv keys as rows, and the 53 exemptions left would each say truthfully that the
 field carries no configuration key. Unbuilt. Meanwhile, wire the check where the section
@@ -138,11 +139,12 @@ has one reader; a demotion is caught for every section by the record's marker re
 
 ## Renaming a Key
 
-Key names are recorded in `testdata/<section>.keys.golden`, one quoted key per line — the
-manifest's rows in order, then a `# keys with a target of their own` marker, then any keys
-recorded for their name alone (`A key with no row`) — and compared by `CheckKeyNames` on
-every run. So the file is longer than the manifest has rows, and that is not staleness:
-trimming it to the row count deletes rows, which is one of the four forbidden moves.
+Key names are recorded in `testdata/<section>.keys.golden`, one quoted key per line, and
+compared by `CheckKeyNames` on every run. The order is the manifest's rows, then a
+`# keys with a target of their own` marker, then any keys recorded for their name alone
+(`A key with no row`). So the file is longer than the manifest has rows, and that is not
+staleness. Trimming it to the row count deletes rows, which is one of the four forbidden
+moves.
 Renaming a key fails the comparison with the old and the new spelling in the report.
 Regenerate and keep the diff in the review:
 
@@ -153,20 +155,20 @@ go test ./app/ -run TestKeyNames -update
 The record exists because the seeds cannot cover this case, and the reason is worth
 knowing before trying to satisfy one with the other. A row's assertions and the
 discriminating-seed check both take the key from the row, so when the row names its
-key through the same constant the reader passes to `appOpts.Get` —
-`{Key: FlagSSImportNumWorkers}` against `opts.Get(FlagSSImportNumWorkers)` — editing
+key through the same constant the reader passes to `appOpts.Get`, the way
+`{Key: FlagSSImportNumWorkers}` does against `opts.Get(FlagSSImportNumWorkers)`, editing
 that constant's value moves both halves together. Every assertion still passes, and
 now passes about a key no node has ever been configured with. Thirty-one rows are
 spelled that way, and editing that constant is exactly how an app.toml key gets
-renamed. The count of rows is deliberately not stated here: it moves whenever anyone
-adds a key, and a number in prose goes stale silently where the records do not.
+renamed. The count of rows is deliberately not stated here, because it moves whenever
+anyone adds a key, and a number in prose goes stale silently where the records do not.
 
 So the two checks divide the work, and which one fires tells you what happened:
 
 - The reader's key moved and the row kept the old spelling: nothing can discriminate
   the row any more, so `CheckEveryRowHasADiscriminatingSeed` fails. It distinguishes
   this from badly chosen seeds by trying whether *any* value discriminates, and says
-  which case it found — a report naming the reader is not asking for another seed.
+  which case it found, so a report naming the reader is not asking for another seed.
 - The row and the reader moved together: the recorded name is the only copy that did
   not, so `CheckKeyNames` fails and the seeds stay green.
 
@@ -176,14 +178,14 @@ the `CheckKeyNames` call does not turn a rename back into a green run. Deleting 
 clear a failure is the same move the four above forbid for rows. That is why a genuine
 rename is reported twice, once from each check, with the same diff.
 
-The tie runs one way only, and the direction is worth knowing before relying on it: seeds
-imply the record, not the reverse. A section wired for `CheckKeyNames` alone — one with no
-manifest, so no seeds to check — acquires no seeds check, and nothing detects that its one
-call has been deleted. `[state-sync]` in `cmd/seid/cmd` is such a section: `NewApp` reads its
-three keys into a baseapp, which no row can describe, so the record is all that package has
-and the call holding it is deletable. The same three keys do have rows in
-`sei-cosmos/server/config`, where `GetConfig` resolves them into a struct — what admits a row
-is the reader, not the section. Wire a manifest where a manifest is possible.
+The tie runs one way only, and the direction is worth knowing before relying on it. Seeds
+imply the record, and not the reverse. A section wired for `CheckKeyNames` alone, meaning one
+with no manifest and so no seeds to check, acquires no seeds check, and nothing detects that
+its one call has been deleted. `[state-sync]` in `cmd/seid/cmd` is such a section, because
+`NewApp` reads its three keys into a baseapp, which no row can describe, so the record is all
+that package has and the call holding it is deletable. The same three keys do have rows in
+`sei-cosmos/server/config`, where `GetConfig` resolves them into a struct. What admits a row
+is the reader rather than the section. Wire a manifest where a manifest is possible.
 
 Renaming a key is a migration, and the record is not the whole of it. The app.toml
 template that renders the old spelling (`sei-db/config/toml.go` writes
@@ -197,7 +199,7 @@ operator-facing key moved.
 Some keys cannot be described by a row at all. `sc-write-mode` panics on a value its
 parser rejects, `sc-hash-logger-target-file-size` adopts a cast result only when it is
 positive, `sc-write-mode-enable-auto` rewrites a second field through
-`ApplyWriteModeAuto` — `CheckRow` would predict the wrong resolution for each, so each
+`ApplyWriteModeAuto`. `CheckRow` would predict the wrong resolution for each, so each
 has a fuzz target of its own that asserts it directly. Those targets spell the key
 through the reader's own constant, which puts the name in exactly the position this
 record exists for.
@@ -224,7 +226,7 @@ one and not the other fails on the next run rather than recording half of it. Th
 go after the rows, which is what keeps adding one from rebinding the row index a
 section's seeds select by.
 
-`specs` may be nil where a package's reader admits no row — `[state-sync]` in `cmd/seid/cmd`
+`specs` may be nil where a package's reader admits no row. `[state-sync]` in `cmd/seid/cmd`
 is recorded that way, because the reader there is `NewApp`. The record is then the marker and
 the names, and read at a glance it says that nothing in that file is held to a resolved
 value.
@@ -253,7 +255,7 @@ exit with "flag provided but not defined".
 Name the package before the flag, as every command here does. `go test -run TestKeyNames
 -update ./app/` puts an unrecognized flag ahead of the package list, so `go test` reads
 `./app/` as an argument to the test binary and runs the package in the current directory
-instead — which does not link the harness, and exits with the same `flag provided but not
+instead, which does not link the harness, and exits with the same `flag provided but not
 defined: -update`. That failure looks like a broken check rather than a mis-ordered command.
 
 The recorded file is the anchor a self-comparison cannot provide. A test that reads
@@ -283,25 +285,67 @@ configtest.CheckDefaults(t, "evm", config.DefaultConfig,
 
 ## Adding a Section
 
-A new section needs five things, and the last two are the ones that are easy to miss:
+A new section needs six things, and the last three are the ones that are easy to miss:
 
 1. `CheckDefaults` against a checked-in `testdata/<section>.golden`.
 2. `CheckAbsent`, asserting that a reader handed no keys returns exactly the
-   package's declared defaults — unless the reader clobbers, in which case
+   package's declared defaults, unless the reader clobbers, in which case
    `CheckAbsent` would assert the opposite of the truth and the divergence gets a test
-   that names it instead. `[state-sync]` in `sei-cosmos/server/config` is that case:
+   that names it instead. `[state-sync]` in `sei-cosmos/server/config` is that case, where
    `snapshot-keep-recent` defaults to 2 and an absent key resolves 0.
 3. A `[]KeySpec` manifest with a `CheckRow` fuzz target, seeded per row through
    `NewSeeds` and asserted by `CheckEveryRowHasADiscriminatingSeed`.
 4. `CheckKeyNames` against a checked-in `testdata/<section>.keys.golden`, in a
    `TestKeyNamesMatchTheRecordedNames`. `CheckEveryRowHasADiscriminatingSeed` compares
    the same record, so a section that has the seeds cannot lack the record and deleting
-   this call does not re-green a rename. The reverse does not hold — see `Renaming a Key`.
+   this call does not re-green a rename. The reverse does not hold (see `Renaming a Key`).
 5. `CheckManifestCoversEveryField`, so the manifest cannot silently fall behind the
    reader, unless the section's struct has a second reader covering different keys.
+6. `CheckWiring`, which is called once per package rather than once per section. A new
+   section in a package that already calls it needs its coverage record regenerated
+   instead of a new call. See `Recording the Wiring`.
 
 The manifest has to be a package-level `var` for the fourth, since a table declared
 inside its fuzz target is not something a `Test` function can name.
+
+## Recording the Wiring
+
+Every check above shares one blind spot, which is that deleting a call to it is silent. A
+section covered by five checks and then by four still passes everything that remains. Two
+instances were confirmed by experiment, in `evmrpc/config` and `giga/executor/config`, where
+three calls were removed from a fully covered section and every package stayed green.
+
+`CheckWiring` closes that. It reads the package's own test sources and records one line per
+`(section, check)` pair in `testdata/wiring_coverage.txt`. A line reads as "this section is
+covered by this check", so `evm CheckAbsent` means some test in the package calls
+`configtest.CheckAbsent` naming `"evm"`. A line that disappears is coverage that was deleted,
+and that is the failure the file exists to report.
+
+This is the **coverage record**, the third of the suite's three record kinds, alongside the
+defaults record (`<section>.golden`) and the key-names record (`<section>.keys.golden`). It is
+compared exactly, the way `go.sum` is compared, so every line has to still be there. It is not a lint baseline, which records violations to ignore and wants to
+shrink to nothing. This wants to stay complete, so adding a check also fails until the record
+is regenerated, and the failure names what was added separately from what was removed.
+
+```bash
+go test ./<pkg>/ -run TestWiringMatchesTheRecord -update
+```
+
+Four properties are worth knowing before relying on it:
+
+- It establishes that a call is **written**, not that it ran. The failure being prevented is
+  a deleted line, and a call left in place but unreachable is a far more visible edit.
+- Build tags are ignored on purpose. Honoring them would make the record differ between a
+  Linux CI runner and a local machine, so a record generated on one could not be compared on
+  the other.
+- It records the literal text of the section argument, so a package spelling one section two
+  ways shows up as two sections. That is a thing to notice in the diff rather than something
+  the check can decide.
+- Deleting the `CheckWiring` call itself is the one deletion it cannot report, so
+  `TestEveryWiredPackageRecordsItsWiring` in `testutil/configtest` asserts from one place that
+  every package calling a check calls it too. That assertion finds a package by finding a
+  check in it, so deleting every check in a package at once drops it from the set and orphans
+  its record. Removing whole test files is conspicuous enough to leave to review.
 
 ## Running
 
@@ -327,7 +371,7 @@ values". Compare `Settings`, and report with `DumpViper`.
   every key whose `Get` returns nil, so a key one side enumerates and resolves to
   nothing looks the same as a key the other side never enumerated at all.
 - `configtest.DumpViper` is for the failure message, not the assertion. It renders one
-  sorted, type-qualified line per key, which is what a human reads — but it joins with
+  sorted, type-qualified line per key, which is what a human reads, but it joins with
   newlines and does not quote keys, and a TOML key may legally contain a newline, so two
   different key sets can render identically. Assert on the map; print the dump.
 - `Settings` panics on a nil viper, deliberately. A `server.Context` carries no viper

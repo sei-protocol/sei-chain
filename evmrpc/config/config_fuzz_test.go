@@ -96,6 +96,7 @@ var evmKeys = []configtest.KeySpec{
 	{Key: "evm.max_request_body_bytes", Path: "MaxRequestBodyBytes", Cast: configtest.CastInt64, Checked: true},
 	{Key: "evm.max_concurrent_request_bytes", Path: "MaxConcurrentRequestBytes", Cast: configtest.CastInt64, Checked: true},
 	{Key: "evm.ws_admission_timeout", Path: "WSAdmissionTimeout", Cast: configtest.CastDuration, Checked: true},
+	{Key: "evm.body_read_idle_timeout", Path: "BodyReadIdleTimeout", Cast: configtest.CastDuration, Checked: true},
 }
 
 func readEVM(opts configtest.AppOpts) (any, error) { return config.ReadConfig(opts) }
@@ -112,7 +113,17 @@ func FuzzReadConfig(f *testing.F) {
 	// FuzzGetConfigGuardedKeysPreserveDefaults in sei-cosmos/server/config.
 	for i := range len(evmKeys) {
 		seeds.AddRow(uint(i), fuzzing.KindNil, "", int64(0), false)               // nil: a guarded read keeps the default
-		seeds.AddRow(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed: a checked read must refuse it
+		seeds.AddRow(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed for a scalar cast
+		// A map, because "not-a-value" is malformed for a scalar cast and legal for a slice one.
+		// cast.ToStringSliceE turns any string into a one-element slice, so the four slice-cast rows
+		// here were seeded with a value their cast accepts and nothing reached their error path.
+		//
+		// Added for every row rather than for those four, which is a deliberate trade. It grows this
+		// target's corpus from 104 entries to 156, and each extra seed drives a full read and a Dump
+		// comparison. What it buys is that a row added later gets the seed without anyone remembering
+		// to, so the property holds by construction instead of by a list that has to be maintained
+		// alongside the table.
+		seeds.AddRow(uint(i), fuzzing.KindMap, "", int64(0), false)
 	}
 
 	// Seeds span the shapes an operator produces from the three layers that reach
@@ -359,4 +370,12 @@ func TestManifestNamesEveryField(t *testing.T) {
 		"TraceBakeTracers",    // FuzzTracerAllowlists
 		"MaxOpenConnections",  // FuzzMaxOpenConnections
 	)
+}
+
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
+// Every other check here reports a change to what it asserts. None reports a check being removed, so
+// this records the wiring and fails when it thins out.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }

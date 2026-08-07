@@ -104,6 +104,10 @@ func (c *captureTB) mentioning(want string) []string {
 // Flipping it here is contained by two facts about this package: nothing in it records a
 // golden of its own, and none of its tests call t.Parallel, so no other test observes the
 // window in which it is on.
+// It also sets allowRecordWriteUnderCI, because the tests that call this helper have to observe a
+// write actually happening, and CI is where they run. This is the only assignment of that variable
+// in the tree: it is unexported, so nothing outside package configtest can reach it, and it is set
+// through this helper rather than per test so there is one place to look for callers.
 func withUpdateFlag(t *testing.T) {
 	t.Helper()
 	f := flag.Lookup("update")
@@ -114,7 +118,10 @@ func withUpdateFlag(t *testing.T) {
 	if err := f.Value.Set("true"); err != nil {
 		t.Fatalf("set -update: %v", err)
 	}
+	previouslyAllowed := allowRecordWriteUnderCI
+	allowRecordWriteUnderCI = true
 	t.Cleanup(func() {
+		allowRecordWriteUnderCI = previouslyAllowed
 		if err := f.Value.Set(previous); err != nil {
 			t.Errorf("restore -update to %q: %v", previous, err)
 		}

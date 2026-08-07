@@ -171,7 +171,7 @@ func TestComposedStack_ChunkedOversizeRateLimitedAfterBurst(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner should not be called")
 	})
-	stack := newRequestSizeLimiter(newRateLimitMiddleware(inner, gate), maxBody, 0)
+	stack := newRequestSizeLimiter(newRateLimitMiddleware(inner, gate), maxBody, 0, 0)
 
 	remote := "203.0.113.89:1"
 	oversizeBody := strings.Repeat("x", maxBody+64)
@@ -302,6 +302,7 @@ func TestComposedStack_RateLimitDistinctFromSizeBudget(t *testing.T) {
 		newRateLimitMiddleware(wrapSeiLegacyHTTP(base, enabled, maxBody), gate),
 		maxBody,
 		0,
+		0,
 	)
 
 	req1 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
@@ -342,7 +343,7 @@ func TestComposedStack_OversizeContentLengthBeforeProbeRead(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		bodyRead = len(b) > 0
 	})
-	stack := newRequestSizeLimiter(newRateLimitMiddleware(base, gate), maxBody, 0)
+	stack := newRequestSizeLimiter(newRateLimitMiddleware(base, gate), maxBody, 0, 0)
 
 	tracked := &trackedBody{Reader: strings.NewReader(strings.Repeat("x", 200))}
 	req := httptest.NewRequest(http.MethodPost, "/", tracked)
@@ -366,7 +367,7 @@ func TestComposedStack_ChunkedOversizeReturns413(t *testing.T) {
 		innerRan = true
 		w.WriteHeader(http.StatusOK)
 	})
-	stack := newRequestSizeLimiter(newRateLimitMiddleware(base, gate), maxBody, 0)
+	stack := newRequestSizeLimiter(newRateLimitMiddleware(base, gate), maxBody, 0, 0)
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", maxBody+64)))
 	req.ContentLength = -1
