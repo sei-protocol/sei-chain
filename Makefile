@@ -584,14 +584,15 @@ $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
 
 TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
 
-# testsplit balances shards by historical per-package test duration (queried
-# from the last successful `main` run of go-test.yml) when available, and
-# falls back to a deterministic round-robin split otherwise — see
-# .github/scripts/testsplit. It writes packages.txt.0 .. packages.txt.N-1
-# next to packages.txt, replacing the old `split -d -n l/N` approach (whose
-# numeric-suffix width isn't guaranteed to match NUM_SPLIT's digit count).
+# Round-robin (not contiguous-chunk) split: package i goes to shard i%N.
+# Interleaving avoids dumping a whole cluster of alphabetically-adjacent
+# (and often runtime-correlated, e.g. a module's many keeper packages)
+# packages into one shard, unlike a straight `split -d -n l/N` chunk split.
+# Pre-touch all N files first so a shard with zero packages (NUM_SPLIT >
+# package count) still gets an (empty) file instead of breaking test-group-%.
 split-test-packages:$(BUILDDIR)/packages.txt
-	go run ./.github/scripts/testsplit plan --num-split=$(NUM_SPLIT) --out-dir=$(BUILDDIR) < $<
+	@for i in $$(seq 0 $$(($(NUM_SPLIT)-1))); do : > $(BUILDDIR)/packages.txt.$$i; done
+	@awk -v n=$(NUM_SPLIT) -v dir=$(BUILDDIR) '{print > (dir "/packages.txt." (NR-1)%n)}' $<
 test-group-%:split-test-packages
 	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
 	@if grep -q "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
