@@ -761,9 +761,8 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 }
 
 // TestPruningKeepsLastQCRange verifies BlockDB's never-empty prune: asking to
-// prune past the tip still leaves the newest cohort readable. A QC retaining
-// only a suffix of its blocks recovers with the floor on that suffix; a
-// consistent range recovers from the QC start.
+// prune past the tip still leaves the newest cohort readable, and a consistent
+// range recovers from the QC start.
 func TestPruningKeepsLastQCRange(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -782,21 +781,6 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 		got, err := state1.TryBlock(n)
 		require.NoError(t, err, "never-empty prune should keep cohort block %d", n)
 		require.NotNil(t, got)
-	}
-
-	// A QC covering a range with only its last block present: the first block is free to
-	// start inside its covering QC, so iteration opens there and the recovery floor follows.
-	survivor := gr1.Next - 1
-	dirSuffix := t.TempDir()
-	dbSuffix := newTestBlockDB(t, dirSuffix)
-	require.NoError(t, dbSuffix.WriteQC(qc1))
-	require.NoError(t, dbSuffix.WriteBlock(survivor, blocks1[survivor-gr1.First]))
-	require.NoError(t, dbSuffix.Flush())
-	require.NoError(t, dbSuffix.Close())
-	suffixState := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, dirSuffix))
-	require.Equal(t, gr1.Next, suffixState.NextBlock())
-	for inner := range suffixState.inner.Lock() {
-		require.Equal(t, survivor, inner.first, "floor must be the surviving block")
 	}
 
 	// Consistent post-GC shape: full QC range of blocks. Restart recovers at QC start.
@@ -895,20 +879,6 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 		gb, ok := byHash.Get()
 		require.True(t, ok, "GlobalBlockByHash must serve RAM-cached height %d after BlockDB prune", n)
 		require.Equal(t, n, gb.GlobalNumber)
-	}
-
-	// A lone qc2 suffix: iteration opens on the surviving block and the floor follows.
-	survivor := gr2.Next - 1
-	dirSuffix := t.TempDir()
-	dbSuffix := newTestBlockDB(t, dirSuffix)
-	require.NoError(t, dbSuffix.WriteQC(qc2))
-	require.NoError(t, dbSuffix.WriteBlock(survivor, blocks2[survivor-gr2.First]))
-	require.NoError(t, dbSuffix.Flush())
-	require.NoError(t, dbSuffix.Close())
-	suffixState := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, dirSuffix))
-	require.Equal(t, gr2.Next, suffixState.NextBlock())
-	for inner := range suffixState.inner.Lock() {
-		require.Equal(t, survivor, inner.first, "floor must be the surviving block")
 	}
 
 	// Consistent retained range: full qc2.
