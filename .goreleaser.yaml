@@ -84,7 +84,7 @@ release:
   mode: append
   name_template: '{{ .Tag }}'
   header: |
-    # Sei {{ .Tag }}
+    ## Experimental Pre-built Binaries
 
     Pre-built **statically-linked** `seid` binary attached below for `linux/amd64`.
 
