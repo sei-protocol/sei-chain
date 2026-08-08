@@ -26,10 +26,11 @@ func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Serv
 		if err != nil {
 			return fmt.Errorf("StreamLaneProposalsReqConv.Decode(): %w", err)
 		}
-		// Leave ends the bound streak (ErrBadLane / ErrLaneIdentityChanged). Those
-		// must not bubble out of this handler: Serve treats any error as fatal and
-		// RunServer would cancel every peer stream. Wait for rejoin and resubscribe
-		// on the same mux stream instead (rejoin tip is always block 0).
+		// Tipcut prune of a leave lane ends the bound stream (ErrLanePruned).
+		// Leave alone does not: we keep serving existing blocks. Protocol back-leash
+		// (AppQC in prior epoch before ActivateEpoch) implies that prune runs before
+		// rejoin, so this stream ends before LocalLane is Some(new). Do not bubble
+		// ErrLanePruned out of Serve — wait and resubscribe (rejoin tip is 0).
 		first := req.FirstBlockNumber
 		for {
 			sub, err := x.subscribeLaneProposals(ctx, first)
@@ -39,8 +40,8 @@ func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Serv
 			for {
 				p, err := sub.Recv(ctx)
 				if err != nil {
-					if errors.Is(err, avail.ErrLaneIdentityChanged) {
-						logger.Info("StreamLaneProposals: local lane left or rejoined under a new LaneID; pausing until resubscribe")
+					if errors.Is(err, avail.ErrLanePruned) {
+						logger.Info("StreamLaneProposals: leave-lane tipcut pruned; pausing until resubscribe")
 						first = 0
 						break
 					}
@@ -67,7 +68,7 @@ func (x *Service) subscribeLaneProposals(ctx context.Context, first types.BlockN
 			return nil, err
 		}
 		logger.Info("StreamLaneProposals: not a committee lane member; waiting to subscribe")
-		if _, err := a.LocalLaneUpdates().Wait(ctx, func(opt utils.Option[types.LaneID]) bool {
+		if _, err := a.WaitLocalLane(ctx, func(opt utils.Option[types.LaneID]) bool {
 			_, ok := opt.Get()
 			return ok
 		}); err != nil {

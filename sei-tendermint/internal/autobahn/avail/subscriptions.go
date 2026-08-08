@@ -6,20 +6,19 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"golang.org/x/sync/errgroup"
 )
 
-// errGotProposal cancels the LocalLane waiter once Block succeeds.
-var errGotProposal = errors.New("got proposal")
-
-// SubscribeLaneProposals streams proposals for this node's pubkey, bound to the
-// applied LaneID at subscribe time. Stay across epochs (pubkey still in
-// committee) keeps the same LaneID and must not restart the stream. Leave
-// (LocalLane → None) or a new LaneID after rejoin ends the stream with
-// ErrLaneIdentityChanged; callers recreate on the new streak (block 0).
-// AtomicSend may coalesce leave→rejoin into Some(new) without an intermediate
-// None; that still ends the bound streak — never continue on a different LaneID.
+// SubscribeLaneProposals streams proposals for the LocalLane bound at subscribe
+// time. Stay keeps the same LaneID. After leave, production stops (committee
+// gate) but this stream keeps serving blocks already in the leave-lane map
+// until tipcut prune removes it; Recv then returns ErrLanePruned.
+// Rejoin under a new LaneID needs a separate Subscribe.
+//
+// Protocol back-leash: a new epoch is not entered until the prior epoch has at
+// least one AppQC. That tipcut advance drops commit-QCs whose committees still
+// named the leave LaneID, so tryPruneLeaveLanes removes the leave map before
+// any rejoin ActivateEpoch — Recv ends before LocalLane becomes Some(new), and
+// giga can resubscribe onto the new streak without an L0/L1 overlap.
 func (s *State) SubscribeLaneProposals(first types.BlockNumber) (*LaneProposalsRecv, error) {
 	lane, ok := s.LocalLane().Get()
 	if !ok {
@@ -34,55 +33,22 @@ type LaneProposalsRecv struct {
 	next  types.BlockNumber
 }
 
-// checkBound returns nil while LocalLane is still this streak, or
-// ErrLaneIdentityChanged on leave / rejoin under a new LaneID.
-func (r *LaneProposalsRecv) checkBound(opt utils.Option[types.LaneID]) error {
-	got, ok := opt.Get()
-	if !ok || got != r.lane {
-		return ErrLaneIdentityChanged
-	}
-	return nil
-}
-
 func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.LaneProposal], error) {
 	for {
-		if err := r.checkBound(r.state.LocalLane()); err != nil {
-			return nil, err
-		}
-		g, gctx := errgroup.WithContext(ctx)
-		var proposal *types.Signed[*types.LaneProposal]
-		g.Go(func() error {
-			for {
-				b, err := r.state.Block(gctx, r.lane, r.next)
-				if err != nil {
-					if errors.Is(err, types.ErrPruned) {
-						r.next += 1
-						continue
-					}
-					return fmt.Errorf("x.avail.Block(): %w", err)
-				}
-				proposal = b
-				r.next += 1
-				return errGotProposal
-			}
-		})
-		g.Go(func() error {
-			_, err := r.state.LocalLaneUpdates().Wait(gctx, func(opt utils.Option[types.LaneID]) bool {
-				got, ok := opt.Get()
-				return !ok || got != r.lane
-			})
-			if err != nil {
-				return err
-			}
-			return r.checkBound(r.state.LocalLane())
-		})
-		err := g.Wait()
-		if proposal != nil {
-			return proposal, nil
-		}
+		b, err := r.state.Block(ctx, r.lane, r.next)
 		if err != nil {
-			return nil, err
+			if errors.Is(err, types.ErrPruned) {
+				r.next += 1
+				continue
+			}
+			if errors.Is(err, ErrBadLane) {
+				// Map gone — tipcut pruned a leave lane (or raced DeleteLane).
+				return nil, ErrLanePruned
+			}
+			return nil, fmt.Errorf("x.avail.Block(): %w", err)
 		}
+		r.next += 1
+		return b, nil
 	}
 }
 

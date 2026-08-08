@@ -50,6 +50,15 @@ func (h *epochHarness) activate(weights map[types.PublicKey]uint64) *types.Epoch
 	return ep
 }
 
+func (h *epochHarness) hasBlockLane(lane types.LaneID) bool {
+	h.t.Helper()
+	for inner := range h.state.inner.Lock() {
+		_, ok := inner.blocks[lane]
+		return ok
+	}
+	panic("unreachable")
+}
+
 func (h *epochHarness) persistLane(key types.SecretKey, lane types.LaneID) string {
 	h.t.Helper()
 	signed := types.Sign(key, types.NewLaneProposal(
@@ -101,18 +110,18 @@ func TestApplyEpoch_AddsJoinerDefersLeaverUntilTipcutOmits(t *testing.T) {
 	require.Equal(t, laneA, h.state.LocalLane().OrPanic("stay"))
 	require.Equal(t, types.BlockNumber(2), h.state.NextBlock(laneA))
 	require.Equal(t, types.BlockNumber(0), h.state.NextBlock(laneC))
-	require.True(t, h.state.hasBlockLane(laneB))
+	require.True(t, h.hasBlockLane(laneB))
 	require.NoError(t, h.state.tryPruneLeaveLanes())
-	require.True(t, h.state.hasBlockLane(laneB))
+	require.True(t, h.hasBlockLane(laneB))
 
 	h.pushTipcut(makeCommitQC(ep0, []types.SecretKey{a, b, h.keys[2]}, utils.None[*types.CommitQC](), nil, utils.None[*types.AppQC]()), false)
 	require.NoError(t, h.state.tryPruneLeaveLanes())
-	require.True(t, h.state.hasBlockLane(laneB))
+	require.True(t, h.hasBlockLane(laneB))
 
 	h.pushTipcut(makeCommitQC(ep, []types.SecretKey{a, cKey}, utils.None[*types.CommitQC](), nil, utils.None[*types.AppQC]()), true)
 	require.NoError(t, h.state.tryPruneLeaveLanes())
-	require.False(t, h.state.hasBlockLane(laneB))
-	require.True(t, h.state.hasBlockLane(laneC))
+	require.False(t, h.hasBlockLane(laneB))
+	require.True(t, h.hasBlockLane(laneC))
 	_, err = os.Stat(laneBPath)
 	require.True(t, os.IsNotExist(err))
 }
@@ -130,7 +139,7 @@ func TestTryPruneLeaveLanes_OrphanWALWithoutMaps(t *testing.T) {
 		delete(inner.nextBlockToPersist, laneB)
 		delete(inner.persistedBlockStart, laneB)
 	}
-	require.False(t, h.state.hasBlockLane(laneB))
+	require.False(t, h.hasBlockLane(laneB))
 	_, err := os.Stat(laneBPath)
 	require.NoError(t, err)
 
@@ -141,38 +150,33 @@ func TestTryPruneLeaveLanes_OrphanWALWithoutMaps(t *testing.T) {
 }
 
 func TestSubscribeLaneProposals_LaneIdentity(t *testing.T) {
-	t.Run("leave", func(t *testing.T) {
-		h := newEpochHarness(t, 2, false)
-		b := h.keys[1]
-		sub, err := h.state.SubscribeLaneProposals(0)
-		require.NoError(t, err)
-
-		h.activate(map[types.PublicKey]uint64{b.Public(): 1})
-		_, err = sub.Recv(t.Context())
-		require.ErrorIs(t, err, ErrLaneIdentityChanged)
-		_, err = h.state.SubscribeLaneProposals(0)
-		require.ErrorIs(t, err, ErrBadLane)
-	})
-
-	t.Run("coalescedRejoin", func(t *testing.T) {
+	t.Run("leaveServesUntilTipcutPrune", func(t *testing.T) {
 		h := newEpochHarness(t, 2, false)
 		a, b := h.keys[0], h.keys[1]
 		lane0 := h.state.LocalLane().OrPanic("genesis")
+		ep0 := h.registry.LatestEpoch()
+		want, err := h.state.ProduceLocalBlock(lane0, 0, types.GenPayload(h.rng))
+		require.NoError(t, err)
+
 		sub, err := h.state.SubscribeLaneProposals(0)
 		require.NoError(t, err)
 
-		h.activate(map[types.PublicKey]uint64{b.Public(): 1})
-		h.activate(map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1})
+		ep := h.activate(map[types.PublicKey]uint64{b.Public(): 1})
+		_, err = h.state.ProduceLocalBlock(lane0, 1, types.GenPayload(h.rng))
+		require.ErrorIs(t, err, ErrBadLane)
+		_, err = h.state.SubscribeLaneProposals(0)
+		require.ErrorIs(t, err, ErrBadLane)
 
-		lane1 := h.state.LocalLane().OrPanic("rejoin")
-		require.NotEqual(t, lane0, lane1)
-		require.Equal(t, types.BlockNumber(0), h.state.NextBlock(lane1))
+		got, err := sub.Recv(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, want.Msg().Block().Header().Hash(), got.Msg().Block().Header().Hash())
+
+		h.pushTipcut(makeCommitQC(ep0, []types.SecretKey{a, b}, utils.None[*types.CommitQC](), nil, utils.None[*types.AppQC]()), false)
+		h.pushTipcut(makeCommitQC(ep, []types.SecretKey{b}, utils.None[*types.CommitQC](), nil, utils.None[*types.AppQC]()), true)
+		require.NoError(t, h.state.tryPruneLeaveLanes())
+		require.False(t, h.hasBlockLane(lane0))
 
 		_, err = sub.Recv(t.Context())
-		require.ErrorIs(t, err, ErrLaneIdentityChanged)
-
-		sub2, err := h.state.SubscribeLaneProposals(0)
-		require.NoError(t, err)
-		require.Equal(t, lane1, sub2.lane)
+		require.ErrorIs(t, err, ErrLanePruned)
 	})
 }

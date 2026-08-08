@@ -19,10 +19,11 @@ import (
 // ErrBadLane .
 var ErrBadLane = errors.New("bad lane")
 
-// ErrLaneIdentityChanged is returned by SubscribeLaneProposals.Recv when this
-// node's applied LocalLane is no longer the streak the subscription bound
-// (leave → None, or rejoin under a new LaneID). Callers recreate after rejoin.
-var ErrLaneIdentityChanged = errors.New("lane identity changed")
+// ErrLanePruned is returned by SubscribeLaneProposals.Recv when the bound lane
+// map is gone (tipcut prune after leave). Leave alone does not end the stream —
+// existing blocks keep serving until prune. Callers open a new Subscribe for a
+// rejoin LaneID.
+var ErrLanePruned = errors.New("lane pruned")
 
 const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
 
@@ -40,53 +41,59 @@ type State struct {
 	data  *data.State
 	inner utils.Watch[*inner]
 
-	// localLane is this node's LaneID in the applied availability committee
-	// (None if not a member). Updated in NewState and ApplyEpoch; producer and
-	// outbound proposal streams observe it via LocalLaneUpdates.
-	localLane utils.AtomicSend[utils.Option[types.LaneID]]
+	// epoch is a Load-only view of inner.epoch (AtomicSend). LocalLane is
+	// derived as epoch.Committee().Lane(key). ApplyEpoch Stores inner.epoch so
+	// WaitLocalLane wakes; stay (same LaneID) must not restart producer streaks.
+	epoch utils.AtomicRecv[*types.Epoch]
 
 	// persisters groups all disk persistence components.
 	// Always initialized: real when stateDir is set, no-op otherwise.
 	persisters persisters
 }
 
-func (s *State) PublicKey() types.PublicKey {
-	return s.key.Public()
-}
-
 // LocalLane returns this node's LaneID in the applied availability committee.
 func (s *State) LocalLane() utils.Option[types.LaneID] {
-	return s.localLane.Load()
+	return s.epoch.Load().Committee().Lane(s.key.Public())
 }
 
-// LocalLaneUpdates observes ApplyEpoch membership changes for this node.
-func (s *State) LocalLaneUpdates() utils.AtomicRecv[utils.Option[types.LaneID]] {
-	return s.localLane.Subscribe()
-}
-
-func laneIDOptEqual(a, b utils.Option[types.LaneID]) bool {
-	av, aok := a.Get()
-	bv, bok := b.Get()
-	return aok == bok && (!aok || av == bv)
+// WaitLocalLane waits until LocalLane() satisfies pred. Wakes on applied-epoch
+// Stores; stay (same LaneID) does not satisfy a "changed" predicate.
+func (s *State) WaitLocalLane(ctx context.Context, pred func(utils.Option[types.LaneID]) bool) (utils.Option[types.LaneID], error) {
+	for {
+		cur := s.LocalLane()
+		if pred(cur) {
+			return cur, nil
+		}
+		// Out of committee: wait until we get a LaneID. In committee: wait until
+		// leave (None) or a different LaneID — stay ApplyEpochs keep the same id.
+		if lane, ok := cur.Get(); ok {
+			if _, err := s.epoch.Wait(ctx, func(ep *types.Epoch) bool {
+				got, present := ep.Committee().Lane(s.key.Public()).Get()
+				return !present || got != lane
+			}); err != nil {
+				return utils.None[types.LaneID](), err
+			}
+		} else if _, err := s.epoch.Wait(ctx, func(ep *types.Epoch) bool {
+			return ep.Committee().Lane(s.key.Public()).IsPresent()
+		}); err != nil {
+			return utils.None[types.LaneID](), err
+		}
+	}
 }
 
 // ApplyEpoch updates the applied committee: joiner lanes are added; leavers stay
 // in maps until tryPruneLeaveLanes sees the tipcut CommitQC committee omit them.
-// Stay does not Store localLane (same LaneID). localLane is Store'd under the
-// same inner lock as the map/epoch swap so producer never observes
-// LocalLane==old while HasLane(old)==false (would busy-spin soft-cancel).
+// Stores inner.epoch under the same lock as the map swap so waiters never see a
+// new committee before lanes are installed. Stay (same LaneID) wakes epoch
+// waiters but does not end an in-flight producer streak.
 // Leave races on ProduceLocalBlock are soft-canceled in producer.
 //
 // The error return is currently always nil; retained for #3736 advanceEpoch /
 // onAdvance wiring that may surface activation failures to callers.
 func (s *State) ApplyEpoch(ep *types.Epoch) error {
-	newLane := ep.Committee().Lane(s.key.Public())
 	for inner, ctrl := range s.inner.Lock() {
-		inner.epoch = ep
 		inner.addCommitteeLanes(ep.Committee())
-		if !laneIDOptEqual(s.localLane.Load(), newLane) {
-			s.localLane.Store(newLane)
-		}
+		inner.epoch.Store(ep)
 		ctrl.Updated()
 	}
 	return nil
@@ -94,10 +101,7 @@ func (s *State) ApplyEpoch(ep *types.Epoch) error {
 
 // HasLane reports whether the applied availability committee contains lane.
 func (s *State) HasLane(lane types.LaneID) bool {
-	for inner := range s.inner.Lock() {
-		return inner.epoch.Committee().HasLane(lane)
-	}
-	panic("unreachable")
+	return s.epoch.Load().Committee().HasLane(lane)
 }
 
 // tryPruneLeaveLanes removes leave lanes from memory and deletes their WALs once
@@ -109,7 +113,7 @@ func (s *State) tryPruneLeaveLanes() error {
 	var removed []types.LaneID
 	var current, tipcut *types.Committee
 	for inner, ctrl := range s.inner.Lock() {
-		current = inner.epoch.Committee()
+		current = inner.epoch.Load().Committee()
 		if inner.commitQCs.first >= inner.commitQCs.next {
 			return nil
 		}
@@ -151,15 +155,6 @@ func (s *State) tryPruneLeaveLanes() error {
 		ctrl.Updated()
 	}
 	return nil
-}
-
-// hasBlockLane reports whether lane maps still track lane (test helper).
-func (s *State) hasBlockLane(lane types.LaneID) bool {
-	for inner := range s.inner.Lock() {
-		_, ok := inner.blocks[lane]
-		return ok
-	}
-	panic("unreachable")
 }
 
 // persisters holds all disk persistence components. Either all are present
@@ -338,7 +333,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		key:        key,
 		data:       data,
 		inner:      utils.NewWatch(inner),
-		localLane:  utils.NewAtomicSend(ep.Committee().Lane(key.Public())),
+		epoch:      inner.epoch.Subscribe(),
 		persisters: pers,
 	}
 	// Drop leave WALs the tipcut CommitQC committee no longer names.
@@ -450,8 +445,8 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		if idx != inner.commitQCs.next {
 			return nil
 		}
-		if qc.Proposal().EpochIndex() != inner.epoch.EpochIndex() {
-			return fmt.Errorf("commitQC epoch_index %d != current epoch %d", qc.Proposal().EpochIndex(), inner.epoch.EpochIndex())
+		if got, want := qc.Proposal().EpochIndex(), inner.epoch.Load().EpochIndex(); got != want {
+			return fmt.Errorf("commitQC epoch_index %d != current epoch %d", got, want)
 		}
 		inner.commitQCs.pushBack(qc)
 		metrics.ObserveCommitQC(qc)
@@ -565,14 +560,24 @@ func (s *State) NextBlock(lane types.LaneID) types.BlockNumber {
 // Block returns block n of the given lane.
 // Waits until the block is available.
 // Returns ErrPruned if the block has been already pruned.
+// Returns ErrBadLane if the lane map is missing (including when a leave lane
+// is removed by tryPruneLeaveLanes while waiting past tip).
 func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumber) (*types.Signed[*types.LaneProposal], error) {
 	for inner, ctrl := range s.inner.Lock() {
+		if _, ok := inner.blocks[lane]; !ok {
+			return nil, ErrBadLane
+		}
+		// Re-check map presence on each wake: leave lanes stay until tipcut
+		// prune, which deletes the entry and Updated()s waiters.
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			q, ok := inner.blocks[lane]
+			return !ok || n < q.next
+		}); err != nil {
+			return nil, err
+		}
 		q, ok := inner.blocks[lane]
 		if !ok {
 			return nil, ErrBadLane
-		}
-		if err := ctrl.WaitUntil(ctx, func() bool { return n < q.next }); err != nil {
-			return nil, err
 		}
 		if n < q.first {
 			return nil, types.ErrPruned
@@ -666,7 +671,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= h.BlockNumber() {
 			q.pushBack(newBlockVotes())
 		}
-		if _, ok := q.q[h.BlockNumber()].pushVote(inner.epoch, vote); ok {
+		if _, ok := q.q[h.BlockNumber()].pushVote(inner.epoch.Load(), vote); ok {
 			ctrl.Updated()
 		}
 	}
@@ -779,24 +784,18 @@ func (s *State) WaitForLaneQCs(
 	panic("unreachable")
 }
 
-// ProduceLocalBlock appends block n on lane. Callers must pass the LaneID for
-// the active streak (producer binds it per LocalLane Iter); looking up by
-// pubkey alone can target a rejoin LaneID after leave while toProduce still
-// belongs to the old tip.
+// ProduceLocalBlock appends block n on lane for this node's key. Callers must
+// pass the LaneID for the active streak; looking up by pubkey alone can target
+// a rejoin LaneID after leave while toProduce still belongs to the old tip.
 // Fails if lane is not in the applied committee, the map is missing, there is
 // not enough capacity, or n is not the next expected tip.
 func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
-	return s.produceLocalBlock(lane, n, s.key, payload)
-}
-
-// TODO: produceLocalBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
-func (s *State) produceLocalBlock(lane types.LaneID, n types.BlockNumber, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
-	if key.Public() != lane.Validator() {
+	if s.key.Public() != lane.Validator() {
 		return nil, ErrBadLane
 	}
 	var result *types.Signed[*types.LaneProposal]
 	for inner, ctrl := range s.inner.Lock() {
-		if !inner.epoch.Committee().HasLane(lane) {
+		if !inner.epoch.Load().Committee().HasLane(lane) {
 			return nil, ErrBadLane
 		}
 		q, ok := inner.blocks[lane]
@@ -813,7 +812,7 @@ func (s *State) produceLocalBlock(lane types.LaneID, n types.BlockNumber, key ty
 		if q.first < q.next {
 			parent = q.q[q.next-1].Msg().Block().Header().Hash()
 		}
-		result = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
+		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
 		q.pushBack(result)
 		ctrl.Updated()
 	}
@@ -928,7 +927,7 @@ func (s *State) runPersist(ctx context.Context, pers persisters) error {
 
 		var active *types.Committee
 		for inner := range s.inner.Lock() {
-			active = inner.epoch.Committee()
+			active = inner.epoch.Load().Committee()
 		}
 
 		// 2. Persist commit-QCs and per-lane blocks in parallel.

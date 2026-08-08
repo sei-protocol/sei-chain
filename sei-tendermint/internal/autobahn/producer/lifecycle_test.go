@@ -65,7 +65,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		if err := availState.ApplyEpoch(epLeave); err != nil {
 			return err
 		}
-		if _, err := availState.LocalLaneUpdates().Wait(ctx, func(opt utils.Option[types.LaneID]) bool {
+		if _, err := availState.WaitLocalLane(ctx, func(opt utils.Option[types.LaneID]) bool {
 			return !opt.IsPresent()
 		}); err != nil {
 			return err
@@ -81,7 +81,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		if err := availState.ApplyEpoch(epJoin); err != nil {
 			return err
 		}
-		lane2, err := availState.LocalLaneUpdates().Wait(ctx, func(opt utils.Option[types.LaneID]) bool {
+		lane2, err := availState.WaitLocalLane(ctx, func(opt utils.Option[types.LaneID]) bool {
 			got, ok := opt.Get()
 			return ok && got != lane0
 		})

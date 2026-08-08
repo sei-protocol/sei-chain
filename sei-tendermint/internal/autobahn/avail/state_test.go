@@ -36,6 +36,26 @@ func makeAppVotes(keys []types.SecretKey, proposal *types.AppProposal) []*types.
 	return votes
 }
 
+// pushPeerLaneBlock admits a block signed by key onto state via PushBlock
+// (foreign keys; production ProduceLocalBlock only signs with the State's key).
+func pushPeerLaneBlock(ctx context.Context, state *State, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+	lane := types.NewLaneID(key.Public(), 0)
+	n := state.NextBlock(lane)
+	var parent types.BlockHeaderHash
+	if n > 0 {
+		prev, err := state.Block(ctx, lane, n-1)
+		if err != nil {
+			return nil, err
+		}
+		parent = prev.Msg().Block().Header().Hash()
+	}
+	b := types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, parent, payload)))
+	if err := state.PushBlock(ctx, b); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
 func TestSubscribeAppVotesJumpsToDataFloor(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -149,9 +169,9 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 				lane := types.NewLaneID(key.Public(), 0)
 				p := types.GenPayload(rng)
 				want[lane] = append(want[lane], p.Hash())
-				b, err := state.produceLocalBlock(lane, state.NextBlock(lane), key, p)
+				b, err := pushPeerLaneBlock(ctx, state, key, p)
 				if err != nil {
-					return fmt.Errorf("state.produceLocalBlock(): %w", err)
+					return fmt.Errorf("pushPeerLaneBlock(): %w", err)
 				}
 				if err := utils.TestDiff(b.Msg().Block().Payload(), p); err != nil {
 					return fmt.Errorf("snapshot: %w", err)
@@ -280,9 +300,8 @@ func TestStateRestartFromPersisted(t *testing.T) {
 
 			for range 5 {
 				key := keys[rng.Intn(len(keys))]
-				lane := types.NewLaneID(key.Public(), 0)
-				if _, err := state.produceLocalBlock(lane, state.NextBlock(lane), key, types.GenPayload(rng)); err != nil {
-					return fmt.Errorf("produceLocalBlock: %w", err)
+				if _, err := pushPeerLaneBlock(ctx, state, key, types.GenPayload(rng)); err != nil {
+					return fmt.Errorf("pushPeerLaneBlock: %w", err)
 				}
 			}
 

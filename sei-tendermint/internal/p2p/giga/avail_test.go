@@ -83,7 +83,7 @@ func TestAvailClientServer(t *testing.T) {
 			rng := rng.Split()
 			s.Spawn(func() error {
 				a := node.consensus.Avail()
-				lane := types.NewLaneID(a.PublicKey(), 0)
+				lane := a.LocalLane().OrPanic("local")
 				for range totalBlocks {
 					n := a.NextBlock(lane)
 					if err := a.WaitForLocalCapacity(ctx, lane, n); err != nil {

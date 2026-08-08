@@ -31,7 +31,7 @@ func TestConsensusClientServer(t *testing.T) {
 			t.Logf("[%v] Push a block.", idx)
 			node := nodes[rng.Intn(len(env.nodes))]
 			a := node.consensus.Avail()
-			lane := types.NewLaneID(a.PublicKey(), 0)
+			lane := a.LocalLane().OrPanic("local")
 			b, err := a.ProduceLocalBlock(lane, a.NextBlock(lane), types.GenPayload(rng))
 			if err != nil {
 				return fmt.Errorf("ds.ProduceLocalBlock(): %w", err)

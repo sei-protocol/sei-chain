@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 )
 
@@ -100,17 +101,36 @@ func (s *State) alignMempoolForLane(lane types.LaneID) types.BlockNumber {
 // sequentially in the nonce order.
 //
 // Membership is epoch-scoped: stay continues the same LaneID streak; leave cancels
-// the streak; a later join starts a new Run for the new (v, e_join).
+// the streak; a later join starts a new streak for the new (v, e_join).
 func (s *State) Run(ctx context.Context) error {
 	availState := s.consensus.Avail()
-	return availState.LocalLaneUpdates().Iter(ctx, func(ctx context.Context, laneOpt utils.Option[types.LaneID]) error {
-		lane, ok := laneOpt.Get()
-		if !ok {
-			<-ctx.Done()
-			return ctx.Err()
+	for ctx.Err() == nil {
+		laneOpt, err := availState.WaitLocalLane(ctx, func(opt utils.Option[types.LaneID]) bool {
+			return opt.IsPresent()
+		})
+		if err != nil {
+			return err
 		}
-		return s.runLaneStreak(ctx, availState, lane)
-	})
+		lane := laneOpt.OrPanic("present")
+		g, gctx := errgroup.WithContext(ctx)
+		g.Go(func() error {
+			return s.runLaneStreak(gctx, availState, lane)
+		})
+		g.Go(func() error {
+			_, err := availState.WaitLocalLane(gctx, func(opt utils.Option[types.LaneID]) bool {
+				got, ok := opt.Get()
+				return !ok || got != lane
+			})
+			if err != nil {
+				return err
+			}
+			return context.Canceled
+		})
+		if err := utils.IgnoreCancel(g.Wait()); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
 }
 
 func (s *State) runLaneStreak(ctx context.Context, availState *avail.State, lane types.LaneID) error {
@@ -198,8 +218,8 @@ func (s *State) runLaneStreak(ctx context.Context, availState *avail.State, lane
 	})
 }
 
-// streakOpErr maps leave-race ErrBadLane onto context.Canceled so LocalLane
-// Iter continues (rejoin) instead of permanently killing producer.Run.
+// streakOpErr maps leave-race ErrBadLane onto context.Canceled so the Run loop
+// can wait for rejoin instead of permanently killing producer.Run.
 func (s *State) streakOpErr(lane types.LaneID, op string, err error) error {
 	if errors.Is(err, avail.ErrBadLane) {
 		availState := s.consensus.Avail()

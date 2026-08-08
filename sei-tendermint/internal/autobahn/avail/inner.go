@@ -16,7 +16,7 @@ import (
 // On restart, persisted leave-lane WALs are re-attached into memory (extras are
 // safe — tryPruneLeaveLanes removes them once tipcut omits them).
 type inner struct {
-	epoch          *types.Epoch
+	epoch          utils.AtomicSend[*types.Epoch]
 	latestAppQC    utils.Option[*types.AppQC]
 	latestCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]]
 	appVotes       *queue[types.GlobalBlockNumber, appVotes]
@@ -70,7 +70,7 @@ func newInner(registry *epoch.Registry, loaded utils.Option[*loadedAvailState]) 
 	}
 
 	i := &inner{
-		epoch:               ep,
+		epoch:               utils.NewAtomicSend(ep),
 		latestAppQC:         utils.None[*types.AppQC](),
 		latestCommitQC:      utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		appVotes:            newQueue[types.GlobalBlockNumber, appVotes](),
@@ -221,7 +221,7 @@ func (i *inner) removeLeaveLanes(current, tipcut *types.Committee) []types.LaneI
 
 // TODO: filter votes per-epoch committee once epoch transitions are wired up.
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
-	c := i.epoch.Committee()
+	c := i.epoch.Load().Committee()
 	votes, ok := i.votes[lane]
 	if !ok {
 		return nil, false

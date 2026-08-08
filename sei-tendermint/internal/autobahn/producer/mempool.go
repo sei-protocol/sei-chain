@@ -80,13 +80,6 @@ func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
 	panic("unreachable")
 }
 
-func (s *State) mempoolFirst() types.BlockNumber {
-	for m := range s.mempool.Lock() {
-		return m.first
-	}
-	panic("unreachable")
-}
-
 // Removes txs from mempool assigned to lane blocks <n.
 func (s *State) pruneMempool(n types.BlockNumber) {
 	for m, ctrl := range s.mempool.Lock() {
