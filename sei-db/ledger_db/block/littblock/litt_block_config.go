@@ -5,10 +5,11 @@ import (
 	"time"
 
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
 )
 
-// LittBlockConfig configures a LittDB-backed types.BlockDB.
-type LittBlockConfig struct {
+// BlockDBConfig configures a LittDB-backed types.BlockDB.
+type BlockDBConfig struct {
 	// Litt is the underlying LittDB configuration, including the data directory
 	// paths. The block store builds its two tables (blocks, qcs) on top of this
 	// DB. Required; use DefaultConfig to obtain one with sane defaults, then
@@ -20,23 +21,45 @@ type LittBlockConfig struct {
 	// watermark to advance past the record, so even an over-eager watermark
 	// cannot delete data younger than Retention. Must be positive.
 	Retention time.Duration
+
+	// RetentionWindow is how much history this store keeps beyond the shared rollback
+	// window of the StorageGarbageCollector that manages it, in blocks. It is what
+	// gc.PrunableStore.GetRetentionWindow answers:
+	//
+	//	> 0  → that many blocks of history beyond the rollback window
+	//	0    → keep history to serve rollback window only
+	//	-1   → never prune this store (gc.InfiniteRetentionWindow)
+	//
+	// Zero does NOT mean "keep everything" here, unlike the KeepRecent fields on
+	// StateStoreConfig and ReceiptStoreConfig, where 0 disables pruning. It is the most
+	// aggressive setting this field has; "keep everything" is -1. Assigning a KeepRecent
+	// value to this field inverts the retention it asks for.
+	//
+	// This is an input to a minimum shared across every managed store, not a policy applied
+	// to this store alone: a deep window here also holds back receiptDB and the SC/SS
+	// snapshots. Must be >= gc.InfiniteRetentionWindow.
+	//
+	// Independent of Retention, which is a wall-clock TTL failsafe underneath the watermark.
+	// Both must permit reclamation before any record is dropped.
+	RetentionWindow int64
 }
 
-// DefaultConfig returns a LittBlockConfig preloaded with all defaults, rooted at
+// DefaultConfig returns a BlockDBConfig preloaded with all defaults, rooted at
 // dir. Override fields as needed, then pass it to NewBlockDB (which validates).
-func DefaultConfig(dir string) (*LittBlockConfig, error) {
+func DefaultConfig(dir string) (*BlockDBConfig, error) {
 	littConfig, err := littdb.DefaultConfig(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build litt config: %w", err)
 	}
-	return &LittBlockConfig{
-		Litt:      littConfig,
-		Retention: 24 * time.Hour,
+	return &BlockDBConfig{
+		Litt:            littConfig,
+		Retention:       24 * time.Hour,
+		RetentionWindow: 10000,
 	}, nil
 }
 
 // Validate performs a sanity check on the configuration.
-func (c *LittBlockConfig) Validate() error {
+func (c *BlockDBConfig) Validate() error {
 	if c == nil {
 		return fmt.Errorf("config is required")
 	}
@@ -45,6 +68,10 @@ func (c *LittBlockConfig) Validate() error {
 	}
 	if c.Retention <= 0 {
 		return fmt.Errorf("config.Retention must be positive (got %s)", c.Retention)
+	}
+	if c.RetentionWindow < gc.InfiniteRetentionWindow {
+		return fmt.Errorf("config.RetentionWindow must be >= %d (got %d)",
+			gc.InfiniteRetentionWindow, c.RetentionWindow)
 	}
 	return nil
 }

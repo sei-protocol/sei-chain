@@ -22,7 +22,7 @@ type GigaStorageConfig struct {
 	FlatKVConfig    *flatkvConfig.Config
 	SSConfig        StateStoreConfig
 	ReceiptDBConfig ReceiptStoreConfig
-	BlockDBConfig   *littblock.LittBlockConfig
+	BlockDBConfig   *littblock.BlockDBConfig
 	PruningConfig   *gc.StorageGarbageCollectorConfig
 }
 

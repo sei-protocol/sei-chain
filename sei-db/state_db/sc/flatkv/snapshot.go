@@ -526,7 +526,16 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 // pruneSnapshots removes old snapshots beyond SnapshotKeepRecent, keeping
 // the latest snapshot (currentVersion) plus the N most recent older ones.
 // Best-effort: errors are logged but do not fail the snapshot operation.
+//
+// Disabled by config.ExternalPruning, which hands retention to the
+// StorageGarbageCollector. Both must never run: this one counts snapshots and
+// knows nothing of the shared rollback window, so it would delete the snapshot
+// the collector is holding to serve it.
 func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) int {
+	if s.config.ExternalPruning {
+		return 0
+	}
+
 	start := time.Now()
 	defer func() {
 		otelMetrics.SnapshotPruneLatency.Record(s.ctx, secondsSince(start))
@@ -726,8 +735,11 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 // to any retained snapshot. Scheduling the truncation is best-effort in that it is skipped when there is
 // nothing to prune against, but a prune that fails is not a benign outcome: it only fails when the WAL is
 // already dead, which means commits will fail from that point on.
+//
+// Disabled by config.ExternalPruning, under which the WAL is a managed store in its own right and the
+// collector prunes it to a floor derived from every store, not just from this one's snapshots.
 func (s *CommitStore) tryTruncateWAL() {
-	if s.wal == nil {
+	if s.wal == nil || s.config.ExternalPruning {
 		return
 	}
 

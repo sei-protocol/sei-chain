@@ -20,6 +20,9 @@ type mockStore struct {
 	pruningBoundary func(cutLine uint64) uint64
 	getErr          error
 	pruneErr        error
+	// selfPruned inverts ExternalPruning: the constructors below build collector-managed stores,
+	// which is the common case, so opting out is what a test has to say explicitly.
+	selfPruned bool
 
 	pruneBelowCalled atomic.Bool
 	prunedBelow      atomic.Uint64
@@ -71,6 +74,17 @@ func contiguousStore(name string, latestHeight uint64) *mockStore {
 func withRetentionWindow(store *mockStore, retention int64) *mockStore {
 	store.retentionWindow = retention
 	return store
+}
+
+// withSelfPruning marks a store as enforcing its own retention, so the collector must vote it in but
+// never call PruneBelow on it.
+func withSelfPruning(store *mockStore) *mockStore {
+	store.selfPruned = true
+	return store
+}
+
+func (m *mockStore) ExternalPruning() bool {
+	return !m.selfPruned
 }
 
 func (m *mockStore) Name() string {
@@ -503,18 +517,49 @@ func TestDescribeDecisionsRendersEachOutcomeDistinctly(t *testing.T) {
 		withRetentionWindow(contiguousStore("archiveWAL", 100_000), InfiniteRetentionWindow),
 		snapshotStore("sc", 100_000),
 		contiguousStore("stateWAL", 100_000),
+		withSelfPruning(snapshotStore("selfSC", 100_000, 50_000)),
 	)
 	decisions := []storeDecision{
-		{cutLine: 0, boundary: CannotServeRollback},      // skipped before being asked
-		{cutLine: 90_000, boundary: CannotServeRollback}, // asked, cannot serve a rollback
-		{cutLine: 90_000, boundary: 90_000},              // asked, reported a boundary
+		{cutLine: 0, boundary: CannotServeRollback},                // skipped before being asked
+		{cutLine: 90_000, boundary: CannotServeRollback},           // asked, cannot serve a rollback
+		{cutLine: 90_000, boundary: 90_000, externalPruning: true}, // asked, reported a boundary
+		{cutLine: 90_000, boundary: 50_000},                        // asked, but prunes itself
 	}
 
 	require.Equal(t,
 		"archiveWAL=notAsked sc=cannotServeRollback(cutLine=90000) "+
-			"stateWAL=90000(cutLine=90000)",
+			"stateWAL=90000(cutLine=90000) selfSC=50000(cutLine=90000,selfPruned)",
 		describeDecisions(stores, decisions),
 	)
+}
+
+// The whole point of ExternalPruning: a self-pruning store is still a full participant in the
+// decision — its boundary drags the shared minimum down and protects the range it replays from —
+// while never being pruned by the collector. Withdrawing it from the vote instead would prune the
+// WAL to 99_000 and strand its snapshot at 50_000 with nothing to replay forward.
+func TestPruneSkipsSelfPruningStoreButKeepsItsVote(t *testing.T) {
+	selfPruned := withSelfPruning(snapshotStore("sc", 100_000, 50_000))
+	wal := contiguousStore("stateWAL", 100_000)
+
+	require.NoError(t, prune(testConfig(t, 1_000), prunableStores(selfPruned, wal)))
+
+	require.Equal(t, uint64(1), selfPruned.boundaryCalls.Load(), "a self-pruning store is still asked")
+	require.False(t, selfPruned.pruneBelowCalled.Load(), "its own pruner enforces its retention")
+	require.True(t, wal.pruneBelowCalled.Load())
+	require.Equal(t, uint64(50_000), wal.prunedBelow.Load(),
+		"the self-pruning store's boundary must still hold the WAL back to its snapshot")
+}
+
+// A self-pruning store that cannot serve a rollback still abandons the cycle. Who deletes its data
+// is a separate question from whether the range it needs exists yet, and only the latter is what
+// CannotServeRollback reports.
+func TestPruneSelfPruningStoreStillBlocksCycle(t *testing.T) {
+	blocker := withSelfPruning(snapshotStore("sc", 100_000)) // no snapshots
+	wal := contiguousStore("stateWAL", 100_000)
+
+	require.NoError(t, prune(testConfig(t, 1_000), prunableStores(blocker, wal)))
+
+	require.False(t, wal.pruneBelowCalled.Load(), "the cycle must be abandoned")
 }
 
 // One blocker abandons the cycle, but every store is still asked so the blocked cycle can log a
