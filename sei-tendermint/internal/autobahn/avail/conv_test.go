@@ -14,7 +14,7 @@ func TestPruneAnchorConv(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 
-	lane := keys[0].Public()
+	lane := types.NewLaneID(keys[0].Public(), 0)
 	block := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))
 	laneQCs := map[types.LaneID]*types.LaneQC{
 		lane: types.NewLaneQC(makeLaneVotes(keys, block.Header())),

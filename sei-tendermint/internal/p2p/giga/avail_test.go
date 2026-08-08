@@ -56,7 +56,7 @@ func TestAvailClientServer(t *testing.T) {
 		})
 		corruptAvail := corrupt.consensus.Avail()
 		a2 := nodes[2].consensus.Avail()
-		lane0 := activeKeys[0].Public()
+		lane0 := types.NewLaneID(activeKeys[0].Public(), 0)
 		corruptRng := rng.Split()
 		s.SpawnBg(func() error {
 			if _, err := a2.Block(ctx, lane0, 0); err != nil && !errors.Is(err, types.ErrPruned) {
@@ -66,7 +66,7 @@ func TestAvailClientServer(t *testing.T) {
 			// ProduceLocalBlock will fail loudly if this bound is raised past it.
 			for range avail.BlocksPerLane {
 				n := corruptAvail.NextBlock(lane0)
-				b, err := corruptAvail.ProduceLocalBlock(n, types.GenPayload(corruptRng))
+				b, err := corruptAvail.ProduceLocalBlock(lane0, n, types.GenPayload(corruptRng))
 				if err != nil {
 					return utils.IgnoreCancel(fmt.Errorf("corrupt.ProduceLocalBlock(%d): %w", n, err))
 				}
@@ -83,13 +83,13 @@ func TestAvailClientServer(t *testing.T) {
 			rng := rng.Split()
 			s.Spawn(func() error {
 				a := node.consensus.Avail()
-				lane := a.PublicKey()
+				lane := a.LocalLane().OrPanic("local")
 				for range totalBlocks {
 					n := a.NextBlock(lane)
-					if err := a.WaitForLocalCapacity(ctx, n); err != nil {
+					if err := a.WaitForLocalCapacity(ctx, lane, n); err != nil {
 						return fmt.Errorf("waitForLocalCapacity(): %w", err)
 					}
-					if _, err := a.ProduceLocalBlock(n, types.GenPayload(rng)); err != nil {
+					if _, err := a.ProduceLocalBlock(lane, n, types.GenPayload(rng)); err != nil {
 						return fmt.Errorf("produceLocalBlock(): %w", err)
 					}
 				}

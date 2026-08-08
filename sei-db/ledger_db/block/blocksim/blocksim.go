@@ -238,19 +238,10 @@ func recoverResumeState(
 	return prev, highest, nil
 }
 
-// buildCommittee creates a round-robin committee of the given size along with
-// the secret keys that sign its QCs, with global numbering starting at 0.
+// buildCommittee creates a committee of the given size along with the secret
+// keys that sign its QCs (via types.GenCommittee).
 func buildCommittee(rng tmutils.Rng, size int) (*types.Committee, []types.SecretKey, error) {
-	keys := make([]types.SecretKey, size)
-	replicas := make([]types.PublicKey, size)
-	for i := range keys {
-		keys[i] = types.GenSecretKey(rng)
-		replicas[i] = keys[i].Public()
-	}
-	committee, err := types.NewRoundRobinElection(replicas)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to build committee: %w", err)
-	}
+	committee, keys := types.GenCommittee(rng, size)
 	return committee, keys, nil
 }
 

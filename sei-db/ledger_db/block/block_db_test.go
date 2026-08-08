@@ -1511,18 +1511,10 @@ func writeAll(t *testing.T, db types.BlockDB, batches []batch) {
 	}
 }
 
-// buildCommittee returns a deterministic round-robin committee (global numbering
-// from 0) and the secret keys that sign its QCs.
+// buildCommittee returns a deterministic committee (via GenCommittee with a
+// fixed seed) and the secret keys that sign its QCs.
 func buildCommittee() (*types.Committee, []types.SecretKey) {
-	rng := utils.TestRngFromSeed(testSeed)
-	keys := make([]types.SecretKey, committeeSize)
-	replicas := make([]types.PublicKey, committeeSize)
-	for i := range keys {
-		keys[i] = types.GenSecretKey(rng)
-		replicas[i] = keys[i].Public()
-	}
-	committee := utils.OrPanic1(types.NewRoundRobinElection(replicas))
-	return committee, keys
+	return types.GenCommittee(utils.TestRngFromSeed(testSeed), committeeSize)
 }
 
 // generateBatches builds a deterministic sequence of contiguous finalized

@@ -15,10 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// LaneID represents a lane identifier (currently it is the same as NodeID,
-// since the producer uniquely identifies the lane).
-type LaneID = PublicKey
-
 // NodeID represents a unique identifier for a node in the network.
 type NodeID string
 
@@ -223,7 +219,7 @@ func (p *Payload) Hash() PayloadHash {
 var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 	Encode: func(h *BlockHeader) *pb.BlockHeader {
 		return &pb.BlockHeader{
-			Lane:        PublicKeyConv.Encode(h.lane),
+			LaneId:      LaneIDConv.Encode(h.lane),
 			BlockNumber: utils.Alloc(uint64(h.blockNumber)),
 			ParentHash:  h.parentHash[:],
 			PayloadHash: h.payloadHash[:],
@@ -238,7 +234,7 @@ var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 		if err != nil {
 			return nil, fmt.Errorf("ParentHash: %w", err)
 		}
-		lane, err := PublicKeyConv.DecodeReq(h.Lane)
+		lane, err := LaneIDConv.DecodeReq(h.LaneId)
 		if err != nil {
 			return nil, fmt.Errorf("lane: %w", err)
 		}

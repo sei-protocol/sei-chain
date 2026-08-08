@@ -29,6 +29,7 @@ type blockSpec struct {
 
 type mempool struct {
 	capacity  uint64
+	lane      utils.Option[types.LaneID]
 	first     types.BlockNumber
 	next      types.BlockNumber
 	blocks    map[types.BlockNumber]*blockSpec
@@ -75,13 +76,6 @@ func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
 	for m := range s.mempool.Lock() {
 		tx, ok := m.evmTxs[hash]
 		return tx, ok
-	}
-	panic("unreachable")
-}
-
-func (s *State) mempoolFirst() types.BlockNumber {
-	for m := range s.mempool.Lock() {
-		return m.first
 	}
 	panic("unreachable")
 }

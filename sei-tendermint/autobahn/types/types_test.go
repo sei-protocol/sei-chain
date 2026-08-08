@@ -41,6 +41,7 @@ func TestConv(t *testing.T) {
 			TimeConv.Test(utils.GenTimestamp(rng)),
 			DurationConv.Test(time.Duration(int64(rng.Uint64()))),
 			PublicKeyConv.Test(GenPublicKey(rng)),
+			LaneIDConv.Test(GenLaneID(rng)),
 			SignatureConv.Test(GenSignature(rng)),
 			BlockHeaderConv.Test(GenBlockHeader(rng)),
 			PayloadConv.Test(GenPayload(rng)),

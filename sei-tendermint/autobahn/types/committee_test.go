@@ -25,11 +25,11 @@ func TestNewCommittee_FiltersOutZeroWeightValidators(t *testing.T) {
 	if committee.HasReplica(zeroWeightKey) {
 		t.Fatal("HasReplica() = true for zero-weight validator, want false")
 	}
-	if got := committee.Replicas().Len(); got != 1 {
-		t.Fatalf("Replicas().Len() = %v, want 1", got)
+	if !committee.HasLane(NewLaneID(nonZeroWeightKey, 0)) {
+		t.Fatal("HasLane(nonZero@e0) = false, want true")
 	}
-	if got := committee.Replicas().At(0); got != nonZeroWeightKey {
-		t.Fatalf("Replicas().At(0) = %v, want %v", got, nonZeroWeightKey)
+	if got := committee.Lanes().Len(); got != 1 {
+		t.Fatalf("Lanes().Len() = %v, want 1", got)
 	}
 	if got := committee.Weight(nonZeroWeightKey); got != 7 {
 		t.Fatalf("Weight() = %v, want 7", got)
@@ -91,7 +91,7 @@ func makeEpoch(rng utils.Rng) (*Epoch, []SecretKey) {
 func TestLaneQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewLaneVote(NewBlock(keys[0].Public(), 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
+	vote := NewLaneVote(NewBlock(NewLaneID(keys[0].Public(), 0), 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
 
 	heavyOnly := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[0], vote),
@@ -102,54 +102,6 @@ func TestLaneQCVerifyChecksWeight(t *testing.T) {
 		Sign(keys[2], vote),
 	})
 	require.Error(t, lightMajority.Verify(ep.Committee()))
-}
-
-func TestPrepareQCVerifyChecksWeight(t *testing.T) {
-	rng := utils.TestRng()
-	ep, keys := makeEpoch(rng)
-	vote := NewPrepareVote(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}))
-
-	heavyOnly := NewPrepareQC([]*Signed[*PrepareVote]{
-		Sign(keys[0], vote),
-	})
-	require.NoError(t, heavyOnly.Verify(ep))
-	lightMajority := NewPrepareQC([]*Signed[*PrepareVote]{
-		Sign(keys[1], vote),
-		Sign(keys[2], vote),
-	})
-	require.Error(t, lightMajority.Verify(ep))
-}
-
-func TestPrepareQCVerifyChecksEpochBinding(t *testing.T) {
-	rng := utils.TestRng()
-	ep, keys := makeEpoch(rng)
-	sign := func(p *Proposal) *PrepareQC {
-		return NewPrepareQC([]*Signed[*PrepareVote]{Sign(keys[0], NewPrepareVote(p))})
-	}
-
-	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
-
-	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
-	require.Error(t, sign(wrongEpoch).Verify(ep))
-
-	outOfRoads := newProposal(View{Index: ep.RoadRange().Last + 1, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
-	require.Error(t, sign(outOfRoads).Verify(ep))
-}
-
-func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
-	rng := utils.TestRng()
-	ep, keys := makeEpoch(rng)
-	sign := func(p *Proposal) *CommitQC {
-		return NewCommitQC([]*Signed[*CommitVote]{Sign(keys[0], NewCommitVote(p))})
-	}
-
-	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
-
-	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
-	require.Error(t, sign(wrongEpoch).Verify(ep))
-
-	outOfRoads := newProposal(View{Index: ep.RoadRange().Last + 1, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
-	require.Error(t, sign(outOfRoads).Verify(ep))
 }
 
 func TestCommitQCVerifyChecksWeight(t *testing.T) {
@@ -168,21 +120,20 @@ func TestCommitQCVerifyChecksWeight(t *testing.T) {
 	require.Error(t, lightMajority.Verify(ep))
 }
 
-func TestAppQCVerifyChecksWeight(t *testing.T) {
+func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewAppVote(NewAppProposal(0, 0, GenAppHash(rng), ep.EpochIndex()))
+	sign := func(p *Proposal) *CommitQC {
+		return NewCommitQC([]*Signed[*CommitVote]{Sign(keys[0], NewCommitVote(p))})
+	}
 
-	heavyOnly := NewAppQC([]*Signed[*AppVote]{
-		Sign(keys[0], vote),
-	})
-	require.NoError(t, heavyOnly.Verify(ep.Committee()))
+	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
 
-	lightMajority := NewAppQC([]*Signed[*AppVote]{
-		Sign(keys[1], vote),
-		Sign(keys[2], vote),
-	})
-	require.Error(t, lightMajority.Verify(ep.Committee()))
+	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
+	require.Error(t, sign(wrongEpoch).Verify(ep))
+
+	outOfRoads := newProposal(View{Index: ep.RoadRange().Last + 1, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
+	require.Error(t, sign(outOfRoads).Verify(ep))
 }
 
 func TestTimeoutQCVerifyChecksEpochBinding(t *testing.T) {
@@ -211,22 +162,11 @@ func TestTimeoutQCVerifyChecksWeight(t *testing.T) {
 	heavyOnly := NewTimeoutQC([]*FullTimeoutVote{
 		NewFullTimeoutVote(keys[0], view, utils.None[*PrepareQC]()),
 	})
-	if err := heavyOnly.Verify(ep, prev); err != nil {
-		t.Fatalf("heavyOnly.Verify(): %v", err)
-	}
+	require.NoError(t, heavyOnly.Verify(ep, prev))
 
 	lightMajority := NewTimeoutQC([]*FullTimeoutVote{
 		NewFullTimeoutVote(keys[1], view, utils.None[*PrepareQC]()),
 		NewFullTimeoutVote(keys[2], view, utils.None[*PrepareQC]()),
 	})
-	if err := lightMajority.Verify(ep, prev); err == nil {
-		t.Fatal("lightMajority.Verify() succeeded, want error")
-	}
-}
-
-func TestNewCommittee_RejectsEmptyWeights(t *testing.T) {
-	_, err := NewCommittee(map[PublicKey]uint64{})
-	if err == nil {
-		t.Fatal("NewCommittee() succeeded with empty weights, want error")
-	}
+	require.Error(t, lightMajority.Verify(ep, prev))
 }

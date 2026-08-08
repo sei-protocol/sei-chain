@@ -6,10 +6,15 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "p2p", "giga")
 
 func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Server[API]) error {
 	return StreamLaneProposals.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.LaneProposal, *pb.StreamLaneProposalsReq]) error {
@@ -21,17 +26,56 @@ func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Serv
 		if err != nil {
 			return fmt.Errorf("StreamLaneProposalsReqConv.Decode(): %w", err)
 		}
-		sub := x.validatorState().Avail().SubscribeLaneProposals(req.FirstBlockNumber)
+		// Tipcut prune of a leave lane ends the bound stream (ErrLanePruned).
+		// Leave alone does not: we keep serving existing blocks. Protocol back-leash
+		// (AppQC in prior epoch before ActivateEpoch) implies that prune runs before
+		// rejoin, so this stream ends before LocalLane is Some(new). Do not bubble
+		// ErrLanePruned out of Serve — wait and resubscribe (rejoin tip is 0).
+		first := req.FirstBlockNumber
 		for {
-			p, err := sub.Recv(ctx)
+			sub, err := x.subscribeLaneProposals(ctx, first)
 			if err != nil {
 				return err
 			}
-			if err := stream.Send(ctx, LaneProposalConv.Encode(p)); err != nil {
-				return fmt.Errorf("stream.Send(): %w", err)
+			for {
+				p, err := sub.Recv(ctx)
+				if err != nil {
+					if errors.Is(err, avail.ErrLanePruned) {
+						logger.Info("StreamLaneProposals: leave-lane tipcut pruned; pausing until resubscribe")
+						first = 0
+						break
+					}
+					return err
+				}
+				if err := stream.Send(ctx, LaneProposalConv.Encode(p)); err != nil {
+					return fmt.Errorf("stream.Send(): %w", err)
+				}
 			}
 		}
 	})
+}
+
+// subscribeLaneProposals waits until this node has a LocalLane streak, then
+// binds SubscribeLaneProposals. ErrBadLane means not currently a member.
+func (x *Service) subscribeLaneProposals(ctx context.Context, first types.BlockNumber) (*avail.LaneProposalsRecv, error) {
+	a := x.validatorState().Avail()
+	for {
+		sub, err := a.SubscribeLaneProposals(first)
+		if err == nil {
+			return sub, nil
+		}
+		if !errors.Is(err, avail.ErrBadLane) {
+			return nil, err
+		}
+		logger.Info("StreamLaneProposals: not a committee lane member; waiting to subscribe")
+		if _, err := a.WaitLocalLane(ctx, func(opt utils.Option[types.LaneID]) bool {
+			_, ok := opt.Get()
+			return ok
+		}); err != nil {
+			return nil, err
+		}
+		first = 0
+	}
 }
 
 func (x *Service) serverStreamLaneVotes(ctx context.Context, server rpc.Server[API]) error {

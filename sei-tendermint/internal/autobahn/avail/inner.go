@@ -7,16 +7,16 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// TODO: when dynamic committee changes are supported, newly joined members
-// must be added to blocks, votes, nextBlockToPersist, and persistedBlockStart.
-// Currently all four are initialized once in newInner from c.Lanes().All().
-// BlockPersister creates lane WALs lazily inside MaybePruneAndPersistLane, but the new
-// member must also appear in inner.blocks before the next persist cycle.
+// Lane maps: joiners are added at ApplyEpoch; leavers stay in maps until the
+// tipcut (first retained CommitQC) no longer lists them, then remove + DeleteLane.
+// On restart, persisted leave-lane WALs are re-attached into memory (extras are
+// safe — tryPruneLeaveLanes removes them once tipcut omits them).
 type inner struct {
-	epoch          *types.Epoch
+	epoch          utils.AtomicSend[*types.Epoch]
 	latestAppQC    utils.Option[*types.AppQC]
 	latestCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]]
 	appVotes       *queue[types.GlobalBlockNumber, appVotes]
@@ -60,16 +60,17 @@ type loadedAvailState struct {
 	blocks      map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+func newInner(registry *epoch.Registry, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+	ep := registry.LatestEpoch()
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
-	for lane := range epoch.Committee().Lanes().All() {
+	for lane := range ep.Committee().Lanes().All() {
 		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
 		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
 	}
 
 	i := &inner{
-		epoch:               epoch,
+		epoch:               utils.NewAtomicSend(ep),
 		latestAppQC:         utils.None[*types.AppQC](),
 		latestCommitQC:      utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		appVotes:            newQueue[types.GlobalBlockNumber, appVotes](),
@@ -79,11 +80,40 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 		nextBlockToPersist:  make(map[types.LaneID]types.BlockNumber, len(votes)),
 		persistedBlockStart: make(map[types.LaneID]types.BlockNumber, len(votes)),
 	}
-	i.appVotes.prune(epoch.FirstBlock())
+	i.appVotes.prune(ep.FirstBlock())
 
 	l, ok := loaded.Get()
 	if !ok {
 		return i, nil
+	}
+
+	// Re-attach persisted lane WALs before prune so leave lanes still named by
+	// the tipcut get positioned correctly. Restoring extras is safe: they will
+	// just be pruned later by tryPruneLeaveLanes. With an anchor CommitQC at
+	// epoch N, skip lanes with e_join <= N absent from that epoch's committee —
+	// those LaneIDs never rejoin (proposal laneRanges may omit empty lanes, so
+	// membership is the registry committee, not the proposal map).
+	var anchorEpoch types.EpochIndex
+	var anchorCommittee *types.Committee
+	if anchor, ok := l.pruneAnchor.Get(); ok {
+		anchorEpoch = anchor.CommitQC.Proposal().EpochIndex()
+		ep, ok := registry.EpochByIndex(anchorEpoch)
+		if !ok {
+			return nil, fmt.Errorf("unknown epoch_index %d for prune anchor", anchorEpoch)
+		}
+		anchorCommittee = ep.Committee()
+	}
+	for lane := range l.blocks {
+		if anchorCommittee != nil && lane.EJoin() <= anchorEpoch && !anchorCommittee.HasLane(lane) {
+			continue
+		}
+		if _, ok := i.blocks[lane]; ok {
+			continue
+		}
+		i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+		i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+		i.nextBlockToPersist[lane] = 0
+		i.persistedBlockStart[lane] = 0
 	}
 
 	// Apply the persisted prune anchor first: prune() positions all queues
@@ -94,8 +124,7 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 			slog.Uint64("roadIndex", uint64(anchor.AppQC.Proposal().RoadIndex())),
 			slog.Uint64("globalNumber", uint64(anchor.AppQC.Proposal().GlobalNumber())),
 		)
-		// TODO: use the committee of the anchor's epoch once epoch transitions are wired up.
-		if _, err := i.prune(epoch.Committee(), anchor.AppQC, anchor.CommitQC); err != nil {
+		if _, err := i.prune(anchorCommittee, anchor.AppQC, anchor.CommitQC); err != nil {
 			return nil, fmt.Errorf("prune: %w", err)
 		}
 		for lane := range i.blocks {
@@ -118,13 +147,20 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
 	}
 
-	// Restore persisted blocks. Since the anchor is persisted first and
-	// blocks are written sequentially per lane, gaps, parent-hash
-	// mismatches, and over-capacity indicate corruption or a bug.
+	// Restore persisted blocks for every lane re-attached above. Gaps,
+	// parent-hash mismatches, and over-capacity indicate corruption or a bug.
 	for lane, bs := range l.blocks {
 		q, ok := i.blocks[lane]
 		if !ok || len(bs) == 0 {
 			continue
+		}
+		// Anchor prune floors each tip via LaneRange.First(); lanes the tipcut
+		// does not name get a synthetic First=0 (leave extras, or joiners that
+		// only appear on post-anchor CommitQCs). WAL may still start later —
+		// advance before load. A later AppQC moves those tips when its CommitQC
+		// names the lane.
+		if bs[0].Number > q.next {
+			q.prune(bs[0].Number)
 		}
 		var lastHash types.BlockHeaderHash
 		for j, b := range bs {
@@ -150,10 +186,51 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 	return i, nil
 }
 
+// addCommitteeLanes adds empty queues for LaneIDs in c that are not yet tracked.
+// Joiner tip catch-up is separate: new lanes start empty and fill via PushBlock / peer sync.
+func (i *inner) addCommitteeLanes(c *types.Committee) {
+	for lane := range c.Lanes().All() {
+		if _, ok := i.blocks[lane]; ok {
+			continue
+		}
+		i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+		i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+		i.nextBlockToPersist[lane] = 0
+		i.persistedBlockStart[lane] = 0
+	}
+}
+
+// removeLeaveLanes drops inactive leave lanes that the tipcut committee no
+// longer names. A left LaneID never returns (rejoin is a new ID), so once the
+// first retained CommitQC's committee omits it, no later CQ in the window can
+// need it either. Returns removed LaneIDs for DeleteLane.
+func (i *inner) removeLeaveLanes(current, tipcut *types.Committee) []types.LaneID {
+	var removed []types.LaneID
+	for lane := range i.blocks {
+		if current.HasLane(lane) || tipcut.HasLane(lane) {
+			continue
+		}
+		delete(i.blocks, lane)
+		delete(i.votes, lane)
+		delete(i.nextBlockToPersist, lane)
+		delete(i.persistedBlockStart, lane)
+		removed = append(removed, lane)
+	}
+	return removed
+}
+
 // TODO: filter votes per-epoch committee once epoch transitions are wired up.
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
-	c := i.epoch.Committee()
-	for _, byHash := range i.votes[lane].q[n].byHash {
+	c := i.epoch.Load().Committee()
+	votes, ok := i.votes[lane]
+	if !ok {
+		return nil, false
+	}
+	entry, ok := votes.q[n]
+	if !ok {
+		return nil, false
+	}
+	for _, byHash := range entry.byHash {
 		if byHash.weight >= c.LaneQuorum() {
 			return types.NewLaneQC(byHash.votes[:]), true
 		}

@@ -29,7 +29,7 @@ var StreamLaneVotes = rpc.Register[API](2, "stream_lane_votes",
 var StreamCommitQCs = rpc.Register[API](3, "stream_commit_qcs",
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamCommitQCsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*apb.CommitQC]{MsgSize: 20 * kB, Window: 20},
+	rpc.Msg[*apb.CommitQC]{MsgSize: 22 * kB, Window: 20},
 )
 var StreamAppVotes = rpc.Register[API](4, "stream_app_votes",
 	rpc.Limit{Rate: 1, Concurrent: 1},
@@ -39,7 +39,7 @@ var StreamAppVotes = rpc.Register[API](4, "stream_app_votes",
 var StreamAppQCs = rpc.Register[API](5, "stream_app_qcs",
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamAppQCsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*pb.StreamAppQCsResp]{MsgSize: 30 * kB, Window: 20},
+	rpc.Msg[*pb.StreamAppQCsResp]{MsgSize: 32 * kB, Window: 20},
 )
 var Consensus = rpc.Register[API](6, "consensus",
 	// Consensus streams are special in a sense that

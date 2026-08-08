@@ -8,8 +8,23 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
-func (s *State) SubscribeLaneProposals(first types.BlockNumber) *LaneProposalsRecv {
-	return &LaneProposalsRecv{s, s.key.Public(), first}
+// SubscribeLaneProposals streams proposals for the LocalLane bound at subscribe
+// time. Stay keeps the same LaneID. After leave, production stops (committee
+// gate) but this stream keeps serving blocks already in the leave-lane map
+// until tipcut prune removes it; Recv then returns ErrLanePruned.
+// Rejoin under a new LaneID needs a separate Subscribe.
+//
+// Protocol back-leash: a new epoch is not entered until the prior epoch has at
+// least one AppQC. That tipcut advance drops commit-QCs whose committees still
+// named the leave LaneID, so tryPruneLeaveLanes removes the leave map before
+// any rejoin ActivateEpoch — Recv ends before LocalLane becomes Some(new), and
+// giga can resubscribe onto the new streak without an L0/L1 overlap.
+func (s *State) SubscribeLaneProposals(first types.BlockNumber) (*LaneProposalsRecv, error) {
+	lane, ok := s.LocalLane().Get()
+	if !ok {
+		return nil, ErrBadLane
+	}
+	return &LaneProposalsRecv{s, lane, first}, nil
 }
 
 type LaneProposalsRecv struct {
@@ -25,6 +40,10 @@ func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.Lane
 			if errors.Is(err, types.ErrPruned) {
 				r.next += 1
 				continue
+			}
+			if errors.Is(err, ErrBadLane) {
+				// Map gone — tipcut pruned a leave lane (or raced DeleteLane).
+				return nil, ErrLanePruned
 			}
 			return nil, fmt.Errorf("x.avail.Block(): %w", err)
 		}
