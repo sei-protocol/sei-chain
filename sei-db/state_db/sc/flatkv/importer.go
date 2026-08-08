@@ -281,6 +281,14 @@ func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
 	if node.Height != 0 || node.Key == nil || node.Version != imp.version {
 		return
 	}
+	// FlatKV import nodes carry already-serialized physical values. Even an
+	// empty logical misc value has a non-empty serialized header, so a
+	// zero-length physical value is malformed. Reject it instead of writing a
+	// Pebble row that LtHash and verification would both skip.
+	if len(node.Value) == 0 {
+		imp.setErr(fmt.Errorf("flatkv import: empty physical value for key %x", node.Key))
+		return
+	}
 	select {
 	case imp.ingestCh <- rawKVPair{Key: node.Key, Value: node.Value}:
 	case <-imp.done:

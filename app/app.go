@@ -2113,9 +2113,11 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	if execErr != nil {
 		// EIP-7623's floor-data-gas check is the known natural failure here:
 		// other Execute() failure classes are pre-checked upstream. Canonical
-		// fee, nonce, receipt, and ABCI result behavior lives in v2. The
-		// stateDB has not been finalized, so Cleanup discards its
-		// transaction-local cache before the caller re-runs the tx through v2.
+		// fee, nonce, receipt, ABCI result, and PreExecutionFailure receipt
+		// flag behavior lives in v2 msg_server — keep this fallback so giga
+		// never writes those receipts itself. The stateDB has not been
+		// finalized, so Cleanup discards its transaction-local cache before
+		// the caller re-runs the tx through v2.
 		return nil, gigautils.ErrExecutionFailed
 	}
 
@@ -2157,7 +2159,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		Data:      ethTx.Data(),
 		From:      sender,
 	}
-	receipt, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
+	receipt, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError, false)
 	if rerr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
