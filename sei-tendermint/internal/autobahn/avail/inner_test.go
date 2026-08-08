@@ -2,6 +2,7 @@ package avail
 
 import (
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -842,4 +843,112 @@ func TestNewInnerPruneAnchorCommitQCUsedForPrune(t *testing.T) {
 	require.Equal(t, types.RoadIndex(1), i.commitQCs.first)
 	// CommitQCs 1 and 2 should still be loaded.
 	require.Equal(t, types.RoadIndex(3), i.commitQCs.next)
+}
+
+// Leave-lane WALs are re-attached on restart even when LatestEpoch omits them.
+// Restoring extras is safe — tryPruneLeaveLanes removes them later.
+func TestNewInnerRestoresLeaveLaneWAL(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	a, b := keys[0], keys[1]
+	cKey := types.GenSecretKey(rng)
+	ep0 := registry.LatestEpoch()
+	laneB := ep0.Committee().Lane(b.Public()).OrPanic("b")
+
+	b0 := testSignedBlock(b, laneB, 0, types.BlockHeaderHash{}, rng)
+	loaded := &loadedAvailState{
+		blocks: map[types.LaneID][]persist.LoadedBlock{
+			laneB: {{Number: 0, Proposal: b0}},
+		},
+	}
+
+	ep1, err := registry.ActivateEpoch(
+		map[types.PublicKey]uint64{a.Public(): 1, cKey.Public(): 1},
+		types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+	)
+	require.NoError(t, err)
+	require.False(t, ep1.Committee().HasLane(laneB))
+
+	i, err := newInner(ep1, utils.Some(loaded))
+	require.NoError(t, err)
+	require.Contains(t, i.blocks, laneB)
+	require.Equal(t, types.BlockNumber(1), i.blocks[laneB].next)
+	require.Contains(t, i.votes, laneB)
+}
+
+// Anchor at epoch N that still names a leave lane: restore and position via prune.
+func TestNewInnerRestoresLeaveLaneNamedByAnchor(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	a, b := keys[0], keys[1]
+	cKey := types.GenSecretKey(rng)
+	ep0 := registry.LatestEpoch()
+	laneB := ep0.Committee().Lane(b.Public()).OrPanic("b")
+
+	qc0 := makeCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil, utils.None[*types.AppQC]())
+	require.True(t, qc0.Proposal().HasLane(laneB))
+	appProposal := types.NewAppProposal(qc0.GlobalRange().First, qc0.Index(), types.GenAppHash(rng), 0)
+	appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
+
+	lrFirst := qc0.LaneRange(laneB).First()
+	b0 := testSignedBlock(b, laneB, lrFirst, types.BlockHeaderHash{}, rng)
+	loaded := &loadedAvailState{
+		pruneAnchor: utils.Some(&PruneAnchor{AppQC: appQC, CommitQC: qc0}),
+		commitQCs:   []persist.LoadedCommitQC{{Index: qc0.Index(), QC: qc0}},
+		blocks: map[types.LaneID][]persist.LoadedBlock{
+			laneB: {{Number: lrFirst, Proposal: b0}},
+		},
+	}
+
+	ep1, err := registry.ActivateEpoch(
+		map[types.PublicKey]uint64{a.Public(): 1, cKey.Public(): 1},
+		types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+	)
+	require.NoError(t, err)
+
+	i, err := newInner(ep1, utils.Some(loaded))
+	require.NoError(t, err)
+	require.Contains(t, i.blocks, laneB)
+	require.Equal(t, lrFirst, i.blocks[laneB].first)
+	require.Equal(t, lrFirst+1, i.blocks[laneB].next)
+}
+
+// With anchor epoch N, lanes with e_join < N absent from the anchor QC are skipped
+// (left for good; orphan WAL cleanup is tryPruneLeaveLanes).
+func TestNewInnerSkipsStaleLeaveLaneAbsentFromAnchor(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	a := keys[0]
+	cKey := types.GenSecretKey(rng)
+
+	ep1, err := registry.ActivateEpoch(
+		map[types.PublicKey]uint64{a.Public(): 1, cKey.Public(): 1},
+		types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+	)
+	require.NoError(t, err)
+	qc1 := makeCommitQC(ep1, []types.SecretKey{a, cKey}, utils.None[*types.CommitQC](), nil, utils.None[*types.AppQC]())
+	require.Equal(t, types.EpochIndex(1), qc1.Proposal().EpochIndex())
+
+	orphan := types.NewLaneID(types.GenSecretKey(rng).Public(), 0)
+	require.True(t, orphan.EJoin() < qc1.Proposal().EpochIndex())
+	require.False(t, qc1.Proposal().HasLane(orphan))
+
+	app1 := types.NewAppProposal(qc1.GlobalRange().First, qc1.Index(), types.GenAppHash(rng), 1)
+	appQC1 := types.NewAppQC([]*types.Signed[*types.AppVote]{
+		types.Sign(a, types.NewAppVote(app1)),
+		types.Sign(cKey, types.NewAppVote(app1)),
+	})
+
+	ob := testSignedBlock(types.GenSecretKey(rng), orphan, 0, types.BlockHeaderHash{}, rng)
+	loaded := &loadedAvailState{
+		pruneAnchor: utils.Some(&PruneAnchor{AppQC: appQC1, CommitQC: qc1}),
+		commitQCs:   []persist.LoadedCommitQC{{Index: qc1.Index(), QC: qc1}},
+		blocks: map[types.LaneID][]persist.LoadedBlock{
+			orphan: {{Number: 0, Proposal: ob}},
+		},
+	}
+
+	i, err := newInner(ep1, utils.Some(loaded))
+	require.NoError(t, err)
+	require.NotContains(t, i.blocks, orphan)
 }

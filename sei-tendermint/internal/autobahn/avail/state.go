@@ -318,11 +318,12 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	}
 
 	// Truncate WAL entries below the prune anchor that were filtered out by
-	// loadPersistedState (committee lanes only; leave WALs are removed later).
+	// loadPersistedState. Includes restored leave lanes; extras are safe and
+	// tryPruneLeaveLanes may DeleteLane them after tipcut advances.
 	if ls, ok := loaded.Get(); ok {
 		if anchor, ok := ls.pruneAnchor.Get(); ok {
 			c := ep.Committee()
-			for lane := range c.Lanes().All() {
+			for lane := range inner.blocks {
 				if err := pers.blocks.MaybePruneAndPersistLane(lane, c, utils.Some(anchor.CommitQC), nil, utils.None[func(*types.Signed[*types.LaneProposal])]()); err != nil {
 					return nil, fmt.Errorf("prune stale block WAL entries: %w", err)
 				}

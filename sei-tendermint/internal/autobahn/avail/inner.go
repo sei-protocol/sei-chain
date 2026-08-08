@@ -10,15 +10,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// TODO: when dynamic committee changes are supported, newly joined members
-// must be added to blocks, votes, nextBlockToPersist, and persistedBlockStart.
-// Currently all four are initialized once in newInner from c.Lanes().All().
-// BlockPersister creates lane WALs lazily inside MaybePruneAndPersistLane, but the new
-// member must also appear in inner.blocks before the next persist cycle.
-//
 // Lane maps: joiners are added at ApplyEpoch; leavers stay in maps until the
 // tipcut (first retained CommitQC) no longer lists them, then remove + DeleteLane.
-// Leave WALs are not re-attached on restart — only removed when that gate holds.
+// On restart, persisted leave-lane WALs are re-attached into memory (extras are
+// safe — tryPruneLeaveLanes removes them once tipcut omits them).
 type inner struct {
 	epoch          *types.Epoch
 	latestAppQC    utils.Option[*types.AppQC]
@@ -90,6 +85,30 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 		return i, nil
 	}
 
+	// Re-attach persisted lane WALs before prune so leave lanes still named by
+	// the tipcut/anchor get positioned correctly. Restoring extras is safe: they
+	// will just be pruned later by tryPruneLeaveLanes. With an anchor CommitQC
+	// at epoch N, skip lanes with e_join < N that are absent from that QC —
+	// those left for good and never rejoin.
+	var anchorEpoch types.EpochIndex
+	var anchorProposal *types.Proposal
+	if anchor, ok := l.pruneAnchor.Get(); ok {
+		anchorEpoch = anchor.CommitQC.Proposal().EpochIndex()
+		anchorProposal = anchor.CommitQC.Proposal()
+	}
+	for lane := range l.blocks {
+		if anchorProposal != nil && lane.EJoin() < anchorEpoch && !anchorProposal.HasLane(lane) {
+			continue
+		}
+		if _, ok := i.blocks[lane]; ok {
+			continue
+		}
+		i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+		i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+		i.nextBlockToPersist[lane] = 0
+		i.persistedBlockStart[lane] = 0
+	}
+
 	// Apply the persisted prune anchor first: prune() positions all queues
 	// (commitQCs, blocks, votes) so that subsequent pushBack calls insert
 	// at the correct indices without needing reset().
@@ -122,16 +141,17 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
 	}
 
-	// Restore persisted blocks for committee lanes only. Leave WALs stay on
-	// disk until tryPruneLeaveLanes (tipcut committee no longer names them);
-	// re-attaching them here would fight tipcut positioning after prune().
-	// Since the anchor is persisted first and blocks are written sequentially
-	// per lane, gaps, parent-hash mismatches, and over-capacity indicate
-	// corruption or a bug.
+	// Restore persisted blocks for every lane re-attached above. Gaps,
+	// parent-hash mismatches, and over-capacity indicate corruption or a bug.
 	for lane, bs := range l.blocks {
 		q, ok := i.blocks[lane]
 		if !ok || len(bs) == 0 {
 			continue
+		}
+		// Lanes absent from the anchor QC keep tip 0 after prune; advance to
+		// the first retained WAL block before loading.
+		if bs[0].Number > q.next {
+			q.prune(bs[0].Number)
 		}
 		var lastHash types.BlockHeaderHash
 		for j, b := range bs {
