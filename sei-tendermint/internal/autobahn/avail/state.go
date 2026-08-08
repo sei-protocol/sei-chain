@@ -312,7 +312,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	}()
 
 	ep := data.Registry().LatestEpoch()
-	inner, err := newInner(ep, loaded)
+	inner, err := newInner(data.Registry(), loaded)
 	if err != nil {
 		return nil, err
 	}

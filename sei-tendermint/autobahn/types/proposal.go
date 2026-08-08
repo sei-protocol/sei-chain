@@ -253,12 +253,6 @@ func (m *Proposal) Verify(ep *Epoch) error {
 	return nil
 }
 
-// HasLane reports whether this proposal includes a range for lane.
-func (m *Proposal) HasLane(lane LaneID) bool {
-	_, ok := m.laneRanges[lane]
-	return ok
-}
-
 // LaneRange returns the range of blocks of the given lane.
 func (m *Proposal) LaneRange(lane LaneID) *LaneRange {
 	if r, ok := m.laneRanges[lane]; ok {

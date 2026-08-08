@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -59,16 +60,17 @@ type loadedAvailState struct {
 	blocks      map[types.LaneID][]persist.LoadedBlock
 }
 
-func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+func newInner(registry *epoch.Registry, loaded utils.Option[*loadedAvailState]) (*inner, error) {
+	ep := registry.LatestEpoch()
 	votes := map[types.LaneID]*queue[types.BlockNumber, blockVotes]{}
 	blocks := map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{}
-	for lane := range epoch.Committee().Lanes().All() {
+	for lane := range ep.Committee().Lanes().All() {
 		votes[lane] = newQueue[types.BlockNumber, blockVotes]()
 		blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
 	}
 
 	i := &inner{
-		epoch:               epoch,
+		epoch:               ep,
 		latestAppQC:         utils.None[*types.AppQC](),
 		latestCommitQC:      utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		appVotes:            newQueue[types.GlobalBlockNumber, appVotes](),
@@ -78,7 +80,7 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 		nextBlockToPersist:  make(map[types.LaneID]types.BlockNumber, len(votes)),
 		persistedBlockStart: make(map[types.LaneID]types.BlockNumber, len(votes)),
 	}
-	i.appVotes.prune(epoch.FirstBlock())
+	i.appVotes.prune(ep.FirstBlock())
 
 	l, ok := loaded.Get()
 	if !ok {
@@ -86,18 +88,23 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 	}
 
 	// Re-attach persisted lane WALs before prune so leave lanes still named by
-	// the tipcut/anchor get positioned correctly. Restoring extras is safe: they
-	// will just be pruned later by tryPruneLeaveLanes. With an anchor CommitQC
-	// at epoch N, skip lanes with e_join < N that are absent from that QC —
-	// those left for good and never rejoin.
+	// the tipcut get positioned correctly. Restoring extras is safe: they will
+	// just be pruned later by tryPruneLeaveLanes. With an anchor CommitQC at
+	// epoch N, skip lanes with e_join <= N absent from that epoch's committee —
+	// those LaneIDs never rejoin (proposal laneRanges may omit empty lanes, so
+	// membership is the registry committee, not the proposal map).
 	var anchorEpoch types.EpochIndex
-	var anchorProposal *types.Proposal
+	var anchorCommittee *types.Committee
 	if anchor, ok := l.pruneAnchor.Get(); ok {
 		anchorEpoch = anchor.CommitQC.Proposal().EpochIndex()
-		anchorProposal = anchor.CommitQC.Proposal()
+		ep, ok := registry.EpochByIndex(anchorEpoch)
+		if !ok {
+			return nil, fmt.Errorf("unknown epoch_index %d for prune anchor", anchorEpoch)
+		}
+		anchorCommittee = ep.Committee()
 	}
 	for lane := range l.blocks {
-		if anchorProposal != nil && lane.EJoin() < anchorEpoch && !anchorProposal.HasLane(lane) {
+		if anchorCommittee != nil && lane.EJoin() <= anchorEpoch && !anchorCommittee.HasLane(lane) {
 			continue
 		}
 		if _, ok := i.blocks[lane]; ok {
@@ -117,8 +124,7 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 			slog.Uint64("roadIndex", uint64(anchor.AppQC.Proposal().RoadIndex())),
 			slog.Uint64("globalNumber", uint64(anchor.AppQC.Proposal().GlobalNumber())),
 		)
-		// TODO: use the committee of the anchor's epoch once epoch transitions are wired up.
-		if _, err := i.prune(epoch.Committee(), anchor.AppQC, anchor.CommitQC); err != nil {
+		if _, err := i.prune(anchorCommittee, anchor.AppQC, anchor.CommitQC); err != nil {
 			return nil, fmt.Errorf("prune: %w", err)
 		}
 		for lane := range i.blocks {
@@ -148,8 +154,11 @@ func newInner(epoch *types.Epoch, loaded utils.Option[*loadedAvailState]) (*inne
 		if !ok || len(bs) == 0 {
 			continue
 		}
-		// Lanes absent from the anchor QC keep tip 0 after prune; advance to
-		// the first retained WAL block before loading.
+		// Anchor prune floors each tip via LaneRange.First(); lanes the tipcut
+		// does not name get a synthetic First=0 (leave extras, or joiners that
+		// only appear on post-anchor CommitQCs). WAL may still start later —
+		// advance before load. A later AppQC moves those tips when its CommitQC
+		// names the lane.
 		if bs[0].Number > q.next {
 			q.prune(bs[0].Number)
 		}
