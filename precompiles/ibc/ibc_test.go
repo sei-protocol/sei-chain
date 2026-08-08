@@ -2,6 +2,8 @@ package ibc_test
 
 import (
 	"math/big"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -21,8 +23,16 @@ func TestEveryIBCVersionIsRetired(t *testing.T) {
 	ctx := testApp.NewContext(false, tmtypes.Header{})
 	evm := &vm.EVM{StateDB: state.NewDBImpl(ctx, &testApp.EvmKeeper, true)}
 
-	versioned := ibc.GetVersioned("v6.6", testApp.GetPrecompileKeepers())
-	require.Len(t, versioned, 15)
+	manifest, err := os.ReadFile("versions")
+	require.NoError(t, err)
+	historicalVersions := strings.Fields(string(manifest))
+
+	const futureUpgrade = "future-upgrade"
+	versioned := ibc.GetVersioned(futureUpgrade, testApp.GetPrecompileKeepers())
+	require.Len(t, versioned, len(historicalVersions)+1)
+	for _, version := range historicalVersions {
+		require.Contains(t, versioned, version)
+	}
 
 	for version, contract := range versioned {
 		t.Run(version, func(t *testing.T) {
