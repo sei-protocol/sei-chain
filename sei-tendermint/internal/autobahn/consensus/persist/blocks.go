@@ -283,6 +283,7 @@ func (bp *BlockPersister) getLane(lane types.LaneID, allowCreate bool) (lw *lane
 		return nil, false, fmt.Errorf("getLane called on no-op persister")
 	}
 	for lanes := range bp.lanes.RLock() {
+		// Fast path: read-only check.
 		if lw, ok := lanes[lane]; ok {
 			return lw, true, nil
 		}
@@ -291,6 +292,7 @@ func (bp *BlockPersister) getLane(lane types.LaneID, allowCreate bool) (lw *lane
 		return nil, false, nil
 	}
 	for lanes := range bp.lanes.Lock() {
+		// Slow path: create under write lock (double-checked).
 		if lw, ok := lanes[lane]; ok {
 			return lw, true, nil
 		}
@@ -406,3 +408,5 @@ func (bp *BlockPersister) Close() error {
 	}
 	panic("unreachable")
 }
+
+

@@ -2,6 +2,7 @@ package producer
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -80,14 +81,18 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		if err := availState.ApplyEpoch(epJoin); err != nil {
 			return err
 		}
-		lane2 := types.NewLaneID(a.Public(), 2)
-		if _, err := availState.LocalLaneUpdates().Wait(ctx, func(opt utils.Option[types.LaneID]) bool {
+		lane2, err := availState.LocalLaneUpdates().Wait(ctx, func(opt utils.Option[types.LaneID]) bool {
 			got, ok := opt.Get()
-			return ok && got == lane2
-		}); err != nil {
+			return ok && got != lane0
+		})
+		if err != nil {
 			return err
 		}
-		_, err = availState.Block(ctx, lane2, 0)
+		got, ok := lane2.Get()
+		if !ok {
+			return fmt.Errorf("expected rejoined LocalLane")
+		}
+		_, err = availState.Block(ctx, got, 0)
 		return err
 	}); err != nil {
 		t.Fatal(err)

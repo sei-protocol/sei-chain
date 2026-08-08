@@ -10,6 +10,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// TODO: when dynamic committee changes are supported, newly joined members
+// must be added to blocks, votes, nextBlockToPersist, and persistedBlockStart.
+// Currently all four are initialized once in newInner from c.Lanes().All().
+// BlockPersister creates lane WALs lazily inside MaybePruneAndPersistLane, but the new
+// member must also appear in inner.blocks before the next persist cycle.
+//
 // Lane maps: joiners are added at ApplyEpoch; leavers stay in maps until the
 // tipcut (first retained CommitQC) no longer lists them, then remove + DeleteLane.
 // Leave WALs are not re-attached on restart — only removed when that gate holds.
