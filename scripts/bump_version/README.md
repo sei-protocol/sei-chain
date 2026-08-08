@@ -10,6 +10,10 @@ When a new upgrade version is added to `app/tags`, this tool:
 2. Archives their current code into `precompiles/<module>/legacy/<folder>/`
 3. Regenerates all `precompiles/<module>/setup.go` files from the `versions` files
 
+Modules containing a `retired` marker file are excluded from archival and setup
+generation. Their historical version mapping is maintained by the module so a
+future upgrade cannot archive or reactivate retired code.
+
 It replaces the old `scripts/bump-version.sh` shell script.
 
 ## Developer workflow

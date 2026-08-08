@@ -4,10 +4,6 @@ import (
 	"context"
 	"math/big"
 
-	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -24,8 +20,6 @@ import (
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	ibctypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
-	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -57,10 +51,6 @@ type Keepers interface {
 	SlashingMS() SlashingMsgServer
 	SlashingQ() SlashingQuerier
 	UpgradeQ() UpgradeQuerier
-	TransferK() TransferKeeper
-	ClientK() ClientKeeper
-	ConnectionK() ConnectionKeeper
-	ChannelK() ChannelKeeper
 	TxConfig() client.TxConfig
 	Codec() codec.Codec
 }
@@ -94,10 +84,6 @@ func (ek *EmptyKeepers) ParamsQ() ParamsQuerier        { return nil }
 func (ek *EmptyKeepers) SlashingMS() SlashingMsgServer { return nil }
 func (ek *EmptyKeepers) SlashingQ() SlashingQuerier    { return nil }
 func (ek *EmptyKeepers) UpgradeQ() UpgradeQuerier      { return nil }
-func (ek *EmptyKeepers) TransferK() TransferKeeper     { return nil }
-func (ek *EmptyKeepers) ClientK() ClientKeeper         { return nil }
-func (ek *EmptyKeepers) ConnectionK() ConnectionKeeper { return nil }
-func (ek *EmptyKeepers) ChannelK() ChannelKeeper       { return nil }
 func (ek *EmptyKeepers) TxConfig() client.TxConfig     { return nil }
 func (ek *EmptyKeepers) Codec() codec.Codec            { return nil }
 
@@ -230,33 +216,6 @@ type DistributionKeeper interface {
 	WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error)
 	WithdrawValidatorCommission(ctx sdk.Context, valAddr sdk.ValAddress) (sdk.Coins, error)
 	DelegationTotalRewards(c context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error)
-}
-
-type TransferKeeper interface {
-	Transfer(goCtx context.Context, msg *ibctypes.MsgTransfer) (*ibctypes.MsgTransferResponse, error)
-	SendTransfer(
-		ctx sdk.Context,
-		sourcePort,
-		sourceChannel string,
-		token sdk.Coin,
-		sender sdk.AccAddress,
-		receiver string,
-		timeoutHeight clienttypes.Height,
-		timeoutTimestamp uint64,
-	) error
-}
-
-type ClientKeeper interface {
-	GetClientState(ctx sdk.Context, clientID string) (exported.ClientState, bool)
-	GetClientConsensusState(ctx sdk.Context, clientID string, height exported.Height) (exported.ConsensusState, bool)
-}
-
-type ConnectionKeeper interface {
-	GetConnection(ctx sdk.Context, connectionID string) (connectiontypes.ConnectionEnd, bool)
-}
-
-type ChannelKeeper interface {
-	GetChannel(ctx sdk.Context, portID, channelID string) (types.Channel, bool)
 }
 
 type BankQuerier interface {

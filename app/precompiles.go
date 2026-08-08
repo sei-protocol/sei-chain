@@ -38,10 +38,6 @@ type PrecompileKeepers struct {
 	putils.SlashingMsgServer
 	putils.SlashingQuerier
 	putils.UpgradeQuerier
-	putils.TransferKeeper
-	putils.ClientKeeper
-	putils.ConnectionKeeper
-	putils.ChannelKeeper
 	txConf client.TxConfig
 	cdc    codec.Codec
 }
@@ -73,10 +69,6 @@ func NewPrecompileKeepers(a *App) *PrecompileKeepers {
 		SlashingMsgServer:   slashingkeeper.NewMsgServerImpl(a.SlashingKeeper),
 		SlashingQuerier:     a.SlashingKeeper,
 		UpgradeQuerier:      a.UpgradeKeeper,
-		TransferKeeper:      a.TransferKeeper,
-		ClientKeeper:        a.IBCKeeper.ClientKeeper,
-		ConnectionKeeper:    a.IBCKeeper.ConnectionKeeper,
-		ChannelKeeper:       a.IBCKeeper.ChannelKeeper,
 		txConf:              a.GetTxConfig(),
 		cdc:                 a.appCodec,
 	}
@@ -109,9 +101,5 @@ func (pk *PrecompileKeepers) ParamsQ() putils.ParamsQuerier        { return pk.P
 func (pk *PrecompileKeepers) SlashingMS() putils.SlashingMsgServer { return pk.SlashingMsgServer }
 func (pk *PrecompileKeepers) SlashingQ() putils.SlashingQuerier    { return pk.SlashingQuerier }
 func (pk *PrecompileKeepers) UpgradeQ() putils.UpgradeQuerier      { return pk.UpgradeQuerier }
-func (pk *PrecompileKeepers) TransferK() putils.TransferKeeper     { return pk.TransferKeeper }
-func (pk *PrecompileKeepers) ClientK() putils.ClientKeeper         { return pk.ClientKeeper }
-func (pk *PrecompileKeepers) ConnectionK() putils.ConnectionKeeper { return pk.ConnectionKeeper }
-func (pk *PrecompileKeepers) ChannelK() putils.ChannelKeeper       { return pk.ChannelKeeper }
 func (pk *PrecompileKeepers) TxConfig() client.TxConfig            { return pk.txConf }
 func (pk *PrecompileKeepers) Codec() codec.Codec                   { return pk.cdc }
