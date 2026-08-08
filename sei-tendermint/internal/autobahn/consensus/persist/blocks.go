@@ -408,5 +408,3 @@ func (bp *BlockPersister) Close() error {
 	}
 	panic("unreachable")
 }
-
-
