@@ -5,9 +5,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
-
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
+	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 )
 
 func TestDecodeMultisignatures(t *testing.T) {
@@ -27,7 +29,7 @@ func TestDecodeMultisignatures(t *testing.T) {
 	_, err = decodeMultisignatures(bz)
 	require.Error(t, err)
 
-	goodMultisig := types.MultiSignature{
+	goodMultisig := cryptotypes.MultiSignature{
 		Signatures: testSigs,
 	}
 	bz, err = goodMultisig.Marshal()
@@ -37,4 +39,29 @@ func TestDecodeMultisignatures(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, testSigs, decodedSigs)
+}
+
+func TestModeInfoAndSigToSignatureData(t *testing.T) {
+	msig := multisig.NewMultisig(2)
+	multisig.AddSignature(msig, &signing.SingleSignatureData{
+		SignMode:  signing.SignMode_SIGN_MODE_DIRECT,
+		Signature: []byte("a"),
+	}, 0)
+	modeInfo, raw := SignatureDataToModeInfoAndSig(msig)
+	got, err := ModeInfoAndSigToSignatureData(modeInfo, raw)
+	require.NoError(t, err)
+	require.Equal(t, msig, got)
+
+	// fewer nested sigs than ModeInfos must error
+	rawShort, err := (&cryptotypes.MultiSignature{Signatures: [][]byte{[]byte("a")}}).Marshal()
+	require.NoError(t, err)
+	mi := &txtypes.ModeInfo_Single_{Single: &txtypes.ModeInfo_Single{Mode: signing.SignMode_SIGN_MODE_DIRECT}}
+	bad := &txtypes.ModeInfo{Sum: &txtypes.ModeInfo_Multi_{
+		Multi: &txtypes.ModeInfo_Multi{
+			Bitarray:  cryptotypes.NewCompactBitArray(2),
+			ModeInfos: []*txtypes.ModeInfo{{Sum: mi}, {Sum: mi}},
+		},
+	}}
+	_, err = ModeInfoAndSigToSignatureData(bad, rawShort)
+	require.Error(t, err)
 }
