@@ -89,6 +89,14 @@ type Metrics struct {
 	// was relevant to the block the node is trying to gather or not.
 	BlockGossipPartsReceived tmprometheus.CounterIntVec `metrics_labels:"matches_current"`
 
+	// NonCanonicalProposalParts counts complete proposal assemblies rejected
+	// because the assembled PartSetHeader did not equal
+	// MakePartSet(block, BlockPartSizeBytes) — non-canonical encoding or
+	// non-default chunking. Labeled by the consensus step at rejection time so
+	// post-commit stalls are alertable.
+	//metrics:Number of non-canonical complete proposal part sets rejected, labeled by consensus step.
+	NonCanonicalProposalParts tmprometheus.CounterIntVec `metrics_labels:"step"`
+
 	// Number of proposal blocks created on propose received.
 	ProposalBlockCreatedOnPropose tmprometheus.CounterIntVec `metrics_labels:"success"`
 

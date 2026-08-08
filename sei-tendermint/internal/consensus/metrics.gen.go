@@ -34,6 +34,7 @@ func init() {
 		Global.StepDuration,
 		Global.BlockGossipReceiveLatency,
 		Global.BlockGossipPartsReceived,
+		Global.NonCanonicalProposalParts,
 		Global.ProposalBlockCreatedOnPropose,
 		Global.ProposalTxs,
 		Global.ProposalMissingTxs,
@@ -201,6 +202,12 @@ func NewMetrics() *Metrics {
 			Name:      "block_gossip_parts_received",
 			Help:      "Number of block parts received by the node, separated by whether the part was relevant to the block the node is trying to gather or not.",
 		}, []string{"matches_current"}),
+		NonCanonicalProposalParts: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "non_canonical_proposal_parts",
+			Help:      "Number of non-canonical complete proposal part sets rejected, labeled by consensus step.",
+		}, []string{"step"}),
 		ProposalBlockCreatedOnPropose: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -415,6 +422,10 @@ func (m *Metrics) BlockGossipReceiveLatencyAt() *tmprometheus.Histogram {
 
 func (m *Metrics) BlockGossipPartsReceivedAt(matches_current string) *tmprometheus.CounterInt {
 	return m.BlockGossipPartsReceived.WithLabelValues(matches_current)
+}
+
+func (m *Metrics) NonCanonicalProposalPartsAt(step string) *tmprometheus.CounterInt {
+	return m.NonCanonicalProposalParts.WithLabelValues(step)
 }
 
 func (m *Metrics) ProposalBlockCreatedOnProposeAt(success string) *tmprometheus.CounterInt {
