@@ -55,17 +55,17 @@ func TestPrepareFlatKVToolingCloneHardlinksSnapshotAndCopiesChangelog(t *testing
 	srcChangelogFile := filepath.Join(dbDir, "changelog", "000001.log")
 	require.NoError(t, os.WriteFile(srcChangelogFile, []byte("wal-data"), 0o600))
 
-	cloneDir, err := prepareFlatKVToolingClone(dbDir, 0)
+	clone, err := prepareFlatKVToolingClone(dbDir, 0)
 	require.NoError(t, err)
-	defer os.RemoveAll(cloneDir) //nolint:errcheck // test cleanup
+	defer clone.Remove() //nolint:errcheck // test cleanup
 
-	target, err := os.Readlink(filepath.Join(cloneDir, "current"))
+	target, err := os.Readlink(filepath.Join(clone.dir, "current"))
 	require.NoError(t, err)
 	require.Equal(t, snapshot, target)
-	require.FileExists(t, filepath.Join(cloneDir, snapshot, "account", "000001.sst"))
-	require.NoFileExists(t, filepath.Join(cloneDir, snapshot, "LOCK"))
-	dstSnapshotFile := filepath.Join(cloneDir, snapshot, "account", "000001.sst")
-	dstChangelogFile := filepath.Join(cloneDir, "changelog", "000001.log")
+	require.FileExists(t, filepath.Join(clone.dir, snapshot, "account", "000001.sst"))
+	require.NoFileExists(t, filepath.Join(clone.dir, snapshot, "LOCK"))
+	dstSnapshotFile := filepath.Join(clone.dir, snapshot, "account", "000001.sst")
+	dstChangelogFile := filepath.Join(clone.dir, "changelog", "000001.log")
 	require.FileExists(t, dstChangelogFile)
 
 	srcSnapshotInfo, err := os.Stat(srcSnapshotFile)
@@ -123,21 +123,21 @@ func TestPrepareFlatKVToolingCloneMissingCurrentAndSnapshot(t *testing.T) {
 
 func TestPrepareFlatKVToolingCloneRetriesENOENT(t *testing.T) {
 	var attempts int
-	cloneDir, err := prepareFlatKVToolingCloneWith(t.TempDir(), 0, func(string, int64) (string, error) {
+	clone, err := retryToolingClone(t.TempDir(), 0, func(string, int64) (*toolClone, error) {
 		attempts++
 		if attempts < maxCloneRetries {
-			return "", fmt.Errorf("source vanished: %w", os.ErrNotExist)
+			return nil, fmt.Errorf("source vanished: %w", os.ErrNotExist)
 		}
-		return t.TempDir(), nil
+		return &toolClone{dir: t.TempDir()}, nil
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, cloneDir)
+	require.NotEmpty(t, clone.dir)
 	require.Equal(t, maxCloneRetries, attempts)
 
 	attempts = 0
-	_, err = prepareFlatKVToolingCloneWith(t.TempDir(), 0, func(string, int64) (string, error) {
+	_, err = retryToolingClone(t.TempDir(), 0, func(string, int64) (*toolClone, error) {
 		attempts++
-		return "", errors.New("permission denied")
+		return nil, errors.New("permission denied")
 	})
 	require.Error(t, err)
 	require.Equal(t, 1, attempts)
@@ -160,15 +160,15 @@ func TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir(t *testing.T) {
 	require.NoError(t, store.WriteSnapshot(""))
 	require.NoError(t, store.Close())
 
-	cloneDir, err := prepareFlatKVToolingClone(dbDir, 0)
+	clone, err := prepareFlatKVToolingClone(dbDir, 0)
 	require.NoError(t, err)
-	defer os.RemoveAll(cloneDir) //nolint:errcheck // test cleanup
+	defer clone.Remove() //nolint:errcheck // test cleanup
 
-	rel, err := filepath.Rel(dbDir, cloneDir)
+	rel, err := filepath.Rel(dbDir, clone.dir)
 	require.NoError(t, err)
 	require.NotEqual(t, ".", rel)
 	require.False(t, strings.HasPrefix(rel, ".."), "tooling clone must be created inside dbDir to stay on dbDir's mounted filesystem")
-	require.Contains(t, filepath.Base(cloneDir), ".seidb-flatkv-tool-")
+	require.Contains(t, filepath.Base(clone.dir), ".seidb-flatkv-tool-")
 }
 
 // TestPrepareFlatKVToolingCloneDetectsWALTruncationRace simulates the audited

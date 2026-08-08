@@ -1205,6 +1205,29 @@ func seekSnapshot(root string, targetVersion int64) (int64, error) {
 	return snapshotVersion, nil
 }
 
+// SeekSnapshotName returns the directory name (relative to root — callers
+// join it themselves) and version of the snapshot that OpenDB would start
+// from for targetVersion: the "current" link when targetVersion is 0,
+// otherwise the newest snapshot at or below it.
+//
+// Exported for readers that need to resolve a snapshot without opening the DB,
+// so they inherit this package's layout rules instead of restating them.
+func SeekSnapshotName(root string, targetVersion int64) (string, int64, error) {
+	if targetVersion == 0 {
+		version, err := currentVersion(root)
+		if err != nil {
+			return "", 0, fmt.Errorf("read current snapshot: %w", err)
+		}
+		return snapshotName(version), version, nil
+	}
+
+	version, err := seekSnapshot(root, targetVersion)
+	if err != nil {
+		return "", 0, err
+	}
+	return snapshotName(version), version, nil
+}
+
 // GetEarliestVersion returns the earliest snapshot name in the db
 func GetEarliestVersion(root string) (int64, error) {
 	var found int64
@@ -1327,7 +1350,7 @@ func isSnapshotName(name string) bool {
 // it's needed for upgrade module to check store upgrades,
 // it returns 0 if db doesn't exist or is empty.
 func GetLatestVersion(dir string) (int64, error) {
-	metadata, err := readMetadata(currentPath(dir))
+	metadata, err := ReadMetadata(currentPath(dir))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil

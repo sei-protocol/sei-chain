@@ -1116,3 +1116,38 @@ func TestUpdateCurrentSymlinkClearsStaleTmp(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "snapshot-1", target)
 }
+
+// TestSeekSnapshotName pins the exported snapshot-resolution contract that
+// external readers (seidb tooling) rely on: the returned name is relative to
+// root, targetVersion 0 resolves through the current link, a positive target
+// selects the newest snapshot at or below it, and a target older than the
+// earliest snapshot reports pruning instead of guessing.
+func TestSeekSnapshotName(t *testing.T) {
+	root := t.TempDir()
+	for _, v := range []int64{5, 10} {
+		require.NoError(t, os.Mkdir(filepath.Join(root, snapshotName(v)), 0o750))
+	}
+	require.NoError(t, os.Symlink(snapshotName(10), currentPath(root)))
+
+	name, version, err := SeekSnapshotName(root, 0)
+	require.NoError(t, err)
+	require.Equal(t, snapshotName(10), name)
+	require.Equal(t, int64(10), version)
+
+	name, version, err = SeekSnapshotName(root, 7)
+	require.NoError(t, err)
+	require.Equal(t, snapshotName(5), name)
+	require.Equal(t, int64(5), version)
+
+	name, version, err = SeekSnapshotName(root, 10)
+	require.NoError(t, err)
+	require.Equal(t, snapshotName(10), name)
+	require.Equal(t, int64(10), version)
+
+	_, _, err = SeekSnapshotName(root, 3)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "target version is pruned")
+
+	_, _, err = SeekSnapshotName(filepath.Join(root, "does-not-exist"), 0)
+	require.Error(t, err)
+}
