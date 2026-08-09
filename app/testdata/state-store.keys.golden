@@ -6,6 +6,7 @@
 "state-store.ss-import-num-workers"
 "state-store.ss-db-directory"
 "state-store.ss-enable-read-write-metrics"
+"state-store.ss-snapshot-enable"
 "state-store.evm-ss-db-directory"
 "state-store.evm-ss-separate-dbs"
 "state-store.evm-ss-split"

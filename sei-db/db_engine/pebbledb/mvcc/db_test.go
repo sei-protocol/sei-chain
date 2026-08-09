@@ -1,12 +1,15 @@
 package mvcc
 
 import (
+	"encoding/binary"
+	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
+	sstest "github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -45,4 +48,50 @@ func TestStorageTestSuiteDefaultComparer(t *testing.T) {
 	}
 
 	suite.Run(t, s)
+}
+
+func TestVersionedCheckpointPreservesFutureLiveMarker(t *testing.T) {
+	cfg := config.DefaultStateStoreConfig()
+	cfg.Backend = config.PebbleDBBackend
+
+	store, err := OpenDB(filepath.Join(t.TempDir(), "live"), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	require.NoError(t, store.SetLatestVersion(10))
+
+	dest := filepath.Join(t.TempDir(), "snapshot")
+	done := make(chan error, 1)
+	types.ScheduleCheckpoint(store, dest, nil, func(err error) {
+		done <- err
+	})
+	require.NoError(t, <-done)
+	require.NoError(t, types.SetCheckpointVersion(store, dest, 5))
+	require.Equal(t, int64(10), store.GetLatestVersion())
+	marker, closer, err := store.(*Database).storage.Get([]byte(latestVersionKey))
+	require.NoError(t, err)
+	require.Equal(t, uint64(10), binary.LittleEndian.Uint64(marker))
+	require.NoError(t, closer.Close())
+
+	checkpoint, err := OpenDB(dest, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, checkpoint.Close()) })
+	require.Equal(t, int64(5), checkpoint.GetLatestVersion())
+}
+
+func TestScheduledCheckpointCanBeCanceledAtBarrier(t *testing.T) {
+	cfg := config.DefaultStateStoreConfig()
+	cfg.Backend = config.PebbleDBBackend
+
+	store, err := OpenDB(filepath.Join(t.TempDir(), "live"), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	dest := filepath.Join(t.TempDir(), "snapshot")
+	done := make(chan error, 1)
+	types.ScheduleCheckpoint(store, dest, func() bool { return false }, func(err error) {
+		done <- err
+	})
+
+	require.ErrorIs(t, <-done, types.ErrCheckpointCanceled)
+	require.NoDirExists(t, dest)
 }

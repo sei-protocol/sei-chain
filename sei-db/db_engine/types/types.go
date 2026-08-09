@@ -1,6 +1,8 @@
 package types
 
 import (
+	"errors"
+	"fmt"
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -118,6 +120,62 @@ type Batch interface {
 // plus a flushed manifest.
 type Checkpointable interface {
 	Checkpoint(destDir string) error
+}
+
+// CheckpointVersionSetter writes the logical height into a completed
+// checkpoint without changing the live database.
+type CheckpointVersionSetter interface {
+	SetCheckpointVersion(destDir string, version int64) error
+}
+
+// DrainBarrier is an optional capability for engines that apply changesets from
+// an async queue. It lets a caller place work at an exact point in the write
+// order without waiting for the queue to drain.
+type DrainBarrier interface {
+	ScheduleAtDrain(fn func())
+}
+
+// CheckpointScheduler coordinates checkpoints for stores with in-flight writes.
+type CheckpointScheduler interface {
+	SupportsCheckpoint() bool
+	ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error))
+	SetCheckpointVersion(destDir string, version int64) error
+}
+
+// ErrCheckpointCanceled reports that a queued checkpoint was canceled before
+// it started.
+var ErrCheckpointCanceled = errors.New("state store checkpoint canceled")
+
+// ScheduleCheckpoint checkpoints an engine after all writes already enqueued
+// on it have been applied.
+func ScheduleCheckpoint(db StateStore, destDir string, shouldRun func() bool, done func(error)) {
+	cp, ok := db.(Checkpointable)
+	if !ok {
+		done(fmt.Errorf("state store backend %T does not support checkpoints", db))
+		return
+	}
+	barrier, ok := db.(DrainBarrier)
+	if !ok {
+		done(fmt.Errorf("state store backend %T does not support ordered checkpoint barriers", db))
+		return
+	}
+	barrier.ScheduleAtDrain(func() {
+		if shouldRun != nil && !shouldRun() {
+			done(ErrCheckpointCanceled)
+			return
+		}
+		done(cp.Checkpoint(destDir))
+	})
+}
+
+// SetCheckpointVersion makes a completed checkpoint self-describing without
+// changing the live database.
+func SetCheckpointVersion(db StateStore, destDir string, version int64) error {
+	setter, ok := db.(CheckpointVersionSetter)
+	if !ok {
+		return fmt.Errorf("state store backend %T cannot set checkpoint versions", db)
+	}
+	return setter.SetCheckpointVersion(destDir, version)
 }
 
 // ---------------------------------------------------------------------------

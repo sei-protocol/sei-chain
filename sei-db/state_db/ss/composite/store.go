@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	dbm "github.com/tendermint/tm-db"
@@ -34,6 +35,7 @@ type CompositeStateStore struct {
 	cosmosStore    types.StateStore // CosmosStateStore wrapping MVCC DB
 	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
+	snapshotMgr    *snapshotManager
 	config         config.StateStoreConfig
 	closeOnce      sync.Once
 	closeErr       error
@@ -60,6 +62,7 @@ func NewCompositeStateStore(
 		cosmosStore: cosmosStore,
 		config:      ssConfig,
 	}
+	snapshotSourceDirs := []string{dbHome}
 
 	if ssConfig.EVMSplit {
 		evmDir := ssConfig.EVMDBDirectory
@@ -79,6 +82,16 @@ func NewCompositeStateStore(
 			return nil, fmt.Errorf("failed to create EVM store: %w", err)
 		}
 		cs.evmStore = evmStore
+		if ssConfig.SeparateEVMSubDBs {
+			for _, storeType := range evm.AllEVMStoreTypes() {
+				snapshotSourceDirs = append(
+					snapshotSourceDirs,
+					filepath.Join(evmDir, evm.StoreTypeName(storeType)),
+				)
+			}
+		} else {
+			snapshotSourceDirs = append(snapshotSourceDirs, evmDir)
+		}
 		logger.Info("EVM state store enabled",
 			"dir", evmDir,
 			"separateDBs", ssConfig.SeparateEVMSubDBs,
@@ -103,6 +116,20 @@ func NewCompositeStateStore(
 		return nil, err
 	}
 
+	if ssConfig.SnapshotInterval > 0 {
+		snapshotRoot := utils.GetStateStoreSnapshotsPath(homeDir)
+		if ssConfig.DBDirectory != "" {
+			cleanDBHome := filepath.Clean(dbHome)
+			snapshotRoot = filepath.Join(
+				filepath.Dir(cleanDBHome),
+				filepath.Base(cleanDBHome)+"-"+utils.StateStoreSnapshotsDirName,
+			)
+		}
+		if err := cs.startSnapshotManager(snapshotRoot, snapshotSourceDirs); err != nil {
+			_ = cs.Close()
+			return nil, fmt.Errorf("start state store snapshot manager: %w", err)
+		}
+	}
 	cs.StartPruning()
 
 	return cs, nil
@@ -221,6 +248,9 @@ func (s *CompositeStateStore) GetEarliestVersion() int64 {
 
 func (s *CompositeStateStore) Close() error {
 	s.closeOnce.Do(func() {
+		if s.snapshotMgr != nil {
+			s.snapshotMgr.stop()
+		}
 		if s.pruningManager != nil {
 			s.pruningManager.Stop()
 		}
@@ -289,7 +319,11 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 
 func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
 	if s.evmStore == nil {
-		return s.cosmosStore.ApplyChangesetAsync(version, changesets)
+		if err := s.cosmosStore.ApplyChangesetAsync(version, changesets); err != nil {
+			return err
+		}
+		s.ScheduleSnapshot(version)
+		return nil
 	}
 
 	evmChangesets := filterEVMChangesets(changesets)
@@ -303,7 +337,15 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 			return fmt.Errorf("evm store async enqueue failed: %w", err)
 		}
 	}
+	s.ScheduleSnapshot(version)
 	return nil
+}
+
+// ScheduleSnapshot asks the snapshot manager to capture version after the
+// block-commit path has enqueued all state changes for that version. Callers
+// must not use this hook for direct writes such as import, recovery, or prune.
+func (s *CompositeStateStore) ScheduleSnapshot(version int64) {
+	s.snapshotMgr.maybeSnapshot(version)
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {

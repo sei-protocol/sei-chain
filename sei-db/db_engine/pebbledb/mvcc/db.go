@@ -101,12 +101,12 @@ type VersionedChangesets struct {
 	Version    int64
 	Changesets []*proto.NamedChangeSet
 	Done       chan struct{} // non-nil for barrier: closed when this entry is processed
+	// AtDrain, when non-nil, is run by the apply goroutine in queue order
+	// instead of applying a changeset. See ScheduleAtDrain.
+	AtDrain func()
 }
 
-func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, error) {
-	cache := pebble.NewCache(1024 * 1024 * 32)
-	defer cache.Unref()
-
+func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebble.Options {
 	// Select comparer based on config. Note: UseDefaultComparer is NOT backwards compatible
 	// with existing databases created with MVCCComparer - Pebble will refuse to open due to
 	// comparer name mismatch. Only use UseDefaultComparer for NEW databases.
@@ -162,6 +162,14 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 
 	//TODO: add a new config and check if readonly = true to support readonly mode
 
+	return opts
+}
+
+func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, error) {
+	cache := pebble.NewCache(1024 * 1024 * 32)
+	defer cache.Unref()
+
+	opts := newPebbleOptions(config, cache)
 	db, err := pebble.Open(dataDir, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
@@ -276,6 +284,46 @@ func (db *Database) PebbleMetrics() *pebble.Metrics {
 		return nil
 	}
 	return db.storage.Metrics()
+}
+
+// Checkpoint writes a point-in-time snapshot of the database into destDir
+// (which must not exist yet). Pebble implements this with hardlinks to
+// already-fsynced SSTs plus a flushed WAL. SS schedules it on the apply
+// goroutine at an ordered queue boundary, so that backend cannot apply more
+// changes until the WAL flush, filesystem sync, and checkpoint creation finish.
+// Satisfies types.Checkpointable.
+func (db *Database) Checkpoint(destDir string) error {
+	if err := db.storage.Checkpoint(destDir, pebble.WithFlushedWAL()); err != nil {
+		return fmt.Errorf("pebble checkpoint to %q: %w", destDir, err)
+	}
+	return nil
+}
+
+// SetCheckpointVersion writes version into a completed checkpoint without
+// changing the live database marker.
+func (db *Database) SetCheckpointVersion(destDir string, version int64) error {
+	if version < 0 {
+		return fmt.Errorf("version must be non-negative")
+	}
+
+	opts := newPebbleOptions(db.config, nil)
+	opts.DisableAutomaticCompactions = true
+	checkpoint, err := pebble.Open(destDir, opts)
+	if err != nil {
+		return fmt.Errorf("open checkpoint %q to set version: %w", destDir, err)
+	}
+
+	var marker [VersionSize]byte
+	binary.LittleEndian.PutUint64(marker[:], uint64(version))
+	setErr := checkpoint.Set([]byte(latestVersionKey), marker[:], pebble.Sync)
+	closeErr := checkpoint.Close()
+	if setErr != nil {
+		setErr = fmt.Errorf("set checkpoint version %d: %w", version, setErr)
+	}
+	if closeErr != nil {
+		closeErr = fmt.Errorf("close checkpoint after setting version %d: %w", version, closeErr)
+	}
+	return errors.Join(setErr, closeErr)
 }
 
 func (db *Database) SetLatestVersion(version int64) error {
@@ -490,6 +538,10 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 func (db *Database) writeAsyncInBackground() {
 	defer db.asyncWriteWG.Done()
 	for nextChange := range db.pendingChanges {
+		if nextChange.AtDrain != nil {
+			nextChange.AtDrain()
+			continue
+		}
 		if nextChange.Done != nil {
 			close(nextChange.Done)
 			continue
@@ -506,6 +558,19 @@ func (db *Database) WaitForPendingWrites() {
 	done := make(chan struct{})
 	db.pendingChanges <- VersionedChangesets{Done: done}
 	<-done
+}
+
+// ScheduleAtDrain runs fn on the apply goroutine at the point in the queue
+// where every changeset enqueued before this call has been applied and none
+// enqueued after it has. Unlike WaitForPendingWrites it does not block the
+// caller, which is what lets a caller capture the DB at an exact version
+// without stalling the block it is committing: the version is pinned by fn's
+// position in the queue rather than by when it runs.
+//
+// fn runs on the writer, so it must not enqueue more work on this DB (that
+// deadlocks once the buffer fills) and must not panic.
+func (db *Database) ScheduleAtDrain(fn func()) {
+	db.pendingChanges <- VersionedChangesets{AtDrain: fn}
 }
 
 // Prune dispatches between descending- and ascending-mode implementations

@@ -76,3 +76,24 @@ func (s *CosmosStateStore) Import(version int64, ch <-chan types.SnapshotNode) e
 func (s *CosmosStateStore) Close() error {
 	return s.db.Close()
 }
+
+func (s *CosmosStateStore) SupportsCheckpoint() bool {
+	_, checkpointable := s.db.(types.Checkpointable)
+	_, barrier := s.db.(types.DrainBarrier)
+	_, versionSetter := s.db.(types.CheckpointVersionSetter)
+	return checkpointable && barrier && versionSetter
+}
+
+func (s *CosmosStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
+	types.ScheduleCheckpoint(s.db, destDir, shouldRun, done)
+}
+
+func (s *CosmosStateStore) SetCheckpointVersion(destDir string, version int64) error {
+	return types.SetCheckpointVersion(s.db, destDir, version)
+}
+
+func (s *CosmosStateStore) WaitForPendingWrites() {
+	if w, ok := s.db.(interface{ WaitForPendingWrites() }); ok {
+		w.WaitForPendingWrites()
+	}
+}

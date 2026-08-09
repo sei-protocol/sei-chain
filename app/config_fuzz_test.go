@@ -23,11 +23,9 @@ import (
 //
 //   - parseSCConfigs guards almost every read with `if v := opts.Get(k); v != nil`,
 //     so a key absent from an older app.toml keeps its non-zero in-code default.
-//   - parseSSConfigs guards nothing. Every read is a bare cast of a possibly-nil
-//     value, so an absent key resolves to the zero value and overwrites the
-//     default. ss-keep-recent becomes 0 (keep everything, unbounded disk growth),
-//     ss-async-write-buffer becomes 0 (synchronous writes), ss-backend becomes ""
-//     and ss-enable becomes false.
+//   - parseSSConfigs leaves most reads unguarded, so an absent key resolves to
+//     the zero value and overwrites the default. SnapshotEnable is deliberately
+//     guarded so older app.toml files inherit the new default.
 //
 // Neither reader returns an error, so nothing about the second case is visible at
 // boot. It is recorded here as behavior rather than reported as a defect: the
@@ -84,8 +82,8 @@ var scKeys = []configtest.KeySpec{
 	},
 }
 
-// ssKeys is the [state-store] read-site manifest. Every row is unguarded and
-// unchecked — the section has no presence checks at all.
+// ssKeys is the [state-store] read-site manifest. Every row is unchecked;
+// SnapshotEnable is guarded while the legacy rows remain unguarded.
 //
 // StateStoreConfig also carries KeepLastVersion and UseDefaultComparer, which are
 // absent here because parseSSConfigs reads neither: they hold their in-code
@@ -112,6 +110,10 @@ var ssKeys = []configtest.KeySpec{
 	{Key: FlagSSImportNumWorkers, Path: "ImportNumWorkers", Cast: configtest.CastInt, Unguarded: true},
 	{Key: FlagSSDirectory, Path: "DBDirectory", Cast: configtest.CastString, Unguarded: true},
 	{Key: FlagSSReadWriteMetrics, Path: "EnableReadWriteMetrics", Cast: configtest.CastBool, Unguarded: true},
+	{
+		Key: FlagSSSnapshotEnable, Path: "SnapshotEnable", Cast: configtest.CastBool,
+		Why: "guarded so app.toml files created before SS snapshots keep the default-off rollout",
+	},
 	{Key: FlagEVMSSDirectory, Path: "EVMDBDirectory", Cast: configtest.CastString, Unguarded: true},
 	{Key: FlagEVMSSSeparateDBs, Path: "SeparateEVMSubDBs", Cast: configtest.CastBool, Unguarded: true},
 	{Key: FlagEVMSSSplit, Path: "EVMSplit", Cast: configtest.CastBool, Unguarded: true},
@@ -253,9 +255,8 @@ func FuzzParseSCConfigs(f *testing.F) {
 }
 
 // FuzzParseSSConfigs drives every [state-store] key through arbitrary raw values.
-// Because the whole section is unguarded, the property being pinned for a nil
-// value is the clobber itself: the resolved field must equal the cast's zero, not
-// the in-code default.
+// For legacy unguarded rows, a nil value must clobber the field to the cast's
+// zero. Guarded rows such as SnapshotEnable must retain their in-code default.
 func FuzzParseSSConfigs(f *testing.F) {
 	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
 
@@ -277,7 +278,8 @@ func FuzzParseSSConfigs(f *testing.F) {
 	seeds.AddRow(uint(3), fuzzing.KindInt64, "", int64(200000), false)
 	seeds.AddRow(uint(3), fuzzing.KindNil, "", int64(0), false) // nil clobbers KeepRecent to 0
 	seeds.AddRow(uint(6), fuzzing.KindString, "/var/lib/sei/ss", int64(0), false)
-	seeds.AddRow(uint(10), fuzzing.KindBoolString, "", int64(0), true)
+	seeds.AddRow(uint(8), fuzzing.KindBool, "", int64(0), true) // explicit snapshot opt-in; the default is off
+	seeds.AddRow(uint(11), fuzzing.KindBoolString, "", int64(0), true)
 
 	// The clobber cuts both ways for the four rows below. Because the section is unguarded,
 	// an absent key resolves them to their cast's zero, and so does the malformed seed on an
@@ -287,7 +289,7 @@ func FuzzParseSSConfigs(f *testing.F) {
 	seeds.AddRow(uint(4), fuzzing.KindInt64, "", int64(1800), false) // prune every 30 min rather than the default 600s
 	seeds.AddRow(uint(5), fuzzing.KindInt64, "", int64(4), false)    // four import workers rather than the default 1
 	seeds.AddRow(uint(7), fuzzing.KindBool, "", int64(0), true)      // pebbledb read/write metrics on; the default is off
-	seeds.AddRow(uint(9), fuzzing.KindBool, "", int64(0), true)      // EVM state in its own sub-DBs; the default is shared
+	seeds.AddRow(uint(10), fuzzing.KindBool, "", int64(0), true)     // EVM state in its own sub-DBs; the default is shared
 
 	configtest.CheckEveryRowHasADiscriminatingSeed(f, "state-store", readSS, ssKeys, seeds)
 
@@ -518,10 +520,9 @@ func TestParseSCConfigsAbsentBaseline(t *testing.T) {
 	}
 }
 
-// TestParseSSConfigsAbsentBaselineIsZeroClobbered records the clobber in full: an
-// app.toml with no [state-store] section resolves to a config in which every
-// operator-visible knob has been overwritten with a zero value, including the two
-// that change the node's disk behavior without any log line.
+// TestParseSSConfigsAbsentBaselineIsZeroClobbered records the legacy clobber:
+// every unguarded operator-visible knob resolves to zero, while guarded fields
+// such as SnapshotEnable retain their in-code default.
 func TestParseSSConfigsAbsentBaselineIsZeroClobbered(t *testing.T) {
 	got := parseSSConfigs(configtest.AppOpts{})
 
@@ -665,14 +666,13 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 func TestManifestNamesEveryField(t *testing.T) {
 	t.Run("state-store", func(t *testing.T) {
 		configtest.CheckManifestCoversEveryField(t, "state-store", config.DefaultStateStoreConfig(), ssKeys,
-			// Both are tagged mapstructure but no [state-store] key reaches either: parseSSConfigs
-			// reads neither, so both hold their in-code defaults on every node. pebbledb consumes
-			// them at construction (KeepLastVersion in mvcc pruning, UseDefaultComparer in the
-			// comparer selection), which is worth stating rather than omitting — a field a config
-			// struct carries that configuration cannot address is exactly what a replacement
-			// manager would otherwise try to map a key onto.
+			// These fields have no independent [state-store] key. The first two
+			// retain their in-code defaults; snapshot cadence is derived from SC.
 			"KeepLastVersion",
 			"UseDefaultComparer",
+			"SnapshotInterval",
+			"SnapshotKeepRecent",
+			"SnapshotMinTimeInterval",
 		)
 	})
 	t.Run("light_invariance", func(t *testing.T) {

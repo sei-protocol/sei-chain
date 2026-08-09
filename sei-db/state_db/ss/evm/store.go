@@ -2,6 +2,7 @@ package evm
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -368,6 +369,89 @@ func (s *EVMStateStore) Close() error {
 		}
 	}
 	return lastErr
+}
+
+func (s *EVMStateStore) SupportsCheckpoint() bool {
+	for _, db := range s.managedDBs {
+		if _, checkpointable := db.(types.Checkpointable); !checkpointable {
+			return false
+		}
+		if _, barrier := db.(types.DrainBarrier); !barrier {
+			return false
+		}
+		if _, versionSetter := db.(types.CheckpointVersionSetter); !versionSetter {
+			return false
+		}
+	}
+	return len(s.managedDBs) > 0
+}
+
+// ScheduleCheckpoint places one barrier on each managed apply queue. A sub-DB
+// that did not receive a change at the target block stays at its last version,
+// which is the correct state for that block.
+func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
+	if !s.separateDBs {
+		db := s.primaryDB()
+		if db == nil {
+			done(nil)
+			return
+		}
+		types.ScheduleCheckpoint(db, destDir, shouldRun, done)
+		return
+	}
+
+	if err := os.MkdirAll(destDir, 0o750); err != nil {
+		done(fmt.Errorf("create EVM checkpoint dir %q: %w", destDir, err))
+		return
+	}
+
+	storeTypes := AllEVMStoreTypes()
+	var (
+		mu        sync.Mutex
+		remaining = len(storeTypes)
+		firstErr  error
+	)
+	for _, storeType := range storeTypes {
+		name := StoreTypeName(storeType)
+		dest := filepath.Join(destDir, name)
+		types.ScheduleCheckpoint(s.subDBs[storeType], dest, shouldRun, func(err error) {
+			mu.Lock()
+			if err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("checkpoint EVM sub-DB %s: %w", name, err)
+			}
+			remaining--
+			last, outcome := remaining == 0, firstErr
+			mu.Unlock()
+			if last {
+				done(outcome)
+			}
+		})
+	}
+}
+
+func (s *EVMStateStore) SetCheckpointVersion(destDir string, version int64) error {
+	if !s.separateDBs {
+		db := s.primaryDB()
+		if db == nil {
+			return nil
+		}
+		return types.SetCheckpointVersion(db, destDir, version)
+	}
+	for _, storeType := range AllEVMStoreTypes() {
+		dest := filepath.Join(destDir, StoreTypeName(storeType))
+		if err := types.SetCheckpointVersion(s.subDBs[storeType], dest, version); err != nil {
+			return fmt.Errorf("set EVM sub-DB %s checkpoint version: %w", StoreTypeName(storeType), err)
+		}
+	}
+	return nil
+}
+
+func (s *EVMStateStore) WaitForPendingWrites() {
+	for _, db := range s.managedDBs {
+		if w, ok := db.(interface{ WaitForPendingWrites() }); ok {
+			w.WaitForPendingWrites()
+		}
+	}
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {

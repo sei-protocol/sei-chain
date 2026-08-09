@@ -48,6 +48,10 @@ var (
 	_ types.Queryable        = (*Store)(nil)
 )
 
+type stateStoreSnapshotScheduler interface {
+	ScheduleSnapshot(version int64)
+}
+
 type Store struct {
 	mtx            sync.RWMutex
 	scStore        sctypes.Committer
@@ -136,6 +140,7 @@ func NewStore(
 		scDir:              scDir,
 	}
 	if ssConfig.Enable {
+		config.AlignSSSnapshotWithSC(scConfig, &ssConfig)
 		ssStore, err := ss.NewStateStore(homeDir, ssConfig)
 		if err != nil {
 			panic(err)
@@ -249,6 +254,9 @@ func (rs *Store) flush() error {
 		if rs.ssStore != nil {
 			if err := rs.ssStore.SetLatestVersion(currentVersion); err != nil {
 				panic(err)
+			}
+			if scheduler, ok := rs.ssStore.(stateStoreSnapshotScheduler); ok {
+				scheduler.ScheduleSnapshot(currentVersion)
 			}
 			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
 			// TODO(PLT-353): remove once storev2_ss_version verified
