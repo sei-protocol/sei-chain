@@ -88,11 +88,16 @@ func (s *CommitStore) PruneBelow(blockNumber uint64) error {
 			return false, nil
 		}
 		pruned++
-		logger.Info("pruned snapshot below retention floor", "version", version, "floor", blockNumber)
 		return false, nil
 	})
 	if scanErr != nil {
 		errs = errors.Join(errs, fmt.Errorf("scan snapshots: %w", scanErr))
+	}
+	// One line per cycle rather than one per snapshot: the count is the whole story here, since the
+	// set pruned is always "everything below the floor". A cycle that prunes nothing is the common
+	// case and says nothing, so it stays silent.
+	if pruned > 0 {
+		logger.Info("pruned snapshots below retention floor", "count", pruned, "floor", blockNumber)
 	}
 	return errs
 }

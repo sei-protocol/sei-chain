@@ -18,7 +18,7 @@ import (
 func gcConfig(t *testing.T, dir string) *BlockDBConfig {
 	cfg, err := DefaultConfig(dir)
 	require.NoError(t, err)
-	cfg.Retention = time.Nanosecond
+	cfg.RetentionTime = time.Nanosecond
 	cfg.Litt.GCPeriod = time.Hour
 	cfg.Litt.Fsync = false
 	return cfg

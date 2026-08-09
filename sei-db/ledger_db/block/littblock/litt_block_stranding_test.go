@@ -18,7 +18,7 @@ import (
 func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *BlockDBConfig {
 	cfg, err := DefaultConfig(dir)
 	require.NoError(t, err)
-	cfg.Retention = time.Nanosecond
+	cfg.RetentionTime = time.Nanosecond
 	cfg.Litt.TargetSegmentFileSize = math.MaxUint32
 	cfg.Litt.MaxSegmentKeyCount = maxSegmentKeyCount
 	cfg.Litt.GCPeriod = time.Hour

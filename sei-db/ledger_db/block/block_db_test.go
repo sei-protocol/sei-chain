@@ -1405,7 +1405,7 @@ func TestMemblockPruneIntoCohortRoundsDown(t *testing.T) {
 func littConfig(t *testing.T, dir string) *littblock.BlockDBConfig {
 	cfg, err := littblock.DefaultConfig(dir)
 	require.NoError(t, err)
-	cfg.Retention = time.Nanosecond
+	cfg.RetentionTime = time.Nanosecond
 	return cfg
 }
 

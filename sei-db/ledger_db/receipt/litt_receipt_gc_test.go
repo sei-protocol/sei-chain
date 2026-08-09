@@ -149,7 +149,8 @@ func TestReceiptGCLatestBlock(t *testing.T) {
 
 // A contiguous store answers the cut line it was given whatever it holds, and the prune that
 // follows moves the retention floor to it — which is what makes the receipts below it stop being
-// served, even though litt reclaims their bodies later on its own TTL schedule.
+// served. Reclaiming their bodies lags that, since litt also waits for the TTL, but it can no
+// longer lead it (see TestGCFilterMakesLittReclamationFollowTheBlockFloor).
 func TestReceiptGCPruningBoundaryAndPruneBelow(t *testing.T) {
 	store, prunable, ctx := setupLittIdxForGC(t, 0)
 	addr := common.HexToAddress("0xabcd")

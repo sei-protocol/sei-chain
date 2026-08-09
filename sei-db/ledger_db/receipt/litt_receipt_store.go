@@ -49,10 +49,11 @@ import (
 // the most recent receipt bodies while the index still lists them — tolerable
 // for auxiliary, non-consensus RPC data, since reads return not-found for a
 // missing body. The tight interval is only affordable because litt flushes its
-// keymap asynchronously off the control loop. Retention: receipt values
-// expire via litt's per-table TTL (time based), tag keys are pruned by block
-// range, and reads enforce the retention floor, so visible retention never
-// exceeds that floor regardless of GC timing.
+// keymap asynchronously off the control loop. Retention: tag keys are pruned by
+// block range, reads enforce the retention floor, and receipt bodies are
+// reclaimed once they are both below that floor and older than litt's per-table
+// TTL (see gcFilter). Visible retention therefore never exceeds the floor, and
+// reclamation never runs ahead of it.
 //
 // Retention has two possible drivers and exactly one runs at a time, selected by
 // cfg.ExternalPruning:
@@ -73,8 +74,9 @@ import (
 // fact.
 //
 // KeepRecent is what this store asks for either way: the pruner's window when it
-// runs, the collector's retention window when it does not, and the litt TTL in
-// both cases.
+// runs, and the collector's retention window when it does not. It does not reach
+// litt's TTL, which is a flat age floor (littRetentionTime) — how much history is
+// kept is the floor's business, and only gcFilter releases a body to be reclaimed.
 type littReceiptStore struct {
 	values   litt.DB
 	receipts litt.Table
@@ -110,12 +112,18 @@ const (
 	// control loop; without that, a per-block flush regresses write throughput
 	// badly (≈-48% observed before the async keymap landed).
 	littFlushInterval = 5 * time.Millisecond
-	// littTTLPerBlock converts the KeepRecent block count into litt's wall-clock
-	// TTL (KeepRecent * littTTLPerBlock). Set above Giga block times so the TTL
-	// over-retains; only a sustained block time above this would expire a body
-	// still inside the height-based KeepRecent window, which reads mask as
-	// not-found (the earliest-version floor is authoritative).
-	littTTLPerBlock = 2 * time.Second
+	// littRetentionTime is the failsafe minimum age before a receipt body may be
+	// reclaimed, litt's per-table TTL. It is the same role BlockDBConfig.RetentionTime
+	// plays, and is deliberately a flat duration rather than a function of any block
+	// count: how much history this store keeps is decided by the retention floor, and
+	// gcFilter will not release a body until the floor has passed it.
+	//
+	// It was previously KeepRecent × 2s, which made the TTL a second, disagreeing
+	// answer to a question the floor already answers — and one that came out short
+	// under ExternalPruning, where the enforced retention is RollbackWindow +
+	// KeepRecent. An age floor cannot be wrong that way, because it does not claim to
+	// know how many blocks anything is.
+	littRetentionTime = time.Hour
 
 	littPartCountLen = 4
 )
@@ -127,6 +135,39 @@ func littPartKey(blockNumber uint64, part uint32) []byte {
 	binary.BigEndian.PutUint64(key, blockNumber)
 	binary.BigEndian.PutUint32(key[blockNumLen:], part)
 	return key
+}
+
+// gcFilter makes the retention floor a precondition for reclaiming a receipt body, so litt's TTL
+// can only ever reclaim what the floor has already released.
+//
+// Without it the TTL is the sole reclaimer (a nil filter leaves TTL as the only condition), and it
+// is derived from KeepRecent alone — which is not the retention this store owes anyone. Under
+// ExternalPruning the collector holds the floor at RollbackWindow + KeepRecent blocks back, so a
+// TTL sized for KeepRecent can expire bodies the floor still calls live, and a read inside the
+// rollback window returns not-found. That is the cross-store guarantee the collector exists to
+// provide, so the two are joined here rather than kept in agreement by arithmetic: what reads
+// enforce and what GC reclaims are now the same fact, whatever the block time or the window.
+//
+// Only primary part keys gate. Tx-hash secondaries alias a body in their own segment, so the
+// body's part key is what holds the segment back — the same division littblock draws between its
+// number keys and its header-hash aliases.
+//
+// A floor of 0 blocks everything: it means no floor has been established (nothing pruned yet, or
+// the index has not been read), and refusing to reclaim is the recoverable direction. Monotonic as
+// the filter contract requires, because the floor only ever advances.
+func (s *littReceiptStore) gcFilter(key []byte, isPrimaryKey bool) (bool, error) {
+	if !isPrimaryKey {
+		return true, nil
+	}
+	if len(key) != blockNumLen+littPartCountLen {
+		return false, fmt.Errorf("unexpected primary receipt key length %d (want %d)",
+			len(key), blockNumLen+littPartCountLen)
+	}
+	floor := s.earliestVersion.Load()
+	if floor <= 0 {
+		return false, nil
+	}
+	return binary.BigEndian.Uint64(key[:blockNumLen]) < uint64(floor), nil //nolint:gosec // guarded positive above
 }
 
 func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
@@ -151,18 +192,40 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open littdb: %w", err)
 	}
+	// getLogs per-query block fan-out; non-positive config falls back to the default.
+	logFilterParallelism := cfg.LogFilterParallelism
+	if logFilterParallelism <= 0 {
+		logFilterParallelism = dbconfig.DefaultReceiptLogFilterParallelism
+	}
+
+	// The store is built before its table because the table's GC filter is a method on it. Until
+	// the floor is loaded from the index below, gcFilter reads 0 and blocks reclamation, which is
+	// the safe direction for a filter that does not yet know its floor.
+	s := &littReceiptStore{
+		values:               values,
+		storeKey:             storeKey,
+		keepRecent:           int64(cfg.KeepRecent),
+		pruneInterval:        int64(cfg.PruneIntervalSeconds),
+		externalPruning:      cfg.ExternalPruning,
+		logFilterParallelism: logFilterParallelism,
+		stopBackground:       make(chan struct{}),
+	}
+
 	tableConfig := litt.DefaultTableConfig(littReceiptTableName)
 	tableConfig.ShardingFactor = 1 // single shard: flushing one file is cheaper; sharding mainly helps across multiple disks
+	tableConfig.GCFilter = s.gcFilter
 	receipts, err := values.BuildTable(tableConfig)
 	if err != nil {
 		_ = values.Close()
 		return nil, fmt.Errorf("failed to open littdb receipts table: %w", err)
 	}
-	if cfg.KeepRecent > 0 {
-		if err := receipts.SetTTL(time.Duration(cfg.KeepRecent) * littTTLPerBlock); err != nil {
-			_ = values.Close()
-			return nil, fmt.Errorf("failed to set littdb ttl: %w", err)
-		}
+	s.receipts = receipts
+	// Set unconditionally, including when nothing prunes this store. A TTL is necessary for litt to
+	// collect at all but no longer sufficient, so on a store whose floor never advances gcFilter
+	// refuses every key and nothing is reclaimed regardless of age.
+	if err := receipts.SetTTL(littRetentionTime); err != nil {
+		_ = values.Close()
+		return nil, fmt.Errorf("failed to set littdb ttl: %w", err)
 	}
 
 	indexCfg := pebbledb.DefaultConfig()
@@ -172,24 +235,8 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		_ = values.Close()
 		return nil, fmt.Errorf("failed to open receipt log index: %w", err)
 	}
+	s.index = index
 
-	// getLogs per-query block fan-out; non-positive config falls back to the default.
-	logFilterParallelism := cfg.LogFilterParallelism
-	if logFilterParallelism <= 0 {
-		logFilterParallelism = dbconfig.DefaultReceiptLogFilterParallelism
-	}
-
-	s := &littReceiptStore{
-		values:               values,
-		receipts:             receipts,
-		index:                index,
-		storeKey:             storeKey,
-		keepRecent:           int64(cfg.KeepRecent),
-		pruneInterval:        int64(cfg.PruneIntervalSeconds),
-		externalPruning:      cfg.ExternalPruning,
-		logFilterParallelism: logFilterParallelism,
-		stopBackground:       make(chan struct{}),
-	}
 	s.latestVersion.Store(s.readMeta(receiptLatestVersionKey))
 	s.earliestVersion.Store(s.readMeta(receiptEarliestVersionKey))
 	s.startPruning()
@@ -466,8 +513,10 @@ func (s *littReceiptStore) startPruning() {
 }
 
 // pruneBlocksBelow deletes the tag entries in [earliest, cutoff) and advances
-// the retention floor. Receipt values are reclaimed independently by litt's TTL
-// GC; the read-time floor keeps them invisible in the meantime.
+// the retention floor. Receipt bodies are not deleted here: advancing the floor
+// is what releases them to litt's GC, which reclaims a segment once every body
+// in it is below the floor and past the TTL (see gcFilter). The read-time floor
+// keeps them invisible in the meantime.
 //
 // Shared by both retention drivers: startPruning above, and the collector via
 // PruneBelow. Exactly one of them is live — see the type doc.

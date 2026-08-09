@@ -2,6 +2,8 @@ package littblock
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 
@@ -18,8 +20,13 @@ import (
 //
 // This value is persisted layout, not just an identifier: littdb puts a table's data at
 // <root>/<tableName>/segments, so changing it makes NewBlockDB open a fresh empty table while the
-// old data sits untouched under the previous name — neither served nor reclaimed.
+// old data sits untouched under the previous name — neither served nor reclaimed. refuseLegacyTable
+// turns that into a startup error rather than a store that looks healthy and empty.
 const tableName = "blocks"
+
+// legacyTableName is what tableName was called before the rename. Nothing opens it; it exists only
+// so refuseLegacyTable can recognize a directory written before the rename.
+const legacyTableName = "ledger"
 
 var _ types.BlockDB = (*blockDB)(nil)
 
@@ -78,12 +85,17 @@ type blockDB struct {
 }
 
 // NewBlockDB opens (or creates) a LittDB-backed types.BlockDB from config. The
-// underlying LittDB is built from config.Litt, and the two tables apply
-// config.Retention as a TTL failsafe (pruning never reclaims data younger than
-// that even once the watermark has advanced past it).
+// underlying LittDB is built from config.Litt, and the table applies
+// config.RetentionTime as a TTL failsafe (pruning never reclaims data younger
+// than that even once the watermark has advanced past it).
 func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid block db config: %w", err)
+	}
+	// Before littbuilder.NewDB, so a refused open leaves the directory exactly as it found it
+	// rather than adding an empty table beside the one it is complaining about.
+	if err := refuseLegacyTable(config.Litt.Paths); err != nil {
+		return nil, err
 	}
 	db, err := littbuilder.NewDB(config.Litt)
 	if err != nil {
@@ -101,7 +113,7 @@ func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
 	// backs the write-order cursors and contiguous-QC recovery. ShardingFactor
 	// > 1, or splitting blocks and QCs across two tables, would void this.
 	tableConfig := littdb.DefaultTableConfig(tableName)
-	tableConfig.TTL = config.Retention
+	tableConfig.TTL = config.RetentionTime
 	tableConfig.GCFilter = s.gcFilter
 	tableConfig.ShardingFactor = 1 // DO NOT CHANGE!!
 	table, err := db.BuildTable(tableConfig)
@@ -122,6 +134,37 @@ func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
 		return nil, fmt.Errorf("failed to recover read floors: %w", err)
 	}
 	return s, nil
+}
+
+// refuseLegacyTable fails the open when any root path holds a table directory under
+// legacyTableName. Such a directory is blocks and QCs that this process cannot reach: littdb
+// resolves a table to <root>/<tableName>/segments, so the data is neither served nor reclaimed, and
+// the store would otherwise present itself as healthy and empty. An empty store is indistinguishable
+// from a correct one until something asks for history that is no longer there, which makes it the
+// worst shape this failure could take.
+//
+// No deployment can reach this — nothing has ever run littblock with the old name persisted — so it
+// exists for dev, CI, and devnet homes written before the rename. The operator action is to delete
+// the directory (or move it aside); this check can be deleted once no such directory remains.
+//
+// A root that cannot be stat'd is refused for the same reason it is refused when the directory is
+// present: an unreadable root cannot rule out data hiding under the old name.
+func refuseLegacyTable(paths []string) error {
+	for _, root := range paths {
+		legacy := filepath.Join(root, legacyTableName)
+		switch _, err := os.Stat(legacy); {
+		case err == nil:
+			return fmt.Errorf(
+				"block db: found a pre-rename %q table at %s; the table is now named %q, so those "+
+					"blocks and QCs would be neither served nor reclaimed. Delete or move the "+
+					"directory aside to start from an empty store",
+				legacyTableName, legacy, tableName)
+		case !os.IsNotExist(err):
+			return fmt.Errorf("block db: check for a pre-rename %q table at %s: %w",
+				legacyTableName, legacy, err)
+		}
+	}
+	return nil
 }
 
 // recoverCursors reloads the write-order cursors (lastBlockNumber, lastQCNext,

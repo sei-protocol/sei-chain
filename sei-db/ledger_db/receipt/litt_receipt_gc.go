@@ -29,9 +29,10 @@ func (s *littReceiptStore) ExternalPruning() bool {
 }
 
 // PruneBelow advances the retention floor to blockNumber and drops the tag-index entries below
-// it. Receipt bodies are not deleted here: litt expires them by TTL, and reads below the floor
-// return not-found in the meantime (see belowRetentionFloor), so visible retention follows this
-// call even when reclamation lags it.
+// it. Receipt bodies are not deleted here: advancing the floor is what releases them to litt's GC,
+// which reclaims them once they are also past the TTL (see gcFilter). Reads below the floor return
+// not-found in the meantime (see belowRetentionFloor), so visible retention follows this call even
+// when reclamation lags it — and because the floor gates reclamation, it can never lead it.
 func (s *littReceiptStore) PruneBelow(blockNumber uint64) error {
 	return s.pruneBlocksBelow(blockNumber)
 }

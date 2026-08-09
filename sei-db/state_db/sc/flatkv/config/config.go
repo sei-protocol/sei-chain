@@ -70,7 +70,7 @@ type Config struct {
 	// more snapshots than the count-based default.
 	//
 	// Default: false
-	ExternalPruning bool `mapstructure:"external-pruning"`
+	ExternalPruning bool `mapstructure:"-"`
 
 	// EnablePebbleMetrics defines if the Pebble metrics should be enabled.
 	// Default: true

@@ -16,14 +16,15 @@ func (s *blockDB) Name() string {
 }
 
 // ExternalPruning is unconditionally true: this store has no pruner of its own for the collector to
-// collide with. LittDB's GC reclaims what PruneBefore has already released, on a config.Retention
-// timer, so it enforces no retention policy — it only carries out one this store has recorded.
+// collide with. LittDB's GC reclaims what PruneBefore has already released, on a
+// config.RetentionTime timer, so it enforces no retention policy — it only carries out one this
+// store has recorded.
 func (s *blockDB) ExternalPruning() bool {
 	return true
 }
 
 // PruneBelow advances the retention watermark to blockNumber. It only records the watermark;
-// reclamation happens on LittDB's own GC schedule and no earlier than config.Retention (see
+// reclamation happens on LittDB's own GC schedule and no earlier than config.RetentionTime (see
 // PruneBefore).
 //
 // blockNumber is a minimum shared across every managed store, so it may sit above this store's
