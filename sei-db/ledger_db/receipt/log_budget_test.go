@@ -4,11 +4,20 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"unsafe"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestLogHeapStructOverheadMatchesStructSize(t *testing.T) {
+	t.Parallel()
+	require.Equal(t,
+		int64(unsafe.Sizeof(ethtypes.Log{}))-int64(common.AddressLength)-logTopicsSliceHeader,
+		logHeapStructOverhead,
+	)
+}
 
 func TestLogBudgetCountLimit(t *testing.T) {
 	t.Parallel()
