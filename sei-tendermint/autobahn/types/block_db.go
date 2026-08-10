@@ -171,6 +171,10 @@ type BlockDB interface {
 	// reclaimed — pruned entries may remain readable for a while.
 	PruneBefore(n GlobalBlockNumber) error
 
+	// First returns the number of the oldest accessible row.
+	// Moved by PruneBefore.
+	First() GlobalBlockNumber
+
 	// Flush blocks until every Write that has returned before Flush is
 	// called is durable on disk. Writes made concurrently with Flush
 	// may or may not be durable when Flush returns (but are otherwise

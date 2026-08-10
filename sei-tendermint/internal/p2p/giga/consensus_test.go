@@ -65,7 +65,7 @@ func TestConsensusClientServer(t *testing.T) {
 			for _, n := range nodes {
 				t.Logf("[%v] Wait for AppHash consensus.", idx)
 				p := wantAppProposal.OrPanic("missing app proposal")
-				got, _, err := n.data.AppQC(ctx, idx)
+				got, err := n.data.AppQC(ctx, idx)
 				if err != nil {
 					return fmt.Errorf("cs.avail.WaitForAppQC(): %w", err)
 				}

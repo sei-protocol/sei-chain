@@ -23,7 +23,7 @@ func TestKeyRoundTrip(t *testing.T) {
 	for _, n := range cases {
 		key := encodeKey(n)
 		require.Len(t, key, 8, "key must be 8 bytes")
-		require.Equal(t, n, decodeKey(key))
+		require.Equal(t, n, decodeKey([8]byte(key)))
 	}
 }
 

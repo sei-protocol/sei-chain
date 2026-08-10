@@ -193,6 +193,12 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	return nil
 }
 
+func (s *blockDB) First() types.GlobalBlockNumber {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.watermark
+}
+
 func pruneRanges[T any](
 	watermark types.GlobalBlockNumber,
 	byBlock map[types.GlobalBlockNumber]T,

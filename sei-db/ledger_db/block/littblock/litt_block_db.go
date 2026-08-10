@@ -90,7 +90,7 @@ func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 		return nil, fmt.Errorf("ReadSuffix(): %w", err)
 	}
 	s.status = suffix.Status
-	return s,nil
+	return s, nil
 }
 
 // recoverWatermark re-derives the read watermark on open from the oldest
@@ -310,6 +310,10 @@ func (s *blockDB) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 	return nil
 }
 
+func (s *blockDB) First() types.GlobalBlockNumber {
+	return types.GlobalBlockNumber(s.watermark.Load())
+}
+
 // clampPruneBoundary returns the start of the QC that covers n, or n if there is no QC covering N
 // (which can happen if you prune the same n twice).
 func (s *blockDB) clampPruneBoundary(blockHeight types.GlobalBlockNumber) (types.GlobalBlockNumber, error) {
@@ -480,7 +484,7 @@ func (s *blockDB) ReadSuffix() (types.Suffix, error) {
 }
 
 func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
-	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously. 
+	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
 	if uint64(n) < s.watermark.Load() {
 		return utils.None[*types.Block](), types.ErrPruned
 	}
@@ -499,8 +503,8 @@ func (s *blockDB) ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[type
 	if err != nil {
 		return utils.None[types.BlockWithNumber](), err
 	}
-	// The number is not known until the block is resolved; 
-	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously. 
+	// The number is not known until the block is resolved;
+	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
 	if bwn, ok := result.Get(); ok && uint64(bwn.Number) < s.watermark.Load() {
 		return utils.None[types.BlockWithNumber](), nil
 	}

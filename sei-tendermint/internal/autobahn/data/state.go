@@ -265,7 +265,7 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 }
 
 func (s *State) First() types.GlobalBlockNumber {
-	return max(s.blockDB.First(),s.cfg.Registry.FirstBlock())
+	return max(s.blockDB.First(), s.cfg.Registry.FirstBlock())
 }
 
 // Registry returns the epoch registry.

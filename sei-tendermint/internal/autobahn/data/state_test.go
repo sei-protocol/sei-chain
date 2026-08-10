@@ -751,7 +751,9 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 		require.Equal(t, gr1.Next, inner.nextAppProposal)
 		require.Equal(t, gr1.Next, inner.nextAppQC)
 	}
-	appQC, fQC, err := state2.AppQC(ctx, gr1.First)
+	appQC, err := state2.AppQC(ctx, gr1.First)
+	require.NoError(t, err)
+	fQC, err := state2.QC(ctx, gr1.First)
 	require.NoError(t, err)
 	require.Equal(t, gr1, appQC.Proposal().GlobalRange())
 	require.Equal(t, gr1, fQC.QC().GlobalRange())
