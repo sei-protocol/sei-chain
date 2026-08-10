@@ -547,6 +547,7 @@ func (m *snapshotManager) updateCurrentLink(name string) error {
 }
 
 func syncDir(path string) error {
+	// #nosec G304 -- path is an internal database or snapshot directory, not request input.
 	dir, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open directory %q for sync: %w", path, err)
@@ -643,6 +644,7 @@ func snapshotDirApparentBytes(dir string) (int64, error) {
 
 func writeSnapshotSize(dir string, size int64) error {
 	path := filepath.Join(dir, snapshotSizeFile)
+	// #nosec G304 -- dir is a managed snapshot directory and the file name is fixed.
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
@@ -657,6 +659,7 @@ func writeSnapshotSize(dir string, size int64) error {
 }
 
 func readSnapshotSize(dir string) (int64, error) {
+	// #nosec G304 -- dir is a managed snapshot directory and the file name is fixed.
 	data, err := os.ReadFile(filepath.Join(dir, snapshotSizeFile))
 	if err != nil {
 		return 0, err
