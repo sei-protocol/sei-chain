@@ -32,9 +32,9 @@ type retiredExecutor struct {
 
 func (e *retiredExecutor) Execute(ctx sdk.Context, _ *abi.Method, _ common.Address, _ common.Address, _ []interface{}, value *big.Int, _ bool, _ *vm.EVM, _ uint64, _ *tracing.Hooks) ([]byte, uint64, error) {
 	if err := ValidateNonPayable(value); err != nil {
-		return nil, 0, err
+		return common.CopyBytes(e.revertData), 0, err
 	}
-	return e.revertData, GetRemainingGas(ctx, e.evmKeeper), e.err
+	return common.CopyBytes(e.revertData), GetRemainingGas(ctx, e.evmKeeper), e.err
 }
 
 func (e *retiredExecutor) EVMKeeper() putils.EVMKeeper {

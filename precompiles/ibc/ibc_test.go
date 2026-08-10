@@ -68,7 +68,7 @@ func TestRetiredIBCPrecompileRemainsNonPayable(t *testing.T) {
 	precompile, err := ibc.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.NoError(t, err)
 
-	ret, _, err := precompile.RunAndCalculateGas(
+	ret, remainingGas, err := precompile.RunAndCalculateGas(
 		evm,
 		common.Address{},
 		common.Address{},
@@ -80,7 +80,11 @@ func TestRetiredIBCPrecompileRemainsNonPayable(t *testing.T) {
 		false,
 	)
 	require.ErrorIs(t, err, vm.ErrExecutionReverted)
-	require.Empty(t, ret)
+	require.Zero(t, remainingGas)
+
+	reason, err := abi.UnpackRevert(ret)
+	require.NoError(t, err)
+	require.Equal(t, ibc.RetiredReason, reason)
 }
 
 func validCallData(t *testing.T, contractABI abi.ABI) []byte {
