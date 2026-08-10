@@ -31,17 +31,84 @@ import (
 // deliberately excludes flag binding and env resolution — those belong to Apply and
 // are pinned in cmd/seid/cmd. What is left is the parse itself.
 
+// globalLabelsKey is the one key GetConfig unconditionally requires. newAppViper sets it itself, so
+// it takes part in the collision check below rather than being exempt from it.
+const globalLabelsKey = "telemetry.global-labels"
+
 // newAppViper returns a viper holding the one key GetConfig unconditionally
 // requires, plus whatever the caller adds. telemetry.global-labels has no default
 // and no presence guard, so nothing can be parsed without it.
 func newAppViper(t testing.TB, keys map[string]any) *viper.Viper {
 	t.Helper()
+	requireNoKeyNestsInsideAnother(t, keys)
 	v := viper.New()
-	v.Set("telemetry.global-labels", []any{})
+	v.Set(globalLabelsKey, []any{})
 	for k, val := range keys {
 		v.Set(k, val)
 	}
 	return v
+}
+
+// requireNoKeyNestsInsideAnother refuses a key set viper.Set cannot hold both halves of.
+//
+// viper.Set re-nests around the dots. Setting a.b after a.b.c replaces the sub-tree, and setting
+// a.b.c after a.b replaces the scalar with a fresh map, so one of the two values is always
+// destroyed. Which one survives is decided by the order this helper happens to Set them in, and
+// ranging a Go map randomizes that per run.
+//
+// The reason that is worth a guard rather than a comment is where the loss shows up. It is visible
+// through the per-key Get that GetConfig uses, not only through AllSettings, so a colliding pair
+// would not fail loudly here. It would resolve a wrong value on roughly half of all runs, and the
+// test would read as flaky rather than as wrong.
+//
+// Nesting is a dotted-segment relationship, never a textual one. pruning and pruning-keep-every are
+// separate keys that share a prefix, as are state-commit.sc-write-mode and its -enable-auto sibling,
+// and a plain HasPrefix would reject the corpus as it stands.
+func requireNoKeyNestsInsideAnother(t testing.TB, keys map[string]any) {
+	t.Helper()
+	all := make([]string, 0, len(keys)+1)
+	all = append(all, globalLabelsKey)
+	for k := range keys {
+		all = append(all, k)
+	}
+	for _, outer := range all {
+		for _, inner := range all {
+			if !nestsInside(outer, inner) {
+				continue
+			}
+			t.Fatalf("%q nests inside %q, so viper.Set can hold one of them but not both, and which "+
+				"one survives depends on Go map order. Set them on separate vipers, or give the outer "+
+				"key a leaf of its own, rather than passing both to newAppViper", inner, outer)
+		}
+	}
+}
+
+// nestsInside reports whether inner is a dotted child of outer, which is the only relationship
+// viper.Set collapses. A shared textual prefix is not one.
+func nestsInside(outer, inner string) bool {
+	return outer != inner && strings.HasPrefix(inner, outer+".")
+}
+
+// TestNestsInsideIsADottedSegmentRelationship holds the predicate to the boundary that matters,
+// using the pairs this file actually passes.
+func TestNestsInsideIsADottedSegmentRelationship(t *testing.T) {
+	for _, c := range []struct {
+		outer, inner string
+		want         bool
+	}{
+		{"pruning", "pruning-keep-every", false},
+		{"state-commit.sc-write-mode", "state-commit.sc-write-mode-enable-auto", false},
+		{"a.bc", "a.b.c", false},
+		{"a.b", "a.b", false}, // identical keys overwrite rather than nest
+		{"a.b", "a", false},   // the relationship has a direction
+		{"a", "a.b", true},
+		{"a.b", "a.b.c", true},
+		{globalLabelsKey, globalLabelsKey + ".x", true},
+	} {
+		if got := nestsInside(c.outer, c.inner); got != c.want {
+			t.Errorf("nestsInside(%q, %q) = %v, want %v", c.outer, c.inner, got, c.want)
+		}
+	}
 }
 
 // FuzzGetConfigGlobalLabels pins the one key that can stop a node booting by being
