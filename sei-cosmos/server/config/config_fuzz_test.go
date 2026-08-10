@@ -88,17 +88,66 @@ func FuzzGetConfigGlobalLabels(f *testing.F) {
 			t.Fatalf("a well-typed global-labels list must parse, got %v", err)
 		}
 
-		// Only two-element labels survive; the rest vanish without a diagnostic.
-		wantKept := 0
+		// Only two-element labels survive; the rest vanish without a diagnostic. Each survivor is
+		// held to its own key and value in the order written, because an arity comparison passes
+		// just as well with a pair reversed or with one label's key against another's value.
+		want := make([][]string, 0, labelCount)
 		if elemsPerLabel == 2 {
-			wantKept = labelCount
+			for i := range labelCount {
+				want = append(want, []string{
+					fmt.Sprintf("%s-%d-0", content, i),
+					fmt.Sprintf("%s-%d-1", content, i),
+				})
+			}
 		}
-		if len(cfg.Telemetry.GlobalLabels) != wantKept {
-			t.Fatalf("%d labels of %d elements resolved to %d kept, want %d "+
-				"(a label whose length is not exactly 2 is dropped silently)",
-				labelCount, elemsPerLabel, len(cfg.Telemetry.GlobalLabels), wantKept)
+		if !reflect.DeepEqual(cfg.Telemetry.GlobalLabels, want) {
+			t.Fatalf("%d labels of %d elements resolved to %v, want %v (a label whose length is not "+
+				"exactly 2 is dropped silently, and the survivors keep their written order)",
+				labelCount, elemsPerLabel, cfg.Telemetry.GlobalLabels, want)
 		}
 	})
+}
+
+// TestGetConfigPanicsOnANonStringGlobalLabel records the one malformed [telemetry] shape this reader
+// does not report.
+//
+// Every other bad shape returns an error naming what it could not parse: a global-labels value that
+// is not a list (config.go:421), and an entry within it that is not a list (config.go:429). A
+// two-element entry holding a non-string reaches an unchecked assertion instead (config.go:432), so
+// global-labels = [["chain", 42]] in app.toml takes the node down with an interface-conversion panic
+// rather than the diagnostic its siblings produce.
+//
+// Recorded rather than repaired. Converting it to an error is the change to make, and it belongs with
+// the reader that replaces this one, since an operator whose app.toml currently panics would start
+// booting into a node that logs a parse failure instead.
+func TestGetConfigPanicsOnANonStringGlobalLabel(t *testing.T) {
+	for _, label := range [][]any{
+		{"chain", 42}, // a non-string value
+		{7, "chain"},  // a non-string key
+	} {
+		t.Run(fmt.Sprintf("%v", label), func(t *testing.T) {
+			v := viper.New()
+			v.Set("telemetry.global-labels", []any{[]any(label)})
+
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("global-labels %v no longer panics. If it now returns an error, that is "+
+						"the better behavior and it changes which app.toml files start a node, so "+
+						"replace this recording with the error the reader reports", label)
+				}
+				if !strings.Contains(fmt.Sprint(r), "interface conversion") {
+					t.Fatalf("global-labels %v panicked with %v rather than the unchecked assertion at "+
+						"config.go:432, so the failure moved and this recording no longer describes it",
+						label, r)
+				}
+			}()
+			if _, err := GetConfig(v); err != nil {
+				t.Fatalf("global-labels %v returned %v instead of panicking, so the assertion at "+
+					"config.go:432 is now guarded and this recording is stale", label, err)
+			}
+		})
+	}
 }
 
 // TestGetConfigRequiresGlobalLabels pins the absent-key failure on its own. This is

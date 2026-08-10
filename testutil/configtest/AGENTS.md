@@ -140,8 +140,10 @@ go test ./evmrpc/config/ -run TestKeyNames -update
 why a row that reaches its key through the reader's own flag constant needs it.
 
 Write one row per key, including when two keys land in the same struct field. The
-manifest is what the differential enumerates, so a key with no row is a key the
-comparison never makes.
+manifest is what the per-key checks iterate, so a key with no row is a key `CheckRow`,
+`CheckAbsent` and the seed check never look at. The differential is not a second net
+for that. It compares whole resolved vipers and reads no manifest, so it can report
+that two readers agree without either one being pinned to anything.
 
 `CheckManifestCoversEveryField` covers the weaker half of that automatically: every
 resolved field must be named by some row's `Path` or `AlsoWrites`, or exempted at the
