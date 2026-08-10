@@ -50,6 +50,15 @@ type persisters struct {
 	commitQCs *persist.CommitQCPersister
 }
 
+// close releases the WALs these persisters own, and with them the exclusive lock each holds on its
+// directory. The prune anchor persister owns nothing between writes, so it needs no release.
+//
+// The fields are nil-checked because loadPersistedState fills them one at a time and closes what it
+// has when a later open fails.
+func (p persisters) close() error {
+	return errors.Join(p.blocks.Close(), p.commitQCs.Close())
+}
+
 // loadPersistedState creates persisters for the given directory option and loads
 // any existing state from disk. When dir is None, all persisters are no-op
 // and no state is loaded. When a prune anchor is present, stale commitQCs and
@@ -61,6 +70,7 @@ func loadPersistedState(dir utils.Option[string]) (*loadedState, *persisters, er
 	}
 	cp, commitQCs, err := persist.NewCommitQCPersister(dir)
 	if err != nil {
+		bp.Close()
 		return nil, nil, fmt.Errorf("NewCommitQCPersister: %w", err)
 	}
 	pers := &persisters{blocks: bp, commitQCs: cp}
@@ -71,13 +81,14 @@ func loadPersistedState(dir utils.Option[string]) (*loadedState, *persisters, er
 // NewState constructs a new availability state.
 // stateDir is None when persistence is disabled (testing only); a no-op
 // persist goroutine still runs to bump cursors without disk I/O.
-func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (*State, error) {
+func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (_ *State, err error) {
 	loaded, pers, err := loadPersistedState(stateDir)
 	if err != nil {
 		return nil, err
 	}
 	inner, err := newInner(data, loaded)
 	if err != nil {
+		pers.close()
 		return nil, err
 	}
 	return &State{
@@ -86,6 +97,20 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		inner:      utils.NewWatch(inner),
 		persisters: pers,
 	}, nil
+}
+
+// Close releases the WALs this state owns, and with them the exclusive lock each holds on its
+// directory.
+//
+// Production does not call this: a node exits by rugpull and the OS reclaims everything. It exists so
+// that a process which opens the same state directory more than once in its lifetime — a test
+// simulating a restart — can release the first State before constructing the second.
+//
+// TODO: tie the WALs to Run instead, opening and closing them inside its scope so the exclusive lock is
+// released by scope teardown and this method can go away. That means moving loadPersistedState and the
+// startup prune out of NewState, since inner is currently built from the loaded data before Run exists.
+func (s *State) Close() error {
+	return s.persisters.close()
 }
 
 func (s *State) First() types.RoadIndex {

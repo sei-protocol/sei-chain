@@ -257,6 +257,9 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	// Phase 1: Run state with persistence through 2 iterations.
 	var wantAppQCIdx types.RoadIndex
 	var wantNextBlocks map[types.LaneID]types.BlockNumber
+	// Hoisted so phase 1's WALs can be closed after its goroutines have stopped: the lane and
+	// commitQC WALs hold an exclusive lock on their directories, which phase 2 reopens.
+	var state1 *State
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		ds := newTestDataState(&data.Config{Registry: registry})
@@ -267,6 +270,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		state1 = state
 		s.SpawnBgNamed("avail.Run", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -335,7 +339,10 @@ func TestStateRestartFromPersisted(t *testing.T) {
 		return nil
 	}))
 
-	// Phase 2: Restart from the same directory.
+	// Phase 2: Restart from the same directory. scope.Run has stopped avail.Run, so nothing is
+	// writing to phase 1's WALs and they can be released.
+	require.NoError(t, state1.Close())
+
 	ds2 := newTestDataState(&data.Config{Registry: registry})
 	state2, err := NewState(keys[0], ds2, utils.Some(dir))
 	require.NoError(t, err)
@@ -420,6 +427,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			require.NoError(t, bp.Persist(lane, 0, []*types.Signed[*types.LaneProposal]{signed}, noBlockCB))
 		}
 
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, bp.Close())
+
 		// Now construct state — it should load the blocks.
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
@@ -442,6 +452,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			prev = utils.Some(qcs[i])
 			require.NoError(t, cp.Persist(0, []*types.CommitQC{qcs[i]}))
 		}
+
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, cp.Close())
 
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
@@ -476,5 +489,4 @@ func TestNewStateWithPersistence(t *testing.T) {
 		require.Contains(t, err.Error(), "out of sequence")
 		require.NoError(t, cp.Close())
 	})
-
 }

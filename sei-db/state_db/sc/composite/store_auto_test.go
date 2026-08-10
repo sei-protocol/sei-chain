@@ -33,7 +33,7 @@ func openAutoStore(t *testing.T, dir string, batch int) *CompositeCommitStore {
 	require.NoError(t, err)
 	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 	return cs
 }
@@ -235,7 +235,7 @@ func TestComposite_SetWriteModeRequiresAutoConfig(t *testing.T) {
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
 
@@ -309,7 +309,7 @@ func openAutoStoreWithConfig(t *testing.T, dir string, cfg config.StateCommitCon
 	require.NoError(t, err)
 	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 	return cs
 }
@@ -404,8 +404,8 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 		"the stream's flatkv section must materialize the flatkv backend")
 	require.DirExists(t, utils.GetFlatKVPath(dstDir))
 
-	_, err = dst.LoadVersion(h, false)
-	require.NoError(t, err)
+	require.NoError(t, dst.LoadLatest())
+	require.Equal(t, h, dst.Version(), "import must land at the exported version")
 	defer func() { _ = dst.Close() }()
 	require.Equal(t, types.EVMMigrated, dst.currentWriteMode,
 		"mode derivation must work from the imported migration metadata")
@@ -423,7 +423,7 @@ func TestComposite_ImporterRejectsFlatKVSectionOnMemiavlOnly(t *testing.T) {
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey}))
-	_, err = cs.LoadVersion(0, false)
+	err = cs.LoadLatest()
 	require.NoError(t, err)
 	require.NoError(t, cs.Close())
 
@@ -559,7 +559,7 @@ func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	runBlocks(t, cs, workload, 2)
 
-	roCommitter, err := cs.LoadVersion(0, true)
+	roCommitter, err := cs.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	ro, ok := roCommitter.(*CompositeCommitStore)
 	require.True(t, ok)
@@ -603,7 +603,7 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
 		"flatkv history must begin at the seeded (transition) height")
 
 	// Pre-era height: served memiavl-only, with as-of-height values.
-	roCommitter, err := cs.LoadVersion(3, true)
+	roCommitter, err := cs.LoadVersionReadOnly(3)
 	require.NoError(t, err, "pre-flatkv-era heights must remain queryable")
 	ro, ok := roCommitter.(*CompositeCommitStore)
 	require.True(t, ok)
@@ -616,7 +616,7 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
 	require.NoError(t, ro.Close())
 
 	// In-era height: flatkv loads as before.
-	roCommitter, err = cs.LoadVersion(7, true)
+	roCommitter, err = cs.LoadVersionReadOnly(7)
 	require.NoError(t, err)
 	ro, ok = roCommitter.(*CompositeCommitStore)
 	require.True(t, ok)

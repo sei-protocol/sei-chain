@@ -629,7 +629,9 @@ func (app *BaseApp) handleQueryGRPC(handler GRPCQueryHandler, req abci.RequestQu
 		return sdkerrors.QueryResultWithDebug(err, app.trace)
 	}
 
-	res, err := handler(ctx, req)
+	// Only Cosmos ABCI gRPC queries may use client-facing pagination semantics.
+	// Historical EVM RPC also calls CreateQueryContext and must remain unmarked.
+	res, err := handler(ctx.WithIsABCIQuery(true), req)
 	if err != nil {
 		res = sdkerrors.QueryResultWithDebug(gRPCErrorToSDKError(err), app.trace)
 		res.Height = req.Height

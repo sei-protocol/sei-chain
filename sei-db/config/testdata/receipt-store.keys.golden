@@ -1,0 +1,5 @@
+"receipt-store.async-write-buffer"
+"receipt-store.prune-interval-seconds"
+"receipt-store.enable-read-write-metrics"
+"receipt-store.log-filter-parallelism"
+# keys with a target of their own

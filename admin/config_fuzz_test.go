@@ -28,11 +28,14 @@ func readAdmin(opts configtest.AppOpts) (any, error) { return admin.ReadConfig(o
 // malformed value leaves the admin server off rather than on — which is why it is
 // pinned rather than reported as a defect.
 func FuzzReadConfigEnabled(f *testing.F) {
-	f.Add(fuzzing.KindBool, "true", int64(1), true)
-	f.Add(fuzzing.KindBoolString, "false", int64(0), false)
-	f.Add(fuzzing.KindString, "yes-please", int64(0), false)
-	f.Add(fuzzing.KindNil, "", int64(0), false)
-	f.Add(fuzzing.KindMap, "", int64(0), false)
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seeds.Add(fuzzing.KindBool, "true", int64(1), true)
+	seeds.Add(fuzzing.KindBoolString, "false", int64(0), false)
+	seeds.Add(fuzzing.KindString, "yes-please", int64(0), false)
+	seeds.Add(fuzzing.KindNil, "", int64(0), false)
+	seeds.Add(fuzzing.KindMap, "", int64(0), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "admin_server", readAdmin, adminKeys, seeds)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		spec := adminKeys[0]
@@ -121,6 +124,17 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "admin_server", admin.DefaultConfig)
 }
 
+// TestKeyNamesMatchTheRecordedNames pins the key name itself.
+//
+// This row spells its key as a literal, so it already survives a rename in the reader: the
+// row would keep the old spelling and the discriminating-seed check would fire. The record is
+// what covers the other direction — the row being edited to match a renamed reader, or being
+// converted to reference a shared constant later — so the protection does not depend on which
+// spelling this file happens to use today.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "admin_server", adminKeys)
+}
+
 // TestManifestNamesEveryField enforces the claim adminKeys makes about itself: that it names
 // every key the reader looks up. Left as prose the claim can drift, and it is the artifact a
 // replacement implementation reads as this section's contract.
@@ -128,4 +142,12 @@ func TestManifestNamesEveryField(t *testing.T) {
 	configtest.CheckManifestCoversEveryField(t, "admin_server", admin.DefaultConfig, adminKeys,
 		"Address", // FuzzReadConfigAddress: two behaviors layered on one key, past what a row says
 	)
+}
+
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
+// Every other check here reports a change to what it asserts. None reports a check being removed, so
+// this records the wiring and fails when it thins out.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }

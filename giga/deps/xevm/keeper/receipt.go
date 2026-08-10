@@ -151,20 +151,22 @@ func (k *Keeper) WriteReceipt(
 	txHash common.Hash,
 	gasUsed uint64,
 	vmError string,
+	preExecutionFailure bool,
 ) (*types.Receipt, error) {
 	ethLogs := stateDB.GetAllLogs()
 	bloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: ethLogs})
 	receipt := &types.Receipt{
-		TxType:            txType,
-		CumulativeGasUsed: uint64(0),
-		TxHashHex:         txHash.Hex(),
-		GasUsed:           gasUsed,
-		BlockNumber:       uint64(ctx.BlockHeight()), // nolint:gosec
-		TransactionIndex:  uint32(ctx.TxIndex()),     //nolint:gosec
-		EffectiveGasPrice: msg.GasPrice.Uint64(),
-		VmError:           vmError,
-		Logs:              utils.Map(ethLogs, ConvertEthLog),
-		LogsBloom:         bloom[:],
+		TxType:              txType,
+		CumulativeGasUsed:   uint64(0),
+		TxHashHex:           txHash.Hex(),
+		GasUsed:             gasUsed,
+		BlockNumber:         uint64(ctx.BlockHeight()), // nolint:gosec
+		TransactionIndex:    uint32(ctx.TxIndex()),     //nolint:gosec
+		EffectiveGasPrice:   msg.GasPrice.Uint64(),
+		VmError:             vmError,
+		Logs:                utils.Map(ethLogs, ConvertEthLog),
+		LogsBloom:           bloom[:],
+		PreExecutionFailure: preExecutionFailure,
 	}
 
 	if msg.To == nil {

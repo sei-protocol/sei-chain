@@ -33,12 +33,15 @@ func readEVMQuery(opts configtest.AppOpts) (any, error) { return querier.ReadCon
 // 0 or a wrapped 2^64. Refusing is the safe direction here — a gas limit of 0
 // would fail every EVM state query on a node that came up clean.
 func FuzzReadConfig(f *testing.F) {
-	f.Add(fuzzing.KindInt64, "", int64(300000), false)
-	f.Add(fuzzing.KindNumericString, "", int64(500000), false)
-	f.Add(fuzzing.KindInt64, "", int64(-1), false)
-	f.Add(fuzzing.KindString, "not-a-number", int64(0), false)
-	f.Add(fuzzing.KindNil, "", int64(0), false)
-	f.Add(fuzzing.KindFloat64, "", int64(7), false)
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seeds.Add(fuzzing.KindInt64, "", int64(300000), false)
+	seeds.Add(fuzzing.KindNumericString, "", int64(500000), false)
+	seeds.Add(fuzzing.KindInt64, "", int64(-1), false)
+	seeds.Add(fuzzing.KindString, "not-a-number", int64(0), false)
+	seeds.Add(fuzzing.KindNil, "", int64(0), false)
+	seeds.Add(fuzzing.KindFloat64, "", int64(7), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "evm_query", readEVMQuery, evmQueryKeys, seeds)
 
 	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
 		configtest.CheckRow(t, "evm_query", readEVMQuery, evmQueryKeys[0], fuzzing.ConfigValue(kind, s, n, b))
@@ -60,9 +63,23 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "evm_query", querier.DefaultConfig)
 }
 
+// TestKeyNamesMatchTheRecordedNames pins the key name itself, so that the protection does not
+// depend on this row being spelled as a literal today.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "evm_query", evmQueryKeys)
+}
+
 // TestManifestNamesEveryField enforces the claim evmQueryKeys makes about itself: that it names
 // every key the reader looks up. Left as prose the claim can drift, and it is the artifact a
 // replacement implementation reads as this section's contract.
 func TestManifestNamesEveryField(t *testing.T) {
 	configtest.CheckManifestCoversEveryField(t, "evm_query", querier.DefaultConfig, evmQueryKeys)
+}
+
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
+// Every other check here reports a change to what it asserts. None reports a check being removed, so
+// this records the wiring and fails when it thins out.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }

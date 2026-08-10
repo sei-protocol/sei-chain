@@ -39,11 +39,14 @@ var ethBlockTestKeys = []configtest.KeySpec{
 func readETHBlockTest(opts configtest.AppOpts) (any, error) { return blocktest.ReadConfig(opts) }
 
 func FuzzReadConfig(f *testing.F) {
-	f.Add(uint(0), fuzzing.KindBool, "true", int64(1), true)
-	f.Add(uint(1), fuzzing.KindString, "~/testdata/", int64(0), false)
-	f.Add(uint(0), fuzzing.KindString, "on", int64(0), false)
-	f.Add(uint(1), fuzzing.KindAnySlice, "", int64(0), false)
-	f.Add(uint(0), fuzzing.KindNil, "", int64(0), false)
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seeds.AddRow(uint(0), fuzzing.KindBool, "true", int64(1), true)
+	seeds.AddRow(uint(1), fuzzing.KindString, "~/testdata/", int64(0), false)
+	seeds.AddRow(uint(0), fuzzing.KindString, "on", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindAnySlice, "", int64(0), false)
+	seeds.AddRow(uint(0), fuzzing.KindNil, "", int64(0), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "eth_blocktest", readETHBlockTest, ethBlockTestKeys, seeds)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(ethBlockTestKeys, keyIdx)
@@ -86,9 +89,27 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "eth_blocktest", blocktest.DefaultConfig)
 }
 
+// TestKeyNamesMatchTheRecordedNames pins the two key names themselves.
+//
+// The section already exists under two spellings — the reader's eth_blocktest and the
+// mapstructure tag's eth_block_test — and TestStructTagSpellingIsInert records which one
+// resolves. The record holds the same answer for the keys, so unifying the two cannot be done
+// by editing the reader's prefix without the change appearing as a diff.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "eth_blocktest", ethBlockTestKeys)
+}
+
 // TestManifestNamesEveryField enforces the claim ethBlockTestKeys makes about itself: that it names
 // every key the reader looks up. Left as prose the claim can drift, and it is the artifact a
 // replacement implementation reads as this section's contract.
 func TestManifestNamesEveryField(t *testing.T) {
 	configtest.CheckManifestCoversEveryField(t, "eth_blocktest", blocktest.DefaultConfig, ethBlockTestKeys)
+}
+
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
+// Every other check here reports a change to what it asserts. None reports a check being removed, so
+// this records the wiring and fails when it thins out.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }

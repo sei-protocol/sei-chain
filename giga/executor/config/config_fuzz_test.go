@@ -40,12 +40,15 @@ func FuzzReadConfig(f *testing.F) {
 	// Seeds cover the shapes an operator can actually produce: a TOML bool, the
 	// string spellings viper hands back from an environment variable, a numeric
 	// spelling cast accepts, and the malformed value that must not become false.
-	f.Add(uint(0), fuzzing.KindBool, "true", int64(1), true)
-	f.Add(uint(1), fuzzing.KindBoolString, "false", int64(0), false)
-	f.Add(uint(0), fuzzing.KindString, "maybe", int64(0), false)
-	f.Add(uint(1), fuzzing.KindString, "1", int64(1), true)
-	f.Add(uint(0), fuzzing.KindNil, "", int64(0), false)
-	f.Add(uint(1), fuzzing.KindMap, "nested", int64(0), false)
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	seeds.AddRow(uint(0), fuzzing.KindBool, "true", int64(1), true)
+	seeds.AddRow(uint(1), fuzzing.KindBoolString, "false", int64(0), false)
+	seeds.AddRow(uint(0), fuzzing.KindString, "maybe", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindString, "1", int64(1), true)
+	seeds.AddRow(uint(0), fuzzing.KindNil, "", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindMap, "nested", int64(0), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "giga_executor", readGiga, gigaKeys, seeds)
 
 	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
 		spec := configtest.Pick(gigaKeys, keyIdx)
@@ -68,4 +71,35 @@ func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
 // moves shows the new value in a diff instead of passing silently.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	configtest.CheckDefaults(t, "giga_executor", config.DefaultConfig)
+}
+
+// TestKeyNamesMatchTheRecordedNames pins the two key names themselves.
+//
+// Both rows above reach their key through config.FlagEnabled and config.FlagOCCEnabled, the
+// same constants ReadConfig passes to opts.Get. Editing one of those values renames an
+// operator-facing app.toml key and moves the row with it, so every assertion in this file
+// keeps passing against a key no node carries. testdata/giga_executor.keys.golden is the
+// copy that does not move, and giga_executor.enabled is worth that: it also gates the
+// SkipLastResultsHashValidation atomic, so a node resolving it to its default because the
+// key it was configured under stopped being read changes consensus behavior.
+func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "giga_executor", gigaKeys)
+}
+
+// TestManifestNamesEveryField enforces the claim gigaKeys makes about itself: that it names every
+// key the reader looks up. Left as prose the claim can drift, and it is the artifact a replacement
+// implementation reads as this section's contract.
+//
+// The exemption list is empty and has to stay reviewed rather than assumed: Config carries exactly
+// the two fields the manifest names, so a third one arriving without a row fails here.
+func TestManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "giga_executor", config.DefaultConfig, gigaKeys)
+}
+
+// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
+//
+// Every other check here reports a change to what it asserts. None reports a check being removed, so
+// this records the wiring and fails when it thins out.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }

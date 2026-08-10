@@ -13,7 +13,6 @@
     "UseDefaultComparer": false,
     "EVMDBDirectory": ""
   },
-  "BlocksPerCommit": 32,
   "CannedRandomSize": 1073741824,
   "ConstantThreadCount": 0,
   "ConsoleUpdateIntervalSeconds": 5,

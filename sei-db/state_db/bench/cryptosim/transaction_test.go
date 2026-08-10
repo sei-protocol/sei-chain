@@ -36,7 +36,7 @@ func (r *readTrackingWrapper) Version() int64 {
 	return 0
 }
 
-func (r *readTrackingWrapper) LoadVersion(_ int64) error {
+func (r *readTrackingWrapper) LoadLatest() error {
 	return nil
 }
 

@@ -9,9 +9,8 @@ import (
 	"strings"
 )
 
-// DefaultMaxProbeBytes bounds how far MethodParser reads into a request body. Each object
-// is read to its end (to detect duplicate "method" keys). A body larger than
-// this limit yields ErrProbeLimit.
+// DefaultMaxProbeBytes is the default MaxProbeBytes for MethodParser. The entire
+// request body must fit within this limit; larger bodies yield ErrProbeLimit.
 const DefaultMaxProbeBytes = 1 << 20 // 1 MiB
 
 var (
@@ -29,24 +28,31 @@ var (
 	// ErrTrailingData is returned when non-whitespace data follows the top-level
 	// JSON-RPC value; the downstream encoding/json decode would reject such a body.
 	ErrTrailingData = errors.New("ratelimiter: JSON-RPC request has trailing data")
-	// ErrProbeLimit is returned when the method field is not found within MaxProbeBytes.
-	ErrProbeLimit = errors.New("ratelimiter: JSON-RPC method not found within probe limit")
+	// ErrProbeLimit is returned when the request body exceeds MaxProbeBytes.
+	ErrProbeLimit = errors.New("ratelimiter: JSON-RPC request body exceeds probe limit")
 )
 
-// MethodParser extracts JSON-RPC "method" name(s) from a request body via a
-// streaming partial read.
+// IsBodyTooLarge reports whether err indicates the request body exceeded
+// MaxProbeBytes. HTTP callers should reject with status 413.
+func IsBodyTooLarge(err error) bool {
+	return errors.Is(err, ErrProbeLimit)
+}
+
+// MethodParser extracts JSON-RPC "method" name(s) from a request body. The
+// entire body must fit within MaxProbeBytes so duplicate "method" keys cannot
+// hide beyond a partial read.
 type MethodParser struct {
 	maxProbeBytes int64
 }
 
-// NewMethodParser returns a MethodParser that reads at most maxProbeBytes from
-// any single request body.
+// NewMethodParser returns a MethodParser that accepts request bodies of at most
+// maxProbeBytes bytes. Non-positive values use DefaultMaxProbeBytes.
 func NewMethodParser(maxProbeBytes int64) *MethodParser {
 	if maxProbeBytes <= 0 {
 		maxProbeBytes = DefaultMaxProbeBytes
 	}
 	if maxProbeBytes == math.MaxInt64 {
-		//preventing overflow error
+		// Prevent overflow when constructing the LimitedReader budget (+1).
 		maxProbeBytes = math.MaxInt64 - 1
 	}
 	return &MethodParser{maxProbeBytes: maxProbeBytes}
@@ -56,10 +62,8 @@ func NewMethodParser(maxProbeBytes int64) *MethodParser {
 // carries. A single request object yields a one-element slice with batch=false;
 // a top-level array yields one method per element in order with batch=true.
 //
-// Fail-closed contract: callers must reject on every returned error except
-// ErrProbeLimit, and must fall back to a full decode (never reject) on
-// ErrProbeLimit. Mapping any error to "admit with a default method" defeats
-// the point of this probe.
+// Fail-closed contract: callers must reject on every returned error, including
+// ErrProbeLimit. See the package doc for HTTP/RPC mapping guidance.
 func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err error) {
 	// N is maxProbeBytes+1 so that lr.N reaching 0 unambiguously means the body
 	// exceeded the budget.
@@ -202,7 +206,7 @@ func skipValue(dec *json.Decoder) error {
 }
 
 // classifyErr maps a decoder error to ErrProbeLimit when it was caused by the
-// probe budget being exhausted, and otherwise returns it wrapped.
+// body exceeding MaxProbeBytes, and otherwise returns it wrapped.
 func classifyErr(err error, lr *io.LimitedReader) error {
 	if err == nil {
 		return nil
