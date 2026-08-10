@@ -526,6 +526,11 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 // pruneSnapshots removes old snapshots beyond SnapshotKeepRecent, keeping
 // the latest snapshot (currentVersion) plus the N most recent older ones.
 // Best-effort: errors are logged but do not fail the snapshot operation.
+//
+// Only snapshots strictly below currentVersion are candidates. A snapshot above it is either a rewrite in
+// progress or a remnant of a rollback that could not finish, and neither is this function's to reclaim:
+// counting one as "old" would spend a keep slot on it and evict a genuinely older snapshot that rollback
+// still needs as a base. memiavl's pruneSnapshots applies the same guard.
 func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) int {
 	start := time.Now()
 	defer func() {
@@ -536,12 +541,15 @@ func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) int {
 	pruned := 0
 
 	var older []int64
-	_ = traverseSnapshots(dir, false, func(v int64) (bool, error) {
-		if v != currentVersion {
+	if err := traverseSnapshots(dir, false, func(v int64) (bool, error) {
+		if v < currentVersion {
 			older = append(older, v)
 		}
 		return false, nil
-	})
+	}); err != nil {
+		logger.Error("prune snapshots: failed to list snapshot dirs", "err", err)
+		return 0
+	}
 
 	if len(older) <= keep {
 		return 0
@@ -707,19 +715,35 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 			targetVersion, s.committedVersion)
 	}
 
-	_ = traverseSnapshots(dir, true, func(v int64) (bool, error) {
-		if v > targetVersion {
-			if err := atomicRemoveDir(filepath.Join(dir, snapshotName(v))); err != nil {
-				logger.Error("failed to remove snapshot", "version", v, "err", err)
-			}
-		}
-		return false, nil
-	})
+	if err := removeSnapshotsAbove(dir, targetVersion); err != nil {
+		return err
+	}
 
 	logger.Info("FlatKV Rollback complete",
 		"version", s.committedVersion,
 		"elapsed", obs.elapsed())
 	return nil
+}
+
+// removeSnapshotsAbove deletes every snapshot directory above targetVersion. It is the last step of a
+// rollback, run once the store has already reached the target.
+//
+// A failure here is returned rather than logged. Rollback's contract is that no snapshot beyond the target
+// survives it, so reporting success with one still on disk tells the caller — an operator running
+// `seid rollback`, or startup reconciliation — that the rewind is complete when it is not. By this point the
+// WAL is pruned and self-consistent, so the surviving directory is the only thing left to reconcile, and
+// naming it is what lets the caller do so.
+func removeSnapshotsAbove(dir string, targetVersion int64) error {
+	return traverseSnapshots(dir, true, func(v int64) (bool, error) {
+		if v <= targetVersion {
+			return false, nil
+		}
+		if err := atomicRemoveDir(filepath.Join(dir, snapshotName(v))); err != nil {
+			return false, fmt.Errorf("rolled back to version %d but could not remove the snapshot at %d: %w; "+
+				"the store is at the target, so remove %s to finish", targetVersion, v, err, snapshotName(v))
+		}
+		return false, nil
+	})
 }
 
 // tryTruncateWAL truncates WAL entries older than the earliest snapshot, keeping enough entries for rollback

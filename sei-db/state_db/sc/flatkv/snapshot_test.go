@@ -1059,6 +1059,35 @@ func TestPruneSnapshotsKeepAll(t *testing.T) {
 	require.Equal(t, 4, count, "all snapshots should be kept when KeepRecent is large")
 }
 
+func TestPruneSnapshotsIgnoresSnapshotsAboveCurrent(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+	cfg.SnapshotKeepRecent = 2
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	defer s.Close()
+
+	// snapshot-40 is what a rollback that could not finish leaves behind. Pruning runs against a directory of
+	// its own so that remnant is the only thing separating this layout from a healthy one.
+	dir := t.TempDir()
+	planted := []int64{10, 20, 30, 40}
+	for _, v := range planted {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+
+	require.Equal(t, 0, s.pruneSnapshots(dir, 30),
+		"only 10 and 20 sit below the current version, and KeepRecent=2 covers both")
+
+	var remaining []int64
+	require.NoError(t, traverseSnapshots(dir, true, func(v int64) (bool, error) {
+		remaining = append(remaining, v)
+		return false, nil
+	}))
+	require.Equal(t, planted, remaining,
+		"snapshot-40 must not take a keep slot and evict snapshot-10, which rollback still needs as a base")
+}
+
 // =============================================================================
 // Orphan snapshot recovery
 // =============================================================================
@@ -1183,6 +1212,42 @@ func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
 	require.Contains(t, afterRollback, int64(3))
 
 	require.NoError(t, s.Close())
+}
+
+func TestRemoveSnapshotsAboveKeepsTargetAndBelow(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []int64{3, 5, 7, 9} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+
+	require.NoError(t, removeSnapshotsAbove(dir, 5))
+
+	var remaining []int64
+	require.NoError(t, traverseSnapshots(dir, true, func(v int64) (bool, error) {
+		remaining = append(remaining, v)
+		return false, nil
+	}))
+	require.Equal(t, []int64{3, 5}, remaining, "the snapshot sitting on the target is kept")
+}
+
+func TestRemoveSnapshotsAboveReportsFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, which is not stopped by the directory permissions this test relies on")
+	}
+
+	dir := t.TempDir()
+	for _, v := range []int64{3, 7} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+
+	// atomicRemoveDir renames the snapshot within this directory, so withholding write permission on it is
+	// what makes the removal fail. Restore it before t.TempDir's own cleanup, which runs after this one.
+	require.NoError(t, os.Chmod(dir, 0555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0750) })
+
+	err := removeSnapshotsAbove(dir, 5)
+	require.Error(t, err, "a snapshot above the target that survives must not be reported as a clean rollback")
+	require.Contains(t, err.Error(), snapshotName(7), "the error names the directory left to reconcile")
 }
 
 // =============================================================================
