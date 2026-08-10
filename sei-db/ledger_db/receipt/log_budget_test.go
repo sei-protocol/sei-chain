@@ -17,6 +17,8 @@ func TestLogHeapStructOverheadMatchesStructSize(t *testing.T) {
 		int64(unsafe.Sizeof(ethtypes.Log{}))-int64(common.AddressLength)-logTopicsSliceHeader,
 		logHeapStructOverhead,
 	)
+	require.Equal(t, int64(unsafe.Sizeof([]common.Hash{})), logTopicsSliceHeader)
+
 }
 
 func TestLogBudgetCountLimit(t *testing.T) {
