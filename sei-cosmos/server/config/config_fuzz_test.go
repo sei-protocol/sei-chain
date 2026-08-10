@@ -690,14 +690,22 @@ func TestManifestNamesEveryField(t *testing.T) {
 	configtest.CheckManifestCoversEveryField(t, "state-sync", DefaultConfig().StateSync, stateSyncKeys)
 }
 
-// FuzzConfigValidateBasic pins the two conditions that reject an otherwise
-// parseable app.toml.
+// FuzzConfigValidateBasic pins the two conditions under which an otherwise parseable app.toml is
+// reported as invalid, and the two error strings that distinguish them.
 //
-// An empty minimum-gas-prices fails, because a validator accepting zero-fee
-// transactions is a misconfiguration rather than a choice. And pruning
-// "everything" with state-sync snapshots enabled fails, because a node cannot
-// serve a snapshot of state it has already pruned. Both are the rare case in this
-// surface where a bad combination is refused rather than absorbed.
+// An empty minimum-gas-prices fails, because a validator accepting zero-fee transactions is a
+// misconfiguration rather than a choice. And pruning "everything" with state-sync snapshots enabled
+// fails, because a node cannot serve a snapshot of state it has already pruned.
+//
+// Neither stops a node. start.go:308 is the only caller in the tree, and it logs the error and
+// carries on to build the app, so both conditions are reported rather than refused. The message it
+// logs is a fixed string naming an empty minimum-gas-prices, which is one of the two causes: an
+// operator whose pruning and snapshot settings conflict is told their fee floor is empty, and then
+// boots into a node that cannot serve the snapshots it advertises.
+//
+// So the distinctness of these two errors is load-bearing in a way the caller does not currently use,
+// and that is what the assertions below hold. Recorded rather than repaired, because deciding whether
+// this should abort a boot changes which existing configurations still start.
 func FuzzConfigValidateBasic(f *testing.F) {
 	f.Add("0.01usei", "default", uint64(0))
 	f.Add("", "default", uint64(0))
@@ -725,6 +733,16 @@ func FuzzConfigValidateBasic(f *testing.F) {
 		if !wantErr && got != nil {
 			t.Fatalf("min-gas-prices=%q pruning=%q snapshot-interval=%d must pass ValidateBasic, got %v",
 				minGasPrices, pruning, snapshotInterval, got)
+		}
+
+		// The pruning conflict alone must not read as a fee-floor problem. Its caller already logs a
+		// fixed fee-floor message for both causes, so this error string is the only thing left that
+		// tells the two apart.
+		if minGasPrices != "" && got != nil && strings.Contains(got.Error(), "min gas price") {
+			t.Fatalf("pruning=%q snapshot-interval=%d was rejected as %q while minimum-gas-prices was "+
+				"set to %q. The two rejection causes now report the same way, so nothing distinguishes "+
+				"them and start.go:308's fixed message becomes the only diagnosis an operator gets",
+				pruning, snapshotInterval, got, minGasPrices)
 		}
 	})
 }
