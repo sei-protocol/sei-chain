@@ -370,7 +370,7 @@ func (s *blockDB) Status() utils.Option[types.SuffixRange] {
 // ReadSuffix reads the materialized startup-recovery suffix.
 func (s *blockDB) ReadSuffix() (types.Suffix, error) {
 	// Suffix is computed under lock, so that GC cannot malform it:
-	// locked => no new data can be appended => watermark doesn't move => GC doesn't consume data of the suffix.:w
+	// locked => no new data can be appended => watermark doesn't move => GC doesn't consume data of the suffix.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	it, err := s.table.Iterator(true)

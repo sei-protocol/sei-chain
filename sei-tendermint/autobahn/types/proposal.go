@@ -69,7 +69,7 @@ type GlobalRange struct {
 }
 
 func (g GlobalRange) String() string {
-	return fmt.Sprintf("[%v,%v)",g.First,g.Next)
+	return fmt.Sprintf("[%v,%v)", g.First, g.Next)
 }
 
 // Len returns the number of global blocks in the range.
