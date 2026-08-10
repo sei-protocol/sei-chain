@@ -1,0 +1,9 @@
+"api.enable"
+"api.swagger"
+"api.enabled-unsafe-cors"
+"api.address"
+"api.max-open-connections"
+"api.rpc-read-timeout"
+"api.rpc-write-timeout"
+"api.rpc-max-body-bytes"
+# keys with a target of their own

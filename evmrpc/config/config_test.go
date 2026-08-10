@@ -52,6 +52,7 @@ type opts struct {
 	maxConcurrentRequestBytes    interface{}
 	wsAdmissionTimeout           interface{}
 	maxOpenConnections           interface{}
+	bodyReadIdleTimeout          interface{}
 	maxTraceStructLogBytes       interface{}
 	traceAllowedTracers          interface{}
 	traceAllowJSTracers          interface{}
@@ -204,6 +205,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_open_connections" {
 		return o.maxOpenConnections
 	}
+	if k == "evm.body_read_idle_timeout" {
+		return o.bodyReadIdleTimeout
+	}
 	if k == "evm.max_trace_struct_log_bytes" {
 		return o.maxTraceStructLogBytes
 	}
@@ -268,6 +272,7 @@ func getDefaultOpts() opts {
 		int64(128 * 1024 * 1024),
 		30 * time.Second,
 		2000,
+		10 * time.Second,
 		uint64(256 * 1024 * 1024),
 		[]string{"callTracer", "prestateTracer"},
 		false,
