@@ -252,9 +252,7 @@ func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "pebbledb", receiptConfig.Backend)
 	assert.Equal(t, config.DefaultReceiptStoreConfig().AsyncWriteBuffer, receiptConfig.AsyncWriteBuffer)
-	// Left at the default: no [receipt-store] key reaches KeepRecent. What a node retains is
-	// set later, by readReceiptStoreConfig from min-retain-blocks.
-	assert.Equal(t, config.DefaultReceiptKeepRecent, receiptConfig.KeepRecent)
+	assert.Equal(t, 0, receiptConfig.KeepRecent)
 }
 
 func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
@@ -269,7 +267,7 @@ func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
 	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)
 	assert.Equal(t, "pebbledb", receiptConfig.Backend)
 	assert.Equal(t, 7, receiptConfig.AsyncWriteBuffer)
-	assert.Equal(t, config.DefaultReceiptKeepRecent, receiptConfig.KeepRecent)
+	assert.Equal(t, 0, receiptConfig.KeepRecent)
 	assert.Equal(t, 9, receiptConfig.PruneIntervalSeconds)
 	assert.True(t, receiptConfig.EnableReadWriteMetrics)
 }

@@ -27,12 +27,6 @@ const (
 // littidx eth_getLogs (see ReceiptStoreConfig.LogFilterParallelism).
 const DefaultReceiptLogFilterParallelism = 16
 
-// DefaultReceiptKeepRecent is the default retention window in blocks for callers that
-// build a ReceiptStoreConfig directly. A seid node never uses it — see
-// ReceiptStoreConfig.KeepRecent for why — so it is sized for a tool or test that wants
-// bounded growth, not to express what a node should retain.
-const DefaultReceiptKeepRecent = 10000
-
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
 	// DBDirectory defines the directory to store the receipt store db files
@@ -53,13 +47,8 @@ type ReceiptStoreConfig struct {
 
 	// KeepRecent defines the number of versions to keep in receipt store.
 	// Setting it to 0 means keep everything (no pruning).
-	//
-	// This is NOT read from receipt-store config, and on a seid node it is not read
-	// from DefaultReceiptStoreConfig either: readReceiptStoreConfig overwrites it
-	// unconditionally from the global min-retain-blocks flag, including with 0 when
-	// that flag is unset. The default below is therefore only reachable by callers
-	// that build this config directly — tools and tests — and changing it does not
-	// change what any node retains.
+	// This is NOT read from receipt-store config; it is always derived from
+	// the global min-retain-blocks flag at the app layer.
 	KeepRecent int `mapstructure:"-"`
 
 	// PruneIntervalSeconds defines the interval in seconds to trigger pruning
@@ -97,15 +86,13 @@ type ReceiptStoreConfig struct {
 }
 
 // DefaultReceiptStoreConfig returns the default ReceiptStoreConfig.
-//
-// KeepRecent is a bounded default rather than 0 so that a caller building this config
-// directly gets a store that prunes. It is not what a node retains: the app layer
-// replaces it with min-retain-blocks before the store is opened (see KeepRecent).
+// KeepRecent defaults to 0 (no pruning). The app layer is responsible
+// for setting KeepRecent from the global min-retain-blocks flag.
 func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 	return ReceiptStoreConfig{
 		Backend:              "pebbledb",
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
-		KeepRecent:           DefaultReceiptKeepRecent,
+		KeepRecent:           0,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
 		LogFilterParallelism: DefaultReceiptLogFilterParallelism,
 	}

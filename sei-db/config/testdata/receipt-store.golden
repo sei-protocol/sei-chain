@@ -1,7 +1,7 @@
 DBDirectory = string("")
 Backend = string("pebbledb")
 AsyncWriteBuffer = int(100)
-KeepRecent = int(10000)
+KeepRecent = int(0)
 PruneIntervalSeconds = int(600)
 ExternalPruning = bool(false)
 EnableReadWriteMetrics = bool(false)

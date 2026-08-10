@@ -61,38 +61,39 @@ func (s *CommitStore) PruneBelow(blockNumber uint64) error {
 		return nil
 	}
 
-	dir := s.flatkvDir()
-
 	// The active snapshot is what the next open resolves to, so it is never a candidate however deep the
 	// request. Nothing in the contract should produce such a request — a boundary is never above the
 	// snapshot it names — but the cost of the check is one readlink against making a wrong answer
 	// elsewhere unbootable here.
-	_, activeVersion, err := currentSnapshotDir(dir)
+	_, activeVersion, err := currentSnapshotDir(s.flatkvDir())
 	if err != nil {
 		return fmt.Errorf("resolve active snapshot before pruning: %w", err)
 	}
 
+	blocks, err := s.snapshotBlocks()
+	if err != nil {
+		return fmt.Errorf("scan snapshots: %w", err)
+	}
+
 	var errs error
 	pruned := 0
-	scanErr := traverseSnapshots(dir, true, func(version int64) (bool, error) {
-		if uint64(version) >= blockNumber { //nolint:gosec // snapshot versions are non-negative
-			return true, nil // ascending, so nothing further is a candidate
+	for _, block := range blocks {
+		if block >= blockNumber {
+			break // ascending, so nothing further is a candidate
 		}
-		if version == activeVersion {
-			return false, nil
+		if block == uint64(activeVersion) { //nolint:gosec // snapshot versions are non-negative
+			continue
 		}
-		if err := atomicRemoveDir(filepath.Join(dir, snapshotName(version))); err != nil {
-			if !os.IsNotExist(err) {
-				errs = errors.Join(errs, fmt.Errorf("remove snapshot %d: %w", version, err))
-			}
-			return false, nil
+		removed, err := s.deleteSnapshot(block)
+		if err != nil {
+			errs = errors.Join(errs, err)
+			continue
 		}
-		pruned++
-		return false, nil
-	})
-	if scanErr != nil {
-		errs = errors.Join(errs, fmt.Errorf("scan snapshots: %w", scanErr))
+		if removed {
+			pruned++
+		}
 	}
+
 	// One line per cycle rather than one per snapshot: the count is the whole story here, since the
 	// set pruned is always "everything below the floor". A cycle that prunes nothing is the common
 	// case and says nothing, so it stays silent.
@@ -100,6 +101,40 @@ func (s *CommitStore) PruneBelow(blockNumber uint64) error {
 		logger.Info("pruned snapshots below retention floor", "count", pruned, "floor", blockNumber)
 	}
 	return errs
+}
+
+// snapshotBlocks returns the block number of every snapshot on disk, ascending. A missing snapshot
+// directory yields no blocks rather than an error, matching traverseSnapshots: a store that has not
+// snapshotted yet has nothing to prune, which is not a failure.
+func (s *CommitStore) snapshotBlocks() ([]uint64, error) {
+	var blocks []uint64
+	err := traverseSnapshots(s.flatkvDir(), true, func(version int64) (bool, error) {
+		if version >= 0 {
+			blocks = append(blocks, uint64(version))
+		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return blocks, nil
+}
+
+// deleteSnapshot removes the snapshot directory for block, reporting whether this call is the one
+// that removed it.
+//
+// An already-gone snapshot is success rather than an error: the SnapshotKeepRecent pruner in
+// WriteSnapshot deletes from the same set, and losing that race means the work is done. It reports
+// false in that case, so the cycle's count stays the number of snapshots this call reclaimed.
+func (s *CommitStore) deleteSnapshot(block uint64) (bool, error) {
+	path := filepath.Join(s.flatkvDir(), snapshotName(int64(block))) //nolint:gosec // block numbers are bounded well below 2^63
+	if err := atomicRemoveDir(path); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("remove snapshot %d: %w", block, err)
+	}
+	return true, nil
 }
 
 // GetRetentionWindow reports 0: this store asks for no history of its own beyond the collector's shared

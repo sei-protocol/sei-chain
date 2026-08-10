@@ -45,13 +45,29 @@ type BlockDBConfig struct {
 	// to this store alone: a deep window here also holds back receiptDB and the SC/SS
 	// snapshots. Must be >= gc.InfiniteRetentionWindow.
 	//
-	// Independent of Retention, which is a wall-clock TTL failsafe underneath the watermark.
+	// With F = LatestBlock - RollbackWindow - RetentionWindow, garbage collection guarantees:
+	//
+	//  1. Nothing needed to roll back to any block in
+	//     [LatestBlock - RollbackWindow, LatestBlock] is deleted.
+	//  2. No block or QC at or above F is deleted. So even after rolling back to
+	//     LatestBlock - RollbackWindow, any of the last RetentionWindow blocks is still readable.
+	//  3. Blocks and QCs below F are eventually deleted — eventually, because reclamation also
+	//     waits for RetentionTime and for LittDB's own GC to come round.
+	//
+	// Independent of RetentionTime, which is a wall-clock TTL failsafe underneath the watermark.
 	// Both must permit reclamation before any record is dropped.
 	RetentionWindow int64
 }
 
 // DefaultConfig returns a BlockDBConfig preloaded with all defaults, rooted at
 // dir. Override fields as needed, then pass it to NewBlockDB (which validates).
+//
+// RetentionWindow defaults to 0 — no extra history beyond the collector's shared rollback
+// window — because it is not a blockDB-local knob. The collector prunes every store to one
+// minimum, so a non-zero default here would hold receiptDB, the state WAL and the SC snapshots
+// that much further back too, on blockDB's say-so. Every other store in the fleet reports 0.
+// A deployment that wants deeper block history sets this at the call site, where the fleet-wide
+// cost of the choice is visible.
 func DefaultConfig(dir string) (*BlockDBConfig, error) {
 	littConfig, err := littdb.DefaultConfig(dir)
 	if err != nil {
@@ -60,7 +76,7 @@ func DefaultConfig(dir string) (*BlockDBConfig, error) {
 	return &BlockDBConfig{
 		Litt:            littConfig,
 		RetentionTime:   time.Hour,
-		RetentionWindow: 10000,
+		RetentionWindow: 0,
 	}, nil
 }
 

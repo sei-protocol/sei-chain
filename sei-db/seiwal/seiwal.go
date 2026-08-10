@@ -65,9 +65,9 @@ type WAL[T any] interface {
 	// sealed files only, so records may survive above the requested threshold until their containing file
 	// is fully below it.
 	//
-	// Unlike every other method here, PruneBefore may be called from a goroutine other than the WAL's
-	// owner, concurrently with any method including Append and Close, and implementations must support
-	// that without external serialization. Retention is driven by a garbage collector on its own
+	// Most methods here belong to the WAL's owner. PruneBefore does not: it may be called from another
+	// goroutine, concurrently with any method including Append and Close, and implementations must
+	// support that without external serialization. Retention is driven by a garbage collector on its own
 	// goroutine, and requiring it to take the writer's turn would mean either blocking the writer or
 	// deferring the prune until the writer next runs — the latter stalling reclamation indefinitely on a
 	// WAL that has stopped receiving appends.

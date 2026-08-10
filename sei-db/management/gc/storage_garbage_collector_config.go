@@ -11,6 +11,22 @@ type StorageGarbageCollectorConfig struct {
 	// roll back to. Shared by every managed store so they stay mutually consistent;
 	// per-store extras beyond this window use PrunableStore.GetRetentionWindow.
 	//
+	// With R = the store's own GetRetentionWindow and F = LatestBlock - RollbackWindow - R,
+	// collection guarantees, for each managed store:
+	//
+	//  1. Nothing needed to roll back to any block in
+	//     [LatestBlock - RollbackWindow, LatestBlock] is deleted.
+	//  2. No data at or above F is deleted. So even after rolling back to
+	//     LatestBlock - RollbackWindow, the most recent R blocks are still readable.
+	//  3. Data below F is eventually deleted — eventually, because each store reclaims on its
+	//     own schedule once the collector has released the range.
+	//
+	// A snapshot store reads these in terms of restore points rather than blocks: what it must
+	// hold is the newest snapshot at or below the boundary, which is what GetPruningBoundary
+	// answers. Guarantee 2 is also why pruning is to the shared minimum rather than to each
+	// store's own boundary — a retained snapshot is only restorable if the blocks that follow
+	// it survive in the contiguous stores.
+	//
 	// 0 is allowed and waives the guarantee: cutLine then equals head for any store with
 	// retention 0, so those stores are pruned to their head. It is safe only when every
 	// participating store leaves enough history on its own — a positive GetRetentionWindow,
