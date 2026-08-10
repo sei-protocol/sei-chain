@@ -18,6 +18,14 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
+type historicalTraceErrorRecorder struct {
+	err error
+}
+
+func (r *historicalTraceErrorRecorder) RecordHistoricalTraceError(err error) {
+	r.err = err
+}
+
 func TestEveryIBCVersionIsRetired(t *testing.T) {
 	testApp := app.Setup(t, false, true, false)
 	ctx := testApp.NewContext(false, tmtypes.Header{})
@@ -85,6 +93,55 @@ func TestRetiredIBCPrecompileRemainsNonPayable(t *testing.T) {
 	reason, err := abi.UnpackRevert(ret)
 	require.NoError(t, err)
 	require.Equal(t, ibc.RetiredReason, reason)
+}
+
+func TestHistoricalIBCTraceRecordsHardFailure(t *testing.T) {
+	testApp := app.Setup(t, false, true, false)
+	recorder := &historicalTraceErrorRecorder{}
+	historicalCtx := pcommon.WithHistoricalTraceErrorRecorder(
+		testApp.NewContext(false, tmtypes.Header{}).
+			WithIsTracing(true).
+			WithClosestUpgradeName("v6.6"),
+		recorder,
+	)
+	stateDB := state.NewDBImpl(historicalCtx, &testApp.EvmKeeper, true)
+	evm := &vm.EVM{StateDB: stateDB}
+
+	precompile, err := ibc.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.NoError(t, err)
+	_, _, err = precompile.RunAndCalculateGas(
+		evm,
+		common.Address{},
+		common.Address{},
+		validCallData(t, precompile.GetABI()),
+		1_000_000,
+		nil,
+		nil,
+		false,
+		false,
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	var unavailable *pcommon.HistoricalTraceUnavailableError
+	require.ErrorAs(t, recorder.err, &unavailable)
+
+	recorder.err = nil
+	stateDB.WithCtx(pcommon.WithHistoricalTraceErrorRecorder(
+		historicalCtx.WithClosestUpgradeName(ibc.RetirementUpgrade),
+		recorder,
+	))
+	_, _, err = precompile.RunAndCalculateGas(
+		evm,
+		common.Address{},
+		common.Address{},
+		validCallData(t, precompile.GetABI()),
+		1_000_000,
+		nil,
+		nil,
+		false,
+		false,
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	require.NoError(t, recorder.err)
 }
 
 func validCallData(t *testing.T, contractABI abi.ABI) []byte {

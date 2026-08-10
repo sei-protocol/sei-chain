@@ -701,6 +701,7 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
 	reqBeginBlock.Simulate = true
 	baseCtx, baseRelease := ctxProvider(prevBlockHeight)
+	baseCtx = attachHistoricalTraceErrorCollector(baseCtx, ctx)
 	sdkCtx := baseCtx.WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	legacyabci.BeginBlock(sdkCtx, blockNumber, reqBeginBlock.LastCommitInfo.Votes, tmBlock.Block.Evidence.ToABCI(), b.beginBlockKeepers)
 	nextCtx, nextRelease := ctxProvider(sdkCtx.BlockHeight())
@@ -714,7 +715,10 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	}, nil
 }
 
-func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, h *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
+func (b *Backend) GetEVM(ctx context.Context, msg *core.Message, stateDB vm.StateDB, h *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
+	if db := state.GetDBImpl(stateDB); db != nil {
+		db.WithCtx(attachHistoricalTraceErrorCollector(db.Ctx(), ctx))
+	}
 	txContext := core.NewEVMTxContext(msg)
 	if blockCtx == nil {
 		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), b.keeper.GetGasPool())

@@ -21,6 +21,19 @@ type blockTracer interface {
 	TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *gethtracers.TraceConfig) ([]*gethtracers.TxTraceResult, error)
 }
 
+type historicalTraceGuardedBlockTracer struct {
+	delegate blockTracer
+}
+
+func (t historicalTraceGuardedBlockTracer) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *gethtracers.TraceConfig) ([]*gethtracers.TxTraceResult, error) {
+	ctx, collector := withHistoricalTraceErrorCollector(ctx)
+	result, err := t.delegate.TraceBlockByNumber(ctx, number, config)
+	if historicalErr := collector.Err(); historicalErr != nil {
+		return nil, historicalErr
+	}
+	return result, err
+}
+
 // TraceBaker re-runs committed blocks through the tracer in background workers
 // and writes the JSON to a TraceDB. Enqueue is non-blocking; misses fall
 // through to live re-execution.
@@ -64,13 +77,13 @@ func StartTraceBakerForDebugAPI(api *DebugAPI, cfg TraceBakerConfig) *TraceBaker
 	if cache == nil {
 		return nil
 	}
-	b := NewTraceBaker(api.tracersAPI, cache, cfg)
+	b := NewTraceBaker(historicalTraceGuardedBlockTracer{delegate: api.tracersAPI}, cache, cfg)
 	cache.SetTraceEnqueuer(b)
 	b.Start()
 	return b
 }
 
-func NewTraceBaker(api *gethtracers.API, cache *keeper.TraceDB, cfg TraceBakerConfig) *TraceBaker {
+func NewTraceBaker(api blockTracer, cache *keeper.TraceDB, cfg TraceBakerConfig) *TraceBaker {
 	if cfg.Workers <= 0 {
 		cfg.Workers = 1
 	}

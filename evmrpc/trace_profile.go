@@ -55,6 +55,7 @@ func (api *DebugAPI) TraceTransactionProfile(ctx context.Context, hash common.Ha
 		return nil, returnErr
 	}
 
+	ctx, collector := withHistoricalTraceErrorCollector(ctx)
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
@@ -94,6 +95,9 @@ func (api *DebugAPI) TraceTransactionProfile(ctx context.Context, hash common.Ha
 	if err != nil {
 		return nil, err
 	}
+	if err := collector.Err(); err != nil {
+		return nil, err
+	}
 
 	blockContextStart := time.Now()
 	blockCtx, err := tracingBackend.GetBlockContext(ctx, block, statedb, tracingBackend)
@@ -117,6 +121,9 @@ func (api *DebugAPI) TraceTransactionProfile(ctx context.Context, hash common.Ha
 	api.clampDefaultStructLogLimit(config)
 	traceResult, err := api.profiledTraceTx(ctx, tx, msg, txctx, blockCtx, statedb, config, nil, false, &phases.traceExecutionPhaseDurations)
 	if err != nil {
+		return nil, err
+	}
+	if err := collector.Err(); err != nil {
 		return nil, err
 	}
 

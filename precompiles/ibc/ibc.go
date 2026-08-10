@@ -7,11 +7,15 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"golang.org/x/mod/semver"
 )
 
 const IBCAddress = "0x0000000000000000000000000000000000001009"
 
 const RetiredReason = "ibc precompile is retired; ibc transfers are disabled"
+
+const RetirementUpgrade = "v6.7"
 
 //go:embed abi.json
 var currentABI embed.FS
@@ -23,11 +27,14 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 }
 
 func newRetiredPrecompile(a abi.ABI, keepers utils.Keepers) *pcommon.DynamicGasPrecompile {
-	return pcommon.NewRetiredPrecompile(
+	return pcommon.NewRetiredPrecompileWithTraceGuard(
 		a,
 		common.HexToAddress(IBCAddress),
 		"ibc",
 		keepers.EVMK(),
 		RetiredReason,
+		func(ctx sdk.Context) bool {
+			return ctx.IsTracing() && semver.Compare(ctx.ClosestUpgradeName(), RetirementUpgrade) < 0
+		},
 	)
 }

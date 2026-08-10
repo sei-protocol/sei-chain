@@ -339,6 +339,7 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 		return cached, nil
 	}
 
+	ctx, collector := withHistoricalTraceErrorCollector(ctx)
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
@@ -349,7 +350,8 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 		config = &tracers.TraceConfig{}
 	}
 	api.clampDefaultStructLogLimit(config)
-	return api.tracersAPI.TraceTransaction(ctx, hash, config)
+	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
+	return rejectUnavailableHistoricalTrace(result, returnErr, collector)
 }
 
 func (api *DebugAPI) tryTraceCache(hash common.Hash, config *tracers.TraceConfig) (interface{}, bool) {
@@ -558,6 +560,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 		return cached, nil
 	}
 
+	ctx, collector := withHistoricalTraceErrorCollector(ctx)
 	if config == nil {
 		config = &tracers.TraceConfig{}
 	}
@@ -567,7 +570,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	} else {
 		result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	}
-	return
+	return rejectUnavailableHistoricalTrace(result, returnErr, collector)
 }
 
 func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
@@ -594,6 +597,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 		return cached, nil
 	}
 
+	ctx, collector := withHistoricalTraceErrorCollector(ctx)
 	if config == nil {
 		config = &tracers.TraceConfig{}
 	}
@@ -603,7 +607,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	} else {
 		result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	}
-	return
+	return rejectUnavailableHistoricalTrace(result, returnErr, collector)
 }
 
 func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
@@ -633,8 +637,9 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		return nil, returnErr
 	}
 	api.clampDefaultStructLogLimit(&config.TraceConfig)
+	ctx, collector := withHistoricalTraceErrorCollector(ctx)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
-	return
+	return rejectUnavailableHistoricalTrace(result, returnErr, collector)
 }
 
 func (api *DebugAPI) GetRawHeader(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ hexutil.Bytes, returnErr error) {
@@ -687,6 +692,7 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 		return nil, returnErr
 	}
 
+	ctx, collector := withHistoricalTraceErrorCollector(ctx)
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
@@ -719,6 +725,9 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	}
 	stateDB, _, err := tracingBackend.ReplayTransactionTillIndex(ctx, block, int(index)) //nolint:gosec
 	if err != nil {
+		return nil, err
+	}
+	if err := collector.Err(); err != nil {
 		return nil, err
 	}
 	// Bail before the potentially expensive prestate/trace serialization if the
