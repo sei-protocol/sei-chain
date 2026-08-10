@@ -588,15 +588,41 @@ $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
 
 TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
 
-# Round-robin (not contiguous-chunk) split: package i goes to shard i%N.
+# Packages whose test suite alone regularly runs 1-4+ minutes under -race.
+# Plain i%N round-robin assigns these by their position in the full,
+# alphabetically-sorted package list, so several of them can land on the
+# same shard by coincidence. Splitting them into their own round-robin
+# pass, ahead of the rest of the list, guarantees consecutive heavy
+# packages rotate across shards instead of clustering. Re-derive this list
+# occasionally from a race job's `ok  <pkg>  <secs>s` log lines.
+HEAVY_TEST_PACKAGES := \
+	github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable \
+	github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti \
+	github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/test \
+	github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/keeper \
+	github.com/sei-protocol/sei-chain/giga/tests \
+	github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper \
+	github.com/sei-protocol/sei-chain/evmrpc/tests \
+	github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/keeper \
+	github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper \
+	github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper
+
+# Round-robin split: package i goes to shard i%N.
 # Interleaving avoids dumping a whole cluster of alphabetically-adjacent
 # (and often runtime-correlated, e.g. a module's many keeper packages)
 # packages into one shard, unlike a straight `split -d -n l/N` chunk split.
 # Pre-touch all N files first so a shard with zero packages (NUM_SPLIT >
 # package count) still gets an (empty) file instead of breaking test-group-%.
+# HEAVY_TEST_PACKAGES is round-robined separately, and first, so its own
+# i%N indexing can't collide with the coincidental clustering above.
 split-test-packages:$(BUILDDIR)/packages.txt
 	@for i in $$(seq 0 $$(($(NUM_SPLIT)-1))); do : > $(BUILDDIR)/packages.txt.$$i; done
-	@awk -v n=$(NUM_SPLIT) -v dir=$(BUILDDIR) '{print > (dir "/packages.txt." (NR-1)%n)}' $<
+	@printf '%s\n' $(HEAVY_TEST_PACKAGES) > $(BUILDDIR)/heavy-packages.txt
+	@grep -Fxf $(BUILDDIR)/heavy-packages.txt $< > $(BUILDDIR)/packages.txt.heavy || true
+	@grep -Fxvf $(BUILDDIR)/heavy-packages.txt $< > $(BUILDDIR)/packages.txt.rest || true
+	@awk -v n=$(NUM_SPLIT) -v dir=$(BUILDDIR) '{print >> (dir "/packages.txt." (NR-1)%n)}' $(BUILDDIR)/packages.txt.heavy
+	@awk -v n=$(NUM_SPLIT) -v dir=$(BUILDDIR) '{print >> (dir "/packages.txt." (NR-1)%n)}' $(BUILDDIR)/packages.txt.rest
+	@rm -f $(BUILDDIR)/heavy-packages.txt $(BUILDDIR)/packages.txt.heavy $(BUILDDIR)/packages.txt.rest
 test-group-%:split-test-packages
 	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
 	@if grep -q "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
