@@ -23,9 +23,12 @@ import (
 //
 //   - parseSCConfigs guards almost every read with `if v := opts.Get(k); v != nil`,
 //     so a key absent from an older app.toml keeps its non-zero in-code default.
-//   - parseSSConfigs leaves most reads unguarded, so an absent key resolves to
-//     the zero value and overwrites the default. SnapshotEnable is deliberately
-//     guarded so older app.toml files inherit the new default.
+//   - parseSSConfigs leaves every legacy read unguarded. Each is a bare cast of a
+//     possibly-nil value, so an absent key resolves to the zero value and overwrites
+//     the default. ss-keep-recent becomes 0 (keep everything, unbounded disk growth),
+//     ss-async-write-buffer becomes 0 (synchronous writes), ss-backend becomes ""
+//     and ss-enable becomes false. ss-snapshot-enable is the one guarded read, so an
+//     app.toml written before SS snapshots existed keeps the in-code default.
 //
 // Neither reader returns an error, so nothing about the second case is visible at
 // boot. It is recorded here as behavior rather than reported as a defect: the
@@ -520,9 +523,11 @@ func TestParseSCConfigsAbsentBaseline(t *testing.T) {
 	}
 }
 
-// TestParseSSConfigsAbsentBaselineIsZeroClobbered records the legacy clobber:
-// every unguarded operator-visible knob resolves to zero, while guarded fields
-// such as SnapshotEnable retain their in-code default.
+// TestParseSSConfigsAbsentBaselineIsZeroClobbered records the clobber in full: an
+// app.toml with no [state-store] section resolves to a config in which every
+// unguarded operator-visible knob has been overwritten with a zero value, including
+// the two that change the node's disk behavior without any log line. SnapshotEnable
+// is the one field that survives, because its read is guarded.
 func TestParseSSConfigsAbsentBaselineIsZeroClobbered(t *testing.T) {
 	got := parseSSConfigs(configtest.AppOpts{})
 
@@ -666,10 +671,18 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 func TestManifestNamesEveryField(t *testing.T) {
 	t.Run("state-store", func(t *testing.T) {
 		configtest.CheckManifestCoversEveryField(t, "state-store", config.DefaultStateStoreConfig(), ssKeys,
-			// These fields have no independent [state-store] key. The first two
-			// retain their in-code defaults; snapshot cadence is derived from SC.
+			// Both are tagged mapstructure but no [state-store] key reaches either: parseSSConfigs
+			// reads neither, so both hold their in-code defaults on every node. pebbledb consumes
+			// them at construction (KeepLastVersion in mvcc pruning, UseDefaultComparer in the
+			// comparer selection), which is worth stating rather than omitting — a field a config
+			// struct carries that configuration cannot address is exactly what a replacement
+			// manager would otherwise try to map a key onto.
 			"KeepLastVersion",
 			"UseDefaultComparer",
+			// The three below are unreachable for a different reason, and the distinction is the
+			// point: they are tagged mapstructure:"-" so no key can bind them even in principle,
+			// and AlignSSSnapshotWithSC derives all three at runtime from the state-commit cadence.
+			// ss-snapshot-enable is the only SS-side knob, and it has a row of its own above.
 			"SnapshotInterval",
 			"SnapshotKeepRecent",
 			"SnapshotMinTimeInterval",
