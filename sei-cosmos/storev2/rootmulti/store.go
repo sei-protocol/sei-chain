@@ -590,12 +590,16 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	// A non-zero version yields a read-only view rather than this store, so the result has to be adopted: it is
 	// what serves reads at that version. For version 0 the SC store returns itself and this is a no-op.
 	//
+	// The view is requested explicitly. Loading writably at a past version would rewind the data directory and
+	// discard every block above it, which is what `seid export --height N` must not do, and the SC store now
+	// refuses that combination rather than serving a view in its place.
+	//
 	// Known limitation, deliberately left: adopting the view drops the only reference to the store that owns the
 	// data directory, so Close never releases its writer lock, WAL or thread pools. Closing it here instead is
 	// wrong, because that lock is what stops another process from deleting the view's working directory, and
 	// holding a second reference purely to close it is deferred to a follow-up. Only `seid export --height N`
 	// reaches this, a one-shot command that exits immediately and is itself slated for removal.
-	sc, err := rs.scStore.LoadVersion(version, false)
+	sc, err := rs.scStore.LoadVersion(version, version != 0)
 	if err != nil {
 		return err
 	}

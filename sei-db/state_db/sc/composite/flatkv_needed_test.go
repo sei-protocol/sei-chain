@@ -202,7 +202,7 @@ func TestDerivedStoreRefusesLoads(t *testing.T) {
 	defer func() { _ = fresh.Close() }()
 	require.NoError(t, fresh.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 
-	view, err := fresh.LoadVersion(2, false)
+	view, err := fresh.LoadVersion(2, true)
 	require.NoError(t, err)
 	viewStore, ok := view.(*CompositeCommitStore)
 	require.True(t, ok)

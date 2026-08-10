@@ -922,6 +922,48 @@ func TestLoadVersionFlatKVOnlyReadOnly(t *testing.T) {
 	require.Equal(t, []byte("v1"), got)
 }
 
+// TestLoadVersionRefusesWritableAtPastVersion pins the refusal that keeps `seid export --height N` from
+// rewinding a validator. Asking to open writable at a past version is answered with an error rather than
+// with a read-only view that merely happens to be harmless.
+func TestLoadVersionRefusesWritableAtPastVersion(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = types.FlatKVOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.LoadLatest())
+	defer func() { _ = cs.Close() }()
+
+	commit := func(value string) int64 {
+		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte("k"), Value: []byte(value)},
+			}}},
+		}))
+		v, commitErr := cs.Commit()
+		require.NoError(t, commitErr)
+		return v
+	}
+
+	past := commit("v1")
+	tip := commit("v2")
+	require.Greater(t, tip, past, "fixture precondition: the target must be a past version")
+
+	_, err = cs.LoadVersion(past, false)
+	require.ErrorIs(t, err, errWritableAtPastVersion)
+
+	// The refusal is inert: the store still owns its directory at the tip and can still commit, so the blocks
+	// above the requested version are all still there.
+	require.Equal(t, tip, cs.Version(), "a refused load must leave the store at the tip")
+	require.Equal(t, tip+1, commit("v3"), "a refused load must leave the store committable")
+
+	// The view at that same past version is still served, which is what export asks for.
+	ro, err := cs.LoadVersion(past, true)
+	require.NoError(t, err)
+	defer func() { _ = ro.Close() }()
+	require.Equal(t, past, ro.Version())
+}
+
 // TestLoadVersionRebuildsRouterOnReload verifies that calling
 // LoadVersion a second time on the same store builds a fresh router
 // and cancels the previous router's context. The cancel is observable

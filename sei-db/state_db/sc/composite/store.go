@@ -34,6 +34,12 @@ var _ types.Committer = (*CompositeCommitStore)(nil)
 // built at.
 var errDerivedStore = errors.New("composite: cannot load on a derived store (read-only view or copy)")
 
+// errWritableAtPastVersion is returned when a load asks to open this store writable at a past version.
+// Reopening writably there means rewinding the data directory and discarding every block above it, which is
+// Rollback's operation and not a load's, so the request is refused rather than served.
+var errWritableAtPastVersion = errors.New(
+	"composite: cannot load writable at a past version; pass readOnly for a view, or call Rollback to rewind")
+
 // CompositeCommitStore manages multiple commit store backends (Cosmos/memiavl and FlatKV)
 // and routes operations based on the configured migration strategy.
 type CompositeCommitStore struct {
@@ -344,15 +350,21 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 // Deprecated: call LoadLatest or LoadVersionReadOnly. This method exists only to satisfy types.Committer,
 // whose signature is pinned by the memiavl implementation.
 //
-// A non-zero targetVersion always yields a read-only view, whatever readOnly says. Serving one writably meant
-// rewinding the flatkv data directory — and it produced a store that could not commit anyway — so callers that
-// ask for a past version get a view and must use the returned Committer rather than this one.
+// Two combinations are served: (0, false) opens this store writable at the latest version, and any target
+// with readOnly set opens an isolated view the caller must adopt and close. A non-zero target without
+// readOnly is refused rather than quietly downgraded to a view, because the two differ by whether every block
+// above the target survives. `seid export --height N` reaches this method with exactly that combination, and
+// is non-destructive today only because the flag went unread — a correctness that lasts only until someone
+// makes the flag mean what it says. Refusing states the constraint instead of resting on it.
 func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
 	if cs.derived {
 		return nil, errDerivedStore
 	}
-	if readOnly || targetVersion != 0 {
+	if readOnly {
 		return cs.LoadVersionReadOnly(targetVersion)
+	}
+	if targetVersion != 0 {
+		return nil, fmt.Errorf("%w: requested version %d", errWritableAtPastVersion, targetVersion)
 	}
 	return cs, cs.LoadLatest()
 }

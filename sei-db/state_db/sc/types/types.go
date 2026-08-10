@@ -103,6 +103,12 @@ type Committer interface {
 	// When readOnly is false, the receiver is closed and reopened at
 	// targetVersion, and the receiver itself is returned. This is the
 	// standard path used during node startup.
+	//
+	// Reopening writably at a past version rewinds the data directory and
+	// discards every block above it, which is Rollback's operation rather
+	// than a load's. An implementation may therefore refuse a non-zero
+	// targetVersion when readOnly is false; a caller that wants to read at
+	// a past version must ask for the view by passing readOnly.
 	LoadVersion(targetVersion int64, readOnly bool) (Committer, error)
 
 	// Rollback truncates state back to targetVersion, discarding all newer
