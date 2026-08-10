@@ -76,7 +76,7 @@ type AppVotesRecv struct {
 }
 
 func (s *State) SubscribeAppVotes() *AppVotesRecv {
-	return &AppVotesRecv{s, s.data.First()}
+	return &AppVotesRecv{s, s.data.NextAppQC()}
 }
 
 func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote], error) {
@@ -84,7 +84,7 @@ func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote],
 		vote, err := r.state.data.AppVote(ctx, r.next)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
-				r.next = max(r.next, r.state.data.First())
+				r.next = max(r.next, r.state.data.NextAppQC())
 				continue
 			}
 			return nil, err

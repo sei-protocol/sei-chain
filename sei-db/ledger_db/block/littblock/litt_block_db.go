@@ -28,7 +28,7 @@ type blockDB struct {
 
 	// watermark is a retention floor, always a QC boundary (a GlobalRange().First):
 	// PruneBefore rounds a requested prune point down to the start of the cohort
-	// containing it, and startup re-derives it as the lowest surviving QC's First
+	// containing it, and startup re-derives it as the lowest surviving FullCommitQC's First
 	// (see clampPruneBoundary and recoverWatermark). Keeping it on a cohort boundary
 	// is what makes a QC's blocks change readability atomically — the gate never
 	// splits a cohort.
@@ -94,13 +94,12 @@ func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 }
 
 // recoverWatermark re-derives the read watermark on open from the oldest
-// surviving QC. It is in-memory only, so a restart forgets every PruneBefore.
+// surviving FullCommitQC. It is in-memory only, so a restart forgets every PruneBefore.
 // That is fine for reclamation (nothing new is deleted), but we must protect
 // against showing un-pruned blocks with pruned QCs.
 //
-// QCs are written before the blocks they cover, so the oldest surviving record
-// is normally a QC and the first block follows shortly after. If no QC survives
-// but the table is non-empty, the store is corrupt and must not reopen.
+// FullCommitQCs are written before any other data for the same index.
+// If no FullCommitQC survives but the table is non-empty, the store is corrupt and must not reopen.
 func (s *blockDB) recoverWatermark() error {
 	it, err := s.table.Iterator(false)
 	if err != nil {
@@ -130,11 +129,7 @@ func (s *blockDB) recoverWatermark() error {
 		s.watermark.Store(uint64(decodeNumberKey(key)))
 		return nil
 	}
-	// No QC survives. The never-empty prune invariant guarantees at least one
-	// (block, QC) pair is always retained, so blocks-without-QC is unreachable
-	// through normal operation — it means the store is corrupt (e.g. a QC WAL
-	// file was removed out of band). Refuse to open rather than serve blocks we
-	// can no longer trust.
+	// No FullCommitQC survives. Refuse to open rather than serve blocks we can no longer trust.
 	if !empty {
 		return fmt.Errorf("corrupt store: no QC in non-empty store")
 	}
@@ -148,7 +143,7 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 	// A covering QC must already be written. Since QCs are contiguous and blocks
 	// strictly ascending, n is covered iff n < status.NextQC. This guard also fixes
 	// the QC-before-block write order: the covering QC's Put has already issued
-	// under this mutex, so on a crash a surviving block implies a surviving QC.
+	// under this mutex, so on a crash a surviving block implies a surviving FullCommitQC.
 	if !ok || n >= status.NextQC {
 		return fmt.Errorf("block number %d not covered by any written QC: %w", n, types.ErrBlockMissingQC)
 	}
@@ -369,8 +364,11 @@ func (s *blockDB) Status() utils.Option[types.SuffixRange] {
 }
 
 // ReadSuffix reads the materialized startup-recovery suffix.
-// WARNING: ReadSuffix() will return an error if watermark is moved during iteration.
 func (s *blockDB) ReadSuffix() (types.Suffix, error) {
+	// Suffix is computed under lock, so that GC cannot malform it:
+	// locked => no new data can be appended => watermark doesn't move => GC doesn't consume data of the suffix.:w
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	it, err := s.table.Iterator(true)
 	if err != nil {
 		return types.Suffix{}, fmt.Errorf("failed to open suffix iterator: %w", err)
@@ -482,7 +480,7 @@ func (s *blockDB) ReadSuffix() (types.Suffix, error) {
 }
 
 func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
-	// Refuse below-watermark blocks: they may be stranded (covering QC reclaimed).
+	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously. 
 	if uint64(n) < s.watermark.Load() {
 		return utils.None[*types.Block](), types.ErrPruned
 	}
@@ -501,8 +499,8 @@ func (s *blockDB) ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[type
 	if err != nil {
 		return utils.None[types.BlockWithNumber](), err
 	}
-	// The number is not known until the block is resolved; refuse it if it turns
-	// out to be below the watermark (potentially stranded from its covering QC).
+	// The number is not known until the block is resolved; 
+	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously. 
 	if bwn, ok := result.Get(); ok && uint64(bwn.Number) < s.watermark.Load() {
 		return utils.None[types.BlockWithNumber](), nil
 	}

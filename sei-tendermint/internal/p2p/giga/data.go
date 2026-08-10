@@ -48,7 +48,9 @@ func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) err
 		return fmt.Errorf("client.StreamAppQCs(): %w", err)
 	}
 	defer stream.Close()
-	if err := stream.Send(ctx, &pb.StreamAppQCsReq{}); err != nil {
+	if err := stream.Send(ctx, StreamAppQCsReqConv.Encode(&StreamAppQCsReq{
+		NextBlock: x.data.NextAppQC(),
+	})); err != nil {
 		return err
 	}
 	for {
@@ -184,6 +186,9 @@ func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Serv
 		for next := req.NextBlock; ; {
 			qc, err := s.data.QC(ctx, next)
 			if err != nil {
+				if errors.Is(err,types.ErrPruned) {
+					next = s.data.First()
+				}
 				return fmt.Errorf("s.data.QC(): %w", err)
 			}
 			// Don't send the same QC twice.
@@ -195,7 +200,7 @@ func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Serv
 	})
 }
 
-func (x *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]) error {
+func (s *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]) error {
 	return StreamAppQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.AppQC, *pb.StreamAppQCsReq]) error {
 		reqRaw, err := stream.Recv(ctx)
 		if err != nil {
@@ -206,11 +211,14 @@ func (x *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]
 			return fmt.Errorf("StreamFullCommitQCsReqConv.Decode(): %w", err)
 		}
 		for next := req.NextBlock; ; {
-			appQC, commitQC, err := x.validatorState().Data().AppQC(ctx, next)
+			appQC, err := s.data.AppQC(ctx, next)
 			if err != nil {
+				if errors.Is(err,types.ErrPruned) {
+					next = s.data.First()
+				}
 				return fmt.Errorf("x.validatorState().Data().AppQC(): %w", err)
 			}
-			next = commitQC.QC().GlobalRange().Next
+			next = appQC.Proposal().GlobalRange().Next
 			if err := stream.Send(ctx, types.AppQCConv.Encode(appQC)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}

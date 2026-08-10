@@ -265,10 +265,7 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 }
 
 func (s *State) First() types.GlobalBlockNumber {
-	for inner := range s.inner.Lock() {
-		return inner.first
-	}
-	panic("unreachable")
+	return max(s.blockDB.First(),s.cfg.Registry.FirstBlock())
 }
 
 // Registry returns the epoch registry.
@@ -408,6 +405,14 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 func (s *State) NextBlock() types.GlobalBlockNumber {
 	for inner := range s.inner.Lock() {
 		return inner.nextBlock
+	}
+	panic("unreachable")
+}
+
+// NextBlock returns the index of the next block to be pushed.
+func (s *State) NextAppQC() types.GlobalBlockNumber {
+	for inner := range s.inner.Lock() {
+		return inner.nextAppQC
 	}
 	panic("unreachable")
 }
@@ -657,24 +662,16 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC) error {
 	panic("unreachable")
 }
 
-func (s *State) AppQC(ctx context.Context, n types.GlobalBlockNumber) (*types.AppQC, *types.FullCommitQC, error) {
+func (s *State) AppQC(ctx context.Context, n types.GlobalBlockNumber) (*types.AppQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextAppQC }); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if inner.first <= n {
-			return inner.appQCs[n], inner.qcs[n], nil
+			return inner.appQCs[n], nil
 		}
 	}
-	qc, err := s.qcFromDB(n)
-	if err != nil {
-		return nil, nil, err
-	}
-	appQC, err := s.appQCFromDB(n)
-	if err != nil {
-		return nil, nil, err
-	}
-	return appQC, qc, nil
+	return s.appQCFromDB(n)
 }
 
 type Anchor struct {
