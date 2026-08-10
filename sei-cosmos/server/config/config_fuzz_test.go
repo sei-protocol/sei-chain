@@ -1149,10 +1149,14 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"pruning", cfg.Pruning, def.Pruning, true},
 		{"pruning-keep-recent", cfg.PruningKeepRecent, def.PruningKeepRecent, true},
 		{"pruning-interval", cfg.PruningInterval, def.PruningInterval, true},
-		// Diverges here and is rescued downstream, which is the distinction to carry off this row.
-		// baseapp.New reads the same key and substitutes DefaultConcurrencyWorkers whenever it resolves
-		// 0 (baseapp.go:316-320), so a node runs with 20 rather than the 0 this reader reports. What
-		// this row records is GetConfig's answer, not the executing value.
+		// Diverges here and is rescued twice downstream, and which rescue a booted node relies on is
+		// the distinction to carry off this row. concurrency-workers is a registered start flag
+		// defaulting to DefaultConcurrencyWorkers (start.go:224) and bound in PreRunE (start.go:117)
+		// ahead of both production calls (start.go:168 and :303), so there this same read takes the
+		// flag's default whenever app.toml is silent and never resolves 0. The 0 recorded here belongs
+		// to this file's flag-less viper. baseapp.New substituting DefaultConcurrencyWorkers for a
+		// resolved 0 (baseapp.go:316-320) is a second net behind that one, reached only when appOpts
+		// carries no flags or an operator writes 0 outright.
 		{"concurrency-workers", cfg.ConcurrencyWorkers, def.ConcurrencyWorkers, true},
 		{"occ-enabled", cfg.OccEnabled, def.OccEnabled, true},
 		{"halt-height", cfg.HaltHeight, def.HaltHeight, false},
