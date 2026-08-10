@@ -33,13 +33,13 @@ func newRoad(commitQC *types.CommitQC, epoch *types.Epoch) *road {
 }
 
 // Returns qc if a new qc has been reached.
-func (r *road) pushAppVote(vote *types.Signed[*types.AppVote]) {
+func (r *road) pushAppVote(vote *types.Signed[*types.AppVote]) bool {
 	if r.appQC.IsPresent() {
-		return
+		return false
 	}
 	k := vote.Key()
 	if _, ok := r.appByKey[k]; ok {
-		return
+		return false
 	}
 	r.appByKey[k] = struct{}{}
 	byHash, ok := r.appByHash[vote.Hash()]
@@ -56,5 +56,7 @@ func (r *road) pushAppVote(vote *types.Signed[*types.AppVote]) {
 	byHash.votes = append(byHash.votes, vote)
 	if byHash.weight >= c.AppQuorum() {
 		r.appQC = utils.Some(types.NewAppQC(byHash.votes))
+		return true
 	}
+	return false
 }

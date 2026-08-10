@@ -110,13 +110,19 @@ func (s *State) LastCommitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
 
 func (s *State) appQC(ctx context.Context, idx types.RoadIndex) (*types.AppQC, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return idx < inner.nextAppQC }); err != nil {
-			return nil, err
+		for {
+			if idx < inner.roads.first {
+				return nil, types.ErrPruned
+			}
+			if idx < inner.roads.next {
+				if appQC, ok := inner.roads.q[idx].appQC.Get(); ok {
+					return appQC, nil
+				}
+			}
+			if err := ctrl.Wait(ctx); err != nil {
+				return nil, err
+			}
 		}
-		if idx < inner.roads.first {
-			return nil, types.ErrPruned
-		}
-		return inner.roads.q[idx].appQC.OrPanic("missing appQC"), nil
 	}
 	panic("unreachable")
 }
@@ -195,8 +201,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		if idx < inner.roads.first || inner.roads.next <= idx {
 			return nil
 		}
-		inner.roads.q[idx].pushAppVote(v)
-		if inner.updateNextAppQC() {
+		if inner.roads.q[idx].pushAppVote(v) {
 			ctrl.Updated()
 		}
 	}
@@ -510,11 +515,7 @@ func (s *State) runEvict(ctx context.Context) error {
 	return s.data.Anchor().Iter(ctx, func(ctx context.Context, anchor utils.Option[data.Anchor]) error {
 		if anchor, ok := anchor.Get(); ok {
 			for inner, ctrl := range s.inner.Lock() {
-				epoch, ok := s.data.Registry().EpochByIndex(anchor.CommitQC.Proposal().EpochIndex())
-				if !ok {
-					return fmt.Errorf("epoch not found")
-				}
-				inner.prune(epoch, anchor)
+				inner.prune(anchor)
 				ctrl.Updated()
 			}
 		}

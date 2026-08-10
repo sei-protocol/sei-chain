@@ -17,7 +17,6 @@ import (
 type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
 	roads             *queue[types.RoadIndex, *road]
-	nextAppQC         types.RoadIndex
 
 	// Epoch is the current epoch for blocks votes collection.
 	epoch  *types.Epoch
@@ -67,16 +66,11 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	// Apply the persisted prune anchor from the data.State:
 	// avail.State can drop everything below AppQC persisted in data.State.
 	if anchor, ok := ds.Anchor().Load().Get(); ok {
-		epoch, ok := ds.Registry().EpochByIndex(anchor.CommitQC.Proposal().EpochIndex())
-		if !ok {
-			return nil, fmt.Errorf("epoch not found")
-		}
-		i.prune(epoch, anchor)
+		i.prune(anchor)
 	}
 
 	// Restore persisted CommitQCs. prune() may have already pushed the
 	// anchor's CommitQC, so skip entries below commitQCs.next.
-	setPersisted := false
 	for _, qc := range loaded.commitQCs {
 		if qc.Index() < i.roads.next {
 			continue
@@ -89,12 +83,11 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 			return nil, fmt.Errorf("epoch not found")
 		}
 		i.roads.pushBack(newRoad(qc, epoch))
-		setPersisted = true
 	}
 	// It may happen that data.State has progressed beyond avail state.
 	// In this case the whole persisted avail.State is invalidated and anchor.CommitQC
 	// is NOT stored in avail.State. We need it to get persisted before we update persistedCommitQC.
-	if setPersisted {
+	if i.roads.Len() > 0 {
 		i.persistedCommitQC.Store(utils.Some(i.roads.q[i.roads.next-1].commitQC))
 	}
 
@@ -141,35 +134,23 @@ func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, b
 	return nil, false
 }
 
-func (i *inner) updateNextAppQC() bool {
-	updated := false
-	for i.nextAppQC < i.roads.next && i.roads.q[i.nextAppQC].appQC.IsPresent() {
-		i.nextAppQC += 1
-		updated = true
-	}
-	return updated
-}
-
 // prune advances the state up to Anchor of the data state.
 // Returns true iff pruning occurred.
-func (i *inner) prune(epoch *types.Epoch, anchor data.Anchor) {
+func (i *inner) prune(anchor data.Anchor) {
 	idx := anchor.CommitQC.Index()
 	if idx < i.roads.first {
 		return
 	}
-	i.roads.prune(idx)
-	i.nextAppQC = max(idx, i.nextAppQC)
-	if idx == i.roads.next {
-		i.roads.pushBack(newRoad(anchor.CommitQC, epoch))
-	}
-	i.roads.q[idx].appQC = utils.Some(anchor.AppQC)
-	i.updateNextAppQC()
+	i.roads.prune(idx + 1)
 	for lane := range i.votes {
 		lr := anchor.CommitQC.LaneRange(lane)
-		i.votes[lr.Lane()].prune(lr.First())
-		i.blocks[lr.Lane()].prune(lr.First())
-		if i.nextBlockToPersist[lr.Lane()] < lr.First() {
-			i.nextBlockToPersist[lr.Lane()] = lr.First()
+		i.votes[lr.Lane()].prune(lr.Next())
+		i.blocks[lr.Lane()].prune(lr.Next())
+		if i.nextBlockToPersist[lr.Lane()] < lr.Next() {
+			i.nextBlockToPersist[lr.Lane()] = lr.Next()
 		}
+	}
+	if i.roads.Len() == 0 {
+		i.persistedCommitQC.Store(utils.Some(anchor.CommitQC))
 	}
 }

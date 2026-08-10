@@ -28,7 +28,6 @@ func TestNewInnerFreshStart(t *testing.T) {
 	i, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{})
 	require.NoError(t, err)
 
-	require.Equal(t, types.RoadIndex(0), i.nextAppQC)
 	require.Equal(t, types.RoadIndex(0), i.roads.first)
 	require.Equal(t, types.RoadIndex(0), i.roads.next)
 	require.NotNil(t, i.nextBlockToPersist)

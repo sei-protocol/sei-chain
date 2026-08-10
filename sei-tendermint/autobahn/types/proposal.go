@@ -68,6 +68,10 @@ type GlobalRange struct {
 	Next  GlobalBlockNumber
 }
 
+func (g GlobalRange) String() string {
+	return fmt.Sprintf("[%v,%v)",g.First,g.Next)
+}
+
 // Len returns the number of global blocks in the range.
 func (g GlobalRange) Len() uint64 {
 	return uint64(g.Next - g.First)

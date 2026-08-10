@@ -62,51 +62,57 @@ func TestStateWithPersistence(t *testing.T) {
 	}
 }
 
-func TestNewStateDoesNotPublishDataAnchorAsPersistedCommitQC(t *testing.T) {
+// Test checking that State can correctly start collecting CommitQCs starting from arbitrary anchor.
+func TestAnchorResetsState(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	ds := newTestDataState(&data.Config{Registry: registry})
-	qc, blocks := data.TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	gr := qc.QC().GlobalRange()
-	appHash := types.GenAppHash(rng)
-	appProposal := types.NewAppProposal(qc.QC().Proposal(), appHash)
-
+	epoch := registry.LatestEpoch()
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		runCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		s.SpawnBgNamed("data.Run", func() error { return utils.IgnoreCancel(ds.Run(runCtx)) })
+		t.Logf("data.Run()")
+		ds := newTestDataState(&data.Config{Registry: registry})
+		s.SpawnBgNamed("data.Run", func() error { return utils.IgnoreCancel(ds.Run(ctx)) })
+
+		t.Logf("Push FullCommitQC, blocks, AppHash, AppQC to data")
+		qc, blocks := data.TestCommitQC(rng, epoch, keys, utils.None[*types.CommitQC]())
 		if err := ds.PushQC(ctx, qc, blocks); err != nil {
 			return err
 		}
-		for n := gr.First; n < gr.Next; n++ {
-			if err := ds.PushAppHash(ctx, n, appHash); err != nil {
-				return err
-			}
-		}
-		if err := ds.PushAppQC(ctx, data.TestAppQC(keys, appProposal)); err != nil {
+		appHash := types.GenAppHash(rng)
+		if err := ds.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, appHash); err != nil {
 			return err
 		}
-		_, err := ds.Anchor().Wait(ctx, func(anchor utils.Option[data.Anchor]) bool {
+		appQC := data.TestAppQC(keys, types.NewAppProposal(qc.QC().Proposal(), appHash))
+		if err := ds.PushAppQC(ctx, appQC); err != nil {
+			return err
+		}
+
+		t.Logf("wait for anchor to be updated")
+		if _, err := ds.Anchor().Wait(ctx, func(anchor utils.Option[data.Anchor]) bool {
 			a, ok := anchor.Get()
 			return ok && a.CommitQC.Index() == qc.QC().Index()
-		})
-		return err
-	}))
+		}); err != nil {
+			return err
+		}
 
-	state, err := NewState(keys[0], ds, utils.None[string]())
-	require.NoError(t, err)
-	_, ok := state.LastCommitQC().Load().Get()
-	require.False(t, ok, "data anchor is not persisted avail state until avail.Run writes it")
-	got, err := state.CommitQC(ctx, qc.QC().Index())
-	require.NoError(t, err)
-	require.NoError(t, utils.TestDiff(qc.QC(), got))
+		t.Logf("NewState() should load the anchor")
+		state, err := NewState(keys[0], ds, utils.None[string]())
+		if err != nil {
+			return fmt.Errorf("NewState(): %w", err)
+		}
+		if err := utils.TestDiff(utils.Some(qc.QC()), state.LastCommitQC().Load()); err != nil {
+			return err
+		}
+		t.Logf("avail.Run()")
+		s.SpawnBgNamed("avail.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		runCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		s.SpawnBgNamed("avail.Run", func() error { return utils.IgnoreCancel(state.Run(runCtx)) })
-		_, err := state.LastCommitQC().Wait(ctx, func(got utils.Option[*types.CommitQC]) bool {
+		t.Logf("push next CommitQC to avail")
+		qc, _ = data.TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc.QC()))
+		if err := state.PushCommitQC(ctx, qc.QC()); err != nil {
+			return err
+		}
+		t.Logf("wait for this CommitQC to be persisted in avail")
+		_, err = state.LastCommitQC().Wait(ctx, func(got utils.Option[*types.CommitQC]) bool {
 			gotQC, ok := got.Get()
 			return ok && gotQC.Index() == qc.QC().Index()
 		})
