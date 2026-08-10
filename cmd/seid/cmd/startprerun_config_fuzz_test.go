@@ -31,10 +31,104 @@ import (
 // RunE then re-reads client.toml, compares its chain-id against --chain-id, and
 // panics on a mismatch before any app is constructed.
 //
-// What is NOT reachable here, and is stated rather than silently skipped: cpu-profile,
-// trace-store, the second GetConfig, grpc-only forcing GRPC.Enable, and the
-// api/grpc-web gating all live inside unexported startInProcess, which opens listeners
-// and starts a node. Pinning those needs an integration harness.
+// What is and is not reachable here is stated rather than silently skipped, and the line runs
+// between a value's resolution and its effect rather than between this file and startInProcess.
+//
+// Resolution is reachable, all of it. Every key startInProcess consumes is already in
+// serverCtx.Viper before it runs: start.go registers trace-store and cpu-profile as flags and
+// PreRunE binds the whole flag set into that viper, so startInProcess re-reads a populated
+// viper rather than resolving anything for the first time. The same is true of its GetConfig
+// call, which is the reader sei-cosmos/server/config pins directly. TestStartPreRunResolves*
+// below hold the three keys that only startInProcess reads.
+//
+// Effects are not reachable, and are deliberately not pinned. Whether the profiler starts,
+// whether the trace file is written, and whether grpc-only forcing GRPC.Enable changes which
+// listeners bind all need a running node. They are left out because the differential the
+// SeiConfigManager cutover rests on compares the two resolved channels after Apply: if the
+// resolution is identical, startInProcess reads identical values and its effects follow. Pinning
+// them again with a booted node re-derives what channel equality already gives.
+//
+// The repo's inprocess package is not the tool for it either, which is worth recording so nobody
+// reaches for it. It calls tmnode.New directly and injects its own AppOptions, so it never
+// executes startInProcess or the legacy resolver, and a green assertion through it would
+// characterise that harness rather than seid. It is also capped at one node boot per test binary,
+// because app.New wires process-global singletons that never re-initialise.
+
+// TestStartPreRunResolvesTheKeysOnlyStartInProcessReads pins what cpu-profile, trace-store and
+// grpc-only resolve to, which is the whole of the live-node domain that resolves at all.
+//
+// These three are the only keys startInProcess reads that no other section pins. Everything else it
+// touches is a field of the struct GetConfig produces, and that reader has a manifest of its own.
+// Before this, cpu-profile and trace-store appeared in no test and no record anywhere in the tree,
+// so a rename of either flag moved the read site with nothing reporting it.
+//
+// Driven through PreRunE rather than a booted node because that is where the values arrive. start.go
+// registers all three as flags on the start command and PreRunE binds the flag set into the viper
+// Apply populated, so startInProcess later reads this same viper. What a node would add is the
+// effect, not the value.
+//
+// Both directions per key. An absent flag has to resolve to the zero the read site branches on,
+// since cpu-profile and trace-store are each compared against "" to decide whether to enable
+// profiling or tracing at all, and a set flag has to arrive intact. A test that only checked the set
+// case would hold for a read that ignored the key and returned the operator's value from somewhere
+// else.
+func TestStartPreRunResolvesTheKeysOnlyStartInProcessReads(t *testing.T) {
+	configtest.Isolate(t)
+
+	t.Run("absent", func(t *testing.T) {
+		home := configtest.NewHome(t)
+		cmd, serverCtx, _ := newStartCmd(t, home, map[string]string{
+			server.FlagPruning: "nothing",
+		})
+		if err := cmd.PreRunE(cmd, nil); err != nil {
+			t.Fatalf("PreRunE: %v", err)
+		}
+
+		// The empty string is what start.go compares against to decide whether to profile or trace,
+		// so this is the value that keeps both features off rather than an incidental zero.
+		if got := serverCtx.Viper.GetString("cpu-profile"); got != "" {
+			t.Errorf("an absent cpu-profile resolved to %q, want empty. start.go enables the profiler "+
+				"for any non-empty value, so a non-empty resolution here starts profiling and writes "+
+				"to that path on a node whose operator never asked for it", got)
+		}
+		if got := serverCtx.Viper.GetString("trace-store"); got != "" {
+			t.Errorf("an absent trace-store resolved to %q, want empty. start.go opens a KVStore trace "+
+				"writer for any non-empty value, so a non-empty resolution here writes a trace file on "+
+				"a node whose operator never asked for one", got)
+		}
+		if serverCtx.Viper.GetBool("grpc-only") {
+			t.Error("an absent grpc-only resolved true, which would start the node with Tendermint " +
+				"disabled and GRPC.Enable forced on")
+		}
+	})
+
+	t.Run("set", func(t *testing.T) {
+		home := configtest.NewHome(t)
+		cmd, serverCtx, _ := newStartCmd(t, home, map[string]string{
+			server.FlagPruning: "nothing",
+			"cpu-profile":      "/var/lib/sei/cpu.pprof",
+			"trace-store":      "/var/lib/sei/trace.log",
+			"grpc-only":        "true",
+		})
+		if err := cmd.PreRunE(cmd, nil); err != nil {
+			t.Fatalf("PreRunE: %v", err)
+		}
+
+		for _, c := range []struct{ key, want string }{
+			{"cpu-profile", "/var/lib/sei/cpu.pprof"},
+			{"trace-store", "/var/lib/sei/trace.log"},
+		} {
+			if got := serverCtx.Viper.GetString(c.key); got != c.want {
+				t.Errorf("%s resolved to %q, want %q. startInProcess reads this viper, so the path a "+
+					"node profiles or traces to is whatever arrives here", c.key, got, c.want)
+			}
+		}
+		if !serverCtx.Viper.GetBool("grpc-only") {
+			t.Error("grpc-only set to true resolved false, so a node asked to run in gRPC-only mode " +
+				"would start Tendermint anyway")
+		}
+	})
+}
 
 // nodeEscapedMarker is a fixed token so CI triage can grep one string for this failure, and
 // nodeEscaped carries it from the row that detected it to TestMain.
