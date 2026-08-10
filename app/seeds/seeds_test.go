@@ -1,39 +1,51 @@
 package seeds
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app/genesis"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
-
-// addrRe matches CometBFT's `NodeID@host:port`, where NodeID is the 20-byte
-// address as 40 lowercase hex characters.
-var addrRe = regexp.MustCompile(`^[0-9a-f]{40}@[a-zA-Z0-9.-]+:[0-9]{1,5}$`)
 
 // A malformed NodeID is rejected at the secret-connection handshake, so the
 // seed silently never connects — no error, no metric (seed mode serves none).
 // This is the test that stops that shipping.
+//
+// The ID is held against types.NodeID.Validate rather than a local pattern, so
+// this cannot drift from CometBFT's actual definition. Uniqueness is checked
+// across the whole table, not per chain: the likeliest copy/paste error is a
+// pacific-1 entry pasted into the atlantic-2 block, which a per-chain check
+// would miss.
 func TestSeedAddressesAreWellFormed(t *testing.T) {
+	seenID := map[string]string{}
+	seenHost := map[string]string{}
+
 	for chainID, addrs := range chainSeeds {
 		if len(addrs) == 0 {
 			t.Errorf("%s: no seeds configured", chainID)
 		}
-		seen := make(map[string]bool, len(addrs))
 		for _, a := range addrs {
-			if !addrRe.MatchString(a) {
-				t.Errorf("%s: malformed seed address %q (want NodeID@host:port)", chainID, a)
+			id, hostPort, ok := strings.Cut(a, "@")
+			if !ok {
+				t.Errorf("%s: seed %q is not in NodeID@host:port form", chainID, a)
 				continue
 			}
-			id, hostPort, _ := strings.Cut(a, "@")
-			if seen[id] {
-				t.Errorf("%s: duplicate NodeID %s", chainID, id)
+			if err := types.NodeID(id).Validate(); err != nil {
+				t.Errorf("%s: seed %q has an invalid NodeID: %v", chainID, a, err)
+				continue
 			}
-			seen[id] = true
 			if !strings.HasSuffix(hostPort, ":26656") {
 				t.Errorf("%s: seed %q does not use the default P2P port 26656", chainID, a)
 			}
+			if prev, dup := seenID[id]; dup {
+				t.Errorf("NodeID %s appears in both %s and %s", id, prev, chainID)
+			}
+			seenID[id] = chainID
+			if prev, dup := seenHost[hostPort]; dup {
+				t.Errorf("host %s appears in both %s and %s", hostPort, prev, chainID)
+			}
+			seenHost[hostPort] = chainID
 		}
 	}
 }
@@ -42,7 +54,7 @@ func TestSeedAddressesAreWellFormed(t *testing.T) {
 // the entry is a typo that would silently never apply. The converse is not
 // asserted: arctic-1 is intentionally well-known for genesis but has no seeds.
 func TestSeedChainsAreWellKnown(t *testing.T) {
-	for _, chainID := range Chains() {
+	for chainID := range chainSeeds {
 		if !genesis.IsWellKnown(chainID) {
 			t.Errorf("chain %q has seeds but is not a well-known chain (typo?)", chainID)
 		}

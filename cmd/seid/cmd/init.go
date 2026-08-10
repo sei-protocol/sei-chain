@@ -120,14 +120,7 @@ For validator or seed nodes, pass --mode validator or --mode seed so RPC and P2P
 				panic("chain-id is required, please set using --chain-id")
 			}
 
-			// Public networks ship with the Sei Labs seeds pre-populated so a fresh
-			// node bootstraps peer discovery with no further configuration. An
-			// operator-supplied value always wins, and an unrecognised chain-id is a
-			// no-op. Seeds go in bootstrap-peers, not persistent-peers: they seed the
-			// address book via PEX and may then be dropped.
-			if tmConfig.P2P.BootstrapPeers == "" {
-				tmConfig.P2P.BootstrapPeers = seeds.BootstrapPeers(chainID)
-			}
+			applyDefaultBootstrapPeers(tmConfig, chainID)
 
 			// Get bip39 mnemonic
 			var mnemonic string
@@ -210,6 +203,30 @@ For validator or seed nodes, pass --mode validator or --mode seed so RPC and P2P
 	cmd.Flags().String(FlagMode, "full", "node mode: validator, full, seed, or archive")
 
 	return cmd
+}
+
+// applyDefaultBootstrapPeers fills bootstrap-peers with the Sei Labs seeds for
+// the public networks, so a freshly initialised node bootstraps peer discovery
+// with no operator configuration. An unrecognised chain-id leaves the field
+// untouched, so private and local chains are unaffected.
+//
+// Seeds belong in bootstrap-peers rather than persistent-peers: they seed the
+// address book via PEX and may then be dropped, whereas persistent-peers holds
+// connections open indefinitely.
+//
+// The empty check is defensive rather than load-bearing today. `seid init`
+// builds its config from tmcfg.DefaultConfig() and exposes no flag for
+// bootstrap-peers, so the field is always empty here — but the guard keeps the
+// behaviour correct if a future caller pre-populates it. Note that
+// `init --overwrite` rewrites config.toml wholesale, so an operator's
+// hand-edited bootstrap-peers is replaced by the seeds (previously it was
+// replaced by ""); without --overwrite, init refuses to touch an existing
+// config at all.
+func applyDefaultBootstrapPeers(cfg *tmcfg.Config, chainID string) {
+	if cfg.P2P.BootstrapPeers != "" {
+		return
+	}
+	cfg.P2P.BootstrapPeers = seeds.BootstrapPeers(chainID)
 }
 
 func checkConfigOverwrite(configPath string, overwrite bool) error {

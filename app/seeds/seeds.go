@@ -60,12 +60,3 @@ func ForChain(chainID string) []string {
 func BootstrapPeers(chainID string) string {
 	return strings.Join(ForChain(chainID), ",")
 }
-
-// Chains returns the chain-ids that ship with seeds. Order is unspecified.
-func Chains() []string {
-	out := make([]string, 0, len(chainSeeds))
-	for id := range chainSeeds {
-		out = append(out, id)
-	}
-	return out
-}
