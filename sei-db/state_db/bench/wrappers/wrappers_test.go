@@ -40,7 +40,7 @@ func (m *mockDBWrapper) Version() int64 {
 	return m.commitVersion
 }
 
-func (m *mockDBWrapper) LoadVersion(_ int64) error {
+func (m *mockDBWrapper) LoadLatest() error {
 	return nil
 }
 
@@ -192,15 +192,34 @@ func TestNoOpWrapperTracksVersionWithoutReadsOrWrites(t *testing.T) {
 	require.Equal(t, int64(9), version)
 }
 
-func TestNewDBImplFlatKVUsesDefaultConfigWhenNil(t *testing.T) {
-	wrapper, err := NewDBImpl(t.Context(), FlatKV, t.TempDir(), nil)
-	require.NoError(t, err)
-	require.NoError(t, wrapper.Close())
+// runBenchmark passes nil for every backend, so each of these opened with a panic before their
+// config was made optional.
+func TestNewDBImplUsesDefaultConfigWhenNil(t *testing.T) {
+	for _, dbType := range []DBType{MemIAVL, FlatKV, SSComposite, CompositeDual_SSComposite} {
+		t.Run(string(dbType), func(t *testing.T) {
+			wrapper, err := NewDBImpl(t.Context(), dbType, t.TempDir(), nil)
+			require.NoError(t, err)
+			require.NoError(t, wrapper.Close())
+		})
+	}
 }
 
-func TestNewDBImplFlatKVRejectsInvalidConfigType(t *testing.T) {
-	wrapper, err := NewDBImpl(t.Context(), FlatKV, t.TempDir(), "invalid")
+// The offload stream needs brokers that only the caller knows, so this backend has no default to
+// fall back on and must say so rather than panic.
+func TestNewDBImplSSHistoricalOffloadReportsMissingConfig(t *testing.T) {
+	wrapper, err := NewDBImpl(t.Context(), SSHistoricalOffload, t.TempDir(), nil)
 	require.Error(t, err)
 	require.Nil(t, wrapper)
-	require.ErrorContains(t, err, "invalid FlatKV config type string")
+	require.ErrorContains(t, err, "historical offload config is required")
+}
+
+func TestNewDBImplRejectsInvalidConfigType(t *testing.T) {
+	for _, dbType := range []DBType{MemIAVL, FlatKV, SSComposite, SSHistoricalOffload, CompositeDual_SSComposite} {
+		t.Run(string(dbType), func(t *testing.T) {
+			wrapper, err := NewDBImpl(t.Context(), dbType, t.TempDir(), "invalid")
+			require.Error(t, err)
+			require.Nil(t, wrapper)
+			require.ErrorContains(t, err, "invalid "+string(dbType)+" config type string")
+		})
+	}
 }

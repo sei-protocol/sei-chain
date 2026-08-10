@@ -406,7 +406,7 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 				require.NoError(b, err)
 				err = importSnapshot(scenario.SnapshotPath, importer)
 				require.NoError(b, err)
-				err = cs.LoadVersion(0)
+				err = cs.LoadLatest()
 				require.NoError(b, err)
 			}
 			changesetChannel := startChangesetGenerator(scenario)

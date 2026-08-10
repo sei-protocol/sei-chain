@@ -19,12 +19,14 @@ progressively the deeper you go. Existing package guides include:
 ## Configuration reads
 
 How a seid node resolves configuration is pinned by the characterization suite in
-`testutil/configtest`, so adding a configuration key, renaming one, changing a
-default, or changing how a value is cast will fail that suite. The failure is the
-review prompt: record the new behavior so the old and new value land in a diff,
+`testutil/configtest`. Renaming a key the suite covers, changing a default, or changing
+how a value is cast will fail that suite. **Adding** a key does not always: the completeness
+check compares struct fields, so a second key landing in a field some row already
+claims is uncaught and the row has to be written by hand. Where there is a failure it
+is the review prompt: record the new behavior so the old and new value land in a diff,
 rather than skipping the row or widening the assertion until it passes. Read
 [`testutil/configtest/AGENTS.md`](testutil/configtest/AGENTS.md) before changing a
-configuration read.
+configuration read, and before adding one.
 
 ## Code style
 
@@ -48,6 +50,40 @@ Verify the whole tree (each prints nothing when everything is clean):
 gofmt -s -l .
 goimports -l .
 ```
+
+## Structural corrections
+
+When a defect is found, the change that closes it has to leave the code readable as a
+sequence of named steps a new engineer can follow top to bottom without someone
+narrating it. Three rules make that checkable, and they are what review looks for.
+
+**Guard at the choke point, never at each caller.** A guard repeated at every call
+site is a convention the next caller can forget, where a guard at the single function
+every path passes through is an invariant they cannot. When there is no such function,
+that is evidence the abstraction is wrong, so say so rather than distributing the
+guard.
+
+*Worked example, from the configuration record refusal.* The refusal to rewrite a record
+on CI lives inside `writeGolden`, the one function every record write passes through, so a
+record writer added later is covered without anyone having to remember it. One caller keeps
+a guard of its own, `requireKeyNameRecord`, and the reason is the distinction to copy: it
+suppresses a comparison rather than performing a write, and a suppressed comparison reads
+as a pass.
+
+**The step name carries the *what*, and the doc comment carries the *why*.** A long
+comment sitting inline in a flow means the step was never named. Extract the step and
+move the rationale to its doc comment. Relocating a load-bearing invariant is the
+move, never deleting one to tidy up.
+
+**Behaviour never changes in a readability refactor,** and the proof is the existing
+tests passing *unchanged*. A refactor that requires editing a test is not a refactor.
+
+After restructuring, re-read the result top to bottom as that sequence of named steps, and
+check each step against the shapes the surrounding package already uses rather than a pattern
+introduced for this one change. None of this is checked by a linter, which is why it is
+written down. The failure it prevents is a codebase where found problems accumulated fixes
+instead of corrections, and that is indistinguishable from a healthy one on any green test
+run.
 
 ## Lint, build & test
 

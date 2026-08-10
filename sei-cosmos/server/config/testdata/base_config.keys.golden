@@ -1,0 +1,13 @@
+"minimum-gas-prices"
+"inter-block-cache"
+"pruning"
+"pruning-keep-recent"
+"pruning-interval"
+"halt-height"
+"halt-time"
+"index-events"
+"min-retain-blocks"
+"compaction-interval"
+"concurrency-workers"
+"occ-enabled"
+# keys with a target of their own

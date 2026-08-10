@@ -486,9 +486,10 @@ func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
 //
 // Per evmrpc/README.md ("Tracing Failure Management Endpoints"), the target
 // is txs "included in blocks but not executed" — pre-state-check failures
-// (nonce mismatch, insufficient funds, etc.) and chain-generated synthetic
-// txs. Reverts, OOG, and other in-VM failures all ran and produced traces;
-// they stay in.
+// (nonce mismatch, insufficient funds, etc.), chain-generated synthetic
+// txs, and state-transition failures that return before Create/Call (e.g.
+// EIP-7623 floor data gas). Reverts, OOG, and other in-VM failures all ran
+// and produced traces; they stay in.
 //
 // Discriminator: receipts are written in two paths. WriteReceipt
 // (x/evm/keeper/receipt.go) covers executed txs and sets EffectiveGasPrice
@@ -497,7 +498,8 @@ func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
 // (x/evm/keeper/abci.go) writes EffectiveGasPrice=0 and GasUsed=0 for any
 // nonce-bumping ante failure — regardless of which check failed (insufficient
 // funds, fee, mempool admission, etc.). Both fields zero is the signal that
-// the tx never reached the VM.
+// the tx never reached the VM. WriteReceipt may also set PreExecutionFailure
+// when Execute returned before Create/Call with non-zero gas/price.
 //
 // (This does NOT use filterTransactions's isReceiptFromAnteError. That
 // helper's post-v5.8.0 branch is intentionally narrow — PR #2343's
@@ -508,6 +510,7 @@ func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
 //   - GetReceipt error                          → no receipt yet           → exclude
 //   - TxType == ShellEVMTxType (math.MaxUint32) → chain-generated synthetic → exclude
 //   - EffectiveGasPrice==0 && GasUsed==0        → ante-deferred stub        → exclude
+//   - PreExecutionFailure                       → no Create/Call            → exclude
 //   - anything else (success / revert / OOG)    → executed, has a trace    → include
 func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
 	if api.isPanicCache != nil {

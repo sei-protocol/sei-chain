@@ -1,6 +1,7 @@
 package gaskv
 
 import (
+	"context"
 	"io"
 	"time"
 
@@ -95,7 +96,12 @@ func (gs *Store) Set(key []byte, value []byte) {
 
 // Implements KVStore.
 func (gs *Store) Has(key []byte) bool {
-	defer telemetry.MeasureSince(time.Now(), "store", "gaskv", "has")
+	opStart := time.Now()
+	defer func() {
+		gaskvMetrics.hasDuration.Record(context.Background(), time.Since(opStart).Seconds())
+		// TODO(PLT-353): remove once store_gaskv_has_duration verified
+		telemetry.MeasureSince(opStart, "store", "gaskv", "has")
+	}()
 	gs.gasMeter.ConsumeGas(gs.gasConfig.HasCost, types.GasHasDesc)
 	start := traceStart(gs.tracer)
 	res := gs.parent.Has(key)
@@ -107,7 +113,12 @@ func (gs *Store) Has(key []byte) bool {
 
 // Implements KVStore.
 func (gs *Store) Delete(key []byte) {
-	defer telemetry.MeasureSince(time.Now(), "store", "gaskv", "delete")
+	opStart := time.Now()
+	defer func() {
+		gaskvMetrics.deleteDuration.Record(context.Background(), time.Since(opStart).Seconds())
+		// TODO(PLT-353): remove once store_gaskv_delete_duration verified
+		telemetry.MeasureSince(opStart, "store", "gaskv", "delete")
+	}()
 	// charge gas to prevent certain attack vectors even though space is being freed
 	gs.gasMeter.ConsumeGas(gs.gasConfig.DeleteCost, types.GasDeleteDesc)
 	start := traceStart(gs.tracer)

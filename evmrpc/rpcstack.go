@@ -49,13 +49,16 @@ type HTTPConfig struct {
 	SeiLegacyAllowlist map[string]struct{}
 	prefix             string // path prefix on which to mount http handler
 	RPCEndpointConfig
+	// rateLimitGate applies per-IP JSON-RPC rate limiting when non-nil and enabled.
+	rateLimitGate *RateLimitGate
 }
 
 // WsConfig is the JSON-RPC/Websocket configuration
 type WsConfig struct {
-	Origins []string
-	Modules []string
-	prefix  string // path prefix on which to mount ws handler
+	Origins            []string
+	Modules            []string
+	prefix             string // path prefix on which to mount ws handler
+	wsAdmissionTimeout time.Duration
 	RPCEndpointConfig
 }
 
@@ -68,6 +71,8 @@ type RPCEndpointConfig struct {
 	maxRequestBodyBytes int64
 	// maxConcurrentRequestBytes bounds total request bytes admitted concurrently; 0 disables.
 	maxConcurrentRequestBytes int64
+	// bodyReadIdleTimeout caps idle time between body chunks; 0 disables.
+	bodyReadIdleTimeout time.Duration
 }
 
 type rpcHandler struct {
@@ -344,15 +349,26 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 		srv.RegisterDenyList(method)
 	}
 	h.HTTPConfig = config
-	base := NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret)
+	// JWT runs before the byte limiter so unauthenticated clients get 401 without
+	// touching the global body budget. The inner stack omits JWT when configured here.
+	base := NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, nil)
 
 	// maxRequestBodyBytes feeds all three body-cap layers (requestSizeLimiter, the gate, and
 	// srv.SetHTTPBodyLimit above) so they agree; change the cap via the config value, not one layer.
+	// requestSizeLimiter is outermost (after JWT) so declared oversize bodies are rejected from
+	// Content-Length before the rate limiter reads the full body (bounded by max_request_body_bytes).
 	handler := newRequestSizeLimiter(
-		wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
+		newRateLimitMiddleware(
+			wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
+			config.rateLimitGate,
+		),
 		config.maxRequestBodyBytes,
 		config.maxConcurrentRequestBytes,
+		config.bodyReadIdleTimeout,
 	)
+	if len(config.JwtSecret) != 0 {
+		handler = newJWTHandler(config.JwtSecret, handler)
+	}
 	h.httpHandler.Store(&rpcHandler{
 		Handler: handler,
 		server:  srv,
@@ -381,7 +397,17 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
-	srv.SetReadLimits(config.readLimit)
+	readLimit := effectiveMaxRequestBodyBytes(config.readLimit)
+	srv.SetReadLimits(readLimit)
+	// maxConcurrentRequestBytes is passed through raw; rpc.Server.recomputeWSConcurrentBudget
+	// raises it to readLimit when smaller, matching
+	// newRequestSizeLimiter's max(budget, maxBody) rule on the HTTP protocol.
+	srv.SetWSConcurrentRequestBytes(config.maxConcurrentRequestBytes)
+	srv.SetWSAdmissionTimeout(config.wsAdmissionTimeout)
+	srv.SetWSAdmissionEventHook(func(reason string) {
+		// Hook carries no request context, and the fork's own connCtx is context.Background() too.
+		recordWSAdmissionRejected(context.Background(), reason)
+	})
 	logger.Info("Registering apis for evm websocket")
 	if err := RegisterApis(apis, config.Modules, srv); err != nil {
 		return err

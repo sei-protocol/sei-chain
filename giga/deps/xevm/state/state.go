@@ -169,7 +169,8 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 		}
 	}
 
-	// Truncate the journal to remove reverted entries
+	// Truncate the journal to remove reverted entries. codeCache mutations are
+	// journaled per address (codeCacheChange), so unrelated warmed entries survive.
 	if watermarkIndex >= 0 {
 		s.journal = s.journal[:watermarkIndex]
 	}
@@ -218,6 +219,10 @@ func (s *DBImpl) clearAccountCodeAndNonce(acc common.Address) {
 	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
 	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
 	deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
+	s.journalCodeCacheMutation(acc)
+	if s.codeCache != nil {
+		delete(s.codeCache, acc)
+	}
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {

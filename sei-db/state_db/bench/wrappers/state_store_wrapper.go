@@ -58,7 +58,7 @@ func (s *stateStoreWrapper) Version() int64 {
 	return s.version.Load()
 }
 
-func (s *stateStoreWrapper) LoadVersion(_ int64) error {
+func (s *stateStoreWrapper) LoadLatest() error {
 	return nil
 }
 

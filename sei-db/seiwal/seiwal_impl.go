@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/zbiljic/go-filelock"
-	"go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/sei-protocol/seilog"
@@ -86,8 +85,9 @@ type walImpl struct {
 	// The configuration this WAL was opened with. Read-only after construction.
 	config *Config
 
-	// The measurement option tagging this instance's metrics with its name. Read-only after construction.
-	metricAttrs metric.MeasurementOption
+	// Records this instance's measurements, or drops them when its metrics are disabled. Read-only after
+	// construction.
+	metrics walMetrics
 
 	// Callers funnel framed records and control messages through writerChan as a single ordered stream to
 	// the writer goroutine.
@@ -223,7 +223,7 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 	w := &walImpl{
 		config:       config,
 		fileLock:     fileLock,
-		metricAttrs:  walNameAttr(config.Name),
+		metrics:      newWALMetrics(config, "writer"),
 		writerChan:   make(chan any, config.WriteBufferSize),
 		ctx:          ctx,
 		cancel:       cancel,
@@ -245,7 +245,7 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 	w.wg.Add(1)
 	go w.writerLoop()
 
-	if config.MetricsSampleInterval > 0 {
+	if !config.DisableMetrics && config.MetricsSampleInterval > 0 {
 		w.wg.Add(1)
 		go w.sampleQueueDepth(config.MetricsSampleInterval)
 	}
@@ -259,7 +259,6 @@ func newWAL(config *Config) (WAL[[]byte], error) {
 // or a fatal shutdown cancels ctx.
 func (w *walImpl) sampleQueueDepth(interval time.Duration) {
 	defer w.wg.Done()
-	attrs := queueDepthAttrs(w.config.Name, "writer")
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -269,7 +268,7 @@ func (w *walImpl) sampleQueueDepth(interval time.Duration) {
 		case <-w.samplerStop:
 			return
 		case <-ticker.C:
-			walQueueDepth.Record(w.ctx, int64(len(w.writerChan)), attrs)
+			w.metrics.recordQueueDepth(w.ctx, len(w.writerChan))
 		}
 	}
 }
@@ -498,8 +497,7 @@ func (w *walImpl) appendRecord(m dataToBeWritten) error {
 	}
 	w.lastWrittenIndex = m.index
 	w.hasWritten = true
-	walBytesWritten.Add(w.ctx, int64(len(m.record)), w.metricAttrs)
-	walRecordsWritten.Add(w.ctx, 1, w.metricAttrs)
+	w.metrics.recordAppend(w.ctx, len(m.record))
 
 	if w.mutableFile.size >= uint64(w.config.TargetFileSize) {
 		if err := w.rotate(); err != nil {
@@ -521,7 +519,7 @@ func (w *walImpl) rotate() error {
 		return fmt.Errorf("failed to seal WAL file during rotation: %w", err)
 	}
 	w.sealedFiles.PushBack(&sealedFileInfo{fileSeq: fileSeq, name: sealedName, firstIndex: first, lastIndex: last})
-	walFilesSealed.Add(w.ctx, 1, w.metricAttrs)
+	w.metrics.recordFileSealed(w.ctx)
 
 	mutable, err := newWalFile(w.config.Path, w.nextFileSeq)
 	if err != nil {
@@ -556,7 +554,7 @@ func (w *walImpl) pruneSealedFiles(pruneThrough uint64) error {
 			return fmt.Errorf("failed to fsync directory after pruning %s: %w", path, err)
 		}
 		w.sealedFiles.PopFront()
-		walFilesPruned.Add(w.ctx, 1, w.metricAttrs)
+		w.metrics.recordFilePruned(w.ctx)
 	}
 	return nil
 }

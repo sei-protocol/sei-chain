@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -368,16 +369,50 @@ func TestParseConfig(t *testing.T) {
 	require.Equal(t, DefaultMinGasPrices, cfg.MinGasPrices)
 }
 
+// TestSetConfigTemplate installs a custom template into the package-global configTemplate
+// that every row rendering app.toml reads, so it puts the default back. Without that, this
+// row decides what the rest of the package renders, and the package passes only in the one
+// order a single -count=1 run happens to take.
+//
+// The restore is asserted rather than only performed. A t.Cleanup on its own is not testable
+// here: seedViperWithDefaultConfig's callers both sit above this row, CI runs go test with
+// neither -count nor -shuffle, and nothing below reads the template — so deleting the restore
+// keeps the package green and the protection is invisible. Rendering the default back inside
+// the body is what makes its absence a failure in the same run.
+//
+// It is also why no row in this package may call t.Parallel: configTemplate is a
+// package-global, and a parallel row rendering app.toml while this one holds the custom
+// template would read the wrong one.
 func TestSetConfigTemplate(t *testing.T) {
 	customTemplate := `# Custom Template
 [telemetry]
 enabled = {{ .Telemetry.Enabled }}
 `
 
+	original := configTemplate
+	// Kept for the panic path: SetConfigTemplate panics on a template that will not parse,
+	// and the explicit restore below is then never reached.
+	t.Cleanup(func() { configTemplate = original })
+
 	// Should not panic
 	require.NotPanics(t, func() {
 		SetConfigTemplate(customTemplate)
 	})
+
+	// And the handed template is the one installed. Asserting only that the call survived
+	// passes for a setter that parses and installs nothing, and this setter is how seid
+	// init and InterceptConfigsPreRunHandler decide what app.toml says.
+	var buf bytes.Buffer
+	require.NoError(t, configTemplate.Execute(&buf, DefaultConfig()))
+	firstLine, _, _ := strings.Cut(buf.String(), "\n")
+	require.Equal(t, "# Custom Template", firstLine)
+
+	configTemplate = original
+	var restored bytes.Buffer
+	require.NoError(t, configTemplate.Execute(&restored, DefaultConfig()))
+	require.Contains(t, restored.String(), "minimum-gas-prices",
+		"the default template must be back before this row returns, or every later row renders "+
+			"the one-section template installed above")
 }
 
 func TestGetConcurrencyWorkers(t *testing.T) {

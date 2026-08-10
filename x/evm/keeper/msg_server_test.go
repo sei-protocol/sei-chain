@@ -232,10 +232,19 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	_, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
-	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "intrinsic gas too low")                                               // this can only happen in test because we didn't call CheckTx in this test
+	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	// Intrinsic gas too low is a post-admission applyErr; it follows the VmError
+	// path (nil msg err, full gas charged, failed receipt) so ProcessBlock
+	// still counts it toward dynamic base fee. This only happens in tests /
+	// if CheckTx was skipped.
+	require.Nil(t, err)
+	require.Contains(t, res.VmError, "intrinsic gas too low")
+	require.Equal(t, uint64(1000), res.GasUsed)
 	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, evmAddr[:], k.GetBaseDenom(ctx)).Amount) // fee should be charged
+	require.NoError(t, k.FlushTransientReceipts(ctx))
+	receipt := testkeeper.WaitForReceipt(t, k, ctx, common.HexToHash(res.Hash))
+	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
+	require.True(t, receipt.PreExecutionFailure)
 }
 
 func TestEVMDynamicFeeTransaction(t *testing.T) {
