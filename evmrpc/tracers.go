@@ -26,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
@@ -101,44 +102,59 @@ func (api *DebugAPI) prepareTraceContext(ctx context.Context) (context.Context, 
 	}, nil
 }
 
-func (api *DebugAPI) guardHistoricalDebugTraceByTxHash(ctx context.Context, endpoint string, hash common.Hash) error {
-	if api.keeper == nil {
-		return nil
-	}
-	receipt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
-	if err != nil || receipt == nil {
-		return nil
-	}
-	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, int64(receipt.BlockNumber)) //nolint:gosec
-}
-
-func (api *DebugAPI) guardHistoricalDebugTraceByNumber(ctx context.Context, endpoint string, number rpc.BlockNumber) error {
-	height, err := api.resolveDebugTraceBlockNumber(ctx, number)
-	if err != nil {
-		return err
+func (api *DebugAPI) guardTraceRequest(ctx context.Context, endpoint string, height int64) error {
+	if api.backend != nil && api.backend.watermarks != nil {
+		if err := api.backend.watermarks.EnsureTraceHeightAvailable(ctx, height); err != nil {
+			return err
+		}
 	}
 	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, height)
 }
 
-func (api *DebugAPI) guardHistoricalDebugTraceByHash(ctx context.Context, endpoint string, hash common.Hash) error {
-	if api.backend == nil || api.tmClient == nil {
-		return nil
-	}
-	block, err := blockByHashRespectingWatermarks(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
-	if err != nil || block == nil || block.Block == nil {
-		return nil
-	}
-	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, block.Block.Height)
-}
-
-func (api *DebugAPI) guardHistoricalDebugTraceByNumberOrHash(ctx context.Context, endpoint string, blockNrOrHash rpc.BlockNumberOrHash) error {
-	if number, ok := blockNrOrHash.Number(); ok {
-		return api.guardHistoricalDebugTraceByNumber(ctx, endpoint, number)
-	}
-	if hash, ok := blockNrOrHash.Hash(); ok {
-		return api.guardHistoricalDebugTraceByHash(ctx, endpoint, hash)
+func (api *DebugAPI) guardTraceRequestByTxHash(ctx context.Context, endpoint string, hash common.Hash) error {
+	if api.keeper != nil {
+		rcpt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
+		if err != nil {
+			if errors.Is(err, receipt.ErrReceiptPruned) {
+				return err
+			}
+		} else if rcpt != nil {
+			return api.guardTraceRequest(ctx, endpoint, int64(rcpt.BlockNumber)) //nolint:gosec
+		}
 	}
 	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, api.ctxProvider(LatestCtxHeight).BlockHeight())
+}
+
+func (api *DebugAPI) guardTraceRequestByNumber(ctx context.Context, endpoint string, number rpc.BlockNumber) error {
+	height, err := api.resolveDebugTraceBlockNumber(ctx, number)
+	if err != nil {
+		return err
+	}
+	return api.guardTraceRequest(ctx, endpoint, height)
+}
+
+func (api *DebugAPI) guardTraceRequestByHash(ctx context.Context, endpoint string, hash common.Hash) error {
+	if api.backend == nil || api.tmClient == nil {
+		return api.guardTraceRequest(ctx, endpoint, api.ctxProvider(LatestCtxHeight).BlockHeight())
+	}
+	block, err := blockByHashRespectingWatermarks(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
+	if err != nil {
+		return err
+	}
+	if block == nil || block.Block == nil {
+		return fmt.Errorf("block %s not found", hash.Hex())
+	}
+	return api.guardTraceRequest(ctx, endpoint, block.Block.Height)
+}
+
+func (api *DebugAPI) guardTraceRequestByNumberOrHash(ctx context.Context, endpoint string, blockNrOrHash rpc.BlockNumberOrHash) error {
+	if number, ok := blockNrOrHash.Number(); ok {
+		return api.guardTraceRequestByNumber(ctx, endpoint, number)
+	}
+	if hash, ok := blockNrOrHash.Hash(); ok {
+		return api.guardTraceRequestByHash(ctx, endpoint, hash)
+	}
+	return api.guardTraceRequest(ctx, endpoint, api.ctxProvider(LatestCtxHeight).BlockHeight())
 }
 
 func (api *DebugAPI) resolveDebugTraceBlockNumber(ctx context.Context, number rpc.BlockNumber) (int64, error) {
@@ -331,7 +347,7 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	if returnErr = api.validateTraceTracer(config); returnErr != nil {
 		return nil, returnErr
 	}
-	if returnErr = api.guardHistoricalDebugTraceByTxHash(ctx, "debug_traceTransaction", hash); returnErr != nil {
+	if returnErr = api.guardTraceRequestByTxHash(ctx, "debug_traceTransaction", hash); returnErr != nil {
 		return nil, returnErr
 	}
 
@@ -374,7 +390,7 @@ func (api *DebugAPI) tryTraceCache(hash common.Hash, config *tracers.TraceConfig
 
 // blockTraceCacheGet assembles a per-tx hit; returns (nil, false) if any miss.
 func blockTraceCacheGet(cache *keeper.TraceDB, height int64, txHashes []common.Hash, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
-	if cache == nil {
+	if cache == nil || len(txHashes) == 0 {
 		return nil, false
 	}
 	name := bakeableTracerName(config)
@@ -544,7 +560,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	if returnErr = api.validateTraceTracer(config); returnErr != nil {
 		return nil, returnErr
 	}
-	if returnErr = api.guardHistoricalDebugTraceByNumber(ctx, "debug_traceBlockByNumber", number); returnErr != nil {
+	if returnErr = api.guardTraceRequestByNumber(ctx, "debug_traceBlockByNumber", number); returnErr != nil {
 		return nil, returnErr
 	}
 
@@ -579,16 +595,15 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	if returnErr = api.validateTraceTracer(config); returnErr != nil {
 		return nil, returnErr
 	}
+	if returnErr = api.guardTraceRequestByHash(ctx, "debug_traceBlockByHash", hash); returnErr != nil {
+		return nil, returnErr
+	}
 
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
-
-	if returnErr = api.guardHistoricalDebugTraceByHash(ctx, "debug_traceBlockByHash", hash); returnErr != nil {
-		return nil, returnErr
-	}
 
 	if cached, ok := api.tryBlockTraceCacheByHash(ctx, hash, config); ok {
 		return cached, nil
@@ -618,16 +633,15 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 	if returnErr = api.validateTraceTracer(&config.TraceConfig); returnErr != nil {
 		return nil, returnErr
 	}
+	if returnErr = api.guardTraceRequestByNumberOrHash(ctx, "debug_traceCall", blockNrOrHash); returnErr != nil {
+		return nil, returnErr
+	}
 
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
-
-	if returnErr = api.guardHistoricalDebugTraceByNumberOrHash(ctx, "debug_traceCall", blockNrOrHash); returnErr != nil {
-		return nil, returnErr
-	}
 
 	if returnErr = validateStateOverrides(config.StateOverrides, api.backend.MaxStateOverrideAccounts(), api.backend.MaxStateOverrideSlots()); returnErr != nil {
 		return nil, returnErr
@@ -683,7 +697,7 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 			returnErr = fmt.Errorf("panic occurred: %v, could not trace tx state: %s", r, hash.Hex())
 		}
 	}()
-	if returnErr = api.guardHistoricalDebugTraceByTxHash(ctx, "debug_traceStateAccess", hash); returnErr != nil {
+	if returnErr = api.guardTraceRequestByTxHash(ctx, "debug_traceStateAccess", hash); returnErr != nil {
 		return nil, returnErr
 	}
 

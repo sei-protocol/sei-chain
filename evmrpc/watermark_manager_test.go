@@ -134,6 +134,48 @@ func TestEnsureReceiptHeightAvailable(t *testing.T) {
 	})
 }
 
+func TestEnsureStateHeightAvailable(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 1}},
+	}
+
+	t.Run("pruned state height returns error", func(t *testing.T) {
+		stateStore := &fakeStateStore{latest: 200, earliest: 150}
+		wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(200), stateStore, &fakeReceiptStore{latest: 200})
+		require.ErrorContains(t, wm.EnsureStateHeightAvailable(t.Context(), 100), "has been pruned")
+	})
+
+	t.Run("height within state retention succeeds", func(t *testing.T) {
+		stateStore := &fakeStateStore{latest: 200, earliest: 150}
+		wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(200), stateStore, &fakeReceiptStore{latest: 200})
+		require.NoError(t, wm.EnsureStateHeightAvailable(t.Context(), 150))
+	})
+
+	t.Run("nil state store uses latest as earliest from Watermarks", func(t *testing.T) {
+		wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(200), nil, &fakeReceiptStore{latest: 200})
+		require.NoError(t, wm.EnsureStateHeightAvailable(t.Context(), 200))
+		require.ErrorContains(t, wm.EnsureStateHeightAvailable(t.Context(), 199), "has been pruned")
+	})
+}
+
+func TestEnsureTraceHeightAvailable(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 1}},
+	}
+	stateStore := &fakeStateStore{latest: 200, earliest: 1}
+	rs := &fakeReceiptStore{latest: 200, earliest: 1}
+	wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(200), stateStore, rs)
+
+	require.NoError(t, wm.EnsureTraceHeightAvailable(t.Context(), 175))
+
+	rs.earliest = 150
+	require.ErrorContains(t, wm.EnsureTraceHeightAvailable(t.Context(), 100), "receipts have been pruned")
+
+	rs.earliest = 1
+	stateStore.earliest = 150
+	require.ErrorContains(t, wm.EnsureTraceHeightAvailable(t.Context(), 100), "has been pruned")
+}
+
 func TestLatestAndEarliestHeightHelpers(t *testing.T) {
 	tmClient := &fakeTMClient{
 		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 22, EarliestBlockHeight: 11}},

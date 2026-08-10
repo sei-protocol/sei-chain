@@ -229,6 +229,9 @@ func filterTransactions(
 					continue
 				}
 				ethtx, _ := m.AsTransaction()
+				if ethtx == nil {
+					continue
+				}
 				hash := ethtx.Hash()
 				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
 				receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)

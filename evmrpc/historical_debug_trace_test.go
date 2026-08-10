@@ -3,8 +3,10 @@ package evmrpc
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rpc"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 )
@@ -93,7 +95,7 @@ func TestGuardHistoricalDebugTraceHeight(t *testing.T) {
 	require.Contains(t, err.Error(), "block number 9 is beyond max lookback of 0")
 }
 
-func TestGuardHistoricalDebugTraceByHashUsesTendermintHeight(t *testing.T) {
+func TestGuardTraceRequestByHashUsesTendermintHeight(t *testing.T) {
 	latestHeight := int64(10)
 	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
 	tmClient := newHeightTestClient(8, 1, latestHeight)
@@ -107,10 +109,84 @@ func TestGuardHistoricalDebugTraceByHashUsesTendermintHeight(t *testing.T) {
 		},
 	}
 
-	err := api.guardHistoricalDebugTraceByHash(context.Background(), "debug_traceBlockByHash", common.HexToHash(highBlockHashHex))
+	err := api.guardTraceRequestByHash(t.Context(), "debug_traceBlockByHash", common.HexToHash(highBlockHashHex))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "block number 8 is beyond max lookback of 1")
 
-	err = api.guardHistoricalDebugTraceByHash(context.Background(), "debug_traceCall", common.HexToHash("0x1"))
+	err = api.guardTraceRequestByHash(t.Context(), "debug_traceCall", common.HexToHash("0x1"))
 	require.NoError(t, err)
+}
+
+func TestEnsureTraceHeightAvailableReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	wm := NewWatermarkManager(client, watermarkTestCtxProvider(200), nil, rs)
+
+	err := wm.EnsureTraceHeightAvailable(t.Context(), 100)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
+func TestEnsureTraceHeightAvailableStatePruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	stateStore := &fakeStateStore{latest: 200, earliest: 150}
+	rs := &fakeReceiptStore{latest: 200, earliest: 1}
+	wm := NewWatermarkManager(client, watermarkTestCtxProvider(200), stateStore, rs)
+
+	err := wm.EnsureTraceHeightAvailable(t.Context(), 100)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "has been pruned")
+}
+
+func TestTraceReceiptFloorBoundary(t *testing.T) {
+	t.Parallel()
+
+	// Receipt retention starts at 150; block 149 still exists in Tendermint but
+	// its receipts are gone. Trace guard applies at the requested height only —
+	// parent fetches at height-1 for state replay must not re-run it.
+	parentHeight := int64(149)
+	receiptFloor := int64(150)
+	latestHeight := int64(200)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	tmClient := newHeightTestClient(parentHeight, 1, latestHeight)
+	rs := &fakeReceiptStore{latest: latestHeight, earliest: receiptFloor}
+	stateStore := &fakeStateStore{latest: latestHeight, earliest: 1}
+	wm := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, stateStore, rs)
+
+	require.ErrorContains(t, wm.EnsureTraceHeightAvailable(t.Context(), parentHeight), "receipts have been pruned")
+	require.NoError(t, wm.EnsureTraceHeightAvailable(t.Context(), receiptFloor))
+}
+
+func TestTraceBlockByNumberReceiptPrunedBeforeSemaphore(t *testing.T) {
+	t.Parallel()
+
+	prunedHeight := int64(100)
+	latestHeight := int64(200)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	tmClient := newHeightTestClient(prunedHeight, 1, latestHeight)
+	rs := &fakeReceiptStore{latest: latestHeight, earliest: 150}
+	api := &DebugAPI{
+		tmClient:           tmClient,
+		ctxProvider:        func(int64) sdk.Context { return latestCtx },
+		connectionType:     ConnectionTypeHTTP,
+		maxBlockLookback:   -1,
+		traceCallSemaphore: make(chan struct{}, 1),
+		traceTimeout:       time.Second,
+		backend: &Backend{
+			tmClient:   tmClient,
+			watermarks: NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, rs),
+		},
+	}
+
+	api.traceCallSemaphore <- struct{}{}
+	defer func() { <-api.traceCallSemaphore }()
+
+	_, err := api.TraceBlockByNumber(t.Context(), rpc.BlockNumber(prunedHeight), nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
+	require.NotErrorIs(t, err, errTraceConcurrencyLimit)
 }

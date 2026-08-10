@@ -184,6 +184,28 @@ func (m *WatermarkManager) EnsureReceiptHeightAvailable(height int64) error {
 	return nil
 }
 
+// EnsureStateHeightAvailable verifies that historical state for the given block
+// height has not been pruned from the state store.
+func (m *WatermarkManager) EnsureStateHeightAvailable(ctx context.Context, height int64) error {
+	_, stateEarliest, latest, err := m.Watermarks(ctx)
+	if err != nil {
+		return err
+	}
+	return ensureWithinWatermarks(height, stateEarliest, latest)
+}
+
+// EnsureTraceHeightAvailable verifies block, receipt, and state availability
+// for debug_trace* endpoints. All three stores must retain the height.
+func (m *WatermarkManager) EnsureTraceHeightAvailable(ctx context.Context, height int64) error {
+	if err := m.EnsureBlockHeightAvailable(ctx, height); err != nil {
+		return err
+	}
+	if err := m.EnsureReceiptHeightAvailable(height); err != nil {
+		return err
+	}
+	return m.EnsureStateHeightAvailable(ctx, height)
+}
+
 func ensureWithinWatermarks(height, earliest, latest int64) error {
 	if height > latest {
 		return fmt.Errorf("requested height %d is not yet available; safe latest is %d: %w", height, latest, ErrBlockHeightNotYetAvailable)

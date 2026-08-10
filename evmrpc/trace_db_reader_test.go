@@ -82,10 +82,10 @@ func TestBlockTraceCacheGet(t *testing.T) {
 		require.Nil(t, got)
 	})
 
-	t.Run("empty block -> empty hit", func(t *testing.T) {
+	t.Run("empty tx list is not a cache hit", func(t *testing.T) {
 		got, ok := blockTraceCacheGet(c, 5, []common.Hash{}, cfg)
-		require.True(t, ok)
-		require.Empty(t, got)
+		require.False(t, ok, "empty tx list must not report cache hit")
+		require.Nil(t, got)
 	})
 }
 

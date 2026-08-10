@@ -213,6 +213,9 @@ func (s *littReceiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*typ
 	if err == nil {
 		return receipt, nil
 	}
+	if errors.Is(err, ErrReceiptPruned) {
+		return nil, err
+	}
 	if !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
@@ -242,7 +245,9 @@ func (s *littReceiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash
 	// Enforce the KeepRecent floor: litt expires values lazily via TTL, so a
 	// pruned block may still be physically present.
 	if s.belowRetentionFloor(r.BlockNumber) {
-		return nil, ErrNotFound
+		earliest := s.earliestVersion.Load()
+		return nil, fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d: %w",
+			r.BlockNumber, earliest, ErrReceiptPruned)
 	}
 	return &r, nil
 }
