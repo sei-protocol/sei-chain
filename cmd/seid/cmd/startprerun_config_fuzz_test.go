@@ -130,6 +130,24 @@ func TestStartPreRunResolvesTheKeysOnlyStartInProcessReads(t *testing.T) {
 	})
 }
 
+// startFlagKeysWithTargetsOfTheirOwn are the start command's own flags that startInProcess reads,
+// recorded for their operator-facing spelling.
+//
+// A KeyName rather than a KeySpec, because none of these resolves into a config struct a row could
+// name a Path in: startInProcess reads them straight off the viper and branches. The record is what
+// puts the spelling in a checked-in file, so a rename lands in a diff rather than only reddening the
+// assertions above.
+var startFlagKeysWithTargetsOfTheirOwn = []configtest.KeyName{
+	"cpu-profile", // TestStartPreRunResolvesTheKeysOnlyStartInProcessReads
+	"trace-store", // same
+	"grpc-only",   // same, plus TestStartPreRunRebindsFlagsIntoTheApplyViper
+}
+
+// TestStartFlagKeyNamesMatchTheRecordedNames pins the spelling of the three keys above.
+func TestStartFlagKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "start_flags", nil, startFlagKeysWithTargetsOfTheirOwn...)
+}
+
 // nodeEscapedMarker is a fixed token so CI triage can grep one string for this failure, and
 // nodeEscaped carries it from the row that detected it to TestMain.
 const nodeEscapedMarker = "CONFIGTEST_NODE_ESCAPED"
