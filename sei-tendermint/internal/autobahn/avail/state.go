@@ -560,7 +560,7 @@ func (s *State) Run(ctx context.Context) error {
 }
 
 // runPersist is the main loop for the persist goroutine.
-//  2. commitQCs.MaybePruneAndPersist and each lane's blocks.MaybePruneAndPersistLane run
+//  2. commitQCs.PruneAndPersist and each lane's blocks.PruneAndPersist run
 //     concurrently via scope.Parallel (separate WALs, no early cancellation; first error
 //     is returned after all tasks finish).
 //     Each path publishes (markCommitQCsPersisted / markBlockPersisted) per entry so voting
@@ -572,16 +572,11 @@ func (s *State) runPersist(ctx context.Context) error {
 			return err
 		}
 
-		markBlock := func(p *types.Signed[*types.LaneProposal]) {
-			header := p.Msg().Block().Header()
-			s.markBlockPersisted(header.Lane(), header.BlockNumber()+1)
-		}
-
 		// 2. Persist commit-QCs and per-lane blocks in parallel.
 		// Callees handle empty inputs gracefully (no-op when nothing to write/truncate).
 		if err := scope.Parallel(func(ps scope.ParallelScope) error {
 			ps.Spawn(func() error {
-				if err := s.persisters.commitQCs.Persist(batch.commitQCs.first, batch.commitQCs.tail); err != nil {
+				if err := s.persisters.commitQCs.PruneAndPersist(batch.commitQCs.first, batch.commitQCs.tail); err != nil {
 					return err
 				}
 				if t := batch.commitQCs.tail; len(t) > 0 {
@@ -591,7 +586,14 @@ func (s *State) runPersist(ctx context.Context) error {
 			})
 			for lane, batch := range batch.blocks {
 				ps.Spawn(func() error {
-					return s.persisters.blocks.Persist(lane, batch.first, batch.tail, utils.Some(markBlock))
+					if err := s.persisters.blocks.PruneAndPersist(lane, batch.first, batch.tail); err != nil {
+						return err
+					}
+					if n := len(batch.tail); n > 0 {
+						header := batch.tail[n-1].Msg().Block().Header()
+						s.markBlockPersisted(header.Lane(), header.BlockNumber()+1)
+					}
+					return nil
 				})
 			}
 			return nil

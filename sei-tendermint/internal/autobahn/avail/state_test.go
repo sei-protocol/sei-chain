@@ -15,10 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	noBlockCB = utils.None[func(*types.Signed[*types.LaneProposal])]()
-)
-
 type byLane[T any] map[types.LaneID][]T
 
 func makeAppVotes(keys []types.SecretKey, proposal *types.AppProposal) []*types.Signed[*types.AppVote] {
@@ -424,7 +420,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 			signed := types.Sign(keys[0], types.NewLaneProposal(block))
 			parent = block.Header().Hash()
-			require.NoError(t, bp.Persist(lane, 0, []*types.Signed[*types.LaneProposal]{signed}, noBlockCB))
+			require.NoError(t, bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{signed}))
 		}
 
 		// Release the seeding persister's WAL locks before NewState opens the same directory.
@@ -450,7 +446,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		for i := range qcs {
 			qcs[i] = types.BuildCommitQC(registry.LatestEpoch(), keys, prev, nil)
 			prev = utils.Some(qcs[i])
-			require.NoError(t, cp.Persist(0, []*types.CommitQC{qcs[i]}))
+			require.NoError(t, cp.PruneAndPersist(0, []*types.CommitQC{qcs[i]}))
 		}
 
 		// Release the seeding persister's WAL locks before NewState opens the same directory.
@@ -482,9 +478,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 		cp, _, err := persist.NewCommitQCPersister(utils.Some(dir))
 		require.NoError(t, err)
 		for i := range 3 {
-			require.NoError(t, cp.Persist(0, []*types.CommitQC{allQCs[i]}))
+			require.NoError(t, cp.PruneAndPersist(0, []*types.CommitQC{allQCs[i]}))
 		}
-		err = cp.Persist(0, []*types.CommitQC{allQCs[5]})
+		err = cp.PruneAndPersist(0, []*types.CommitQC{allQCs[5]})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "out of sequence")
 		require.NoError(t, cp.Close())

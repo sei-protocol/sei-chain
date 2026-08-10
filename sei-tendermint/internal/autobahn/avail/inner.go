@@ -12,7 +12,7 @@ import (
 // TODO: when dynamic committee changes are supported, newly joined members
 // must be added to blocks, votes, and nextBlockToPersist.
 // Currently all four are initialized once in newInner from c.Lanes().All().
-// BlockPersister creates lane WALs lazily inside MaybePruneAndPersistLane, but the new
+// BlockPersister creates lane WALs lazily inside PruneAndPersist, but the new
 // member must also appear in inner.blocks before the next persist cycle.
 type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC

@@ -19,10 +19,9 @@ const commitqcsWALName = "autobahn_commitqcs"
 // unlike the lane WALs (see blocksWALName) it has nothing to collide with.
 const commitqcsWALMetrics = true
 
-
 // commitQCState is the mutable state protected by CommitQCPersister's mutex.
 type commitQCState struct {
-	wal  utils.Option[seiwal.WAL[*types.CommitQC]]
+	wal       utils.Option[seiwal.WAL[*types.CommitQC]]
 	persisted types.RoadRange
 	// Whether a QC has been appended since the last flush, so a prune that re-persists its anchor is
 	// still made durable while a run of duplicates costs no fsync.
@@ -77,7 +76,7 @@ func (s *commitQCState) deleteBefore(idx types.RoadIndex) error {
 		}
 	}
 	s.persisted.First = idx
-	s.persisted.Next = max(s.persisted.First,s.persisted.Next)
+	s.persisted.Next = max(s.persisted.First, s.persisted.Next)
 	return nil
 }
 
@@ -103,7 +102,7 @@ type CommitQCPersister struct {
 // When stateDir is None, returns a no-op persister.
 //
 // After crash recovery with an empty WAL, LoadNext() returns 0. The caller MUST
-// use MaybePruneAndPersist with the prune CommitQC in Anchor to re-establish the
+// use PruneAndPersist with the prune CommitQC in Anchor to re-establish the
 // cursor and re-persist the anchor's CommitQC before appending more QCs.
 func NewCommitQCPersister(stateDir utils.Option[string]) (*CommitQCPersister, []*types.CommitQC, error) {
 	sd, ok := stateDir.Get()
@@ -140,7 +139,7 @@ func (cp *CommitQCPersister) Next() types.RoadIndex {
 	panic("unreachable")
 }
 
-// MaybePruneAndPersist optionally truncates the WAL and/or appends new
+// PruneAndPersist optionally truncates the WAL and/or appends new
 // CommitQCs, depending on which arguments are present:
 //
 //   - anchor set, commitQCs non-empty: truncate WAL below anchor, re-persist
@@ -157,7 +156,7 @@ func (cp *CommitQCPersister) Next() types.RoadIndex {
 // need not coordinate ordering.
 // afterEach, when present, is called after each successful append. It is
 // invoked while the lock is held, so it must not re-enter the persister.
-func (cp *CommitQCPersister) Persist(deleteBefore types.RoadIndex, commitQCs []*types.CommitQC) error {
+func (cp *CommitQCPersister) PruneAndPersist(deleteBefore types.RoadIndex, commitQCs []*types.CommitQC) error {
 	for s := range cp.state.Lock() {
 		if err := s.deleteBefore(deleteBefore); err != nil {
 			return err
