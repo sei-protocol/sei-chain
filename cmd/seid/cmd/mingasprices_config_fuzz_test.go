@@ -120,9 +120,13 @@ func TestMinGasPricesFlagHelpShowsASeparatorTheLiveReaderPanicsOn(t *testing.T) 
 			"app.toml yields a node with no fee floor, which is the behavior the [base_config] rows "+
 			"record; a real default changes it", server.FlagMinGasPrices, flag.DefValue)
 	}
-	if flag.DefValue == serverconfig.DefaultMinGasPrices {
-		t.Fatalf("the flag default and DefaultMinGasPrices are both %q, so the gap between the "+
-			"declared default and the resolved one has closed", flag.DefValue)
+	// And the declared default is not empty, which is what makes the flag's empty default a gap rather
+	// than the same value stated twice. Asserted on the declared default directly, since the check
+	// above has already established what the flag carries.
+	if serverconfig.DefaultMinGasPrices == "" {
+		t.Fatalf("DefaultMinGasPrices is now empty too, so the declared default and the resolved one " +
+			"agree and there is no longer a gap here to record. That also means nothing in-code states " +
+			"a fee floor, so say what a node is expected to accept")
 	}
 }
 
@@ -134,24 +138,29 @@ func TestMinGasPricesGetterAcceptsOnlyWhatTheLiveReaderRejects(t *testing.T) {
 		semicolonSeparated = "0.01usei;0.02uatom"
 	)
 
-	// The dead getter, which panics on its own account when handed the live reader's syntax.
-	getterTakes := func(raw string) (ok bool) {
+	// The dead getter, reporting how many denominations it read and whether it panicked. Those are
+	// kept apart because they are different facts: a getter that returned one coin and a getter that
+	// panicked would otherwise be the same answer, and the panic is what this records.
+	getterReads := func(raw string) (coins int, panicked bool) {
 		defer func() {
 			if r := recover(); r != nil {
-				ok = false
+				panicked = true
 			}
 		}()
 		cfg := serverconfig.Config{BaseConfig: serverconfig.BaseConfig{MinGasPrices: raw}}
-		return len(cfg.GetMinGasPrices()) == 2
+		return len(cfg.GetMinGasPrices()), false
 	}
 
-	if !getterTakes(semicolonSeparated) {
-		t.Errorf("GetMinGasPrices no longer reads %q as two denominations, so config.go:323 has "+
-			"stopped splitting on the separator the flag documents", semicolonSeparated)
+	if coins, panicked := getterReads(semicolonSeparated); panicked || coins != 2 {
+		t.Errorf("GetMinGasPrices read %q as %d denominations (panicked=%v) rather than 2, so "+
+			"config.go:323 has stopped splitting on the separator no other reader accepts",
+			semicolonSeparated, coins, panicked)
 	}
-	if getterTakes(commaSeparated) {
-		t.Errorf("GetMinGasPrices now also reads %q, so the two readers have stopped being disjoint "+
-			"and a multi-denomination value exists that satisfies both", commaSeparated)
+	if coins, panicked := getterReads(commaSeparated); !panicked {
+		t.Errorf("GetMinGasPrices no longer panics on %q and read %d denominations instead. Its split "+
+			"leaves the whole value in one token, so the panic is how it refuses the live reader's "+
+			"syntax; if it now accepts that syntax the two readers have stopped being disjoint",
+			commaSeparated, coins)
 	}
 	if resolveMinGasPrices(commaSeparated) != "" {
 		t.Errorf("the live reader now rejects %q, which was the one multi-denomination spelling that "+

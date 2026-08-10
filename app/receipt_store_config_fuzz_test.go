@@ -5,7 +5,9 @@ import (
 
 	"github.com/spf13/cast"
 
+	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
@@ -138,22 +140,39 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 // TestMinRetainBlocksArchiveModeKeepsBothRetentionsOpen records that the archive path is aligned.
 //
 // PLT-955 is an archive node pruning state history because its mode's state-store settings are
-// discarded. This is the neighbouring question, asked and answered so nobody re-investigates it:
-// setArchiveTypeAppConfig sets min-retain-blocks to 0 (app/params/config.go), which is keep-all for
-// Tendermint blocks, and 0 through the receipt cast leaves KeepRecent at 0, which is no pruning. So
-// the fan-out does not give archive a second history-loss path.
+// discarded. This is the neighbouring question, asked and answered so nobody re-investigates it: the
+// archive mode leaves min-retain-blocks at 0, which is keep-all for Tendermint blocks, and 0 through
+// the receipt cast leaves KeepRecent at 0, which is no pruning. So the fan-out does not give archive
+// a second history-loss path.
+//
+// The value comes from SetAppConfigByMode rather than being written here as a 0. Transcribing it
+// would leave this test asserting that cast.ToInt(0) is 0, which holds whatever the mode does, so
+// moving archive off keep-all would not fail the test that exists to notice.
 func TestMinRetainBlocksArchiveModeKeepsBothRetentionsOpen(t *testing.T) {
 	configtest.Isolate(t)
 
+	archive := srvconfig.DefaultConfig()
+	params.SetAppConfigByMode(archive, params.NodeModeArchive)
+
+	// Stated as its own assertion so a mode that stops keeping every block says so here, rather than
+	// through the receipt-side comparison below.
+	if archive.MinRetainBlocks != 0 {
+		t.Fatalf("archive mode now sets min-retain-blocks to %d rather than 0. Tendermint prunes "+
+			"blocks on that schedule and the receipt store takes the same key, so an archive node "+
+			"keeps neither all blocks nor all receipts. If the mode changed deliberately, say what an "+
+			"archive node is now expected to retain", archive.MinRetainBlocks)
+	}
+
 	receiptConfig, err := readReceiptStoreConfig(t.TempDir(), mapAppOpts{
-		server.FlagMinRetainBlocks: 0,
+		server.FlagMinRetainBlocks: archive.MinRetainBlocks,
 	})
 	if err != nil {
 		t.Fatalf("readReceiptStoreConfig: %v", err)
 	}
 	if receiptConfig.KeepRecent != 0 {
-		t.Errorf("archive's min-retain-blocks of 0 gave the receipt store KeepRecent=%d, where 0 is "+
+		t.Errorf("archive's min-retain-blocks of %d gave the receipt store KeepRecent=%d, where 0 is "+
 			"what leaves receipts unpruned. An archive node would now discard EVM receipts, which is "+
-			"the same class of loss as PLT-955 through a different key", receiptConfig.KeepRecent)
+			"the same class of loss as PLT-955 through a different key",
+			archive.MinRetainBlocks, receiptConfig.KeepRecent)
 	}
 }

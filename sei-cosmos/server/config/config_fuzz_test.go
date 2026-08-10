@@ -814,12 +814,13 @@ func TestManifestNamesEveryField(t *testing.T) {
 // fails, because a node cannot serve a snapshot of state it has already pruned.
 //
 // Neither stops a node. start.go:308 is the only caller on the boot path, and it logs the error and
-// carries on to build the app, so both conditions are reported rather than refused. (The one other
-// caller, testutil/network/util.go:31, does return it, but that is the in-process test network and
-// never linked into seid.) The message it
-// logs is a fixed string naming an empty minimum-gas-prices, which is one of the two causes: an
-// operator whose pruning and snapshot settings conflict is told their fee floor is empty, and then
-// boots into a node that cannot serve the snapshots it advertises.
+// carries on to build the app, so both conditions are reported rather than refused. The one other
+// caller, sei-cosmos/testutil/network/util.go:31, does return it, but that is the in-process test
+// network and is never linked into seid.
+//
+// The message it logs is a fixed string naming an empty minimum-gas-prices, which is one of the two
+// causes: an operator whose pruning and snapshot settings conflict is told their fee floor is empty,
+// and then boots into a node that cannot serve the snapshots it advertises.
 //
 // So the distinctness of these two errors is load-bearing in a way the caller does not currently use,
 // and that is what the assertions below hold. Recorded rather than repaired, because deciding whether
@@ -853,14 +854,24 @@ func FuzzConfigValidateBasic(f *testing.F) {
 				minGasPrices, pruning, snapshotInterval, got)
 		}
 
-		// The pruning conflict alone must not read as a fee-floor problem. Its caller already logs a
-		// fixed fee-floor message for both causes, so this error string is the only thing left that
-		// tells the two apart.
-		if minGasPrices != "" && got != nil && strings.Contains(got.Error(), "min gas price") {
-			t.Fatalf("pruning=%q snapshot-interval=%d was rejected as %q while minimum-gas-prices was "+
-				"set to %q. The two rejection causes now report the same way, so nothing distinguishes "+
-				"them and start.go:308's fixed message becomes the only diagnosis an operator gets",
-				pruning, snapshotInterval, got, minGasPrices)
+		// The pruning conflict has to identify itself, because its caller logs a fixed fee-floor
+		// message for either cause and this string is the only thing left that tells the two apart.
+		// Both directions are asserted: it must name the conflict, and it must not read as a fee-floor
+		// problem. Asserting only the second would pass for any error at all, including one that named
+		// neither cause.
+		if minGasPrices != "" && got != nil {
+			if !strings.Contains(got.Error(), "state sync snapshots") {
+				t.Fatalf("pruning=%q snapshot-interval=%d was rejected as %q, which no longer names the "+
+					"snapshot conflict. start.go:308 logs a fee-floor message whatever the cause, so an "+
+					"operator's only accurate diagnosis is this string",
+					pruning, snapshotInterval, got)
+			}
+			if strings.Contains(got.Error(), "min gas price") {
+				t.Fatalf("pruning=%q snapshot-interval=%d was rejected as %q while minimum-gas-prices "+
+					"was set to %q. The two rejection causes now report the same way, so nothing "+
+					"distinguishes them and the fixed message becomes the only diagnosis available",
+					pruning, snapshotInterval, got, minGasPrices)
+			}
 		}
 	})
 }
