@@ -1149,6 +1149,10 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"pruning", cfg.Pruning, def.Pruning, true},
 		{"pruning-keep-recent", cfg.PruningKeepRecent, def.PruningKeepRecent, true},
 		{"pruning-interval", cfg.PruningInterval, def.PruningInterval, true},
+		// Diverges here and is rescued downstream, which is the distinction to carry off this row.
+		// baseapp.New reads the same key and substitutes DefaultConcurrencyWorkers whenever it resolves
+		// 0 (baseapp.go:316-320), so a node runs with 20 rather than the 0 this reader reports. What
+		// this row records is GetConfig's answer, not the executing value.
 		{"concurrency-workers", cfg.ConcurrencyWorkers, def.ConcurrencyWorkers, true},
 		{"occ-enabled", cfg.OccEnabled, def.OccEnabled, true},
 		{"halt-height", cfg.HaltHeight, def.HaltHeight, false},
