@@ -61,8 +61,11 @@ func FuzzMinRetainBlocksFansOutToTwoRetentionPolicies(f *testing.F) {
 			t.Fatalf("readReceiptStoreConfig(%q): %v", raw, err)
 		}
 
-		// The receipt half, against the cast its reader applies. This is the assertion that fails if
-		// app/receipt_store_config.go changes, and it is the whole of what fuzzing adds here.
+		// The receipt half, against the cast its reader applies. Both sides go through cast.ToInt, so
+		// what this catches is the wiring: a changed cast, or a reader that stops reading this key. It
+		// cannot catch cast.ToInt itself resolving a value differently, and it is not asked to. The
+		// value-level pin is the literal table below, where the receipt column is a number. What
+		// fuzzing adds over that table is the wiring check across inputs no table would list.
 		if receiptConfig.KeepRecent != cast.ToInt(raw) {
 			t.Fatalf("the receipt store's KeepRecent is %d for min-retain-blocks=%q, where "+
 				"app/receipt_store_config.go casts with cast.ToInt and would give %d. The receipt side "+

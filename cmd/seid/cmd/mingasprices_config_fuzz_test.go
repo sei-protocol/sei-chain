@@ -77,10 +77,16 @@ func FuzzMinGasPricesLiveReaderTakesCommasAndRejectsSemicolons(f *testing.F) {
 				"the two syntaxes have stopped being disjoint. That is a fine end state and it changes "+
 				"what a node accepts, so update this file in the PR that widens the parser", raw)
 		}
+		// Where the rejection happens, not just that it happens. Every rejection reachable from a
+		// string arrives as an error ParseDecCoins returns and SetMinGasPrices wraps, so the wrap is
+		// the marker that the refusal is still baseapp's.
 		if panicMessage != "" && !strings.Contains(panicMessage, "invalid minimum gas prices") {
-			t.Errorf("minimum-gas-prices=%q panicked with %q rather than baseapp's "+
-				"\"invalid minimum gas prices\". A different panic means the rejection moved to another "+
-				"reader, and where a bad fee floor is refused is what this file tracks", raw, panicMessage)
+			t.Errorf("minimum-gas-prices=%q panicked with %q rather than carrying baseapp's "+
+				"\"invalid minimum gas prices\" wrap. Read it one of two ways, and both are worth a look "+
+				"rather than a loosened assertion: the rejection moved to another reader, or this value "+
+				"found a path that panics inside ParseDecCoins instead of returning an error for "+
+				"SetMinGasPrices to wrap. Seeded runs cover neither; a fuzz run reaching here has found "+
+				"something", raw, panicMessage)
 		}
 	})
 }
