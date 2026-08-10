@@ -636,9 +636,10 @@ func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int6
 // A failure while resetting the WAL leaves the store mid-rollback: "current" and the working directory are
 // already at the rollback snapshot while the WAL still holds the blocks past targetVersion, and s.wal is
 // closed. Retrying in-process does not work, because establishing reachability reads the WAL's stored range
-// and that now fails as closed. Nothing is lost — snapshots above targetVersion are removed only at the very
-// end, so a restart replays the un-pruned WAL back to its old tail and the rollback can be retried. The
-// errors from that window say so.
+// and that now fails as closed. No block is lost: the un-pruned WAL still holds them, so a restart replays
+// back to the old tail and the rollback can be retried. The errors from that window say so. Snapshots above
+// the target are already gone by then, which costs a cached checkpoint the next WriteSnapshot rebuilds, not
+// history.
 func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	obs := s.observeOp("Rollback", otelMetrics.RollbackLatency,
 		"targetVersion", targetVersion)
@@ -672,6 +673,10 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	// current working dir may contain data beyond targetVersion.
 	if err := os.Remove(filepath.Join(dir, workingDirName, snapshotBaseFile)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove SNAPSHOT_BASE for rollback: %w", err)
+	}
+
+	if err := removeSnapshotsAbove(dir, targetVersion); err != nil {
+		return err
 	}
 
 	if err := s.open(); err != nil {
@@ -715,35 +720,36 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 			targetVersion, s.committedVersion)
 	}
 
-	if err := removeSnapshotsAbove(dir, targetVersion); err != nil {
-		return err
-	}
-
 	logger.Info("FlatKV Rollback complete",
 		"version", s.committedVersion,
 		"elapsed", obs.elapsed())
 	return nil
 }
 
-// removeSnapshotsAbove deletes every snapshot directory above targetVersion. It is the last step of a
-// rollback, run once the store has already reached the target.
+// removeSnapshotsAbove deletes every snapshot directory above targetVersion.
 //
-// A failure here is returned rather than logged. Rollback's contract is that no snapshot beyond the target
-// survives it, so reporting success with one still on disk tells the caller — an operator running
-// `seid rollback`, or startup reconciliation — that the rewind is complete when it is not. By this point the
-// WAL is pruned and self-consistent, so the surviving directory is the only thing left to reconcile, and
-// naming it is what lets the caller do so.
+// A failure here is returned rather than logged, which is why the step runs before the WAL is pruned: an
+// error then means the rollback did not take effect, so a caller that skips its own post-rollback bookkeeping
+// on error is right to. `seid rollback` in particular rewinds the app before Tendermint, and aborting between
+// those two would leave the two heights apart; running here it aborts before either moves. Reporting success
+// with a snapshot above the target still on disk would break the same contract from the other side.
+//
+// Every candidate is attempted even after one fails, because their removals are independent and the caller
+// needs the whole list to reconcile from, not just the first name. This mirrors removeTmpDirs.
 func removeSnapshotsAbove(dir string, targetVersion int64) error {
-	return traverseSnapshots(dir, true, func(v int64) (bool, error) {
+	var errs []error
+	if err := traverseSnapshots(dir, true, func(v int64) (bool, error) {
 		if v <= targetVersion {
 			return false, nil
 		}
 		if err := atomicRemoveDir(filepath.Join(dir, snapshotName(v))); err != nil {
-			return false, fmt.Errorf("rolled back to version %d but could not remove the snapshot at %d: %w; "+
-				"the store is at the target, so remove %s to finish", targetVersion, v, err, snapshotName(v))
+			errs = append(errs, fmt.Errorf("remove snapshot %d above rollback target %d: %w", v, targetVersion, err))
 		}
 		return false, nil
-	})
+	}); err != nil {
+		return fmt.Errorf("list snapshots above rollback target %d: %w", targetVersion, err)
+	}
+	return errors.Join(errs...)
 }
 
 // tryTruncateWAL truncates WAL entries older than the earliest snapshot, keeping enough entries for rollback
