@@ -16,6 +16,8 @@ func TestLogHeapStructOverheadMatchesStructSize(t *testing.T) {
 	require.Equal(t,
 		int64(unsafe.Sizeof(ethtypes.Log{}))-int64(common.AddressLength)-logTopicsSliceHeader,
 		logHeapStructOverhead,
+		"ethtypes.Log layout changed: update logHeapStructOverhead, and if the new field "+
+			"references heap data, count it in EstimateLogHeapBytes too",
 	)
 	require.Equal(t, int64(unsafe.Sizeof([]common.Hash{})), logTopicsSliceHeader)
 
