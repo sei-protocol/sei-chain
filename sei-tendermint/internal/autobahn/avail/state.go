@@ -566,7 +566,7 @@ func (s *State) Run(ctx context.Context) error {
 //     Each path publishes (markCommitQCsPersisted / markBlockPersisted) per entry so voting
 //     unblocks ASAP.
 func (s *State) runPersist(ctx context.Context) error {
-	for {
+	for ctx.Err() == nil {
 		batch, err := s.collectPersistBatch(ctx)
 		if err != nil {
 			return err
@@ -591,7 +591,7 @@ func (s *State) runPersist(ctx context.Context) error {
 					}
 					if n := len(batch.tail); n > 0 {
 						header := batch.tail[n-1].Msg().Block().Header()
-						s.markBlockPersisted(header.Lane(), header.BlockNumber()+1)
+						s.markBlockPersisted(lane, header.BlockNumber()+1)
 					}
 					return nil
 				})
@@ -601,6 +601,7 @@ func (s *State) runPersist(ctx context.Context) error {
 			return err
 		}
 	}
+	return ctx.Err()
 }
 
 type batch[I any, T any] struct {

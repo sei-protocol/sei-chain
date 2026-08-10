@@ -271,9 +271,9 @@ func TestStateRestartFromPersisted(t *testing.T) {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
 
+		var prev utils.Option[*types.CommitQC]
 		for i := range 2 {
 			t.Logf("iteration %d", i)
-			prev := state.LastCommitQC().Load()
 
 			for range 5 {
 				key := keys[rng.Intn(len(keys))]
@@ -315,6 +315,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 			if _, err := state.appQC(ctx, appProposal.RoadIndex()); err != nil {
 				return fmt.Errorf("WaitForAppQC: %w", err)
 			}
+			prev = utils.Some(qc)
 			wantAppQCIdx = appProposal.RoadIndex()
 		}
 
