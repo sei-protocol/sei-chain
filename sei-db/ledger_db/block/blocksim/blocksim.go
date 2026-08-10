@@ -178,11 +178,11 @@ func NewBlockSim(
 // countExistingState scans the ledger to count the persisted blocks and QCs,
 // exercising the replay path at startup.
 func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
-	recent, err := db.ReadRecent()
+	suffix, err := db.ReadSuffix()
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to read recent ledger data: %w", err)
+		return 0, 0, fmt.Errorf("failed to read suffix ledger data: %w", err)
 	}
-	return len(recent.Blocks), len(recent.CommitQCs), nil
+	return len(suffix.Blocks), len(suffix.CommitQCs), nil
 }
 
 // recoverResumeState reads the persisted tail so the benchmark resumes appending

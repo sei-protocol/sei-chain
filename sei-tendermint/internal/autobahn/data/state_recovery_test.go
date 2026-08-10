@@ -436,7 +436,7 @@ func TestRecoveryQCsNoBlocks(t *testing.T) {
 
 // TestRunPersistSeedsFromRecoveryFloor verifies that runPersist does not walk
 // [genesis, recoveryFloor) for a QC-only store whose first QC starts past
-// FirstBlock. Seeding persisted DBStatus from the recovery floor avoids
+// FirstBlock. Seeding persisted SuffixRange from the recovery floor avoids
 // collecting nil block pointers.
 func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 	ctx := t.Context()

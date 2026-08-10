@@ -55,7 +55,7 @@ func TestBlockDB(t *testing.T) {
 			t.Run("QCByBlockNumber", func(t *testing.T) { testQCByBlockNumber(t, impl.build) })
 			t.Run("AppProposalByBlockNumber", func(t *testing.T) { testAppProposalByBlockNumber(t, impl.build) })
 			t.Run("AppQCByBlockNumber", func(t *testing.T) { testAppQCByBlockNumber(t, impl.build) })
-			t.Run("ReadRecent", func(t *testing.T) { testReadRecent(t, impl.build) })
+			t.Run("ReadSuffix", func(t *testing.T) { testReadSuffix(t, impl.build) })
 			t.Run("RestartPersistsData", func(t *testing.T) { testRestartPersistsData(t, impl.build) })
 			t.Run("PruneRetainsAtOrAbove", func(t *testing.T) { testPruneRetainsAtOrAbove(t, impl.build) })
 			t.Run("PruneStraddleRetainsQC", func(t *testing.T) { testPruneStraddleRetainsQC(t, impl.build) })
@@ -110,7 +110,7 @@ func restart(t *testing.T, o open, db types.BlockDB) types.BlockDB {
 	return reopened
 }
 
-func status(t *testing.T, db types.BlockDB) types.DBStatus {
+func status(t *testing.T, db types.BlockDB) types.SuffixRange {
 	t.Helper()
 	return db.Status().OrPanic("non-empty BlockDB status")
 }
@@ -139,7 +139,7 @@ func testEmptyDB(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, appProposal.IsPresent())
 
-	require.Empty(t, drainRecent(t, db), "empty db should yield no recent records")
+	require.Empty(t, drainSuffix(t, db), "empty db should yield no suffix records")
 
 	require.False(t, db.Status().IsPresent(), "empty db has no write tips")
 }
@@ -162,27 +162,27 @@ type iterEntry struct {
 	appProposal *types.AppProposal
 }
 
-// drainRecent reads the recovery-visible recent batch.
-func drainRecent(t *testing.T, db types.BlockDB) []iterEntry {
+// drainSuffix reads the recovery-visible suffix batch.
+func drainSuffix(t *testing.T, db types.BlockDB) []iterEntry {
 	t.Helper()
-	recent, err := db.ReadRecent()
+	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
 	var entries []iterEntry
-	floor := recent.Status.Or(types.DBStatus{
+	floor := suffix.Status.Or(types.SuffixRange{
 		First:           0,
 		NextBlock:       0,
 		NextQC:          0,
 		NextAppQC:       0,
 		NextAppProposal: 0,
 	}).First
-	for _, qc := range recent.CommitQCs {
+	for _, qc := range suffix.CommitQCs {
 		first := qc.QC().GlobalRange().First
 		next := first + gbn(len(qc.Headers()))
 		for n := max(first, floor); n < next; n++ {
 			entries = append(entries, iterEntry{n: n, qc: qc})
 		}
 	}
-	for _, b := range recent.Blocks {
+	for _, b := range suffix.Blocks {
 		found := false
 		for i := range entries {
 			if entries[i].n == b.Number {
@@ -191,9 +191,9 @@ func drainRecent(t *testing.T, db types.BlockDB) []iterEntry {
 				break
 			}
 		}
-		require.True(t, found, "block %d must be covered by a recent QC", b.Number)
+		require.True(t, found, "block %d must be covered by a suffix QC", b.Number)
 	}
-	for _, appQC := range recent.AppQCs {
+	for _, appQC := range suffix.AppQCs {
 		gr := appQC.Proposal().GlobalRange()
 		for i := range entries {
 			if gr.Has(entries[i].n) {
@@ -201,7 +201,7 @@ func drainRecent(t *testing.T, db types.BlockDB) []iterEntry {
 			}
 		}
 	}
-	for _, appProposal := range recent.AppProposals {
+	for _, appProposal := range suffix.AppProposals {
 		gr := appProposal.GlobalRange()
 		for i := range entries {
 			if gr.Has(entries[i].n) {
@@ -380,7 +380,7 @@ func testAppProposalByBlockNumber(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, miss.IsPresent(), "CommitQCs/blocks past the AppProposal prefix should not imply AppProposal presence")
 
-	entries := drainRecent(t, db)
+	entries := drainSuffix(t, db)
 	for _, e := range entries {
 		switch {
 		case e.n < batches[2].first:
@@ -439,7 +439,7 @@ func testAppQCByBlockNumber(t *testing.T, build builder) {
 	require.NoError(t, err)
 	require.False(t, miss.IsPresent(), "CommitQCs/blocks past the AppQC prefix should not imply AppQC presence")
 
-	entries := drainRecent(t, db)
+	entries := drainSuffix(t, db)
 	for _, e := range entries {
 		switch {
 		case e.n < batches[2].first:
@@ -605,7 +605,7 @@ func testPruneRefusesBelowWatermark(t *testing.T, build builder) {
 		require.False(t, appQC.IsPresent(), "AppQC at block %d below watermark %d must not be served", n, watermark)
 	}
 
-	for _, e := range drainRecent(t, db) {
+	for _, e := range drainSuffix(t, db) {
 		require.GreaterOrEqual(t, e.n, watermark,
 			"iterator must not yield position %d below watermark %d", e.n, watermark)
 	}
@@ -812,13 +812,13 @@ func testPruneNeverEmpties(t *testing.T, build builder) {
 			require.ErrorIs(t, err, types.ErrPruned, "AppQCs below the newest cohort must be reported pruned")
 			require.False(t, belowAppQC.IsPresent(), "AppQCs below the newest cohort must not be served")
 
-			// ReadRecent starts at recentFloor(), while the prune watermark still
+			// ReadSuffix starts at recentFloor(), while the prune watermark still
 			// rounds down to keep the whole newest QC cohort readable.
-			entries := drainRecent(t, db)
+			entries := drainSuffix(t, db)
 			require.Equal(t, []types.GlobalBlockNumber{newest}, presentBlockNumbers(entries),
-				"ReadRecent must start at recentFloor() after PruneBefore(%d)", prune)
+				"ReadSuffix must start at recentFloor() after PruneBefore(%d)", prune)
 			require.Equal(t, []types.GlobalBlockNumber{last.first}, qcFirsts(entries),
-				"ReadRecent must include the QC covering the recent floor")
+				"ReadSuffix must include the QC covering the suffix floor")
 		})
 	}
 }
@@ -942,7 +942,7 @@ func testPruneQCOnlyThenWriteBlock(t *testing.T, build builder) {
 	require.True(t, qc.IsPresent(), "covering QC of block %d must survive the earlier prune", b0.first)
 }
 
-func testReadRecent(t *testing.T, build builder) {
+func testReadSuffix(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
 	db, _ := openFresh(t, build)
@@ -957,13 +957,13 @@ func testReadRecent(t *testing.T, build builder) {
 		require.NoError(t, db.WriteBlock(batches[2].first+gbn(i), blk))
 	}
 
-	recent, err := db.ReadRecent()
+	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
-	require.Equal(t, status(t, db), recent.Status.OrPanic("recent status"))
-	require.NotEmpty(t, recent.AppQCs)
-	gotAppQC := recent.AppQCs[0]
+	require.Equal(t, status(t, db), suffix.Status.OrPanic("suffix status"))
+	require.NotEmpty(t, suffix.AppQCs)
+	gotAppQC := suffix.AppQCs[0]
 	require.Equal(t, appQC.Proposal().RoadIndex(), gotAppQC.Proposal().RoadIndex())
-	entries := drainRecent(t, db)
+	entries := drainSuffix(t, db)
 	recoveryFloor := appQC.Proposal().GlobalRange().Next - 1
 	require.Equal(t, []types.GlobalBlockNumber{batches[0].first, batches[1].first, batches[2].first}, qcFirsts(entries))
 	require.Equal(t, batches[2].next-recoveryFloor, types.GlobalBlockNumber(len(entries)))
@@ -1192,7 +1192,7 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 // verification; production resume uses Status (see blocksim.recoverResumeState).
 func recoverHighestBlock(t *testing.T, db types.BlockDB) (types.GlobalBlockNumber, bool) {
 	t.Helper()
-	present := presentBlockNumbers(drainRecent(t, db))
+	present := presentBlockNumbers(drainSuffix(t, db))
 	if len(present) == 0 {
 		return 0, false
 	}
@@ -1204,7 +1204,7 @@ func recoverHighestBlock(t *testing.T, db types.BlockDB) (types.GlobalBlockNumbe
 // verification; production resume uses Status (see blocksim.recoverResumeState).
 func recoverLastQC(t *testing.T, db types.BlockDB) (*types.CommitQC, bool) {
 	t.Helper()
-	entries := drainRecent(t, db)
+	entries := drainSuffix(t, db)
 	if len(entries) == 0 {
 		return nil, false
 	}
@@ -1215,7 +1215,7 @@ func recoverLastQC(t *testing.T, db types.BlockDB) (*types.CommitQC, bool) {
 // iterator scan (false if the store has no AppQCs).
 func recoverLastAppQC(t *testing.T, db types.BlockDB) (*types.AppQC, bool) {
 	t.Helper()
-	entries := drainRecent(t, db)
+	entries := drainSuffix(t, db)
 	for i := len(entries) - 1; i >= 0; i-- {
 		if entries[i].appQC != nil {
 			return entries[i].appQC, true
@@ -1330,7 +1330,7 @@ func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
 	require.True(t, opt.IsPresent())
 
 	// The iterator must skip the pruned records entirely.
-	for _, e := range drainRecent(t, db) {
+	for _, e := range drainSuffix(t, db) {
 		require.GreaterOrEqual(t, e.n, watermark, "iterator must not surface pruned positions")
 		require.GreaterOrEqual(t, e.qc.QC().GlobalRange().First, watermark,
 			"iterator must not surface pruned QCs")
@@ -1443,7 +1443,7 @@ func assertIterators(t *testing.T, db types.BlockDB, committee *types.Committee,
 		totalBlocks += len(b.blocks)
 	}
 
-	entries := drainRecent(t, db)
+	entries := drainSuffix(t, db)
 	require.Len(t, entries, totalBlocks, "one position per covered number in a fully-written store")
 	require.Equal(t, batches[0].first, entries[0].n, "the scan must begin at the first covered number")
 	for i, e := range entries {

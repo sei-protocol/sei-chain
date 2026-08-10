@@ -47,7 +47,7 @@ type inner struct {
 	nextAppProposal types.GlobalBlockNumber
 	nextBlock       types.GlobalBlockNumber
 	nextQC          types.GlobalBlockNumber
-	persisted       types.DBStatus
+	persisted       types.SuffixRange
 
 	anchor utils.AtomicSend[utils.Option[Anchor]]
 }
@@ -198,15 +198,15 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	}, nil
 }
 
-// loadFromBlockDB replays the recent persisted suffix from blockDB into s.inner.
+// loadFromBlockDB replays the persisted suffix from blockDB into s.inner.
 // Called from NewState before any goroutines are spawned.
 func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
-	recent, err := blockDB.ReadRecent()
+	suffix, err := blockDB.ReadSuffix()
 	if err != nil {
-		return nil, fmt.Errorf("blockDB.ReadRecent(): %w", err)
+		return nil, fmt.Errorf("blockDB.ReadSuffix(): %w", err)
 	}
 	firstBlock := cfg.Registry.FirstBlock()
-	status := recent.Status.Or(types.DBStatus{
+	status := suffix.Status.Or(types.SuffixRange{
 		First:           firstBlock,
 		NextQC:          firstBlock,
 		NextAppProposal: firstBlock,
@@ -228,12 +228,12 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 		persisted:       status,
 		anchor:          utils.NewAtomicSend(utils.None[Anchor]()),
 	}
-	for _, qc := range recent.CommitQCs {
+	for _, qc := range suffix.CommitQCs {
 		if err := inner.insertQC(cfg.Registry, qc); err != nil {
 			return nil, fmt.Errorf("load QC from BlockDB: %w", err)
 		}
 	}
-	for _, b := range recent.Blocks {
+	for _, b := range suffix.Blocks {
 		qc := inner.qcs[b.Number]
 		ei := qc.QC().Proposal().EpochIndex()
 		e, ok := cfg.Registry.EpochByIndex(ei)
@@ -250,12 +250,12 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	// Advance nextBlock through contiguous loaded blocks. Don't use
 	// updateNextBlock: stale timestamps would skew metrics.
 	inner.nextBlock = max(inner.first, status.NextBlock)
-	for _, appProposal := range recent.AppProposals {
+	for _, appProposal := range suffix.AppProposals {
 		if err := inner.insertAppProposal(appProposal); err != nil {
 			return nil, fmt.Errorf("load AppProposal from BlockDB: %w", err)
 		}
 	}
-	for _, appQC := range recent.AppQCs {
+	for _, appQC := range suffix.AppQCs {
 		if err := inner.insertAppQC(cfg.Registry, appQC); err != nil {
 			return nil, fmt.Errorf("load AppQC from BlockDB: %w", err)
 		}
@@ -728,7 +728,7 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 
 // runPersist is a background goroutine that persists QCs, blocks,
 // AppProposals, and AppQCs to BlockDB. It waits for in-memory data to advance
-// past the DBStatus persistence cursor, then writes each stream in cursor
+// past the SuffixRange persistence cursor, then writes each stream in cursor
 // order and flushes once per batch. persisted.NextBlock advances with the
 // block tip to unblock PushAppHash only when data is durable.
 // Errors propagate vertically (kill the component).
@@ -744,7 +744,7 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 // is still at or past NextQC (enough coverage for each new block, not every
 // in-memory QC, and no rewrite of QCs already on disk).
 //
-// In-memory block/QC/AppProposal/AppQC eviction is driven by persisted DBStatus
+// In-memory block/QC/AppProposal/AppQC eviction is driven by persisted SuffixRange
 // changes.
 func (s *State) runPersist(ctx context.Context) error {
 	for {
@@ -752,7 +752,7 @@ func (s *State) runPersist(ctx context.Context) error {
 		var blocks []blockEntry
 		var appProposals []*types.AppProposal
 		var appQCs []*types.AppQC
-		var status types.DBStatus
+		var status types.SuffixRange
 		for inner, ctrl := range s.inner.Lock() {
 			status = inner.persisted
 			// Wait until there is anything to persist.

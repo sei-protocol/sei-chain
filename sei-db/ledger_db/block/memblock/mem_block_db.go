@@ -30,7 +30,7 @@ type blockDB struct {
 	appQCsByBlock map[types.GlobalBlockNumber]*types.AppQC
 
 	watermark types.GlobalBlockNumber
-	status    utils.Option[types.DBStatus]
+	status    utils.Option[types.SuffixRange]
 }
 
 // NewBlockDB returns an in-memory types.BlockDB.
@@ -84,7 +84,7 @@ func (s *blockDB) WriteQC(qc *types.FullCommitQC) error {
 	}
 
 	if !ok {
-		status = types.DBStatus{
+		status = types.SuffixRange{
 			First:           gr.First,
 			NextAppQC:       gr.First,
 			NextAppProposal: gr.First,
@@ -207,35 +207,35 @@ func pruneRanges[T any](
 
 func (s *blockDB) Flush() error { return nil }
 
-func (s *blockDB) Status() utils.Option[types.DBStatus] {
+func (s *blockDB) Status() utils.Option[types.SuffixRange] {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.status
 }
 
-func (s *blockDB) ReadRecent() (types.RecentData, error) {
+func (s *blockDB) ReadSuffix() (types.Suffix, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	status, ok := s.status.Get()
 	if !ok {
-		return types.RecentData{}, nil
+		return types.Suffix{}, nil
 	}
 
-	recent := types.RecentData{Status: utils.Some(status)}
-	recent.CommitQCs = appendSuffixRanges(
+	suffix := types.Suffix{Status: utils.Some(status)}
+	suffix.CommitQCs = appendSuffixRanges(
 		s.qcsByBlock,
 		status.First,
 		status.NextQC,
 		func(qc *types.FullCommitQC) types.GlobalRange { return qc.QC().GlobalRange() },
 	)
-	recent.AppProposals = appendSuffixRanges(
+	suffix.AppProposals = appendSuffixRanges(
 		s.appProposalsByBlock,
 		status.First,
 		status.NextAppProposal,
 		func(appProposal *types.AppProposal) types.GlobalRange { return appProposal.GlobalRange() },
 	)
-	recent.AppQCs = appendSuffixRanges(
+	suffix.AppQCs = appendSuffixRanges(
 		s.appQCsByBlock,
 		status.First,
 		status.NextAppQC,
@@ -243,10 +243,10 @@ func (s *blockDB) ReadRecent() (types.RecentData, error) {
 	)
 	for n := status.First; n < status.NextBlock; n++ {
 		if block, ok := s.blocksByNumber[n]; ok {
-			recent.Blocks = append(recent.Blocks, types.RecentBlock{Number: n, Block: block})
+			suffix.Blocks = append(suffix.Blocks, types.SuffixBlock{Number: n, Block: block})
 		}
 	}
-	return recent, nil
+	return suffix, nil
 }
 
 func appendSuffixRanges[T any](

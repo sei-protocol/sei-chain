@@ -184,13 +184,13 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 		require.True(t, qc.IsPresent(), "covering QC for served block %d must be readable", n)
 	}
 
-	// Recent recovery data never includes stranded blocks, and every returned
+	// ReadSuffix never includes stranded blocks, and every returned
 	// block has a covering QC.
-	recent, err := db3.ReadRecent()
+	suffix, err := db3.ReadSuffix()
 	require.NoError(t, err)
-	for _, block := range recent.Blocks {
+	for _, block := range suffix.Blocks {
 		n := block.Number
-		require.GreaterOrEqual(t, uint64(n), uint64(5), "recent data must not include stranded block %d", n)
+		require.GreaterOrEqual(t, uint64(n), uint64(5), "suffix data must not include stranded block %d", n)
 		qc, err := db3.ReadQCByBlockNumber(n)
 		require.NoError(t, err)
 		require.True(t, qc.IsPresent(), "block %d must have a covering QC", n)
@@ -345,7 +345,7 @@ func TestLittblockPruneIntoCohortRoundsDown(t *testing.T) {
 }
 
 // TestLittblockRefusesToOpenWithStrandedBlocks verifies the corruption guard in
-// recoverReadFloors. The never-empty prune invariant guarantees at least one
+// recoverWatermark. The never-empty prune invariant guarantees at least one
 // (block, QC) pair is always retained, so a store holding a block with no
 // surviving QC is corrupt (e.g. a QC WAL file removed out of band). Rather than
 // serve blocks it can no longer trust, the store refuses to open.

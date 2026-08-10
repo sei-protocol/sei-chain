@@ -29,7 +29,7 @@ type blockDB struct {
 	// watermark is a retention floor, always a QC boundary (a GlobalRange().First):
 	// PruneBefore rounds a requested prune point down to the start of the cohort
 	// containing it, and startup re-derives it as the lowest surviving QC's First
-	// (see cohortStart and recoverReadFloors). Keeping it on a cohort boundary
+	// (see clampPruneBoundary and recoverWatermark). Keeping it on a cohort boundary
 	// is what makes a QC's blocks change readability atomically — the gate never
 	// splits a cohort.
 	//
@@ -45,7 +45,7 @@ type blockDB struct {
 	// status is the explicit write-order/recovery suffix cursor (see
 	// types.BlockDB contract). None means the DB is empty. Guarded by mu.
 	mu     sync.Mutex
-	status utils.Option[types.DBStatus]
+	status utils.Option[types.SuffixRange]
 }
 
 // NewBlockDB opens (or creates) a LittDB-backed types.BlockDB from config. The
@@ -85,35 +85,22 @@ func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to recover watermark: %w", err)
 	}
-	if err := s.recoverCursors(); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to recover write cursors: %w", err)
-	}
-	return s, nil
-}
-
-// recoverCursors reloads the write-order cursors from on-disk state. Without
-// this, a reopened DB would treat itself as empty and let writes silently accept
-// out-of-order or non-contiguous data that overwrite or gap persisted data.
-func (s *blockDB) recoverCursors() error {
-	recent, err := s.readRecent()
+	suffix, err := s.ReadSuffix()
 	if err != nil {
-		return fmt.Errorf("read recent data: %w", err)
+		return nil, fmt.Errorf("ReadSuffix(): %w", err)
 	}
-	s.status = recent.Status
-	return nil
+	s.status = suffix.Status
+	return s,nil
 }
 
-// recoverReadFloors re-derives the read watermark on open from the oldest
+// recoverWatermark re-derives the read watermark on open from the oldest
 // surviving QC. It is in-memory only, so a restart forgets every PruneBefore.
 // That is fine for reclamation (nothing new is deleted), but we must protect
 // against showing un-pruned blocks with pruned QCs.
 //
-// One forward pass serves both. QCs are written before the blocks they cover, so the oldest
-// surviving record is normally a QC and the first block follows shortly after.
-// The block search is skipped when the store holds no blocks — status.NextBlock
-// comes from recoverCursors, which runs first — so a QC-only store does not walk
-// the whole table looking for a block that is not there.
+// QCs are written before the blocks they cover, so the oldest surviving record
+// is normally a QC and the first block follows shortly after. If no QC survives
+// but the table is non-empty, the store is corrupt and must not reopen.
 func (s *blockDB) recoverWatermark() error {
 	it, err := s.table.Iterator(false)
 	if err != nil {
@@ -215,7 +202,7 @@ func (s *blockDB) WriteQC(qc *types.FullCommitQC) error {
 		// The first QC may start anywhere its caller allows, and nothing below it will ever
 		// be written. Record where coverage begins so Iterator can clamp to it without
 		// discovering it by scanning; a reopen re-derives the same value.
-		status = types.DBStatus{
+		status = types.SuffixRange{
 			First:           gr.First,
 			NextAppQC:       gr.First,
 			NextAppProposal: gr.First,
@@ -375,76 +362,58 @@ func (s *blockDB) Flush() error {
 	return nil
 }
 
-func (s *blockDB) Status() utils.Option[types.DBStatus] {
+func (s *blockDB) Status() utils.Option[types.SuffixRange] {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.status
 }
 
-// ReadRecent() reads the latest AppQC/AppProposal recovery suffix.
-// WARNING: ReadRecent() will return an error if watermark is moved during iteration.
-func (s *blockDB) ReadRecent() (types.RecentData, error) {
-	recent, err := s.readRecent()
-	if err != nil {
-		return types.RecentData{}, err
-	}
-	status, ok := recent.Status.Get()
-	if !ok {
-		return recent, nil
-	}
-	// Safety check: if watermark has been moved and GC happened to get executed during iteration,
-	// the loaded data might be inconsistent with the targetFloor we computed.
-	current, ok := s.Status().Get()
-	if !ok || current.First != status.First {
-		return types.RecentData{}, fmt.Errorf("watermark has moved while iterating: recovered status %+v, current status %+v", status, current)
-	}
-	return recent, nil
-}
-
-func (s *blockDB) readRecent() (types.RecentData, error) {
+// ReadSuffix reads the materialized startup-recovery suffix.
+// WARNING: ReadSuffix() will return an error if watermark is moved during iteration.
+func (s *blockDB) ReadSuffix() (types.Suffix, error) {
 	it, err := s.table.Iterator(true)
 	if err != nil {
-		return types.RecentData{}, fmt.Errorf("failed to open recent-data iterator: %w", err)
+		return types.Suffix{}, fmt.Errorf("failed to open suffix iterator: %w", err)
 	}
 	defer func() { _ = it.Close() }()
-	var recent types.RecentData
-	var status types.DBStatus
+	var suffix types.Suffix
+	var status types.SuffixRange
 	var oldestQC *types.FullCommitQC
 	var gotBlock, gotQC, gotAppProposal, gotAppQC bool
 	for !gotAppQC || !gotQC || status.NextAppQC <= oldestQC.QC().GlobalRange().Next {
 		ok, err := it.Next()
 		if err != nil {
-			return types.RecentData{}, fmt.Errorf("failed to advance recent-data iterator: %w", err)
+			return types.Suffix{}, fmt.Errorf("failed to advance suffix iterator: %w", err)
 		}
 		if !ok {
 			break
 		}
 		key, isPrimary, err := it.GetKey()
 		if err != nil {
-			return types.RecentData{}, fmt.Errorf("failed to read recent-data key: %w", err)
+			return types.Suffix{}, fmt.Errorf("failed to read suffix key: %w", err)
 		}
 		if !isPrimary {
 			continue
 		}
 		value, err := it.GetValue()
 		if err != nil {
-			return types.RecentData{}, fmt.Errorf("failed to read recent-data value: %w", err)
+			return types.Suffix{}, fmt.Errorf("failed to read suffix value: %w", err)
 		}
 		switch keyKind(key) {
 		case kindBlock:
 			n, block, err := decodeBlock(value)
 			if err != nil {
-				return types.RecentData{}, fmt.Errorf("failed to decode recent block: %w", err)
+				return types.Suffix{}, fmt.Errorf("failed to decode suffix block: %w", err)
 			}
 			if !gotBlock {
 				status.NextBlock = n + 1
 				gotBlock = true
 			}
-			recent.Blocks = append(recent.Blocks, types.RecentBlock{Number: n, Block: block})
+			suffix.Blocks = append(suffix.Blocks, types.SuffixBlock{Number: n, Block: block})
 		case kindAppQC:
 			appQC, err := decodeAppQC(value)
 			if err != nil {
-				return types.RecentData{}, fmt.Errorf("failed to decode recent AppQC: %w", err)
+				return types.Suffix{}, fmt.Errorf("failed to decode suffix AppQC: %w", err)
 			}
 			gr := appQC.Proposal().GlobalRange()
 			if !gotAppQC {
@@ -452,22 +421,22 @@ func (s *blockDB) readRecent() (types.RecentData, error) {
 				status.First = gr.Next - 1
 				gotAppQC = true
 			}
-			recent.AppQCs = append(recent.AppQCs, appQC)
+			suffix.AppQCs = append(suffix.AppQCs, appQC)
 		case kindAppProp:
 			appProposal, err := decodeAppProposal(value)
 			if err != nil {
-				return types.RecentData{}, fmt.Errorf("failed to decode recent AppProposal: %w", err)
+				return types.Suffix{}, fmt.Errorf("failed to decode suffix AppProposal: %w", err)
 			}
 			gr := appProposal.GlobalRange()
 			if !gotAppProposal {
 				status.NextAppProposal = gr.Next
 				gotAppProposal = true
 			}
-			recent.AppProposals = append(recent.AppProposals, appProposal)
+			suffix.AppProposals = append(suffix.AppProposals, appProposal)
 		case kindQC:
 			qc, err := decodeQC(value)
 			if err != nil {
-				return types.RecentData{}, fmt.Errorf("failed to decode recent CommitQC: %w", err)
+				return types.Suffix{}, fmt.Errorf("failed to decode suffix CommitQC: %w", err)
 			}
 			gr := qc.QC().GlobalRange()
 			if !gotQC {
@@ -475,12 +444,12 @@ func (s *blockDB) readRecent() (types.RecentData, error) {
 				gotQC = true
 			}
 			oldestQC = qc
-			recent.CommitQCs = append(recent.CommitQCs, qc)
+			suffix.CommitQCs = append(suffix.CommitQCs, qc)
 		}
 	}
 	if !gotQC {
 		// Empty db.
-		return types.RecentData{}, nil
+		return types.Suffix{}, nil
 	}
 	// Set fields for missing resources.
 	first := oldestQC.QC().GlobalRange().First
@@ -489,27 +458,27 @@ func (s *blockDB) readRecent() (types.RecentData, error) {
 	status.NextAppProposal = max(status.NextAppProposal, first)
 	status.NextAppQC = max(status.NextAppQC, first)
 	status.First = max(status.First, first)
-	recent.Status = utils.Some(status)
+	suffix.Status = utils.Some(status)
 
 	// Prune resources fully below status.First.
-	recent.CommitQCs = slices.DeleteFunc(recent.CommitQCs, func(qc *types.FullCommitQC) bool {
+	suffix.CommitQCs = slices.DeleteFunc(suffix.CommitQCs, func(qc *types.FullCommitQC) bool {
 		return qc.QC().GlobalRange().Next <= status.First
 	})
-	recent.Blocks = slices.DeleteFunc(recent.Blocks, func(block types.RecentBlock) bool {
+	suffix.Blocks = slices.DeleteFunc(suffix.Blocks, func(block types.SuffixBlock) bool {
 		return block.Number < status.First
 	})
-	recent.AppProposals = slices.DeleteFunc(recent.AppProposals, func(appProposal *types.AppProposal) bool {
+	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(appProposal *types.AppProposal) bool {
 		return appProposal.GlobalRange().Next <= status.First
 	})
-	recent.AppQCs = slices.DeleteFunc(recent.AppQCs, func(appQC *types.AppQC) bool {
+	suffix.AppQCs = slices.DeleteFunc(suffix.AppQCs, func(appQC *types.AppQC) bool {
 		return appQC.Proposal().GlobalRange().Next <= status.First
 	})
 	// Put resources in increasing order.
-	slices.Reverse(recent.CommitQCs)
-	slices.Reverse(recent.Blocks)
-	slices.Reverse(recent.AppProposals)
-	slices.Reverse(recent.AppQCs)
-	return recent, nil
+	slices.Reverse(suffix.CommitQCs)
+	slices.Reverse(suffix.Blocks)
+	slices.Reverse(suffix.AppProposals)
+	slices.Reverse(suffix.AppQCs)
+	return suffix, nil
 }
 
 func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {

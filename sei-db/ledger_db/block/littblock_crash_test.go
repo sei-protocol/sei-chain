@@ -71,10 +71,10 @@ func TestLittblockNoBlockWithoutQCAfterTornTail(t *testing.T) {
 		totalBlocks += len(b.blocks)
 	}
 
-	recent, err := db2.ReadRecent()
+	suffix, err := db2.ReadSuffix()
 	require.NoError(t, err)
 	present := 0
-	for _, block := range recent.Blocks {
+	for _, block := range suffix.Blocks {
 		n := block.Number
 		qc, err := db2.ReadQCByBlockNumber(n)
 		require.NoError(t, err)
@@ -213,10 +213,10 @@ func TestLittblockFlushSurvivesHardKill(t *testing.T) {
 		totalBlocks += len(b.blocks)
 	}
 
-	recent, err := db.ReadRecent()
+	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
 	present := 0
-	for _, block := range recent.Blocks {
+	for _, block := range suffix.Blocks {
 		n := block.Number
 		qc, err := db.ReadQCByBlockNumber(n)
 		require.NoError(t, err)

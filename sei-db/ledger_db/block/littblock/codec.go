@@ -19,11 +19,11 @@ import (
 //   - kindAppQC     'a' + 8-byte big-endian GlobalBlockNumber (AppQC primary + covered aliases)
 //   - kindAppProp   'p' + 8-byte big-endian GlobalBlockNumber (AppProposal primary + covered aliases)
 const (
+	kindAppQC     byte = 'a'
 	kindBlock     byte = 'b'
 	kindBlockHash byte = 'h'
-	kindQC        byte = 'q'
-	kindAppQC     byte = 'a'
 	kindAppProp   byte = 'p'
+	kindQC        byte = 'q'
 )
 
 // encodeKey encodes a GlobalBlockNumber as an 8-byte big-endian value. Big-endian
@@ -36,8 +36,8 @@ func encodeKey(n types.GlobalBlockNumber) []byte {
 }
 
 // decodeKey decodes an 8-byte value produced by encodeKey.
-func decodeKey(b []byte) types.GlobalBlockNumber {
-	return types.GlobalBlockNumber(binary.BigEndian.Uint64(b))
+func decodeKey(b [8]byte) types.GlobalBlockNumber {
+	return types.GlobalBlockNumber(binary.BigEndian.Uint64(b[:]))
 }
 
 // blockKey returns the primary key under which a block at number n is stored.
@@ -76,9 +76,9 @@ func keyKind(key []byte) byte {
 
 // decodeNumberKey decodes the GlobalBlockNumber from a kindBlock, kindQC, or
 // kindAppQC key (i.e. a key whose prefix is followed by an 8-byte big-endian
-// number).
+// number). Panics if key is not 9 bytes (1B kind + 8B GlobalBlockNumber).
 func decodeNumberKey(key []byte) types.GlobalBlockNumber {
-	return decodeKey(key[1:])
+	return decodeKey([8]byte(key[1:]))
 }
 
 // Serialization version for blocks.

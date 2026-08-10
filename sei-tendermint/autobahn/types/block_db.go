@@ -190,20 +190,20 @@ type BlockDB interface {
 
 	// Status returns a consistent snapshot of the in-memory write tips (no I/O).
 	// None means the DB is empty.
-	Status() utils.Option[DBStatus]
+	Status() utils.Option[SuffixRange]
 
-	// ReadRecent returns the materialized startup-recovery suffix.
+	// ReadSuffix returns the materialized startup-recovery suffix.
 	//
 	// Implementations find the newest persisted AppQC, then collect all
 	// CommitQCs whose Index is greater than or equal to that AppQC's
 	// RoadIndex, and all blocks whose GlobalBlockNumber is greater than or
 	// equal to that AppQC's GlobalRange.First. If no AppQC is present,
-	// ReadRecent returns all retained CommitQCs and blocks.
+	// ReadSuffix returns all retained CommitQCs and blocks.
 	//
 	// Returned CommitQCs and Blocks are in ascending GlobalBlockNumber order so
 	// data.State can replay them directly. If AppQC is present, CommitQCs
 	// starts with its matching CommitQC.
-	ReadRecent() (RecentData, error)
+	ReadSuffix() (Suffix, error)
 
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
 	//
@@ -283,12 +283,12 @@ type BlockDB interface {
 	Close() error
 }
 
-// DBStatus represents the suffix of BlockDB data that data.State can append to/would load on recovery.
+// SuffixRange represents the suffix of BlockDB data that data.State can append to/would load on recovery.
 // Elements since the last anchor (last full row which contains AppQC,AppProposal,Block,QC) to
 // the tips persisted in the DB. These are the elements that would be loaded by data.State on restart
-// via BlockDB.ReadRecent.
+// via BlockDB.ReadSuffix.
 // First <= NextAppQC <= NextAppProposal <= NextBlock <= NextQC
-type DBStatus struct {
+type SuffixRange struct {
 	// First is either NextAppQC, or NextAppQC-1, depending on whether there is at least 1 AppQC in the BlockDB.
 	First GlobalBlockNumber
 	// NextAppQC is one past the highest GlobalBlockNumber covered by the last
@@ -307,20 +307,20 @@ type DBStatus struct {
 	NextQC GlobalBlockNumber
 }
 
-// RecentBlock is one block returned by BlockDB.ReadRecent.
-type RecentBlock struct {
+// SuffixBlock is one block returned by BlockDB.ReadSuffix.
+type SuffixBlock struct {
 	Number GlobalBlockNumber
 	Block  *Block
 }
 
-// RecentData is the materialized suffix used by data.State startup recovery.
-type RecentData struct {
+// Suffix is the materialized suffix used by data.State startup recovery.
+type Suffix struct {
 	// Ranges of elements in the suffix.
 	// None if the BlockDB is empty.
-	Status utils.Option[DBStatus]
+	Status utils.Option[SuffixRange]
 	// Elements which constitute the suffix.
 	CommitQCs    []*FullCommitQC
-	Blocks       []RecentBlock
+	Blocks       []SuffixBlock
 	AppProposals []*AppProposal
 	AppQCs       []*AppQC
 }
