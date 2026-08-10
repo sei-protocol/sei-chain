@@ -62,6 +62,58 @@ func TestStateWithPersistence(t *testing.T) {
 	}
 }
 
+func TestNewStateDoesNotPublishDataAnchorAsPersistedCommitQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ds := newTestDataState(&data.Config{Registry: registry})
+	qc, blocks := data.TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr := qc.QC().GlobalRange()
+	appHash := types.GenAppHash(rng)
+	appProposal := types.NewAppProposal(qc.QC().Proposal(), appHash)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		s.SpawnBgNamed("data.Run", func() error { return utils.IgnoreCancel(ds.Run(runCtx)) })
+		if err := ds.PushQC(ctx, qc, blocks); err != nil {
+			return err
+		}
+		for n := gr.First; n < gr.Next; n++ {
+			if err := ds.PushAppHash(ctx, n, appHash); err != nil {
+				return err
+			}
+		}
+		if err := ds.PushAppQC(ctx, data.TestAppQC(keys, appProposal)); err != nil {
+			return err
+		}
+		_, err := ds.Anchor().Wait(ctx, func(anchor utils.Option[data.Anchor]) bool {
+			a, ok := anchor.Get()
+			return ok && a.CommitQC.Index() == qc.QC().Index()
+		})
+		return err
+	}))
+
+	state, err := NewState(keys[0], ds, utils.None[string]())
+	require.NoError(t, err)
+	_, ok := state.LastCommitQC().Load().Get()
+	require.False(t, ok, "data anchor is not persisted avail state until avail.Run writes it")
+	got, err := state.CommitQC(ctx, qc.QC().Index())
+	require.NoError(t, err)
+	require.NoError(t, utils.TestDiff(qc.QC(), got))
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		s.SpawnBgNamed("avail.Run", func() error { return utils.IgnoreCancel(state.Run(runCtx)) })
+		_, err := state.LastCommitQC().Wait(ctx, func(got utils.Option[*types.CommitQC]) bool {
+			gotQC, ok := got.Get()
+			return ok && gotQC.Index() == qc.QC().Index()
+		})
+		return err
+	}))
+}
+
 func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 	t.Helper()
 	ctx := t.Context()

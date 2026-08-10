@@ -76,6 +76,7 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 
 	// Restore persisted CommitQCs. prune() may have already pushed the
 	// anchor's CommitQC, so skip entries below commitQCs.next.
+	setPersisted := false
 	for _, qc := range loaded.commitQCs {
 		if qc.Index() < i.roads.next {
 			continue
@@ -88,8 +89,12 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 			return nil, fmt.Errorf("epoch not found")
 		}
 		i.roads.pushBack(newRoad(qc, epoch))
+		setPersisted = true
 	}
-	if i.roads.Len() > 0 {
+	// It may happen that data.State has progressed beyond avail state.
+	// In this case the whole persisted avail.State is invalidated and anchor.CommitQC
+	// is NOT stored in avail.State. We need it to get persisted before we update persistedCommitQC.
+	if setPersisted {
 		i.persistedCommitQC.Store(utils.Some(i.roads.q[i.roads.next-1].commitQC))
 	}
 
