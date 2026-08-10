@@ -454,6 +454,13 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
 	}
 
+	// Wait until the block we want to checkpoint has actually been flushed down to the pebble instances.
+	// Since we continue to hold the reservation on that block, later blocks are prevented from being
+	// flushed down to pebble, thus making the checkpoint operation thread safe.
+	if err := s.flushLatestVersion(); err != nil {
+		return fmt.Errorf("await flush before snapshot at version %d: %w", version, err)
+	}
+
 	dir := s.flatkvDir()
 	snapDir := snapshotName(version)
 	finalPath := filepath.Join(dir, snapDir)
@@ -472,26 +479,13 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		}
 	}()
 
-	// Deterministic order (slice, not map) for reproducibility.
-	type namedDB struct {
-		name string
-		db   types.KeyValueDB
-	}
-	dbs := []namedDB{
-		{accountDBDir, s.accountDB},
-		{codeDBDir, s.codeDB},
-		{storageDBDir, s.storageDB},
-		{miscDBDir, s.miscDB},
-		{metadataDir, s.metadataDB},
-	}
-	for _, ndb := range dbs {
-		cp, ok := ndb.db.(types.Checkpointable)
+	for _, dir := range snapshotDBDirs {
+		cp, ok := s.rawDBFor(dir).(types.Checkpointable)
 		if !ok {
-			return fmt.Errorf("db %s does not support Checkpoint", ndb.name)
+			return fmt.Errorf("db %s does not support Checkpoint", dir)
 		}
-		dest := filepath.Join(tmpPath, ndb.name)
-		if err := cp.Checkpoint(dest); err != nil {
-			return fmt.Errorf("checkpoint %s: %w", ndb.name, err)
+		if err := cp.Checkpoint(filepath.Join(tmpPath, dir)); err != nil {
+			return fmt.Errorf("checkpoint %s: %w", dir, err)
 		}
 	}
 

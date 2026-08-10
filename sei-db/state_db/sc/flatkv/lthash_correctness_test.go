@@ -26,6 +26,9 @@ import (
 // incremental LtHash must match after any sequence of apply+commit cycles.
 func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 	t.Helper()
+	// Independent ground truth means reading the databases directly, which only agrees with the
+	// maintained hashes once the committed block has actually been flushed there.
+	requireFlushedToDisk(t, s)
 	var pairs []lthash.KVPairWithLastValue
 
 	scanDB := func(db types.KeyValueDB) {
@@ -46,7 +49,8 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 		require.NoError(t, iter.Error())
 	}
 
-	for _, db := range s.dataDBs() {
+	for _, dir := range dataDBDirs {
+		db := s.rawDBFor(dir)
 		scanDB(db)
 	}
 
@@ -854,7 +858,7 @@ func TestLtHashAccountRowDelete(t *testing.T) {
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 
-	_, err := s.accountDB.Get(accountPhysKey(addr))
+	_, err := s.rawDBFor(accountDBDir).Get(accountPhysKey(addr))
 	require.Error(t, err, "accountDB row should be physically absent")
 }
 
@@ -899,7 +903,7 @@ func TestLtHashAccountDeleteThenRecreate(t *testing.T) {
 	_, found = s.Get(keys.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should be zero (EOA)")
 
-	raw, err := s.accountDB.Get(accountPhysKey(addr))
+	raw, err := s.rawDBFor(accountDBDir).Get(accountPhysKey(addr))
 	require.NoError(t, err)
 	ad, err := vtype.DeserializeAccountData(raw)
 	require.NoError(t, err)
@@ -926,7 +930,7 @@ func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 
-	raw, err := s.accountDB.Get(accountPhysKey(addr))
+	raw, err := s.rawDBFor(accountDBDir).Get(accountPhysKey(addr))
 	require.NoError(t, err, "row should still exist after partial delete")
 	ad, err := vtype.DeserializeAccountData(raw)
 	require.NoError(t, err)
@@ -964,8 +968,9 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 	require.False(t, found, "codehash should be not-found after pending delete")
 	require.Nil(t, chVal)
 
-	paw := s.accountWrites[string(accountPhysKey(addr))]
-	require.NotNil(t, paw)
+	paw, err := getAndParse(s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
+	require.NoError(t, err)
+	require.NotNil(t, paw, "the staged account row must still be present")
 	require.False(t, paw.IsDelete(), "row should NOT be marked for deletion (partial delete)")
 }
 
@@ -1014,10 +1019,13 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	hasCodeHash := s.Has(keys.EVMStoreKey, chKey)
 	require.False(t, hasCodeHash, "Has(codehash) should be false after pending full-delete")
 
-	// Verify isDelete is set
-	paw := s.accountWrites[string(accountPhysKey(addr))]
-	require.NotNil(t, paw)
-	require.True(t, paw.IsDelete(), "row should be marked for deletion (all fields zero)")
+	// A full delete stages a deletion rather than a zeroed row. The tombstone itself is no longer
+	// inspectable — BatchSet turns an IsDelete row into a store-level delete, and reading a key
+	// deleted in the current version reports absent rather than handing back the tombstone — so assert
+	// the observable consequence instead.
+	paw, err := getAndParse(s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
+	require.NoError(t, err)
+	require.Nil(t, paw, "a fully deleted account row must read back as absent")
 }
 
 // TestLtHashAccountWriteZeroGC verifies that writing a zero value (not a
@@ -1042,7 +1050,7 @@ func TestLtHashAccountWriteZeroGC(t *testing.T) {
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 
-	_, err := s.accountDB.Get(accountPhysKey(addr))
+	_, err := s.rawDBFor(accountDBDir).Get(accountPhysKey(addr))
 	require.Error(t, err, "accountDB row should be GC'd after write-zero")
 }
 
@@ -1073,7 +1081,7 @@ func TestLtHashAccountWriteZeroOrderIndependent(t *testing.T) {
 			commitAndCheck(t, s)
 			verifyLtHashAtHeight(t, s, 2)
 
-			_, err := s.accountDB.Get(accountPhysKey(addr))
+			_, err := s.rawDBFor(accountDBDir).Get(accountPhysKey(addr))
 			require.Error(t, err, "row should be GC'd regardless of order")
 		})
 	}
@@ -1086,54 +1094,53 @@ func TestLtHashAccountWriteZeroOrderIndependent(t *testing.T) {
 // TestLtHashCommittedVsWorkingDiverge verifies that after ApplyChangeSets,
 // RootHash (working) differs from CommittedRootHash, and after Commit they
 // converge again. Both must match fullScanLtHash at each checkpoint.
-func TestLtHashCommittedVsWorkingDiverge(t *testing.T) {
+func TestRootHashCommitsPendingBlock(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Initial state: both should be equal (empty)
+	// Before any writes, the working and committed hashes describe the same (empty) state.
 	require.Equal(t, s.RootHash(), s.CommittedRootHash(),
 		"before any writes, working and committed should be equal")
 
-	// Block 1: create state
+	// Block 1: create state.
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(
 			noncePair(addrN(1), 10),
 			storagePair(addrN(1), slotN(1), []byte{0xAA}),
 		),
 	}))
+	require.Equal(t, int64(0), s.Version(), "ApplyChangeSets alone must not commit")
 
-	// After apply, working should differ from committed
-	require.NotEqual(t, s.RootHash(), s.CommittedRootHash(),
-		"after ApplyChangeSets, working should differ from committed")
+	// Asking for the hash commits the block, because a block that has not been sealed has no hash to
+	// report. The two hashes therefore agree the moment either is observable.
+	hash := s.RootHash()
+	require.Equal(t, int64(1), s.Version(), "RootHash must commit the pending block")
+	require.Equal(t, hash, s.CommittedRootHash(),
+		"the hash RootHash returns is the committed one")
+	require.Empty(t, s.pendingChangeSets, "the implicit commit consumes the pending block")
 
-	commitAndCheck(t, s)
-
-	// After commit, they must converge
-	require.Equal(t, s.RootHash(), s.CommittedRootHash(),
-		"after Commit, working and committed should be equal")
+	// The Commit that Cosmos issues afterwards finds the block already committed and changes nothing.
+	v, err := s.Commit(1)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), v)
+	require.Equal(t, hash, s.RootHash())
 	verifyLtHashAtHeight(t, s, 1)
 
-	// Block 2: modify
+	// Block 2: modify. Same sequence, and the hash must move.
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addrN(1), 20)),
 	}))
-	require.NotEqual(t, s.RootHash(), s.CommittedRootHash(),
-		"after second ApplyChangeSets, working should differ from committed")
-
-	commitAndCheck(t, s)
-	require.Equal(t, s.RootHash(), s.CommittedRootHash())
+	require.NotEqual(t, hash, s.RootHash(), "a block that changes state changes the hash")
+	require.Equal(t, int64(2), s.Version())
 	verifyLtHashAtHeight(t, s, 2)
 
-	// Block 3: empty block — both should remain equal throughout
-	hashBefore := s.RootHash()
+	// Block 3: an empty block commits and leaves the hash where it was.
+	before := s.RootHash()
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS()}))
-	require.Equal(t, hashBefore, s.RootHash(),
-		"empty apply should not change working hash")
-	require.Equal(t, s.RootHash(), s.CommittedRootHash(),
-		"empty apply should not diverge working from committed")
+	require.Equal(t, before, s.RootHash(), "an empty block must not change the hash")
 	commitAndCheck(t, s)
-	require.Equal(t, hashBefore, s.RootHash(),
-		"empty commit should not change root hash")
+	require.Equal(t, before, s.RootHash())
+	require.Equal(t, s.RootHash(), s.CommittedRootHash())
 }
 
 // =============================================================================

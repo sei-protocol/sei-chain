@@ -61,7 +61,7 @@ func TestVerifyLtHashIgnoresEmptyValueRows(t *testing.T) {
 
 	// Plant an empty-value row that foldChunk would never count.
 	emptyKey := storagePhysKey(addrN(0x02), slotN(0x02))
-	require.NoError(t, s.storageDB.Set(emptyKey, nil, types.WriteOptions{}))
+	require.NoError(t, s.rawDBFor(storageDBDir).Set(emptyKey, nil, types.WriteOptions{}))
 
 	require.NoError(t, VerifyLtHash(s))
 }

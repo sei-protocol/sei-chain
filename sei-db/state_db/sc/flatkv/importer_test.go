@@ -172,7 +172,7 @@ func TestKVImporter_AddNodeAfterDoneDoesNotBlock(t *testing.T) {
 	defer func() { require.NoError(t, s.Close()) }()
 	// imp.Close() drains the dispatcher + worker goroutines via wg.Wait().
 	// Without it, s.Close() (the outer defer, runs second because defers are
-	// LIFO) can race the dispatcher's read of s.storageDB in routePhysicalKey
+	// LIFO) can race the dispatcher's read of s.rawDBFor(storageDBDir) in routePhysicalKey
 	// against closeDBsOnly's write of s.storageDB = nil, tripping the race
 	// detector. Discard the returned error: we tripped setErr below, so this
 	// Close is on the error path and intentionally returns the synthetic err.

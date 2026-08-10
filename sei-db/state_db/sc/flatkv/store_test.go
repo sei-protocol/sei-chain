@@ -9,6 +9,7 @@ import (
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -57,7 +58,7 @@ func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
 	cfg.MiscDBConfig.EnableMetrics = true
 	cfg.MetadataDBConfig.EnableMetrics = true
 
-	InitializeDataDirectories(cfg)
+	initializeDataDirectories(cfg)
 
 	require.False(t, cfg.AccountDBConfig.EnableMetrics)
 	require.False(t, cfg.CodeDBConfig.EnableMetrics)
@@ -230,14 +231,20 @@ func TestStoreClearsPendingAfterCommit(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0xCC), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Should have pending writes
-	require.Len(t, s.storageWrites, 1)
+	// The staged row is readable before the commit, and the changeset is queued for the WAL. There is
+	// no staged-row count to assert on any more: the rows live in the store's current version, which
+	// deliberately does not expose a size.
+	staged, found := s.Get(keys.EVMStoreKey, key)
+	require.True(t, found, "the staged row must be readable before commit")
+	require.Equal(t, padLeft32(0xCC), staged)
 	require.Len(t, s.pendingChangeSets, 1)
 
 	commitAndCheck(t, s)
 
-	// Should be cleared after commit
-	require.Len(t, s.storageWrites, 0)
+	// The row survives the commit, and the per-block bookkeeping is cleared.
+	committed, found := s.Get(keys.EVMStoreKey, key)
+	require.True(t, found)
+	require.Equal(t, padLeft32(0xCC), committed)
 	require.Len(t, s.pendingChangeSets, 0)
 }
 
@@ -1237,7 +1244,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	// Skew accountDB's local meta version to 4 while keeping the correct
 	// LtHash. This simulates a crash where the version watermark wasn't
 	// persisted but the actual data and hash are intact.
-	batch := s.accountDB.NewBatch()
+	batch := s.rawDBFor(accountDBDir).NewBatch()
 	require.NoError(t, writeLocalMetaToBatch(batch, 4, savedAccountLtHash, s.perDBModuleWorkingLtHash[accountDBDir], s.perDBModuleWorkingStats[accountDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
@@ -1291,7 +1298,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	savedStorageLtHash := s.perDBWorkingLtHash[storageDBDir].Clone()
 
 	// Simulate crash: storageDB only flushed v3 (version watermark behind).
-	batch := s.storageDB.NewBatch()
+	batch := s.rawDBFor(storageDBDir).NewBatch()
 	require.NoError(t, writeLocalMetaToBatch(batch, 3, savedStorageLtHash, s.perDBModuleWorkingLtHash[storageDBDir], s.perDBModuleWorkingStats[storageDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
@@ -1490,9 +1497,21 @@ func TestRollbackRetainsWALInstance(t *testing.T) {
 	require.Equal(t, int64(1), s.committedVersion)
 }
 
+// A corrupted account row must be caught when it is read back to merge a partial account update,
+// rather than silently producing a wrong account.
+//
+// The corruption is injected while the store is closed. Poking the database behind a live store is not
+// observable through it: the store mediates every read and caches what it has served, so a value
+// changed underneath it is shadowed by the cache. Closing first, then corrupting, then reopening gives
+// the reopened store a cold cache that must go to disk and meet the bad bytes.
 func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
+	dir := t.TempDir()
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
 
 	addr := addrN(0x05)
 	cs := &proto.NamedChangeSet{
@@ -1502,22 +1521,33 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	_, err := s.Commit(s.Version() + 1)
-	require.NoError(t, err)
+	commitAndCheck(t, s)
+	require.NoError(t, s.Close())
 
-	// Corrupt the account value in the DB with invalid-length data.
-	batch := s.accountDB.NewBatch()
+	// Corrupt the account value on disk with invalid-length data.
+	corrupt, err := pebbledb.Open(t.Context(), &cfg.AccountDBConfig)
+	require.NoError(t, err)
+	batch := corrupt.NewBatch()
 	require.NoError(t, batch.Set(accountPhysKey(addr), []byte{0xDE, 0xAD}))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
+	require.NoError(t, corrupt.Close())
 
-	// Next ApplyChangeSets touching this account should detect the corruption
-	// when deserializing the old account value (deserializeAccountOld).
+	// Reopen without a WAL. With one, replay would rewrite this account from block 1's changeset and
+	// heal the row before anything read it — correct system behavior, but it would leave this test with
+	// nothing to observe. A nil WAL leaves the corruption in place so the read path is what meets it.
+	s2, err := NewCommitStore(t.Context(), cfg, nil)
+	require.NoError(t, err)
+	defer s2.Close()
+	require.NoError(t, s2.LoadLatest())
+
+	// Applying a partial nonce update reads the old account back to merge onto it, and must reject the
+	// corrupted row instead of merging onto garbage.
 	cs2 := &proto.NamedChangeSet{
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 99)}},
 	}
-	err = s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2})
+	err = s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs2})
 	require.Error(t, err, "should fail on corrupted AccountValue")
 	require.Contains(t, err.Error(), "unsupported serialization version")
 }
@@ -1551,9 +1581,8 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	require.NoError(t, s.wal.SignalEndOfBlock())
 	require.NoError(t, s.wal.Flush())
 
-	// Do NOT call commitBatches or update global metadata.
-	// Reset in-memory state to v1 to simulate crash.
-	s.clearPendingWrites()
+	// Do NOT seal the block on the stores. Reset in-memory state to v1 to simulate a crash.
+	s.clearPendingBlock()
 	s.committedVersion = 1
 	require.NoError(t, s.Close())
 
@@ -1657,7 +1686,11 @@ func TestCrashRecoveryCorruptLtHashBlobInMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	// Write garbage to the global _meta/hash key in metadataDB.
-	batch := s.metadataDB.NewBatch()
+	requireFlushedToDisk(t, s)
+	// Corrupt only after the sealed block has landed: otherwise the store's pending flush
+	// would overwrite the corruption. Store Close performs no final flush, so nothing
+	// touches the database after this point.
+	batch := s.rawDBFor(metadataDir).NewBatch()
 	require.NoError(t, batch.Set(ktype.MetaLtHashKey, []byte{0xDE, 0xAD, 0xBE, 0xEF}))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
@@ -1692,7 +1725,11 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 	require.NoError(t, err)
 
 	// Write garbage to accountDB's _meta/hash key.
-	batch := s.accountDB.NewBatch()
+	requireFlushedToDisk(t, s)
+	// Corrupt only after the sealed block has landed: otherwise the store's pending flush
+	// would overwrite the corruption. Store Close performs no final flush, so nothing
+	// touches the database after this point.
+	batch := s.rawDBFor(accountDBDir).NewBatch()
 	require.NoError(t, batch.Set(ktype.MetaLtHashKey, []byte{0x01, 0x02, 0x03}))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
@@ -1729,7 +1766,11 @@ func TestCrashRecoveryGlobalVersionOverflow(t *testing.T) {
 	// Write a version value that exceeds math.MaxInt64 to the global metadata.
 	overflowBytes := make([]byte, 8)
 	overflowBytes[0] = 0xFF // 0xFF00000000000000 > MaxInt64
-	batch := s.metadataDB.NewBatch()
+	requireFlushedToDisk(t, s)
+	// Corrupt only after the sealed block has landed: otherwise the store's pending flush
+	// would overwrite the corruption. Store Close performs no final flush, so nothing
+	// touches the database after this point.
+	batch := s.rawDBFor(metadataDir).NewBatch()
 	require.NoError(t, batch.Set(ktype.MetaVersionKey, overflowBytes))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
@@ -1754,7 +1795,7 @@ func TestInitializeDataDirectories(t *testing.T) {
 	cfg.MiscDBConfig.DataDir = ""
 	cfg.MetadataDBConfig.DataDir = ""
 
-	InitializeDataDirectories(cfg)
+	initializeDataDirectories(cfg)
 
 	require.Equal(t, "/base/flatkv/working/account", cfg.AccountDBConfig.DataDir)
 	require.Equal(t, "/base/flatkv/working/code", cfg.CodeDBConfig.DataDir)
@@ -1768,7 +1809,7 @@ func TestInitializeDataDirectoriesPreservesExisting(t *testing.T) {
 	cfg.DataDir = "/base/flatkv"
 	cfg.AccountDBConfig.DataDir = "/custom/account"
 
-	InitializeDataDirectories(cfg)
+	initializeDataDirectories(cfg)
 
 	require.Equal(t, "/custom/account", cfg.AccountDBConfig.DataDir,
 		"existing DataDir should not be overwritten")

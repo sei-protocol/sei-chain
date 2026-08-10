@@ -10,6 +10,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -822,9 +823,18 @@ func TestExportImportLargerDataset(t *testing.T) {
 	require.NoError(t, s2.Close())
 }
 
+// The exporter does not parse values, so a row it cannot interpret is exported byte-for-byte rather
+// than rejected or silently dropped.
+//
+// The corruption is staged while the store is closed. Writing to a database behind a live store is not
+// observable through it — every read, the exporter's scan included, goes through the store, which
+// serves what it has staged and cached rather than re-reading the disk. Reopening with a nil WAL gives a
+// store with a cold cache and no replay to heal the row.
 func TestExporterCorruptAccountValueInDB(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
+	cfg := config.DefaultTestConfig(t)
+	s0, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s0.LoadLatest())
 
 	addr := addrN(0x20)
 	cs := &proto.NamedChangeSet{
@@ -833,14 +843,23 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 			noncePair(addr, 42),
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	commitAndCheck(t, s)
+	require.NoError(t, s0.ApplyChangeSets(s0.Version()+1, []*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s0)
+	require.NoError(t, s0.Close())
 
-	// Corrupt the account value in accountDB with invalid-length data.
-	batch := s.accountDB.NewBatch()
+	// Corrupt the account value on disk with invalid-length data.
+	corrupt, err := pebbledb.Open(t.Context(), &cfg.AccountDBConfig)
+	require.NoError(t, err)
+	batch := corrupt.NewBatch()
 	require.NoError(t, batch.Set(accountPhysKey(addr), []byte{0xDE, 0xAD}))
 	require.NoError(t, batch.Commit(dbtypes.WriteOptions{Sync: true}))
 	_ = batch.Close()
+	require.NoError(t, corrupt.Close())
+
+	s, err := NewCommitStore(t.Context(), cfg, nil)
+	require.NoError(t, err)
+	defer s.Close()
+	require.NoError(t, s.LoadLatest())
 
 	// Raw exporter does not parse values — corrupt data is exported as-is.
 	exp := NewKVExporter(s, s.Version())

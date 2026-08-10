@@ -30,9 +30,7 @@ func commitStorageEntry(t *testing.T, s *CommitStore, addr ktype.Address, slot k
 		},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	v, err := s.Commit(s.Version() + 1)
-	require.NoError(t, err)
-	return v
+	return commitAndCheck(t, s)
 }
 
 func TestSnapshotCreatesDir(t *testing.T) {
@@ -249,10 +247,10 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0x50}, ktype.Slot{0x02}, []byte{0x02})
 
-	// Sabotage: close codeDB so checkpoint fails on it. We save the handle
-	// to restore it for cleanup.
-	savedCodeDB := s.codeDB
-	require.NoError(t, s.codeDB.Close())
+	// Sabotage: close the code database so the checkpoint fails on it. The store owns that database
+	// now, so there is no handle to save and restore — the store keeps its own reference either way,
+	// and the Close below simply reports the already-closed database.
+	require.NoError(t, s.rawDBFor(codeDBDir).Close())
 
 	err = s.WriteSnapshot("")
 	require.Error(t, err, "WriteSnapshot should fail when a DB is closed")
@@ -267,8 +265,7 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 	_, statErr := os.Stat(tmpPath)
 	require.True(t, os.IsNotExist(statErr), "tmp dir should be cleaned up on failure")
 
-	// Restore codeDB for proper cleanup (reopen is needed for Close to work)
-	s.codeDB = savedCodeDB
+	// Teardown will report the database this test deliberately closed; that is expected here.
 	_ = s.Close()
 }
 
@@ -1762,7 +1759,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB}) // v2
 	require.NoError(t, s.Close())
 
-	// Simulate crash between commitBatches (v2 written) and commitGlobalMetadata:
+	// Simulate crash between the stores sealing v2 and the store-wide committed version advancing:
 	// rewind global version to v1 so catchup needs to replay v2 from WAL.
 	workingMeta := filepath.Join(dbDir, "working", metadataDir)
 	metaCfg := pebbledb.DefaultConfig()

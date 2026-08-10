@@ -11,6 +11,8 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -142,28 +144,52 @@ func writeLocalMetaToBatch(
 	moduleHashes map[string]*lthash.LtHash,
 	moduleStats map[string]lthash.ModuleStats,
 ) error {
-	if err := batch.Set(ktype.MetaVersionKey, versionToBytes(version)); err != nil {
-		return fmt.Errorf("set meta version: %w", err)
-	}
-	if ltHash != nil {
-		if err := batch.Set(ktype.MetaLtHashKey, ltHash.Marshal()); err != nil {
-			return fmt.Errorf("set meta hash: %w", err)
+	for _, pair := range encodeLocalMeta(version, ltHash, moduleHashes, moduleStats) {
+		if err := batch.Set(pair.Key, pair.Value); err != nil {
+			return fmt.Errorf("set %q: %w", pair.Key, err)
 		}
+	}
+	return nil
+}
+
+// encodeLocalMeta encodes one data database's LocalMeta as reserved-prefix key-value pairs, for a
+// caller to hand to Snapshot.Finalize so they land in the same atomic batch as that version's diff.
+//
+// The pairs are the committed version, the per-DB root LtHash, and a hash plus a stats entry per
+// module.
+func encodeLocalMeta(
+	version int64,
+	ltHash *lthash.LtHash,
+	moduleHashes map[string]*lthash.LtHash,
+	moduleStats map[string]lthash.ModuleStats,
+) []*proto.KVPair {
+	pairs := make([]*proto.KVPair, 0, 2+len(moduleHashes)+len(moduleStats))
+	pairs = append(pairs, &proto.KVPair{Key: ktype.MetaVersionKey, Value: versionToBytes(version)})
+	if ltHash != nil {
+		pairs = append(pairs, &proto.KVPair{Key: ktype.MetaLtHashKey, Value: ltHash.Marshal()})
 	}
 	for module, h := range moduleHashes {
 		if h == nil {
 			continue
 		}
-		if err := batch.Set(ktype.ModuleLtHashKey(module), h.Marshal()); err != nil {
-			return fmt.Errorf("set module %q meta hash: %w", module, err)
-		}
+		pairs = append(pairs, &proto.KVPair{Key: ktype.ModuleLtHashKey(module), Value: h.Marshal()})
 	}
 	for module, st := range moduleStats {
-		if err := batch.Set(ktype.ModuleStatsKey(module), st.Marshal()); err != nil {
-			return fmt.Errorf("set module %q stats: %w", module, err)
-		}
+		pairs = append(pairs, &proto.KVPair{Key: ktype.ModuleStatsKey(module), Value: st.Marshal()})
 	}
-	return nil
+	return pairs
+}
+
+// encodeGlobalMetadata encodes the committed version and root LtHash as reserved-prefix pairs for the
+// metadata store's Finalize.
+func encodeGlobalMetadata(version int64, hash *lthash.LtHash) []*proto.KVPair {
+	pairs := []*proto.KVPair{
+		{Key: ktype.MetaVersionKey, Value: versionToBytes(version)},
+	}
+	if hash != nil {
+		pairs = append(pairs, &proto.KVPair{Key: ktype.MetaLtHashKey, Value: hash.Marshal()})
+	}
+	return pairs
 }
 
 // validatePerModuleMetadata enforces the load-time invariant that a persisted
@@ -234,8 +260,8 @@ func cloneModuleStats(src map[string]lthash.ModuleStats) map[string]lthash.Modul
 
 // loadGlobalVersion reads the global committed version from metadata DB.
 // Returns 0 if not found (fresh start).
-func (s *CommitStore) loadGlobalVersion() (int64, error) {
-	data, err := s.metadataDB.Get(ktype.MetaVersionKey)
+func loadGlobalVersion(metaDB seidbtypes.KeyValueDB) (int64, error) {
+	data, err := metaDB.Get(ktype.MetaVersionKey)
 	if errorutils.IsNotFound(err) {
 		return 0, nil
 	}
@@ -255,8 +281,8 @@ func (s *CommitStore) loadGlobalVersion() (int64, error) {
 // loadGlobalEarliestVersion reads the earliest-history version recorded by
 // SetInitialVersion. Returns 0 if not found (genesis stores, or stores
 // created before this record existed).
-func (s *CommitStore) loadGlobalEarliestVersion() (int64, error) {
-	data, err := s.metadataDB.Get(ktype.MetaEarliestVersionKey)
+func loadGlobalEarliestVersion(metaDB seidbtypes.KeyValueDB) (int64, error) {
+	data, err := metaDB.Get(ktype.MetaEarliestVersionKey)
 	if errorutils.IsNotFound(err) {
 		return 0, nil
 	}
@@ -275,8 +301,8 @@ func (s *CommitStore) loadGlobalEarliestVersion() (int64, error) {
 
 // loadGlobalLtHash reads the global committed LtHash from metadata DB.
 // Returns nil if not found (fresh start).
-func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
-	data, err := s.metadataDB.Get(ktype.MetaLtHashKey)
+func loadGlobalLtHash(metaDB seidbtypes.KeyValueDB) (*lthash.LtHash, error) {
+	data, err := metaDB.Get(ktype.MetaLtHashKey)
 	if errorutils.IsNotFound(err) {
 		return nil, nil
 	}
@@ -290,7 +316,7 @@ func (s *CommitStore) loadGlobalLtHash() (*lthash.LtHash, error) {
 // to metadata DB. Per-DB LtHashes are stored in each DB's LocalMeta
 // (committed atomically with data in commitBatches).
 func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) error {
-	batch := s.metadataDB.NewBatch()
+	batch := s.rawDBFor(metadataDir).NewBatch()
 	defer func() { _ = batch.Close() }()
 
 	if err := batch.Set(ktype.MetaVersionKey, versionToBytes(version)); err != nil {
@@ -358,7 +384,7 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 		return fmt.Errorf("flatkv: SetInitialVersion can only be called on a fresh store; committedVersion=%d",
 			s.committedVersion)
 	}
-	if s.metadataDB == nil {
+	if s.rawDBFor(metadataDir) == nil {
 		return fmt.Errorf("flatkv: SetInitialVersion called before LoadLatest")
 	}
 
@@ -373,7 +399,7 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	// distinct from pruned or corrupt in-history versions; the composite
 	// store's era-aware read-only path keys on it.
 	{
-		batch := s.metadataDB.NewBatch()
+		batch := s.rawDBFor(metadataDir).NewBatch()
 		if err := batch.Set(ktype.MetaEarliestVersionKey, versionToBytes(seededVersion)); err != nil {
 			_ = batch.Close()
 			return fmt.Errorf("flatkv: SetInitialVersion: set earliest version: %w", err)
@@ -387,25 +413,26 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	}
 
 	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
-	for _, ndb := range s.namedDataDBs() {
-		ltHash := s.perDBWorkingLtHash[ndb.dir]
+	for _, dir := range dataDBDirs {
+		db := s.rawDBFor(dir)
+		ltHash := s.perDBWorkingLtHash[dir]
 		if ltHash == nil {
 			ltHash = lthash.New()
-			s.perDBWorkingLtHash[ndb.dir] = ltHash
+			s.perDBWorkingLtHash[dir] = ltHash
 		}
-		moduleHashes := s.perDBModuleWorkingLtHash[ndb.dir]
-		moduleStats := s.perDBModuleWorkingStats[ndb.dir]
-		batch := ndb.db.NewBatch()
+		moduleHashes := s.perDBModuleWorkingLtHash[dir]
+		moduleStats := s.perDBModuleWorkingStats[dir]
+		batch := db.NewBatch()
 		if err := writeLocalMetaToBatch(batch, seededVersion, ltHash, moduleHashes, moduleStats); err != nil {
 			_ = batch.Close()
-			return fmt.Errorf("flatkv: SetInitialVersion: prepare %s local meta: %w", ndb.dir, err)
+			return fmt.Errorf("flatkv: SetInitialVersion: prepare %s local meta: %w", dir, err)
 		}
 		if err := batch.Commit(syncOpt); err != nil {
 			_ = batch.Close()
-			return fmt.Errorf("flatkv: SetInitialVersion: commit %s local meta: %w", ndb.dir, err)
+			return fmt.Errorf("flatkv: SetInitialVersion: commit %s local meta: %w", dir, err)
 		}
 		_ = batch.Close()
-		s.localMeta[ndb.dir] = &ktype.LocalMeta{
+		s.localMeta[dir] = &ktype.LocalMeta{
 			CommittedVersion: seededVersion,
 			LtHash:           ltHash.Clone(),
 			ModuleLtHashes:   cloneModuleHashes(moduleHashes),
@@ -497,7 +524,7 @@ func readVersionRecord(dir string, key []byte) (int64, error) {
 // LoadLatest has run, it falls back to the free-standing on-disk
 // helper. Either path returns 0 on a fresh store.
 func (s *CommitStore) GetLatestVersion() (int64, error) {
-	if s.metadataDB != nil {
+	if s.rawDBFor(metadataDir) != nil {
 		return s.committedVersion, nil
 	}
 	return GetLatestVersion(s.flatkvDir())

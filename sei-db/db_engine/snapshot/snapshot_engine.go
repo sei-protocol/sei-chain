@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 
+	dbm "github.com/tendermint/tm-db"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
@@ -15,7 +18,7 @@ var ErrEngineClosed = errors.New("snapshot engine closed")
 // key-value database. It also coordinates writes to the database, since efficient snapshots require
 // careful staging of inserts.
 //
-// Data is asynchronously flushed to disk once it has been hashed and all its reservations
+// Data is asynchronously flushed to disk once it has been finalized and all its reservations
 // released. See Snapshot for the full lifecycle.
 //
 // Warning: it is not safe to mutate byte slices (keys or values) passed to or received from the engine.
@@ -32,9 +35,13 @@ var ErrEngineClosed = errors.New("snapshot engine closed")
 // it converges and no promise about which error any particular call receives. Do not treat it as a
 // safety net for skipping the halt.
 //
-// The configured metadata hash key is reserved for the engine; it must not be written or read
-// through the engine's key-value methods (see SnapshotEngineConfig.HashKey).
+// The configured metadata key prefix is reserved for the engine; keys under it must not be written
+// or read through the engine's key-value methods (see SnapshotEngineConfig.ReservedPrefix).
 type SnapshotEngine interface {
+
+	// Name identifies this engine instance (see SnapshotEngineConfig.Name). Constant for the
+	// engine's lifetime.
+	Name() string
 
 	// Get returns the value for the given key at the engine's current (mutable) version, or
 	// (nil, false, nil) if not found. On a miss the value is read through from the backing store.
@@ -72,14 +79,16 @@ type SnapshotEngine interface {
 	// snapshots may proceed concurrently with it.
 	//
 	// Commit may block for backpressure when the underlying DB cannot keep up with flushing
-	// (see SnapshotEngineConfig.MaxUnflushedVersions). The engine imposes no bound on unhashed
+	// (see SnapshotEngineConfig.MaxUnflushedVersions). The engine imposes no bound on unfinalized
 	// or unreleased snapshots, each of which is retained in memory; the caller is responsible
-	// for pausing execution when hashing or release falls behind.
+	// for pausing execution when finalization or release falls behind.
 	Commit() (Snapshot, error)
 
-	// Iterator returns an iterator over the engine's current (mutable) version, walking data in
-	// ascending lexicographical order of keys. The engine's reserved metadata hash key is excluded
-	// (see SnapshotEngineConfig.HashKey).
+	// Iterator returns an iterator over the engine's current (mutable) version, restricted to
+	// opts.LowerBound (inclusive) and opts.UpperBound (exclusive) and walking keys in descending
+	// lexicographical order when opts.Reverse is set, ascending otherwise. A nil opts means the whole
+	// keyspace, ascending. Keys under the engine's reserved metadata prefix are excluded (see
+	// SnapshotEngineConfig.ReservedPrefix).
 	//
 	// An iterator must be closed before the engine is next written: writing to the engine while an
 	// iterator is open — via Set, Delete, BatchSet, or Commit — is illegal. The engine makes a
@@ -90,16 +99,26 @@ type SnapshotEngine interface {
 	//
 	// Returns an error if the iterator cannot be constructed, in which case no iterator is returned
 	// and there is nothing to close.
-	Iterator() (Iterator, error)
+	//
+	// The returned iterator is single-pass: it arrives positioned on its first pair, there is no Prev
+	// or Seek, and the direction cannot be changed mid-walk. It is not thread-safe and must not be
+	// shared across goroutines.
+	Iterator(opts *types.IterOptions) (dbm.Iterator, error)
 
-	// InitialHash returns the most recently flushed hash as read from the underlying DB when the
-	// engine was opened, or nil if the DB had never been flushed. It lets a consumer recover the
-	// last persisted hash across restarts. It reflects open-time state and does not change as new
-	// snapshots are hashed and flushed.
-	InitialHash() []byte
+	// EscapeHatchUnderlyingDB returns the raw backing database, bypassing every guarantee this engine
+	// provides. The name is deliberately obstructive; see the implementation for why every use except
+	// taking a checkpoint is a bug.
+	EscapeHatchUnderlyingDB() types.KeyValueDB
 
-	// Releases every blocked caller and schedules for all resources held to be released. When Close returns
-	// no engine-owned goroutine will touch the low level DB again. Idempotent.
+	// Releases every blocked caller and schedules for all resources held to be released. This includes
+	// closing the underlying database, which the engine owns. When Close returns no engine-owned
+	// goroutine will touch that database again. Idempotent.
+	//
+	// Reading a Snapshot produced by this engine after Close is unsafe and the caller must not do
+	// it. The engine makes a best-effort attempt to fail such a read rather than answer it with
+	// nonsensical data, but that is a consequence of shutting down, not a service: a read that
+	// races Close may legitimately return the correct value instead of an error. Do not build
+	// synchronization on top of either outcome.
 	Close() error
 }
 
@@ -108,19 +127,15 @@ type SnapshotEngine interface {
 // reservation on it.
 //
 // Consumer responsibilities, in order:
-//  1. SetHash must be called exactly once, by a consumer that holds a reservation, to attach
-//     the snapshot's content hash.
+//  1. Finalize must be called exactly once, by a consumer that holds a reservation, to attach the
+//     snapshot's metadata (for example its content hash).
 //  2. Every reservation must be released — the implicit one held by the caller of Commit(),
-//     plus any acquired via Reserve. The final Release must happen after SetHash; releasing
-//     the last reservation on an unhashed snapshot is a fatal error.
-//
-// The hashing duty: exactly one consumer is responsible for calling SetHash, and that
-// consumer must hold a reservation across both the SetHash call and its matching Release.
-// This is what enforces ordering between steps 1 and 2 above.
+//     plus any acquired via Reserve. The final Release must happen after Finalize; releasing
+//     the last reservation on an unfinalized snapshot is a fatal error.
 //
 // Independently of consumer activity, the engine asynchronously performs two cleanup steps in
 // version order:
-//   - Flushing (writing the snapshot's diff to disk) is possible as soon as the hash is set.
+//   - Flushing (writing the snapshot's diff to disk) is possible as soon as Finalize has returned.
 //     The engine may flush a snapshot while reservations are still outstanding, as long as it
 //     is the oldest unflushed snapshot — that is, flushing can race ahead of the final
 //     Release. Outstanding reservations on an older snapshot will, however, block the flush
@@ -128,6 +143,9 @@ type SnapshotEngine interface {
 //   - Retirement (freeing the snapshot's in-memory state) happens only after the snapshot has
 //     been both flushed AND fully released.
 type Snapshot interface {
+	// Name returns the name of the engine this snapshot was taken from.
+	Name() string
+
 	// Get returns the value for the given key, or (nil, false, nil) if not found.
 	//
 	// It is not safe to mutate the key slice after calling this method, nor is it safe to mutate the value slice
@@ -165,8 +183,8 @@ type Snapshot interface {
 	// Release decrements this snapshot's reservation count. It must be called exactly once for
 	// each reservation, including the one held implicitly by the caller of SnapshotEngine.Commit().
 	//
-	// When the final reservation is released, the snapshot's hash must already be set (see the
-	// hashing-duty contract on Snapshot); releasing the final reservation on an unhashed
+	// When the final reservation is released, the snapshot must already be finalized (see the
+	// finalization-duty contract on Snapshot); releasing the final reservation on an unfinalized
 	// snapshot is a fatal error. After the final Release, the snapshot is no longer safe to read
 	// and its in-memory data becomes eligible for cleanup once it has been flushed to disk.
 	//
@@ -174,22 +192,19 @@ type Snapshot interface {
 	// failing to release a snapshot will stall flushes of all later snapshots indefinitely.
 	Release() error
 
-	// SetHash attaches a content hash to this snapshot. It must be called exactly once, by a
-	// consumer that currently holds a reservation, and must return before that consumer issues
-	// its final Release (see the hashing-duty contract on Snapshot).
+	// Finalize attaches this snapshot's metadata — whatever the consumer wants recorded alongside
+	// the block, such as its content hash. It must be called exactly once, by a consumer that
+	// currently holds a reservation, and must return before that consumer issues its final Release
+	// (see the finalization-duty contract on Snapshot).
 	//
-	// The hash is written to disk alongside the snapshot's diff, so the snapshot is not eligible
-	// to be flushed until SetHash has returned.
+	// Every key written must fall under the engine's reserved prefix (see
+	// SnapshotEngineConfig.ReservedPrefix); the engine does not verify this, and writing outside
+	// the prefix corrupts user data. The pairs are written to disk in the same atomic batch as the
+	// snapshot's diff, so the snapshot is not eligible to be flushed until Finalize has returned.
 	//
-	// Does not accept nil hashes.
-	SetHash(hash []byte) error
-
-	// AwaitHash blocks until SetHash has been called on this snapshot, then returns the hash.
-	// Returns an error if ctx is cancelled or the engine shuts down before the hash becomes
-	// available. Per the hashing-duty contract on Snapshot, the hash is guaranteed to be set
-	// before the snapshot's final Release, so callers that themselves hold a reservation can
-	// safely block on this.
-	AwaitHash(ctx context.Context) ([]byte, error)
+	// An empty write set is legal: a consumer with nothing to record still has to finalize, because
+	// finalization is what makes the snapshot flushable.
+	Finalize(writes []*proto.KVPair) error
 
 	// AwaitFlush blocks until the snapshot's data has been written to disk, returning nil once
 	// the flush has completed. Returns an error if ctx is cancelled or the engine shuts down
@@ -204,33 +219,4 @@ type Snapshot interface {
 	// regardless. A ctx error therefore says nothing about flush state: if completion and
 	// cancellation become observable simultaneously, either outcome may be returned.
 	AwaitFlush(ctx context.Context) error
-}
-
-// Iterator provides ordered iteration over a snapshot's data. Multiplexes on-disk data with in-memory data.
-// Data is traversed in ascending lexicographical order of keys. Forward-only; there is no Prev or Seek.
-//
-// Iterators are not thread-safe. A single iterator must not be shared across goroutines.
-type Iterator interface {
-	// Next moves the iterator to the next key-value pair.
-	//
-	// The returned key and value slices are owned by the caller and remain
-	// valid until Close. It is not safe to mutate them.
-	Next() (
-		// Returns true until the iterator is out of data, then false when the iterator is exhausted.
-		ok bool,
-		// The next key, or nil if the iterator is exhausted.
-		key []byte,
-		// The next value, or nil if the iterator is exhausted.
-		value []byte,
-		// An error if the iterator encountered an error. Errors are sticky:
-		// once Next returns an error, all subsequent calls return the same
-		// error.
-		err error,
-	)
-
-	// Closes the iterator, releasing held resources and unblocking writes to the engine. Idempotent.
-	//
-	// WARNING: an iterator that is never closed leaks resources and leaves the engine permanently
-	// unwritable (see SnapshotEngine.Iterator).
-	Close() error
 }

@@ -191,17 +191,18 @@ func NewKVImporter(store *CommitStore, version int64) types.Importer {
 		done:     make(chan struct{}),
 	}
 
-	for _, ndb := range store.namedDataDBs() {
+	for _, dir := range dataDBDirs {
+		db := store.rawDBFor(dir)
 		w := newDBWorker(
 			store.ctx,
-			ndb.dir,
-			ndb.db,
+			dir,
+			db,
 			store.ltCalc,
-			store.perDBWorkingLtHash[ndb.dir],
-			cloneModuleHashes(store.perDBModuleWorkingLtHash[ndb.dir]),
-			cloneModuleStats(store.perDBModuleWorkingStats[ndb.dir]),
+			store.perDBWorkingLtHash[dir],
+			cloneModuleHashes(store.perDBModuleWorkingLtHash[dir]),
+			cloneModuleStats(store.perDBModuleWorkingStats[dir]),
 		)
-		imp.workers[ndb.db] = w
+		imp.workers[db] = w
 	}
 
 	for _, w := range imp.workers {

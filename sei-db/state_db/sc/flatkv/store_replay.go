@@ -9,8 +9,8 @@ import (
 )
 
 // This file holds every path that replays WAL blocks into a store. The two entry points below differ only in
-// where the blocks land and in what happens afterwards — the live store persists a watermark, a throwaway clone
-// persists nothing. Everything under them is shared, ordered callers first.
+// where the blocks land and in what happens afterwards — the live store records the height it
+// reached, a throwaway clone persists nothing. Everything under them is shared, ordered callers first.
 
 // replayIntoMutableStore brings this store up to targetVersion from its own WAL, or to the end of the WAL when
 // targetVersion <= 0, and then persists the result so a later open does not replay it again.
@@ -38,7 +38,13 @@ func (s *CommitStore) replayIntoMutableStore(targetVersion int64) (err error) {
 		return nil
 	}
 
-	start, end, ok, err := resolveReplayRange(s.wal, s.committedVersion, targetVersion)
+	// Replay from the lowest height any store actually reached, not from the store-wide committed
+	// version: the stores flush independently, so that version can be ahead of some of them. Blocks
+	// between the lowest height and it are re-read from the WAL and applied only to the stores that are
+	// missing them.
+	alreadyHave, replayFrom := s.computeStoreHeights()
+
+	start, end, ok, err := resolveReplayRange(s.wal, replayFrom, targetVersion)
 	if err != nil {
 		return fmt.Errorf("catchup: %w", err)
 	}
@@ -54,20 +60,10 @@ func (s *CommitStore) replayIntoMutableStore(targetVersion int64) (err error) {
 	if err != nil {
 		return fmt.Errorf("catchup: WAL iterator [%d,%d]: %w", start, end, err)
 	}
-	if replayed, err = replayBlocks(s, it); err != nil {
+	if replayed, err = replayBlocks(s, it, alreadyHave); err != nil {
 		return fmt.Errorf("catchup: %w", err)
 	}
 
-	if !s.config.Fsync {
-		// With Fsync=false, per-block batch commits may leave data only in OS/page cache. Flush once before
-		// advancing global metadata so the global watermark never gets ahead of data durability.
-		if err = s.flushAllDBs(); err != nil {
-			return fmt.Errorf("catchup flush: %w", err)
-		}
-	}
-	if err = s.commitGlobalMetadata(s.committedVersion, s.committedLtHash); err != nil {
-		return fmt.Errorf("catchup global meta: %w", err)
-	}
 	logger.Info("FlatKV catchup complete",
 		"replayed", replayed, "version", s.committedVersion, "elapsed", obs.elapsed())
 	return nil
@@ -96,7 +92,7 @@ func (s *CommitStore) replayIntoReadOnlyCopy(clone *CommitStore, targetVersion i
 	if !ok {
 		return nil
 	}
-	if _, err := replayBlocks(clone, it); err != nil {
+	if _, err := replayBlocks(clone, it, nil); err != nil {
 		return fmt.Errorf("readonly: %w", err)
 	}
 	return nil
@@ -173,7 +169,11 @@ func resolveReplayRange(
 //
 // It holds no locks: the caller builds the iterator under whatever serialization its context requires, and the
 // iterator then reads a point-in-time snapshot that concurrent appends and prunes cannot disturb.
-func replayBlocks(dest *CommitStore, it seiwal.Iterator[[]*proto.NamedChangeSet]) (replayed int, err error) {
+func replayBlocks(
+	dest *CommitStore,
+	it seiwal.Iterator[[]*proto.NamedChangeSet],
+	alreadyHave map[string]int64,
+) (replayed int, err error) {
 	defer func() {
 		if cerr := it.Close(); cerr != nil && err == nil {
 			err = fmt.Errorf("close WAL iterator: %w", cerr)
@@ -189,7 +189,8 @@ func replayBlocks(dest *CommitStore, it seiwal.Iterator[[]*proto.NamedChangeSet]
 			break
 		}
 		block, changesets := it.Entry()
-		if err := dest.applyAndCommit(int64(block), changesets); err != nil { //nolint:gosec // block <= end
+		//nolint:gosec // block <= end
+		if err := dest.applyAndCommit(int64(block), changesets, alreadyHave); err != nil {
 			return 0, fmt.Errorf("replay block %d: %w", block, err)
 		}
 		replayed++
@@ -201,23 +202,30 @@ func replayBlocks(dest *CommitStore, it seiwal.Iterator[[]*proto.NamedChangeSet]
 	return replayed, nil
 }
 
-// applyAndCommit replays a single block into the store: it applies the changesets, commits the per-DB batches,
-// advances the committed version, clones the working LtHash to committed, and clears the pending buffers. It
-// never touches the WAL — the data being applied was itself read from a WAL, so re-writing it would
+// applyAndCommit replays a single block into the store: it applies the changesets, seals the block on
+// every store, advances the committed version and clones the working LtHash to committed. It never
+// touches the WAL — the data being applied was itself read from a WAL, so re-writing it would
 // double-append.
-func (s *CommitStore) applyAndCommit(version int64, changesets []*proto.NamedChangeSet) error {
-	if err := s.ApplyChangeSets(version, changesets); err != nil {
+func (s *CommitStore) applyAndCommit(
+	version int64,
+	changesets []*proto.NamedChangeSet,
+	alreadyHave map[string]int64,
+) error {
+	// Replay re-reads blocks the recorded version already covers, so committedVersion may be ahead of the
+	// block being applied. Rewind it for the duration: ApplyChangeSets and Commit both require the
+	// block to be exactly committedVersion+1, and the stores that already hold this block are skipped
+	// individually via alreadyHave rather than by refusing the whole block.
+	if len(alreadyHave) > 0 && version <= s.committedVersion {
+		s.committedVersion = version - 1
+	}
+	if err := s.applyChangeSets(version, changesets, alreadyHave); err != nil {
 		return fmt.Errorf("apply v%d: %w", version, err)
 	}
-	if err := s.commitBatches(version); err != nil {
+	if err := s.sealBlock(version); err != nil {
 		return fmt.Errorf("commit v%d: %w", version, err)
 	}
 	s.committedVersion = version
 	s.committedLtHash = s.workingLtHash.Clone()
-	s.clearPendingWrites()
-	recordPendingWrites(s.ctx, accountDBDir, 0)
-	recordPendingWrites(s.ctx, codeDBDir, 0)
-	recordPendingWrites(s.ctx, storageDBDir, 0)
-	recordPendingWrites(s.ctx, miscDBDir, 0)
+	s.clearPendingBlock()
 	return nil
 }

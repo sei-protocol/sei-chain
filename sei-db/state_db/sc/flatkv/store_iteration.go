@@ -7,6 +7,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -15,28 +16,44 @@ import (
 
 // RawGlobalIterator returns an iterator over all committed keys across the
 // data DBs (account, code, storage, misc), merged in global lexicographic
-// order. Within each DB, keys are in Pebble order. Per-DB _meta/* keys are
-// skipped. Pending writes are not visible. metadataDB is not included.
+// order. Within each DB, keys are in key order. Per-DB _meta/* keys are skipped by the stores
+// themselves. metadataDB is not included.
+//
+// Requires that no block be staged: see the check below.
+//
+// It walks the stores rather than the databases, so it needs no flush gate: a store iterator already
+// merges the rows a block has staged and the rows the flusher has not yet written over what is on disk.
+// Scanning the databases directly would instead return whatever the flusher happened to have finished.
+//
+// Because it is a store iterator, it blocks writes until closed. Every caller runs against a
+// read-only clone (the exporter and the seidb tools), so nothing is writing anyway.
 func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
-	// Read lock for the construction span: the returned iterator pins a Pebble
-	// view and may then outlive a concurrent ApplyChangeSets/Commit.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	dbs := s.dataDBs()
-	children := make([]dbm.Iterator, 0, len(dbs))
-	for _, db := range dbs {
-		pebbleIter, err := db.NewIter(nil)
+	// Refuse while a block is staged. A store iterator sees staged rows, and every caller here is
+	// exporting or auditing committed state — emitting a row from a block that has not committed would be
+	// wrong, and silently including it would be worse. This used to be impossible rather than refused:
+	// the scan read the databases directly, so staged rows were invisible. They are not any more, so the
+	// guarantee has to be stated instead of inherited.
+	if s.pendingBlockHeight != 0 {
+		return nil, fmt.Errorf(
+			"flatkv: RawGlobalIterator requires no staged block; block %d is staged and uncommitted",
+			s.pendingBlockHeight)
+	}
+
+	children := make([]dbm.Iterator, 0, len(s.stores))
+	for _, store := range s.stores {
+		if store.Name() == metadataDir {
+			// Engine bookkeeping, not state.
+			continue
+		}
+		storeIter, err := store.Iterator(nil)
 		if err != nil {
 			closeIterators(children)
-			return nil, fmt.Errorf("open data DB iterator: %w", err)
+			return nil, fmt.Errorf("open %s store iterator: %w", store.Name(), err)
 		}
-		transformed, err := iterators.NewTransformingIterator(pebbleIter, skipMetaKeys)
-		if err != nil {
-			closeIterators(children)
-			return nil, err
-		}
-		children = append(children, transformed)
+		children = append(children, storeIter)
 	}
 	// NewMergingIterator takes ownership of children and closes all of them if
 	// construction fails, so we must not close them again here (Pebble's Close is
@@ -79,17 +96,9 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 	return iterators.NewDomainIterator(iter, start, end)
 }
 
-/* Data flow: buildEvmIterator
-
-buildCodeLane ──────────────┐
-buildStorageLane ───────────┤
-buildMiscDBLane (evm/) ───--┼──► merge iterator ──► memiavl keys + values
-buildAccountNonceLane ──────┤
-buildAccountCodehashLane ───┘
-
-* balance not iterated — not stored in FlatKV yet
-*/
-
+// buildEvmIterator merges the five EVM lanes — code, storage, misc under the evm/ module, account
+// nonce and account codehash — into one iterator over logical memiavl keys. Balance is not among them:
+// FlatKV does not store it yet.
 func (s *CommitStore) buildEvmIterator(
 	start []byte,
 	end []byte,
@@ -261,84 +270,37 @@ func serializeForIter[T vtype.VType](v T) ([]byte, error) {
 	return v.Serialize(), nil
 }
 
-// buildLane wires the common FlatKV iterator pipeline shared by every lane:
-// a map iterator over the pending writes is merged (pending wins) with a Pebble
-// iterator over the committed rows, then a transform iterator re-labels rows to
-// their logical key, decodes the value, and drops tombstones. The per-lane
-// serializer and transform supply the only behavior that differs between lanes.
-func buildLane[T vtype.VType](
-	pending map[string]T,
-	db seidbtypes.KeyValueDB,
+// buildLane wires the common FlatKV iterator pipeline shared by every lane: one store iterator over
+// the database's current version — which already merges this block's staged rows over the on-disk
+// rows, with staged rows winning and deletions suppressed — adapted to a dbm.Iterator and then passed
+// through a transform that re-labels rows to their logical key and decodes the value. The per-lane
+// transform supplies the only behavior that differs between lanes.
+func buildLane(
+	source snapshot.SnapshotEngine,
 	lowerBound, upperBound []byte,
 	ascending bool,
-	serialize func(T) ([]byte, error),
 	transform iterators.IteratorTransform,
 ) (dbm.Iterator, error) {
-	pendingDataIterator, err := iterators.NewMapIterator(
-		lowerBound, upperBound, ascending, serialize, pending)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create pending iterator: %w", err)
-	}
-
-	pebbleIterator, err := db.NewIter(&seidbtypes.IterOptions{
+	storeIterator, err := source.Iterator(&seidbtypes.IterOptions{
 		LowerBound: lowerBound,
 		UpperBound: upperBound,
 		Reverse:    !ascending,
 	})
 	if err != nil {
-		_ = pendingDataIterator.Close()
-		return nil, fmt.Errorf("failed to create pebble iterator: %w", err)
+		return nil, fmt.Errorf("failed to create store iterator: %w", err)
 	}
 
-	// NewMergingIterator takes ownership of its children and closes all of them
-	// if construction fails, so we must not close pebbleIterator/pendingDataIterator
-	// here too: pebbleIterator.Close is not idempotent (Pebble recycles iterators
-	// into a pool), and a double close could corrupt that pool.
-	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
+	transformedIterator, err := iterators.NewTransformingIterator(storeIterator, transform)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create merge iterator: %w", err)
-	}
-
-	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
-	if err != nil {
-		_ = mergingIterator.Close()
+		_ = storeIterator.Close()
 		return nil, fmt.Errorf("failed to create transform iterator: %w", err)
 	}
 	return transformedIterator, nil
 }
 
-/* Data flow: buildMiscDBLane
-
-  ┌────────────────────────┐       ┌───────────────────┐
-  │ miscWrites (pending)   │       │ miscDB (pebble)   │
-  └────────────────────────┘       └───────────────────┘
-             │                              │
-             ▼                              ▼
-      ┌──────────────┐             ┌─────────────────┐
-      │ map iterator │             │ pebble iterator │
-      └──────────────┘             └─────────────────┘
-             │                              │
-             └──────┐      ┌────────────────┘
-			        │      │
-                    ▼      ▼
-               ┌────────────────┐
-               │ merge iterator │  pending writes "win"
-               └────────────────┘
-                        │
-        physical key + serialized MiscData
-		     includes deleted values
-                        │
-                        ▼
-              ┌────────────────────┐
-              │ transform iterator │
-              └────────────────────┘
-                        │
-       logical module key + raw value bytes
-	         excludes deleted values
-                        │
-                        ▼
-*/
-
+// buildMiscDBLane iterates one non-EVM module's keys in the misc store, emitting the module-relative
+// key and the raw value. Keys belonging to another module are an error rather than a skip: the bounds
+// are supposed to have confined the walk to this module already.
 func (s *CommitStore) buildMiscDBLane(
 	store string,
 	lowerBound, upperBound []byte,
@@ -364,41 +326,10 @@ func (s *CommitStore) buildMiscDBLane(
 		}
 		return logicalKey, ld.GetValue(), false, nil
 	}
-	return buildLane(s.miscWrites, s.miscDB, lowerBound, upperBound, ascending, serializeForIter, transform)
+	return buildLane(s.miscStore, lowerBound, upperBound, ascending, transform)
 }
 
-/* Data flow: buildCodeLane
-
-  ┌─────────────────────┐       ┌────────────────┐
-  │ codeWrites (pending)│       │ codeDB (pebble)│
-  └─────────────────────┘       └────────────────┘
-             │                          │
-             ▼                          ▼
-      ┌──────────────┐          ┌─────────────────┐
-      │ map iterator │          │ pebble iterator │
-      └──────────────┘          └─────────────────┘
-             │                          │
-             └──────┐      ┌────────────┘
-			        │      │
-                    ▼      ▼
-               ┌────────────────┐
-               │ merge iterator │  pending writes "win"
-               └────────────────┘
-                        │
-        physical key + serialized CodeData
-		     includes deleted values
-                        │
-                        ▼
-              ┌────────────────────┐
-              │ transform iterator │
-              └────────────────────┘
-                        │
-              0x07‖addr + bytecode
-	         excludes deleted values
-                        │
-                        ▼
-*/
-
+// buildCodeLane iterates the code store, emitting the EVM code key and the bytecode.
 func (s *CommitStore) buildCodeLane(
 	lowerBound, upperBound []byte,
 	ascending bool,
@@ -417,41 +348,10 @@ func (s *CommitStore) buildCodeLane(
 		}
 		return keys.BuildEVMKey(keys.EVMKeyCode, strippedKey), cd.GetBytecode(), false, nil
 	}
-	return buildLane(s.codeWrites, s.codeDB, lowerBound, upperBound, ascending, serializeForIter, transform)
+	return buildLane(s.codeStore, lowerBound, upperBound, ascending, transform)
 }
 
-/* Data flow: buildStorageLane
-
-  ┌─────────────────────────┐       ┌────────────────────┐
-  │ storageWrites (pending) │       │ storageDB (pebble) │
-  └─────────────────────────┘       └────────────────────┘
-             │                              │
-             ▼                              ▼
-      ┌──────────────┐             ┌─────────────────┐
-      │ map iterator │             │ pebble iterator │
-      └──────────────┘             └─────────────────┘
-             │                              │
-             └──────┐      ┌────────────────┘
-			        │      │
-                    ▼      ▼
-               ┌────────────────┐
-               │ merge iterator │  pending writes "win"
-               └────────────────┘
-                        │
-        physical key + serialized StorageData
-		     includes deleted values
-                        │
-                        ▼
-              ┌────────────────────┐
-              │ transform iterator │
-              └────────────────────┘
-                        │
-           0x03‖addr‖slot + 32-byte value
-	         excludes deleted values
-                        │
-                        ▼
-*/
-
+// buildStorageLane iterates the storage store, emitting the EVM storage key and the 32-byte value.
 func (s *CommitStore) buildStorageLane(
 	lowerBound, upperBound []byte,
 	ascending bool,
@@ -470,43 +370,11 @@ func (s *CommitStore) buildStorageLane(
 		}
 		return keys.BuildEVMKey(keys.EVMKeyStorage, strippedKey), sd.GetValue()[:], false, nil
 	}
-	return buildLane(s.storageWrites, s.storageDB, lowerBound, upperBound, ascending, serializeForIter, transform)
+	return buildLane(s.storageStore, lowerBound, upperBound, ascending, transform)
 }
 
-/* Data flow: buildAccountNonceLane
-
-  Same accountWrites + accountDB as buildAccountCodehashLane (one pending map, one DB).
-
-  ┌─────────────────────────┐       ┌────────────────────┐
-  │ accountWrites (pending) │       │ accountDB (pebble) │
-  └─────────────────────────┘       └────────────────────┘
-             │                              │
-             ▼                              ▼
-      ┌──────────────┐             ┌─────────────────┐
-      │ map iterator │             │ pebble iterator │
-      └──────────────┘             └─────────────────┘
-             │                              │
-             └──────┐      ┌────────────────┘
-			        │      │
-                    ▼      ▼
-               ┌────────────────┐
-               │ merge iterator │  pending writes "win"
-               └────────────────┘
-                        │
-        physical key + serialized AccountData
-		     includes deleted values
-                        │
-                        ▼
-              ┌────────────────────┐
-              │ transform iterator │
-              └────────────────────┘
-                        │
-                 0x0a‖addr + 8-byte nonce
-	         excludes deleted values
-                        │
-                        ▼
-*/
-
+// buildAccountNonceLane iterates the account store, emitting the EVM nonce key and the nonce as eight
+// big-endian bytes.
 func (s *CommitStore) buildAccountNonceLane(
 	lowerBound, upperBound []byte,
 	ascending bool,
@@ -527,43 +395,12 @@ func (s *CommitStore) buildAccountNonceLane(
 		binary.BigEndian.PutUint64(nonceBytes, ad.GetNonce())
 		return keys.BuildEVMKey(keys.EVMKeyNonce, addrBytes), nonceBytes, false, nil
 	}
-	return buildLane(s.accountWrites, s.accountDB, lowerBound, upperBound, ascending, serializeForIter, transform)
+	return buildLane(s.accountStore, lowerBound, upperBound, ascending, transform)
 }
 
-/* Data flow: buildAccountCodehashLane
-
-  Same accountWrites + accountDB as buildAccountNonceLane (one pending map, one DB).
-
-  ┌─────────────────────────┐       ┌────────────────────┐
-  │ accountWrites (pending) │       │ accountDB (pebble) │
-  └─────────────────────────┘       └────────────────────┘
-             │                              │
-             ▼                              ▼
-      ┌──────────────┐             ┌─────────────────┐
-      │ map iterator │             │ pebble iterator │
-      └──────────────┘             └─────────────────┘
-             │                              │
-             └──────┐      ┌────────────────┘
-			        │      │
-                    ▼      ▼
-               ┌────────────────┐
-               │ merge iterator │  pending writes "win"
-               └────────────────┘
-                        │
-        physical key + serialized AccountData
-		     includes deleted values
-                        │
-                        ▼
-              ┌────────────────────┐
-              │ transform iterator │
-              └────────────────────┘
-                        │
-              0x08‖addr + code hash bytes
-	         excludes deleted values and zero hash
-                        │
-                        ▼
-*/
-
+// buildAccountCodehashLane iterates the account store, emitting the EVM codehash key and the hash. It
+// walks the same values as buildAccountNonceLane and projects a different field. An account whose code
+// hash is zero has no code, so it is skipped rather than emitted as a zero hash.
 func (s *CommitStore) buildAccountCodehashLane(
 	lowerBound, upperBound []byte,
 	ascending bool,
@@ -587,12 +424,7 @@ func (s *CommitStore) buildAccountCodehashLane(
 		}
 		return keys.BuildEVMKey(keys.EVMKeyCodeHash, addrBytes), codeHash[:], false, nil
 	}
-	return buildLane(s.accountWrites, s.accountDB, lowerBound, upperBound, ascending, serializeForIter, transform)
-}
-
-// Used to cause the raw global iterator to skip _meta/* keys.
-func skipMetaKeys(key, value []byte) ([]byte, []byte, bool, error) {
-	return key, value, ktype.IsMetaKey(key), nil
+	return buildLane(s.accountStore, lowerBound, upperBound, ascending, transform)
 }
 
 func closeIterators(iters []dbm.Iterator) {

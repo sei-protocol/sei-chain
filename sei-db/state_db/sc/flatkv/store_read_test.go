@@ -468,7 +468,7 @@ func TestGetAccountAfterFullDeleteCommitted(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// After full delete + commit, the account row is physically deleted from
-	// accountDB (batch.Delete in commitBatches). Both fields return not-found.
+	// accountDB (a tombstone staged into the store). Both fields return not-found.
 	_, nonceFound := s.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, nonceFound, "nonce should not be found after full delete + commit")
 
@@ -508,7 +508,7 @@ func TestGetAccountAfterPartialDelete(t *testing.T) {
 	require.False(t, found, "codehash should be gone after delete")
 
 	// Account row should still exist (EOA encoding)
-	raw, err := s.accountDB.Get(accountPhysKey(addr))
+	raw, err := s.rawDBFor(accountDBDir).Get(accountPhysKey(addr))
 	require.NoError(t, err)
 	expectedEOALen := vtype.VersionLength + vtype.BlockHeightLength + vtype.BalanceLength + vtype.NonceLength
 	require.Equal(t, expectedEOALen, len(raw))
@@ -715,15 +715,17 @@ func TestIteratorDoesNotSeePendingWrites(t *testing.T) {
 		namedCS(storagePair(addr, slot, []byte{0xAA})),
 	}))
 
-	// Before commit: iterator should not see the pending write
-	iter := requireRawGlobalIterator(t, s)
-	require.False(t, iter.Valid(), "iterator should not see pending writes")
-	require.NoError(t, iter.Close())
+	// Before commit: the raw scan is refused outright rather than quietly omitting the staged row. It
+	// iterates the stores, which see staged rows, so "not visible" is no longer achievable — the
+	// guarantee that an export never contains an uncommitted row is enforced as a precondition instead.
+	_, err := s.RawGlobalIterator()
+	require.Error(t, err, "a raw scan must be refused while a block is staged")
+	require.Contains(t, err.Error(), "staged and uncommitted")
 
 	commitAndCheck(t, s)
 
-	// After commit: iterator should see it
-	iter = requireRawGlobalIterator(t, s)
+	// After commit: the row is there.
+	iter := requireRawGlobalIterator(t, s)
 	defer iter.Close()
 	require.True(t, iter.Valid(), "iterator should see committed entry")
 	require.Equal(t, storagePhysKey(addr, slot), iter.Key())
@@ -750,14 +752,11 @@ func TestIteratorDoesNotSeePendingDeletes(t *testing.T) {
 		namedCS(storageDeletePair(addr, slotN(0x02))),
 	}))
 
-	// Iterator should still see all 3 (pending delete not visible)
-	count := iterCount(t, requireRawGlobalIterator(t, s))
-	require.Equal(t, 3, count, "pending delete should not affect iterator")
-
+	// The scan is refused while the delete is staged, so it can never report a half-applied block.
 	commitAndCheck(t, s)
 
 	// After commit: only 2 remain
-	count = iterCount(t, requireRawGlobalIterator(t, s))
+	count := iterCount(t, requireRawGlobalIterator(t, s))
 	require.Equal(t, 2, count, "committed delete should remove entry from iterator")
 }
 

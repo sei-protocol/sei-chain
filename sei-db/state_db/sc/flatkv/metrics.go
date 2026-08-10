@@ -165,10 +165,6 @@ func dbAttr(db string) attribute.KeyValue {
 	return attribute.String("db", db)
 }
 
-func recordPendingWrites(ctx context.Context, db string, count int) {
-	otelMetrics.PendingWrites.Record(ctx, int64(count), metric.WithAttributes(dbAttr(db)))
-}
-
 func addKVPairs(ctx context.Context, db string, count int) {
 	if count > 0 {
 		otelMetrics.NumKVPairs.Add(ctx, int64(count), metric.WithAttributes(dbAttr(db)))

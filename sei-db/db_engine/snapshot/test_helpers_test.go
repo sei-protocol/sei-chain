@@ -17,6 +17,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // testDB is a minimal in-memory types.KeyValueDB for unit tests. It is safe for concurrent use.
@@ -113,9 +114,11 @@ func (d *testDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
 	defer d.mu.RUnlock()
 
 	var lower, upper []byte
+	reverse := false
 	if opts != nil {
 		lower = opts.LowerBound
 		upper = opts.UpperBound
+		reverse = opts.Reverse
 	}
 
 	pairs := make([]kvPair, 0, len(d.store))
@@ -129,7 +132,16 @@ func (d *testDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
 		}
 		pairs = append(pairs, kvPair{key: kb, value: cloneBytes(v)})
 	}
-	sort.Slice(pairs, func(i, j int) bool { return bytes.Compare(pairs[i].key, pairs[j].key) < 0 })
+	// A reverse iterator yields keys largest-first, so the double must too: the engine merges this
+	// stream against a descending override list, and an ascending DB side would silently corrupt the
+	// merge rather than fail.
+	sort.Slice(pairs, func(i, j int) bool {
+		cmp := bytes.Compare(pairs[i].key, pairs[j].key)
+		if reverse {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
 	return &fakeDBIter{pairs: pairs, start: lower, end: upper}, nil
 }
 
@@ -313,17 +325,27 @@ func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
 
 var testHash = []byte("test-hash")
 
-func hashAndRelease(t *testing.T, snap Snapshot) {
+// testHashKey lives under DefaultTestSnapshotEngineConfig's reserved prefix, so finalization writes
+// using it are filtered out of iteration exactly as engine metadata should be.
+const testHashKey = "_meta/hash"
+
+// hashWrites is the finalization write set a test uses to record a snapshot's hash, standing in for
+// what a real consumer emits.
+func hashWrites(hash []byte) []*proto.KVPair {
+	return []*proto.KVPair{{Key: []byte(testHashKey), Value: hash}}
+}
+
+func finalizeAndRelease(t *testing.T, snap Snapshot) {
 	t.Helper()
-	require.NoError(t, snap.SetHash(testHash))
+	require.NoError(t, snap.Finalize(hashWrites(testHash)))
 	require.NoError(t, snap.Release())
 }
 
-func commitAndHashRelease(t *testing.T, engine SnapshotEngine) {
+func commitFinalizeRelease(t *testing.T, engine SnapshotEngine) {
 	t.Helper()
 	snap, err := engine.Commit()
 	require.NoError(t, err)
-	hashAndRelease(t, snap)
+	finalizeAndRelease(t, snap)
 }
 
 func awaitFlushed(t *testing.T, snap Snapshot, timeout time.Duration) {
@@ -358,23 +380,20 @@ func isTracked(engine SnapshotEngine, version uint64) bool {
 // drainIterator drains an Iterator into cloned key/value pairs in iteration order. It returns any
 // error instead of asserting, so it is safe to call from non-test goroutines. It does NOT close the
 // iterator; the caller must, or the engine stays unwritable.
-func drainIterator(it Iterator) ([]kvPair, error) {
+func drainIterator(it dbm.Iterator) ([]kvPair, error) {
 	var out []kvPair
-	for {
-		ok, k, v, err := it.Next()
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return out, nil
-		}
-		out = append(out, kvPair{key: cloneBytes(k), value: cloneBytes(v)})
+	for ; it.Valid(); it.Next() {
+		out = append(out, kvPair{key: cloneBytes(it.Key()), value: cloneBytes(it.Value())})
 	}
+	if err := it.Error(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // collectIterator drains an Iterator into cloned key/value pairs in iteration order, then closes it.
 // Closing matters: an open iterator makes the engine refuse writes.
-func collectIterator(t *testing.T, it Iterator) []kvPair {
+func collectIterator(t *testing.T, it dbm.Iterator) []kvPair {
 	t.Helper()
 	out, err := drainIterator(it)
 	require.NoError(t, err)

@@ -26,7 +26,7 @@ func TestSnapshotIsolationUnderConcurrentMutation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("snapshot: %v", err)
 	}
-	if err := snap.SetHash(testHash); err != nil {
+	if err := snap.Finalize(hashWrites(testHash)); err != nil {
 		t.Fatalf("set hash: %v", err)
 	}
 
@@ -135,7 +135,7 @@ func TestConcurrentDifferential(t *testing.T) {
 				t.Fatalf("snapshot: %v", err)
 			}
 			ver := model.Commit()
-			if err := snap.SetHash(testHash); err != nil {
+			if err := snap.Finalize(hashWrites(testHash)); err != nil {
 				t.Fatalf("set hash: %v", err)
 			}
 			// Hand off with an extra reservation so the reader owns teardown; drop the writer's

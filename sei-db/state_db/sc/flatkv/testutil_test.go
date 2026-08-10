@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -61,9 +61,7 @@ func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
 	cfg := pebbledb.DefaultTestConfig(t)
-	cacheCfg := pebbledb.DefaultTestCacheConfig()
-	db, err := pebbledb.OpenWithCache(t.Context(), &cfg, &cacheCfg,
-		threading.NewAdHocPool(), threading.NewAdHocPool())
+	db, err := pebbledb.Open(t.Context(), &cfg)
 	require.NoError(t, err)
 	return db
 }
@@ -91,10 +89,17 @@ func setupTestStoreWithConfig(t *testing.T, cfg *config.Config) *CommitStore {
 }
 
 // commitAndCheck commits the next sequential version and asserts no error.
+// commitAndCheck commits the next block and waits for it to reach disk.
+//
+// The wait is what keeps the bulk of this suite meaningful: the stores flush asynchronously, so
+// without it a test that commits and then reads a database directly is looking at a disk that lags the
+// commit. It also matches how the Cosmos-era node drives the store, which forces a flush every block.
+// A test specifically about asynchronous flushing should call s.Commit directly instead.
 func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 	t.Helper()
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
+	requireFlushedToDisk(t, s)
 	return v
 }
 
@@ -265,4 +270,47 @@ func requireWorkingHashesUnchanged(t *testing.T, s *CommitStore, before workingH
 		}
 	}
 	require.Equal(t, before.perModuleStats, s.perDBModuleWorkingStats, "perDBModuleWorkingStats mutated on failed Apply")
+}
+
+// stagedRow reads a physical key back through its store and decodes it. The store reports whatever
+// the block has staged so far merged over the on-disk row, so this is how a staged row is observed now
+// that the pending-write maps are gone. A nil result means the key is absent — either never written, or
+// deleted in this block, which the store deliberately does not distinguish.
+func stagedRow[T vtype.VType](
+	t *testing.T,
+	store snapshot.SnapshotEngine,
+	physKey []byte,
+	decode func([]byte) (T, error),
+) T {
+	t.Helper()
+	row, err := getAndParse(store, physKey, decode)
+	require.NoError(t, err)
+	return row
+}
+
+// requireStaged asserts physKey currently reads back a row from store. Presence needs no decoding, so
+// it asks the store directly rather than going through a row type.
+func requireStaged(t *testing.T, store snapshot.SnapshotEngine, physKey []byte, msgAndArgs ...any) {
+	t.Helper()
+	_, found, err := store.Get(physKey, true)
+	require.NoError(t, err)
+	require.True(t, found, msgAndArgs...)
+}
+
+// requireNotStaged asserts physKey reads back nothing from store.
+func requireNotStaged(t *testing.T, store snapshot.SnapshotEngine, physKey []byte, msgAndArgs ...any) {
+	t.Helper()
+	_, found, err := store.Get(physKey, true)
+	require.NoError(t, err)
+	require.False(t, found, msgAndArgs...)
+}
+
+// requireFlushedToDisk waits until the most recently committed block has reached the databases.
+//
+// Any test that reads a database directly — a full scan for independent ground truth, or a check that
+// a metadata key landed — needs this first. The stores flush asynchronously, so without it the test
+// is looking at a disk that lags the committed version and the comparison means nothing.
+func requireFlushedToDisk(t *testing.T, s *CommitStore) {
+	t.Helper()
+	require.NoError(t, s.flushLatestVersion())
 }

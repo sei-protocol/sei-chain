@@ -147,7 +147,8 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 
 	// Simulate a store written before per-module hashing: strip every
 	// per-module meta key (hashes + stats) while keeping the per-DB root.
-	iter, err := s.storageDB.NewIter(&types.IterOptions{
+	requireFlushedToDisk(t, s)
+	iter, err := s.rawDBFor(storageDBDir).NewIter(&types.IterOptions{
 		LowerBound: ktype.ModuleLtHashPrefixBytes,
 		UpperBound: ktype.PrefixEnd(ktype.ModuleLtHashPrefixBytes),
 	})
@@ -160,7 +161,7 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 	require.NoError(t, iter.Close())
 	require.NotEmpty(t, keys, "precondition: storageDB must carry per-module meta keys")
 	for _, k := range keys {
-		require.NoError(t, s.storageDB.Delete(k, types.WriteOptions{}))
+		require.NoError(t, s.rawDBFor(storageDBDir).Delete(k, types.WriteOptions{}))
 	}
 	require.NoError(t, s.Close())
 
@@ -175,7 +176,7 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 	require.Contains(t, err.Error(), "predates per-module hashing")
 }
 
-func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
+func TestStoreSealBlockUpdatesLocalMeta(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -192,7 +193,8 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 
 	// Verify it's persisted in DB
-	data, err := s.storageDB.Get(ktype.MetaVersionKey)
+	requireFlushedToDisk(t, s)
+	data, err := s.rawDBFor(storageDBDir).Get(ktype.MetaVersionKey)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(data)))
 }
@@ -202,7 +204,7 @@ func TestStoreMetadataOperations(t *testing.T) {
 		s := setupTestStore(t)
 		defer s.Close()
 
-		version, err := s.loadGlobalVersion()
+		version, err := loadGlobalVersion(s.rawDBFor(metadataDir))
 		require.NoError(t, err)
 		require.Equal(t, int64(0), version)
 	})
@@ -211,7 +213,7 @@ func TestStoreMetadataOperations(t *testing.T) {
 		s := setupTestStore(t)
 		defer s.Close()
 
-		hash, err := s.loadGlobalLtHash()
+		hash, err := loadGlobalLtHash(s.rawDBFor(metadataDir))
 		require.NoError(t, err)
 		require.Nil(t, hash)
 	})
@@ -228,11 +230,11 @@ func TestStoreMetadataOperations(t *testing.T) {
 		require.NoError(t, err)
 
 		// Load it back
-		version, err := s.loadGlobalVersion()
+		version, err := loadGlobalVersion(s.rawDBFor(metadataDir))
 		require.NoError(t, err)
 		require.Equal(t, expectedVersion, version)
 
-		hash, err := s.loadGlobalLtHash()
+		hash, err := loadGlobalLtHash(s.rawDBFor(metadataDir))
 		require.NoError(t, err)
 		require.NotNil(t, hash)
 		require.Equal(t, expectedHash.Marshal(), hash.Marshal())
@@ -249,7 +251,7 @@ func TestStoreMetadataOperations(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify immediately
-			version, err := s.loadGlobalVersion()
+			version, err := loadGlobalVersion(s.rawDBFor(metadataDir))
 			require.NoError(t, err)
 			require.Equal(t, v, version)
 		}
@@ -260,11 +262,11 @@ func TestStoreMetadataOperations(t *testing.T) {
 		defer s.Close()
 
 		// Write invalid data (wrong size)
-		err := s.metadataDB.Set(ktype.MetaVersionKey, []byte{0x01}, types.WriteOptions{})
+		err := s.rawDBFor(metadataDir).Set(ktype.MetaVersionKey, []byte{0x01}, types.WriteOptions{})
 		require.NoError(t, err)
 
 		// Should return error
-		_, err = s.loadGlobalVersion()
+		_, err = loadGlobalVersion(s.rawDBFor(metadataDir))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid global version length")
 	})
@@ -454,11 +456,11 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
 
-	globalVer, err := s.loadGlobalVersion()
+	globalVer, err := loadGlobalVersion(s.rawDBFor(metadataDir))
 	require.NoError(t, err)
 	require.Equal(t, int64(2), globalVer)
 
-	globalHash, err := s.loadGlobalLtHash()
+	globalHash, err := loadGlobalLtHash(s.rawDBFor(metadataDir))
 	require.NoError(t, err)
 	require.Equal(t, s.committedLtHash.Checksum(), globalHash.Checksum())
 

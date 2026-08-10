@@ -23,12 +23,6 @@ func TestConfigValidateRejectsBadFields(t *testing.T) {
 	}
 	require.NoError(t, base().Validate(), "baseline config should be valid")
 
-	{
-		c := base()
-		c.MetricsName = ""
-		require.NoError(t, c.Validate(), "MetricsName is not required while metrics are disabled")
-	}
-
 	cases := []struct {
 		name string
 		mut  func(*SnapshotEngineConfig)
@@ -37,17 +31,14 @@ func TestConfigValidateRejectsBadFields(t *testing.T) {
 		{"shardCountNotPowerOfTwo", func(c *SnapshotEngineConfig) { c.ShardCount = 3 }},
 		{"maxSizeZero", func(c *SnapshotEngineConfig) { c.MaxSize = 0 }},
 		{"overheadZero", func(c *SnapshotEngineConfig) { c.EstimatedOverheadPerEntry = 0 }},
-		{"metricsNameEmptyWithMetricsEnabled", func(c *SnapshotEngineConfig) {
-			c.MetricsEnabled = true
-			c.MetricsName = ""
-		}},
+		{"nameEmpty", func(c *SnapshotEngineConfig) { c.Name = "" }},
 		{"scrapeIntervalZeroWithMetricsEnabled", func(c *SnapshotEngineConfig) {
 			c.MetricsEnabled = true
 			c.MetricsScrapeIntervalSeconds = 0
 		}},
 		{"maxUnflushedZero", func(c *SnapshotEngineConfig) { c.MaxUnflushedVersions = 0 }},
 		{"targetBytesZero", func(c *SnapshotEngineConfig) { c.TargetBytesPerFlush = 0 }},
-		{"hashKeyEmpty", func(c *SnapshotEngineConfig) { c.HashKey = "" }},
+		{"reservedPrefixEmpty", func(c *SnapshotEngineConfig) { c.ReservedPrefix = "" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -132,15 +123,11 @@ func TestEngineBatchSetThenBatchGet(t *testing.T) {
 	require.False(t, missingPresent, "not-found key must be absent")
 }
 
-func TestInitialHashReadFromDBOnOpen(t *testing.T) {
-	hashKey := DefaultTestSnapshotEngineConfig().HashKey
-	engine, _ := newTestEngine(t, map[string][]byte{hashKey: []byte("prior-hash")}, 2, 1<<20)
-	require.Equal(t, []byte("prior-hash"), engine.InitialHash())
-}
-
-func TestInitialHashNilWhenNeverFlushed(t *testing.T) {
-	engine := newTestEngineWithDB(t, newTestDB(nil), 2, 1<<20)
-	require.Nil(t, engine.InitialHash())
+func TestNameReportsConfiguredName(t *testing.T) {
+	cfg := newTestConfig(1, 1<<20)
+	cfg.Name = "account"
+	engine := newTestEngineWithConfig(t, cfg, newTestDB(nil))
+	require.Equal(t, "account", engine.Name())
 }
 
 func TestFlushSyncTrueStillRoundTrips(t *testing.T) {
@@ -152,7 +139,7 @@ func TestFlushSyncTrueStillRoundTrips(t *testing.T) {
 	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
-	require.NoError(t, snap.SetHash(testHash))
+	require.NoError(t, snap.Finalize(hashWrites(testHash)))
 	awaitFlushed(t, snap, time.Second)
 	require.NoError(t, snap.Release())
 
@@ -172,7 +159,7 @@ func TestMetricsEnabledDoesNotBreakEngine(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		require.NoError(t, engine.Set([]byte{byte(i)}, []byte("v")))
 	}
-	commitAndHashRelease(t, engine)
+	commitFinalizeRelease(t, engine)
 	time.Sleep(10 * time.Millisecond) // let the metrics scrape loop fire at least once
 
 	val, found, err := engine.Get([]byte{0}, true)

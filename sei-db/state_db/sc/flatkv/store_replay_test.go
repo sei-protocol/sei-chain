@@ -136,6 +136,9 @@ func TestLoadVersionSurfacesCatchupGap(t *testing.T) {
 	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
 
 	// Rewind the persisted watermark so the reopened store needs blocks 6-9, which this WAL never held.
+	// Wait for block 10 to land first: the metadata store writes that version as part of its flush, so
+	// rewinding before that would just be overwritten by it.
+	requireFlushedToDisk(t, s)
 	require.NoError(t, s.commitGlobalMetadata(5, lthash.New()))
 	require.NoError(t, s.Close())
 
@@ -293,7 +296,7 @@ func TestReplayBlocksReturnsAppliedCount(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	replayed, err := replayBlocks(s, it)
+	replayed, err := replayBlocks(s, it, nil)
 	require.NoError(t, err)
 	require.Equal(t, 2, replayed, "blocks 2 and 3 must be replayed and counted")
 	require.Equal(t, int64(3), s.committedVersion)

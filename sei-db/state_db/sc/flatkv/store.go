@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,14 +17,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/sei-protocol/seilog"
@@ -33,111 +31,63 @@ import (
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
 
-const (
-	// Top-level directory names
-	flatkvRootDir = "flatkv"
-	changelogDir  = "changelog"
-	lockFileName  = "LOCK"
+var _ Store = (*CommitStore)(nil)
 
-	// DB subdirectories (inside each snapshot)
-	accountDBDir = "account"
-	codeDBDir    = "code"
-	storageDBDir = "storage"
-	miscDBDir    = "misc"
-	metadataDir  = "metadata"
-
-	// Suffixes for atomic directory operations
-	tmpSuffix      = "-tmp"
-	removingSuffix = "-removing"
-
-	readOnlyDirPrefix = "readonly-"
-
-	flatkvMeterName = "seidb_flatkv"
-)
-
-// dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
-var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir}
-
-// InitializeDataDirectories sets the DataDir for each nested PebbleDB config
-// that does not already have one, using DataDir as the base path. The DBs live
-// under the working directory: <DataDir>/working/<subdir>.
-func InitializeDataDirectories(c *config.Config) {
-	workDir := filepath.Join(c.DataDir, workingDirName)
-	if c.AccountDBConfig.DataDir == "" {
-		c.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
-	}
-	if c.CodeDBConfig.DataDir == "" {
-		c.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
-	}
-	if c.StorageDBConfig.DataDir == "" {
-		c.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
-	}
-	if c.MiscDBConfig.DataDir == "" {
-		c.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
-	}
-	if c.MetadataDBConfig.DataDir == "" {
-		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
-	}
-	applyPebbleMetricsConfig(c)
-}
-
-func applyPebbleMetricsConfig(c *config.Config) {
-	// Keep a single FlatKV-level knob for Pebble internal metrics. Per-DB
-	// EnableMetrics values are intentionally overwritten here.
-	c.AccountDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.CodeDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.MiscDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
-
-	c.AccountDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.CodeDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.StorageDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.MiscDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.MetadataDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-}
-
-// CommitStore implements flatkv.Store for EVM state storage.
+// CommitStore implements flatkv.Store for EVM state.
 //
-// Concurrency: writes (ApplyChangeSets, Commit) and the reads that touch the
-// pending-writes maps (Get, Has, GetBlockHeightModified) and iterator
-// construction (Iterator, RawGlobalIterator) are guarded by mu. Iterators
-// snapshot their data at construction time (pending writes are cloned and the
-// Pebble view is pinned), so once built they may be used and Closed without
-// holding mu and may safely outlive a subsequent ApplyChangeSets/Commit. All
-// other lifecycle operations (LoadLatest, Rollback, snapshot/import/export,
-// Close) must still be serialized by the caller.
+// Reads, writes and iterator construction are safe to call concurrently. Lifecycle operations
+// (LoadLatest, Rollback, snapshot, import, export, Close) must be serialized by the caller. An open
+// iterator blocks writes, so close it before the next Commit.
 type CommitStore struct {
-	// mu guards the pending-writes maps against concurrent iterator
-	// construction / reads while ApplyChangeSets and Commit mutate them.
+	// mu serializes the exported entry points against one another: the write path (ApplyChangeSets,
+	// Commit), the reads (Get, Has, GetBlockHeightModified) and iterator construction (Iterator,
+	// RawGlobalIterator). It does not protect the block being written — that lives inside the stores,
+	// which do their own locking.
 	//
 	// TODO(concurrency): this is a coarse lock taken at the exported entry
 	// points. Commit in particular holds the write lock across its WAL fsync
 	// and periodic auto-snapshot. That is acceptable while commits are not
-	// pipelined with reads; revisit with a finer-grained scheme (guarding only
-	// the in-memory maps) if/when pipelining is introduced.
+	// pipelined with reads; revisit with a finer-grained scheme if/when
+	// pipelining is introduced.
 	mu sync.RWMutex
 
-	ctx    context.Context
+	// Store-private context, cancelled by cancel when the store closes. Metric recording and the
+	// opening of the pebble instances hang off it, so work the store started stops when it does.
+	ctx context.Context
+
+	// Cancels ctx. Called by Close.
 	cancel context.CancelFunc
+
+	// The configuration this store was opened with. Not modified after open.
 	config config.Config
-	dbDir  string
 
-	// Five separate PebbleDB instances.
-	// Physical key format: "module/" + type_prefix + stripped_key.
-	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
-	accountDB  seidbtypes.KeyValueDB // "evm/"+0x0a+addr(20) → vtype.AccountData
-	codeDB     seidbtypes.KeyValueDB // "evm/"+0x07+addr(20) → vtype.CodeData
-	storageDB  seidbtypes.KeyValueDB // "evm/"+0x03+addr(20)||slot(32) → vtype.StorageData
-	miscDB     seidbtypes.KeyValueDB // "module/"+key → vtype.MiscData
+	// The directory holding this store's databases and its snapshot tree.
+	dbDir string
 
-	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
+	// The metadata each database most recently persisted, keyed by database directory name.
+	//
+	// A LocalMeta records a database's committed height, its LtHash, and its per-module hashes and
+	// stats. Sealing a block hands each store its own LocalMeta as the block's finalization writes, so
+	// the metadata lands in the same atomic batch as the data it describes and a database on disk can
+	// never disagree with its own bookkeeping. This map is the in-memory copy of what was written, and
+	// is adopted only once every store has accepted the seal.
 	localMeta map[string]*ktype.LocalMeta
 
-	// LtHash state for integrity checking
+	// The height of the most recently committed block. The next Commit must be exactly this plus one.
 	committedVersion int64
-	committedLtHash  *lthash.LtHash
-	workingLtHash    *lthash.LtHash
+
+	// The root LtHash as of committedVersion — the value reported to anyone asking for the committed
+	// hash. It does not move until a Commit has succeeded on all five stores.
+	committedLtHash *lthash.LtHash
+
+	// The root LtHash including the block currently being applied. ApplyChangeSets folds each change
+	// into it as it goes, and Commit copies it into committedLtHash once the seal succeeds.
+	//
+	// LtHash is homomorphic: a new value is mixed in and the value it replaced is mixed out, in any
+	// order. That is what lets this be maintained incrementally instead of recomputed per block, and it
+	// is the property that will eventually allow hashing to move off the execution thread — a Merkle
+	// root could not be deferred that way.
+	workingLtHash *lthash.LtHash
 
 	// earliestVersion is the version this store's history begins at, as
 	// recorded by SetInitialVersion (the seeded version). 0 when unknown:
@@ -166,11 +116,38 @@ type CommitStore struct {
 	// derived on demand.
 	perDBModuleWorkingStats map[string]map[string]lthash.ModuleStats
 
-	// Pending writes buffer
-	accountWrites map[string]*vtype.AccountData
-	codeWrites    map[string]*vtype.CodeData
-	storageWrites map[string]*vtype.StorageData
-	miscWrites    map[string]*vtype.MiscData
+	// The four data stores below mediate every read and write of their databases. The block being
+	// applied accumulates its writes inside each store, which is what replaced FlatKV's hand-rolled
+	// pending-write overlays: a read through a store already sees what that same block staged, with
+	// no separate overlay to consult.
+	//
+	// They are constructed as the last step of open, after any replay or rollback has run, and are nil
+	// until then — the bootstrap and import paths deliberately write raw pebble before they exist.
+
+	// Mediates the account database.
+	accountStore snapshot.SnapshotEngine
+
+	// Mediates the code database.
+	codeStore snapshot.SnapshotEngine
+
+	// Mediates the storage database.
+	storageStore snapshot.SnapshotEngine
+
+	// Mediates the misc database.
+	miscStore snapshot.SnapshotEngine
+
+	// Holds raw bytes rather than vtype values, and never serves reads: its keys all live under the
+	// reserved metadata prefix, so they are written only via Finalize and read only off pebble before
+	// the stores exist.
+	metadataStore snapshot.SnapshotEngine
+
+	// All five stores, for the paths that treat them uniformly.
+	stores []snapshot.SnapshotEngine
+
+	// The snapshots produced by the most recent commit, one per store and keyed by its name, each still
+	// holding the reservation Commit handed out. flushLatestVersion waits on them, and holding them
+	// keeps any later block out of pebble until the next commit hands them back.
+	lastSealed map[string]snapshot.Snapshot
 
 	// The state WAL. Injected at construction: non-nil ⇒ FlatKV writes/replays/prunes it; nil ⇒ the outer
 	// context owns the whole WAL pipeline and FlatKV no-ops every WAL operation. FlatKV owns Close of whatever
@@ -221,29 +198,6 @@ type CommitStore struct {
 	ltCalc *lthash.HashCalculator
 }
 
-var _ Store = (*CommitStore)(nil)
-
-// dataDBs returns the four data PebbleDB instances in fixed iteration order:
-// accountDB, codeDB, storageDB, miscDB. metadataDB is excluded.
-func (s *CommitStore) dataDBs() []seidbtypes.KeyValueDB {
-	return []seidbtypes.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.miscDB}
-}
-
-type namedDB struct {
-	dir string
-	db  seidbtypes.KeyValueDB
-}
-
-// namedDataDBs returns the four data DBs paired with their directory names.
-func (s *CommitStore) namedDataDBs() []namedDB {
-	return []namedDB{
-		{accountDBDir, s.accountDB},
-		{codeDBDir, s.codeDB},
-		{storageDBDir, s.storageDB},
-		{miscDBDir, s.miscDB},
-	}
-}
-
 // routePhysicalKey maps a physical DB key to its target database.
 // Non-EVM modules are routed to miscDB; EVM keys are routed by kind.
 func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueDB, error) {
@@ -261,18 +215,18 @@ func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueD
 		return nil, fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
 	}
 	if moduleName != keys.EVMStoreKey {
-		return s.miscDB, nil
+		return s.rawDBFor(miscDBDir), nil
 	}
 	kind, _ := keys.ParseEVMKey(innerKey)
 	switch kind {
 	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash:
-		return s.accountDB, nil
+		return s.rawDBFor(accountDBDir), nil
 	case keys.EVMKeyCode:
-		return s.codeDB, nil
+		return s.rawDBFor(codeDBDir), nil
 	case keys.EVMKeyStorage:
-		return s.storageDB, nil
+		return s.rawDBFor(storageDBDir), nil
 	default:
-		return s.miscDB, nil
+		return s.rawDBFor(miscDBDir), nil
 	}
 }
 
@@ -289,7 +243,7 @@ func NewCommitStore(
 	stateWAL statewal.StateWAL,
 ) (*CommitStore, error) {
 
-	InitializeDataDirectories(cfg)
+	initializeDataDirectories(cfg)
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate config: %w", err)
@@ -314,10 +268,6 @@ func NewCommitStore(
 		cancel:                   cancel,
 		config:                   *cfg,
 		localMeta:                make(map[string]*ktype.LocalMeta),
-		accountWrites:            make(map[string]*vtype.AccountData),
-		codeWrites:               make(map[string]*vtype.CodeData),
-		storageWrites:            make(map[string]*vtype.StorageData),
-		miscWrites:               make(map[string]*vtype.MiscData),
 		pendingChangeSets:        make([]*proto.NamedChangeSet, 0),
 		committedLtHash:          lthash.New(),
 		workingLtHash:            lthash.New(),
@@ -335,6 +285,45 @@ func NewCommitStore(
 
 // lthashWorkerCount computes the fixed lattice-hash pool worker count from
 // config, clamped to at least 1 (LtHash computation always needs a worker).
+// initializeDataDirectories sets the DataDir for each nested PebbleDB config
+// that does not already have one, using DataDir as the base path. The DBs live
+// under the working directory: <DataDir>/working/<subdir>.
+func initializeDataDirectories(c *config.Config) {
+	workDir := filepath.Join(c.DataDir, workingDirName)
+	if c.AccountDBConfig.DataDir == "" {
+		c.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
+	}
+	if c.CodeDBConfig.DataDir == "" {
+		c.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
+	}
+	if c.StorageDBConfig.DataDir == "" {
+		c.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
+	}
+	if c.MiscDBConfig.DataDir == "" {
+		c.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
+	}
+	if c.MetadataDBConfig.DataDir == "" {
+		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
+	}
+	applyPebbleMetricsConfig(c)
+}
+
+func applyPebbleMetricsConfig(c *config.Config) {
+	// Keep a single FlatKV-level knob for Pebble internal metrics. Per-DB
+	// EnableMetrics values are intentionally overwritten here.
+	c.AccountDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.CodeDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.MiscDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
+
+	c.AccountDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.CodeDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.StorageDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.MiscDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.MetadataDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+}
+
 func lthashWorkerCount(cfg *config.Config, coreCount int) int {
 	n := int(cfg.LtHashThreadsPerCore * float64(coreCount))
 	if n < 1 {
@@ -363,8 +352,6 @@ func (s *CommitStore) resetPools() {
 func (s *CommitStore) flatkvDir() string {
 	return s.config.DataDir
 }
-
-var errReadOnly = errors.New("flatkv: store is read-only")
 
 // LoadLatest opens the database at the latest persisted version, leaving this store open for writing.
 // It is the only way to obtain a store that can commit.
@@ -494,8 +481,8 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 // This clone has a nil WAL of its own, so it does NOT replay: advancing from the snapshot boundary up to
 // targetVersion — and marking the store read-only — is driven by the primary via LoadVersionReadOnly /
 // replayIntoReadOnlyCopy, which feeds the primary's WAL into this clone.
-func (s *CommitStore) openReadOnly(targetVersion int64) error {
-	s.clearPendingWrites()
+func (s *CommitStore) openReadOnly(targetVersion int64) (retErr error) {
+	s.clearPendingBlock()
 
 	dir := s.flatkvDir()
 
@@ -518,11 +505,27 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 		return fmt.Errorf("create readonly working dir: %w", err)
 	}
 
-	if err := s.openDBs(s.readOnlyWorkDir); err != nil {
+	dbs, err := s.openRawDBs()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if retErr != nil {
+			_ = dbs.close()
+		}
+	}()
+
+	if err := s.loadLocalMeta(dbs); err != nil {
 		return err
 	}
 
-	if err := s.loadGlobalMetadata(); err != nil {
+	if err := s.loadGlobalMetadata(dbs.metadata); err != nil {
+		return err
+	}
+
+	// A read-only clone still needs stores: it replays the primary's WAL to reach its target version
+	// and reuses the one apply path to do it.
+	if err := s.openStores(dbs); err != nil {
 		return err
 	}
 
@@ -555,7 +558,7 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 // PebbleDB writes never mutate snapshot directories. On first run,
 // existing flat DB directories are migrated into a snapshot.
 func (s *CommitStore) open() (retErr error) {
-	s.clearPendingWrites()
+	s.clearPendingBlock()
 
 	dir := s.flatkvDir()
 	if err := os.MkdirAll(dir, 0750); err != nil {
@@ -596,11 +599,27 @@ func (s *CommitStore) open() (retErr error) {
 		return fmt.Errorf("create working dir: %w", err)
 	}
 
-	if err := s.openDBs(workDir); err != nil {
+	dbs, err := s.openRawDBs()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if retErr != nil {
+			_ = dbs.close()
+		}
+	}()
+
+	// Global and per-DB metadata are read off Pebble first, while the databases are still the only
+	// thing holding state, and only then are the stores built on top.
+	if err := s.loadLocalMeta(dbs); err != nil {
 		return err
 	}
 
-	if err := s.loadGlobalMetadata(); err != nil {
+	if err := s.loadGlobalMetadata(dbs.metadata); err != nil {
+		return err
+	}
+
+	if err := s.openStores(dbs); err != nil {
 		return err
 	}
 
@@ -631,96 +650,276 @@ func (s *CommitStore) acquireFileLock(dir string) error {
 	return nil
 }
 
-// openPebbleDB creates the directory at cfg.DataDir and opens a PebbleDB instance.
-func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig, cacheCfg *dbcache.CacheConfig) (seidbtypes.KeyValueDB, error) {
+// openPebbleDB creates the directory at cfg.DataDir and opens a bare PebbleDB instance.
+func (s *CommitStore) openPebbleDB(cfg *pebbledb.PebbleDBConfig) (seidbtypes.KeyValueDB, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", cfg.DataDir, err)
 	}
-	db, err := pebbledb.OpenWithCache(s.ctx, cfg, cacheCfg, s.readPool, s.miscPool)
+	db, err := pebbledb.Open(s.ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", cfg.DataDir, err)
 	}
 	return db, nil
 }
 
-// openDBs opens all PebbleDBs from dbDir. On failure all already-opened handles are closed.
-//
-// It does not touch the WAL: the WAL is injected at construction and its lifecycle is decoupled from the
-// DB open/close cycle (it must survive LoadVersion/Rollback DB reopens), so it is neither opened nor
-// cleared here.
-func (s *CommitStore) openDBs(dbDir string) (retErr error) {
+// rawDBs holds the five raw pebble handles between opening them and handing them to the stores.
+type rawDBs struct {
+	account  seidbtypes.KeyValueDB
+	code     seidbtypes.KeyValueDB
+	storage  seidbtypes.KeyValueDB
+	misc     seidbtypes.KeyValueDB
+	metadata seidbtypes.KeyValueDB
+}
 
-	var toClose []io.Closer
+// close closes every handle, joining whatever errors come back.
+func (d rawDBs) close() error {
+	return errors.Join(
+		closeDB(accountDBDir, d.account),
+		closeDB(codeDBDir, d.code),
+		closeDB(storageDBDir, d.storage),
+		closeDB(miscDBDir, d.misc),
+		closeDB(metadataDir, d.metadata),
+	)
+}
+
+// closeDB closes db, naming dir in any error. A nil handle is nothing to close.
+func closeDB(dir string, db seidbtypes.KeyValueDB) error {
+	if db == nil {
+		return nil
+	}
+	if err := db.Close(); err != nil {
+		return fmt.Errorf("%s close: %w", dir, err)
+	}
+	return nil
+}
+
+// openRawDBs opens the five pebble instances. The caller owns them until the stores take over; on
+// failure nothing is left open.
+func (s *CommitStore) openRawDBs() (dbs rawDBs, retErr error) {
 	defer func() {
 		if retErr != nil {
-			for _, c := range toClose {
-				_ = c.Close()
-			}
-			s.metadataDB = nil
-			s.accountDB = nil
-			s.codeDB = nil
-			s.storageDB = nil
-			s.miscDB = nil
-			s.localMeta = make(map[string]*ktype.LocalMeta)
+			_ = dbs.close()
 		}
 	}()
 
 	var err error
-	s.accountDB, err = s.openPebbleDB(&s.config.AccountDBConfig, &s.config.AccountCacheConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open account DB: %w", err)
+	if dbs.account, err = s.openPebbleDB(&s.config.AccountDBConfig); err != nil {
+		return dbs, fmt.Errorf("failed to open account DB: %w", err)
 	}
-	toClose = append(toClose, s.accountDB)
-
-	s.codeDB, err = s.openPebbleDB(&s.config.CodeDBConfig, &s.config.CodeCacheConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open code DB: %w", err)
+	if dbs.code, err = s.openPebbleDB(&s.config.CodeDBConfig); err != nil {
+		return dbs, fmt.Errorf("failed to open code DB: %w", err)
 	}
-	toClose = append(toClose, s.codeDB)
-
-	s.storageDB, err = s.openPebbleDB(&s.config.StorageDBConfig, &s.config.StorageCacheConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open storage DB: %w", err)
+	if dbs.storage, err = s.openPebbleDB(&s.config.StorageDBConfig); err != nil {
+		return dbs, fmt.Errorf("failed to open storage DB: %w", err)
 	}
-	toClose = append(toClose, s.storageDB)
-
-	s.miscDB, err = s.openPebbleDB(&s.config.MiscDBConfig, &s.config.MiscCacheConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open misc DB: %w", err)
+	if dbs.misc, err = s.openPebbleDB(&s.config.MiscDBConfig); err != nil {
+		return dbs, fmt.Errorf("failed to open misc DB: %w", err)
 	}
-	toClose = append(toClose, s.miscDB)
-
-	s.metadataDB, err = s.openPebbleDB(&s.config.MetadataDBConfig, &s.config.MetadataCacheConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open metadata DB: %w", err)
+	if dbs.metadata, err = s.openPebbleDB(&s.config.MetadataDBConfig); err != nil {
+		return dbs, fmt.Errorf("failed to open metadata DB: %w", err)
 	}
-	toClose = append(toClose, s.metadataDB)
+	return dbs, nil
+}
 
-	for _, ndb := range s.namedDataDBs() {
-		meta, err := loadLocalMeta(ndb.db)
+// loadLocalMeta reads each data database's persisted metadata into localMeta.
+func (s *CommitStore) loadLocalMeta(dbs rawDBs) error {
+	s.localMeta = make(map[string]*ktype.LocalMeta)
+	for dir, db := range map[string]seidbtypes.KeyValueDB{
+		accountDBDir: dbs.account,
+		codeDBDir:    dbs.code,
+		storageDBDir: dbs.storage,
+		miscDBDir:    dbs.misc,
+	} {
+		meta, err := loadLocalMeta(db)
 		if err != nil {
-			return fmt.Errorf("failed to load %s local meta: %w", ndb.dir, err)
+			return fmt.Errorf("failed to load %s local meta: %w", dir, err)
 		}
-		s.localMeta[ndb.dir] = meta
+		s.localMeta[dir] = meta
+	}
+	return nil
+}
+
+// openStores wraps the five already-open PebbleDBs in snapshot engines. It is the last step of
+// opening a store: everything that writes raw pebble — metadata seeding, WAL replay catch-up, state
+// sync import — must run before it, because from here on the stores own the write path and hold
+// unflushed data the DBs do not have.
+//
+// On failure every store already constructed is closed, leaving the store store-less rather than
+// half-wired.
+func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
+	defer func() {
+		if retErr != nil {
+			s.closeStores()
+		}
+	}()
+
+	var err error
+
+	// readPool and miscPool must stay distinct pools: misc tasks block on read results, so sharing one
+	// bounded pool can deadlock. Nothing may sit between a store and its database that schedules its
+	// own reads onto either pool, for the same reason.
+	open := func(cfg *snapshot.SnapshotEngineConfig, db seidbtypes.KeyValueDB) (snapshot.SnapshotEngine, error) {
+		store, storeErr := snapshot.NewSnapshotEngine(cfg, db, s.readPool, s.miscPool)
+		if storeErr != nil {
+			return nil, fmt.Errorf("failed to create %s snapshot store: %w", cfg.Name, storeErr)
+		}
+		return store, nil
+	}
+
+	s.accountStore, err = open(&s.config.AccountStoreConfig, dbs.account)
+	if err != nil {
+		return err
+	}
+	s.codeStore, err = open(&s.config.CodeStoreConfig, dbs.code)
+	if err != nil {
+		return err
+	}
+	s.storageStore, err = open(&s.config.StorageStoreConfig, dbs.storage)
+	if err != nil {
+		return err
+	}
+	s.miscStore, err = open(&s.config.MiscStoreConfig, dbs.misc)
+	if err != nil {
+		return err
+	}
+
+	metaCfg := s.config.MetadataStoreConfig
+	s.metadataStore, err = open(&metaCfg, dbs.metadata)
+	if err != nil {
+		return err
+	}
+
+	s.stores = []snapshot.SnapshotEngine{
+		s.accountStore, s.codeStore, s.storageStore, s.miscStore, s.metadataStore,
+	}
+
+	if !s.readOnly {
+		if err := s.sealBaseline(); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (s *CommitStore) loadGlobalMetadata() error {
-	globalVersion, err := s.loadGlobalVersion()
+// rawDBFor returns the raw database behind the named store, bypassing every guarantee the store
+// provides. Apply intense scrutiny at every call site.
+//
+// It exists for the operations that must address a database as a file rather than as a key-value store —
+// taking a Pebble checkpoint — and for the bootstrap writes that seed a fresh store's metadata before it
+// has committed anything. Reading data through it is a bug: it sees only what the flusher has written,
+// missing both staged and finalized-but-unflushed rows, silently. Use Get/BatchGet/Iterator instead.
+//
+// The handles live on CommitStore only until the stores exist: openStores gives each one to its store,
+// which owns and closes it from then on, and clears the field. A raw access after that is a nil
+// dereference rather than a silent read of a version nobody asked for, which is the point of routing
+// every such access through here.
+//
+// Returns nil before the stores exist; callers in that window hold the handles directly.
+func (s *CommitStore) rawDBFor(name string) seidbtypes.KeyValueDB {
+	switch name {
+	case accountDBDir:
+		if s.accountStore != nil {
+			return s.accountStore.EscapeHatchUnderlyingDB()
+		}
+	case codeDBDir:
+		if s.codeStore != nil {
+			return s.codeStore.EscapeHatchUnderlyingDB()
+		}
+	case storageDBDir:
+		if s.storageStore != nil {
+			return s.storageStore.EscapeHatchUnderlyingDB()
+		}
+	case miscDBDir:
+		if s.miscStore != nil {
+			return s.miscStore.EscapeHatchUnderlyingDB()
+		}
+	case metadataDir:
+		if s.metadataStore != nil {
+			return s.metadataStore.EscapeHatchUnderlyingDB()
+		}
+	}
+	return nil
+}
+
+// closeStores tears down whichever stores exist and clears them, so a store that is being reopened
+// (rollback, restore) does not keep stores pointed at closed databases. Errors are joined rather
+// than short-circuited: every store must be given its chance to stop.
+func (s *CommitStore) closeStores() error {
+	var errs []error
+
+	// Hand back the reservations on the last sealed block and forget the handles. They belong to the
+	// stores being torn down here, so keeping them would leave a reopened store (rollback, restore)
+	// awaiting a flush on snapshots whose store is already gone.
+	s.releaseLastSealed()
+
+	for _, store := range s.stores {
+		if store == nil {
+			continue
+		}
+		if err := store.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("%s store close: %w", store.Name(), err))
+		}
+	}
+
+	s.accountStore = nil
+	s.codeStore = nil
+	s.storageStore = nil
+	s.miscStore = nil
+	s.metadataStore = nil
+	s.stores = nil
+	return errors.Join(errs...)
+}
+
+// computeStoreHeights reports the height each database actually reached on disk, plus the lowest of
+// them — the block replay has to start from. The heights are nil when all five agree, since then there
+// is nothing to catch up.
+//
+// Must run after each database's LocalMeta and the metadata database's committed version have been
+// read off pebble, and before the stores exist.
+func (s *CommitStore) computeStoreHeights() (map[string]int64, int64) {
+	heights := make(map[string]int64, len(dataDBDirs)+1)
+	lowest := s.committedVersion
+	for _, dir := range dataDBDirs {
+		height := int64(0)
+		if meta := s.localMeta[dir]; meta != nil {
+			height = meta.CommittedVersion
+		}
+		heights[dir] = height
+		if height < lowest {
+			lowest = height
+		}
+	}
+	// The metadata database records the store-wide committed version, so that is its own height.
+	heights[metadataDir] = s.committedVersion
+
+	// The heights are worth recording whenever any two disagree, in either direction: a database can be
+	// behind the store-wide version (its flush never landed) or ahead of it (its flush landed and the
+	// metadata database's did not). Only when all five agree is there nothing to catch up.
+	for _, height := range heights {
+		if height != lowest {
+			logger.Info("FlatKV stores are at different heights; replay will catch them up",
+				"lowest", lowest, "storeWide", s.committedVersion, "perDB", heights)
+			return heights, lowest
+		}
+	}
+	return nil, lowest
+}
+
+func (s *CommitStore) loadGlobalMetadata(metaDB seidbtypes.KeyValueDB) error {
+	globalVersion, err := loadGlobalVersion(metaDB)
 	if err != nil {
 		return fmt.Errorf("failed to load global version: %w", err)
 	}
 	s.committedVersion = globalVersion
 
-	earliestVersion, err := s.loadGlobalEarliestVersion()
+	earliestVersion, err := loadGlobalEarliestVersion(metaDB)
 	if err != nil {
 		return fmt.Errorf("failed to load global earliest version: %w", err)
 	}
 	s.earliestVersion = earliestVersion
 
-	globalLtHash, err := s.loadGlobalLtHash()
+	globalLtHash, err := loadGlobalLtHash(metaDB)
 	if err != nil {
 		return fmt.Errorf("failed to load global LtHash: %w", err)
 	}
@@ -732,7 +931,7 @@ func (s *CommitStore) loadGlobalMetadata() error {
 		s.workingLtHash = lthash.New()
 	}
 
-	// Load per-DB LtHashes from each DB's LocalMeta (already loaded in openDBs).
+	// Load per-DB LtHashes from each DB's LocalMeta (already loaded by loadLocalMeta).
 	// If any DB's version is behind the global version (partial commit or
 	// corruption), lower committedVersion so catchup replays from there.
 	for _, dbDir := range dataDBDirs {
@@ -774,10 +973,41 @@ func (s *CommitStore) PendingVersion() int64 {
 	return s.pendingBlockHeight
 }
 
-// RootHash returns the Blake3-256 digest of the working LtHash.
+// RootHash returns the Blake3-256 digest of the LtHash, committing the pending block first if there
+// is one.
+//
+// The hash is computed from the snapshots a commit produces, so an uncommitted block has no hash. A
+// caller asking for one is therefore asking for the block to be committed, and gets it.
+//
+// This exists for Cosmos, which asks for the hash before it calls Commit. Committing early is safe
+// there because every one of the block's writes has already arrived: rootmulti's GetWorkingHash begins
+// by flushing every buffered changeset into this store, and only then reads the hash. The Commit that
+// follows finds the block already committed and does nothing (see Commit).
+//
+// Post-Cosmos this goes away along with rootmulti: a single call will supply a block's writes and
+// commit them, and nothing will ask for a hash mid-block.
 func (s *CommitStore) RootHash() []byte {
+	if err := s.commitPendingBlock(); err != nil {
+		// Nothing in the Cosmos hash path can carry an error, and a store that cannot commit cannot
+		// produce a trustworthy hash either. Returning a stale one would let the chain proceed on it.
+		panic(fmt.Sprintf("flatkv: commit pending block %d before hashing: %v", s.pendingBlockHeight, err))
+	}
 	checksum := s.workingLtHash.Checksum()
 	return checksum[:]
+}
+
+// commitPendingBlock commits the block currently being applied, if any. It is a no-op on a store with
+// no pending writes, which is every store between blocks and every read-only store.
+func (s *CommitStore) commitPendingBlock() error {
+	s.mu.RLock()
+	pending := s.pendingBlockHeight
+	s.mu.RUnlock()
+
+	if pending == 0 || s.readOnly {
+		return nil
+	}
+	_, err := s.Commit(pending)
+	return err
 }
 
 // CommittedRootHash returns the Blake3-256 digest of the last committed LtHash.

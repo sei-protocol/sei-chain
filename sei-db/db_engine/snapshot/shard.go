@@ -402,12 +402,13 @@ func (s *shard) GetDiffsForVersions(
 	return diffs, nil
 }
 
-// materializeCurrentOverrides returns every in-memory override in this shard at the current
-// version. The result is unsorted.
+// materializeCurrentOverrides returns the in-memory overrides in this shard at the current version
+// whose keys fall within [lowerBound, upperBound). A nil bound is unbounded on that side. The result
+// is unsorted.
 //
 // Because the target is always the current version, each key resolves to the back of its deque —
 // no version scan is needed, unlike lookupVersionedLocked, which serves reads at older versions.
-func (s *shard) materializeCurrentOverrides() ([]kvPair, error) {
+func (s *shard) materializeCurrentOverrides(lowerBound []byte, upperBound []byte) ([]kvPair, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -420,6 +421,12 @@ func (s *shard) materializeCurrentOverrides() ([]kvPair, error) {
 	out := make([]kvPair, 0, len(s.versionedData))
 	for key, deque := range s.versionedData {
 		if deque.IsEmpty() {
+			continue
+		}
+		if lowerBound != nil && key < string(lowerBound) {
+			continue
+		}
+		if upperBound != nil && key >= string(upperBound) {
 			continue
 		}
 		out = append(out, kvPair{

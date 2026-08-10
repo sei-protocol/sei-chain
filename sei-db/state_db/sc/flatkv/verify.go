@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -29,11 +28,13 @@ func VerifyLtHash(s Store) error {
 }
 
 func verifyLtHashInternal(cs *CommitStore) error {
-	// A read-write store between ApplyChangeSets and Commit has
-	// workingLtHash != committedLtHash. The full scan below reads only
-	// persisted DB contents, so there is no way to validate the in-memory
-	// pending state against disk here. Fail loudly rather than masquerade
-	// a pending-writes situation as an integrity error.
+	// A read-write store between ApplyChangeSets and Commit has workingLtHash != committedLtHash. The
+	// scan below goes through the stores, so it *does* see the rows that block has staged — and the
+	// committed hash it would be compared against does not account for them. Fail loudly rather than
+	// masquerade a mid-block store as an integrity error.
+	//
+	// Note this reasoning is the inverse of what it was when the scan read the databases directly: the
+	// problem used to be that pending state was invisible to the scan, and is now that it is visible.
 	if !cs.readOnly && !cs.workingLtHash.Equal(cs.committedLtHash) {
 		return fmt.Errorf(
 			"VerifyLtHash: store has uncommitted writes at version %d; "+
@@ -46,15 +47,16 @@ func verifyLtHashInternal(cs *CommitStore) error {
 	// maintained per-module metadata against them, and accumulate the global
 	// root as the homomorphic sum of the derived per-DB roots.
 	global := lthash.New()
-	for _, ndb := range cs.namedDataDBs() {
-		if ndb.db == nil {
+	for _, store := range cs.stores {
+		if store.Name() == metadataDir {
+			// Engine bookkeeping, not state.
 			continue
 		}
-		scanHash, scanStats, err := scanDBByModule(ndb.db)
+		scanHash, scanStats, err := scanStoreByModule(store)
 		if err != nil {
-			return fmt.Errorf("VerifyLtHash: scan %s: %w", ndb.dir, err)
+			return fmt.Errorf("VerifyLtHash: scan %s: %w", store.Name(), err)
 		}
-		dbRoot, err := cs.verifyDBModuleMetadata(ndb.dir, scanHash, scanStats)
+		dbRoot, err := cs.verifyDBModuleMetadata(store.Name(), scanHash, scanStats)
 		if err != nil {
 			return err
 		}
@@ -79,8 +81,10 @@ func verifyLtHashInternal(cs *CommitStore) error {
 // membership predicate foldChunk / serializeKV use for LtHash MixIn — so the
 // scan is directly comparable to the maintained per-module metadata. Module
 // membership uses the same physical-key routing the write path uses.
-func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[string]lthash.ModuleStats, error) {
-	iter, err := db.NewIter(&seidbtypes.IterOptions{})
+func scanStoreByModule(
+	store snapshot.SnapshotEngine,
+) (map[string]*lthash.LtHash, map[string]lthash.ModuleStats, error) {
+	iter, err := store.Iterator(nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open iterator: %w", err)
 	}
@@ -89,11 +93,9 @@ func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[st
 	byModule := make(map[string][]lthash.KVPairWithLastValue)
 	stats := make(map[string]lthash.ModuleStats)
 	for ; iter.Valid(); iter.Next() {
-		if ktype.IsMetaKey(iter.Key()) {
-			continue
-		}
 		// Match foldChunk / serializeKV: empty key or empty value is not a
-		// hash-set member and must not appear in stats.
+		// hash-set member and must not appear in stats. Reserved metadata keys are filtered by the
+		// store, so there is nothing to skip for them here.
 		if len(iter.Key()) == 0 || len(iter.Value()) == 0 {
 			continue
 		}

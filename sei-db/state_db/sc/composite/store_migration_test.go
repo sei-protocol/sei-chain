@@ -387,9 +387,12 @@ func isZeroTestValue(v []byte) bool {
 
 func pruneZeroStorageViaRoutedGet(t *testing.T, cs *CompositeCommitStore, limit int) (int, int) {
 	t.Helper()
+	// The iterator is closed before the deletes are applied. FlatKV's iterators are a live merge over
+	// each engine's staged rows, so writing to the store while one is open is illegal — collect first,
+	// close, then write. x/evm's real prune already works this way by accident of layering: its deletes
+	// land in the cachekv buffer and only reach FlatKV at end of block, after the iterator is gone.
 	iter, err := cs.Iterator(keys.EVMStoreKey, keys.StateKeyPrefix(), []byte{0x04}, true)
 	require.NoError(t, err)
-	defer func() { require.NoError(t, iter.Close()) }()
 
 	var deletes []*proto.KVPair
 	processed := 0
@@ -406,6 +409,7 @@ func pruneZeroStorageViaRoutedGet(t *testing.T, cs *CompositeCommitStore, limit 
 		}
 	}
 	require.NoError(t, iter.Error())
+	require.NoError(t, iter.Close())
 
 	if len(deletes) > 0 {
 		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{{

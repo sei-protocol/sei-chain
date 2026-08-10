@@ -5,18 +5,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
 )
 
-func TestFlushPersistsSetsDeletesAndHashToDB(t *testing.T) {
+func TestFlushPersistsSetsDeletesAndFinalizationToDB(t *testing.T) {
 	engine, db := newTestEngine(t, map[string][]byte{"del": []byte("x")}, 1, 1<<20)
-	hashKey := engine.(*snapshotEngine).config.HashKey
 
 	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	require.NoError(t, engine.Delete([]byte("del")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
-	require.NoError(t, snap.SetHash([]byte("the-hash")))
+	require.NoError(t, snap.Finalize(hashWrites([]byte("the-hash"))))
 	awaitFlushed(t, snap, time.Second)
 	require.NoError(t, snap.Release())
 
@@ -24,9 +24,47 @@ func TestFlushPersistsSetsDeletesAndHashToDB(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []byte("v"), kv)
 	require.False(t, db.has("del"), "delete must be flushed as a DB delete")
-	h, ok := db.get(hashKey)
-	require.True(t, ok, "hash must be persisted under the hash key")
+	h, ok := db.get(testHashKey)
+	require.True(t, ok, "finalization writes must be persisted")
 	require.Equal(t, []byte("the-hash"), h)
+}
+
+// Finalize takes a whole write set, not a single hash: every pair must land, and each version's
+// pairs must land with that version rather than being collapsed across a multi-version flush.
+func TestFlushPersistsEveryFinalizationPairPerVersion(t *testing.T) {
+	engine, db := newTestEngine(t, nil, 1, 1<<20)
+
+	writes := func(version string) []*proto.KVPair {
+		return []*proto.KVPair{
+			{Key: []byte("_meta/hash"), Value: []byte("hash-" + version)},
+			{Key: []byte("_meta/version"), Value: []byte(version)},
+			{Key: []byte("_meta/x:evm/stats"), Value: []byte("stats-" + version)},
+		}
+	}
+
+	require.NoError(t, engine.Set([]byte("k"), []byte("v1")))
+	snap1, err := engine.Commit()
+	require.NoError(t, err)
+	require.NoError(t, snap1.Finalize(writes("1")))
+	require.NoError(t, snap1.Release())
+
+	require.NoError(t, engine.Set([]byte("k"), []byte("v2")))
+	snap2, err := engine.Commit()
+	require.NoError(t, err)
+	require.NoError(t, snap2.Finalize(writes("2")))
+	awaitFlushed(t, snap2, time.Second)
+	require.NoError(t, snap2.Release())
+
+	// The newer version's metadata wins, and no pair is dropped.
+	for key, want := range map[string]string{
+		"_meta/hash":        "hash-2",
+		"_meta/version":     "2",
+		"_meta/x:evm/stats": "stats-2",
+	} {
+		got, ok := db.get(key)
+		require.True(t, ok, "finalization key %q must be persisted", key)
+		require.Equal(t, want, string(got), "finalization key %q", key)
+	}
 }
 
 func TestFlushLatestValueWinsAcrossVersions(t *testing.T) {
@@ -35,13 +73,13 @@ func TestFlushLatestValueWinsAcrossVersions(t *testing.T) {
 	require.NoError(t, engine.Set([]byte("k"), []byte("v1")))
 	snap1, err := engine.Commit()
 	require.NoError(t, err)
-	hashAndRelease(t, snap1)
+	finalizeAndRelease(t, snap1)
 	awaitFlushed(t, snap1, time.Second)
 
 	require.NoError(t, engine.Set([]byte("k"), []byte("v2")))
 	snap2, err := engine.Commit()
 	require.NoError(t, err)
-	hashAndRelease(t, snap2)
+	finalizeAndRelease(t, snap2)
 	awaitFlushed(t, snap2, time.Second)
 
 	kv, ok := db.get("k")
@@ -55,15 +93,15 @@ func TestFlushRacesAheadOfRelease(t *testing.T) {
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 
-	// Hash but do NOT release: a hashed oldest snapshot may flush while a reservation is outstanding.
-	require.NoError(t, snap.SetHash(testHash))
+	// Finalize but do NOT release: a finalized oldest snapshot may flush with a reservation outstanding.
+	require.NoError(t, snap.Finalize(hashWrites(testHash)))
 	awaitFlushed(t, snap, time.Second)
-	require.True(t, db.has("k"), "hashed snapshot must flush even with an outstanding reservation")
+	require.True(t, db.has("k"), "finalized snapshot must flush even with an outstanding reservation")
 
 	require.NoError(t, snap.Release())
 }
 
-func TestFlushBlockedByUnhashedEarlierSnapshot(t *testing.T) {
+func TestFlushBlockedByUnfinalizedEarlierSnapshot(t *testing.T) {
 	engine, db := newTestEngine(t, nil, 1, 1<<20)
 
 	require.NoError(t, engine.Set([]byte("a"), []byte("1")))
@@ -74,13 +112,13 @@ func TestFlushBlockedByUnhashedEarlierSnapshot(t *testing.T) {
 	snap2, err := engine.Commit()
 	require.NoError(t, err)
 
-	// Hash+release snap2 first: it must NOT flush while snap1 is unhashed.
-	hashAndRelease(t, snap2)
+	// Finalize+release snap2 first: it must NOT flush while snap1 is unfinalized.
+	finalizeAndRelease(t, snap2)
 	require.Never(t, func() bool { return db.has("a") || db.has("b") }, 50*time.Millisecond, 5*time.Millisecond,
-		"nothing may flush while the oldest snapshot is unhashed")
+		"nothing may flush while the oldest snapshot is unfinalized")
 
-	// Hash+release snap1: both flush, in order.
-	hashAndRelease(t, snap1)
+	// Finalize+release snap1: both flush, in order.
+	finalizeAndRelease(t, snap1)
 	require.Eventually(t, func() bool { return db.has("a") && db.has("b") }, time.Second, 5*time.Millisecond)
 }
 
@@ -94,8 +132,8 @@ func TestOutOfOrderReleaseDoesNotRetireNewer(t *testing.T) {
 	snap2, err := engine.Commit() // version 2
 	require.NoError(t, err)
 
-	require.NoError(t, snap1.SetHash(testHash)) // hashed but held
-	hashAndRelease(t, snap2)                    // released out of order (before snap1)
+	require.NoError(t, snap1.Finalize(hashWrites(testHash))) // finalized but held
+	finalizeAndRelease(t, snap2)                             // released out of order (before snap1)
 
 	// snap2 cannot retire while snap1 is still held.
 	require.Never(t, func() bool { return !isTracked(engine, 2) }, 50*time.Millisecond, 5*time.Millisecond,
@@ -108,7 +146,7 @@ func TestOutOfOrderReleaseDoesNotRetireNewer(t *testing.T) {
 func TestTargetBytesPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 	db := newTestDB(nil)
 	cfg := newTestConfig(1, 1<<20)
-	// Each version contributes two 2-byte-key/1-byte-value writes plus the hash-key entry,
+	// Each version contributes two 2-byte-key/1-byte-value writes plus the finalization entry,
 	// roughly 34 encoded bytes (see testBatch.Len); 64 forces a split every couple of versions.
 	cfg.TargetBytesPerFlush = 64
 	cfg.MaxUnflushedVersions = 64
@@ -124,14 +162,14 @@ func TestTargetBytesPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 		snaps[i] = s
 	}
 
-	// Hash+release all but the oldest, so nothing is flush-eligible yet (eligibility breaks at the
-	// unhashed oldest). This makes the eventual flush cover the whole contiguous prefix.
+	// Finalize+release all but the oldest, so nothing is flush-eligible yet (eligibility breaks at the
+	// unfinalized oldest). This makes the eventual flush cover the whole contiguous prefix.
 	for i := 1; i < versions; i++ {
-		hashAndRelease(t, snaps[i])
+		finalizeAndRelease(t, snaps[i])
 	}
-	require.Equal(t, int64(0), db.commitCount.Load(), "nothing should flush while the oldest is unhashed")
+	require.Equal(t, int64(0), db.commitCount.Load(), "nothing should flush while the oldest is unfinalized")
 
-	hashAndRelease(t, snaps[0])
+	finalizeAndRelease(t, snaps[0])
 	awaitRetired(t, engine, versions) // last version retired => everything flushed
 
 	require.Greater(t, db.commitCount.Load(), int64(1),
@@ -151,7 +189,7 @@ func TestFlushClosesEveryBatch(t *testing.T) {
 	const versions = 5
 	for i := 0; i < versions; i++ {
 		require.NoError(t, engine.Set([]byte{byte('a' + i)}, []byte("v")))
-		commitAndHashRelease(t, engine)
+		commitFinalizeRelease(t, engine)
 	}
 	awaitRetired(t, engine, versions) // last version retired => everything flushed
 
@@ -166,23 +204,22 @@ func TestReserveAfterRetirementFails(t *testing.T) {
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	ver := snap.(*snapshotImpl).version
-	hashAndRelease(t, snap)
+	finalizeAndRelease(t, snap)
 	awaitRetired(t, engine, ver)
 
 	require.Error(t, snap.Reserve(), "reserving a retired snapshot must fail")
 }
 
-func TestAwaitHashAfterRetirementFails(t *testing.T) {
+func TestFinalizeAfterRetirementFails(t *testing.T) {
 	engine, _ := newTestEngine(t, nil, 1, 1<<20)
 	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	ver := snap.(*snapshotImpl).version
-	hashAndRelease(t, snap)
+	finalizeAndRelease(t, snap)
 	awaitRetired(t, engine, ver)
 
-	_, err = snap.AwaitHash(context.Background())
-	require.Error(t, err, "AwaitHash on a retired snapshot must fail")
+	require.Error(t, snap.Finalize(hashWrites(testHash)), "finalizing a retired snapshot must fail")
 }
 
 func TestAwaitFlushAfterRetirementFails(t *testing.T) {
@@ -191,7 +228,7 @@ func TestAwaitFlushAfterRetirementFails(t *testing.T) {
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	ver := snap.(*snapshotImpl).version
-	hashAndRelease(t, snap)
+	finalizeAndRelease(t, snap)
 	awaitRetired(t, engine, ver)
 
 	require.Error(t, snap.AwaitFlush(context.Background()), "AwaitFlush on a retired snapshot must fail")
