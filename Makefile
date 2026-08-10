@@ -582,7 +582,9 @@ $(BUILDDIR):
 # check under -race -tags=ledger,test_ledger_mock for the whole tree.
 # Filtering to test-only packages here would silently drop that coverage.
 $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
-	go list ./... | grep -v "^$(STATE_DB_PKG_PREFIX)" | sort > $@
+	go list ./... > $@.tmp
+	grep -v "^$(STATE_DB_PKG_PREFIX)" $@.tmp | sort > $@
+	@rm -f $@.tmp
 
 TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
 
