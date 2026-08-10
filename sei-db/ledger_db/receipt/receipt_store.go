@@ -29,9 +29,10 @@ var logger = seilog.NewLogger("db", "ledger-db", "receipt")
 var (
 	ErrNotFound = errors.New("receipt not found")
 	// ErrReceiptPruned is returned when a receipt existed but has fallen below
-	// the store's retention floor. Distinct from ErrNotFound so RPC callers can
-	// surface an explicit pruned error instead of treating the tx as missing.
-	ErrReceiptPruned          = errors.New("receipt pruned")
+	// the store's retention floor. It wraps ErrNotFound so existing not-found
+	// handling (e.g. eth_getTransactionReceipt returning null) still applies,
+	// while errors.Is(err, ErrReceiptPruned) lets trace guards react to it specifically.
+	ErrReceiptPruned          = fmt.Errorf("receipt pruned: %w", ErrNotFound)
 	ErrNotConfigured          = errors.New("receipt store not configured")
 	ErrRangeQueryNotSupported = errors.New("range query not supported by this backend")
 	// ErrTooManyLogs is returned by FilterLogs when a query matches more logs

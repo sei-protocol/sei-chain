@@ -203,7 +203,14 @@ func (m *WatermarkManager) EnsureTraceHeightAvailable(ctx context.Context, heigh
 	if err := m.EnsureReceiptHeightAvailable(height); err != nil {
 		return err
 	}
-	return m.EnsureStateHeightAvailable(ctx, height)
+	// Tracing replays from the parent state (height-1), not height itself. With
+	// no historical state store, state only ever extends to the tip anyway, so
+	// the parent-height distinction doesn't apply.
+	stateHeight := height
+	if m.stateStore != nil {
+		stateHeight = max(height-1, m.genesisInitialHeight())
+	}
+	return m.EnsureStateHeightAvailable(ctx, stateHeight)
 }
 
 func ensureWithinWatermarks(height, earliest, latest int64) error {

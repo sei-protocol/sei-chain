@@ -122,7 +122,20 @@ func (api *DebugAPI) guardTraceRequestByTxHash(ctx context.Context, endpoint str
 			return api.guardTraceRequest(ctx, endpoint, int64(rcpt.BlockNumber)) //nolint:gosec
 		}
 	}
-	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, api.ctxProvider(LatestCtxHeight).BlockHeight())
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, api.latestTraceHeight(ctx))
+}
+
+// latestTraceHeight resolves the height debug_trace* should use for latest-ish
+// tags. It prefers the watermark's safe latest over the raw app tip, since the
+// tip can outrun the receipt/state stores by a block or so and would otherwise
+// make EnsureTraceHeightAvailable reject the most common trace requests.
+func (api *DebugAPI) latestTraceHeight(ctx context.Context) int64 {
+	if api.backend != nil && api.backend.watermarks != nil {
+		if latest, err := api.backend.watermarks.LatestHeight(ctx); err == nil {
+			return latest
+		}
+	}
+	return api.ctxProvider(LatestCtxHeight).BlockHeight()
 }
 
 func (api *DebugAPI) guardTraceRequestByNumber(ctx context.Context, endpoint string, number rpc.BlockNumber) error {
@@ -135,7 +148,7 @@ func (api *DebugAPI) guardTraceRequestByNumber(ctx context.Context, endpoint str
 
 func (api *DebugAPI) guardTraceRequestByHash(ctx context.Context, endpoint string, hash common.Hash) error {
 	if api.backend == nil || api.tmClient == nil {
-		return api.guardTraceRequest(ctx, endpoint, api.ctxProvider(LatestCtxHeight).BlockHeight())
+		return api.guardTraceRequest(ctx, endpoint, api.latestTraceHeight(ctx))
 	}
 	block, err := blockByHashRespectingWatermarks(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
 	if err != nil {
@@ -154,13 +167,13 @@ func (api *DebugAPI) guardTraceRequestByNumberOrHash(ctx context.Context, endpoi
 	if hash, ok := blockNrOrHash.Hash(); ok {
 		return api.guardTraceRequestByHash(ctx, endpoint, hash)
 	}
-	return api.guardTraceRequest(ctx, endpoint, api.ctxProvider(LatestCtxHeight).BlockHeight())
+	return api.guardTraceRequest(ctx, endpoint, api.latestTraceHeight(ctx))
 }
 
 func (api *DebugAPI) resolveDebugTraceBlockNumber(ctx context.Context, number rpc.BlockNumber) (int64, error) {
 	switch number {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
-		return api.ctxProvider(LatestCtxHeight).BlockHeight(), nil
+		return api.latestTraceHeight(ctx), nil
 	case rpc.EarliestBlockNumber:
 		if api.tmClient == nil {
 			return 0, errors.New("tendermint client is not configured")
