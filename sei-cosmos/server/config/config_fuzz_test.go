@@ -1335,13 +1335,58 @@ func TestBaseConfigKeyNamesMatchTheRecordedNames(t *testing.T) {
 	configtest.CheckKeyNames(t, "base_config", baseConfigKeys)
 }
 
-// TestBaseConfigManifestNamesEveryField enforces the manifest's claim, and records the one field
-// that has no key.
+// TestBaseConfigManifestNamesEveryField enforces the manifest's claim, and records the one field this
+// reader leaves alone.
 //
 // PruningKeepEvery carries a mapstructure tag of pruning-keep-every and a declared default of "0",
-// and GetConfig never reads it. So no app.toml value reaches it through this reader, and the
-// exemption below is the record of that rather than a gap in the manifest. It is the shape of thing
-// a replacement manager would otherwise try to map a key onto.
+// and GetConfig never reads it, so the exemption below records that rather than a gap in the manifest.
+//
+// It is not an unreachable field, and the difference matters to anything reproducing this surface.
+// server/pruning.go reads pruning-keep-every through appOpts and feeds it to the custom pruning
+// strategy, pinned by pruning_test.go and pruning_fuzz_test.go. So the key has a reader and a
+// consumer; what it does not have is a path through this struct. A replacement manager has to carry
+// the key and must not expect this field to be where it lands.
+// TestGetConfigLeavesPruningKeepEveryEmpty holds the exemption above to being true, and records what
+// the field actually carries.
+//
+// The exemption says GetConfig does not read pruning-keep-every, which is what lets the manifest omit a
+// row. Nothing checked it, so GetConfig could start reading the key and the exemption would quietly
+// become a false claim about a field that now resolves.
+//
+// What the field carries is worth stating, because it is not the declared default. GetConfig builds
+// BaseConfig as a struct literal and never assigns PruningKeepEvery, so it stays Go's zero value, the
+// empty string, where DefaultConfig declares "0". So this is a divergence as well as an omission, and
+// an empty string is not a number the custom pruning strategy can use. It is excluded from the
+// divergence table only because it has no manifest row to anchor there.
+//
+// The other half of the split is pinned elsewhere: server/pruning.go reads the key through appOpts and
+// feeds the custom strategy, held by pruning_fuzz_test.go. Between them the two readers' disagreement
+// about one key is recorded from both sides.
+//
+// Asserted with the key set to a value nothing else produces, so a green run means the field is
+// genuinely untouched by this reader rather than coincidentally equal to something.
+func TestGetConfigLeavesPruningKeepEveryEmpty(t *testing.T) {
+	const nothingElseProduces = "4321"
+
+	cfg, err := GetConfig(newAppViper(t, configtest.AppOpts{
+		"pruning-keep-every": nothingElseProduces,
+	}))
+	if err != nil {
+		t.Fatalf("GetConfig: %v", err)
+	}
+
+	if cfg.PruningKeepEvery != "" {
+		t.Errorf("GetConfig resolved PruningKeepEvery to %q with pruning-keep-every set to %q, where it "+
+			"leaves the field empty today. This reader now reads the key, so the exemption in "+
+			"TestBaseConfigManifestNamesEveryField is false and the field needs a manifest row",
+			cfg.PruningKeepEvery, nothingElseProduces)
+	}
+	if declared := DefaultConfig().PruningKeepEvery; declared == "" {
+		t.Errorf("DefaultConfig now declares PruningKeepEvery empty too, so this reader no longer "+
+			"diverges from it and the divergence half of this row should say so. Declared %q", declared)
+	}
+}
+
 func TestBaseConfigManifestNamesEveryField(t *testing.T) {
 	configtest.CheckManifestCoversEveryField(t, "base_config", DefaultConfig().BaseConfig,
 		baseConfigKeys,
