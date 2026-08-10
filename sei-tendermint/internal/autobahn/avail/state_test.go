@@ -177,6 +177,15 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 				return fmt.Errorf("state.PushCommitQC(): %w", err)
 			}
 
+			t.Logf("Check that a CommitQC was successfully reconstructed.")
+			_, got, err := state.fullCommitQC(ctx, qc.Proposal().Index())
+			if err != nil {
+				return fmt.Errorf("state.fullCommitQC(): %w", err)
+			}
+			if err := utils.TestDiff(want, qcPayloadHashes(got)); err != nil {
+				return fmt.Errorf("snapshot: %w", err)
+			}
+
 			t.Logf("Push app votes.")
 			appHash := types.GenAppHash(rng)
 			appProposal := types.NewAppProposal(qc.Proposal(), appHash)
@@ -207,15 +216,6 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 						return fmt.Errorf("state.Block(): %w, want %v", err, types.ErrPruned)
 					}
 				}
-			}
-
-			t.Logf("Check that a CommitQC was successfully reconstructed.")
-			_, got, err := state.fullCommitQC(ctx, qc.Proposal().Index())
-			if err != nil {
-				return fmt.Errorf("state.fullCommitQC(): %w", err)
-			}
-			if err := utils.TestDiff(want, qcPayloadHashes(got)); err != nil {
-				return fmt.Errorf("snapshot: %w", err)
 			}
 
 			t.Logf("Check that the blocks were successfully pushed to data state.")
