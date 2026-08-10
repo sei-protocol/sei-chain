@@ -19,3 +19,7 @@
 "state-commit.sc-write-mode"
 "state-commit.sc-write-mode-enable-auto"
 "state-commit.sc-hash-logger-target-file-size"
+"state-commit.flatkv.fsync"
+"state-commit.flatkv.async-write-buffer"
+"state-commit.flatkv.snapshot-interval"
+"state-commit.flatkv.snapshot-keep-recent"

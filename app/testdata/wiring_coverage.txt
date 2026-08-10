@@ -6,11 +6,13 @@
 # so this records which checks cover a section rather than how many times.
 # Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update` and read the diff.
 
+genesis	CheckAbsent
 genesis	CheckDefaults
 genesis	CheckEveryRowHasADiscriminatingSeed
 genesis	CheckKeyNames
 genesis	CheckManifestCoversEveryField
 genesis	CheckRow
+light_invariance	CheckAbsent
 light_invariance	CheckDefaults
 light_invariance	CheckEveryRowHasADiscriminatingSeed
 light_invariance	CheckKeyNames

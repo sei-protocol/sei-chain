@@ -1,0 +1,5 @@
+"grpc-web.enable"
+"grpc-web.address"
+"grpc-web.enable-unsafe-cors"
+"grpc-web.max-open-connections"
+# keys with a target of their own
