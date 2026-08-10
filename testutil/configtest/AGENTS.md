@@ -166,6 +166,14 @@ is `parseSCConfigs` over the flat `AppOpts` map, the other is
 against a 17-row manifest, four of them claiming a key is unread when the other reader
 reads it.
 
+`StateStoreConfig` is split the same way, with eleven keys of its own that both readers read.
+The count here is per struct, so the pair of them is twenty-two. Neither half can resolve to
+different values, because both readers read the same viper through the same cast helpers and
+neither of these keys is a registered flag, which is the one thing that would separate
+`Get() != nil` from `IsSet()`. What the split costs is a second copy, not a disagreement:
+`GetConfig` populates both structs and no caller reads either field, so the store is built
+from `parseSCConfigs` and `parseSSConfigs` alone.
+
 Fifty-seven of those 62 sit under `FlatKVConfig`, so the move to reach for is waving the
 subtree through in one line. Exemptions match a whole `Dump` path, so `"FlatKVConfig"`
 exempts nothing and the count does not drop. Were it a prefix it would surrender the
