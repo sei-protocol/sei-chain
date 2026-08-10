@@ -4,11 +4,24 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"unsafe"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestLogHeapStructOverheadMatchesStructSize(t *testing.T) {
+	t.Parallel()
+	require.Equal(t,
+		int64(unsafe.Sizeof(ethtypes.Log{}))-int64(common.AddressLength)-logTopicsSliceHeader,
+		logHeapStructOverhead,
+		"ethtypes.Log layout changed: update logHeapStructOverhead, and if the new field "+
+			"references heap data, count it in EstimateLogHeapBytes too",
+	)
+	require.Equal(t, int64(unsafe.Sizeof([]common.Hash{})), logTopicsSliceHeader)
+
+}
 
 func TestLogBudgetCountLimit(t *testing.T) {
 	t.Parallel()
