@@ -44,7 +44,9 @@ func qcPayloadHashes(qc *types.FullCommitQC) byLane[types.PayloadHash] {
 
 func TestState(t *testing.T) {
 	rng := utils.TestRng()
-	testState(t, rng, utils.None[string]())
+	for range 5 {
+		testState(t, rng, utils.None[string]())
+	}
 }
 
 // TestStateWithPersistence runs the same flow as TestState but with disk
@@ -199,19 +201,16 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 				}
 			}
 
-			t.Logf("Previous one should be eventually evicted")
+			t.Logf("Executed CommitQC should be eventually evicted")
 			for inner, ctrl := range state.inner.Lock() {
-				if err := ctrl.WaitUntil(ctx, func() bool { return inner.roads.first == appProposal.RoadIndex() }); err != nil {
+				if err := ctrl.WaitUntil(ctx, func() bool { return inner.roads.first == appProposal.RoadIndex()+1 }); err != nil {
 					return err
 				}
-			}
-			if _, err := state.appQC(ctx, appProposal.RoadIndex()); err != nil {
-				return fmt.Errorf("state.WaitForAppQC(): %w", err)
 			}
 
 			t.Logf("Check that the executed local blocks have been pruned")
 			for lane := range committee.Lanes().All() {
-				if lr := types.LaneRangeOpt(prev, lane); lr.Next() > 0 {
+				if lr := qc.LaneRange(lane); lr.Next() > 0 {
 					if _, err := state.Block(ctx, lane, lr.Next()-1); !errors.Is(err, types.ErrPruned) {
 						return fmt.Errorf("state.Block(): %w, want %v", err, types.ErrPruned)
 					}
