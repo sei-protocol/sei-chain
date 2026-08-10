@@ -134,9 +134,15 @@ func TestStartPreRunResolvesTheKeysOnlyStartInProcessReads(t *testing.T) {
 // recorded for their operator-facing spelling.
 //
 // A KeyName rather than a KeySpec, because none of these resolves into a config struct a row could
-// name a Path in: startInProcess reads them straight off the viper and branches. The record is what
-// puts the spelling in a checked-in file, so a rename lands in a diff rather than only reddening the
-// assertions above.
+// name a Path in: startInProcess reads them straight off the viper and branches.
+//
+// The names are literals, and have to be. server's flagCPUProfile, flagTraceStore and flagGRPCOnly
+// are unexported, so this package cannot spell them through the reader's own constant the way a
+// KeyName target normally does. That bounds what the record catches, and the bound is worth stating.
+// It holds the spelling this suite asserts against, so renaming a name here without renaming it in
+// the assertions fails. It does not catch a rename in production, because the record and the
+// assertions would then both still carry the old name. That case is caught one step over, where
+// setting the flag fails once the flag no longer answers to the name it is given.
 var startFlagKeysWithTargetsOfTheirOwn = []configtest.KeyName{
 	"cpu-profile", // TestStartPreRunResolvesTheKeysOnlyStartInProcessReads
 	"trace-store", // same

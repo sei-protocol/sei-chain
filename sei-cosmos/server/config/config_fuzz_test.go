@@ -194,7 +194,7 @@ func TestGetConfigPanicsOnANonStringGlobalLabel(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%v", label), func(t *testing.T) {
 			v := viper.New()
-			v.Set("telemetry.global-labels", []any{[]any(label)})
+			v.Set("telemetry.global-labels", []any{label})
 
 			defer func() {
 				r := recover()
@@ -813,8 +813,10 @@ func TestManifestNamesEveryField(t *testing.T) {
 // misconfiguration rather than a choice. And pruning "everything" with state-sync snapshots enabled
 // fails, because a node cannot serve a snapshot of state it has already pruned.
 //
-// Neither stops a node. start.go:308 is the only caller in the tree, and it logs the error and
-// carries on to build the app, so both conditions are reported rather than refused. The message it
+// Neither stops a node. start.go:308 is the only caller on the boot path, and it logs the error and
+// carries on to build the app, so both conditions are reported rather than refused. (The one other
+// caller, testutil/network/util.go:31, does return it, but that is the in-process test network and
+// never linked into seid.) The message it
 // logs is a fixed string naming an empty minimum-gas-prices, which is one of the two causes: an
 // operator whose pruning and snapshot settings conflict is told their fee floor is empty, and then
 // boots into a node that cannot serve the snapshots it advertises.
@@ -1488,8 +1490,15 @@ func TestBaseConfigKeyNamesMatchTheRecordedNames(t *testing.T) {
 // strategy, pinned by pruning_test.go and pruning_fuzz_test.go. So the key has a reader and a
 // consumer; what it does not have is a path through this struct. A replacement manager has to carry
 // the key and must not expect this field to be where it lands.
-// TestGetConfigLeavesPruningKeepEveryEmpty holds the exemption above to being true, and records what
-// the field actually carries.
+func TestBaseConfigManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "base_config", DefaultConfig().BaseConfig,
+		baseConfigKeys,
+		"PruningKeepEvery",
+	)
+}
+
+// TestGetConfigLeavesPruningKeepEveryEmpty holds the exemption in
+// TestBaseConfigManifestNamesEveryField to being true, and records what the field actually carries.
 //
 // The exemption says GetConfig does not read pruning-keep-every, which is what lets the manifest omit a
 // row. Nothing checked it, so GetConfig could start reading the key and the exemption would quietly
@@ -1527,13 +1536,6 @@ func TestGetConfigLeavesPruningKeepEveryEmpty(t *testing.T) {
 		t.Errorf("DefaultConfig now declares PruningKeepEvery empty too, so this reader no longer "+
 			"diverges from it and the divergence half of this row should say so. Declared %q", declared)
 	}
-}
-
-func TestBaseConfigManifestNamesEveryField(t *testing.T) {
-	configtest.CheckManifestCoversEveryField(t, "base_config", DefaultConfig().BaseConfig,
-		baseConfigKeys,
-		"PruningKeepEvery",
-	)
 }
 
 // grpcKeys covers the three [grpc] keys read as plain casts.
