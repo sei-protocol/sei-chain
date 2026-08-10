@@ -186,7 +186,7 @@ func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Serv
 		for next := req.NextBlock; ; {
 			qc, err := s.data.QC(ctx, next)
 			if err != nil {
-				if errors.Is(err,types.ErrPruned) {
+				if errors.Is(err, types.ErrPruned) {
 					next = s.data.First()
 				}
 				return fmt.Errorf("s.data.QC(): %w", err)
@@ -213,7 +213,7 @@ func (s *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]
 		for next := req.NextBlock; ; {
 			appQC, err := s.data.AppQC(ctx, next)
 			if err != nil {
-				if errors.Is(err,types.ErrPruned) {
+				if errors.Is(err, types.ErrPruned) {
 					next = s.data.First()
 				}
 				return fmt.Errorf("x.validatorState().Data().AppQC(): %w", err)

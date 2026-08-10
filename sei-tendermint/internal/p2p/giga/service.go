@@ -47,7 +47,7 @@ func NewBlockSyncService(d *data.State) *Service {
 // autobahn.json entry to take down RPC nodes via a reachable panic.
 func (x *Service) RunInbound(ctx context.Context, server rpc.Server[API], isCommittee bool) error {
 	if !isCommittee {
-		return x.RunBlockSyncServer(ctx, server)
+		return x.RunFullNodeServer(ctx, server)
 	}
 	if !x.state.IsPresent() {
 		return fmt.Errorf("committee peer dialed a non-validator service")
@@ -70,55 +70,50 @@ func (x *Service) RunServer(ctx context.Context, server rpc.Server[API]) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.serverPing(ctx, server) })
 		s.Spawn(func() error { return x.serverConsensus(ctx, server) })
-		s.Spawn(func() error { return x.serverStreamFullCommitQCs(ctx, server) })
-		s.Spawn(func() error { return x.serverGetBlock(ctx, server) })
 		s.Spawn(func() error { return x.serverStreamLaneProposals(ctx, server) })
 		s.Spawn(func() error { return x.serverStreamLaneVotes(ctx, server) })
 		s.Spawn(func() error { return x.serverStreamCommitQCs(ctx, server) })
 		s.Spawn(func() error { return x.serverStreamAppVotes(ctx, server) })
-		s.Spawn(func() error { return x.serverStreamAppQCs(ctx, server) })
-		return nil
+		return x.RunFullNodeServer(ctx, server)
 	})
 }
 
 func (x *Service) RunClient(ctx context.Context, client rpc.Client[API], getBlock bool) error {
-	// TODO: implement a uniform robust GetBlock peer-selection / retry strategy
-	// so connections that lack a height (including self) do not need a separate
-	// getBlock=false path to avoid starving the shared fetch queue.
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error { return x.clientPing(ctx, client) })
 		s.Spawn(func() error { return x.clientConsensus(ctx, client) })
-		s.Spawn(func() error { return x.clientStreamFullCommitQCs(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamLaneProposals(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamLaneVotes(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamCommitQCs(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamAppVotes(ctx, client) })
-		s.Spawn(func() error { return x.clientStreamAppQCs(ctx, client) })
-		if getBlock {
-			s.Spawn(func() error { return x.clientGetBlock(ctx, client) })
-		}
-		return nil
+		return x.RunFullNodeClient(ctx, client, getBlock)
 	})
 }
 
 // RunBlockSyncServer spawns only the block-sync server handlers. Used on
 // both validator and fullnode inbound connections from non-committee peers.
-func (x *Service) RunBlockSyncServer(ctx context.Context, server rpc.Server[API]) error {
+func (x *Service) RunFullNodeServer(ctx context.Context, server rpc.Server[API]) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.serverPing(ctx, server) })
 		s.Spawn(func() error { return x.serverStreamFullCommitQCs(ctx, server) })
 		s.Spawn(func() error { return x.serverGetBlock(ctx, server) })
+		s.Spawn(func() error { return x.serverStreamAppQCs(ctx, server) })
 		return nil
 	})
 }
 
 // RunBlockSyncClient spawns only the block-sync client handlers. Used by
 // fullnodes dialing committee members.
-func (x *Service) RunBlockSyncClient(ctx context.Context, client rpc.Client[API]) error {
+func (x *Service) RunFullNodeClient(ctx context.Context, client rpc.Client[API], getBlock bool) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.clientPing(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamFullCommitQCs(ctx, client) })
-		s.Spawn(func() error { return x.clientGetBlock(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamAppQCs(ctx, client) })
+		// TODO: implement a uniform robust GetBlock peer-selection / retry strategy
+		// so connections that lack a height (including self) do not need a separate
+		// getBlock=false path to avoid starving the shared fetch queue.
+		if getBlock {
+			s.Spawn(func() error { return x.clientGetBlock(ctx, client) })
+		}
 		return nil
 	})
 }

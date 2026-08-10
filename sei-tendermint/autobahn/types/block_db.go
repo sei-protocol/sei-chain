@@ -39,31 +39,33 @@ import (
 // Writes must be ordered, and the contract is enforced (not merely
 // expected):
 //
-//   - Blocks must be written densely: each block's number must be exactly
-//     one greater than the previously written block's (the first block may
-//     start anywhere its covering QC allows). WriteBlock returns
-//     ErrBlockOutOfOrder otherwise.
-//   - QCs must be written contiguously — each QC's GlobalRange().First
-//     must equal the previous QC's GlobalRange().Next. WriteQC returns
-//     ErrQCNonContiguous otherwise.
-//   - QCs must be written before blocks. A QC covering a block must
-//     be written before that block is written.
-//   - AppQCs must be written contiguously as an exact prefix of retained QCs.
-//     The first AppQC starts at the retained QC floor; every AppQC's range must
-//     exactly match the next persisted QC range.
+//   - All data must be written contiguously:
+//   - FullCommitQC.GlobalRange().First must equal the previous FullCommitQC.GlobalRange().Next
+//   - Block.Number must equal the previous Block.Number + 1
+//   - AppProposal.GlobalRange().First must equal the previous AppProposal.GlobalRange().Next
+//   - AppQC.Proposal().GlobalRange().First must equal the previous AppQC.Proposal().GlobalRange().Next
+//   - All data must be written in order: for every GlobalBlockNumber X, writes need to happen in order:
+//   - FullCommitQC covering X
+//   - Block X
+//   - AppProposal covering X
+//   - AppQC covering X
+//   - Call to PruneBefore(X) makes data before X inaccessible, however it still might be accessible after BlockDB is
+//     reopened, as the pruning may happen asynchronously.
+//     Only full rows (X such that FullCommitQC, Block, AppProposal and AppQC are in BlockDB) are eligible for pruning,
+//     and at least 1 full row (once written) needs to stay in BlockDB at all times.
+//     In particular:
+//   - PruneBefore is a noop until the first AppQC is written
+//   - If PruneBefore(X) called and the highest full row is Y, then only data in rows <min(X,Y) will become inaccessible.
 //
 // After a crash, data not flushed may be lost, but the following invariants hold:
 //
-//   - Individual blocks, QCs, and AppQCs are either fully persisted or not at all; there are no partial writes.
+//   - Individual blocks, QCs, AppProposals and AppQCs are either fully persisted or not at all; there are no partial writes.
 //   - Data is persisted in order, meaning that data loss never leaves gaps. If A is written and then B
 //     is written, then after a crash if B is persisted then A is also persisted.
-//   - Since QCs must always be written before the blocks or AppQCs they cover, a persisted block or
-//     AppQC is always covered by a persisted QC, but a persisted QC may or may not have its covered
-//     blocks or AppQC persisted.
 //
-// # A readable block always has a readable covering QC
+// # A readable block always has a readable covering FullCommitQC
 //
-// Pruning never leaves a block readable without its covering QC also being readable. And if a block becomes
+// Pruning never leaves a block readable without its covering FullCommitQC also being readable. And if a block becomes
 // crash recoverable, its QC is guaranteed to also be crash recoverable.
 type BlockDB interface {
 	// WriteBlock persists a finalized block at GlobalBlockNumber n. A
