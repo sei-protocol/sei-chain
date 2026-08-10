@@ -24,6 +24,14 @@ import (
 // So one number an operator sets for block retention silently also sets receipt retention, and the two
 // go through different casts. That combination is what this holds still.
 //
+// What each half of that is worth is not the same, and the difference is the thing to carry off this
+// file. The receipt half is pinned: this target calls readReceiptStoreConfig, so changing its cast
+// fails here. The block half is not, and cannot be from a test: root.go builds that argument inline
+// inside newApp's app.New call, which needs a node. So the block column of the table below is a
+// recorded literal, and nothing in this suite fails if root.go:297 changes its cast. That gap is
+// stated rather than papered over, because a reader who assumed otherwise would trust a pin that is
+// not there.
+//
 // For every value an operator would sensibly write the two casts agree, and the fan-out is then just a
 // coupling. Where they disagree, they disagree in value and agree in effect, and only because both
 // out-of-range paths land on keep-everything: the receipt store applies a TTL only when KeepRecent is
@@ -53,39 +61,75 @@ func FuzzMinRetainBlocksFansOutToTwoRetentionPolicies(f *testing.F) {
 			t.Fatalf("readReceiptStoreConfig(%q): %v", raw, err)
 		}
 
-		// The two casts as the two call sites apply them.
-		blockRetention := cast.ToUint64(raw)
-		receiptRetention := receiptConfig.KeepRecent
-
-		if receiptRetention != cast.ToInt(raw) {
+		// The receipt half, against the cast its reader applies. This is the assertion that fails if
+		// app/receipt_store_config.go changes, and it is the whole of what fuzzing adds here.
+		if receiptConfig.KeepRecent != cast.ToInt(raw) {
 			t.Fatalf("the receipt store's KeepRecent is %d for min-retain-blocks=%q, where "+
 				"app/receipt_store_config.go casts with cast.ToInt and would give %d. The receipt side "+
-				"of the fan-out changed", receiptRetention, raw, cast.ToInt(raw))
-		}
-
-		// Where the casts agree, the fan-out is a plain coupling: one key, two retention policies,
-		// same number.
-		if uint64(receiptRetention) == blockRetention {
-			return
-		}
-
-		// Where they disagree, the receipt side never becomes a positive retention window, and that is
-		// the safety property. The two disagreement shapes reach it differently. A negative leaves
-		// cast.ToInt holding the negative while cast.ToUint64 floors to zero. A value past int64 floors
-		// cast.ToInt to zero while cast.ToUint64 keeps it. Either way the receipt store sees zero or
-		// below and its KeepRecent>0 guard leaves receipts alone.
-		//
-		// The block side is deliberately not asserted to be zero, because past int64 it holds a huge
-		// number instead, which is harmless for a different reason: it retains more blocks than a chain
-		// reaches. Asserting zero there failed on exactly those two seeds, which is how the shape of
-		// this invariant got established rather than assumed.
-		if receiptRetention > 0 {
-			t.Errorf("min-retain-blocks=%q casts to %d for receipt retention and %d for block "+
-				"retention. The two disagree and the receipt side is now a positive window, so a value "+
-				"the block side handled one way starts pruning EVM receipts on a schedule the operator "+
-				"never set", raw, receiptRetention, blockRetention)
+				"of the fan-out changed", receiptConfig.KeepRecent, raw, cast.ToInt(raw))
 		}
 	})
+}
+
+// minRetainBlocksFanOut is what one operator value becomes on each side.
+//
+// Both columns are literals. The receipt column is checked against the reader, so it is a prediction.
+// The block column is a recording of what cast.ToUint64 does, held against a number rather than
+// against a second call to the same function, because an assertion comparing a call to itself passes
+// for any reader and would say nothing.
+var minRetainBlocksFanOut = []struct {
+	raw     string
+	receipt int    // app/receipt_store_config.go:27, through cast.ToInt
+	block   uint64 // cmd/seid/cmd/root.go:297, through cast.ToUint64
+}{
+	{"0", 0, 0},                // keep everything, both sides
+	{"100000", 100000, 100000}, // the ordinary case: one value, two policies
+	{"-5", -5, 0},              // ToInt keeps the negative, ToUint64 floors
+	{"9223372036854775808", 0, 9223372036854775808},   // past int64: ToInt floors, ToUint64 keeps
+	{"18446744073709551615", 0, 18446744073709551615}, // the uint64 ceiling, same shape
+	{"not-a-number", 0, 0},                            // both floor, so both keep everything
+}
+
+// TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree holds the safety property that
+// makes the fan-out survivable.
+//
+// Where the two casts land on the same number the fan-out is a plain coupling. Where they disagree,
+// the receipt side must not be a positive retention window, because a positive KeepRecent is the one
+// state that starts expiring receipts (litt_receipt_store.go:138). A row that broke that would mean a
+// value an operator set for block retention silently pruning EVM receipts.
+func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testing.T) {
+	for _, row := range minRetainBlocksFanOut {
+		t.Run(row.raw, func(t *testing.T) {
+			receiptConfig, err := readReceiptStoreConfig(t.TempDir(), mapAppOpts{
+				server.FlagMinRetainBlocks: row.raw,
+			})
+			if err != nil {
+				t.Fatalf("readReceiptStoreConfig(%q): %v", row.raw, err)
+			}
+
+			// The prediction, against the reader.
+			if receiptConfig.KeepRecent != row.receipt {
+				t.Errorf("min-retain-blocks=%q resolves the receipt store's KeepRecent to %d, recorded "+
+					"as %d", row.raw, receiptConfig.KeepRecent, row.receipt)
+			}
+			// The recording, against the cast the block side applies.
+			if got := cast.ToUint64(row.raw); got != row.block {
+				t.Errorf("min-retain-blocks=%q casts to %d through cast.ToUint64, recorded as %d. The "+
+					"block column is a recording of the cast rather than a pin on root.go:297, so "+
+					"update it and say what a node now retains", row.raw, got, row.block)
+			}
+
+			if uint64(row.receipt) == row.block {
+				return
+			}
+			if row.receipt > 0 {
+				t.Errorf("min-retain-blocks=%q gives %d for receipt retention and %d for block "+
+					"retention. The two disagree and the receipt side is a positive window, so a value "+
+					"the block side handled one way starts pruning EVM receipts on a schedule the "+
+					"operator never set", row.raw, row.receipt, row.block)
+			}
+		})
+	}
 }
 
 // TestMinRetainBlocksArchiveModeKeepsBothRetentionsOpen records that the archive path is aligned.
