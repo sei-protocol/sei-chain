@@ -19,51 +19,15 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
-// start layers two more config behaviors on top of Apply, in its own PreRunE and at
-// the head of its RunE. Both are reachable without launching a node; everything after
-// them is not.
+// Tests for the two config behaviors start layers on top of Apply, in its own PreRunE and at the
+// head of its RunE. Both are reachable without launching a node; everything after them is not.
 //
-// PreRunE re-binds the command's flags into the viper Apply already populated, then
-// resolves pruning purely to fail fast — the returned options are discarded. So a bad
-// pruning strategy is refused before the node touches disk, and refused a second time
-// later by newApp, where the same helper panics instead of returning.
+// PreRunE re-binds the command's flags into the viper Apply already populated, then resolves
+// pruning purely to fail fast, discarding the options it returns. RunE re-reads client.toml,
+// compares its chain-id against --chain-id, and panics on a mismatch before any app is built.
 //
-// RunE then re-reads client.toml, compares its chain-id against --chain-id, and
-// panics on a mismatch before any app is constructed.
-//
-// What is and is not reachable here is stated rather than silently skipped, and the line runs
-// between a value's resolution and its effect rather than between this file and startInProcess.
-//
-// Resolution is reachable, all of it. Every key startInProcess consumes is already in
-// serverCtx.Viper before it runs: start.go registers trace-store and cpu-profile as flags and
-// PreRunE binds the whole flag set into that viper, so startInProcess re-reads a populated
-// viper rather than resolving anything for the first time. The same is true of its GetConfig
-// call, which is the reader sei-cosmos/server/config pins directly.
-//
-// What TestStartPreRunResolves* below hold is what those three keys resolve to in the viper
-// startInProcess reads, and not the reads themselves. The read sites are inside startInProcess,
-// which is unexported and needs a booted node, so nothing here fails if it changes the key it reads
-// or stops reading one: the flag stays registered, the value stays in the viper, and these tests keep
-// describing a reader that had moved. A rename of the flag is caught, by TestStartFlagNamesAreRegistered
-// below; the read site is not. Same gap and same idiom as root.go:296 and :297.
-//
-// Two of the three would fail quietly if their read disappeared, which is why the distinction is worth
-// stating rather than shrugging at. cpu-profile and trace-store would accept an operator's value and
-// write no profile and no trace file, with no error to notice. grpc-only would be visible instead: a
-// node asked to serve gRPC only would start Tendermint anyway.
-//
-// Effects are not reachable, and are deliberately not pinned. Whether the profiler starts,
-// whether the trace file is written, and whether grpc-only forcing GRPC.Enable changes which
-// listeners bind all need a running node. They are left out because the differential the
-// SeiConfigManager cutover rests on compares the two resolved channels after Apply: if the
-// resolution is identical, startInProcess reads identical values and its effects follow. Pinning
-// them again with a booted node re-derives what channel equality already gives.
-//
-// The repo's inprocess package is not the tool for it either, which is worth recording so nobody
-// reaches for it. It calls tmnode.New directly and injects its own AppOptions, so it never
-// executes startInProcess or the legacy resolver, and a green assertion through it would
-// characterise that harness rather than seid. It is also capped at one node boot per test binary,
-// because app.New wires process-global singletons that never re-initialise.
+// testutil/configtest/AGENTS.md holds which reads resolve where this suite can reach them and are
+// consumed where it cannot, and why the effects of those reads are deliberately left unpinned.
 
 // TestStartPreRunResolvesTheKeysOnlyStartInProcessReads pins what cpu-profile, trace-store and
 // grpc-only resolve to, which is the whole of the live-node domain that resolves at all.
@@ -473,10 +437,10 @@ func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 // a request rather than a guarantee, which is why the second wait is bounded too and the
 // message distinguishes a node that stopped from one that ignored the cancel.
 //
-// The bounds are deliberately generous, because the terminal branch inverted the cost of
-// being wrong. A bound that is too short no longer just files an early report: it aborts the
-// whole package on a loaded -race shard, destroying results for every other test on nothing
-// more than wall-clock evidence. A bound that is too long costs only a delayed report on a
+// The bounds are deliberately generous, because the two ways of being wrong cost very
+// different amounts. A bound that is too short aborts the whole package on a loaded -race
+// shard, destroying results for every other test on nothing more than wall-clock evidence.
+// A bound that is too long costs only a delayed report on a
 // path where something is already broken, since the happy path returns as soon as the panic
 // fires, in well under a second, and never waits at all. So the timeout is sized to outlast
 // any plausible shard rather than to fail fast, and the terminal branch is reached only after

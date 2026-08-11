@@ -475,6 +475,60 @@ process environment, `$HOME`, and the executable basename all feed the result.
   `EnvValueIsSettable` decline the values with no faithful spelling, which keeps a
   parse failure from being attributed to the layer under test.
 
+## Reads Whose Call Site Cannot Be Pinned
+
+Four live reads resolve their value where this suite can reach it and consume it where it
+cannot. For each, a rename of the key fails somewhere, and a change to the read itself does not,
+so the tests would keep describing a reader that had moved.
+
+| Read | Pinned | Not pinned |
+|---|---|---|
+| `root.go:296`, `minimum-gas-prices` into `baseapp.SetMinGasPrices` | that the flag is registered, and what the expression resolves to | the call site, an inline argument to `newApp`'s `app.New` |
+| `root.go:297`, `min-retain-blocks` into `baseapp.SetMinRetainBlocks` | the recorded cast result | the same inline argument |
+| `startInProcess`'s `cpu-profile`, `trace-store` and `grpc-only` | what each resolves to in the viper `startInProcess` reads | the read sites, inside an unexported function needing a booted node |
+
+**Two of the three start keys would fail quietly.** `cpu-profile` and `trace-store` would accept
+an operator's value and write no profile and no trace file, with nothing to notice. `grpc-only`
+is visible instead: a node asked to serve gRPC only would start Tendermint anyway.
+
+**Effects are deliberately not pinned.** Whether the profiler starts, whether a trace file
+appears, and whether `grpc-only` changes which listeners bind all need a running node. The
+differential the PLT-775 cutover rests on compares the two resolved channels after `Apply`, so
+where resolution is identical `startInProcess` reads identical values and its effects follow.
+Pinning them with a booted node re-derives what channel equality already gives.
+
+The repo's `inprocess` package is not the tool for closing this. It calls `tmnode.New` directly
+and injects its own `AppOptions`, so it never executes `startInProcess` or the legacy resolver,
+and a green assertion through it would characterise that harness rather than seid. It is also
+capped at one node boot per test binary, because `app.New` wires process-global singletons that
+never re-initialise.
+
+## The minimum-gas-prices Separator
+
+One reader governs a node, and two artifacts document a syntax it rejects.
+
+`root.go:296` hands `cast.ToString` of the key to `baseapp.SetMinGasPrices`, which calls
+`sdk.ParseDecCoins` and panics on anything it cannot parse (`options.go:24-28`). That panic is
+the whole boot, and `ParseDecCoins` separates denominations with a comma.
+
+The start flag's own help text offers `0.01photino;0.0001stake` as its example
+(`start.go:208`), and `Config.GetMinGasPrices` splits on `";"` (`config.go:323`). The two
+syntaxes are disjoint rather than merely different: no multi-denomination value is accepted by
+both, and the spelling an operator is shown is the spelling that panics. Both agree on one
+denomination, which is the shape of the default and of nearly every deployment, and that is why
+this has never been reported. It surfaces the first time an operator prices a second fee token
+by following the example.
+
+`GetMinGasPrices` has no caller outside itself, so it documents an intent rather than being a
+second live resolution. There is one answer at runtime and two artifacts describing another.
+
+Recorded rather than repaired, and the halves of a repair carry different risk. Correcting the
+help text and the getter is prose and dead code, and what operators are told today is a value
+that takes the node down, so nothing is preserved by leaving it. Teaching `ParseDecCoins` the
+semicolon widens the fee-floor grammar for every node, and once operators write semicolons,
+narrowing back breaks them. Aligning the documentation down to the comma the parser already
+accepts is the cheaper direction and does not spend that door. PLT-976 item 1.
+
 ## The min-retain-blocks Fan-Out
 
 `min-retain-blocks` is the only key in this tree that two live consumers read, and

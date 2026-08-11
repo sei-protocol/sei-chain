@@ -13,47 +13,11 @@ import (
 	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 )
 
-// minimum-gas-prices is the one key in this tree whose accepted syntax is contradicted by its own
-// documentation, and this file holds all three parties still.
+// Tests for minimum-gas-prices, the one key in this tree whose accepted syntax is contradicted by
+// its own documentation. One reader governs a node, and two artifacts show a separator it panics on.
 //
-// One reader governs a node. root.go:296 hands cast.ToString of the key to baseapp.SetMinGasPrices,
-// which calls sdk.ParseDecCoins and panics on anything it cannot parse (options.go:24-28). That
-// panic is the whole boot, and ParseDecCoins separates denominations with a comma.
-//
-// Two places document a semicolon instead. The start flag's own help text offers
-// "0.01photino;0.0001stake" as its example (start.go:208), and Config.GetMinGasPrices splits the
-// value on ";" (config.go:323). So the two syntaxes are disjoint rather than merely different: no
-// multi-denomination value is accepted by both, and the spelling an operator is shown is the
-// spelling that panics.
-//
-// The reason this has never been reported is that both agree on one denomination, which is the shape
-// of the default and of nearly every deployment. It surfaces the first time an operator prices a
-// second fee token by following the flag's example.
-//
-// GetMinGasPrices has no caller outside itself, so it is the documentation of an intent and not a
-// second live resolution. That is what keeps this a sharp edge rather than a split: there is one
-// answer at runtime, and two artifacts describing a different one.
-//
-// What this file does not pin is the call site. resolveMinGasPrices below runs the expression
-// root.go:296 runs rather than driving root.go:296, because that argument is built inline inside
-// newApp's app.New call and reaching it needs a node. So nothing here fails if that line changes its
-// cast, changes its key, or stops handing the value to SetMinGasPrices, and the tests would keep
-// describing a reader that had moved. The flag disappearing is caught, by the Lookup below; the call
-// site changing is not. It is the same gap app/receipt_store_config_test.go names for root.go:297,
-// and it is stated here for the same reason: a reader who assumed otherwise would trust a pin that is
-// not there.
-//
-// Recorded rather than repaired, and the two halves of a repair carry very different risk. Both are
-// PLT-976 item 1.
-//
-// Correcting the help text and the getter is prose and dead code. It parses nothing differently, and
-// what operators are told today is a value that takes the node down, so there is nothing to preserve
-// on that side. It is deferred on priority rather than on risk.
-//
-// Teaching ParseDecCoins the semicolon is the other kind of change. It widens the fee-floor grammar
-// for every node, and once operators write semicolons narrowing back breaks them, so it needs a
-// decision rather than a patch. Aligning the documentation down to the comma the parser already
-// accepts is the cheaper direction and does not spend that door.
+// testutil/configtest/AGENTS.md holds the contradiction, why the two halves of a repair carry
+// different risk, and the call-site gap this file cannot close.
 
 // resolveMinGasPrices runs the expression root.go:296 runs, through the viper type production hands
 // it, and reports whether it panicked rather than the option, because the panic is the behavior
