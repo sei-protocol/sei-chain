@@ -112,8 +112,12 @@ var minRetainBlocksFanOut = []struct {
 	{float64(9.3e18), 0, 9300000000000000000, true},
 }
 
-// TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree holds the safety property that
-// makes the fan-out survivable.
+// TestMinRetainBlocksFanOutNeverResolvesReceiptsToAPruningWindow holds what this layer can hold: the
+// receipt side never resolves to a window that would prune.
+//
+// The name says resolves rather than prunes on purpose. Whether a resolved value goes on to expire
+// anything is a sei-db property, and the last paragraph here says which part of it this suite does not
+// reach.
 //
 // Where the two casts land on the same number the fan-out is a plain coupling. Where they disagree,
 // the receipt side must not be a positive retention window, because a positive KeepRecent is the one
@@ -129,7 +133,7 @@ var minRetainBlocksFanOut = []struct {
 // What happens after MaxInt64 enters the TTL branch is out of this layer's reach and is not asserted
 // anywhere: see the header. This test says the config layer resolves to one of two values, not that
 // both are safe downstream.
-func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testing.T) {
+func TestMinRetainBlocksFanOutNeverResolvesReceiptsToAPruningWindow(t *testing.T) {
 	for _, row := range minRetainBlocksFanOut {
 		t.Run(fmt.Sprintf("%v(%T)", row.raw, row.raw), func(t *testing.T) {
 			receiptConfig, err := readReceiptStoreConfig(t.TempDir(), mapAppOpts{
@@ -244,16 +248,21 @@ func TestMinRetainBlocksFullNodeModeCapsReceiptRetention(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readReceiptStoreConfig: %v", err)
 	}
-	if receiptConfig.KeepRecent != int(full.MinRetainBlocks) {
-		t.Errorf("full mode's min-retain-blocks of %d reached the receipt store as KeepRecent=%d. The "+
-			"fan-out is what this file records, so the two stopping agreeing is the thing to explain",
-			full.MinRetainBlocks, receiptConfig.KeepRecent)
-	}
-	// The state that arms pruning, stated on its own so the name of this test stays true.
+	// The state that arms pruning, stated on its own so the name of this test stays true, and
+	// established before the comparison below so that comparison needs no unguarded conversion.
 	if receiptConfig.KeepRecent <= 0 {
 		t.Errorf("full mode now leaves the receipt store's KeepRecent at %d, which is the no-pruning "+
 			"state. That is a better end state for receipt history and it changes what a full node "+
 			"keeps, so record what block retention it now gets instead", receiptConfig.KeepRecent)
+	}
+
+	// The mode's value reaching the reader intact. Compared as uint64 rather than converting the
+	// reader's int down, because the sign is already established above and widening cannot overflow
+	// where narrowing could.
+	if uint64(receiptConfig.KeepRecent) != full.MinRetainBlocks {
+		t.Errorf("full mode's min-retain-blocks of %d reached the receipt store as KeepRecent=%d. The "+
+			"fan-out is what this file records, so the two stopping agreeing is the thing to explain",
+			full.MinRetainBlocks, receiptConfig.KeepRecent)
 	}
 }
 
