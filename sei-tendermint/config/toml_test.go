@@ -98,12 +98,18 @@ func checkConfig(t *testing.T, configFile string) {
 		}
 	}
 
-	// The p2p pacing knobs are likewise expert-only and stay out of the
-	// generated template, while still being parsed from existing config files.
+	// accept-interval is rendered deliberately: an accept rate too low to drain
+	// the kernel backlog silently stops a node acquiring inbound peers, and the
+	// template is where an operator looks. Keep it discoverable.
+	if !configContainsKey(configFile, "accept-interval") {
+		t.Errorf("config file was expected to contain accept-interval but did not")
+	}
+
+	// dial-interval remains an expert-only knob, left out of the generated
+	// template while still being parsed from existing config files.
 	// See TestHiddenP2PKnobsStillParseFromExistingConfig.
 	var hiddenP2PElems = []string{
 		"dial-interval",
-		"accept-interval",
 	}
 	for _, e := range hiddenP2PElems {
 		if configContainsKey(configFile, e) {

@@ -454,27 +454,12 @@ func buildFullnodeGigaConfig(
 	}, nil
 }
 
-func createRouter(
-	nodeInfoProducer func() *types.NodeInfo,
-	nodeKey types.NodeKey,
-	validatorKey utils.Option[atypes.SecretKey],
-	cfg *config.Config,
-	app utils.Option[*proxy.Proxy],
-	genDoc *types.GenesisDoc,
-	dbProvider config.DBProvider,
-) (*p2p.Router, closer, utils.Option[atypes.BlockDB], error) {
-	closer := func() error { return nil }
-	noneDB := utils.None[atypes.BlockDB]()
-	gigaBlockDB := noneDB
-	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
-	if err != nil {
-		return nil, closer, noneDB, err
-	}
-	var privatePeerIDs []types.NodeID
-	for _, id := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PrivatePeerIDs, ",", " ") {
-		privatePeerIDs = append(privatePeerIDs, types.NodeID(id))
-	}
-
+// p2pRouterOptions derives the router's connection budget and pacing from the
+// p2p config. Split out of createRouter so the derivation is testable on its
+// own: any RouterOptions field left unset here silently falls back to a package
+// default rather than failing, which is how the accept rate stayed pinned at
+// its 1/s default while max-connections appeared to govern it.
+func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []types.NodeID) *p2p.RouterOptions {
 	// MaxConnections defaults to 64
 	maxConns := 64
 	if cfg.P2P.MaxConnections > 0 {
@@ -496,7 +481,7 @@ func createRouter(
 	connection.SendRate = cfg.P2P.SendRate
 	connection.RecvRate = cfg.P2P.RecvRate
 	connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
-	options := &p2p.RouterOptions{
+	return &p2p.RouterOptions{
 		Endpoint:                      ep,
 		MaxIncomingConnectionAttempts: utils.Some(cfg.P2P.MaxIncomingConnectionAttempts),
 		MaxDialRate:                   utils.Some(rate.Every(cfg.P2P.DialInterval)),
@@ -510,6 +495,30 @@ func createRouter(
 		MaxConcurrentAccepts:          utils.Some(maxInbound),
 		Connection:                    connection,
 	}
+}
+
+func createRouter(
+	nodeInfoProducer func() *types.NodeInfo,
+	nodeKey types.NodeKey,
+	validatorKey utils.Option[atypes.SecretKey],
+	cfg *config.Config,
+	app utils.Option[*proxy.Proxy],
+	genDoc *types.GenesisDoc,
+	dbProvider config.DBProvider,
+) (*p2p.Router, closer, utils.Option[atypes.BlockDB], error) {
+	closer := func() error { return nil }
+	noneDB := utils.None[atypes.BlockDB]()
+	gigaBlockDB := noneDB
+	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
+	if err != nil {
+		return nil, closer, noneDB, err
+	}
+	var privatePeerIDs []types.NodeID
+	for _, id := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PrivatePeerIDs, ",", " ") {
+		privatePeerIDs = append(privatePeerIDs, types.NodeID(id))
+	}
+
+	options := p2pRouterOptions(cfg, ep, privatePeerIDs)
 	if addr := cfg.P2P.ExternalAddress; addr != "" {
 		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID().AddressString(addr))
 		if err != nil {

@@ -250,6 +250,11 @@ func TestP2PConfigAcceptInterval(t *testing.T) {
 	cfg := DefaultP2PConfig()
 	require.NoError(t, cfg.ValidateBasic())
 
+	// Exact value, so a change to the default shows up in the diff rather than
+	// sliding anywhere inside the band below.
+	require.Equal(t, 10*time.Millisecond, cfg.AcceptInterval)
+
+	// The band and its message carry the reason the exact value was chosen.
 	limit := rate.Every(cfg.AcceptInterval)
 	require.Greater(t, float64(limit), 50.0,
 		"default accept rate %v/s is too low to drain the accept backlog", float64(limit))

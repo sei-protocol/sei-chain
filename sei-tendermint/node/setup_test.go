@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -344,4 +345,47 @@ func TestPreparePersistentStateDir_EmptyStringIsNone(t *testing.T) {
 	require.NoError(t, preparePersistentStateDir(t.TempDir(), cfg))
 	_, ok := cfg.PersistentStateDir.Get()
 	require.False(t, ok, "Some(\"\") must be cleared to None for in-memory mode")
+}
+
+// This PR's own diagnosis is that a 1/s production accept rate survived because
+// every RouterOptions construction site except this one substitutes rate.Inf,
+// so nothing exercised the real wiring. Assert the derivation directly: a field
+// dropped here, or wired to the wrong config key, falls back to a package
+// default silently rather than failing.
+func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
+	ep, err := p2p.ResolveEndpoint("tcp://" + string(types.NodeID("0000000000000000000000000000000000000000")) + "@127.0.0.1:26656")
+	require.NoError(t, err)
+
+	t.Run("defaults reach the router", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		opts := p2pRouterOptions(cfg, ep, nil)
+
+		// Sentinel differs from every plausible real value, so .Or() returning it
+		// means the field was never set.
+		const unset = rate.Limit(-1)
+		require.Equal(t, rate.Every(cfg.P2P.AcceptInterval), opts.MaxAcceptRate.Or(unset))
+		require.Equal(t, rate.Every(cfg.P2P.DialInterval), opts.MaxDialRate.Or(unset))
+
+		// The package fallback is 1 accept/s; setup must override it.
+		require.NotEqual(t, rate.Every(time.Second), opts.MaxAcceptRate.Or(unset),
+			"accept rate fell through to the package default")
+	})
+
+	t.Run("operator value flows through", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.P2P.AcceptInterval = 250 * time.Millisecond
+		opts := p2pRouterOptions(cfg, ep, nil)
+		require.Equal(t, rate.Every(250*time.Millisecond), opts.MaxAcceptRate.Or(rate.Limit(-1)))
+	})
+
+	t.Run("concurrent accepts track the inbound pool, not max-connections", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.P2P.MaxConnections = 100
+		opts := p2pRouterOptions(cfg, ep, nil)
+
+		// 100 total minus the 20 outbound reservation.
+		require.Equal(t, 80, opts.MaxConcurrentAccepts.Or(-1))
+		require.Equal(t, 80, opts.MaxInbound.Or(-1))
+		require.Equal(t, 20, opts.MaxOutbound.Or(-1))
+	})
 }
