@@ -913,6 +913,12 @@ func (s *CommitStore) computeStoreHeights() (map[string]int64, int64) {
 	return nil, lowest
 }
 
+// loadGlobalMetadata reads the store-wide records out of the metadata database: committed version, root
+// LtHash, and the height this store's history begins at.
+//
+// The version and LtHash read here can disagree, and only do so when a previous startup recovery was
+// interrupted. No hash reads either value, and the first seal replaces both. See changedValuesByStore
+// for the invariant this depends on.
 func (s *CommitStore) loadGlobalMetadata(metaDB seidbtypes.KeyValueDB) error {
 	globalVersion, err := loadGlobalVersion(metaDB)
 	if err != nil {

@@ -338,11 +338,11 @@ func TestOpenVersionValidation(t *testing.T) {
 
 	// Phase 2: tamper with one DB's local meta to simulate an incomplete commit
 	// (accountDB thinks it's at v1, but global says v2)
+	// The working directory, not the snapshot: that is what the reopened store opens.
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
-	snapDir, _, err := currentSnapshotDir(flatkvDir)
-	require.NoError(t, err)
-
-	accountDBPath := filepath.Join(snapDir, accountDBDir)
+	accountDBPath := filepath.Join(flatkvDir, workingDirName, accountDBDir)
+	require.Equal(t, cfg.AccountDBConfig.DataDir, accountDBPath,
+		"the forged skew must target the directory the store opens, or this test proves nothing")
 	acctCfg := pebbledb.DefaultConfig()
 	acctCfg.DataDir = accountDBPath
 	acctCfg.EnableMetrics = false

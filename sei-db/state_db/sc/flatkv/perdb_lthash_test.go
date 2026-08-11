@@ -115,10 +115,11 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 
 	// Roll back metadataDB global version to 1 to simulate crash
 	// after the stores sealed the block but before the store-wide committed version advanced.
-	snapDir, _, err := currentSnapshotDir(dbDir)
-	require.NoError(t, err)
-
-	metaDBPath := filepath.Join(snapDir, metadataDir)
+	// The working directory, not the snapshot: that is what the reopened store opens, and the re-clone
+	// is skipped while its snapshot marker still names the same snapshot.
+	metaDBPath := filepath.Join(dbDir, workingDirName, metadataDir)
+	require.Equal(t, cfg.MetadataDBConfig.DataDir, metaDBPath,
+		"the forged skew must target the directory the store opens, or this test proves nothing")
 	metaCfg := pebbledb.DefaultConfig()
 	metaCfg.DataDir = metaDBPath
 	metaCfg.EnableMetrics = false
@@ -630,10 +631,11 @@ func TestPerDBLtHashLevelsUpStoresAtDifferentHeights(t *testing.T) {
 
 	// Rewind only the storage database's recorded height, leaving the others and the global watermark
 	// at 3. On reopen the stores are at {storage: 1, others: 3}.
-	snapDir, _, err := currentSnapshotDir(dbDir)
-	require.NoError(t, err)
+	// The working directory, not the snapshot — see TestPerDBLtHashSkewRecovery.
 	storageCfg := pebbledb.DefaultConfig()
-	storageCfg.DataDir = filepath.Join(snapDir, storageDBDir)
+	storageCfg.DataDir = filepath.Join(dbDir, workingDirName, storageDBDir)
+	require.Equal(t, cfg.StorageDBConfig.DataDir, storageCfg.DataDir,
+		"the forged skew must target the directory the store opens, or this test proves nothing")
 	storageCfg.EnableMetrics = false
 	db, err := pebbledb.Open(t.Context(), &storageCfg)
 	require.NoError(t, err)

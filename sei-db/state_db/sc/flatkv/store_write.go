@@ -106,7 +106,7 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	// Step 2: Seal the block on every store, hash it, and carry each database's metadata down with its
 	// diff. The stores flush to Pebble asynchronously from here; the WAL (Step 1) remains the source of
 	// truth for anything that has not landed yet, so a restart self-heals via catchup.
-	if err := s.sealBlock(version); err != nil {
+	if err := s.sealBlock(version, nil); err != nil {
 		return version, fmt.Errorf("seal block: %w", err)
 	}
 
@@ -149,7 +149,11 @@ func (s *CommitStore) clearPendingBlock() {
 }
 
 // sealBlock marks the block as closed for new writes, hashes it, and records each database's metadata.
-func (s *CommitStore) sealBlock(version int64) (retErr error) {
+//
+// alreadyHave is the catch-up skip list: the height each store had already reached when replay started,
+// or nil outside a replay. A store listed at or above version keeps the metadata it already has, since
+// recording this block's height would move that store backwards.
+func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) (retErr error) {
 	s.phaseTimer.SetPhase("commit_seal_stores")
 
 	snapshots := make(map[string]snapshot.Snapshot, len(s.stores))
@@ -179,13 +183,17 @@ func (s *CommitStore) sealBlock(version int64) (retErr error) {
 
 	s.phaseTimer.SetPhase("commit_finalize_stores")
 	for _, snap := range snapshots {
-		if err := s.finalizeStore(snap, version); err != nil {
+		if err := s.finalizeStore(snap, version, alreadyHave); err != nil {
 			return fmt.Errorf("finalize %s: %w", snap.Name(), err)
 		}
 	}
 
-	// Adopt the freshly persisted per-DB metadata only once every store has accepted it.
+	// Adopt the freshly persisted per-DB metadata only once every store has accepted it. A store that
+	// kept its own metadata above keeps its in-memory copy too.
 	for _, dir := range dataDBDirs {
+		if alreadyHave[dir] >= version {
+			continue
+		}
 		s.localMeta[dir] = &ktype.LocalMeta{
 			CommittedVersion: version,
 			LtHash:           s.perDBWorkingLtHash[dir].Clone(),
@@ -229,7 +237,15 @@ func (s *CommitStore) hashSealedBlock(sealed map[string]snapshot.Snapshot) error
 // The stores are read concurrently on the misc pool; each one is an independent snapshot diff followed
 // by a batch read of the previous snapshot.
 //
-// The metadata store is skipped — its keys are store bookkeeping, not state, and never enter the hash.
+// Only the four data stores are read: the metadata store holds store bookkeeping rather than state, and
+// nothing it contains may reach a hash. That is load-bearing, not tidiness. The store-wide record is
+// written once per block during catch-up and is transiently inconsistent while the databases sit at
+// different heights (see loadGlobalMetadata); the whole reason that is harmless is that no hash reads
+// it. A change that folded the stored store-wide LtHash into a computation, or added the metadata
+// directory to dataDBDirs, would break that silently and make the inconsistency consensus-visible.
+//
+// The store-wide root is likewise rebuilt from scratch on every seal — HashCalculator.Compute sums the
+// four per-database roots and never mixes in the previous store-wide value.
 func (s *CommitStore) changedValuesByStore(sealed map[string]snapshot.Snapshot) ([]lthash.DBPairs, error) {
 	changed := make([][]lthash.KVPairWithLastValue, len(dataDBDirs))
 	errs := make([]error, len(dataDBDirs))
@@ -341,7 +357,16 @@ func (s *CommitStore) flushLatestVersion() error {
 
 // finalizeStore finalizes one store's sealed block, recording the metadata that describes it: a data
 // store records its LocalMeta, the metadata store records the committed version and root LtHash.
-func (s *CommitStore) finalizeStore(snap snapshot.Snapshot, version int64) error {
+//
+// A store that already reached this height records nothing. Its writes were skipped, so its hash still
+// describes the later height it holds; writing this block's height alongside that hash would persist a
+// pair that describes no single moment. Finalizing with an empty write set still makes the sealed
+// version flushable, which is the only thing finalization is required to do.
+func (s *CommitStore) finalizeStore(snap snapshot.Snapshot, version int64, alreadyHave map[string]int64) error {
+	if alreadyHave[snap.Name()] >= version {
+		return snap.Finalize(nil)
+	}
+
 	var writes []*proto.KVPair
 	if snap.Name() == metadataDir {
 		writes = encodeGlobalMetadata(version, s.workingLtHash)

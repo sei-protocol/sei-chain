@@ -221,7 +221,7 @@ func (s *CommitStore) applyAndCommit(
 	if err := s.applyChangeSets(version, changesets, alreadyHave); err != nil {
 		return fmt.Errorf("apply v%d: %w", version, err)
 	}
-	if err := s.sealBlock(version); err != nil {
+	if err := s.sealBlock(version, alreadyHave); err != nil {
 		return fmt.Errorf("commit v%d: %w", version, err)
 	}
 	s.committedVersion = version

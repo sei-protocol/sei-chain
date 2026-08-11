@@ -331,3 +331,57 @@ func TestReplayIntoReadOnlyCopyDoesNotDisturbPrimary(t *testing.T) {
 	require.Equal(t, primaryVersion, s.committedVersion, "feeding a clone must not move the primary")
 	require.Equal(t, primaryHash, s.RootHash())
 }
+
+// A store that already holds the block being replayed must not have its recorded height written
+// backwards. Catch-up feeds each block only to the stores that need it, but the seal that follows
+// records metadata for every store, so a store sitting at a later height gets a note claiming an
+// earlier one — paired with the hash of the height it actually holds. The two halves of that note then
+// describe different moments, and if the process dies mid-catch-up it is the note that survives.
+//
+// The skew is the skip list, which is an argument to applyAndCommit, so no partial flush needs
+// manufacturing: hand it a list that marks the other stores as already holding a later block.
+func TestReplaySkipDoesNotRewindRecordedHeight(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { _ = s.Close() }()
+
+	for round := byte(1); round <= 4; round++ {
+		commitMixedState(t, s, round)
+	}
+	requireFlushedToDisk(t, s)
+	require.Equal(t, int64(4), s.Version())
+
+	// What each database recorded at block 4, which is the state it must keep.
+	before := make(map[string]*ktype.LocalMeta, len(dataDBDirs))
+	for _, dir := range dataDBDirs {
+		meta, err := loadLocalMeta(s.rawDBFor(dir))
+		require.NoError(t, err)
+		require.Equal(t, int64(4), meta.CommittedVersion, "%s must start at block 4", dir)
+		before[dir] = meta
+	}
+
+	// Replay block 3 with only the storage database behind. Every other store already holds block 4
+	// and is skipped, exactly as a catch-up after a partial flush would do.
+	skipped := []string{accountDBDir, codeDBDir, miscDBDir}
+	alreadyHave := map[string]int64{
+		accountDBDir: 4, codeDBDir: 4, miscDBDir: 4, metadataDir: 4,
+		storageDBDir: 2,
+	}
+	addr, slot := addrN(3), slotN(3)
+	block3 := []*proto.NamedChangeSet{namedCS(
+		noncePair(addr, 3),
+		codeHashPair(addr, codeHashN(3)),
+		codePair(addr, []byte{0x60, 0x80, 3}),
+		storagePair(addr, slot, []byte{3, 0xAA}),
+	)}
+	require.NoError(t, s.applyAndCommit(3, block3, alreadyHave))
+	requireFlushedToDisk(t, s)
+
+	for _, dir := range skipped {
+		meta, err := loadLocalMeta(s.rawDBFor(dir))
+		require.NoError(t, err)
+		require.Equal(t, int64(4), meta.CommittedVersion,
+			"%s skipped block 3, so its recorded height must not be rewound to 3", dir)
+		require.True(t, before[dir].LtHash.Equal(meta.LtHash),
+			"%s skipped block 3, so its recorded hash must not change", dir)
+	}
+}
