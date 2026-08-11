@@ -97,6 +97,19 @@ func checkConfig(t *testing.T, configFile string) {
 			t.Errorf("config file was not expected to contain %s", e)
 		}
 	}
+
+	// The p2p pacing knobs are likewise expert-only and stay out of the
+	// generated template, while still being parsed from existing config files.
+	// See TestHiddenP2PKnobsStillParseFromExistingConfig.
+	var hiddenP2PElems = []string{
+		"dial-interval",
+		"accept-interval",
+	}
+	for _, e := range hiddenP2PElems {
+		if configContainsKey(configFile, e) {
+			t.Errorf("config file was not expected to contain %s", e)
+		}
+	}
 }
 
 func configContainsKey(configFile string, key string) bool {
