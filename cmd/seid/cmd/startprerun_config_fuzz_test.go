@@ -155,9 +155,11 @@ func TestStartPreRunResolvesTheKeysOnlyStartInProcessReads(t *testing.T) {
 // vendored here, so those are three lines in this repository and exporting them would let this record
 // spell the keys through the reader itself, closing the hazard below instead of describing it. It is
 // deferred because this branch is test-only and that is a change to shipped code, small as it is.
-// Whoever picks it up gets to delete the paragraph after this one. That bounds what the record catches, and the bound is worth stating.
-// It holds the spelling this suite asserts against, so renaming a name here without renaming it in
-// the assertions fails. It does not catch a rename in production, because the record and the
+// Whoever picks it up gets to delete the paragraph after this one.
+//
+// The literal spellings bound what the record catches, and the bound is worth stating. The record
+// holds the spelling this suite asserts against, so renaming a name here without renaming it in the
+// assertions fails. It does not catch a rename in production, because the record and the
 // assertions would then both still carry the old name. That case is caught one step over, where
 // setting the flag fails once the flag no longer answers to the name it is given, and again by
 // TestStartFlagNamesAreRegistered below, which says so in those terms rather than as a set failure.
@@ -180,14 +182,14 @@ func TestStartFlagKeyNamesMatchTheRecordedNames(t *testing.T) {
 // than as an operator-facing flag having moved. This says the latter, and it removes the record's
 // dependence on some other test happening to set all three.
 func TestStartFlagNamesAreRegistered(t *testing.T) {
-	cmd := startCmdForFlagLookup(t)
+	cmd := shippedStartCmd(t)
 	for _, name := range startFlagKeysWithTargetsOfTheirOwn {
 		if cmd.Flags().Lookup(string(name)) == nil {
 			t.Errorf("start no longer registers a flag named %q, so an operator's --%s stops being "+
 				"accepted and startInProcess reads a key nothing populates. The three keys this file "+
 				"records are spelled here as literals because server's constants are unexported, so a "+
-				"rename there has to be carried into %s and its record by hand",
-				string(name), string(name), "startFlagKeysWithTargetsOfTheirOwn")
+				"rename there has to be carried into startFlagKeysWithTargetsOfTheirOwn and its "+
+				"record by hand", string(name), string(name))
 		}
 	}
 }
@@ -233,14 +235,7 @@ func TestMain(m *testing.M) {
 func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]string) (*cobra.Command, *server.Context, context.CancelFunc) {
 	t.Helper()
 
-	root, _ := NewRootCmd()
-	root.SetOut(io.Discard)
-	root.SetErr(io.Discard)
-
-	cmd, _, err := root.Find([]string{"start"})
-	if err != nil {
-		t.Fatalf("find start: %v", err)
-	}
+	root, cmd := shippedRootAndStartCmd(t)
 	if err := cmd.Flags().Set("home", home.Root); err != nil {
 		t.Fatalf("set --home: %v", err)
 	}
@@ -259,26 +254,38 @@ func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]stri
 	return cmd, serverCtx, cancel
 }
 
-// startCmdForFlagLookup resolves the start command seid ships, for the tests that only read its flag
-// set. It goes through the real root rather than calling server.StartCmd directly, because AddCommands
+// shippedRootAndStartCmd resolves the start command seid ships, and is the only place in this file
+// that does.
+//
+// It goes through the real root rather than calling server.StartCmd directly, because AddCommands
 // applies addStartFlags on top of StartCmd (sei-cosmos/server/util.go:365-366) and a second
 // construction would be a copy: identical today, since addModuleInitFlags is a no-op, and silently
-// divergent the moment a module registers or overrides a start flag. The tests that use this say they
-// read the real command, so they should.
+// divergent the moment a module registers or overrides a start flag.
 //
-// None of the home or context setup newStartCmd does is needed, because nothing here runs.
-func startCmdForFlagLookup(t *testing.T) *cobra.Command {
+// Both callers come through here rather than repeating it, for the same reason: two resolutions of the
+// command seid ships drift the same way, which is the argument above turned on this file instead of on
+// server.StartCmd. The root comes back with the command because newStartCmd drives the root's
+// PersistentPreRunE, and a caller that only reads flags takes shippedStartCmd below.
+func shippedRootAndStartCmd(t *testing.T) (root, start *cobra.Command) {
 	t.Helper()
 
-	root, _ := NewRootCmd()
+	root, _ = NewRootCmd()
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
 
-	cmd, _, err := root.Find([]string{"start"})
+	start, _, err := root.Find([]string{"start"})
 	if err != nil {
 		t.Fatalf("find start: %v", err)
 	}
-	return cmd
+	return root, start
+}
+
+// shippedStartCmd is shippedRootAndStartCmd for the tests that only read the flag set, where nothing
+// runs and the root is not needed.
+func shippedStartCmd(t *testing.T) *cobra.Command {
+	t.Helper()
+	_, start := shippedRootAndStartCmd(t)
+	return start
 }
 
 // FuzzStartPreRunPruningFailsFast pins the fail-fast: an unresolvable pruning

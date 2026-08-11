@@ -111,7 +111,7 @@ func FuzzMinGasPricesLiveReaderTakesCommasAndRejectsSemicolons(f *testing.F) {
 // TestMinGasPricesFlagHelpShowsASeparatorTheLiveReaderPanicsOn reads the help text off the real
 // command rather than a copy of it, so correcting either side lands in a diff.
 func TestMinGasPricesFlagHelpShowsASeparatorTheLiveReaderPanicsOn(t *testing.T) {
-	cmd := startCmdForFlagLookup(t)
+	cmd := shippedStartCmd(t)
 	flag := cmd.Flags().Lookup(server.FlagMinGasPrices)
 	if flag == nil {
 		t.Fatalf("start no longer registers %s, so root.go:296 reads a key with no flag behind it "+
