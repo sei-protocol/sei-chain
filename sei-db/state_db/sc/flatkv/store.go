@@ -428,6 +428,14 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 		return nil, fmt.Errorf("failed to create readonly store: %w", err)
 	}
 
+	defer func() {
+		if retErr != nil {
+			if closeErr := ro.Close(); closeErr != nil {
+				logger.Error("failed to close readonly store during error cleanup", "err", closeErr)
+			}
+		}
+	}()
+
 	workDir, err := os.MkdirTemp(ro.flatkvDir(), readOnlyDirPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("create readonly temp dir: %w", err)
@@ -454,14 +462,6 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 		ro.fileLock = s.fileLock
 		s.fileLock = nil
 	}
-
-	defer func() {
-		if retErr != nil {
-			if closeErr := ro.Close(); closeErr != nil {
-				logger.Error("failed to close readonly store during error cleanup", "err", closeErr)
-			}
-		}
-	}()
 
 	if err := ro.openReadOnly(targetVersion); err != nil {
 		return nil, fmt.Errorf("readonly open: %w", err)
@@ -866,7 +866,9 @@ func (s *CommitStore) closeStores() error {
 	// Hand back the reservations on the last sealed block and forget the handles. They belong to the
 	// stores being torn down here, so keeping them would leave a reopened store (rollback, restore)
 	// awaiting a flush on snapshots whose store is already gone.
-	s.releaseLastSealed()
+	if err := s.releaseLastSealed(); err != nil {
+		errs = append(errs, fmt.Errorf("release sealed snapshots: %w", err))
+	}
 
 	for _, store := range s.stores {
 		if store == nil {

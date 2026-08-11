@@ -256,19 +256,6 @@ func moduleIteratorBounds(store string, start, end []byte) (lowerBound, upperBou
 	return lowerBound, upperBound
 }
 
-// serializeForIter is the shared pending-writes serializer for every lane. A
-// delete (including a nil value, since IsDelete reports true for a nil VType)
-// serializes to nil; the per-lane transform's len(value)==0 guard then drops
-// it. Committed Pebble rows are never deletes because Commit physically removes
-// deleted keys (see prepareBatch), so a non-empty value is always a live entry
-// and never needs an IsDelete re-check after deserialization.
-func serializeForIter[T vtype.VType](v T) ([]byte, error) {
-	if v.IsDelete() {
-		return nil, nil
-	}
-	return v.Serialize(), nil
-}
-
 // buildLane wires the common FlatKV iterator pipeline shared by every lane: one store iterator over
 // the database's current version — which already merges this block's staged rows over the on-disk
 // rows, with staged rows winning and deletions suppressed — adapted to a dbm.Iterator and then passed

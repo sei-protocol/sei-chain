@@ -3,7 +3,10 @@ package flatkv
 import (
 	"bytes"
 	"encoding/binary"
+	"os"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
@@ -899,6 +902,45 @@ func TestHasOnReadOnlyStore(t *testing.T) {
 	found = ro.Has(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0xFF), slotN(0xFF))))
 	require.False(t, found)
 	require.NoError(t, s.Close())
+}
+
+// A view owns three worker pools with running threads before the first thing that can fail, so a failed
+// construction has to close it.
+//
+// The failure is forced with directory permissions: the view cannot create its temporary directory under the
+// flatkv root. The databases live in subdirectories that already exist, so the store under test is unaffected.
+func TestReadOnlyViewDoesNotLeakWhenTempDirFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("forces the failure with directory permissions, which root ignores")
+	}
+
+	s := setupTestStore(t)
+	defer func() { _ = s.Close() }()
+
+	dir := s.flatkvDir()
+	info, err := os.Stat(dir)
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, info.Mode().Perm()) })
+
+	cycle := func() {
+		_, err := s.LoadVersionReadOnly(0)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "create readonly temp dir",
+			"the test must exercise the temp-dir failure and not some earlier error")
+	}
+
+	// Warm up once so lazily-initialized runtime state is not counted, then measure. The slack absorbs
+	// testify's Eventually prober and scheduling noise; a leak here is several goroutines per cycle and
+	// blows well past it.
+	cycle()
+	baseline := runtime.NumGoroutine()
+	for i := 0; i < 20; i++ {
+		cycle()
+	}
+	require.Eventually(t, func() bool { return runtime.NumGoroutine() <= baseline+2 },
+		2*time.Second, 10*time.Millisecond,
+		"a failed read-only view must not leak its worker pools")
 }
 
 // A read-only view shares its engine names with the store it was cloned from, so engine metrics must be off

@@ -162,8 +162,12 @@ func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) (re
 			// An error in this function is non-recoverable. Outer scope is responsible for teardown.
 			return
 		}
-		s.releaseLastSealed()
+		// The new snapshots are recorded even when the hand-back fails, so teardown can give them back.
+		err := s.releaseLastSealed()
 		s.lastSealed = snapshots
+		if err != nil {
+			retErr = fmt.Errorf("release previous block's reservations: %w", err)
+		}
 	}()
 
 	for _, store := range s.stores {
@@ -327,15 +331,17 @@ func changedValues(sealed snapshot.Snapshot, previous snapshot.Snapshot) ([]ltha
 // releaseLastSealed gives back the reservations recorded in lastSealed, which lets the stores resume
 // writing out blocks later than the one those reservations were holding.
 //
-// A release failure is logged rather than returned: the snapshots were finalized, so the only way this
-// fails is a store that has already failed, and that failure resurfaces on the caller's next call.
-func (s *CommitStore) releaseLastSealed() {
-	for _, snap := range s.lastSealed {
+// Every reservation is handed back even if one of them fails, because a reservation left held stalls its
+// store's flushes indefinitely. The failures are joined and returned.
+func (s *CommitStore) releaseLastSealed() error {
+	var errs []error
+	for name, snap := range s.lastSealed {
 		if err := snap.Release(); err != nil {
-			logger.Error("failed to release a sealed snapshot", "err", err)
+			errs = append(errs, fmt.Errorf("release sealed snapshot for %s: %w", name, err))
 		}
 	}
 	s.lastSealed = nil
+	return errors.Join(errs...)
 }
 
 // flushLatestVersion blocks until the most recently committed block has been flushed down to all five
@@ -454,7 +460,11 @@ func (s *CommitStore) sealBaseline() (retErr error) {
 		}
 	}
 
-	s.releaseLastSealed()
+	// The new snapshots are recorded even when the hand-back fails, so teardown can give them back.
+	err := s.releaseLastSealed()
 	s.lastSealed = snapshots
+	if err != nil {
+		return fmt.Errorf("release previous block's reservations: %w", err)
+	}
 	return nil
 }

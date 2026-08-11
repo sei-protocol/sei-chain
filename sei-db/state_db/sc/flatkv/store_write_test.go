@@ -1,7 +1,9 @@
 package flatkv
 
 import (
+	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -617,6 +620,102 @@ func TestCommitFailsWhenPeriodicSnapshotFails(t *testing.T) {
 	require.Error(t, err, "a failed periodic snapshot must fail the commit")
 	require.ErrorContains(t, err, "auto snapshot",
 		"the error must name the snapshot as the cause rather than being swallowed")
+}
+
+var _ snapshot.Snapshot = (*stubSnapshot)(nil)
+
+// stubSnapshot is a snapshot whose Release outcome the test chooses. Only Name and Release are
+// implemented; every other method panics, so a use this stub was not written for is loud rather than
+// silently wrong.
+type stubSnapshot struct {
+	// Reported by Name.
+	name string
+
+	// Returned by every Release call.
+	releaseErr error
+
+	// Counts Release calls.
+	releaseCalls int
+}
+
+func (s *stubSnapshot) Name() string {
+	return s.name
+}
+
+func (s *stubSnapshot) Release() error {
+	s.releaseCalls++
+	return s.releaseErr
+}
+
+func (s *stubSnapshot) Get(key []byte, updateLru bool) ([]byte, bool, error) {
+	panic("stubSnapshot: unexpected Get")
+}
+
+func (s *stubSnapshot) BatchGet(keys [][]byte) (map[string][]byte, error) {
+	panic("stubSnapshot: unexpected BatchGet")
+}
+
+func (s *stubSnapshot) GetDiff() (map[string][]byte, error) {
+	panic("stubSnapshot: unexpected GetDiff")
+}
+
+func (s *stubSnapshot) Reserve() error {
+	panic("stubSnapshot: unexpected Reserve")
+}
+
+func (s *stubSnapshot) Finalize(writes []*proto.KVPair) error {
+	panic("stubSnapshot: unexpected Finalize")
+}
+
+func (s *stubSnapshot) AwaitFlush(ctx context.Context) error {
+	panic("stubSnapshot: unexpected AwaitFlush")
+}
+
+// A reservation left held stalls its store's flushes forever, so a failing hand-back must not stop the
+// others, and the failure must be reported rather than logged and dropped.
+//
+// Every stub fails, so "all of them were attempted" holds whatever order the map is walked in — with a
+// single failing entry among healthy ones the check would only catch a short-circuit half the time.
+func TestReleaseLastSealedReportsFailureAndReleasesAll(t *testing.T) {
+	names := []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir, metadataDir}
+
+	stubs := make(map[string]*stubSnapshot, len(names))
+	sealed := make(map[string]snapshot.Snapshot, len(names))
+	for _, name := range names {
+		stub := &stubSnapshot{name: name, releaseErr: errors.New("engine is bricked")}
+		stubs[name] = stub
+		sealed[name] = stub
+	}
+	s := &CommitStore{lastSealed: sealed}
+
+	err := s.releaseLastSealed()
+	require.Error(t, err, "a failed hand-back must be returned, not swallowed")
+	require.ErrorContains(t, err, "engine is bricked")
+
+	for _, name := range names {
+		require.Equal(t, 1, stubs[name].releaseCalls,
+			"every reservation must be handed back; stopping at the first failure strands the rest")
+		require.ErrorContains(t, err, "release sealed snapshot for "+name,
+			"the joined error must name every store that failed")
+	}
+	require.Nil(t, s.lastSealed, "the handles must be forgotten even when a hand-back failed")
+}
+
+// The store's contract makes every error fatal, so a hand-back failure during teardown has to reach the
+// caller of Close rather than only the log.
+func TestCloseReportsReleaseFailure(t *testing.T) {
+	s := setupTestStore(t)
+
+	// Give back the genuine reservations first, then swap in a failing stub, so the real stores are not
+	// left holding anything when they are torn down below.
+	require.NoError(t, s.releaseLastSealed())
+	s.lastSealed = map[string]snapshot.Snapshot{
+		accountDBDir: &stubSnapshot{name: accountDBDir, releaseErr: errors.New("engine is bricked")},
+	}
+
+	err := s.Close()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "release sealed snapshots")
 }
 
 func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
