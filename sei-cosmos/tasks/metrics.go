@@ -5,6 +5,10 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// taskMetrics mirrors giga/deps/tasks/metrics.go's instruments of the same
+// name/scope so the sei-cosmos and giga fork schedulers merge into single
+// scheduler_retries/scheduler_incarnations series. Keep description/unit
+// byte-identical across both declarations or the OTel SDK stops deduping.
 var (
 	meter = otel.Meter("seicosmos_tasks")
 

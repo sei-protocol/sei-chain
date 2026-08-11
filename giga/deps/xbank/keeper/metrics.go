@@ -39,7 +39,7 @@ func must[V any](v V, err error) V {
 // counterpart (bank_new_account). Runs from consensus-critical send paths, so
 // a telemetry fault here must not panic into the caller.
 func recordNewAccounts(ctx context.Context, count int64) {
-	if count == 0 {
+	if count <= 0 {
 		return
 	}
 	defer func() {
