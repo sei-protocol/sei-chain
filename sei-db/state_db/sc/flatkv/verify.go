@@ -32,9 +32,6 @@ func verifyLtHashInternal(cs *CommitStore) error {
 	// scan below goes through the stores, so it *does* see the rows that block has staged — and the
 	// committed hash it would be compared against does not account for them. Fail loudly rather than
 	// masquerade a mid-block store as an integrity error.
-	//
-	// Note this reasoning is the inverse of what it was when the scan read the databases directly: the
-	// problem used to be that pending state was invisible to the scan, and is now that it is visible.
 	if !cs.readOnly && !cs.workingLtHash.Equal(cs.committedLtHash) {
 		return fmt.Errorf(
 			"VerifyLtHash: store has uncommitted writes at version %d; "+

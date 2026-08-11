@@ -70,17 +70,21 @@ func TestFlushPersistsEveryFinalizationPairPerVersion(t *testing.T) {
 func TestFlushLatestValueWinsAcrossVersions(t *testing.T) {
 	engine, db := newTestEngine(t, nil, 1, 1<<20)
 
+	// Finalize, wait, then release. AwaitFlush requires the reservation to be held across the call:
+	// a released snapshot can be retired out from under it, and the wait is then undefined.
 	require.NoError(t, engine.Set([]byte("k"), []byte("v1")))
 	snap1, err := engine.Commit()
 	require.NoError(t, err)
-	finalizeAndRelease(t, snap1)
+	require.NoError(t, snap1.Finalize(hashWrites(testHash)))
 	awaitFlushed(t, snap1, time.Second)
+	require.NoError(t, snap1.Release())
 
 	require.NoError(t, engine.Set([]byte("k"), []byte("v2")))
 	snap2, err := engine.Commit()
 	require.NoError(t, err)
-	finalizeAndRelease(t, snap2)
+	require.NoError(t, snap2.Finalize(hashWrites(testHash)))
 	awaitFlushed(t, snap2, time.Second)
+	require.NoError(t, snap2.Release())
 
 	kv, ok := db.get("k")
 	require.True(t, ok)

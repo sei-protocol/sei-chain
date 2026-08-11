@@ -120,9 +120,8 @@ type CommitStore struct {
 	perDBModuleWorkingStats map[string]map[string]lthash.ModuleStats
 
 	// The four data stores below mediate every read and write of their databases. The block being
-	// applied accumulates its writes inside each store, which is what replaced FlatKV's hand-rolled
-	// pending-write overlays: a read through a store already sees what that same block staged, with
-	// no separate overlay to consult.
+	// applied accumulates its writes inside each store, so a read through a store already sees what
+	// that same block staged, with no separate overlay to consult.
 	//
 	// They are constructed as the last step of open, after any replay or rollback has run, and are nil
 	// until then — the bootstrap and import paths deliberately write raw pebble before they exist.

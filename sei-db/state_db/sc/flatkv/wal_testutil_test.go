@@ -12,9 +12,8 @@ import (
 )
 
 // newCommitStoreWithWAL constructs a CommitStore with a real state WAL opened from cfg's changelog
-// directory — the test-suite equivalent of how the composite wires production stores. It stands in for the
-// former 2-arg NewCommitStore calls now that the state WAL is an injected constructor argument; the suite's
-// call sites were mechanically rewritten to use it.
+// directory — the test-suite equivalent of how the composite wires production stores. The WAL is an
+// injected constructor argument, so every test that needs a committable store goes through here.
 func newCommitStoreWithWAL(ctx context.Context, cfg *config.Config) (*CommitStore, error) {
 	stateWAL, err := OpenStateWAL(cfg)
 	if err != nil {

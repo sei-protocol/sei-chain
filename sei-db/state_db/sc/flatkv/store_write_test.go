@@ -831,7 +831,7 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// Both changeset entries merge into one AccountValue: the single staged row carries the nonce and
-	// the codehash together, which is a stronger statement than the row count this used to assert.
+	// the codehash together.
 	accountWrite := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
 	require.NotNil(t, accountWrite)
 	require.Equal(t, uint64(10), accountWrite.GetNonce())

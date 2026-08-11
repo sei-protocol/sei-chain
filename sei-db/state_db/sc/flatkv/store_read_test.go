@@ -716,8 +716,8 @@ func TestIteratorDoesNotSeePendingWrites(t *testing.T) {
 	}))
 
 	// Before commit: the raw scan is refused outright rather than quietly omitting the staged row. It
-	// iterates the stores, which see staged rows, so "not visible" is no longer achievable — the
-	// guarantee that an export never contains an uncommitted row is enforced as a precondition instead.
+	// iterates the stores, which see staged rows, so the guarantee that an export never contains an
+	// uncommitted row is enforced as a precondition.
 	_, err := s.RawGlobalIterator()
 	require.Error(t, err, "a raw scan must be refused while a block is staged")
 	require.Contains(t, err.Error(), "staged and uncommitted")

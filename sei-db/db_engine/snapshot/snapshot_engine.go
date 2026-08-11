@@ -225,10 +225,8 @@ type Snapshot interface {
 	// the flush has completed. Returns an error if ctx is cancelled or the engine shuts down
 	// first.
 	//
-	// The caller must hold a reservation across this call. A retired snapshot is no longer
-	// recognized by the engine, so AwaitFlush on it returns an error — not success — even
-	// though retirement implies the flush completed. Holding a reservation prevents
-	// retirement and makes the wait well-defined.
+	// The caller must hold a reservation across this call; holding one is what stops the snapshot
+	// being retired mid-wait. Calling without one is undefined behaviour.
 	//
 	// Cancelling ctx stops the wait; it has no effect on the flush itself, which proceeds
 	// regardless. A ctx error therefore says nothing about flush state: if completion and
