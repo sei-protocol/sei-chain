@@ -48,8 +48,7 @@ import (
 //
 // Correcting the help text and the getter is prose and dead code. It parses nothing differently, and
 // what operators are told today is a value that takes the node down, so there is nothing to preserve
-// on that side. That change is written and sits on the fix/min-gas-prices-separator branch, deferred
-// on priority rather than on risk.
+// on that side. It is deferred on priority rather than on risk.
 //
 // Teaching ParseDecCoins the semicolon is the other kind of change. It widens the fee-floor grammar
 // for every node, and once operators write semicolons narrowing back breaks them, so it needs a
@@ -57,17 +56,22 @@ import (
 // accepts is the cheaper direction and does not spend that door.
 
 // resolveMinGasPrices runs the expression root.go:296 runs, through the viper type production hands
-// it, and reports the panic rather than the option because the panic is the behavior under test.
-func resolveMinGasPrices(raw string) (panicMessage string) {
+// it, and reports whether it panicked rather than the option, because the panic is the behavior
+// under test.
+//
+// Whether it panicked and what it said are returned separately for the same reason getterReads
+// below keeps them apart: collapsed into one string, a boot and a panic carrying an empty message
+// are the same answer, and the fuzz target's only test for "booted" is that string being empty.
+func resolveMinGasPrices(raw string) (panicked bool, panicMessage string) {
 	defer func() {
 		if r := recover(); r != nil {
-			panicMessage = fmt.Sprint(r)
+			panicked, panicMessage = true, fmt.Sprint(r)
 		}
 	}()
 	appOpts := viper.New()
 	appOpts.Set(server.FlagMinGasPrices, raw)
 	_ = baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(server.FlagMinGasPrices)))
-	return ""
+	return false, ""
 }
 
 // FuzzMinGasPricesLiveReaderTakesCommasAndRejectsSemicolons pins which separator boots a node.
@@ -84,11 +88,11 @@ func FuzzMinGasPricesLiveReaderTakesCommasAndRejectsSemicolons(f *testing.F) {
 	f.Add("-1usei")
 
 	f.Fuzz(func(t *testing.T, raw string) {
-		panicMessage := resolveMinGasPrices(raw)
+		panicked, panicMessage := resolveMinGasPrices(raw)
 
 		// A semicolon is only reachable as a separator, so any value carrying one has to panic for
 		// the disjointness this file records to hold.
-		if strings.Contains(raw, ";") && panicMessage == "" {
+		if strings.Contains(raw, ";") && !panicked {
 			t.Errorf("minimum-gas-prices=%q carries a semicolon and booted anyway. ParseDecCoins now "+
 				"accepts the separator the flag's help text and Config.GetMinGasPrices already use, so "+
 				"the two syntaxes have stopped being disjoint. That is a fine end state and it changes "+
@@ -97,7 +101,7 @@ func FuzzMinGasPricesLiveReaderTakesCommasAndRejectsSemicolons(f *testing.F) {
 		// Where the rejection happens, not just that it happens. Every rejection reachable from a
 		// string arrives as an error ParseDecCoins returns and SetMinGasPrices wraps, so the wrap is
 		// the marker that the refusal is still baseapp's.
-		if panicMessage != "" && !strings.Contains(panicMessage, "invalid minimum gas prices") {
+		if panicked && !strings.Contains(panicMessage, "invalid minimum gas prices") {
 			t.Errorf("minimum-gas-prices=%q panicked with %q rather than carrying baseapp's "+
 				"\"invalid minimum gas prices\" wrap. Read it one of two ways, and both are worth a look "+
 				"rather than a loosened assertion: the rejection moved to another reader, or this value "+
@@ -125,7 +129,7 @@ func TestMinGasPricesFlagHelpShowsASeparatorTheLiveReaderPanicsOn(t *testing.T) 
 			"records may be closed. Confirm the new example parses, then delete this test rather than "+
 			"loosening it. Usage is now %q", server.FlagMinGasPrices, documented, flag.Usage)
 	}
-	if panicMessage := resolveMinGasPrices(documented); panicMessage == "" {
+	if panicked, _ := resolveMinGasPrices(documented); !panicked {
 		t.Fatalf("the documented example %q now boots, so the help text and the reader agree and this "+
 			"recording is stale", documented)
 	}
@@ -179,12 +183,12 @@ func TestMinGasPricesGetterAcceptsOnlyWhatTheLiveReaderRejects(t *testing.T) {
 			"syntax; if it now accepts that syntax the two readers have stopped being disjoint",
 			commaSeparated, coins)
 	}
-	if resolveMinGasPrices(commaSeparated) != "" {
+	if panicked, _ := resolveMinGasPrices(commaSeparated); panicked {
 		t.Errorf("the live reader now rejects %q, which was the one multi-denomination spelling that "+
 			"booted a node. If the parser changed, say what an operator should write instead",
 			commaSeparated)
 	}
-	if resolveMinGasPrices(semicolonSeparated) == "" {
+	if panicked, _ := resolveMinGasPrices(semicolonSeparated); !panicked {
 		t.Errorf("the live reader now accepts %q, so the documented separator boots and this "+
 			"inversion is closed", semicolonSeparated)
 	}

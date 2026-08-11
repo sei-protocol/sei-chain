@@ -13,86 +13,30 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
-// This file pins the one configuration key in this tree that two live consumers read.
+// Tests for min-retain-blocks, the only key in this tree that two live consumers read. One
+// operator value becomes both a Tendermint block-retention height and an EVM receipt retention
+// window, through different casts.
 //
-// Every other key read twice has a dead second reader: sei-cosmos/server/config.GetConfig parses
-// [state-commit] and [state-store] into a Config nobody hands to the store, so a disagreement there
-// cannot reach a node. min-retain-blocks is different. Both of its readers run.
-//
-//	cmd/seid/cmd/root.go passes cast.ToUint64 of it to baseapp.SetMinRetainBlocks, which becomes the
-//	Tendermint block-retention height.
-//	app/receipt_store_config.go passes cast.ToInt of it to the receipt store's KeepRecent, which
-//	becomes EVM receipt retention.
-//
-// So one number an operator sets for block retention silently also sets receipt retention, and the two
-// go through different casts. That combination is what this holds still.
-//
-// What each half of that is worth is not the same, and the difference is the thing to carry off this
-// file. The receipt half is pinned against the reader: the table drives readReceiptStoreConfig, so
-// changing its cast fails here. The block half is not, and cannot be from a test: root.go builds that
-// argument inline inside newApp's app.New call, which needs a node. So the block column is a recorded
-// literal, and nothing in this suite fails if root.go:297 changes its cast. That gap is stated rather
-// than papered over, because a reader who assumed otherwise would trust a pin that is not there.
-//
-// For every value an operator would sensibly write the two casts agree, and the fan-out is then just a
-// coupling. Where they disagree, receipts still survive, but not by one mechanism and not always by
-// the one worth relying on. There are two routes and the difference between them matters.
-//
-// The first is the guard, and both backends have one. A KeepRecent at or below zero never arms a
-// pruner: the default pebbledb backend returns before starting one
-// (sei-db/ledger_db/receipt/receipt_store.go:363) and the litt backend skips its TTL branch
-// (sei-db/ledger_db/receipt/litt_receipt_store.go:138). Every disagreement reachable as a string takes
-// this route: a negative is kept by ToInt and floored by ToUint64, and a decimal past int64 is floored
-// by ToInt and kept by ToUint64.
-//
-// The second is saturation, reachable only where a value arrives as a float64 at or above 2^63. There
-// cast.ToInt saturates to MaxInt64 rather than flooring, so KeepRecent is positive and the guard above
-// does not apply. This is where the two backends stop agreeing, and only one of them is worth being
-// uneasy about.
-//
-// The default pebbledb backend is safe by an ordinary bound. Its pruner computes
-// pruneVersion := latestVersion - keepRecent and prunes only where that is above zero
-// (sei-db/ledger_db/receipt/receipt_store.go:379-380), so a KeepRecent of MaxInt64 puts the target far
-// below zero and nothing is pruned. That holds for a reason no change to a TTL multiplier can undo.
-//
-// The litt backend is safe by accident. It multiplies KeepRecent by an unexported per-block TTL, and
-// MaxInt64 times that multiplier overflows to a negative Duration, which
-// sei-db/db_engine/litt/disktable/gc_manager.go:273 reads as no expiry. That is a property of the
-// multiplier's value rather than a guard, and a different multiplier could wrap the product to a small
-// positive TTL that prunes on a schedule nobody chose.
-//
-// Nothing in this suite pins that multiply, so the two routes are not covered equally. The guard is
-// pinned here, because a receipt side at or below zero is what the assertion below accepts and the
-// guard is a property of the reader this file drives. The litt overflow is not: the multiply happens in
-// sei-db against an unexported multiplier, so a change there that landed the product small and positive
-// would prune receipts on a litt-backed node on arm64 with this file still green. Nodes on the shipped
-// default are unaffected either way, which is what scopes this gap rather than closing it. It is the
-// same shape of gap this file discloses for root.go:297, and it is stated for the same reason. Closing
-// it needs sei-db to export the multiplier or a helper returning the TTL for a given KeepRecent;
-// pinning a copy of the constant against another copy, which is what this file did before, checked
-// nothing.
-//
-// Recorded rather than repaired. Making the two casts one would change what a node retains for any
-// operator currently relying on the out-of-range behaviour, which is the kind of change this suite
-// pins instead of making.
+// testutil/configtest/AGENTS.md holds the fan-out's architecture and the two gaps it leaves open,
+// including which receipt-store backend survives a saturated retention window by an ordinary bound
+// and which survives by an accident nothing here pins.
 
 // minRetainBlocksFanOut is what one operator value becomes on each side.
-//
-// Both columns are literals. The receipt column is checked against the reader, so it is a prediction.
-// The block column is a recording of what cast.ToUint64 does, held against a number rather than
-// against a second call to the same function, because an assertion comparing a call to itself passes
-// for any reader and would say nothing.
-//
-// raw is an any because the type is part of the input, not a detail of how this table is written. Both
-// readers cast whatever appOpts.Get returns, and which Go type that is depends on the layer that set
-// the key: the env layer and a quoted app.toml entry hand them a string, an unquoted integer decodes
-// to int64, and an unquoted float literal decodes to float64. A table of strings alone cannot express
-// the float case, and the float case is the only one where the two casts disagree with the receipt
-// side positive.
 var minRetainBlocksFanOut = []struct {
+	// raw is an any because the input type is part of the case. Both readers cast whatever
+	// appOpts.Get returns, and which Go type that is depends on the layer that set the key: the env
+	// layer and a quoted app.toml entry hand them a string, an unquoted integer decodes to int64,
+	// and an unquoted float literal decodes to float64. Only the float case makes the two casts
+	// disagree with the receipt side positive, so a table of strings could not express it.
 	raw     any
-	receipt int    // app/receipt_store_config.go:27, through cast.ToInt. Not read when saturates.
-	block   uint64 // cmd/seid/cmd/root.go:297, through cast.ToUint64
+	receipt int // app/receipt_store_config.go:27, through cast.ToInt. Not read when saturates.
+	// block records what cast.ToUint64 produces, held against a number rather than a second call to
+	// the same function, since an assertion comparing a call to itself passes for any reader.
+	//
+	// It and the saturates rows assert spf13/cast and Go's float-to-int conversion rather than
+	// anything in this tree, so a cast bump can redden this package for a reason unrelated to
+	// configuration resolution, reported as a message about receipt retention.
+	block uint64 // cmd/seid/cmd/root.go:297, through cast.ToUint64
 	// saturates marks a row whose receipt cast Go leaves implementation-defined, so no literal is a
 	// correct prediction and the property is asserted in place of the value. Same reason a
 	// NumCPU-derived default is recorded as a DerivedDefault rather than a number.
@@ -123,30 +67,12 @@ var minRetainBlocksFanOut = []struct {
 	{float64(9.3e18), 0, 9300000000000000000, true},
 }
 
-// TestMinRetainBlocksFanOutNeverResolvesReceiptsToAPruningWindow holds what this layer can hold: the
-// receipt side never resolves to a window that would prune.
+// TestMinRetainBlocksFanOutNeverResolvesReceiptsToAPruningWindow asserts that the receipt side never
+// resolves to a window that would prune. It says the config layer resolves to a safe value, not that
+// what happens to that value downstream is safe.
 //
-// The name says resolves rather than prunes on purpose. Whether a resolved value goes on to expire
-// anything is a sei-db property, and the last paragraph here says which part of it this suite does not
-// reach.
-//
-// Where the two casts land on the same number the fan-out is a plain coupling. Where they disagree,
-// the receipt side must not be a positive retention window, because a positive KeepRecent is the one
-// state that arms receipt expiry on either backend (pebbledb at
-// sei-db/ledger_db/receipt/receipt_store.go:363, litt at
-// sei-db/ledger_db/receipt/litt_receipt_store.go:138). A row that broke that would mean a value an
-// operator set for block retention silently pruning EVM receipts.
-//
-// One class of row is exempt from that and the exemption is the finding, not a loophole. A float at or
-// above 2^63 makes cast.ToInt saturate, and on the architectures the fleet ships that is either a
-// negative value the guard refuses or MaxInt64, which is positive and passes it. Those rows are held to
-// being one of those two and nothing else, so a cast that started yielding a small positive window
-// fails here.
-//
-// What happens after a saturated KeepRecent passes the guard is out of this layer's reach and is not
-// asserted anywhere: see the header, which says which backend survives it by a bound and which by an
-// accident. This test says the config layer resolves to one of two values, not that both are safe
-// downstream.
+// The name says resolves rather than prunes because whether a resolved value goes on to expire
+// anything is a sei-db property this layer cannot reach.
 func TestMinRetainBlocksFanOutNeverResolvesReceiptsToAPruningWindow(t *testing.T) {
 	for _, row := range minRetainBlocksFanOut {
 		t.Run(fmt.Sprintf("%v(%T)", row.raw, row.raw), func(t *testing.T) {
@@ -197,6 +123,10 @@ func TestMinRetainBlocksFanOutNeverResolvesReceiptsToAPruningWindow(t *testing.T
 			if row.receipt >= 0 && uint64(row.receipt) == row.block {
 				return
 			}
+			// Positive is the whole test, because a positive KeepRecent is the one state that arms
+			// receipt expiry on either backend: pebbledb starts a pruner
+			// (sei-db/ledger_db/receipt/receipt_store.go:363) and litt sets a TTL
+			// (sei-db/ledger_db/receipt/litt_receipt_store.go:138). At or below zero, neither does.
 			if row.receipt > 0 {
 				t.Errorf("min-retain-blocks=%v gives %d for receipt retention and %d for block "+
 					"retention. The two disagree and the receipt side is a positive window that is not "+

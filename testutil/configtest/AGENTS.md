@@ -475,6 +475,58 @@ process environment, `$HOME`, and the executable basename all feed the result.
   `EnvValueIsSettable` decline the values with no faithful spelling, which keeps a
   parse failure from being attributed to the layer under test.
 
+## The min-retain-blocks Fan-Out
+
+`min-retain-blocks` is the only key in this tree that two live consumers read, and
+`app/receipt_store_config_test.go` holds it still. Every other twice-read key has a dead
+second reader: `sei-cosmos/server/config.GetConfig` parses `[state-commit]` and
+`[state-store]` into a `Config` nobody hands to the store, so a disagreement there cannot
+reach a node. Both of this key's readers run.
+
+| Reader | Cast | Becomes |
+|---|---|---|
+| `cmd/seid/cmd/root.go:297` | `cast.ToUint64` | the Tendermint block-retention height, through `baseapp.SetMinRetainBlocks` |
+| `app/receipt_store_config.go:27` | `cast.ToInt` | EVM receipt retention, through the receipt store's `KeepRecent` |
+
+So one number an operator sets for block retention silently also sets receipt retention, and
+the two go through different casts.
+
+**The two halves are not covered equally.** The receipt half is pinned against its reader,
+since the table drives `readReceiptStoreConfig` and changing that cast fails. The block half
+cannot be pinned from a test: `root.go` builds that argument inline inside `newApp`'s
+`app.New` call, so reaching it needs a booted node. The block column is a recorded literal,
+and nothing fails if `root.go:297` changes its cast.
+
+**Where the casts disagree, receipts survive by one of two mechanisms.** For every value an
+operator would sensibly write they agree, and the fan-out is then just a coupling.
+
+*The guard.* A `KeepRecent` at or below zero never arms a pruner on either backend. pebbledb
+returns before starting one (`sei-db/ledger_db/receipt/receipt_store.go:363`) and litt skips
+its TTL branch (`sei-db/ledger_db/receipt/litt_receipt_store.go:138`). Every disagreement
+reachable as a string takes this route, since a negative is kept by `ToInt` and floored by
+`ToUint64`, and a decimal past int64 is floored by `ToInt` and kept by `ToUint64`.
+
+*Saturation.* Reachable only where a value arrives as a `float64` at or above 2^63. There
+`cast.ToInt` saturates to `MaxInt64` rather than flooring, so `KeepRecent` is positive and the
+guard does not apply. Here the two backends diverge:
+
+- **pebbledb**, the shipped default, is safe by an ordinary bound. Its pruner computes
+  `pruneVersion := latestVersion - keepRecent` and prunes only where that is above zero
+  (`receipt_store.go:379-380`), so `MaxInt64` puts the target far below zero. No change to a
+  TTL multiplier can undo that.
+- **litt** is safe by accident. It multiplies `KeepRecent` by an unexported per-block TTL, and
+  `MaxInt64` times that multiplier overflows to a negative `Duration`, which
+  `sei-db/db_engine/litt/disktable/gc_manager.go:273` reads as no expiry. A different
+  multiplier could wrap the product to a small positive TTL that prunes on a schedule nobody
+  chose.
+
+The litt multiply is the third gap in the table below. Nodes on the shipped default are
+unaffected either way, which is what scopes that gap rather than closing it.
+
+Both readers are recorded rather than repaired. Making the two casts one would change what a
+node retains for any operator currently relying on the out-of-range behaviour, which is the
+kind of change this suite pins instead of making. PLT-976 tracks it.
+
 ## Disclosed Gaps
 
 Separate from the classes below, which the suite cannot reach, these are gaps it could close
