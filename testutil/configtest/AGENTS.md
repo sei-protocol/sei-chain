@@ -207,7 +207,9 @@ The three EVM fields are a third trap and the sharpest of them. Their `mapstruct
 `evm-split`, `evm-db-directory` and `evm-separate-dbs`, while the template and both readers use
 `evm-ss-split`, `evm-ss-db-directory` and `evm-ss-separate-dbs`. So a replacement that reads this
 struct the obvious way, by unmarshalling the `state-store` subtree onto it, binds three keys
-nothing has ever written and picks up the two fields the legacy node never reads. PLT-955 is what that distinction looks like when it goes wrong, an archive
+nothing has ever written and picks up the two fields the legacy node never reads.
+
+PLT-955 is what that distinction looks like when it goes wrong, an archive
 node pruning history because the mode's writes to those fields do not reach the store.
 
 ## Renaming a Key

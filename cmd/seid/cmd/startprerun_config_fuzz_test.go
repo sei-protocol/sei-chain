@@ -147,9 +147,15 @@ func TestStartPreRunResolvesTheKeysOnlyStartInProcessReads(t *testing.T) {
 // A KeyName rather than a KeySpec, because none of these resolves into a config struct a row could
 // name a Path in: startInProcess reads them straight off the viper and branches.
 //
-// The names are literals, and have to be. server's flagCPUProfile, flagTraceStore and flagGRPCOnly
-// are unexported, so this package cannot spell them through the reader's own constant the way a
-// KeyName target normally does. That bounds what the record catches, and the bound is worth stating.
+// The names are literals because server's flagCPUProfile, flagTraceStore and flagGRPCOnly are
+// unexported, so this package cannot spell them through the reader's own constant the way a KeyName
+// target normally does.
+//
+// Exporting them is a real option rather than an impossibility, and it was considered: sei-cosmos is
+// vendored here, so those are three lines in this repository and exporting them would let this record
+// spell the keys through the reader itself, closing the hazard below instead of describing it. It is
+// deferred because this branch is test-only and that is a change to shipped code, small as it is.
+// Whoever picks it up gets to delete the paragraph after this one. That bounds what the record catches, and the bound is worth stating.
 // It holds the spelling this suite asserts against, so renaming a name here without renaming it in
 // the assertions fails. It does not catch a rename in production, because the record and the
 // assertions would then both still carry the old name. That case is caught one step over, where
