@@ -190,8 +190,24 @@ disagreement, and the reason is specific to which copy: nothing reads these fiel
 `Config` `GetConfig` returns**, so the store is built from `parseSCConfigs` and `parseSSConfigs`
 alone. The fields themselves are read elsewhere, and conflating the two is the mistake to avoid.
 `SetAppConfigByMode` writes `StateStore.Enable` and `StateStore.KeepRecent` per node mode
-(`app/params/config.go`), and `sei-db/config/toml.go` renders every `StateStore` field into the
-app.toml template. PLT-955 is what that distinction looks like when it goes wrong, an archive
+(`app/params/config.go`), and `sei-db/config/toml.go` renders eleven of `StateStore`'s thirteen
+fields into the app.toml template.
+
+Those two remaining fields are worth knowing about because they are not the shape they look
+like. `keep-last-version` and `use-default-comparer` are read by neither `parseSSConfigs` nor
+`GetConfig`, so no operator key reaches them at all: they hold their in-code defaults on every
+node and are flipped only in code, by the receipt store and by the EVM state store. `app`'s
+manifest already exempts both by name for that reason, and two tests assert the template does
+not carry them. That is a different case from a key with a reader and no template line, which
+`state-commit`'s `sc-write-mode-enable-auto` and `flatkv.*` keys are: those an operator can set
+by hand, they are simply not rendered. A replacement manager needs both classes, because one is
+a field configuration cannot address and the other is a key the generated file never mentions.
+
+The three EVM fields are a third trap and the sharpest of them. Their `mapstructure` tags are
+`evm-split`, `evm-db-directory` and `evm-separate-dbs`, while the template and both readers use
+`evm-ss-split`, `evm-ss-db-directory` and `evm-ss-separate-dbs`. So a replacement that reads this
+struct the obvious way, by unmarshalling the `state-store` subtree onto it, binds three keys
+nothing has ever written and picks up the two fields the legacy node never reads. PLT-955 is what that distinction looks like when it goes wrong, an archive
 node pruning history because the mode's writes to those fields do not reach the store.
 
 ## Renaming a Key

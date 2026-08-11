@@ -39,8 +39,19 @@ import (
 // serverCtx.Viper before it runs: start.go registers trace-store and cpu-profile as flags and
 // PreRunE binds the whole flag set into that viper, so startInProcess re-reads a populated
 // viper rather than resolving anything for the first time. The same is true of its GetConfig
-// call, which is the reader sei-cosmos/server/config pins directly. TestStartPreRunResolves*
-// below hold the three keys that only startInProcess reads.
+// call, which is the reader sei-cosmos/server/config pins directly.
+//
+// What TestStartPreRunResolves* below hold is what those three keys resolve to in the viper
+// startInProcess reads, and not the reads themselves. The read sites are inside startInProcess,
+// which is unexported and needs a booted node, so nothing here fails if it changes the key it reads
+// or stops reading one: the flag stays registered, the value stays in the viper, and these tests keep
+// describing a reader that had moved. A rename of the flag is caught, by TestStartFlagNamesAreRegistered
+// below; the read site is not. Same gap and same idiom as root.go:296 and :297.
+//
+// Two of the three would fail quietly if their read disappeared, which is why the distinction is worth
+// stating rather than shrugging at. cpu-profile and trace-store would accept an operator's value and
+// write no profile and no trace file, with no error to notice. grpc-only would be visible instead: a
+// node asked to serve gRPC only would start Tendermint anyway.
 //
 // Effects are not reachable, and are deliberately not pinned. Whether the profiler starts,
 // whether the trace file is written, and whether grpc-only forcing GRPC.Enable changes which

@@ -59,8 +59,9 @@ func newAppViper(t testing.TB, keys map[string]any) *viper.Viper {
 // viper's lowercasing does not, and the two sibling scans in this file already use ToLower. Contrived
 // for ASCII configuration keys, but one relation modelled three ways is how the three drift apart.
 func callerSupplies(keys map[string]any, key string) bool {
+	normalized := strings.ToLower(key)
 	for k := range keys {
-		if strings.ToLower(k) == strings.ToLower(key) {
+		if strings.ToLower(k) == normalized {
 			return true
 		}
 	}
@@ -295,6 +296,15 @@ func FuzzGetConfigGlobalLabels(f *testing.F) {
 // next. Converting it to an error is the change to make, and it belongs with
 // the reader that replaces this one, since an operator whose app.toml currently panics would start
 // booting into a node that logs a parse failure instead.
+// getConfigCatchingPanic runs GetConfig and reports what it did rather than judging it. It touches no
+// testing.TB, which is the point: a t.Fatalf inside a deferred recover cannot then fire during the
+// Goexit that another t.Fatalf started.
+func getConfigCatchingPanic(v *viper.Viper) (err error, recovered any) {
+	defer func() { recovered = recover() }()
+	_, err = GetConfig(v)
+	return err, nil
+}
+
 func TestGetConfigPanicsOnANonStringGlobalLabel(t *testing.T) {
 	for _, label := range [][]any{
 		{"chain", 42}, // a non-string value
@@ -305,22 +315,24 @@ func TestGetConfigPanicsOnANonStringGlobalLabel(t *testing.T) {
 			v := viper.New()
 			v.Set(globalLabelsKey, []any{label})
 
-			defer func() {
-				r := recover()
-				if r == nil {
-					t.Fatalf("global-labels %v no longer panics. If it now returns an error, that is "+
-						"the better behavior and it changes which app.toml files start a node, so "+
-						"replace this recording with the error the reader reports", label)
-				}
-				if !strings.Contains(fmt.Sprint(r), "interface conversion") {
-					t.Fatalf("global-labels %v panicked with %v rather than the unchecked assertion at "+
-						"config.go:432, so the failure moved and this recording no longer describes it",
-						label, r)
-				}
-			}()
-			if _, err := GetConfig(v); err != nil {
+			// Catching is kept apart from judging so exactly one message can reach the reader. A
+			// t.Fatalf in the body calls Goexit, a deferred recover sees nil during that unwind
+			// because Goexit is not a panic, and a second t.Fatalf in the defer would then report
+			// "no longer panics" as the last thing printed, which is an artifact of the unwind
+			// rather than the failure.
+			err, recovered := getConfigCatchingPanic(v)
+			switch {
+			case recovered == nil && err != nil:
 				t.Fatalf("global-labels %v returned %v instead of panicking, so the assertion at "+
 					"config.go:432 is now guarded and this recording is stale", label, err)
+			case recovered == nil:
+				t.Fatalf("global-labels %v no longer panics. If it now returns an error, that is "+
+					"the better behavior and it changes which app.toml files start a node, so "+
+					"replace this recording with the error the reader reports", label)
+			case !strings.Contains(fmt.Sprint(recovered), "interface conversion"):
+				t.Fatalf("global-labels %v panicked with %v rather than the unchecked assertion at "+
+					"config.go:432, so the failure moved and this recording no longer describes it",
+					label, recovered)
 			}
 		})
 	}
