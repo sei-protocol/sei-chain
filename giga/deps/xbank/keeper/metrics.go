@@ -12,20 +12,29 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 )
 
+// BankNewAccount* must stay byte-identical to the same consts in
+// sei-cosmos/x/bank/keeper and utils/metrics so the three Int64Counter
+// declarations merge into one series.
+const (
+	BankNewAccountMeter       = "seicosmos_x_bank_keeper"
+	BankNewAccountName        = "bank_new_account"
+	BankNewAccountDescription = "Number of new accounts created during bank transfers"
+	BankNewAccountUnit        = "{count}"
+)
+
 // bankMetrics.newAccount mirrors sei-cosmos/x/bank/keeper/metrics.go's
 // instrument of the same name/scope so the two dual-emit paths merge into a
-// single bank_new_account series. Keep description/unit byte-identical to
-// that file or the OTel SDK will stop deduping the instrument.
+// single bank_new_account series.
 var (
-	meter = otel.Meter("seicosmos_x_bank_keeper")
+	meter = otel.Meter(BankNewAccountMeter)
 
 	bankMetrics = struct {
 		newAccount metric.Int64Counter
 	}{
 		newAccount: must(meter.Int64Counter(
-			"bank_new_account",
-			metric.WithDescription("Number of new accounts created during bank transfers"),
-			metric.WithUnit("{count}"),
+			BankNewAccountName,
+			metric.WithDescription(BankNewAccountDescription),
+			metric.WithUnit(BankNewAccountUnit),
 		)),
 	}
 )

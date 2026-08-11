@@ -22,15 +22,24 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 )
 
+// BankNewAccount* must stay byte-identical to the same consts in
+// sei-cosmos/x/bank/keeper and giga/deps/xbank/keeper so the three
+// Int64Counter declarations merge into one series.
+const (
+	BankNewAccountMeter       = "seicosmos_x_bank_keeper"
+	BankNewAccountName        = "bank_new_account"
+	BankNewAccountDescription = "Number of new accounts created during bank transfers"
+	BankNewAccountUnit        = "{count}"
+)
+
 // bankNewAccountCounter mirrors sei-cosmos/x/bank/keeper/metrics.go's
 // instrument of the same name/scope (and giga/deps/xbank/keeper/metrics.go's)
 // so precompile-originated and keeper-originated new-account events merge
-// into a single bank_new_account series. Keep description/unit byte-identical
-// across all three declarations or the OTel SDK stops deduping the instrument.
-var bankNewAccountCounter = mustCounter(otel.Meter("seicosmos_x_bank_keeper").Int64Counter(
-	"bank_new_account",
-	metric.WithDescription("Number of new accounts created during bank transfers"),
-	metric.WithUnit("{count}"),
+// into a single bank_new_account series.
+var bankNewAccountCounter = mustCounter(otel.Meter(BankNewAccountMeter).Int64Counter(
+	BankNewAccountName,
+	metric.WithDescription(BankNewAccountDescription),
+	metric.WithUnit(BankNewAccountUnit),
 ))
 
 func mustCounter(c metric.Int64Counter, err error) metric.Int64Counter {
