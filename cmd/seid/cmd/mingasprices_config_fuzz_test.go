@@ -14,26 +14,21 @@ import (
 	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 )
 
-// minimum-gas-prices is the one key in this tree whose accepted syntax is contradicted by its own
-// documentation, and this file holds all three parties still.
+// minimum-gas-prices is resolved by one reader whose way of rejecting a value is to panic, and this
+// file holds that reader, the example the flag advertises, and the one artifact that still describes
+// a different syntax.
 //
-// One reader governs a node. root.go:296 hands cast.ToString of the key to baseapp.SetMinGasPrices,
-// which calls sdk.ParseDecCoins and panics on anything it cannot parse (options.go:24-28). That
-// panic is the whole boot, and ParseDecCoins separates denominations with a comma.
+// root.go:296 hands cast.ToString of the key to baseapp.SetMinGasPrices, which calls
+// sdk.ParseDecCoins and panics on anything it cannot parse (options.go:24-28). That panic is the
+// whole boot, so an example an operator is shown has to be a value that parses. The assertion below
+// reads the example out of the live help text rather than comparing it against a copy, so a later
+// edit to that text is checked against the reader it has to satisfy instead of being taken on trust.
 //
-// Two places document a semicolon instead. The start flag's own help text offers
-// "0.01photino;0.0001stake" as its example (start.go:208), and Config.GetMinGasPrices splits the
-// value on ";" (config.go:323). So the two syntaxes are disjoint rather than merely different: no
-// multi-denomination value is accepted by both, and the spelling an operator is shown is the
-// spelling that panics.
-//
-// The reason this has never been reported is that both agree on one denomination, which is the shape
-// of the default and of nearly every deployment. It surfaces the first time an operator prices a
-// second fee token by following the flag's example.
-//
-// GetMinGasPrices has no caller outside itself, so it is the documentation of an intent and not a
-// second live resolution. That is what keeps this a sharp edge rather than a split: there is one
-// answer at runtime, and two artifacts describing a different one.
+// ParseDecCoins separates denominations with a comma. Config.GetMinGasPrices splits on ";"
+// (config.go:323) and has no caller anywhere in the tree, so it describes a syntax no reader
+// accepts. The two are disjoint rather than merely different: no multi-denomination value satisfies
+// both. Single denominations are where they agree, which is the shape of the default and of nearly
+// every deployment, and is why this stayed quiet.
 //
 // What this file does not pin is the call site. resolveMinGasPrices below runs the expression
 // root.go:296 runs rather than driving root.go:296, because that argument is built inline inside
@@ -44,9 +39,8 @@ import (
 // and it is stated here for the same reason: a reader who assumed otherwise would trust a pin that is
 // not there.
 //
-// Recorded rather than repaired. Teaching ParseDecCoins the semicolon widens what a node accepts,
-// and correcting the help text changes what operators are told a working value looks like; both are
-// decisions for the reader that replaces this one.
+// The getter is recorded rather than repaired. Changing its separator or deleting it both move
+// something no code reads today, and that call belongs to the reader which replaces this one.
 
 // resolveMinGasPrices runs the expression root.go:296 runs, through the viper type production hands
 // it, and reports the panic rather than the option because the panic is the behavior under test.
@@ -62,14 +56,30 @@ func resolveMinGasPrices(raw string) (panicMessage string) {
 	return ""
 }
 
+// advertisedExample returns the value a flag's help text offers as its example, which is what an
+// operator copies. It is the text between "e.g. " and the parenthesis that closes it.
+func advertisedExample(usage string) (string, bool) {
+	const marker = "e.g. "
+	start := strings.Index(usage, marker)
+	if start < 0 {
+		return "", false
+	}
+	rest := usage[start+len(marker):]
+	end := strings.Index(rest, ")")
+	if end < 0 {
+		return "", false
+	}
+	return strings.TrimSpace(rest[:end]), true
+}
+
 // FuzzMinGasPricesLiveReaderTakesCommasAndRejectsSemicolons pins which separator boots a node.
 func FuzzMinGasPricesLiveReaderTakesCommasAndRejectsSemicolons(f *testing.F) {
 	f.Add(serverconfig.DefaultMinGasPrices) // the shipped default, one denomination
 	f.Add("")                               // absent, and accepted: ParseDecCoins reads it as no floor
 	f.Add("0.01usei")
 	f.Add("0.01usei,0.02uatom") // the separator the live reader accepts
-	f.Add("0.01usei;0.02uatom") // the separator both documents show, and the live reader panics on
-	f.Add("0.01photino;0.0001stake")
+	f.Add("0.01usei;0.02uatom") // the separator GetMinGasPrices splits on, and this reader panics on
+	f.Add("0.01photino,0.0001stake")
 	f.Add("abc")
 	f.Add("1")
 	f.Add("usei")
@@ -82,9 +92,9 @@ func FuzzMinGasPricesLiveReaderTakesCommasAndRejectsSemicolons(f *testing.F) {
 		// the disjointness this file records to hold.
 		if strings.Contains(raw, ";") && panicMessage == "" {
 			t.Errorf("minimum-gas-prices=%q carries a semicolon and booted anyway. ParseDecCoins now "+
-				"accepts the separator the flag's help text and Config.GetMinGasPrices already use, so "+
-				"the two syntaxes have stopped being disjoint. That is a fine end state and it changes "+
-				"what a node accepts, so update this file in the PR that widens the parser", raw)
+				"accepts the separator Config.GetMinGasPrices splits on, so the two syntaxes have "+
+				"stopped being disjoint. That is a fine end state and it changes what a node accepts, "+
+				"so update this file in the PR that widens the parser", raw)
 		}
 		// Where the rejection happens, not just that it happens. Every rejection reachable from a
 		// string arrives as an error ParseDecCoins returns and SetMinGasPrices wraps, so the wrap is
@@ -100,9 +110,9 @@ func FuzzMinGasPricesLiveReaderTakesCommasAndRejectsSemicolons(f *testing.F) {
 	})
 }
 
-// TestMinGasPricesFlagHelpShowsASeparatorTheLiveReaderPanicsOn reads the help text off the real
-// command rather than a copy of it, so correcting either side lands in a diff.
-func TestMinGasPricesFlagHelpShowsASeparatorTheLiveReaderPanicsOn(t *testing.T) {
+// TestMinGasPricesFlagAdvertisesAValueThatBoots holds the help text against the reader that has to
+// accept it, reading both off the real command so neither can drift alone.
+func TestMinGasPricesFlagAdvertisesAValueThatBoots(t *testing.T) {
 	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
 	flag := cmd.Flags().Lookup(server.FlagMinGasPrices)
 	if flag == nil {
@@ -110,16 +120,15 @@ func TestMinGasPricesFlagHelpShowsASeparatorTheLiveReaderPanicsOn(t *testing.T) 
 			"and an absent value stops being the empty string this file records", server.FlagMinGasPrices)
 	}
 
-	// The example in the help text, held against the reader that would have to accept it.
-	const documented = "0.01photino;0.0001stake"
-	if !strings.Contains(flag.Usage, documented) {
-		t.Fatalf("the %s help text no longer offers %q as its example, so the contradiction this file "+
-			"records may be closed. Confirm the new example parses, then delete this test rather than "+
-			"loosening it. Usage is now %q", server.FlagMinGasPrices, documented, flag.Usage)
+	example, ok := advertisedExample(flag.Usage)
+	if !ok {
+		t.Fatalf("the %s help text no longer offers an example, so there is nothing to check a value "+
+			"an operator copies against. Usage is %q", server.FlagMinGasPrices, flag.Usage)
 	}
-	if panicMessage := resolveMinGasPrices(documented); panicMessage == "" {
-		t.Fatalf("the documented example %q now boots, so the help text and the reader agree and this "+
-			"recording is stale", documented)
+	if panicMessage := resolveMinGasPrices(example); panicMessage != "" {
+		t.Fatalf("the %s help text advertises %q, and handing that to the reader root.go:296 uses "+
+			"panics with %v. An operator following the flag's own example cannot start a node, so "+
+			"either the example or the parser has to move", server.FlagMinGasPrices, example, panicMessage)
 	}
 
 	// The flag's default is what an operator gets by writing nothing, and it is not the package
@@ -139,9 +148,9 @@ func TestMinGasPricesFlagHelpShowsASeparatorTheLiveReaderPanicsOn(t *testing.T) 
 	}
 }
 
-// TestMinGasPricesGetterAcceptsOnlyWhatTheLiveReaderRejects pins the inversion itself, which is the
-// part a reader would otherwise have to discover twice.
-func TestMinGasPricesGetterAcceptsOnlyWhatTheLiveReaderRejects(t *testing.T) {
+// TestMinGasPricesGetterDescribesASyntaxNoReaderAccepts pins the inversion itself, which is the part
+// a reader would otherwise have to discover twice.
+func TestMinGasPricesGetterDescribesASyntaxNoReaderAccepts(t *testing.T) {
 	const (
 		commaSeparated     = "0.01usei,0.02uatom"
 		semicolonSeparated = "0.01usei;0.02uatom"
@@ -177,7 +186,7 @@ func TestMinGasPricesGetterAcceptsOnlyWhatTheLiveReaderRejects(t *testing.T) {
 			commaSeparated)
 	}
 	if resolveMinGasPrices(semicolonSeparated) == "" {
-		t.Errorf("the live reader now accepts %q, so the documented separator boots and this "+
-			"inversion is closed", semicolonSeparated)
+		t.Errorf("the live reader now accepts %q, so the getter's separator boots and this inversion "+
+			"is closed", semicolonSeparated)
 	}
 }
