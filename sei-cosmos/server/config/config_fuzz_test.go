@@ -40,7 +40,7 @@ const globalLabelsKey = "telemetry.global-labels"
 // and no presence guard, so nothing can be parsed without it.
 func newAppViper(t testing.TB, keys map[string]any) *viper.Viper {
 	t.Helper()
-	requireNoKeyNestsInsideAnother(t, keys)
+	requireViperCanHoldEveryKey(t, keys)
 	v := viper.New()
 	v.Set(globalLabelsKey, []any{})
 	for k, val := range keys {
@@ -64,13 +64,75 @@ func newAppViper(t testing.TB, keys map[string]any) *viper.Viper {
 // Nesting is a dotted-segment relationship, never a textual one. pruning and pruning-keep-every are
 // separate keys that share a prefix, as are state-commit.sc-write-mode and its -enable-auto sibling,
 // and a plain HasPrefix would reject the corpus as it stands.
-func requireNoKeyNestsInsideAnother(t testing.TB, keys map[string]any) {
+// There are two ways a key set loses a value, and they are checked separately because they fail for
+// different reasons and a reader chasing one should not be handed the other's message. Two keys can
+// normalize to the same key, where the later Set overwrites the earlier, or one can nest inside
+// another, where the later Set re-nests around it.
+func requireViperCanHoldEveryKey(t testing.TB, keys map[string]any) {
 	t.Helper()
 	all := make([]string, 0, len(keys)+1)
 	all = append(all, globalLabelsKey)
 	for k := range keys {
 		all = append(all, k)
 	}
+	requireNoTwoKeysNormalizeAlike(t, all)
+	requireNoKeyNestsInsideAnother(t, all)
+}
+
+// requireNoTwoKeysNormalizeAlike refuses two keys that are the same key once viper has seen them.
+//
+// Set lowercases before storing (viper.go:1503), so "Telemetry.Global-Labels" and
+// "telemetry.global-labels" are one key there while being two in a Go map. The second Set overwrites
+// the first and map order picks which value survives, which is the same loss nesting produces
+// arriving by a different route. nestsInside cannot catch it: normalizing makes the pair equal, and
+// equal keys are deliberately not a nesting relationship.
+func requireNoTwoKeysNormalizeAlike(t testing.TB, all []string) {
+	t.Helper()
+	if first, second, found := firstNormalizationCollision(all); found {
+		t.Fatalf("%q and %q are the same key to viper, which lowercases before storing, so the "+
+			"second Set overwrites the first and Go map order picks which value survives. Spell "+
+			"them the same way and pass one, or set them on separate vipers", first, second)
+	}
+}
+
+// firstNormalizationCollision returns the first two keys that are one key once lowercased, so the
+// scan is testable without driving a failure through testing.TB.
+func firstNormalizationCollision(all []string) (first, second string, found bool) {
+	seen := make(map[string]string, len(all))
+	for _, key := range all {
+		normalized := strings.ToLower(key)
+		if earlier, ok := seen[normalized]; ok {
+			return earlier, key, true
+		}
+		seen[normalized] = key
+	}
+	return "", "", false
+}
+
+// TestNormalizationCollisionIsCaseOnly holds the scan to the pairs it exists for, alongside the ones
+// it must leave alone.
+func TestNormalizationCollisionIsCaseOnly(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		keys []string
+		want bool
+	}{
+		{"the corpus as it stands", []string{globalLabelsKey, "pruning", "pruning-keep-every"}, false},
+		{"case variants of one key", []string{"Telemetry.Global-Labels", globalLabelsKey}, true},
+		{"a nesting pair is not this", []string{"telemetry", globalLabelsKey}, false},
+		{"distinct keys sharing a prefix", []string{"pruning", "pruning-keep-every"}, false},
+		{"the same key written once", []string{globalLabelsKey}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if _, _, got := firstNormalizationCollision(c.keys); got != c.want {
+				t.Errorf("firstNormalizationCollision(%q) found=%v, want %v", c.keys, got, c.want)
+			}
+		})
+	}
+}
+
+func requireNoKeyNestsInsideAnother(t testing.TB, all []string) {
+	t.Helper()
 	for _, outer := range all {
 		for _, inner := range all {
 			if !nestsInside(outer, inner) {
