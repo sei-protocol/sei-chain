@@ -901,6 +901,38 @@ func TestHasOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
+// A read-only view shares its engine names with the store it was cloned from, so engine metrics must be off
+// in the view or both would publish the same series.
+func TestReadOnlyViewDisablesEngineMetrics(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	// DefaultTestConfig disables engine metrics, which would make this test pass without the view
+	// disabling anything. Turn them on so the view is the only thing that can turn them back off.
+	cfg.AccountStoreConfig.MetricsEnabled = true
+	cfg.CodeStoreConfig.MetricsEnabled = true
+	cfg.StorageStoreConfig.MetricsEnabled = true
+	cfg.MiscStoreConfig.MetricsEnabled = true
+	cfg.MetadataStoreConfig.MetricsEnabled = true
+
+	s := setupTestStoreWithConfig(t, cfg)
+	defer s.Close()
+	commitAndCheck(t, s)
+
+	opened, err := s.LoadVersionReadOnly(0)
+	require.NoError(t, err)
+	defer opened.Close()
+
+	ro, ok := opened.(*CommitStore)
+	require.True(t, ok)
+	require.False(t, ro.config.AccountStoreConfig.MetricsEnabled)
+	require.False(t, ro.config.CodeStoreConfig.MetricsEnabled)
+	require.False(t, ro.config.StorageStoreConfig.MetricsEnabled)
+	require.False(t, ro.config.MiscStoreConfig.MetricsEnabled)
+	require.False(t, ro.config.MetadataStoreConfig.MetricsEnabled)
+
+	// The store the view was cloned from keeps reporting.
+	require.True(t, s.config.AccountStoreConfig.MetricsEnabled)
+}
+
 func TestGetAfterRollback(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 2

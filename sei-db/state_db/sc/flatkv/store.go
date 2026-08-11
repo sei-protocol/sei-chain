@@ -440,6 +440,14 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 	ro.config.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
 	ro.config.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
 
+	// Engine metrics are labelled by engine name, which the view shares with this store, so leaving them
+	// enabled would publish two conflicting values for every series.
+	ro.config.AccountStoreConfig.MetricsEnabled = false
+	ro.config.CodeStoreConfig.MetricsEnabled = false
+	ro.config.StorageStoreConfig.MetricsEnabled = false
+	ro.config.MiscStoreConfig.MetricsEnabled = false
+	ro.config.MetadataStoreConfig.MetricsEnabled = false
+
 	// Transfer the lazily-acquired lock to the view so that ro.Close()
 	// releases it, preventing a leak when this store is never closed.
 	if lazyLock && s.fileLock != nil {
