@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
@@ -175,7 +174,7 @@ func TestStartFlagKeyNamesMatchTheRecordedNames(t *testing.T) {
 // than as an operator-facing flag having moved. This says the latter, and it removes the record's
 // dependence on some other test happening to set all three.
 func TestStartFlagNamesAreRegistered(t *testing.T) {
-	cmd := startCmdForFlagLookup()
+	cmd := startCmdForFlagLookup(t)
 	for _, name := range startFlagKeysWithTargetsOfTheirOwn {
 		if cmd.Flags().Lookup(string(name)) == nil {
 			t.Errorf("start no longer registers a flag named %q, so an operator's --%s stops being "+
@@ -254,17 +253,27 @@ func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]stri
 	return cmd, serverCtx, cancel
 }
 
-// startCmdForFlagLookup builds the start command purely to read its flag set, for the tests that only
-// look a flag up. It takes no app creator and a home that does not exist, because nothing here runs:
-// none of the state newStartCmd above arranges is needed to ask the command which flags it registers.
-func startCmdForFlagLookup() *cobra.Command {
-	return server.StartCmd(nil, nonexistentHomeForFlagLookup, []trace.TracerProviderOption{})
-}
+// startCmdForFlagLookup resolves the start command seid ships, for the tests that only read its flag
+// set. It goes through the real root rather than calling server.StartCmd directly, because AddCommands
+// applies addStartFlags on top of StartCmd (sei-cosmos/server/util.go:365-366) and a second
+// construction would be a copy: identical today, since addModuleInitFlags is a no-op, and silently
+// divergent the moment a module registers or overrides a start flag. The tests that use this say they
+// read the real command, so they should.
+//
+// None of the home or context setup newStartCmd does is needed, because nothing here runs.
+func startCmdForFlagLookup(t *testing.T) *cobra.Command {
+	t.Helper()
 
-// nonexistentHomeForFlagLookup is the --home a flag-set-only command is given. It is named rather than
-// spelled inline so it reads as deliberately unusable instead of leftover scratch, since it becomes
-// that flag's DefValue and this file asserts on another flag's DefValue nearby.
-const nonexistentHomeForFlagLookup = "/nonexistent-home"
+	root, _ := NewRootCmd()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+
+	cmd, _, err := root.Find([]string{"start"})
+	if err != nil {
+		t.Fatalf("find start: %v", err)
+	}
+	return cmd
+}
 
 // FuzzStartPreRunPruningFailsFast pins the fail-fast: an unresolvable pruning
 // configuration stops start in PreRunE, before anything is opened.

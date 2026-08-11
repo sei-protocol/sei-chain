@@ -296,15 +296,6 @@ func FuzzGetConfigGlobalLabels(f *testing.F) {
 // next. Converting it to an error is the change to make, and it belongs with
 // the reader that replaces this one, since an operator whose app.toml currently panics would start
 // booting into a node that logs a parse failure instead.
-// getConfigCatchingPanic runs GetConfig and reports what it did rather than judging it. It touches no
-// testing.TB, which is the point: a t.Fatalf inside a deferred recover cannot then fire during the
-// Goexit that another t.Fatalf started.
-func getConfigCatchingPanic(v *viper.Viper) (err error, recovered any) {
-	defer func() { recovered = recover() }()
-	_, err = GetConfig(v)
-	return err, nil
-}
-
 func TestGetConfigPanicsOnANonStringGlobalLabel(t *testing.T) {
 	for _, label := range [][]any{
 		{"chain", 42}, // a non-string value
@@ -320,7 +311,7 @@ func TestGetConfigPanicsOnANonStringGlobalLabel(t *testing.T) {
 			// because Goexit is not a panic, and a second t.Fatalf in the defer would then report
 			// "no longer panics" as the last thing printed, which is an artifact of the unwind
 			// rather than the failure.
-			err, recovered := getConfigCatchingPanic(v)
+			recovered, err := getConfigCatchingPanic(v)
 			switch {
 			case recovered == nil && err != nil:
 				t.Fatalf("global-labels %v returned %v instead of panicking, so the assertion at "+
@@ -336,6 +327,15 @@ func TestGetConfigPanicsOnANonStringGlobalLabel(t *testing.T) {
 			}
 		})
 	}
+}
+
+// getConfigCatchingPanic runs GetConfig and reports what it did rather than judging it. It touches no
+// testing.TB, which is the point: a t.Fatalf inside a deferred recover cannot then fire during the
+// Goexit that another t.Fatalf started.
+func getConfigCatchingPanic(v *viper.Viper) (recovered any, err error) {
+	defer func() { recovered = recover() }()
+	_, err = GetConfig(v)
+	return nil, err
 }
 
 // TestGetConfigRequiresGlobalLabels pins the absent-key failure on its own. This is
