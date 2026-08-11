@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -280,12 +281,17 @@ type schedulerMetrics struct {
 }
 
 func (s *scheduler) emitMetrics(ctx context.Context) {
-	taskMetrics.retries.Add(ctx, int64(s.metrics.retries))
+	defer func() {
+		if e := recover(); e != nil {
+			debug.PrintStack()
+		}
+	}()
 	// TODO(PLT-353): remove once scheduler_retries verified
 	telemetry.IncrCounter(float32(s.metrics.retries), "scheduler", "retries")
-	taskMetrics.incarnations.Add(ctx, int64(s.metrics.maxIncarnation))
+	taskMetrics.retries.Add(ctx, int64(s.metrics.retries))
 	// TODO(PLT-353): remove once scheduler_incarnations verified
 	telemetry.IncrCounter(float32(s.metrics.maxIncarnation), "scheduler", "incarnations")
+	taskMetrics.incarnations.Add(ctx, int64(s.metrics.maxIncarnation))
 }
 
 func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]types.ResponseDeliverTx, error) {
