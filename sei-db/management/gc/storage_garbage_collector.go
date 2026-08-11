@@ -14,14 +14,8 @@ import (
 
 var logger = seilog.NewLogger("db", "gc")
 
-// StorageGarbageCollector periodically prunes a set of PrunableStores against one shared
-// config.RollbackWindow and config.LookbackWindow. Each cycle:
-//
-//  1. every store reports GetRollbackFloor(RollbackWindow)
-//  2. snapshotCutLine = the minimum of those answers
-//  3. historyCutLine = snapshotCutLine - LookbackWindow, or 0 when LookbackWindow is -1
-//  4. every store reporting ExternalPruning gets PruneSnapshots(snapshotCutLine), then
-//     PruneHistory(historyCutLine)
+// StorageGarbageCollector periodically prunes a set of PrunableStores which prune
+// old snapshots/checkpoints and history data based on RollbackWindow and LookbackWindow setting.
 type StorageGarbageCollector struct {
 	config *StorageGarbageCollectorConfig
 	stores []PrunableStore
@@ -82,7 +76,13 @@ func (s *StorageGarbageCollector) run() {
 	}
 }
 
-// prune runs one prune cycle. See StorageGarbageCollector for the decision rules.
+// prune runs one prune cycle. Each cycle:
+//
+//  1. every store reports GetRollbackFloor(RollbackWindow)
+//  2. snapshotCutLine = the minimum of those answers
+//  3. historyCutLine = snapshotCutLine - LookbackWindow, or 0 when LookbackWindow is -1
+//  4. every store reporting ExternalPruning gets PruneSnapshots(snapshotCutLine), then
+//     PruneHistory(historyCutLine)
 func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error {
 	if len(stores) == 0 {
 		return nil
