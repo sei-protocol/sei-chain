@@ -568,6 +568,9 @@ GO_TEST_FILES != find $(CURDIR) -name "*_test.go"
 
 # default to four splits by default
 NUM_SPLIT ?= 4
+# Matches go-test.yml GO_TEST_TIMEOUT; local shards add coverage so need
+# at least as much headroom as CI (shards run ~11-13m without coverage).
+GO_TEST_TIMEOUT ?= 30m
 
 # state_db tests run in their own workflow (sei-db-tests.yml); exclude that
 # subtree here too so local shards match the CI shards exactly.
@@ -637,4 +640,4 @@ test-group-%:split-test-packages
 		echo "⚡ Not found, running with -parallel=4"; \
 		PARALLEL="-parallel=4"; \
 	fi; \
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...
+	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=$(GO_TEST_TIMEOUT) -race -coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...
