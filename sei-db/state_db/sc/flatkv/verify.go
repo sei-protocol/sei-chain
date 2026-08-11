@@ -8,15 +8,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
-// VerifyLtHash full-scans all four data DBs and checks the recomputed state
-// against the store's maintained metadata. In addition to the global
-// committedLtHash, it validates the per-DB, per-module decomposition that FlatKV
-// now persists (per-module LtHashes and per-module key/byte stats), catching
-// drift in that bookkeeping even when the global root still matches. Read-write
-// stores with uncommitted ApplyChangeSets writes are rejected (the on-disk scan
-// cannot see them).
+// VerifyLtHash scans all four data stores and checks the recomputed state against the store's maintained
+// metadata. Beyond the global root it validates the per-DB, per-module decomposition — per-module hashes
+// and per-module key/byte totals — catching drift in that bookkeeping even when the global root matches.
+// A store with a staged block is rejected: the scan sees that block's rows and the maintained hashes do
+// not.
 //
-// Buffers one DB's worth of KVs in memory at a time and is not cancellable.
+// Buffers one store's worth of KVs in memory at a time and is not cancellable.
 // Intended for tests and offline maintenance / migration checks; not suitable
 // for online verification of production-sized state.
 func VerifyLtHash(s Store) error {
@@ -28,15 +26,14 @@ func VerifyLtHash(s Store) error {
 }
 
 func verifyLtHashInternal(cs *CommitStore) error {
-	// A read-write store between ApplyChangeSets and Commit has workingLtHash != committedLtHash. The
-	// scan below goes through the stores, so it *does* see the rows that block has staged — and the
-	// committed hash it would be compared against does not account for them. Fail loudly rather than
-	// masquerade a mid-block store as an integrity error.
-	if !cs.readOnly && !cs.workingLtHash.Equal(cs.committedLtHash) {
+	// The scan walks the stores, which merge a staged block's rows, while the hashes it is compared
+	// against do not account for that block until it is sealed. Refuse rather than report a healthy
+	// store as corrupt.
+	if cs.pendingBlockHeight != 0 {
 		return fmt.Errorf(
-			"VerifyLtHash: store has uncommitted writes at version %d; "+
+			"VerifyLtHash: store has uncommitted writes: block %d is staged; "+
 				"commit or reopen readonly before verifying",
-			cs.committedVersion,
+			cs.pendingBlockHeight,
 		)
 	}
 
@@ -60,9 +57,7 @@ func verifyLtHashInternal(cs *CommitStore) error {
 		global.MixIn(dbRoot)
 	}
 
-	// The full scan reflects on-disk (committed) state, so the only correct
-	// reference is committedLtHash. workingLtHash may include uncommitted
-	// ApplyChangeSets updates that have not yet been persisted.
+	// The scan reflects committed state, so committedLtHash is the reference.
 	if gc, cc := global.Checksum(), cs.committedLtHash.Checksum(); gc != cc {
 		return fmt.Errorf(
 			"VerifyLtHash: global mismatch at version %d\n  committed: %x\n  full-scan: %x",
