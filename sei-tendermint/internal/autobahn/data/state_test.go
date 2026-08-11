@@ -400,6 +400,12 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 		if err := state.PushAppHash(ctx, qcs[0].GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc1): %w", err)
 		}
+		if qcs[2].GlobalRange().Len() < 2 {
+			panic("qcs[2].Len() is too small for this test")
+		}
+		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-2, types.GenAppHash(rng)); !errors.Is(err, ErrOutOfOrder) {
+			return fmt.Errorf("PushAppHash(qc3 before qc2) error = %w, want %w", err, ErrOutOfOrder)
+		}
 		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-1, types.GenAppHash(rng)); !errors.Is(err, ErrOutOfOrder) {
 			return fmt.Errorf("PushAppHash(qc3 before qc2) error = %w, want %w", err, ErrOutOfOrder)
 		}
@@ -409,6 +415,13 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 		}
 		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc3): %w", err)
+		}
+		// Inserting old stuff should be a noop.
+		if err := state.PushAppHash(ctx, qcs[1].GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(qc2): %w", err)
+		}
+		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-2, types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(qc2): %w", err)
 		}
 		return nil
 	}))
