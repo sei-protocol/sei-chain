@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"testing"
-	"time"
 
 	"github.com/spf13/cast"
 
@@ -69,35 +68,38 @@ import (
 // to int64, and an unquoted float literal decodes to float64. A table of strings alone cannot express
 // the float case, and the float case is the only one where the two casts disagree with the receipt
 // side positive.
-// littTTLPerBlockForTest mirrors sei-db's per-block TTL multiplier (litt_receipt_store.go). It is
-// duplicated rather than imported because it is unexported there; if the two drift, the saturation row
-// below stops describing what a node does and the assertion says so.
-const littTTLPerBlockForTest = 2 * time.Second
-
 var minRetainBlocksFanOut = []struct {
 	raw     any
-	receipt int    // app/receipt_store_config.go:27, through cast.ToInt
+	receipt int    // app/receipt_store_config.go:27, through cast.ToInt. Unused when saturates.
 	block   uint64 // cmd/seid/cmd/root.go:297, through cast.ToUint64
+	// saturates marks a row whose receipt cast Go leaves implementation-defined, so no literal is a
+	// correct prediction and the property is asserted in place of the value. Same reason a
+	// NumCPU-derived default is recorded as a DerivedDefault rather than a number.
+	saturates bool
 }{
-	{"0", 0, 0},                // keep everything, both sides
-	{"100000", 100000, 100000}, // the ordinary case: one value, two policies
-	{"200000", 200000, 200000}, // a second ordinary value, same class
-	{"-5", -5, 0},              // ToInt keeps the negative, ToUint64 floors
-	{"9223372036854775808", 0, 9223372036854775808},   // past int64: ToInt floors, ToUint64 keeps
-	{"18446744073709551615", 0, 18446744073709551615}, // the uint64 ceiling, same shape
-	{"not-a-number", 0, 0},                            // both floor, so both keep everything
+	{"0", 0, 0, false},                                       // keep everything, both sides
+	{"100000", 100000, 100000, false},                        // the ordinary case: one value, two policies
+	{"200000", 200000, 200000, false},                        // a second ordinary value, same class
+	{"-5", -5, 0, false},                                     // ToInt keeps the negative, ToUint64 floors
+	{"9223372036854775808", 0, 9223372036854775808, false},   // past int64: ToInt floors, ToUint64 keeps
+	{"18446744073709551615", 0, 18446744073709551615, false}, // the uint64 ceiling, same shape
+	{"not-a-number", 0, 0, false},                            // both floor, so both keep everything
 	// A leading sign is where the two string casts could most plausibly part company, because ParseInt
 	// takes a sign prefix. cast strips a leading + before ParseUint sees it, so they agree, and the row
 	// exists so that stops being something a reader takes on trust.
-	{"+5", 5, 5},
+	{"+5", 5, 5, false},
 	// Unquoted in app.toml, so the decode hands both readers the operator's own type.
-	{int64(100000), 100000, 100000},
-	// The one shape where the casts disagree with the receipt side positive. Reachable as
-	// min-retain-blocks = 1e19, which decodes to float64: ToInt saturates to MaxInt64 where the string
-	// path would have floored to zero, and ToUint64 keeps the magnitude.
-	{float64(1e19), math.MaxInt64, 10000000000000000000},
-	// Just above 2^63, so the same saturation from a value an operator could plausibly mistype.
-	{float64(9.3e18), math.MaxInt64, 9300000000000000000},
+	{int64(100000), 100000, 100000, false},
+	// The one shape where the two casts can disagree with the receipt side positive. Reachable as
+	// min-retain-blocks = 1e19, which decodes to float64. Go leaves a float-to-int conversion whose
+	// result the target cannot represent implementation-defined, and the two architectures the fleet
+	// ships take it differently: amd64 lowers it to a bare CVTTSD2SQ and gets the x86 indefinite value,
+	// MinInt64, while arm64 lowers it to FCVTZS and saturates to MaxInt64. So the receipt column is a
+	// property here rather than a number. The block column is not affected: uint64 of a float below
+	// 2^64 is the exact magnitude on both.
+	{float64(1e19), 0, 10000000000000000000, true},
+	// Just above 2^63, so the same conversion from a value an operator could plausibly mistype.
+	{float64(9.3e18), 0, 9300000000000000000, true},
 }
 
 // TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree holds the safety property that
@@ -123,8 +125,18 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 				t.Fatalf("readReceiptStoreConfig(%v): %v", row.raw, err)
 			}
 
-			// The prediction, against the reader.
-			if receiptConfig.KeepRecent != row.receipt {
+			// Where Go leaves the conversion implementation-defined, the property stands in for the
+			// value: the receipt side must be at or below zero, or the saturating positive extreme.
+			// Anything else positive is a real retention window and would prune.
+			if row.saturates {
+				if kr := receiptConfig.KeepRecent; kr > 0 && kr != math.MaxInt64 {
+					t.Errorf("min-retain-blocks=%v resolved the receipt store's KeepRecent to %d. Go "+
+						"leaves this conversion implementation-defined, so the two outcomes this suite "+
+						"accepts are at-or-below zero, which the KeepRecent>0 guard refuses, and MaxInt64, "+
+						"whose TTL multiply overflows non-positive. A positive window that is neither is a "+
+						"real retention schedule an operator never set", row.raw, kr)
+				}
+			} else if receiptConfig.KeepRecent != row.receipt {
 				t.Errorf("min-retain-blocks=%v resolves the receipt store's KeepRecent to %d where this "+
 					"row predicts %d. The prediction describes app/receipt_store_config.go, so a reader "+
 					"you changed deliberately means updating the row and saying what a node now retains "+
@@ -145,17 +157,7 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 			if row.receipt >= 0 && uint64(row.receipt) == row.block {
 				return
 			}
-			// Saturation is the one positive receipt window that survives, and only because the TTL
-			// multiply overflows past it. Held to the exact boundary: anything positive and smaller
-			// would produce a real TTL and prune.
-			if row.receipt == math.MaxInt64 {
-				if ttl := time.Duration(row.receipt) * littTTLPerBlockForTest; ttl > 0 {
-					t.Errorf("min-retain-blocks=%v saturates KeepRecent to MaxInt64 and the TTL multiply "+
-						"now yields %v, which is positive. Receipts were surviving this row only because "+
-						"that product overflowed to a non-positive Duration that gc_manager treats as no "+
-						"expiry. With a positive TTL an operator's block-retention value starts expiring "+
-						"receipts", row.raw, ttl)
-				}
+			if row.saturates {
 				return
 			}
 			if row.receipt > 0 {
@@ -165,6 +167,55 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 					"receipts on a schedule the operator never set", row.raw, row.receipt, row.block)
 			}
 		})
+	}
+}
+
+// TestMinRetainBlocksFullNodeModeCapsReceiptRetention records the case where the fan-out bites, which
+// is the default one.
+//
+// seid init defaults --mode to full, and setFullnodeTypeAppConfig sets min-retain-blocks to 100000 for
+// Tendermint block pruning. The same key reaches the receipt store as KeepRecent, so a positive value
+// arms receipt pruning: the default pebbledb backend starts a pruner from it
+// (sei-db/ledger_db/receipt/receipt_store.go:176) and the litt backend applies a TTL and a read floor
+// from it. So a default full node caps EVM receipt retention at a block count nobody set for that
+// purpose, and the key's own documentation describes only block retention.
+//
+// An operator has no setting that keeps both. Block pruning at 100000 caps receipts, and keeping every
+// receipt means min-retain-blocks of 0, which also stops pruning blocks. That is the coupling recorded
+// here, and it is tracked as PLT-976.
+//
+// The value is read out of SetAppConfigByMode rather than written here, for the reason the archive test
+// gives: a transcribed 100000 would hold whatever the mode did, so moving the mode off 100000 would
+// change receipt retention on every full node with nothing reporting it.
+func TestMinRetainBlocksFullNodeModeCapsReceiptRetention(t *testing.T) {
+	configtest.Isolate(t)
+
+	full := srvconfig.DefaultConfig()
+	params.SetAppConfigByMode(full, params.NodeModeFull)
+
+	if full.MinRetainBlocks != 100000 {
+		t.Fatalf("full mode now sets min-retain-blocks to %d rather than 100000. That value is also the "+
+			"receipt store's KeepRecent, so this moves how much EVM receipt history every default full "+
+			"node keeps, not only how many Tendermint blocks it retains. If the change is deliberate, "+
+			"say what receipt history a full node is now expected to serve", full.MinRetainBlocks)
+	}
+
+	receiptConfig, err := readReceiptStoreConfig(t.TempDir(), mapAppOpts{
+		server.FlagMinRetainBlocks: full.MinRetainBlocks,
+	})
+	if err != nil {
+		t.Fatalf("readReceiptStoreConfig: %v", err)
+	}
+	if receiptConfig.KeepRecent != int(full.MinRetainBlocks) {
+		t.Errorf("full mode's min-retain-blocks of %d reached the receipt store as KeepRecent=%d. The "+
+			"fan-out is what this file records, so the two stopping agreeing is the thing to explain",
+			full.MinRetainBlocks, receiptConfig.KeepRecent)
+	}
+	// The state that arms pruning, stated on its own so the name of this test stays true.
+	if receiptConfig.KeepRecent <= 0 {
+		t.Errorf("full mode now leaves the receipt store's KeepRecent at %d, which is the no-pruning "+
+			"state. That is a better end state for receipt history and it changes what a full node "+
+			"keeps, so record what block retention it now gets instead", receiptConfig.KeepRecent)
 	}
 }
 

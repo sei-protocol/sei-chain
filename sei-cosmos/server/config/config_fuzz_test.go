@@ -1633,9 +1633,17 @@ func TestGetConfigLeavesPruningKeepEveryEmpty(t *testing.T) {
 			"TestBaseConfigManifestNamesEveryField is false and the field needs a manifest row",
 			cfg.PruningKeepEvery, nothingElseProduces)
 	}
-	if declared := DefaultConfig().PruningKeepEvery; declared == "" {
-		t.Errorf("DefaultConfig now declares PruningKeepEvery empty too, so this reader no longer "+
-			"diverges from it and the divergence half of this row should say so. Declared %q", declared)
+	// The divergence half: the reader's empty string has to differ from what DefaultConfig declares.
+	// Compared against the declared default rather than against "" so it reads as the property, and
+	// carrying no interpolated value because both sides are the empty string whenever it fires. What
+	// the declared default actually is belongs to server_config.golden, which records it; asserting a
+	// particular value here would fire on a default moving to another non-empty string, where the
+	// divergence this test owns is still intact.
+	if cfg.PruningKeepEvery == DefaultConfig().PruningKeepEvery {
+		t.Error("GetConfig leaves PruningKeepEvery empty and DefaultConfig now declares it empty too, " +
+			"so the two agree and the divergence this row records is gone. This half exists only to " +
+			"catch that collapse; a default that changed to some other value lands in the " +
+			"server_config.golden diff instead")
 	}
 }
 

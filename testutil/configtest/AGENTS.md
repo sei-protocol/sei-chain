@@ -188,7 +188,7 @@ these keys at all. `parseSSConfigs` assigns `cast.ToX(appOpts.Get(k))` unconditi
 default. There is no guard to differ over. What the split costs is a second copy rather than a
 disagreement, and the reason is specific to which copy: nothing reads these fields **on the
 `Config` `GetConfig` returns**, so the store is built from `parseSCConfigs` and `parseSSConfigs`
-alone. The fields themselves are read elsewhere and it matters not to conflate the two.
+alone. The fields themselves are read elsewhere, and conflating the two is the mistake to avoid.
 `SetAppConfigByMode` writes `StateStore.Enable` and `StateStore.KeepRecent` per node mode
 (`app/params/config.go`), and `sei-db/config/toml.go` renders every `StateStore` field into the
 app.toml template. PLT-955 is what that distinction looks like when it goes wrong, an archive
