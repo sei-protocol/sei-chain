@@ -121,7 +121,7 @@ func TestBuildGigaConfig_BlockDBOverrides(t *testing.T) {
 	littCfg, err := fc.BlockDB.LittBlockConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	require.NotNil(t, littCfg.Litt)
-	assert.Equal(t, 30*time.Second, littCfg.Retention)
+	assert.Equal(t, 30*time.Second, littCfg.RetentionTime)
 	assert.Equal(t, 5*time.Second, littCfg.Litt.GCPeriod)
 	assert.True(t, littCfg.Litt.Fsync)
 }
@@ -143,7 +143,7 @@ func TestBuildGigaConfig_BlockDBOmittedKeepsDefaults(t *testing.T) {
 	littCfg, err := config.AutobahnBlockDBConfig{}.LittBlockConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	require.NotNil(t, littCfg.Litt)
-	assert.Equal(t, 24*time.Hour, littCfg.Retention)
+	assert.Equal(t, time.Hour, littCfg.RetentionTime)
 	assert.True(t, littCfg.Litt.Fsync)
 }
 

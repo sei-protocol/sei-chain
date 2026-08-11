@@ -1402,10 +1402,10 @@ func TestMemblockPruneIntoCohortRoundsDown(t *testing.T) {
 
 // littConfig builds a littblock config rooted at dir with a tiny retention so
 // the prune watermark is the sole observable reclamation gate in tests.
-func littConfig(t *testing.T, dir string) *littblock.LittBlockConfig {
+func littConfig(t *testing.T, dir string) *littblock.BlockDBConfig {
 	cfg, err := littblock.DefaultConfig(dir)
 	require.NoError(t, err)
-	cfg.Retention = time.Nanosecond
+	cfg.RetentionTime = time.Nanosecond
 	return cfg
 }
 
