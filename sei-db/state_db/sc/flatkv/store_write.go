@@ -117,11 +117,14 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	// Step 4: Clear per-block bookkeeping
 	s.clearPendingBlock()
 
-	// Periodic snapshot so WAL stays bounded and restarts are fast.
+	// Periodic snapshot so WAL stays bounded and restarts are fast. A failure fails the commit: the
+	// flush wait inside WriteSnapshot is where a dead store surfaces, and a block whose data will never
+	// reach disk must not be reported as committed. The block is already durable in the WAL, so replay
+	// reconciles whatever the caller's halt leaves behind.
 	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
 		s.phaseTimer.SetPhase("commit_write_snapshot")
 		if err := s.WriteSnapshot(""); err != nil {
-			logger.Error("auto snapshot failed", "version", version, "err", err)
+			return version, fmt.Errorf("auto snapshot at version %d: %w", version, err)
 		}
 	}
 

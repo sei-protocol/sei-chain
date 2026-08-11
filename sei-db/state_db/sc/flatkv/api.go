@@ -24,6 +24,11 @@ type Options struct {
 // Read path: Get/Has/Iterator read committed state only; LoadVersionReadOnly serves past versions.
 // Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
 //
+// There are no recoverable errors. Any error returned by this store is fatal, and halting is the
+// caller's responsibility: on the first error the caller must stop rather than proceed on state the
+// store cannot vouch for. Behaviour after that first error is undefined — a later call may fail, or may
+// answer plausibly — so continued operation is not evidence that the failure was benign.
+//
 // Byte slices passed to or received from any method — including the keys and values an iterator
 // yields — must not be mutated. They are not defensively copied: a value out of an iterator can point
 // straight into memory the store is still using, so writing to it corrupts state that other readers

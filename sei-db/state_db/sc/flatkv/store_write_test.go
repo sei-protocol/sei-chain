@@ -3,6 +3,7 @@ package flatkv
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -577,6 +578,46 @@ func TestStoreFsyncConfig(t *testing.T) {
 // =============================================================================
 // Auto-snapshot triggered by SnapshotInterval
 // =============================================================================
+
+// A failed periodic snapshot must fail the commit rather than being logged and discarded. The flush
+// wait at the front of WriteSnapshot is where a dead store surfaces, so swallowing an error there would
+// report a block as committed whose data will never reach disk — and the caller, which is required to
+// halt on the first error, would never learn it had one.
+//
+// The failure is forced with directory permissions: the snapshot cannot create its temporary directory
+// under the flatkv root. The WAL and the databases live in subdirectories that already exist, so they
+// are unaffected.
+func TestCommitFailsWhenPeriodicSnapshotFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("forces the failure with directory permissions, which root ignores")
+	}
+
+	cfg := config.DefaultTestConfig(t)
+	cfg.SnapshotInterval = 2
+	s := setupTestStoreWithConfig(t, cfg)
+	defer func() { _ = s.Close() }()
+
+	// Block 1 does not trip the interval, so it must succeed.
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xaa})
+
+	dir := s.flatkvDir()
+	info, err := os.Stat(dir)
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, info.Mode().Perm()) })
+
+	// Block 2 trips it.
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x02}, ktype.Slot{0x02}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{{
+		Name:      "evm",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: key, Value: make([]byte, 32)}}},
+	}}))
+
+	_, err = s.Commit(s.Version() + 1)
+	require.Error(t, err, "a failed periodic snapshot must fail the commit")
+	require.ErrorContains(t, err, "auto snapshot",
+		"the error must name the snapshot as the cause rather than being swallowed")
+}
 
 func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
