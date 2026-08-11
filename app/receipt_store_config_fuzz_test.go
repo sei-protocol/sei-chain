@@ -128,7 +128,11 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 					"update it and say what a node now retains", row.raw, got, row.block)
 			}
 
-			if uint64(row.receipt) == row.block {
+			// Same number on both sides means the fan-out is a plain coupling and there is nothing to
+			// check. The sign test is part of that question rather than belt-and-braces: converting a
+			// negative receipt value to uint64 wraps it to the top of the range, so a row pairing a
+			// negative with a large block value would read as agreement and skip the check below.
+			if row.receipt >= 0 && uint64(row.receipt) == row.block {
 				return
 			}
 			if row.receipt > 0 {
@@ -149,9 +153,12 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 // the receipt cast leaves KeepRecent at 0, which is no pruning. So the fan-out does not give archive
 // a second history-loss path.
 //
-// The value comes from SetAppConfigByMode rather than being written here as a 0. Transcribing it
-// would leave this test asserting that cast.ToInt(0) is 0, which holds whatever the mode does, so
-// moving archive off keep-all would not fail the test that exists to notice.
+// Two things are checked and they catch different changes. The first assertion reads archive's value
+// out of SetAppConfigByMode, so a mode that stops keeping every block fails there; that is the one
+// that would have caught the change this test exists to notice, and it is why the value is sourced
+// rather than transcribed. The second hands that value to the reader, which with the first assertion
+// standing is always 0, so what it adds is narrower: it fails if readReceiptStoreConfig starts
+// substituting a non-zero default for a zero key instead of passing it through.
 func TestMinRetainBlocksArchiveModeKeepsBothRetentionsOpen(t *testing.T) {
 	configtest.Isolate(t)
 

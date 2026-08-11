@@ -186,8 +186,13 @@ these keys at all. `parseSSConfigs` assigns `cast.ToX(appOpts.Get(k))` unconditi
 (`app/seidb.go:198-210`) and `GetConfig` uses plain typed getters with no `IsSet`
 (`config.go:629-641`), so both resolve an absent key to the Go zero rather than to the declared
 default. There is no guard to differ over. What the split costs is a second copy rather than a
-disagreement: `GetConfig` populates both structs and no caller reads either struct's fields, so
-the store is built from `parseSCConfigs` and `parseSSConfigs` alone.
+disagreement, and the reason is specific to which copy: nothing reads these fields **on the
+`Config` `GetConfig` returns**, so the store is built from `parseSCConfigs` and `parseSSConfigs`
+alone. The fields themselves are read elsewhere and it matters not to conflate the two.
+`SetAppConfigByMode` writes `StateStore.Enable` and `StateStore.KeepRecent` per node mode
+(`app/params/config.go`), and `sei-db/config/toml.go` renders every `StateStore` field into the
+app.toml template. PLT-955 is what that distinction looks like when it goes wrong, an archive
+node pruning history because the mode's writes to those fields do not reach the store.
 
 ## Renaming a Key
 

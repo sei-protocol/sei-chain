@@ -201,6 +201,7 @@ func TestGetConfigPanicsOnANonStringGlobalLabel(t *testing.T) {
 	for _, label := range [][]any{
 		{"chain", 42}, // a non-string value
 		{7, "chain"},  // a non-string key
+		{1, 2},        // neither is a string
 	} {
 		t.Run(fmt.Sprintf("%v", label), func(t *testing.T) {
 			v := viper.New()
@@ -238,23 +239,6 @@ func TestGetConfigRequiresGlobalLabels(t *testing.T) {
 	if !strings.Contains(err.Error(), "global-labels") {
 		t.Fatalf("the failure must name the key, got %v", err)
 	}
-}
-
-// TestGetConfigPanicsOnNonStringLabel records that the inner element assertions are
-// unchecked. A label list of the right shape but the wrong element type takes the
-// node down with a raw interface-conversion panic rather than an error naming
-// telemetry.
-func TestGetConfigPanicsOnNonStringLabel(t *testing.T) {
-	v := viper.New()
-	v.Set(globalLabelsKey, []any{[]any{1, 2}})
-
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("a non-string label must panic; if it is now an error, the diagnostic " +
-				"improved and this row should say so")
-		}
-	}()
-	_, _ = GetConfig(v)
 }
 
 // grpcClamp is a duration key GetConfig clamps rather than accepts verbatim.
@@ -1079,7 +1063,8 @@ var grpcWebKeys = []configtest.KeySpec{
 //
 // global-labels is not a row. It is read as a bare type assertion whose absence fails GetConfig
 // outright and whose shape rules are their own subject, so it has dedicated targets above
-// (FuzzGetConfigGlobalLabels, TestGetConfigRequiresGlobalLabels, TestGetConfigPanicsOnNonStringLabel)
+// (FuzzGetConfigGlobalLabels, TestGetConfigRequiresGlobalLabels,
+// TestGetConfigPanicsOnANonStringGlobalLabel)
 // and is recorded by name rather than driven as a row.
 var telemetryKeys = []configtest.KeySpec{
 	{
