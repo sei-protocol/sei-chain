@@ -369,9 +369,6 @@ func TestExecution(t *testing.T) {
 					return fmt.Errorf("state.PushAppHash(): %w", err)
 				}
 			}
-			if err := state.PushAppHash(ctx, gr.Next-1, types.GenAppHash(rng)); err == nil {
-				return errors.New("PushAppHash expected to fail on duplicate proposal")
-			}
 		}
 		return nil
 	}); err != nil {

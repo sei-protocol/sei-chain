@@ -87,6 +87,7 @@ func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 	}
 	suffix, err := s.ReadSuffix()
 	if err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("ReadSuffix(): %w", err)
 	}
 	s.status = suffix.Status

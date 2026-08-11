@@ -70,7 +70,7 @@ func loadPersistedState(dir utils.Option[string]) (*loadedState, *persisters, er
 	}
 	cp, commitQCs, err := persist.NewCommitQCPersister(dir)
 	if err != nil {
-		bp.Close()
+		_ = bp.Close()
 		return nil, nil, fmt.Errorf("NewCommitQCPersister: %w", err)
 	}
 	pers := &persisters{blocks: bp, commitQCs: cp}
@@ -88,7 +88,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	}
 	inner, err := newInner(data, loaded)
 	if err != nil {
-		pers.close()
+		_ = pers.close()
 		return nil, err
 	}
 	return &State{

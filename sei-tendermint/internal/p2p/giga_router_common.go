@@ -66,15 +66,6 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
 	}
-	lastExecutedHeight := cfg.App.Info().LastBlockHeight
-	lastExecutedBlock := utils.None[atypes.GlobalBlockNumber]()
-	if lastExecutedHeight != 0 {
-		n, ok := utils.SafeCast[atypes.GlobalBlockNumber](lastExecutedHeight)
-		if !ok {
-			return nil, fmt.Errorf("invalid App.Info().LastBlockHeight = %v", lastExecutedHeight)
-		}
-		lastExecutedBlock = utils.Some(n)
-	}
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for k := range cfg.ValidatorAddrs {
@@ -88,10 +79,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
-	ds, err := data.NewState(&data.Config{
-		Registry:          registry,
-		LastExecutedBlock: lastExecutedBlock,
-	}, blockDB)
+	ds, err := data.NewState(&data.Config{Registry: registry}, blockDB)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
@@ -515,7 +503,7 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 			Global.gigaNewConnsAt("in").Add(1)
 			Global.gigaConnsAt("in").Add(1)
 			defer Global.gigaConnsAt("in").Add(-1)
-			if err := r.service.RunInbound(ctx, server, isCommittee); err != nil {
+			if err := r.service.RunServer(ctx, server, isCommittee); err != nil {
 				return fmt.Errorf("inbound from %v: %w", key, err)
 			}
 			return nil

@@ -7,9 +7,8 @@ import (
 // BlockDB is the durable backing store for data.State. It persists the
 // finalized records the consensus state machine produces — finalized blocks
 // (indexed by GlobalBlockNumber and by header hash), FullCommitQCs (each
-// covering a contiguous range of GlobalBlockNumbers), and AppQCs (each matching
-// a persisted CommitQC range) — and provides the read API needed for crash
-// recovery and runtime lookups.
+// covering a contiguous range of GlobalBlockNumbers), AppProposals and AppQCs
+// and provides the read API needed for crash recovery and runtime lookups.
 //
 // # Concurrency
 //

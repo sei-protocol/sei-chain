@@ -204,7 +204,7 @@ func recoverResumeState(
 	if !ok {
 		return prev, highest, nil
 	}
-	if status.NextBlock > 0 {
+	if status.NextBlock > status.First {
 		highest = tmutils.Some(uint64(status.NextBlock - 1))
 	}
 	if status.NextQC > 0 {

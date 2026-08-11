@@ -27,7 +27,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			cfg:                cfg,
 			key:                key,
 			data:               dataState,
-			service:            giga.NewBlockSyncService(dataState),
+			service:            giga.NewFullNodeService(dataState),
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 			app:                cfg.App,

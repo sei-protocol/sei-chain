@@ -1,6 +1,7 @@
 package data
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,8 +19,6 @@ const blocksCacheSize = 4000
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
 	Registry *epoch.Registry
-	// LastExecutedBlock is the app's committed global height if any.
-	LastExecutedBlock utils.Option[types.GlobalBlockNumber]
 }
 
 // blockEntry is a (number, block) pair collected in runPersist batches.
@@ -29,9 +28,6 @@ type blockEntry struct {
 }
 
 type inner struct {
-	// Map key ranges (low end = first):
-	//
-	// Durable copies below first live in BlockDB.
 	qcs          map[types.GlobalBlockNumber]*types.FullCommitQC   // [first, nextQC)
 	blocks       map[types.GlobalBlockNumber]*types.Block          // [first, nextBlock) + gap-fills in [nextBlock, nextQC)
 	appProposals map[types.GlobalBlockNumber]*types.AppProposal    // [first, nextAppProposal)
@@ -39,7 +35,7 @@ type inner struct {
 	blockHashes  map[types.BlockHeaderHash]types.GlobalBlockNumber // blockHashes mirrors blocks (insertBlock / setPersisted)
 
 	// first is the exclusive low end of retained in-memory state: maps keep [first, next*).
-	// Advanced by runPersist()
+	// Advanced by runPersist(). Durable copies below first live in BlockDB.
 	//
 	// first <= nextAppQC <= nextAppProposal <= nextBlock <= nextQC
 	first           types.GlobalBlockNumber
@@ -49,6 +45,8 @@ type inner struct {
 	nextQC          types.GlobalBlockNumber
 	persisted       types.SuffixRange
 
+	// Anchor represents the highest fully processed row:
+	// CommitQC, Blocks, AppProposal, AppQC present and persisted.
 	anchor utils.AtomicSend[utils.Option[Anchor]]
 }
 
@@ -83,7 +81,7 @@ func (i *inner) insertAppQC(registry *epoch.Registry, appQC *types.AppQC) error 
 		return nil
 	}
 	if gr.Next > i.nextAppProposal {
-		return fmt.Errorf("Missing AppProposal for this AppQC")
+		return fmt.Errorf("missing AppProposal for this AppQC")
 	}
 	if gr.First > i.nextAppQC {
 		return fmt.Errorf("AppQC gap: expected first<=%d, got %d", i.nextAppQC, gr.First)
@@ -100,7 +98,6 @@ func (i *inner) insertAppQC(registry *epoch.Registry, appQC *types.AppQC) error 
 		i.appQCs[i.nextAppQC] = appQC
 		i.nextAppQC++
 	}
-	i.nextAppQC = gr.Next
 	return nil
 }
 
@@ -110,7 +107,7 @@ func (i *inner) insertAppProposal(appProposal *types.AppProposal) error {
 		return nil
 	}
 	if gr.Next > i.nextQC {
-		return fmt.Errorf("Missing CommitQC for this AppProposal")
+		return fmt.Errorf("missing CommitQC for this AppProposal")
 	}
 	if gr.First > i.nextAppProposal {
 		return fmt.Errorf("AppProposal gap: expected first<=%d, got %d", i.nextAppProposal, gr.First)
@@ -183,8 +180,6 @@ type State struct {
 // Use memblock.NewBlockDB() for an in-memory store (testing / no persistent dir).
 // The caller owns blockDB and must close it after State.Run returns (nodeImpl
 // owns this in production); State never closes it.
-// Recovery starts at cfg.LastExecutedBlock and handles a non-zero CommitQC tip
-// via loadFromBlockDB (skipTo).
 func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	inner, err := loadFromBlockDB(cfg, blockDB)
 	if err != nil {
@@ -213,18 +208,17 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 		NextAppQC:       firstBlock,
 		NextBlock:       firstBlock,
 	})
-	first := status.First
 	inner := &inner{
 		qcs:             map[types.GlobalBlockNumber]*types.FullCommitQC{},
 		blocks:          map[types.GlobalBlockNumber]*types.Block{},
 		appQCs:          map[types.GlobalBlockNumber]*types.AppQC{},
 		appProposals:    map[types.GlobalBlockNumber]*types.AppProposal{},
 		blockHashes:     map[types.BlockHeaderHash]types.GlobalBlockNumber{},
-		first:           first,
-		nextAppProposal: first,
-		nextAppQC:       first,
-		nextBlock:       first,
-		nextQC:          first,
+		first:           status.First,
+		nextAppProposal: status.First,
+		nextAppQC:       status.First,
+		nextBlock:       status.First,
+		nextQC:          status.First,
 		persisted:       status,
 		anchor:          utils.NewAtomicSend(utils.None[Anchor]()),
 	}
@@ -409,7 +403,7 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 	panic("unreachable")
 }
 
-// NextBlock returns the index of the next block to be pushed.
+// NextAppQC returns the index of the next AppQC to be pushed.
 func (s *State) NextAppQC() types.GlobalBlockNumber {
 	for inner := range s.inner.Lock() {
 		return inner.nextAppQC
@@ -601,13 +595,16 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextBlock }); err != nil {
 			return err
 		}
+		// We only care about the AppHash of the last block of the CommitQC.
 		p := inner.qcs[n].QC().Proposal()
 		gr := p.GlobalRange()
-		if gr.First != inner.nextAppProposal {
-			return fmt.Errorf("unexpected app proposal : got %v, want in [%v;%v)", n, gr.First, gr.Next)
-		}
-		// We only care about the AppHash of the last block of the CommitQC.
 		if gr.Next != n+1 {
+			return nil
+		}
+		if err := ctrl.WaitUntil(ctx, func() bool { return gr.First <= inner.nextAppProposal }); err != nil {
+			return err
+		}
+		if gr.Next != n+1 || n < inner.nextAppProposal {
 			return nil
 		}
 		proposal := types.NewAppProposal(p, hash)
@@ -621,6 +618,12 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.nextAppProposal += 1
 		}
 		ctrl.Updated()
+		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
+		// otherwise we lose the apphash on restart.
+		// TODO(gprusak): this is a temporary measure, until AppHashes are persisted outside of BlockDB.
+		if err := ctrl.WaitUntil(ctx, func() bool { return gr.Next <= inner.persisted.NextAppProposal }); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -689,15 +692,14 @@ func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
 }
 
 func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
-	// TODO(gprusak): decide whether 0 is a good result in this case in general.
-	// Empty maps (first == nextQC) only on fresh start / after skipTo with no QC.
-	if i.first == i.nextAppProposal {
-		if i.first == i.nextQC {
-			return 0
-		}
+	if i.nextAppProposal < i.nextQC {
 		return i.qcs[i.nextAppProposal].QC().LaneRange(lane).First()
 	}
-	return i.qcs[i.nextAppProposal-1].QC().LaneRange(lane).Next()
+	if i.first < i.nextAppProposal {
+		return i.qcs[i.nextAppProposal-1].QC().LaneRange(lane).Next()
+	}
+	// Genesis state: i.first == i.nextQC
+	return 0
 }
 
 // Waits until lane block n is executed, returns the next block of this lane to be executed (>n)
@@ -811,7 +813,11 @@ func (s *State) runPersist(ctx context.Context) error {
 		for inner, ctrl := range s.inner.Lock() {
 			inner.persisted = status
 			for inner.first < inner.persisted.First {
+				// Divergence detection
 				n := inner.first
+				if got, want := inner.appProposals[n].AppHash(), inner.appQCs[n].Proposal().AppHash(); !bytes.Equal(got, want) {
+					return fmt.Errorf("AppHash divergence detected at block %v: local AppHash = %v, quorum Apphash = %v", n, got, want)
+				}
 				delete(inner.blockHashes, inner.blocks[n].Header().Hash())
 				delete(inner.blocks, n)
 				delete(inner.qcs, n)

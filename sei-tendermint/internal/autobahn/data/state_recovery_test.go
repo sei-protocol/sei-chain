@@ -98,83 +98,6 @@ func TestRecoveryNormal(t *testing.T) {
 	require.Equal(t, gr2.Next, state3.NextBlock())
 }
 
-func TestRecoveryStartsAtLastExecutedBlock(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	gr1 := qc1.QC().GlobalRange()
-	gr2 := qc2.QC().GlobalRange()
-	require.Greater(t, gr2.Len(), 2)
-
-	db := newTestBlockDB(t, t.TempDir())
-	writeToBlockDB(t, db,
-		[]*types.FullCommitQC{qc1, qc2},
-		[][]*types.Block{blocks1, blocks2})
-
-	lastExecuted := gr2.First
-	state := newTestState(t, &Config{
-		Registry:          registry,
-		LastExecutedBlock: utils.Some(lastExecuted),
-	}, db)
-
-	for inner := range state.inner.Lock() {
-		require.Equal(t, gr1.First, inner.nextAppProposal)
-	}
-	require.Equal(t, gr2.Next, state.NextBlock())
-	got, err := state.TryBlock(lastExecuted)
-	require.NoError(t, err)
-	require.Equal(t, blocks2[0].Header().Hash(), got.Header().Hash())
-}
-
-func TestRecoveryCapsAppTipAtLastBlockInBlockDB(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-	qc2, blocks2 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.Some(qc1.QC()))
-	gr2 := qc2.QC().GlobalRange()
-
-	dir := t.TempDir()
-	db1 := newTestBlockDB(t, dir)
-	writeToBlockDB(t, db1, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
-	require.NoError(t, db1.Close())
-
-	db := newTestBlockDB(t, dir)
-
-	state, err := NewState(&Config{
-		Registry:          registry,
-		LastExecutedBlock: utils.Some(gr2.First),
-	}, db)
-	require.NoError(t, err)
-	require.Equal(t, gr2.First, state.NextBlock())
-
-	require.NoError(t, state.PushQC(t.Context(), qc2, blocks2))
-	got, err := state.GlobalBlock(t.Context(), gr2.First)
-	require.NoError(t, err)
-	require.Equal(t, blocks2[0].Header().Hash(), got.Header.Hash())
-
-	// A per-CommitQC AppProposal cannot be rebuilt from the capped mid-QC
-	// cursor; this test only pins the block/QC recovery cap.
-}
-
-func TestRecoveryRejectsAppTipBeyondCrashWindow(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
-
-	db := newTestBlockDB(t, t.TempDir())
-	writeToBlockDB(t, db, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
-	dbNextBlock := db.Status().OrPanic("non-empty BlockDB status").NextBlock
-	lastExecuted := dbNextBlock + 1
-
-	state, err := NewState(&Config{
-		Registry:          registry,
-		LastExecutedBlock: utils.Some(lastExecuted),
-	}, db)
-	require.NoError(t, err)
-	require.Equal(t, dbNextBlock, state.NextBlock())
-}
-
 func TestRecoveryStartsAtRegistryFloorWhenBlockDBMissingFirstCommittedBlock(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -185,25 +108,9 @@ func TestRecoveryStartsAtRegistryFloorWhenBlockDBMissingFirstCommittedBlock(t *t
 	require.NoError(t, db.WriteQC(qc))
 	require.NoError(t, db.Flush())
 
-	state, err := NewState(&Config{
-		Registry:          registry,
-		LastExecutedBlock: utils.Some(gr.First),
-	}, db)
+	state, err := NewState(&Config{Registry: registry}, db)
 	require.NoError(t, err)
 	require.Equal(t, gr.First, state.NextBlock())
-}
-
-func TestRecoveryRejectsEmptyBlockDBAfterFirstCommittedBlock(t *testing.T) {
-	rng := utils.TestRng()
-	registry, _ := epoch.GenRegistry(rng, 3)
-	lastExecuted := registry.FirstBlock() + 1
-
-	state, err := NewState(&Config{
-		Registry:          registry,
-		LastExecutedBlock: utils.Some(lastExecuted),
-	}, newTestBlockDB(t, t.TempDir()))
-	require.NoError(t, err)
-	require.Equal(t, registry.FirstBlock(), state.NextBlock())
 }
 
 func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
@@ -219,10 +126,7 @@ func TestRecoveryLeavesAppTipBelowPruneFloorUnreadable(t *testing.T) {
 	writeAppDataToBlockDB(t, rng, db, keys, qc1, qc2)
 	require.NoError(t, db.PruneBefore(qc2.QC().GlobalRange().First))
 
-	state, err := NewState(&Config{
-		Registry:          registry,
-		LastExecutedBlock: utils.Some(qc1.QC().GlobalRange().First),
-	}, db)
+	state, err := NewState(&Config{Registry: registry}, db)
 	require.NoError(t, err)
 	_, err = state.GlobalBlock(t.Context(), qc1.QC().GlobalRange().First)
 	require.ErrorIs(t, err, types.ErrPruned)
