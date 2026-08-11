@@ -197,6 +197,30 @@ func TestEnsureTraceHeightAvailable(t *testing.T) {
 	require.ErrorContains(t, wm.EnsureTraceHeightAvailable(t.Context(), 100), "has been pruned")
 }
 
+func TestEnsureTraceHeightAvailableSkipsStateWhenSSDisabled(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 1}},
+	}
+	rs := &fakeReceiptStore{latest: 200, earliest: 1}
+	wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(200), nil, rs)
+
+	// EnsureStateHeightAvailable rejects below tip when SS is disabled.
+	require.ErrorContains(t, wm.EnsureStateHeightAvailable(t.Context(), 199), "has been pruned")
+	// Trace guards skip the SS leg and defer state to SC/ctxProvider.
+	require.NoError(t, wm.EnsureTraceHeightAvailable(t.Context(), 199))
+	require.NoError(t, wm.EnsureTraceCallHeightAvailable(t.Context(), 199))
+}
+
+func TestEnsureTraceCallHeightAvailableSkipsStateWhenSSDisabled(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 1}},
+	}
+	wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(200), nil, &fakeReceiptStore{latest: 200})
+
+	require.ErrorContains(t, wm.EnsureStateHeightAvailable(t.Context(), 100), "has been pruned")
+	require.NoError(t, wm.EnsureTraceCallHeightAvailable(t.Context(), 100))
+}
+
 func TestLatestAndEarliestHeightHelpers(t *testing.T) {
 	tmClient := &fakeTMClient{
 		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 22, EarliestBlockHeight: 11}},

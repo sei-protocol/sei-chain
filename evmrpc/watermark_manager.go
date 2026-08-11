@@ -201,6 +201,10 @@ func (m *WatermarkManager) EnsureTraceCallHeightAvailable(ctx context.Context, h
 	if err := m.EnsureBlockHeightAvailable(ctx, height); err != nil {
 		return err
 	}
+	if m.stateStore == nil {
+		// SS disabled: trace replay uses SC via ctxProvider, not SS retention.
+		return nil
+	}
 	return m.EnsureStateHeightAvailable(ctx, height)
 }
 
@@ -214,13 +218,11 @@ func (m *WatermarkManager) EnsureTraceHeightAvailable(ctx context.Context, heigh
 	if err := m.EnsureReceiptHeightAvailable(height); err != nil {
 		return err
 	}
-	// Tracing replays from the parent state (height-1), not height itself. With
-	// no historical state store, state only ever extends to the tip anyway, so
-	// the parent-height distinction doesn't apply.
-	stateHeight := height
-	if m.stateStore != nil {
-		stateHeight = max(height-1, m.genesisInitialHeight())
+	if m.stateStore == nil {
+		// SS disabled: trace replay uses SC via ctxProvider, not SS retention.
+		return nil
 	}
+	stateHeight := max(height-1, m.genesisInitialHeight())
 	return m.EnsureStateHeightAvailable(ctx, stateHeight)
 }
 

@@ -100,14 +100,13 @@ func TestGuardTraceRequestByHashUsesTendermintHeight(t *testing.T) {
 	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
 	tmClient := newHeightTestClient(8, 1, latestHeight)
 	rs := &fakeReceiptStore{latest: latestHeight, earliest: 1}
-	stateStore := &fakeStateStore{latest: latestHeight, earliest: 1}
 	api := &DebugAPI{
 		tmClient:         tmClient,
 		ctxProvider:      func(int64) sdk.Context { return latestCtx },
 		connectionType:   ConnectionTypeHTTP,
 		maxBlockLookback: 1,
 		backend: &Backend{
-			watermarks: NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, stateStore, rs),
+			watermarks: NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, rs),
 		},
 	}
 
