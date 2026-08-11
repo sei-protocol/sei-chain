@@ -6,6 +6,18 @@ import (
 )
 
 // StorageGarbageCollectorConfig configures a StorageGarbageCollector.
+//
+// With F = LatestBlock - RollbackWindow - LookbackWindow, storage garbage collection guarantees the
+// following invariants:
+//
+//  1. Garbage collection will not delete any data that is necessary to roll back to any block
+//     between LatestBlock and (LatestBlock - RollbackWindow), inclusive.
+//  2. Garbage collection will not delete data at or after F. This ensures that even if the system
+//     rolls back to block (LatestBlock - RollbackWindow), it is still possible to read any of the
+//     LookbackWindow blocks below that point.
+//  3. Garbage collection will eventually delete data older than F.
+//
+// A LookbackWindow of -1 puts F at genesis, so no history is ever deleted.
 type StorageGarbageCollectorConfig struct {
 	// RollbackWindow is how many blocks behind head the system must remain able to roll back to.
 	//

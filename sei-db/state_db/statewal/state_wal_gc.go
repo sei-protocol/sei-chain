@@ -12,8 +12,8 @@ import (
 // This is the only surface of stateWALImpl usable from another goroutine (see the type doc). Every
 // method here reads a constant, a single atomic, or the WAL underneath.
 //
-// SC and SS must be managed by the same collector. They replay from this WAL, and their floors are
-// what hold it back, since the collector prunes every store to the shared minimum.
+// SC and SS must be managed by the same collector, since they replay from this WAL and it is their
+// reported floors that keep the blocks they need.
 var _ gc.PrunableStore = (*stateWALImpl)(nil)
 
 func (w *stateWALImpl) Name() string {

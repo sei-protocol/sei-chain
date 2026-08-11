@@ -39,11 +39,11 @@ func (s *CommitStore) PruneSnapshots(blockNumber uint64) error {
 	if blockNumber == 0 {
 		return nil
 	}
-	heights, err := s.snapshotHeights()
+	blocks, err := s.snapshotBlocks()
 	if err != nil {
 		return fmt.Errorf("scan snapshots: %w", err)
 	}
-	if len(heights) == 0 {
+	if len(blocks) == 0 {
 		return nil
 	}
 	active, err := s.activeSnapshotHeight()
@@ -54,11 +54,11 @@ func (s *CommitStore) PruneSnapshots(blockNumber uint64) error {
 
 	var errs error
 	pruned := 0
-	for _, height := range heights {
-		if height >= cutLine {
+	for _, block := range blocks {
+		if block >= cutLine {
 			break // ascending, so nothing further is a candidate
 		}
-		removed, err := s.deleteSnapshot(height)
+		removed, err := s.deleteSnapshot(block)
 		if err != nil {
 			errs = errors.Join(errs, err)
 			continue
@@ -124,9 +124,9 @@ func snapshotFloor(blocks []uint64, head uint64, rollbackWindow uint64) uint64 {
 	return oldest
 }
 
-// snapshotHeights returns the block number of every snapshot on disk, ascending. A missing snapshot
+// snapshotBlocks returns the block number of every snapshot on disk, ascending. A missing snapshot
 // directory yields no blocks rather than an error.
-func (s *CommitStore) snapshotHeights() ([]uint64, error) {
+func (s *CommitStore) snapshotBlocks() ([]uint64, error) {
 	var blocks []uint64
 	err := traverseSnapshots(s.flatkvDir(), true, func(version int64) (bool, error) {
 		if version >= 0 {
@@ -160,7 +160,7 @@ func (s *CommitStore) deleteSnapshot(block uint64) (bool, error) {
 // It returns 0 — nothing here is eligible for pruning — when there is no snapshot to name, when the
 // window is deeper than the head, or when the snapshot layout cannot be read.
 func (s *CommitStore) GetRollbackFloor(rollbackWindow uint64) uint64 {
-	heights, err := s.snapshotHeights()
+	blocks, err := s.snapshotBlocks()
 	if err != nil {
 		logger.Error("failed to scan snapshots for the rollback floor; holding it at 0",
 			"rollbackWindow", rollbackWindow, "err", err)
@@ -172,7 +172,7 @@ func (s *CommitStore) GetRollbackFloor(rollbackWindow uint64) uint64 {
 			"rollbackWindow", rollbackWindow, "err", err)
 		return 0
 	}
-	floor := snapshotFloor(heights, head, rollbackWindow)
+	floor := snapshotFloor(blocks, head, rollbackWindow)
 	if floor == 0 {
 		return 0
 	}
