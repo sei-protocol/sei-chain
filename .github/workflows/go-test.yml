@@ -15,9 +15,8 @@ concurrency:
 env:
   GO_VERSION: '1.25.6'
   GO_TEST_TIMEOUT: 30m
-  # state_db tests run in their own workflow (sei-db-tests.yml); exclude
-  # that subtree everywhere in this workflow to avoid double-running them.
-  STATE_DB_PKG_PREFIX: github.com/sei-protocol/sei-chain/sei-db/state_db
+  # state_db exclusion: prefix lives in the Makefile (print-state-db-pkg-prefix).
+  # Race shards read it via split-test-packages; coverage loads it into GITHUB_ENV.
   # Number of race-detection shards. Matches `NUM_SPLIT` passed to
   # `make test-group-N` so shards are locally reproducible.
   NUM_SPLIT: 3
@@ -124,6 +123,10 @@ jobs:
       - name: Download modules
         if: github.event_name != 'merge_group'
         run: go mod download
+
+      - name: Load Makefile test constants
+        if: github.event_name != 'merge_group'
+        run: echo "STATE_DB_PKG_PREFIX=$(make -s print-state-db-pkg-prefix)" >> "$GITHUB_ENV"
 
       - name: Determine coverage packages (PR)
         id: cov-pkgs

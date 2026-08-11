@@ -571,8 +571,13 @@ NUM_SPLIT ?= 3
 GO_TEST_TIMEOUT ?= 30m
 
 # state_db tests run in their own workflow (sei-db-tests.yml); exclude that
-# subtree here too so local shards match the CI shards exactly.
+# subtree here too so local shards match the CI shards exactly. Canonical
+# value — go-test.yml coverage reads this via print-state-db-pkg-prefix.
 STATE_DB_PKG_PREFIX := github.com/sei-protocol/sei-chain/sei-db/state_db
+
+.PHONY: print-state-db-pkg-prefix
+print-state-db-pkg-prefix:
+	@echo $(STATE_DB_PKG_PREFIX)
 
 $(BUILDDIR):
 	mkdir -p $@
