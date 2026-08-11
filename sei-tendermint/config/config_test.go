@@ -39,6 +39,20 @@ func TestConfigValidateBasic(t *testing.T) {
 	assert.Error(t, cfg.ValidateBasic())
 }
 
+// P2PConfig.ValidateBasic was unreachable from production: Config.ValidateBasic
+// routed every other section but not [p2p], so its checks — including the
+// pre-existing send-rate/recv-rate ones — never ran outside tests, and a negative
+// accept-interval reached rate.Every as rate.Inf, silently disabling the accept
+// limiter. Assert the section is routed, not merely that its own checks work; the
+// latter passed the whole time nothing called them.
+func TestConfigValidateBasicRoutesP2P(t *testing.T) {
+	cfg := DefaultConfig()
+	require.NoError(t, cfg.ValidateBasic())
+
+	cfg.P2P.AcceptInterval = -1
+	require.Error(t, cfg.ValidateBasic())
+}
+
 func TestTLSConfiguration(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.SetRoot("/home/user")

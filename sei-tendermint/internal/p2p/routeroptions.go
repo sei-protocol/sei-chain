@@ -68,7 +68,9 @@ type RouterOptions struct {
 	// MaxDialRate limits the rate at which router is dialing peers. Defaults to 0.1/s.
 	MaxDialRate utils.Option[rate.Limit]
 
-	// MaxAcceptRate limits the rate at which router is accepting TCP connections. Defaults to 100/s.
+	// MaxAcceptRate limits the rate at which router is accepting TCP connections. Defaults to 100/s,
+	// kept in sync with config.DefaultP2PConfig().AcceptInterval (config cannot import this
+	// package, so the two values are deliberate copies rather than a shared constant).
 	// Node setup sets this from the p2p accept-interval config key; the default covers
 	// embedders that construct RouterOptions directly. Keep it high enough to drain the
 	// kernel accept backlog: a rate below the arrival rate leaves peers queued past

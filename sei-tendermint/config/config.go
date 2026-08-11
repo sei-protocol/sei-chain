@@ -150,6 +150,9 @@ func (cfg *Config) ValidateBasic() error {
 	if err := cfg.RPC.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [rpc] section: %w", err)
 	}
+	if err := cfg.P2P.ValidateBasic(); err != nil {
+		return fmt.Errorf("error in [p2p] section: %w", err)
+	}
 	if err := cfg.Mempool.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [mempool] section: %w", err)
 	}
@@ -728,6 +731,7 @@ type P2PConfig struct {
 	// accept loop only. The number of connections being handshaked concurrently
 	// is bounded separately by RouterOptions.MaxConcurrentAccepts, which node
 	// setup derives from max-connections minus the outbound reservation.
+	// Kept in sync with the p2p router's own MaxAcceptRate default.
 	// max-incoming-connection-attempts caps concurrent connections per source IP
 	// (with a re-connect delay applied only once a source drops back to zero);
 	// note its default exceeds the inbound pool, so it does not bound a single
