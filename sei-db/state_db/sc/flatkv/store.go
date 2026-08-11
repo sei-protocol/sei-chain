@@ -58,44 +58,7 @@ const (
 // dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
 var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir}
 
-// InitializeDataDirectories sets the DataDir for each nested PebbleDB config
-// that does not already have one, using DataDir as the base path. The DBs live
-// under the working directory: <DataDir>/working/<subdir>.
-func InitializeDataDirectories(c *config.Config) {
-	workDir := filepath.Join(c.DataDir, workingDirName)
-	if c.AccountDBConfig.DataDir == "" {
-		c.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
-	}
-	if c.CodeDBConfig.DataDir == "" {
-		c.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
-	}
-	if c.StorageDBConfig.DataDir == "" {
-		c.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
-	}
-	if c.MiscDBConfig.DataDir == "" {
-		c.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
-	}
-	if c.MetadataDBConfig.DataDir == "" {
-		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
-	}
-	applyPebbleMetricsConfig(c)
-}
-
-func applyPebbleMetricsConfig(c *config.Config) {
-	// Keep a single FlatKV-level knob for Pebble internal metrics. Per-DB
-	// EnableMetrics values are intentionally overwritten here.
-	c.AccountDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.CodeDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.MiscDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
-
-	c.AccountDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.CodeDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.StorageDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.MiscDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.MetadataDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-}
+var _ Store = (*CommitStore)(nil)
 
 // CommitStore implements flatkv.Store for EVM state storage.
 //
@@ -220,8 +183,6 @@ type CommitStore struct {
 	// a single caller at a time.
 	ltCalc *lthash.HashCalculator
 }
-
-var _ Store = (*CommitStore)(nil)
 
 // dataDBs returns the four data PebbleDB instances in fixed iteration order:
 // accountDB, codeDB, storageDB, miscDB. metadataDB is excluded.
@@ -908,4 +869,43 @@ func (s *CommitStore) reopenWAL() error {
 
 func (s *CommitStore) GetPhaseTimer() *metrics.PhaseTimer {
 	return s.phaseTimer
+}
+
+// InitializeDataDirectories sets the DataDir for each nested PebbleDB config
+// that does not already have one, using DataDir as the base path. The DBs live
+// under the working directory: <DataDir>/working/<subdir>.
+func InitializeDataDirectories(c *config.Config) {
+	workDir := filepath.Join(c.DataDir, workingDirName)
+	if c.AccountDBConfig.DataDir == "" {
+		c.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
+	}
+	if c.CodeDBConfig.DataDir == "" {
+		c.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
+	}
+	if c.StorageDBConfig.DataDir == "" {
+		c.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
+	}
+	if c.MiscDBConfig.DataDir == "" {
+		c.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
+	}
+	if c.MetadataDBConfig.DataDir == "" {
+		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
+	}
+	applyPebbleMetricsConfig(c)
+}
+
+func applyPebbleMetricsConfig(c *config.Config) {
+	// Keep a single FlatKV-level knob for Pebble internal metrics. Per-DB
+	// EnableMetrics values are intentionally overwritten here.
+	c.AccountDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.CodeDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.MiscDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
+
+	c.AccountDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.CodeDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.StorageDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.MiscDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
+	c.MetadataDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 }
