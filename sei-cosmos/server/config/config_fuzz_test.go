@@ -966,14 +966,15 @@ func FuzzConfigValidateBasic(f *testing.F) {
 		if minGasPrices != "" && got != nil {
 			if !strings.Contains(got.Error(), "state sync snapshots") {
 				t.Fatalf("pruning=%q snapshot-interval=%d was rejected as %q, which no longer names the "+
-					"snapshot conflict. start.go:308 logs a fee-floor message whatever the cause, so an "+
-					"operator's only accurate diagnosis is this string",
+					"snapshot conflict. start.go:308-311 discards this error and logs a fixed fee-floor "+
+					"string for either cause, so nothing surfaces this text to an operator; it is the only "+
+					"thing in code that tells the two causes apart",
 					pruning, snapshotInterval, got)
 			}
 			if strings.Contains(got.Error(), "min gas price") {
 				t.Fatalf("pruning=%q snapshot-interval=%d was rejected as %q while minimum-gas-prices "+
-					"was set to %q. The two rejection causes now report the same way, so nothing "+
-					"distinguishes them and the fixed message becomes the only diagnosis available",
+					"was set to %q. The two rejection causes now report the same way, so nothing in code "+
+					"tells them apart and the fixed string start.go logs names the wrong one",
 					pruning, snapshotInterval, got, minGasPrices)
 			}
 		}

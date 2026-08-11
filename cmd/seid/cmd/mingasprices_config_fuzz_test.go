@@ -39,7 +39,7 @@ import (
 // newApp's app.New call and reaching it needs a node. So nothing here fails if that line changes its
 // cast, changes its key, or stops handing the value to SetMinGasPrices, and the tests would keep
 // describing a reader that had moved. The flag disappearing is caught, by the Lookup below; the call
-// site changing is not. It is the same gap receipt_store_config_fuzz_test.go names for root.go:297,
+// site changing is not. It is the same gap app/receipt_store_config_test.go names for root.go:297,
 // and it is stated here for the same reason: a reader who assumed otherwise would trust a pin that is
 // not there.
 //

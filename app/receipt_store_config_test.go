@@ -38,28 +38,39 @@ import (
 // coupling. Where they disagree, receipts still survive, but not by one mechanism and not always by
 // the one worth relying on. There are two routes and the difference between them matters.
 //
-// The first is the guard. Where cast.ToInt lands on zero or below, the receipt store never enters its
-// TTL branch, because that branch is entered only when KeepRecent is above zero
-// (litt_receipt_store.go:138). Every disagreement reachable as a string takes this route: a negative
-// is kept by ToInt and floored by ToUint64, and a decimal past int64 is floored by ToInt and kept by
-// ToUint64.
+// The first is the guard, and both backends have one. A KeepRecent at or below zero never arms a
+// pruner: the default pebbledb backend returns before starting one
+// (sei-db/ledger_db/receipt/receipt_store.go:363) and the litt backend skips its TTL branch
+// (sei-db/ledger_db/receipt/litt_receipt_store.go:138). Every disagreement reachable as a string takes
+// this route: a negative is kept by ToInt and floored by ToUint64, and a decimal past int64 is floored
+// by ToInt and kept by ToUint64.
 //
-// The second is an overflow, and it is the one to be uneasy about. A value that reaches Get as a
-// float64 at or above 2^63 makes cast.ToInt saturate to MaxInt64 rather than floor, so KeepRecent is
-// positive and the TTL branch is entered. Receipts survive anyway because MaxInt64 multiplied by
-// littTTLPerBlock overflows to a negative Duration, and a TTL at or below zero is treated as no
-// expiry (gc_manager.go:273). That is an accident of the multiplier's value, not a guard, and a
-// different multiplier could wrap the product to a small positive TTL that prunes on a schedule
-// nobody chose.
+// The second is saturation, reachable only where a value arrives as a float64 at or above 2^63. There
+// cast.ToInt saturates to MaxInt64 rather than flooring, so KeepRecent is positive and the guard above
+// does not apply. This is where the two backends stop agreeing, and only one of them is worth being
+// uneasy about.
 //
-// Nothing in this suite pins that overflow, and the two routes are therefore not covered equally.
-// The first is pinned here, because a receipt side at or below zero is what the assertion below
-// accepts and the guard is a property of the reader this file drives. The second is not: the multiply
-// happens in sei-db against an unexported multiplier, so a change there that landed the product small
-// and positive would prune receipts on arm64 with this file still green. That is the same shape of gap
-// this file discloses for root.go:297, and it is stated for the same reason. Closing it needs sei-db
-// to export the multiplier or a helper that returns the TTL for a given KeepRecent; pinning a copy of
-// the constant against another copy, which is what this file did before, checked nothing.
+// The default pebbledb backend is safe by an ordinary bound. Its pruner computes
+// pruneVersion := latestVersion - keepRecent and prunes only where that is above zero
+// (sei-db/ledger_db/receipt/receipt_store.go:379-380), so a KeepRecent of MaxInt64 puts the target far
+// below zero and nothing is pruned. That holds for a reason no change to a TTL multiplier can undo.
+//
+// The litt backend is safe by accident. It multiplies KeepRecent by an unexported per-block TTL, and
+// MaxInt64 times that multiplier overflows to a negative Duration, which
+// sei-db/db_engine/litt/disktable/gc_manager.go:273 reads as no expiry. That is a property of the
+// multiplier's value rather than a guard, and a different multiplier could wrap the product to a small
+// positive TTL that prunes on a schedule nobody chose.
+//
+// Nothing in this suite pins that multiply, so the two routes are not covered equally. The guard is
+// pinned here, because a receipt side at or below zero is what the assertion below accepts and the
+// guard is a property of the reader this file drives. The litt overflow is not: the multiply happens in
+// sei-db against an unexported multiplier, so a change there that landed the product small and positive
+// would prune receipts on a litt-backed node on arm64 with this file still green. Nodes on the shipped
+// default are unaffected either way, which is what scopes this gap rather than closing it. It is the
+// same shape of gap this file discloses for root.go:297, and it is stated for the same reason. Closing
+// it needs sei-db to export the multiplier or a helper returning the TTL for a given KeepRecent;
+// pinning a copy of the constant against another copy, which is what this file did before, checked
+// nothing.
 //
 // Recorded rather than repaired. Making the two casts one would change what a node retains for any
 // operator currently relying on the out-of-range behaviour, which is the kind of change this suite
@@ -121,18 +132,21 @@ var minRetainBlocksFanOut = []struct {
 //
 // Where the two casts land on the same number the fan-out is a plain coupling. Where they disagree,
 // the receipt side must not be a positive retention window, because a positive KeepRecent is the one
-// state that starts expiring receipts (litt_receipt_store.go:138). A row that broke that would mean a
-// value an operator set for block retention silently pruning EVM receipts.
+// state that arms receipt expiry on either backend (pebbledb at
+// sei-db/ledger_db/receipt/receipt_store.go:363, litt at
+// sei-db/ledger_db/receipt/litt_receipt_store.go:138). A row that broke that would mean a value an
+// operator set for block retention silently pruning EVM receipts.
 //
 // One class of row is exempt from that and the exemption is the finding, not a loophole. A float at or
 // above 2^63 makes cast.ToInt saturate, and on the architectures the fleet ships that is either a
-// negative value the guard refuses or MaxInt64, which is positive and enters the TTL branch. Those
-// rows are held to being one of those two and nothing else, so a cast that started yielding a small
-// positive window fails here.
+// negative value the guard refuses or MaxInt64, which is positive and passes it. Those rows are held to
+// being one of those two and nothing else, so a cast that started yielding a small positive window
+// fails here.
 //
-// What happens after MaxInt64 enters the TTL branch is out of this layer's reach and is not asserted
-// anywhere: see the header. This test says the config layer resolves to one of two values, not that
-// both are safe downstream.
+// What happens after a saturated KeepRecent passes the guard is out of this layer's reach and is not
+// asserted anywhere: see the header, which says which backend survives it by a bound and which by an
+// accident. This test says the config layer resolves to one of two values, not that both are safe
+// downstream.
 func TestMinRetainBlocksFanOutNeverResolvesReceiptsToAPruningWindow(t *testing.T) {
 	for _, row := range minRetainBlocksFanOut {
 		t.Run(fmt.Sprintf("%v(%T)", row.raw, row.raw), func(t *testing.T) {
