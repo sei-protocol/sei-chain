@@ -69,6 +69,8 @@ type RouterOptions struct {
 	MaxDialRate utils.Option[rate.Limit]
 
 	// MaxAcceptRate limits the rate at which router is accepting TCP connections. Defaults to 1/s.
+	// Node setup always sets this from the p2p accept-interval config key, so the default
+	// applies only to embedders that construct RouterOptions directly.
 	MaxAcceptRate utils.Option[rate.Limit]
 
 	// ResolveTimeout is the timeout for resolving NodeAddress URLs.

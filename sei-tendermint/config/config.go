@@ -724,6 +724,12 @@ type P2PConfig struct {
 	// How often node should dial a new peer.
 	DialInterval time.Duration `mapstructure:"dial-interval"`
 
+	// How often node should accept a new inbound connection. This paces the
+	// accept loop only; the number of connections being accepted concurrently is
+	// bounded separately by MaxConnections, and per-source abuse is bounded by
+	// MaxIncomingConnectionAttempts. A value <= 0 means unlimited.
+	AcceptInterval time.Duration `mapstructure:"accept-interval"`
+
 	// Testing params.
 	// Force dial to fail
 	TestDialFail bool `mapstructure:"test-dial-fail"`
@@ -754,6 +760,7 @@ func DefaultP2PConfig() *P2PConfig {
 		HandshakeTimeout:              10 * time.Second,
 		DialTimeout:                   3 * time.Second,
 		DialInterval:                  10 * time.Second,
+		AcceptInterval:                10 * time.Millisecond,
 		TestDialFail:                  false,
 		QueueType:                     "simple-priority",
 	}
@@ -773,6 +780,9 @@ func (cfg *P2PConfig) ValidateBasic() error {
 	}
 	if cfg.RecvRate < 0 {
 		return errors.New("recv-rate can't be negative")
+	}
+	if cfg.AcceptInterval < 0 {
+		return errors.New("accept-interval can't be negative")
 	}
 	return nil
 }

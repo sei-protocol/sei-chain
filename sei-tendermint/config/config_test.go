@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -230,6 +231,7 @@ func TestP2PConfigValidateBasic(t *testing.T) {
 		"MaxPacketMsgPayloadSize",
 		"SendRate",
 		"RecvRate",
+		"AcceptInterval",
 	}
 
 	for _, fieldName := range fieldsToTest {
@@ -237,6 +239,27 @@ func TestP2PConfigValidateBasic(t *testing.T) {
 		assert.Error(t, cfg.ValidateBasic())
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(0)
 	}
+}
+
+// The accept loop paces itself off AcceptInterval. A default that admits only a
+// handful of connections per second cannot drain the kernel accept backlog on a
+// public node: peers queue behind it, time out mid-handshake, and the node stops
+// acquiring inbound peers while still reporting healthy. Pin the default so that
+// regression has to be deliberate rather than incidental.
+func TestP2PConfigAcceptInterval(t *testing.T) {
+	cfg := DefaultP2PConfig()
+	require.NoError(t, cfg.ValidateBasic())
+
+	limit := rate.Every(cfg.AcceptInterval)
+	require.Greater(t, float64(limit), 50.0,
+		"default accept rate %v/s is too low to drain the accept backlog", float64(limit))
+	require.NotEqual(t, rate.Inf, limit, "default accept rate should be bounded, not unlimited")
+
+	// A non-positive interval is the documented escape hatch for disabling the
+	// limiter outright, and must stay valid rather than becoming a zero rate.
+	cfg.AcceptInterval = 0
+	require.NoError(t, cfg.ValidateBasic())
+	require.Equal(t, rate.Inf, rate.Every(cfg.AcceptInterval))
 }
 
 // --- WalFile legacy fallback tests ---
