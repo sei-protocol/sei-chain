@@ -219,7 +219,7 @@ message AppProposal {
   reserved "global_number";
   option (hashable.hashable) = true;
   option (wireguard.sized) = true;
-  
+
   // Epoch this proposal belongs to.
   optional uint64 epoch_index = 4; // required
   // Index of the commit qc finalizing the block.
