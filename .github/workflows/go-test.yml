@@ -20,7 +20,6 @@ env:
   # Number of race-detection shards. Matches `NUM_SPLIT` passed to
   # `make test-group-N` so shards are locally reproducible.
   NUM_SPLIT: 3
-  NUM_SPLIT_JSON: '[0,1,2]'
 
 jobs:
   test:
@@ -29,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJson(env.NUM_SPLIT_JSON) }}
+        shard: [0, 1, 2]
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
     steps:
