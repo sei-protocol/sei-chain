@@ -32,9 +32,8 @@ var _ types.BlockDB = (*blockDB)(nil)
 
 // blockDB is a durable types.BlockDB backed by LittDB
 type blockDB struct {
-	db     littdb.DB
-	table  littdb.Table
-	config *BlockDBConfig
+	db    littdb.DB
+	table littdb.Table
 
 	// watermark is a retention floor, always a QC boundary (a GlobalRange().First):
 	// PruneBefore rounds a requested prune point down to the start of the cohort
@@ -123,7 +122,6 @@ func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
 	}
 
 	s.table = table
-	s.config = config
 
 	if err := s.recoverCursors(); err != nil {
 		_ = db.Close()

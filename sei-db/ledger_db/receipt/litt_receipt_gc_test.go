@@ -107,13 +107,21 @@ func TestReceiptLocalPrunerAdvancesFloorWithoutCollector(t *testing.T) {
 }
 
 // KeepRecent belongs to the local pruner and must not reach the collector's answers: how deep the
-// collector prunes is its own fleet-wide window. Pinned across both readings of KeepRecent, since 0
-// used to mean "keep everything" here and would once have suppressed pruning entirely.
+// collector prunes is its own fleet-wide window. Real receipts are written first so the floor is a
+// nonzero head - rollbackWindow: with an empty store GetRollbackFloor short-circuits on
+// head <= rollbackWindow and returns 0 before KeepRecent could matter, so the empty case would pass
+// even if the floor were computed from KeepRecent — exactly the bug this pins against (0 used to
+// mean "keep everything" here and would once have suppressed pruning entirely).
 func TestReceiptGCAnswersDoNotDependOnKeepRecent(t *testing.T) {
+	addr := common.HexToAddress("0xabcd")
+	topic := common.HexToHash("0x1111")
 	for _, keepRecent := range []int{0, 100_000} {
-		_, prunable, _ := setupLittIdxForGC(t, keepRecent)
-		require.Equal(t, uint64(0), prunable.GetRollbackFloor(10_000),
-			"keepRecent %d must not change the floor", keepRecent)
+		store, prunable, ctx := setupLittIdxForGC(t, keepRecent)
+		for block := uint64(1); block <= 10; block++ {
+			writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
+		}
+		require.Equal(t, uint64(7), prunable.GetRollbackFloor(3),
+			"keepRecent %d must not change the floor (head 10 - window 3)", keepRecent)
 	}
 }
 

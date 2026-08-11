@@ -9,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 // The GC surface reads the snapshot directory and two plain fields, so most of it can be exercised
@@ -376,6 +377,49 @@ func TestGCExternalPruningStandsDownSnapshotPruner(t *testing.T) {
 		"left to itself the count-based pruner takes everything below the current snapshot")
 	require.Equal(t, []int64{5, 10, 15}, run(true),
 		"under the collector it must not delete the snapshot being held for the rollback window")
+}
+
+// pruneSpyWAL is a statewal.StateWAL that records the one call tryTruncateWAL makes on it. The other
+// interface methods are never reached on this path, so the embedded nil satisfies the type and panics
+// loudly if that ever stops being true.
+type pruneSpyWAL struct {
+	statewal.StateWAL
+	pruned   bool
+	prunedTo uint64
+}
+
+func (w *pruneSpyWAL) Prune(lowestBlockNumberToKeep uint64) error {
+	w.pruned = true
+	w.prunedTo = lowestBlockNumberToKeep
+	return nil
+}
+
+// tryTruncateWAL is the second mechanism ExternalPruning stands down, and by the config doc the
+// higher-stakes of the pair: left running under the collector it would truncate the state WAL to
+// this store's own earliest snapshot while the collector holds the fleet's floor lower — pruning the
+// WAL out from under SS, which replays it. Its sibling pruneSnapshotsByCount is pinned by the test
+// above; this pins the WAL half so a later change cannot silently re-enable it.
+//
+// A real snapshot above version 0 is laid down so tryTruncateWAL has a floor to truncate to (version
+// 0 short-circuits it before the guard). The observable is whether it schedules a WAL prune: it must
+// with retention its own, and must not under ExternalPruning.
+func TestGCExternalPruningStandsDownWALTruncation(t *testing.T) {
+	prune := func(external bool) *pruneSpyWAL {
+		s, _ := gcStore(t, t.TempDir())
+		s.config.ExternalPruning = external
+		spy := &pruneSpyWAL{}
+		s.wal = spy
+		mkSnapshots(t, s.flatkvDir(), 5, 10)
+
+		s.tryTruncateWAL()
+		return spy
+	}
+
+	self := prune(false)
+	require.True(t, self.pruned, "with retention its own, tryTruncateWAL must prune the WAL")
+	require.Equal(t, uint64(5), self.prunedTo, "it truncates up to the earliest snapshot")
+
+	require.False(t, prune(true).pruned, "under ExternalPruning tryTruncateWAL must not touch the WAL")
 }
 
 // End to end against snapshots WriteSnapshot actually produced, including that the store still opens

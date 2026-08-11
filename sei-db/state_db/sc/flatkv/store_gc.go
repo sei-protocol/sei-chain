@@ -153,10 +153,12 @@ func (s *CommitStore) activeSnapshotHeight() (uint64, error) {
 // The second case is a snapshot-retention shortfall: the oldest snapshot on disk is newer than
 // head - rollbackWindow, so the store cannot in fact restore as deep as it is being asked to. This
 // is the normal state early on, before snapshots reach that far back, and can also arise from a
-// large SnapshotInterval relative to the window. Reporting its oldest snapshot is what keeps that
-// shortfall from compounding — the collector holds every store's history back to it, so the one
-// snapshot this store does have stays replayable. It resolves on its own as the chain advances and
-// snapshots accumulate below the window.
+// large SnapshotInterval relative to the window. The oldest snapshot is the deepest this store can
+// restore to, so it is the highest floor that still keeps that snapshot replayable: the collector
+// takes a minimum across stores, so the cut line lands at or below this answer and the blocks the
+// snapshot replays from survive. Reporting 0 instead would be safe but would freeze the whole
+// fleet's pruning; reporting anything above the oldest snapshot would let history be pruned out from
+// under it. It resolves on its own as the chain advances and snapshots accumulate below the window.
 //
 // Version 0 is never the answer. It restores to no committed height, so it is not a restore point at
 // all, and it is itself a candidate for deletion once a real snapshot sits above it. A store holding
