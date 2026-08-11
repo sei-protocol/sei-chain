@@ -83,6 +83,11 @@ func requireViperCanHoldEveryKey(t testing.TB, keys map[string]any) {
 	for k := range keys {
 		callerKeys = append(callerKeys, k)
 	}
+	// Sorted where the slice leaves map order, not inside either scan. Both scans report the first
+	// pair they find, so without this the failure names a different pair run to run and stops being
+	// the stable string CI triage greps for.
+	sort.Strings(callerKeys)
+
 	requireNoTwoKeysNormalizeAlike(t, callerKeys)
 	requireNoKeyNestsInsideAnother(t, append(callerKeys, globalLabelsKey))
 }
@@ -97,9 +102,9 @@ func requireViperCanHoldEveryKey(t testing.TB, keys map[string]any) {
 //
 // Given caller keys only. A caller key that normalizes onto globalLabelsKey is an override rather
 // than a race, because newAppViper supplies that stub only when the caller did not.
-func requireNoTwoKeysNormalizeAlike(t testing.TB, all []string) {
+func requireNoTwoKeysNormalizeAlike(t testing.TB, callerKeys []string) {
 	t.Helper()
-	if first, second, found := firstNormalizationCollision(all); found {
+	if first, second, found := firstNormalizationCollision(callerKeys); found {
 		t.Fatalf("%q and %q are two keys in this map and one key to viper, which lowercases before "+
 			"storing, so whichever this helper happens to Set second wins and Go map order picks "+
 			"which. Pass the key once, with the spelling the reader uses", first, second)
@@ -283,7 +288,8 @@ func FuzzGetConfigGlobalLabels(f *testing.F) {
 // global-labels = [["chain", 42]] in app.toml takes the node down with an interface-conversion panic
 // rather than the diagnostic its siblings produce.
 //
-// Recorded rather than repaired. Converting it to an error is the change to make, and it belongs with
+// Recorded rather than repaired, and owned by PLT-976 item 4 rather than left to whoever reads this
+// next. Converting it to an error is the change to make, and it belongs with
 // the reader that replaces this one, since an operator whose app.toml currently panics would start
 // booting into a node that logs a parse failure instead.
 func TestGetConfigPanicsOnANonStringGlobalLabel(t *testing.T) {

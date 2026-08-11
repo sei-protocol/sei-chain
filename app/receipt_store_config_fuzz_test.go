@@ -1,7 +1,10 @@
 package app
 
 import (
+	"fmt"
+	"math"
 	"testing"
+	"time"
 
 	"github.com/spf13/cast"
 
@@ -33,10 +36,22 @@ import (
 // than papered over, because a reader who assumed otherwise would trust a pin that is not there.
 //
 // For every value an operator would sensibly write the two casts agree, and the fan-out is then just a
-// coupling. Where they disagree, they disagree in value and agree in effect, and only because both
-// out-of-range paths land on keep-everything: the receipt store applies a TTL only when KeepRecent is
-// above zero (litt_receipt_store.go:138), and baseapp disables pruning entirely when minRetainBlocks
-// is zero (abci.go:758). Both guards are load-bearing for that agreement, and neither names this key.
+// coupling. Where they disagree, receipts still survive, but not by one mechanism and not always by
+// the one worth relying on. There are two routes and the difference between them matters.
+//
+// The first is the guard. Where cast.ToInt lands on zero or below, the receipt store never enters its
+// TTL branch, because that branch is entered only when KeepRecent is above zero
+// (litt_receipt_store.go:138). Every disagreement reachable as a string takes this route: a negative
+// is kept by ToInt and floored by ToUint64, and a decimal past int64 is floored by ToInt and kept by
+// ToUint64.
+//
+// The second is an overflow, and it is the one to be uneasy about. A value that reaches Get as a
+// float64 at or above 2^63 makes cast.ToInt saturate to MaxInt64 rather than floor, so KeepRecent is
+// positive and the TTL branch is entered. Receipts survive anyway because MaxInt64 multiplied by
+// littTTLPerBlock overflows to a negative Duration, and a TTL at or below zero is treated as no
+// expiry (gc_manager.go:273). That is an accident of the multiplier's value, not a guard, and a
+// different multiplier could wrap the product to a small positive TTL that prunes on a schedule
+// nobody chose. This file records the accident rather than resting on it.
 //
 // Recorded rather than repaired. Making the two casts one would change what a node retains for any
 // operator currently relying on the out-of-range behaviour, which is the kind of change this suite
@@ -47,8 +62,20 @@ import (
 // The block column is a recording of what cast.ToUint64 does, held against a number rather than
 // against a second call to the same function, because an assertion comparing a call to itself passes
 // for any reader and would say nothing.
+//
+// raw is an any because the type is part of the input, not a detail of how this table is written. Both
+// readers cast whatever appOpts.Get returns, and which Go type that is depends on the layer that set
+// the key: the env layer and a quoted app.toml entry hand them a string, an unquoted integer decodes
+// to int64, and an unquoted float literal decodes to float64. A table of strings alone cannot express
+// the float case, and the float case is the only one where the two casts disagree with the receipt
+// side positive.
+// littTTLPerBlockForTest mirrors sei-db's per-block TTL multiplier (litt_receipt_store.go). It is
+// duplicated rather than imported because it is unexported there; if the two drift, the saturation row
+// below stops describing what a node does and the assertion says so.
+const littTTLPerBlockForTest = 2 * time.Second
+
 var minRetainBlocksFanOut = []struct {
-	raw     string
+	raw     any
 	receipt int    // app/receipt_store_config.go:27, through cast.ToInt
 	block   uint64 // cmd/seid/cmd/root.go:297, through cast.ToUint64
 }{
@@ -59,6 +86,18 @@ var minRetainBlocksFanOut = []struct {
 	{"9223372036854775808", 0, 9223372036854775808},   // past int64: ToInt floors, ToUint64 keeps
 	{"18446744073709551615", 0, 18446744073709551615}, // the uint64 ceiling, same shape
 	{"not-a-number", 0, 0},                            // both floor, so both keep everything
+	// A leading sign is where the two string casts could most plausibly part company, because ParseInt
+	// takes a sign prefix. cast strips a leading + before ParseUint sees it, so they agree, and the row
+	// exists so that stops being something a reader takes on trust.
+	{"+5", 5, 5},
+	// Unquoted in app.toml, so the decode hands both readers the operator's own type.
+	{int64(100000), 100000, 100000},
+	// The one shape where the casts disagree with the receipt side positive. Reachable as
+	// min-retain-blocks = 1e19, which decodes to float64: ToInt saturates to MaxInt64 where the string
+	// path would have floored to zero, and ToUint64 keeps the magnitude.
+	{float64(1e19), math.MaxInt64, 10000000000000000000},
+	// Just above 2^63, so the same saturation from a value an operator could plausibly mistype.
+	{float64(9.3e18), math.MaxInt64, 9300000000000000000},
 }
 
 // TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree holds the safety property that
@@ -68,19 +107,25 @@ var minRetainBlocksFanOut = []struct {
 // the receipt side must not be a positive retention window, because a positive KeepRecent is the one
 // state that starts expiring receipts (litt_receipt_store.go:138). A row that broke that would mean a
 // value an operator set for block retention silently pruning EVM receipts.
+//
+// One class of row is exempt from that and the exemption is the finding, not a loophole. A float at or
+// above 2^63 makes cast.ToInt saturate to MaxInt64, so the receipt side is positive and the TTL branch
+// is entered. Receipts survive because the TTL multiply overflows negative and a non-positive TTL is
+// treated as no expiry, which is an accident rather than a guard. Those rows are held to saturating
+// exactly, since a value that stopped saturating and stayed positive but small would prune.
 func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testing.T) {
 	for _, row := range minRetainBlocksFanOut {
-		t.Run(row.raw, func(t *testing.T) {
+		t.Run(fmt.Sprintf("%v(%T)", row.raw, row.raw), func(t *testing.T) {
 			receiptConfig, err := readReceiptStoreConfig(t.TempDir(), mapAppOpts{
 				server.FlagMinRetainBlocks: row.raw,
 			})
 			if err != nil {
-				t.Fatalf("readReceiptStoreConfig(%q): %v", row.raw, err)
+				t.Fatalf("readReceiptStoreConfig(%v): %v", row.raw, err)
 			}
 
 			// The prediction, against the reader.
 			if receiptConfig.KeepRecent != row.receipt {
-				t.Errorf("min-retain-blocks=%q resolves the receipt store's KeepRecent to %d where this "+
+				t.Errorf("min-retain-blocks=%v resolves the receipt store's KeepRecent to %d where this "+
 					"row predicts %d. The prediction describes app/receipt_store_config.go, so a reader "+
 					"you changed deliberately means updating the row and saying what a node now retains "+
 					"for receipts; a reader you did not change means the cast moved underneath it",
@@ -88,7 +133,7 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 			}
 			// The recording, against the cast the block side applies.
 			if got := cast.ToUint64(row.raw); got != row.block {
-				t.Errorf("min-retain-blocks=%q casts to %d through cast.ToUint64, recorded as %d. The "+
+				t.Errorf("min-retain-blocks=%v casts to %d through cast.ToUint64, recorded as %d. The "+
 					"block column is a recording of the cast rather than a pin on root.go:297, so "+
 					"update it and say what a node now retains", row.raw, got, row.block)
 			}
@@ -100,11 +145,24 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 			if row.receipt >= 0 && uint64(row.receipt) == row.block {
 				return
 			}
+			// Saturation is the one positive receipt window that survives, and only because the TTL
+			// multiply overflows past it. Held to the exact boundary: anything positive and smaller
+			// would produce a real TTL and prune.
+			if row.receipt == math.MaxInt64 {
+				if ttl := time.Duration(row.receipt) * littTTLPerBlockForTest; ttl > 0 {
+					t.Errorf("min-retain-blocks=%v saturates KeepRecent to MaxInt64 and the TTL multiply "+
+						"now yields %v, which is positive. Receipts were surviving this row only because "+
+						"that product overflowed to a non-positive Duration that gc_manager treats as no "+
+						"expiry. With a positive TTL an operator's block-retention value starts expiring "+
+						"receipts", row.raw, ttl)
+				}
+				return
+			}
 			if row.receipt > 0 {
-				t.Errorf("min-retain-blocks=%q gives %d for receipt retention and %d for block "+
-					"retention. The two disagree and the receipt side is a positive window, so a value "+
-					"the block side handled one way starts pruning EVM receipts on a schedule the "+
-					"operator never set", row.raw, row.receipt, row.block)
+				t.Errorf("min-retain-blocks=%v gives %d for receipt retention and %d for block "+
+					"retention. The two disagree and the receipt side is a positive window that is not "+
+					"the saturation case, so a value the block side handled one way starts pruning EVM "+
+					"receipts on a schedule the operator never set", row.raw, row.receipt, row.block)
 			}
 		})
 	}

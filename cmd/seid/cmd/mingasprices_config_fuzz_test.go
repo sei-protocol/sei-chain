@@ -44,9 +44,18 @@ import (
 // and it is stated here for the same reason: a reader who assumed otherwise would trust a pin that is
 // not there.
 //
-// Recorded rather than repaired. Teaching ParseDecCoins the semicolon widens what a node accepts,
-// and correcting the help text changes what operators are told a working value looks like; both are
-// decisions for the reader that replaces this one.
+// Recorded rather than repaired, and the two halves of a repair carry very different risk. Both are
+// PLT-976 item 1.
+//
+// Correcting the help text and the getter is prose and dead code. It parses nothing differently, and
+// what operators are told today is a value that takes the node down, so there is nothing to preserve
+// on that side. That change is written and sits on the fix/min-gas-prices-separator branch, deferred
+// on priority rather than on risk.
+//
+// Teaching ParseDecCoins the semicolon is the other kind of change. It widens the fee-floor grammar
+// for every node, and once operators write semicolons narrowing back breaks them, so it needs a
+// decision rather than a patch. Aligning the documentation down to the comma the parser already
+// accepts is the cheaper direction and does not spend that door.
 
 // resolveMinGasPrices runs the expression root.go:296 runs, through the viper type production hands
 // it, and reports the panic rather than the option because the panic is the behavior under test.
