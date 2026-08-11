@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
@@ -142,7 +143,8 @@ func TestStartPreRunResolvesTheKeysOnlyStartInProcessReads(t *testing.T) {
 // It holds the spelling this suite asserts against, so renaming a name here without renaming it in
 // the assertions fails. It does not catch a rename in production, because the record and the
 // assertions would then both still carry the old name. That case is caught one step over, where
-// setting the flag fails once the flag no longer answers to the name it is given.
+// setting the flag fails once the flag no longer answers to the name it is given, and again by
+// TestStartFlagNamesAreRegistered below, which says so in those terms rather than as a set failure.
 var startFlagKeysWithTargetsOfTheirOwn = []configtest.KeyName{
 	"cpu-profile", // TestStartPreRunResolvesTheKeysOnlyStartInProcessReads
 	"trace-store", // same
@@ -152,6 +154,26 @@ var startFlagKeysWithTargetsOfTheirOwn = []configtest.KeyName{
 // TestStartFlagKeyNamesMatchTheRecordedNames pins the spelling of the three keys above.
 func TestStartFlagKeyNamesMatchTheRecordedNames(t *testing.T) {
 	configtest.CheckKeyNames(t, "start_flags", nil, startFlagKeysWithTargetsOfTheirOwn...)
+}
+
+// TestStartFlagNamesAreRegistered holds the three names against the command that has to answer to
+// them, which is what the record above cannot do.
+//
+// A production rename does already fail, where setFlags asks the command to set a flag it no longer
+// has. What it fails with is "set --cpu-profile: no such flag", which reads as a broken test rather
+// than as an operator-facing flag having moved. This says the latter, and it removes the record's
+// dependence on some other test happening to set all three.
+func TestStartFlagNamesAreRegistered(t *testing.T) {
+	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
+	for _, name := range startFlagKeysWithTargetsOfTheirOwn {
+		if cmd.Flags().Lookup(string(name)) == nil {
+			t.Errorf("start no longer registers a flag named %q, so an operator's --%s stops being "+
+				"accepted and startInProcess reads a key nothing populates. The three keys this file "+
+				"records are spelled here as literals because server's constants are unexported, so a "+
+				"rename there has to be carried into %s and its record by hand",
+				string(name), string(name), "startFlagKeysWithTargetsOfTheirOwn")
+		}
+	}
 }
 
 // nodeEscapedMarker is a fixed token so CI triage can grep one string for this failure, and

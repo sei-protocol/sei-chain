@@ -31,67 +31,78 @@ import (
 // deliberately excludes flag binding and env resolution — those belong to Apply and
 // are pinned in cmd/seid/cmd. What is left is the parse itself.
 
-// globalLabelsKey is the one key GetConfig unconditionally requires. newAppViper sets it itself, so
-// it takes part in the collision check below rather than being exempt from it.
+// globalLabelsKey is the one key GetConfig unconditionally requires, and newAppViper supplies it when
+// the caller does not.
 const globalLabelsKey = "telemetry.global-labels"
 
-// newAppViper returns a viper holding the one key GetConfig unconditionally
-// requires, plus whatever the caller adds. telemetry.global-labels has no default
-// and no presence guard, so nothing can be parsed without it.
+// newAppViper returns a viper holding the one key GetConfig unconditionally requires, plus whatever
+// the caller adds. telemetry.global-labels has no default and no presence guard, so nothing can be
+// parsed without it.
+//
+// The caller's spelling wins if it supplies the key itself, which is set before the loop rather than
+// inside it so that overriding the stub is a plain override rather than two writes racing.
 func newAppViper(t testing.TB, keys map[string]any) *viper.Viper {
 	t.Helper()
 	requireViperCanHoldEveryKey(t, keys)
 	v := viper.New()
-	v.Set(globalLabelsKey, []any{})
+	if !callerSupplies(keys, globalLabelsKey) {
+		v.Set(globalLabelsKey, []any{})
+	}
 	for k, val := range keys {
 		v.Set(k, val)
 	}
 	return v
 }
 
-// requireNoKeyNestsInsideAnother refuses a key set viper.Set cannot hold both halves of.
+// callerSupplies reports whether the caller already passed a key, compared the way viper compares it.
+func callerSupplies(keys map[string]any, key string) bool {
+	for k := range keys {
+		if strings.EqualFold(k, key) {
+			return true
+		}
+	}
+	return false
+}
+
+// requireViperCanHoldEveryKey refuses a key set viper cannot hold every value of.
 //
-// viper.Set re-nests around the dots. Setting a.b after a.b.c replaces the sub-tree, and setting
-// a.b.c after a.b replaces the scalar with a fresh map, so one of the two values is always
-// destroyed. Which one survives is decided by the order this helper happens to Set them in, and
-// ranging a Go map randomizes that per run.
-//
-// The reason that is worth a guard rather than a comment is where the loss shows up. It is visible
-// through the per-key Get that GetConfig uses, not only through AllSettings, so a colliding pair
-// would not fail loudly here. It would resolve a wrong value on roughly half of all runs, and the
-// test would read as flaky rather than as wrong.
-//
-// Nesting is a dotted-segment relationship, never a textual one. pruning and pruning-keep-every are
-// separate keys that share a prefix, as are state-commit.sc-write-mode and its -enable-auto sibling,
-// and a plain HasPrefix would reject the corpus as it stands.
-// There are two ways a key set loses a value, and they are checked separately because they fail for
+// There are two ways a value goes missing and they are checked separately, because they fail for
 // different reasons and a reader chasing one should not be handed the other's message. Two keys can
-// normalize to the same key, where the later Set overwrites the earlier, or one can nest inside
+// normalize to the same key, where the later Set overwrites the earlier, or one key can nest inside
 // another, where the later Set re-nests around it.
+//
+// The two scans see different key sets, and the difference is the point. Only the caller's keys race:
+// they are Set inside a loop over a Go map, so their order is randomized per run. globalLabelsKey is
+// Set outside that loop and only when the caller did not supply it, so it can never be the party that
+// loses a race, and folding it into the normalization scan would reject a caller overriding the stub
+// deliberately. It stays in the nesting scan, where a caller passing telemetry or
+// telemetry.global-labels.x destroys the key GetConfig requires however the order falls.
 func requireViperCanHoldEveryKey(t testing.TB, keys map[string]any) {
 	t.Helper()
-	all := make([]string, 0, len(keys)+1)
-	all = append(all, globalLabelsKey)
+	callerKeys := make([]string, 0, len(keys))
 	for k := range keys {
-		all = append(all, k)
+		callerKeys = append(callerKeys, k)
 	}
-	requireNoTwoKeysNormalizeAlike(t, all)
-	requireNoKeyNestsInsideAnother(t, all)
+	requireNoTwoKeysNormalizeAlike(t, callerKeys)
+	requireNoKeyNestsInsideAnother(t, append(callerKeys, globalLabelsKey))
 }
 
 // requireNoTwoKeysNormalizeAlike refuses two keys that are the same key once viper has seen them.
 //
 // Set lowercases before storing (viper.go:1503), so "Telemetry.Global-Labels" and
-// "telemetry.global-labels" are one key there while being two in a Go map. The second Set overwrites
-// the first and map order picks which value survives, which is the same loss nesting produces
-// arriving by a different route. nestsInside cannot catch it: normalizing makes the pair equal, and
-// equal keys are deliberately not a nesting relationship.
+// "telemetry.global-labels" are one key there while being two in a Go map. Whichever is Set second
+// wins and map order picks which, so the loss is the one nesting produces arriving by a different
+// route. nestsInside cannot catch it: normalizing makes the pair equal, and equal keys are
+// deliberately not a nesting relationship.
+//
+// Given caller keys only. A caller key that normalizes onto globalLabelsKey is an override rather
+// than a race, because newAppViper supplies that stub only when the caller did not.
 func requireNoTwoKeysNormalizeAlike(t testing.TB, all []string) {
 	t.Helper()
 	if first, second, found := firstNormalizationCollision(all); found {
-		t.Fatalf("%q and %q are the same key to viper, which lowercases before storing, so the "+
-			"second Set overwrites the first and Go map order picks which value survives. Spell "+
-			"them the same way and pass one, or set them on separate vipers", first, second)
+		t.Fatalf("%q and %q are two keys in this map and one key to viper, which lowercases before "+
+			"storing, so whichever this helper happens to Set second wins and Go map order picks "+
+			"which. Pass the key once, with the spelling the reader uses", first, second)
 	}
 }
 
@@ -131,6 +142,22 @@ func TestNormalizationCollisionIsCaseOnly(t *testing.T) {
 	}
 }
 
+// requireNoKeyNestsInsideAnother refuses a key set viper.Set cannot hold both halves of.
+//
+// viper.Set re-nests around the dots. Setting a.b after a.b.c replaces the sub-tree, and setting
+// a.b.c after a.b replaces the scalar with a fresh map, so one of the two values is always destroyed.
+// Between two caller keys, which one survives is decided by the map order this helper ranges in and
+// so varies per run. Against globalLabelsKey the loss is not a race but is still a loss: the key
+// GetConfig requires goes away.
+//
+// The reason that is worth a guard rather than a comment is where the loss shows up. It is visible
+// through the per-key Get that GetConfig uses, not only through AllSettings, so a colliding pair
+// would not fail loudly here. It would resolve a wrong value on roughly half of all runs, and the
+// test would read as flaky rather than as wrong.
+//
+// Nesting is a dotted-segment relationship, never a textual one. pruning and pruning-keep-every are
+// separate keys that share a prefix, as are state-commit.sc-write-mode and its -enable-auto sibling,
+// and a plain HasPrefix would reject the corpus as it stands.
 func requireNoKeyNestsInsideAnother(t testing.TB, all []string) {
 	t.Helper()
 	for _, outer := range all {

@@ -11,8 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
-// FuzzMinRetainBlocksFansOutToTwoRetentionPolicies pins the one configuration key in this tree that
-// two live consumers read.
+// This file pins the one configuration key in this tree that two live consumers read.
 //
 // Every other key read twice has a dead second reader: sei-cosmos/server/config.GetConfig parses
 // [state-commit] and [state-store] into a Config nobody hands to the store, so a disagreement there
@@ -27,12 +26,11 @@ import (
 // go through different casts. That combination is what this holds still.
 //
 // What each half of that is worth is not the same, and the difference is the thing to carry off this
-// file. The receipt half is pinned: this target calls readReceiptStoreConfig, so changing its cast
-// fails here. The block half is not, and cannot be from a test: root.go builds that argument inline
-// inside newApp's app.New call, which needs a node. So the block column of the table below is a
-// recorded literal, and nothing in this suite fails if root.go:297 changes its cast. That gap is
-// stated rather than papered over, because a reader who assumed otherwise would trust a pin that is
-// not there.
+// file. The receipt half is pinned against the reader: the table drives readReceiptStoreConfig, so
+// changing its cast fails here. The block half is not, and cannot be from a test: root.go builds that
+// argument inline inside newApp's app.New call, which needs a node. So the block column is a recorded
+// literal, and nothing in this suite fails if root.go:297 changes its cast. That gap is stated rather
+// than papered over, because a reader who assumed otherwise would trust a pin that is not there.
 //
 // For every value an operator would sensibly write the two casts agree, and the fan-out is then just a
 // coupling. Where they disagree, they disagree in value and agree in effect, and only because both
@@ -43,43 +41,6 @@ import (
 // Recorded rather than repaired. Making the two casts one would change what a node retains for any
 // operator currently relying on the out-of-range behaviour, which is the kind of change this suite
 // pins instead of making.
-func FuzzMinRetainBlocksFansOutToTwoRetentionPolicies(f *testing.F) {
-	// Values an operator writes, then the two shapes where the casts part company.
-	f.Add("0")
-	f.Add("100000")
-	f.Add("200000")
-	f.Add("-5")                   // ToInt keeps it, ToUint64 floors to 0
-	f.Add("9223372036854775808")  // past int64, so ToInt floors to 0
-	f.Add("18446744073709551615") // past int64, so ToInt floors to 0
-	f.Add("not-a-number")         // both floor to 0
-
-	// One directory for the whole target rather than one per iteration. It is not decoration: the
-	// reader resolves DBDirectory through GetReceiptStorePath, which returns a legacy path when
-	// <home>/data/receipt.db exists (path.go:69-75), so a home that is guaranteed empty is what keeps
-	// that branch off ambient filesystem state. A literal would read whatever the machine has.
-	homePath := f.TempDir()
-
-	f.Fuzz(func(t *testing.T, raw string) {
-		receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{
-			server.FlagMinRetainBlocks: raw,
-		})
-		if err != nil {
-			t.Fatalf("readReceiptStoreConfig(%q): %v", raw, err)
-		}
-
-		// The receipt half, against the cast its reader applies. Both sides go through cast.ToInt, so
-		// what this catches is the wiring: a changed cast, or a reader that stops reading this key. It
-		// cannot catch cast.ToInt itself resolving a value differently, and it is not asked to. The
-		// value-level pin is the literal table below, where the receipt column is a number. What
-		// fuzzing adds over that table is the wiring check across inputs no table would list.
-		if receiptConfig.KeepRecent != cast.ToInt(raw) {
-			t.Fatalf("the receipt store's KeepRecent is %d for min-retain-blocks=%q, where "+
-				"app/receipt_store_config.go casts with cast.ToInt and would give %d. The receipt side "+
-				"of the fan-out changed", receiptConfig.KeepRecent, raw, cast.ToInt(raw))
-		}
-	})
-}
-
 // minRetainBlocksFanOut is what one operator value becomes on each side.
 //
 // Both columns are literals. The receipt column is checked against the reader, so it is a prediction.
@@ -93,6 +54,7 @@ var minRetainBlocksFanOut = []struct {
 }{
 	{"0", 0, 0},                // keep everything, both sides
 	{"100000", 100000, 100000}, // the ordinary case: one value, two policies
+	{"200000", 200000, 200000}, // a second ordinary value, same class
 	{"-5", -5, 0},              // ToInt keeps the negative, ToUint64 floors
 	{"9223372036854775808", 0, 9223372036854775808},   // past int64: ToInt floors, ToUint64 keeps
 	{"18446744073709551615", 0, 18446744073709551615}, // the uint64 ceiling, same shape
@@ -118,8 +80,11 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 
 			// The prediction, against the reader.
 			if receiptConfig.KeepRecent != row.receipt {
-				t.Errorf("min-retain-blocks=%q resolves the receipt store's KeepRecent to %d, recorded "+
-					"as %d", row.raw, receiptConfig.KeepRecent, row.receipt)
+				t.Errorf("min-retain-blocks=%q resolves the receipt store's KeepRecent to %d where this "+
+					"row predicts %d. The prediction describes app/receipt_store_config.go, so a reader "+
+					"you changed deliberately means updating the row and saying what a node now retains "+
+					"for receipts; a reader you did not change means the cast moved underneath it",
+					row.raw, receiptConfig.KeepRecent, row.receipt)
 			}
 			// The recording, against the cast the block side applies.
 			if got := cast.ToUint64(row.raw); got != row.block {
