@@ -475,6 +475,23 @@ process environment, `$HOME`, and the executable basename all feed the result.
   `EnvValueIsSettable` decline the values with no faithful spelling, which keeps a
   parse failure from being attributed to the layer under test.
 
+## Disclosed Gaps
+
+Separate from the classes below, which the suite cannot reach, these are gaps it could close
+and has not. Each is disclosed where it bites as well, so a reader meeting one in a test file
+is not relying on finding this list; the list exists because a reader deciding what to improve
+should not have to grep five files for it.
+
+Each entry names the production change that would close it. None is made here, because a
+characterization branch stays test-only, and each is small enough that the reason it is open is
+scope rather than difficulty.
+
+| Gap | What would close it |
+|---|---|
+| Nothing fails if `cmd/seid/cmd/root.go:296` or `:297` changes the cast or key it hands `baseapp`. Both are inline arguments inside `newApp`'s `app.New` call, so reaching them needs a booted node. | Extract each into a named constructor taking only `AppOpts`, which the suite can then drive. An AST assertion over the call site is not the answer, since it pins spelling rather than behaviour and would redden on a refactor that changed nothing. |
+| The `start_flags` record holds `cpu-profile`, `trace-store` and `grpc-only` as literals, because `sei-cosmos/server`'s constants for them are unexported. A rename in production is caught only where setting the flag fails, which reports as a missing flag rather than as an operator-facing key having moved. | Export those three constants, or accessors for them. `sei-cosmos` is vendored here, so this is three lines in this repository. |
+| Nothing pins the multiply that makes a saturated receipt `KeepRecent` harmless. It happens in `sei-db` against an unexported per-block TTL multiplier, so a change there that landed the product small and positive would prune receipts on arm64 with this suite green. | `sei-db` exports the multiplier, or better a helper returning the TTL for a given `KeepRecent`. Pinning a copy of the constant against another copy, which this suite did briefly, checks nothing. |
+
 ## Out of Scope
 
 The suite covers the viper resolution and the keys `app.New` reads back out of the
