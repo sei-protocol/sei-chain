@@ -48,6 +48,13 @@ func recordNewAccounts(ctx context.Context, count int64) {
 		}
 	}()
 	// TODO(PLT-353): remove once bank_new_account verified
-	telemetry.IncrCounter(float32(count), "new", "account")
+	func() {
+		defer func() {
+			if e := recover(); e != nil {
+				debug.PrintStack()
+			}
+		}()
+		telemetry.IncrCounter(float32(count), "new", "account")
+	}()
 	bankMetrics.newAccount.Add(ctx, count)
 }
