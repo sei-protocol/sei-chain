@@ -80,7 +80,7 @@ import (
 // side positive.
 var minRetainBlocksFanOut = []struct {
 	raw     any
-	receipt int    // app/receipt_store_config.go:27, through cast.ToInt. Unused when saturates.
+	receipt int    // app/receipt_store_config.go:27, through cast.ToInt. Not read when saturates.
 	block   uint64 // cmd/seid/cmd/root.go:297, through cast.ToUint64
 	// saturates marks a row whose receipt cast Go leaves implementation-defined, so no literal is a
 	// correct prediction and the property is asserted in place of the value. Same reason a
@@ -165,14 +165,18 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 					"update it and say what a node now retains", row.raw, got, row.block)
 			}
 
+			// A saturating row is done here, and this sits above the agreement check rather than below
+			// it so that check never reads a receipt column holding no prediction. It stays below the
+			// block check, because the block column is a real prediction on these rows.
+			if row.saturates {
+				return
+			}
+
 			// Same number on both sides means the fan-out is a plain coupling and there is nothing to
 			// check. The sign test is part of that question rather than belt-and-braces: converting a
 			// negative receipt value to uint64 wraps it to the top of the range, so a row pairing a
 			// negative with a large block value would read as agreement and skip the check below.
 			if row.receipt >= 0 && uint64(row.receipt) == row.block {
-				return
-			}
-			if row.saturates {
 				return
 			}
 			if row.receipt > 0 {
