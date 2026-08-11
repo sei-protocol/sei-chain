@@ -21,9 +21,10 @@ var logger = seilog.NewLogger("db", "gc")
 //  1. ask every store GetRollbackFloor(RollbackWindow) — the earliest height it could still be
 //     asked to roll back to, which it resolves against its own head
 //  2. snapshotCutLine = min of those answers, the deepest rollback the fleet still owes
-//  3. historyCutLine = snapshotCutLine - LookbackWindow, so the lookback window sits entirely below
-//     the deepest promised rollback point rather than overlapping it; a LookbackWindow of -1 makes
-//     this 0, which is infinite history retention (snapshots are still reclaimed to the floor)
+//  3. historyCutLine sits LookbackWindow below snapshotCutLine, so the lookback window falls
+//     entirely beneath the deepest promised rollback point rather than overlapping it; a
+//     LookbackWindow of -1 pins it to 0, which is infinite history retention (snapshots are still
+//     reclaimed to the floor)
 //  4. on every store reporting ExternalPruning, PruneSnapshots(snapshotCutLine) then
 //     PruneHistory(historyCutLine)
 //
@@ -120,7 +121,8 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 }
 
 // pruneStores issues the deletions the cycle decided on: snapshots below snapshotHeight, history
-// below the deeper historyHeight. See StorageGarbageCollector for why the two depths differ.
+// below historyHeight — normally the deeper of the two, and 0 (never prune) under an infinite
+// lookback window. See StorageGarbageCollector for why the two depths differ.
 //
 // A cut line of 0 is skipped rather than passed down. It means nothing is eligible, which every
 // store would absorb as a no-op anyway; not making the call keeps a cycle that decided to delete

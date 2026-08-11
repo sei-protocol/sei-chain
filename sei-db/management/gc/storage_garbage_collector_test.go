@@ -60,7 +60,7 @@ func snapshotStore(name string, latestHeight uint64, snapshots ...uint64) *mockS
 
 // contiguousStore models blockDB / receiptDB / WAL: it can restore to any height it holds, so it
 // answers its own head less the window — and 0 where the window is deeper than that head, which
-// includes the empty store and holds the prune height at 0.
+// includes the empty store and holds both cut lines at 0.
 func contiguousStore(name string, latestHeight uint64) *mockStore {
 	return &mockStore{
 		name:         name,
@@ -466,7 +466,7 @@ func TestPruneStillPrunesSnapshotsWhenHistoryIsHeldAtZero(t *testing.T) {
 }
 
 // A chain younger than its own rollback window must lose nothing: every store owes a rollback
-// deeper than its whole history, so every one answers 0 and the prune height stays there. The
+// deeper than its whole history, so every one answers 0 and both cut lines stay there. The
 // deletions are still issued — they are no-ops at 0 — which is what keeps the collector free of a
 // special case for the young chain.
 func TestPruneOnYoungChain(t *testing.T) {

@@ -20,8 +20,9 @@ type StorageGarbageCollectorConfig struct {
 	// makes the promise independent of rollback depth: however far the node rewinds inside the
 	// rollback window, at least LookbackWindow blocks below the new head stay readable.
 	//
-	// One window covers every managed store. With F = LatestBlock - RollbackWindow -
-	// LookbackWindow, collection guarantees:
+	// One window covers every managed store. With a finite LookbackWindow and
+	// F = LatestBlock - RollbackWindow - LookbackWindow, collection guarantees (a LookbackWindow of
+	// -1 keeps everything, so F is genesis):
 	//
 	//  1. Nothing needed to roll back to any block in
 	//     [LatestBlock - RollbackWindow, LatestBlock] is deleted.
@@ -58,8 +59,10 @@ func DefaultStorageGarbageCollectorConfig() *StorageGarbageCollectorConfig {
 
 // Validate checks that required fields are set to usable values.
 //
-// The windows are additive, so every combination of them is meaningful and neither is constrained
-// against the other. A sum that overflows uint64 is handled in getHistoryCutLine.
+// The two windows are independent — RollbackWindow bounds each store's floor, LookbackWindow is
+// subtracted from the resulting minimum — so every combination is meaningful and neither is
+// constrained against the other. A lookback large enough to reach below genesis is not an error;
+// getHistoryCutLine saturates it to 0.
 //
 // LookbackWindow is a block count and so is bounded below by 0, except for -1, the infinite-retention
 // sentinel. Any other negative is a typo — most likely -1 miswritten — and is rejected rather than
