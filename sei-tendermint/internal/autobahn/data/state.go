@@ -592,24 +592,20 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 // PushAppHash marks blocks up to n as executed.
 func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash) error {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextBlock }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return inner.nextAppProposal < inner.nextBlock }); err != nil {
 			return err
 		}
-		// We only care about the AppHash of the last block of the CommitQC.
-		p := inner.qcs[n].QC().Proposal()
-		gr := p.GlobalRange()
-		if gr.Next != n+1 {
-			return nil
-		}
-		if err := ctrl.WaitUntil(ctx, func() bool { return gr.First <= inner.nextAppProposal }); err != nil {
-			return err
-		}
-		if gr.Next != n+1 || n < inner.nextAppProposal {
+		p := inner.qcs[inner.nextAppProposal].QC().Proposal()
+		if want := p.GlobalRange().Next - 1; n > want {
+			// We expect the AppHashes to be pushed in order.
+			return fmt.Errorf("received appHash for %v, while still waiting for appHash for %v", n, want)
+		} else if n != want {
+			// We only care about the AppHash of the last block of the CommitQC.
 			return nil
 		}
 		proposal := types.NewAppProposal(p, hash)
 		t := time.Now()
-		for inner.nextAppProposal < gr.Next {
+		for inner.nextAppProposal <= n {
 			b := inner.blocks[inner.nextAppProposal]
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
 			s.metrics.Blocks.Execute.Observe(latency)
@@ -621,7 +617,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
 		// TODO(gprusak): this is a temporary measure, until AppHashes are persisted outside of BlockDB.
-		if err := ctrl.WaitUntil(ctx, func() bool { return gr.Next <= inner.persisted.NextAppProposal }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n <= inner.persisted.NextAppProposal }); err != nil {
 			return err
 		}
 	}
