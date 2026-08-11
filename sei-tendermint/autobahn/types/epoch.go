@@ -19,7 +19,7 @@ type RoadRange struct {
 // Use in tests and genesis epochs where no upper bound is known yet.
 func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[RoadIndex]()} }
 
-// Has reports whether idx falls within this range (inclusive on both ends).
+// Has reports whether idx falls within this range.
 func (r RoadRange) Has(idx RoadIndex) bool { return r.First <= idx && idx < r.Next }
 
 // Epoch holds the complete context for a single epoch.

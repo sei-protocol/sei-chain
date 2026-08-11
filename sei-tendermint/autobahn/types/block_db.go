@@ -116,25 +116,20 @@ type BlockDB interface {
 	// must already be written: the CommitQC covering GlobalRange.First must have
 	// the same GlobalRange.
 	//
-	// AppProposals form a contiguous prefix aligned with retained CommitQCs. The
-	// first AppProposal must start at the retained CommitQC floor; each
-	// subsequent AppProposal's First must equal the previous AppProposal's Next.
-	// Re-writing, gaps, overlaps, mid-QC starts, and ranges that do not exactly
-	// match the next persisted CommitQC range are rejected.
+	// AppProposals form a contiguous prefix. The first AppProposal must start at the retained CommitQC floor
+	// each subsequent AppProposal's First must equal the previous AppProposal's Next.
+	// Re-writing, gaps, overlaps are rejected.
 	//
 	// May return before the AppProposal is on disk. See the BlockDB type doc for
 	// the two-phase write/flush contract.
 	WriteAppProposal(appProposal *AppProposal) error
 
-	// WriteAppQC persists an AppQC. The AppQC's proposal carries the exact
-	// CommitQC range it certifies. A matching CommitQC must already be written:
-	// the CommitQC covering GlobalRange.First must have the same GlobalRange.
+	// WriteAppQC persists an AppQC. A matching CommitQC must already be written.
 	//
-	// AppQCs form a contiguous prefix aligned with retained CommitQCs. The first
+	// AppQCs form a contiguous prefix. The first
 	// AppQC must start at the retained CommitQC floor; each subsequent AppQC's
-	// First must equal the previous AppQC's Next. Re-writing, gaps, overlaps,
-	// mid-QC starts, and ranges that do not exactly match the next persisted
-	// CommitQC range are rejected.
+	// First must equal the previous AppQC's Next. Re-writing, gaps, overlaps
+	// are rejected.
 	//
 	// May return before the AppQC is on disk. See the BlockDB type doc for the
 	// two-phase write/flush contract.

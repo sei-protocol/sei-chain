@@ -13,11 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// Service serves the giga RPC API. NewService builds a full validator
-// service (all streams); NewFullNodeService builds a fullnode-only
-// service (StreamFullCommitQCs + GetBlock) for fullnodes. state is None
-// on block-sync-only services; the consensus / avail handlers reach it
-// via validatorState() and panic if invoked outside RunServer / RunClient.
+// Service serves the giga RPC API.
 type Service struct {
 	getBlockReqs chan req
 	data         *data.State
@@ -28,6 +24,7 @@ type validatorService struct {
 	state *consensus.State
 }
 
+// NewService constructs service with all streams.
 func NewService(state *consensus.State) *Service {
 	return &Service{
 		getBlockReqs: make(chan req),

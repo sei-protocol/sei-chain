@@ -167,6 +167,16 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 	}
 }
 
+func (i *inner) observeCertify(m *metrics.Metrics, gr types.GlobalRange) {
+	t := time.Now()
+	for n := gr.First; n < gr.Next; n++ {
+		b := i.blocks[n]
+		latency := t.Sub(b.Payload().CreatedAt()).Seconds()
+		m.Blocks.Certify.Observe(latency)
+		m.Txs.Certify.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+	}
+}
+
 // State of the chain.
 // Contains blocks in global order and proofs of sequencing: (CommitQC) and execution result (AppQC).
 type State struct {
@@ -617,7 +627,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
 		// TODO(gprusak): this is a temporary measure, until AppHashes are persisted outside of BlockDB.
-		if err := ctrl.WaitUntil(ctx, func() bool { return n <= inner.persisted.NextAppProposal }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.persisted.NextAppProposal }); err != nil {
 			return err
 		}
 	}
@@ -655,6 +665,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC) error {
 		if err := inner.insertAppQC(s.cfg.Registry, appQC); err != nil {
 			return err
 		}
+		inner.observeCertify(s.metrics, gr)
 		ctrl.Updated()
 		return nil
 	}
