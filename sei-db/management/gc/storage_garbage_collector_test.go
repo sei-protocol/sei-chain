@@ -119,7 +119,7 @@ func prunableStores(list ...*mockStore) []PrunableStore {
 	return result
 }
 
-func testConfig(t *testing.T, rollbackWindow, lookbackWindow uint64) *StorageGarbageCollectorConfig {
+func testConfig(t *testing.T, rollbackWindow uint64, lookbackWindow int64) *StorageGarbageCollectorConfig {
 	t.Helper()
 	config := &StorageGarbageCollectorConfig{
 		RollbackWindow: rollbackWindow,
@@ -142,7 +142,7 @@ func TestPruneDecisions(t *testing.T) {
 	cases := []struct {
 		name               string
 		rollbackWindow     uint64
-		lookbackWindow     uint64
+		lookbackWindow     int64
 		stores             []*mockStore
 		wantSnapshotsBelow *uint64
 		wantHistoryBelow   *uint64
@@ -334,6 +334,64 @@ func TestPruneDecisions(t *testing.T) {
 			wantSnapshotsBelow: ptr(10_000),
 		},
 		{
+			// -1 is infinite history retention: snapshots below the rollback floor are still
+			// reclaimed, but history is never pruned however far that floor advances.
+			name:           "infinite lookback: snapshots only, history untouched",
+			rollbackWindow: 1_000,
+			lookbackWindow: -1,
+			stores: []*mockStore{
+				snapshotStore("sc", 100_000, 10_000),
+				contiguousStore("stateWAL", 100_000),
+			},
+			wantSnapshotsBelow: ptr(10_000),
+		},
+		{
+			// Infinite lookback must not force a deletion on a chain younger than its rollback
+			// window. Every store owes a rollback deeper than its whole history, answers 0, and the
+			// minimum holds both cut lines there — the -1 that zeroes the history cut line finds it
+			// already 0, so nothing is pruned anywhere.
+			name:           "infinite lookback on a young chain: nothing deleted",
+			rollbackWindow: 1_000,
+			lookbackWindow: -1,
+			stores: []*mockStore{
+				snapshotStore("sc", 100, 50),
+				contiguousStore("blockDB", 100),
+				contiguousStore("stateWAL", 100),
+			},
+		},
+		{
+			// A fleet that keeps no snapshots — blockDB, receiptDB, WAL — still has a snapshot cut
+			// line: the collector issues PruneSnapshots and each store no-ops it. Infinite lookback
+			// holds every block of history above genesis.
+			name:           "infinite lookback on a contiguous fleet: history untouched",
+			rollbackWindow: 10_000,
+			lookbackWindow: -1,
+			stores: []*mockStore{
+				contiguousStore("blockDB", 100_000),
+				contiguousStore("receiptDB", 100_000),
+				contiguousStore("stateWAL", 100_000),
+			},
+			// All three answer 90_000; the snapshot cut line fires as a no-op on stores that hold
+			// none, and history is never pruned.
+			wantSnapshotsBelow: ptr(90_000),
+		},
+		{
+			// The mixed fleet the collector actually runs: SC holds the snapshots and binds the
+			// snapshot cut line, while blockDB, receiptDB and the WAL answer from their own heads.
+			// Infinite lookback keeps all history across every one of them.
+			name:           "infinite lookback across SC, blockDB, receiptDB and WAL",
+			rollbackWindow: 10_000,
+			lookbackWindow: -1,
+			stores: []*mockStore{
+				snapshotStore("sc", 100_000, 50_000),
+				contiguousStore("blockDB", 100_000),
+				contiguousStore("receiptDB", 100_000),
+				contiguousStore("stateWAL", 100_000),
+			},
+			// sc 50_000; the contiguous three 90_000 → min 50_000. History is never pruned.
+			wantSnapshotsBelow: ptr(50_000),
+		},
+		{
 			name:           "no store has a latest block",
 			rollbackWindow: 10_000,
 			stores: []*mockStore{
@@ -491,7 +549,7 @@ func TestGetHistoryCutLine(t *testing.T) {
 	cases := []struct {
 		name            string
 		snapshotCutLine uint64
-		lookbackWindow  uint64
+		lookbackWindow  int64
 		want            uint64
 	}{
 		{name: "no lookback leaves the cut line alone", snapshotCutLine: 90_000, want: 90_000},
@@ -503,7 +561,8 @@ func TestGetHistoryCutLine(t *testing.T) {
 		{name: "a cut line of 0 stays 0", snapshotCutLine: 0, lookbackWindow: 10, want: 0},
 		{name: "no cut line and no lookback", want: 0},
 		{name: "max cut line", snapshotCutLine: math.MaxUint64, lookbackWindow: 1, want: math.MaxUint64 - 1},
-		{name: "max lookback", snapshotCutLine: 100, lookbackWindow: math.MaxUint64, want: 0},
+		{name: "infinite lookback holds history at 0", snapshotCutLine: math.MaxUint64, lookbackWindow: -1, want: 0},
+		{name: "infinite lookback with no cut line", snapshotCutLine: 0, lookbackWindow: -1, want: 0},
 	}
 
 	for _, tc := range cases {
@@ -584,22 +643,30 @@ func TestPruneAsksEveryStoreOncePerCycle(t *testing.T) {
 func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {
 	cfg := DefaultStorageGarbageCollectorConfig()
 	require.Equal(t, uint64(1_000), cfg.RollbackWindow)
-	require.Equal(t, uint64(0), cfg.LookbackWindow)
+	require.Equal(t, int64(0), cfg.LookbackWindow)
 	require.Equal(t, 5*time.Minute, cfg.PruneInterval)
 	require.NoError(t, cfg.Validate())
 }
 
-// Both windows are independent, so every combination validates. Only the interval is constrained.
+// The windows are independent, so every combination of non-negative counts validates, as does the
+// -1 infinite-retention sentinel on the lookback window. The interval and a lookback below -1 are
+// the only rejections.
 func TestValidate(t *testing.T) {
 	require.ErrorContains(t, (*StorageGarbageCollectorConfig)(nil).Validate(), "config is required")
 
-	for _, windows := range [][2]uint64{{0, 0}, {1, 0}, {0, 1}, {1_000, 50_000}, {50_000, 1_000}} {
+	for _, windows := range [][2]int64{{0, 0}, {1, 0}, {0, 1}, {1_000, 50_000}, {50_000, 1_000}, {1_000, -1}} {
 		require.NoError(t, (&StorageGarbageCollectorConfig{
-			RollbackWindow: windows[0],
+			RollbackWindow: uint64(windows[0]),
 			LookbackWindow: windows[1],
 			PruneInterval:  time.Minute,
 		}).Validate(), "windows %v", windows)
 	}
+
+	require.ErrorContains(t, (&StorageGarbageCollectorConfig{
+		RollbackWindow: 1,
+		LookbackWindow: -2,
+		PruneInterval:  time.Minute,
+	}).Validate(), "lookback window")
 
 	require.ErrorContains(t, (&StorageGarbageCollectorConfig{
 		RollbackWindow: 1,

@@ -32,7 +32,13 @@ type StorageGarbageCollectorConfig struct {
 	// since they are restore points and this window buys history to read rather than history to
 	// restore to. History goes LookbackWindow below that same floor, because a retained snapshot
 	// is only restorable if the blocks above it survive. See PrunableStore.
-	LookbackWindow uint64
+	//
+	// -1 means infinite: history is never pruned, so every block ever ingested stays readable.
+	// Snapshots below the rollback floor are still reclaimed — they are restore points nothing can
+	// ask for once the floor has passed them, and holding history forever does not make them one.
+	// The type is signed only to carry this sentinel; every other value is a block count and must
+	// be >= 0.
+	LookbackWindow int64
 
 	// PruneInterval is how often the collector runs a prune cycle. Must be > 0.
 	PruneInterval time.Duration
@@ -54,12 +60,19 @@ func DefaultStorageGarbageCollectorConfig() *StorageGarbageCollectorConfig {
 //
 // The windows are additive, so every combination of them is meaningful and neither is constrained
 // against the other. A sum that overflows uint64 is handled in getHistoryCutLine.
+//
+// LookbackWindow is a block count and so is bounded below by 0, except for -1, the infinite-retention
+// sentinel. Any other negative is a typo — most likely -1 miswritten — and is rejected rather than
+// silently read as a huge count once converted.
 func (c *StorageGarbageCollectorConfig) Validate() error {
 	if c == nil {
 		return fmt.Errorf("config is required")
 	}
 	if c.PruneInterval <= 0 {
 		return fmt.Errorf("prune interval must be greater than 0")
+	}
+	if c.LookbackWindow < -1 {
+		return fmt.Errorf("lookback window must be >= 0, or -1 for infinite retention (got %d)", c.LookbackWindow)
 	}
 	return nil
 }

@@ -22,7 +22,8 @@ var logger = seilog.NewLogger("db", "gc")
 //     asked to roll back to, which it resolves against its own head
 //  2. snapshotCutLine = min of those answers, the deepest rollback the fleet still owes
 //  3. historyCutLine = snapshotCutLine - LookbackWindow, so the lookback window sits entirely below
-//     the deepest promised rollback point rather than overlapping it
+//     the deepest promised rollback point rather than overlapping it; a LookbackWindow of -1 makes
+//     this 0, which is infinite history retention (snapshots are still reclaimed to the floor)
 //  4. on every store reporting ExternalPruning, PruneSnapshots(snapshotCutLine) then
 //     PruneHistory(historyCutLine)
 //
@@ -193,11 +194,17 @@ func describeDecisions(stores []PrunableStore, decisions []storeDecision) string
 // Subtracting from the minimum of the stores' answers is what makes the result safe without clamping
 // any of them: it can only sit at or below every store's own floor.
 //
-// 0 when the window reaches below genesis, and it needs no special handling — it is the literal
-// height "keep everything from block 0 up", which every store's PruneHistory absorbs as a no-op.
-func getHistoryCutLine(snapshotCutLine uint64, lookbackWindow uint64) uint64 {
-	if snapshotCutLine <= lookbackWindow {
+// A lookbackWindow of -1 is infinite retention: it returns 0, the literal height "keep everything
+// from block 0 up", so history is never pruned however far the snapshot floor advances. The same 0
+// falls out when a finite window reaches below genesis, and it needs no special handling on the
+// other end either — every store's PruneHistory absorbs a height of 0 as a no-op.
+func getHistoryCutLine(snapshotCutLine uint64, lookbackWindow int64) uint64 {
+	if lookbackWindow < 0 {
+		return 0 // -1: infinite retention, nothing below the snapshot floor is ever given up
+	}
+	window := uint64(lookbackWindow)
+	if snapshotCutLine <= window {
 		return 0
 	}
-	return snapshotCutLine - lookbackWindow
+	return snapshotCutLine - window
 }
