@@ -100,22 +100,25 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		if !ok || len(bs) == 0 {
 			continue
 		}
-		var lastHash types.BlockHeaderHash
-		for j, b := range bs {
+		for _, b := range bs {
 			if q.Len() >= BlocksPerLane {
 				return nil, fmt.Errorf("lane %s: loaded %d blocks exceeds capacity %d", lane, len(bs), BlocksPerLane)
 			}
-			if j > 0 {
-				if got := b.Proposal.Msg().Block().Header().ParentHash(); got != lastHash {
-					return nil, fmt.Errorf("lane %s: parent hash mismatch at block %d", lane, b.Number)
-				}
-			}
-			lastHash = b.Proposal.Msg().Block().Header().Hash()
 			if b.Number < q.next {
 				continue
 			}
 			if b.Number != q.next {
 				return nil, fmt.Errorf("lane %s: non-contiguous persisted blocks: expected %d, got %d", lane, q.next, b.Number)
+			}
+			// We check the parent hash only for the blocks above the anchor, because:
+			// * node can cast LaneVote for the block of the lane without checking the parent hash,
+			//   in case the previous block was already (executed and) pruned from memory.
+			// * current WAL implementation is lazily pruning on disk, so old executed blocks might be loaded on startup.
+			if q.Len() > 0 {
+				ph := b.Proposal.Msg().Block().Header().ParentHash()
+				if q.q[q.next-1].Msg().Block().Header().Hash() != ph {
+					return nil, fmt.Errorf("lane %s: parent hash mismatch at block %d", lane, b.Number)
+				}
 			}
 			q.pushBack(b.Proposal)
 		}
