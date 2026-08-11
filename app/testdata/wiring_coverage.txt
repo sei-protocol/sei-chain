@@ -18,6 +18,7 @@ light_invariance	CheckEveryRowHasADiscriminatingSeed
 light_invariance	CheckKeyNames
 light_invariance	CheckManifestCoversEveryField
 light_invariance	CheckRow
+min_retain_blocks	CheckKeyNames
 state-commit	CheckDefaults
 state-commit	CheckEveryRowHasADiscriminatingSeed
 state-commit	CheckKeyNames

@@ -189,6 +189,25 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 	}
 }
 
+// minRetainBlocksKeyName records the operator-facing spelling of the key both retention readers share.
+//
+// A KeyName rather than a KeySpec, because it resolves into two different structs through two
+// different casts and no single row could name a Path for it. The record exists because nothing else
+// in the tree pins this constant's value: sei-cosmos/server/config's base_config record belongs to
+// GetConfig, which reads the literal independently, so renaming server.FlagMinRetainBlocks moves the
+// key for both live readers this file exists to hold still. That rename does fail today, where a test
+// asks the start command to set a flag it no longer has, but it fails as "no such flag" rather than as
+// an operator-facing key having moved, and it fails in another package.
+//
+// Spelled through the reader's own constant, which is the position the record exists for: a rename
+// lands in this golden as a diff rather than only as a set failure somewhere else.
+var minRetainBlocksKeyName = []configtest.KeyName{configtest.KeyName(server.FlagMinRetainBlocks)}
+
+// TestMinRetainBlocksKeyNameMatchesTheRecordedName pins the spelling of the key above.
+func TestMinRetainBlocksKeyNameMatchesTheRecordedName(t *testing.T) {
+	configtest.CheckKeyNames(t, "min_retain_blocks", nil, minRetainBlocksKeyName...)
+}
+
 // TestMinRetainBlocksFullNodeModeCapsReceiptRetention records the case where the fan-out bites, which
 // is the default one.
 //
