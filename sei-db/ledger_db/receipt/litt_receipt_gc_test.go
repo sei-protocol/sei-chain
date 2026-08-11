@@ -106,28 +106,37 @@ func TestReceiptLocalPrunerAdvancesFloorWithoutCollector(t *testing.T) {
 	}, 6*time.Second, 25*time.Millisecond, "the local pruner must advance the floor with no collector present")
 }
 
-// KeepRecent and GetRetentionWindow disagree about 0, so the translation is the behavior worth
-// pinning: KeepRecent 0 means "keep everything" and is the default, while a literal 0 answer
-// means "keep only the shared rollback window". Returning the field verbatim would prune a store
-// configured to retain forever back to ~1_000 blocks.
-func TestReceiptGCRetentionWindowMapsKeepRecent(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		keepRecent int
-		want       int64
-	}{
-		{name: "keep everything", keepRecent: 0, want: gc.InfiniteRetentionWindow},
-		{name: "bounded retention", keepRecent: 100_000, want: 100_000},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, prunable, _ := setupLittIdxForGC(t, tc.keepRecent)
-			require.Equal(t, tc.want, prunable.GetRetentionWindow())
-		})
+// KeepRecent belongs to the local pruner and must not reach the collector's answers: how deep the
+// collector prunes is its own fleet-wide window. Pinned across both readings of KeepRecent, since 0
+// used to mean "keep everything" here and would once have suppressed pruning entirely.
+func TestReceiptGCAnswersDoNotDependOnKeepRecent(t *testing.T) {
+	for _, keepRecent := range []int{0, 100_000} {
+		_, prunable, _ := setupLittIdxForGC(t, keepRecent)
+		require.Equal(t, uint64(0), prunable.GetRollbackFloor(10_000),
+			"keepRecent %d must not change the floor", keepRecent)
 	}
 }
 
-// The head is 0 until receipts land, which keeps a store that is still filling out of the
-// collector's head minimum instead of dragging every store's cut line down to it.
+// This store keeps no snapshots, so its half of the split contract is a no-op that must leave the
+// retention floor where it is.
+func TestReceiptGCPruneSnapshotsIsANoOp(t *testing.T) {
+	store, prunable, ctx := setupLittIdxForGC(t, 0)
+	addr := common.HexToAddress("0xabcd")
+	topic := common.HexToHash("0x1111")
+	for block := uint64(1); block <= 3; block++ {
+		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
+	}
+
+	require.NoError(t, prunable.PruneSnapshots(3))
+	require.Equal(t, int64(0), store.EarliestVersion(), "a snapshot prune must not move the floor")
+
+	kept, err := store.GetReceiptFromStore(ctx, litTxHash(1, 0))
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), kept.BlockNumber)
+}
+
+// The head is 0 until receipts land, so a store that is still filling reports a floor of 0 and the
+// fleet holds its history where it is rather than pruning against a head this store does not have.
 func TestReceiptGCLatestBlock(t *testing.T) {
 	store, prunable, ctx := setupLittIdxForGC(t, 0)
 
@@ -144,31 +153,32 @@ func TestReceiptGCLatestBlock(t *testing.T) {
 	latest, err = prunable.GetLatestBlock()
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), latest)
-	require.Equal(t, int64(3), store.LatestVersion(), "the collector's head must agree with the store's own version")
+	require.Equal(t, int64(3), store.LatestVersion(), "the head reported to the collector must agree with the store's own version")
 }
 
-// A contiguous store answers the cut line it was given whatever it holds, and the prune that
-// follows moves the retention floor to it — which is what makes the receipts below it stop being
+// A contiguous store resolves the window against its own head, and the prune that follows moves the
+// retention floor to the height it is given — which is what makes the receipts below it stop being
 // served. Reclaiming their bodies lags that, since litt also waits for the TTL, but it can no
 // longer lead it (see TestGCFilterMakesLittReclamationFollowTheBlockFloor).
-func TestReceiptGCPruningBoundaryAndPruneBelow(t *testing.T) {
+func TestReceiptGCRollbackFloorAndPruneHistory(t *testing.T) {
 	store, prunable, ctx := setupLittIdxForGC(t, 0)
 	addr := common.HexToAddress("0xabcd")
 	topic := common.HexToHash("0x1111")
 
-	// Holding nothing: the boundary is still cutLine, since CannotServeRollback here would stall
-	// every other store rather than protect anything.
-	require.Equal(t, uint64(42), prunable.GetPruningBoundary(42))
+	// Holding nothing: the head is 0, so every window reports 0 — keep everything — which holds the
+	// fleet's history where it is until this store fills.
+	require.Equal(t, uint64(0), prunable.GetRollbackFloor(42))
 
 	for block := uint64(1); block <= 3; block++ {
 		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
 	}
-	require.Equal(t, uint64(2), prunable.GetPruningBoundary(2))
-	// Above the head, which happens whenever another store's data puts the head above this one's.
-	require.Equal(t, uint64(1_000), prunable.GetPruningBoundary(1_000))
+	require.Equal(t, uint64(1), prunable.GetRollbackFloor(2))
+	// A window deeper than its own head is a rollback promise reaching past genesis, so nothing here
+	// is eligible for pruning yet.
+	require.Equal(t, uint64(0), prunable.GetRollbackFloor(1_000))
 
-	require.NoError(t, prunable.PruneBelow(3))
-	require.Equal(t, int64(3), store.EarliestVersion(), "PruneBelow must advance the retention floor")
+	require.NoError(t, prunable.PruneHistory(3))
+	require.Equal(t, int64(3), store.EarliestVersion(), "PruneHistory must advance the retention floor")
 
 	_, err := store.GetReceiptFromStore(ctx, litTxHash(1, 0))
 	require.ErrorIs(t, err, receipt.ErrNotFound, "a receipt below the floor must not be served")
@@ -177,21 +187,21 @@ func TestReceiptGCPruningBoundaryAndPruneBelow(t *testing.T) {
 	require.Equal(t, uint64(3), kept.BlockNumber)
 
 	// The floor only advances: a later, lower cycle must not re-expose what was pruned.
-	require.NoError(t, prunable.PruneBelow(1))
+	require.NoError(t, prunable.PruneHistory(1))
 	require.Equal(t, int64(3), store.EarliestVersion())
 }
 
-// PruneBelow carries a minimum taken across every managed store, so it can arrive above this
+// PruneHistory carries a minimum taken across every managed store, so it can arrive above this
 // store's head whenever this one lags or has ingested nothing. Both cases are the store's own to
-// survive: the collector's head minimum makes them unlikely, but that is a property of the caller.
-func TestReceiptGCPruneBelowAboveHead(t *testing.T) {
+// survive: this store's own floor of 0 makes them unlikely, but that is a property of the caller.
+func TestReceiptGCPruneHistoryAboveHead(t *testing.T) {
 	addr := common.HexToAddress("0xabcd")
 	topic := common.HexToHash("0x1111")
 
 	t.Run("empty store keeps its floor at zero", func(t *testing.T) {
 		store, prunable, _ := setupLittIdxForGC(t, 0)
 
-		require.NoError(t, prunable.PruneBelow(1_000))
+		require.NoError(t, prunable.PruneHistory(1_000))
 		require.Equal(t, int64(0), store.EarliestVersion(),
 			"a floor above an empty store would have to be walked back once blocks arrive")
 	})
@@ -202,7 +212,7 @@ func TestReceiptGCPruneBelowAboveHead(t *testing.T) {
 			writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
 		}
 
-		require.NoError(t, prunable.PruneBelow(1_000))
+		require.NoError(t, prunable.PruneHistory(1_000))
 		require.Equal(t, int64(3), store.EarliestVersion(), "the floor stops at the head, not the request")
 
 		kept, err := store.GetReceiptFromStore(ctx, litTxHash(3, 0))

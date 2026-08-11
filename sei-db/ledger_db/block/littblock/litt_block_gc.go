@@ -5,10 +5,19 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
-// blockDB joins the shared prune cycle as a contiguous store: everything from its retention
-// floor up to its head is retained, so it can serve a rollback to any height in between. The
-// collector owns the decision of how deep to prune; PruneBefore stays the direct entry point
-// for callers holding a types.BlockDB.
+// In terms of the collector's RollbackWindow and LookbackWindow, garbage collection guarantees:
+//
+//  1. Garbage collection will not delete any data that is necessary to roll back to any block
+//     between LatestBlock and (LatestBlock - RollbackWindow), inclusive.
+//  2. Garbage collection will not delete block DB data that is at or after
+//     (LatestBlock - RollbackWindow - LookbackWindow). This ensures that however far the system
+//     rolls back inside the rollback window, it is still possible to read at least LookbackWindow
+//     blocks of history below wherever it landed.
+//  3. Garbage collection will eventually delete block data older than
+//     (LatestBlock - RollbackWindow - LookbackWindow).
+//
+// Eventually, in guarantee 3, because PruneHistory only records a watermark: reclamation also
+// waits for BlockDBConfig.RetentionTime and for LittDB's own GC to come round.
 var _ gc.PrunableStore = (*blockDB)(nil)
 
 func (s *blockDB) Name() string {
@@ -23,7 +32,7 @@ func (s *blockDB) ExternalPruning() bool {
 	return true
 }
 
-// PruneBelow advances the retention watermark to blockNumber. It only records the watermark;
+// PruneHistory advances the retention watermark to blockNumber. It only records the watermark;
 // reclamation happens on LittDB's own GC schedule and no earlier than config.RetentionTime (see
 // PruneBefore).
 //
@@ -31,39 +40,43 @@ func (s *blockDB) ExternalPruning() bool {
 // own head — a store that ingests ahead of blockDB pulls the head up, and a QC boundary can
 // leave the newest retained cohort below it. PruneBefore caps the request at the newest
 // retained (block, QC) pair, which is what keeps the store from emptying itself here.
-func (s *blockDB) PruneBelow(blockNumber uint64) error {
+func (s *blockDB) PruneHistory(blockNumber uint64) error {
 	return s.PruneBefore(types.GlobalBlockNumber(blockNumber))
 }
 
-// GetRetentionWindow reports the configured history beyond the collector's shared rollback
-// window. See BlockDBConfig.RetentionWindow for the meaning of each value, and note that it is
-// an input to a fleet-wide minimum rather than a policy applied to this store alone.
-func (s *blockDB) GetRetentionWindow() int64 {
-	if s.config.RetentionWindow < 0 {
-		return gc.InfiniteRetentionWindow
-	}
-	return s.config.RetentionWindow
+// PruneSnapshots does nothing: blockDB keeps no snapshots. It restores by reading the blocks it
+// holds, so its whole retention story is the watermark PruneHistory moves.
+func (s *blockDB) PruneSnapshots(uint64) error {
+	return nil
 }
 
-// GetPruningBoundary returns cutLine, the contract's answer for a contiguous store: every block
-// at or above the watermark is retained, so cutLine itself is restorable and nothing below it
-// has to be held back.
+// GetRollbackFloor returns head - rollbackWindow, the contract's answer for a contiguous store:
+// every block from its floor to its head is retained, so that height is restorable directly and
+// nothing below it has to be held back. It keeps no snapshots, so there is nothing to resolve the
+// window against beyond its own head.
 //
-// Unconditional on purpose. A store whose floor already sits above cutLine — bootstrapped
-// mid-chain, or pruned there by an earlier cycle — still answers cutLine, because the
-// PruneBefore that follows is a no-op on it while a lower answer would hold back every other
-// store. CannotServeRollback is never right here: this store fills from its own ingest path,
-// so it has no replay range for another store's data to protect.
-func (s *blockDB) GetPruningBoundary(cutLine uint64) uint64 {
-	return cutLine
+// It reports against its own head even when that runs ahead of the fleet's, because the collector
+// takes a minimum across stores. A lagging store therefore sets the depth, and answering high here
+// cannot prune anything out from under it.
+//
+// 0 when the window is deeper than the whole history — including the empty store, whose head is 0.
+// Nothing here is eligible for pruning yet: the rollback owed reaches past genesis, so no part of the
+// history can be given up until the head clears the window. Nothing is logged from here; the
+// collector logs every store's answer each cycle.
+func (s *blockDB) GetRollbackFloor(rollbackWindow uint64) uint64 {
+	head, err := s.GetLatestBlock()
+	if err != nil || head <= rollbackWindow {
+		return 0 // cannot say what it holds, so nothing may be dropped anywhere
+	}
+	return head - rollbackWindow
 }
 
 // GetLatestBlock returns the newest block number written, or 0 when none has been.
 //
 // Global block numbers start at genesis block 0, so a store holding only that block is
-// indistinguishable from an empty one and is excluded from the collector's head. That is the
-// safe direction: it drops out of the head minimum rather than dragging every store's cut line
-// to 0, and the prune it then receives is capped by PruneBefore to a no-op.
+// indistinguishable from an empty one. That is the safe direction: GetRollbackFloor then answers 0,
+// which holds the fleet's history where it is, and the prune it receives is capped by PruneBefore
+// to a no-op.
 //
 // Reports the written cursor, not the flushed one. A block that a crash would lose still counts
 // as ingested — recovery re-derives this cursor from what survived, so the head can only move

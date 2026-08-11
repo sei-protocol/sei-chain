@@ -28,52 +28,48 @@ func (s *littReceiptStore) ExternalPruning() bool {
 	return s.externalPruning
 }
 
-// PruneBelow advances the retention floor to blockNumber and drops the tag-index entries below
+// PruneHistory advances the retention floor to blockNumber and drops the tag-index entries below
 // it. Receipt bodies are not deleted here: advancing the floor is what releases them to litt's GC,
 // which reclaims them once they are also past the TTL (see gcFilter). Reads below the floor return
 // not-found in the meantime (see belowRetentionFloor), so visible retention follows this call even
 // when reclamation lags it — and because the floor gates reclamation, it can never lead it.
-func (s *littReceiptStore) PruneBelow(blockNumber uint64) error {
+//
+// KeepRecent does not enter into this. It is the window the store's own pruner uses when it runs,
+// and the collector calling here means that pruner stood down (see ExternalPruning); how deep to
+// prune is then the collector's fleet-wide RollbackWindow and LookbackWindow, not a per-store
+// setting.
+func (s *littReceiptStore) PruneHistory(blockNumber uint64) error {
 	return s.pruneBlocksBelow(blockNumber)
 }
 
-// GetRetentionWindow translates KeepRecent into the collector's window.
-//
-// The two disagree on what 0 means, and the disagreement is the whole reason this is not a plain
-// field read: KeepRecent 0 means "keep everything, never prune" (it is derived from
-// min-retain-blocks, and 0 is the default), while a 0 here means "keep nothing beyond the shared
-// RollbackWindow" — the most aggressive answer available. Returning it verbatim would prune a
-// store configured to retain forever back to the rollback window. gc.InfiniteRetentionWindow is
-// the sentinel that carries the intended meaning, and it is a legitimate answer for a contiguous
-// store, which holds no replay range another store depends on.
-//
-// Negative values are folded into the same case: KeepRecent is never negative in practice, and
-// this store has historically read <= 0 as "pruning off", so folding them keeps that reading
-// intact rather than passing an out-of-contract value to the collector.
-func (s *littReceiptStore) GetRetentionWindow() int64 {
-	if s.keepRecent <= 0 {
-		return gc.InfiniteRetentionWindow
-	}
-	return s.keepRecent
+// PruneSnapshots does nothing: this store keeps no snapshots. Receipts are read from the blocks
+// themselves, so the retention floor PruneHistory moves is the whole story.
+func (s *littReceiptStore) PruneSnapshots(uint64) error {
+	return nil
 }
 
-// GetPruningBoundary returns cutLine, the contract's answer for a contiguous store: every block
-// at or above the floor is retained, so cutLine itself is restorable and nothing below it has to
-// be held back.
+// GetRollbackFloor returns head - rollbackWindow, the contract's answer for a contiguous store:
+// every block from the floor to the head is retained, so that height is restorable directly and
+// nothing below it has to be held back. This store keeps no snapshots, so there is nothing to resolve
+// the window against beyond its own head.
 //
-// Unconditional on purpose. A store whose floor already sits above cutLine — pruned there by an
-// earlier cycle, or still backfilling — also answers cutLine, because the PruneBelow that follows
-// is a no-op on it while a lower answer would hold every other store back to this store's floor.
-// CannotServeRollback is never right here: receipts are written from this node's own execution
-// path, so no other store replays out of them.
-func (s *littReceiptStore) GetPruningBoundary(cutLine uint64) uint64 {
-	return cutLine
+// It reports against its own head even when that runs ahead of the fleet's, because the collector
+// takes a minimum across stores.
+//
+// 0 when the window is deeper than the whole history — including a store still backfilling, whose
+// head is 0. Nothing here is eligible for pruning until the head clears the window.
+func (s *littReceiptStore) GetRollbackFloor(rollbackWindow uint64) uint64 {
+	head, err := s.GetLatestBlock()
+	if err != nil || head <= rollbackWindow {
+		return 0 // cannot say what it holds, so nothing may be dropped anywhere
+	}
+	return head - rollbackWindow
 }
 
 // GetLatestBlock returns the newest block whose receipts have been written, or 0 when none have.
-// 0 keeps the store out of the collector's head minimum rather than dragging every store's cut
-// line down to it — the right trade while a store is still filling, since the prune it then
-// receives only moves a floor that has no data under it.
+// A store still filling then answers a rollback floor of 0, which holds the fleet's history where it
+// is — the right trade, since the prune it would otherwise receive only moves a floor that has no
+// data under it.
 func (s *littReceiptStore) GetLatestBlock() (uint64, error) {
 	latest := s.latestVersion.Load()
 	if latest <= 0 {

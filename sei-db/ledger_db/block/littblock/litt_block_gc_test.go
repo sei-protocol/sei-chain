@@ -38,7 +38,7 @@ func openForGC(t *testing.T, dir string) (types.BlockDB, gc.PrunableStore) {
 
 // The head the collector reads is the newest block written — not the newest QC's coverage, since
 // a QC is written before the blocks it covers — and 0 while nothing has been ingested, so an
-// empty store drops out of the head minimum instead of dragging every cut line to 0. The reopen
+// empty store drops out of the head minimum instead of dragging the lookback floor to 0. The reopen
 // at the end covers recovery: a store that reported 0 after a restart would let the other stores
 // prune past a height this one still holds.
 func TestGCLatestBlock(t *testing.T) {
@@ -71,62 +71,68 @@ func TestGCLatestBlock(t *testing.T) {
 	require.Equal(t, uint64(20), latest, "the head must be re-derived on open")
 }
 
-// The window the collector applies is the configured one, sentinel included: -1 has to survive
-// the trip verbatim or an operator asking for "never prune" gets a 1-block window instead.
-func TestGCRetentionWindowComesFromConfig(t *testing.T) {
-	for _, retentionWindow := range []int64{gc.InfiniteRetentionWindow, 100_000} {
-		cfg := gcConfig(t, t.TempDir())
-		cfg.RetentionWindow = retentionWindow
+// blockDB keeps no snapshots, so its half of the split contract is a no-op. It is still called
+// every cycle, and answering with an error would fail a cycle that has nothing to do with it.
+func TestGCPruneSnapshotsIsANoOp(t *testing.T) {
+	db, store := openForGC(t, t.TempDir())
+	rng := utils.TestRngFromSeed(4)
+	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19
 
-		db, err := NewBlockDB(cfg)
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, db.Close()) })
+	require.NoError(t, store.PruneSnapshots(10))
+	require.Equal(t, uint64(0), db.(*blockDB).watermark.Load(),
+		"pruning snapshots must not move the history watermark")
 
-		require.Equal(t, retentionWindow, db.(gc.PrunableStore).GetRetentionWindow())
-	}
+	blk, err := db.ReadBlockByNumber(0)
+	require.NoError(t, err)
+	require.True(t, blk.IsPresent(), "no block may be dropped by a snapshot prune")
 }
 
-// A contiguous store answers the cut line it was given whatever it holds. The states below are
-// the ones where a snapshot store would answer differently, and answering under cutLine in any
-// of them would hold every other store back to this store's floor for no benefit.
+// A contiguous store resolves the rollback window against its own head: head - rollbackWindow, or 0
+// where that head has not cleared the window. The states below are the ones where a snapshot store
+// would answer differently.
 //
 // The prune assertions ride along on the same store because both methods are answers about the
 // same three states, and opening a second store to re-reach them is the slow part of this file.
-func TestGCPruningBoundaryAndPruneBelow(t *testing.T) {
+func TestGCRollbackFloorAndPruneHistory(t *testing.T) {
 	db, store := openForGC(t, t.TempDir())
 	rng := utils.TestRngFromSeed(2)
 	impl := db.(*blockDB)
 
-	// Empty. The prune that follows is a no-op rather than an error — a store still filling is
-	// pruned like any other — and the boundary is still cutLine, since CannotServeRollback here
-	// would stall every other store.
-	require.Equal(t, uint64(42), store.GetPruningBoundary(42))
-	require.NoError(t, store.PruneBelow(1_000))
+	// Empty, so the head is 0 and every window reports 0 — "keep everything", which holds the
+	// fleet's history where it is until this store fills. The prune that follows is a no-op rather
+	// than an error.
+	require.Equal(t, uint64(0), store.GetRollbackFloor(0))
+	require.Equal(t, uint64(0), store.GetRollbackFloor(42))
+	require.NoError(t, store.PruneHistory(1_000))
 	require.Equal(t, uint64(0), impl.watermark.Load())
 
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19, QCs [0,5),[5,10),[10,15),[15,20)
-	require.Equal(t, uint64(7), store.GetPruningBoundary(7))
-	// Above the head, which happens whenever another store's data puts the head above this one's.
-	require.Equal(t, uint64(1_000), store.GetPruningBoundary(1_000))
+	require.Equal(t, uint64(19), store.GetRollbackFloor(0), "the whole store is inside a window of 0")
+	require.Equal(t, uint64(7), store.GetRollbackFloor(12))
+	// A window deeper than the store's own head is a rollback promise reaching past genesis, so
+	// nothing here is eligible for pruning yet.
+	require.Equal(t, uint64(0), store.GetRollbackFloor(1_000))
 
-	require.NoError(t, store.PruneBelow(7))
+	require.NoError(t, store.PruneHistory(7))
 	require.Equal(t, uint64(5), impl.watermark.Load(), "a prune inside QC[5,10) rounds down to its start")
-	require.NoError(t, store.PruneBelow(3))
+	require.NoError(t, store.PruneHistory(3))
 	require.Equal(t, uint64(5), impl.watermark.Load(), "the watermark must not move backwards")
 
-	// Pruned above the cut line: nothing below it survives to protect, so cutLine still stands.
-	require.Equal(t, uint64(4), store.GetPruningBoundary(4))
+	// Already pruned above the answer: the floor is a function of the head, not of the retention
+	// floor, so a store pruned higher by an earlier cycle does not hold the others back to where it
+	// started.
+	require.Equal(t, uint64(15), store.GetRollbackFloor(4))
 }
 
 // The collector prunes every store to a shared minimum, so a store lagging the head is asked to
 // prune past everything it holds. The never-empty cap turns that into a prune to the newest
 // cohort rather than a store that can serve nothing.
-func TestGCPruneBelowAboveHeadIsCapped(t *testing.T) {
+func TestGCPruneHistoryAboveHeadIsCapped(t *testing.T) {
 	db, store := openForGC(t, t.TempDir())
 	rng := utils.TestRngFromSeed(3)
 
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19, newest cohort QC[15,20)
-	require.NoError(t, store.PruneBelow(1_000))
+	require.NoError(t, store.PruneHistory(1_000))
 	require.Equal(t, uint64(15), db.(*blockDB).watermark.Load(), "a prune past the head is capped to the newest cohort")
 
 	for n := types.GlobalBlockNumber(15); n < 20; n++ {
@@ -136,17 +142,15 @@ func TestGCPruneBelowAboveHeadIsCapped(t *testing.T) {
 	}
 }
 
-func TestConfigValidateRetentionWindow(t *testing.T) {
+func TestConfigValidateRetentionTime(t *testing.T) {
 	cfg, err := DefaultConfig(t.TempDir())
 	require.NoError(t, err)
+	require.NoError(t, cfg.Validate())
 
-	for _, retentionWindow := range []int64{gc.InfiniteRetentionWindow, 0, 1} {
-		cfg.RetentionWindow = retentionWindow
-		require.NoError(t, cfg.Validate())
+	// RetentionTime gates reclamation underneath the watermark, so a non-positive value would
+	// release records the moment the watermark passed them, removing the failsafe entirely.
+	for _, retentionTime := range []time.Duration{0, -time.Second} {
+		cfg.RetentionTime = retentionTime
+		require.ErrorContains(t, cfg.Validate(), "RetentionTime")
 	}
-
-	// Below InfiniteRetentionWindow there is no meaning left to assign, and the collector reads
-	// any negative value as infinite retention — so a typo'd -2 would silently disable pruning.
-	cfg.RetentionWindow = -2
-	require.ErrorContains(t, cfg.Validate(), "RetentionWindow")
 }

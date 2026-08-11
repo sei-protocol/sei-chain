@@ -20,11 +20,30 @@ func gcStore(t *testing.T, dir string) (*CommitStore, gc.PrunableStore) {
 	return s, s
 }
 
+// gcStoreAtHead is gcStore with a committed head. The head is what the rollback window is resolved
+// against, so a test that wants a particular depth sets one rather than passing a height in.
+func gcStoreAtHead(t *testing.T, dir string, head int64) (*CommitStore, gc.PrunableStore) {
+	t.Helper()
+	s, store := gcStore(t, dir)
+	s.committedVersion = head
+	return s, store
+}
+
+// mkSnapshots creates snapshot directories and points "current" at the newest one on disk, which is
+// the shape production leaves behind: WriteSnapshot repoints the symlink at each snapshot it writes.
+// The GC surface is bounded by the active snapshot, so a test that left "current" unset would be
+// measuring a state a live store never reaches. The tests that want a stale or missing symlink say so
+// after calling this.
 func mkSnapshots(t *testing.T, dir string, versions ...int64) {
 	t.Helper()
 	for _, v := range versions {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
+	onDisk := snapshotVersions(t, dir)
+	if len(onDisk) == 0 {
+		return
+	}
+	require.NoError(t, updateCurrentSymlink(dir, snapshotName(onDisk[len(onDisk)-1])))
 }
 
 func snapshotVersions(t *testing.T, dir string) []int64 {
@@ -37,16 +56,20 @@ func snapshotVersions(t *testing.T, dir string) []int64 {
 	return found
 }
 
-// A snapshot store asks for no history of its own: 0 is what keeps it inside the collector's shared
-// minimum, which is what protects its snapshots. See GetRetentionWindow for why the sentinel that
-// reads like "keep more" would do the opposite here.
-func TestGCRetentionWindowIsZero(t *testing.T) {
-	_, store := gcStore(t, t.TempDir())
-	require.Equal(t, int64(0), store.GetRetentionWindow())
+// This store's history is the state WAL, which the collector manages as a store in its own right and
+// prunes to the shared minimum. So PruneHistory here is a no-op, and must not reach the snapshots
+// PruneSnapshots owns.
+func TestGCPruneHistoryIsANoOp(t *testing.T) {
+	s, store := gcStore(t, t.TempDir())
+	dir := s.flatkvDir()
+	mkSnapshots(t, dir, 5, 10, 20)
+
+	require.NoError(t, store.PruneHistory(20))
+	require.Equal(t, []int64{5, 10, 20}, snapshotVersions(t, dir))
 }
 
 // The head is the committed version, not the newest snapshot: it is this store's ingest position, and
-// the collector takes a minimum over those to find the fleet's head.
+// what GetRollbackFloor measures the rollback window against.
 func TestGCLatestBlockIsCommittedVersion(t *testing.T) {
 	s, store := gcStore(t, t.TempDir())
 
@@ -66,136 +89,257 @@ func TestGCLatestBlockIsCommittedVersion(t *testing.T) {
 	require.Equal(t, uint64(42), latest)
 }
 
-// Restoring to a height means starting at the newest snapshot at or below it and replaying the WAL
-// forward, so that snapshot is the oldest thing this store must keep.
-func TestGCPruningBoundaryIsNewestSnapshotAtOrBelowCutLine(t *testing.T) {
-	s, store := gcStore(t, t.TempDir())
+// snapshotFloor is fed a directory listing that happens to be sorted today, but it must not depend on
+// that: choosing the floor by iteration position rather than by value would answer too high on an
+// unsorted slice, and too high is the one direction that lets the WAL be pruned past blocks a restore
+// replays. Every case runs its blocks in a scrambled order and expects the same answer as the sorted
+// one would give.
+func TestSnapshotFloorIsOrderIndependent(t *testing.T) {
+	const head = 100
+	for _, tc := range []struct {
+		name           string
+		blocks         []uint64
+		rollbackWindow uint64
+		want           uint64
+	}{
+		{name: "newest at or below the window", blocks: []uint64{20, 5, 10}, rollbackWindow: 85, want: 10},
+		{name: "shortfall answers the oldest", blocks: []uint64{97, 90, 95}, rollbackWindow: 10, want: 90},
+		{name: "version 0 is never the floor", blocks: []uint64{30, 0, 10}, rollbackWindow: 95, want: 10},
+		{name: "only version 0 reads as none", blocks: []uint64{0}, rollbackWindow: 10, want: 0},
+		{name: "window past genesis", blocks: []uint64{40, 10}, rollbackWindow: 100, want: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, snapshotFloor(tc.blocks, head, tc.rollbackWindow))
+		})
+	}
+}
+
+// Restoring to a height inside the rollback window means starting at the newest snapshot at or below
+// that depth and replaying the WAL forward, so that snapshot is the oldest thing this store must keep.
+// The depth comes from its own head, which is why every case here fixes a head of 100.
+func TestGCRollbackFloorIsNewestSnapshotPastTheWindow(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 100)
 	mkSnapshots(t, s.flatkvDir(), 5, 10, 20)
 
 	for _, tc := range []struct {
-		cutLine uint64
-		want    uint64
-		why     string
+		rollbackWindow uint64
+		want           uint64
+		why            string
 	}{
-		{cutLine: 15, want: 10, why: "newest at or below"},
-		{cutLine: 20, want: 20, why: "a snapshot exactly on the cut line serves it"},
-		{cutLine: 100, want: 20, why: "far above every snapshot"},
-		{cutLine: 5, want: 5, why: "the oldest snapshot exactly on the cut line"},
+		{rollbackWindow: 85, want: 10, why: "newest at or below head - window"},
+		{rollbackWindow: 80, want: 20, why: "a snapshot exactly at that depth serves it"},
+		{rollbackWindow: 0, want: 20, why: "a window of 0 reaches the newest snapshot"},
+		{rollbackWindow: 95, want: 5, why: "the oldest snapshot exactly at that depth"},
 	} {
-		require.Equal(t, tc.want, store.GetPruningBoundary(tc.cutLine), tc.why)
+		require.Equal(t, tc.want, store.GetRollbackFloor(tc.rollbackWindow), tc.why)
 	}
 }
 
-// The answer must never exceed the cut line: the collector takes a minimum across stores without
-// clamping, so a higher answer here would raise pruneHeight above head-RollbackWindow and prune away
-// the rollback window every other store is holding.
-func TestGCPruningBoundaryNeverExceedsCutLine(t *testing.T) {
-	s, store := gcStore(t, t.TempDir())
+// Whatever the window, the answer is either a snapshot that exists or 0. That is what lets the
+// collector hold history at a floor this store can restore from, and it is the property a store must
+// never break — a floor naming a height with no snapshot on it would be a restore point the store
+// cannot serve.
+func TestGCRollbackFloorIsAlwaysAnExistingSnapshot(t *testing.T) {
+	const head = 40
+	s, store := gcStoreAtHead(t, t.TempDir(), head)
 	mkSnapshots(t, s.flatkvDir(), 7, 13, 29)
 
-	for cutLine := uint64(1); cutLine <= 40; cutLine++ {
-		require.LessOrEqual(t, store.GetPruningBoundary(cutLine), cutLine,
-			"boundary above cut line at cutLine=%d", cutLine)
+	for rollbackWindow := uint64(0); rollbackWindow <= 60; rollbackWindow++ {
+		if rollbackWindow >= head {
+			require.Equal(t, uint64(0), store.GetRollbackFloor(rollbackWindow),
+				"a window deeper than the head leaves nothing eligible at rollbackWindow=%d", rollbackWindow)
+			continue
+		}
+		require.Contains(t, []uint64{7, 13, 29}, store.GetRollbackFloor(rollbackWindow),
+			"floor is not a snapshot at rollbackWindow=%d", rollbackWindow)
 	}
 }
 
-// Every snapshot above the cut line means none can be dropped, so the store answers the cut line
-// rather than its oldest snapshot — holding the fleet back to that snapshot would buy nothing. The
-// store genuinely cannot restore to the cut line here; that is a snapshot-retention shortfall, not
-// something a lower answer would repair.
-func TestGCPruningBoundaryAllSnapshotsAboveCutLine(t *testing.T) {
-	s, store := gcStore(t, t.TempDir())
+// Every snapshot above the window means none can be dropped, and the store reports its oldest — the
+// deepest it can actually restore to. That is a snapshot-retention shortfall (the snapshot depth is
+// shallower than RollbackWindow), and naming that snapshot is what keeps it replayable rather than
+// letting history be pruned out from under it.
+func TestGCRollbackFloorAllSnapshotsInsideTheWindow(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 1_000)
 	mkSnapshots(t, s.flatkvDir(), 500, 900)
 
-	require.Equal(t, uint64(100), store.GetPruningBoundary(100))
+	require.Equal(t, uint64(500), store.GetRollbackFloor(900), "head - window is 100, below both snapshots")
+	require.Equal(t, uint64(0), store.GetRollbackFloor(2_000),
+		"a window deeper than the head leaves nothing eligible for pruning")
 }
 
-// With no snapshot to restore from, the store stops the cycle rather than dropping out of it: it will
-// replay forward once its first snapshot lands, and the WAL holds the range it will replay from.
-func TestGCPruningBoundaryWithoutSnapshots(t *testing.T) {
-	s, store := gcStore(t, t.TempDir())
-	require.Equal(t, gc.CannotServeRollback, store.GetPruningBoundary(100))
+// With no snapshot there is none to name, so nothing here is eligible for pruning: a store that
+// cannot restore anywhere cannot say which blocks the WAL may drop.
+func TestGCRollbackFloorWithoutSnapshots(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 100)
+	require.Equal(t, uint64(0), store.GetRollbackFloor(10))
 
 	// A directory that does not exist yet reads the same way.
 	require.NoError(t, os.RemoveAll(s.flatkvDir()))
-	require.Equal(t, gc.CannotServeRollback, store.GetPruningBoundary(100))
+	require.Equal(t, uint64(0), store.GetRollbackFloor(10))
+
+	// So does a store that has committed nothing.
+	_, fresh := gcStore(t, t.TempDir())
+	require.Equal(t, uint64(0), fresh.GetRollbackFloor(10))
 }
 
-// The initial empty snapshot restores to no committed height, so reaching any height from it needs the
-// WAL from its very first block — which is what CannotServeRollback already means, and is the value 0
-// would collide with anyway.
-func TestGCPruningBoundaryIgnoresInitialSnapshot(t *testing.T) {
-	s, store := gcStore(t, t.TempDir())
+// The initial empty snapshot restores to no committed height, so it is not a restore point and cannot
+// be a floor. A store holding only that one is read as holding none.
+func TestGCRollbackFloorIgnoresInitialSnapshot(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 100)
 	mkSnapshots(t, s.flatkvDir(), 0)
 
-	require.Equal(t, gc.CannotServeRollback, store.GetPruningBoundary(100))
+	require.Equal(t, uint64(0), store.GetRollbackFloor(10), "version 0 does not count as a snapshot")
 
-	// With a real snapshot present, version 0 still contributes nothing.
+	// With a real snapshot present, version 0 still contributes nothing — not even as the oldest.
 	mkSnapshots(t, s.flatkvDir(), 30)
-	require.Equal(t, uint64(30), store.GetPruningBoundary(100))
-	require.Equal(t, uint64(10), store.GetPruningBoundary(10), "not 0, and not the initial snapshot")
+	require.Equal(t, uint64(30), store.GetRollbackFloor(0))
+	require.Equal(t, uint64(30), store.GetRollbackFloor(90),
+		"head - window is 10; the oldest real snapshot answers, not version 0")
 }
 
 // Not knowing which snapshots exist means not knowing which blocks are needed to replay from them, and
-// the WAL would be pruned on the strength of that answer. So a failed scan blocks the cycle.
-func TestGCPruningBoundaryScanFailureBlocksTheCycle(t *testing.T) {
+// the WAL would be pruned on the strength of that answer. So a failed scan reports 0, holding the
+// fleet's history where it is.
+func TestGCRollbackFloorScanFailureHoldsHistory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "flatkv")
 	require.NoError(t, os.WriteFile(dir, []byte("not a directory"), 0600))
 
-	_, store := gcStore(t, dir)
-	require.Equal(t, gc.CannotServeRollback, store.GetPruningBoundary(100))
+	_, store := gcStoreAtHead(t, dir, 100)
+	require.Equal(t, uint64(0), store.GetRollbackFloor(10))
 }
 
-// PruneBelow drops every snapshot under the floor. The floor is a minimum across stores and so never
-// exceeds the boundary this store reported, which is why the snapshot it named always survives.
-func TestGCPruneBelowDeletesSnapshotsBelowFloor(t *testing.T) {
-	s, store := gcStore(t, t.TempDir())
+// PruneSnapshots drops everything strictly below the height it is given, and the height need not
+// have a snapshot on it.
+func TestGCPruneSnapshotsDeletesBelowTheCutLine(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 30)
 	dir := s.flatkvDir()
 	mkSnapshots(t, dir, 0, 5, 10, 20, 30)
 	require.NoError(t, updateCurrentSymlink(dir, snapshotName(30)))
 
-	require.NoError(t, store.PruneBelow(20))
-	require.Equal(t, []int64{20, 30}, snapshotVersions(t, dir))
+	// A cut line of 25 has no snapshot on it; 20 is the newest below it and goes with the rest.
+	require.NoError(t, store.PruneSnapshots(25))
+	require.Equal(t, []int64{30}, snapshotVersions(t, dir))
 
-	// Idempotent: the same floor twice deletes nothing more.
-	require.NoError(t, store.PruneBelow(20))
-	require.Equal(t, []int64{20, 30}, snapshotVersions(t, dir))
+	// Idempotent: the same cut line twice deletes nothing more.
+	require.NoError(t, store.PruneSnapshots(25))
+	require.Equal(t, []int64{30}, snapshotVersions(t, dir))
 }
 
-// A floor of 0 is the collector's "nothing to do" and must not be read as "delete everything below
-// any height".
-func TestGCPruneBelowZeroIsNoOp(t *testing.T) {
-	s, store := gcStore(t, t.TempDir())
+// The snapshot the store reported must survive the cycle that follows, which is what makes the
+// collector's minimum meaningful: history is held at a floor the store still has the snapshot for.
+// The collector's cut line is the minimum across stores and so is at or below this store's own
+// answer, which the loop walks the tightest case of.
+func TestGCPruneSnapshotsKeepsTheSnapshotItReported(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 40)
+	dir := s.flatkvDir()
+	mkSnapshots(t, dir, 5, 10, 20, 30)
+	require.NoError(t, updateCurrentSymlink(dir, snapshotName(30)))
+
+	for rollbackWindow := uint64(0); rollbackWindow <= 40; rollbackWindow++ {
+		floor := store.GetRollbackFloor(rollbackWindow)
+		before := snapshotVersions(t, dir)
+		require.NoError(t, store.PruneSnapshots(floor))
+		remaining := snapshotVersions(t, dir)
+
+		if floor == 0 {
+			require.Equal(t, before, remaining,
+				"nothing is eligible at rollbackWindow=%d, so nothing may be deleted", rollbackWindow)
+			continue
+		}
+		require.NotEmpty(t, remaining, "a store that had a snapshot must still have one")
+		require.Contains(t, remaining, int64(floor), //nolint:gosec // bounded by the loop
+			"the reported floor must survive at rollbackWindow=%d", rollbackWindow)
+	}
+}
+
+// A cut line at or below the oldest snapshot leaves the lot. It must not be read as "delete
+// everything below the newest".
+func TestGCPruneSnapshotsBelowTheOldestSnapshotIsNoOp(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 1_000)
+	dir := s.flatkvDir()
+	mkSnapshots(t, dir, 500, 900)
+	require.NoError(t, updateCurrentSymlink(dir, snapshotName(900)))
+
+	require.NoError(t, store.PruneSnapshots(500))
+	require.Equal(t, []int64{500, 900}, snapshotVersions(t, dir))
+}
+
+// The collector never passes 0 — it means nothing is eligible — but the store absorbs it as a no-op
+// rather than reading it as an empty range to delete against.
+func TestGCPruneSnapshotsAtZeroIsNoOp(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 10)
 	dir := s.flatkvDir()
 	mkSnapshots(t, dir, 5, 10)
 	require.NoError(t, updateCurrentSymlink(dir, snapshotName(10)))
 
-	require.NoError(t, store.PruneBelow(0))
+	require.NoError(t, store.PruneSnapshots(0))
 	require.Equal(t, []int64{5, 10}, snapshotVersions(t, dir))
 }
 
-// The active snapshot is what the next open resolves to, so it survives however deep the request. The
-// contract should never produce such a request; this pins that a wrong answer elsewhere cannot leave
-// the store unbootable here.
-func TestGCPruneBelowKeepsActiveSnapshot(t *testing.T) {
-	s, store := gcStore(t, t.TempDir())
+// A store with no snapshots has nothing to prune, which is not a failure — and notably not an error
+// about the missing active symlink, since there is no deletion to protect.
+func TestGCPruneSnapshotsWithoutSnapshots(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 100)
+	require.NoError(t, store.PruneSnapshots(10))
+
+	require.NoError(t, os.RemoveAll(s.flatkvDir()))
+	require.NoError(t, store.PruneSnapshots(10))
+}
+
+// The active snapshot is what the next open resolves to, so the cut line stops there even when it is
+// asked to go deeper. This is the shape a crash between WriteSnapshot's rename and its symlink update
+// leaves behind: snapshot 10 is on disk while "current" is still 5. Deleting 5 would leave a dangling
+// symlink, which os.Readlink resolves happily, so the store would open against a directory that is
+// not there.
+func TestGCPruneSnapshotsKeepsActiveSnapshotBelowTheCutLine(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 10)
 	dir := s.flatkvDir()
-	mkSnapshots(t, dir, 5, 10)
+	mkSnapshots(t, dir, 3, 5, 10)
 	require.NoError(t, updateCurrentSymlink(dir, snapshotName(5)))
 
-	require.NoError(t, store.PruneBelow(1_000))
-	require.Equal(t, []int64{5}, snapshotVersions(t, dir))
+	require.NoError(t, store.PruneSnapshots(10))
+	require.Equal(t, []int64{5, 10}, snapshotVersions(t, dir),
+		"the cut line stops at the active snapshot, so 3 goes and 5 stays")
 }
 
-// Without a resolvable active snapshot there is nothing to protect the deletion against, so the prune
-// is refused rather than run blind.
-func TestGCPruneBelowRefusesWithoutActiveSnapshot(t *testing.T) {
-	s, store := gcStore(t, t.TempDir())
+// Without a resolvable active snapshot there is nothing to bound the deletion by, so the prune is
+// refused rather than run blind.
+func TestGCPruneSnapshotsRefusesWithoutActiveSnapshot(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 10)
 	dir := s.flatkvDir()
 	mkSnapshots(t, dir, 5, 10)
+	require.NoError(t, os.Remove(currentPath(dir)))
 
-	require.Error(t, store.PruneBelow(10))
+	require.Error(t, store.PruneSnapshots(10))
 	require.Equal(t, []int64{5, 10}, snapshotVersions(t, dir))
+}
+
+// The same refusal on the reporting side: a floor above the snapshot this store would resume from
+// would let the WAL be pruned past the blocks that resume replays, so an unresolvable "current" holds
+// the fleet's history where it is.
+func TestGCRollbackFloorHoldsHistoryWithoutActiveSnapshot(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 100)
+	dir := s.flatkvDir()
+	mkSnapshots(t, dir, 10, 20)
+	require.Equal(t, uint64(20), store.GetRollbackFloor(80), "the newest snapshot past the window")
+
+	require.NoError(t, os.Remove(currentPath(dir)))
+	require.Equal(t, uint64(0), store.GetRollbackFloor(80))
+}
+
+// A snapshot newer than "current" is what a crash between WriteSnapshot's rename and its symlink
+// update leaves behind, and the next open takes the symlink rather than adopting the orphan. So the
+// floor stops at the active snapshot: reporting the orphan would hold the WAL only from there, and
+// the replay that starts at the active snapshot needs the blocks below it.
+func TestGCRollbackFloorStopsAtTheActiveSnapshot(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 100)
+	dir := s.flatkvDir()
+	mkSnapshots(t, dir, 10, 50)
+	require.NoError(t, updateCurrentSymlink(dir, snapshotName(10)))
+
+	require.Equal(t, uint64(10), store.GetRollbackFloor(20),
+		"head - window is 80, so the orphan at 50 would answer if the active snapshot did not bound it")
 }
 
 // ExternalPruning is off unless asked for: a store built without a collector must keep pruning
@@ -224,7 +368,7 @@ func TestGCExternalPruningStandsDownSnapshotPruner(t *testing.T) {
 			},
 		}
 		mkSnapshots(t, dir, 5, 10, 15)
-		s.pruneSnapshots(dir, 15)
+		s.pruneSnapshotsByCount(dir, 15)
 		return snapshotVersions(t, dir)
 	}
 
@@ -263,10 +407,10 @@ func TestGCPrunesRealSnapshotsAndStoreStillOpens(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(6), latest)
 
-	boundary := store.GetPruningBoundary(5)
-	require.Equal(t, uint64(4), boundary, "newest snapshot at or below the cut line")
+	floor := store.GetRollbackFloor(1)
+	require.Equal(t, uint64(4), floor, "newest snapshot at or below head - 1")
 
-	require.NoError(t, store.PruneBelow(boundary))
+	require.NoError(t, store.PruneSnapshots(floor))
 	require.Equal(t, []int64{4, 6}, snapshotVersions(t, cfg.DataDir))
 
 	require.NoError(t, s.Close())
@@ -314,14 +458,12 @@ func TestGCConcurrentWithCommitter(t *testing.T) {
 		head, err := store.GetLatestBlock()
 		require.NoError(t, err)
 		require.LessOrEqual(t, head, uint64(blocks))
-		if head <= 10 {
-			continue
-		}
-		boundary := store.GetPruningBoundary(head - 10)
-		require.LessOrEqual(t, boundary, head-10, "boundary must never exceed the cut line")
-		if boundary != gc.CannotServeRollback {
-			require.NoError(t, store.PruneBelow(boundary))
-		}
+		// No assertion on the floor itself: the committer advances the head between these calls,
+		// so any relation to the head read above is racy by construction. What is under test is
+		// that reading and pruning concurrently with a committer is safe at all.
+		floor := store.GetRollbackFloor(10)
+		require.NoError(t, store.PruneSnapshots(floor))
+		require.NoError(t, store.PruneHistory(floor))
 	}
 	<-done
 }

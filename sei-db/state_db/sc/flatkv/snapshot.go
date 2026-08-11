@@ -511,7 +511,7 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		logger.Error("failed to update SNAPSHOT_BASE", "err", err)
 	}
 
-	pruned = s.pruneSnapshots(dir, version)
+	pruned = s.pruneSnapshotsByCount(dir, version)
 
 	success = true
 	s.lastSnapshotTime = time.Now()
@@ -523,15 +523,17 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 	return nil
 }
 
-// pruneSnapshots removes old snapshots beyond SnapshotKeepRecent, keeping
+// pruneSnapshotsByCount removes old snapshots beyond SnapshotKeepRecent, keeping
 // the latest snapshot (currentVersion) plus the N most recent older ones.
 // Best-effort: errors are logged but do not fail the snapshot operation.
 //
 // Disabled by config.ExternalPruning, which hands retention to the
-// StorageGarbageCollector. Both must never run: this one counts snapshots and
-// knows nothing of the shared rollback window, so it would delete the snapshot
-// the collector is holding to serve it.
-func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) int {
+// StorageGarbageCollector and its PruneSnapshots. Both must never run: this one
+// counts snapshots and knows nothing of the shared rollback window, so it would
+// delete the snapshot the collector is holding to serve it. Counting is what the
+// name records — it is the distinction from the collector's by-block-height
+// PruneSnapshots, not a second implementation of the same policy.
+func (s *CommitStore) pruneSnapshotsByCount(dir string, currentVersion int64) int {
 	if s.config.ExternalPruning {
 		return 0
 	}

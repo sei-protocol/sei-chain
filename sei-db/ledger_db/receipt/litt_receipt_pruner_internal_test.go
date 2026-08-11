@@ -33,7 +33,7 @@ func TestRunsLocalPruner(t *testing.T) {
 		},
 		{
 			// KeepRecent 0 is the default and means keep everything, so there is nothing for a
-			// local pruner to do. GetRetentionWindow maps the same 0 to InfiniteRetentionWindow.
+			// local pruner to do. It reaches none of the collector's answers either.
 			name:          "keep everything",
 			keepRecent:    0,
 			pruneInterval: 600,

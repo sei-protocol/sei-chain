@@ -51,7 +51,8 @@ type stateWALImpl struct {
 	//
 	// 0 doubles as "no block completed yet", which is what GetLatestBlock reports. A WAL whose only
 	// completed block is block 0 is indistinguishable from an empty one, and that is the safe direction:
-	// it drops out of the collector's head rather than pulling every store's cut line down to 0.
+	// GetRollbackFloor then answers 0, which holds the whole fleet's history where it is rather than
+	// letting anything be dropped against a head this WAL cannot vouch for.
 	lastCompletedBlock atomic.Uint64
 }
 

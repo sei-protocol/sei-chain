@@ -20,8 +20,8 @@ func openWALForGC(t *testing.T, cfg *Config) (StateWAL, gc.PrunableStore) {
 }
 
 // The head is the last block ended by SignalEndOfBlock. A block that has been written but not ended
-// is still buffered rather than a record, so counting it would put the collector's head one block
-// above what the WAL can replay.
+// is still buffered rather than a record, so counting it would put this store's head — and with it
+// the floor it reports — one block above what the WAL can replay.
 func TestGCLatestBlockCountsOnlyCompletedBlocks(t *testing.T) {
 	w, store := openWALForGC(t, testConfig(t.TempDir()))
 
@@ -47,8 +47,8 @@ func TestGCLatestBlockCountsOnlyCompletedBlocks(t *testing.T) {
 	require.Equal(t, uint64(3), latest)
 }
 
-// The head survives a reopen: a WAL that reported 0 after a restart would drop out of the
-// collector's head minimum and let the other stores prune past blocks it still holds.
+// The head survives a reopen: a WAL that reported 0 after a restart would report a floor of 0 with
+// it, holding the whole fleet's history where it is until the head is rebuilt.
 func TestGCLatestBlockRecoveredOnOpen(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 
@@ -65,33 +65,51 @@ func TestGCLatestBlockRecoveredOnOpen(t *testing.T) {
 	require.Equal(t, uint64(5), latest)
 }
 
-// The WAL asks for no history of its own, and there is no configuration that changes that. What
-// holds it back is SC/SS answering their oldest live snapshot as a boundary, which the collector
-// applies to every store as the shared minimum — so its depth tracks its consumers automatically
-// (see GetRetentionWindow).
-func TestGCRetentionWindowIsZero(t *testing.T) {
-	_, store := openWALForGC(t, testConfig(t.TempDir()))
-	require.Equal(t, int64(0), store.GetRetentionWindow())
+// The WAL keeps no snapshots — it is what snapshots replay forward from — so its half of the split
+// contract is a no-op that must not touch the stored range. Its depth is instead set by SC/SS
+// answering their oldest live snapshot as a rollback floor, which reaches the WAL as the shared
+// minimum PruneHistory receives.
+func TestGCPruneSnapshotsIsANoOp(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	cfg.TargetFileSize = 1
+	w, store := openWALForGC(t, cfg)
+
+	for block := uint64(1); block <= 10; block++ {
+		writeBlock(t, w, block)
+	}
+	require.NoError(t, w.Flush())
+
+	require.NoError(t, store.PruneSnapshots(8))
+	require.NoError(t, w.Flush())
+
+	ok, first, last, err := w.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), first, "a snapshot prune must not move the WAL floor")
+	require.Equal(t, uint64(10), last)
 }
 
-// A contiguous store answers the cut line it was given whatever it holds, including on an empty WAL
-// and above its own head.
-func TestGCPruningBoundaryIsAlwaysCutLine(t *testing.T) {
+// A contiguous store resolves the window against its own head, and reports 0 where the window is
+// deeper than that head — including on an empty WAL, where the answer holds the fleet's history
+// where it is.
+func TestGCRollbackFloorComesFromOwnHead(t *testing.T) {
 	w, store := openWALForGC(t, testConfig(t.TempDir()))
 
-	require.Equal(t, uint64(42), store.GetPruningBoundary(42))
+	require.Equal(t, uint64(0), store.GetRollbackFloor(42), "an empty WAL needs every block kept")
 
 	for block := uint64(1); block <= 5; block++ {
 		writeBlock(t, w, block)
 	}
-	require.Equal(t, uint64(3), store.GetPruningBoundary(3))
-	require.Equal(t, uint64(1_000), store.GetPruningBoundary(1_000))
+	require.Equal(t, uint64(5), store.GetRollbackFloor(0))
+	require.Equal(t, uint64(2), store.GetRollbackFloor(3))
+	require.Equal(t, uint64(0), store.GetRollbackFloor(1_000),
+		"a window deeper than the head leaves nothing eligible for pruning")
 }
 
-// PruneBelow goes straight to the WAL, so reclamation does not wait on write traffic. A WAL that has
+// PruneHistory goes straight to the WAL, so reclamation does not wait on write traffic. A WAL that has
 // stopped receiving blocks is exactly where a deferred prune would strand history indefinitely, so no
 // further block is written here before the result is checked.
-func TestGCPruneBelowDoesNotWaitForTheNextBlock(t *testing.T) {
+func TestGCPruneHistoryDoesNotWaitForTheNextBlock(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.TargetFileSize = 1 // seal after every block, so whole-file pruning can act per block
 	w, store := openWALForGC(t, cfg)
@@ -101,7 +119,7 @@ func TestGCPruneBelowDoesNotWaitForTheNextBlock(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	require.NoError(t, store.PruneBelow(6))
+	require.NoError(t, store.PruneHistory(6))
 	require.NoError(t, w.Flush()) // the prune is async; order behind it
 
 	ok, first, last, err := w.GetStoredRange()
@@ -117,7 +135,7 @@ func TestGCPruneBelowDoesNotWaitForTheNextBlock(t *testing.T) {
 // performed. Nothing here enforces that — a prune only ever deletes — but the collector is free to
 // issue a lower floor after a rollback, and this pins that doing so is harmless rather than a way to
 // resurrect blocks or corrupt the range.
-func TestGCPruneBelowIgnoresALowerFloor(t *testing.T) {
+func TestGCPruneHistoryIgnoresALowerFloor(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.TargetFileSize = 1
 	w, store := openWALForGC(t, cfg)
@@ -127,8 +145,8 @@ func TestGCPruneBelowIgnoresALowerFloor(t *testing.T) {
 	}
 	require.NoError(t, w.Flush())
 
-	require.NoError(t, store.PruneBelow(8))
-	require.NoError(t, store.PruneBelow(3))
+	require.NoError(t, store.PruneHistory(8))
+	require.NoError(t, store.PruneHistory(3))
 	require.NoError(t, w.Flush())
 
 	ok, first, _, err := w.GetStoredRange()
@@ -168,7 +186,7 @@ func TestGCConcurrentWithWriter(t *testing.T) {
 		require.NoError(t, err)
 		require.LessOrEqual(t, head, uint64(blocks))
 		if head > 20 {
-			require.NoError(t, store.PruneBelow(store.GetPruningBoundary(head-20)))
+			require.NoError(t, store.PruneHistory(store.GetRollbackFloor(20)))
 		}
 	}
 	<-done
@@ -182,7 +200,7 @@ func TestGCConcurrentWithWriter(t *testing.T) {
 
 // A prune issued before a close is ordered ahead of it rather than dropped, and survives into the next
 // session. What must not happen is the close failing, or the WAL bricking, because of it.
-func TestGCPruneBelowBeforeClose(t *testing.T) {
+func TestGCPruneHistoryBeforeClose(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.TargetFileSize = 1
 
@@ -190,7 +208,7 @@ func TestGCPruneBelowBeforeClose(t *testing.T) {
 	for block := uint64(1); block <= 5; block++ {
 		writeBlock(t, w, block)
 	}
-	require.NoError(t, w.(gc.PrunableStore).PruneBelow(4))
+	require.NoError(t, w.(gc.PrunableStore).PruneHistory(4))
 	require.NoError(t, w.Close())
 
 	w2, store := openWALForGC(t, cfg)
@@ -206,9 +224,9 @@ func TestGCPruneBelowBeforeClose(t *testing.T) {
 }
 
 // The collector can still be mid-cycle when the node shuts down, so a prune arriving after the close
-// must be reported rather than panic, and must not brick the WAL on the way out — PruneBelow declines
+// must be reported rather than panic, and must not brick the WAL on the way out — PruneHistory declines
 // to write fatalErr precisely because the writer reads it unsynchronized.
-func TestGCPruneBelowAfterClose(t *testing.T) {
+func TestGCPruneHistoryAfterClose(t *testing.T) {
 	cfg := testConfig(t.TempDir())
 	cfg.TargetFileSize = 1
 
@@ -220,7 +238,7 @@ func TestGCPruneBelowAfterClose(t *testing.T) {
 	require.True(t, ok)
 	require.NoError(t, w.Close())
 
-	require.Error(t, store.PruneBelow(4))
+	require.Error(t, store.PruneHistory(4))
 
 	// The head is still readable, and the close committed what was written.
 	latest, err := store.GetLatestBlock()

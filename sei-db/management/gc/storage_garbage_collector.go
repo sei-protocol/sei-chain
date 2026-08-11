@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -15,49 +16,20 @@ var logger = seilog.NewLogger("db", "gc")
 
 // StorageGarbageCollector periodically prunes a set of PrunableStores.
 //
-// Every store shares config.RollbackWindow and may request extra history via
-// GetRetentionWindow. Each cycle:
+// One config.RollbackWindow and one config.LookbackWindow cover every store. Each cycle:
 //
-//  1. head = min non-zero GetLatestBlock across stores
-//  2. per store: cutLine = head - RollbackWindow - GetRetentionWindow, skipping the store
-//     when that is 0 (infinite retention, or head still inside its own window)
-//  3. ask GetPruningBoundary(cutLine): a positive answer votes, and CannotServeRollback
-//     abandons the cycle while RollbackWindow > 0
-//  4. pruneHeight = min of the positive answers; PruneBelow(pruneHeight) on every store
-//     that answered positively and reports ExternalPruning
+//  1. ask every store GetRollbackFloor(RollbackWindow) — the earliest height it could still be
+//     asked to roll back to, which it resolves against its own head
+//  2. snapshotCutLine = min of those answers, the deepest rollback the fleet still owes
+//  3. historyCutLine = snapshotCutLine - LookbackWindow, so the lookback window sits entirely below
+//     the deepest promised rollback point rather than overlapping it
+//  4. on every store reporting ExternalPruning, PruneSnapshots(snapshotCutLine) then
+//     PruneHistory(historyCutLine)
 //
-// Step 4 prunes to the shared minimum rather than to each store's own boundary so that a
-// retained snapshot stays restorable: contiguous stores must still hold the blocks that follow
-// it. The side effect is one effective retention across the fleet — receiptDB retention 100_000
-// also keeps SC/SS snapshots that far back, even though those stores report retention 0. That
-// uniform prune is an intentional Giga tradeoff, not independent per-store retention.
-//
-// Two properties do the safety work.
-//
-// Answers are bounded by the cut line they were given, so pruneHeight <= head - RollbackWindow
-// holds by construction and the collector does not clamp. That yields the invariant: a prune cannot
-// take away a rollback that was possible before it. Full headroom is not promised after a rollback
-// has already consumed part of the window.
-//
-// The bound is trusted rather than checked. A check could only substitute cutLine for a bad answer,
-// which for a snapshot store is itself too aggressive — the correct answer is the newest snapshot at
-// or below cutLine, normally well below it — and refusing to prune instead would let one faulty
-// store stall the fleet and grow disk without limit. Both remedies are worse than the bug they
-// guard, so the bound stays a contract requirement on GetPruningBoundary.
-//
-// And a store that can serve no rollback at all is not merely skipped, it abandons the cycle. It
-// will replay forward once its first snapshot lands, so pruning the others now could delete the
-// range it replays from, and a store contributing no boundary is not covered by the minimum in
-// step 4. See CannotServeRollback for the limits of that signal.
-//
-// Precondition: every store passed in is live. A store disabled for this node is not
-// instantiated and never reaches the collector, so the set holds no permanently-empty member.
-//
-// PruneBelow failures are joined and do not skip later stores: permission-to-drop is not
-// transactional, and one unhealthy store must not block pruning of the others.
-//
-// The type is a ticker around prune; the decision logic lives in prune for unit testing.
-// Not safe for concurrent use (Close must be called exactly once).
+// The two windows stack rather than share: RollbackWindow buys the ability to rewind, LookbackWindow
+// buys history that is still readable after rewinding as far as that promise allows. Deriving the
+// history cut line by subtracting the second from the first is what makes the lookback guarantee
+// independent of how deep a rollback actually goes.
 type StorageGarbageCollector struct {
 	config *StorageGarbageCollectorConfig
 	stores []PrunableStore
@@ -125,161 +97,107 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 		return nil
 	}
 
-	globalLatestBlock, err := getGlobalLatestBlock(stores)
-	if err != nil {
-		return err
-	}
-	if globalLatestBlock == 0 {
-		logger.Info("skipping pruning: no store has a latest block")
-		return nil
-	}
-
 	// Answers are positional so duplicate Name() values cannot mis-attribute one.
 	decisions := make([]storeDecision, len(stores))
-	var pruneHeight uint64
-	blocked := false
+	snapshotCutLine := uint64(math.MaxUint64)
 	for i, store := range stores {
-		retention := store.GetRetentionWindow()
-		cutLine := getCutLine(globalLatestBlock, config.RollbackWindow, retention)
-		if cutLine == 0 {
-			// Infinite retention, or head still inside this store's retain window: never asked.
-			continue
-		}
-
-		decisions[i].cutLine = cutLine
 		decisions[i].externalPruning = store.ExternalPruning()
-		decisions[i].boundary = store.GetPruningBoundary(cutLine)
-		if decisions[i].boundary == CannotServeRollback {
-			// One blocker is enough to abandon the cycle, but the rest are still asked rather than
-			// broken out of, so the blocked cycle logs every store's decision. These are the cycles
-			// an operator has to explain, and every blocker surfaces in the first one rather than
-			// one per cycle. RollbackWindow 0 waives the guarantee, so the blocker is ignored.
-			if config.RollbackWindow > 0 {
-				blocked = true
-			}
-			continue
-		}
-		if pruneHeight == 0 || decisions[i].boundary < pruneHeight {
-			pruneHeight = decisions[i].boundary
-		}
+		decisions[i].floor = store.GetRollbackFloor(config.RollbackWindow)
+		snapshotCutLine = min(snapshotCutLine, decisions[i].floor)
 	}
 
-	if blocked {
-		// Ahead of the pruneHeight check on purpose: every non-blocking store has already voted, so
-		// a usable pruneHeight is sitting here and must not be issued. decisionByStore names the
-		// blockers, rendering each as cannotServeRollback.
-		logger.Info("pruning blocked: a store cannot serve the rollback window yet",
-			"globalLatestBlock", globalLatestBlock,
-			"decisionByStore", describeDecisions(stores, decisions),
-		)
-		return nil
-	}
-	if pruneHeight == 0 {
-		logger.Info("skipping pruning: no store reported a pruning boundary",
-			"globalLatestBlock", globalLatestBlock,
-			"decisionByStore", describeDecisions(stores, decisions),
-		)
-		return nil
-	}
+	historyCutLine := getHistoryCutLine(snapshotCutLine, config.LookbackWindow)
 
 	logger.Info("pruning stores",
-		"globalLatestBlock", globalLatestBlock,
-		"pruneHeight", pruneHeight,
+		"rollbackWindow", config.RollbackWindow,
+		"lookbackWindow", config.LookbackWindow,
+		"snapshotCutLine", snapshotCutLine,
+		"historyCutLine", historyCutLine,
 		"decisionByStore", describeDecisions(stores, decisions),
 	)
-	var pruneErrs error
+	return pruneStores(stores, decisions, snapshotCutLine, historyCutLine)
+}
+
+// pruneStores issues the deletions the cycle decided on: snapshots below snapshotHeight, history
+// below the deeper historyHeight. See StorageGarbageCollector for why the two depths differ.
+//
+// A cut line of 0 is skipped rather than passed down. It means nothing is eligible, which every
+// store would absorb as a no-op anyway; not making the call keeps a cycle that decided to delete
+// nothing from reaching the deletion paths at all.
+//
+// A store is skipped only when it prunes itself — it still answered above, and is still protected by
+// the minimum its answer produced, but its own pruner is the one enforcing its retention (see
+// PrunableStore.ExternalPruning).
+func pruneStores(
+	stores []PrunableStore,
+	decisions []storeDecision,
+	snapshotHeight uint64,
+	historyHeight uint64,
+) error {
+	var errs error
 	for i, store := range stores {
-		// Covers both a never-asked store and one that cannot serve a rollback.
-		if decisions[i].boundary == 0 {
-			continue
-		}
-		// A self-pruning store still voted above, and is still protected by the minimum that
-		// vote produced. What it does not get is a PruneBelow, because its own pruner is the
-		// one enforcing its retention (see PrunableStore.ExternalPruning).
 		if !decisions[i].externalPruning {
 			continue
 		}
-		if err := store.PruneBelow(pruneHeight); err != nil {
-			pruneErrs = errors.Join(pruneErrs, fmt.Errorf("failed to prune %s below %d: %w", store.Name(), pruneHeight, err))
+		if snapshotHeight > 0 {
+			if err := store.PruneSnapshots(snapshotHeight); err != nil {
+				errs = errors.Join(errs, fmt.Errorf("failed to prune %s snapshots below %d: %w",
+					store.Name(), snapshotHeight, err))
+			}
+		}
+		if historyHeight > 0 {
+			if err := store.PruneHistory(historyHeight); err != nil {
+				errs = errors.Join(errs, fmt.Errorf("failed to prune %s history below %d: %w",
+					store.Name(), historyHeight, err))
+			}
 		}
 	}
-	return pruneErrs
+	return errs
 }
 
-// storeDecision records what the collector asked one store and what it answered, for the prune
-// log. cutLine == 0 means the store was never asked, which is what separates it from a store that
-// was asked and answered 0.
+// storeDecision records what one store answered, for the prune log. The windows and the resulting
+// heights are shared by every store and so are logged once alongside these rather than repeated
+// per entry.
 type storeDecision struct {
-	cutLine         uint64
-	boundary        uint64
+	floor           uint64
 	externalPruning bool
 }
 
-// describeDecisions renders one entry per store, in store order, for the prune log. The three
-// outcomes render differently on purpose — never asked, cannot serve a rollback, and reported a
-// boundary — since collapsing them would cost exactly the distinction wanted when auditing a
-// deletion after the fact. Each asked store carries the cut line its answer is a function of.
+// describeDecisions renders one entry per store, in store order, for the prune log. It is the stated
+// mechanism for reconstructing a deletion after the fact, which is why every store appears whatever
+// it answered: a floor of 0 is the entry that explains a cycle that pruned nothing, and naming the
+// store that produced it is the whole value of the line.
 //
-// A store that voted but prunes itself is tagged selfPruned, because its boundary is in the
-// minimum below while no deletion follows on it — without the tag that reads like a prune that
-// silently did nothing.
+// A store that answered but prunes itself is tagged selfPruned, because its floor is in the minimum
+// below while no deletion follows on it — without the tag that reads like a prune that silently did
+// nothing.
 func describeDecisions(stores []PrunableStore, decisions []storeDecision) string {
 	var sb strings.Builder
 	for i, store := range stores {
 		if i > 0 {
 			sb.WriteString(" ")
 		}
-		switch {
-		case decisions[i].cutLine == 0:
-			fmt.Fprintf(&sb, "%s=notAsked", store.Name())
-		case decisions[i].boundary == CannotServeRollback:
-			fmt.Fprintf(&sb, "%s=cannotServeRollback(cutLine=%d)", store.Name(), decisions[i].cutLine)
-		case !decisions[i].externalPruning:
-			fmt.Fprintf(&sb, "%s=%d(cutLine=%d,selfPruned)", store.Name(), decisions[i].boundary, decisions[i].cutLine)
-		default:
-			fmt.Fprintf(&sb, "%s=%d(cutLine=%d)", store.Name(), decisions[i].boundary, decisions[i].cutLine)
+		if decisions[i].externalPruning {
+			fmt.Fprintf(&sb, "%s=%d", store.Name(), decisions[i].floor)
+			continue
 		}
+		fmt.Fprintf(&sb, "%s=%d(selfPruned)", store.Name(), decisions[i].floor)
 	}
 	return sb.String()
 }
 
-// getCutLine returns head - RollbackWindow - retention for retention >= 0.
-// Returns 0 when retention < 0, when the combined window overflows uint64, or when
-// head is still inside that window (unsigned subtraction must not wrap).
-func getCutLine(globalLatestBlock uint64, rollbackWindow uint64, retention int64) uint64 {
-	if retention < 0 {
-		return 0
-	}
-	totalRetainWindow := rollbackWindow + uint64(retention)
-	if totalRetainWindow < rollbackWindow {
-		// Addition wrapped; treat as an unsatisfiable retain window (skip pruning).
-		return 0
-	}
-	if globalLatestBlock <= totalRetainWindow {
-		return 0
-	}
-	return globalLatestBlock - totalRetainWindow
-}
-
-// getGlobalLatestBlock returns the smallest non-zero GetLatestBlock among stores, or 0 when no
-// store has data. The minimum keeps a lagging store from being pruned past blocks it still needs.
+// getHistoryCutLine returns the height history may be pruned below: snapshotCutLine less
+// lookbackWindow, which places the lookback window entirely beneath the deepest rollback the fleet
+// still owes rather than overlapping it.
 //
-// Heads of 0 are skipped rather than treated as "unknown". That necessarily excludes the store
-// holding nothing from the minimum, so the minimum cannot protect it; what protects it is
-// CannotServeRollback, plus the store-set precondition on StorageGarbageCollector.
-func getGlobalLatestBlock(stores []PrunableStore) (uint64, error) {
-	var blockNum uint64
-	for _, store := range stores {
-		storeHeight, err := store.GetLatestBlock()
-		if err != nil {
-			return 0, fmt.Errorf("failed to read latest block from %s: %w", store.Name(), err)
-		}
-		if storeHeight == 0 {
-			continue
-		}
-		if blockNum == 0 || storeHeight < blockNum {
-			blockNum = storeHeight
-		}
+// Subtracting from the minimum of the stores' answers is what makes the result safe without clamping
+// any of them: it can only sit at or below every store's own floor.
+//
+// 0 when the window reaches below genesis, and it needs no special handling — it is the literal
+// height "keep everything from block 0 up", which every store's PruneHistory absorbs as a no-op.
+func getHistoryCutLine(snapshotCutLine uint64, lookbackWindow uint64) uint64 {
+	if snapshotCutLine <= lookbackWindow {
+		return 0
 	}
-	return blockNum, nil
+	return snapshotCutLine - lookbackWindow
 }

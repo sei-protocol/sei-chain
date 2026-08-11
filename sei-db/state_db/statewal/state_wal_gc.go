@@ -14,9 +14,9 @@ import (
 // concurrent PruneBefore by contract. None of them touch the plain fields the writer owns.
 //
 // Precondition beyond the collector's own: SC and SS must be managed alongside this WAL. The WAL is
-// what they replay from, and it is their boundaries — the oldest snapshot each still needs — that
-// hold it back, since the collector prunes every store to the shared minimum. Managed without them,
-// the WAL is pruned to its own cut line and the replay range they depend on goes with it.
+// what they replay from, and it is their floors — the oldest snapshot each still needs — that hold it
+// back, since the collector prunes every store to the shared minimum. Managed without them, the WAL
+// is pruned to its own floor and the replay range they depend on goes with it.
 var _ gc.PrunableStore = (*stateWALImpl)(nil)
 
 func (w *stateWALImpl) Name() string {
@@ -34,58 +34,66 @@ func (w *stateWALImpl) Name() string {
 // stopped, the collector declining, and the WAL growing without bound.
 //
 // Where FlatKV has not handed over, both prune, and the shared minimum makes that safe rather than
-// merely redundant: a store is asked for its boundary whatever it answers here, so FlatKV holds the
+// merely redundant: a store is asked for its floor whatever it answers here, so FlatKV holds the
 // collector back to the oldest snapshot it still replays from. That relies on FlatKV being
 // registered at all, which is the precondition on the type above.
 func (w *stateWALImpl) ExternalPruning() bool {
 	return true
 }
 
-// PruneBelow schedules removal of the blocks below blockNumber, going straight to the underlying WAL
-// from the collector's goroutine. Prune is the equivalent for the WAL's own owner; this exists
+// PruneHistory schedules removal of the blocks below blockNumber, going straight to the underlying
+// WAL from the collector's goroutine. Prune is the equivalent for the WAL's own owner; this exists
 // separately only because it must not read the closed/fatalErr bookkeeping that Prune does.
+//
+// blockNumber is the shared minimum rather than this WAL's own boundary, which for this store is the
+// whole point: SC and SS answer their oldest live snapshot, and that minimum is what holds the WAL
+// back far enough for them to replay forward from it.
 //
 // Deliberately does not brick the WAL on failure, unlike every writer-goroutine path here. Bricking
 // means writing fatalErr, which the writer reads unsynchronized, so doing it from this goroutine would
 // be a data race. Nothing is lost by declining: a prune fails only when the WAL is already closed or
 // dead underneath, and the writer's next operation discovers that on its own.
-func (w *stateWALImpl) PruneBelow(blockNumber uint64) error {
+func (w *stateWALImpl) PruneHistory(blockNumber uint64) error {
 	if err := w.wal.PruneBefore(blockNumber); err != nil {
 		return fmt.Errorf("failed to prune state WAL below block %d: %w", blockNumber, err)
 	}
 	return nil
 }
 
-// GetRetentionWindow reports 0, and this is a property of what the WAL is rather than a default
-// something might want to raise. How deep this WAL must go is not its own to declare: it is a replay
-// source, and the depth it needs is whatever its consumers need it to be. SC and SS express that by
-// answering their oldest live snapshot as a pruning boundary, and the collector prunes every store
-// to the shared minimum, so the WAL is already held exactly as far back as they can replay from.
-//
-// A window here would be additive on top of that, and — because the minimum is shared — it would
-// retain every managed store that much further back rather than this WAL alone. That is a fleet-wide
-// retention decision wearing a per-store name, which is what RollbackWindow already is.
-func (w *stateWALImpl) GetRetentionWindow() int64 {
-	return 0
+// PruneSnapshots does nothing: the WAL keeps no snapshots. It is what snapshots are replayed
+// forward from, which reaches it as the shared minimum PruneHistory receives.
+func (w *stateWALImpl) PruneSnapshots(uint64) error {
+	return nil
 }
 
-// GetPruningBoundary returns cutLine, the contract's answer for a contiguous store: the WAL holds
-// every block from its floor to its head, so cutLine itself is replayable and nothing below it has
-// to be held back.
+// GetRollbackFloor returns head - rollbackWindow, the contract's answer for a contiguous store:
+// the WAL holds every block from its floor to its head, so that height is replayable directly and
+// nothing below it has to be held back. It keeps no snapshots — it is what snapshots replay from — so
+// there is nothing to resolve the window against beyond its own head.
 //
-// Unconditional on purpose. A WAL whose floor already sits above cutLine — pruned there by an
-// earlier cycle, or freshly created above it — also answers cutLine, because the PruneBelow that
-// follows is a no-op on it while a lower answer would hold every other store back to this WAL's
-// floor. CannotServeRollback is never right here: it is the replay source, not a replay consumer.
-func (w *stateWALImpl) GetPruningBoundary(cutLine uint64) uint64 {
-	return cutLine
+// It reports against its own head even when that runs ahead of the fleet's, because the collector
+// takes a minimum across stores. This WAL's own answer is rarely the binding one: SC and SS report
+// their oldest live snapshot, which sits below this and is what actually holds the WAL back far
+// enough for them to replay forward.
+//
+// 0 when the window is deeper than the whole WAL — including a freshly created one, whose head is 0.
+// Nothing here is eligible for pruning until the head clears the window.
+func (w *stateWALImpl) GetRollbackFloor(rollbackWindow uint64) uint64 {
+	head, err := w.GetLatestBlock()
+	if err != nil {
+		return 0 // cannot say what it holds, so nothing may be dropped anywhere
+	}
+	if head <= rollbackWindow {
+		return 0
+	}
+	return head - rollbackWindow
 }
 
 // GetLatestBlock returns the highest block ended by SignalEndOfBlock, or 0 when none has been.
 //
 // A block that has been written but not yet ended is deliberately excluded: it is still buffered,
-// not a record, and reporting it would put the collector's head one block above what the WAL can
-// actually replay. See stateWALImpl.lastCompletedBlock for the 0 case.
+// not a record, and reporting it would put the floor this store reports one block above what the WAL
+// can actually replay. See stateWALImpl.lastCompletedBlock for the 0 case.
 func (w *stateWALImpl) GetLatestBlock() (uint64, error) {
 	return w.lastCompletedBlock.Load(), nil
 }

@@ -14,9 +14,8 @@ import (
 // callers build it via DefaultGigaStorageConfig. Nested knobs live on the store and
 // collector configs they already own (StateStoreConfig, ReceiptStoreConfig,
 // gc.StorageGarbageCollectorConfig) rather than being redeclared here — in particular
-// RollbackWindow has a single source of truth in
-// gc.DefaultStorageGarbageCollectorConfig; per-store extras live on each
-// PrunableStore via GetRetentionWindow.
+// RollbackWindow and LookbackWindow have a single source of truth in
+// gc.DefaultStorageGarbageCollectorConfig, and cover every managed store at once.
 type GigaStorageConfig struct {
 	HomePath        string
 	FlatKVConfig    *flatkvConfig.Config

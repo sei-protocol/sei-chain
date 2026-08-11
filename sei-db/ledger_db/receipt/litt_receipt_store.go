@@ -73,10 +73,10 @@ import (
 // collector's view of who prunes this store and the store's own view stay one
 // fact.
 //
-// KeepRecent is what this store asks for either way: the pruner's window when it
-// runs, and the collector's retention window when it does not. It does not reach
-// litt's TTL, which is a flat age floor (littRetentionTime) — how much history is
-// kept is the floor's business, and only gcFilter releases a body to be reclaimed.
+// KeepRecent is only the local pruner's window. Under the collector it is ignored:
+// how deep to keep is the shared RollbackWindow + LookbackWindow, not this per-store
+// setting. Either way it does not reach litt's TTL, a flat age floor (littRetentionTime)
+// — how much history is kept is the floor's business, and only gcFilter releases a body.
 type littReceiptStore struct {
 	values   litt.DB
 	receipts litt.Table
@@ -121,8 +121,8 @@ const (
 	// It was previously KeepRecent × 2s, which made the TTL a second, disagreeing
 	// answer to a question the floor already answers — and one that came out short
 	// under ExternalPruning, where the enforced retention is RollbackWindow +
-	// KeepRecent. An age floor cannot be wrong that way, because it does not claim to
-	// know how many blocks anything is.
+	// LookbackWindow. An age floor cannot be wrong that way, because it does not claim
+	// to know how many blocks anything is.
 	littRetentionTime = time.Hour
 
 	littPartCountLen = 4
@@ -140,12 +140,11 @@ func littPartKey(blockNumber uint64, part uint32) []byte {
 // gcFilter makes the retention floor a precondition for reclaiming a receipt body, so litt's TTL
 // can only ever reclaim what the floor has already released.
 //
-// Without it the TTL is the sole reclaimer (a nil filter leaves TTL as the only condition), and it
-// is derived from KeepRecent alone — which is not the retention this store owes anyone. Under
-// ExternalPruning the collector holds the floor at RollbackWindow + KeepRecent blocks back, so a
-// TTL sized for KeepRecent can expire bodies the floor still calls live, and a read inside the
-// rollback window returns not-found. That is the cross-store guarantee the collector exists to
-// provide, so the two are joined here rather than kept in agreement by arithmetic: what reads
+// Without it the TTL is the sole reclaimer (a nil filter leaves TTL as the only condition). Under
+// ExternalPruning the collector holds the floor at RollbackWindow + LookbackWindow blocks back, so
+// a TTL sized to any block count could expire bodies the floor still calls live, and a read inside
+// the rollback window would return not-found. That is the cross-store guarantee the collector exists
+// to provide, so the two are joined here rather than kept in agreement by arithmetic: what reads
 // enforce and what GC reclaims are now the same fact, whatever the block time or the window.
 //
 // Only primary part keys gate. Tx-hash secondaries alias a body in their own segment, so the
