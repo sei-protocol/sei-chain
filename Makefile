@@ -564,8 +564,6 @@ giga-mixed-integration-test:
 # Implements test splitting and running. This is pulled directly from
 # the github action workflows for better local reproducibility.
 
-GO_TEST_FILES != find $(CURDIR) -name "*_test.go"
-
 # default to three splits to match go-test.yml NUM_SPLIT
 NUM_SPLIT ?= 3
 # Matches go-test.yml GO_TEST_TIMEOUT; local shards add coverage so need
@@ -584,7 +582,10 @@ $(BUILDDIR):
 # which is how go-test.yml's Race Detection job also acts as a compile
 # check under -race -tags=ledger,test_ledger_mock for the whole tree.
 # Filtering to test-only packages here would silently drop that coverage.
-$(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
+# .PHONY: content comes from go list ./..., not *_test.go mtimes — without
+# this, a cached build/packages.txt can miss new compile-only packages locally.
+.PHONY: split-test-packages $(BUILDDIR)/packages.txt
+$(BUILDDIR)/packages.txt: $(BUILDDIR)
 	go list ./... > $@.tmp
 	grep -v "^$(STATE_DB_PKG_PREFIX)" $@.tmp | sort > $@
 	@rm -f $@.tmp
