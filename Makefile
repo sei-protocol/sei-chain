@@ -618,14 +618,19 @@ HEAVY_TEST_PACKAGES := \
 split-test-packages:$(BUILDDIR)/packages.txt
 	@for i in $$(seq 0 $$(($(NUM_SPLIT)-1))); do : > $(BUILDDIR)/packages.txt.$$i; done
 	@printf '%s\n' $(HEAVY_TEST_PACKAGES) > $(BUILDDIR)/heavy-packages.txt
+	@while IFS= read -r pkg; do \
+		grep -qx "$$pkg" $< || { echo "heavy package not in packages.txt: $$pkg"; exit 1; }; \
+	done < $(BUILDDIR)/heavy-packages.txt
 	@grep -Fxf $(BUILDDIR)/heavy-packages.txt $< > $(BUILDDIR)/packages.txt.heavy || true
 	@grep -Fxvf $(BUILDDIR)/heavy-packages.txt $< > $(BUILDDIR)/packages.txt.rest || true
+	@[ $$(cat $(BUILDDIR)/packages.txt.heavy $(BUILDDIR)/packages.txt.rest | wc -l) -eq $$(wc -l < $<) ] \
+		|| { echo "package split lost entries"; exit 1; }
 	@awk -v n=$(NUM_SPLIT) -v dir=$(BUILDDIR) '{print >> (dir "/packages.txt." (NR-1)%n)}' $(BUILDDIR)/packages.txt.heavy
 	@awk -v n=$(NUM_SPLIT) -v dir=$(BUILDDIR) '{print >> (dir "/packages.txt." (NR-1)%n)}' $(BUILDDIR)/packages.txt.rest
 	@rm -f $(BUILDDIR)/heavy-packages.txt $(BUILDDIR)/packages.txt.heavy $(BUILDDIR)/packages.txt.rest
 test-group-%:split-test-packages
 	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
-	@if grep -q "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
+	@if grep -qx "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
 		echo "🔒 Found $(TARGET_PACKAGE), running with -parallel=1"; \
 		PARALLEL="-parallel=1"; \
 	else \

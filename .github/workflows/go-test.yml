@@ -21,29 +21,16 @@ env:
   # Number of race-detection shards. Matches `NUM_SPLIT` passed to
   # `make test-group-N` so shards are locally reproducible.
   NUM_SPLIT: 3
+  NUM_SPLIT_JSON: '[0,1,2]'
 
 jobs:
-  shard-indexes:
-    name: Generate race shard indexes
-    runs-on: ubuntu-latest
-    outputs:
-      json: ${{ steps.generate-index-list.outputs.json }}
-    steps:
-      - id: generate-index-list
-        run: |
-          MAX_INDEX=$((${{ env.NUM_SPLIT }}-1))
-          INDEX_LIST=$(seq 0 ${MAX_INDEX})
-          INDEX_JSON=$(jq --null-input --compact-output '. |= [inputs]' <<< ${INDEX_LIST})
-          echo "json=${INDEX_JSON}" >> "$GITHUB_OUTPUT"
-
   test:
     name: "Race Detection (shard ${{ matrix.shard }})"
     runs-on: uci-default
-    needs: shard-indexes
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJson(needs.shard-indexes.outputs.json) }}
+        shard: ${{ fromJson(env.NUM_SPLIT_JSON) }}
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
     steps:
