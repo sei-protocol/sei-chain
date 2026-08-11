@@ -181,10 +181,11 @@ has one reader; a demotion is caught for every section by the record's marker re
 
 `StateStoreConfig` is split the same way, with eleven keys of its own that both readers read.
 Each count is per struct, so the pair of them is twenty-two. Neither half can resolve to
-different values. For these keys both readers reach the same underlying viper, `parseSSConfigs`
-through the `AppOpts` map it was handed and `GetConfig` directly, and they cast through the same
-helpers, so the one thing left that could separate `Get() != nil` from `IsSet()` is a registered
-flag and none of these keys is one. What the split costs is a second copy rather than a
+different values, and the reason is simpler here than in `[state-commit]`: neither reader guards
+these keys at all. `parseSSConfigs` assigns `cast.ToX(appOpts.Get(k))` unconditionally
+(`app/seidb.go:198-210`) and `GetConfig` uses plain typed getters with no `IsSet`
+(`config.go:629-641`), so both resolve an absent key to the Go zero rather than to the declared
+default. There is no guard to differ over. What the split costs is a second copy rather than a
 disagreement: `GetConfig` populates both structs and no caller reads either struct's fields, so
 the store is built from `parseSCConfigs` and `parseSSConfigs` alone.
 

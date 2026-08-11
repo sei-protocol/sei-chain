@@ -35,6 +35,15 @@ import (
 // second live resolution. That is what keeps this a sharp edge rather than a split: there is one
 // answer at runtime, and two artifacts describing a different one.
 //
+// What this file does not pin is the call site. resolveMinGasPrices below runs the expression
+// root.go:296 runs rather than driving root.go:296, because that argument is built inline inside
+// newApp's app.New call and reaching it needs a node. So nothing here fails if that line changes its
+// cast, changes its key, or stops handing the value to SetMinGasPrices, and the tests would keep
+// describing a reader that had moved. The flag disappearing is caught, by the Lookup below; the call
+// site changing is not. It is the same gap receipt_store_config_fuzz_test.go names for root.go:297,
+// and it is stated here for the same reason: a reader who assumed otherwise would trust a pin that is
+// not there.
+//
 // Recorded rather than repaired. Teaching ParseDecCoins the semicolon widens what a node accepts,
 // and correcting the help text changes what operators are told a working value looks like; both are
 // decisions for the reader that replaces this one.

@@ -85,7 +85,13 @@ func requireNoKeyNestsInsideAnother(t testing.TB, keys map[string]any) {
 
 // nestsInside reports whether inner is a dotted child of outer, which is the only relationship
 // viper.Set collapses. A shared textual prefix is not one.
+//
+// The relationship is on viper's normalized key rather than the written one. Set lowercases before it
+// nests (viper.go:1503), so "Telemetry" and "telemetry.global-labels" collide there while comparing as
+// written would not, and a guard that missed the pair would let the map-order loss back in wearing the
+// hardest shape to diagnose.
 func nestsInside(outer, inner string) bool {
+	outer, inner = strings.ToLower(outer), strings.ToLower(inner)
 	return outer != inner && strings.HasPrefix(inner, outer+".")
 }
 
@@ -104,6 +110,10 @@ func TestNestsInsideIsADottedSegmentRelationship(t *testing.T) {
 		{"a", "a.b", true},
 		{"a.b", "a.b.c", true},
 		{globalLabelsKey, globalLabelsKey + ".x", true},
+		// viper lowercases before nesting, so case is not what separates two keys.
+		{"Telemetry", "telemetry.global-labels", true},
+		{"telemetry", "TELEMETRY.GLOBAL-LABELS", true},
+		{"Telemetry", "Telemetry", false},
 	} {
 		if got := nestsInside(c.outer, c.inner); got != c.want {
 			t.Errorf("nestsInside(%q, %q) = %v, want %v", c.outer, c.inner, got, c.want)
@@ -149,7 +159,7 @@ func FuzzGetConfigGlobalLabels(f *testing.F) {
 		}
 
 		v := viper.New()
-		v.Set("telemetry.global-labels", labels)
+		v.Set(globalLabelsKey, labels)
 		cfg, err := GetConfig(v)
 		if err != nil {
 			t.Fatalf("a well-typed global-labels list must parse, got %v", err)
@@ -194,7 +204,7 @@ func TestGetConfigPanicsOnANonStringGlobalLabel(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%v", label), func(t *testing.T) {
 			v := viper.New()
-			v.Set("telemetry.global-labels", []any{label})
+			v.Set(globalLabelsKey, []any{label})
 
 			defer func() {
 				r := recover()
@@ -236,7 +246,7 @@ func TestGetConfigRequiresGlobalLabels(t *testing.T) {
 // telemetry.
 func TestGetConfigPanicsOnNonStringLabel(t *testing.T) {
 	v := viper.New()
-	v.Set("telemetry.global-labels", []any{[]any{1, 2}})
+	v.Set(globalLabelsKey, []any{[]any{1, 2}})
 
 	defer func() {
 		if r := recover(); r == nil {
@@ -1107,7 +1117,7 @@ var telemetryKeys = []configtest.KeySpec{
 
 // telemetryKeysWithTargetsOfTheirOwn is global-labels, recorded for its name because its behaviour
 // is driven by targets rather than by a row.
-var telemetryKeysWithTargetsOfTheirOwn = []configtest.KeyName{"telemetry.global-labels"}
+var telemetryKeysWithTargetsOfTheirOwn = []configtest.KeyName{globalLabelsKey}
 
 func readRosetta(t testing.TB) func(configtest.AppOpts) (any, error) {
 	return sectionOfGetConfig(t, func(c Config) any { return c.Rosetta })

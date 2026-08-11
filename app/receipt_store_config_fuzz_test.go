@@ -53,9 +53,13 @@ func FuzzMinRetainBlocksFansOutToTwoRetentionPolicies(f *testing.F) {
 	f.Add("18446744073709551615") // past int64, so ToInt floors to 0
 	f.Add("not-a-number")         // both floor to 0
 
-	f.Fuzz(func(t *testing.T, raw string) {
-		homePath := t.TempDir()
+	// One directory for the whole target rather than one per iteration. It is not decoration: the
+	// reader resolves DBDirectory through GetReceiptStorePath, which returns a legacy path when
+	// <home>/data/receipt.db exists (path.go:69-75), so a home that is guaranteed empty is what keeps
+	// that branch off ambient filesystem state. A literal would read whatever the machine has.
+	homePath := f.TempDir()
 
+	f.Fuzz(func(t *testing.T, raw string) {
 		receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{
 			server.FlagMinRetainBlocks: raw,
 		})
