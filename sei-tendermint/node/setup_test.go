@@ -2,6 +2,7 @@ package node
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -353,7 +354,7 @@ func TestPreparePersistentStateDir_EmptyStringIsNone(t *testing.T) {
 // dropped here, or wired to the wrong config key, falls back to a package
 // default silently rather than failing.
 func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
-	ep, err := p2p.ResolveEndpoint("tcp://" + string(types.NodeID("0000000000000000000000000000000000000000")) + "@127.0.0.1:26656")
+	ep, err := p2p.ResolveEndpoint("tcp://0000000000000000000000000000000000000000@127.0.0.1:26656")
 	require.NoError(t, err)
 
 	t.Run("defaults reach the router", func(t *testing.T) {
@@ -365,10 +366,6 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 		const unset = rate.Limit(-1)
 		require.Equal(t, rate.Every(cfg.P2P.AcceptInterval), opts.MaxAcceptRate.Or(unset))
 		require.Equal(t, rate.Every(cfg.P2P.DialInterval), opts.MaxDialRate.Or(unset))
-
-		// The package fallback is 1 accept/s; setup must override it.
-		require.NotEqual(t, rate.Every(time.Second), opts.MaxAcceptRate.Or(unset),
-			"accept rate fell through to the package default")
 	})
 
 	t.Run("operator value flows through", func(t *testing.T) {
@@ -378,14 +375,24 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 		require.Equal(t, rate.Every(250*time.Millisecond), opts.MaxAcceptRate.Or(rate.Limit(-1)))
 	})
 
-	t.Run("concurrent accepts track the inbound pool, not max-connections", func(t *testing.T) {
-		cfg := config.DefaultConfig()
-		cfg.P2P.MaxConnections = 100
-		opts := p2pRouterOptions(cfg, ep, nil)
+	// Non-default totals, so the assertions track the derivation rather than
+	// restating DefaultP2PConfig. 50 exercises the flat 20-outbound reservation;
+	// 30 exercises the min(20, (maxConns+1)/2) branch, which nothing else reaches.
+	for _, tc := range []struct {
+		maxConns, wantInbound, wantOutbound int
+	}{
+		{maxConns: 50, wantInbound: 30, wantOutbound: 20},
+		{maxConns: 30, wantInbound: 15, wantOutbound: 15},
+	} {
+		t.Run(fmt.Sprintf("budget derives from max-connections=%d", tc.maxConns), func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			cfg.P2P.MaxConnections = uint(tc.maxConns)
+			opts := p2pRouterOptions(cfg, ep, nil)
 
-		// 100 total minus the 20 outbound reservation.
-		require.Equal(t, 80, opts.MaxConcurrentAccepts.Or(-1))
-		require.Equal(t, 80, opts.MaxInbound.Or(-1))
-		require.Equal(t, 20, opts.MaxOutbound.Or(-1))
-	})
+			require.Equal(t, tc.wantInbound, opts.MaxInbound.Or(-1))
+			require.Equal(t, tc.wantOutbound, opts.MaxOutbound.Or(-1))
+			// MaxConcurrentAccepts tracks the inbound pool, not max-connections.
+			require.Equal(t, tc.wantInbound, opts.MaxConcurrentAccepts.Or(-1))
+		})
+	}
 }

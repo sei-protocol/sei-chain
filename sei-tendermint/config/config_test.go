@@ -241,27 +241,20 @@ func TestP2PConfigValidateBasic(t *testing.T) {
 	}
 }
 
-// The accept loop paces itself off AcceptInterval. A default that admits only a
-// handful of connections per second cannot drain the kernel accept backlog on a
-// public node: peers queue behind it, time out mid-handshake, and the node stops
-// acquiring inbound peers while still reporting healthy. Pin the default so that
-// regression has to be deliberate rather than incidental.
+// The accept loop paces itself off AcceptInterval. 10ms (100/s) sits well above
+// the rate at which peers arrive on a public listener; a default admitting only a
+// handful per second cannot drain the kernel accept backlog, so peers queue behind
+// it, time out mid-handshake, and the node stops acquiring inbound peers while
+// still reporting healthy. Pin the value exactly, so changing it is deliberate and
+// visible in the diff.
 func TestP2PConfigAcceptInterval(t *testing.T) {
 	cfg := DefaultP2PConfig()
 	require.NoError(t, cfg.ValidateBasic())
 
-	// Exact value, so a change to the default shows up in the diff rather than
-	// sliding anywhere inside the band below.
 	require.Equal(t, 10*time.Millisecond, cfg.AcceptInterval)
 
-	// The band and its message carry the reason the exact value was chosen.
-	limit := rate.Every(cfg.AcceptInterval)
-	require.Greater(t, float64(limit), 50.0,
-		"default accept rate %v/s is too low to drain the accept backlog", float64(limit))
-	require.NotEqual(t, rate.Inf, limit, "default accept rate should be bounded, not unlimited")
-
-	// A non-positive interval is the documented escape hatch for disabling the
-	// limiter outright, and must stay valid rather than becoming a zero rate.
+	// A zero interval is the documented escape hatch for disabling the limiter
+	// outright, and must stay valid rather than becoming a zero rate.
 	cfg.AcceptInterval = 0
 	require.NoError(t, cfg.ValidateBasic())
 	require.Equal(t, rate.Inf, rate.Every(cfg.AcceptInterval))

@@ -68,9 +68,11 @@ type RouterOptions struct {
 	// MaxDialRate limits the rate at which router is dialing peers. Defaults to 0.1/s.
 	MaxDialRate utils.Option[rate.Limit]
 
-	// MaxAcceptRate limits the rate at which router is accepting TCP connections. Defaults to 1/s.
-	// Node setup always sets this from the p2p accept-interval config key, so the default
-	// applies only to embedders that construct RouterOptions directly.
+	// MaxAcceptRate limits the rate at which router is accepting TCP connections. Defaults to 100/s.
+	// Node setup sets this from the p2p accept-interval config key; the default covers
+	// embedders that construct RouterOptions directly. Keep it high enough to drain the
+	// kernel accept backlog: a rate below the arrival rate leaves peers queued past
+	// handshake-timeout, so the node stops acquiring inbound peers while looking healthy.
 	MaxAcceptRate utils.Option[rate.Limit]
 
 	// ResolveTimeout is the timeout for resolving NodeAddress URLs.
@@ -167,7 +169,7 @@ func (o *RouterOptions) maxDialRate() rate.Limit {
 }
 
 func (o *RouterOptions) maxAcceptRate() rate.Limit {
-	return o.MaxAcceptRate.Or(rate.Every(time.Second))
+	return o.MaxAcceptRate.Or(rate.Every(10 * time.Millisecond))
 }
 
 func (o *RouterOptions) incomingConnectionWindow() time.Duration {

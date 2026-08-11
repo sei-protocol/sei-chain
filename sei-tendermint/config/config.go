@@ -783,6 +783,9 @@ func (cfg *P2PConfig) ValidateBasic() error {
 	if cfg.RecvRate < 0 {
 		return errors.New("recv-rate can't be negative")
 	}
+	if cfg.DialInterval < 0 {
+		return errors.New("dial-interval can't be negative")
+	}
 	if cfg.AcceptInterval < 0 {
 		return errors.New("accept-interval can't be negative")
 	}
