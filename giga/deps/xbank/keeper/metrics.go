@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"runtime/debug"
 
 	"go.opentelemetry.io/otel"
@@ -44,14 +46,14 @@ func recordNewAccounts(ctx context.Context, count int64) {
 	}
 	defer func() {
 		if e := recover(); e != nil {
-			debug.PrintStack()
+			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 		}
 	}()
 	// TODO(PLT-353): remove once bank_new_account verified
 	func() {
 		defer func() {
 			if e := recover(); e != nil {
-				debug.PrintStack()
+				fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 			}
 		}()
 		telemetry.IncrCounter(float32(count), "new", "account")

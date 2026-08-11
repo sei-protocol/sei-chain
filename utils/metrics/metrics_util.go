@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"runtime/debug"
 	"strconv"
 	"time"
@@ -79,7 +80,7 @@ func SetupOtelMetricsProvider(chainID string) error {
 func RecordBankNewAccount(ctx context.Context) {
 	defer func() {
 		if e := recover(); e != nil {
-			debug.PrintStack()
+			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 		}
 	}()
 	// TODO(PLT-353): remove once bank_new_account verified
@@ -90,7 +91,7 @@ func RecordBankNewAccount(ctx context.Context) {
 func SafeTelemetryIncrCounter(val float32, keys ...string) {
 	defer func() {
 		if e := recover(); e != nil {
-			debug.PrintStack()
+			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 			return
 		}
 	}()
@@ -100,7 +101,7 @@ func SafeTelemetryIncrCounter(val float32, keys ...string) {
 func SafeTelemetryIncrCounterWithLabels(keys []string, val float32, labels []metrics.Label) {
 	defer func() {
 		if e := recover(); e != nil {
-			debug.PrintStack()
+			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 			return
 		}
 	}()
@@ -110,7 +111,7 @@ func SafeTelemetryIncrCounterWithLabels(keys []string, val float32, labels []met
 func SafeMetricsIncrCounterWithLabels(keys []string, val float32, labels []metrics.Label) {
 	defer func() {
 		if e := recover(); e != nil {
-			debug.PrintStack()
+			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 			return
 		}
 	}()

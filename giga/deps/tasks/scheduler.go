@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -283,14 +284,14 @@ type schedulerMetrics struct {
 func (s *scheduler) emitMetrics(ctx context.Context) {
 	defer func() {
 		if e := recover(); e != nil {
-			debug.PrintStack()
+			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 		}
 	}()
 	// TODO(PLT-353): remove once scheduler_retries verified
 	func() {
 		defer func() {
 			if e := recover(); e != nil {
-				debug.PrintStack()
+				fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 			}
 		}()
 		telemetry.IncrCounter(float32(s.metrics.retries), "scheduler", "retries")
@@ -300,7 +301,7 @@ func (s *scheduler) emitMetrics(ctx context.Context) {
 	func() {
 		defer func() {
 			if e := recover(); e != nil {
-				debug.PrintStack()
+				fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 			}
 		}()
 		telemetry.IncrCounter(float32(s.metrics.maxIncarnation), "scheduler", "incarnations")
