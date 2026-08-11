@@ -599,11 +599,14 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextBlock }); err != nil {
 			return err
 		}
+		if n < inner.nextAppProposal {
+			return nil
+		}
 		p := inner.qcs[n].QC().Proposal()
 		if next, first := inner.nextAppProposal, p.GlobalRange().First; next < first {
 			// We expect the AppHashes to be pushed in order.
 			return fmt.Errorf("received appHash for %v: %w", n, ErrOutOfOrder)
-		} else if next != first || n != p.GlobalRange().Next-1 {
+		} else if n != p.GlobalRange().Next-1 {
 			// We only care about the AppHash of the last block of the range.
 			return nil
 		}

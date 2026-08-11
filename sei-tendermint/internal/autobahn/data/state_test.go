@@ -93,17 +93,12 @@ func writeAppDataToBlockDB(t testing.TB, rng utils.Rng, db types.BlockDB, keys [
 // raw goroutine so cleanup is structured.
 func pushAppHashesRunning(ctx context.Context, state *State, rng utils.Rng, first, next types.GlobalBlockNumber) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		runCtx, cancel := context.WithCancel(ctx)
-		s.SpawnBgNamed("state.Run", func() error {
-			return utils.IgnoreCancel(state.Run(runCtx))
-		})
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		for n := first; n < next; n++ {
 			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
-				cancel()
 				return err
 			}
 		}
-		cancel()
 		return nil
 	})
 }
@@ -504,18 +499,13 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	require.False(t, db.Status().IsPresent(), "PushQC must not write BlockDB before Run")
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		runCtx, cancel := context.WithCancel(ctx)
-		s.SpawnBgNamed("state.Run", func() error {
-			return utils.IgnoreCancel(state.Run(runCtx))
-		})
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		// PushAppHash waits on persisted.NextBlock, so success implies Flush.
 		for n := gr1.First; n < gr1.Next; n++ {
 			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
-				cancel()
 				return fmt.Errorf("PushAppHash(%d): %w", n, err)
 			}
 		}
-		cancel()
 		return nil
 	}))
 
@@ -549,9 +539,7 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		runCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(runCtx)) })
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
 		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
 			return fmt.Errorf("PushQC(qc1): %w", err)
@@ -654,6 +642,48 @@ func TestEvictionWaitsForPersistedAppQC(t *testing.T) {
 	}
 }
 
+func TestPushAppHashBelowAnchorSucceeds(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	epoch := registry.LatestEpoch()
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+
+		prev := utils.None[*types.CommitQC]()
+		for range 2 {
+			qc, blocks := TestCommitQC(rng, epoch, keys, prev)
+			prev = utils.Some(qc.QC())
+			gr := qc.QC().GlobalRange()
+			if err := state.PushQC(ctx, qc, blocks); err != nil {
+				return fmt.Errorf("PushQC: %w", err)
+			}
+			if err := state.PushAppHash(ctx, gr.Next-1, types.GenAppHash(rng)); err != nil {
+				return fmt.Errorf("PushAppHash(tip): %w", err)
+			}
+			if err := pushAppQCForBlock(ctx, state, keys, gr.First); err != nil {
+				return fmt.Errorf("pushAppQCForBlock(%d): %w", gr.First, err)
+			}
+		}
+		// Wait for anchor to progress past first block.
+		if _, err := state.Anchor().Wait(ctx, func(anchor utils.Option[Anchor]) bool {
+			if anchor, ok := anchor.Get(); ok {
+				return registry.FirstBlock() < anchor.AppQC.Proposal().GlobalRange().First
+			}
+			return false
+		}); err != nil {
+			return fmt.Errorf("state.Anchor.Wait(): %w", err)
+		}
+		// Pushing apphash for height below the anchor should NOT expolode.
+		if err := state.PushAppHash(ctx, registry.FirstBlock(), types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash below anchor: %w", err)
+		}
+		return nil
+	}))
+}
+
 // TestNextToExecuteAfterAppEviction checks WaitUntilExecuted / nextToExecute
 // still work when persisted AppQC aggressively evicts through nextAppProposal
 // (first = persisted.First).
@@ -669,11 +699,7 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		runCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		s.SpawnBgNamed("state.Run", func() error {
-			return utils.IgnoreCancel(state.Run(runCtx))
-		})
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
 		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
 			return fmt.Errorf("PushQC(qc1): %w", err)
@@ -757,11 +783,7 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 	db1 := newTestBlockDB(t, dir)
 	state1 := newTestState(t, &Config{Registry: registry}, db1)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		runCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		s.SpawnBgNamed("state.Run", func() error {
-			return utils.IgnoreCancel(state1.Run(runCtx))
-		})
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state1.Run(ctx)) })
 
 		if err := state1.PushQC(ctx, qc1, blocks1); err != nil {
 			return fmt.Errorf("PushQC(qc1): %w", err)
@@ -872,11 +894,7 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	require.NoError(t, pushAppHashesRunning(ctx, state1, rng, gr1.First, gr2.Next))
 	var exclusiveFloor types.GlobalBlockNumber
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		runCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		s.SpawnBgNamed("state.Run", func() error {
-			return utils.IgnoreCancel(state1.Run(runCtx))
-		})
+		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state1.Run(ctx)) })
 		if err := pushAppQCForBlock(ctx, state1, keys, gr1.First); err != nil {
 			return err
 		}
