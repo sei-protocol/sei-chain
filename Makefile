@@ -632,12 +632,13 @@ split-test-packages:$(BUILDDIR)/packages.txt
 	@awk -v n=$(NUM_SPLIT) -v dir=$(BUILDDIR) '{print >> (dir "/packages.txt." (NR-1)%n)}' $(BUILDDIR)/packages.txt.rest
 	@rm -f $(BUILDDIR)/heavy-packages.txt $(BUILDDIR)/packages.txt.heavy $(BUILDDIR)/packages.txt.rest
 test-group-%:split-test-packages
-	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
-	@if grep -qx "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
-		echo "🔒 Found $(TARGET_PACKAGE), running with -parallel=1"; \
-		PARALLEL="-parallel=1"; \
-	else \
-		echo "⚡ Not found, running with -parallel=4"; \
-		PARALLEL="-parallel=4"; \
+	@set -e; \
+	SHARD=$(BUILDDIR)/packages.txt.$*; \
+	REST=$$(grep -vx "$(TARGET_PACKAGE)" "$$SHARD" || true); \
+	if [ -n "$$REST" ]; then \
+		echo "$$REST" | xargs go test -parallel=4 -mod=readonly -timeout=$(GO_TEST_TIMEOUT) -race -coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...; \
 	fi; \
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=$(GO_TEST_TIMEOUT) -race -coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...
+	if grep -qx "$(TARGET_PACKAGE)" "$$SHARD"; then \
+		echo "🔒 Running $(TARGET_PACKAGE) with -parallel=1"; \
+		go test -parallel=1 -mod=readonly -timeout=$(GO_TEST_TIMEOUT) -race -coverprofile=$*.occ_tests.profile.out -covermode=atomic -coverpkg=./... $(TARGET_PACKAGE); \
+	fi

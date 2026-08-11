@@ -62,12 +62,15 @@ jobs:
           set -euo pipefail
           make split-test-packages NUM_SPLIT=${{ env.NUM_SPLIT }}
           SHARD_FILE=build/packages.txt.${{ matrix.shard }}
-          PARALLEL=()
-          if grep -qx "github.com/sei-protocol/sei-chain/occ_tests" "$SHARD_FILE"; then
-            echo "occ_tests present in this shard; forcing -parallel=1"
-            PARALLEL=(-parallel=1)
+          OCC=github.com/sei-protocol/sei-chain/occ_tests
+          REST=$(grep -vx "$OCC" "$SHARD_FILE" || true)
+          if [ -n "$REST" ]; then
+            echo "$REST" | xargs go test -timeout=${{ env.GO_TEST_TIMEOUT }}
           fi
-          xargs go test "${PARALLEL[@]}" -timeout=${{ env.GO_TEST_TIMEOUT }} < "$SHARD_FILE"
+          if grep -qx "$OCC" "$SHARD_FILE"; then
+            echo "occ_tests present in this shard; running with -parallel=1"
+            go test -parallel=1 -timeout=${{ env.GO_TEST_TIMEOUT }} "$OCC"
+          fi
 
   test-check:
     name: Race Detection
