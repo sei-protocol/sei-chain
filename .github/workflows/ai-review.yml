@@ -4,8 +4,8 @@ on:
     types: [ opened, ready_for_review, synchronize, reopened ]
 jobs:
   ai-review:
-    # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.13
-    uses: sei-protocol/uci/.github/workflows/ai-review.yml@29a9c73301b2218e1940cf3f9a2c3d34c86fbd9a
+    # Test: https://github.com/sei-protocol/uci/pull/58
+    uses: sei-protocol/uci/.github/workflows/ai-review.yml@5951f951bd7a1d533aaa92f4f51ce17a3ae6eee5
     permissions:
       contents: read
       pull-requests: write
@@ -13,6 +13,6 @@ jobs:
       id-token: write
     secrets: inherit
     with:
-      # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.13
-      uci-ref: 29a9c73301b2218e1940cf3f9a2c3d34c86fbd9a
+      # Test: https://github.com/sei-protocol/uci/pull/58
+      uci-ref: 5951f951bd7a1d533aaa92f4f51ce17a3ae6eee5
       enable-cursor: false # Disabled for now since there is a dedicated Bugbot flow built into Cursor currently enabled on repo.
