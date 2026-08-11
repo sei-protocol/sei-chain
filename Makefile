@@ -566,8 +566,8 @@ giga-mixed-integration-test:
 
 GO_TEST_FILES != find $(CURDIR) -name "*_test.go"
 
-# default to four splits by default
-NUM_SPLIT ?= 4
+# default to three splits to match go-test.yml NUM_SPLIT
+NUM_SPLIT ?= 3
 # Matches go-test.yml GO_TEST_TIMEOUT; local shards add coverage so need
 # at least as much headroom as CI (shards run ~11-13m without coverage).
 GO_TEST_TIMEOUT ?= 30m

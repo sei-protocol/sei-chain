@@ -76,7 +76,7 @@ jobs:
     name: Race Detection
     runs-on: ubuntu-latest
     needs: test
-    if: always()
+    if: ${{ !cancelled() }}
     steps:
       - name: Check shard results
         run: |
