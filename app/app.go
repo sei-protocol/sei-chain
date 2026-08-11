@@ -2800,26 +2800,6 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 
 		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
 
-		// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
-		// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
-		// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
-		skipGaslessCheck := evmErr == nil && isEVM
-		if !skipGaslessCheck && app.couldBeGaslessTransaction(decodedTx) {
-			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
-			if err != nil {
-				if strings.Contains(err.Error(), "panic in IsTxGasless") {
-					// Unexpected panic: reject the entire proposal.
-					logger.Error("malicious transaction detected in gasless check", "err", err)
-					return false
-				}
-				// Business-logic errors (e.g. duplicate votes): keep going, tx is treated as non-gasless.
-				logger.Info("transaction failed gasless check but not malicious", "err", err)
-			}
-			if isGasless {
-				continue
-			}
-		}
-
 		// EVM classification failed (e.g. multi-msg containing an EVM message); such a tx won't be
 		// processed and so contributes no gas to the block.
 		if evmErr != nil {

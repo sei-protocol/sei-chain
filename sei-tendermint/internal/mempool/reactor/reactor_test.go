@@ -224,6 +224,7 @@ func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
 				return mempool.TxConstraints{
 					MaxDataBytes: 10,
 					MaxGas:       -1,
+					MaxGasWanted: -1,
 				}, nil
 			})
 			t.Cleanup(leaktest.Check(t))
@@ -275,6 +276,7 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 			return mempool.TxConstraints{
 				MaxDataBytes: 10,
 				MaxGas:       -1,
+				MaxGasWanted: -1,
 			}, nil
 		},
 	)
@@ -314,6 +316,7 @@ func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
 			return mempool.TxConstraints{
 				MaxDataBytes: 10,
 				MaxGas:       -1,
+				MaxGasWanted: -1,
 			}, nil
 		},
 	)

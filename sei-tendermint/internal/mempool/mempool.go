@@ -33,6 +33,26 @@ const (
 	MinGasEVMTx  = 21000
 )
 
+type checkedTxMetadata struct {
+	priority     int64
+	gasWanted    int64
+	estimatedGas int64
+}
+
+// metadataFromCheckTx normalizes application metadata identically for initial checks and
+// rechecks. Reusing this step prevents proposal selection from retaining stale gas values.
+func metadataFromCheckTx(res *abci.ResponseCheckTxV2) checkedTxMetadata {
+	estimatedGas := res.GasEstimated
+	if estimatedGas < MinGasEVMTx || estimatedGas > res.GasWanted {
+		estimatedGas = res.GasWanted
+	}
+	return checkedTxMetadata{
+		priority:     res.Priority,
+		gasWanted:    res.GasWanted,
+		estimatedGas: estimatedGas,
+	}
+}
+
 type Config struct {
 	// Maximum number of transactions in the mempool
 	Size int
@@ -353,18 +373,14 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	Global.NumberOfSuccessfulCheckTxsAt().Add(1)
 	Global.observeCheckTxPriorityDistribution(res.Priority, false, "", false)
 
-	// Normalize the estimate.
-	estimatedGas := res.GasEstimated
-	if estimatedGas < MinGasEVMTx || estimatedGas > res.GasWanted {
-		estimatedGas = res.GasWanted
-	}
+	metadata := metadataFromCheckTx(res)
 	wtx := &WrappedTx{
 		hashedTx:     hTx,
 		timestamp:    time.Now().UTC(),
 		height:       txmp.height,
-		priority:     res.Priority,
-		estimatedGas: estimatedGas,
-		gasWanted:    res.GasWanted,
+		priority:     metadata.priority,
+		estimatedGas: metadata.estimatedGas,
+		gasWanted:    metadata.gasWanted,
 	}
 	if res.IsEVM {
 		wtx.evm = utils.Some(evmTx{
@@ -415,11 +431,13 @@ func (txmp *TxMempool) Flush() {
 // The returned list starts with EVM transactions (in priority order),
 // followed by non-EVM transactions (in priority order).
 // There are 4 types of constraints.
-//  1. maxBytes - stops pulling txs from mempool once maxBytes is hit.
-//  2. maxGasWanted - stops pulling txs from mempool once total gas wanted exceeds maxGasWanted.
+//  1. maxTxs - limits the number of transactions returned from the mempool.
+//  2. maxBytes - limits the total transaction bytes returned from the mempool.
+//  3. maxGasWanted - limits total gas wanted; candidates that do not fit are skipped.
 //     Can be set to -1 to be ignored.
-//  3. maxGasEstimated - similar to maxGasWanted but will use the estimated gas used for EVM txs
-//     while still using gas wanted for cosmos txs. Can be set to -1 to be ignored.
+//  4. maxGasEstimated - similar to maxGasWanted but will use the estimated gas used for EVM txs
+//     while still using gas wanted for cosmos txs. Candidates that do not fit are skipped. Can be
+//     set to -1 to be ignored.
 //
 // NOTE: Transactions are removed from the mempool iff remove == true.
 // Either way, the transactions stay in the LRU cache.
@@ -461,7 +479,7 @@ func (txmp *TxMempool) Update(
 	for i, tx := range blockTxs {
 		txResults[tx.Hash()] = execTxResult[i].Code == abci.CodeTypeOK
 	}
-	newPriorities := map[types.TxHash]int64{}
+	recheckedTxs := map[types.TxHash]checkedTxMetadata{}
 	invalidTxs := map[types.TxHash]bool{}
 	if recheck {
 		for _, wtx := range txmp.txStore.ReadyTxs() {
@@ -476,18 +494,17 @@ func (txmp *TxMempool) Update(
 			if err != nil || !res.IsOK() {
 				invalidTxs[wtx.Hash()] = true
 			} else {
-				// If succeeds, we just care about the new priority.
-				newPriorities[wtx.Hash()] = res.Priority
+				recheckedTxs[wtx.Hash()] = metadataFromCheckTx(res)
 			}
 		}
 	}
 	txmp.txStore.Update(updateSpec{
-		Now:           time.Now(),
-		Height:        blockHeight,
-		TxResults:     txResults,
-		NewPriorities: newPriorities,
-		InvalidTxs:    invalidTxs,
-		Constraints:   txConstraints,
+		Now:          time.Now(),
+		Height:       blockHeight,
+		TxResults:    txResults,
+		RecheckedTxs: recheckedTxs,
+		InvalidTxs:   invalidTxs,
+		Constraints:  txConstraints,
 	})
 	txmp.notifyTxsAvailable()
 	Global.SizeAt().Set(int64(txmp.NumTxsNotPending()))

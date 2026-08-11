@@ -5,10 +5,13 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletestutils "github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -139,4 +142,21 @@ func TestNonGaslessMsg(t *testing.T) {
 	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false).WithIsCheckTx(true), &oracletypes.MsgDelegateFeedConsent{}, oraclekeeper.Keeper{}, nil)
 	require.NoError(t, err)
 	require.False(t, gasless)
+}
+
+func TestGaslessDecoratorRestoresDeclaredGasMeter(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).
+		WithIsCheckTx(true).
+		WithGasMeter(sdk.NewGasMeter(123_456, 1, 1))
+	sender := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	msg := evmtypes.NewMsgAssociate(sender, "test")
+	tx := FakeTx{FakeMsgs: []sdk.Msg{msg}, Gas: 123_456}
+	decorator := antedecorators.NewGaslessDecorator(nil, oraclekeeper.Keeper{}, k)
+
+	resultCtx, err := decorator.AnteHandle(ctx, tx, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, tx.Gas, resultCtx.GasMeter().Limit())
 }

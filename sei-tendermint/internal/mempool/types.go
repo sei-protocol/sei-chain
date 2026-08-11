@@ -7,6 +7,7 @@ import "math"
 type TxConstraints struct {
 	MaxDataBytes int64
 	MaxGas       int64
+	MaxGasWanted int64
 }
 
 // TxConstraintsFetcher returns the precomputed consensus-derived mempool limits for the current
@@ -17,6 +18,7 @@ func NopTxConstraints() TxConstraints {
 	return TxConstraints{
 		MaxDataBytes: math.MaxInt64,
 		MaxGas:       -1,
+		MaxGasWanted: -1,
 	}
 }
 

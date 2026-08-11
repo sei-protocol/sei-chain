@@ -156,10 +156,9 @@ func TestCheckTotalBlockGas_NilDecodedTx(t *testing.T) {
 	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{nil, evmTx}))
 }
 
-// TestCheckTotalBlockGas_AssociateTxIsGasless verifies that a MsgAssociate from an
-// unassociated address is excluded from block gas accounting. MaxGas is set below the
-// tx's gas limit so the test fails iff the tx is incorrectly counted.
-func TestCheckTotalBlockGas_AssociateTxIsGasless(t *testing.T) {
+// TestCheckTotalBlockGas_AssociateTxCountsDeclaredGas verifies that fee exemption does not
+// exclude a MsgAssociate from block gas accounting.
+func TestCheckTotalBlockGas_AssociateTxCountsDeclaredGas(t *testing.T) {
 	a := Setup(t, false, false, false)
 	ctx := newBlockGasCtx(t, a, 100, 1_000_000)
 
@@ -168,12 +167,12 @@ func TestCheckTotalBlockGas_AssociateTxIsGasless(t *testing.T) {
 		CustomMessage: "test",
 	}
 	tx := buildCosmosTx(t, a, msg, 1_000) // 1_000 > MaxGas=100 if counted
-	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
 }
 
-// TestCheckTotalBlockGas_OracleVoteIsGasless verifies that a valid oracle aggregate vote
-// from a bonded validator with no prior vote is excluded from block gas accounting.
-func TestCheckTotalBlockGas_OracleVoteIsGasless(t *testing.T) {
+// TestCheckTotalBlockGas_OracleVoteCountsDeclaredGas verifies that fee exemption does not
+// exclude a valid oracle aggregate vote from block gas accounting.
+func TestCheckTotalBlockGas_OracleVoteCountsDeclaredGas(t *testing.T) {
 	valPub := secp256k1.GenPrivKey().PubKey()
 	tw := NewTestWrapper(t, time.Now().UTC(), valPub, false)
 
@@ -192,5 +191,5 @@ func TestCheckTotalBlockGas_OracleVoteIsGasless(t *testing.T) {
 	tx := buildCosmosTx(t, tw.App, vote, 1_000) // 1_000 > MaxGas=100 if counted
 
 	ctx := tw.Ctx.WithConsensusParams(blockGasParams(100, 1_000_000))
-	require.True(t, tw.App.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+	require.False(t, tw.App.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
 }

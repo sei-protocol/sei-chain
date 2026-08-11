@@ -58,6 +58,7 @@ func TxConstraintsForState(state State) mempool.TxConstraints {
 			state.ConsensusParams.Block.MaxBytes,
 			state.Validators.Size(),
 		),
-		MaxGas: state.ConsensusParams.Block.MaxGas,
+		MaxGas:       state.ConsensusParams.Block.MaxGas,
+		MaxGasWanted: state.ConsensusParams.Block.MaxGasWanted,
 	}
 }
