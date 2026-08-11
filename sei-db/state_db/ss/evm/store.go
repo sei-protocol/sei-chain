@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -393,7 +394,10 @@ func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool
 	if !s.separateDBs {
 		db := s.primaryDB()
 		if db == nil {
-			done(nil)
+			// Unreachable: NewEVMStateStore either opens a managed DB or fails.
+			// Reporting success would publish a snapshot with no evm tree in it,
+			// which is only discovered by whoever tries to restore from it.
+			done(errors.New("EVM state store has no managed DB to checkpoint"))
 			return
 		}
 		types.ScheduleCheckpoint(db, destDir, shouldRun, done)
@@ -433,7 +437,7 @@ func (s *EVMStateStore) SetCheckpointVersion(destDir string, version int64) erro
 	if !s.separateDBs {
 		db := s.primaryDB()
 		if db == nil {
-			return nil
+			return errors.New("EVM state store has no managed DB to stamp")
 		}
 		return types.SetCheckpointVersion(db, destDir, version)
 	}

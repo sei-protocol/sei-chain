@@ -46,8 +46,15 @@ import (
 //
 // The barrier orders only the async block-commit queues. Import, recovery,
 // pruning, and direct version-marker writes bypass those queues and must not
-// call ScheduleSnapshot. The rootmulti commit path owns the trigger, including
-// the explicit trigger for an empty block.
+// call ScheduleSnapshot. The rootmulti commit path owns the trigger for every
+// block, populated or empty, and is the only caller of ScheduleSnapshot.
+//
+// SS rollback is not part of this feature, and the two do not compose yet. A
+// rollback leaves lastRequested at the pre-rollback high-water mark, so the
+// re-executed boundaries are read as repeats and skipped, and the already
+// published snapshot-NNNNN directories keep labels that belong to the abandoned
+// chain. Nothing in the layout tells a consumer of current that this happened,
+// so the snapshot root must be cleared by hand after a rollback.
 //
 // Managed snapshot directories have no lease. A live consumer must not rely on
 // a path remaining present across a retention pass. Until a lease API exists,
@@ -430,6 +437,19 @@ func (m *snapshotManager) startPublish(
 	}()
 }
 
+// publish moves a finished checkpoint into place and reports whether the whole
+// publication succeeded. Retention runs either way.
+//
+// A boundary that fails anywhere past the barrier is given up on, and this is
+// deliberate. maybeSnapshot restores lastRequested when requestSnapshot fails,
+// because that failure happens before any barrier is enqueued and the boundary
+// was never claimed. Once the barriers are out, the version they captured is
+// the only image of that boundary there will ever be: the write path has moved
+// on, so re-running the attempt would checkpoint a later state under the older
+// label, which is the one thing the label is supposed to rule out. Recovery is
+// therefore the next boundary rather than a retry of this one, at the cost of
+// one snapshot interval of coverage. The error log and the outcome="failure"
+// counter are the signal.
 func (m *snapshotManager) publish(version int64, tmpDir, finalDir string, start time.Time) bool {
 	apparentBytes, sizeErr := snapshotDirApparentBytes(tmpDir)
 	if sizeErr != nil {

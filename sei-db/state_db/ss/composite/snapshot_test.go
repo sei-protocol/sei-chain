@@ -121,9 +121,19 @@ func settle(t *testing.T, store *CompositeStateStore) {
 	store.snapshotMgr.publishing.Wait()
 }
 
+// commitBlock is what rootmulti.flush does for a populated block: enqueue the
+// changesets, then hand the version to the snapshot manager. ApplyChangesetAsync
+// alone schedules nothing, so tests that expect a snapshot must come through
+// here.
+func commitBlock(t *testing.T, store *CompositeStateStore, version int64, changesets []*proto.NamedChangeSet) {
+	t.Helper()
+	require.NoError(t, store.ApplyChangesetAsync(version, changesets))
+	store.ScheduleSnapshot(version)
+}
+
 func writeBlock(t *testing.T, store *CompositeStateStore, version int64) {
 	t.Helper()
-	require.NoError(t, store.ApplyChangesetAsync(version, []*proto.NamedChangeSet{
+	commitBlock(t, store, version, []*proto.NamedChangeSet{
 		{
 			Name: "bank",
 			Changeset: proto.ChangeSet{
@@ -136,7 +146,7 @@ func writeBlock(t *testing.T, store *CompositeStateStore, version int64) {
 				Pairs: []*proto.KVPair{{Key: evmStorageKey(), Value: []byte{byte(version)}}},
 			},
 		},
-	}))
+	})
 }
 
 // The snapshot manager keys off the mirrored cadence, so the ss-snapshot-enable
@@ -417,7 +427,7 @@ func TestSnapshotTakenAtExactIntervalBoundaryWithoutEVMSplit(t *testing.T) {
 	require.NotNil(t, store.snapshotMgr)
 
 	for version := int64(1); version <= 5; version++ {
-		require.NoError(t, store.ApplyChangesetAsync(version, bankChangeset("balance", "value")))
+		commitBlock(t, store, version, bankChangeset("balance", "value"))
 	}
 	settle(t, store)
 
@@ -464,6 +474,58 @@ func TestSnapshotReopensWithEveryVersionBelowLabel(t *testing.T) {
 	}
 }
 
+// The property the barrier exists for: the label stays exact while the write
+// path keeps going. Nothing is drained between block 10 and blocks 11 and 12, so
+// the checkpoint runs with later versions already queued behind the barrier — the
+// case a post-hoc "snapshot what has been applied" scheme would get wrong.
+func TestSnapshotExcludesVersionsWrittenAfterTheBoundary(t *testing.T) {
+	store, root := setupSnapshotStore(t, 10, 5, false)
+
+	const label = int64(10)
+	for v := int64(1); v <= label; v++ {
+		writeBlock(t, store, v)
+	}
+	for v := label + 1; v <= label+2; v++ {
+		writeBlock(t, store, v)
+	}
+	settle(t, store)
+
+	snapDir := filepath.Join(root, SnapshotDirName(label))
+	require.DirExists(t, snapDir)
+
+	reopened, err := NewCompositeStateStore(config.StateStoreConfig{
+		Backend:          "pebbledb",
+		AsyncWriteBuffer: 0,
+		KeepRecent:       100000,
+		EVMSplit:         true,
+		DBDirectory:      filepath.Join(snapDir, "cosmos", "pebbledb"),
+		EVMDBDirectory:   filepath.Join(snapDir, "evm", "pebbledb"),
+	}, t.TempDir())
+	require.NoError(t, err)
+	defer reopened.Close()
+
+	require.Equal(t, label, reopened.GetLatestVersion())
+	// Reading above the label returns the label's value rather than 11 or 12,
+	// which is what "excluded" means for an MVCC store: the later writes are not
+	// in this image at any version.
+	for _, above := range []int64{label + 1, label + 2} {
+		val, err := reopened.Get("bank", above, []byte("balance"))
+		require.NoError(t, err)
+		require.Equal(t, []byte{byte(label)}, val,
+			"cosmos read at %d saw a write from after the boundary", above)
+		val, err = reopened.Get(evm.EVMStoreKey, above, evmStorageKey())
+		require.NoError(t, err)
+		require.Equal(t, []byte{byte(label)}, val,
+			"evm read at %d saw a write from after the boundary", above)
+	}
+
+	// The live store keeps them, so the snapshot dropped them rather than the
+	// writes never landing.
+	val, err := store.Get("bank", label+2, []byte("balance"))
+	require.NoError(t, err)
+	require.Equal(t, []byte{byte(label + 2)}, val)
+}
+
 // The reason the barrier has to be a message in every queue rather than a wait:
 // a block that only touches storage keys is enqueued only on the storage sub-DB,
 // so the idle sub-DBs never observe that version and no amount of waiting would
@@ -473,14 +535,14 @@ func TestSnapshotCapturesIdleEVMSubDBs(t *testing.T) {
 
 	// Storage keys only: codehash, code and misc sub-DBs stay idle throughout.
 	for v := int64(1); v <= 5; v++ {
-		require.NoError(t, store.ApplyChangesetAsync(v, []*proto.NamedChangeSet{
+		commitBlock(t, store, v, []*proto.NamedChangeSet{
 			{
 				Name: evm.EVMStoreKey,
 				Changeset: proto.ChangeSet{
 					Pairs: []*proto.KVPair{{Key: evmStorageKey(), Value: []byte{byte(v)}}},
 				},
 			},
-		}))
+		})
 	}
 	settle(t, store)
 
@@ -616,7 +678,7 @@ func TestSnapshotManagerResumesFromNewestSnapshot(t *testing.T) {
 	store, err := NewCompositeStateStore(cfg, dir)
 	require.NoError(t, err)
 	for version := int64(1); version <= 5; version++ {
-		require.NoError(t, store.ApplyChangesetAsync(version, bankChangeset("balance", "value")))
+		commitBlock(t, store, version, bankChangeset("balance", "value"))
 	}
 	settle(t, store)
 
@@ -643,7 +705,7 @@ func TestSnapshotManagerResumesFromNewestSnapshot(t *testing.T) {
 	require.True(t, os.SameFile(before, after), "restart must not replace an existing boundary snapshot")
 
 	for version := int64(6); version <= 10; version++ {
-		require.NoError(t, reopened.ApplyChangesetAsync(version, bankChangeset("balance", "value")))
+		commitBlock(t, reopened, version, bankChangeset("balance", "value"))
 	}
 	settle(t, reopened)
 	versions, err := ListSnapshotVersions(root)

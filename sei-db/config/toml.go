@@ -144,13 +144,15 @@ ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
 # snapshots. The cadence is not configurable here: it mirrors the state-commit
 # snapshot interval, minimum time interval, and retention settings. SC and SS
 # apply their in-flight gates independently, so a skipped boundary can differ.
-# Snapshots are PebbleDB checkpoints, i.e. hardlink trees. Creating one blocks
-# each backend's SS apply worker for the full WAL flush, filesystem sync, and
-# checkpoint operation; a full async queue then applies write backpressure. It
-# does not copy data up front. Startup rejects snapshot configurations where a
-# live SS database and the snapshot root cannot hardlink to each other. Each
-# enabled Cosmos and EVM SS database must therefore use the same filesystem. A
-# custom Cosmos SS directory moves the snapshot root beside that directory.
+# Snapshots are PebbleDB checkpoints, i.e. hardlink trees, so ss-backend must be
+# pebbledb. Enabling this on any other backend fails startup instead of running
+# without snapshots. Creating one blocks each backend's SS apply worker for the
+# full WAL flush, filesystem sync, and checkpoint operation; a full async queue
+# then applies write backpressure. It does not copy data up front. Startup also
+# rejects snapshot configurations where a live SS database and the snapshot root
+# cannot hardlink to each other. Each enabled Cosmos and EVM SS database must
+# therefore use the same filesystem. A custom Cosmos SS directory moves the
+# snapshot root beside that directory.
 # Retained snapshots pin referenced SSTs, so compaction cannot reclaim them.
 # Expect steady-state disk overhead on the order of the compaction churn over
 # one snapshot interval per retained snapshot, which is substantial on a

@@ -319,11 +319,7 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 
 func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
 	if s.evmStore == nil {
-		if err := s.cosmosStore.ApplyChangesetAsync(version, changesets); err != nil {
-			return err
-		}
-		s.ScheduleSnapshot(version)
-		return nil
+		return s.cosmosStore.ApplyChangesetAsync(version, changesets)
 	}
 
 	evmChangesets := filterEVMChangesets(changesets)
@@ -337,13 +333,18 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 			return fmt.Errorf("evm store async enqueue failed: %w", err)
 		}
 	}
-	s.ScheduleSnapshot(version)
 	return nil
 }
 
-// ScheduleSnapshot asks the snapshot manager to capture version after the
-// block-commit path has enqueued all state changes for that version. Callers
-// must not use this hook for direct writes such as import, recovery, or prune.
+// ScheduleSnapshot asks the snapshot manager to capture version once the caller
+// has enqueued every state change for that version and nothing above it.
+//
+// This is deliberately not called from ApplyChangesetAsync. That method is part
+// of the general StateStore interface and has callers outside the commit path,
+// such as the benchmark wrappers, which would inherit a snapshot trigger they
+// never asked for. The rootmulti commit path is the single choke point that
+// sees both the populated and the empty block, so it owns the trigger. Direct
+// writes such as import, recovery, and prune must not use this hook.
 func (s *CompositeStateStore) ScheduleSnapshot(version int64) {
 	s.snapshotMgr.maybeSnapshot(version)
 }
