@@ -38,7 +38,7 @@ func TestAutobahnBlockDBConfig_LittBlockConfig(t *testing.T) {
 		GCPeriod:  utils.Some(utils.Duration(wantGCPeriod)),
 	}).LittBlockConfig(dir)
 	require.NoError(t, err)
-	require.Equal(t, wantRetention, cfg.Retention)
+	require.Equal(t, wantRetention, cfg.RetentionTime)
 	require.Equal(t, wantGCPeriod, cfg.Litt.GCPeriod)
 	require.True(t, cfg.Litt.Fsync)
 }

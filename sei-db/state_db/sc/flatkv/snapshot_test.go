@@ -1076,7 +1076,7 @@ func TestPruneSnapshotsIgnoresSnapshotsAboveCurrent(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
 
-	require.Equal(t, 0, s.pruneSnapshots(dir, 30),
+	require.Equal(t, 0, s.pruneSnapshotsByCount(dir, 30),
 		"only 10 and 20 sit below the current version, and KeepRecent=2 covers both")
 
 	var remaining []int64
