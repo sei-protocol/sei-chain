@@ -9,7 +9,7 @@ on:
 jobs:
   assistant:
     # Try: https://github.com/sei-protocol/uci/pull/57
-    uses: sei-protocol/uci/.github/workflows/ai-assistant.yml@7acdc7cf0a14dddf7bc473dfd14150cec2f348ef
+    uses: sei-protocol/uci/.github/workflows/ai-assistant.yml@4e185777f32ea1651f28629d98b6a9cf79678988
     permissions:
       contents: read
       pull-requests: write
@@ -18,5 +18,5 @@ jobs:
     secrets: inherit
     with:
       # Try: https://github.com/sei-protocol/uci/pull/57
-      uci-ref: 7acdc7cf0a14dddf7bc473dfd14150cec2f348ef
+      uci-ref: 4e185777f32ea1651f28629d98b6a9cf79678988
       allowed-team: 'sei-protocol/sei-core'
