@@ -99,13 +99,15 @@ func TestGuardTraceRequestByHashUsesTendermintHeight(t *testing.T) {
 	latestHeight := int64(10)
 	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
 	tmClient := newHeightTestClient(8, 1, latestHeight)
+	rs := &fakeReceiptStore{latest: latestHeight, earliest: 1}
+	stateStore := &fakeStateStore{latest: latestHeight, earliest: 1}
 	api := &DebugAPI{
 		tmClient:         tmClient,
 		ctxProvider:      func(int64) sdk.Context { return latestCtx },
 		connectionType:   ConnectionTypeHTTP,
 		maxBlockLookback: 1,
 		backend: &Backend{
-			watermarks: NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, &fakeReceiptStore{latest: latestHeight}),
+			watermarks: NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, stateStore, rs),
 		},
 	}
 
@@ -113,8 +115,39 @@ func TestGuardTraceRequestByHashUsesTendermintHeight(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "block number 8 is beyond max lookback of 1")
 
-	err = api.guardTraceRequestByHash(t.Context(), "debug_traceCall", common.HexToHash("0x1"))
+	err = api.guardTraceCallRequestByHash(t.Context(), "debug_traceCall", common.HexToHash("0x1"))
 	require.NoError(t, err)
+}
+
+func TestEnsureTraceCallHeightAvailableIgnoresReceipts(t *testing.T) {
+	t.Parallel()
+
+	parentHeight := int64(149)
+	receiptFloor := int64(150)
+	latestHeight := int64(200)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	tmClient := newHeightTestClient(parentHeight, 1, latestHeight)
+	rs := &fakeReceiptStore{latest: latestHeight, earliest: receiptFloor}
+	stateStore := &fakeStateStore{latest: latestHeight, earliest: 1}
+	wm := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, stateStore, rs)
+
+	require.ErrorContains(t, wm.EnsureTraceHeightAvailable(t.Context(), parentHeight), "receipts have been pruned")
+	require.NoError(t, wm.EnsureTraceCallHeightAvailable(t.Context(), parentHeight))
+}
+
+func TestEnsureTraceCallHeightAvailableUsesStateAtHeight(t *testing.T) {
+	t.Parallel()
+
+	stateFloor := int64(150)
+	latestHeight := int64(200)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	tmClient := newHeightTestClient(stateFloor, 1, latestHeight)
+	rs := &fakeReceiptStore{latest: latestHeight, earliest: 1}
+	stateStore := &fakeStateStore{latest: latestHeight, earliest: stateFloor}
+	wm := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, stateStore, rs)
+
+	require.ErrorContains(t, wm.EnsureTraceHeightAvailable(t.Context(), stateFloor), "has been pruned")
+	require.NoError(t, wm.EnsureTraceCallHeightAvailable(t.Context(), stateFloor))
 }
 
 func TestEnsureTraceHeightAvailableReceiptsPruned(t *testing.T) {

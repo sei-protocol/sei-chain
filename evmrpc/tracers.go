@@ -170,6 +170,47 @@ func (api *DebugAPI) guardTraceRequestByNumberOrHash(ctx context.Context, endpoi
 	return api.guardTraceRequest(ctx, endpoint, api.latestTraceHeight(ctx))
 }
 
+func (api *DebugAPI) guardTraceCallRequest(ctx context.Context, endpoint string, height int64) error {
+	if api.backend != nil && api.backend.watermarks != nil {
+		if err := api.backend.watermarks.EnsureTraceCallHeightAvailable(ctx, height); err != nil {
+			return err
+		}
+	}
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, height)
+}
+
+func (api *DebugAPI) guardTraceCallRequestByNumber(ctx context.Context, endpoint string, number rpc.BlockNumber) error {
+	height, err := api.resolveDebugTraceBlockNumber(ctx, number)
+	if err != nil {
+		return err
+	}
+	return api.guardTraceCallRequest(ctx, endpoint, height)
+}
+
+func (api *DebugAPI) guardTraceCallRequestByHash(ctx context.Context, endpoint string, hash common.Hash) error {
+	if api.backend == nil || api.tmClient == nil {
+		return api.guardTraceCallRequest(ctx, endpoint, api.latestTraceHeight(ctx))
+	}
+	block, err := blockByHashRespectingWatermarks(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
+	if err != nil {
+		return err
+	}
+	if block == nil || block.Block == nil {
+		return fmt.Errorf("block %s not found", hash.Hex())
+	}
+	return api.guardTraceCallRequest(ctx, endpoint, block.Block.Height)
+}
+
+func (api *DebugAPI) guardTraceCallRequestByNumberOrHash(ctx context.Context, endpoint string, blockNrOrHash rpc.BlockNumberOrHash) error {
+	if number, ok := blockNrOrHash.Number(); ok {
+		return api.guardTraceCallRequestByNumber(ctx, endpoint, number)
+	}
+	if hash, ok := blockNrOrHash.Hash(); ok {
+		return api.guardTraceCallRequestByHash(ctx, endpoint, hash)
+	}
+	return api.guardTraceCallRequest(ctx, endpoint, api.latestTraceHeight(ctx))
+}
+
 func (api *DebugAPI) resolveDebugTraceBlockNumber(ctx context.Context, number rpc.BlockNumber) (int64, error) {
 	switch number {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
@@ -646,7 +687,7 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 	if returnErr = api.validateTraceTracer(&config.TraceConfig); returnErr != nil {
 		return nil, returnErr
 	}
-	if returnErr = api.guardTraceRequestByNumberOrHash(ctx, "debug_traceCall", blockNrOrHash); returnErr != nil {
+	if returnErr = api.guardTraceCallRequestByNumberOrHash(ctx, "debug_traceCall", blockNrOrHash); returnErr != nil {
 		return nil, returnErr
 	}
 

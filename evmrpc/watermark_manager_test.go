@@ -158,6 +158,27 @@ func TestEnsureStateHeightAvailable(t *testing.T) {
 	})
 }
 
+func TestEnsureTraceCallHeightAvailable(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 1}},
+	}
+	stateStore := &fakeStateStore{latest: 200, earliest: 150}
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(200), stateStore, rs)
+
+	require.NoError(t, wm.EnsureTraceCallHeightAvailable(t.Context(), 175))
+
+	// Receipts pruned below 150; replay guard fails, TraceCall guard does not check receipts.
+	rs.earliest = 150
+	require.ErrorContains(t, wm.EnsureTraceHeightAvailable(t.Context(), 149), "receipts have been pruned")
+	stateStore.earliest = 1
+	require.NoError(t, wm.EnsureTraceCallHeightAvailable(t.Context(), 149))
+
+	stateStore.earliest = 175
+	require.ErrorContains(t, wm.EnsureTraceCallHeightAvailable(t.Context(), 100), "has been pruned")
+	require.NoError(t, wm.EnsureTraceCallHeightAvailable(t.Context(), 175))
+}
+
 func TestEnsureTraceHeightAvailable(t *testing.T) {
 	tmClient := &fakeTMClient{
 		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 1}},

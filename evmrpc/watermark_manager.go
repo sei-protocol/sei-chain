@@ -194,8 +194,19 @@ func (m *WatermarkManager) EnsureStateHeightAvailable(ctx context.Context, heigh
 	return ensureWithinWatermarks(height, stateEarliest, latest)
 }
 
+// EnsureTraceCallHeightAvailable verifies block and state availability for
+// debug_traceCall. TraceCall loads state at the requested height via
+// StateAndHeaderByNumberOrHash and never reads receipts.
+func (m *WatermarkManager) EnsureTraceCallHeightAvailable(ctx context.Context, height int64) error {
+	if err := m.EnsureBlockHeightAvailable(ctx, height); err != nil {
+		return err
+	}
+	return m.EnsureStateHeightAvailable(ctx, height)
+}
+
 // EnsureTraceHeightAvailable verifies block, receipt, and state availability
-// for debug_trace* endpoints. All three stores must retain the height.
+// for debug_trace* replay endpoints (transaction/block). Replay loads parent
+// state (height-1) and reads receipts at the requested height.
 func (m *WatermarkManager) EnsureTraceHeightAvailable(ctx context.Context, height int64) error {
 	if err := m.EnsureBlockHeightAvailable(ctx, height); err != nil {
 		return err
