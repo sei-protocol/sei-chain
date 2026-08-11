@@ -48,13 +48,19 @@ import (
 // pruning, and direct version-marker writes bypass those queues and must not
 // call ScheduleSnapshot. The rootmulti commit path owns the trigger for every
 // block, populated or empty, and is the only caller of ScheduleSnapshot.
+// Because pruning bypasses the barrier, a checkpoint can capture a partially
+// applied prune — the same state a crash mid-prune leaves on the live DB.
+// Reads at the label version are unaffected; only historical reads near the
+// pruning horizon can see it.
 //
 // SS rollback is not part of this feature, and the two do not compose yet. A
 // rollback leaves lastRequested at the pre-rollback high-water mark, so the
 // re-executed boundaries are read as repeats and skipped, and the already
 // published snapshot-NNNNN directories keep labels that belong to the abandoned
 // chain. Nothing in the layout tells a consumer of current that this happened,
-// so the snapshot root must be cleared by hand after a rollback.
+// so the snapshot root must be cleared by hand after a rollback. State-syncing
+// to a height below existing snapshots in a reused home directory has the same
+// shape and needs the same manual clearing.
 //
 // Managed snapshot directories have no lease. A live consumer must not rely on
 // a path remaining present across a retention pass. Until a lease API exists,
