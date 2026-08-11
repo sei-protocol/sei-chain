@@ -15,6 +15,10 @@ import (
 
 const blocksCacheSize = 4000
 
+// ErrOutOfOrder is returned when PushAppHash receives an app hash past the
+// next CommitQC range waiting for execution.
+var ErrOutOfOrder = errors.New("out of order")
+
 // Config is the config for the data State.
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
@@ -164,16 +168,6 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 		latency := t.Sub(b.Payload().CreatedAt()).Seconds()
 		m.Blocks.Receive.Observe(latency)
 		m.Txs.Receive.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
-	}
-}
-
-func (i *inner) observeCertify(m *metrics.Metrics, gr types.GlobalRange) {
-	t := time.Now()
-	for n := gr.First; n < gr.Next; n++ {
-		b := i.blocks[n]
-		latency := t.Sub(b.Payload().CreatedAt()).Seconds()
-		m.Blocks.Certify.Observe(latency)
-		m.Txs.Certify.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 	}
 }
 
@@ -602,14 +596,14 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 // PushAppHash marks blocks up to n as executed.
 func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash) error {
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return inner.nextAppProposal < inner.nextBlock }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextBlock }); err != nil {
 			return err
 		}
-		p := inner.qcs[inner.nextAppProposal].QC().Proposal()
-		if want := p.GlobalRange().Next - 1; n > want {
+		p := inner.qcs[n].QC().Proposal()
+		if inner.nextAppProposal < p.GlobalRange().First {
 			// We expect the AppHashes to be pushed in order.
-			return fmt.Errorf("received appHash for %v, while still waiting for appHash for %v", n, want)
-		} else if n != want {
+			return fmt.Errorf("received appHash for %v: %w", n, ErrOutOfOrder)
+		} else if n != p.GlobalRange().Next-1 {
 			// We only care about the AppHash of the last block of the CommitQC.
 			return nil
 		}
@@ -665,7 +659,13 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC) error {
 		if err := inner.insertAppQC(s.cfg.Registry, appQC); err != nil {
 			return err
 		}
-		inner.observeCertify(s.metrics, gr)
+		t := time.Now()
+		for n := gr.First; n < gr.Next; n++ {
+			b := inner.blocks[n]
+			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
+			s.metrics.Blocks.Certify.Observe(latency)
+			s.metrics.Txs.Certify.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+		}
 		ctrl.Updated()
 		return nil
 	}

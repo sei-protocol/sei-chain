@@ -376,6 +376,44 @@ func TestExecution(t *testing.T) {
 	}
 }
 
+func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		epoch := registry.LatestEpoch()
+		var qcs []*types.CommitQC
+		for range 3 {
+			var prev utils.Option[*types.CommitQC]
+			if len(qcs) > 0 {
+				prev = utils.Some(qcs[len(qcs)-1])
+			}
+			qc, blocks := TestCommitQC(rng, epoch, keys, prev)
+			if err := state.PushQC(ctx, qc, blocks); err != nil {
+				return fmt.Errorf("PushQC(): %w", err)
+			}
+			qcs = append(qcs, qc.QC())
+		}
+		if err := state.PushAppHash(ctx, qcs[0].GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(qc1): %w", err)
+		}
+		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-1, types.GenAppHash(rng)); !errors.Is(err, ErrOutOfOrder) {
+			return fmt.Errorf("PushAppHash(qc3 before qc2) error = %w, want %w", err, ErrOutOfOrder)
+		}
+
+		if err := state.PushAppHash(ctx, qcs[1].GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(qc2): %w", err)
+		}
+		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
+			return fmt.Errorf("PushAppHash(qc3): %w", err)
+		}
+		return nil
+	}))
+}
+
 func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
