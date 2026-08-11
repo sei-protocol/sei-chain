@@ -5,7 +5,7 @@ on:
 jobs:
   ai-review:
     # Test: https://github.com/sei-protocol/uci/pull/58
-    uses: sei-protocol/uci/.github/workflows/ai-review.yml@5951f951bd7a1d533aaa92f4f51ce17a3ae6eee5
+    uses: sei-protocol/uci/.github/workflows/ai-review.yml@masih/ai-review-comment-mark-as-resolved
     permissions:
       contents: read
       pull-requests: write
@@ -14,5 +14,6 @@ jobs:
     secrets: inherit
     with:
       # Test: https://github.com/sei-protocol/uci/pull/58
-      uci-ref: 5951f951bd7a1d533aaa92f4f51ce17a3ae6eee5
+      uci-ref: 'masih/ai-review-comment-mark-as-resolved'
       enable-cursor: false # Disabled for now since there is a dedicated Bugbot flow built into Cursor currently enabled on repo.
+      re-review-on-push: true # Enabled for testing only
