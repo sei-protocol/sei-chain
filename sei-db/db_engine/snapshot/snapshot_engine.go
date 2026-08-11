@@ -57,17 +57,18 @@ type SnapshotEngine interface {
 	// recoverable. It is not safe to mutate the returned key or value slices.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
-	// Set writes the value for the given key into the current (mutable) version. Illegal while an
-	// iterator is open (see Iterator).
+	// Set writes the value for the given key into the current (mutable) version. Not visible to
+	// iterators created earlier (see Iterator).
 	Set(key []byte, value []byte) error
 
-	// Delete removes the given key from the current (mutable) version. Illegal while an iterator is
-	// open (see Iterator).
+	// Delete removes the given key from the current (mutable) version. Not visible to iterators
+	// created earlier (see Iterator).
 	Delete(key []byte) error
 
 	// BatchSet applies the given changeset pairs to the current (mutable) version. A pair with
 	// Delete set removes the key; otherwise its Value is written (an empty, non-nil Value is a
-	// zero-length value, distinct from a delete). Illegal while an iterator is open (see Iterator).
+	// zero-length value, distinct from a delete). Not visible to iterators created earlier (see
+	// Iterator).
 	BatchSet(updates []*proto.KVPair) error
 
 	// Commit seals the current version as an immutable, point-in-time Snapshot and advances the
@@ -75,8 +76,9 @@ type SnapshotEngine interface {
 	// caller holds a reservation on it; see Snapshot for the full lifecycle contract.
 	//
 	// Commit must not be called concurrently with operations on the current (mutable)
-	// version — Get, BatchGet, Set, Delete, BatchSet, or Iterator. Reads of previously sealed
-	// snapshots may proceed concurrently with it.
+	// version — Get, BatchGet, Set, Delete, BatchSet, or the construction of an Iterator. Reads of
+	// sealed snapshots may proceed concurrently with it, and so may reads through an already-constructed
+	// Iterator: an iterator is fixed at its creation instant, so a seal cannot disturb it.
 	//
 	// Commit may block for backpressure when the underlying DB cannot keep up with flushing
 	// (see SnapshotEngineConfig.MaxUnflushedVersions). The engine imposes no bound on unfinalized
@@ -90,12 +92,20 @@ type SnapshotEngine interface {
 	// keyspace, ascending. Keys under the engine's reserved metadata prefix are excluded (see
 	// SnapshotEngineConfig.ReservedPrefix).
 	//
-	// An iterator must be closed before the engine is next written: writing to the engine while an
-	// iterator is open — via Set, Delete, BatchSet, or Commit — is illegal. The engine makes a
-	// best-effort attempt to detect such a write and return an error from it, but that detection is
-	// inherently race prone and must never be relied upon; it exists to catch the mistake in a
-	// sequential caller, not to synchronize a concurrent one. A leaked iterator leaves the engine
-	// permanently unwritable.
+	// The returned iterator is a fixed view of the instant it was constructed, and stays usable for
+	// as long as it is held: its in-memory overrides are a private copy and its view of the backing
+	// database is pinned, so writes, seals, flushes and retirement that follow cannot change what it
+	// returns. Equally, it will never show them — a caller that wants later writes needs a new
+	// iterator. Holding one is therefore safe from another thread, and does not block writes.
+	//
+	// Constructing an iterator must NOT race a write. Each shard's overrides are copied under that
+	// shard's own lock, so a write spanning two shards during construction can leave the iterator
+	// holding part of it — a view of no single instant. Serialize construction against Set, Delete,
+	// BatchSet and Commit.
+	//
+	// An iterator must be closed. It holds resources in the backing database — pinned files that
+	// cannot be compacted away — and reading one after the engine has closed is undefined behaviour;
+	// Close reports a leak on a best-effort basis (see Close).
 	//
 	// Returns an error if the iterator cannot be constructed, in which case no iterator is returned
 	// and there is nothing to close.
@@ -114,11 +124,16 @@ type SnapshotEngine interface {
 	// closing the underlying database, which the engine owns. When Close returns no engine-owned
 	// goroutine will touch that database again. Idempotent.
 	//
-	// Reading a Snapshot produced by this engine after Close is unsafe and the caller must not do
-	// it. The engine makes a best-effort attempt to fail such a read rather than answer it with
-	// nonsensical data, but that is a consequence of shutting down, not a service: a read that
-	// races Close may legitimately return the correct value instead of an error. Do not build
-	// synchronization on top of either outcome.
+	// Reading a Snapshot or an Iterator produced by this engine after Close is undefined behaviour
+	// and the caller must not do it. The engine makes a best-effort attempt to fail such a read
+	// rather than answer it with nonsensical data, but that is a consequence of shutting down, not a
+	// service: a read that races Close may legitimately return the correct value instead of an error.
+	// Do not build synchronization on top of either outcome.
+	//
+	// Closing while an iterator is still open is reported in the returned error, naming the engine and
+	// how many are open, so the leak is legible rather than surfacing later as an error from the
+	// storage engine. Close does not wait for iterators, and the count is best-effort: it may be
+	// stale.
 	Close() error
 }
 

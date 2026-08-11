@@ -36,8 +36,11 @@ var _ Store = (*CommitStore)(nil)
 // CommitStore implements flatkv.Store for EVM state.
 //
 // Reads, writes and iterator construction are safe to call concurrently. Lifecycle operations
-// (LoadLatest, Rollback, snapshot, import, export, Close) must be serialized by the caller. An open
-// iterator blocks writes, so close it before the next Commit.
+// (LoadLatest, Rollback, snapshot, import, export, Close) must be serialized by the caller.
+//
+// An iterator is a fixed view of the instant it was created and may be held across later commits; it
+// will not observe them. It must still be closed — it pins resources in the underlying databases, and
+// reading one after Close is undefined behaviour, which Close reports on a best-effort basis.
 type CommitStore struct {
 	// mu serializes the exported entry points against one another: the write path (ApplyChangeSets,
 	// Commit), the reads (Get, Has, GetBlockHeightModified) and iterator construction (Iterator,
@@ -748,8 +751,13 @@ func (s *CommitStore) loadLocalMeta(dbs rawDBs) error {
 // half-wired.
 func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	defer func() {
-		if retErr != nil {
-			s.closeStores()
+		if retErr == nil {
+			return
+		}
+		// A store that fails to close may leave its database open, and the next open then fails on the
+		// file lock with an error that looks unrelated. Joining it here names the real cause.
+		if closeErr := s.closeStores(); closeErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close partially opened stores: %w", closeErr))
 		}
 	}()
 

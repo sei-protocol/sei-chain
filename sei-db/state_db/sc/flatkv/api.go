@@ -23,6 +23,11 @@ type Options struct {
 // Write path: ApplyChangeSets (buffer) → Commit (persist).
 // Read path: Get/Has/Iterator read committed state only; LoadVersionReadOnly serves past versions.
 // Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
+//
+// Byte slices passed to or received from any method — including the keys and values an iterator
+// yields — must not be mutated. They are not defensively copied: a value out of an iterator can point
+// straight into memory the store is still using, so writing to it corrupts state that other readers
+// will see.
 type Store interface {
 	// LoadLatest opens this store at the latest persisted version, ready to commit. It must be called
 	// before any read or write, and is the only way to obtain a committable store. Use Rollback to move a

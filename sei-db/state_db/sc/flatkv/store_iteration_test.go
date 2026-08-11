@@ -211,17 +211,15 @@ func TestEvmIteratorDomain(t *testing.T) {
 	})
 }
 
-// An open iterator makes the store unwritable until it is closed, and closing it restores writes.
+// An iterator is a point-in-time view: writes proceed while it is held, and it keeps returning the
+// rows that were committed when it was created. A fresh iterator then sees the newer rows.
 //
-// This replaces a test that pinned the opposite property: iterators used to be a point-in-time copy —
-// pending rows cloned, Pebble view pinned — so one could be held across commits and would keep
-// returning its original contents. Iteration is now a live merge of each store's staged rows over its
-// on-disk rows, which cannot tolerate a write landing mid-walk, so the store refuses writes while an
-// iterator is open instead. That is safe because iteration only ever happens on the thread that owns
-// the write path, and it is what the caller must now respect.
-func TestEvmIteratorBlocksWritesUntilClosed(t *testing.T) {
+// The wider property — every lane, every shape, across flush and retirement, and across a commit on
+// another goroutine — is covered in store_iteration_stability_test.go. This is the narrow
+// interleaving on a single thread.
+func TestEvmIteratorIsUnaffectedByLaterWrites(t *testing.T) {
 	s := setupTestStore(t)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	base := addrN(0x01)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
@@ -231,25 +229,21 @@ func TestEvmIteratorBlocksWritesUntilClosed(t *testing.T) {
 	)}))
 	commitAndCheck(t, s)
 
-	iter, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
-	require.NoError(t, err)
-	committed := collectIterEntries(t, iter)
-	require.NotEmpty(t, committed, "the committed rows must be visible to the iterator")
+	// Two iterators at the same instant: one drained now to capture it, one held across the write.
+	// A dbm.Iterator is single-pass, so the same one cannot be read before and after.
+	iter, committed := iteratorTwin(t, func() (dbm.Iterator, error) {
+		return s.Iterator(keys.EVMStoreKey, nil, nil, true)
+	})
 
-	// While it is open, writing is refused rather than silently shifting the iterator's view.
-	writeErr := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
-		noncePair(addrN(0x02), 1),
-	)})
-	require.Error(t, writeErr, "an open iterator must make the store unwritable")
-	require.Contains(t, writeErr.Error(), "iterator")
-
-	require.NoError(t, iter.Close())
-
-	// Closing restores writes, and a fresh iterator sees the new row.
+	// Writing while it is open is accepted, and invisible to it.
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
 		noncePair(addrN(0x02), 1),
-	)}))
+	)}), "the store must remain writable while an iterator is held")
 	commitAndCheck(t, s)
+
+	require.Equal(t, committed, collectIterEntries(t, iter),
+		"the iterator must still serve the instant it was created")
+	require.NoError(t, iter.Close())
 
 	after, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
 	require.NoError(t, err)

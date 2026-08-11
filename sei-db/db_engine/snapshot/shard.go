@@ -46,8 +46,9 @@ type shard struct {
 	// The oldest version number kept in versionedData.
 	oldestVersion uint64
 
-	// The number of iterators currently reading this shard. Writes are refused while it is non-zero,
-	// so an iterator's view cannot change under it (see SnapshotEngine.Iterator).
+	// The number of iterators currently reading this shard. Close reports a non-zero count as a
+	// leaked iterator, since reading one after the database has closed is undefined behaviour (see
+	// SnapshotEngine.Close).
 	//
 	// Guarded by lock.
 	openIterators uint64
@@ -264,8 +265,8 @@ func (s *shard) getSizeInfo() (bytes uint64, entries uint64) {
 	return s.cache.sizeInfoLocked()
 }
 
-// iteratorOpened records that an iterator is reading this shard, which blocks writes until it is
-// closed. Balanced by exactly one iteratorClosed.
+// iteratorOpened records that an iterator is reading this shard. Balanced by exactly one
+// iteratorClosed.
 func (s *shard) iteratorOpened() {
 	s.lock.Lock()
 	s.openIterators++
@@ -279,29 +280,15 @@ func (s *shard) iteratorClosed() {
 	s.lock.Unlock()
 }
 
-// writableLocked reports whether a write may proceed, returning an error while an iterator is open or
-// once the shard has been taken out of service (the engine was closed or bricked). Without the
-// out-of-service check a post-shutdown write would be accepted into versioned data that no lifecycle
-// runner remains to flush, silently discarding it.
-//
-// The Locked postfix indicates that the caller must hold the shard lock.
-func (s *shard) writableLocked() error {
-	if err := s.cache.outOfServiceLocked(); err != nil {
-		return err
-	}
-	if s.openIterators > 0 {
-		return fmt.Errorf("cannot write while %d iterator(s) are open; close them first",
-			s.openIterators)
-	}
-	return nil
-}
-
 // Set sets the value for the given key at the current version.
+//
+// A write to a shard that is out of service is refused: it would land in versioned data that no
+// lifecycle runner remains to flush, and so be discarded silently.
 func (s *shard) Set(key []byte, value []byte) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	if err := s.writableLocked(); err != nil {
+	if err := s.cache.outOfServiceLocked(); err != nil {
 		return err
 	}
 	s.setLocked(key, value)
@@ -328,14 +315,14 @@ func (s *shard) setLocked(key []byte, value []byte) {
 	}
 }
 
-// BatchSet sets the values for a batch of keys at the current version.
+// BatchSet sets the values for a batch of keys at the current version. Refused on a shard that is
+// out of service, for the reason given on Set.
 func (s *shard) BatchSet(entries []*proto.KVPair) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	// Checked once for the whole batch rather than per key: the count cannot change while we hold
-	// the lock.
-	if err := s.writableLocked(); err != nil {
+	// Checked once for the whole batch rather than per key: it cannot change while we hold the lock.
+	if err := s.cache.outOfServiceLocked(); err != nil {
 		return err
 	}
 	for i := range entries {

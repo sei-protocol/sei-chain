@@ -142,37 +142,9 @@ func TestIteratorCloseIsIdempotent(t *testing.T) {
 	require.NoError(t, it.Close())
 }
 
-// An open iterator must block every write path, so its view cannot shift beneath it, and closing it
-// must release them all.
-func TestOpenIteratorBlocksWrites(t *testing.T) {
-	engine := newTestEngineWithDB(t, newTestDB(nil), 4, 1<<20)
-	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
-
-	it, err := engine.Iterator(nil)
-	require.NoError(t, err)
-
-	require.ErrorContains(t, engine.Set([]byte("k"), []byte("v2")), "iterator",
-		"Set must be refused while an iterator is open")
-	require.ErrorContains(t, engine.Delete([]byte("k")), "iterator",
-		"Delete must be refused while an iterator is open")
-	require.ErrorContains(t, engine.BatchSet([]*proto.KVPair{{Key: []byte("k"), Value: []byte("v3")}}),
-		"iterator", "BatchSet must be refused while an iterator is open")
-	_, err = engine.Commit()
-	require.ErrorContains(t, err, "iterator", "Commit must be refused while an iterator is open")
-
-	require.NoError(t, it.Close())
-
-	// Every path is writable again.
-	require.NoError(t, engine.Set([]byte("k"), []byte("v2")))
-	require.NoError(t, engine.Delete([]byte("gone")))
-	require.NoError(t, engine.BatchSet([]*proto.KVPair{{Key: []byte("k"), Value: []byte("v3")}}))
-	_, err = engine.Commit()
-	require.NoError(t, err)
-}
-
-// Two iterators open at once must both have to be closed before writes resume — the block is counted,
-// not a flag.
-func TestWriteBlockIsCountedAcrossIterators(t *testing.T) {
+// The open-iterator count is counted, not flagged, and a repeat Close must not decrement twice. Close
+// reports this count, so an off-by-one would mis-report a leak or hide one.
+func TestOpenIteratorCountIsTracked(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 2, 1<<20)
 	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 
@@ -180,18 +152,18 @@ func TestWriteBlockIsCountedAcrossIterators(t *testing.T) {
 	require.NoError(t, err)
 	second, err := engine.Iterator(nil)
 	require.NoError(t, err)
+	require.Equal(t, uint64(2), openIteratorCount(engine))
 
 	require.NoError(t, first.Close())
-	require.ErrorContains(t, engine.Set([]byte("k"), []byte("v2")), "iterator",
-		"the second iterator must still block writes")
+	require.Equal(t, uint64(1), openIteratorCount(engine))
 
-	// Closing is idempotent and must not double-release the block.
+	// Closing is idempotent and must not release another iterator's count.
 	require.NoError(t, first.Close())
-	require.ErrorContains(t, engine.Set([]byte("k"), []byte("v2")), "iterator",
-		"a repeat Close must not release another iterator's block")
+	require.Equal(t, uint64(1), openIteratorCount(engine),
+		"a repeat Close must not decrement a second time")
 
 	require.NoError(t, second.Close())
-	require.NoError(t, engine.Set([]byte("k"), []byte("v2")))
+	require.Equal(t, uint64(0), openIteratorCount(engine))
 }
 
 // A bricked engine must refuse to build iterators, for the same reason it refuses reads: it can no

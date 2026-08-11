@@ -368,6 +368,15 @@ func awaitRetired(t *testing.T, engine SnapshotEngine, version uint64) {
 	}, 2*time.Second, 2*time.Millisecond, "version %d was not retired in time", version)
 }
 
+// openIteratorCount reports how many iterators are currently open on the engine. Every iterator
+// registers with every shard, so any one shard's count is the engine's count.
+func openIteratorCount(engine SnapshotEngine) uint64 {
+	s := engine.(*snapshotEngine).shards[0]
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return s.openIterators
+}
+
 // isTracked reports whether the engine still tracks the given snapshot version.
 func isTracked(engine SnapshotEngine, version uint64) bool {
 	e := engine.(*snapshotEngine)
@@ -379,7 +388,7 @@ func isTracked(engine SnapshotEngine, version uint64) bool {
 
 // drainIterator drains an Iterator into cloned key/value pairs in iteration order. It returns any
 // error instead of asserting, so it is safe to call from non-test goroutines. It does NOT close the
-// iterator; the caller must, or the engine stays unwritable.
+// iterator; the caller must, or the engine reports a leak when it closes.
 func drainIterator(it dbm.Iterator) ([]kvPair, error) {
 	var out []kvPair
 	for ; it.Valid(); it.Next() {

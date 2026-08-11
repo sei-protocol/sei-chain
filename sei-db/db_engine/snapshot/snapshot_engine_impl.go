@@ -3,6 +3,7 @@ package snapshot
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -364,11 +365,12 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 		return nil, fmt.Errorf("cannot create snapshot: %w", c.shutdownErrorLocked())
 	}
 
-	// Sealing the version under an open iterator is refused for the same reason writes are: the
-	// iterator's view must not shift beneath it.
+	// Every shard must still be in service. A shard taken out of service (the engine was closed or
+	// bricked) has no lifecycle runner left to flush what a new version would stage, so sealing one
+	// would discard it silently.
 	for i, s := range c.shards {
 		s.lock.Lock()
-		err := s.writableLocked()
+		err := s.cache.outOfServiceLocked()
 		s.lock.Unlock()
 		if err != nil {
 			return nil, fmt.Errorf("cannot create snapshot, shard %d: %w", i, err)
@@ -677,23 +679,23 @@ func (c *snapshotEngine) Iterator(opts *types.IterOptions) (dbm.Iterator, error)
 		return nil, fmt.Errorf("failed to create snapshot iterator: %w", err)
 	}
 
-	// Block writes only now that construction has fully succeeded, so a failed construction cannot
-	// leave the engine permanently unwritable.
+	// Register the iterator only now that construction has fully succeeded, so a failed construction
+	// cannot leave a phantom entry behind.
 	for _, s := range c.shards {
 		s.iteratorOpened()
 	}
-	return &writeBlockingIterator{Iterator: iter, engine: c}, nil
+	return &trackedIterator{Iterator: iter, engine: c}, nil
 }
 
-// writeBlockingIterator releases the engine's write block when the underlying iterator is closed.
-// Close is idempotent, so the release happens exactly once no matter how often it is called.
-type writeBlockingIterator struct {
+// trackedIterator deregisters itself from every shard when closed, so Close can report the iterators
+// still outstanding. Close is idempotent, and deregisters exactly once however often it is called.
+type trackedIterator struct {
 	dbm.Iterator
 	engine *snapshotEngine
 	closed bool
 }
 
-func (w *writeBlockingIterator) Close() error {
+func (w *trackedIterator) Close() error {
 	if w.closed {
 		return nil
 	}
@@ -1146,6 +1148,10 @@ func (c *snapshotEngine) closeInternal() error {
 	// Wait for the metrics scrape loop (if any) to observe the cancellation and exit.
 	c.metrics.awaitStopped()
 
+	// Name any iterator still open, before the database it reads goes away. Best-effort: the report
+	// does not block, and the count may be stale. See the Close contract on SnapshotEngine.
+	leakedErr := c.assertNoLeakedIterators()
+
 	// The engine owns the database, so it closes it. This happens after the lifecycle runner has
 	// reported offline, so no flush can still be in flight against it.
 	dbErr := c.db.Close()
@@ -1153,10 +1159,29 @@ func (c *snapshotEngine) closeInternal() error {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 	if c.fatalErr != nil {
-		return fmt.Errorf("snapshot engine failed: %w", c.fatalErr)
+		return errors.Join(fmt.Errorf("snapshot engine failed: %w", c.fatalErr), leakedErr)
 	}
 	if dbErr != nil {
-		return fmt.Errorf("close underlying database: %w", dbErr)
+		return errors.Join(fmt.Errorf("close underlying database: %w", dbErr), leakedErr)
 	}
-	return nil
+	return leakedErr
+}
+
+// assertNoLeakedIterators checks that every iterator handed out has been closed, returning an error
+// naming the count when any are still open. Returns an error rather than panicking: the caller folds
+// it into whatever else Close reports.
+//
+// Every iterator registers with every shard, so any one shard's count is the engine's count; shard 0
+// is read under its own lock. The engine always has at least one shard (the config requires it).
+func (c *snapshotEngine) assertNoLeakedIterators() error {
+	s := c.shards[0]
+	s.lock.Lock()
+	open := s.openIterators
+	s.lock.Unlock()
+
+	if open == 0 {
+		return nil
+	}
+	return fmt.Errorf("engine %q closed with %d iterator(s) still open; reading them is undefined "+
+		"behaviour, and this is a leak in the caller", c.config.Name, open)
 }

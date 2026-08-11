@@ -25,17 +25,16 @@ import (
 // merges the rows a block has staged and the rows the flusher has not yet written over what is on disk.
 // Scanning the databases directly would instead return whatever the flusher happened to have finished.
 //
-// Because it is a store iterator, it blocks writes until closed. Every caller runs against a
-// read-only clone (the exporter and the seidb tools), so nothing is writing anyway.
+// The returned iterator is a fixed view of the instant it was built, so it may be held while later blocks commit and
+// will not observe them. It must still be closed: it pins resources in the underlying databases, and
+// reading one after the store closes is undefined behaviour.
 func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	// Refuse while a block is staged. A store iterator sees staged rows, and every caller here is
 	// exporting or auditing committed state — emitting a row from a block that has not committed would be
-	// wrong, and silently including it would be worse. This used to be impossible rather than refused:
-	// the scan read the databases directly, so staged rows were invisible. They are not any more, so the
-	// guarantee has to be stated instead of inherited.
+	// wrong, and silently including it would be worse.
 	if s.pendingBlockHeight != 0 {
 		return nil, fmt.Errorf(
 			"flatkv: RawGlobalIterator requires no staged block; block %d is staged and uncommitted",

@@ -11,7 +11,6 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -260,7 +259,7 @@ func cloneModuleStats(src map[string]lthash.ModuleStats) map[string]lthash.Modul
 
 // loadGlobalVersion reads the global committed version from metadata DB.
 // Returns 0 if not found (fresh start).
-func loadGlobalVersion(metaDB seidbtypes.KeyValueDB) (int64, error) {
+func loadGlobalVersion(metaDB types.KeyValueDB) (int64, error) {
 	data, err := metaDB.Get(ktype.MetaVersionKey)
 	if errorutils.IsNotFound(err) {
 		return 0, nil
@@ -281,7 +280,7 @@ func loadGlobalVersion(metaDB seidbtypes.KeyValueDB) (int64, error) {
 // loadGlobalEarliestVersion reads the earliest-history version recorded by
 // SetInitialVersion. Returns 0 if not found (genesis stores, or stores
 // created before this record existed).
-func loadGlobalEarliestVersion(metaDB seidbtypes.KeyValueDB) (int64, error) {
+func loadGlobalEarliestVersion(metaDB types.KeyValueDB) (int64, error) {
 	data, err := metaDB.Get(ktype.MetaEarliestVersionKey)
 	if errorutils.IsNotFound(err) {
 		return 0, nil
@@ -301,7 +300,7 @@ func loadGlobalEarliestVersion(metaDB seidbtypes.KeyValueDB) (int64, error) {
 
 // loadGlobalLtHash reads the global committed LtHash from metadata DB.
 // Returns nil if not found (fresh start).
-func loadGlobalLtHash(metaDB seidbtypes.KeyValueDB) (*lthash.LtHash, error) {
+func loadGlobalLtHash(metaDB types.KeyValueDB) (*lthash.LtHash, error) {
 	data, err := metaDB.Get(ktype.MetaLtHashKey)
 	if errorutils.IsNotFound(err) {
 		return nil, nil
