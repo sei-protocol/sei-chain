@@ -64,6 +64,7 @@ import (
 // Recorded rather than repaired. Making the two casts one would change what a node retains for any
 // operator currently relying on the out-of-range behaviour, which is the kind of change this suite
 // pins instead of making.
+
 // minRetainBlocksFanOut is what one operator value becomes on each side.
 //
 // Both columns are literals. The receipt column is checked against the reader, so it is a prediction.

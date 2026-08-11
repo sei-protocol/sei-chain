@@ -214,13 +214,6 @@ func TestMain(m *testing.M) {
 // The returned cancel belongs to the command's own context. runEBounded uses it to ask a
 // node to stop on the path where RunE got further than the row expects; other callers
 // never reach that path and just let cleanup fire it.
-// startCmdForFlagLookup builds the start command purely to read its flag set. It takes no app creator
-// and a placeholder home because nothing here runs, and it exists so the two tests that only look a
-// flag up do not each carry their own copy of those two arguments.
-func startCmdForFlagLookup() *cobra.Command {
-	return server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
-}
-
 func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]string) (*cobra.Command, *server.Context, context.CancelFunc) {
 	t.Helper()
 
@@ -249,6 +242,18 @@ func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]stri
 	}
 	return cmd, serverCtx, cancel
 }
+
+// startCmdForFlagLookup builds the start command purely to read its flag set, for the tests that only
+// look a flag up. It takes no app creator and a home that does not exist, because nothing here runs:
+// none of the state newStartCmd above arranges is needed to ask the command which flags it registers.
+func startCmdForFlagLookup() *cobra.Command {
+	return server.StartCmd(nil, nonexistentHomeForFlagLookup, []trace.TracerProviderOption{})
+}
+
+// nonexistentHomeForFlagLookup is the --home a flag-set-only command is given. It is named rather than
+// spelled inline so it reads as deliberately unusable instead of leftover scratch, since it becomes
+// that flag's DefValue and this file asserts on another flag's DefValue nearby.
+const nonexistentHomeForFlagLookup = "/nonexistent-home"
 
 // FuzzStartPreRunPruningFailsFast pins the fail-fast: an unresolvable pruning
 // configuration stops start in PreRunE, before anything is opened.
