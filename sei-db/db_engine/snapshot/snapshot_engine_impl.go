@@ -244,10 +244,10 @@ func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
 		shardMap[idx] = append(shardMap[idx], updates[i])
 	}
 
-	// Fan out to shards. A shard refusing the write (an iterator is open) fails the whole call; the
-	// shards that accepted it have already applied their entries, so the batch is not atomic across
-	// shards in that case. That is acceptable because it can only happen on caller misuse, and the
-	// engine contract makes any error fatal.
+	// Fan out to shards. A shard refusing the write — it is out of service, so the engine is closed or
+	// bricked — fails the whole call; the shards that accepted it have already applied their entries, so
+	// the batch is not atomic across shards in that case. That is acceptable because the engine contract
+	// makes any error fatal.
 	var wg sync.WaitGroup
 	shardIndices := make([]uint64, 0, len(shardMap))
 	for shardIndex := range shardMap {

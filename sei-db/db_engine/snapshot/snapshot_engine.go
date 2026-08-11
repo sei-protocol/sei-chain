@@ -98,10 +98,11 @@ type SnapshotEngine interface {
 	// returns. Equally, it will never show them — a caller that wants later writes needs a new
 	// iterator. Holding one is therefore safe from another thread, and does not block writes.
 	//
-	// Constructing an iterator must NOT race a write. Each shard's overrides are copied under that
-	// shard's own lock, so a write spanning two shards during construction can leave the iterator
-	// holding part of it — a view of no single instant. Serialize construction against Set, Delete,
-	// BatchSet and Commit.
+	// Constructing an iterator must NOT race a BatchSet. Each shard's overrides are copied under that
+	// shard's own lock, so a batch spanning two shards during construction can leave the iterator
+	// holding part of it — a view of no single instant, reported without an error. Serialize
+	// construction against BatchSet. Set and Delete each touch a single shard and so are seen either
+	// wholly or not at all; Commit stages no values and cannot be seen at all.
 	//
 	// An iterator must be closed. It holds resources in the backing database — pinned files that
 	// cannot be compacted away — and reading one after the engine has closed is undefined behaviour;
