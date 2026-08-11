@@ -190,3 +190,62 @@ func TestTraceBlockByNumberReceiptPrunedBeforeSemaphore(t *testing.T) {
 	require.Contains(t, err.Error(), "receipts have been pruned")
 	require.NotErrorIs(t, err, errTraceConcurrencyLimit)
 }
+
+func TestBlockByNumberLatestUsesSafeLatestWatermark(t *testing.T) {
+	t.Parallel()
+
+	const (
+		safeLatest = int64(99)
+		ctxTip     = int64(100)
+	)
+	latestCtx := sdk.Context{}.WithBlockHeight(ctxTip)
+	tmClient := newHeightTestClient(safeLatest, 1, ctxTip)
+	rs := &fakeReceiptStore{latest: safeLatest, earliest: 1}
+	stateStore := &fakeStateStore{latest: safeLatest, earliest: 1}
+	wm := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, stateStore, rs)
+
+	blockNumberPtr, err := getBlockNumber(t.Context(), tmClient, rpc.LatestBlockNumber)
+	require.NoError(t, err)
+	require.Nil(t, blockNumberPtr)
+
+	tmBlock, err := blockByNumberRespectingWatermarks(t.Context(), tmClient, wm, blockNumberPtr, 1)
+	require.NoError(t, err)
+	require.Equal(t, safeLatest, tmBlock.Block.Height)
+
+	rawTip := ctxTip
+	_, err = blockByNumberRespectingWatermarks(t.Context(), tmClient, wm, &rawTip, 1)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrBlockHeightNotYetAvailable)
+}
+
+func TestTraceLatestTagGuardMatchesBlockResolution(t *testing.T) {
+	t.Parallel()
+
+	const (
+		safeLatest = int64(99)
+		ctxTip     = int64(100)
+	)
+	latestCtx := sdk.Context{}.WithBlockHeight(ctxTip)
+	tmClient := newHeightTestClient(safeLatest, 1, ctxTip)
+	rs := &fakeReceiptStore{latest: safeLatest, earliest: 1}
+	stateStore := &fakeStateStore{latest: safeLatest, earliest: 1}
+	wm := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, stateStore, rs)
+	api := &DebugAPI{
+		tmClient:    tmClient,
+		ctxProvider: func(int64) sdk.Context { return latestCtx },
+		backend: &Backend{
+			tmClient:   tmClient,
+			watermarks: wm,
+		},
+	}
+
+	guardHeight, err := api.resolveDebugTraceBlockNumber(t.Context(), rpc.LatestBlockNumber)
+	require.NoError(t, err)
+	require.Equal(t, safeLatest, guardHeight)
+
+	blockNumberPtr, err := getBlockNumber(t.Context(), tmClient, rpc.LatestBlockNumber)
+	require.NoError(t, err)
+	tmBlock, err := blockByNumberRespectingWatermarks(t.Context(), tmClient, wm, blockNumberPtr, 1)
+	require.NoError(t, err)
+	require.Equal(t, guardHeight, tmBlock.Block.Height)
+}
