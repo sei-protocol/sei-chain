@@ -17,19 +17,19 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
-	authztypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
-	VoteMethod           = "vote"
-	VoteWeightedMethod   = "voteWeighted"
-	GrantVoteMethod      = "grantVoteAuthorization"
-	VoteWithAuthzMethod  = "voteWithAuthorization"
-	RevokeVoteMethod     = "revokeVoteAuthorization"
-	DepositMethod        = "deposit"
-	SubmitProposalMethod = "submitProposal"
+	VoteMethod            = "vote"
+	VoteWeightedMethod    = "voteWeighted"
+	GrantVoteMethod       = "grantVoteAuthorization"
+	VoteWithAuthzMethod   = "voteWithAuthorization"
+	RevokeVoteMethod      = "revokeVoteAuthorization"
+	SubmitWithAuthzMethod = "submitProposalWithAuthorization"
+	DepositMethod         = "deposit"
+	SubmitProposalMethod  = "submitProposal"
 )
 
 // Query method names. The vote/deposit queries are named getVote/getDeposit
@@ -65,13 +65,14 @@ type PrecompileExecutor struct {
 	address          common.Address
 	proposalHandlers map[string]ProposalHandler
 
-	VoteID           []byte
-	VoteWeightedID   []byte
-	GrantVoteID      []byte
-	VoteWithAuthzID  []byte
-	RevokeVoteID     []byte
-	DepositID        []byte
-	SubmitProposalID []byte
+	VoteID            []byte
+	VoteWeightedID    []byte
+	GrantVoteID       []byte
+	VoteWithAuthzID   []byte
+	RevokeVoteID      []byte
+	SubmitWithAuthzID []byte
+	DepositID         []byte
+	SubmitProposalID  []byte
 }
 
 func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
@@ -101,6 +102,8 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 			p.VoteWithAuthzID = m.ID
 		case RevokeVoteMethod:
 			p.RevokeVoteID = m.ID
+		case SubmitWithAuthzMethod:
+			p.SubmitWithAuthzID = m.ID
 		case DepositMethod:
 			p.DepositID = m.ID
 		case SubmitProposalMethod:
@@ -127,7 +130,7 @@ func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 // methods are views.
 func (p PrecompileExecutor) IsTransaction(method string) bool {
 	switch method {
-	case VoteMethod, VoteWeightedMethod, GrantVoteMethod, VoteWithAuthzMethod, RevokeVoteMethod, DepositMethod, SubmitProposalMethod:
+	case VoteMethod, VoteWeightedMethod, GrantVoteMethod, VoteWithAuthzMethod, RevokeVoteMethod, SubmitWithAuthzMethod, DepositMethod, SubmitProposalMethod:
 		return true
 	default:
 		return false
@@ -187,6 +190,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return p.voteWithAuthorization(ctx, method, caller, args, value)
 	case RevokeVoteMethod:
 		return p.revokeVoteAuthorization(ctx, method, caller, args, value)
+	case SubmitWithAuthzMethod:
+		return p.submitProposalWithAuthorization(ctx, method, caller, args, value, hooks, evm)
 	case DepositMethod:
 		return p.deposit(ctx, method, caller, args, value, hooks, evm)
 	case SubmitProposalMethod:
@@ -212,19 +217,16 @@ func (p PrecompileExecutor) grantVoteAuthorization(ctx sdk.Context, method *abi.
 		return nil, 0, err
 	}
 	expiration := time.Unix(args[1].(int64), 0).UTC()
-	if !expiration.After(ctx.BlockTime()) {
-		return nil, 0, errors.New("vote authorization expiration must be after the current block time")
-	}
 
-	authorization := authztypes.NewGenericAuthorization(sdk.MsgTypeURL(&govtypes.MsgVote{}))
-	msg, err := authztypes.NewMsgGrant(granter, grantee, authorization, expiration)
-	if err != nil {
-		return nil, 0, err
-	}
-	if err := msg.ValidateBasic(); err != nil {
-		return nil, 0, err
-	}
-	if _, err := p.authzMsgServer.Grant(sdk.WrapSDKContext(ctx), msg); err != nil {
+	if err := pcommon.GrantGenericAuthorizations(
+		ctx,
+		p.authzMsgServer,
+		granter,
+		grantee,
+		expiration,
+		&govtypes.MsgVote{},
+		&govtypes.MsgSubmitProposal{},
+	); err != nil {
 		return nil, 0, err
 	}
 
@@ -256,11 +258,7 @@ func (p PrecompileExecutor) voteWithAuthorization(ctx sdk.Context, method *abi.M
 	if err := msg.ValidateBasic(); err != nil {
 		return nil, 0, err
 	}
-	exec := authztypes.NewMsgExec(grantee, []sdk.Msg{msg})
-	if err := exec.ValidateBasic(); err != nil {
-		return nil, 0, err
-	}
-	if _, err := p.authzMsgServer.Exec(sdk.WrapSDKContext(ctx), &exec); err != nil {
+	if _, err := pcommon.ExecuteAuthorization(ctx, p.authzMsgServer, grantee, msg); err != nil {
 		return nil, 0, err
 	}
 
@@ -287,11 +285,14 @@ func (p PrecompileExecutor) revokeVoteAuthorization(ctx sdk.Context, method *abi
 	if err != nil {
 		return nil, 0, err
 	}
-	msg := authztypes.NewMsgRevoke(granter, grantee, sdk.MsgTypeURL(&govtypes.MsgVote{}))
-	if err := msg.ValidateBasic(); err != nil {
-		return nil, 0, err
-	}
-	if _, err := p.authzMsgServer.Revoke(sdk.WrapSDKContext(ctx), &msg); err != nil {
+	if err := pcommon.RevokeAuthorizations(
+		ctx,
+		p.authzMsgServer,
+		granter,
+		grantee,
+		&govtypes.MsgVote{},
+		&govtypes.MsgSubmitProposal{},
+	); err != nil {
 		return nil, 0, err
 	}
 
@@ -440,11 +441,67 @@ func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, 
 		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
 	}
 
-	// Parse the proposal JSON
-	proposalJSON := args[0].(string)
+	msg, err := p.prepareSubmitProposal(ctx, proposer, args[0].(string), value, hooks, evm)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	res, err := p.govMsgServer.SubmitProposal(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	bz, err := method.Outputs.Pack(res.ProposalId)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+func (p PrecompileExecutor) submitProposalWithAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, uint64, error) {
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		return nil, 0, err
+	}
+
+	grantee, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	proposer, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	msg, err := p.prepareSubmitProposal(ctx, proposer, args[1].(string), value, hooks, evm)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	execRes, err := pcommon.ExecuteAuthorization(ctx, p.authzMsgServer, grantee, msg)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(execRes.Results) != 1 {
+		return nil, 0, fmt.Errorf("expected one submit proposal authorization result, got %d", len(execRes.Results))
+	}
+	var submitRes govtypes.MsgSubmitProposalResponse
+	if err := submitRes.Unmarshal(execRes.Results[0]); err != nil {
+		return nil, 0, err
+	}
+
+	bz, err := method.Outputs.Pack(submitRes.ProposalId)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+// prepareSubmitProposal builds the exact Cosmos message used by both direct
+// and authorized submission, so the two entry points cannot drift in parsing,
+// payment, or proposal-content behavior.
+func (p PrecompileExecutor) prepareSubmitProposal(ctx sdk.Context, proposer sdk.AccAddress, proposalJSON string, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) (*govtypes.MsgSubmitProposal, error) {
 	var proposal Proposal
 	if err := json.Unmarshal([]byte(proposalJSON), &proposal); err != nil {
-		return nil, 0, fmt.Errorf("failed to parse proposal JSON: %w", err)
+		return nil, fmt.Errorf("failed to parse proposal JSON: %w", err)
 	}
 
 	initialDeposit, err := pcommon.HandlePaymentUsei(
@@ -455,46 +512,24 @@ func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, 
 		p.bankKeeper,
 		p.evmKeeper,
 		hooks,
-		evm.GetDepth())
-
+		evm.GetDepth(),
+	)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	// Create the proposal content using the handler system
 	content, err := p.createProposalContent(ctx, proposal)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-
-	// Create the MsgSubmitProposal
-	msg, err :=
-		govtypes.NewMsgSubmitProposalWithExpedite(content, sdk.NewCoins(initialDeposit), proposer, proposal.IsExpedited)
+	msg, err := govtypes.NewMsgSubmitProposalWithExpedite(content, sdk.NewCoins(initialDeposit), proposer, proposal.IsExpedited)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-
-	// Validate the Msg
-	err = msg.ValidateBasic()
-	if err != nil {
-		return nil, 0, err
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, err
 	}
-
-	// Create a MsgServer context
-	goCtx := sdk.WrapSDKContext(ctx)
-
-	// Submit the proposal using the MsgServer
-	res, err := p.govMsgServer.SubmitProposal(goCtx, msg)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	// Return the proposal ID
-	bz, err := method.Outputs.Pack(res.ProposalId)
-	if err != nil {
-		return nil, 0, err
-	}
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+	return msg, nil
 }
 
 // Coin mirrors the abi.json Coin tuple. Field order must match the tuple

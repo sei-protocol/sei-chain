@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -27,6 +28,11 @@ const (
 	DelegateMethod                      = "delegate"
 	RedelegateMethod                    = "redelegate"
 	UndelegateMethod                    = "undelegate"
+	GrantStakingMethod                  = "grantStakingAuthorization"
+	DelegateWithAuthzMethod             = "delegateWithAuthorization"
+	RedelegateWithAuthzMethod           = "redelegateWithAuthorization"
+	UndelegateWithAuthzMethod           = "undelegateWithAuthorization"
+	RevokeStakingMethod                 = "revokeStakingAuthorization"
 	DelegationMethod                    = "delegation"
 	CreateValidatorMethod               = "createValidator"
 	EditValidatorMethod                 = "editValidator"
@@ -57,6 +63,7 @@ var f embed.FS
 type PrecompileExecutor struct {
 	stakingKeeper      utils.StakingKeeper
 	stakingQuerier     utils.StakingQuerier
+	authzMsgServer     utils.AuthzMsgServer
 	evmKeeper          utils.EVMKeeper
 	bankKeeper         utils.BankKeeper
 	distributionKeeper utils.DistributionKeeper
@@ -65,6 +72,11 @@ type PrecompileExecutor struct {
 	DelegateID                      []byte
 	RedelegateID                    []byte
 	UndelegateID                    []byte
+	GrantStakingID                  []byte
+	DelegateWithAuthzID             []byte
+	RedelegateWithAuthzID           []byte
+	UndelegateWithAuthzID           []byte
+	RevokeStakingID                 []byte
 	DelegationID                    []byte
 	CreateValidatorID               []byte
 	EditValidatorID                 []byte
@@ -89,6 +101,7 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 	p := &PrecompileExecutor{
 		stakingKeeper:      keepers.StakingK(),
 		stakingQuerier:     keepers.StakingQ(),
+		authzMsgServer:     keepers.AuthzMS(),
 		evmKeeper:          keepers.EVMK(),
 		bankKeeper:         keepers.BankK(),
 		distributionKeeper: keepers.DistributionK(),
@@ -103,6 +116,16 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 			p.RedelegateID = m.ID
 		case UndelegateMethod:
 			p.UndelegateID = m.ID
+		case GrantStakingMethod:
+			p.GrantStakingID = m.ID
+		case DelegateWithAuthzMethod:
+			p.DelegateWithAuthzID = m.ID
+		case RedelegateWithAuthzMethod:
+			p.RedelegateWithAuthzID = m.ID
+		case UndelegateWithAuthzMethod:
+			p.UndelegateWithAuthzID = m.ID
+		case RevokeStakingMethod:
+			p.RevokeStakingID = m.ID
 		case DelegationMethod:
 			p.DelegationID = m.ID
 		case CreateValidatorMethod:
@@ -165,6 +188,31 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, 0, errors.New("cannot call staking precompile from staticcall")
 		}
 		return p.undelegate(ctx, method, caller, args, value, evm)
+	case GrantStakingMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call staking precompile from staticcall")
+		}
+		return p.grantStakingAuthorization(ctx, method, caller, args, value)
+	case DelegateWithAuthzMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call staking precompile from staticcall")
+		}
+		return p.delegateWithAuthorization(ctx, method, caller, args, value, hooks, evm)
+	case RedelegateWithAuthzMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call staking precompile from staticcall")
+		}
+		return p.redelegateWithAuthorization(ctx, method, caller, args, value, evm)
+	case UndelegateWithAuthzMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call staking precompile from staticcall")
+		}
+		return p.undelegateWithAuthorization(ctx, method, caller, args, value, evm)
+	case RevokeStakingMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call staking precompile from staticcall")
+		}
+		return p.revokeStakingAuthorization(ctx, method, caller, args, value)
 	case CreateValidatorMethod:
 		if readOnly {
 			return nil, 0, errors.New("cannot call staking precompile from staticcall")
@@ -207,18 +255,111 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
+type stakingMessageExecutor func(sdk.Msg) error
+
+func (p PrecompileExecutor) grantStakingAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		return nil, 0, err
+	}
+
+	granter, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	grantee, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	expiration := time.Unix(args[1].(int64), 0).UTC()
+
+	if err := pcommon.GrantGenericAuthorizations(
+		ctx,
+		p.authzMsgServer,
+		granter,
+		grantee,
+		expiration,
+		&stakingtypes.MsgDelegate{},
+		&stakingtypes.MsgBeginRedelegate{},
+		&stakingtypes.MsgUndelegate{},
+	); err != nil {
+		return nil, 0, err
+	}
+
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+func (p PrecompileExecutor) revokeStakingAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
+
+	granter, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	grantee, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := pcommon.RevokeAuthorizations(
+		ctx,
+		p.authzMsgServer,
+		granter,
+		grantee,
+		&stakingtypes.MsgDelegate{},
+		&stakingtypes.MsgBeginRedelegate{},
+		&stakingtypes.MsgUndelegate{},
+	); err != nil {
+		return nil, 0, err
+	}
+
+	bz, err := method.Outputs.Pack(true)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
 func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, uint64, error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, 0, err
 	}
-	// if delegator is associated, then it must have Account set already
-	// if delegator is not associated, then it can't delegate anyway (since
-	// there is no good way to merge delegations if it becomes associated)
-	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !associated {
-		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
+	delegator, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
 	}
-	validatorBech32 := args[0].(string)
+	return p.delegateFor(ctx, method, delegator, caller, args[0].(string), value, hooks, evm, p.directStakingExecutor(ctx))
+}
+
+func (p PrecompileExecutor) delegateWithAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, uint64, error) {
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		return nil, 0, err
+	}
+	grantee, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	delegator, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	return p.delegateFor(ctx, method, delegator, args[0].(common.Address), args[1].(string), value, hooks, evm, p.authorizedStakingExecutor(ctx, grantee))
+}
+
+// delegateFor performs the shared direct and authorized delegation steps. The
+// delegator must be explicitly associated because a later association cannot
+// safely merge a delegation created under its cast address.
+func (p PrecompileExecutor) delegateFor(ctx sdk.Context, method *abi.Method, delegator sdk.AccAddress, delegatorEVM common.Address, validatorBech32 string, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM, execute stakingMessageExecutor) ([]byte, uint64, error) {
 	if value == nil || value.Sign() == 0 {
 		return nil, 0, errors.New("set `value` field to non-zero to send delegate fund")
 	}
@@ -226,17 +367,22 @@ func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller
 	if err != nil {
 		return nil, 0, err
 	}
+
 	withdrawAddress := p.distributionKeeper.GetDelegatorWithdrawAddr(ctx, delegator)
 	withdrawAddressBalanceBefore := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
-	_, err = p.stakingKeeper.Delegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgDelegate{
+	msg := &stakingtypes.MsgDelegate{
 		DelegatorAddress: delegator.String(),
 		ValidatorAddress: validatorBech32,
 		Amount:           coin,
-	})
-	if err != nil {
+	}
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, 0, err
+	}
+	if err := execute(msg); err != nil {
 		return nil, 0, err
 	}
 	withdrawAddressBalanceAfter := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
+
 	// Use Int arithmetic because when withdrawAddress == delegator (the default),
 	// the delegated coin.Amount is sent from the delegator to the staking module,
 	// which can make balanceAfter < balanceBefore. We compensate for that.
@@ -248,14 +394,10 @@ func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller
 		return nil, 0, fmt.Errorf("unexpected negative rewards amount: %s", rewardsAmount.String())
 	}
 
-	// Emit EVM event
-	if emitErr := pcommon.EmitDelegateEvent(evm, p.address, caller, validatorBech32, value); emitErr != nil {
-		// Log error but don't fail the transaction
+	if emitErr := pcommon.EmitDelegateEvent(evm, p.address, delegatorEVM, validatorBech32, value); emitErr != nil {
 		logger.Error("Failed to emit EVM delegate event", "error", emitErr)
 	}
-
-	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, validatorBech32, rewardsAmount.BigInt()); emitErr != nil {
-		// Log error but don't fail the transaction
+	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, delegatorEVM, validatorBech32, rewardsAmount.BigInt()); emitErr != nil {
 		logger.Error("Failed to emit rewards withdrawn event", "error", emitErr)
 	}
 
@@ -270,18 +412,35 @@ func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, call
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
-
 	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
 		return nil, 0, err
 	}
-	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !associated {
-		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
+	delegator, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
 	}
-	srcValidatorBech32 := args[0].(string)
-	dstValidatorBech32 := args[1].(string)
-	amount := args[2].(*big.Int)
+	return p.redelegateFor(ctx, method, delegator, caller, args[0].(string), args[1].(string), args[2].(*big.Int), evm, p.directStakingExecutor(ctx))
+}
 
+func (p PrecompileExecutor) redelegateWithAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
+		return nil, 0, err
+	}
+	grantee, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	delegator, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	return p.redelegateFor(ctx, method, delegator, args[0].(common.Address), args[1].(string), args[2].(string), args[3].(*big.Int), evm, p.authorizedStakingExecutor(ctx, grantee))
+}
+
+func (p PrecompileExecutor) redelegateFor(ctx sdk.Context, method *abi.Method, delegator sdk.AccAddress, delegatorEVM common.Address, srcValidatorBech32 string, dstValidatorBech32 string, amount *big.Int, evm *vm.EVM, execute stakingMessageExecutor) ([]byte, uint64, error) {
 	// Pre-withdraw rewards from the destination validator if a delegation already exists.
 	// WithdrawDelegationRewards reinitializes the delegation's starting info, so the
 	// subsequent BeginRedelegate's internal Delegate call will see zero pending dst rewards.
@@ -289,41 +448,38 @@ func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, call
 	dstRewardAmount := big.NewInt(0)
 	dstValAddr, err := sdk.ValAddressFromBech32(dstValidatorBech32)
 	if err == nil {
-		dstWithdrawnCoins, wErr := p.distributionKeeper.WithdrawDelegationRewards(ctx, delegator, dstValAddr)
-		if wErr == nil {
+		dstWithdrawnCoins, withdrawErr := p.distributionKeeper.WithdrawDelegationRewards(ctx, delegator, dstValAddr)
+		if withdrawErr == nil {
 			dstRewardAmount = dstWithdrawnCoins.AmountOf(sdk.MustGetBaseDenom()).BigInt()
 		}
 	}
 
-	// Track balance changes around BeginRedelegate to capture src validator rewards only
-	// (dst rewards were already withdrawn above).
+	// Destination rewards are already zeroed above, so the balance change
+	// around execution attributes only rewards from the source validator.
 	withdrawAddress := p.distributionKeeper.GetDelegatorWithdrawAddr(ctx, delegator)
 	withdrawAddressBalanceBefore := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
-	_, err = p.stakingKeeper.BeginRedelegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgBeginRedelegate{
+	msg := &stakingtypes.MsgBeginRedelegate{
 		DelegatorAddress:    delegator.String(),
 		ValidatorSrcAddress: srcValidatorBech32,
 		ValidatorDstAddress: dstValidatorBech32,
 		Amount:              sdk.NewCoin(sdk.MustGetBaseDenom(), sdk.NewIntFromBigInt(amount)),
-	})
-	if err != nil {
+	}
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, 0, err
+	}
+	if err := execute(msg); err != nil {
 		return nil, 0, err
 	}
 	withdrawAddressBalanceAfter := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
 	srcRewardsWithdrawn := withdrawAddressBalanceAfter.Sub(withdrawAddressBalanceBefore)
 
-	// Emit EVM event
-	if emitErr := pcommon.EmitRedelegateEvent(evm, p.address, caller, srcValidatorBech32, dstValidatorBech32, amount); emitErr != nil {
-		// Log error but don't fail the transaction
+	if emitErr := pcommon.EmitRedelegateEvent(evm, p.address, delegatorEVM, srcValidatorBech32, dstValidatorBech32, amount); emitErr != nil {
 		logger.Error("Failed to emit EVM redelegate event", "error", emitErr)
 	}
-
-	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, srcValidatorBech32, srcRewardsWithdrawn.Amount.BigInt()); emitErr != nil {
-		// Log error but don't fail the transaction
+	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, delegatorEVM, srcValidatorBech32, srcRewardsWithdrawn.Amount.BigInt()); emitErr != nil {
 		logger.Error("Failed to emit rewards withdrawn event", "error", emitErr)
 	}
-
-	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, dstValidatorBech32, dstRewardAmount); emitErr != nil {
-		// Log error but don't fail the transaction
+	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, delegatorEVM, dstValidatorBech32, dstRewardAmount); emitErr != nil {
 		logger.Error("Failed to emit rewards withdrawn event", "error", emitErr)
 	}
 
@@ -338,37 +494,55 @@ func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, call
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
-
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
 		return nil, 0, err
 	}
-	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !associated {
-		return nil, 0, types.NewAssociationMissingErr(caller.Hex())
+	delegator, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
 	}
-	validatorBech32 := args[0].(string)
-	amount := args[1].(*big.Int)
+	return p.undelegateFor(ctx, method, delegator, caller, args[0].(string), args[1].(*big.Int), evm, p.directStakingExecutor(ctx))
+}
+
+func (p PrecompileExecutor) undelegateWithAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
+		return nil, 0, err
+	}
+	grantee, err := pcommon.GetSeiAddressByEvmAddress(ctx, caller, p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	delegator, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, 0, err
+	}
+	return p.undelegateFor(ctx, method, delegator, args[0].(common.Address), args[1].(string), args[2].(*big.Int), evm, p.authorizedStakingExecutor(ctx, grantee))
+}
+
+func (p PrecompileExecutor) undelegateFor(ctx sdk.Context, method *abi.Method, delegator sdk.AccAddress, delegatorEVM common.Address, validatorBech32 string, amount *big.Int, evm *vm.EVM, execute stakingMessageExecutor) ([]byte, uint64, error) {
 	withdrawAddress := p.distributionKeeper.GetDelegatorWithdrawAddr(ctx, delegator)
 	withdrawAddressBalanceBefore := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
-	_, err := p.stakingKeeper.Undelegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgUndelegate{
+	msg := &stakingtypes.MsgUndelegate{
 		DelegatorAddress: delegator.String(),
 		ValidatorAddress: validatorBech32,
 		Amount:           sdk.NewCoin(p.evmKeeper.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amount)),
-	})
-	if err != nil {
+	}
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, 0, err
+	}
+	if err := execute(msg); err != nil {
 		return nil, 0, err
 	}
 	withdrawAddressBalanceAfter := p.bankKeeper.GetBalance(ctx, withdrawAddress, sdk.MustGetBaseDenom())
 	rewardsWithdrawn := withdrawAddressBalanceAfter.Sub(withdrawAddressBalanceBefore)
 
-	// Emit EVM event
-	if emitErr := pcommon.EmitUndelegateEvent(evm, p.address, caller, validatorBech32, amount); emitErr != nil {
-		// Log error but don't fail the transaction
+	if emitErr := pcommon.EmitUndelegateEvent(evm, p.address, delegatorEVM, validatorBech32, amount); emitErr != nil {
 		logger.Error("Failed to emit EVM undelegate event", "error", emitErr)
 	}
-
-	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, caller, validatorBech32, rewardsWithdrawn.Amount.BigInt()); emitErr != nil {
-		// Log error but don't fail the transaction
+	if emitErr := pcommon.EmitDelegationRewardsWithdrawnEvent(evm, p.address, delegatorEVM, validatorBech32, rewardsWithdrawn.Amount.BigInt()); emitErr != nil {
 		logger.Error("Failed to emit rewards withdrawn event", "error", emitErr)
 	}
 
@@ -377,6 +551,31 @@ func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, call
 		return nil, 0, err
 	}
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+func (p PrecompileExecutor) directStakingExecutor(ctx sdk.Context) stakingMessageExecutor {
+	return func(msg sdk.Msg) error {
+		switch msg := msg.(type) {
+		case *stakingtypes.MsgDelegate:
+			_, err := p.stakingKeeper.Delegate(sdk.WrapSDKContext(ctx), msg)
+			return err
+		case *stakingtypes.MsgBeginRedelegate:
+			_, err := p.stakingKeeper.BeginRedelegate(sdk.WrapSDKContext(ctx), msg)
+			return err
+		case *stakingtypes.MsgUndelegate:
+			_, err := p.stakingKeeper.Undelegate(sdk.WrapSDKContext(ctx), msg)
+			return err
+		default:
+			return fmt.Errorf("unsupported staking message %T", msg)
+		}
+	}
+}
+
+func (p PrecompileExecutor) authorizedStakingExecutor(ctx sdk.Context, grantee sdk.AccAddress) stakingMessageExecutor {
+	return func(msg sdk.Msg) error {
+		_, err := pcommon.ExecuteAuthorization(ctx, p.authzMsgServer, grantee, msg)
+		return err
+	}
 }
 
 type Delegation struct {

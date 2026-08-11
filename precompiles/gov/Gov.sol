@@ -80,11 +80,11 @@ interface IGov {
     ) external returns (bool success);
 
     /**
-     * @dev Grant an account permission to cast simple votes on behalf of the caller
-     * @param grantee The account receiving the vote authorization
+     * @dev Grant an account permission to cast simple votes or submit proposals on behalf of the caller
+     * @param grantee The account receiving the governance authorization
      * @param expiration Unix timestamp after which the authorization is invalid
      * @return success Whether the authorization was successfully granted
-     * @notice This authorization is limited to MsgVote and does not cover weighted votes
+     * @notice This authorization is limited to MsgVote and MsgSubmitProposal and does not cover weighted votes
      */
     function grantVoteAuthorization(
         address grantee,
@@ -105,8 +105,8 @@ interface IGov {
     ) external returns (bool success);
 
     /**
-     * @dev Revoke an account's permission to cast simple votes on behalf of the caller
-     * @param grantee The account whose vote authorization is being revoked
+     * @dev Revoke an account's permission to cast simple votes or submit proposals on behalf of the caller
+     * @param grantee The account whose governance authorization is being revoked
      * @return success Whether the authorization was successfully revoked
      */
     function revokeVoteAuthorization(
@@ -152,6 +152,18 @@ interface IGov {
      * @return proposalID The ID of the created proposal
      */
     function submitProposal(
+        string calldata proposalJSON
+    ) payable external returns (uint64 proposalID);
+
+    /**
+     * @dev Submit a proposal using a MsgSubmitProposal authorization granted by proposer
+     * @param proposer The account on whose behalf the proposal is submitted
+     * @param proposalJSON JSON string containing the proposal details
+     * @return proposalID The ID of the created proposal
+     * @notice The caller supplies the initial deposit through msg.value
+     */
+    function submitProposalWithAuthorization(
+        address proposer,
         string calldata proposalJSON
     ) payable external returns (uint64 proposalID);
 

@@ -366,7 +366,7 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 	ret, err := call(
 		granterEVMAddr,
 		gov.GrantVoteMethod,
-		nil,
+		big.NewInt(0),
 		false,
 		false,
 		granteeEVMAddr,
@@ -384,6 +384,15 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 	)
 	require.IsType(t, &authztypes.GenericAuthorization{}, authorization)
 	require.Equal(t, expiration, storedExpiration)
+	submitMsgType := sdk.MsgTypeURL(&govtypes.MsgSubmitProposal{})
+	submitAuthorization, submitExpiration := testApp.AuthzKeeper.GetCleanAuthorization(
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		submitMsgType,
+	)
+	require.IsType(t, &authztypes.GenericAuthorization{}, submitAuthorization)
+	require.Equal(t, expiration, submitExpiration)
 	weightedAuthorization, _ := testApp.AuthzKeeper.GetCleanAuthorization(
 		statedb.Ctx(),
 		granteeSeiAddr,
@@ -408,6 +417,31 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, govtypes.OptionYes, vote.Options[0].Option)
 
+	initialDepositValue := big.NewInt(10_000_000_000_000)
+	initialDeposit := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(statedb.Ctx()), sdk.NewInt(10)))
+	precompileAddr := k.GetSeiAddressOrDefault(statedb.Ctx(), common.HexToAddress(gov.GovAddress))
+	require.NoError(t, k.BankKeeper().MintCoins(statedb.Ctx(), evmtypes.ModuleName, initialDeposit))
+	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(statedb.Ctx(), evmtypes.ModuleName, precompileAddr, initialDeposit))
+	ret, err = call(
+		granteeEVMAddr,
+		gov.SubmitWithAuthzMethod,
+		initialDepositValue,
+		false,
+		false,
+		granterEVMAddr,
+		`{"title":"authorized proposal","description":"submitted through authz","type":"Text"}`,
+	)
+	require.NoError(t, err)
+	submitOutputs, err := p.ABI.Methods[gov.SubmitWithAuthzMethod].Outputs.Unpack(ret)
+	require.NoError(t, err)
+	authorizedProposalID := submitOutputs[0].(uint64)
+	authorizedProposal, found := testApp.GovKeeper.GetProposal(statedb.Ctx(), authorizedProposalID)
+	require.True(t, found)
+	require.Equal(t, initialDeposit, authorizedProposal.TotalDeposit)
+	// Simulate a vote-only grant created before submit-proposal authorization
+	// joined this EVM-facing permission. Group revocation must still remove it.
+	require.NoError(t, testApp.AuthzKeeper.DeleteGrant(statedb.Ctx(), granteeSeiAddr, granterSeiAddr, submitMsgType))
+
 	ret, err = call(granterEVMAddr, gov.RevokeVoteMethod, nil, false, false, granteeEVMAddr)
 	require.NoError(t, err)
 	assertSuccess(gov.RevokeVoteMethod, ret)
@@ -418,6 +452,13 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 		voteMsgType,
 	)
 	require.Nil(t, authorization)
+	submitAuthorization, _ = testApp.AuthzKeeper.GetCleanAuthorization(
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		submitMsgType,
+	)
+	require.Nil(t, submitAuthorization)
 
 	_, err = call(
 		granteeEVMAddr,

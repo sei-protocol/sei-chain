@@ -115,6 +115,42 @@ interface IStaking {
     ) external returns (bool success);
 
     /**
+     * @notice Authorize a grantee to delegate, redelegate, and undelegate on behalf of the caller
+     * @param grantee The account receiving the staking authorization
+     * @param expiration Unix timestamp after which the authorization is invalid
+     */
+    function grantStakingAuthorization(
+        address grantee,
+        int64 expiration
+    ) external returns (bool success);
+
+    /** @notice Delegate using an authorization granted by delegator. The caller supplies msg.value. */
+    function delegateWithAuthorization(
+        address delegator,
+        string memory valAddress
+    ) external payable returns (bool success);
+
+    /** @notice Redelegate using an authorization granted by delegator. */
+    function redelegateWithAuthorization(
+        address delegator,
+        string memory srcAddress,
+        string memory dstAddress,
+        uint256 amount
+    ) external returns (bool success);
+
+    /** @notice Undelegate using an authorization granted by delegator. */
+    function undelegateWithAuthorization(
+        address delegator,
+        string memory valAddress,
+        uint256 amount
+    ) external returns (bool success);
+
+    /** @notice Revoke a grantee's delegate, redelegate, and undelegate authorization. */
+    function revokeStakingAuthorization(
+        address grantee
+    ) external returns (bool success);
+
+    /**
      * @notice Create a new validator. Delegation amount must be provided as value in wei
      * @param pubKeyHex Ed25519 public key in hex format (64 characters)
      * @param moniker Validator display name

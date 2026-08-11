@@ -42,6 +42,28 @@ interface IDistr {
     /// @return success True if commission was withdrawn successfully
     function withdrawValidatorCommission() external returns (bool success);
 
+    /// @notice Authorizes a grantee to withdraw delegation rewards and validator commission for the caller
+    function grantWithdrawAuthorization(
+        address grantee,
+        int64 expiration
+    ) external returns (bool success);
+
+    /// @notice Withdraws delegation rewards using an authorization granted by delegator
+    function withdrawDelegationRewardsWithAuthorization(
+        address delegator,
+        string memory validator
+    ) external returns (bool success);
+
+    /// @notice Withdraws validator commission using an authorization granted by validatorOperator
+    function withdrawValidatorCommissionWithAuthorization(
+        address validatorOperator
+    ) external returns (bool success);
+
+    /// @notice Revokes a grantee's delegation reward and validator commission withdrawal authorization
+    function revokeWithdrawAuthorization(
+        address grantee
+    ) external returns (bool success);
+
     // Queries
     
     /// @notice Gets all pending rewards for a delegator
