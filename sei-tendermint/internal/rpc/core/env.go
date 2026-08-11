@@ -11,6 +11,7 @@ import (
 	"github.com/rs/cors"
 	"github.com/sei-protocol/seilog"
 
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
@@ -362,6 +363,18 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 			})
 			rootHandler = corsMiddleware.Handler(mux)
 		}
+		rateLimitRegistry, err := ratelimiter.New(conf.RPC.RateLimiterConfig())
+		if err != nil {
+			return nil, fmt.Errorf("rpc rate limiter: %w", err)
+		}
+		rootHandler = rpcserver.NewRateLimitMiddleware(
+			rootHandler,
+			rpcserver.NewRateLimitGate(
+				rateLimitRegistry,
+				conf.RPC.MaxBodyBytes,
+				conf.RPC.RateLimitingEnabled,
+			),
+		)
 		if conf.RPC.IsTLSEnabled() {
 			go func() {
 				if err := rpcserver.ServeTLS(

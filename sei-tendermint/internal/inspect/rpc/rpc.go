@@ -2,11 +2,13 @@ package rpc
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/rs/cors"
 	"github.com/sei-protocol/seilog"
 
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
@@ -74,6 +76,18 @@ func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) http.Handler {
 	if rpcConfig.IsCorsEnabled() {
 		rootHandler = addCORSHandler(rpcConfig, mux)
 	}
+	rateLimitRegistry, err := ratelimiter.New(rpcConfig.RateLimiterConfig())
+	if err != nil {
+		panic(fmt.Errorf("inspect rpc rate limiter: %w", err))
+	}
+	rootHandler = server.NewRateLimitMiddleware(
+		rootHandler,
+		server.NewRateLimitGate(
+			rateLimitRegistry,
+			rpcConfig.MaxBodyBytes,
+			rpcConfig.RateLimitingEnabled,
+		),
+	)
 	return rootHandler
 }
 

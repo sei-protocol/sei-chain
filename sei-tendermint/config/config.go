@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -535,6 +536,29 @@ type RPCConfig struct {
 	// concurrent search load: it is shared across requests, not applied per-query.
 	// 0 disables the cap (not recommended on public nodes).
 	MaxSearchScanBudget int `mapstructure:"max-search-scan-budget"`
+
+	// IPRateLimitRPS is the per-IP sustained request rate in requests/second for
+	// CometBFT RPC HTTP (:26657). Zero disables the token bucket (no HTTP 429
+	// rejections). When rate_limiting_enabled is true, the admission middleware
+	// still runs: bodies are parsed and oversize/malformed requests are rejected
+	// before dispatch.
+	IPRateLimitRPS float64 `mapstructure:"ip_rate_limit_rps"`
+
+	// IPRateLimitBurst is the maximum per-IP burst size. Zero disables the token
+	// bucket (same effect as ip_rate_limit_rps = 0) and does not bypass the
+	// admission middleware when rate_limiting_enabled is true. Should be at least
+	// the JSON-RPC batch size limit (10) because the rate limiter charges one
+	// token per batch element.
+	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
+
+	// RateLimitingEnabled is the master switch for the rate-limit admission
+	// middleware on the CometBFT RPC HTTP plane. When false, requests bypass
+	// method extraction and all rejections from that layer (HTTP 400/413/429).
+	RateLimitingEnabled bool `mapstructure:"rate_limiting_enabled"`
+
+	// TrustedProxyCIDRs lists CIDRs whose X-Forwarded-For headers are trusted when
+	// resolving the client IP for rate limiting. Empty means trust no proxy.
+	TrustedProxyCIDRs []string `mapstructure:"trusted_proxy_cidrs"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -570,6 +594,11 @@ func DefaultRPCConfig() *RPCConfig {
 
 		MaxTxSearchResults:  10_000,
 		MaxSearchScanBudget: 100_000,
+
+		IPRateLimitRPS:      200,
+		IPRateLimitBurst:    400,
+		RateLimitingEnabled: true,
+		TrustedProxyCIDRs:   nil,
 	}
 }
 
@@ -628,7 +657,20 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	if cfg.MaxSearchScanBudget < 0 {
 		return errors.New("max-search-scan-budget can't be negative")
 	}
+	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.IPRateLimitBurst < 10 {
+		return fmt.Errorf("ip_rate_limit_burst (%d) must be >= 10: the rate limiter charges one token per batch element",
+			cfg.IPRateLimitBurst)
+	}
 	return nil
+}
+
+// RateLimiterConfig builds the ratelimiter.Config used by CometBFT RPC HTTP admission.
+func (cfg *RPCConfig) RateLimiterConfig() ratelimiter.Config {
+	return ratelimiter.Config{
+		RPS:               cfg.IPRateLimitRPS,
+		Burst:             cfg.IPRateLimitBurst,
+		TrustedProxyCIDRs: cfg.TrustedProxyCIDRs,
+	}
 }
 
 // IsCorsEnabled returns true if cross-origin resource sharing is enabled.

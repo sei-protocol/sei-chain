@@ -294,6 +294,28 @@ max-tx-search-results = {{ .RPC.MaxTxSearchResults }}
 # accumulate. Set to 0 to disable the cap (not recommended on public nodes).
 max-search-scan-budget = {{ .RPC.MaxSearchScanBudget }}
 
+# ip_rate_limit_rps is the per-IP sustained request rate in requests/second for
+# CometBFT RPC HTTP (:26657). Zero disables the token bucket (no HTTP 429
+# rejections). When rate_limiting_enabled is true, the admission middleware still
+# runs: bodies are parsed and oversize/malformed requests are rejected before dispatch.
+ip_rate_limit_rps = {{ .RPC.IPRateLimitRPS }}
+
+# ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
+# Zero disables the token bucket (same effect as ip_rate_limit_rps = 0) and does
+# not bypass the admission middleware when rate_limiting_enabled is true. Must be
+# at least 10 when both are positive and rate_limiting_enabled is true because the
+# rate limiter charges one token per JSON-RPC batch element.
+ip_rate_limit_burst = {{ .RPC.IPRateLimitBurst }}
+
+# rate_limiting_enabled is the master switch for the rate-limit admission
+# middleware on the CometBFT RPC HTTP plane. When false, requests bypass method
+# extraction and all rejections from that layer (HTTP 400/413/429).
+rate_limiting_enabled = {{ .RPC.RateLimitingEnabled }}
+
+# trusted_proxy_cidrs lists CIDRs whose X-Forwarded-For headers are trusted when
+# resolving the client IP for rate limiting. Empty means trust no proxy.
+trusted_proxy_cidrs = [{{ range .RPC.TrustedProxyCIDRs }}{{ printf "%q, " . }}{{end}}]
+
 #######################################################################
 ###           P2P Configuration Options                             ###
 #######################################################################
