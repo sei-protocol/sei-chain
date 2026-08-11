@@ -245,9 +245,17 @@ func TestIteratorIsStableUnderConcurrentCommits(t *testing.T) {
 	var commits atomic.Int64
 	var writerErr error
 	var writers sync.WaitGroup
+
+	// Closed once the writer has completed a full round, so the drain below cannot outrun it.
+	firstRound := make(chan struct{})
+	var signalled sync.Once
+	signalFirstRound := func() { signalled.Do(func() { close(firstRound) }) }
+
 	writers.Add(1)
 	go func() {
 		defer writers.Done()
+		// Fires on the error paths too, so a writer that fails cannot leave the drain blocked forever.
+		defer signalFirstRound()
 		for round := 0; ; round++ {
 			select {
 			case <-stop:
@@ -277,8 +285,13 @@ func TestIteratorIsStableUnderConcurrentCommits(t *testing.T) {
 				return
 			}
 			commits.Add(1)
+			signalFirstRound()
 		}
 	}()
+
+	// A full write-and-seal must land while the iterator is open, or the drain finishes first and the
+	// assertions below hold vacuously.
+	<-firstRound
 
 	got, drainErr := drainIterator(it)
 	close(stop)
