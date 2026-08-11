@@ -511,7 +511,7 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		logger.Error("failed to update SNAPSHOT_BASE", "err", err)
 	}
 
-	pruned = s.pruneSnapshots(dir, version)
+	pruned = s.pruneSnapshotsByCount(dir, version)
 
 	success = true
 	s.lastSnapshotTime = time.Now()
@@ -523,10 +523,17 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 	return nil
 }
 
-// pruneSnapshots removes old snapshots beyond SnapshotKeepRecent, keeping
+// pruneSnapshotsByCount removes old snapshots beyond SnapshotKeepRecent, keeping
 // the latest snapshot (currentVersion) plus the N most recent older ones.
 // Best-effort: errors are logged but do not fail the snapshot operation.
-func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) int {
+//
+// Does nothing when config.ExternalPruning is set, which hands retention to the
+// StorageGarbageCollector and its by-block-height PruneSnapshots.
+func (s *CommitStore) pruneSnapshotsByCount(dir string, currentVersion int64) int {
+	if s.config.ExternalPruning {
+		return 0
+	}
+
 	start := time.Now()
 	defer func() {
 		otelMetrics.SnapshotPruneLatency.Record(s.ctx, secondsSince(start))
@@ -722,12 +729,13 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	return nil
 }
 
-// tryTruncateWAL truncates WAL entries older than the earliest snapshot, keeping enough entries for rollback
-// to any retained snapshot. Scheduling the truncation is best-effort in that it is skipped when there is
-// nothing to prune against, but a prune that fails is not a benign outcome: it only fails when the WAL is
-// already dead, which means commits will fail from that point on.
+// tryTruncateWAL truncates WAL entries older than the earliest snapshot, keeping enough entries for
+// rollback to any retained snapshot. Skipped when there is no snapshot to truncate against.
+//
+// Does nothing when config.ExternalPruning is set, under which the collector prunes the WAL as a
+// managed store in its own right.
 func (s *CommitStore) tryTruncateWAL() {
-	if s.wal == nil {
+	if s.wal == nil || s.config.ExternalPruning {
 		return
 	}
 
