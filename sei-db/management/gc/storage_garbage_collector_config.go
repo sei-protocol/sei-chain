@@ -7,38 +7,18 @@ import (
 
 // StorageGarbageCollectorConfig configures a StorageGarbageCollector.
 type StorageGarbageCollectorConfig struct {
-	// RollbackWindow is how many blocks behind head the system must remain able to roll back
-	// to. It buys the ability to rewind; LookbackWindow buys the ability to still read history
-	// afterwards, and the two are separate knobs because they answer to different needs.
+	// RollbackWindow is how many blocks behind head the system must remain able to roll back to.
 	//
-	// 0 is allowed and waives the guarantee: each store then reports its own head as the
-	// earliest height a rollback may target, and a snapshot store reports its newest snapshot.
+	// 0 waives the guarantee: each store then reports its own head as the earliest height a
+	// rollback may target, or its newest snapshot if it keeps snapshots.
 	RollbackWindow uint64
 
-	// LookbackWindow is how much queryable history is kept behind the rollback window, in blocks.
-	// It is extra on top of RollbackWindow rather than a total that includes it, which is what
-	// makes the promise independent of rollback depth: however far the node rewinds inside the
-	// rollback window, at least LookbackWindow blocks below the new head stay readable.
+	// LookbackWindow is how much queryable history is kept below the rollback window, in blocks.
+	// It is extra on top of RollbackWindow rather than a total that includes it, so at least
+	// LookbackWindow blocks stay readable below wherever a rollback lands.
 	//
-	// One window covers every managed store. With a finite LookbackWindow and
-	// F = LatestBlock - RollbackWindow - LookbackWindow, collection guarantees (a LookbackWindow of
-	// -1 keeps everything, so F is genesis):
-	//
-	//  1. Nothing needed to roll back to any block in
-	//     [LatestBlock - RollbackWindow, LatestBlock] is deleted.
-	//  2. No data at or above F is deleted.
-	//  3. Data below F is eventually deleted, on each store's own reclamation schedule.
-	//
-	// Snapshots stop one window short of history, at the lowest rollback floor the stores report,
-	// since they are restore points and this window buys history to read rather than history to
-	// restore to. History goes LookbackWindow below that same floor, because a retained snapshot
-	// is only restorable if the blocks above it survive. See PrunableStore.
-	//
-	// -1 means infinite: history is never pruned, so every block ever ingested stays readable.
-	// Snapshots below the rollback floor are still reclaimed — they are restore points nothing can
-	// ask for once the floor has passed them, and holding history forever does not make them one.
-	// The type is signed only to carry this sentinel; every other value is a block count and must
-	// be >= 0.
+	// -1 means infinite: history is never pruned, though snapshots below the rollback floor are
+	// still reclaimed. Every other value is a block count and must be >= 0.
 	LookbackWindow int64
 
 	// PruneInterval is how often the collector runs a prune cycle. Must be > 0.
@@ -46,9 +26,6 @@ type StorageGarbageCollectorConfig struct {
 }
 
 // DefaultStorageGarbageCollectorConfig returns the default collector config.
-//
-// LookbackWindow is 0: extra history costs disk on every managed store at once, so it belongs at
-// the call site where that cost is visible rather than in a default.
 func DefaultStorageGarbageCollectorConfig() *StorageGarbageCollectorConfig {
 	return &StorageGarbageCollectorConfig{
 		RollbackWindow: 1_000,
@@ -57,16 +34,8 @@ func DefaultStorageGarbageCollectorConfig() *StorageGarbageCollectorConfig {
 	}
 }
 
-// Validate checks that required fields are set to usable values.
-//
-// The two windows are independent — RollbackWindow bounds each store's floor, LookbackWindow is
-// subtracted from the resulting minimum — so every combination is meaningful and neither is
-// constrained against the other. A lookback large enough to reach below genesis is not an error;
-// getHistoryCutLine saturates it to 0.
-//
-// LookbackWindow is a block count and so is bounded below by 0, except for -1, the infinite-retention
-// sentinel. Any other negative is a typo — most likely -1 miswritten — and is rejected rather than
-// silently read as a huge count once converted.
+// Validate checks that required fields are set to usable values. LookbackWindow must be >= 0, or -1
+// for infinite retention.
 func (c *StorageGarbageCollectorConfig) Validate() error {
 	if c == nil {
 		return fmt.Errorf("config is required")

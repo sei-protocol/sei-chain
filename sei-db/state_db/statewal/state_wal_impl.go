@@ -14,10 +14,8 @@ var _ StateWAL = (*stateWALImpl)(nil)
 // A WAL for storing state changesets by block number.
 //
 // Not safe for concurrent use; see the StateWAL interface doc. The gc.PrunableStore surface in
-// state_wal_gc.go is the one exception, and it is why lastCompletedBlock below is atomic: the
-// collector runs on its own goroutine, so it reads a head one atomic wide and otherwise touches
-// none of the plain fields here. It prunes by calling straight through to the WAL underneath,
-// which permits a concurrent PruneBefore (see seiwal.WAL).
+// state_wal_gc.go is the one exception: it runs on the collector's goroutine, and touches only
+// lastCompletedBlock and the WAL underneath.
 type stateWALImpl struct {
 	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
 	wal seiwal.WAL[[]*proto.NamedChangeSet]
@@ -49,10 +47,8 @@ type stateWALImpl struct {
 	// Distinct from currentBlock, which may name a block still accumulating in buf. Atomic because the
 	// garbage collector reads it off-goroutine (GetLatestBlock); the writer is its only mutator.
 	//
-	// 0 doubles as "no block completed yet", which is what GetLatestBlock reports. A WAL whose only
-	// completed block is block 0 is indistinguishable from an empty one, and that is the safe direction:
-	// GetRollbackFloor then answers 0, which holds the whole fleet's history where it is rather than
-	// letting anything be dropped against a head this WAL cannot vouch for.
+	// 0 also means no block has completed yet, so a WAL whose only completed block is block 0 is
+	// indistinguishable from an empty one.
 	lastCompletedBlock atomic.Uint64
 }
 

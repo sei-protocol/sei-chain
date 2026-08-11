@@ -44,30 +44,13 @@ type Config struct {
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its
-	// own snapshots (SnapshotKeepRecent) and stops truncating the state WAL, and answers
-	// gc.PrunableStore.ExternalPruning with this value so the collector takes both over.
+	// own snapshots (SnapshotKeepRecent) and stops truncating the state WAL.
 	//
-	// Like ReceiptStoreConfig.ExternalPruning this is not read from app.toml, and for the same
-	// reason: it is only correct when this store is registered with a running collector, which is
-	// a property of how the process was wired and not something an operator can assert. It is set
-	// by whatever constructs the collector. The stakes are higher here than on the receipt side —
-	// this one flag stands down two mechanisms, pruneSnapshots and tryTruncateWAL, so a stray key
-	// would leave both the snapshots and the state WAL with nothing bounding them, and the failure
-	// is silent in the expensive direction.
+	// Not read from app.toml. It is set by whatever constructs the collector, since it is only
+	// correct when this store is registered with a running one.
 	//
-	// Unlike the receipt path, which rejects pebble + ExternalPruning in newReceiptBackend, there
-	// is no equivalent check to make here: "a collector exists" is not knowable from this package.
-	// Keeping the field unreachable from config is what replaces that guard; the collector-exists
-	// check belongs wherever the collector is eventually constructed.
-	//
-	// It is one field rather than two so the count-based pruner and the collector can never both
-	// be enforcing retention — they would disagree, and SnapshotKeepRecent would win by deleting
-	// the snapshot the collector was holding for the rollback window.
-	//
-	// Retention changes shape when this is on, it does not merely move: snapshots are kept by
-	// height rather than by count, so how many exist becomes RollbackWindow / SnapshotInterval
-	// instead of SnapshotKeepRecent + 1. A deep rollback window with a short interval retains far
-	// more snapshots than the count-based default.
+	// With it on, snapshots are retained by height rather than by count, so the number kept becomes
+	// RollbackWindow / SnapshotInterval instead of SnapshotKeepRecent + 1.
 	//
 	// Default: false
 	ExternalPruning bool `mapstructure:"-"`

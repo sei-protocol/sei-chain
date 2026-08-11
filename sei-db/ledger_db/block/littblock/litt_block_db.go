@@ -14,18 +14,15 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// tableName is the single table holding blocks and QCs both, despite the name. They share one
-// table so a crash leaves a contiguous write-order prefix spanning both record kinds (see
-// NewBlockDB), which is what guarantees a persisted block is always covered by a persisted QC.
+// tableName is the single table holding blocks and QCs both, despite the name.
 //
-// This value is persisted layout, not just an identifier: littdb puts a table's data at
-// <root>/<tableName>/segments, so changing it makes NewBlockDB open a fresh empty table while the
-// old data sits untouched under the previous name — neither served nor reclaimed. refuseLegacyTable
-// turns that into a startup error rather than a store that looks healthy and empty.
+// It is persisted layout rather than just an identifier: littdb stores a table's data at
+// <root>/<tableName>/segments, so changing it makes NewBlockDB open a fresh empty table and leaves
+// data under the old name unreachable.
 const tableName = "blocks"
 
-// legacyTableName is what tableName was called before the rename. Nothing opens it; it exists only
-// so refuseLegacyTable can recognize a directory written before the rename.
+// legacyTableName is the name tableName had in earlier versions. Nothing opens it; refuseLegacyTable
+// only uses it to recognize a directory left behind by one of those versions.
 const legacyTableName = "ledger"
 
 var _ types.BlockDB = (*blockDB)(nil)
@@ -134,19 +131,11 @@ func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
 	return s, nil
 }
 
-// refuseLegacyTable fails the open when any root path holds a table directory under
-// legacyTableName. Such a directory is blocks and QCs that this process cannot reach: littdb
-// resolves a table to <root>/<tableName>/segments, so the data is neither served nor reclaimed, and
-// the store would otherwise present itself as healthy and empty. An empty store is indistinguishable
-// from a correct one until something asks for history that is no longer there, which makes it the
-// worst shape this failure could take.
+// refuseLegacyTable fails the open when any root path holds a table directory under legacyTableName,
+// which this process cannot reach and would otherwise leave the store looking healthy and empty. The
+// operator action is to delete the directory or move it aside.
 //
-// No deployment can reach this — nothing has ever run littblock with the old name persisted — so it
-// exists for dev, CI, and devnet homes written before the rename. The operator action is to delete
-// the directory (or move it aside); this check can be deleted once no such directory remains.
-//
-// A root that cannot be stat'd is refused for the same reason it is refused when the directory is
-// present: an unreadable root cannot rule out data hiding under the old name.
+// A root that cannot be stat'd is also refused, since it cannot rule out such a directory.
 func refuseLegacyTable(paths []string) error {
 	for _, root := range paths {
 		legacy := filepath.Join(root, legacyTableName)

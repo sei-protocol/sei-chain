@@ -18,22 +18,12 @@ type BlockDBConfig struct {
 
 	// RetentionTime is the failsafe minimum age before any pruned record may be
 	// reclaimed. Reclamation requires BOTH this age to elapse AND the prune
-	// watermark to advance past the record, so even an over-eager watermark
-	// cannot delete data younger than RetentionTime. Must be positive.
+	// watermark to advance past the record. Must be positive.
 	//
 	// It is an age floor, not a retention policy: how much history this store keeps
-	// is the RollbackWindow and LookbackWindow on
-	// gc.StorageGarbageCollectorConfig, which cover every managed store at once.
-	// Raising this only delays reclaiming what the watermark has already released,
-	// which costs disk and buys nothing those windows do not already express.
+	// is the RollbackWindow and LookbackWindow on gc.StorageGarbageCollectorConfig.
 	//
-	// The default is 1h (see DefaultConfig), matching the receipt store's flat TTL.
-	// This is a failsafe window, not the retention itself — the watermark is
-	// authoritative — so an hour is enough to notice and stop a runaway watermark
-	// before reclamation acts on it. BlockDB is not yet wired to a collector, so on
-	// the autobahn path (AutobahnBlockDBConfig starts from DefaultConfig) this only
-	// reclaims already-released records sooner than the previous 24h; the blast
-	// radius is dev/CI/devnet, where BlockDB currently runs.
+	// Default: 1h.
 	RetentionTime time.Duration
 }
 

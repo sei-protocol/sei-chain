@@ -49,34 +49,17 @@ import (
 // the most recent receipt bodies while the index still lists them — tolerable
 // for auxiliary, non-consensus RPC data, since reads return not-found for a
 // missing body. The tight interval is only affordable because litt flushes its
-// keymap asynchronously off the control loop. Retention: tag keys are pruned by
-// block range, reads enforce the retention floor, and receipt bodies are
-// reclaimed once they are both below that floor and older than litt's per-table
-// TTL (see gcFilter). Visible retention therefore never exceeds the floor, and
-// reclamation never runs ahead of it.
+// keymap asynchronously off the control loop.
 //
-// Retention has two possible drivers and exactly one runs at a time, selected by
-// cfg.ExternalPruning:
+// Retention: tag keys are pruned by block range, reads enforce the retention
+// floor, and receipt bodies are reclaimed once they are both below that floor and
+// older than litt's per-table TTL (see gcFilter).
 //
-//   - unset: the background pruner below keeps the last KeepRecent blocks. This
-//     is the standalone shape, and what a node not running a collector depends
-//     on.
+// Exactly one driver enforces that retention, selected by cfg.ExternalPruning:
+//
+//   - unset: the background pruner below keeps the last KeepRecent blocks.
 //   - set: the StorageGarbageCollector prunes through the gc.PrunableStore
 //     implementation in litt_receipt_gc.go, and startPruning stands down.
-//
-// Both at once would be actively wrong rather than merely redundant: KeepRecent
-// sees neither the shared rollback window nor the other stores' floors, so the
-// local pruner would delete the rollback headroom the collector exists to
-// preserve. Neither at once is the other failure, and the worse one to debug —
-// the floor stops advancing and the store grows without bound. runsLocalPruner
-// therefore asks ExternalPruning rather than reading the field itself, so the
-// collector's view of who prunes this store and the store's own view stay one
-// fact.
-//
-// KeepRecent is only the local pruner's window. Under the collector it is ignored:
-// how deep to keep is the shared RollbackWindow + LookbackWindow, not this per-store
-// setting. Either way it does not reach litt's TTL, a flat age floor (littRetentionTime)
-// — how much history is kept is the floor's business, and only gcFilter releases a body.
 type littReceiptStore struct {
 	values   litt.DB
 	receipts litt.Table
@@ -112,17 +95,10 @@ const (
 	// control loop; without that, a per-block flush regresses write throughput
 	// badly (≈-48% observed before the async keymap landed).
 	littFlushInterval = 5 * time.Millisecond
-	// littRetentionTime is the failsafe minimum age before a receipt body may be
-	// reclaimed, litt's per-table TTL. It is the same role BlockDBConfig.RetentionTime
-	// plays, and is deliberately a flat duration rather than a function of any block
-	// count: how much history this store keeps is decided by the retention floor, and
-	// gcFilter will not release a body until the floor has passed it.
-	//
-	// It was previously KeepRecent × 2s, which made the TTL a second, disagreeing
-	// answer to a question the floor already answers — and one that came out short
-	// under ExternalPruning, where the enforced retention is RollbackWindow +
-	// LookbackWindow. An age floor cannot be wrong that way, because it does not claim
-	// to know how many blocks anything is.
+	// littRetentionTime is litt's per-table TTL: the failsafe minimum age before a
+	// receipt body may be reclaimed. It is a flat duration rather than a function of
+	// any block count, since how much history this store keeps is decided by the
+	// retention floor that gcFilter enforces.
 	littRetentionTime = time.Hour
 
 	littPartCountLen = 4
@@ -137,23 +113,12 @@ func littPartKey(blockNumber uint64, part uint32) []byte {
 	return key
 }
 
-// gcFilter makes the retention floor a precondition for reclaiming a receipt body, so litt's TTL
-// can only ever reclaim what the floor has already released.
+// gcFilter reports whether litt may reclaim key, making the retention floor a precondition so the
+// per-table TTL can only ever reclaim what the floor has already released.
 //
-// Without it the TTL is the sole reclaimer (a nil filter leaves TTL as the only condition). Under
-// ExternalPruning the collector holds the floor at RollbackWindow + LookbackWindow blocks back, so
-// a TTL sized to any block count could expire bodies the floor still calls live, and a read inside
-// the rollback window would return not-found. That is the cross-store guarantee the collector exists
-// to provide, so the two are joined here rather than kept in agreement by arithmetic: what reads
-// enforce and what GC reclaims are now the same fact, whatever the block time or the window.
-//
-// Only primary part keys gate. Tx-hash secondaries alias a body in their own segment, so the
-// body's part key is what holds the segment back — the same division littblock draws between its
-// number keys and its header-hash aliases.
-//
-// A floor of 0 blocks everything: it means no floor has been established (nothing pruned yet, or
-// the index has not been read), and refusing to reclaim is the recoverable direction. Monotonic as
-// the filter contract requires, because the floor only ever advances.
+// Only primary part keys gate; tx-hash secondaries alias a body in their own segment, so the body's
+// part key is what holds that segment back. A floor of 0 means none has been established yet and
+// blocks everything.
 func (s *littReceiptStore) gcFilter(key []byte, isPrimaryKey bool) (bool, error) {
 	if !isPrimaryKey {
 		return true, nil
@@ -197,9 +162,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		logFilterParallelism = dbconfig.DefaultReceiptLogFilterParallelism
 	}
 
-	// The store is built before its table because the table's GC filter is a method on it. Until
-	// the floor is loaded from the index below, gcFilter reads 0 and blocks reclamation, which is
-	// the safe direction for a filter that does not yet know its floor.
+	// Built before its table, because the table's GC filter is a method on it.
 	s := &littReceiptStore{
 		values:               values,
 		storeKey:             storeKey,
@@ -219,9 +182,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		return nil, fmt.Errorf("failed to open littdb receipts table: %w", err)
 	}
 	s.receipts = receipts
-	// Set unconditionally, including when nothing prunes this store. A TTL is necessary for litt to
-	// collect at all but no longer sufficient, so on a store whose floor never advances gcFilter
-	// refuses every key and nothing is reclaimed regardless of age.
+	// A TTL is necessary for litt to collect at all, and gcFilter makes it insufficient on its own.
 	if err := receipts.SetTTL(littRetentionTime); err != nil {
 		_ = values.Close()
 		return nil, fmt.Errorf("failed to set littdb ttl: %w", err)
@@ -468,22 +429,14 @@ func (s *littReceiptStore) Close() error {
 	return err
 }
 
-// runsLocalPruner reports whether this store drives its own retention. Split out
-// from startPruning because it is the whole of the decision and none of the
-// timing: a test can enumerate it in full without waiting on a jittered ticker,
-// which is what a silently-not-started pruner needs to be caught by.
-//
-// Asks ExternalPruning rather than reading the field behind it, so the
-// collector's view of who prunes this store and the store's own view are the
-// same read and cannot drift apart.
+// runsLocalPruner reports whether this store drives its own retention, which requires that the
+// collector is not driving it and that both KeepRecent and PruneIntervalSeconds are set.
 func (s *littReceiptStore) runsLocalPruner() bool {
 	return !s.ExternalPruning() && s.keepRecent > 0 && s.pruneInterval > 0
 }
 
-// startPruning runs the local retention pruner, which keeps the last keepRecent
-// blocks. It is the store's own driver, and stands down entirely under
-// externalPruning so it can never race the collector to a different floor — see
-// the type doc for why both running is worse than either.
+// startPruning starts the local retention pruner, which keeps the last keepRecent blocks. It does
+// nothing unless runsLocalPruner reports true.
 func (s *littReceiptStore) startPruning() {
 	if !s.runsLocalPruner() {
 		return
@@ -511,28 +464,16 @@ func (s *littReceiptStore) startPruning() {
 	}()
 }
 
-// pruneBlocksBelow deletes the tag entries in [earliest, cutoff) and advances
-// the retention floor. Receipt bodies are not deleted here: advancing the floor
-// is what releases them to litt's GC, which reclaims a segment once every body
-// in it is below the floor and past the TTL (see gcFilter). The read-time floor
-// keeps them invisible in the meantime.
+// pruneBlocksBelow deletes the tag entries in [earliest, cutoff) and advances the retention floor.
+// Receipt bodies are released to litt's GC rather than deleted here (see gcFilter), and the read-time
+// floor keeps them invisible in the meantime.
 //
-// Shared by both retention drivers: startPruning above, and the collector via
-// PruneBelow. Exactly one of them is live — see the type doc.
-//
-// cutoff may sit above this store's head, because the collector's PruneBelow
-// carries a minimum taken across every managed store and this one can lag or be
-// empty. Such a request is capped at the head rather than honored: taking it
-// literally would drop every tag entry the store holds and leave the floor above
-// anything it could serve. The collector's own head minimum makes that request
-// unlikely, but that is a property of the caller, and the floor here should not
-// depend on reasoning about one.
+// It is shared by both retention drivers, startPruning and the collector's PruneHistory. A cutoff
+// above this store's head is capped at the head rather than honored.
 func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 	head := s.latestVersion.Load()
 	if head <= 0 {
-		// Nothing ingested, so nothing to drop, and a floor above an empty store
-		// would only have to be walked back when blocks finally arrive.
-		return nil
+		return nil // nothing ingested, so nothing to drop
 	}
 	if cutoff > uint64(head) { //nolint:gosec // guarded positive above
 		cutoff = uint64(head)

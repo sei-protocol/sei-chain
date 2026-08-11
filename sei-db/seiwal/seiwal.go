@@ -65,16 +65,10 @@ type WAL[T any] interface {
 	// sealed files only, so records may survive above the requested threshold until their containing file
 	// is fully below it.
 	//
-	// Most methods here belong to the WAL's owner. PruneBefore does not: it may be called from another
-	// goroutine, concurrently with any method including Append and Close, and implementations must
-	// support that without external serialization. Retention is driven by a garbage collector on its own
-	// goroutine, and requiring it to take the writer's turn would mean either blocking the writer or
-	// deferring the prune until the writer next runs — the latter stalling reclamation indefinitely on a
-	// WAL that has stopped receiving appends.
-	//
-	// Concurrent calls are unordered with respect to appends: whether a record appended around the same
-	// instant is pruned is unspecified. This costs nothing, because which records a prune actually
-	// reclaims is already approximate — it drops whole sealed files, and may defer the work arbitrarily.
+	// Unlike the other methods here, PruneBefore may be called from another goroutine, concurrently
+	// with any method including Append and Close, and implementations must support that without
+	// external serialization. Such a call is unordered with respect to appends: whether a record
+	// appended around the same instant is pruned is unspecified.
 	PruneBefore(lowestIndexToKeep uint64) error
 
 	// Iterator returns an iterator over the WAL across the inclusive index range [startIndex, endIndex].
