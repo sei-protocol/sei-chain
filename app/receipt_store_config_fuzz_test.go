@@ -50,7 +50,16 @@ import (
 // littTTLPerBlock overflows to a negative Duration, and a TTL at or below zero is treated as no
 // expiry (gc_manager.go:273). That is an accident of the multiplier's value, not a guard, and a
 // different multiplier could wrap the product to a small positive TTL that prunes on a schedule
-// nobody chose. This file records the accident rather than resting on it.
+// nobody chose.
+//
+// Nothing in this suite pins that overflow, and the two routes are therefore not covered equally.
+// The first is pinned here, because a receipt side at or below zero is what the assertion below
+// accepts and the guard is a property of the reader this file drives. The second is not: the multiply
+// happens in sei-db against an unexported multiplier, so a change there that landed the product small
+// and positive would prune receipts on arm64 with this file still green. That is the same shape of gap
+// this file discloses for root.go:297, and it is stated for the same reason. Closing it needs sei-db
+// to export the multiplier or a helper that returns the TTL for a given KeepRecent; pinning a copy of
+// the constant against another copy, which is what this file did before, checked nothing.
 //
 // Recorded rather than repaired. Making the two casts one would change what a node retains for any
 // operator currently relying on the out-of-range behaviour, which is the kind of change this suite
@@ -111,10 +120,14 @@ var minRetainBlocksFanOut = []struct {
 // value an operator set for block retention silently pruning EVM receipts.
 //
 // One class of row is exempt from that and the exemption is the finding, not a loophole. A float at or
-// above 2^63 makes cast.ToInt saturate to MaxInt64, so the receipt side is positive and the TTL branch
-// is entered. Receipts survive because the TTL multiply overflows negative and a non-positive TTL is
-// treated as no expiry, which is an accident rather than a guard. Those rows are held to saturating
-// exactly, since a value that stopped saturating and stayed positive but small would prune.
+// above 2^63 makes cast.ToInt saturate, and on the architectures the fleet ships that is either a
+// negative value the guard refuses or MaxInt64, which is positive and enters the TTL branch. Those
+// rows are held to being one of those two and nothing else, so a cast that started yielding a small
+// positive window fails here.
+//
+// What happens after MaxInt64 enters the TTL branch is out of this layer's reach and is not asserted
+// anywhere: see the header. This test says the config layer resolves to one of two values, not that
+// both are safe downstream.
 func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testing.T) {
 	for _, row := range minRetainBlocksFanOut {
 		t.Run(fmt.Sprintf("%v(%T)", row.raw, row.raw), func(t *testing.T) {
@@ -133,8 +146,9 @@ func TestMinRetainBlocksFanOutNeverPrunesReceiptsWhereTheCastsDisagree(t *testin
 					t.Errorf("min-retain-blocks=%v resolved the receipt store's KeepRecent to %d. Go "+
 						"leaves this conversion implementation-defined, so the two outcomes this suite "+
 						"accepts are at-or-below zero, which the KeepRecent>0 guard refuses, and MaxInt64, "+
-						"whose TTL multiply overflows non-positive. A positive window that is neither is a "+
-						"real retention schedule an operator never set", row.raw, kr)
+						"which sei-db is relied on to render harmless by overflow and which nothing here "+
+						"pins. A positive window that is neither is a real retention schedule an operator "+
+						"never set", row.raw, kr)
 				}
 			} else if receiptConfig.KeepRecent != row.receipt {
 				t.Errorf("min-retain-blocks=%v resolves the receipt store's KeepRecent to %d where this "+
