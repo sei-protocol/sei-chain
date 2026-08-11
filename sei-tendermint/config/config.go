@@ -727,9 +727,11 @@ type P2PConfig struct {
 	// How often node should accept a new inbound connection. This paces the
 	// accept loop only. The number of connections being handshaked concurrently
 	// is bounded separately by RouterOptions.MaxConcurrentAccepts, which node
-	// setup derives from max-connections minus the outbound reservation, and the
-	// per-source attempt rate by max-incoming-connection-attempts. A value of 0
-	// disables the limiter.
+	// setup derives from max-connections minus the outbound reservation.
+	// max-incoming-connection-attempts caps concurrent connections per source IP
+	// (with a re-connect delay applied only once a source drops back to zero);
+	// note its default exceeds the inbound pool, so it does not bound a single
+	// source below that pool. A value of 0 disables the limiter.
 	AcceptInterval time.Duration `mapstructure:"accept-interval"`
 
 	// Testing params.

@@ -348,8 +348,9 @@ dial-timeout = "{{ .P2P.DialTimeout }}"
 
 # How often the node accepts a new inbound connection. This paces the accept
 # loop only: concurrent handshakes are capped at max-connections minus the
-# outbound reservation, and the per-source attempt rate by
-# max-incoming-connection-attempts. A larger interval paces the loop more slowly;
+# outbound reservation. max-incoming-connection-attempts caps concurrent
+# connections per source IP, and its default exceeds that inbound pool, so it
+# does not bound a single source below it. A larger interval paces the loop more slowly;
 # if the kernel accept backlog outpaces it, arriving peers wait past
 # handshake-timeout and the node silently stops acquiring inbound peers.
 # A value of 0 disables the limiter.

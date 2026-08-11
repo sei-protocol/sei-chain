@@ -107,7 +107,7 @@ func checkConfig(t *testing.T, configFile string) {
 
 	// dial-interval remains an expert-only knob, left out of the generated
 	// template while still being parsed from existing config files.
-	// See TestHiddenP2PKnobsStillParseFromExistingConfig.
+	// See TestP2PPacingKnobsParseFromExistingConfig.
 	var hiddenP2PElems = []string{
 		"dial-interval",
 	}

@@ -13,15 +13,15 @@ import (
 	tmconfig "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 )
 
-// This test (and TestFreshP2PConfigKeepsDefaultPacing) mutate the global viper
-// singleton via commands.ParseConfig, so they must not run in parallel with
-// other tests in this package.
+// This test (and TestP2PConfigPredatingPacingKnobsKeepsDefaults) mutate the
+// global viper singleton via commands.ParseConfig, so they must not run in
+// parallel with other tests in this package.
 
-// The p2p pacing knobs are deliberately absent from the generated template
-// (see checkConfig in toml_test.go), so nothing else proves an operator can
-// actually set them. Without this, "not in the template" and "not readable"
-// are indistinguishable.
-func TestHiddenP2PKnobsStillParseFromExistingConfig(t *testing.T) {
+// accept-interval is rendered in the template, but dial-interval is not (see
+// checkConfig in toml_test.go), so for that key "absent from the template" and
+// "not readable at all" would otherwise be indistinguishable. Cover both, since
+// an operator sets them the same way.
+func TestP2PPacingKnobsParseFromExistingConfig(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
@@ -44,13 +44,13 @@ accept-interval = "20ms"
 	require.NoError(t, cfg.P2P.ValidateBasic())
 }
 
-// TestFreshP2PConfigKeepsDefaultPacing mirrors the freshly-rendered template
-// (no pacing knobs in the file) and verifies ParseConfig still produces the
-// defaults. Both directions matter: a zeroed AcceptInterval means
-// rate.Every(0) == rate.Inf, i.e. no accept pacing at all, while a value large
-// enough to matter throttles the accept loop below the rate at which peers
-// arrive. Neither is visible in the rendered config, so pin it here.
-func TestFreshP2PConfigKeepsDefaultPacing(t *testing.T) {
+// TestP2PConfigPredatingPacingKnobsKeepsDefaults mirrors a config.toml written
+// before these keys existed — the case every already-deployed node is in, since
+// seid does not rewrite an existing config.toml — and verifies ParseConfig still
+// produces the defaults. The failure it guards is silent: a zeroed AcceptInterval
+// means rate.Every(0) == rate.Inf, disabling accept pacing entirely, and an
+// absent key must not land there.
+func TestP2PConfigPredatingPacingKnobsKeepsDefaults(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 

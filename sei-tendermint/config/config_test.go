@@ -231,6 +231,7 @@ func TestP2PConfigValidateBasic(t *testing.T) {
 		"MaxPacketMsgPayloadSize",
 		"SendRate",
 		"RecvRate",
+		"DialInterval",
 		"AcceptInterval",
 	}
 
