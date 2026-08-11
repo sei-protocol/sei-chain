@@ -164,7 +164,7 @@ func TestStartFlagKeyNamesMatchTheRecordedNames(t *testing.T) {
 // than as an operator-facing flag having moved. This says the latter, and it removes the record's
 // dependence on some other test happening to set all three.
 func TestStartFlagNamesAreRegistered(t *testing.T) {
-	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
+	cmd := startCmdForFlagLookup()
 	for _, name := range startFlagKeysWithTargetsOfTheirOwn {
 		if cmd.Flags().Lookup(string(name)) == nil {
 			t.Errorf("start no longer registers a flag named %q, so an operator's --%s stops being "+
@@ -214,6 +214,13 @@ func TestMain(m *testing.M) {
 // The returned cancel belongs to the command's own context. runEBounded uses it to ask a
 // node to stop on the path where RunE got further than the row expects; other callers
 // never reach that path and just let cleanup fire it.
+// startCmdForFlagLookup builds the start command purely to read its flag set. It takes no app creator
+// and a placeholder home because nothing here runs, and it exists so the two tests that only look a
+// flag up do not each carry their own copy of those two arguments.
+func startCmdForFlagLookup() *cobra.Command {
+	return server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
+}
+
 func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]string) (*cobra.Command, *server.Context, context.CancelFunc) {
 	t.Helper()
 

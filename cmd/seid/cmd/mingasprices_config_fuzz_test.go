@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cast"
 	"github.com/spf13/viper"
-	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
@@ -112,7 +111,7 @@ func FuzzMinGasPricesLiveReaderTakesCommasAndRejectsSemicolons(f *testing.F) {
 // TestMinGasPricesFlagHelpShowsASeparatorTheLiveReaderPanicsOn reads the help text off the real
 // command rather than a copy of it, so correcting either side lands in a diff.
 func TestMinGasPricesFlagHelpShowsASeparatorTheLiveReaderPanicsOn(t *testing.T) {
-	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
+	cmd := startCmdForFlagLookup()
 	flag := cmd.Flags().Lookup(server.FlagMinGasPrices)
 	if flag == nil {
 		t.Fatalf("start no longer registers %s, so root.go:296 reads a key with no flag behind it "+

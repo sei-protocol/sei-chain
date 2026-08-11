@@ -54,10 +54,13 @@ func newAppViper(t testing.TB, keys map[string]any) *viper.Viper {
 	return v
 }
 
-// callerSupplies reports whether the caller already passed a key, compared the way viper compares it.
+// callerSupplies reports whether the caller already passed a key, normalized the way viper normalizes
+// it. That is strings.ToLower and not EqualFold: EqualFold is Unicode case folding, which relates pairs
+// viper's lowercasing does not, and the two sibling scans in this file already use ToLower. Contrived
+// for ASCII configuration keys, but one relation modelled three ways is how the three drift apart.
 func callerSupplies(keys map[string]any, key string) bool {
 	for k := range keys {
-		if strings.EqualFold(k, key) {
+		if strings.ToLower(k) == strings.ToLower(key) {
 			return true
 		}
 	}
