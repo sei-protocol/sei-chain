@@ -346,14 +346,10 @@ allow-duplicate-ip = {{ .P2P.AllowDuplicateIP }}
 handshake-timeout = "{{ .P2P.HandshakeTimeout }}"
 dial-timeout = "{{ .P2P.DialTimeout }}"
 
-# How often the node accepts a new inbound connection. This paces the accept
-# loop only: concurrent handshakes are capped at max-connections minus the
-# outbound reservation. max-incoming-connection-attempts caps concurrent
-# connections per source IP, and its default exceeds that inbound pool, so it
-# does not bound a single source below it. A larger interval paces the loop more slowly;
-# if the kernel accept backlog outpaces it, arriving peers wait past
-# handshake-timeout and the node silently stops acquiring inbound peers.
-# A value of 0 disables the limiter.
+# How often the node accepts a new inbound connection. A larger interval paces
+# the accept loop more slowly; if the kernel accept backlog outpaces it, arriving
+# peers wait past handshake-timeout and the node silently stops acquiring inbound
+# peers. A value of 0 disables the limiter.
 accept-interval = "{{ .P2P.AcceptInterval }}"
 
 # Time to wait before flushing messages out on the connection

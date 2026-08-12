@@ -69,7 +69,7 @@ type RouterOptions struct {
 	MaxDialRate utils.Option[rate.Limit]
 
 	// MaxAcceptRate limits the rate at which router is accepting TCP connections.
-	// Defaults to rate.Every(DefaultAcceptInterval).
+	// Defaults to 100/s.
 	MaxAcceptRate utils.Option[rate.Limit]
 
 	// ResolveTimeout is the timeout for resolving NodeAddress URLs.
@@ -165,13 +165,8 @@ func (o *RouterOptions) maxDialRate() rate.Limit {
 	return o.MaxDialRate.Or(rate.Every(10 * time.Second))
 }
 
-// DefaultAcceptInterval is the interval between inbound connection accepts when
-// MaxAcceptRate is unset, i.e. 100 accepts/s. config.DefaultP2PConfig sets
-// accept-interval from it.
-const DefaultAcceptInterval = 10 * time.Millisecond
-
 func (o *RouterOptions) maxAcceptRate() rate.Limit {
-	return o.MaxAcceptRate.Or(rate.Every(DefaultAcceptInterval))
+	return o.MaxAcceptRate.Or(rate.Every(10 * time.Millisecond))
 }
 
 func (o *RouterOptions) incomingConnectionWindow() time.Duration {

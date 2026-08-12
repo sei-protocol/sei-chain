@@ -348,11 +348,8 @@ func TestPreparePersistentStateDir_EmptyStringIsNone(t *testing.T) {
 	require.False(t, ok, "Some(\"\") must be cleared to None for in-memory mode")
 }
 
-// This PR's own diagnosis is that a 1/s production accept rate survived because
-// every RouterOptions construction site except this one substitutes rate.Inf,
-// so nothing exercised the real wiring. Assert the derivation directly: a field
-// dropped here, or wired to the wrong config key, falls back to a package
-// default silently rather than failing.
+// Every other RouterOptions construction site substitutes rate.Inf, so this
+// derivation is the only place the production accept rate is exercised.
 func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 	ep, err := p2p.ResolveEndpoint("tcp://0000000000000000000000000000000000000000@127.0.0.1:26656")
 	require.NoError(t, err)
@@ -361,18 +358,22 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 		cfg := config.DefaultConfig()
 		opts := p2pRouterOptions(cfg, ep, nil)
 
-		// Sentinel differs from every plausible real value, so .Or() returning it
-		// means the field was never set.
-		const unset = rate.Limit(-1)
-		require.Equal(t, rate.Every(cfg.P2P.AcceptInterval), opts.MaxAcceptRate.Or(unset))
-		require.Equal(t, rate.Every(cfg.P2P.DialInterval), opts.MaxDialRate.Or(unset))
+		require.Equal(t, utils.Some(rate.Every(cfg.P2P.AcceptInterval)), opts.MaxAcceptRate)
+		require.Equal(t, utils.Some(rate.Every(cfg.P2P.DialInterval)), opts.MaxDialRate)
+	})
+
+	t.Run("zero interval disables the limiter", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.P2P.AcceptInterval = 0
+		opts := p2pRouterOptions(cfg, ep, nil)
+		require.Equal(t, utils.Some(rate.Inf), opts.MaxAcceptRate)
 	})
 
 	t.Run("operator value flows through", func(t *testing.T) {
 		cfg := config.DefaultConfig()
 		cfg.P2P.AcceptInterval = 250 * time.Millisecond
 		opts := p2pRouterOptions(cfg, ep, nil)
-		require.Equal(t, rate.Every(250*time.Millisecond), opts.MaxAcceptRate.Or(rate.Limit(-1)))
+		require.Equal(t, utils.Some(rate.Every(250*time.Millisecond)), opts.MaxAcceptRate)
 	})
 
 	// Non-default totals, so the assertions track the derivation rather than
@@ -389,10 +390,10 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 			cfg.P2P.MaxConnections = uint(tc.maxConns)
 			opts := p2pRouterOptions(cfg, ep, nil)
 
-			require.Equal(t, tc.wantInbound, opts.MaxInbound.Or(-1))
-			require.Equal(t, tc.wantOutbound, opts.MaxOutbound.Or(-1))
+			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxInbound)
+			require.Equal(t, utils.Some(tc.wantOutbound), opts.MaxOutbound)
 			// MaxConcurrentAccepts tracks the inbound pool, not max-connections.
-			require.Equal(t, tc.wantInbound, opts.MaxConcurrentAccepts.Or(-1))
+			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxConcurrentAccepts)
 		})
 	}
 }

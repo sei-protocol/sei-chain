@@ -12,7 +12,6 @@ import (
 	"time"
 
 	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -729,7 +728,7 @@ type P2PConfig struct {
 	DialInterval time.Duration `mapstructure:"dial-interval"`
 
 	// How often node should accept a new inbound connection. A value of 0 disables
-	// the limiter. Defaults to p2p.DefaultAcceptInterval.
+	// the limiter.
 	AcceptInterval time.Duration `mapstructure:"accept-interval"`
 
 	// Testing params.
@@ -762,7 +761,7 @@ func DefaultP2PConfig() *P2PConfig {
 		HandshakeTimeout:              10 * time.Second,
 		DialTimeout:                   3 * time.Second,
 		DialInterval:                  10 * time.Second,
-		AcceptInterval:                p2p.DefaultAcceptInterval,
+		AcceptInterval:                10 * time.Millisecond,
 		TestDialFail:                  false,
 		QueueType:                     "simple-priority",
 	}
