@@ -93,14 +93,14 @@ func RecordBankNewAccount(ctx context.Context) {
 		}
 	}()
 	// TODO(PLT-353): remove once bank_new_account verified
-	SafeTelemetryIncrCounter(1, "new", "account")
+	telemetry.IncrCounter(1, "new", "account")
 	bankNewAccountCounter.Add(ctx, 1)
 }
 
 func SafeTelemetryIncrCounter(val float32, keys ...string) {
 	defer func() {
 		if e := recover(); e != nil {
-			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
+			debug.PrintStack()
 			return
 		}
 	}()
@@ -110,7 +110,7 @@ func SafeTelemetryIncrCounter(val float32, keys ...string) {
 func SafeTelemetryIncrCounterWithLabels(keys []string, val float32, labels []metrics.Label) {
 	defer func() {
 		if e := recover(); e != nil {
-			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
+			debug.PrintStack()
 			return
 		}
 	}()
@@ -120,7 +120,7 @@ func SafeTelemetryIncrCounterWithLabels(keys []string, val float32, labels []met
 func SafeMetricsIncrCounterWithLabels(keys []string, val float32, labels []metrics.Label) {
 	defer func() {
 		if e := recover(); e != nil {
-			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
+			debug.PrintStack()
 			return
 		}
 	}()

@@ -6,10 +6,9 @@ import (
 	"os"
 	"runtime/debug"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
-
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 )
 
 // BankNewAccount* must stay byte-identical to the same consts in
@@ -59,13 +58,6 @@ func recordNewAccounts(ctx context.Context, count int64) {
 		}
 	}()
 	// TODO(PLT-353): remove once bank_new_account verified
-	func() {
-		defer func() {
-			if e := recover(); e != nil {
-				fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
-			}
-		}()
-		telemetry.IncrCounter(float32(count), "new", "account")
-	}()
+	telemetry.IncrCounter(float32(count), "new", "account")
 	bankMetrics.newAccount.Add(ctx, count)
 }

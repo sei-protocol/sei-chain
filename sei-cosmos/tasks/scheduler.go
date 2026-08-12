@@ -274,24 +274,10 @@ func (s *scheduler) emitMetrics(ctx context.Context) {
 		}
 	}()
 	// TODO(PLT-353): remove once scheduler_retries verified
-	func() {
-		defer func() {
-			if e := recover(); e != nil {
-				fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
-			}
-		}()
-		telemetry.IncrCounter(float32(s.metrics.retries), "scheduler", "retries")
-	}()
+	telemetry.IncrCounter(float32(s.metrics.retries), "scheduler", "retries")
 	taskMetrics.retries.Add(ctx, int64(s.metrics.retries))
 	// TODO(PLT-353): remove once scheduler_incarnations verified
-	func() {
-		defer func() {
-			if e := recover(); e != nil {
-				fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
-			}
-		}()
-		telemetry.IncrCounter(float32(s.metrics.maxIncarnation), "scheduler", "incarnations")
-	}()
+	telemetry.IncrCounter(float32(s.metrics.maxIncarnation), "scheduler", "incarnations")
 	taskMetrics.incarnations.Add(ctx, int64(s.metrics.maxIncarnation))
 }
 
