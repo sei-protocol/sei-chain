@@ -46,16 +46,7 @@ func TestSelect(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-
-			// Select decorates whichever manager it picks, so the dispatch assertion is on the
-			// wrapped implementation. The wrapper is what carries the experimental report to every
-			// manager, including one added later, so unwrapping here rather than dropping the
-			// decoration is deliberate: a test that accepted a bare manager would pass for a Select
-			// that had stopped reporting.
-			wrapper, ok := mgr.(reportingManager)
-			require.True(t, ok, "Select returned %T rather than a decorated manager; the experimental "+
-				"report would then depend on each manager remembering to call it", mgr)
-			require.IsType(t, tc.want, wrapper.inner)
+			require.IsType(t, tc.want, mgr)
 		})
 	}
 }

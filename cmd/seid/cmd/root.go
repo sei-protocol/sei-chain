@@ -108,7 +108,21 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 			if err != nil {
 				return err
 			}
-			return mgr.Apply(cmd, customAppTemplate, customAppConfig)
+			if err := mgr.Apply(cmd, customAppTemplate, customAppConfig); err != nil {
+				return err
+			}
+			// The sweep runs here rather than inside either Apply, and that placement is the whole
+			// reason it covers both managers without either one knowing about it. The keys only
+			// exist after Apply, because app.toml merges into the server viper as the last step of
+			// the handler, and one call outside both bodies keeps LegacyConfigManager.Apply a pure
+			// forward and Apply's signature a one-way door nobody widened.
+			//
+			// Gated by command path, so a node with no experimental keys is byte-identical on every
+			// command and one that has them gets output only where an application is built.
+			if configmanager.SweepsExperimental(cmd) {
+				configmanager.ReportExperimental(cmd)
+			}
+			return nil
 		},
 	}
 

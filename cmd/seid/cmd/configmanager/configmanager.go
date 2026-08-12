@@ -3,7 +3,6 @@ package configmanager
 import (
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path"
@@ -16,7 +15,6 @@ import (
 	seiconfig "github.com/sei-protocol/sei-config"
 	"github.com/sei-protocol/seilog"
 
-	"github.com/sei-protocol/sei-chain/config/experimental"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 )
@@ -317,146 +315,10 @@ func resolveHomeDir(cmd *cobra.Command) (string, error) {
 func Select(getenv func(string) string) (ConfigManager, error) {
 	switch v := getenv(EnvVar); v {
 	case "", "legacy":
-		return reportingManager{inner: LegacyConfigManager{}}, nil
+		return LegacyConfigManager{}, nil
 	case "v2":
-		return reportingManager{inner: SeiConfigManager{}}, nil
+		return SeiConfigManager{}, nil
 	default:
 		return nil, fmt.Errorf("invalid %s=%q (want unset, \"legacy\", or \"v2\")", EnvVar, v)
 	}
-}
-
-// reportingManager forwards to a manager and then reports experimental findings.
-//
-// It wraps rather than each manager calling the reporter, because Select is the one function
-// every production path passes through. A manager added later is covered without anyone
-// remembering, which a call in each Apply could not promise.
-//
-// The report runs after the forward, which is why it cannot live in Select's own body: the
-// findings describe a source the handler has to populate first.
-type reportingManager struct {
-	inner ConfigManager
-	// out overrides where findings are written, for tests. A nil one means the command's own
-	// error stream.
-	out io.Writer
-}
-
-// Apply forwards to the wrapped manager, then reports experimental findings.
-//
-// The wrapped manager's error is returned unchanged, so nothing here can refuse a boot the
-// manager would have allowed.
-func (m reportingManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
-	err := m.inner.Apply(cmd, customAppConfigTemplate, customAppConfig)
-	reportExperimental(m.writer(cmd), cmd)
-	return err
-}
-
-// writer returns where findings go, and never returns nil.
-//
-// Findings go to the command's error stream rather than through seilog, and that is deliberate
-// on two counts. seilog writes to stdout, so an advisory line there corrupts the output of any
-// command a caller pipes, and Apply runs for every seid subcommand rather than only the ones
-// that boot a node. And seilog's level comes from the node's resolved log_level, which would
-// suppress the advisory on exactly the nodes whose operator set log_level = "error".
-func (m reportingManager) writer(cmd *cobra.Command) io.Writer {
-	if m.out != nil {
-		return m.out
-	}
-	if cmd == nil {
-		return io.Discard
-	}
-	return cmd.ErrOrStderr()
-}
-
-// maxReportedKeys bounds the key list rendered in one advisory line, for the same reason
-// maxLoggedDiagnostics bounds the other reporter in this file: a rollback can make a whole
-// feature's key set undeclared at once, and the count is what an operator acts on.
-const maxReportedKeys = 10
-
-// maxEchoedValue bounds how much of an operator's value an advisory repeats. A configuration
-// file holds tokens and passphrases, and an unbounded echo puts one into a log line at error
-// level. A prefix names the problem as well as the whole value does.
-const maxEchoedValue = 64
-
-// reportExperimental writes what an operator wrote under [experimental] that this binary cannot
-// use, containing a panic from the reporting itself.
-//
-// Nothing here halts. An undeclared key is reported and left in place, because a configuration
-// written for the next release has to stay bootable on this one and deleting the key would lose
-// a value a rollback needs. A declared key whose value does not convert is reported with the
-// value now in effect, which is what makes Handle.Get's fall back to a default a reported
-// substitution rather than a silent one.
-func reportExperimental(w io.Writer, cmd *cobra.Command) {
-	defer func() {
-		if r := recover(); r != nil {
-			// A second panic, from reporting the first, must not escape.
-			defer func() { _ = recover() }()
-			_, _ = fmt.Fprintf(w, "experimental config reporting panicked (advisory; node will boot): %v\n%s\n",
-				r, debug.Stack())
-		}
-	}()
-
-	src := experimentalSource(cmd)
-	if src == nil {
-		// Reported rather than silent, so an operator can tell a pass that declined from a pass
-		// that ran and found nothing. The sibling reporter in this file makes the same
-		// distinction for the same reason.
-		_, _ = fmt.Fprintln(w, "experimental config check skipped: no configuration source resolved")
-		return
-	}
-
-	findings := experimental.Check(src)
-	if len(findings) == 0 {
-		return
-	}
-	if undeclared := experimental.Undeclared(findings); len(undeclared) > 0 {
-		shown, omitted := capStrings(undeclared, maxReportedKeys)
-		_, _ = fmt.Fprintf(w, "experimental config keys this binary does not declare "+
-			"(left in place; node will boot): count=%d omitted=%d keys=%v\n",
-			len(undeclared), omitted, shown)
-	}
-	for _, f := range experimental.Invalid(findings) {
-		_, _ = fmt.Fprintf(w, "experimental config value does not match its declared type "+
-			"(key=%s owner=%s declared_type=%s in_effect=default): %s\n",
-			f.Path, f.Owner, f.Kind, truncate(f.Err.Error(), maxEchoedValue))
-	}
-}
-
-// capStrings splits a list into the part to render and the number left out. Separate from its
-// caller so the arithmetic can be asserted directly, since an inverted omitted count is not
-// visible in a line anyone reads.
-func capStrings(all []string, limit int) (shown []string, omitted int) {
-	if len(all) <= limit {
-		return all, 0
-	}
-	return all[:limit], len(all) - limit
-}
-
-// truncate bounds a rendered message, marking that it was cut so a reader does not take a
-// prefix for the whole value.
-func truncate(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-	return s[:limit] + "... (truncated)"
-}
-
-// experimentalSource returns the configuration source the handler populated, or nil where there
-// is none.
-//
-// Finding a key nobody declared needs the written set, which AppOptions.Get cannot produce, so
-// this reaches for the concrete viper rather than the narrow read interface.
-//
-// cmd.Context() is checked before the call, not after. GetServerContextFromCmd dereferences it
-// immediately (sei-cosmos/server/util.go:225), so a command whose context was never set panics
-// inside it rather than returning nil, and the recover above would then be what keeps a boot
-// alive instead of this check.
-func experimentalSource(cmd *cobra.Command) experimental.Source {
-	if cmd == nil || cmd.Context() == nil {
-		return nil
-	}
-	ctx := server.GetServerContextFromCmd(cmd)
-	if ctx == nil || ctx.Viper == nil {
-		return nil
-	}
-	return ctx.Viper
 }

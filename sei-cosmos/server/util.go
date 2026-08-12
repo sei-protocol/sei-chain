@@ -243,6 +243,20 @@ func SetCmdServerContext(cmd *cobra.Command, serverCtx *Context) error {
 	return nil
 }
 
+// EnvPrefix returns the environment-variable prefix this handler binds a viper to.
+//
+// It is the running binary's own filename, which is why a node answers to SEID_* only while the
+// binary is called seid. Exported so a caller that has to reproduce the handler's environment
+// view derives it from one place rather than repeating path.Base(os.Executable()) and drifting
+// the moment this changes.
+func EnvPrefix() (string, error) {
+	executableName, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return path.Base(executableName), nil
+}
+
 // interceptConfigs parses and updates a Tendermint configuration file or
 // creates a new one and saves it. It also parses and saves the application
 // configuration file. The Tendermint configuration file is parsed given a root
