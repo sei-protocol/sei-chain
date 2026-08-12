@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authztypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -78,6 +79,30 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 		require.Equal(t, expiration, storedExpiration)
 	}
 
+	nativeDelegateAmount := sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(40))
+	granterFunds := sdk.NewCoins(nativeDelegateAmount)
+	require.NoError(t, testApp.BankKeeper.MintCoins(statedb.Ctx(), minttypes.ModuleName, granterFunds))
+	require.NoError(t, testApp.BankKeeper.SendCoinsFromModuleToAccount(statedb.Ctx(), minttypes.ModuleName, granterSeiAddr, granterFunds))
+	granterBalanceBefore := testApp.BankKeeper.GetBalance(statedb.Ctx(), granterSeiAddr, sdk.DefaultBondDenom)
+	nativeDelegate := stakingtypes.NewMsgDelegate(granterSeiAddr, validatorSrc, nativeDelegateAmount)
+	nativeExec := authztypes.NewMsgExec(granteeSeiAddr, []sdk.Msg{nativeDelegate})
+	_, err = testApp.AuthzKeeper.Exec(sdk.WrapSDKContext(statedb.Ctx()), &nativeExec)
+	require.NoError(t, err)
+	granterBalanceAfter := testApp.BankKeeper.GetBalance(statedb.Ctx(), granterSeiAddr, sdk.DefaultBondDenom)
+	require.True(t, granterBalanceBefore.Sub(nativeDelegateAmount).IsEqual(granterBalanceAfter))
+	delegation, found := testApp.StakingKeeper.GetDelegation(statedb.Ctx(), granterSeiAddr, validatorSrc)
+	require.True(t, found)
+	require.Equal(t, int64(40), delegation.Shares.RoundInt().Int64())
+	assertStakingAuthorizationLimit(
+		t,
+		testApp,
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		&stakingtypes.MsgDelegate{},
+		160,
+	)
+
 	delegateValue := big.NewInt(100_000_000_000_000)
 	precompileAddr := k.GetSeiAddressOrDefault(statedb.Ctx(), common.HexToAddress(staking.StakingAddress))
 	precompileFunds := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(statedb.Ctx()), sdk.NewInt(100)))
@@ -93,9 +118,9 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assertSuccess(staking.DelegateWithAuthzMethod, ret)
-	delegation, found := testApp.StakingKeeper.GetDelegation(statedb.Ctx(), granterSeiAddr, validatorSrc)
+	delegation, found = testApp.StakingKeeper.GetDelegation(statedb.Ctx(), granterSeiAddr, validatorSrc)
 	require.True(t, found)
-	require.Equal(t, int64(100), delegation.Shares.RoundInt().Int64())
+	require.Equal(t, int64(140), delegation.Shares.RoundInt().Int64())
 	assertStakingAuthorizationLimit(
 		t,
 		testApp,
@@ -103,7 +128,7 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 		granteeSeiAddr,
 		granterSeiAddr,
 		&stakingtypes.MsgDelegate{},
-		100,
+		60,
 	)
 
 	_, err = call(
@@ -121,7 +146,7 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 		granteeSeiAddr,
 		granterSeiAddr,
 		&stakingtypes.MsgDelegate{},
-		100,
+		60,
 	)
 
 	ret, err = call(
@@ -137,7 +162,7 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 	assertSuccess(staking.RedelegateWithAuthzMethod, ret)
 	delegation, found = testApp.StakingKeeper.GetDelegation(statedb.Ctx(), granterSeiAddr, validatorSrc)
 	require.True(t, found)
-	require.Equal(t, int64(70), delegation.Shares.RoundInt().Int64())
+	require.Equal(t, int64(110), delegation.Shares.RoundInt().Int64())
 	assertStakingAuthorizationLimit(
 		t,
 		testApp,
@@ -160,7 +185,7 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 	assertSuccess(staking.UndelegateWithAuthzMethod, ret)
 	delegation, found = testApp.StakingKeeper.GetDelegation(statedb.Ctx(), granterSeiAddr, validatorSrc)
 	require.True(t, found)
-	require.Equal(t, int64(50), delegation.Shares.RoundInt().Int64())
+	require.Equal(t, int64(90), delegation.Shares.RoundInt().Int64())
 	assertStakingAuthorizationLimit(
 		t,
 		testApp,

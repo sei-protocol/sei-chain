@@ -121,6 +121,7 @@ interface IStaking {
      * @param maxTokens Maximum cumulative base-denom amount for each of delegate, redelegate, and undelegate
      * @param expiration Unix timestamp after which the authorization is invalid
      * @dev Creates three native StakeAuthorizations with independent maxTokens budgets. They can be used through this precompile or native Cosmos MsgExec
+     * @dev Native MsgExec delegation spends the granter's liquid balance, not the grantee's funds. Grant this permission only to a trusted account
      */
     function grantStakingAuthorization(
         address grantee,
@@ -129,13 +130,16 @@ interface IStaking {
         int64 expiration
     ) external returns (bool success);
 
-    /** @notice Delegate using an authorization granted by delegator. The caller supplies msg.value. */
+    /** @notice Delegate using an authorization granted by delegator. For this EVM method only, the caller supplies msg.value. */
     function delegateWithAuthorization(
         address delegator,
         string memory valAddress
     ) external payable returns (bool success);
 
-    /** @notice Redelegate using an authorization granted by delegator. */
+    /**
+     * @notice Redelegate using an authorization granted by delegator
+     * @dev If a destination delegation exists, this first withdraws its accrued rewards to the delegator's configured withdraw address and resets its reward starting info
+     */
     function redelegateWithAuthorization(
         address delegator,
         string memory srcAddress,

@@ -8,6 +8,7 @@ import (
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
@@ -275,4 +276,21 @@ func TestAuthzAuthorizations(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("delegate: fail authorization denom mismatch", func(t *testing.T) {
+		delegationAuthorization, err := stakingtypes.NewStakeAuthorization(
+			[]sdk.ValAddress{val1},
+			nil,
+			stakingtypes.AuthorizationType_AUTHORIZATION_TYPE_DELEGATE,
+			&coin100,
+		)
+		require.NoError(t, err)
+
+		_, err = delegationAuthorization.Accept(
+			ctx,
+			stakingtypes.NewMsgDelegate(delAddr, val1, sdk.NewInt64Coin("other", 50)),
+		)
+		require.ErrorIs(t, err, sdkerrors.ErrInvalidRequest)
+		require.ErrorContains(t, err, "cannot use other with a steak staking authorization")
+	})
 }

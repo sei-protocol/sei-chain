@@ -67,6 +67,13 @@ func TestWithdrawAuthorizationFlow(t *testing.T) {
 		require.IsType(t, &authztypes.GenericAuthorization{}, authorization)
 		require.Equal(t, expiration, storedExpiration)
 	}
+	setWithdrawAuthorization, _ := testApp.AuthzKeeper.GetCleanAuthorization(
+		statedb.Ctx(),
+		granteeSeiAddr,
+		operatorSeiAddr,
+		sdk.MsgTypeURL(&distrtypes.MsgSetWithdrawAddress{}),
+	)
+	require.Nil(t, setWithdrawAuthorization)
 
 	ret, err = call(
 		granteeEVMAddr,

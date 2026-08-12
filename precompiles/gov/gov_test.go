@@ -447,6 +447,29 @@ func TestVoteAndProposalAuthorizationFlow(t *testing.T) {
 	require.IsType(t, &authztypes.GenericAuthorization{}, submitAuthorization)
 	require.Equal(t, expiration, submitExpiration)
 
+	nativeProposalDeposit := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(statedb.Ctx()), sdk.NewInt(25)))
+	require.NoError(t, k.BankKeeper().MintCoins(statedb.Ctx(), evmtypes.ModuleName, nativeProposalDeposit))
+	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(statedb.Ctx(), evmtypes.ModuleName, granterSeiAddr, nativeProposalDeposit))
+	nativeProposalID, err := testApp.GovKeeper.GetProposalID(statedb.Ctx())
+	require.NoError(t, err)
+	nativeProposalContent := govtypes.ContentFromProposalType(
+		"native authorized proposal",
+		"submitted through native MsgExec",
+		govtypes.ProposalTypeText,
+		false,
+	)
+	nativeProposalMsg, err := govtypes.NewMsgSubmitProposal(nativeProposalContent, nativeProposalDeposit, granterSeiAddr)
+	require.NoError(t, err)
+	nativeExec := authztypes.NewMsgExec(granteeSeiAddr, []sdk.Msg{nativeProposalMsg})
+	granterBalanceBefore := k.BankKeeper().GetBalance(statedb.Ctx(), granterSeiAddr, k.GetBaseDenom(statedb.Ctx()))
+	_, err = testApp.AuthzKeeper.Exec(sdk.WrapSDKContext(statedb.Ctx()), &nativeExec)
+	require.NoError(t, err)
+	granterBalanceAfter := k.BankKeeper().GetBalance(statedb.Ctx(), granterSeiAddr, k.GetBaseDenom(statedb.Ctx()))
+	require.True(t, granterBalanceBefore.Amount.Sub(nativeProposalDeposit.AmountOf(k.GetBaseDenom(statedb.Ctx()))).Equal(granterBalanceAfter.Amount))
+	nativeProposal, found := testApp.GovKeeper.GetProposal(statedb.Ctx(), nativeProposalID)
+	require.True(t, found)
+	require.Equal(t, nativeProposalDeposit, nativeProposal.TotalDeposit)
+
 	initialDepositValue := big.NewInt(10_000_000_000_000)
 	initialDeposit := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(statedb.Ctx()), sdk.NewInt(10)))
 	precompileAddr := k.GetSeiAddressOrDefault(statedb.Ctx(), common.HexToAddress(gov.GovAddress))

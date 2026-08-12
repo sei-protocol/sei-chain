@@ -65,6 +65,13 @@ func TestUnjailAuthorizationFlow(t *testing.T) {
 	)
 	require.IsType(t, &authztypes.GenericAuthorization{}, authorization)
 	require.Equal(t, expiration, storedExpiration)
+	delegateAuthorization, _ := testApp.AuthzKeeper.GetCleanAuthorization(
+		statedb.Ctx(),
+		granteeSeiAddr,
+		operatorSeiAddr,
+		sdk.MsgTypeURL(&stakingtypes.MsgDelegate{}),
+	)
+	require.Nil(t, delegateAuthorization)
 
 	ret, err = call(granteeEVMAddr, slashing.UnjailWithAuthzMethod, nil, operatorEVMAddr)
 	require.NoError(t, err)

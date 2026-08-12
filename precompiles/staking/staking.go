@@ -19,6 +19,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	authztypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
+	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/seilog"
@@ -498,6 +499,8 @@ func (p PrecompileExecutor) redelegateFor(ctx sdk.Context, method *abi.Method, d
 		dstWithdrawnCoins, withdrawErr := p.distributionKeeper.WithdrawDelegationRewards(ctx, delegator, dstValAddr)
 		if withdrawErr == nil {
 			dstRewardAmount = dstWithdrawnCoins.AmountOf(sdk.MustGetBaseDenom()).BigInt()
+		} else if !errors.Is(withdrawErr, distrtypes.ErrEmptyDelegationDistInfo) {
+			logger.Error("Failed to pre-withdraw destination delegation rewards", "validator", dstValidatorBech32, "error", withdrawErr)
 		}
 	}
 
