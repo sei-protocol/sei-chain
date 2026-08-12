@@ -174,6 +174,9 @@ lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run
 	go fmt ./...
 	go vet ./...
+	# Build-tagged files are skipped by the vet above, so they would rot
+	# unnoticed against API changes. Compile-check them here.
+	go vet -tags=integration ./app/seeds/...
 	go mod tidy
 	go mod verify
 

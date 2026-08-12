@@ -63,7 +63,11 @@ func TestSeedAddressesAreDialableForm(t *testing.T) {
 			addr, err := config.ParseNodeAddress(entry)
 			require.NoErrorf(t, err, "%s: %q", chainID, entry)
 			require.Lenf(t, string(addr.NodeID), 40, "%s: %q", chainID, entry)
-			require.NotZerof(t, addr.Port, "%s: %q has no port", chainID, entry)
+			// Not NotZero: ParseNodeAddress fills a missing port with 26657,
+			// so that assertion could never fail and a dropped ":26656" would
+			// ship pointing at the RPC port.
+			require.EqualValuesf(t, 26656, addr.Port,
+				"%s: %q must publish the P2P port explicitly", chainID, entry)
 			require.Truef(t, strings.Contains(addr.Hostname, "."),
 				"%s: %q should publish a DNS name, not a bare host", chainID, entry)
 		}

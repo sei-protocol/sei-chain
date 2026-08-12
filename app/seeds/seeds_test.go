@@ -35,6 +35,13 @@ func TestSeedAddressesParseAndAreUnique(t *testing.T) {
 			addr, err := config.ParseNodeAddress(entry)
 			require.NoErrorf(t, err, "%s: %q", chainID, entry)
 
+			// Parsing alone does not cover the port: ParseNodeAddress
+			// substitutes 26657, the RPC port, when one is missing or zero.
+			// A dropped ":26656" would therefore parse clean, pass every other
+			// assertion here, and ship a permanently wrong port to operators.
+			require.EqualValuesf(t, 26656, addr.Port,
+				"%s: %q must publish the P2P port explicitly", chainID, entry)
+
 			id := string(addr.NodeID)
 			require.NotContainsf(t, seenID, id,
 				"NodeID %s appears in both %s and %s", id, seenID[id], chainID)
