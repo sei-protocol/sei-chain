@@ -77,4 +77,47 @@
 // These semantics ship under both configuration managers rather than behind the new manager's
 // flag, because they are the unblock for values that change between binaries and cannot wait
 // for that manager to become the default.
+//
+// # Requirement on a second configuration manager
+//
+// A manager that stops re-entering the legacy handler must carry the operator's [experimental]
+// table through to the source this package reads, verbatim and unresolved.
+//
+// This is not a preference. The check pass reports a key no binary in this release declares,
+// and a key written for the next release is by definition one the current resolver does not
+// model, so it cannot appear in a resolved view. A manager that hands this package only its
+// resolved keys makes the rollback guarantee unreachable: the key would be reported as absent
+// rather than as undeclared, and an operator would delete the value a rollback needs. Nothing
+// in this package can detect that, and a test that drove a manager still re-entering the legacy
+// handler would stay green while it happened.
+//
+// # Outside the characterization surface
+//
+// These keys sit outside the surface testutil/configtest pins, for the same reason they sit
+// outside the schema fingerprint: a key that may change shape in a patch release cannot also be
+// a recorded contract. A declaration here owes no KeySpec row, no seed, and no key-names
+// record. Promotion to the stable registry is what brings a key inside that surface, and the
+// row lands in the same change as the promotion.
+//
+// # Promotion
+//
+// Promotion is the commitment point. From there the key is an API, and changing it costs the
+// versioning ceremony this package exists to avoid. A promotion carries all of the following in
+// one change, and the review that approves it is the owning team's plus the configuration
+// owner's:
+//
+//	the declaration moves from this registry into the stable registry
+//	the schema fingerprint changes, which forces the schema bump
+//	a migration carries any operator-written value into the stable section
+//	a KeySpec row, a seed and a key-names record land in testutil/configtest
+//	the experimental spelling keeps working for one release, reported as deprecated
+//
+// The last line is the deprecation window, and it exists because an operator who opted into an
+// experimental key should not have a working configuration broken by someone else's decision to
+// stabilise it.
+//
+// A key that affects the state transition cannot be promoted out of this problem, because it
+// cannot be declared here in the first place. Whether a key is consensus-affecting is a
+// question for the promotion review and for the declaration review before it, since nothing
+// mechanical can answer it.
 package experimental
