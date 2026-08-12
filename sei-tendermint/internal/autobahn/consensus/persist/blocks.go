@@ -118,13 +118,13 @@ type laneWAL struct {
 
 func (lw *laneWAL) maybePruneAndPersist(
 	lane types.LaneID,
-	anchor utils.Option[*types.CommitQC],
+	deleteBefore utils.Option[types.BlockNumber],
 	proposals []*types.Signed[*types.LaneProposal],
 	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
 ) error {
 	for s := range lw.state.Lock() {
-		if qc, ok := anchor.Get(); ok {
-			if err := s.truncateForAnchor(lane, qc.LaneRange(lane).First()); err != nil {
+		if first, ok := deleteBefore.Get(); ok {
+			if err := s.truncateForAnchor(lane, first); err != nil {
 				return err
 			}
 		}
@@ -281,15 +281,15 @@ func (bp *BlockPersister) getOrCreateLane(lanes map[types.LaneID]*laneWAL, lane 
 // MaybePruneAndPersistLane optionally truncates the lane's WAL and/or appends
 // new proposals, depending on which arguments are present:
 //
-//   - anchor set, proposals non-empty: truncate WAL below anchor, then append (runtime path).
-//   - anchor set, proposals empty:     truncate only, no appends (startup prune path).
-//   - anchor empty, proposals non-empty: append only, no truncation.
-//   - anchor empty, proposals empty:     no-op.
+//   - deleteBefore set, proposals non-empty: truncate, then append (runtime path).
+//   - deleteBefore set, proposals empty:     truncate only, no appends.
+//   - deleteBefore empty, proposals non-empty: append only, no truncation.
+//   - deleteBefore empty, proposals empty:     no-op.
 //
-// allowCreate: open a WAL if missing. Avail passes true for lanes in the applied
-// (next-CommitQC) epoch committee, or when proposals are non-empty so a validator
-// that left before the first open still flushes pending proposals. After SyncLanes
-// removes a lane, empty-proposal prune passes false so the WAL is not recreated.
+// allowCreate: open a WAL if missing. Avail passes true when proposals are
+// non-empty, so a validator that left before the first open still flushes
+// pending proposals. After SyncLanes removes a lane, empty-proposal prune passes
+// false so the WAL is not recreated.
 //
 // afterEach, when present, is called once per appended proposal in order, after the whole batch has
 // been flushed — never before, because an append is not durable until then and afterEach is what
@@ -300,7 +300,7 @@ func (bp *BlockPersister) getOrCreateLane(lanes map[types.LaneID]*laneWAL, lane 
 func (bp *BlockPersister) MaybePruneAndPersistLane(
 	lane types.LaneID,
 	allowCreate bool,
-	anchor utils.Option[*types.CommitQC],
+	deleteBefore utils.Option[types.BlockNumber],
 	proposals []*types.Signed[*types.LaneProposal],
 	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
 ) error {
@@ -313,11 +313,12 @@ func (bp *BlockPersister) MaybePruneAndPersistLane(
 		return nil
 	}
 
-	// Keep the lanes map locked for the whole persist so SyncLanes cannot
-	// delete the WAL out from under this call.
+	// Keep the lanes map read-locked for the whole persist so SyncLanes cannot
+	// delete the WAL out from under this call. Lanes stay parallel: only the
+	// create path below needs the write lock.
 	for lanes := range bp.lanes.RLock() {
 		if lw, ok := lanes[lane]; ok {
-			return lw.maybePruneAndPersist(lane, anchor, proposals, afterEach)
+			return lw.maybePruneAndPersist(lane, deleteBefore, proposals, afterEach)
 		}
 	}
 	if !allowCreate {
@@ -332,7 +333,7 @@ func (bp *BlockPersister) MaybePruneAndPersistLane(
 		if !ok {
 			return nil
 		}
-		return lw.maybePruneAndPersist(lane, anchor, proposals, afterEach)
+		return lw.maybePruneAndPersist(lane, deleteBefore, proposals, afterEach)
 	}
 	panic("unreachable")
 }
@@ -354,48 +355,6 @@ func (bp *BlockPersister) deleteLaneLocked(lanes map[types.LaneID]*laneWAL, dir 
 	}
 	logger.Info("deleted inactive lane WAL", "lane", lane.String())
 	return nil
-}
-
-// PruneAndPersist truncates the lane WAL below first and appends proposals.
-// Compatibility wrapper for avail.State's persist loop (main AppQC path).
-func (bp *BlockPersister) PruneAndPersist(
-	lane types.LaneID,
-	first types.BlockNumber,
-	proposals []*types.Signed[*types.LaneProposal],
-) error {
-	if _, ok := bp.dir.Get(); !ok {
-		return nil
-	}
-	for lanes := range bp.lanes.Lock() {
-		lw, ok, err := bp.getOrCreateLane(lanes, lane, true)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-		for s := range lw.state.Lock() {
-			if err := s.truncateForAnchor(lane, first); err != nil {
-				return err
-			}
-			for _, p := range proposals {
-				if p.Msg().Block().Header().Lane() != lane {
-					return fmt.Errorf("persist lane %s: proposal has lane %s", lane, p.Msg().Block().Header().Lane())
-				}
-				if err := s.persistBlock(p); err != nil {
-					return err
-				}
-			}
-			if len(proposals) > 0 {
-				if err := s.flush(lane); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-		panic("unreachable")
-	}
-	panic("unreachable")
 }
 
 // SyncLanes deletes open WALs whose LaneID is not a key of keep. Idempotent.

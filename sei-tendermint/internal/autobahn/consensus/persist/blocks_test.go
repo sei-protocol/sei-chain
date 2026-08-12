@@ -37,7 +37,7 @@ func testPersistBlock(t *testing.T, bp *BlockPersister, p *types.Signed[*types.L
 	require.NoError(t, bp.MaybePruneAndPersistLane(
 		lane,
 		true,
-		utils.None[*types.CommitQC](),
+		utils.None[types.BlockNumber](),
 		[]*types.Signed[*types.LaneProposal]{p},
 		noBlockCB,
 	))
@@ -219,11 +219,11 @@ func TestNoOpBlockPersister(t *testing.T) {
 	// Verify afterEach is still invoked for every proposal.
 	var called int
 	cb := utils.Some(func(_ *types.Signed[*types.LaneProposal]) { called++ })
-	require.NoError(t, bp.MaybePruneAndPersistLane(lane, true, utils.None[*types.CommitQC](), proposals[:3], cb))
+	require.NoError(t, bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), proposals[:3], cb))
 	require.Equal(t, 3, called)
 
 	called = 0
-	require.NoError(t, bp.MaybePruneAndPersistLane(lane, true, utils.None[*types.CommitQC](), proposals[3:], cb))
+	require.NoError(t, bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), proposals[3:], cb))
 	require.Equal(t, 2, called)
 
 	require.NoError(t, bp.Close())
@@ -302,7 +302,7 @@ func TestDeleteBeforePastAllRejectsStaleBlock(t *testing.T) {
 
 	// Writing a stale block number (0) should be rejected.
 	stale := testSignedProposal(rng, key, 0)
-	err = bp.MaybePruneAndPersistLane(lane, true, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{stale}, noBlockCB)
+	err = bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), []*types.Signed[*types.LaneProposal]{stale}, noBlockCB)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "out of sequence")
 
@@ -406,13 +406,13 @@ func TestPersistBlockOutOfSequence(t *testing.T) {
 
 	// Gap: skip block 1, try block 2.
 	gap := testSignedProposal(rng, key, 2)
-	err = bp.MaybePruneAndPersistLane(lane, true, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{gap}, noBlockCB)
+	err = bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), []*types.Signed[*types.LaneProposal]{gap}, noBlockCB)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "out of sequence")
 
 	// Duplicate: try block 0 again.
 	dup := testSignedProposal(rng, key, 0)
-	err = bp.MaybePruneAndPersistLane(lane, true, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{dup}, noBlockCB)
+	err = bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), []*types.Signed[*types.LaneProposal]{dup}, noBlockCB)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "out of sequence")
 
@@ -528,7 +528,7 @@ func TestPersistBlockInvokesAfterEachOncePerBlock(t *testing.T) {
 	cb := utils.Some(func(p *types.Signed[*types.LaneProposal]) {
 		seen = append(seen, p.Msg().Block().Header().BlockNumber())
 	})
-	require.NoError(t, bp.MaybePruneAndPersistLane(lane, true, utils.None[*types.CommitQC](), proposals, cb))
+	require.NoError(t, bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), proposals, cb))
 	require.NoError(t, bp.Close())
 
 	require.Equal(t, len(proposals), len(seen))
@@ -564,7 +564,7 @@ func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 		for i := range numLanes {
 			lane := types.LaneID{Validator: keys[i].Public(), Joined: 0}
 			ps.Spawn(func() error {
-				return bp.MaybePruneAndPersistLane(lane, true, utils.None[*types.CommitQC](), proposals[i], noBlockCB)
+				return bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), proposals[i], noBlockCB)
 			})
 		}
 		return nil
@@ -603,7 +603,7 @@ func TestMaybePruneAndPersistLane_InactiveDoesNotRecreateAfterDelete(t *testing.
 	require.NoError(t, bp.MaybePruneAndPersistLane(
 		lane,
 		true,
-		utils.None[*types.CommitQC](),
+		utils.None[types.BlockNumber](),
 		[]*types.Signed[*types.LaneProposal]{proposal},
 		noBlockCB,
 	))
@@ -616,7 +616,7 @@ func TestMaybePruneAndPersistLane_InactiveDoesNotRecreateAfterDelete(t *testing.
 	require.NoError(t, bp.MaybePruneAndPersistLane(
 		lane,
 		false, // after SyncLanes: truncate-only must not recreate
-		utils.None[*types.CommitQC](),
+		utils.None[types.BlockNumber](),
 		nil,
 		noBlockCB,
 	))
@@ -643,7 +643,7 @@ func TestMaybePruneAndPersistLane_InactiveWithProposalsCreatesWAL(t *testing.T) 
 	require.NoError(t, bp.MaybePruneAndPersistLane(
 		lane,
 		true,
-		utils.None[*types.CommitQC](),
+		utils.None[types.BlockNumber](),
 		[]*types.Signed[*types.LaneProposal]{proposal},
 		noBlockCB,
 	))

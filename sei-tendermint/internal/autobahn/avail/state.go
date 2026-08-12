@@ -125,6 +125,28 @@ func epochOfFirst(inner *inner, ds *data.State) (utils.Option[*types.Epoch], err
 	return utils.Some(ep), nil
 }
 
+// hasClosedLane reports whether any in-memory lane is closed as of epochOfFirst.
+// The persist loop waits on it so that a lane closing is itself a wake reason:
+// otherwise its maps and WAL survive until unrelated blocks or CommitQCs arrive,
+// and subscribers keep waiting instead of seeing ErrLaneClosed. An epoch that
+// cannot be resolved answers false; the same lookup after the wait reports it.
+func hasClosedLane(inner *inner, ds *data.State) bool {
+	epOfFirst, err := epochOfFirst(inner, ds)
+	if err != nil {
+		return false
+	}
+	ep, ok := epOfFirst.Get()
+	if !ok {
+		return false
+	}
+	for lane := range inner.blocks {
+		if ep.IsClosed(lane) {
+			return true
+		}
+	}
+	return false
+}
+
 // persisters holds all disk persistence components. Either all are present
 // (real I/O) or all are no-op (testing). It is a pure I/O struct — all inner
 // state access goes through State methods.
@@ -704,14 +726,15 @@ func (s *State) runPersist(ctx context.Context) error {
 			})
 			for lane, bb := range batch.blocks {
 				ps.Spawn(func() error {
-					if err := s.persisters.blocks.PruneAndPersist(lane, bb.first, bb.tail); err != nil {
-						return err
-					}
-					if n := len(bb.tail); n > 0 {
-						header := bb.tail[n-1].Msg().Block().Header()
-						s.markBlockPersisted(lane, header.BlockNumber()+1)
-					}
-					return nil
+					return s.persisters.blocks.MaybePruneAndPersistLane(
+						lane,
+						len(bb.tail) > 0,
+						utils.Some(bb.first),
+						bb.tail,
+						utils.Some(func(p *types.Signed[*types.LaneProposal]) {
+							s.markBlockPersisted(lane, p.Msg().Block().Header().BlockNumber()+1)
+						}),
+					)
 				})
 			}
 			return nil
@@ -777,7 +800,10 @@ func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) 
 					return true
 				}
 			}
-			return next < inner.roads.next
+			if next < inner.roads.next {
+				return true
+			}
+			return hasClosedLane(inner, s.data)
 		}); err != nil {
 			return nil, err
 		}

@@ -444,7 +444,13 @@ func TestNewStateWithPersistence(t *testing.T) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 			signed := types.Sign(keys[0], types.NewLaneProposal(block))
 			parent = block.Header().Hash()
-			require.NoError(t, bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{signed}))
+			require.NoError(t, bp.MaybePruneAndPersistLane(
+				lane,
+				true,
+				utils.None[types.BlockNumber](),
+				[]*types.Signed[*types.LaneProposal]{signed},
+				utils.None[func(*types.Signed[*types.LaneProposal])](),
+			))
 		}
 
 		// Release the seeding persister's WAL locks before NewState opens the same directory.
