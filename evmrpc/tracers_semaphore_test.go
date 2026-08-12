@@ -65,6 +65,30 @@ func TestPrepareTraceContextReleasesSemaphoreOnCleanup(t *testing.T) {
 	}
 }
 
+func TestTraceBlockByNumberReleasesSemaphoreOnPanic(t *testing.T) {
+	t.Parallel()
+
+	latestCtx := sdk.Context{}.WithBlockHeight(10)
+	api := &DebugAPI{
+		ctxProvider:        func(int64) sdk.Context { return latestCtx },
+		traceCallSemaphore: make(chan struct{}, 1),
+		traceTimeout:       time.Second,
+		maxBlockLookback:   -1,
+	}
+
+	// The nil keeper panics in the cache lookup after the trace context has
+	// acquired the only semaphore slot.
+	for range 3 {
+		require.Panics(t, func() {
+			_, _ = api.TraceBlockByNumber(context.Background(), rpc.BlockNumber(10), nil)
+		})
+	}
+
+	release, err := api.acquireTraceSemaphore(context.Background())
+	require.NoError(t, err)
+	release()
+}
+
 func TestAcquireTraceSemaphoreCanceledContextDoesNotConsumeSlot(t *testing.T) {
 	t.Parallel()
 
