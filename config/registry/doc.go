@@ -10,6 +10,10 @@
 // the system never rewrites; an absent key tracks whatever baseline the running binary
 // carries.
 //
-// The acceptance gates in spec_test.go define this package's scope and are red until it is
-// built. They sit behind the configspec build tag; removing the tag is what completes PR4.
+// Resolve reduces a set of named layers to one value per declared key, in the order Precedence
+// declares, and records which layer each value came from. It answers for declared keys only, so
+// it serves a diagnostic or an authoring check rather than the boot: what a running node reads
+// stays a source carrying every resolved key, whether a section declares it or not.
+//
+// spec_test.go asserts each of these rules as its own test, named for the property it holds.
 package registry
