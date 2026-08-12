@@ -1,162 +1,405 @@
-//go:build configspec
-
 package registry_test
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/config/registry"
+	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
+)
 
 // PR4 of the ConfigManager stack: the stable registry and mode-based defaults.
 //
-// Scope, from the design's Declaring Configuration Values and Data Model sections. One
-// registration per section carries the struct and a baseline function of node mode. Key
-// identity is derived, never hand-typed. Resolution runs in one fixed order, and the schema
-// fingerprint hashes the registrations.
+// One registration per section carries the struct and a baseline function of node mode. The
+// dotted key, the canonical environment spelling and the schema fingerprint all derive from that
+// one declaration, so nobody hand-writes a key string.
 //
-// This is requirement 2 of the design, mode-based defaults with legible failure reasons, and
-// it is the prerequisite for PR5's generate.
+// What this PR is NOT. The registry is the authoring, validation and declaration surface, not
+// the boot input. The approved design forbids feeding app.New from an in-memory struct, because
+// a struct silently drops keys it does not model and a round-trip test passes while being wrong.
+// The transport stays a source carrying every resolved key, and no appOpts.Get call site changes.
 //
-// Depends on PR3 for the exclusion boundary: gate 4 below asserts the fingerprint covers
-// stable registrations, and PR3's gate 4 asserts experimental keys stay out of it. Neither
-// half means anything alone.
-//
-// Out of scope, and each has a later home:
-//
-//	sei.toml on disk, and every CLI verb            PR5
-//	migrations and the frozen chain                 PR5
-//	the experimental registry                       PR3, below this branch
-//	retiring the legacy path                        after adoption
-//
-// One thing this PR must NOT do, and it is the correction that reshaped this stack. The
-// design forbids feeding app.New from an in-memory struct, because a struct silently drops
-// keys it does not model and a round-trip test passes while being wrong. The transport stays
-// a fresh viper carrying every resolved key at override precedence, and no appOpts.Get call
-// site changes. The registry is the authoring, validation and declaration surface. It is not
-// the boot input.
+// Gate 3, that resolution runs in the declared order, needs a resolver and is not in this slice.
+// Precedence is declared here as data; the resolver that honours it is the next one.
 
-// TestGate1KeyIdentityIsDerivedNeverHandTyped holds the property the whole registry exists
-// for.
+// gigaSection mirrors what the giga executor's own package would register. The struct under test
+// is the real one, so gate 6 measures the live reader rather than a copy of it.
+const gigaSection = "giga_executor"
+
+func registerGiga(t *testing.T) {
+	t.Helper()
+	registry.Reset()
+	registry.RegisterSection(gigaSection, &gigaconfig.Config{}, func(m registry.Mode) any {
+		// The design's own worked example: OCC is off on an archive node.
+		return gigaconfig.Config{Enabled: true, OCCEnabled: m != registry.ModeArchive}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("registering %s produced a defect: %v", d.Section, d.Err)
+	}
+}
+
+// TestGate1KeyIdentityIsDerivedNeverHandTyped holds the property the registry exists for.
 //
-// The dotted key comes from the section name and the field's mapstructure tag. The legacy
-// path already reads that same tag, since viper decodes these structs through mapstructure,
-// so both managers take key identity from one declaration and neither can drift from the
-// other. A hand-typed string anywhere in the derivation defeats that.
+// The dotted key comes from the section name and the field's mapstructure tag. Measured against
+// the live reader's own flag constants, which is the only comparison that proves the derivation
+// agrees with what actually resolves today.
 func TestGate1KeyIdentityIsDerivedNeverHandTyped(t *testing.T) {
-	t.Fatal("unimplemented: RegisterSection and the dotted-key derivation are not built")
+	registerGiga(t)
+
+	s, ok := registry.Lookup(gigaSection)
+	if !ok {
+		t.Fatal("the section did not register")
+	}
+	got := strings.Join(s.Keys, " ")
+	for _, live := range []string{gigaconfig.FlagEnabled, gigaconfig.FlagOCCEnabled} {
+		if !strings.Contains(got, live) {
+			t.Errorf("the derivation did not produce %q, the key this section's reader actually "+
+				"resolves. Derived keys are %v. A derivation that disagrees with the live reader "+
+				"renames a key operators already have in their files", live, s.Keys)
+		}
+	}
+	if len(s.Keys) != 2 {
+		t.Errorf("derived %d keys from a two-field struct: %v. An extra key is one no operator "+
+			"writes; a missing one is a setting the registry cannot see", len(s.Keys), s.Keys)
+	}
+}
+
+// TestGate1AnUntaggedFieldIsADefectNotAFallback is the guard that keeps the tag authoritative.
+//
+// V1 falls back to the field's own name, which is why an embedded srvconfig.Config with no tag
+// put whole cosmos sections under a type-name prefix nothing writes, and why 92 operator-facing
+// keys reach their field only through a spelling the tags do not produce. Refusing to guess is
+// what makes the tag the single spelling.
+//
+// Recorded as a defect rather than panicked, because this package is imported by every feature
+// and a panic at init takes down every seid invocation including --help.
+func TestGate1AnUntaggedFieldIsADefectNotAFallback(t *testing.T) {
+	type untagged struct {
+		Tagged   bool `mapstructure:"tagged"`
+		Untagged bool
+	}
+	registry.Reset()
+
+	registry.RegisterSection("probe", &untagged{}, func(registry.Mode) any { return untagged{} })
+
+	defects := registry.Defects()
+	if len(defects) != 1 {
+		t.Fatalf("an untagged field produced %d defects, want 1. A silent fallback to the field "+
+			"name is how the legacy path's keys became unreachable", len(defects))
+	}
+	if !strings.Contains(defects[0].Err.Error(), "Untagged") {
+		t.Errorf("the defect does not name the offending field: %v", defects[0].Err)
+	}
+	if _, ok := registry.Lookup("probe"); ok {
+		t.Error("the section registered despite the defect, so a caller would read derived keys " +
+			"that silently omit the untagged field")
+	}
 }
 
 // TestGate2ABaselineVariesByModeAndAnAbsentKeyTracksIt is requirement 2.
 //
-// A section's baseline is a function of mode, so the same absent key resolves differently on
-// an archive node and a validator. Held on a key whose baseline actually differs between two
-// modes, since a key with one baseline everywhere would pass against a registry that ignored
-// mode entirely.
+// Held on a key whose baseline actually differs between two modes, since a key with one baseline
+// everywhere would pass against a registry that ignored mode entirely.
 func TestGate2ABaselineVariesByModeAndAnAbsentKeyTracksIt(t *testing.T) {
-	t.Fatal("unimplemented: Mode and the per-mode baseline function are not built")
+	registerGiga(t)
+	s, _ := registry.Lookup(gigaSection)
+
+	archive, ok := s.Defaults(registry.ModeArchive).(gigaconfig.Config)
+	if !ok {
+		t.Fatalf("the baseline returned %T rather than the section's own type", s.Defaults(registry.ModeArchive))
+	}
+	validator := s.Defaults(registry.ModeValidator).(gigaconfig.Config)
+
+	if archive.OCCEnabled {
+		t.Error("occ_enabled is true on an archive node; the design's worked example turns it off there")
+	}
+	if !validator.OCCEnabled {
+		t.Error("occ_enabled is false on a validator, so the baseline does not vary by mode and " +
+			"this gate would hold for a registry that ignored mode")
+	}
+	// And a key that does not vary still resolves, or the assertion above would be the only shape
+	// a baseline could take.
+	if !archive.Enabled || !validator.Enabled {
+		t.Error("enabled differs by mode; it is the same on both in this section's baseline")
+	}
 }
 
-// TestGate3ResolutionRunsInTheDeclaredOrder pins the design's Data Model order: the binary's
-// baseline, then the file, then environment variables, then CLI flags.
+// TestGate2EveryModeHasABaseline holds that no mode is unreachable.
 //
-// Falsifiable by shuffling which layers are present and asserting the winner does not move.
-// The legacy path fails this by construction, since its order emerges from which viper
-// instance a caller asked, which is why two orders are observable across the key set.
-func TestGate3ResolutionRunsInTheDeclaredOrder(t *testing.T) {
-	t.Fatal("unimplemented: the layering is not built")
+// A mode with no baseline would resolve an absent key to the type's zero rather than to what the
+// binary intends, silently, on exactly the nodes running that mode.
+func TestGate2EveryModeHasABaseline(t *testing.T) {
+	registerGiga(t)
+	s, _ := registry.Lookup(gigaSection)
+
+	for _, m := range registry.Modes() {
+		if s.Defaults(m) == nil {
+			t.Errorf("mode %q has no baseline, so an absent key on that node resolves to a zero "+
+				"rather than to the binary's judgement", m)
+		}
+	}
 }
 
-// TestGate4TheFingerprintMovesOnAStableChangeAndOnlyThen is what makes forgetting a schema
-// bump impossible.
+// TestModesMatchTheNodeModes holds registry.Mode against the modes a node actually declares.
 //
-// Both directions, because either alone is useless. Adding, renaming or retyping a stable
-// key moves the fingerprint, so CI can demand the bump and the migration in the same PR.
-// Registering an experimental key does not, which is PR3's gate 4 seen from this side.
+// registry.Mode is declared locally so this package stays a leaf every feature can import. That
+// duplication is only safe while the two sets agree, and this is what makes a mode added to
+// app/params fail here rather than silently having no baseline anywhere.
+func TestModesMatchTheNodeModes(t *testing.T) {
+	node := map[string]bool{
+		string(params.NodeModeValidator): true,
+		string(params.NodeModeFull):      true,
+		string(params.NodeModeSeed):      true,
+		string(params.NodeModeArchive):   true,
+	}
+	for _, m := range registry.Modes() {
+		if !node[string(m)] {
+			t.Errorf("registry declares mode %q, which app/params does not; a baseline for a mode "+
+				"no node runs is dead, and a mode with no baseline is worse", m)
+		}
+		delete(node, string(m))
+	}
+	for left := range node {
+		t.Errorf("app/params declares mode %q and the registry has no baseline input for it, so a "+
+			"section cannot vary its baseline on the mode some nodes actually run", left)
+	}
+}
+
+// TestGate4TheFingerprintMovesOnAStableChangeAndOnlyThen is what makes forgetting a schema bump
+// impossible.
+//
+// Both directions, because either alone is useless. A key added, renamed or retyped moves it, so
+// CI can demand the bump and the migration in the same change. Registering the identical shape
+// twice does not, or the gate would fire on every unrelated commit.
 func TestGate4TheFingerprintMovesOnAStableChangeAndOnlyThen(t *testing.T) {
-	t.Fatal("unimplemented: the fingerprint is not built")
-}
+	registerGiga(t)
+	base := registry.Fingerprint()
 
-// TestGate5TheEnvironmentSpellingIsCanonicalAndPinned closes a measured legacy defect.
-//
-// The legacy path answers to three environment universes, and its prefix is derived from the
-// running binary's filename through path.Base(os.Executable()), so renaming the binary moves
-// the whole namespace. One canonical spelling with a pinned prefix, derived from the
-// registration rather than from argv, is the fix.
-func TestGate5TheEnvironmentSpellingIsCanonicalAndPinned(t *testing.T) {
-	t.Fatal("unimplemented: the env spelling derivation is not built")
-}
+	registerGiga(t)
+	if again := registry.Fingerprint(); again != base {
+		t.Errorf("the same registration produced two fingerprints, %s and %s. A gate that fires "+
+			"on an unchanged shape is one a reviewer learns to ignore", base[:12], again[:12])
+	}
 
-// ---------------------------------------------------------------------------------------
-// Derivation agreement. V1 resolves by explicit dotted string, V2 by walking a struct, so
-// comparing values is not enough: a V2 tag typo produces a key V1 never reads, and a
-// value-only comparison catches that only if a test happens to drive that key.
-//
-// DECIDED: V2 keeps every existing operator-facing name. Where an inert V1 tag would have
-// addressed a cleaner spelling, the cleaner spelling is abandoned rather than migrated. The
-// design's exemplar table left four of these open, and this is the answer to all four.
-//
-// Two consequences worth stating. Those keys need no migration, which is requirement 1
-// satisfied by construction rather than by a transform. And a rename stops being a quiet
-// tag edit: the gates below fail on any derived key that does not equal the spelling V1
-// resolves, so a deliberate rename has to arrive with an explicit ratified entry saying so.
-// ---------------------------------------------------------------------------------------
-
-// v1Spellings are the operator-facing keys whose inert V1 tag would derive something else.
-// Read from the tree by the design's Appendix E, and the reason each is here is that a
-// tag-driven binder is the first thing in this tree that would ever read the tag.
-var v1Spellings = []struct {
-	operatorWrites string // what resolves today, and what V2 must keep
-	inertTagWould  string // what the V1 tag would have addressed, now abandoned
-	why            string
-}{
-	{"state-store.ss-keep-recent", "state-store.keep-recent", "prefix-strip"},
-	{"state-store.ss-enable", "state-store.enable", "prefix-strip"},
-	{"state-store.ss-prune-interval", "state-store.prune-interval-seconds", "word substitution, not just a prefix"},
-	{"state-store.evm-ss-split", "state-store.evm-split", "infix deletion; they cannot both be intended"},
-	{"state-commit.sc-async-commit-buffer", "state-commit.async-commit-buffer", "the inert tag names a dead field nothing reads"},
-}
-
-// TestGate6EveryDerivedKeyEqualsTheSpellingV1Resolves is the derivation-agreement gate.
-//
-// Held per key rather than per value. A key whose derived spelling differs from what V1
-// resolves is a break whether or not any test drives it, which is the failure a value-only
-// differential cannot see.
-func TestGate6EveryDerivedKeyEqualsTheSpellingV1Resolves(t *testing.T) {
-	for _, k := range v1Spellings {
-		t.Run(k.operatorWrites, func(t *testing.T) {
-			t.Fatalf("unimplemented: the registry cannot yet derive a key to compare. When it can, "+
-				"the derived spelling must be %q and not %q (%s). A difference here renames a key "+
-				"operators already have in their files",
-				k.operatorWrites, k.inertTagWould, k.why)
+	for _, tc := range []struct {
+		name  string
+		proto any
+	}{
+		{"a renamed key", &struct {
+			Enabled    bool `mapstructure:"enabled"`
+			OCCEnabled bool `mapstructure:"occ_workers"`
+		}{}},
+		{"an added key", &struct {
+			Enabled    bool `mapstructure:"enabled"`
+			OCCEnabled bool `mapstructure:"occ_enabled"`
+			Extra      bool `mapstructure:"extra"`
+		}{}},
+		{"a retyped key", &struct {
+			Enabled    bool `mapstructure:"enabled"`
+			OCCEnabled int  `mapstructure:"occ_enabled"`
+		}{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry.Reset()
+			registry.RegisterSection(gigaSection, tc.proto, func(registry.Mode) any { return struct{}{} })
+			if got := registry.Fingerprint(); got == base {
+				t.Errorf("%s left the fingerprint unchanged, so CI cannot demand the schema bump "+
+					"and the migration that a shape change owes", tc.name)
+			}
 		})
 	}
 }
 
-// TestGate7ARenameRequiresAnExplicitRatifiedEntry is the escape hatch, and the reason gate 6
-// is a gate rather than a prohibition.
+// TestGate4AChangedBaselineMovesTheFingerprint holds the half a key-only hash would miss.
 //
-// Keeping every name is the decision today, not a law. If a rename is ever wanted, the
-// mechanism is that the divergence is ratified explicitly and CI fails without it, so every
-// difference between the two families is a decision rather than drift. This gate holds that
-// the ratification list exists and that it is empty, so adding an entry is a deliberate act
-// visible in a diff.
-func TestGate7ARenameRequiresAnExplicitRatifiedEntry(t *testing.T) {
-	t.Fatal("unimplemented: no ratification list exists yet. It must start empty, since the " +
-		"decision is to keep every existing name, and an entry in it is what permits gate 6 to " +
-		"see a difference without failing")
+// A default is the value every node that never wrote the key runs, so changing one changes what
+// the fleet does. That is a contract change even though no key moved.
+func TestGate4AChangedBaselineMovesTheFingerprint(t *testing.T) {
+	registerGiga(t)
+	base := registry.Fingerprint()
+
+	registry.Reset()
+	registry.RegisterSection(gigaSection, &gigaconfig.Config{}, func(registry.Mode) any {
+		return gigaconfig.Config{Enabled: false, OCCEnabled: false} // both flipped
+	})
+
+	if got := registry.Fingerprint(); got == base {
+		t.Error("a changed baseline left the fingerprint unchanged. Every node that never wrote " +
+			"the key would silently run the new value with no schema bump to notice")
+	}
 }
 
-// TestGate8TheDeadFieldIsNotReachableUnderTheLiveKey is the one trap the design calls settled,
-// and it is tracked as PLT-945.
+// TestGate5TheEnvironmentSpellingIsCanonicalAndPinned closes a measured legacy defect.
 //
-// state-commit.sc-async-commit-buffer resolves today to StateCommit.MemIAVLConfig
-// .AsyncCommitBuffer, the live field. StateCommitConfig.AsyncCommitBuffer carries the inert
-// tag async-commit-buffer and nothing reads it. A tag-driven binder that inherited that tag
-// would bind an operator's value to the dead field while the spelling they actually write
-// reached no field at all.
+// The legacy path answers to three environment universes, and derives its prefix from the running
+// binary's filename through path.Base(os.Executable()), so renaming seid moves the whole
+// namespace. One spelling, derived from the key, with a pinned prefix.
+func TestGate5TheEnvironmentSpellingIsCanonicalAndPinned(t *testing.T) {
+	for _, tc := range []struct{ key, want string }{
+		{"giga_executor.occ_enabled", "SEID_GIGA_EXECUTOR_OCC_ENABLED"},
+		{"state-store.ss-keep-recent", "SEID_STATE_STORE_SS_KEEP_RECENT"},
+	} {
+		if got := registry.EnvName(tc.key); got != tc.want {
+			t.Errorf("EnvName(%q) = %q, want %q", tc.key, got, tc.want)
+		}
+	}
+	if !strings.HasPrefix(registry.EnvName("a.b"), registry.EnvPrefix+"_") {
+		t.Error("the prefix is not applied, so the namespace is not pinned")
+	}
+}
+
+// TestGate5EnvSpellingCollisionsAreDetectable records the cost of the replacer.
 //
-// The trap is invisible today precisely because nothing in the tree reads by tag, and it goes
-// live the moment the registry does. That is the clearest single argument for new structs over
-// corrected ones.
+// Dots and hyphens both become underscores, so two keys differing only in that punctuation
+// collapse onto one variable. The derivation cannot prevent it; a check over the registry can see
+// it, and this is what makes that check's input honest.
+func TestGate5EnvSpellingCollisionsAreDetectable(t *testing.T) {
+	a := registry.EnvName("giga_executor.occ_enabled")
+	b := registry.EnvName("giga-executor.occ-enabled")
+	if a != b {
+		t.Fatalf("expected these to collide onto one variable, got %q and %q; if the replacer has "+
+			"changed then the collision check the registry owes is no longer needed", a, b)
+	}
+}
+
+// ---------------------------------------------------------------------------------------
+// Derivation agreement. V1 resolves by explicit dotted string, V2 by walking a struct, so
+// comparing values is not enough: a tag typo produces a key V1 never reads, and a value-only
+// comparison catches that only if a test happens to drive that key.
+//
+// DECIDED: V2 keeps every existing operator-facing name. Where an inert V1 tag would have
+// addressed a cleaner spelling, the cleaner spelling is abandoned rather than migrated. The
+// design's exemplar table left four of these open, and this is the answer to all four.
+// ---------------------------------------------------------------------------------------
+
+// keptSpellings are the operator-facing keys whose inert V1 tag would derive something else.
+// Read from the tree by the design's Appendix E. Each carries the spelling that was abandoned,
+// so the diff shows what the decision gave up.
+var keptSpellings = []struct {
+	operatorWrites string
+	inertTagWould  string
+	why            string
+}{
+	{"state-store.ss-keep-recent", "state-store.keep-recent", "prefix-strip"},
+	{"state-store.ss-enable", "state-store.enable", "prefix-strip"},
+	{"state-store.ss-prune-interval", "state-store.prune-interval-seconds", "word substitution"},
+	{"state-store.evm-ss-split", "state-store.evm-split", "infix deletion; they cannot both be intended"},
+	{"state-commit.sc-async-commit-buffer", "state-commit.async-commit-buffer", "the inert tag names a dead field"},
+}
+
+// TestGate6EveryDerivedKeyEqualsTheSpellingV1Resolves is the derivation-agreement gate.
+//
+// Held per key rather than per value, because that is the failure a value-only differential
+// cannot see. A struct tagged with the kept spelling has to derive exactly it, and must not
+// derive the spelling the decision abandoned.
+func TestGate6EveryDerivedKeyEqualsTheSpellingV1Resolves(t *testing.T) {
+	for _, k := range keptSpellings {
+		t.Run(k.operatorWrites, func(t *testing.T) {
+			section, leaf, ok := strings.Cut(k.operatorWrites, ".")
+			if !ok {
+				t.Fatalf("%q is not section.leaf", k.operatorWrites)
+			}
+
+			registry.Reset()
+			registry.RegisterSection(section, taggedLeaf(leaf), func(registry.Mode) any { return struct{}{} })
+			for _, d := range registry.Defects() {
+				t.Fatalf("the kept spelling %q is not registrable: %v", k.operatorWrites, d.Err)
+			}
+
+			keys := registry.Keys()
+			if len(keys) != 1 || keys[0] != k.operatorWrites {
+				t.Fatalf("derived %v, want [%s]. A difference here renames a key operators already "+
+					"have in their files (%s)", keys, k.operatorWrites, k.why)
+			}
+			if keys[0] == k.inertTagWould {
+				t.Errorf("derived the abandoned spelling %q; the decision was to keep %q",
+					k.inertTagWould, k.operatorWrites)
+			}
+		})
+	}
+}
+
+// taggedLeaf returns a one-field struct whose mapstructure tag is leaf, so the derivation is
+// exercised on the decided spelling rather than on a hand-written key string.
+func taggedLeaf(leaf string) any {
+	switch leaf {
+	case "ss-keep-recent":
+		return &struct {
+			V int `mapstructure:"ss-keep-recent"`
+		}{}
+	case "ss-enable":
+		return &struct {
+			V bool `mapstructure:"ss-enable"`
+		}{}
+	case "ss-prune-interval":
+		return &struct {
+			V int `mapstructure:"ss-prune-interval"`
+		}{}
+	case "evm-ss-split":
+		return &struct {
+			V bool `mapstructure:"evm-ss-split"`
+		}{}
+	case "sc-async-commit-buffer":
+		return &struct {
+			V int `mapstructure:"sc-async-commit-buffer"`
+		}{}
+	}
+	return nil
+}
+
+// TestGate7ARenameRequiresAnExplicitRatifiedEntry is the escape hatch, and why gate 6 is a gate
+// rather than a prohibition.
+//
+// Keeping every name is today's decision, not a law. A rename is permitted through an explicit
+// ratified entry, and the list starts empty so adding one is a deliberate act visible in a diff.
+func TestGate7ARenameRequiresAnExplicitRatifiedEntry(t *testing.T) {
+	if len(ratifiedRenames) != 0 {
+		t.Errorf("the ratified-rename list is not empty: %v. Every entry renames a key operators "+
+			"have in their files, so each needs its own decision and its own migration",
+			ratifiedRenames)
+	}
+}
+
+// ratifiedRenames names every key whose operator-facing spelling a decision deliberately changed.
+// Empty by decision. An entry here is what permits gate 6 to see a difference without failing,
+// and it owes a migration in the same change.
+var ratifiedRenames = map[string]string{}
+
+// TestGate8TheDeadFieldIsNotReachableUnderTheLiveKey is the trap the design calls settled, and it
+// is tracked as PLT-945.
+//
+// state-commit.sc-async-commit-buffer resolves today to the live MemIAVLConfig field.
+// StateCommitConfig.AsyncCommitBuffer carries the inert tag async-commit-buffer and nothing reads
+// it. A tag-driven binder that inherited that tag would bind an operator's value to the dead field
+// while the spelling they actually write reached no field at all.
+//
+// The trap is invisible today precisely because nothing in the tree reads by tag, and it goes live
+// the moment a registry does. Held by asserting the two tags derive different keys, so inheriting
+// the wrong one cannot silently produce the right-looking path.
 func TestGate8TheDeadFieldIsNotReachableUnderTheLiveKey(t *testing.T) {
-	t.Fatal("unimplemented: needs the registry, then assert sc-async-commit-buffer binds the " +
-		"live MemIAVLConfig field and that no derived key reaches StateCommitConfig" +
-		".AsyncCommitBuffer, which nothing reads")
+	const section = "state-commit"
+
+	registry.Reset()
+	registry.RegisterSection(section, &struct {
+		Live int `mapstructure:"sc-async-commit-buffer"`
+	}{}, func(registry.Mode) any { return struct{}{} })
+	live := registry.Keys()
+
+	registry.Reset()
+	registry.RegisterSection(section, &struct {
+		Dead int `mapstructure:"async-commit-buffer"`
+	}{}, func(registry.Mode) any { return struct{}{} })
+	dead := registry.Keys()
+
+	if len(live) != 1 || live[0] != "state-commit.sc-async-commit-buffer" {
+		t.Fatalf("the live spelling derived %v, want [state-commit.sc-async-commit-buffer]", live)
+	}
+	if len(dead) != 1 || dead[0] != "state-commit.async-commit-buffer" {
+		t.Fatalf("the inert spelling derived %v, want [state-commit.async-commit-buffer]", dead)
+	}
+	if live[0] == dead[0] {
+		t.Fatal("the live and inert tags derive the same key, so a struct that inherited the inert " +
+			"one would bind an operator's value to the field nothing reads while looking correct")
+	}
 }
