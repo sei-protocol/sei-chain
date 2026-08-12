@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configcli"
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
@@ -163,6 +164,16 @@ func initRootCmd(
 		SnapshotCmd(),
 		LogLevelCmd(),
 	)
+
+	// The sei.toml verbs exist only where the v2 manager is selected, because they act on a file
+	// no other manager reads. Selection errors are not raised here: PersistentPreRunE reports them
+	// with the value it saw, and failing during command assembly would break `seid --help` for a
+	// mistyped variable.
+	if mgr, err := configmanager.Select(os.Getenv); err == nil {
+		if _, isV2 := mgr.(configmanager.SeiConfigManager); isV2 {
+			rootCmd.AddCommand(configcli.Command(app.DefaultNodeHome))
+		}
+	}
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
 	if err != nil {

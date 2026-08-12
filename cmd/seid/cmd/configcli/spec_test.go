@@ -34,19 +34,10 @@ import "testing"
 // verb. The adoption test below is written against the behaviour rather than the spelling, so it
 // holds either way.
 //
-// Generate, doctor, the migration chain and upgrade are built. Their tests live beside the code,
-// in configcli_test.go and in config/seitoml, rather than here. What remains below is what is not
-// built yet.
-
-// TestSetAndUnsetRoundTripThroughWrittenValues holds what the two verbs mean.
-//
-// set writes a value, unset removes the key so it resolves back to the baseline. Hand-editing
-// the file is equally legitimate, so these are conveniences and the file is what counts.
-// Asserted by unsetting a key whose baseline differs from the value that was set, since
-// otherwise the before and after are indistinguishable.
-func TestSetAndUnsetRoundTripThroughWrittenValues(t *testing.T) {
-	t.Fatal("unimplemented: set and unset are not built")
-}
+// Six verbs are built and mounted, and their tests live beside the code rather than here. The tree
+// is named node-config, not config: the client configuration command already owns that name and
+// writes client.toml, and two unrelated files under one verb would leave an operator unable to tell
+// which one they had just edited. What remains below is what is not built yet.
 
 // TestAdoptionCarriesLegacyValuesOverAsWrittenValues is how a node that already exists moves.
 //
