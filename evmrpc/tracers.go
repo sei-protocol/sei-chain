@@ -63,9 +63,11 @@ type DebugAPI struct {
 }
 
 // acquireTraceSemaphore attempts to acquire a slot from the traceCallSemaphore.
-// It returns a function that must be called (typically with defer) to release the semaphore.
-// If the semaphore is nil (unlimited concurrency), it does nothing and returns a no-op release function.
-// The acquisition respects cancellation and fails fast if all trace slots are in use.
+// It returns an idempotent function that must be called (typically with defer) to
+// release the slot; the slot is also released automatically when ctx ends, whichever
+// happens first. If the semaphore is nil (unlimited concurrency), it does nothing and
+// returns a no-op release function. The acquisition respects cancellation and fails
+// fast if all trace slots are in use.
 func (api *DebugAPI) acquireTraceSemaphore(ctx context.Context) (func(), error) {
 	if api.traceCallSemaphore != nil {
 		select {
@@ -76,7 +78,7 @@ func (api *DebugAPI) acquireTraceSemaphore(ctx context.Context) (func(), error) 
 				<-api.traceCallSemaphore
 				return func() {}, err
 			}
-			return func() { <-api.traceCallSemaphore }, nil
+			return api.traceSlotReleaser(ctx), nil
 		case <-ctx.Done():
 			return func() {}, ctx.Err()
 		default:
@@ -84,6 +86,26 @@ func (api *DebugAPI) acquireTraceSemaphore(ctx context.Context) (func(), error) 
 		}
 	}
 	return func() {}, nil // No-op if semaphore is not active
+}
+
+// traceSlotReleaser returns the release function for an acquired trace slot. The
+// slot is returned to the pool exactly once: by the returned function, or by ctx
+// ending, whichever happens first.
+//
+// Tying the release to ctx is what keeps slot exhaustion recoverable. A trace can
+// wedge on something uninterruptible (e.g. the global wasm VM mutex) or stall while
+// unwinding a panic; its deferred release then never runs, and without the ctx
+// backstop the slot would stay consumed until process restart.
+func (api *DebugAPI) traceSlotReleaser(ctx context.Context) func() {
+	var once sync.Once
+	release := func() {
+		once.Do(func() { <-api.traceCallSemaphore })
+	}
+	stop := context.AfterFunc(ctx, release)
+	return func() {
+		stop()
+		release()
+	}
 }
 
 // prepareTraceContext creates the trace timeout context and acquires a trace slot if one

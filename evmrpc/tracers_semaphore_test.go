@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -111,6 +112,161 @@ func TestAcquireTraceSemaphoreCanceledContextDoesNotConsumeSlot(t *testing.T) {
 			t.Fatal("expected canceled acquire to leave semaphore slot available")
 		}
 	}
+}
+
+func TestPrepareTraceContextReleaseIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	api := &DebugAPI{
+		traceCallSemaphore: make(chan struct{}, 1),
+		traceTimeout:       time.Second,
+	}
+
+	_, done, err := api.prepareTraceContext(context.Background())
+	require.NoError(t, err)
+
+	doubleDone := make(chan struct{})
+	go func() {
+		done()
+		done()
+		close(doubleDone)
+	}()
+	select {
+	case <-doubleDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected repeated cleanup calls to return immediately")
+	}
+
+	require.Empty(t, api.traceCallSemaphore, "expected cleanup to release the slot exactly once")
+}
+
+// TestTraceSemaphoreSlotFreedWhenTraceOutlivesContext reproduces the permanent slot
+// leak from issue #3900: a trace that never runs its deferred cleanup (wedged on an
+// uninterruptible lock, or stalled while unwinding a panic) must not consume its
+// semaphore slot forever. The slot has to return to the pool once the trace context
+// ends.
+func TestTraceSemaphoreSlotFreedWhenTraceOutlivesContext(t *testing.T) {
+	t.Parallel()
+
+	api := &DebugAPI{
+		traceCallSemaphore: make(chan struct{}, 1),
+		traceTimeout:       20 * time.Millisecond,
+	}
+
+	// Acquire a slot and deliberately never call done, simulating a trace
+	// goroutine that wedges before its deferred cleanup can run.
+	traceCtx, _, err := api.prepareTraceContext(context.Background())
+	require.NoError(t, err)
+
+	<-traceCtx.Done()
+
+	require.Eventually(t, func() bool {
+		select {
+		case api.traceCallSemaphore <- struct{}{}:
+			<-api.traceCallSemaphore
+			return true
+		default:
+			return false
+		}
+	}, 2*time.Second, 5*time.Millisecond, "expected slot to return to the pool once the trace context ended")
+}
+
+// blockingHashLookupClient wedges BlockByHash until unblock is closed, standing in
+// for a trace stuck on an uninterruptible dependency (e.g. the global wasm VM mutex).
+type blockingHashLookupClient struct {
+	*heightTestClient
+	lookupStarted chan struct{}
+	unblock       chan struct{}
+	startedOnce   sync.Once
+}
+
+func (c *blockingHashLookupClient) BlockByHash(ctx context.Context, hash tmbytes.HexBytes) (*coretypes.ResultBlock, error) {
+	c.startedOnce.Do(func() { close(c.lookupStarted) })
+	<-c.unblock
+	return c.heightTestClient.BlockByHash(ctx, hash)
+}
+
+func TestTraceBlockByHashWedgedCallDoesNotExhaustSemaphore(t *testing.T) {
+	latestHeight := int64(10)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	tmClient := &blockingHashLookupClient{
+		heightTestClient: newHeightTestClient(8, 1, latestHeight),
+		lookupStarted:    make(chan struct{}),
+		unblock:          make(chan struct{}),
+	}
+	watermarks := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, &fakeReceiptStore{latest: latestHeight})
+	api := &DebugAPI{
+		tmClient:           tmClient,
+		ctxProvider:        func(int64) sdk.Context { return latestCtx },
+		connectionType:     ConnectionTypeHTTP,
+		traceCallSemaphore: make(chan struct{}, 1),
+		traceTimeout:       20 * time.Millisecond,
+		maxBlockLookback:   1,
+		backend: &Backend{
+			tmClient:   tmClient,
+			watermarks: watermarks,
+		},
+	}
+
+	handlerDone := make(chan struct{})
+	go func() {
+		defer close(handlerDone)
+		// The wedged handler must not take the test binary down if it panics
+		// after being unblocked; the semaphore assertions below are the test.
+		defer func() { _ = recover() }()
+		_, _ = api.TraceBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), nil)
+	}()
+
+	<-tmClient.lookupStarted
+
+	// The handler goroutine is wedged holding its slot. Once the trace context
+	// deadline passes, the slot must return to the pool so subsequent traces
+	// are not rejected with "server busy" forever.
+	require.Eventually(t, func() bool {
+		release, err := api.acquireTraceSemaphore(context.Background())
+		if err != nil {
+			return false
+		}
+		release()
+		return true
+	}, 2*time.Second, 5*time.Millisecond, "expected slot to be freed after the wedged trace timed out")
+
+	close(tmClient.unblock)
+	<-handlerDone
+
+	// The wedged handler's deferred cleanup ran after the backstop already
+	// released the slot; occupancy must still be exactly zero.
+	require.Empty(t, api.traceCallSemaphore)
+}
+
+// TestTraceBlockByHashPanicReleasesSemaphore pins the "released on every code path,
+// including panic recovery" contract from issue #3900.
+func TestTraceBlockByHashPanicReleasesSemaphore(t *testing.T) {
+	latestHeight := int64(10)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	tmClient := &panicHashLookupClient{
+		heightTestClient: newHeightTestClient(8, 1, latestHeight),
+	}
+	watermarks := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, &fakeReceiptStore{latest: latestHeight})
+	api := &DebugAPI{
+		tmClient:           tmClient,
+		ctxProvider:        func(int64) sdk.Context { return latestCtx },
+		connectionType:     ConnectionTypeHTTP,
+		traceCallSemaphore: make(chan struct{}, 1),
+		traceTimeout:       time.Second,
+		backend: &Backend{
+			tmClient:   tmClient,
+			watermarks: watermarks,
+		},
+	}
+
+	// The panic escapes the handler (recordMetricsWithError re-panics after
+	// recording) exactly as it would toward the RPC server's recovery layer.
+	require.Panics(t, func() {
+		_, _ = api.TraceBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), nil)
+	})
+
+	require.Empty(t, api.traceCallSemaphore, "expected the panicking trace to release its slot")
 }
 
 type panicHashLookupClient struct {
