@@ -16,7 +16,9 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
+	authztypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/seilog"
@@ -261,7 +263,7 @@ func (p PrecompileExecutor) grantStakingAuthorization(ctx sdk.Context, method *a
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
-	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
 		return nil, 0, err
 	}
 
@@ -273,17 +275,30 @@ func (p PrecompileExecutor) grantStakingAuthorization(ctx sdk.Context, method *a
 	if err != nil {
 		return nil, 0, err
 	}
-	expiration := time.Unix(args[1].(int64), 0).UTC()
+	allowedValidators, err := parseAllowedValidators(args[1].([]string))
+	if err != nil {
+		return nil, 0, err
+	}
+	maxTokens := args[2].(*big.Int)
+	if maxTokens.Sign() <= 0 {
+		return nil, 0, sdkerrors.ErrInvalidRequest.Wrap("max tokens must be positive")
+	}
+	expiration := time.Unix(args[3].(int64), 0).UTC()
+	authorizations, err := newStakingAuthorizations(
+		allowedValidators,
+		sdk.NewCoin(sdk.MustGetBaseDenom(), sdk.NewIntFromBigInt(maxTokens)),
+	)
+	if err != nil {
+		return nil, 0, err
+	}
 
-	if err := pcommon.GrantGenericAuthorizations(
+	if err := pcommon.GrantAuthorizations(
 		ctx,
 		p.authzMsgServer,
 		granter,
 		grantee,
 		expiration,
-		&stakingtypes.MsgDelegate{},
-		&stakingtypes.MsgBeginRedelegate{},
-		&stakingtypes.MsgUndelegate{},
+		authorizations...,
 	); err != nil {
 		return nil, 0, err
 	}
@@ -293,6 +308,38 @@ func (p PrecompileExecutor) grantStakingAuthorization(ctx sdk.Context, method *a
 		return nil, 0, err
 	}
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
+}
+
+func parseAllowedValidators(validatorAddresses []string) ([]sdk.ValAddress, error) {
+	if len(validatorAddresses) == 0 {
+		return nil, sdkerrors.ErrInvalidRequest.Wrap("at least one allowed validator is required")
+	}
+	validators := make([]sdk.ValAddress, len(validatorAddresses))
+	for i, validatorAddress := range validatorAddresses {
+		validator, err := sdk.ValAddressFromBech32(validatorAddress)
+		if err != nil {
+			return nil, err
+		}
+		validators[i] = validator
+	}
+	return validators, nil
+}
+
+func newStakingAuthorizations(allowedValidators []sdk.ValAddress, maxTokens sdk.Coin) ([]authztypes.Authorization, error) {
+	authorizationTypes := []stakingtypes.AuthorizationType{
+		stakingtypes.AuthorizationType_AUTHORIZATION_TYPE_DELEGATE,
+		stakingtypes.AuthorizationType_AUTHORIZATION_TYPE_REDELEGATE,
+		stakingtypes.AuthorizationType_AUTHORIZATION_TYPE_UNDELEGATE,
+	}
+	authorizations := make([]authztypes.Authorization, 0, len(authorizationTypes))
+	for _, authorizationType := range authorizationTypes {
+		authorization, err := stakingtypes.NewStakeAuthorization(allowedValidators, nil, authorizationType, &maxTokens)
+		if err != nil {
+			return nil, err
+		}
+		authorizations = append(authorizations, authorization)
+	}
+	return authorizations, nil
 }
 
 func (p PrecompileExecutor) revokeStakingAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {

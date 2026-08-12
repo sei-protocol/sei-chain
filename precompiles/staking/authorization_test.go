@@ -7,9 +7,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	authztypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -50,22 +50,31 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 	}
 
 	expiration := blockTime.Add(time.Hour)
-	ret, err := call(granterEVMAddr, staking.GrantStakingMethod, nil, granteeEVMAddr, expiration.Unix())
+	allowedValidators := []string{validatorSrc.String(), validatorDst.String()}
+	maxTokens := big.NewInt(200)
+	ret, err := call(granterEVMAddr, staking.GrantStakingMethod, nil, granteeEVMAddr, allowedValidators, maxTokens, expiration.Unix())
 	require.NoError(t, err)
 	assertSuccess(staking.GrantStakingMethod, ret)
 
-	for _, msg := range []sdk.Msg{
-		&stakingtypes.MsgDelegate{},
-		&stakingtypes.MsgBeginRedelegate{},
-		&stakingtypes.MsgUndelegate{},
+	for _, expected := range []struct {
+		msg               sdk.Msg
+		authorizationType stakingtypes.AuthorizationType
+	}{
+		{&stakingtypes.MsgDelegate{}, stakingtypes.AuthorizationType_AUTHORIZATION_TYPE_DELEGATE},
+		{&stakingtypes.MsgBeginRedelegate{}, stakingtypes.AuthorizationType_AUTHORIZATION_TYPE_REDELEGATE},
+		{&stakingtypes.MsgUndelegate{}, stakingtypes.AuthorizationType_AUTHORIZATION_TYPE_UNDELEGATE},
 	} {
 		authorization, storedExpiration := testApp.AuthzKeeper.GetCleanAuthorization(
 			statedb.Ctx(),
 			granteeSeiAddr,
 			granterSeiAddr,
-			sdk.MsgTypeURL(msg),
+			sdk.MsgTypeURL(expected.msg),
 		)
-		require.IsType(t, &authztypes.GenericAuthorization{}, authorization)
+		require.IsType(t, &stakingtypes.StakeAuthorization{}, authorization)
+		stakeAuthorization := authorization.(*stakingtypes.StakeAuthorization)
+		require.Equal(t, expected.authorizationType, stakeAuthorization.AuthorizationType)
+		require.Equal(t, allowedValidators, stakeAuthorization.GetAllowList().Address)
+		require.Equal(t, sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewIntFromBigInt(maxTokens)), *stakeAuthorization.MaxTokens)
 		require.Equal(t, expiration, storedExpiration)
 	}
 
@@ -87,6 +96,15 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 	delegation, found := testApp.StakingKeeper.GetDelegation(statedb.Ctx(), granterSeiAddr, validatorSrc)
 	require.True(t, found)
 	require.Equal(t, int64(100), delegation.Shares.RoundInt().Int64())
+	assertStakingAuthorizationLimit(
+		t,
+		testApp,
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		&stakingtypes.MsgDelegate{},
+		100,
+	)
 
 	ret, err = call(
 		granteeEVMAddr,
@@ -102,6 +120,15 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 	delegation, found = testApp.StakingKeeper.GetDelegation(statedb.Ctx(), granterSeiAddr, validatorSrc)
 	require.True(t, found)
 	require.Equal(t, int64(70), delegation.Shares.RoundInt().Int64())
+	assertStakingAuthorizationLimit(
+		t,
+		testApp,
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		&stakingtypes.MsgBeginRedelegate{},
+		170,
+	)
 
 	ret, err = call(
 		granteeEVMAddr,
@@ -116,6 +143,26 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 	delegation, found = testApp.StakingKeeper.GetDelegation(statedb.Ctx(), granterSeiAddr, validatorSrc)
 	require.True(t, found)
 	require.Equal(t, int64(50), delegation.Shares.RoundInt().Int64())
+	assertStakingAuthorizationLimit(
+		t,
+		testApp,
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		&stakingtypes.MsgUndelegate{},
+		180,
+	)
+
+	validatorNotAllowed := setupValidator(t, statedb.Ctx(), testApp, stakingtypes.Bonded, testkeeper.MockPrivateKey().PubKey())
+	_, err = call(
+		granteeEVMAddr,
+		staking.UndelegateWithAuthzMethod,
+		nil,
+		granterEVMAddr,
+		validatorNotAllowed.String(),
+		big.NewInt(1),
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
 
 	ret, err = call(granterEVMAddr, staking.RevokeStakingMethod, nil, granteeEVMAddr)
 	require.NoError(t, err)
@@ -144,4 +191,24 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 	)
 	require.ErrorIs(t, err, vm.ErrExecutionReverted)
 
+	_, err = call(granterEVMAddr, staking.GrantStakingMethod, nil, granteeEVMAddr, []string{}, maxTokens, expiration.Unix())
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	_, err = call(granterEVMAddr, staking.GrantStakingMethod, nil, granteeEVMAddr, allowedValidators, big.NewInt(0), expiration.Unix())
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+}
+
+func assertStakingAuthorizationLimit(
+	t *testing.T,
+	testApp *app.App,
+	ctx sdk.Context,
+	grantee sdk.AccAddress,
+	granter sdk.AccAddress,
+	msg sdk.Msg,
+	expectedLimit int64,
+) {
+	t.Helper()
+	authorization, _ := testApp.AuthzKeeper.GetCleanAuthorization(ctx, grantee, granter, sdk.MsgTypeURL(msg))
+	require.IsType(t, &stakingtypes.StakeAuthorization{}, authorization)
+	stakeAuthorization := authorization.(*stakingtypes.StakeAuthorization)
+	require.Equal(t, sdk.NewInt(expectedLimit), stakeAuthorization.MaxTokens.Amount)
 }

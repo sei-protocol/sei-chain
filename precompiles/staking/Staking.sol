@@ -115,12 +115,17 @@ interface IStaking {
     ) external returns (bool success);
 
     /**
-     * @notice Authorize a grantee to delegate, redelegate, and undelegate on behalf of the caller
+     * @notice Authorize a grantee to delegate, redelegate, and undelegate within explicit validator and token limits
      * @param grantee The account receiving the staking authorization
+     * @param allowedValidators Validators the grantee may target. For redelegation this limits destination validators
+     * @param maxTokens Maximum cumulative base-denom amount for each of delegate, redelegate, and undelegate
      * @param expiration Unix timestamp after which the authorization is invalid
+     * @dev Creates three native StakeAuthorizations with independent maxTokens budgets. They can be used through this precompile or native Cosmos MsgExec
      */
     function grantStakingAuthorization(
         address grantee,
+        string[] memory allowedValidators,
+        uint256 maxTokens,
         int64 expiration
     ) external returns (bool success);
 

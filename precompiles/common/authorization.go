@@ -21,15 +21,30 @@ func GrantGenericAuthorizations(
 	expiration time.Time,
 	authorizedMsgs ...sdk.Msg,
 ) error {
-	if len(authorizedMsgs) == 0 {
-		return sdkerrors.ErrInvalidRequest.Wrap("at least one authorized message is required")
+	authorizations := make([]authztypes.Authorization, len(authorizedMsgs))
+	for i, authorizedMsg := range authorizedMsgs {
+		authorizations[i] = authztypes.NewGenericAuthorization(sdk.MsgTypeURL(authorizedMsg))
+	}
+	return GrantAuthorizations(ctx, msgServer, granter, grantee, expiration, authorizations...)
+}
+
+// GrantAuthorizations creates one native grant for each authorization.
+func GrantAuthorizations(
+	ctx sdk.Context,
+	msgServer utils.AuthzMsgServer,
+	granter sdk.AccAddress,
+	grantee sdk.AccAddress,
+	expiration time.Time,
+	authorizations ...authztypes.Authorization,
+) error {
+	if len(authorizations) == 0 {
+		return sdkerrors.ErrInvalidRequest.Wrap("at least one authorization is required")
 	}
 	if !expiration.After(ctx.BlockTime()) {
 		return sdkerrors.ErrInvalidRequest.Wrap("authorization expiration must be after the current block time")
 	}
 
-	for _, authorizedMsg := range authorizedMsgs {
-		authorization := authztypes.NewGenericAuthorization(sdk.MsgTypeURL(authorizedMsg))
+	for _, authorization := range authorizations {
 		grant, err := authztypes.NewMsgGrant(granter, grantee, authorization, expiration)
 		if err != nil {
 			return err
