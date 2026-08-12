@@ -15,6 +15,7 @@ import (
 	seiconfig "github.com/sei-protocol/sei-config"
 	"github.com/sei-protocol/seilog"
 
+	"github.com/sei-protocol/sei-chain/config/experimental"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 )
@@ -32,13 +33,38 @@ type ConfigManager interface {
 	Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error
 }
 
-// LegacyConfigManager is the default manager. It forwards to the legacy handler
-// unchanged, leaving the legacy path byte-for-byte unaffected.
-type LegacyConfigManager struct{}
+// LegacyConfigManager is the default manager. It forwards to the legacy handler unchanged,
+// leaving the legacy resolution byte-for-byte unaffected, and reports experimental findings.
+type LegacyConfigManager struct {
+	// logger reports the experimental findings, and a nil one means the package logger. It
+	// exists so a test can read what Apply reported without reassigning package state that a
+	// parallel test could race.
+	logger *slog.Logger
+}
 
-// Apply forwards to the legacy interception handler unchanged.
-func (LegacyConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
-	return server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
+// Apply forwards to the legacy interception handler, then reports experimental findings.
+//
+// The forward is unchanged and its result is what this returns, so the legacy resolution is
+// untouched. The report runs after it for the same reason SeiConfigManager reports after its
+// own forward: the handler sets the log level, so a node with log_level = "error" would
+// otherwise either miss the lines or get them at the pre-config default.
+//
+// Experimental semantics live in both managers deliberately. They are the unblock for values
+// that change between binaries, so they cannot wait for the new manager to become the
+// default. Nothing here refuses a boot the legacy path would have allowed.
+func (m LegacyConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
+	err := server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
+	reportExperimental(m.log(), cmd)
+	return err
+}
+
+// log returns the logger to report through, and never returns nil. Select builds the zero
+// value, so the nil case is the production path rather than a fallback.
+func (m LegacyConfigManager) log() *slog.Logger {
+	if m.logger != nil {
+		return m.logger
+	}
+	return logger
 }
 
 // SeiConfigManager validates the config through the sei-config library, then
@@ -83,6 +109,7 @@ func (m SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate stri
 	out := validateAdvisory(cmd)
 	err := server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
 	reportAdvisory(m.log(), out)
+	reportExperimental(m.log(), cmd)
 	return err
 }
 
@@ -321,4 +348,64 @@ func Select(getenv func(string) string) (ConfigManager, error) {
 	default:
 		return nil, fmt.Errorf("invalid %s=%q (want unset, \"legacy\", or \"v2\")", EnvVar, v)
 	}
+}
+
+// reportExperimental logs what an operator wrote under [experimental] that this binary cannot
+// use, containing a panic from the reporting itself.
+//
+// Both managers call it, and neither halts on what it finds. An unrecognized key is reported
+// and left in place, because a configuration written for the next release has to stay bootable
+// on this one and because deleting the key would lose a value a rollback needs. A recognized
+// key whose value does not convert is reported at error level and still does not halt, which
+// is what makes Handle.Get's fall back to its default a reported substitution rather than a
+// silent one.
+//
+// It reads serverCtx.Viper, so it runs after the handler has populated it. A context without
+// one yields nothing rather than a nil dereference, since a manager whose only output is
+// operator-facing lines must not be the reason a boot fails.
+func reportExperimental(lg *slog.Logger, cmd *cobra.Command) {
+	defer func() {
+		if r := recover(); r != nil {
+			// A second panic, from logging the first, must not escape.
+			defer func() { _ = recover() }()
+			lg.Error("experimental config reporting panicked (advisory; recovered, node will boot)",
+				"panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+
+	v := experimentalKeySpace(cmd)
+	if v == nil {
+		return
+	}
+	findings := experimental.Check(v)
+	if len(findings) == 0 {
+		return
+	}
+	if unknown := experimental.Unrecognized(findings); len(unknown) > 0 {
+		lg.Warn("experimental config keys this binary does not declare (left in place; node will boot)",
+			"count", len(unknown), "keys", unknown)
+	}
+	for _, f := range experimental.Invalid(findings) {
+		lg.Error("experimental config value does not match its declared type (using the default)",
+			"key", f.Path, "owner", f.Owner, "error", f.Err)
+	}
+}
+
+// experimentalKeySpace returns the viper the handler populated, or nil where there is none.
+//
+// Finding a key nobody declared needs the written set, which AppOptions.Get cannot produce,
+// so this reaches for the concrete viper rather than the narrow read interface.
+func experimentalKeySpace(cmd *cobra.Command) experimental.KeySpace {
+	// cmd.Context() is checked before the call, not after. GetServerContextFromCmd dereferences
+	// it immediately (sei-cosmos/server/util.go:225), so a command whose context was never set
+	// panics inside it rather than returning nil, and the recover above would then be what keeps
+	// a boot alive instead of this check.
+	if cmd == nil || cmd.Context() == nil {
+		return nil
+	}
+	ctx := server.GetServerContextFromCmd(cmd)
+	if ctx == nil || ctx.Viper == nil {
+		return nil
+	}
+	return ctx.Viper
 }
