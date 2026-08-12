@@ -42,15 +42,16 @@ func TestApplyDefaultBootstrapPeers(t *testing.T) {
 	}
 }
 
-// The public networks must actually get a usable set, not just a non-empty
-// string — a silently truncated table would still satisfy the table test above.
+// What the wiring owes is the seed list for the chain, whole and unaltered.
+// How many addresses that is, and whether they are well formed, belongs to
+// app/seeds, where the table and its per-cell rationale live.
 func TestApplyDefaultBootstrapPeersPopulatesPublicNetworks(t *testing.T) {
 	for _, chainID := range []string{"pacific-1", "atlantic-2"} {
 		cfg := tmcfg.DefaultConfig()
 		applyDefaultBootstrapPeers(cfg, chainID)
-		if n := len(strings.Split(cfg.P2P.BootstrapPeers, ",")); n != 3 {
-			t.Errorf("%s: got %d bootstrap peers, want 3 (%q)", chainID, n, cfg.P2P.BootstrapPeers)
-		}
+		require.NotEmptyf(t, cfg.P2P.BootstrapPeers, "%s should ship seeds", chainID)
+		require.Equalf(t, seeds.BootstrapPeers(chainID), cfg.P2P.BootstrapPeers,
+			"%s: init must write the seed list unaltered", chainID)
 	}
 }
 
@@ -116,8 +117,8 @@ func TestInitCmdWritesDefaultBootstrapPeers(t *testing.T) {
 	for _, chainID := range []string{"pacific-1", "atlantic-2"} {
 		t.Run(chainID, func(t *testing.T) {
 			got := bootstrapPeersLine(t, runInit(t, chainID))
+			require.NotEmpty(t, got)
 			require.Equal(t, seeds.BootstrapPeers(chainID), got)
-			require.Len(t, strings.Split(got, ","), 3)
 		})
 	}
 }

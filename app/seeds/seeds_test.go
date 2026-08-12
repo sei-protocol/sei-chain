@@ -35,12 +35,18 @@ func TestSeedAddressesParseAndAreUnique(t *testing.T) {
 			addr, err := config.ParseNodeAddress(entry)
 			require.NoErrorf(t, err, "%s: %q", chainID, entry)
 
-			// Parsing alone does not cover the port: ParseNodeAddress
-			// substitutes 26657, the RPC port, when one is missing or zero.
-			// A dropped ":26656" would therefore parse clean, pass every other
-			// assertion here, and ship a permanently wrong port to operators.
-			require.EqualValuesf(t, 26656, addr.Port,
-				"%s: %q must publish the P2P port explicitly", chainID, entry)
+			// Round-trip rather than parse alone. ParseNodeAddress substitutes
+			// 26657 for a missing port, so a dropped ":26656" parses clean and
+			// would ship pointing at the RPC port; re-rendering catches that,
+			// and any other silent normalisation, without pinning a port number
+			// as though the protocol required one.
+			require.Equalf(t, entry, strings.TrimPrefix(addr.String(), "mconn://"),
+				"%s: %q does not survive a parse round-trip", chainID, entry)
+
+			// Seeds publish DNS names, not bare hosts, so the address outlives
+			// any IP change behind it.
+			require.Containsf(t, addr.Hostname, ".",
+				"%s: %q should publish a DNS name", chainID, entry)
 
 			id := string(addr.NodeID)
 			require.NotContainsf(t, seenID, id,

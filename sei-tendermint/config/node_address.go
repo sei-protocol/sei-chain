@@ -3,9 +3,10 @@ package config
 import "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 
 // NodeAddress is a peer address in `NodeID@host:port` form, as the p2p router
-// understands it. It is re-exported here because the parser lives under
-// sei-tendermint/internal and is unreachable from packages outside the
-// sei-tendermint tree.
+// understands it.
+//
+// Aliased here so callers outside the sei-tendermint tree, which cannot reach
+// internal/p2p, can still name the type.
 type NodeAddress = p2p.NodeAddress
 
 // ParseNodeAddress parses and validates a peer address, applying the same rules
