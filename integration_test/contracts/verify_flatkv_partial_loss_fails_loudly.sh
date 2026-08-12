@@ -23,6 +23,8 @@ COMPARE_BUFFER=${FLATKV_PARTIAL_LOSS_COMPARE_BUFFER:-2}
 # reliably loses that race on busy CI runners.
 CATCHUP_TIMEOUT=${FLATKV_PARTIAL_LOSS_CATCHUP_TIMEOUT:-240}
 CATCHUP_TOLERANCE=${FLATKV_PARTIAL_LOSS_CATCHUP_TOLERANCE:-10}
+LOUD_FAILURE_STATUS=2
+VICTIM_LOG="/sei-protocol/sei-chain/build/generated/logs/seid-${VICTIM_INDEX}.log"
 
 echo "verify_flatkv_partial_loss_fails_loudly: victim=$VICTIM_NODE flatkv_dir=$FLATKV_DIR"
 
@@ -50,18 +52,30 @@ node_height() {
     || echo 0
 }
 
+# has_post_restart_app_hash_mismatch checks only log entries written after the
+# partial-loss restart. An AppHash mismatch means the node detected and
+# rejected its divergent state even if the seid process remains alive.
+has_post_restart_app_hash_mismatch() {
+  docker exec "$VICTIM_NODE" bash -lc \
+    "tail -n '+${VICTIM_LOG_START_LINE}' '$VICTIM_LOG' 2>/dev/null | grep -Fq 'app hash mismatch'"
+}
+
 # wait_for_catchup polls until the victim's height is within $tolerance of the
-# maximum height across the other (non-victim) validators, or until $timeout
-# seconds elapse. This must run before dump-flatkv: while the victim is
-# blocksyncing it rolls new FlatKV snapshots and truncates the WAL, which the
-# dump tool can only ride out for a small fixed number of retries before
-# panicking with "source kept churning".
+# maximum height across the other (non-victim) validators, detects a loud
+# AppHash failure, or reaches $timeout. This must run before dump-flatkv: while
+# the victim is blocksyncing it rolls new FlatKV snapshots and truncates the
+# WAL, which the dump tool can only ride out for a small fixed number of retries
+# before panicking with "source kept churning".
 wait_for_catchup() {
   local victim=$1
   local timeout=$2
   local tolerance=$3
   local elapsed=0
   while [ "$elapsed" -lt "$timeout" ]; do
+    if has_post_restart_app_hash_mismatch; then
+      echo "$victim rejected divergent state with an AppHash mismatch"
+      return "$LOUD_FAILURE_STATUS"
+    fi
     local max_other_h=0 victim_h gap
     for i in $(seq 0 $((NODE_COUNT - 1))); do
       if [ "$i" = "$VICTIM_INDEX" ]; then
@@ -200,6 +214,9 @@ fi
 echo "Deleting only $FLATKV_DIR on $VICTIM_NODE"
 docker exec "$VICTIM_NODE" bash -lc "rm -rf '$FLATKV_DIR'"
 
+VICTIM_LOG_START_LINE=$(docker exec "$VICTIM_NODE" wc -l "$VICTIM_LOG" 2>/dev/null || echo 0)
+VICTIM_LOG_START_LINE=$((VICTIM_LOG_START_LINE + 1))
+
 echo "Restarting $VICTIM_NODE after FlatKV-only loss"
 docker exec -d -e "ID=${VICTIM_INDEX}" "$VICTIM_NODE" /usr/bin/start_sei.sh
 sleep "$RESTART_OBSERVE_SECS"
@@ -226,7 +243,16 @@ fi
 # Wait for the victim to catch up before dumping FlatKV; see CATCHUP_TIMEOUT
 # comment at the top of this script for why running dump-flatkv against an
 # actively-syncing node is unreliable.
-wait_for_catchup "$VICTIM_NODE" "$CATCHUP_TIMEOUT" "$CATCHUP_TOLERANCE"
+catchup_status=0
+wait_for_catchup "$VICTIM_NODE" "$CATCHUP_TIMEOUT" "$CATCHUP_TOLERANCE" \
+  || catchup_status=$?
+if [ "$catchup_status" -eq "$LOUD_FAILURE_STATUS" ]; then
+  echo "PASS: $VICTIM_NODE failed loudly after FlatKV-only loss"
+  exit 0
+fi
+if [ "$catchup_status" -ne 0 ]; then
+  exit "$catchup_status"
+fi
 
 assert_flatkv_digests_match
 echo "PASS: $VICTIM_NODE self-healed after FlatKV-only loss and matches FlatKV digests"
