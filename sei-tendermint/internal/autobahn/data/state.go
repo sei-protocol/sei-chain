@@ -197,6 +197,7 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	m.BlockHeight.Receive.Set(utils.Clamp[int64](inner.nextBlock))
 	m.BlockHeight.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
 	m.BlockHeight.Certify.Set(utils.Clamp[int64](inner.nextAppQC))
+	m.BlockHeight.Evict.Set(utils.Clamp[int64](inner.first))
 	return &State{
 		cfg:     cfg,
 		metrics: m,
@@ -843,19 +844,25 @@ func (s *State) runPersist(ctx context.Context) error {
 		// Prune the inner state.
 		for inner, ctrl := range s.inner.Lock() {
 			inner.persisted = status
+			t := time.Now()
 			for inner.first < inner.persisted.First {
 				// Divergence detection
 				n := inner.first
 				if got, want := inner.appProposals[n].AppHash(), inner.appQCs[n].Proposal().AppHash(); !bytes.Equal(got, want) {
 					return fmt.Errorf("AppHash divergence detected at block %v: local AppHash = %v, quorum Apphash = %v", n, got, want)
 				}
-				delete(inner.blockHashes, inner.blocks[n].Header().Hash())
+				b := inner.blocks[n]
+				latency := t.Sub(b.Payload().CreatedAt()).Seconds()
+				s.metrics.BlockLatency.Evict.Observe(latency)
+				s.metrics.TxLatency.Evict.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+				delete(inner.blockHashes, b.Header().Hash())
 				delete(inner.blocks, n)
 				delete(inner.qcs, n)
 				delete(inner.appQCs, n)
 				delete(inner.appProposals, n)
 				inner.first += 1
 			}
+			s.metrics.BlockHeight.Evict.Set(utils.Clamp[int64](inner.first))
 			inner.setAnchor()
 			ctrl.Updated()
 		}

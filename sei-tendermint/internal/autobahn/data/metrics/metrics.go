@@ -26,6 +26,7 @@ type stageMetrics[T any] struct {
 	Receive T
 	Execute T
 	Certify T
+	Evict   T
 }
 
 func newStageMetrics[T any](gen func(stage string) T) stageMetrics[T] {
@@ -33,6 +34,7 @@ func newStageMetrics[T any](gen func(stage string) T) stageMetrics[T] {
 		Receive: gen("receive"),
 		Execute: gen("execute"),
 		Certify: gen("certify"),
+		Evict:   gen("evict"),
 	}
 }
 
