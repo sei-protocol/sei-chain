@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 func TestSubscribeLaneProposals_ErrLaneClosedAfterMapDrop(t *testing.T) {
@@ -107,41 +108,32 @@ func TestWaitLane_LeaveRejoinNewLaneID(t *testing.T) {
 	_, err = sub.Recv(ctx)
 	require.ErrorIs(t, err, ErrLaneClosed)
 
-	// Client would WaitLane(..., exclude=lane0); must not accept the closed identity.
-	waitCtx, cancel := context.WithCancel(ctx)
-	done := make(chan types.LaneID, 1)
-	go func() {
-		lane, err := state.WaitLane(waitCtx, a.Public(), utils.Some(lane0))
-		if err == nil {
-			done <- lane
+	// Client would WaitLane(..., exclude=lane0). LocalLane is None so it must not
+	// return the closed identity; after rejoin it observes the new LaneID.
+	var gotLane types.LaneID
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+		sc.Spawn(func() error {
+			lane, err := state.WaitLane(ctx, a.Public(), utils.Some(lane0))
+			if err != nil {
+				return err
+			}
+			gotLane = lane
+			return nil
+		})
+		epJoin, err := registry.ActivateEpoch(
+			map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
+			types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+		)
+		if err != nil {
+			return err
 		}
-		close(done)
-	}()
-	select {
-	case <-done:
-		t.Fatal("WaitLane returned before rejoin")
-	case <-time.After(20 * time.Millisecond):
-	}
-
-	// Put a back in the committee under a new LaneID (Joined = join epoch).
-	epJoin, err := registry.ActivateEpoch(
-		map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
-		types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
-	)
-	require.NoError(t, err)
-	state.ApplyEpoch(epJoin)
+		state.ApplyEpoch(epJoin)
+		return nil
+	}))
 	lane1 := state.LocalLane().OrPanic("rejoin")
 	require.NotEqual(t, lane0, lane1)
 	require.Equal(t, a.Public(), lane1.Validator)
-
-	select {
-	case got := <-done:
-		require.Equal(t, lane1, got)
-	case <-time.After(time.Second):
-		cancel()
-		t.Fatal("WaitLane did not observe rejoin LaneID")
-	}
-	cancel()
+	require.Equal(t, lane1, gotLane)
 
 	// Subscribe on the new LaneID works; the closed lane0 still matches the validator
 	// key but Recv returns ErrLaneClosed because its map is gone.

@@ -28,6 +28,7 @@ func (s ImSlice[T]) All() iter.Seq[T] { return slices.Values(s.s) }
 // network-wide deterministic. Lanes() uses that order.
 type Committee struct {
 	validators  ImSlice[PublicKey] // membership order
+	laneIDs     ImSlice[LaneID]    // same order as validators
 	lanes       map[PublicKey]LaneID
 	weights     map[PublicKey]uint64
 	totalWeight uint64
@@ -60,11 +61,7 @@ func (c *Committee) Replicas() iter.Seq[PublicKey] {
 
 // Lanes returns each replica's LaneID in Replicas() order.
 func (c *Committee) Lanes() ImSlice[LaneID] {
-	out := make([]LaneID, 0, c.validators.Len())
-	for v := range c.validators.All() {
-		out = append(out, c.lanes[v])
-	}
-	return ImSlice[LaneID]{out}
+	return c.laneIDs
 }
 
 // Deterministic random oracle selecting a replica with probability proportional to the weight.
@@ -188,8 +185,13 @@ func newCommittee(prev map[PublicKey]LaneID, weights map[PublicKey]uint64, e Epo
 	}
 	validators := slices.Collect(maps.Keys(lanes))
 	slices.SortFunc(validators, PublicKey.Compare)
+	laneIDs := make([]LaneID, len(validators))
+	for i, v := range validators {
+		laneIDs[i] = lanes[v]
+	}
 	return &Committee{
 		validators:  ImSlice[PublicKey]{validators},
+		laneIDs:     ImSlice[LaneID]{laneIDs},
 		lanes:       lanes,
 		weights:     weights,
 		totalWeight: totalWeight,

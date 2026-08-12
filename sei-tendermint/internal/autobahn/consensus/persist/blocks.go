@@ -120,7 +120,6 @@ func (lw *laneWAL) maybePruneAndPersist(
 	lane types.LaneID,
 	deleteBefore utils.Option[types.BlockNumber],
 	proposals []*types.Signed[*types.LaneProposal],
-	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
 ) error {
 	for s := range lw.state.Lock() {
 		if first, ok := deleteBefore.Get(); ok {
@@ -141,11 +140,6 @@ func (lw *laneWAL) maybePruneAndPersist(
 			// reported as persisted — until this returns.
 			if err := s.flush(lane); err != nil {
 				return err
-			}
-		}
-		if fn, ok := afterEach.Get(); ok {
-			for _, p := range proposals {
-				fn(p)
 			}
 		}
 		return nil
@@ -291,25 +285,16 @@ func (bp *BlockPersister) getOrCreateLane(lanes map[types.LaneID]*laneWAL, lane 
 // pending proposals. After SyncLanes removes a lane, empty-proposal prune passes
 // false so the WAL is not recreated.
 //
-// afterEach, when present, is called once per appended proposal in order, after the whole batch has
-// been flushed — never before, because an append is not durable until then and afterEach is what
-// releases a block to the rest of consensus. It is invoked while persister locks are held, so it
-// must not re-enter the persister. If any append fails, afterEach is not called for the batch at all.
-// No-op persister (dir=None): skips disk I/O but still invokes afterEach.
+// Appends are not durable until this returns (one flush for the whole batch).
+// No-op persister (dir=None): skips disk I/O.
 // Does not spawn goroutines — the caller schedules parallelism per lane.
 func (bp *BlockPersister) MaybePruneAndPersistLane(
 	lane types.LaneID,
 	allowCreate bool,
 	deleteBefore utils.Option[types.BlockNumber],
 	proposals []*types.Signed[*types.LaneProposal],
-	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
 ) error {
 	if _, ok := bp.dir.Get(); !ok {
-		if fn, ok := afterEach.Get(); ok {
-			for _, p := range proposals {
-				fn(p)
-			}
-		}
 		return nil
 	}
 
@@ -318,7 +303,7 @@ func (bp *BlockPersister) MaybePruneAndPersistLane(
 	// create path below needs the write lock.
 	for lanes := range bp.lanes.RLock() {
 		if lw, ok := lanes[lane]; ok {
-			return lw.maybePruneAndPersist(lane, deleteBefore, proposals, afterEach)
+			return lw.maybePruneAndPersist(lane, deleteBefore, proposals)
 		}
 	}
 	if !allowCreate {
@@ -326,14 +311,11 @@ func (bp *BlockPersister) MaybePruneAndPersistLane(
 	}
 	// Create path: hold the write lock through create+persist so SyncLanes cannot race.
 	for lanes := range bp.lanes.Lock() {
-		lw, ok, err := bp.getOrCreateLane(lanes, lane, true)
+		lw, _, err := bp.getOrCreateLane(lanes, lane, true)
 		if err != nil {
 			return err
 		}
-		if !ok {
-			return nil
-		}
-		return lw.maybePruneAndPersist(lane, deleteBefore, proposals, afterEach)
+		return lw.maybePruneAndPersist(lane, deleteBefore, proposals)
 	}
 	panic("unreachable")
 }

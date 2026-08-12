@@ -10,9 +10,8 @@
 //     maps and WAL are kept
 //   - closed: epochOfFirst.IsClosed — maps dropped, SyncLanes deletes the WAL
 //
-// Block/vote ingest uses the latest CommitQC's committee (or the applied
-// committee before any QC), and still serves closing lanes. A missing map is
-// never waited on.
+// Block/vote ingest verifies against the registry's latest epoch committee.
+// A missing map is never waited on.
 //
 // SubscribeLaneProposals binds one LaneID and returns ErrLaneClosed once that
 // lane is closed. Produce sessions use WaitForLocalLane / WaitUntilClosed.
@@ -112,15 +111,27 @@ func (s *State) ApplyEpoch(ep *types.Epoch) {
 	}
 }
 
-// epochOfFirst returns the epoch of the first (oldest) retained road/CommitQC.
+// epochOfFirst returns the epoch used to decide lane closure for persist.
+// When roads still hold CommitQCs, that is the oldest retained QC's epoch.
+// When the queue is empty (execution caught up, no newer QC yet), it falls back
+// to the prune-anchor epoch — the same source newInner uses on restart — so a
+// quiet chain can still drop closed lanes.
 func epochOfFirst(inner *inner, ds *data.State) (utils.Option[*types.Epoch], error) {
-	if inner.roads.first >= inner.roads.next {
+	if inner.roads.first < inner.roads.next {
+		idx := inner.roads.q[inner.roads.first].commitQC.Proposal().EpochIndex()
+		ep, found := ds.Registry().EpochByIndex(idx)
+		if !found {
+			return utils.None[*types.Epoch](), fmt.Errorf("unknown epoch_index %d for first retained CommitQC", idx)
+		}
+		return utils.Some(ep), nil
+	}
+	anchor, ok := ds.Anchor().Load().Get()
+	if !ok {
 		return utils.None[*types.Epoch](), nil
 	}
-	idx := inner.roads.q[inner.roads.first].commitQC.Proposal().EpochIndex()
-	ep, found := ds.Registry().EpochByIndex(idx)
+	ep, found := ds.Registry().EpochByIndex(anchor.CommitQC.Proposal().EpochIndex())
 	if !found {
-		return utils.None[*types.Epoch](), fmt.Errorf("unknown epoch_index %d for first retained CommitQC", idx)
+		return utils.None[*types.Epoch](), nil
 	}
 	return utils.Some(ep), nil
 }
@@ -696,11 +707,11 @@ func (s *State) Run(ctx context.Context) error {
 }
 
 // runPersist is the main loop for the persist goroutine.
-//  2. commitQCs.PruneAndPersist and each lane's blocks.PruneAndPersist run
+//  2. commitQCs.PruneAndPersist and each lane's blocks.MaybePruneAndPersistLane run
 //     concurrently via scope.Parallel (separate WALs, no early cancellation; first error
 //     is returned after all tasks finish).
-//     Each path publishes (markCommitQCsPersisted / markBlockPersisted) per entry so voting
-//     unblocks ASAP.
+//     Each path publishes once after its batch flush (markCommitQCsPersisted /
+//     markBlockPersisted) so voting unblocks ASAP.
 func (s *State) runPersist(ctx context.Context) error {
 	for ctx.Err() == nil {
 		batch, err := s.collectPersistBatch(ctx)
@@ -726,15 +737,18 @@ func (s *State) runPersist(ctx context.Context) error {
 			})
 			for lane, bb := range batch.blocks {
 				ps.Spawn(func() error {
-					return s.persisters.blocks.MaybePruneAndPersistLane(
+					if err := s.persisters.blocks.MaybePruneAndPersistLane(
 						lane,
 						len(bb.tail) > 0,
 						utils.Some(bb.first),
 						bb.tail,
-						utils.Some(func(p *types.Signed[*types.LaneProposal]) {
-							s.markBlockPersisted(lane, p.Msg().Block().Header().BlockNumber()+1)
-						}),
-					)
+					); err != nil {
+						return err
+					}
+					if t := bb.tail; len(t) > 0 {
+						s.markBlockPersisted(lane, t[len(t)-1].Msg().Block().Header().BlockNumber()+1)
+					}
+					return nil
 				})
 			}
 			return nil
@@ -761,8 +775,8 @@ type persistBatch struct {
 }
 
 // markBlockPersisted advances the per-lane block persistence cursor.
-// Called after each block is persisted so that RecvBatch (and therefore
-// voting) can unblock as soon as the block is durable. Safe for concurrent
+// Called once per lane after that lane's batch has been flushed so that
+// RecvBatch (and therefore voting) can unblock. Safe for concurrent
 // callers (acquires s.inner lock internally).
 func (s *State) markBlockPersisted(lane types.LaneID, next types.BlockNumber) {
 	for inner, ctrl := range s.inner.Lock() {

@@ -2,9 +2,7 @@ package p2p
 
 import (
 	"context"
-	"maps"
 	"math/rand/v2"
-	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -79,14 +77,22 @@ func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrp
 // sync). This loop is correct for "fresh cluster" and "restart of a
 // near-tip node."
 func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
-	addrs := slices.Collect(maps.Values(r.cfg.ValidatorAddrs))
-	rand.Shuffle(len(addrs), func(i, j int) { addrs[i], addrs[j] = addrs[j], addrs[i] })
-	for i := 0; ; i = (i + 1) % len(addrs) {
-		addr := addrs[i]
-		err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
-			return r.service.RunClient(ctx, client, atypes.PublicKey{}, true)
+	type peer struct {
+		validator atypes.PublicKey
+		addr      GigaNodeAddr
+	}
+	peers := make([]peer, 0, len(r.cfg.ValidatorAddrs))
+	for validator, addr := range r.cfg.ValidatorAddrs {
+		peers = append(peers, peer{validator: validator, addr: addr})
+	}
+	rand.Shuffle(len(peers), func(i, j int) { peers[i], peers[j] = peers[j], peers[i] })
+	for i := 0; ; i = (i + 1) % len(peers) {
+		p := peers[i]
+		err := r.dialAndRunConn(ctx, utils.Some(p.addr.Key), p.addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+			// Consensus PublicKey (map key), not GigaNodeAddr.Key (p2p NodePublicKey).
+			return r.service.RunClient(ctx, client, p.validator, true)
 		})
-		logger.Info("fullnode giga connection ended; failing over", "addr", addr, "err", err)
+		logger.Info("fullnode giga connection ended; failing over", "addr", p.addr, "err", err)
 		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
 			return err
 		}
