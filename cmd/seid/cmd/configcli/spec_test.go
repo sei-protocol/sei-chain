@@ -34,11 +34,13 @@ import "testing"
 // verb. The adoption test below is written against the behaviour rather than the spelling, so it
 // holds either way.
 //
-// Six verbs are built and mounted, and their tests live beside the code rather than here. The tree
-// is named node-config rather than config, because the client configuration command already uses
-// that name for client.toml. Cobra allows two sibling commands to share a name, and the one
-// registered first answers while the other is unreachable, so whichever order they were added in
-// one of the two would stop working. What remains below is what is not built yet.
+// Six verbs are built, and their tests live beside the code rather than here. They are mounted as
+// subcommands of the existing config command, which already reads and writes client.toml, so every
+// configuration verb is in one place. Cobra resolves a subcommand before it treats an argument as
+// positional, so config generate reaches the verb while config chain-id still means the client
+// setting it always meant. That holds only while no verb is named after a client configuration key,
+// which a test compares. The verbs appear only where the v2 manager is selected, because they act on
+// a file no other manager reads. What remains below is what is not built yet.
 
 // TestAdoptionCarriesLegacyValuesOverAsWrittenValues is how a node that already exists moves.
 //

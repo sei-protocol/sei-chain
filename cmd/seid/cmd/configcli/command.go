@@ -25,43 +25,44 @@ func Path(home string) string {
 	return filepath.Join(home, "config", FileName)
 }
 
-// Command is the seid config tree.
+// Verbs are the sei.toml commands, to be mounted under the existing config command.
 //
-// Every verb resolves its own path from --home, because this tree does not run the boot's
-// pre-run hook and therefore cannot rely on anything it would have set up.
-func Command(defaultHome string) *cobra.Command {
-	cmd := &cobra.Command{
-		// Not "config". The client configuration command already uses that name for client.toml,
-		// and cobra accepts two sibling commands with one name without complaint: the one
-		// registered first answers and the other becomes unreachable. Registered after it, every
-		// verb here would be read as a client.toml key, so `seid node-config generate` would come
-		// back as an unknown configuration key. Registered before it, `seid config chain-id` would
-		// find no such subcommand here, print this help and exit zero, which silently breaks a
-		// command operators already use.
-		Use:   "node-config",
-		Short: "Inspect and edit sei.toml",
-		Long: "Read and edit this node's sei.toml.\n\n" +
-			"A key written in the file is your decision and this binary never rewrites it. A key " +
-			"absent from the file follows the default for the node's mode, which may change between " +
-			"releases.",
-		RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
+// Returned as a slice rather than as their own parent, so they join the command an operator already
+// uses for configuration instead of standing beside it. Cobra resolves a subcommand before it treats
+// an argument as positional, so config generate reaches the verb here while config chain-id still
+// falls through to the client configuration it has always meant.
+//
+// None of these declares --home. The root command carries it as a persistent flag, so a local one
+// of the same name would shadow it and every verb would read its own default while quietly ignoring
+// the --home the operator passed. defaultHome is only the fallback for a tree that has no such flag
+// at all.
+func Verbs(defaultHome string) []*cobra.Command {
+	return []*cobra.Command{
+		generateCmd(defaultHome),
+		showCmd(defaultHome),
+		diffCmd(defaultHome),
+		doctorCmd(defaultHome),
+		setCmd(defaultHome),
+		unsetCmd(defaultHome),
+		upgradeCmd(defaultHome),
 	}
-	cmd.PersistentFlags().String(flags.FlagHome, defaultHome, "The application home directory")
+}
 
-	cmd.AddCommand(
-		generateCmd(),
-		showCmd(),
-		diffCmd(),
-		doctorCmd(),
-		setCmd(),
-		unsetCmd(),
-		upgradeCmd(),
-	)
-	return cmd
+// VerbNames are the names Verbs occupies under the config command.
+//
+// Exported so a test can hold them against the keys the client configuration answers to. A verb
+// sharing a name with one of those keys would take over a command operators already use.
+func VerbNames(defaultHome string) []string {
+	verbs := Verbs(defaultHome)
+	out := make([]string, 0, len(verbs))
+	for _, v := range verbs {
+		out = append(out, v.Name())
+	}
+	return out
 }
 
 // generateCmd writes a fresh file for a mode.
-func generateCmd() *cobra.Command {
+func generateCmd(defaultHome string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "generate",
 		Short: "Write a complete sei.toml for a node mode",
@@ -71,7 +72,7 @@ func generateCmd() *cobra.Command {
 			"again to move onto current defaults.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path, mode, err := target(cmd)
+			path, mode, err := target(cmd, defaultHome)
 			if err != nil {
 				return err
 			}
@@ -104,13 +105,13 @@ func generateCmd() *cobra.Command {
 }
 
 // showCmd prints the file as it stands.
-func showCmd() *cobra.Command {
+func showCmd(defaultHome string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
 		Short: "Print this node's sei.toml",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path, err := path(cmd)
+			path, err := path(cmd, defaultHome)
 			if err != nil {
 				return err
 			}
@@ -129,13 +130,13 @@ func showCmd() *cobra.Command {
 }
 
 // diffCmd compares the file against this binary's defaults.
-func diffCmd() *cobra.Command {
+func diffCmd(defaultHome string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diff",
 		Short: "Compare sei.toml against this binary's defaults",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path, mode, err := target(cmd)
+			path, mode, err := target(cmd, defaultHome)
 			if err != nil {
 				return err
 			}
@@ -156,13 +157,13 @@ func diffCmd() *cobra.Command {
 }
 
 // doctorCmd checks what the file writes against what this binary declares.
-func doctorCmd() *cobra.Command {
+func doctorCmd(defaultHome string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Check sei.toml for settings this binary does not recognize",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path, err := path(cmd)
+			path, err := path(cmd, defaultHome)
 			if err != nil {
 				return err
 			}
@@ -187,13 +188,13 @@ func doctorCmd() *cobra.Command {
 }
 
 // setCmd writes one value.
-func setCmd() *cobra.Command {
+func setCmd(defaultHome string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Write one setting",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path, err := path(cmd)
+			path, err := path(cmd, defaultHome)
 			if err != nil {
 				return err
 			}
@@ -212,13 +213,13 @@ func setCmd() *cobra.Command {
 }
 
 // unsetCmd removes one value so it follows the default again.
-func unsetCmd() *cobra.Command {
+func unsetCmd(defaultHome string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "unset <key>",
 		Short: "Remove one setting so it follows this binary's default",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path, err := path(cmd)
+			path, err := path(cmd, defaultHome)
 			if err != nil {
 				return err
 			}
@@ -238,13 +239,13 @@ func unsetCmd() *cobra.Command {
 }
 
 // upgradeCmd moves the file forward through the migration chain.
-func upgradeCmd() *cobra.Command {
+func upgradeCmd(defaultHome string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "upgrade",
 		Short: "Move sei.toml onto this binary's schema",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path, err := path(cmd)
+			path, err := path(cmd, defaultHome)
 			if err != nil {
 				return err
 			}
@@ -280,10 +281,20 @@ func upgradeCmd() *cobra.Command {
 }
 
 // path resolves the file this command acts on.
-func path(cmd *cobra.Command) (string, error) {
-	home, err := cmd.Flags().GetString(flags.FlagHome)
-	if err != nil {
-		return "", err
+//
+// The home directory comes from the --home the root command declares. A tree without that flag
+// falls back to the default this was built with, which is what lets a verb be exercised outside the
+// assembled command tree.
+func path(cmd *cobra.Command, defaultHome string) (string, error) {
+	home := defaultHome
+	if cmd.Flags().Lookup(flags.FlagHome) != nil {
+		fromFlag, err := cmd.Flags().GetString(flags.FlagHome)
+		if err != nil {
+			return "", err
+		}
+		if fromFlag != "" {
+			home = fromFlag
+		}
 	}
 	if home == "" {
 		return "", fmt.Errorf("no home directory; pass --home")
@@ -296,8 +307,8 @@ func path(cmd *cobra.Command) (string, error) {
 // The mode is passed through unchecked. Every function that turns a mode into baselines refuses one
 // no node runs, so checking here as well would put the same guard in two places and let the one
 // that matters be removed without a test noticing.
-func target(cmd *cobra.Command) (string, registry.Mode, error) {
-	p, err := path(cmd)
+func target(cmd *cobra.Command, defaultHome string) (string, registry.Mode, error) {
+	p, err := path(cmd, defaultHome)
 	if err != nil {
 		return "", "", err
 	}

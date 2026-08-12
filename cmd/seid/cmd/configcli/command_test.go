@@ -14,19 +14,24 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 )
 
-// invoke runs the command tree against a home directory and returns what it printed.
+// invoke runs one verb against a home directory and returns what it printed.
 //
-// Driven through the assembled tree rather than by calling the verb functions, because the flags,
-// the argument counts and the path each verb resolves are part of what an operator uses and none of
-// them are exercised by calling the functions directly.
+// The verbs are mounted under a parent that carries --home as a persistent flag, which is how the
+// real tree provides it: the executor adds it to the root command at run time. Driven through cobra
+// rather than by calling the verb functions, because the flags, the argument counts and the path
+// each verb resolves are all part of what an operator uses and none of them are exercised by calling
+// the functions directly.
 func invoke(t *testing.T, home string, args ...string) (string, error) {
 	t.Helper()
-	cmd := configcli.Command(home)
+	parent := &cobra.Command{Use: "config", SilenceUsage: true, SilenceErrors: true}
+	parent.PersistentFlags().String(flags.FlagHome, home, "The application home directory")
+	parent.AddCommand(configcli.Verbs(home)...)
+
 	var out bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs(append(args, "--"+flags.FlagHome, home))
-	err := cmd.Execute()
+	parent.SetOut(&out)
+	parent.SetErr(&out)
+	parent.SetArgs(args)
+	err := parent.Execute()
 	return out.String(), err
 }
 
@@ -238,26 +243,45 @@ func TestAVerbOnAMissingFileSaysWhichFile(t *testing.T) {
 	}
 }
 
-// TestTheTreeIsNamedApartFromTheClientConfigCommand keeps two files from sharing one verb.
+// TestNoVerbDeclaresItsOwnHomeFlag is what keeps the inherited one reachable.
 //
-// The client configuration command already owns "config" and writes client.toml. If this tree took
-// that name, `seid config set` would mean one thing or the other depending on which command won,
-// and an operator could not tell which file they had just edited.
-func TestTheTreeIsNamedApartFromTheClientConfigCommand(t *testing.T) {
-	cmd := configcli.Command(t.TempDir())
-
-	if cmd.Name() == "config" {
-		t.Error("this tree is named config, which the client configuration command already uses. " +
-			"Two unrelated files would share one verb")
-	}
-	var verbs []string
-	for _, c := range cmd.Commands() {
-		verbs = append(verbs, c.Name())
-	}
-	for _, want := range []string{"generate", "set", "unset", "doctor", "upgrade", "diff"} {
-		if !contains(verbs, want) {
-			t.Errorf("the tree has no %q verb; it has %v", want, verbs)
+// The root command carries --home as a persistent flag. A verb declaring a local flag of the same
+// name would shadow it, so `seid --home /data config generate` would bind the operator's path to the
+// root's flag while the verb read its own default, and the file would be written somewhere else.
+func TestNoVerbDeclaresItsOwnHomeFlag(t *testing.T) {
+	for _, verb := range configcli.Verbs("/fallback") {
+		if verb.Flags().Lookup(flags.FlagHome) != nil {
+			t.Errorf("%q declares its own --home, which shadows the root's persistent flag. An "+
+				"operator's --home would be ignored and the file written under the default",
+				verb.Name())
 		}
+	}
+}
+
+// TestTheInheritedHomeFlagIsWhatDecidesThePath drives that property rather than inspecting flags.
+func TestTheInheritedHomeFlagIsWhatDecidesThePath(t *testing.T) {
+	registerTyped(t)
+	home := newHome(t)
+	elsewhere := newHome(t)
+
+	// --home given to the parent, after the verb's own name, is still the one that decides.
+	parent := &cobra.Command{Use: "config", SilenceUsage: true, SilenceErrors: true}
+	parent.PersistentFlags().String(flags.FlagHome, elsewhere, "The application home directory")
+	parent.AddCommand(configcli.Verbs(elsewhere)...)
+	var out bytes.Buffer
+	parent.SetOut(&out)
+	parent.SetErr(&out)
+	parent.SetArgs([]string{"generate", "--" + flags.FlagHome, home})
+	if err := parent.Execute(); err != nil {
+		t.Fatalf("generate: %v\n%s", err, out.String())
+	}
+
+	if _, err := os.Stat(configcli.Path(home)); err != nil {
+		t.Errorf("generate did not write under the --home it was given: %v", err)
+	}
+	if _, err := os.Stat(configcli.Path(elsewhere)); err == nil {
+		t.Error("generate wrote under the fallback home while --home named another, so an operator's " +
+			"path is being ignored")
 	}
 }
 
@@ -303,14 +327,16 @@ func walkTree(cmd *cobra.Command, visit func(*cobra.Command)) {
 	}
 }
 
-// TestEveryVerbHasHelpText keeps an undiscoverable verb out of the tree.
+// TestEveryVerbHasHelpText keeps an undiscoverable verb out of the set.
 //
 // These commands are how an external operator configures a node, so a verb with no description is
 // one they cannot use without reading the source.
 func TestEveryVerbHasHelpText(t *testing.T) {
-	walkTree(configcli.Command(t.TempDir()), func(c *cobra.Command) {
-		if c.Short == "" {
-			t.Errorf("%q has no description", c.CommandPath())
-		}
-	})
+	for _, verb := range configcli.Verbs(t.TempDir()) {
+		walkTree(verb, func(c *cobra.Command) {
+			if c.Short == "" {
+				t.Errorf("%q has no description", c.Name())
+			}
+		})
+	}
 }

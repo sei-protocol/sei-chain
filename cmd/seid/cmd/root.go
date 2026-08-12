@@ -159,21 +159,11 @@ func initRootCmd(
 		AddGenesisWasmMsgCmd(app.DefaultNodeHome),
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debugCmd,
-		config.Cmd(),
+		nodeConfigCmd(),
 		tools.ToolCmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),
 	)
-
-	// The sei.toml verbs exist only where the v2 manager is selected, because they act on a file
-	// no other manager reads. Selection errors are not raised here: PersistentPreRunE reports them
-	// with the value it saw, and failing during command assembly would break `seid --help` for a
-	// mistyped variable.
-	if mgr, err := configmanager.Select(os.Getenv); err == nil {
-		if _, isV2 := mgr.(configmanager.SeiConfigManager); isV2 {
-			rootCmd.AddCommand(configcli.Command(app.DefaultNodeHome))
-		}
-	}
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
 	if err != nil {
@@ -201,6 +191,29 @@ func initRootCmd(
 }
 
 // queryCommand returns the sub-command to send queries to the app
+// nodeConfigCmd is the client configuration command, carrying the sei.toml verbs where they apply.
+//
+// The verbs join that command rather than standing beside it, so an operator finds every
+// configuration verb in one place. They appear only where the v2 manager is selected, because they
+// act on a file no other manager reads and a node running the legacy manager would otherwise offer
+// commands that edit a file nothing consults.
+//
+// A selection error is not raised here. The boot's pre-run hook reports it with the value it saw,
+// and failing while commands are being assembled would break seid --help for a mistyped variable.
+func nodeConfigCmd() *cobra.Command {
+	cmd := config.Cmd()
+
+	mgr, err := configmanager.Select(os.Getenv)
+	if err != nil {
+		return cmd
+	}
+	if _, isV2 := mgr.(configmanager.SeiConfigManager); !isV2 {
+		return cmd
+	}
+	cmd.AddCommand(configcli.Verbs(app.DefaultNodeHome)...)
+	return cmd
+}
+
 func queryCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        "query",
