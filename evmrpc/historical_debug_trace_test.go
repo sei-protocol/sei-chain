@@ -2,12 +2,17 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -280,4 +285,64 @@ func TestTraceLatestTagGuardMatchesBlockResolution(t *testing.T) {
 	tmBlock, err := blockByNumberRespectingWatermarks(t.Context(), tmClient, wm, blockNumberPtr, 1)
 	require.NoError(t, err)
 	require.Equal(t, guardHeight, tmBlock.Block.Height)
+}
+
+type traceGuardReceiptStore struct {
+	fakeReceiptStore
+	getReceiptErr error
+}
+
+func (s *traceGuardReceiptStore) GetReceipt(_ sdk.Context, _ common.Hash) (*evmtypes.Receipt, error) {
+	if s.getReceiptErr != nil {
+		return nil, s.getReceiptErr
+	}
+	return nil, receipt.ErrNotFound
+}
+
+func TestGuardTraceRequestByTxHashReceiptLookupErrors(t *testing.T) {
+	t.Parallel()
+
+	const latestHeight = int64(10)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	txHash := common.HexToHash("0xabc")
+	storeErr := errors.New("receipt store unavailable")
+
+	newAPI := func(store receipt.ReceiptStore) *DebugAPI {
+		k := &keeper.Keeper{}
+		k.SetReceiptStoreForTesting(store)
+		return &DebugAPI{
+			keeper:           k,
+			ctxProvider:      func(int64) sdk.Context { return latestCtx },
+			maxBlockLookback: -1,
+		}
+	}
+
+	t.Run("ErrReceiptPruned", func(t *testing.T) {
+		t.Parallel()
+		prunedErr := fmt.Errorf("requested height 100 receipts have been pruned; earliest available is 150: %w", receipt.ErrReceiptPruned)
+		api := newAPI(&traceGuardReceiptStore{getReceiptErr: prunedErr})
+		err := api.guardTraceRequestByTxHash(t.Context(), "debug_traceTransaction", txHash)
+		require.ErrorIs(t, err, receipt.ErrReceiptPruned)
+	})
+
+	t.Run("store error", func(t *testing.T) {
+		t.Parallel()
+		api := newAPI(&traceGuardReceiptStore{getReceiptErr: storeErr})
+		err := api.guardTraceRequestByTxHash(t.Context(), "debug_traceTransaction", txHash)
+		require.ErrorIs(t, err, storeErr)
+	})
+
+	t.Run("ErrNotFound falls through to lookback", func(t *testing.T) {
+		t.Parallel()
+		api := newAPI(&traceGuardReceiptStore{getReceiptErr: receipt.ErrNotFound})
+		err := api.guardTraceRequestByTxHash(t.Context(), "debug_traceTransaction", txHash)
+		require.NoError(t, err)
+	})
+
+	t.Run("ErrNotConfigured", func(t *testing.T) {
+		t.Parallel()
+		api := newAPI(&traceGuardReceiptStore{getReceiptErr: receipt.ErrNotConfigured})
+		err := api.guardTraceRequestByTxHash(t.Context(), "debug_traceTransaction", txHash)
+		require.ErrorIs(t, err, receipt.ErrNotConfigured)
+	})
 }

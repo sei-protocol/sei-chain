@@ -115,7 +115,7 @@ func (api *DebugAPI) guardTraceRequestByTxHash(ctx context.Context, endpoint str
 	if api.keeper != nil {
 		rcpt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
 		if err != nil {
-			if errors.Is(err, receipt.ErrReceiptPruned) {
+			if errors.Is(err, receipt.ErrReceiptPruned) || !errors.Is(err, receipt.ErrNotFound) {
 				return err
 			}
 		} else if rcpt != nil {
