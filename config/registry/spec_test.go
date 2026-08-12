@@ -19,9 +19,12 @@ import (
 // the boot input. The approved design forbids feeding app.New from an in-memory struct, because
 // a struct silently drops keys it does not model and a round-trip test passes while being wrong.
 // The transport stays a source carrying every resolved key, and no appOpts.Get call site changes.
+// Resolve therefore answers for the keys sections declare and nothing more: it is what a
+// diagnostic and an authoring check read, never what app.New is handed.
 //
-// Gate 3, that resolution runs in the declared order, needs a resolver and is not in this slice.
-// Precedence is declared here as data; the resolver that honours it is the next one.
+// Gate 3, that resolution runs in the declared order, is closed by resolve.go. Precedence is
+// declared here as data and the resolver reads it rather than its caller's argument order, so no
+// caller can reorder its way to a different answer.
 
 // gigaSection mirrors what the giga executor's own package would register. The struct under test
 // is the real one, so gate 6 measures the live reader rather than a copy of it.
