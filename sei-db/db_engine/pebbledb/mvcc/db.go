@@ -317,9 +317,10 @@ func (db *Database) SetCheckpointMarkers(destDir string, latest, earliest int64)
 		return fmt.Errorf("open checkpoint %q to set markers: %w", destDir, err)
 	}
 
-	setErr := setCheckpointMarker(checkpoint, latestVersionKey, latest)
+	// Converted here, where the non-negative check above is in view.
+	setErr := setCheckpointMarker(checkpoint, latestVersionKey, uint64(latest))
 	if setErr == nil {
-		setErr = setCheckpointMarker(checkpoint, earliestVersionKey, earliest)
+		setErr = setCheckpointMarker(checkpoint, earliestVersionKey, uint64(earliest))
 	}
 	closeErr := checkpoint.Close()
 	if setErr != nil {
@@ -331,9 +332,9 @@ func (db *Database) SetCheckpointMarkers(destDir string, latest, earliest int64)
 	return errors.Join(setErr, closeErr)
 }
 
-func setCheckpointMarker(checkpoint *pebble.DB, key string, version int64) error {
+func setCheckpointMarker(checkpoint *pebble.DB, key string, version uint64) error {
 	var marker [VersionSize]byte
-	binary.LittleEndian.PutUint64(marker[:], uint64(version))
+	binary.LittleEndian.PutUint64(marker[:], version)
 	return checkpoint.Set([]byte(key), marker[:], pebble.Sync)
 }
 
