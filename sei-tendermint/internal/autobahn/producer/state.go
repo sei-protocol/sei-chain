@@ -2,17 +2,16 @@ package producer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"golang.org/x/time/rate"
 )
 
@@ -38,31 +37,42 @@ func (c *Config) maxTxsPerBlock() uint64 {
 
 // State is the block producer state.
 type State struct {
-	cfg     *Config
-	app     *proxy.Proxy
-	mempool utils.Watch[*mempool]
-	// consensus state to which published blocks will be reported.
+	cfg *Config
+	app *proxy.Proxy
+	// mempool.inner is None when not producing.
+	mempool   utils.Watch[*mempool]
 	consensus *consensus.State
 }
 
 // NewState constructs a new block producer state.
-// Returns an error if the current node is NOT a producer.
+// Mempool starts None; alignMempool creates it for each produce session.
 func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State {
-	lane := consensus.Avail().PublicKey()
-	n := consensus.Avail().NextBlock(lane)
 	return &State{
-		cfg: cfg,
-		app: app,
-		mempool: utils.NewWatch(&mempool{
-			capacity:  avail.BlocksPerLane,
-			first:     n,
-			next:      n,
-			blocks:    map[types.BlockNumber]*blockSpec{},
-			nextBlock: &blockSpec{evmNonces: map[common.Address]uint64{}},
-			evmNonces: map[common.Address]uint64{},
-			evmTxs:    map[common.Hash]tmtypes.Tx{},
-		}),
+		cfg:       cfg,
+		app:       app,
+		mempool:   utils.NewWatch(&mempool{}),
 		consensus: consensus,
+	}
+}
+
+// alignMempool installs a fresh session mempool for lane.
+func (s *State) alignMempool(lane types.LaneID) *mempoolInner {
+	n := s.consensus.Avail().NextBlock(lane)
+	for mp, ctrl := range s.mempool.Lock() {
+		m := newMempoolInner(avail.BlocksPerLane, lane, n)
+		mp.inner = utils.Some(m)
+		ctrl.Updated()
+		return m
+	}
+	panic("unreachable")
+}
+
+// clearMempool drops the session so InsertTx sees no aligned mempool until alignMempool
+// (and returns ErrNotProducing once LocalLane is gone).
+func (s *State) clearMempool() {
+	for mp, ctrl := range s.mempool.Lock() {
+		mp.inner = utils.None[*mempoolInner]()
+		ctrl.Updated()
 	}
 }
 
@@ -72,11 +82,37 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 // Note that mempool capacity bounds the number of unexecuted blocks of the local lane.
 // This is needed so that we can track the evm nonces of sequenced txs - mempool admits txs
 // sequentially in the nonce order.
+//
+// Sessions: WaitForLocalLane, then produce until WaitUntilClosed.
+// While the lane remains in the committee, WaitUntilClosed does not fire and
+// the session continues. runMempool aligns the mempool and clears it on exit.
 func (s *State) Run(ctx context.Context) error {
+	availState := s.consensus.Avail()
+	for ctx.Err() == nil {
+		lane, err := availState.WaitForLocalLane(ctx)
+		if err != nil {
+			return err
+		}
+
+		// WaitUntilClosed ends the session; runMempool is background and torn down with it.
+		err = utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+			sc.SpawnBg(func() error {
+				return utils.IgnoreCancel(s.runMempool(ctx, availState, lane))
+			})
+			return availState.WaitUntilClosed(ctx, lane)
+		}))
+		if err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func (s *State) runMempool(ctx context.Context, availState *avail.State, lane types.LaneID) error {
+	m := s.alignMempool(lane)
+	defer s.clearMempool()
+	firstBlock := m.first
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		availState := s.consensus.Avail()
-		lane := availState.PublicKey()
-		firstBlock := s.mempoolFirst()
 		scope.Spawn(func() error {
 			// Task pruning executed lane blocks from the mempool
 			dataState := s.consensus.Data()
@@ -85,7 +121,7 @@ func (s *State) Run(ctx context.Context) error {
 				if toExecute, err = dataState.WaitUntilExecuted(ctx, lane, toExecute); err != nil {
 					return err
 				}
-				s.pruneMempool(toExecute)
+				s.pruneMempool(m, toExecute)
 			}
 		})
 		scope.Spawn(func() error {
@@ -98,13 +134,17 @@ func (s *State) Run(ctx context.Context) error {
 			}
 			limiter := rate.NewLimiter(limit, burst)
 			for toProduce := firstBlock; ; toProduce += 1 {
-				if err := availState.WaitForLocalCapacity(ctx, toProduce); err != nil {
-					return fmt.Errorf("availState.WaitForLocalCapacity(): %w", err)
+				if err := availState.WaitForCapacity(ctx, lane, toProduce); err != nil {
+					// Leave can surface ErrBadLane before WaitUntilClosed observes IsClosed.
+					if errors.Is(err, avail.ErrBadLane) {
+						return nil
+					}
+					return fmt.Errorf("availState.WaitForCapacity(): %w", err)
 				}
 				var payload *types.Payload
 				// Wait until either
 				// * there is a full proposal in mempool
-				// * BlockInterval passed AND (AllowEmptyBlocks OR mempool is non-empty)
+				// * BlockInterval since the last block passed AND (AllowEmptyBlocks OR mempool is non-empty)
 				for m, ctrl := range s.mempool.Lock() {
 					// Wait for full payload with timeout.
 					// Note that in total the time between blocks is WaitForLocalCapacity delay + BlockInterval
@@ -147,7 +187,10 @@ func (s *State) Run(ctx context.Context) error {
 						panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
 					}
 				}
-				if _, err := availState.ProduceLocalBlock(toProduce, payload); err != nil {
+				if _, err := availState.ProduceLocalBlock(lane, toProduce, payload); err != nil {
+					if errors.Is(err, avail.ErrBadLane) {
+						return nil
+					}
 					return fmt.Errorf("availState.ProduceLocalBlock(): %w", err)
 				}
 				// TODO(gprusak): move this limit to insertTx instead.

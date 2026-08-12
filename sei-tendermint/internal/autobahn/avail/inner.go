@@ -9,11 +9,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// TODO: when dynamic committee changes are supported, newly joined members
-// must be added to blocks, votes, and nextBlockToPersist.
-// Currently all four are initialized once in newInner from c.Lanes().All().
-// BlockPersister creates lane WALs lazily inside PruneAndPersist, but the new
-// member must also appear in inner.blocks before the next persist cycle.
+// inner holds roads and per-LaneID block/vote maps.
+//
+// Each LaneID may have in-memory maps and an on-disk block WAL:
+//   - active: in the next-CommitQC committee (maps ensured at ApplyEpoch)
+//   - closing: left that committee, but not yet closed at epochOfFirst
+//   - closed: epochOfFirst.IsClosed — maps dropped, SyncLanes deletes the WAL
 type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
 	roads             *queue[types.RoadIndex, *road]
@@ -59,9 +60,26 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		votes:              map[types.LaneID]*queue[types.BlockNumber, blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
 	}
-	for lane := range epoch.Committee().Lanes().All() {
+	i.addCommitteeLanes(epoch.Committee())
+
+	// Admit WAL lanes that are not closed at the data.State prune anchor
+	// (closing lanes kept until epochOfFirst.IsClosed).
+	var anchorEp utils.Option[*types.Epoch]
+	if anchor, ok := ds.Anchor().Load().Get(); ok {
+		if ep, ok := ds.Registry().EpochByIndex(anchor.CommitQC.Proposal().EpochIndex()); ok {
+			anchorEp = utils.Some(ep)
+		}
+	}
+	for lane := range loaded.blocks {
+		if ep, ok := anchorEp.Get(); ok && ep.IsClosed(lane) {
+			continue
+		}
+		if _, ok := i.blocks[lane]; ok {
+			continue
+		}
 		i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
 		i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+		i.nextBlockToPersist[lane] = 0
 	}
 
 	// Apply the persisted prune anchor from the data.State:
@@ -130,12 +148,46 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 // TODO: filter votes per-epoch committee once epoch transitions are wired up.
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
 	c := i.epoch.Committee()
-	for _, byHash := range i.votes[lane].q[n].byHash {
+	votes, ok := i.votes[lane]
+	if !ok {
+		return nil, false
+	}
+	entry, ok := votes.q[n]
+	if !ok {
+		return nil, false
+	}
+	for _, byHash := range entry.byHash {
 		if byHash.weight >= c.LaneQuorum() {
 			return types.NewLaneQC(byHash.votes[:]), true
 		}
 	}
 	return nil, false
+}
+
+// addCommitteeLanes adds empty queues for new committee LaneIDs.
+func (i *inner) addCommitteeLanes(c *types.Committee) {
+	for lane := range c.Lanes().All() {
+		if _, ok := i.blocks[lane]; ok {
+			continue
+		}
+		i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+		i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+		i.nextBlockToPersist[lane] = 0
+	}
+}
+
+func (i *inner) dropLanes(lanes []types.LaneID) int {
+	n := 0
+	for _, lane := range lanes {
+		if _, ok := i.blocks[lane]; !ok {
+			continue
+		}
+		delete(i.blocks, lane)
+		delete(i.votes, lane)
+		delete(i.nextBlockToPersist, lane)
+		n++
+	}
+	return n
 }
 
 // prune advances the state up to Anchor of the data state.
@@ -148,8 +200,13 @@ func (i *inner) prune(anchor data.Anchor) {
 	i.roads.prune(idx + 1)
 	for lane := range i.votes {
 		lr := anchor.CommitQC.LaneRange(lane)
-		i.votes[lr.Lane()].prune(lr.Next())
-		i.blocks[lr.Lane()].prune(lr.Next())
+		vq, ok := i.votes[lr.Lane()]
+		if !ok {
+			continue
+		}
+		bq := i.blocks[lr.Lane()]
+		vq.prune(lr.Next())
+		bq.prune(lr.Next())
 		if i.nextBlockToPersist[lr.Lane()] < lr.Next() {
 			i.nextBlockToPersist[lr.Lane()] = lr.Next()
 		}

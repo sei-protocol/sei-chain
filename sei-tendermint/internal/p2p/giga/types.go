@@ -10,6 +10,7 @@ import (
 )
 
 type StreamLaneProposalsReq struct {
+	LaneID           types.LaneID
 	FirstBlockNumber types.BlockNumber
 }
 
@@ -77,10 +78,20 @@ var AppVoteConv = protoutils.Conv[*types.Signed[*types.AppVote], *pb.AppVote]{
 
 var StreamLaneProposalsReqConv = protoutils.Conv[*StreamLaneProposalsReq, *pb.StreamLaneProposalsReq]{
 	Encode: func(m *StreamLaneProposalsReq) *pb.StreamLaneProposalsReq {
-		return &pb.StreamLaneProposalsReq{FirstBlockNumber: uint64(m.FirstBlockNumber)}
+		return &pb.StreamLaneProposalsReq{
+			LaneId:           types.LaneIDConv.Encode(m.LaneID),
+			FirstBlockNumber: uint64(m.FirstBlockNumber),
+		}
 	},
 	Decode: func(m *pb.StreamLaneProposalsReq) (*StreamLaneProposalsReq, error) {
-		return &StreamLaneProposalsReq{FirstBlockNumber: types.BlockNumber(m.FirstBlockNumber)}, nil
+		lane, err := types.LaneIDConv.DecodeReq(m.LaneId)
+		if err != nil {
+			return nil, fmt.Errorf("lane_id: %w", err)
+		}
+		return &StreamLaneProposalsReq{
+			LaneID:           lane,
+			FirstBlockNumber: types.BlockNumber(m.FirstBlockNumber),
+		}, nil
 	},
 }
 

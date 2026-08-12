@@ -116,14 +116,17 @@ type laneWAL struct {
 	state utils.Mutex[*laneWALState]
 }
 
-func (lw *laneWAL) persist(
+func (lw *laneWAL) maybePruneAndPersist(
 	lane types.LaneID,
-	first types.BlockNumber,
+	anchor utils.Option[*types.CommitQC],
 	proposals []*types.Signed[*types.LaneProposal],
+	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
 ) error {
 	for s := range lw.state.Lock() {
-		if err := s.truncateForAnchor(lane, first); err != nil {
-			return err
+		if qc, ok := anchor.Get(); ok {
+			if err := s.truncateForAnchor(lane, qc.LaneRange(lane).First()); err != nil {
+				return err
+			}
 		}
 		for _, p := range proposals {
 			if p.Msg().Block().Header().Lane() != lane {
@@ -138,6 +141,11 @@ func (lw *laneWAL) persist(
 			// reported as persisted — until this returns.
 			if err := s.flush(lane); err != nil {
 				return err
+			}
+		}
+		if fn, ok := afterEach.Get(); ok {
+			for _, p := range proposals {
+				fn(p)
 			}
 		}
 		return nil
@@ -160,23 +168,16 @@ func (lw *laneWAL) close() error {
 // other lanes' entries that follow it.
 // When dir is None, all disk I/O is skipped (no-op mode).
 //
-// All public methods are safe for concurrent use. The lanes map is protected
-// by an RWMutex; each laneWAL has its own Mutex for write serialization.
-// PruneAndPersist holds the per-lane lock for the entire
-// truncate-then-append sequence, so concurrent calls on the same lane
-// serialize correctly. Different lanes are fully parallel.
-//
-// NOTE: PruneAndPersist releases the map RLock before acquiring
-// the per-lane lock. This is safe because lanes are only added, never
-// removed. If lane deletion is added in the future, the map RLock must be
-// held through the WAL write.
+// All public methods are safe for concurrent use, including overlapping
+// MaybePruneAndPersistLane and SyncLanes. Lanes may be removed via SyncLanes
+// once epochOfFirst.IsClosed.
 type BlockPersister struct {
 	dir   utils.Option[string] // immutable after construction
 	lanes utils.RWMutex[map[types.LaneID]*laneWAL]
 }
 
 func laneDir(lane types.LaneID) string {
-	return hex.EncodeToString(lane.Bytes())
+	return lane.HexString()
 }
 
 func newLaneWALState(dir string) (*laneWALState, error) {
@@ -227,9 +228,11 @@ func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[type
 			logger.Warn("skipping unexpected entry in blocks dir", "name", e.Name())
 			continue
 		}
-		lane, err := types.PublicKeyFromBytes(laneBytes)
+		lane, err := types.LaneIDFromBytes(laneBytes)
 		if err != nil {
-			logger.Warn("skipping lane dir with invalid key", "name", e.Name(), "err", err)
+			// Pre-LaneID hex(pubkey) dirs fail to parse; they leak until the
+			// operator wipes persistent_state_dir (no automatic migration).
+			logger.Warn("skipping lane dir with invalid LaneID (leaks until state wipe)", "name", e.Name(), "err", err)
 			continue
 		}
 		lanePath := filepath.Join(dir, e.Name())
@@ -253,40 +256,29 @@ func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[type
 	return bp, allBlocks, nil
 }
 
-// getOrCreateLane returns the laneWAL for the given lane, creating it if
-// necessary. Uses double-checked locking: fast path reads under RLock;
-// slow path (lane creation) promotes to a write Lock.
-// The returned pointer is safe to use after the lock is released because
-// lanes are only ever added, never removed (see BlockPersister doc).
-// Returns an error if called on a no-op persister (caller should check first).
-func (bp *BlockPersister) getOrCreateLane(lane types.LaneID) (*laneWAL, error) {
+// getOrCreateLane returns the lane WAL under the caller-held map lock,
+// creating it when allowCreate is true and the lane is not yet open.
+func (bp *BlockPersister) getOrCreateLane(lanes map[types.LaneID]*laneWAL, lane types.LaneID, allowCreate bool) (*laneWAL, bool, error) {
+	if lw, ok := lanes[lane]; ok {
+		return lw, true, nil
+	}
+	if !allowCreate {
+		return nil, false, nil
+	}
 	dir, ok := bp.dir.Get()
 	if !ok {
-		return nil, fmt.Errorf("getOrCreateLane called on no-op persister")
+		return nil, false, fmt.Errorf("getOrCreateLane called on no-op persister")
 	}
-	// Fast path: read-only check.
-	for lanes := range bp.lanes.RLock() {
-		if lw, ok := lanes[lane]; ok {
-			return lw, nil
-		}
+	s, err := newLaneWALState(filepath.Join(dir, laneDir(lane)))
+	if err != nil {
+		return nil, false, fmt.Errorf("create lane WAL for %s: %w", lane, err)
 	}
-	// Slow path: create under write lock (double-checked).
-	for lanes := range bp.lanes.Lock() {
-		if lw, ok := lanes[lane]; ok {
-			return lw, nil
-		}
-		s, err := newLaneWALState(filepath.Join(dir, laneDir(lane)))
-		if err != nil {
-			return nil, fmt.Errorf("create lane WAL for %s: %w", lane, err)
-		}
-		lw := &laneWAL{state: utils.NewMutex(s)}
-		lanes[lane] = lw
-		return lw, nil
-	}
-	panic("unreachable")
+	lw := &laneWAL{state: utils.NewMutex(s)}
+	lanes[lane] = lw
+	return lw, true, nil
 }
 
-// PruneAndPersist optionally truncates the lane's WAL and/or appends
+// MaybePruneAndPersistLane optionally truncates the lane's WAL and/or appends
 // new proposals, depending on which arguments are present:
 //
 //   - anchor set, proposals non-empty: truncate WAL below anchor, then append (runtime path).
@@ -294,11 +286,78 @@ func (bp *BlockPersister) getOrCreateLane(lane types.LaneID) (*laneWAL, error) {
 //   - anchor empty, proposals non-empty: append only, no truncation.
 //   - anchor empty, proposals empty:     no-op.
 //
-// No-op persister (dir=None): skips disk I/O.
-// Does not spawn goroutines — the caller schedules parallelism per lane.
+// allowCreate: open a WAL if missing. Avail passes true for lanes in the applied
+// (next-CommitQC) epoch committee, or when proposals are non-empty so a validator
+// that left before the first open still flushes pending proposals. After SyncLanes
+// removes a lane, empty-proposal prune passes false so the WAL is not recreated.
 //
-// The per-lane lock is held for the entire truncate-then-append sequence,
-// so concurrent calls on the same lane serialize correctly.
+// afterEach, when present, is called once per appended proposal in order, after the whole batch has
+// been flushed — never before, because an append is not durable until then and afterEach is what
+// releases a block to the rest of consensus. It is invoked while persister locks are held, so it
+// must not re-enter the persister. If any append fails, afterEach is not called for the batch at all.
+// No-op persister (dir=None): skips disk I/O but still invokes afterEach.
+// Does not spawn goroutines — the caller schedules parallelism per lane.
+func (bp *BlockPersister) MaybePruneAndPersistLane(
+	lane types.LaneID,
+	allowCreate bool,
+	anchor utils.Option[*types.CommitQC],
+	proposals []*types.Signed[*types.LaneProposal],
+	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
+) error {
+	if _, ok := bp.dir.Get(); !ok {
+		if fn, ok := afterEach.Get(); ok {
+			for _, p := range proposals {
+				fn(p)
+			}
+		}
+		return nil
+	}
+
+	// Keep the lanes map locked for the whole persist so SyncLanes cannot
+	// delete the WAL out from under this call.
+	for lanes := range bp.lanes.RLock() {
+		if lw, ok := lanes[lane]; ok {
+			return lw.maybePruneAndPersist(lane, anchor, proposals, afterEach)
+		}
+	}
+	if !allowCreate {
+		return nil
+	}
+	// Create path: hold the write lock through create+persist so SyncLanes cannot race.
+	for lanes := range bp.lanes.Lock() {
+		lw, ok, err := bp.getOrCreateLane(lanes, lane, true)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		return lw.maybePruneAndPersist(lane, anchor, proposals, afterEach)
+	}
+	panic("unreachable")
+}
+
+// deleteLaneLocked closes and removes one open lane WAL. Caller holds the map write lock.
+// No-op if not open.
+func (bp *BlockPersister) deleteLaneLocked(lanes map[types.LaneID]*laneWAL, dir string, lane types.LaneID) error {
+	lw, ok := lanes[lane]
+	if !ok {
+		return nil
+	}
+	delete(lanes, lane)
+	if err := lw.close(); err != nil {
+		return fmt.Errorf("close lane %s WAL: %w", lane, err)
+	}
+	path := filepath.Join(dir, laneDir(lane))
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("remove lane dir %s: %w", path, err)
+	}
+	logger.Info("deleted inactive lane WAL", "lane", lane.String())
+	return nil
+}
+
+// PruneAndPersist truncates the lane WAL below first and appends proposals.
+// Compatibility wrapper for avail.State's persist loop (main AppQC path).
 func (bp *BlockPersister) PruneAndPersist(
 	lane types.LaneID,
 	first types.BlockNumber,
@@ -307,12 +366,61 @@ func (bp *BlockPersister) PruneAndPersist(
 	if _, ok := bp.dir.Get(); !ok {
 		return nil
 	}
-
-	lw, err := bp.getOrCreateLane(lane)
-	if err != nil {
-		return err
+	for lanes := range bp.lanes.Lock() {
+		lw, ok, err := bp.getOrCreateLane(lanes, lane, true)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		for s := range lw.state.Lock() {
+			if err := s.truncateForAnchor(lane, first); err != nil {
+				return err
+			}
+			for _, p := range proposals {
+				if p.Msg().Block().Header().Lane() != lane {
+					return fmt.Errorf("persist lane %s: proposal has lane %s", lane, p.Msg().Block().Header().Lane())
+				}
+				if err := s.persistBlock(p); err != nil {
+					return err
+				}
+			}
+			if len(proposals) > 0 {
+				if err := s.flush(lane); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		panic("unreachable")
 	}
-	return lw.persist(lane, first, proposals)
+	panic("unreachable")
+}
+
+// SyncLanes deletes open WALs whose LaneID is not a key of keep. Idempotent.
+// Safe to call concurrently with MaybePruneAndPersistLane. Avail calls SyncLanes
+// after epochOfFirst.IsClosed map drop and before runPersist's Parallel batch.
+func SyncLanes[V any](bp *BlockPersister, keep map[types.LaneID]V) error {
+	dir, ok := bp.dir.Get()
+	if !ok {
+		return nil
+	}
+	for lanes := range bp.lanes.Lock() {
+		var stale []types.LaneID
+		for lane := range lanes {
+			if _, ok := keep[lane]; !ok {
+				stale = append(stale, lane)
+			}
+		}
+		for _, lane := range stale {
+			if err := bp.deleteLaneLocked(lanes, dir, lane); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	panic("unreachable")
 }
 
 // Close shuts down all per-lane WALs, releasing the exclusive lock each one holds on its directory.
@@ -320,7 +428,6 @@ func (bp *BlockPersister) PruneAndPersist(
 // Production does not call this: a node exits by rugpull and the OS reclaims everything. It exists so
 // that a process which opens the same state directory more than once in its lifetime — a test
 // simulating a restart — can release the first owner before the second opens.
-//
 // Safe for concurrent use.
 func (bp *BlockPersister) Close() error {
 	if _, ok := bp.dir.Get(); !ok {

@@ -72,6 +72,7 @@ func GenSecretKey(rng utils.Rng) SecretKey {
 }
 
 // GenCommittee generates a random Committee of the given size.
+// Each member gets an independent random joined (via GenEpochIndex).
 // Returns the generated secret keys as well.
 func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 	sks := utils.GenSliceN(rng, size, GenSecretKey)
@@ -82,7 +83,11 @@ func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 	slices.SortStableFunc(sks, func(a, b SecretKey) int {
 		return -cmp.Compare(pks[a.Public()], pks[b.Public()])
 	})
-	return utils.OrPanic1(NewCommittee(pks)), sks
+	prev := make(map[PublicKey]LaneID, len(pks))
+	for v := range pks {
+		prev[v] = LaneID{Validator: v, Joined: GenEpochIndex(rng)}
+	}
+	return utils.OrPanic1(newCommittee(prev, pks, 0)), sks
 }
 
 // TestKeysWithWeight returns a deterministic subset of keys whose committee weight reaches the requested threshold.
@@ -106,9 +111,9 @@ func TestSecretKey(nodeID NodeID) SecretKey {
 	return SecretKey{key: ed25519.TestSecretKey([]byte(nodeID))}
 }
 
-// GenLaneID generates a random LaneID.
+// GenLaneID generates a random LaneID (random validator, random joined).
 func GenLaneID(rng utils.Rng) LaneID {
-	return TestSecretKey(GenNodeID(rng)).Public()
+	return LaneID{Validator: TestSecretKey(GenNodeID(rng)).Public(), Joined: GenEpochIndex(rng)}
 }
 
 // GenSignature generates a random Signature.

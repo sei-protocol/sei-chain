@@ -73,12 +73,12 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		// (r.key.Public), not validatorKey (consensus signing key used by
 		// EvmProxy): GigaNodeAddr.Key is a NodePublicKey.
 		selfKey := r.key.Public()
-		for _, addr := range r.cfg.ValidatorAddrs {
+		for validatorKey, addr := range r.cfg.ValidatorAddrs {
 			getBlock := addr.Key != selfKey
 			s.Spawn(func() error {
 				for {
 					err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
-						return r.service.RunClient(ctx, client, getBlock)
+						return r.service.RunClient(ctx, client, validatorKey, getBlock)
 					})
 					logger.Info("giga connection failed", "addr", addr, "err", err)
 					if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {

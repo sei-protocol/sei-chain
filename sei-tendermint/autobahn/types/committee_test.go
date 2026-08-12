@@ -25,11 +25,11 @@ func TestNewCommittee_FiltersOutZeroWeightValidators(t *testing.T) {
 	if committee.HasReplica(zeroWeightKey) {
 		t.Fatal("HasReplica() = true for zero-weight validator, want false")
 	}
-	if got := committee.Replicas().Len(); got != 1 {
-		t.Fatalf("Replicas().Len() = %v, want 1", got)
+	if !committee.HasLane(committee.Lane(nonZeroWeightKey).OrPanic("member")) {
+		t.Fatal("HasLane(nonZero@e0) = false, want true")
 	}
-	if got := committee.Replicas().At(0); got != nonZeroWeightKey {
-		t.Fatalf("Replicas().At(0) = %v, want %v", got, nonZeroWeightKey)
+	if got := committee.Lanes().Len(); got != 1 {
+		t.Fatalf("Lanes().Len() = %v, want 1", got)
 	}
 	if got := committee.Weight(nonZeroWeightKey); got != 7 {
 		t.Fatalf("Weight() = %v, want 7", got)
@@ -91,7 +91,8 @@ func makeEpoch(rng utils.Rng) (*Epoch, []SecretKey) {
 func TestLaneQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewLaneVote(NewBlock(keys[0].Public(), 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
+	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
+	vote := NewLaneVote(NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
 
 	heavyOnly := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[0], vote),
@@ -211,17 +212,13 @@ func TestTimeoutQCVerifyChecksWeight(t *testing.T) {
 	heavyOnly := NewTimeoutQC([]*FullTimeoutVote{
 		NewFullTimeoutVote(keys[0], view, utils.None[*PrepareQC]()),
 	})
-	if err := heavyOnly.Verify(ep, prev); err != nil {
-		t.Fatalf("heavyOnly.Verify(): %v", err)
-	}
+	require.NoError(t, heavyOnly.Verify(ep, prev))
 
 	lightMajority := NewTimeoutQC([]*FullTimeoutVote{
 		NewFullTimeoutVote(keys[1], view, utils.None[*PrepareQC]()),
 		NewFullTimeoutVote(keys[2], view, utils.None[*PrepareQC]()),
 	})
-	if err := lightMajority.Verify(ep, prev); err == nil {
-		t.Fatal("lightMajority.Verify() succeeded, want error")
-	}
+	require.Error(t, lightMajority.Verify(ep, prev))
 }
 
 func TestNewCommittee_RejectsEmptyWeights(t *testing.T) {

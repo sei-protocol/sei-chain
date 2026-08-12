@@ -15,6 +15,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// pushPeerLaneBlock admits a block signed by key onto state via PushBlock
+// (foreign keys; production ProduceLocalBlock only signs with the State's key).
+func pushPeerLaneBlock(ctx context.Context, state *State, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+	lane := state.data.Registry().LatestEpoch().Committee().Lane(key.Public()).OrPanic("lane")
+	n := state.NextBlock(lane)
+	var parent types.BlockHeaderHash
+	if n > 0 {
+		prev, err := state.Block(ctx, lane, n-1)
+		if err != nil {
+			return nil, err
+		}
+		parent = prev.Msg().Block().Header().Hash()
+	}
+	b := types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, parent, payload)))
+	if err := state.PushBlock(ctx, b); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
 type byLane[T any] map[types.LaneID][]T
 
 func makeAppVotes(keys []types.SecretKey, proposal *types.AppProposal) []*types.Signed[*types.AppVote] {
@@ -141,12 +161,12 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			want := byLane[types.PayloadHash]{}
 			for range 10 {
 				key := keys[rng.Intn(len(keys))]
-				lane := key.Public()
+				lane := committee.Lane(key.Public()).OrPanic("lane")
 				p := types.GenPayload(rng)
 				want[lane] = append(want[lane], p.Hash())
-				b, err := state.produceLocalBlock(state.NextBlock(lane), key, p)
+				b, err := pushPeerLaneBlock(ctx, state, key, p)
 				if err != nil {
-					return fmt.Errorf("state.produceLocalBlock(): %w", err)
+					return fmt.Errorf("pushPeerLaneBlock(): %w", err)
 				}
 				if err := utils.TestDiff(b.Msg().Block().Payload(), p); err != nil {
 					return fmt.Errorf("snapshot: %w", err)
@@ -276,8 +296,8 @@ func TestStateRestartFromPersisted(t *testing.T) {
 
 			for range 5 {
 				key := keys[rng.Intn(len(keys))]
-				if _, err := state.produceLocalBlock(state.NextBlock(key.Public()), key, types.GenPayload(rng)); err != nil {
-					return fmt.Errorf("produceLocalBlock: %w", err)
+				if _, err := pushPeerLaneBlock(ctx, state, key, types.GenPayload(rng)); err != nil {
+					return fmt.Errorf("pushPeerLaneBlock: %w", err)
 				}
 			}
 
@@ -360,12 +380,13 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	ds := newTestDataState(&data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(keys[0], ds, utils.Some(t.TempDir())))
 
+	committee := registry.LatestEpoch().Committee()
+	lane := committee.Lane(keys[0].Public()).OrPanic("lane")
 	// Produce a valid first block on our lane.
-	_, err := state.ProduceLocalBlock(state.NextBlock(keys[0].Public()), types.GenPayload(rng))
+	_, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
 	require.NoError(t, err)
 
 	// Create a second block with a fake parentHash.
-	lane := keys[0].Public()
 	fakeBlock := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	fakeProp := types.Sign(keys[0], types.NewLaneProposal(fakeBlock))
 
@@ -383,8 +404,8 @@ func TestPushBlockRejectsWrongSigner(t *testing.T) {
 	ds := newTestDataState(&data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(keys[0], ds, utils.Some(t.TempDir())))
 
+	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("lane")
 	// Create a block on keys[0]'s lane but sign it with keys[1].
-	lane := keys[0].Public()
 	block := types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	prop := types.Sign(keys[1], types.NewLaneProposal(block))
 
@@ -409,7 +430,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 	t.Run("loads persisted blocks", func(t *testing.T) {
 		dir := t.TempDir()
 		ds := newTestDataState(&data.Config{Registry: registry})
-		lane := keys[0].Public()
+		lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("lane")
 
 		// Persist blocks using BlockPersister.
 		bp, _, err := persist.NewBlockPersister(utils.Some(dir))

@@ -6,9 +6,12 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 func (x *validatorService) serverStreamLaneProposals(ctx context.Context, server rpc.Server[API]) error {
@@ -21,10 +24,18 @@ func (x *validatorService) serverStreamLaneProposals(ctx context.Context, server
 		if err != nil {
 			return fmt.Errorf("StreamLaneProposalsReqConv.Decode(): %w", err)
 		}
-		sub := x.state.Avail().SubscribeLaneProposals(req.FirstBlockNumber)
+		sub, err := x.state.Avail().SubscribeLaneProposals(req.LaneID, req.FirstBlockNumber)
+		if err != nil {
+			return err
+		}
 		for {
 			p, err := sub.Recv(ctx)
 			if err != nil {
+				// Lane closed: end the stream cleanly so the client can wait for
+				// a new LaneID of this producer.
+				if errors.Is(err, avail.ErrLaneClosed) {
+					return nil
+				}
 				return err
 			}
 			if err := stream.Send(ctx, LaneProposalConv.Encode(p)); err != nil {
@@ -96,34 +107,62 @@ func (x *validatorService) serverStreamCommitQCs(ctx context.Context, server rpc
 	})
 }
 
-func (x *validatorService) clientStreamLaneProposals(ctx context.Context, c rpc.Client[API]) error {
+func (x *validatorService) clientStreamLaneProposals(ctx context.Context, c rpc.Client[API], peer types.PublicKey) error {
+	a := x.state.Avail()
+	var exclude utils.Option[types.LaneID]
+	for ctx.Err() == nil {
+		lane, err := a.WaitLane(ctx, peer, exclude)
+		if err != nil {
+			return err
+		}
+		// Resume from the next missing local block (0 for a new LaneID).
+		if err := x.streamLaneProposalsOnce(ctx, c, lane, a.NextBlock(lane)); err != nil {
+			return err
+		}
+		// Stream ended. Only exclude when the applied committee has dropped or
+		// replaced this LaneID. If it is still present, reconnect to the same
+		// identity — a transient disconnect must not hang on WaitLane(exclude).
+		// A rejoined validator gets a new LaneID at least one epoch after leaving,
+		// so the old LaneID is closed before the new one appears; we do not need
+		// to cancel the old stream early.
+		cur, ok := a.Lane(peer).Get()
+		if !ok || cur != lane {
+			exclude = utils.Some(lane)
+		} else {
+			exclude = utils.None[types.LaneID]()
+		}
+	}
+	return ctx.Err()
+}
+
+func (x *validatorService) streamLaneProposalsOnce(ctx context.Context, c rpc.Client[API], lane types.LaneID, first types.BlockNumber) error {
 	stream, err := StreamLaneProposals.Call(ctx, c)
 	if err != nil {
 		return err
 	}
 	defer stream.Close()
-	req := &StreamLaneProposalsReq{}
 	// TODO(gprusak): dissemination of LaneProposals is the main source of bandwidth consumption.
-	// * to keep low latency, we need to push the lane proposals (streaming is required)
-	// * to avoid wasting bandwidth, we should set req.FirstBlockNumber (for that we need to authenticate validator in handshake)
-	// * the current implementation assumes a fully connected network - with a different topology we will need to be smarter.
+	// To keep low latency, we need to push the lane proposals (streaming is required).
+	req := &StreamLaneProposalsReq{LaneID: lane, FirstBlockNumber: first}
 	if err := stream.Send(ctx, StreamLaneProposalsReqConv.Encode(req)); err != nil {
 		return fmt.Errorf("client.StreamLaneProposals(): %w", err)
 	}
 	for {
 		rawProposal, err := stream.Recv(ctx)
 		if err != nil {
+			// Server closed after the lane closed (handler returns nil, mux CLOSE).
+			if errors.Is(err, mux.ErrRemoteClosed) {
+				return nil
+			}
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
 		proposal, err := LaneProposalConv.Decode(rawProposal)
 		if err != nil {
 			return fmt.Errorf("LaneProposalConv.Decode(): %w", err)
 		}
-		// Sanity check, checking that the producer only sends their own proposals.
-		// TODO(gprusak): authenticate the peer to be able to do this check.
-		/*if got, want := proposal.Msg().Block().Header().Lane(), c.cfg.GetKey(); got != want {
-			return fmt.Errorf("producer = %q, want %q", got, want)
-		}*/
+		if proposal.Msg().Block().Header().Lane() != lane {
+			return fmt.Errorf("producer lane = %v, want %v", proposal.Msg().Block().Header().Lane(), lane)
+		}
 		if err := x.state.Avail().PushBlock(ctx, proposal); err != nil {
 			return fmt.Errorf("s.PushLaneProposal(): %w", err)
 		}

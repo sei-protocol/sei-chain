@@ -266,6 +266,7 @@ func (x *AppVote) GetAppVoteV2() *pb.SignedAppVote {
 type StreamLaneProposalsReq struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	FirstBlockNumber uint64                 `protobuf:"varint,1,opt,name=first_block_number,json=firstBlockNumber,proto3" json:"first_block_number,omitempty"`
+	LaneId           *pb.LaneID             `protobuf:"bytes,2,opt,name=lane_id,json=laneId,proto3,oneof" json:"lane_id,omitempty"` // required
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -305,6 +306,13 @@ func (x *StreamLaneProposalsReq) GetFirstBlockNumber() uint64 {
 		return x.FirstBlockNumber
 	}
 	return 0
+}
+
+func (x *StreamLaneProposalsReq) GetLaneId() *pb.LaneID {
+	if x != nil {
+		return x.LaneId
+	}
+	return nil
 }
 
 type StreamCommitQCsReq struct {

@@ -84,7 +84,7 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 	for i := 0; ; i = (i + 1) % len(addrs) {
 		addr := addrs[i]
 		err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
-			return r.service.RunClient(ctx, client, true)
+			return r.service.RunClient(ctx, client, atypes.PublicKey{}, true)
 		})
 		logger.Info("fullnode giga connection ended; failing over", "addr", addr, "err", err)
 		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
