@@ -4,22 +4,22 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// BlockDB is the durable backing store for data.State. It persists the two
-// kinds of finalized records the consensus state machine produces —
-// finalized blocks (indexed by GlobalBlockNumber and by header hash) and
-// FullCommitQCs (each covering a contiguous range of GlobalBlockNumbers) —
+// BlockDB is the durable backing store for data.State. It persists the
+// finalized records the consensus state machine produces — finalized blocks
+// (indexed by GlobalBlockNumber and by header hash), FullCommitQCs (each
+// covering a contiguous range of GlobalBlockNumbers), AppProposals and AppQCs
 // and provides the read API needed for crash recovery and runtime lookups.
 //
 // # Concurrency
 //
 // All methods are safe for concurrent use. Implementations should expect
-// concurrent writes (WriteBlock + WriteQC interleaved from a single
+// concurrent writes (WriteBlock + WriteQC + WriteAppQC interleaved from a single
 // background persistence loop) and concurrent reads from RPC handlers
 // and peer-sync streams.
 //
 // # Durability and crash safety
 //
-// Writes are two-phase: WriteBlock and WriteQC return without
+// Writes are two-phase: WriteBlock, WriteQC, and WriteAppQC return without
 // guaranteeing the record is on disk. Flush blocks until all
 // previously-returned Writes are durable.
 //
@@ -38,27 +38,33 @@ import (
 // Writes must be ordered, and the contract is enforced (not merely
 // expected):
 //
-//   - Blocks must be written densely: each block's number must be exactly
-//     one greater than the previously written block's (the first block may
-//     start anywhere its covering QC allows). WriteBlock returns
-//     ErrBlockOutOfOrder otherwise.
-//   - QCs must be written contiguously — each QC's GlobalRange().First
-//     must equal the previous QC's GlobalRange().Next. WriteQC returns
-//     ErrQCNonContiguous otherwise.
-//   - QCs must be written before blocks. A QC covering a block must
-//     be written before that block is written.
+//   - All data must be written contiguously:
+//   - FullCommitQC.GlobalRange().First must equal the previous FullCommitQC.GlobalRange().Next
+//   - Block.Number must equal the previous Block.Number + 1
+//   - AppProposal.GlobalRange().First must equal the previous AppProposal.GlobalRange().Next
+//   - AppQC.Proposal().GlobalRange().First must equal the previous AppQC.Proposal().GlobalRange().Next
+//   - All data must be written in order: for every GlobalBlockNumber X, writes need to happen in order:
+//   - FullCommitQC covering X
+//   - Block X
+//   - AppProposal covering X
+//   - AppQC covering X
+//   - Call to PruneBefore(X) makes data before X inaccessible, however it still might be accessible after BlockDB is
+//     reopened, as the pruning may happen asynchronously.
+//     Only full rows (X such that FullCommitQC, Block, AppProposal and AppQC are in BlockDB) are eligible for pruning,
+//     and at least 1 full row (once written) needs to stay in BlockDB at all times.
+//     In particular:
+//   - PruneBefore is a noop until the first AppQC is written
+//   - If PruneBefore(X) called and the highest full row is Y, then only data in rows <min(X,Y) will become inaccessible.
 //
 // After a crash, data not flushed may be lost, but the following invariants hold:
 //
-//   - Individual blocks and QCs are either fully persisted or not at all; there are no partial writes.
+//   - Individual blocks, QCs, AppProposals and AppQCs are either fully persisted or not at all; there are no partial writes.
 //   - Data is persisted in order, meaning that data loss never leaves gaps. If A is written and then B
 //     is written, then after a crash if B is persisted then A is also persisted.
-//   - Since QCs must always be written before the blocks they cover, a persisted block is always covered
-//     by a persisted QC, but a persisted QC may or may not have its covered blocks persisted.
 //
-// # A readable block always has a readable covering QC
+// # A readable block always has a readable covering FullCommitQC
 //
-// Pruning never leaves a block readable without its covering QC also being readable. And if a block becomes
+// Pruning never leaves a block readable without its covering FullCommitQC also being readable. And if a block becomes
 // crash recoverable, its QC is guaranteed to also be crash recoverable.
 type BlockDB interface {
 	// WriteBlock persists a finalized block at GlobalBlockNumber n. A
@@ -69,9 +75,7 @@ type BlockDB interface {
 	// number (the first block may start anywhere its covering QC allows);
 	// otherwise WriteBlock returns ErrBlockOutOfOrder and persists
 	// nothing. Writes are NOT idempotent — re-writing the same (or any
-	// other non-contiguous) n is rejected with an error. Density is what
-	// lets BlockDBIterator.Block treat an absent block below the highest
-	// persisted one as corruption.
+	// other non-contiguous) n is rejected with an error.
 	//
 	// May return before the block is on disk. Callers that need crash
 	// durability before some external observable action (e.g.
@@ -107,6 +111,30 @@ type BlockDB interface {
 	// so loss of non-durable data after a crash never leaves gaps.
 	WriteQC(qc *FullCommitQC) error
 
+	// WriteAppProposal persists an AppProposal. The AppProposal carries the
+	// exact CommitQC range it certifies by execution result. A matching CommitQC
+	// must already be written: the CommitQC covering GlobalRange.First must have
+	// the same GlobalRange.
+	//
+	// AppProposals form a contiguous prefix. The first AppProposal must start at the retained CommitQC floor
+	// each subsequent AppProposal's First must equal the previous AppProposal's Next.
+	// Re-writing, gaps, overlaps are rejected.
+	//
+	// May return before the AppProposal is on disk. See the BlockDB type doc for
+	// the two-phase write/flush contract.
+	WriteAppProposal(appProposal *AppProposal) error
+
+	// WriteAppQC persists an AppQC. A matching CommitQC must already be written.
+	//
+	// AppQCs form a contiguous prefix. The first
+	// AppQC must start at the retained CommitQC floor; each subsequent AppQC's
+	// First must equal the previous AppQC's Next. Re-writing, gaps, overlaps
+	// are rejected.
+	//
+	// May return before the AppQC is on disk. See the BlockDB type doc for the
+	// two-phase write/flush contract.
+	WriteAppQC(appQC *AppQC) error
+
 	// PruneBefore advances the retention watermark toward n and removes
 	// everything below it:
 	//   - every block with GlobalBlockNumber < watermark
@@ -139,6 +167,10 @@ type BlockDB interface {
 	// reclaimed — pruned entries may remain readable for a while.
 	PruneBefore(n GlobalBlockNumber) error
 
+	// First returns the number of the oldest accessible row.
+	// Moved by PruneBefore.
+	First() GlobalBlockNumber
+
 	// Flush blocks until every Write that has returned before Flush is
 	// called is durable on disk. Writes made concurrently with Flush
 	// may or may not be durable when Flush returns (but are otherwise
@@ -157,45 +189,21 @@ type BlockDB interface {
 	Flush() error
 
 	// Status returns a consistent snapshot of the in-memory write tips (no I/O).
-	Status() DBStatus
+	// None means the DB is empty.
+	Status() utils.Option[SuffixRange]
 
-	// Iterator returns an iterator positioned at block number n. Iteration
-	// is forward-only: it steps through consecutive numbers up to the last
-	// persisted QC's coverage, exclusive. The start is clamped up to the
-	// lowest number the store can serve — the retention watermark, the first
-	// retained block, or the first persisted QC's range on a store holding no
-	// block at all — so Iterator(0) scans everything retained (startup replay)
-	// while a mid-history n resumes from that height without scanning what
-	// lies below it. See BlockDBIterator for what each position exposes.
+	// ReadSuffix returns the materialized startup-recovery suffix.
 	//
-	// Clamping to the first retained block is what makes a scan open on a
-	// number that has one: WriteBlock lets the first block start anywhere
-	// inside its covering QC, and the numbers below it were never written, so
-	// they are not part of the iteration.
+	// Implementations find the newest persisted AppQC, then collect all
+	// CommitQCs whose Index is greater than or equal to that AppQC's
+	// RoadIndex, and all blocks whose GlobalBlockNumber is greater than or
+	// equal to that AppQC's GlobalRange.First. If no AppQC is present,
+	// ReadSuffix returns all retained CommitQCs and blocks.
 	//
-	// If the (clamped) start is past the last persisted QC's coverage —
-	// including on an empty store — the iterator is empty (Next
-	// immediately returns false).
-	//
-	// Returns ErrPruned if a concurrent PruneBefore advances the retention
-	// floor past the clamped start before the iterator can be positioned.
-	// Racing a pruner has no deterministic answer — the floor may move
-	// again before the call returns — so the failure is reported rather
-	// than papered over, and a caller that still wants whatever is retained
-	// may simply call again. Distinct from the corruption error a genuinely
-	// missing record produces.
-	//
-	// A caller may walk an arbitrarily large retention window, and pays to
-	// read a block's value only where it calls Block — Number, QC and
-	// HasBlock come off Position for free (see BlockDBIterator). How much
-	// an implementation holds resident while scanning is its own affair
-	// and is not promised here.
-	//
-	// The iterator captures a snapshot of the records present when it is
-	// created; records written afterward are not observed. It is NOT safe
-	// for concurrent use and MUST be closed when no longer needed (see
-	// BlockDBIterator.Close).
-	Iterator(n GlobalBlockNumber) (BlockDBIterator, error)
+	// Returned CommitQCs and Blocks are in ascending GlobalBlockNumber order so
+	// data.State can replay them directly. If AppQC is present, CommitQCs
+	// starts with its matching CommitQC.
+	ReadSuffix() (Suffix, error)
 
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
 	//
@@ -241,18 +249,55 @@ type BlockDB interface {
 	// Non-blocking.
 	ReadQCByBlockNumber(n GlobalBlockNumber) (utils.Option[*FullCommitQC], error)
 
+	// ReadAppProposalByBlockNumber returns the AppProposal whose
+	// GlobalRange().First ≤ n < GlobalRange().Next. Because a single AppProposal
+	// covers a CommitQC range, the same *AppProposal is returned for every n in
+	// its range.
+	//
+	// The result is one of:
+	//   - utils.Some with a nil error: an AppProposal covering n is present.
+	//   - ErrPruned: n is strictly below the current retention watermark.
+	//   - utils.None with a nil error: n is at or above the watermark but no
+	//     AppProposal covers it.
+	//
+	// Non-blocking.
+	ReadAppProposalByBlockNumber(n GlobalBlockNumber) (utils.Option[*AppProposal], error)
+
+	// ReadAppQCByBlockNumber returns the AppQC whose
+	// AppProposal.GlobalRange().First ≤ n < AppProposal.GlobalRange().Next.
+	// Because a single AppQC covers a CommitQC range, the same *AppQC is
+	// returned for every n in its range.
+	//
+	// The result is one of:
+	//   - utils.Some with a nil error: an AppQC covering n is present.
+	//   - ErrPruned: n is strictly below the current retention watermark.
+	//   - utils.None with a nil error: n is at or above the watermark but no
+	//     AppQC covers it.
+	//
+	// Non-blocking.
+	ReadAppQCByBlockNumber(n GlobalBlockNumber) (utils.Option[*AppQC], error)
+
 	// Close releases resources held by the store. After Close returns,
 	// no other method may be called on the BlockDB; doing so is
 	// undefined.
 	Close() error
 }
 
-// DBStatus is the in-memory write tips returned by BlockDB.Status.
-// Both fields are exclusive "next to write" cursors (matching data.State's
-// nextQC / nextBlock). Zero means no write of that kind has occurred yet
-// (NextBlock/NextQC are never zero after a successful write: the first
-// written block number N yields NextBlock = N+1 ≥ 1).
-type DBStatus struct {
+// SuffixRange represents the suffix of BlockDB data that data.State can append to/would load on recovery.
+// Elements since the last anchor (last full row which contains AppQC,AppProposal,Block,QC) to
+// the tips persisted in the DB. These are the elements that would be loaded by data.State on restart
+// via BlockDB.ReadSuffix.
+// First <= NextAppQC <= NextAppProposal <= NextBlock <= NextQC
+type SuffixRange struct {
+	// First is either NextAppQC, or NextAppQC-1, depending on whether there is at least 1 AppQC in the BlockDB.
+	First GlobalBlockNumber
+	// NextAppQC is one past the highest GlobalBlockNumber covered by the last
+	// AppQC accepted by WriteAppQC. Zero if no AppQC has been written.
+	NextAppQC GlobalBlockNumber
+	// NextAppProposal is one past the highest GlobalBlockNumber covered by the
+	// last AppProposal accepted by WriteAppProposal. Zero if no AppProposal has
+	// been written.
+	NextAppProposal GlobalBlockNumber
 	// NextBlock is one past the highest GlobalBlockNumber accepted by WriteBlock
 	// (the next block number that may be written). Zero if no block has been written.
 	NextBlock GlobalBlockNumber
@@ -262,70 +307,20 @@ type DBStatus struct {
 	NextQC GlobalBlockNumber
 }
 
-// BlockDBIterator steps through consecutive GlobalBlockNumbers in ascending
-// order, exposing at each position the covering QC (always present) and the
-// block (present unless it did not survive). It is created via BlockDB.Iterator
-// and captures a snapshot of the records present at creation time.
-//
-// The numbers yielded are exactly those covered by a retained QC, so a single
-// pass observes every retained QC (via QC, which changes when the scan crosses
-// a range boundary) and every retained block — including QCs written ahead of
-// their blocks, which appear as trailing positions where Block returns None.
-//
-// A BlockDBIterator is NOT safe for concurrent use by multiple goroutines.
-type BlockDBIterator interface {
-	// Next advances the iterator and returns the position it advanced to. ok
-	// is false when the iteration is complete (no number covered by a
-	// retained QC remains), and Position is then the zero value. It returns
-	// an error if advancing failed or the store is corrupt (a block missing
-	// below the highest persisted block — writes are dense, so a gap can
-	// only be corruption). After Next returns ok == false iteration is
-	// complete; after it returns an error the iterator must not be used
-	// further (other than Close).
-	//
-	// The corruption clause binds only implementations that can reach a
-	// corrupt state — durable ones, where a torn write, an out-of-band file
-	// removal or a truncated index can produce records the write path would
-	// have rejected. An implementation holding its records in memory cannot
-	// reach those states at all: the write-order guards above are the only
-	// way records enter it. Such an implementation satisfies this clause
-	// vacuously and correctly never returns an error.
-	Next() (pos Position, ok bool, err error)
-
-	// Block reads and returns the block at the position most recently
-	// returned by Next, or None if no block is persisted there —
-	// equivalently, None exactly when that Position's HasBlock is false.
-	//
-	// This is the one call that may perform IO, which is why it is not a
-	// Position field: a caller that only needs numbers, QCs or presence
-	// never pays for it. Calling it without a preceding Next that returned
-	// ok == true, or after Close, returns an error.
-	Block() (utils.Option[*Block], error)
-
-	// Close releases the resources held by the iterator. MUST be called when
-	// done; failure to close may leak resources in disk-backed
-	// implementations.
-	Close() error
+// SuffixBlock is one block returned by BlockDB.ReadSuffix.
+type SuffixBlock struct {
+	Number GlobalBlockNumber
+	Block  *Block
 }
 
-// Position is the record at one BlockDBIterator position. Every field is cheap
-// — populating a Position performs no IO — so a caller can scan positions and
-// materialize only the blocks it wants via BlockDBIterator.Block.
-type Position struct {
-	// Number is the GlobalBlockNumber this position covers.
-	Number GlobalBlockNumber
-
-	// QC is the FullCommitQC covering Number: its GlobalRange contains
-	// Number. Never nil — every yielded number is covered by construction —
-	// and the same pointer is returned for every position in its range. The
-	// value is decoded once per QC, not once per number.
-	QC *FullCommitQC
-
-	// HasBlock reports whether a block is persisted at Number, and so
-	// whether BlockDBIterator.Block will return Some. Because QCs are
-	// written before the blocks they cover and blocks are written densely,
-	// it is false only in the trailing positions of the iteration: numbers
-	// whose covering QC was persisted but whose block was not (e.g. lost in
-	// a crash, or not yet written).
-	HasBlock bool
+// Suffix is the materialized suffix used by data.State startup recovery.
+type Suffix struct {
+	// Ranges of elements in the suffix.
+	// None if the BlockDB is empty.
+	Status utils.Option[SuffixRange]
+	// Elements which constitute the suffix.
+	CommitQCs    []*FullCommitQC
+	Blocks       []SuffixBlock
+	AppProposals []*AppProposal
+	AppQCs       []*AppQC
 }

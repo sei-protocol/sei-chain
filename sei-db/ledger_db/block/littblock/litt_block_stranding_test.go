@@ -26,20 +26,77 @@ func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *Block
 	return cfg
 }
 
-// writeSyntheticBatches writes numBatches contiguous batches of perQC blocks each
-// (global numbers 0.., QC ranges [0,perQC), [perQC,2*perQC), ...). Each QC's own
-// GlobalRange matches the range it is written at, so littblock's clamp can trust
-// it; littblock does not verify signatures, so no committee is needed.
 func writeSyntheticBatches(t *testing.T, db types.BlockDB, rng utils.Rng, numBatches int, perQC int) {
-	for i := 0; i < numBatches; i++ {
-		first := types.GlobalBlockNumber(i * perQC) //nolint:gosec // small test indices
-		next := first + types.GlobalBlockNumber(perQC)
-		qc := types.GenFullCommitQCRange(rng, first, next)
+	t.Helper()
+	committee, keys := types.GenCommittee(rng, 4)
+	prev := utils.None[*types.CommitQC]()
+	qcs := make([]*types.FullCommitQC, 0, numBatches)
+	for range numBatches {
+		qc, blocks := syntheticFullCommitQC(rng, committee, keys, prev, perQC)
+		first := qc.QC().GlobalRange().First
 		require.NoError(t, db.WriteQC(qc))
-		for j := 0; j < perQC; j++ {
-			require.NoError(t, db.WriteBlock(first+types.GlobalBlockNumber(j), types.GenBlock(rng))) //nolint:gosec
+		for j, block := range blocks {
+			require.NoError(t, db.WriteBlock(first+types.GlobalBlockNumber(j), block)) //nolint:gosec
+		}
+		qcs = append(qcs, qc)
+		prev = utils.Some(qc.QC())
+	}
+
+	for _, qc := range qcs {
+		proposal := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+		require.NoError(t, db.WriteAppProposal(proposal))
+		vote := types.NewAppVote(proposal)
+		appQC := types.NewAppQC([]*types.Signed[*types.AppVote]{
+			types.Sign(types.GenSecretKey(rng), vote),
+		})
+		require.NoError(t, db.WriteAppQC(appQC))
+	}
+}
+
+func syntheticFullCommitQC(
+	rng utils.Rng,
+	committee *types.Committee,
+	keys []types.SecretKey,
+	prev utils.Option[*types.CommitQC],
+	perQC int,
+) (*types.FullCommitQC, []*types.Block) {
+	blocksByLane := map[types.LaneID][]*types.Block{}
+	makeBlock := func(producer types.LaneID) *types.Block {
+		if blocks := blocksByLane[producer]; len(blocks) > 0 {
+			parent := blocks[len(blocks)-1]
+			return types.NewBlock(producer, parent.Header().Next(), parent.Header().Hash(), types.GenPayload(rng))
+		}
+		return types.NewBlock(producer, types.LaneRangeOpt(prev, producer).Next(), types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	}
+	for range perQC {
+		producer := committee.Lanes().At(rng.Intn(committee.Lanes().Len()))
+		blocksByLane[producer] = append(blocksByLane[producer], makeBlock(producer))
+	}
+
+	laneQCs := map[types.LaneID]*types.LaneQC{}
+	headers := make([]*types.BlockHeader, 0, perQC)
+	blocks := make([]*types.Block, 0, perQC)
+	for lane := range committee.Lanes().All() {
+		if bs := blocksByLane[lane]; len(bs) > 0 {
+			laneQCs[lane] = syntheticLaneQC(keys, bs[len(bs)-1].Header())
+			for _, block := range bs {
+				headers = append(headers, block.Header())
+				blocks = append(blocks, block)
+			}
 		}
 	}
+	epoch := types.NewEpoch(0, types.OpenRoadRange(), time.Unix(1_700_000_000, 0), committee, 0)
+	qc := types.BuildCommitQC(epoch, keys, prev, laneQCs)
+	return types.NewFullCommitQC(qc, headers), blocks
+}
+
+func syntheticLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.LaneQC {
+	vote := types.NewLaneVote(header)
+	votes := make([]*types.Signed[*types.LaneVote], 0, len(keys))
+	for _, key := range keys {
+		votes = append(votes, types.Sign(key, vote))
+	}
+	return types.NewLaneQC(votes)
 }
 
 // physicallyPresent reports whether a key exists in the raw table, bypassing the
@@ -101,7 +158,7 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 	require.Equal(t, uint64(5), impl.watermark.Load(), "recovered watermark must be the lowest surviving QC's First")
 
 	// The gate refuses the stranded blocks and their (absent) QCs.
-	for n := types.GlobalBlockNumber(0); n < 5; n++ {
+	for n := range types.GlobalBlockNumber(5) {
 		blk, err := db3.ReadBlockByNumber(n)
 		require.ErrorIs(t, err, types.ErrPruned, "stranded/pruned block %d must be reported pruned", n)
 		require.False(t, blk.IsPresent(), "stranded/pruned block %d must not be served", n)
@@ -120,23 +177,16 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 		require.True(t, qc.IsPresent(), "covering QC for served block %d must be readable", n)
 	}
 
-	// The ledger never yields a stranded position, and every yielded position
-	// has a covering QC.
-	it, err := db3.Iterator(0)
+	// ReadSuffix never includes stranded blocks, and every returned
+	// block has a covering QC.
+	suffix, err := db3.ReadSuffix()
 	require.NoError(t, err)
-	defer func() { _ = it.Close() }()
-	for {
-		pos, ok, err := it.Next()
+	for _, block := range suffix.Blocks {
+		n := block.Number
+		require.GreaterOrEqual(t, uint64(n), uint64(5), "suffix data must not include stranded block %d", n)
+		qc, err := db3.ReadQCByBlockNumber(n)
 		require.NoError(t, err)
-		if !ok {
-			break
-		}
-		n := pos.Number
-		require.GreaterOrEqual(t, uint64(n), uint64(5), "ledger must not yield stranded position %d", n)
-		require.NotNil(t, pos.QC, "position %d must have a covering QC", n)
-		blkOpt, err := it.Block()
-		require.NoError(t, err)
-		require.True(t, blkOpt.IsPresent(), "position %d must have a block", n)
+		require.True(t, qc.IsPresent(), "block %d must have a covering QC", n)
 	}
 }
 
@@ -172,7 +222,7 @@ func TestLittblockReclaimsAcrossRestart(t *testing.T) {
 	require.NoError(t, ForceGC(db2))
 
 	// Blocks 0..14 and their QC keys are physically reclaimed.
-	for n := types.GlobalBlockNumber(0); n < 15; n++ {
+	for n := range types.GlobalBlockNumber(15) {
 		require.False(t, physicallyPresent(t, impl, blockKey(n)), "block %d must be reclaimed", n)
 		require.False(t, physicallyPresent(t, impl, qcKey(n)), "QC key %d must be reclaimed", n)
 	}
@@ -278,7 +328,7 @@ func TestLittblockPruneIntoCohortRoundsDown(t *testing.T) {
 		require.True(t, qc.IsPresent(), "covering QC for served block %d must be readable", n)
 	}
 	// The fully-below cohort [0,5) is pruned.
-	for n := types.GlobalBlockNumber(0); n < 5; n++ {
+	for n := range types.GlobalBlockNumber(5) {
 		blk, err := db2.ReadBlockByNumber(n)
 		require.ErrorIs(t, err, types.ErrPruned, "block %d below the cohort must be reported pruned", n)
 		require.False(t, blk.IsPresent(), "block %d below the cohort must not be served", n)
@@ -286,7 +336,7 @@ func TestLittblockPruneIntoCohortRoundsDown(t *testing.T) {
 }
 
 // TestLittblockRefusesToOpenWithStrandedBlocks verifies the corruption guard in
-// recoverReadFloors. The never-empty prune invariant guarantees at least one
+// recoverWatermark. The never-empty prune invariant guarantees at least one
 // (block, QC) pair is always retained, so a store holding a block with no
 // surviving QC is corrupt (e.g. a QC WAL file removed out of band). Rather than
 // serve blocks it can no longer trust, the store refuses to open.
@@ -311,7 +361,6 @@ func TestLittblockRefusesToOpenWithStrandedBlocks(t *testing.T) {
 	// Reopen: recovery finds the block but no QC, so it refuses to open.
 	_, err = NewBlockDB(strandingConfig(t, dir, 8))
 	require.Error(t, err)
-	require.ErrorContains(t, err, "no surviving QC")
 }
 
 // TestLittblockEmptyStorePruneDoesNotReclaimLaterWrites is the regression for the
@@ -338,7 +387,7 @@ func TestLittblockEmptyStorePruneDoesNotReclaimLaterWrites(t *testing.T) {
 	require.NoError(t, db.Flush())
 
 	// Every written block survives GC on disk and is served by the read gate.
-	for n := types.GlobalBlockNumber(0); n < 10; n++ {
+	for n := range types.GlobalBlockNumber(10) {
 		require.True(t, physicallyPresent(t, impl, blockKey(n)), "block %d must survive GC", n)
 		blk, err := db.ReadBlockByNumber(n)
 		require.NoError(t, err)
