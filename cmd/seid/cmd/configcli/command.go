@@ -31,9 +31,13 @@ func Path(home string) string {
 // pre-run hook and therefore cannot rely on anything it would have set up.
 func Command(defaultHome string) *cobra.Command {
 	cmd := &cobra.Command{
-		// Not "config": that name is taken by the client configuration command, which manages
-		// client.toml. Two unrelated files under one verb would leave an operator unable to tell
-		// which one `seid config set` wrote.
+		// Not "config". The client configuration command already uses that name for client.toml,
+		// and cobra accepts two sibling commands with one name without complaint: the one
+		// registered first answers and the other becomes unreachable. Registered after it, every
+		// verb here would be read as a client.toml key, so `seid node-config generate` would come
+		// back as an unknown configuration key. Registered before it, `seid config chain-id` would
+		// find no such subcommand here, print this help and exit zero, which silently breaks a
+		// command operators already use.
 		Use:   "node-config",
 		Short: "Inspect and edit sei.toml",
 		Long: "Read and edit this node's sei.toml.\n\n" +

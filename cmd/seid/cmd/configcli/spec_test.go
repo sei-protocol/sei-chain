@@ -35,9 +35,10 @@ import "testing"
 // holds either way.
 //
 // Six verbs are built and mounted, and their tests live beside the code rather than here. The tree
-// is named node-config, not config: the client configuration command already owns that name and
-// writes client.toml, and two unrelated files under one verb would leave an operator unable to tell
-// which one they had just edited. What remains below is what is not built yet.
+// is named node-config rather than config, because the client configuration command already uses
+// that name for client.toml. Cobra allows two sibling commands to share a name, and the one
+// registered first answers while the other is unreachable, so whichever order they were added in
+// one of the two would stop working. What remains below is what is not built yet.
 
 // TestAdoptionCarriesLegacyValuesOverAsWrittenValues is how a node that already exists moves.
 //
