@@ -336,12 +336,17 @@ func (s *State) NextBlock(lane types.LaneID) types.BlockNumber {
 // Returns ErrPruned if the block has been already pruned.
 func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumber) (*types.Signed[*types.LaneProposal], error) {
 	for inner, ctrl := range s.inner.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			q, ok := inner.blocks[lane]
+			return !ok || n < q.next
+		}); err != nil {
+			return nil, err
+		}
 		q, ok := inner.blocks[lane]
 		if !ok {
-			return nil, ErrBadLane
-		}
-		if err := ctrl.WaitUntil(ctx, func() bool { return n < q.next }); err != nil {
-			return nil, err
+			// Missing map (closed lane) is reported as pruned so SubscribeLaneProposals
+			// can distinguish closure (ErrLaneClosed) from a wait cancel.
+			return nil, types.ErrPruned
 		}
 		if n < q.first {
 			return nil, types.ErrPruned

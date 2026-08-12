@@ -19,19 +19,22 @@ import (
 // (foreign keys; production ProduceLocalBlock only signs with the State's key).
 func pushPeerLaneBlock(ctx context.Context, state *State, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	lane := state.data.Registry().LatestEpoch().Committee().Lane(key.Public()).OrPanic("lane")
-	n := state.NextBlock(lane)
-	var parent types.BlockHeaderHash
-	if n > 0 {
-		prev, err := state.Block(ctx, lane, n-1)
-		if err != nil {
-			return nil, err
+	var b *types.Signed[*types.LaneProposal]
+	for inner, ctrl := range state.inner.Lock() {
+		q, ok := inner.blocks[lane]
+		if !ok {
+			return nil, ErrBadLane
 		}
-		parent = prev.Msg().Block().Header().Hash()
+		n := q.next
+		var parent types.BlockHeaderHash
+		if q.first < q.next {
+			parent = q.q[q.next-1].Msg().Block().Header().Hash()
+		}
+		b = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, parent, payload)))
+		q.pushBack(b)
+		ctrl.Updated()
 	}
-	b := types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, parent, payload)))
-	if err := state.PushBlock(ctx, b); err != nil {
-		return nil, err
-	}
+	_ = ctx
 	return b, nil
 }
 
