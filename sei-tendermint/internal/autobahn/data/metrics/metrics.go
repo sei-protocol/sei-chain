@@ -11,7 +11,10 @@ const MetricsSubsystem = "internal_autobahn_data"
 type metrics struct {
 	// latency of resource processing up from production to the given stage
 	latency prometheus.HistogramVec `metrics_labels:"resource,stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
-	// Latest height of blocks processed up to the given stage.
+	// Next block to process in the given stage.
+	// WARNING: It is intentionally last+1 to distinguish initial state,
+	// in case the first block is 0.
+	// TODO(gprusak): in case this is too confusing, set it to last block instead.
 	blockHeight prometheus.GaugeIntVec `metrics_labels:"stage"`
 	// gas used by executed blocks
 	gasUsed prometheus.CounterIntVec

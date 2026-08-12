@@ -220,7 +220,7 @@ func (state *mockAppState) finalizeBlock(req *abci.RequestFinalizeBlock, txs []*
 
 func (state *mockAppState) checkTransition(want mockAppTransition) error {
 	if state.nextTransition != want {
-		return fmt.Errorf("mock app unexpected transition: got %s, want %s", want, state.nextTransition)
+		return fmt.Errorf("mock app unexpected transition: got %s, want %s", state.nextTransition, want)
 	}
 	return nil
 }

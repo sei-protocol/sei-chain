@@ -171,7 +171,7 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 		m.TxLatency.Receive.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 	}
 	if oldNextBlock < i.nextBlock {
-		m.BlockHeight.Receive.Set(int64(i.nextBlock))
+		m.BlockHeight.Receive.Set(utils.Clamp[int64](i.nextBlock))
 	}
 }
 
@@ -194,9 +194,9 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
 	}
 	m := metrics.Get()
-	m.BlockHeight.Receive.Set(int64(inner.nextBlock))
-	m.BlockHeight.Execute.Set(int64(inner.nextAppProposal))
-	m.BlockHeight.Certify.Set(int64(inner.nextAppQC))
+	m.BlockHeight.Receive.Set(utils.Clamp[int64](inner.nextBlock))
+	m.BlockHeight.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
+	m.BlockHeight.Certify.Set(utils.Clamp[int64](inner.nextAppQC))
 	return &State{
 		cfg:     cfg,
 		metrics: m,
@@ -635,7 +635,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.appProposals[inner.nextAppProposal] = proposal
 			inner.nextAppProposal += 1
 		}
-		s.metrics.BlockHeight.Execute.Set(int64(inner.nextAppProposal))
+		s.metrics.BlockHeight.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
 		ctrl.Updated()
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
@@ -689,7 +689,7 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC) error {
 			s.metrics.BlockLatency.Certify.Observe(latency)
 			s.metrics.TxLatency.Certify.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 		}
-		s.metrics.BlockHeight.Certify.Set(int64(inner.nextAppQC))
+		s.metrics.BlockHeight.Certify.Set(utils.Clamp[int64](inner.nextAppQC))
 		ctrl.Updated()
 		return nil
 	}
