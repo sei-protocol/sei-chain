@@ -12,6 +12,7 @@ import (
 	"time"
 
 	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -731,7 +732,7 @@ type P2PConfig struct {
 	// accept loop only. The number of connections being handshaked concurrently
 	// is bounded separately by RouterOptions.MaxConcurrentAccepts, which node
 	// setup derives from max-connections minus the outbound reservation.
-	// Kept in sync with the p2p router's own MaxAcceptRate default.
+	// Defaults to p2p.DefaultAcceptInterval, the same constant the router falls back to.
 	// max-incoming-connection-attempts caps concurrent connections per source IP
 	// (with a re-connect delay applied only once a source drops back to zero);
 	// note its default exceeds the inbound pool, so it does not bound a single
@@ -768,7 +769,7 @@ func DefaultP2PConfig() *P2PConfig {
 		HandshakeTimeout:              10 * time.Second,
 		DialTimeout:                   3 * time.Second,
 		DialInterval:                  10 * time.Second,
-		AcceptInterval:                10 * time.Millisecond,
+		AcceptInterval:                p2p.DefaultAcceptInterval,
 		TestDialFail:                  false,
 		QueueType:                     "simple-priority",
 	}

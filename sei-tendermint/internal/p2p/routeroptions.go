@@ -68,9 +68,9 @@ type RouterOptions struct {
 	// MaxDialRate limits the rate at which router is dialing peers. Defaults to 0.1/s.
 	MaxDialRate utils.Option[rate.Limit]
 
-	// MaxAcceptRate limits the rate at which router is accepting TCP connections. Defaults to 100/s,
-	// kept in sync with config.DefaultP2PConfig().AcceptInterval (config cannot import this
-	// package, so the two values are deliberate copies rather than a shared constant).
+	// MaxAcceptRate limits the rate at which router is accepting TCP connections.
+	// Defaults to rate.Every(DefaultAcceptInterval), the same constant config uses for
+	// the accept-interval key, so the two defaults cannot drift.
 	// Node setup sets this from the p2p accept-interval config key; the default covers
 	// embedders that construct RouterOptions directly. Keep it high enough to drain the
 	// kernel accept backlog: a rate below the arrival rate leaves peers queued past
@@ -170,8 +170,16 @@ func (o *RouterOptions) maxDialRate() rate.Limit {
 	return o.MaxDialRate.Or(rate.Every(10 * time.Second))
 }
 
+// DefaultAcceptInterval paces the inbound accept loop at 100 accepts/s. Exported
+// because config.DefaultP2PConfig() sets accept-interval from it: the router default
+// and the config default are then one value, not two that a comment asks you to keep
+// equal. Keep it well above the rate at which peers arrive on a public listener — a
+// slower loop leaves the kernel accept backlog undrained, so peers wait past
+// handshake-timeout and the node stops acquiring inbound peers while looking healthy.
+const DefaultAcceptInterval = 10 * time.Millisecond
+
 func (o *RouterOptions) maxAcceptRate() rate.Limit {
-	return o.MaxAcceptRate.Or(rate.Every(10 * time.Millisecond))
+	return o.MaxAcceptRate.Or(rate.Every(DefaultAcceptInterval))
 }
 
 func (o *RouterOptions) incomingConnectionWindow() time.Duration {
