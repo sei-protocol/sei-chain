@@ -26,6 +26,10 @@ type StreamFullCommitQCsReq struct {
 	NextBlock types.GlobalBlockNumber
 }
 
+type StreamAppQCsReq struct {
+	NextBlock types.GlobalBlockNumber
+}
+
 var LaneVoteConv = protoutils.Conv[*types.Signed[*types.LaneVote], *pb.LaneVote]{
 	Encode: func(m *types.Signed[*types.LaneVote]) *pb.LaneVote {
 		return &pb.LaneVote{
@@ -80,26 +84,6 @@ var StreamLaneProposalsReqConv = protoutils.Conv[*StreamLaneProposalsReq, *pb.St
 	},
 }
 
-var StreamAppQCsRespConv = protoutils.Conv[*StreamAppQCsResp, *pb.StreamAppQCsResp]{
-	Encode: func(m *StreamAppQCsResp) *pb.StreamAppQCsResp {
-		return &pb.StreamAppQCsResp{
-			AppQc:    types.AppQCConv.Encode(m.AppQC),
-			CommitQc: types.CommitQCConv.Encode(m.CommitQC),
-		}
-	},
-	Decode: func(m *pb.StreamAppQCsResp) (*StreamAppQCsResp, error) {
-		appQC, err := types.AppQCConv.DecodeReq(m.AppQc)
-		if err != nil {
-			return nil, fmt.Errorf("appQC: %w", err)
-		}
-		commitQC, err := types.CommitQCConv.DecodeReq(m.CommitQc)
-		if err != nil {
-			return nil, fmt.Errorf("commitQC: %w", err)
-		}
-		return &StreamAppQCsResp{AppQC: appQC, CommitQC: commitQC}, nil
-	},
-}
-
 var GetBlockReqConv = protoutils.Conv[*GetBlockReq, *pb.GetBlockReq]{
 	Encode: func(m *GetBlockReq) *pb.GetBlockReq {
 		return &pb.GetBlockReq{GlobalNumber: uint64(m.GlobalNumber)}
@@ -128,5 +112,14 @@ var StreamFullCommitQCsReqConv = protoutils.Conv[*StreamFullCommitQCsReq, *pb.St
 	},
 	Decode: func(m *pb.StreamFullCommitQCsReq) (*StreamFullCommitQCsReq, error) {
 		return &StreamFullCommitQCsReq{NextBlock: types.GlobalBlockNumber(m.NextBlock)}, nil
+	},
+}
+
+var StreamAppQCsReqConv = protoutils.Conv[*StreamAppQCsReq, *pb.StreamAppQCsReq]{
+	Encode: func(m *StreamAppQCsReq) *pb.StreamAppQCsReq {
+		return &pb.StreamAppQCsReq{NextBlock: uint64(m.NextBlock)}
+	},
+	Decode: func(m *pb.StreamAppQCsReq) (*StreamAppQCsReq, error) {
+		return &StreamAppQCsReq{NextBlock: types.GlobalBlockNumber(m.NextBlock)}, nil
 	},
 }

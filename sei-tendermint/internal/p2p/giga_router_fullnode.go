@@ -30,7 +30,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			cfg:                cfg,
 			key:                key,
 			data:               dataState,
-			service:            giga.NewBlockSyncService(dataState),
+			service:            giga.NewFullNodeService(dataState),
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 			proxies:            utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
@@ -81,7 +81,9 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 	rand.Shuffle(len(addrs), func(i, j int) { addrs[i], addrs[j] = addrs[j], addrs[i] })
 	for i := 0; ; i = (i + 1) % len(addrs) {
 		addr := addrs[i]
-		err := r.dialAndRunConn(ctx, utils.None[NodePublicKey](), addr.HostPort, r.service.RunBlockSyncClient)
+		err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+			return r.service.RunClient(ctx, client, true)
+		})
 		logger.Info("fullnode giga connection ended; failing over", "addr", addr, "err", err)
 		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
 			return err

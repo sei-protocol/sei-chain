@@ -44,23 +44,23 @@ func (*View) MaxSize() int {
 }
 
 func (*Proposal) MaxSize() int {
-	return 9539
+	return 9550
 }
 
 func (*FullProposal) MaxSize() int {
-	return 1107571
+	return 1107604
 }
 
 func (*PrepareQC) MaxSize() int {
-	return 19942
+	return 19953
 }
 
 func (*CommitQC) MaxSize() int {
-	return 19942
+	return 19953
 }
 
 func (*FullCommitQC) MaxSize() int {
-	return 136946
+	return 136957
 }
 
 func (*TimeoutVote) MaxSize() int {
@@ -68,19 +68,19 @@ func (*TimeoutVote) MaxSize() int {
 }
 
 func (*TimeoutQC) MaxSize() int {
-	return 35446
+	return 35457
 }
 
 func (*FullTimeoutVote) MaxSize() int {
-	return 20101
+	return 20112
 }
 
 func (*AppQC) MaxSize() int {
-	return 10469
+	return 10480
 }
 
 func (*AppProposal) MaxSize() int {
-	return 67
+	return 78
 }
 
 func (*Msg) MaxSize() int {
@@ -88,7 +88,7 @@ func (*Msg) MaxSize() int {
 }
 
 func (*SignedProposal) MaxSize() int {
-	return 9646
+	return 9657
 }
 
 func (*SignedTimeoutVote) MaxSize() int {
@@ -96,7 +96,7 @@ func (*SignedTimeoutVote) MaxSize() int {
 }
 
 func (*SignedAppVote) MaxSize() int {
-	return 173
+	return 184
 }
 
 func (*SignedBlock) MaxSize() int {
@@ -108,11 +108,11 @@ func (*SignedBlockHeader) MaxSize() int {
 }
 
 func (*SignedAppProposal) MaxSize() int {
-	return 173
+	return 184
 }
 
 func (*ConsensusReq) MaxSize() int {
-	return 1107575
+	return 1107608
 }
 
 func init() {
@@ -287,10 +287,11 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.AppProposal.
 	runtime.MustRegister[*AppProposal](runtime.Schema{
-		1: {MaxCount: 1},
-		2: {MaxCount: 1},
-		3: {MaxCount: 1, MaxSize: 32},
 		4: {MaxCount: 1},
+		2: {MaxCount: 1},
+		5: {MaxCount: 1},
+		6: {MaxCount: 1},
+		3: {MaxCount: 1, MaxSize: 32},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Msg.

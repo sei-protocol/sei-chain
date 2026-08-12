@@ -49,8 +49,8 @@ func (s *blockDB) GetRollbackFloor(rollbackWindow uint64) uint64 {
 func (s *blockDB) GetLatestBlock() (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.hasBlocks {
-		return 0, nil
+	if status, ok := s.status.Get(); ok && types.GlobalBlockNumber(s.watermark.Load()) < status.NextBlock {
+		return uint64(status.NextBlock - 1), nil
 	}
-	return uint64(s.lastBlockNumber), nil
+	return 0, nil
 }
