@@ -42,21 +42,9 @@ var chainSeeds = map[string][]string{
 	},
 }
 
-// ForChain returns the Sei Labs seed addresses for a well-known chain, or nil
-// when the chain-id is not recognised (private and local chains included).
-// The returned slice is a copy; callers may not mutate package state.
-func ForChain(chainID string) []string {
-	s, ok := chainSeeds[chainID]
-	if !ok {
-		return nil
-	}
-	out := make([]string, len(s))
-	copy(out, s)
-	return out
-}
-
-// BootstrapPeers returns the seeds for a chain as the comma-separated value
-// CometBFT's `bootstrap-peers` expects, or "" when the chain is unrecognised.
+// BootstrapPeers returns the Sei Labs seeds for a chain as the comma-separated
+// value CometBFT's `bootstrap-peers` expects, or "" when the chain-id is not
+// recognised (private and local chains included).
 func BootstrapPeers(chainID string) string {
-	return strings.Join(ForChain(chainID), ",")
+	return strings.Join(chainSeeds[chainID], ",")
 }
