@@ -31,7 +31,7 @@ func newMetrics() *metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_height",
-			Help:      "Latest height of blocks processed up to the given stage.",
+			Help:      "Next block to process in the given stage. WARNING: It is intentionally last+1 to distinguish initial state, in case the first block is 0. TODO(gprusak): in case this is too confusing, set it to last block instead.",
 		}, []string{"stage"}),
 		gasUsed: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
