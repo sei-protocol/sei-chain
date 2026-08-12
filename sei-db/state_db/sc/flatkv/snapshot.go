@@ -505,7 +505,7 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		logger.Error("failed to update SNAPSHOT_BASE", "err", err)
 	}
 
-	pruned = s.pruneSnapshots(dir, version)
+	pruned = s.pruneSnapshotsByCount(dir, version)
 
 	success = true
 	s.lastSnapshotTime = time.Now()
@@ -517,10 +517,22 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 	return nil
 }
 
-// pruneSnapshots removes old snapshots beyond SnapshotKeepRecent, keeping
+// pruneSnapshotsByCount removes old snapshots beyond SnapshotKeepRecent, keeping
 // the latest snapshot (currentVersion) plus the N most recent older ones.
 // Best-effort: errors are logged but do not fail the snapshot operation.
-func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) int {
+//
+// Only snapshots strictly below currentVersion are candidates. A snapshot above it is either a rewrite in
+// progress or a remnant of a rollback that could not finish, and neither is this function's to reclaim:
+// counting one as "old" would spend a keep slot on it and evict a genuinely older snapshot that rollback
+// still needs as a base. memiavl's pruneSnapshots applies the same guard.
+//
+// Does nothing when config.ExternalPruning is set, which hands retention to the
+// StorageGarbageCollector and its by-block-height PruneSnapshots.
+func (s *CommitStore) pruneSnapshotsByCount(dir string, currentVersion int64) int {
+	if s.config.ExternalPruning {
+		return 0
+	}
+
 	start := time.Now()
 	defer func() {
 		otelMetrics.SnapshotPruneLatency.Record(s.ctx, secondsSince(start))
@@ -530,12 +542,15 @@ func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) int {
 	pruned := 0
 
 	var older []int64
-	_ = traverseSnapshots(dir, false, func(v int64) (bool, error) {
-		if v != currentVersion {
+	if err := traverseSnapshots(dir, false, func(v int64) (bool, error) {
+		if v < currentVersion {
 			older = append(older, v)
 		}
 		return false, nil
-	})
+	}); err != nil {
+		logger.Error("prune snapshots: failed to list snapshot dirs", "err", err)
+		return 0
+	}
 
 	if len(older) <= keep {
 		return 0
@@ -622,9 +637,10 @@ func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int6
 // A failure while resetting the WAL leaves the store mid-rollback: "current" and the working directory are
 // already at the rollback snapshot while the WAL still holds the blocks past targetVersion, and s.wal is
 // closed. Retrying in-process does not work, because establishing reachability reads the WAL's stored range
-// and that now fails as closed. Nothing is lost — snapshots above targetVersion are removed only at the very
-// end, so a restart replays the un-pruned WAL back to its old tail and the rollback can be retried. The
-// errors from that window say so.
+// and that now fails as closed. No block is lost: the un-pruned WAL still holds them, so a restart replays
+// back to the old tail and the rollback can be retried. The errors from that window say so. Snapshots above
+// the target are already gone by then, which costs a cached checkpoint the next WriteSnapshot rebuilds, not
+// history.
 func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	obs := s.observeOp("Rollback", otelMetrics.RollbackLatency,
 		"targetVersion", targetVersion)
@@ -658,6 +674,10 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	// current working dir may contain data beyond targetVersion.
 	if err := os.Remove(filepath.Join(dir, workingDirName, snapshotBaseFile)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove SNAPSHOT_BASE for rollback: %w", err)
+	}
+
+	if err := removeSnapshotsAbove(dir, targetVersion); err != nil {
+		return err
 	}
 
 	if err := s.open(); err != nil {
@@ -701,27 +721,45 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 			targetVersion, s.committedVersion)
 	}
 
-	_ = traverseSnapshots(dir, true, func(v int64) (bool, error) {
-		if v > targetVersion {
-			if err := atomicRemoveDir(filepath.Join(dir, snapshotName(v))); err != nil {
-				logger.Error("failed to remove snapshot", "version", v, "err", err)
-			}
-		}
-		return false, nil
-	})
-
 	logger.Info("FlatKV Rollback complete",
 		"version", s.committedVersion,
 		"elapsed", obs.elapsed())
 	return nil
 }
 
-// tryTruncateWAL truncates WAL entries older than the earliest snapshot, keeping enough entries for rollback
-// to any retained snapshot. Scheduling the truncation is best-effort in that it is skipped when there is
-// nothing to prune against, but a prune that fails is not a benign outcome: it only fails when the WAL is
-// already dead, which means commits will fail from that point on.
+// removeSnapshotsAbove deletes every snapshot directory above targetVersion.
+//
+// A failure here is returned rather than logged, which is why the step runs before the WAL is pruned: an
+// error then means the rollback did not take effect, so a caller that skips its own post-rollback bookkeeping
+// on error is right to. `seid rollback` in particular rewinds the app before Tendermint, and aborting between
+// those two would leave the two heights apart; running here it aborts before either moves. Reporting success
+// with a snapshot above the target still on disk would break the same contract from the other side.
+//
+// Every candidate is attempted even after one fails, because their removals are independent and the caller
+// needs the whole list to reconcile from, not just the first name. This mirrors removeTmpDirs.
+func removeSnapshotsAbove(dir string, targetVersion int64) error {
+	var errs []error
+	if err := traverseSnapshots(dir, true, func(v int64) (bool, error) {
+		if v <= targetVersion {
+			return false, nil
+		}
+		if err := atomicRemoveDir(filepath.Join(dir, snapshotName(v))); err != nil {
+			errs = append(errs, fmt.Errorf("remove snapshot %d above rollback target %d: %w", v, targetVersion, err))
+		}
+		return false, nil
+	}); err != nil {
+		return fmt.Errorf("list snapshots above rollback target %d: %w", targetVersion, err)
+	}
+	return errors.Join(errs...)
+}
+
+// tryTruncateWAL truncates WAL entries older than the earliest snapshot, keeping enough entries for
+// rollback to any retained snapshot. Skipped when there is no snapshot to truncate against.
+//
+// Does nothing when config.ExternalPruning is set, under which the collector prunes the WAL as a
+// managed store in its own right.
 func (s *CommitStore) tryTruncateWAL() {
-	if s.wal == nil {
+	if s.wal == nil || s.config.ExternalPruning {
 		return
 	}
 

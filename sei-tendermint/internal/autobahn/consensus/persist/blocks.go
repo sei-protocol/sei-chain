@@ -116,17 +116,14 @@ type laneWAL struct {
 	state utils.Mutex[*laneWALState]
 }
 
-func (lw *laneWAL) maybePruneAndPersist(
+func (lw *laneWAL) persist(
 	lane types.LaneID,
-	anchor utils.Option[*types.CommitQC],
+	first types.BlockNumber,
 	proposals []*types.Signed[*types.LaneProposal],
-	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
 ) error {
 	for s := range lw.state.Lock() {
-		if qc, ok := anchor.Get(); ok {
-			if err := s.truncateForAnchor(lane, qc.LaneRange(lane).First()); err != nil {
-				return err
-			}
+		if err := s.truncateForAnchor(lane, first); err != nil {
+			return err
 		}
 		for _, p := range proposals {
 			if p.Msg().Block().Header().Lane() != lane {
@@ -141,11 +138,6 @@ func (lw *laneWAL) maybePruneAndPersist(
 			// reported as persisted — until this returns.
 			if err := s.flush(lane); err != nil {
 				return err
-			}
-		}
-		if fn, ok := afterEach.Get(); ok {
-			for _, p := range proposals {
-				fn(p)
 			}
 		}
 		return nil
@@ -170,11 +162,11 @@ func (lw *laneWAL) close() error {
 //
 // All public methods are safe for concurrent use. The lanes map is protected
 // by an RWMutex; each laneWAL has its own Mutex for write serialization.
-// MaybePruneAndPersistLane holds the per-lane lock for the entire
+// PruneAndPersist holds the per-lane lock for the entire
 // truncate-then-append sequence, so concurrent calls on the same lane
 // serialize correctly. Different lanes are fully parallel.
 //
-// NOTE: MaybePruneAndPersistLane releases the map RLock before acquiring
+// NOTE: PruneAndPersist releases the map RLock before acquiring
 // the per-lane lock. This is safe because lanes are only added, never
 // removed. If lane deletion is added in the future, the map RLock must be
 // held through the WAL write.
@@ -294,7 +286,7 @@ func (bp *BlockPersister) getOrCreateLane(lane types.LaneID) (*laneWAL, error) {
 	panic("unreachable")
 }
 
-// MaybePruneAndPersistLane optionally truncates the lane's WAL and/or appends
+// PruneAndPersist optionally truncates the lane's WAL and/or appends
 // new proposals, depending on which arguments are present:
 //
 //   - anchor set, proposals non-empty: truncate WAL below anchor, then append (runtime path).
@@ -302,27 +294,17 @@ func (bp *BlockPersister) getOrCreateLane(lane types.LaneID) (*laneWAL, error) {
 //   - anchor empty, proposals non-empty: append only, no truncation.
 //   - anchor empty, proposals empty:     no-op.
 //
-// afterEach, when present, is called once per appended proposal in order, after the whole batch has
-// been flushed — never before, because an append is not durable until then and afterEach is what
-// releases a block to the rest of consensus. It is invoked while the per-lane lock is held, so it must
-// not re-enter the persister. If any append fails, afterEach is not called for the batch at all.
-// No-op persister (dir=None): skips disk I/O but still invokes afterEach.
+// No-op persister (dir=None): skips disk I/O.
 // Does not spawn goroutines — the caller schedules parallelism per lane.
 //
 // The per-lane lock is held for the entire truncate-then-append sequence,
 // so concurrent calls on the same lane serialize correctly.
-func (bp *BlockPersister) MaybePruneAndPersistLane(
+func (bp *BlockPersister) PruneAndPersist(
 	lane types.LaneID,
-	anchor utils.Option[*types.CommitQC],
+	first types.BlockNumber,
 	proposals []*types.Signed[*types.LaneProposal],
-	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
 ) error {
 	if _, ok := bp.dir.Get(); !ok {
-		if fn, ok := afterEach.Get(); ok {
-			for _, p := range proposals {
-				fn(p)
-			}
-		}
 		return nil
 	}
 
@@ -330,7 +312,7 @@ func (bp *BlockPersister) MaybePruneAndPersistLane(
 	if err != nil {
 		return err
 	}
-	return lw.maybePruneAndPersist(lane, anchor, proposals, afterEach)
+	return lw.persist(lane, first, proposals)
 }
 
 // Close shuts down all per-lane WALs, releasing the exclusive lock each one holds on its directory.

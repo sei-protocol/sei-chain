@@ -1493,14 +1493,16 @@ func (x *AppQC) GetSigs() []*Signature {
 
 type AppProposal struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Global block number.
-	GlobalNumber *uint64 `protobuf:"varint,1,opt,name=global_number,json=globalNumber,proto3,oneof" json:"global_number,omitempty"` // required
+	// Epoch this proposal belongs to.
+	EpochIndex *uint64 `protobuf:"varint,4,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"` // required
 	// Index of the commit qc finalizing the block.
 	RoadIndex *uint64 `protobuf:"varint,2,opt,name=road_index,json=roadIndex,proto3,oneof" json:"road_index,omitempty"` // required
-	// App hash at that block.
-	AppHash []byte `protobuf:"bytes,3,opt,name=app_hash,json=appHash,proto3,oneof" json:"app_hash,omitempty"` // required
-	// Epoch this proposal belongs to.
-	EpochIndex    *uint64 `protobuf:"varint,4,opt,name=epoch_index,json=epochIndex,proto3,oneof" json:"epoch_index,omitempty"` // required
+	// Range of global blocks convered by this proposal.
+	// Has to match the corresponding CommitQC.
+	GlobalFirst *uint64 `protobuf:"varint,5,opt,name=global_first,json=globalFirst,proto3,oneof" json:"global_first,omitempty"` // required
+	GlobalNext  *uint64 `protobuf:"varint,6,opt,name=global_next,json=globalNext,proto3,oneof" json:"global_next,omitempty"`    // required
+	// App hash of the state at the end of the range above.
+	AppHash       []byte `protobuf:"bytes,3,opt,name=app_hash,json=appHash,proto3,oneof" json:"app_hash,omitempty"` // required
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1535,9 +1537,9 @@ func (*AppProposal) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{25}
 }
 
-func (x *AppProposal) GetGlobalNumber() uint64 {
-	if x != nil && x.GlobalNumber != nil {
-		return *x.GlobalNumber
+func (x *AppProposal) GetEpochIndex() uint64 {
+	if x != nil && x.EpochIndex != nil {
+		return *x.EpochIndex
 	}
 	return 0
 }
@@ -1549,18 +1551,25 @@ func (x *AppProposal) GetRoadIndex() uint64 {
 	return 0
 }
 
+func (x *AppProposal) GetGlobalFirst() uint64 {
+	if x != nil && x.GlobalFirst != nil {
+		return *x.GlobalFirst
+	}
+	return 0
+}
+
+func (x *AppProposal) GetGlobalNext() uint64 {
+	if x != nil && x.GlobalNext != nil {
+		return *x.GlobalNext
+	}
+	return 0
+}
+
 func (x *AppProposal) GetAppHash() []byte {
 	if x != nil {
 		return x.AppHash
 	}
 	return nil
-}
-
-func (x *AppProposal) GetEpochIndex() uint64 {
-	if x != nil && x.EpochIndex != nil {
-		return *x.EpochIndex
-	}
-	return 0
 }
 
 // This is the signable message.
@@ -2339,18 +2348,21 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"_commit_qc\"k\n" +
 	"\x05AppQC\x12)\n" +
 	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.AppProposalR\x04vote\x12/\n" +
-	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01\"\xf5\x01\n" +
-	"\vAppProposal\x12(\n" +
-	"\rglobal_number\x18\x01 \x01(\x04H\x00R\fglobalNumber\x88\x01\x01\x12\"\n" +
+	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\x06Ј\xe2\xab\fdR\x04sigs:\x06\xe8\x88\xe2\xab\f\x01\"\xbd\x02\n" +
+	"\vAppProposal\x12$\n" +
+	"\vepoch_index\x18\x04 \x01(\x04H\x00R\n" +
+	"epochIndex\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"road_index\x18\x02 \x01(\x04H\x01R\troadIndex\x88\x01\x01\x12&\n" +
-	"\bapp_hash\x18\x03 \x01(\fB\x06؈\xe2\xab\f H\x02R\aappHash\x88\x01\x01\x12$\n" +
-	"\vepoch_index\x18\x04 \x01(\x04H\x03R\n" +
-	"epochIndex\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x10\n" +
-	"\x0e_global_numberB\r\n" +
-	"\v_road_indexB\v\n" +
-	"\t_app_hashB\x0e\n" +
-	"\f_epoch_index\"\x98\x03\n" +
+	"\fglobal_first\x18\x05 \x01(\x04H\x02R\vglobalFirst\x88\x01\x01\x12$\n" +
+	"\vglobal_next\x18\x06 \x01(\x04H\x03R\n" +
+	"globalNext\x88\x01\x01\x12&\n" +
+	"\bapp_hash\x18\x03 \x01(\fB\x06؈\xe2\xab\f H\x04R\aappHash\x88\x01\x01:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\x0e\n" +
+	"\f_epoch_indexB\r\n" +
+	"\v_road_indexB\x0f\n" +
+	"\r_global_firstB\x0e\n" +
+	"\f_global_nextB\v\n" +
+	"\t_app_hashJ\x04\b\x01\x10\x02R\rglobal_number\"\x98\x03\n" +
 	"\x03Msg\x126\n" +
 	"\rlane_proposal\x18\x01 \x01(\v2\x0f.autobahn.BlockH\x00R\flaneProposal\x124\n" +
 	"\tlane_vote\x18\x02 \x01(\v2\x15.autobahn.BlockHeaderH\x00R\blaneVote\x120\n" +

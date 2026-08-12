@@ -76,29 +76,20 @@ type AppVotesRecv struct {
 }
 
 func (s *State) SubscribeAppVotes() *AppVotesRecv {
-	return &AppVotesRecv{s, 0}
+	return &AppVotesRecv{s, s.data.NextAppQC()}
 }
 
 func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote], error) {
 	for {
-		// If needed, fast forward to the first global number without known AppQC.
-		if qc, ok := r.state.LastAppQC().Get(); ok {
-			r.next = max(r.next, qc.Proposal().GlobalNumber()+1)
-		}
-		// Fetch the proposal.
-		p, err := r.state.data.AppProposal(ctx, r.next)
+		vote, err := r.state.data.AppVote(ctx, r.next)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
-				r.next = max(r.next+1, r.state.data.FirstAppProposal())
+				r.next = max(r.next, r.state.data.NextAppQC())
 				continue
 			}
 			return nil, err
 		}
-		// AppProposal currently might return a proposal with a higher global number than the one we requested.
-		// Correct the n in such a case.
-		// TODO(gprusak): perhaps it would be possible to require AppHash at every block from the execution engine.
-		// This would simplify the data state.
-		r.next = p.GlobalNumber() + 1
-		return types.Sign(r.state.key, types.NewAppVote(p)), nil
+		r.next = vote.Proposal().GlobalRange().Next
+		return types.Sign(r.state.key, vote), nil
 	}
 }

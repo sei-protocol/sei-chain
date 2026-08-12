@@ -41,6 +41,7 @@ type Context struct {
 	blockGasMeter      GasMeter
 	checkTx            bool
 	recheckTx          bool // if recheckTx == true, then checkTx must also be true
+	abciQuery          bool // true only for BaseApp.Query; never transaction/block execution
 	isGenesis          bool
 	minGasPrice        DecCoins
 	consParams         *tmproto.ConsensusParams
@@ -131,6 +132,10 @@ func (c Context) IsCheckTx() bool {
 
 func (c Context) IsReCheckTx() bool {
 	return c.recheckTx
+}
+
+func (c Context) IsABCIQuery() bool {
+	return c.abciQuery
 }
 
 func (c Context) IsGenesis() bool {
@@ -381,6 +386,11 @@ func (c Context) WithIsReCheckTx(isRecheckTx bool) Context {
 		c.checkTx = true
 	}
 	c.recheckTx = isRecheckTx
+	return c
+}
+
+func (c Context) WithIsABCIQuery(isABCIQuery bool) Context {
+	c.abciQuery = isABCIQuery
 	return c
 }
 

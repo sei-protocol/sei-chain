@@ -1,0 +1,6 @@
+# keys with a target of their own
+"rpc.laddr"
+"rpc.pprof-laddr"
+"p2p.laddr"
+"p2p.persistent-peers"
+"moniker"

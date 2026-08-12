@@ -11,7 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 )
 
-func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Server[API]) error {
+func (x *validatorService) serverStreamLaneProposals(ctx context.Context, server rpc.Server[API]) error {
 	return StreamLaneProposals.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.LaneProposal, *pb.StreamLaneProposalsReq]) error {
 		reqRaw, err := stream.Recv(ctx)
 		if err != nil {
@@ -21,7 +21,7 @@ func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Serv
 		if err != nil {
 			return fmt.Errorf("StreamLaneProposalsReqConv.Decode(): %w", err)
 		}
-		sub := x.validatorState().Avail().SubscribeLaneProposals(req.FirstBlockNumber)
+		sub := x.state.Avail().SubscribeLaneProposals(req.FirstBlockNumber)
 		for {
 			p, err := sub.Recv(ctx)
 			if err != nil {
@@ -34,14 +34,14 @@ func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Serv
 	})
 }
 
-func (x *Service) serverStreamLaneVotes(ctx context.Context, server rpc.Server[API]) error {
+func (x *validatorService) serverStreamLaneVotes(ctx context.Context, server rpc.Server[API]) error {
 	return StreamLaneVotes.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.LaneVote, *pb.StreamLaneVotesReq]) error {
 		reqRaw, err := stream.Recv(ctx)
 		if err != nil {
 			return err
 		}
 		_ = reqRaw
-		sub := x.validatorState().Avail().SubscribeLaneVotes()
+		sub := x.state.Avail().SubscribeLaneVotes()
 		for {
 			batch, err := sub.RecvBatch(ctx)
 			if err != nil {
@@ -56,14 +56,14 @@ func (x *Service) serverStreamLaneVotes(ctx context.Context, server rpc.Server[A
 	})
 }
 
-func (x *Service) serverStreamAppVotes(ctx context.Context, server rpc.Server[API]) error {
+func (x *validatorService) serverStreamAppVotes(ctx context.Context, server rpc.Server[API]) error {
 	return StreamAppVotes.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.AppVote, *pb.StreamAppVotesReq]) error {
 		reqRaw, err := stream.Recv(ctx)
 		if err != nil {
 			return err
 		}
 		_ = reqRaw
-		sub := x.validatorState().Avail().SubscribeAppVotes()
+		sub := x.state.Avail().SubscribeAppVotes()
 		for {
 			vote, err := sub.Recv(ctx)
 			if err != nil {
@@ -76,41 +76,17 @@ func (x *Service) serverStreamAppVotes(ctx context.Context, server rpc.Server[AP
 	})
 }
 
-func (x *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]) error {
-	return StreamAppQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.StreamAppQCsResp, *pb.StreamAppQCsReq]) error {
-		reqRaw, err := stream.Recv(ctx)
-		if err != nil {
-			return err
-		}
-		_ = reqRaw
-		next := types.RoadIndex(0)
-		for {
-			appQC, commitQC, err := x.validatorState().Avail().WaitForAppQC(ctx, next)
-			if err != nil {
-				return fmt.Errorf("x.validatorState().Avail().WaitForAppQC(): %w", err)
-			}
-			next = appQC.Next()
-			if err := stream.Send(ctx, StreamAppQCsRespConv.Encode(&StreamAppQCsResp{
-				AppQC:    appQC,
-				CommitQC: commitQC,
-			})); err != nil {
-				return fmt.Errorf("stream.Send(): %w", err)
-			}
-		}
-	})
-}
-
-func (x *Service) serverStreamCommitQCs(ctx context.Context, server rpc.Server[API]) error {
+func (x *validatorService) serverStreamCommitQCs(ctx context.Context, server rpc.Server[API]) error {
 	return StreamCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.CommitQC, *pb.StreamCommitQCsReq]) error {
 		next := types.RoadIndex(0)
 		for {
-			qc, err := x.validatorState().Avail().CommitQC(ctx, next)
+			qc, err := x.state.Avail().CommitQC(ctx, next)
 			if err != nil {
 				if errors.Is(err, types.ErrPruned) {
-					next = x.validatorState().Avail().FirstCommitQC()
+					next = x.state.Avail().First()
 					continue
 				}
-				return fmt.Errorf("x.validatorState().Avail().FirstCommitQC(): %w", err)
+				return fmt.Errorf("x.state.Avail().CommitQC(): %w", err)
 			}
 			next = qc.Index() + 1
 			if err := stream.Send(ctx, types.CommitQCConv.Encode(qc)); err != nil {
@@ -120,7 +96,7 @@ func (x *Service) serverStreamCommitQCs(ctx context.Context, server rpc.Server[A
 	})
 }
 
-func (x *Service) clientStreamLaneProposals(ctx context.Context, c rpc.Client[API]) error {
+func (x *validatorService) clientStreamLaneProposals(ctx context.Context, c rpc.Client[API]) error {
 	stream, err := StreamLaneProposals.Call(ctx, c)
 	if err != nil {
 		return err
@@ -148,13 +124,13 @@ func (x *Service) clientStreamLaneProposals(ctx context.Context, c rpc.Client[AP
 		/*if got, want := proposal.Msg().Block().Header().Lane(), c.cfg.GetKey(); got != want {
 			return fmt.Errorf("producer = %q, want %q", got, want)
 		}*/
-		if err := x.validatorState().Avail().PushBlock(ctx, proposal); err != nil {
+		if err := x.state.Avail().PushBlock(ctx, proposal); err != nil {
 			return fmt.Errorf("s.PushLaneProposal(): %w", err)
 		}
 	}
 }
 
-func (x *Service) clientStreamLaneVotes(ctx context.Context, c rpc.Client[API]) error {
+func (x *validatorService) clientStreamLaneVotes(ctx context.Context, c rpc.Client[API]) error {
 	stream, err := StreamLaneVotes.Call(ctx, c)
 	if err != nil {
 		return fmt.Errorf("client.StreamLaneVotes(): %w", err)
@@ -172,13 +148,13 @@ func (x *Service) clientStreamLaneVotes(ctx context.Context, c rpc.Client[API]) 
 		if err != nil {
 			return fmt.Errorf("LaneVoteConv.Decode(): %w", err)
 		}
-		if err := x.validatorState().Avail().PushVote(ctx, vote); err != nil {
+		if err := x.state.Avail().PushVote(ctx, vote); err != nil {
 			return fmt.Errorf("s.PushLaneVote(): %w", err)
 		}
 	}
 }
 
-func (x *Service) clientStreamCommitQCs(ctx context.Context, c rpc.Client[API]) error {
+func (x *validatorService) clientStreamCommitQCs(ctx context.Context, c rpc.Client[API]) error {
 	stream, err := StreamCommitQCs.Call(ctx, c)
 	if err != nil {
 		return fmt.Errorf("client.StreamCommitQCs(): %w", err)
@@ -196,13 +172,13 @@ func (x *Service) clientStreamCommitQCs(ctx context.Context, c rpc.Client[API]) 
 		if err != nil {
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
-		if err := x.validatorState().Avail().PushCommitQC(ctx, qc); err != nil {
-			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
+		if err := x.state.Avail().PushCommitQC(ctx, qc); err != nil {
+			return fmt.Errorf("s.PushCommitQC(): %w", err)
 		}
 	}
 }
 
-func (x *Service) clientStreamAppVotes(ctx context.Context, c rpc.Client[API]) error {
+func (x *validatorService) clientStreamAppVotes(ctx context.Context, c rpc.Client[API]) error {
 	stream, err := StreamAppVotes.Call(ctx, c)
 	if err != nil {
 		return fmt.Errorf("client.StreamAppVotes(): %w", err)
@@ -220,32 +196,8 @@ func (x *Service) clientStreamAppVotes(ctx context.Context, c rpc.Client[API]) e
 		if err != nil {
 			return fmt.Errorf("AppVoteConv.Decode(): %w", err)
 		}
-		if err := x.validatorState().Avail().PushAppVote(ctx, vote); err != nil {
+		if err := x.state.Avail().PushAppVote(ctx, vote); err != nil {
 			return fmt.Errorf("s.PushLaneVote(): %w", err)
-		}
-	}
-}
-
-func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) error {
-	stream, err := StreamAppQCs.Call(ctx, c)
-	if err != nil {
-		return fmt.Errorf("client.StreamAppQCs(): %w", err)
-	}
-	defer stream.Close()
-	if err := stream.Send(ctx, &pb.StreamAppQCsReq{}); err != nil {
-		return err
-	}
-	for {
-		resp, err := stream.Recv(ctx)
-		if err != nil {
-			return fmt.Errorf("stream.Recv(): %w", err)
-		}
-		msg, err := StreamAppQCsRespConv.Decode(resp)
-		if err != nil {
-			return fmt.Errorf("StreamAppQCsRespConv.Decode(): %w", err)
-		}
-		if err := x.validatorState().Avail().PushAppQC(msg.AppQC, msg.CommitQC); err != nil {
-			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
 		}
 	}
 }
