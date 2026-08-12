@@ -52,12 +52,12 @@ node_height() {
     || echo 0
 }
 
-# has_post_restart_app_hash_mismatch checks only log entries written after the
-# partial-loss restart. An AppHash mismatch means the node detected and
-# rejected its divergent state even if the seid process remains alive.
-has_post_restart_app_hash_mismatch() {
-  docker exec "$VICTIM_NODE" bash -lc \
-    "tail -n '+${VICTIM_LOG_START_LINE}' '$VICTIM_LOG' 2>/dev/null | grep -Fq 'app hash mismatch'"
+# has_consensus_app_hash_rejection detects Tendermint rejecting a block whose
+# AppHash disagrees with the victim's local state. The restart script truncates
+# the log before starting seid, so every matching entry is from this restart.
+has_consensus_app_hash_rejection() {
+  docker exec "$VICTIM_NODE" \
+    grep -Fq 'wrong Block.Header.AppHash:' "$VICTIM_LOG" 2>/dev/null
 }
 
 # wait_for_catchup polls until the victim's height is within $tolerance of the
@@ -72,7 +72,7 @@ wait_for_catchup() {
   local tolerance=$3
   local elapsed=0
   while [ "$elapsed" -lt "$timeout" ]; do
-    if has_post_restart_app_hash_mismatch; then
+    if has_consensus_app_hash_rejection; then
       echo "$victim rejected divergent state with an AppHash mismatch"
       return "$LOUD_FAILURE_STATUS"
     fi
@@ -214,9 +214,6 @@ fi
 echo "Deleting only $FLATKV_DIR on $VICTIM_NODE"
 docker exec "$VICTIM_NODE" bash -lc "rm -rf '$FLATKV_DIR'"
 
-VICTIM_LOG_START_LINE=$(docker exec "$VICTIM_NODE" wc -l "$VICTIM_LOG" 2>/dev/null || echo 0)
-VICTIM_LOG_START_LINE=$((VICTIM_LOG_START_LINE + 1))
-
 echo "Restarting $VICTIM_NODE after FlatKV-only loss"
 docker exec -d -e "ID=${VICTIM_INDEX}" "$VICTIM_NODE" /usr/bin/start_sei.sh
 sleep "$RESTART_OBSERVE_SECS"
@@ -224,7 +221,7 @@ sleep "$RESTART_OBSERVE_SECS"
 if ! docker exec "$VICTIM_NODE" pgrep -f "seid start" >/dev/null 2>&1; then
   echo "$VICTIM_NODE exited after FlatKV-only loss; checking for a clear startup error"
   if docker exec "$VICTIM_NODE" bash -lc \
-    "grep -Eiq 'flatkv|version|missing|LoadVersion|reconcile|state_commit' /sei-protocol/sei-chain/build/generated/logs/seid-${VICTIM_INDEX}.log"; then
+    "grep -Eiq 'flatkv|version|missing|LoadVersion|reconcile|state_commit' '$VICTIM_LOG'"; then
     echo "PASS: $VICTIM_NODE failed loudly after FlatKV-only loss"
     exit 0
   fi
