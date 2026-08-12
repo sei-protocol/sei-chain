@@ -49,7 +49,7 @@ func snapshot(s *State) Snapshot {
 func newTestBlockDB(t *testing.T, dir string) types.BlockDB {
 	t.Helper()
 	cfg := utils.OrPanic1(littblock.DefaultConfig(dir))
-	cfg.Retention = time.Nanosecond
+	cfg.RetentionTime = time.Nanosecond
 	db := utils.OrPanic1(littblock.NewBlockDB(cfg))
 	t.Cleanup(func() { _ = db.Close() })
 	return db

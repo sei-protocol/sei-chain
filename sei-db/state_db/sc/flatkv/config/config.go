@@ -39,8 +39,21 @@ type Config struct {
 
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
+	// Ignored entirely when ExternalPruning is set.
 	// Default: 1
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
+
+	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its
+	// own snapshots (SnapshotKeepRecent) and stops truncating the state WAL.
+	//
+	// Not read from app.toml. It is set by whatever constructs the collector, since it is only
+	// correct when this store is registered with a running one.
+	//
+	// With it on, snapshots are retained by height rather than by count, so the number kept becomes
+	// RollbackWindow / SnapshotInterval instead of SnapshotKeepRecent + 1.
+	//
+	// Default: false
+	ExternalPruning bool `mapstructure:"-"`
 
 	// EnablePebbleMetrics defines if the Pebble metrics should be enabled.
 	// Default: true

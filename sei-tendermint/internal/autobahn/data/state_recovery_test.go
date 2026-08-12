@@ -279,7 +279,7 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 
 	// Write both QCs and all their blocks to the DB.
 	cfg1 := utils.OrPanic1(littblock.DefaultConfig(dir))
-	cfg1.Retention = time.Nanosecond
+	cfg1.RetentionTime = time.Nanosecond
 	db1 := utils.OrPanic1(littblock.NewBlockDB(cfg1))
 	writeToBlockDB(t, db1, []*types.FullCommitQC{qc1, qc2}, [][]*types.Block{blocks1, blocks2})
 
@@ -289,7 +289,7 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 
 	// Reopen the same dir without ForceGC — pruned entries may still be present.
 	cfg2 := utils.OrPanic1(littblock.DefaultConfig(dir))
-	cfg2.Retention = time.Nanosecond
+	cfg2.RetentionTime = time.Nanosecond
 	db2 := utils.OrPanic1(littblock.NewBlockDB(cfg2))
 	t.Cleanup(func() { _ = db2.Close() })
 

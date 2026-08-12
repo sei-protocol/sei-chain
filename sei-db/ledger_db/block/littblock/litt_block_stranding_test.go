@@ -15,10 +15,10 @@ import (
 // MaxSegmentKeyCount, so a test can place a segment boundary at a precise key.
 // Retention is tiny (the prune watermark is the sole reclamation gate) and GC is
 // effectively background-disabled so ForceGC is the only thing that reclaims.
-func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *LittBlockConfig {
+func strandingConfig(t *testing.T, dir string, maxSegmentKeyCount uint32) *BlockDBConfig {
 	cfg, err := DefaultConfig(dir)
 	require.NoError(t, err)
-	cfg.Retention = time.Nanosecond
+	cfg.RetentionTime = time.Nanosecond
 	cfg.Litt.TargetSegmentFileSize = math.MaxUint32
 	cfg.Litt.MaxSegmentKeyCount = maxSegmentKeyCount
 	cfg.Litt.GCPeriod = time.Hour
@@ -30,6 +30,7 @@ func writeSyntheticBatches(t *testing.T, db types.BlockDB, rng utils.Rng, numBat
 	t.Helper()
 	committee, keys := types.GenCommittee(rng, 4)
 	prev := utils.None[*types.CommitQC]()
+	qcs := make([]*types.FullCommitQC, 0, numBatches)
 	for range numBatches {
 		qc, blocks := syntheticFullCommitQC(rng, committee, keys, prev, perQC)
 		first := qc.QC().GlobalRange().First
@@ -37,7 +38,18 @@ func writeSyntheticBatches(t *testing.T, db types.BlockDB, rng utils.Rng, numBat
 		for j, block := range blocks {
 			require.NoError(t, db.WriteBlock(first+types.GlobalBlockNumber(j), block)) //nolint:gosec
 		}
+		qcs = append(qcs, qc)
 		prev = utils.Some(qc.QC())
+	}
+
+	for _, qc := range qcs {
+		proposal := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+		require.NoError(t, db.WriteAppProposal(proposal))
+		vote := types.NewAppVote(proposal)
+		appQC := types.NewAppQC([]*types.Signed[*types.AppVote]{
+			types.Sign(types.GenSecretKey(rng), vote),
+		})
+		require.NoError(t, db.WriteAppQC(appQC))
 	}
 }
 
@@ -87,24 +99,6 @@ func syntheticLaneQC(keys []types.SecretKey, header *types.BlockHeader) *types.L
 	return types.NewLaneQC(votes)
 }
 
-func writeSyntheticAppData(t *testing.T, db types.BlockDB, rng utils.Rng, numBatches int, perQC int) {
-	t.Helper()
-	for i := 0; i < numBatches; i++ {
-		first := types.GlobalBlockNumber(i * perQC) //nolint:gosec // small test indices
-		qc, err := db.ReadQCByBlockNumber(first)
-		require.NoError(t, err)
-		gotQC, ok := qc.Get()
-		require.True(t, ok, "synthetic QC %d must exist before writing app data", first)
-		proposal := types.NewAppProposal(gotQC.QC().Proposal(), types.GenAppHash(rng))
-		require.NoError(t, db.WriteAppProposal(proposal))
-		vote := types.NewAppVote(proposal)
-		appQC := types.NewAppQC([]*types.Signed[*types.AppVote]{
-			types.Sign(types.GenSecretKey(rng), vote),
-		})
-		require.NoError(t, db.WriteAppQC(appQC))
-	}
-}
-
 // physicallyPresent reports whether a key exists in the raw table, bypassing the
 // read-watermark gate. Used to distinguish a record that has been physically
 // reclaimed from one that is present on disk but refused by the watermark.
@@ -134,7 +128,6 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 	db, err := NewBlockDB(strandingConfig(t, dir, 8))
 	require.NoError(t, err)
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19; QCs [0,5),[5,10),[10,15),[15,20)
-	writeSyntheticAppData(t, db, rng, 4, 5)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 
@@ -165,7 +158,7 @@ func TestLittblockStrandedBlockNotServedAfterRestart(t *testing.T) {
 	require.Equal(t, uint64(5), impl.watermark.Load(), "recovered watermark must be the lowest surviving QC's First")
 
 	// The gate refuses the stranded blocks and their (absent) QCs.
-	for n := types.GlobalBlockNumber(0); n < 5; n++ {
+	for n := range types.GlobalBlockNumber(5) {
 		blk, err := db3.ReadBlockByNumber(n)
 		require.ErrorIs(t, err, types.ErrPruned, "stranded/pruned block %d must be reported pruned", n)
 		require.False(t, blk.IsPresent(), "stranded/pruned block %d must not be served", n)
@@ -216,7 +209,6 @@ func TestLittblockReclaimsAcrossRestart(t *testing.T) {
 	db, err := NewBlockDB(strandingConfig(t, dir, 8))
 	require.NoError(t, err)
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19
-	writeSyntheticAppData(t, db, rng, 4, 5)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 
@@ -230,7 +222,7 @@ func TestLittblockReclaimsAcrossRestart(t *testing.T) {
 	require.NoError(t, ForceGC(db2))
 
 	// Blocks 0..14 and their QC keys are physically reclaimed.
-	for n := types.GlobalBlockNumber(0); n < 15; n++ {
+	for n := range types.GlobalBlockNumber(15) {
 		require.False(t, physicallyPresent(t, impl, blockKey(n)), "block %d must be reclaimed", n)
 		require.False(t, physicallyPresent(t, impl, qcKey(n)), "QC key %d must be reclaimed", n)
 	}
@@ -291,7 +283,6 @@ func TestLittblockPruneIntoCohortRoundsDown(t *testing.T) {
 	db, err := NewBlockDB(strandingConfig(t, dir, 8))
 	require.NoError(t, err)
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19; QC[5,10) covers blocks 5..9
-	writeSyntheticAppData(t, db, rng, 4, 5)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 
@@ -337,7 +328,7 @@ func TestLittblockPruneIntoCohortRoundsDown(t *testing.T) {
 		require.True(t, qc.IsPresent(), "covering QC for served block %d must be readable", n)
 	}
 	// The fully-below cohort [0,5) is pruned.
-	for n := types.GlobalBlockNumber(0); n < 5; n++ {
+	for n := range types.GlobalBlockNumber(5) {
 		blk, err := db2.ReadBlockByNumber(n)
 		require.ErrorIs(t, err, types.ErrPruned, "block %d below the cohort must be reported pruned", n)
 		require.False(t, blk.IsPresent(), "block %d below the cohort must not be served", n)
@@ -396,7 +387,7 @@ func TestLittblockEmptyStorePruneDoesNotReclaimLaterWrites(t *testing.T) {
 	require.NoError(t, db.Flush())
 
 	// Every written block survives GC on disk and is served by the read gate.
-	for n := types.GlobalBlockNumber(0); n < 10; n++ {
+	for n := range types.GlobalBlockNumber(10) {
 		require.True(t, physicallyPresent(t, impl, blockKey(n)), "block %d must survive GC", n)
 		blk, err := db.ReadBlockByNumber(n)
 		require.NoError(t, err)
