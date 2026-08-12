@@ -21,6 +21,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
 	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
@@ -907,13 +908,14 @@ func signCosmosTx(
 	return txBytes
 }
 
-func TestCheckTxGaslessAssociatePreservesDeclaredGasAccounting(t *testing.T) {
+func TestCheckTxGaslessAssociateUsesFixedGasAccounting(t *testing.T) {
 	testCases := []struct {
 		name     string
 		gasLimit uint64
 	}{
 		{name: "zero gas remains valid", gasLimit: 0},
-		{name: "non-zero gas is reported", gasLimit: 200_000},
+		{name: "default gas is bounded", gasLimit: 200_000},
+		{name: "excessive gas is bounded", gasLimit: 50_000_000},
 	}
 
 	for _, tc := range testCases {
@@ -941,7 +943,7 @@ func TestCheckTxGaslessAssociatePreservesDeclaredGasAccounting(t *testing.T) {
 
 			res := testApp.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
 			require.True(t, res.IsOK())
-			require.Equal(t, int64(tc.gasLimit), res.GasWanted)
+			require.Equal(t, int64(antedecorators.FeeExemptTxGasWanted), res.GasWanted)
 		})
 	}
 }

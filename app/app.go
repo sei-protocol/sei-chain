@@ -2820,7 +2820,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 				// Non-fee tx won't be processed and thus won't consume gas. Skipping.
 				continue
 			}
-			gasWanted = feeTx.GetGas()
+			gasWanted = antedecorators.GasWantedForTx(decodedTx, feeTx.GetGas())
 		}
 
 		// Overflow guards: gasWanted must fit in int64, and adding it to either accumulator

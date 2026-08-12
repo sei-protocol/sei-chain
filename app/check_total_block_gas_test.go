@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -156,23 +157,22 @@ func TestCheckTotalBlockGas_NilDecodedTx(t *testing.T) {
 	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{nil, evmTx}))
 }
 
-// TestCheckTotalBlockGas_AssociateTxCountsDeclaredGas verifies that fee exemption does not
-// exclude a MsgAssociate from block gas accounting.
-func TestCheckTotalBlockGas_AssociateTxCountsDeclaredGas(t *testing.T) {
+// TestCheckTotalBlockGas_AssociateTxUsesFixedGas verifies the stateless associate contribution.
+func TestCheckTotalBlockGas_AssociateTxUsesFixedGas(t *testing.T) {
 	a := Setup(t, false, false, false)
-	ctx := newBlockGasCtx(t, a, 100, 1_000_000)
+	ctx := newBlockGasCtx(t, a, int64(antedecorators.FeeExemptTxGasWanted), int64(antedecorators.FeeExemptTxGasWanted))
 
 	msg := &evmtypes.MsgAssociate{
 		Sender:        sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String(),
 		CustomMessage: "test",
 	}
-	tx := buildCosmosTx(t, a, msg, 1_000) // 1_000 > MaxGas=100 if counted
-	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+	tx := buildCosmosTx(t, a, msg, 50_000_000)
+	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx, tx}))
 }
 
-// TestCheckTotalBlockGas_OracleVoteCountsDeclaredGas verifies that fee exemption does not
-// exclude a valid oracle aggregate vote from block gas accounting.
-func TestCheckTotalBlockGas_OracleVoteCountsDeclaredGas(t *testing.T) {
+// TestCheckTotalBlockGas_OracleVoteUsesFixedGas verifies the stateless oracle contribution.
+func TestCheckTotalBlockGas_OracleVoteUsesFixedGas(t *testing.T) {
 	valPub := secp256k1.GenPrivKey().PubKey()
 	tw := NewTestWrapper(t, time.Now().UTC(), valPub, false)
 
@@ -188,8 +188,9 @@ func TestCheckTotalBlockGas_OracleVoteCountsDeclaredGas(t *testing.T) {
 		Feeder:        sdk.AccAddress(valAddr).String(),
 		Validator:     valAddr.String(),
 	}
-	tx := buildCosmosTx(t, tw.App, vote, 1_000) // 1_000 > MaxGas=100 if counted
+	tx := buildCosmosTx(t, tw.App, vote, 50_000_000)
 
-	ctx := tw.Ctx.WithConsensusParams(blockGasParams(100, 1_000_000))
-	require.False(t, tw.App.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+	ctx := tw.Ctx.WithConsensusParams(blockGasParams(int64(antedecorators.FeeExemptTxGasWanted), int64(antedecorators.FeeExemptTxGasWanted)))
+	require.True(t, tw.App.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+	require.False(t, tw.App.checkTotalBlockGas(ctx, []sdk.Tx{tx, tx}))
 }

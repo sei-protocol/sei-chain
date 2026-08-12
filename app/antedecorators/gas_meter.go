@@ -6,9 +6,21 @@ type noConsumptionGasMeter struct {
 	storetypes.GasMeter
 }
 
-// NewNoConsumptionGasMeter preserves the wrapped meter's reporting metadata while
-// suppressing execution gas. Fee-exempt transactions may declare zero gas, but a
-// non-zero declared limit must still be reported consistently to proposal builders.
+type reportingGasMeter struct {
+	storetypes.GasMeter
+	reportedLimit storetypes.Gas
+}
+
+// NewReportingGasMeter returns a meter with an independent reported limit.
+func NewReportingGasMeter(meter storetypes.GasMeter, reportedLimit storetypes.Gas) storetypes.GasMeter {
+	return &reportingGasMeter{GasMeter: meter, reportedLimit: reportedLimit}
+}
+
+func (m *reportingGasMeter) Limit() storetypes.Gas {
+	return m.reportedLimit
+}
+
+// NewNoConsumptionGasMeter returns a meter that reports zero consumption and never runs out of gas.
 func NewNoConsumptionGasMeter(meter storetypes.GasMeter) storetypes.GasMeter {
 	return &noConsumptionGasMeter{GasMeter: meter}
 }

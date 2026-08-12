@@ -30,6 +30,10 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	if err != nil {
 		return ctx, err
 	}
+	reportedGas := GasWantedForTx(tx, ctx.GasMeter().Limit())
+	if reportedGas != ctx.GasMeter().Limit() {
+		ctx = ctx.WithGasMeter(NewReportingGasMeter(ctx.GasMeter(), reportedGas))
+	}
 	if isGasless {
 		ctx = ctx.WithGasMeter(NewNoConsumptionGasMeter(ctx.GasMeter()))
 	}
@@ -49,8 +53,7 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	return next(ctx, tx, simulate)
 }
 
-// checkGaslessWithoutConsumingGas isolates keeper reads from the declared transaction meter.
-// The caller separately preserves that meter's limit when suppressing gas consumption.
+// checkGaslessWithoutConsumingGas classifies tx without charging its execution meter.
 func (gd GaslessDecorator) checkGaslessWithoutConsumingGas(ctx sdk.Context, tx sdk.Tx) (bool, error) {
 	queryCtx := ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
 	return IsTxGasless(tx, queryCtx, gd.oracleKeeper, gd.evmKeeper)

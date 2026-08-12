@@ -144,8 +144,8 @@ func TestNonGaslessMsg(t *testing.T) {
 	require.False(t, gasless)
 }
 
-func TestGaslessDecoratorPreservesDeclaredLimitWithoutConsumption(t *testing.T) {
-	for _, gasLimit := range []uint64{0, 123_456} {
+func TestGaslessDecoratorUsesFixedReportedLimitWithoutConsumption(t *testing.T) {
+	for _, gasLimit := range []uint64{0, 123_456, 50_000_000} {
 		t.Run(fmt.Sprintf("gas_%d", gasLimit), func(t *testing.T) {
 			k := &testkeeper.EVMTestApp.EvmKeeper
 			ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).
@@ -161,8 +161,77 @@ func TestGaslessDecoratorPreservesDeclaredLimitWithoutConsumption(t *testing.T) 
 				return ctx, nil
 			})
 			require.NoError(t, err)
-			require.Equal(t, tx.Gas, resultCtx.GasMeter().Limit())
+			require.Equal(t, antedecorators.FeeExemptTxGasWanted, resultCtx.GasMeter().Limit())
 			require.Zero(t, resultCtx.GasMeter().GasConsumed())
+			require.Zero(t, resultCtx.GasMeter().GasConsumedToLimit())
+			require.False(t, resultCtx.GasMeter().IsPastLimit())
+			require.False(t, resultCtx.GasMeter().IsOutOfGas())
+			require.NotPanics(t, func() {
+				resultCtx.GasMeter().RefundGas(gasLimit+1, "gasless refund")
+			})
 		})
 	}
+}
+
+func TestGasWantedForTx(t *testing.T) {
+	sender := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	associate := evmtypes.NewMsgAssociate(sender, "test")
+	vote := &oracletypes.MsgAggregateExchangeRateVote{}
+	consent := &oracletypes.MsgDelegateFeedConsent{}
+
+	testCases := []struct {
+		name        string
+		tx          FakeTx
+		declaredGas uint64
+		expectedGas uint64
+	}{
+		{
+			name:        "zero-gas associate uses fixed contribution",
+			tx:          FakeTx{FakeMsgs: []sdk.Msg{associate}},
+			declaredGas: 0,
+			expectedGas: antedecorators.FeeExemptTxGasWanted,
+		},
+		{
+			name:        "high-gas associate uses fixed contribution",
+			tx:          FakeTx{FakeMsgs: []sdk.Msg{associate}},
+			declaredGas: 50_000_000,
+			expectedGas: antedecorators.FeeExemptTxGasWanted,
+		},
+		{
+			name:        "oracle-only transaction uses fixed contribution",
+			tx:          FakeTx{FakeMsgs: []sdk.Msg{vote, vote}},
+			declaredGas: 50_000_000,
+			expectedGas: antedecorators.FeeExemptTxGasWanted,
+		},
+		{
+			name:        "mixed transaction keeps declared contribution",
+			tx:          FakeTx{FakeMsgs: []sdk.Msg{associate, vote}},
+			declaredGas: 50_000_000,
+			expectedGas: 50_000_000,
+		},
+		{
+			name:        "non-exempt oracle message keeps declared contribution",
+			tx:          FakeTx{FakeMsgs: []sdk.Msg{consent}},
+			declaredGas: 50_000_000,
+			expectedGas: 50_000_000,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expectedGas, antedecorators.GasWantedForTx(tc.tx, tc.declaredGas))
+		})
+	}
+}
+
+func TestReportingGasMeterPreservesExecutionLimit(t *testing.T) {
+	meter := antedecorators.NewReportingGasMeter(sdk.NewGasMeter(10, 1, 1), 200_000)
+	require.Equal(t, uint64(200_000), meter.Limit())
+
+	meter.ConsumeGas(10, "execution limit")
+	require.Equal(t, uint64(10), meter.GasConsumed())
+	require.True(t, meter.IsOutOfGas())
+	require.Panics(t, func() {
+		meter.ConsumeGas(1, "past execution limit")
+	})
 }

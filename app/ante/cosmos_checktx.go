@@ -339,10 +339,7 @@ func SetGasMeter(ctx sdk.Context, gasLimit uint64, paramsKeeper paramskeeper.Kee
 	return ctx.WithGasMeter(storetypes.NewMultiplierGasMeter(gasLimit, cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator))
 }
 
-// checkGaslessAndSetGasMeter classifies fee exemption without charging the transaction,
-// then installs a meter that always reports its declared gas limit. Gasless transactions
-// retain zero-consumption execution while CheckTx, recheck, and proposal processing agree
-// on GasWanted independently of state.
+// checkGaslessAndSetGasMeter classifies fee exemption and installs the execution and reporting meters.
 func checkGaslessAndSetGasMeter(
 	ctx sdk.Context,
 	tx GasTx,
@@ -352,11 +349,19 @@ func checkGaslessAndSetGasMeter(
 ) (sdk.Context, bool, error) {
 	queryCtx := ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
 	isGasless, err := antedecorators.IsTxGasless(tx, queryCtx, oracleKeeper, evmKeeper)
+	if err != nil {
+		return ctx, false, err
+	}
+
 	txCtx := SetGasMeter(queryCtx, tx.GetGas(), paramsKeeper)
+	reportedGas := antedecorators.GasWantedForTx(tx, tx.GetGas())
+	if reportedGas != tx.GetGas() {
+		txCtx = txCtx.WithGasMeter(antedecorators.NewReportingGasMeter(txCtx.GasMeter(), reportedGas))
+	}
 	if isGasless {
 		txCtx = txCtx.WithGasMeter(antedecorators.NewNoConsumptionGasMeter(txCtx.GasMeter()))
 	}
-	return txCtx, isGasless, err
+	return txCtx, isGasless, nil
 }
 
 func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper, isGasless bool) (priority int64, err error) {
