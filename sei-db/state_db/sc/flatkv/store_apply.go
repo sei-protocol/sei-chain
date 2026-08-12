@@ -43,16 +43,14 @@ func (s *CommitStore) applyChangeSets(
 	// An empty batch for a block that is already committed is accepted and does nothing.
 	if version > 0 && version == s.committedVersion {
 		if len(changeSets) == 0 {
-			// This hack exists for Cosmos. rootmulti flushes twice per block — once inside
-			// GetWorkingHash and once inside Commit — and the second flush calls this
-			// unconditionally, with nothing in it, still stamped with the same height. RootHash has
-			// committed that block by then, so the call arrives one behind. Carrying actual writes is
-			// a different matter: those would belong to a block that is already sealed, and there is
-			// nowhere to put them.
-			//
-			// Post-Cosmos this goes away with rootmulti and its double flush.
+			// An empty batch would leave the sealed block exactly as it is, so a stale height is
+			// harmless here. No caller produces one today: every writer stamps its batch at the height
+			// after the one the store has committed. This stands as tolerance for a caller that has
+			// lost track of the height, not as a path taken in normal operation.
 			return nil
 		}
+		// Writes are a different matter: they would belong to a block that is already sealed, and there
+		// is nowhere to put them.
 		return fmt.Errorf("flatkv: apply version %d is already committed and this batch has %d changesets",
 			version, len(changeSets))
 	}

@@ -387,10 +387,10 @@ func isZeroTestValue(v []byte) bool {
 
 func pruneZeroStorageViaRoutedGet(t *testing.T, cs *CompositeCommitStore, limit int) (int, int) {
 	t.Helper()
-	// The iterator is closed before the deletes are applied. FlatKV's iterators are a live merge over
-	// each engine's staged rows, so writing to the store while one is open is illegal — collect first,
-	// close, then write. x/evm's real prune already works this way by accident of layering: its deletes
-	// land in the cachekv buffer and only reach FlatKV at end of block, after the iterator is gone.
+	// Collect first, close, then write, which is the shape x/evm's real prune takes by accident of
+	// layering: its deletes land in the cachekv buffer and only reach FlatKV at end of block, after the
+	// iterator is gone. Holding the iterator across the writes would also be legal — it is a fixed view
+	// that later writes cannot disturb — but then this would no longer mirror the path it stands in for.
 	iter, err := cs.Iterator(keys.EVMStoreKey, keys.StateKeyPrefix(), []byte{0x04}, true)
 	require.NoError(t, err)
 

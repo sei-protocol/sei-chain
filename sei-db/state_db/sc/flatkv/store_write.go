@@ -160,6 +160,9 @@ func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) (re
 	defer func() {
 		if retErr != nil {
 			// An error in this function is non-recoverable. Outer scope is responsible for teardown.
+			// The reservations this block took, and the previous block's still in lastSealed, are not
+			// handed back here: they go away when the engines close. A store kept alive past this error
+			// never flushes again, since an unreleased snapshot stalls every later one.
 			return
 		}
 		// The new snapshots are recorded even when the hand-back fails, so teardown can give them back.

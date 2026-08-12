@@ -88,7 +88,6 @@ func setupTestStoreWithConfig(t *testing.T, cfg *config.Config) *CommitStore {
 	return s
 }
 
-// commitAndCheck commits the next sequential version and asserts no error.
 // commitAndCheck commits the next block and waits for it to reach disk.
 //
 // The wait is what keeps the bulk of this suite meaningful: the stores flush asynchronously, so

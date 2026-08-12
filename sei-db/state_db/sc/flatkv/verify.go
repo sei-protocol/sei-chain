@@ -67,12 +67,12 @@ func verifyLtHashInternal(cs *CommitStore) error {
 	return nil
 }
 
-// scanDBByModule full-scans one data DB and returns, per module, the LtHash of
-// its keys and their key-count / byte footprint. Meta keys are skipped. Only
-// rows with a non-empty key and non-empty value are counted — the same
-// membership predicate foldChunk / serializeKV use for LtHash MixIn — so the
-// scan is directly comparable to the maintained per-module metadata. Module
-// membership uses the same physical-key routing the write path uses.
+// scanStoreByModule full-scans one data store and returns, per module, the
+// LtHash of its keys and their key-count / byte footprint. Only rows with a
+// non-empty key and non-empty value are counted — the same membership predicate
+// foldChunk / serializeKV use for LtHash MixIn — so the scan is directly
+// comparable to the maintained per-module metadata. Module membership uses the
+// same physical-key routing the write path uses.
 func scanStoreByModule(
 	store snapshot.SnapshotEngine,
 ) (map[string]*lthash.LtHash, map[string]lthash.ModuleStats, error) {

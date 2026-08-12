@@ -14,6 +14,14 @@ import (
 // A single shard of a SnapshotEngine. The shard owns the MVCC layer: versioned in-memory data
 // awaiting flush, per-version diffs, and version bookkeeping. Reads that miss the versioned data
 // fall through to the shard's read-through DB cache (see readCache).
+//
+// A shard that is out of service refuses reads and writes, reporting the failure that stopped it.
+// Two things put it there:
+//
+//   - The engine was shut down. Only reachable by calling Close concurrently with an operation that
+//     touches a shard, which is illegal.
+//   - The database crashed. Database failures are fatal and are never recovered from, so every shard
+//     goes out of service, not just the one that saw the failure.
 type shard struct {
 	// A lock to protect the shard's data. Shared with the read cache (see the cache field).
 	//

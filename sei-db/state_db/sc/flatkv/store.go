@@ -749,10 +749,10 @@ func (s *CommitStore) loadLocalMeta(dbs rawDBs) error {
 	return nil
 }
 
-// openStores wraps the five already-open PebbleDBs in snapshot engines. It is the last step of
-// opening a store: everything that writes raw pebble — metadata seeding, WAL replay catch-up, state
-// sync import — must run before it, because from here on the stores own the write path and hold
-// unflushed data the DBs do not have.
+// openStores wraps the five already-open PebbleDBs in snapshot engines. It is the last step of opening a
+// store: each database is handed to the store that wraps it, which owns it from then on, and every later
+// access goes through that store. Reaching a database directly after this point is possible only through
+// rawDBFor, whose doc gives the rules for it.
 //
 // On failure every store already constructed is closed, leaving the store store-less rather than
 // half-wired.
@@ -798,8 +798,7 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 		return err
 	}
 
-	metaCfg := s.config.MetadataStoreConfig
-	s.metadataStore, err = open(&metaCfg, dbs.metadata)
+	s.metadataStore, err = open(&s.config.MetadataStoreConfig, dbs.metadata)
 	if err != nil {
 		return err
 	}
