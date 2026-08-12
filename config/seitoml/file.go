@@ -16,7 +16,7 @@ import (
 // SchemaVersion is the schema this binary writes and reads.
 const SchemaVersion = 1
 
-// VersionKey is the key that records which schema a file was written against.
+// VersionKey records which schema the file follows.
 //
 // At the document's top level rather than inside a table, so reading it never depends on knowing
 // the shape of the file it describes.
@@ -25,8 +25,8 @@ const VersionKey = "schema_version"
 // newFileMode is the permission a file created here gets.
 //
 // Narrow rather than the usual 0644, because a configuration may name a private endpoint or an
-// authentication token. An existing file keeps whatever mode it already had, since widening one
-// an operator deliberately narrowed would be worse than the default being wrong.
+// authentication token. An existing file keeps the mode it already has, since widening one an
+// operator deliberately narrowed is worse than a default nobody wanted.
 const newFileMode os.FileMode = 0o600
 
 // File is a parsed sei.toml that survives editing with its comments and layout intact.
@@ -67,9 +67,8 @@ func New() (*File, error) {
 
 // Version returns the schema version the file records.
 //
-// An absent or unparsable version is an error rather than a zero. A migration chain reads this to
-// decide which steps to run, so guessing here would transform a file whose actual shape nobody
-// established.
+// An absent or unparsable version is an error, never a zero. A migration chain reads this to decide
+// which steps to run, so guessing here transforms a file whose shape nobody established.
 func (f *File) Version() (int, error) {
 	e := f.doc.First(VersionKey)
 	if e == nil || e.KeyValue == nil {
@@ -104,9 +103,9 @@ func (f *File) Bytes() ([]byte, error) {
 
 // Save writes the document to path, atomically.
 //
-// The rename is what makes it atomic, and the temporary file sits in the destination's own
-// directory so the rename stays within one filesystem. A crash at any point leaves either the
-// previous file or the new one, never a truncated file a node cannot parse.
+// The rename makes it atomic, and the temporary file sits in the destination's own directory so the
+// rename stays within one filesystem. A crash at any point leaves either the previous file or the
+// new one, never a truncated file a node cannot parse.
 func (f *File) Save(path string) error {
 	raw, err := f.Bytes()
 	if err != nil {
@@ -142,8 +141,8 @@ func (f *File) Save(path string) error {
 
 // writeAndSync writes the whole payload, sets the mode, and flushes to the device.
 //
-// The sync is what makes the rename meaningful: without it the rename can land before the
-// contents, leaving a file whose name is new and whose bytes are absent.
+// The sync makes the rename meaningful: without it the rename can land before the contents, leaving
+// a file whose name is new and whose bytes are absent.
 func writeAndSync(tmp *os.File, raw []byte, mode os.FileMode) error {
 	defer func() { _ = tmp.Close() }()
 

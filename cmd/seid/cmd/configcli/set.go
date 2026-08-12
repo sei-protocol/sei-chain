@@ -21,7 +21,7 @@ type Change struct {
 	From any
 	// Had reports whether the file already wrote this key.
 	Had bool
-	// To is the value now written. Absent for unset.
+	// To is the value the file holds afterwards. Absent for unset.
 	To any
 	// Removed reports whether the key was taken out of the file.
 	Removed bool
@@ -34,8 +34,8 @@ type Change struct {
 // the file would parse, the value would look right to a reader, and the node would reject it at the
 // next boot.
 //
-// A key no section declares is refused. Writing one would put a value in the file that doctor then
-// refuses, so the tool would produce a file it will not accept.
+// This refuses a key no section declares. Writing one puts a value in the file that doctor then
+// rejects, so the tool would produce a file it will not accept.
 func Set(path, key, raw string) (Change, error) {
 	key = strings.ToLower(key)
 	if err := writableKey(key); err != nil {
@@ -103,11 +103,10 @@ func Unset(path, key string) (Change, error) {
 
 // writableKey refuses the keys these verbs must not touch.
 //
-// The experimental table is written by an operator and never by seid. A section the binary created
-// would read as a value someone chose, and this is the same reason a freshly generated home does not
-// carry the table either. The schema version is refused because it records what the file is rather
-// than configuring anything, and setting it by hand would make the file claim a shape its contents
-// do not have.
+// An operator writes the experimental table, never seid. A section the binary created reads as a
+// value someone chose, which is also why a freshly generated home carries no such table. The schema
+// version goes the same way: it records what the file is rather than configuring anything, and
+// setting it by hand makes the file claim a shape its contents do not have.
 func writableKey(key string) error {
 	if key == seitoml.VersionKey {
 		return fmt.Errorf("%s records which schema the file was written against, so it is not a "+
@@ -193,9 +192,9 @@ func declaredTypes() (map[string]reflect.Type, error) {
 
 // convert reads an operator's text as the type a key declares.
 //
-// Enumerated per type rather than delegated to a permissive caster, so text that is not the
-// declared type is refused here instead of being coerced into a value nobody asked for. The legacy
-// path reads a blank as zero and a bare number as nanoseconds, and this is where that stops.
+// One case per type rather than a permissive caster, so this refuses text that is not the declared
+// type instead of coercing it into a value nobody asked for. The path a node reads today takes a
+// blank as zero and a bare number as nanoseconds, and this is where that stops.
 func convert(raw string, want reflect.Type) (any, error) {
 	if want == nil {
 		return nil, fmt.Errorf("the key has no declared type")

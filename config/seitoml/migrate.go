@@ -7,12 +7,11 @@ import (
 
 // Migration transforms a file from one schema version to the next.
 //
-// A migration that has shipped never changes. Every node that runs it must transform its
-// configuration the same way, because a migration that behaved differently in a later release
-// would leave two nodes with files that agree on their version and disagree on their contents.
-// Fixture is what makes that enforceable rather than a request: it is recorded alongside the
-// result of applying this migration to it, so editing Apply moves a recorded file and a reviewer
-// sees exactly which shipped migration changed.
+// A migration that has shipped never changes. Every node running it transforms its configuration the
+// same way, because a migration behaving differently in a later release leaves two nodes with files
+// that agree on their version and disagree on their contents. Fixture makes that enforceable rather
+// than a request: a record holds the result of applying this migration to it, so editing Apply moves
+// that record and a reviewer sees exactly which shipped migration changed.
 type Migration struct {
 	// To is the schema version this produces. It is always one more than the version it accepts.
 	To int
@@ -20,8 +19,8 @@ type Migration struct {
 	Summary string
 	// Fixture is a file at version To-1 that exercises what this migration changes.
 	Fixture string
-	// Apply performs the transformation. It must not write the schema version; the caller does
-	// that, so a migration cannot leave the file claiming a version its contents do not match.
+	// Apply performs the transformation. It never writes the schema version; the caller does, so no
+	// migration can leave the file claiming a version its contents do not match.
 	Apply func(*File) error
 }
 
@@ -35,11 +34,10 @@ type Step struct {
 	Changed []string
 }
 
-// migrations is the frozen chain, in ascending order, appended to and never edited.
+// migrations is the frozen chain, in ascending order. Entries are appended, never edited.
 //
-// Empty because the schema is at its first version and nothing has needed transforming yet. The
-// first entry added here must produce version 2 and must raise SchemaVersion in the same change,
-// which a test enforces.
+// Empty because the schema sits at its first version and nothing needs transforming yet. The first
+// entry here produces version 2 and raises SchemaVersion in the same change, which a test enforces.
 var migrations []Migration
 
 // Migrations returns the frozen chain.
@@ -52,11 +50,11 @@ func Migrations() []Migration {
 // Upgrade runs every migration the file at path still needs.
 //
 // One write per step, each atomic, so the file on disk only ever holds a version some migration
-// produced. A crash part way through leaves a file at an earlier valid version that the next run
+// produces. A crash part way through leaves a file at an earlier valid version that the next run
 // carries forward, rather than one whose contents belong to no version at all.
 //
-// With dryRun set nothing is written and the returned steps are exactly what a real run would do,
-// which is what makes a preview worth trusting.
+// With dryRun set this writes nothing and returns exactly the steps a real run performs, which is
+// what makes a preview worth trusting.
 func Upgrade(path string, chain []Migration, dryRun bool) ([]Step, error) {
 	if err := ValidateChain(chain); err != nil {
 		return nil, err
@@ -92,7 +90,7 @@ func Upgrade(path string, chain []Migration, dryRun bool) ([]Step, error) {
 
 // apply runs one migration and records which keys it moved.
 //
-// The version is written here rather than inside Apply, so a migration cannot leave the file
+// This writes the version rather than letting Apply do it, so no migration can leave the file
 // claiming a version its contents do not match.
 func apply(file *File, m Migration) (Step, error) {
 	before, err := file.Values()
@@ -156,9 +154,9 @@ func sameValue(a, b any) bool {
 
 // Pending returns the migrations a file at version from still needs.
 //
-// A file already current needs none. A file from a newer binary is refused rather than reported
-// current: its keys were written against a schema this binary does not know, so treating it as
-// finished would boot a node against a file it cannot fully read while reporting success.
+// A file already current needs none. This refuses a file from a newer binary rather than calling it
+// current: its keys follow a schema this binary does not know, so treating it as finished boots a
+// node against a file it cannot fully read while reporting success.
 func Pending(from int, chain []Migration) ([]Migration, error) {
 	current := currentVersion(chain)
 	switch {
@@ -179,11 +177,11 @@ func Pending(from int, chain []Migration) ([]Migration, error) {
 	return pending, nil
 }
 
-// ValidateChain refuses a chain that could not have been produced by appending to it.
+// ValidateChain refuses any chain that appending to it could not produce.
 //
-// Every migration raises the version by exactly one, starting at 2. A gap would leave a file at a
-// version nothing can move forward, and a repeat would mean two migrations claim to produce the
-// same version so the order between them decides the result.
+// Every migration raises the version by exactly one, starting at 2. A gap leaves a file at a version
+// nothing can move forward, and a repeat means two migrations claim the same version, so the order
+// between them decides the result.
 func ValidateChain(chain []Migration) error {
 	for i, m := range chain {
 		want := i + 2

@@ -49,17 +49,17 @@ type Rejection struct {
 
 // Adopt builds a sei.toml from a node's existing configuration.
 //
-// The existing values are what the file is built from, not the binary's baselines, so a node that
-// has been running keeps what it was running rather than being silently moved onto defaults. That is
-// the whole difference between adopting and generating.
+// This builds the file from the node's existing values rather than the binary's baselines, so a node
+// already running keeps what it runs instead of moving onto defaults unannounced. That is the whole
+// difference between adopting and generating.
 //
-// Environment variables are reported and never folded into the file. They sit above the file in the
-// resolution order, so writing one in would change nothing while it is still set and would silently
-// change the node's behaviour the day somebody unsets it.
+// This reports environment variables and never folds them into the file. They sit above the file in
+// the resolution order, so writing one in changes nothing while it is set and changes the node's
+// behaviour, unannounced, the day somebody unsets it.
 //
-// A value that cannot be read as its declared type keeps the baseline and is reported. Writing it
-// anyway would produce a file the node refuses at its next boot, and quietly dropping it would move
-// the node onto a default nobody chose.
+// A value this cannot read as its declared type keeps the baseline, and the result names it. Writing
+// it anyway produces a file the node refuses at its next boot, and dropping it quietly moves the node
+// onto a default nobody chose.
 func Adopt(existing Source, lookupEnv func(string) (string, bool), mode registry.Mode) (Adoption, error) {
 	if existing == nil {
 		return Adoption{}, fmt.Errorf("no existing configuration to adopt from")
@@ -106,8 +106,8 @@ func adoptedValue(
 	baseline any,
 	out *Adoption,
 ) any {
-	// The environment is recorded first and separately, because a variable is set whether or not the
-	// existing files also carry the key, and it is the one that wins today.
+	// The environment comes first and stays separate: a variable is either set or not regardless of
+	// what the existing files carry, and it is the one that wins today.
 	if lookupEnv != nil {
 		if _, set := lookupEnv(registry.EnvName(key)); set {
 			out.Environment = append(out.Environment, key)
@@ -161,7 +161,7 @@ func coerce(raw any, want reflect.Type) (any, error) {
 	if want == nil {
 		return nil, fmt.Errorf("the key has no declared type")
 	}
-	// A value already of the declared type is taken as it stands.
+	// A value already of the declared type passes straight through.
 	if reflect.TypeOf(raw) == want {
 		return raw, nil
 	}

@@ -38,8 +38,8 @@ type Comparison struct {
 // file every key is written, so nothing differs and nothing tracks, and that is itself the useful
 // answer: the node is pinned to the values it was generated with.
 //
-// A written value that equals its baseline is still a written value. It is reported as agreeing
-// rather than as tracking, because the two behave differently the moment a release changes that
+// A written value that equals its baseline is still a written value. This reports it as agreeing
+// rather than tracking, because the two behave differently the moment a release changes that
 // baseline.
 func Diff(file *seitoml.File, mode registry.Mode) (Comparison, error) {
 	if err := knownMode(mode); err != nil {
@@ -110,9 +110,9 @@ func sameValue(written, baseline any) bool {
 
 // sameNumber compares two whole numbers, and reports whether both were whole numbers at all.
 //
-// Signed and unsigned are kept apart rather than both cast to one type. A file yields int64 for
-// every whole number while a struct field may be an unsigned type, and casting an unsigned value
-// above the signed maximum wraps it negative, so two different values would compare equal.
+// This keeps signed and unsigned apart rather than casting both to one type. A file yields int64 for
+// every whole number while a struct field may be unsigned, and casting an unsigned value above the
+// signed maximum wraps it negative, so two different values compare equal.
 func sameNumber(a, b any) (equal, bothNumbers bool) {
 	ai, aSigned := asInt64(a)
 	au, aUnsigned := asUint64(a)

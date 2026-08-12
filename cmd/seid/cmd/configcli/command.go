@@ -22,8 +22,8 @@ const flagMode = "mode"
 // defaults.
 //
 // A flag on generate rather than a verb of its own, because both produce the file a node starts
-// from and the only difference is where the values come from. The behaviour is in Adopt, so moving
-// this to its own verb later changes only how it is reached.
+// from and only the source of the values differs. Adopt holds the behaviour, so moving this to its
+// own verb later changes only how it is reached.
 const flagFromLegacy = "from-legacy"
 
 // Path is where a node's sei.toml lives, given its home directory.
@@ -34,17 +34,16 @@ func Path(home string) string {
 	return filepath.Join(home, "config", FileName)
 }
 
-// Verbs are the sei.toml commands, to be mounted under the existing config command.
+// Verbs are the sei.toml commands that live under the existing config command.
 //
-// Returned as a slice rather than as their own parent, so they join the command an operator already
-// uses for configuration instead of standing beside it. Cobra resolves a subcommand before it treats
+// A slice rather than their own parent, so they join the command an operator already uses for
+// configuration instead of standing beside it. Cobra resolves a subcommand before it treats
 // an argument as positional, so config generate reaches the verb here while config chain-id still
 // falls through to the client configuration it has always meant.
 //
-// None of these declares --home. The root command carries it as a persistent flag, so a local one
-// of the same name would shadow it and every verb would read its own default while quietly ignoring
-// the --home the operator passed. defaultHome is only the fallback for a tree that has no such flag
-// at all.
+// None of these declares --home. The root command carries it as a persistent flag, and a local one
+// of the same name shadows it, leaving every verb to read its own default while ignoring the --home
+// the operator passed. defaultHome serves only as the fallback for a tree carrying no such flag.
 func Verbs(defaultHome string) []*cobra.Command {
 	return []*cobra.Command{
 		generateCmd(defaultHome),
@@ -57,10 +56,10 @@ func Verbs(defaultHome string) []*cobra.Command {
 	}
 }
 
-// VerbNames are the names Verbs occupies under the config command.
+// VerbNames lists the names Verbs occupies under the config command.
 //
 // Exported so a test can hold them against the keys the client configuration answers to. A verb
-// sharing a name with one of those keys would take over a command operators already use.
+// sharing a name with one of those keys takes over a command operators already use.
 func VerbNames(defaultHome string) []string {
 	verbs := Verbs(defaultHome)
 	out := make([]string, 0, len(verbs))
@@ -85,39 +84,21 @@ func generateCmd(defaultHome string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			home, err := homeDir(cmd, defaultHome)
-			if err != nil {
+			if err := refuseUnlessForced(cmd, path); err != nil {
 				return err
 			}
-			force, err := cmd.Flags().GetBool("force")
-			if err != nil {
-				return err
-			}
-			if !force {
-				if _, err := seitoml.Load(path); err == nil {
-					return fmt.Errorf("%s already exists. Generating would replace every value in it, "+
-						"including any you set. Pass --force to do that, or use diff to see what it "+
-						"holds first", path)
-				}
-			}
-
 			fromLegacy, err := cmd.Flags().GetBool(flagFromLegacy)
 			if err != nil {
 				return err
 			}
 			if fromLegacy {
+				home, err := homeDir(cmd, defaultHome)
+				if err != nil {
+					return err
+				}
 				return adoptInto(cmd, path, home, mode)
 			}
-
-			file, err := Generate(mode)
-			if err != nil {
-				return err
-			}
-			if err := file.Save(path); err != nil {
-				return err
-			}
-			cmd.Printf("Wrote %s for %q mode.\n", path, mode)
-			return nil
+			return writeDefaults(cmd, path, mode)
 		},
 	}
 	cmd.Flags().String(flagMode, string(registry.ModeFull), modeUsage())
@@ -125,6 +106,38 @@ func generateCmd(defaultHome string) *cobra.Command {
 	cmd.Flags().Bool(flagFromLegacy, false,
 		"Build the file from this node's existing app.toml and config.toml instead of from defaults")
 	return cmd
+}
+
+// refuseUnlessForced stops generate from replacing a file somebody already has.
+//
+// Generating over a file discards every value in it, including the ones an operator set, and those
+// exist nowhere else. --force is how they say to do it anyway.
+func refuseUnlessForced(cmd *cobra.Command, path string) error {
+	force, err := cmd.Flags().GetBool("force")
+	if err != nil {
+		return err
+	}
+	if force {
+		return nil
+	}
+	if _, err := seitoml.Load(path); err != nil {
+		return nil // no readable file there, so there is nothing to lose
+	}
+	return fmt.Errorf("%s already exists. Generating would replace every value in it, including any "+
+		"you set. Pass --force to do that, or use diff to see what it holds first", path)
+}
+
+// writeDefaults builds the file from this binary's defaults and reports where it landed.
+func writeDefaults(cmd *cobra.Command, path string, mode registry.Mode) error {
+	file, err := Generate(mode)
+	if err != nil {
+		return err
+	}
+	if err := file.Save(path); err != nil {
+		return err
+	}
+	cmd.Printf("Wrote %s for %q mode.\n", path, mode)
+	return nil
 }
 
 // showCmd prints the file as it stands.

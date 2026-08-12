@@ -12,8 +12,8 @@ import (
 
 // Values returns every key the file writes, as dotted paths to Go values.
 //
-// The schema version is left out. It describes the file rather than configuring the node, so a
-// reader that checked written keys against the declared set would otherwise report it as a key no
+// This leaves out the schema version. It describes the file rather than configuring the node, so a
+// reader checking written keys against the declared set would otherwise report it as a key no
 // section owns.
 func (f *File) Values() (map[string]any, error) {
 	out := map[string]any{}
@@ -87,8 +87,8 @@ func flatten(prefix string, m map[string]any) map[string]any {
 //
 // Integers arrive as int64 and floats as float64, matching what a TOML decoder produces, so a
 // comparison against a baseline does not have to know which parser read the file. A date or time
-// is returned as its text: nothing configures a node with one, and returning the text keeps such a
-// key visible to a check rather than dropping it.
+// comes back as its text: nothing configures a node with one, and the text keeps such a key visible
+// to a check rather than dropping it.
 func goValue(v parser.Value) (any, error) {
 	switch d := v.X.(type) {
 	case parser.Token:
@@ -135,10 +135,10 @@ func tokenValue(t parser.Token) (any, error) {
 	}
 }
 
-// unquote strips the quoting a string literal was written with.
+// unquote strips a string literal's quoting.
 //
-// A basic string carries escapes and needs them decoded; a literal string is taken as written,
-// which is the whole reason TOML has both. Getting this backwards would turn a Windows path's
+// A basic string carries escapes and needs them decoded; a literal string reads exactly as written,
+// which is the whole reason TOML has both. Getting this backwards turns a Windows path's
 // backslashes into control characters.
 func unquote(kind scanner.Token, text string) (string, error) {
 	switch kind {

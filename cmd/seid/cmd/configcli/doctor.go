@@ -29,8 +29,8 @@ func (d Diagnosis) Healthy() bool { return len(d.Unrecognized) == 0 }
 
 // Doctor checks every written key against what this binary declares.
 //
-// The two namespaces are treated differently on purpose, and that asymmetry is the reason the
-// experimental namespace is worth having. A written stable key the binary does not recognize is a
+// This treats the two namespaces differently, and that asymmetry is why the experimental namespace
+// is worth having. A written stable key the binary does not recognize is a
 // broken promise: the operator wrote a setting believing it would take effect, and it will not, so
 // this refuses. An experimental key is offered with no such promise, so it warns and the node
 // boots.

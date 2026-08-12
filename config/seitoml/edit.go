@@ -13,9 +13,9 @@ import (
 
 // Set writes one key's value, replacing it in place when the key is already present.
 //
-// Replacing the value on the existing line is what preserves the comment an operator wrote above
-// or beside the key. Rewriting the file from a decoded map would drop every comment in it, and the
-// operator would have no way to recover the reasoning they had recorded.
+// Replacing the value on the existing line preserves the comment an operator wrote above or beside
+// the key. Rewriting the file from a decoded map drops every comment in it, leaving the operator no
+// way to recover the reasoning they recorded.
 func (f *File) Set(key string, v any) error {
 	path, err := keyOf(key)
 	if err != nil {
@@ -73,9 +73,9 @@ func (f *File) insertGlobal(kv *parser.KeyValue) error {
 
 // SetPreamble puts a comment block at the top of the document, above everything else.
 //
-// Written as comments rather than as keys, so nothing a reader needs to understand the file
-// becomes configuration surface the node has to recognize. Replaces any block this put there
-// before, so regenerating does not stack one preamble on the last.
+// Comments rather than keys, so nothing a reader needs in order to understand the file becomes
+// configuration the node has to recognize. This replaces any block it put there before, so
+// regenerating does not stack one preamble on the last.
 func (f *File) SetPreamble(lines []string) {
 	if f.doc.Global == nil {
 		f.doc.Global = &tomledit.Section{}
@@ -95,9 +95,9 @@ func (f *File) SetPreamble(lines []string) {
 
 // Unset removes a key and reports whether the file carried one.
 //
-// Removing rather than writing a zero, because an absent key resolves to the running binary's
-// baseline. A key set to its baseline value looks identical in the file but is a commitment that
-// survives a release changing that baseline, which is the opposite of what unset means.
+// This removes the key rather than writing a zero, because an absent key resolves to the running
+// binary's baseline. A key set to its baseline value looks identical in the file but is a commitment
+// that survives a release changing that baseline, which is the opposite of what unset means.
 func (f *File) Unset(key string) (bool, error) {
 	path, err := keyOf(key)
 	if err != nil {
@@ -112,9 +112,9 @@ func (f *File) Unset(key string) (bool, error) {
 
 // tomlValue renders a Go value as the TOML literal that parses back to it.
 //
-// Enumerated per type rather than delegated to a formatter, so an unsupported type is an error
-// here instead of a plausible-looking line in an operator's file. A duration is written as its
-// string form, since a bare number of nanoseconds is unreadable and reads back as an integer.
+// One case per type rather than a general formatter, so an unsupported type errors here instead of
+// becoming a plausible-looking line in an operator's file. A duration goes in as its string form,
+// since a bare number of nanoseconds is unreadable and reads back as an integer.
 func tomlValue(v any) (parser.Value, error) {
 	switch x := v.(type) {
 	case bool:
