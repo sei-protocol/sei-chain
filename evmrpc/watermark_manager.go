@@ -179,7 +179,8 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 func (m *WatermarkManager) EnsureReceiptHeightAvailable(height int64) error {
 	earliest := m.receiptStore.EarliestVersion()
 	if height < earliest {
-		return fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d", height, earliest)
+		return fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d: %w",
+			height, earliest, receipt.ErrReceiptPruned)
 	}
 	return nil
 }

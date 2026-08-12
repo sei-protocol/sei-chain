@@ -122,8 +122,12 @@ func TestEnsureReceiptHeightAvailable(t *testing.T) {
 	t.Run("pruned receipt height returns error", func(t *testing.T) {
 		rs := &fakeReceiptStore{latest: 200, earliest: 150}
 		wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(200), nil, rs)
-		require.ErrorContains(t, wm.EnsureReceiptHeightAvailable(100), "receipts have been pruned")
-		require.ErrorContains(t, wm.EnsureReceiptHeightAvailable(149), "receipts have been pruned")
+		err := wm.EnsureReceiptHeightAvailable(100)
+		require.ErrorContains(t, err, "receipts have been pruned")
+		require.ErrorIs(t, err, receipt.ErrReceiptPruned)
+		err = wm.EnsureReceiptHeightAvailable(149)
+		require.ErrorContains(t, err, "receipts have been pruned")
+		require.ErrorIs(t, err, receipt.ErrReceiptPruned)
 	})
 
 	t.Run("height within receipt retention succeeds", func(t *testing.T) {
