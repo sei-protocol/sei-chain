@@ -403,3 +403,216 @@ func TestGate8TheDeadFieldIsNotReachableUnderTheLiveKey(t *testing.T) {
 			"one would bind an operator's value to the field nothing reads while looking correct")
 	}
 }
+
+// ---------------------------------------------------------------------------------------
+// Gate 3: resolution runs in the declared order.
+// ---------------------------------------------------------------------------------------
+
+// TestGate3ResolutionRunsInTheDeclaredOrder is the gate, and shuffling is what makes it falsifiable.
+//
+// If precedence comes from Precedence, the order layers are passed in cannot matter. If it comes
+// from argument order or from a merge where the last writer wins, this fails. The legacy path fails
+// it by construction: its answer depends on which viper instance a caller asked, which is why two
+// different orders are observable across its key set.
+func TestGate3ResolutionRunsInTheDeclaredOrder(t *testing.T) {
+	registerGiga(t)
+
+	file := registry.FileLayer(map[string]any{"giga_executor.occ_enabled": "file"})
+	env := registry.Layer{Source: "env", Values: map[string]any{"giga_executor.occ_enabled": "env"}}
+	flag := registry.Layer{Source: "flag", Values: map[string]any{"giga_executor.occ_enabled": "flag"}}
+
+	// Every ordering of the same three layers.
+	for _, order := range [][]registry.Layer{
+		{file, env, flag}, {flag, env, file}, {env, flag, file}, {flag, file, env},
+	} {
+		got, err := registry.Resolve(registry.ModeValidator, order...)
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		res, ok := got.From("giga_executor.occ_enabled")
+		if !ok {
+			t.Fatal("the key did not resolve at all")
+		}
+		if res.Value != "flag" || res.From != "flag" {
+			var names []string
+			for _, l := range order {
+				names = append(names, l.Source)
+			}
+			t.Errorf("passed in the order %v the key resolved to %#v from %q, want flag from flag. "+
+				"Precedence is %v, and a resolver whose answer depends on argument order has an "+
+				"emergent precedence rather than a declared one",
+				names, res.Value, res.From, registry.Precedence)
+		}
+	}
+}
+
+// TestGate3EachLayerWinsOverTheOneBelowIt walks the order one step at a time.
+//
+// The gate above only proves the top layer wins. This proves the ordering is the declared one at
+// every step, so a resolver that happened to prefer "flag" for an unrelated reason would still fail.
+func TestGate3EachLayerWinsOverTheOneBelowIt(t *testing.T) {
+	const key = "giga_executor.occ_enabled"
+
+	for _, tc := range []struct {
+		name   string
+		layers []registry.Layer
+		want   string
+	}{
+		{"baseline alone", nil, "default"},
+		{"file over baseline", []registry.Layer{
+			{Source: "file", Values: map[string]any{key: "file"}}}, "file"},
+		{"env over file", []registry.Layer{
+			{Source: "file", Values: map[string]any{key: "file"}},
+			{Source: "env", Values: map[string]any{key: "env"}}}, "env"},
+		{"flag over env", []registry.Layer{
+			{Source: "env", Values: map[string]any{key: "env"}},
+			{Source: "flag", Values: map[string]any{key: "flag"}}}, "flag"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registerGiga(t)
+
+			got, err := registry.Resolve(registry.ModeValidator, tc.layers...)
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			res, _ := got.From(key)
+			if res.From != tc.want {
+				t.Errorf("%s resolved from %q, want %q. Precedence is %v",
+					tc.name, res.From, tc.want, registry.Precedence)
+			}
+		})
+	}
+}
+
+// TestGate3AnAbsentKeyTracksItsModeBaseline is why the baseline is a layer rather than a fallback.
+//
+// A key no layer mentions still resolves, to the baseline for the running mode. That is what makes
+// an absent key track the binary's judgement rather than a zero value, and it is the property the
+// design states as "defaults are baselines, not state".
+func TestGate3AnAbsentKeyTracksItsModeBaseline(t *testing.T) {
+	registerGiga(t)
+
+	archive, err := registry.Resolve(registry.ModeArchive)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	validator, err := registry.Resolve(registry.ModeValidator)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	a, _ := archive.From("giga_executor.occ_enabled")
+	v, _ := validator.From("giga_executor.occ_enabled")
+	if a.From != "default" || v.From != "default" {
+		t.Fatalf("an unmentioned key resolved from %q and %q, want default from both", a.From, v.From)
+	}
+	if a.Value == v.Value {
+		t.Errorf("both modes resolved the same value %#v for a key whose baseline varies by mode, so "+
+			"the mode is not reaching the baseline", a.Value)
+	}
+	if a.Value != false || v.Value != true {
+		t.Errorf("archive=%#v validator=%#v, want false and true from this section's baseline", a.Value, v.Value)
+	}
+}
+
+// TestGate3ProvenanceIsRecoverable is the property the legacy path cannot offer at all.
+//
+// Its layers combine inside one viper before anything observes them, so no value's source is
+// recoverable and it can never tell an operator which one won. Overrides is what a diff renders: the
+// keys an operator has taken responsibility for, as distinct from those tracking the binary.
+func TestGate3ProvenanceIsRecoverable(t *testing.T) {
+	registerGiga(t)
+
+	got, err := registry.Resolve(registry.ModeValidator,
+		registry.Layer{Source: "env", Values: map[string]any{"giga_executor.occ_enabled": "env"}})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	overrides := got.Overrides()
+	if len(overrides) != 1 || overrides[0] != "giga_executor.occ_enabled" {
+		t.Errorf("Overrides returned %v, want the one key a layer supplied. A resolver that cannot "+
+			"separate a written value from a baseline cannot tell an operator what they changed", overrides)
+	}
+	if res, _ := got.From("giga_executor.enabled"); res.From != "default" {
+		t.Errorf("the untouched key reports From=%q, so every key would render as an override", res.From)
+	}
+}
+
+// TestGate3AKeyNoSectionDeclaresIsReportedNotDropped holds the unknown-key path.
+//
+// Silently dropping one is how an operator's typo becomes invisible. Reported rather than an error,
+// because what to do about it differs: a generate path may refuse, while a boot on an operator's
+// existing file must not.
+func TestGate3AKeyNoSectionDeclaresIsReportedNotDropped(t *testing.T) {
+	registerGiga(t)
+
+	got, err := registry.Resolve(registry.ModeValidator,
+		registry.Layer{Source: "file", Values: map[string]any{
+			"giga_executor.occ_enabled": true,
+			"giga_executor.typo":        1,
+		}})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if len(got.Unknown) != 1 || got.Unknown[0] != "giga_executor.typo" {
+		t.Errorf("Unknown = %v, want the one undeclared key. Dropped silently, an operator's typo is "+
+			"invisible and their intended value never applies", got.Unknown)
+	}
+	if _, ok := got.From("giga_executor.typo"); ok {
+		t.Error("the undeclared key resolved anyway, so it would reach a consumer that cannot use it")
+	}
+}
+
+// TestGate3ALayerWithNoDeclaredPriorityIsAnError is the other half of "declared".
+//
+// A layer whose source is absent from Precedence has no defined priority. Ignoring it silently is
+// worse than refusing: nothing downstream could tell the layer had contributed nothing.
+func TestGate3ALayerWithNoDeclaredPriorityIsAnError(t *testing.T) {
+	registerGiga(t)
+
+	for _, tc := range []struct{ name, source string }{
+		{"unknown source", "cli-somewhere"},
+		{"the reserved baseline", "default"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := registry.Resolve(registry.ModeValidator,
+				registry.Layer{Source: tc.source, Values: map[string]any{"giga_executor.enabled": true}})
+			if err == nil {
+				t.Errorf("a layer named %q was accepted; it has no defined priority, so it would either "+
+					"be dropped silently or resolved at a priority the resolver invented", tc.source)
+			}
+		})
+	}
+}
+
+// TestGate3EnvLayerIsDrivenByTheDeclaredSet holds the direction that makes it complete.
+//
+// An environment cannot be enumerated for a prefix: a variable is findable only if its name is
+// already known. Asking for every declared key's canonical spelling is therefore the only way to
+// build a complete env layer, and it is why the derivation lives beside the registry.
+func TestGate3EnvLayerIsDrivenByTheDeclaredSet(t *testing.T) {
+	registerGiga(t)
+	set := map[string]string{
+		registry.EnvName("giga_executor.occ_enabled"): "false",
+		"SEID_SOMETHING_UNDECLARED":                   "1",
+	}
+
+	l := registry.EnvLayer(func(name string) (string, bool) {
+		v, ok := set[name]
+		return v, ok
+	})
+
+	if l.Source != "env" {
+		t.Errorf("EnvLayer names source %q, want env", l.Source)
+	}
+	if len(l.Values) != 1 {
+		t.Errorf("EnvLayer collected %v, want only the declared key. A layer built by scanning the "+
+			"environment would pick up the undeclared variable and report it as an unknown key that "+
+			"no operator wrote in a file", l.Values)
+	}
+	if l.Values["giga_executor.occ_enabled"] != "false" {
+		t.Errorf("the declared key resolved to %#v, want false", l.Values["giga_executor.occ_enabled"])
+	}
+}
