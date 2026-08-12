@@ -154,9 +154,9 @@ func TestPerModuleLtHashPersistenceAfterReopen(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
-	s1, err := NewCommitStore(t.Context(), cfg)
+	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 5; i++ {
@@ -175,9 +175,9 @@ func TestPerModuleLtHashPersistenceAfterReopen(t *testing.T) {
 
 	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = dbDir
-	s2, err := NewCommitStore(t.Context(), cfg2)
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 
@@ -246,9 +246,9 @@ func TestPerModuleLtHashAfterImport(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
-	s, err := NewCommitStore(t.Context(), cfg)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s.LoadVersion(0, false)
+	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	imp, err := s.Importer(1)
@@ -288,9 +288,9 @@ func TestPerModuleLtHashStateSyncImportSurvivesRestart(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
-	s1, err := NewCommitStore(t.Context(), cfg)
+	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	_, err = s1.LoadVersion(0, false)
+	err = s1.LoadLatest()
 	require.NoError(t, err)
 
 	imp, err := s1.Importer(7)
@@ -325,9 +325,9 @@ func TestPerModuleLtHashStateSyncImportSurvivesRestart(t *testing.T) {
 	// snapshot written by the import.
 	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = dbDir
-	s2, err := NewCommitStore(t.Context(), cfg2)
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
-	_, err = s2.LoadVersion(0, false)
+	err = s2.LoadLatest()
 	require.NoError(t, err)
 	defer s2.Close()
 

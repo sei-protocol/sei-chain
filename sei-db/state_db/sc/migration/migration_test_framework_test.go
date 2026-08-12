@@ -622,13 +622,17 @@ func NewTestFlatKVCommitStore(t *testing.T, dir string) *flatkv.CommitStore {
 	t.Helper()
 	cfg := flatkvconfig.DefaultTestConfig(t)
 	cfg.DataDir = dir
-	s, err := flatkv.NewCommitStore(t.Context(), cfg)
+	stateWAL, err := flatkv.OpenStateWAL(cfg)
+	if err != nil {
+		t.Fatalf("NewTestFlatKVCommitStore: OpenStateWAL: %v", err)
+	}
+	s, err := flatkv.NewCommitStore(t.Context(), cfg, stateWAL)
 	if err != nil {
 		t.Fatalf("NewTestFlatKVCommitStore: NewCommitStore: %v", err)
 	}
 	// LoadVersion(0, ...) loads the latest committed version on disk, or
 	// initialises the store at version 0 if the directory is empty.
-	if _, err := s.LoadVersion(0, false); err != nil {
+	if err := s.LoadLatest(); err != nil {
 		t.Fatalf("NewTestFlatKVCommitStore: LoadVersion: %v", err)
 	}
 	t.Cleanup(func() {

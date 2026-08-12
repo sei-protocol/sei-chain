@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -33,6 +34,40 @@ func makeAppVotes(keys []types.SecretKey, proposal *types.AppProposal) []*types.
 		votes = append(votes, types.Sign(k, vote))
 	}
 	return votes
+}
+
+func TestSubscribeAppVotesJumpsToDataFloor(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	qc, blocks := data.TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+	gr := qc.QC().GlobalRange()
+	require.Greater(t, gr.Len(), uint64(2))
+
+	db := memblock.NewBlockDB()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	require.NoError(t, db.WriteQC(qc))
+	for i, n := 0, gr.First; n < gr.Next; i, n = i+1, n+1 {
+		require.NoError(t, db.WriteBlock(n, blocks[i]))
+	}
+	require.NoError(t, db.Flush())
+
+	first := gr.First + types.GlobalBlockNumber(gr.Len()/2)
+	ds, err := data.NewState(&data.Config{
+		Registry:          registry,
+		LastExecutedBlock: utils.Some(first),
+	}, db)
+	require.NoError(t, err)
+	appHash := types.GenAppHash(rng)
+	require.NoError(t, ds.PushAppHash(t.Context(), first, appHash))
+
+	state, err := NewState(keys[0], ds, utils.None[string]())
+	require.NoError(t, err)
+	recv := state.SubscribeAppVotes()
+	require.Equal(t, types.GlobalBlockNumber(0), recv.next)
+
+	vote, err := recv.Recv(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, first, vote.Msg().Proposal().GlobalNumber())
 }
 
 func makeLaneVotes(keys []types.SecretKey, h *types.BlockHeader) []*types.Signed[*types.LaneVote] {
@@ -221,6 +256,9 @@ func TestStateRestartFromPersisted(t *testing.T) {
 	// Phase 1: Run state with persistence through 2 iterations.
 	var wantAppQCIdx types.RoadIndex
 	var wantNextBlocks map[types.LaneID]types.BlockNumber
+	// Hoisted so phase 1's WALs can be closed after its goroutines have stopped: the lane and
+	// commitQC WALs hold an exclusive lock on their directories, which phase 2 reopens.
+	var state1 *State
 
 	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		ds := newTestDataState(&data.Config{Registry: registry})
@@ -231,6 +269,7 @@ func TestStateRestartFromPersisted(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		state1 = state
 		s.SpawnBgNamed("avail.Run", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -297,7 +336,10 @@ func TestStateRestartFromPersisted(t *testing.T) {
 		return nil
 	}))
 
-	// Phase 2: Restart from the same directory.
+	// Phase 2: Restart from the same directory. scope.Run has stopped avail.Run, so nothing is
+	// writing to phase 1's WALs and they can be released.
+	require.NoError(t, state1.Close())
+
 	ds2 := newTestDataState(&data.Config{Registry: registry})
 	state2, err := NewState(keys[0], ds2, utils.Some(dir))
 	require.NoError(t, err)
@@ -460,6 +502,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			CommitQc: types.CommitQCConv.Encode(pruneQC),
 		}))
 
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, cp.Close())
+
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
 
@@ -488,6 +533,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			parent = block.Header().Hash()
 			require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{signed}, noBlockCB))
 		}
+
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, bp.Close())
 
 		// Now construct state — it should load the blocks.
 		state, err := NewState(keys[0], ds, utils.Some(dir))
@@ -538,6 +586,10 @@ func TestNewStateWithPersistence(t *testing.T) {
 			require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{signed}, noBlockCB))
 		}
 
+		// Release the seeding persisters' WAL locks before NewState opens the same directory.
+		require.NoError(t, cp.Close())
+		require.NoError(t, bp.Close())
+
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
 
@@ -564,6 +616,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			prev = utils.Some(qcs[i])
 			require.NoError(t, cp.MaybePruneAndPersist(utils.None[*types.CommitQC](), []*types.CommitQC{qcs[i]}, noCommitQCCB))
 		}
+
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, cp.Close())
 
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
@@ -603,6 +658,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			AppQc:    types.AppQCConv.Encode(appQC),
 			CommitQc: types.CommitQCConv.Encode(qcs[roadIdx]),
 		}))
+
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, cp.Close())
 
 		state, err := NewState(keys[0], ds, utils.Some(dir))
 		require.NoError(t, err)
@@ -718,7 +776,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 		}
 
 		// Persist a prune anchor at index 9 with a laneRange that starts past
-		// all persisted blocks — MaybePruneAndPersistLane will TruncateAll the block WAL.
+		// all persisted blocks — MaybePruneAndPersistLane prunes the whole block WAL.
 		appProposal := types.NewAppProposal(50, 9, types.GenAppHash(rng), 0)
 		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
 		prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(dir), innerFile)
@@ -727,6 +785,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			AppQc:    types.AppQCConv.Encode(appQC),
 			CommitQc: types.CommitQCConv.Encode(qcs[9]),
 		}))
+
+		// Release the seeding persister's WAL locks before NewState opens the same directory.
+		require.NoError(t, bp.Close())
 
 		// NewState should succeed: block WAL gets truncated, lane starts clean.
 		state, err := NewState(keys[0], ds, utils.Some(dir))
@@ -754,5 +815,46 @@ func TestNewStateWithPersistence(t *testing.T) {
 
 		_, err = NewState(keys[0], ds, utils.Some(dir))
 		require.Error(t, err)
+	})
+
+	// A NewState that fails after opening the WALs must release them. Each WAL holds an exclusive lock on
+	// its directory for its lifetime, so an abandoned one makes every later open of the same state
+	// directory in this process fail — which is exactly the restart that Close exists to support.
+	t.Run("failed NewState releases WAL locks", func(t *testing.T) {
+		dir := t.TempDir()
+		ds := newTestDataState(&data.Config{Registry: registry})
+		lane := keys[0].Public()
+
+		// Seed one lane so the failing NewState below has a lane WAL to leak, then release the seeder.
+		bp, _, err := persist.NewBlockPersister(utils.Some(dir))
+		require.NoError(t, err)
+		var parent types.BlockHeaderHash
+		block := types.NewBlock(lane, 0, parent, types.GenPayload(rng))
+		proposals := []*types.Signed[*types.LaneProposal]{types.Sign(keys[0], types.NewLaneProposal(block))}
+		require.NoError(t, bp.MaybePruneAndPersistLane(
+			lane, utils.None[*types.CommitQC](), proposals, noBlockCB))
+		require.NoError(t, bp.Close())
+
+		// A prune anchor missing its CommitQC unmarshals as proto but fails PruneAnchorConv.Decode, so
+		// NewState fails only after both the lane WAL and the commitQC WAL are open.
+		appProposal := types.NewAppProposal(50, 0, types.GenAppHash(rng), 0)
+		appQC := types.NewAppQC(makeAppVotes(keys, appProposal))
+		prunePers, _, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](utils.Some(dir), innerFile)
+		require.NoError(t, err)
+		require.NoError(t, prunePers.Persist(&pb.PersistedAvailPruneAnchor{
+			AppQc: types.AppQCConv.Encode(appQC),
+		}))
+
+		_, err = NewState(keys[0], ds, utils.Some(dir))
+		require.Error(t, err)
+
+		// Reopening either WAL proves its lock was released; otherwise this fails as lock-unavailable.
+		reopenedBlocks, _, err := persist.NewBlockPersister(utils.Some(dir))
+		require.NoError(t, err, "failed NewState leaked the lane block WAL lock")
+		require.NoError(t, reopenedBlocks.Close())
+
+		reopenedQCs, _, err := persist.NewCommitQCPersister(utils.Some(dir))
+		require.NoError(t, err, "failed NewState leaked the commitQC WAL lock")
+		require.NoError(t, reopenedQCs.Close())
 	})
 }

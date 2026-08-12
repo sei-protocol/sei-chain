@@ -1,0 +1,5 @@
+"eth_replay.eth_replay_enabled"
+"eth_replay.eth_rpc"
+"eth_replay.eth_data_dir"
+"eth_replay.contract_state_checks"
+# keys with a target of their own

@@ -25,8 +25,9 @@ func (m *memIAVLWrapper) Commit() (int64, error) {
 	return m.base.Commit()
 }
 
-func (m *memIAVLWrapper) LoadVersion(version int64) error {
-	_, err := m.base.LoadVersion(version, false)
+func (m *memIAVLWrapper) LoadLatest() error {
+	// memiavl's Committer signature is pinned; (0, false) is its load-latest-writable path.
+	_, err := m.base.LoadVersion(0, false)
 	return err
 }
 

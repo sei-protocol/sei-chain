@@ -24,7 +24,12 @@ func CosmosDeliverTxAnte(
 	bankKeeper bankkeeper.Keeper,
 	feegrantKeeper *feegrantkeeper.Keeper,
 ) (returnCtx sdk.Context, returnErr error) {
-	if _, err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams()); err != nil {
+	// Auth params are needed for stateless checks before SetGasMeter installs the
+	// tx meter. Read them on a throwaway meter so this early lookup does not
+	// charge the incoming caller/block meter.
+	authParams := accountKeeper.GetParams(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()))
+
+	if _, err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams(), authParams); err != nil {
 		return SetGasMeter(ctx, 0, pk), err
 	}
 
@@ -41,8 +46,6 @@ func CosmosDeliverTxAnte(
 	if !isGasless {
 		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 	}
-
-	authParams := accountKeeper.GetParams(ctx)
 
 	if err := CheckMemoLength(tx, authParams); err != nil {
 		return ctx, err

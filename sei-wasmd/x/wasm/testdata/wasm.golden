@@ -1,0 +1,4 @@
+SimulationGasLimit = <nil>
+SmartQueryGasLimit = uint64(3000000)
+MemoryCacheSize = uint32(100)
+ContractDebugMode = bool(false)

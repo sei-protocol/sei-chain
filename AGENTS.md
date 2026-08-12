@@ -14,6 +14,19 @@ progressively the deeper you go. Existing package guides include:
 - `evmrpc/AGENTS.md` — EVM JSON-RPC (`eth_*`, `sei_*`, `sei2_*`, `debug_*`) semantics
 - `x/evm/AGENTS.md` — EVM module: address association, StateDB bridge, precompiles, pointers
 - `sei-tendermint/AGENTS.md` — sei-tendermint module conventions
+- `testutil/configtest/AGENTS.md` — configuration characterization: how to pin a new key, section, or default
+
+## Configuration reads
+
+How a seid node resolves configuration is pinned by the characterization suite in
+`testutil/configtest`. Renaming a key the suite covers, changing a default, or changing
+how a value is cast will fail that suite. **Adding** a key does not always: the completeness
+check compares struct fields, so a second key landing in a field some row already
+claims is uncaught and the row has to be written by hand. Where there is a failure it
+is the review prompt: record the new behavior so the old and new value land in a diff,
+rather than skipping the row or widening the assertion until it passes. Read
+[`testutil/configtest/AGENTS.md`](testutil/configtest/AGENTS.md) before changing a
+configuration read, and before adding one.
 
 ## Code style
 
@@ -37,6 +50,72 @@ Verify the whole tree (each prints nothing when everything is clean):
 gofmt -s -l .
 goimports -l .
 ```
+
+### Godoc
+
+Godocs say **what** a thing is, not why it came to be or how it works inside.
+
+1. **Explain WHAT, not WHY or HOW.** Rationale, trade-offs, and mechanism belong in
+   an inline comment at the line that needs them, or nowhere.
+2. **Never record design history.** No "this was previously X", "used to mean Y",
+   "renamed from Z". The diff and the git log hold that.
+3. **Multi-paragraph godocs are rare.** Most functions do not earn a second
+   paragraph. One or two sentences is the norm.
+4. **Rewrite, don't patch.** When a godoc needs to change, write it again from
+   scratch; incrementally editing one reliably produces a rambling comment.
+5. **Document the subject, not the system.** A godoc is not the place to explain
+   the surrounding architecture. Describe this function, type, or field.
+
+```go
+// ❌ BAD — history, mechanism, and a system tour
+// GetRollbackFloor returns the earliest height a rollback may target. The window is
+// measured against the store's own head rather than a height handed down, because the
+// collector takes a minimum across stores, so a lagging store sets the depth. 0 means
+// nothing is eligible; it is a height rather than a sentinel, since CannotServeRollback
+// used to serve that role and was removed. Answering high is the damaging direction,
+// as nothing above clamps it: the collector derives its cut lines from these answers.
+func (s *blockDB) GetRollbackFloor(rollbackWindow uint64) uint64
+
+// ✅ GOOD — what it returns, and what the caller must know
+// GetRollbackFloor returns the earliest height a rollback may target, measured against
+// this store's own head. It returns 0 when the window is deeper than the store's
+// history, meaning no data here is eligible for pruning.
+func (s *blockDB) GetRollbackFloor(rollbackWindow uint64) uint64
+```
+
+## Structural corrections
+
+When a defect is found, the change that closes it has to leave the code readable as a
+sequence of named steps a new engineer can follow top to bottom without someone
+narrating it. Three rules make that checkable, and they are what review looks for.
+
+**Guard at the choke point, never at each caller.** A guard repeated at every call
+site is a convention the next caller can forget, where a guard at the single function
+every path passes through is an invariant they cannot. When there is no such function,
+that is evidence the abstraction is wrong, so say so rather than distributing the
+guard.
+
+*Worked example, from the configuration record refusal.* The refusal to rewrite a record
+on CI lives inside `writeGolden`, the one function every record write passes through, so a
+record writer added later is covered without anyone having to remember it. One caller keeps
+a guard of its own, `requireKeyNameRecord`, and the reason is the distinction to copy: it
+suppresses a comparison rather than performing a write, and a suppressed comparison reads
+as a pass.
+
+**The step name carries the *what*, and the doc comment carries the *why*.** A long
+comment sitting inline in a flow means the step was never named. Extract the step and
+move the rationale to its doc comment. Relocating a load-bearing invariant is the
+move, never deleting one to tidy up.
+
+**Behaviour never changes in a readability refactor,** and the proof is the existing
+tests passing *unchanged*. A refactor that requires editing a test is not a refactor.
+
+After restructuring, re-read the result top to bottom as that sequence of named steps, and
+check each step against the shapes the surrounding package already uses rather than a pattern
+introduced for this one change. None of this is checked by a linter, which is why it is
+written down. The failure it prevents is a codebase where found problems accumulated fixes
+instead of corrections, and that is indistinguishable from a healthy one on any green test
+run.
 
 ## Lint, build & test
 

@@ -76,6 +76,8 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	stateDB := state.NewDBImpl(ctx, &server, false)
 	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
 	gp := server.GetGasPool()
+	// Set when applyEVMMessage returns before Create/Call (no opcode trace).
+	preExecutionFailure := false
 
 	defer func() {
 		defer stateDB.Cleanup()
@@ -125,7 +127,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 				extraSurplus = extraSurplus.Add(syntheticDeferredInfo.Surplus)
 			}
 		}
-		receipt, rerr := server.WriteReceipt(ctx, stateDB, emsg, uint32(tx.Type()), tx.Hash(), serverRes.GasUsed, serverRes.VmError)
+		receipt, rerr := server.WriteReceipt(ctx, stateDB, emsg, uint32(tx.Type()), tx.Hash(), serverRes.GasUsed, serverRes.VmError, preExecutionFailure)
 		if rerr != nil {
 			err = rerr
 			logger.Error("failed to write EVM receipt", "err", err)
@@ -163,11 +165,15 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		Hash: tx.Hash().Hex(),
 	}
 	if applyErr != nil {
-		// This should not happen, as anything that could cause applyErr is supposed to
-		// be checked in CheckTx first
-		err = applyErr
+		// Post-admission state-transition failures (e.g. EIP-7623 floor data gas)
+		// should follow the same VmError path as failed executions: charge the gas
+		// limit, write a failed receipt, and attach EvmTxInfo for base-fee gas.
+		// Mark PreExecutionFailure because Create/Call never ran.
+		serverRes.VmError = applyErr.Error()
+		serverRes.GasUsed = tx.Gas()
+		preExecutionFailure = true
 
-		seimetrics.SafeTelemetryIncrCounterWithLabels([]string{types.ModuleName, "errors", "apply_message"}, 1, []armonmetrics.Label{{Name: "type", Value: err.Error()}}) // TODO(PLT-330): remove once evm_errors_total verified
+		seimetrics.SafeTelemetryIncrCounterWithLabels([]string{types.ModuleName, "errors", "apply_message"}, 1, []armonmetrics.Label{{Name: "type", Value: applyErr.Error()}}) // TODO(PLT-330): remove once evm_errors_total verified
 		evmKeeperMetrics.errors.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("type", "apply_message")))
 
 		return

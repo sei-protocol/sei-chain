@@ -53,7 +53,12 @@ func (k Keeper) Grants(c context.Context, req *authz.QueryGrantsRequest) (*authz
 	key := grantStoreKey(grantee, granter, "")
 	grantsStore := prefix.NewStore(store, key)
 
-	authorizations, pageRes, err := query.GenericFilteredPaginate(k.cdc, grantsStore, req.Pagination, func(key []byte, auth *authz.Grant) (*authz.Grant, error) {
+	paginate := query.GenericFilteredPaginateV66[*authz.Grant, *authz.Grant]
+	if ctx.IsABCIQuery() {
+		paginate = query.GenericFilteredPaginate[*authz.Grant, *authz.Grant]
+	}
+
+	authorizations, pageRes, err := paginate(k.cdc, grantsStore, req.Pagination, func(key []byte, auth *authz.Grant) (*authz.Grant, error) {
 		auth1 := auth.GetAuthorization()
 		if err != nil {
 			return nil, err
@@ -95,7 +100,12 @@ func (k Keeper) GranterGrants(c context.Context, req *authz.QueryGranterGrantsRe
 	store := ctx.KVStore(k.storeKey)
 	authzStore := prefix.NewStore(store, grantStoreKey(nil, granter, ""))
 
-	grants, pageRes, err := query.GenericFilteredPaginate(k.cdc, authzStore, req.Pagination, func(key []byte, auth *authz.Grant) (*authz.GrantAuthorization, error) {
+	paginate := query.GenericFilteredPaginateV66[*authz.Grant, *authz.GrantAuthorization]
+	if ctx.IsABCIQuery() {
+		paginate = query.GenericFilteredPaginate[*authz.Grant, *authz.GrantAuthorization]
+	}
+
+	grants, pageRes, err := paginate(k.cdc, authzStore, req.Pagination, func(key []byte, auth *authz.Grant) (*authz.GrantAuthorization, error) {
 		auth1 := auth.GetAuthorization()
 		if err != nil {
 			return nil, err
@@ -142,7 +152,12 @@ func (k Keeper) GranteeGrants(c context.Context, req *authz.QueryGranteeGrantsRe
 	ctx := sdk.UnwrapSDKContext(c)
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), GrantKey)
 
-	authorizations, pageRes, err := query.GenericFilteredPaginate(k.cdc, store, req.Pagination, func(key []byte, auth *authz.Grant) (*authz.GrantAuthorization, error) {
+	paginate := query.GenericFilteredPaginateV66[*authz.Grant, *authz.GrantAuthorization]
+	if ctx.IsABCIQuery() {
+		paginate = query.GenericFilteredPaginate[*authz.Grant, *authz.GrantAuthorization]
+	}
+
+	authorizations, pageRes, err := paginate(k.cdc, store, req.Pagination, func(key []byte, auth *authz.Grant) (*authz.GrantAuthorization, error) {
 		auth1 := auth.GetAuthorization()
 		if err != nil {
 			return nil, err

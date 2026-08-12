@@ -2,6 +2,7 @@ package json_test
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -9,16 +10,17 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
 func TestExtractAsBytes(t *testing.T) {
-	stateDB := &state.DBImpl{}
-	stateDB.WithCtx(sdk.Context{})
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	stateDB := state.NewDBImpl(ctx, k, false)
 	evm := &vm.EVM{StateDB: stateDB}
-	p, err := json.NewPrecompile(nil)
+	p, err := json.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID)
 	require.Nil(t, err)
@@ -40,7 +42,7 @@ func TestExtractAsBytes(t *testing.T) {
 		args, err := method.Inputs.Pack(test.body, "key")
 		require.Nil(t, err)
 		input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID, args...)
-		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false, nil)
+		res, _, err := p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input, math.MaxUint64, nil, nil, true, false)
 		require.Nil(t, err)
 		output, err := method.Outputs.Unpack(res)
 		require.Nil(t, err)
@@ -50,10 +52,11 @@ func TestExtractAsBytes(t *testing.T) {
 }
 
 func TestExtractAsBytesList(t *testing.T) {
-	stateDB := &state.DBImpl{}
-	stateDB.WithCtx(sdk.Context{})
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	stateDB := state.NewDBImpl(ctx, k, false)
 	evm := &vm.EVM{StateDB: stateDB}
-	p, err := json.NewPrecompile(nil)
+	p, err := json.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesListID)
 	require.Nil(t, err)
@@ -78,7 +81,7 @@ func TestExtractAsBytesList(t *testing.T) {
 		args, err := method.Inputs.Pack(test.body, "key")
 		require.Nil(t, err)
 		input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesListID, args...)
-		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false, nil)
+		res, _, err := p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input, math.MaxUint64, nil, nil, true, false)
 		require.Nil(t, err)
 		output, err := method.Outputs.Unpack(res)
 		require.Nil(t, err)
@@ -88,10 +91,11 @@ func TestExtractAsBytesList(t *testing.T) {
 }
 
 func TestExtractAsUint256(t *testing.T) {
-	stateDB := &state.DBImpl{}
-	stateDB.WithCtx(sdk.Context{})
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	stateDB := state.NewDBImpl(ctx, k, false)
 	evm := &vm.EVM{StateDB: stateDB}
-	p, err := json.NewPrecompile(nil)
+	p, err := json.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsUint256ID)
 	require.Nil(t, err)
@@ -112,7 +116,7 @@ func TestExtractAsUint256(t *testing.T) {
 		args, err := method.Inputs.Pack(test.body, "key")
 		require.Nil(t, err)
 		input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsUint256ID, args...)
-		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false, nil)
+		res, _, err := p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input, math.MaxUint64, nil, nil, true, false)
 		require.Nil(t, err)
 		output, err := method.Outputs.Unpack(res)
 		require.Nil(t, err)
@@ -122,8 +126,9 @@ func TestExtractAsUint256(t *testing.T) {
 }
 
 func TestPrecompileExecutor_extractAsBytesFromArray(t *testing.T) {
-	stateDB := &state.DBImpl{}
-	stateDB.WithCtx(sdk.Context{})
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	stateDB := state.NewDBImpl(ctx, k, false)
 	evm := &vm.EVM{StateDB: stateDB}
 
 	type args struct {
@@ -266,14 +271,14 @@ func TestPrecompileExecutor_extractAsBytesFromArray(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := json.NewPrecompile(nil)
+			p, err := json.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 			require.Nil(t, err)
 			method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesFromArrayID)
 			require.Nil(t, err)
 			inputArgs, err := method.Inputs.Pack(tt.input.body, tt.input.indexArray)
 			require.Nil(t, err)
 			in := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesFromArrayID, inputArgs...)
-			res, err := p.Run(evm, common.Address{}, common.Address{}, in, tt.args.value, true, false, nil)
+			res, _, err := p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, in, math.MaxUint64, tt.args.value, nil, true, false)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -297,10 +302,11 @@ func generateLargeArray(size int) []byte {
 }
 
 func TestExtractElementFromNestedArray(t *testing.T) {
-	stateDB := &state.DBImpl{}
-	stateDB.WithCtx(sdk.Context{})
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	stateDB := state.NewDBImpl(ctx, k, false)
 	evm := &vm.EVM{StateDB: stateDB}
-	p, err := json.NewPrecompile(nil)
+	p, err := json.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	require.NoError(t, err)
 	methodExtractAsBytes, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID)
 	require.NoError(t, err)
@@ -314,7 +320,7 @@ func TestExtractElementFromNestedArray(t *testing.T) {
 	args, err := methodExtractAsBytes.Inputs.Pack(body, "data")
 	require.NoError(t, err)
 	input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID, args...)
-	res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false, nil)
+	res, _, err := p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input, math.MaxUint64, nil, nil, true, false)
 	require.NoError(t, err)
 	data, err := methodExtractAsBytes.Outputs.Unpack(res)
 	require.NoError(t, err)
@@ -322,7 +328,7 @@ func TestExtractElementFromNestedArray(t *testing.T) {
 	args, err = methodExtractAsBytesList.Inputs.Pack(data[0].([]byte), "exchange_rates")
 	require.NoError(t, err)
 	input2 := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesListID, args...)
-	res, err = p.Run(evm, common.Address{}, common.Address{}, input2, nil, true, false, nil)
+	res, _, err = p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input2, math.MaxUint64, nil, nil, true, false)
 	require.NoError(t, err)
 	exchangeRates, err := methodExtractAsBytesList.Outputs.Unpack(res)
 	require.NoError(t, err)
@@ -333,7 +339,7 @@ func TestExtractElementFromNestedArray(t *testing.T) {
 	inputArgs, err := methodExtractAsBytesFromArray.Inputs.Pack(array, uint16(1))
 	require.NoError(t, err)
 	in := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesFromArrayID, inputArgs...)
-	res, err = p.Run(evm, common.Address{}, common.Address{}, in, nil, true, false, nil)
+	res, _, err = p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, in, math.MaxUint64, nil, nil, true, false)
 	require.NoError(t, err)
 	output, err := methodExtractAsBytesFromArray.Outputs.Unpack(res)
 	require.NoError(t, err)

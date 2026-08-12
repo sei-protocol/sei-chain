@@ -135,6 +135,14 @@ func TestGetReceiptStorePath_LegacyExists(t *testing.T) {
 	assert.Equal(t, legacy, got)
 }
 
+// --- GetBlockStorePath ---
+
+func TestGetBlockStorePath_NewNode(t *testing.T) {
+	home := t.TempDir()
+	got := GetBlockStorePath(home)
+	assert.Equal(t, filepath.Join(home, "data", "ledger", "block"), got)
+}
+
 // --- GetChangelogPath (unchanged, but verify) ---
 
 func TestGetChangelogPath(t *testing.T) {

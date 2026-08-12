@@ -77,12 +77,16 @@ func newFlatKVCommitStore(ctx context.Context, dbDir string, config *flatkvConfi
 	config.DataDir = dbDir
 
 	fmt.Printf("Opening flatKV from directory %s\n", dbDir)
-	cs, err := flatkv.NewCommitStore(ctx, config)
+	stateWAL, err := flatkv.OpenStateWAL(config)
 	if err != nil {
+		return nil, fmt.Errorf("failed to open FlatKV state WAL: %w", err)
+	}
+	cs, err := flatkv.NewCommitStore(ctx, config, stateWAL)
+	if err != nil {
+		_ = stateWAL.Close()
 		return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
 	}
-	_, err = cs.LoadVersion(0, false)
-	if err != nil {
+	if err := cs.LoadLatest(); err != nil {
 		if closeErr := cs.Close(); closeErr != nil {
 			fmt.Printf("failed to close commit store during error recovery: %v\n", closeErr)
 		}
@@ -108,17 +112,14 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode sctype
 		return nil, fmt.Errorf("composite Initialize: %w", err)
 	}
 
-	loaded, err := cs.LoadVersion(0, false)
-	if err != nil {
+	if err := cs.LoadLatest(); err != nil {
 		if closeErr := cs.Close(); closeErr != nil {
 			fmt.Printf("failed to close commit store during error recovery: %v\n", closeErr)
 		}
 		return nil, fmt.Errorf("failed to load version: %w", err)
 	}
 
-	loadedStore := loaded.(*composite.CompositeCommitStore)
-
-	return NewCompositeWrapper(loadedStore), nil
+	return NewCompositeWrapper(cs), nil
 }
 
 func openSSComposite(dir string, cfg config.StateStoreConfig) (*ssComposite.CompositeStateStore, error) {
@@ -126,6 +127,9 @@ func openSSComposite(dir string, cfg config.StateStoreConfig) (*ssComposite.Comp
 }
 
 func newSSCompositeStateStore(dbDir string, ssConfig *config.StateStoreConfig) (DBWrapper, error) {
+	if ssConfig == nil {
+		ssConfig = DefaultBenchStateStoreConfig()
+	}
 	fmt.Printf("Opening composite state store from directory %s\n", dbDir)
 	store, err := openSSComposite(dbDir, *ssConfig)
 	if err != nil {
@@ -139,6 +143,9 @@ func newCombinedCompositeDualSSComposite(
 	dbDir string,
 	ssConfig *config.StateStoreConfig,
 ) (DBWrapper, error) {
+	if ssConfig == nil {
+		ssConfig = DefaultBenchStateStoreConfig()
+	}
 
 	fmt.Printf("Opening CompositeDual (SC) + Composite (SS) from directory %s\n", dbDir)
 	sc, err := newCompositeCommitStore(ctx, filepath.Join(dbDir, "sc"), sctypes.TestOnlyDualWrite)
@@ -153,23 +160,42 @@ func newCombinedCompositeDualSSComposite(
 	return NewCombinedWrapper(sc, ss), nil
 }
 
+// backendConfig converts the untyped config NewDBImpl is handed into the one its backend expects.
+//
+// A nil config is ordinary rather than exceptional: runBenchmark passes nil for every backend, and
+// each constructor supplies its own default. So nil is passed straight through, and only a config of
+// the wrong type is an error. Asserting without this — dbConfig.(*T) on a nil interface — panics
+// before the constructor can apply that default, which is how three bench backends came to crash at
+// startup.
+func backendConfig[T any](dbType DBType, dbConfig any) (*T, error) {
+	if dbConfig == nil {
+		return nil, nil
+	}
+	typed, ok := dbConfig.(*T)
+	if !ok {
+		var want T
+		return nil, fmt.Errorf("invalid %s config type %T, want *%T", dbType, dbConfig, want)
+	}
+	return typed, nil
+}
+
 // NewDBImpl instantiates a new empty DBWrapper based on the given DBType.
 func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any) (DBWrapper, error) {
 	switch dbType {
 	case NoOp:
 		return NewNoOpWrapper(), nil
 	case MemIAVL:
-		memiavlCfg, ok := dbConfig.(*memiavl.Config)
-		if dbConfig != nil && !ok {
-			return nil, fmt.Errorf("invalid MemIAVL config type %T", dbConfig)
+		cfg, err := backendConfig[memiavl.Config](dbType, dbConfig)
+		if err != nil {
+			return nil, err
 		}
-		return newMemIAVLCommitStore(dataDir, memiavlCfg)
+		return newMemIAVLCommitStore(dataDir, cfg)
 	case FlatKV:
-		flatKVConfig, ok := dbConfig.(*flatkvConfig.Config)
-		if dbConfig != nil && !ok {
-			return nil, fmt.Errorf("invalid FlatKV config type %T", dbConfig)
+		cfg, err := backendConfig[flatkvConfig.Config](dbType, dbConfig)
+		if err != nil {
+			return nil, err
 		}
-		return newFlatKVCommitStore(ctx, dataDir, flatKVConfig)
+		return newFlatKVCommitStore(ctx, dataDir, cfg)
 	case CompositeDual:
 		return newCompositeCommitStore(ctx, dataDir, sctypes.TestOnlyDualWrite)
 	case CompositeSplit:
@@ -177,11 +203,25 @@ func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any)
 	case CompositeCosmos:
 		return newCompositeCommitStore(ctx, dataDir, sctypes.MemiavlOnly)
 	case SSComposite:
-		return newSSCompositeStateStore(dataDir, dbConfig.(*config.StateStoreConfig))
+		cfg, err := backendConfig[config.StateStoreConfig](dbType, dbConfig)
+		if err != nil {
+			return nil, err
+		}
+		return newSSCompositeStateStore(dataDir, cfg)
 	case SSHistoricalOffload:
-		return newSSHistoricalOffloadStateStore(ctx, dataDir, dbConfig.(*HistoricalOffloadConfig))
+		// No default: the stream needs brokers only the caller knows, so a missing config is
+		// reported by HistoricalOffloadConfig.Validate rather than invented here.
+		cfg, err := backendConfig[HistoricalOffloadConfig](dbType, dbConfig)
+		if err != nil {
+			return nil, err
+		}
+		return newSSHistoricalOffloadStateStore(ctx, dataDir, cfg)
 	case CompositeDual_SSComposite:
-		return newCombinedCompositeDualSSComposite(ctx, dataDir, dbConfig.(*config.StateStoreConfig))
+		cfg, err := backendConfig[config.StateStoreConfig](dbType, dbConfig)
+		if err != nil {
+			return nil, err
+		}
+		return newCombinedCompositeDualSSComposite(ctx, dataDir, cfg)
 	default:
 		return nil, fmt.Errorf("unsupported DB type: %s", dbType)
 	}

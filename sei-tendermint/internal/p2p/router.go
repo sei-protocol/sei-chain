@@ -104,6 +104,17 @@ func NewRouter(
 	// key is present) and passed in via options.Giga. Just attach.
 	router.giga = options.Giga
 	router.BaseService = service.NewBaseService("router", router)
+
+	// Publish the peers gauge at construction, not from metricsRoutine. It is a
+	// MetricVec child, absent from /metrics until something sets it, and an absent
+	// series is not zero: an alert comparing peers against the connection cap
+	// matches nothing until the series exists, which is exactly the window a
+	// never-reached node sits in. Seeding here rather than in OnStart means no
+	// ordering inside a caller's OnStart — a seed binds its metrics listener before
+	// the genesis-time wait, well before Start — can expose a scrapeable endpoint
+	// whose peers series is still missing.
+	Global.peersAt().Set(int64(router.peerManager.Conns().Len()))
+
 	return router, nil
 }
 
@@ -349,13 +360,17 @@ func (r *Router) storePeersRoutine(ctx context.Context) error {
 	}
 }
 
+// metricsRoutine refreshes the gauges NewRouter seeded.
 func (r *Router) metricsRoutine(ctx context.Context) error {
 	for {
+		// Before the sleep, not after: NewRouter seeds the series so it exists from
+		// construction, but a refresh only after the first sleep would leave it
+		// reporting that construction-time zero for ten seconds while peers connect.
+		Global.peersAt().Set(int64(r.peerManager.Conns().Len()))
+		r.peerManager.LogState()
 		if err := utils.Sleep(ctx, 10*time.Second); err != nil {
 			return err
 		}
-		Global.peersAt().Set(int64(r.peerManager.Conns().Len()))
-		r.peerManager.LogState()
 	}
 }
 

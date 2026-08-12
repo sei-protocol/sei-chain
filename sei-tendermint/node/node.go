@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -574,7 +575,34 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	}
 
 	if n.config.Instrumentation.Prometheus && n.config.Instrumentation.PrometheusListenAddr != "" {
-		n.prometheusSrv = utils.Some(n.startPrometheusServer(ctx, n.config.Instrumentation.PrometheusListenAddr))
+		// A full node deliberately survives a bind failure where a seed does not:
+		// it still serves RPC, so an operator retains an in-band way to ask how it
+		// is doing, and failing startup here would stop nodes that run today with
+		// a contended metrics port. A seed has no such fallback.
+		// serr, not err: `err :=` would shadow OnStart's named return, which the
+		// gigaSpawned defer above and the rollback below both close over.
+		srv, serr := startPrometheusServer(
+			ctx,
+			n.config.Instrumentation.PrometheusListenAddr,
+			n.genesisDoc.ChainID,
+			n.config.Instrumentation.MaxOpenConnections,
+		)
+		if serr != nil {
+			logger.Error("Prometheus HTTP server not started; node is unscrapeable", "err", serr)
+		} else {
+			n.prometheusSrv = utils.Some(srv)
+
+			// OnStart can still fail below — router, reactors, rpcEnv — and
+			// BaseService does not run OnStop in that case, so without this the
+			// listener stays bound with its goroutines parked until process exit.
+			// Mirrors the seed path.
+			defer func() {
+				if err == nil {
+					return
+				}
+				shutdownPrometheus(srv)
+			}()
+		}
 	}
 
 	// Start giga before the transport so runPersist is active before inbound
@@ -648,10 +676,7 @@ func (n *nodeImpl) OnStop() {
 	}
 
 	if srv, ok := n.prometheusSrv.Get(); ok {
-		if err := srv.Shutdown(context.Background()); err != nil {
-			// Error from closing listeners, or context timeout:
-			logger.Error("Prometheus HTTP server Shutdown", "err", err)
-		}
+		shutdownPrometheus(srv)
 	}
 	if err := n.shutdownOps(); err != nil {
 		if strings.TrimSpace(err.Error()) != "" {
@@ -685,11 +710,41 @@ func (n *nodeImpl) closeGigaBlockDB() error {
 	return err
 }
 
-// startPrometheusServer starts a Prometheus HTTP server, listening for metrics
-// collectors on addr.
-func (n *nodeImpl) startPrometheusServer(ctx context.Context, addr string) *http.Server {
+// prometheusShutdownTimeout bounds every Shutdown of the metrics server. Shutdown
+// waits on in-flight requests, so an unbounded one lets a single stalled /metrics
+// reader hold up whatever follows — on a full node, closing the block and state
+// stores.
+const prometheusShutdownTimeout = time.Second
+
+// shutdownPrometheus stops srv within prometheusShutdownTimeout, forcing the
+// sockets closed if the graceful deadline elapses. Used by the ctx watcher, both
+// node implementations' OnStop, and the seed's OnStart rollback.
+func shutdownPrometheus(srv *http.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), prometheusShutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		// Deadline elapsed with a request still in flight. Shutdown has closed the
+		// listeners but waits on connections that will not idle, so the bound alone
+		// does not hold: a stalled reader outlives it by up to WriteTimeout. Close
+		// shuts every active connection's socket, unblocking those goroutines. The
+		// handler hijacks nothing, so nothing is left behind.
+		if errors.Is(err, context.DeadlineExceeded) {
+			logger.Error("Prometheus HTTP server Shutdown timed out; forcing close", "err", err)
+		} else {
+			logger.Error("Prometheus HTTP server Shutdown", "err", err)
+		}
+		_ = srv.Close()
+	}
+}
+
+// startPrometheusServer serves the default Prometheus registry on addr, with
+// every metric stamped with chain_id. Shared by the full and seed node
+// implementations: both collect into the same global registry (p2p metrics
+// register at package init), so seed mode differs only in which reactors feed
+// it — not in how the metrics are exposed.
+func startPrometheusServer(ctx context.Context, addr, chainID string, maxOpenConnections int) (*http.Server, error) {
 	gatherer := chainIDGatherer{
-		chainID: n.genesisDoc.ChainID,
+		chainID: chainID,
 	}
 
 	srv := &http.Server{
@@ -697,31 +752,64 @@ func (n *nodeImpl) startPrometheusServer(ctx context.Context, addr string) *http
 		Handler: promhttp.InstrumentMetricHandler(
 			prometheus.DefaultRegisterer, promhttp.HandlerFor(
 				gatherer,
-				promhttp.HandlerOpts{MaxRequestsInFlight: n.config.Instrumentation.MaxOpenConnections},
+				promhttp.HandlerOpts{MaxRequestsInFlight: maxOpenConnections},
 			),
 		),
 		ReadHeaderTimeout: 10 * time.Second, //nolint:gosec // G112: mitigate slowloris attacks
+		// A slow reader holds a MaxRequestsInFlight slot while blocked in Write, and
+		// enough of them make promhttp answer 503 to everyone else — a healthy node
+		// reporting unscrapeable. WriteTimeout bounds how long each such slot is
+		// held rather than preventing it; Idle bounds keep-alive connections that
+		// would otherwise accumulate a goroutine and an fd each, indefinitely.
+		// Values match rpc/jsonrpc/server, the in-tree precedent.
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
+
+	// Bind before returning rather than inside the serve goroutine. A taken port
+	// or unparseable address is then the caller's error, not a log line emitted
+	// while the node comes up reporting healthy and silently unscrapeable — the
+	// failure this exists to make visible. It also means the listener is
+	// accepting by the time OnStart returns, so callers need not wait on it.
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("prometheus listen on %q: %w", addr, err)
+	}
+
+	// Deliberately no netutil.LimitListener here, unlike rpc/jsonrpc/server.Listen:
+	// it blocks Accept rather than rejecting, so a capped-out scraper hangs to its
+	// own timeout and reports the node unscrapeable — the failure this server
+	// exists to prevent. The timeouts above bound connection accumulation instead.
+	//
+	// Concurrency is bounded by promhttp's MaxRequestsInFlight, which takes
+	// Instrumentation.MaxOpenConnections. The residual, stated plainly: that many
+	// concurrent slow readers each hold a slot for up to WriteTimeout and promhttp
+	// answers everyone else 503 for that window. The timeouts bound how long, not
+	// whether. Keep the value above an HA Prometheus pair plus probes.
 
 	signal := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			sctx, scancel := context.WithTimeout(context.Background(), time.Second)
-			defer scancel()
-			_ = srv.Shutdown(sctx)
+			shutdownPrometheus(srv)
 		case <-signal:
 		}
 	}()
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil {
-			logger.Error("Prometheus HTTP server ListenAndServe", "err", err)
-			close(signal)
+		// Unconditional, so a graceful Shutdown releases the watcher above too.
+		// Shutdown makes Serve return ErrServerClosed, so closing only on an
+		// unexpected error would park that goroutine until the outer ctx — which
+		// Stop() does not cancel — leaking one per in-process restart.
+		defer close(signal)
+		// ErrServerClosed is the ordinary outcome of Shutdown, not a fault.
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("Prometheus HTTP server Serve", "err", err)
 		}
 	}()
 
-	return srv
+	return srv, nil
 }
 
 func (n *nodeImpl) NodeInfo() *types.NodeInfo {

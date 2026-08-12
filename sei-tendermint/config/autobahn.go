@@ -130,16 +130,16 @@ func (c AutobahnBlockDBConfig) Validate() error {
 
 // LittBlockConfig returns littblock.DefaultConfig(dir) with this config's
 // optional overrides applied. Fsync is always forced on.
-func (c AutobahnBlockDBConfig) LittBlockConfig(dir string) (littblock.LittBlockConfig, error) {
+func (c AutobahnBlockDBConfig) LittBlockConfig(dir string) (littblock.BlockDBConfig, error) {
 	if err := c.Validate(); err != nil {
-		return littblock.LittBlockConfig{}, err
+		return littblock.BlockDBConfig{}, err
 	}
 	cfg, err := littblock.DefaultConfig(dir)
 	if err != nil {
-		return littblock.LittBlockConfig{}, fmt.Errorf("littblock.DefaultConfig: %w", err)
+		return littblock.BlockDBConfig{}, fmt.Errorf("littblock.DefaultConfig: %w", err)
 	}
 	if r, ok := c.Retention.Get(); ok {
-		cfg.Retention = r.Duration()
+		cfg.RetentionTime = r.Duration()
 	}
 	if p, ok := c.GCPeriod.Get(); ok {
 		cfg.Litt.GCPeriod = p.Duration()

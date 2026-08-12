@@ -1450,9 +1450,11 @@ type InstrumentationConfig struct {
 	// Address to listen for Prometheus collector(s) connections.
 	PrometheusListenAddr string `mapstructure:"prometheus-listen-addr"`
 
-	// Maximum number of simultaneous connections.
-	// If you want to accept a larger number than the default, make sure
-	// you increase your OS limits.
+	// Maximum number of scrapes served concurrently. Not a socket limit despite the
+	// name: it becomes promhttp's MaxRequestsInFlight, and requests past it get a
+	// 503 rather than being queued. Keep it above the number of scrapers that can
+	// overlap — an HA Prometheus pair, blackbox probes, a human curl — because a
+	// slow reader occupies a slot until it finishes or hits WriteTimeout.
 	// 0 - unlimited.
 	MaxOpenConnections int `mapstructure:"max-open-connections"`
 

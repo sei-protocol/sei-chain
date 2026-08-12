@@ -29,10 +29,7 @@ func wrapSeiLegacyHTTP(inner http.Handler, allowlist map[string]struct{}, maxBod
 	if allowlist == nil {
 		return inner
 	}
-	if maxBody <= 0 {
-		maxBody = defaultMaxRequestBodyBytes
-	}
-	return &seiLegacyHTTPGate{inner: inner, allowlist: allowlist, maxBody: maxBody}
+	return &seiLegacyHTTPGate{inner: inner, allowlist: allowlist, maxBody: effectiveMaxRequestBodyBytes(maxBody)}
 }
 
 type seiLegacyHTTPGate struct {

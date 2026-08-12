@@ -112,36 +112,37 @@ var (
 	meter = otel.Meter("evmrpc_workerpool")
 
 	otelMetrics = struct {
-		workersTotal          metric.Int64Gauge
-		workersActive         metric.Int64Gauge
-		workersIdle           metric.Int64Gauge
-		queueCapacity         metric.Int64Gauge
-		queueDepth            metric.Int64Gauge
-		queuePeak             metric.Int64Gauge
-		queueUtilizationPct   metric.Float64Gauge
-		tasksSubmittedTotal   metric.Int64Gauge
-		tasksCompletedTotal   metric.Int64Gauge
-		tasksRejectedTotal    metric.Int64Gauge
-		tasksPanickedTotal    metric.Int64Gauge
-		dbSemaphoreCapacity   metric.Int64Gauge
-		dbSemaphoreInUse      metric.Int64Gauge
-		dbSemaphoreAvailable  metric.Int64Gauge
-		dbSemaphoreWaitCount  metric.Int64Gauge
-		subscriptionsActive   metric.Int64Gauge
-		getLogsRequestsTotal  metric.Int64Gauge
-		getLogsSuccessTotal   metric.Int64Gauge
-		getLogsErrorsTotal    metric.Int64Gauge
-		getLogsTPS            metric.Float64Gauge
-		getLogsAvgBlockRange  metric.Float64Gauge
-		getLogsPeakBlockRange metric.Int64Gauge
-		getLogsAvgLatencyMs   metric.Float64Gauge
-		getLogsMaxLatencyMs   metric.Float64Gauge
-		errRangeTooLarge      metric.Int64Gauge
-		errRateLimited        metric.Int64Gauge
-		errBackpressure       metric.Int64Gauge
-		avgQueueWaitMs        metric.Float64Gauge
-		avgExecTimeMs         metric.Float64Gauge
-		avgDBWaitMs           metric.Float64Gauge
+		workersTotal            metric.Int64Gauge
+		workersActive           metric.Int64Gauge
+		workersIdle             metric.Int64Gauge
+		queueCapacity           metric.Int64Gauge
+		queueDepth              metric.Int64Gauge
+		queuePeak               metric.Int64Gauge
+		queueUtilizationPct     metric.Float64Gauge
+		tasksSubmittedTotal     metric.Int64Gauge
+		tasksCompletedTotal     metric.Int64Gauge
+		tasksRejectedTotal      metric.Int64Gauge
+		tasksPanickedTotal      metric.Int64Gauge
+		dbSemaphoreCapacity     metric.Int64Gauge
+		dbSemaphoreInUse        metric.Int64Gauge
+		dbSemaphoreAvailable    metric.Int64Gauge
+		dbSemaphoreWaitCount    metric.Int64Gauge
+		subscriptionsActive     metric.Int64Gauge
+		subscriptionErrorsTotal metric.Int64Counter
+		getLogsRequestsTotal    metric.Int64Gauge
+		getLogsSuccessTotal     metric.Int64Gauge
+		getLogsErrorsTotal      metric.Int64Gauge
+		getLogsTPS              metric.Float64Gauge
+		getLogsAvgBlockRange    metric.Float64Gauge
+		getLogsPeakBlockRange   metric.Int64Gauge
+		getLogsAvgLatencyMs     metric.Float64Gauge
+		getLogsMaxLatencyMs     metric.Float64Gauge
+		errRangeTooLarge        metric.Int64Gauge
+		errRateLimited          metric.Int64Gauge
+		errBackpressure         metric.Int64Gauge
+		avgQueueWaitMs          metric.Float64Gauge
+		avgExecTimeMs           metric.Float64Gauge
+		avgDBWaitMs             metric.Float64Gauge
 	}{
 		workersTotal: must(meter.Int64Gauge(
 			"evmrpc_workerpool_workers_total",
@@ -221,6 +222,11 @@ var (
 		subscriptionsActive: must(meter.Int64Gauge(
 			"evmrpc_subscriptions_active",
 			metric.WithDescription("Active subscriptions"),
+			metric.WithUnit("{count}"),
+		)),
+		subscriptionErrorsTotal: must(meter.Int64Counter(
+			"evmrpc_subscriptions_errors_total",
+			metric.WithDescription("Total subscription errors"),
 			metric.WithUnit("{count}"),
 		)),
 		getLogsRequestsTotal: must(meter.Int64Gauge(
@@ -548,7 +554,8 @@ func (m *WorkerPoolMetrics) RecordSubscriptionEnd() {
 // RecordSubscriptionError records a subscription error
 func (m *WorkerPoolMetrics) RecordSubscriptionError() {
 	m.SubscriptionErrors.Add(1)
-	// Export to Prometheus
+	otelMetrics.subscriptionErrorsTotal.Add(context.Background(), 1)
+	// TODO(PLT-326): remove once evmrpc_subscriptions_errors_total verified
 	telemetry.IncrCounter(1, "sei", "evm", "subscriptions", "errors")
 }
 

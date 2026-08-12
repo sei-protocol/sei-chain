@@ -39,6 +39,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
@@ -1113,7 +1114,7 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 
 			_, err = TxConfig.TxDecoder()(bloatedTxBz)
 			require.Error(t, err)
-			require.Contains(t, err.Error(), "exceeds canonical size")
+			require.Contains(t, err.Error(), "does not match canonical size")
 
 			makeBlock := func(height int64) *coretypes.ResultBlock {
 				return &coretypes.ResultBlock{
@@ -1153,9 +1154,101 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 			)
 			_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(v65Height))
 			require.Error(t, err)
-			require.Contains(t, err.Error(), "exceeds canonical size")
+			require.Contains(t, err.Error(), "does not match canonical size")
 		})
 	}
+}
+
+func TestTraceBlockByNumberUsesCompatDecoderForHistoricalAuthInfo(t *testing.T) {
+	const (
+		preV67Height = int64(150)
+		v65Height    = int64(100)
+		v67Height    = int64(200)
+	)
+
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(v65Height).WithClosestUpgradeName("v6.5")
+	testApp.UpgradeKeeper.SetDone(ctx, "v6.5")
+	ctx = ctx.WithBlockHeight(v67Height).WithClosestUpgradeName("v6.7")
+	testApp.UpgradeKeeper.SetDone(ctx, "v6.7")
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), v67Height)
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return ctx
+		}
+		return ctx.WithBlockHeight(height)
+	}
+
+	_, fromAddr := testkeeper.MockAddressPair()
+	_, toAddr := testkeeper.MockAddressPair()
+	txBuilder := TxConfig.NewTxBuilder()
+	require.NoError(t, txBuilder.SetMsgs(banktypes.NewMsgSend(
+		sdk.AccAddress(fromAddr.Bytes()),
+		sdk.AccAddress(toAddr.Bytes()),
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))),
+	)))
+	txBuilder.SetGasLimit(127)
+	txBz, err := Encoder(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	var raw txtypes.TxRaw
+	require.NoError(t, raw.Unmarshal(txBz))
+	fee := &txtypes.Fee{GasLimit: 127}
+	feeBz, err := fee.Marshal()
+	require.NoError(t, err)
+	extra := protowire.AppendTag(nil, 2, protowire.BytesType)
+	extra = protowire.AppendBytes(extra, feeBz)
+	raw.AuthInfoBytes = append(raw.AuthInfoBytes, extra...)
+	bloatedTxBz, err := raw.Marshal()
+	require.NoError(t, err)
+
+	_, err = TxConfig.TxDecoder()(bloatedTxBz)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match canonical size")
+	require.Contains(t, err.Error(), "auth info")
+
+	makeBlock := func(height int64) *coretypes.ResultBlock {
+		return &coretypes.ResultBlock{
+			BlockID: tmtypes.BlockID{Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000042"))},
+			Block: &tmtypes.Block{
+				Header: mockBlockHeader(height),
+				Data:   tmtypes.Data{Txs: []tmtypes.Tx{bloatedTxBz}},
+				LastCommit: &tmtypes.Commit{
+					Height: height,
+				},
+			},
+		}
+	}
+
+	// v6.5-to-v6.7 window: AuthInfo checks are skipped for tracing.
+	compatTmClient := &fixedBlockClient{block: makeBlock(preV67Height)}
+	compatWatermarks := evmrpc.NewWatermarkManager(compatTmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	compatBackend := evmrpc.NewBackend(
+		ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+		func(int64) client.TxConfig { return TxConfig }, compatTmClient, &SConfig,
+		testApp.BaseApp, testApp.TracerAnteHandler,
+		evmrpc.NewBlockCache(3000), &sync.Mutex{}, compatWatermarks,
+	)
+	ethBlock, metadata, err := compatBackend.BlockByNumber(context.Background(), rpc.BlockNumber(preV67Height))
+	require.NoError(t, err)
+	require.Len(t, ethBlock.Transactions(), 0)
+	require.Len(t, metadata, 1)
+	require.False(t, metadata[0].ShouldIncludeInTraceResult)
+	require.NotNil(t, metadata[0].TraceRunnable)
+
+	// v6.7+: AuthInfo checks are enforced for tracing.
+	strictTmClient := &fixedBlockClient{block: makeBlock(v67Height)}
+	strictWatermarks := evmrpc.NewWatermarkManager(strictTmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	strictBackend := evmrpc.NewBackend(
+		ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+		func(int64) client.TxConfig { return TxConfig }, strictTmClient, &SConfig,
+		testApp.BaseApp, testApp.TracerAnteHandler,
+		evmrpc.NewBlockCache(3000), &sync.Mutex{}, strictWatermarks,
+	)
+	_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(v67Height))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match canonical size")
+	require.Contains(t, err.Error(), "auth info")
 }
 
 // TestBlockByNumberNonTracedTxPassesTxBytes verifies that when BlockByNumber

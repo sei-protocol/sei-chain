@@ -625,9 +625,10 @@ prometheus = {{ .Instrumentation.Prometheus }}
 # Address to listen for Prometheus collector(s) connections
 prometheus-listen-addr = "{{ .Instrumentation.PrometheusListenAddr }}"
 
-# Maximum number of simultaneous connections.
-# If you want to accept a larger number than the default, make sure
-# you increase your OS limits.
+# Maximum number of scrapes served concurrently. Not a socket limit despite the
+# name: requests past it receive a 503 rather than being queued. Keep it above
+# the number of scrapers that can overlap (an HA Prometheus pair, probes, a human
+# curl) — a slow reader holds a slot until it finishes or times out.
 # 0 - unlimited.
 max-open-connections = {{ .Instrumentation.MaxOpenConnections }}
 

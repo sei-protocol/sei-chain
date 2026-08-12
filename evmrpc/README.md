@@ -73,12 +73,13 @@ These endpoints bridge the gap between Cosmos and EVM by exposing Cosmos-native 
 ### 2. Tracing Failure Management Endpoints
 
 #### Overview
-Due to Sei's unique mempool implementation and the absence of transaction simulation, some transactions may fail pre-state checks. These failures can occur due to:
+Due to Sei's unique mempool implementation and the absence of transaction simulation, some transactions may fail before producing an opcode-level trace. These failures can occur due to:
 - Nonce mismatches ("nonce too low" or "nonce too high")
 - Insufficient funds
 - Other panic conditions
+- Post-admission state-transition failures that return before Create/Call (e.g. EIP-7623 floor data gas; receipts set `PreExecutionFailure`)
 
-These transactions are included in blocks but not executed. The following endpoints help filter out these failed transactions.
+These transactions are included in blocks but have no meaningful EVM trace. The following endpoints help filter them out.
 
 #### Available Endpoints
 

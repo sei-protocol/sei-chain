@@ -14,7 +14,6 @@
       "SASLMechanism": "aws-msk-iam"
     }
   },
-  "BlocksPerCommit": 32,
   "ConsoleUpdateIntervalSeconds": 5,
   "DataDir": "data/historical-offload-kafka",
   "EnableSuspension": false,

@@ -53,6 +53,22 @@ type persisters struct {
 	commitQCs   *persist.CommitQCPersister
 }
 
+// close releases the WALs these persisters own, and with them the exclusive lock each holds on its
+// directory. The prune anchor persister owns nothing between writes, so it needs no release.
+//
+// The fields are nil-checked because loadPersistedState fills them one at a time and closes what it
+// has when a later open fails.
+func (p persisters) close() error {
+	var errs []error
+	if p.blocks != nil {
+		errs = append(errs, p.blocks.Close())
+	}
+	if p.commitQCs != nil {
+		errs = append(errs, p.commitQCs.Close())
+	}
+	return errors.Join(errs...)
+}
+
 // innerFile is the A/B file prefix for avail inner state persistence.
 const innerFile = "avail_inner"
 
@@ -92,23 +108,36 @@ var PruneAnchorConv = protoutils.Conv[*PruneAnchor, *pb.PersistedAvailPruneAncho
 // any existing state from disk. When dir is None, all persisters are no-op
 // and no state is loaded. When a prune anchor is present, stale commitQCs and
 // blocks below the anchor are filtered out before returning.
-func loadPersistedState(dir utils.Option[string]) (utils.Option[*loadedAvailState], persisters, error) {
+//
+// On failure the returned persisters are empty: whatever was already open is released first, because
+// each WAL holds an exclusive lock on its directory that a later open of the same directory in this
+// process would block on.
+func loadPersistedState(dir utils.Option[string]) (_ utils.Option[*loadedAvailState], pers persisters, err error) {
+	// Every error return below hands back the persisters opened so far so this can release them.
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, pers.close())
+			pers = persisters{}
+		}
+	}()
+
 	prunePersister, persistedPruneAnchor, err := persist.NewPersister[*pb.PersistedAvailPruneAnchor](dir, innerFile)
 	if err != nil {
-		return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("NewPersister %s: %w", innerFile, err)
+		return utils.None[*loadedAvailState](), pers, fmt.Errorf("NewPersister %s: %w", innerFile, err)
 	}
+	pers.pruneAnchor = prunePersister
 
 	bp, blocks, err := persist.NewBlockPersister(dir)
 	if err != nil {
-		return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("NewBlockPersister: %w", err)
+		return utils.None[*loadedAvailState](), pers, fmt.Errorf("NewBlockPersister: %w", err)
 	}
+	pers.blocks = bp
 
 	cp, commitQCs, err := persist.NewCommitQCPersister(dir)
 	if err != nil {
-		return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("NewCommitQCPersister: %w", err)
+		return utils.None[*loadedAvailState](), pers, fmt.Errorf("NewCommitQCPersister: %w", err)
 	}
-
-	pers := persisters{pruneAnchor: prunePersister, blocks: bp, commitQCs: cp}
+	pers.commitQCs = cp
 
 	if _, ok := dir.Get(); !ok {
 		return utils.None[*loadedAvailState](), pers, nil
@@ -117,9 +146,9 @@ func loadPersistedState(dir utils.Option[string]) (utils.Option[*loadedAvailStat
 	loaded := &loadedAvailState{commitQCs: commitQCs, blocks: blocks}
 
 	if raw, ok := persistedPruneAnchor.Get(); ok {
-		anchor, err := PruneAnchorConv.Decode(raw)
-		if err != nil {
-			return utils.None[*loadedAvailState](), persisters{}, fmt.Errorf("decode prune anchor: %w", err)
+		anchor, decodeErr := PruneAnchorConv.Decode(raw)
+		if decodeErr != nil {
+			return utils.None[*loadedAvailState](), pers, fmt.Errorf("decode prune anchor: %w", decodeErr)
 		}
 		loaded.pruneAnchor = utils.Some(anchor)
 
@@ -150,11 +179,19 @@ func loadPersistedState(dir utils.Option[string]) (utils.Option[*loadedAvailStat
 // NewState constructs a new availability state.
 // stateDir is None when persistence is disabled (testing only); a no-op
 // persist goroutine still runs to bump cursors without disk I/O.
-func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (*State, error) {
+func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[string]) (_ *State, err error) {
 	loaded, pers, err := loadPersistedState(stateDir)
 	if err != nil {
 		return nil, err
 	}
+
+	// pers owns the WALs from here on, so every failure below has to release them: each WAL holds an
+	// exclusive lock on its directory that a later open of the same state directory would block on.
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, pers.close())
+		}
+	}()
 
 	ep := data.Registry().LatestEpoch()
 	inner, err := newInner(ep, loaded)
@@ -183,6 +220,20 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		inner:      utils.NewWatch(inner),
 		persisters: pers,
 	}, nil
+}
+
+// Close releases the WALs this state owns, and with them the exclusive lock each holds on its
+// directory.
+//
+// Production does not call this: a node exits by rugpull and the OS reclaims everything. It exists so
+// that a process which opens the same state directory more than once in its lifetime — a test
+// simulating a restart — can release the first State before constructing the second.
+//
+// TODO: tie the WALs to Run instead, opening and closing them inside its scope so the exclusive lock is
+// released by scope teardown and this method can go away. That means moving loadPersistedState and the
+// startup prune out of NewState, since inner is currently built from the loaded data before Run exists.
+func (s *State) Close() error {
+	return s.persisters.close()
 }
 
 func (s *State) FirstCommitQC() types.RoadIndex {
@@ -684,8 +735,10 @@ func (s *State) Run(ctx context.Context) error {
 //  2. commitQCs.MaybePruneAndPersist and each lane's blocks.MaybePruneAndPersistLane run
 //     concurrently via scope.Parallel (separate WALs, no early cancellation; first error
 //     is returned after all tasks finish).
-//     Each path publishes (markCommitQCsPersisted / markBlockPersisted) per entry so voting
-//     unblocks ASAP.
+//     Each path appends its whole batch, flushes once, then publishes
+//     (markCommitQCsPersisted / markBlockPersisted) for every entry in the batch. Publishing
+//     trails the flush because an append is not durable before it, and voting must never be
+//     unblocked by an entry a crash could still lose.
 //
 // The prune anchor is a pruning watermark: on restart we resume from it.
 //

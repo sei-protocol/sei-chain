@@ -5,8 +5,29 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+func TestMapWSAdmissionRejectReason(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in, want string
+	}{
+		{rpc.WSAdmissionReasonOversizeFrame, rejectReasonOversize},
+		{rpc.WSAdmissionReasonBudgetWaitTimeout, rejectReasonBusy},
+		{rpc.WSAdmissionReasonFrameAdmissionTimeout, rejectReasonBusy},
+		{"future_reason", "future_reason"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			t.Parallel()
+			if got := mapWSAdmissionRejectReason(tc.in); got != tc.want {
+				t.Fatalf("mapWSAdmissionRejectReason(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
 
 func TestRecordRPCMetricsNoPanic(t *testing.T) {
 	t.Parallel()

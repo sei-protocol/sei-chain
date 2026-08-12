@@ -66,6 +66,15 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
 	}
+	lastExecutedHeight := cfg.App.Info().LastBlockHeight
+	lastExecutedBlock := utils.None[atypes.GlobalBlockNumber]()
+	if lastExecutedHeight != 0 {
+		n, ok := utils.SafeCast[atypes.GlobalBlockNumber](lastExecutedHeight)
+		if !ok {
+			return nil, fmt.Errorf("invalid App.Info().LastBlockHeight = %v", lastExecutedHeight)
+		}
+		lastExecutedBlock = utils.Some(n)
+	}
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for k := range cfg.ValidatorAddrs {
@@ -79,7 +88,10 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
-	ds, err := data.NewState(&data.Config{Registry: registry}, blockDB)
+	ds, err := data.NewState(&data.Config{
+		Registry:          registry,
+		LastExecutedBlock: lastExecutedBlock,
+	}, blockDB)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
@@ -399,8 +411,16 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
 		}
 	} else {
+		// BuildDataState caps recovery at BlockDB's durable block tip, so a crash
+		// after app.Commit but before the BlockDB flush resumes by syncing the
+		// missing suffix. If retention instead passed the app tip, GlobalBlock
+		// returns ErrPruned here. A readable tip restores the last header and
+		// replays AppHash.
 		b, err := r.data.GlobalBlock(ctx, last)
 		if err != nil {
+			if errors.Is(err, atypes.ErrPruned) {
+				return fmt.Errorf("app tip %d is unavailable in BlockDB; restore matching BlockDB data or state-sync the node: %w", last, err)
+			}
 			return fmt.Errorf("r.data.GlobalBlock(): %w", err)
 		}
 		app.InitLastHeader((&types.Header{

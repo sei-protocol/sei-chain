@@ -18,7 +18,7 @@ var ErrIteratorRange = errors.New("invalid iterator range")
 //
 // A WAL instance is not safe for concurrent use: its methods must not be called from multiple
 // goroutines simultaneously. Callers that share a WAL across goroutines must serialize access
-// themselves.
+// themselves. PruneBefore is the sole exception; see its doc for the guarantee implementations owe.
 //
 // Slices are not copied at the call boundary. Any slice passed into a WAL method — the payload and every
 // slice reachable through it — must not be modified after the call: the WAL may retain it and read it
@@ -64,6 +64,11 @@ type WAL[T any] interface {
 	// async and lazy, and implementations are free to delay it arbitrarily long. Pruning removes whole
 	// sealed files only, so records may survive above the requested threshold until their containing file
 	// is fully below it.
+	//
+	// Unlike the other methods here, PruneBefore may be called from another goroutine, concurrently
+	// with any method including Append and Close, and implementations must support that without
+	// external serialization. Such a call is unordered with respect to appends: whether a record
+	// appended around the same instant is pruned is unspecified.
 	PruneBefore(lowestIndexToKeep uint64) error
 
 	// Iterator returns an iterator over the WAL across the inclusive index range [startIndex, endIndex].
