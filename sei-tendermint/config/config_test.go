@@ -39,12 +39,8 @@ func TestConfigValidateBasic(t *testing.T) {
 	assert.Error(t, cfg.ValidateBasic())
 }
 
-// P2PConfig.ValidateBasic was unreachable from production: Config.ValidateBasic
-// routed every other section but not [p2p], so its checks — including the
-// pre-existing send-rate/recv-rate ones — never ran outside tests, and a negative
-// accept-interval reached rate.Every as rate.Inf, silently disabling the accept
-// limiter. Assert the section is routed, not merely that its own checks work; the
-// latter passed the whole time nothing called them.
+// Asserts Config.ValidateBasic routes the [p2p] section, not merely that the
+// section's own checks work.
 func TestConfigValidateBasicRoutesP2P(t *testing.T) {
 	cfg := DefaultConfig()
 	require.NoError(t, cfg.ValidateBasic())
@@ -256,11 +252,7 @@ func TestP2PConfigValidateBasic(t *testing.T) {
 	}
 }
 
-// The accept loop paces itself off AcceptInterval. 10ms (100/s) sits well above
-// the rate at which peers arrive on a public listener; a default admitting only a
-// handful per second cannot drain the kernel accept backlog, so peers queue behind
-// it, time out mid-handshake, and the node stops acquiring inbound peers while
-// still reporting healthy. Pin the value exactly, so changing it is deliberate and
+// Pins the accept-interval default exactly, so changing it is deliberate and
 // visible in the diff.
 func TestP2PConfigAcceptInterval(t *testing.T) {
 	cfg := DefaultP2PConfig()

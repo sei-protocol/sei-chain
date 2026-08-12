@@ -17,10 +17,8 @@ import (
 // global viper singleton via commands.ParseConfig, so they must not run in
 // parallel with other tests in this package.
 
-// accept-interval is rendered in the template, but dial-interval is not (see
-// checkConfig in toml_test.go), so for that key "absent from the template" and
-// "not readable at all" would otherwise be indistinguishable. Cover both, since
-// an operator sets them the same way.
+// dial-interval is absent from the generated template (see checkConfig in
+// toml_test.go), so nothing else shows it is readable at all.
 func TestP2PPacingKnobsParseFromExistingConfig(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -44,12 +42,9 @@ accept-interval = "20ms"
 	require.NoError(t, cfg.P2P.ValidateBasic())
 }
 
-// TestP2PConfigPredatingPacingKnobsKeepsDefaults mirrors a config.toml written
-// before these keys existed — the case every already-deployed node is in, since
-// seid does not rewrite an existing config.toml — and verifies ParseConfig still
-// produces the defaults. The failure it guards is silent: a zeroed AcceptInterval
-// means rate.Every(0) == rate.Inf, disabling accept pacing entirely, and an
-// absent key must not land there.
+// TestP2PConfigPredatingPacingKnobsKeepsDefaults asserts a config.toml written
+// before these keys existed still parses to the defaults rather than to zero,
+// which rate.Every would read as "no pacing".
 func TestP2PConfigPredatingPacingKnobsKeepsDefaults(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

@@ -349,7 +349,7 @@ dial-timeout = "{{ .P2P.DialTimeout }}"
 # How often the node accepts a new inbound connection. A larger interval paces
 # the accept loop more slowly; if the kernel accept backlog outpaces it, arriving
 # peers wait past handshake-timeout and the node silently stops acquiring inbound
-# peers. A value of 0 disables the limiter.
+# peers. A value of 0 disables the limiter; a negative value falls back to the default.
 accept-interval = "{{ .P2P.AcceptInterval }}"
 
 # Time to wait before flushing messages out on the connection

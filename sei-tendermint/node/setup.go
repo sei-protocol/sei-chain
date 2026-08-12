@@ -454,6 +454,19 @@ func buildFullnodeGigaConfig(
 	}, nil
 }
 
+// pacingRate returns the rate limit for a configured pacing interval, falling
+// back to def when the interval is negative.
+func pacingRate(interval, def time.Duration) rate.Limit {
+	// rate.Every maps every non-positive interval to rate.Inf. A configured 0 means
+	// "disable the limiter" and is honoured, but a negative value is a typo, and on
+	// an already-deployed node it never reaches ValidateBasic — interceptConfigs
+	// validates only when it creates the file. Clamp it where every router passes.
+	if interval < 0 {
+		interval = def
+	}
+	return rate.Every(interval)
+}
+
 // p2pRouterOptions returns the router's connection budget and pacing, derived
 // from the p2p config.
 func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []types.NodeID) *p2p.RouterOptions {
@@ -473,6 +486,7 @@ func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []type
 	// TODO(gprusak): eventually we should migrate configs to specify
 	// MaxInbound and MaxOutbound explicitly, rather than doing the computation above.
 	maxInbound := maxConns - maxOutbound
+	defaults := config.DefaultP2PConfig()
 	connection := conn.DefaultMConnConfig()
 	connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
 	connection.SendRate = cfg.P2P.SendRate
@@ -481,8 +495,8 @@ func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []type
 	return &p2p.RouterOptions{
 		Endpoint:                      ep,
 		MaxIncomingConnectionAttempts: utils.Some(cfg.P2P.MaxIncomingConnectionAttempts),
-		MaxDialRate:                   utils.Some(rate.Every(cfg.P2P.DialInterval)),
-		MaxAcceptRate:                 utils.Some(rate.Every(cfg.P2P.AcceptInterval)),
+		MaxDialRate:                   utils.Some(pacingRate(cfg.P2P.DialInterval, defaults.DialInterval)),
+		MaxAcceptRate:                 utils.Some(pacingRate(cfg.P2P.AcceptInterval, defaults.AcceptInterval)),
 		HandshakeTimeout:              utils.Some(cfg.P2P.HandshakeTimeout),
 		DialTimeout:                   utils.Some(cfg.P2P.DialTimeout),
 		PexOnHandshake:                cfg.P2P.PexReactor,

@@ -362,6 +362,20 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 		require.Equal(t, utils.Some(rate.Every(cfg.P2P.DialInterval)), opts.MaxDialRate)
 	})
 
+	// A negative value never reaches ValidateBasic on an already-deployed node,
+	// so it must not read as "disable" the way rate.Every would treat it.
+	t.Run("negative interval falls back to the default", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.P2P.AcceptInterval = -1 * time.Second
+		cfg.P2P.DialInterval = -1 * time.Second
+		opts := p2pRouterOptions(cfg, ep, nil)
+
+		defaults := config.DefaultP2PConfig()
+		require.Equal(t, utils.Some(rate.Every(defaults.AcceptInterval)), opts.MaxAcceptRate)
+		require.Equal(t, utils.Some(rate.Every(defaults.DialInterval)), opts.MaxDialRate)
+		require.NotEqual(t, utils.Some(rate.Inf), opts.MaxAcceptRate)
+	})
+
 	t.Run("zero interval disables the limiter", func(t *testing.T) {
 		cfg := config.DefaultConfig()
 		cfg.P2P.AcceptInterval = 0

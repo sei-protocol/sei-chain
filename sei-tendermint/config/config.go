@@ -728,7 +728,7 @@ type P2PConfig struct {
 	DialInterval time.Duration `mapstructure:"dial-interval"`
 
 	// How often node should accept a new inbound connection. A value of 0 disables
-	// the limiter.
+	// the limiter; a negative value falls back to the default.
 	AcceptInterval time.Duration `mapstructure:"accept-interval"`
 
 	// Testing params.
