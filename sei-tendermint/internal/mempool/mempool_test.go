@@ -468,6 +468,22 @@ func TestTxMempool_RejectsGasWantedAboveProposalLimit(t *testing.T) {
 	require.Zero(t, txmp.Size())
 }
 
+func TestTxMempool_ZeroProposalGasLimitDoesNotRejectAtAdmission(t *testing.T) {
+	gasWanted := int64(1)
+	client := &application{Application: kvstore.NewApplication(), gasWanted: &gasWanted}
+	constraints := NopTxConstraints()
+	constraints.MaxGasWanted = 0
+	txmp := setup(TestConfig(), proxy.New(client), func() (TxConstraints, error) {
+		return constraints, nil
+	})
+
+	_, err := txmp.CheckTx(t.Context(), types.Tx("sender=key=1"))
+	require.NoError(t, err)
+	require.Equal(t, 1, txmp.Size())
+	reaped, _ := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(0))}, false)
+	require.Empty(t, reaped)
+}
+
 func TestTxMempool_RecheckRefreshesGasMetadata(t *testing.T) {
 	gasWanted := int64(1)
 	gasEstimated := int64(1)

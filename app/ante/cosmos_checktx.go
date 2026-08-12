@@ -353,9 +353,10 @@ func checkGaslessAndSetGasMeter(
 		return ctx, false, err
 	}
 
-	txCtx := SetGasMeter(queryCtx, tx.GetGas(), paramsKeeper)
+	executionGas := antedecorators.ExecutionGasLimitForTx(tx, tx.GetGas())
+	txCtx := SetGasMeter(queryCtx, executionGas, paramsKeeper)
 	reportedGas := antedecorators.GasWantedForTx(tx, tx.GetGas())
-	if reportedGas != tx.GetGas() {
+	if reportedGas != executionGas {
 		txCtx = txCtx.WithGasMeter(antedecorators.NewReportingGasMeter(txCtx.GasMeter(), reportedGas))
 	}
 	if isGasless {

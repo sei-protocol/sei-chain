@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -946,6 +947,89 @@ func TestCheckTxGaslessAssociateUsesFixedGasAccounting(t *testing.T) {
 			require.Equal(t, int64(antedecorators.FeeExemptTxGasWanted), res.GasWanted)
 		})
 	}
+}
+
+func TestDeliverTxAssociateGasAccounting(t *testing.T) {
+	for _, associated := range []bool{false, true} {
+		name := "gasless"
+		if associated {
+			name = "already_associated"
+		}
+		t.Run(name, func(t *testing.T) {
+			senderPriv := secp256k1.GenPrivKey()
+			senderPub := senderPriv.PubKey()
+			senderAddr := sdk.AccAddress(senderPub.Address())
+			genAcc := authtypes.NewBaseAccount(senderAddr, senderPub, 0, 0)
+			balance := banktypes.Balance{
+				Address: senderAddr.String(),
+				Coins:   sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1_000_000_000))),
+			}
+			tmPub, err := cryptocodec.ToTmPubKeyInterface(cosmosed25519.GenPrivKey().PubKey())
+			require.NoError(t, err)
+			valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+			testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
+
+			txBuilder := testApp.GetTxConfig().NewTxBuilder()
+			require.NoError(t, txBuilder.SetMsgs(evmtypes.NewMsgAssociate(senderAddr, strings.Repeat("x", 64))))
+			txBuilder.SetGasLimit(50_000_000)
+			txBytes := signCosmosTx(t, testApp.GetTxConfig(), txBuilder, senderPriv, genAcc)
+			tx, err := testApp.GetTxConfig().TxDecoder()(txBytes)
+			require.NoError(t, err)
+			deliverCtx := testApp.GetContextForDeliverTx(txBytes)
+			if associated {
+				testApp.EvmKeeper.SetAddressMapping(deliverCtx, senderAddr, common.BytesToAddress(senderAddr))
+			}
+
+			res := testApp.DeliverTxWithResult(deliverCtx, txBytes, tx)
+			require.Zero(t, res.Code)
+			require.Equal(t, int64(antedecorators.FeeExemptTxGasWanted), res.GasWanted)
+			if associated {
+				require.Positive(t, res.GasUsed)
+				require.LessOrEqual(t, res.GasUsed, int64(antedecorators.FeeExemptTxGasWanted))
+				t.Logf("associated MsgAssociate gas used: %d", res.GasUsed)
+			} else {
+				require.Zero(t, res.GasUsed)
+			}
+		})
+	}
+}
+
+func TestDeliverTxOracleVoteUsesFixedGasAccounting(t *testing.T) {
+	validatorPriv := cosmosed25519.GenPrivKey()
+	validatorPub := validatorPriv.PubKey()
+	validatorAddr := sdk.AccAddress(validatorPub.Address())
+	validatorAcc := authtypes.NewBaseAccount(validatorAddr, validatorPub, 0, 0)
+	feederPriv := secp256k1.GenPrivKey()
+	feederAddr := sdk.AccAddress(feederPriv.PubKey().Address())
+	feederAcc := authtypes.NewBaseAccount(feederAddr, feederPriv.PubKey(), 1, 0)
+	feederBalance := banktypes.Balance{
+		Address: feederAddr.String(),
+		Coins:   sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1_000_000_000))),
+	}
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(validatorPub)
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{validatorAcc, feederAcc}, feederBalance)
+	deliverCtx := testApp.GetContextForDeliverTx(nil)
+	testApp.OracleKeeper.SetFeederDelegation(deliverCtx, sdk.ValAddress(validatorAddr), feederAddr)
+	testApp.OracleKeeper.SetVoteTarget(deliverCtx, "uatom")
+
+	vote := oracletypes.NewMsgAggregateExchangeRateVote(
+		"1.2uatom",
+		feederAddr,
+		sdk.ValAddress(validatorAddr),
+	)
+	txBuilder := testApp.GetTxConfig().NewTxBuilder()
+	require.NoError(t, txBuilder.SetMsgs(vote))
+	txBuilder.SetGasLimit(50_000_000)
+	txBytes := signCosmosTx(t, testApp.GetTxConfig(), txBuilder, feederPriv, feederAcc)
+	tx, err := testApp.GetTxConfig().TxDecoder()(txBytes)
+	require.NoError(t, err)
+
+	res := testApp.DeliverTxWithResult(deliverCtx.WithTxBytes(txBytes), txBytes, tx)
+	require.Zero(t, res.Code, res.Log)
+	require.Equal(t, int64(antedecorators.FeeExemptTxGasWanted), res.GasWanted)
+	require.Zero(t, res.GasUsed)
 }
 
 func TestDecodeFailureTxReportsZeroGas(t *testing.T) {

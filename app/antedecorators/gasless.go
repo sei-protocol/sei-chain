@@ -30,7 +30,15 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	if err != nil {
 		return ctx, err
 	}
-	reportedGas := GasWantedForTx(tx, ctx.GasMeter().Limit())
+	declaredGas := ctx.GasMeter().Limit()
+	if gasTx, ok := tx.(interface{ GetGas() uint64 }); ok {
+		declaredGas = gasTx.GetGas()
+	}
+	reportedGas := GasWantedForTx(tx, declaredGas)
+	executionGas := ExecutionGasLimitForTx(tx, declaredGas)
+	if !simulate && !ctx.IsGenesis() && executionGas != ctx.GasMeter().Limit() {
+		ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, executionGas))
+	}
 	if reportedGas != ctx.GasMeter().Limit() {
 		ctx = ctx.WithGasMeter(NewReportingGasMeter(ctx.GasMeter(), reportedGas))
 	}
@@ -85,28 +93,24 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, e
 		}
 	}()
 
-	if len(tx.GetMsgs()) == 0 {
-		// empty TX shouldn't be gasless
-		return false, nil
-	}
-	for _, msg := range tx.GetMsgs() {
-		switch m := msg.(type) {
-		case *oracletypes.MsgAggregateExchangeRateVote:
+	switch feeExemptShape(tx) {
+	case oracleVoteFeeExempt:
+		for _, msg := range tx.GetMsgs() {
+			m := msg.(*oracletypes.MsgAggregateExchangeRateVote)
 			isGasless, err := oracleVoteIsGasless(m, ctx, oracleKeeper)
 			if err != nil || !isGasless {
 				return false, err
 			}
-		case *evmtypes.MsgAssociate:
-			if !evmAssociateIsGasless(m, ctx, evmKeeper) {
-				return false, nil
-			}
-			// ddos prevention
-			return len(tx.GetMsgs()) == 1, nil
-		default:
+		}
+		return true, nil
+	case associateFeeExempt:
+		if !evmAssociateIsGasless(tx.GetMsgs()[0].(*evmtypes.MsgAssociate), ctx, evmKeeper) {
 			return false, nil
 		}
+		return true, nil
+	default:
+		return false, nil
 	}
-	return true, nil
 }
 
 func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) (bool, error) {

@@ -66,7 +66,7 @@ func (wtx *WrappedTx) check(c TxConstraints) error {
 	if c.MaxGas >= 0 && wtx.gasWanted > c.MaxGas {
 		return fmt.Errorf("gas wanted exceeds max gas: gas wanted %d is greater than max gas %d", wtx.gasWanted, c.MaxGas)
 	}
-	if c.MaxGasWanted >= 0 && wtx.gasWanted > c.MaxGasWanted {
+	if c.MaxGasWanted > 0 && wtx.gasWanted > c.MaxGasWanted {
 		return fmt.Errorf("gas wanted exceeds max gas wanted: gas wanted %d is greater than max gas wanted %d", wtx.gasWanted, c.MaxGasWanted)
 	}
 	return nil
@@ -672,6 +672,7 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 					break
 				}
 				evm, isEVM := wtx.evm.Get()
+				// Non-EVM transactions rely on inInclusionOrder's different-account assumption.
 				if isEVM {
 					if _, blocked := blockedEVMAccounts[evm.address]; blocked {
 						continue

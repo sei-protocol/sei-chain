@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -133,6 +134,11 @@ func TestOracleVoteGasless(t *testing.T) {
 	err = CallGaslessDecoratorWithMsg(ctx, &vote2, input.OracleKeeper, nil)
 	require.NoError(t, err)
 	require.True(t, gasless)
+	voteTx := FakeTx{FakeMsgs: []sdk.Msg{&vote2}, Gas: 0}
+	isGasless, err := antedecorators.IsTxGasless(voteTx, ctx, input.OracleKeeper, nil)
+	require.NoError(t, err)
+	require.True(t, isGasless)
+	require.Equal(t, antedecorators.FeeExemptTxGasWanted, antedecorators.GasWantedForTx(voteTx, voteTx.Gas))
 }
 
 func TestNonGaslessMsg(t *testing.T) {
@@ -173,6 +179,26 @@ func TestGaslessDecoratorUsesFixedReportedLimitWithoutConsumption(t *testing.T) 
 	}
 }
 
+func TestGaslessDecoratorCapsNonExemptExecution(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).
+		WithIsCheckTx(true).
+		WithGasMeter(sdk.NewGasMeter(50_000_000, 1, 1))
+	sender := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	k.SetAddressMapping(ctx, sender, common.BytesToAddress(sender))
+	tx := FakeTx{FakeMsgs: []sdk.Msg{evmtypes.NewMsgAssociate(sender, "test")}, Gas: 50_000_000}
+	decorator := antedecorators.NewGaslessDecorator(nil, oraclekeeper.Keeper{}, k)
+
+	resultCtx, err := decorator.AnteHandle(ctx, tx, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, antedecorators.FeeExemptTxGasWanted, resultCtx.GasMeter().Limit())
+	require.Panics(t, func() {
+		resultCtx.GasMeter().ConsumeGas(antedecorators.FeeExemptTxGasWanted+1, "capped execution")
+	})
+}
+
 func TestGasWantedForTx(t *testing.T) {
 	sender := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
 	associate := evmtypes.NewMsgAssociate(sender, "test")
@@ -180,46 +206,74 @@ func TestGasWantedForTx(t *testing.T) {
 	consent := &oracletypes.MsgDelegateFeedConsent{}
 
 	testCases := []struct {
-		name        string
-		tx          FakeTx
-		declaredGas uint64
-		expectedGas uint64
+		name         string
+		tx           FakeTx
+		declaredGas  uint64
+		expectedGas  uint64
+		executionGas uint64
 	}{
 		{
-			name:        "zero-gas associate uses fixed contribution",
-			tx:          FakeTx{FakeMsgs: []sdk.Msg{associate}},
-			declaredGas: 0,
-			expectedGas: antedecorators.FeeExemptTxGasWanted,
+			name:         "empty transaction keeps declared contribution",
+			tx:           FakeTx{},
+			declaredGas:  50_000_000,
+			expectedGas:  50_000_000,
+			executionGas: 50_000_000,
 		},
 		{
-			name:        "high-gas associate uses fixed contribution",
-			tx:          FakeTx{FakeMsgs: []sdk.Msg{associate}},
-			declaredGas: 50_000_000,
-			expectedGas: antedecorators.FeeExemptTxGasWanted,
+			name:         "zero-gas associate uses fixed contribution",
+			tx:           FakeTx{FakeMsgs: []sdk.Msg{associate}},
+			declaredGas:  0,
+			expectedGas:  antedecorators.FeeExemptTxGasWanted,
+			executionGas: 0,
 		},
 		{
-			name:        "oracle-only transaction uses fixed contribution",
-			tx:          FakeTx{FakeMsgs: []sdk.Msg{vote, vote}},
-			declaredGas: 50_000_000,
-			expectedGas: antedecorators.FeeExemptTxGasWanted,
+			name:         "high-gas associate uses fixed contribution",
+			tx:           FakeTx{FakeMsgs: []sdk.Msg{associate}},
+			declaredGas:  50_000_000,
+			expectedGas:  antedecorators.FeeExemptTxGasWanted,
+			executionGas: antedecorators.FeeExemptTxGasWanted,
 		},
 		{
-			name:        "mixed transaction keeps declared contribution",
-			tx:          FakeTx{FakeMsgs: []sdk.Msg{associate, vote}},
-			declaredGas: 50_000_000,
-			expectedGas: 50_000_000,
+			name:         "oracle-only transaction uses fixed contribution",
+			tx:           FakeTx{FakeMsgs: []sdk.Msg{vote, vote}},
+			declaredGas:  50_000_000,
+			expectedGas:  antedecorators.FeeExemptTxGasWanted,
+			executionGas: antedecorators.FeeExemptTxGasWanted,
 		},
 		{
-			name:        "non-exempt oracle message keeps declared contribution",
-			tx:          FakeTx{FakeMsgs: []sdk.Msg{consent}},
-			declaredGas: 50_000_000,
-			expectedGas: 50_000_000,
+			name:         "mixed transaction keeps declared contribution",
+			tx:           FakeTx{FakeMsgs: []sdk.Msg{associate, vote}},
+			declaredGas:  50_000_000,
+			expectedGas:  50_000_000,
+			executionGas: 50_000_000,
+		},
+		{
+			name:         "oracle-first mixed transaction keeps declared contribution",
+			tx:           FakeTx{FakeMsgs: []sdk.Msg{vote, associate}},
+			declaredGas:  50_000_000,
+			expectedGas:  50_000_000,
+			executionGas: 50_000_000,
+		},
+		{
+			name:         "multiple associates keep declared contribution",
+			tx:           FakeTx{FakeMsgs: []sdk.Msg{associate, associate}},
+			declaredGas:  50_000_000,
+			expectedGas:  50_000_000,
+			executionGas: 50_000_000,
+		},
+		{
+			name:         "non-exempt oracle message keeps declared contribution",
+			tx:           FakeTx{FakeMsgs: []sdk.Msg{consent}},
+			declaredGas:  50_000_000,
+			expectedGas:  50_000_000,
+			executionGas: 50_000_000,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.expectedGas, antedecorators.GasWantedForTx(tc.tx, tc.declaredGas))
+			require.Equal(t, tc.executionGas, antedecorators.ExecutionGasLimitForTx(tc.tx, tc.declaredGas))
 		})
 	}
 }
