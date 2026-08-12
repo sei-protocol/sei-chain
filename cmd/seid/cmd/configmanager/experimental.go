@@ -3,6 +3,7 @@ package configmanager
 import (
 	"fmt"
 	"os"
+	"path"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -78,7 +79,7 @@ func sweepFor(cmd *cobra.Command) experimental.Findings {
 	// The same derivation the handler used, from the one place that owns it. Reproducing
 	// path.Base(os.Executable()) here would drift the moment the handler's changes, and the
 	// shadow pass would then look for variables under a prefix no node uses.
-	prefix, err := server.EnvPrefix()
+	prefix, err := handlerEnvPrefix()
 	if err != nil {
 		// Without the prefix the environment pass cannot run. Findings.EnvPassRan reports that,
 		// rather than a clean sweep that had simply not looked.
@@ -198,4 +199,27 @@ func orUnknown(cause string) string {
 		return "unknown; no environment variable accounts for it"
 	}
 	return logName(cause)
+}
+
+// handlerEnvPrefix reproduces the environment prefix the legacy handler binds its viper to.
+//
+// It is the running binary's own filename, which is why a node answers to SEID_* only while the
+// binary is called seid (sei-cosmos/server/util.go:108-114).
+//
+// Duplicated rather than read from an exported accessor, deliberately. The design requires this
+// change to leave production code under sei-cosmos/ untouched, so a reviewer can verify the legacy
+// path is unaffected without reading a diff, and an additive export would break that cheap check
+// for no behavioural gain.
+//
+// The cost is a second copy of a derivation that must not drift. If it does, the shadow pass looks
+// for variables under a prefix no node uses and silently reports nothing.
+//
+// TODO: extract server.EnvPrefix and call it from here and from resolveHomeDir, which duplicates
+// the same derivation for the same reason, in a change that is already touching sei-cosmos/.
+func handlerEnvPrefix() (string, error) {
+	executableName, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return path.Base(executableName), nil
 }
