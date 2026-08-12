@@ -456,12 +456,15 @@ func buildFullnodeGigaConfig(
 
 // pacingRate returns the rate limit for a configured pacing interval, falling
 // back to def when the interval is negative.
-func pacingRate(interval, def time.Duration) rate.Limit {
+func pacingRate(key string, interval, def time.Duration) rate.Limit {
 	// rate.Every maps every non-positive interval to rate.Inf. A configured 0 means
 	// "disable the limiter" and is honoured, but a negative value is a typo, and on
 	// an already-deployed node it never reaches ValidateBasic — interceptConfigs
-	// validates only when it creates the file. Clamp it where every router passes.
+	// validates only when it creates the file. Clamp it where every router passes,
+	// and say so: this is the one path where nothing else tells the operator.
 	if interval < 0 {
+		logger.Warn("negative p2p interval in config; using default instead",
+			"key", key, "configured", interval, "default", def)
 		interval = def
 	}
 	return rate.Every(interval)
@@ -495,8 +498,8 @@ func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []type
 	return &p2p.RouterOptions{
 		Endpoint:                      ep,
 		MaxIncomingConnectionAttempts: utils.Some(cfg.P2P.MaxIncomingConnectionAttempts),
-		MaxDialRate:                   utils.Some(pacingRate(cfg.P2P.DialInterval, defaults.DialInterval)),
-		MaxAcceptRate:                 utils.Some(pacingRate(cfg.P2P.AcceptInterval, defaults.AcceptInterval)),
+		MaxDialRate:                   utils.Some(pacingRate("dial-interval", cfg.P2P.DialInterval, defaults.DialInterval)),
+		MaxAcceptRate:                 utils.Some(pacingRate("accept-interval", cfg.P2P.AcceptInterval, defaults.AcceptInterval)),
 		HandshakeTimeout:              utils.Some(cfg.P2P.HandshakeTimeout),
 		DialTimeout:                   utils.Some(cfg.P2P.DialTimeout),
 		PexOnHandshake:                cfg.P2P.PexReactor,
