@@ -29,7 +29,8 @@ var StreamLaneVotes = rpc.Register[API](2, "stream_lane_votes",
 var StreamCommitQCs = rpc.Register[API](3, "stream_commit_qcs",
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamCommitQCsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*apb.CommitQC]{MsgSize: 20 * kB, Window: 20},
+	// LaneID=(Validator, Joined) grew nested CommitQC MaxSize above 20 KiB (~21.3 KiB).
+	rpc.Msg[*apb.CommitQC]{MsgSize: 25 * kB, Window: 20},
 )
 var StreamAppVotes = rpc.Register[API](4, "stream_app_votes",
 	rpc.Limit{Rate: 1, Concurrent: 1},
