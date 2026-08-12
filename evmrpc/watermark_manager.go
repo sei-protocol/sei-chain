@@ -210,9 +210,13 @@ func (m *WatermarkManager) EnsureTraceCallHeightAvailable(ctx context.Context, h
 
 // EnsureTraceHeightAvailable verifies block, receipt, and state availability
 // for debug_trace* replay endpoints (transaction/block). Replay loads parent
-// state (height-1) and reads receipts at the requested height.
+// block validators and parent state (height-1) and reads receipts at the
+// requested height.
 func (m *WatermarkManager) EnsureTraceHeightAvailable(ctx context.Context, height int64) error {
 	if err := m.EnsureBlockHeightAvailable(ctx, height); err != nil {
+		return err
+	}
+	if err := m.ensureReplayParentBlockAvailable(ctx, height); err != nil {
 		return err
 	}
 	if err := m.EnsureReceiptHeightAvailable(height); err != nil {
@@ -224,6 +228,13 @@ func (m *WatermarkManager) EnsureTraceHeightAvailable(ctx context.Context, heigh
 	}
 	stateHeight := max(height-1, m.genesisInitialHeight())
 	return m.EnsureStateHeightAvailable(ctx, stateHeight)
+}
+
+// ensureReplayParentBlockAvailable verifies the parent block height replay
+// tracing loads for validator set lookup in initializeBlock.
+func (m *WatermarkManager) ensureReplayParentBlockAvailable(ctx context.Context, height int64) error {
+	parentBlockHeight := max(height-1, 0)
+	return m.EnsureBlockHeightAvailable(ctx, parentBlockHeight)
 }
 
 func ensureWithinWatermarks(height, earliest, latest int64) error {

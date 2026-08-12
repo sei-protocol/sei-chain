@@ -197,6 +197,31 @@ func TestEnsureTraceHeightAvailable(t *testing.T) {
 	require.ErrorContains(t, wm.EnsureTraceHeightAvailable(t.Context(), 100), "has been pruned")
 }
 
+func TestEnsureTraceHeightAvailableParentBlockFloor(t *testing.T) {
+	t.Parallel()
+
+	const (
+		blockFloor   = int64(150)
+		latestHeight = int64(200)
+	)
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{
+			SyncInfo: coretypes.SyncInfo{
+				LatestBlockHeight:   latestHeight,
+				EarliestBlockHeight: blockFloor,
+			},
+		},
+	}
+	stateStore := &fakeStateStore{latest: latestHeight, earliest: 1}
+	rs := &fakeReceiptStore{latest: latestHeight, earliest: 1}
+	wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(latestHeight), stateStore, rs)
+
+	require.NoError(t, wm.EnsureBlockHeightAvailable(t.Context(), blockFloor))
+	require.ErrorContains(t, wm.EnsureTraceHeightAvailable(t.Context(), blockFloor), "has been pruned")
+	require.NoError(t, wm.EnsureTraceCallHeightAvailable(t.Context(), blockFloor))
+	require.NoError(t, wm.EnsureTraceHeightAvailable(t.Context(), blockFloor+1))
+}
+
 func TestEnsureTraceHeightAvailableSkipsStateWhenSSDisabled(t *testing.T) {
 	tmClient := &fakeTMClient{
 		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 200, EarliestBlockHeight: 1}},
