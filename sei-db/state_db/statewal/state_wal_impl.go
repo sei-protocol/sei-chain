@@ -3,6 +3,7 @@ package statewal
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
@@ -12,7 +13,9 @@ var _ StateWAL = (*stateWALImpl)(nil)
 
 // A WAL for storing state changesets by block number.
 //
-// Not safe for concurrent use; see the StateWAL interface doc.
+// Not safe for concurrent use; see the StateWAL interface doc. The gc.PrunableStore surface in
+// state_wal_gc.go is the one exception: it runs on the collector's goroutine, and touches only
+// lastCompletedBlock and the WAL underneath.
 type stateWALImpl struct {
 	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
 	wal seiwal.WAL[[]*proto.NamedChangeSet]
@@ -39,6 +42,14 @@ type stateWALImpl struct {
 	// end-of-block. Ownership is handed to the WAL at end-of-block and a fresh buffer starts for the next
 	// block, so the serialization goroutine never races the wrapper over the backing array.
 	buf []*proto.NamedChangeSet
+
+	// The highest block that has been ended by SignalEndOfBlock, and so is actually a record in the WAL.
+	// Distinct from currentBlock, which may name a block still accumulating in buf. Atomic because the
+	// garbage collector reads it off-goroutine (GetLatestBlock); the writer is its only mutator.
+	//
+	// 0 also means no block has completed yet, so a WAL whose only completed block is block 0 is
+	// indistinguishable from an empty one.
+	lastCompletedBlock atomic.Uint64
 }
 
 // New opens (or creates) a state WAL in the configured directory, recovering any files left behind by a
@@ -113,6 +124,7 @@ func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
 		w.currentBlock = last
 		w.currentBlockEnded = true
 		w.hasCurrentBlock = true
+		w.lastCompletedBlock.Store(last)
 	}
 	return w, nil
 }
@@ -156,6 +168,7 @@ func (w *stateWALImpl) SignalEndOfBlock() error {
 		return w.fail(fmt.Errorf("failed to append block %d: %w", w.currentBlock, err))
 	}
 	w.currentBlockEnded = true
+	w.lastCompletedBlock.Store(w.currentBlock)
 	w.buf = nil // hand ownership to the WAL; the next block starts a fresh buffer
 	return nil
 }

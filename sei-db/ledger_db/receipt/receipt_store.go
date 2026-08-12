@@ -154,6 +154,11 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	case receiptBackendLittIdx:
 		return newLittReceiptStore(config, storeKey)
 	case receiptBackendPebble:
+		// This backend is not a gc.PrunableStore, so honoring ExternalPruning would stop its own
+		// pruner and put nothing in its place.
+		if config.ExternalPruning {
+			return nil, fmt.Errorf("receipt store backend %q does not support external pruning; use %q", receiptBackendPebble, receiptBackendLittIdx)
+		}
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory
 		ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer

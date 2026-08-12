@@ -16,9 +16,13 @@ import (
 //   - kindBlock     'b' + 8-byte big-endian GlobalBlockNumber (block primary key)
 //   - kindBlockHash 'h' + 32-byte header hash               (block hash alias)
 //   - kindQC        'q' + 8-byte big-endian GlobalBlockNumber (QC primary + covered aliases)
+//   - kindAppQC     'a' + 8-byte big-endian GlobalBlockNumber (AppQC primary + covered aliases)
+//   - kindAppProp   'p' + 8-byte big-endian GlobalBlockNumber (AppProposal primary + covered aliases)
 const (
+	kindAppQC     byte = 'a'
 	kindBlock     byte = 'b'
 	kindBlockHash byte = 'h'
+	kindAppProp   byte = 'p'
 	kindQC        byte = 'q'
 )
 
@@ -32,8 +36,8 @@ func encodeKey(n types.GlobalBlockNumber) []byte {
 }
 
 // decodeKey decodes an 8-byte value produced by encodeKey.
-func decodeKey(b []byte) types.GlobalBlockNumber {
-	return types.GlobalBlockNumber(binary.BigEndian.Uint64(b))
+func decodeKey(b [8]byte) types.GlobalBlockNumber {
+	return types.GlobalBlockNumber(binary.BigEndian.Uint64(b[:]))
 }
 
 // blockKey returns the primary key under which a block at number n is stored.
@@ -53,15 +57,28 @@ func qcKey(n types.GlobalBlockNumber) []byte {
 	return append([]byte{kindQC}, encodeKey(n)...)
 }
 
+// appQCKey returns the key for AppQC number n — used both for an AppQC's
+// primary key and for each covered-number alias.
+func appQCKey(n types.GlobalBlockNumber) []byte {
+	return append([]byte{kindAppQC}, encodeKey(n)...)
+}
+
+// appProposalKey returns the key for AppProposal number n — used both for an
+// AppProposal's primary key and for each covered-number alias.
+func appProposalKey(n types.GlobalBlockNumber) []byte {
+	return append([]byte{kindAppProp}, encodeKey(n)...)
+}
+
 // keyKind returns the kind prefix byte of a stored key.
 func keyKind(key []byte) byte {
 	return key[0]
 }
 
-// decodeNumberKey decodes the GlobalBlockNumber from a kindBlock or kindQC key
-// (i.e. a key whose prefix is followed by an 8-byte big-endian number).
+// decodeNumberKey decodes the GlobalBlockNumber from a kindBlock, kindQC, or
+// kindAppQC key (i.e. a key whose prefix is followed by an 8-byte big-endian
+// number). Panics if key is not 9 bytes (1B kind + 8B GlobalBlockNumber).
 func decodeNumberKey(key []byte) types.GlobalBlockNumber {
-	return decodeKey(key[1:])
+	return decodeKey([8]byte(key[1:]))
 }
 
 // Serialization version for blocks.
@@ -69,6 +86,12 @@ const blockSerializationVersion byte = 1
 
 // Serialization version for QCs.
 const qcSerializationVersion byte = 1
+
+// Serialization version for AppQCs.
+const appQCSerializationVersion byte = 1
+
+// Serialization version for AppProposals.
+const appProposalSerializationVersion byte = 1
 
 // blockValuePrefixLen is the fixed header preceding a block's proto bytes: one
 // version byte followed by the 8-byte big-endian GlobalBlockNumber.
@@ -124,8 +147,8 @@ func encodeQC(qc *types.FullCommitQC) []byte {
 // so deriving from the encoded fields is what makes a QC's range identical
 // before and after a round trip through the table.
 func coveredRange(qc *types.FullCommitQC) (types.GlobalBlockNumber, types.GlobalBlockNumber) {
-	first := qc.QC().GlobalRange().First
-	return first, first + types.GlobalBlockNumber(len(qc.Headers()))
+	gr := qc.QC().GlobalRange()
+	return gr.First, gr.Next
 }
 
 // decodeQC unmarshals a FullCommitQC from the value produced by encodeQC.
@@ -141,4 +164,55 @@ func decodeQC(value []byte) (*types.FullCommitQC, error) {
 		return nil, fmt.Errorf("failed to unmarshal qc: %w", err)
 	}
 	return qc, nil
+}
+
+// encodeAppProposal marshals an AppProposal to the bytes stored as its table
+// value, framed as [version:1][proto(AppProposal)].
+func encodeAppProposal(appProposal *types.AppProposal) []byte {
+	proto := types.AppProposalConv.Marshal(appProposal)
+	value := make([]byte, 0, 1+len(proto))
+	value = append(value, appProposalSerializationVersion)
+	value = append(value, proto...)
+	return value
+}
+
+// decodeAppProposal unmarshals an AppProposal from the value produced by
+// encodeAppProposal.
+func decodeAppProposal(value []byte) (*types.AppProposal, error) {
+	if len(value) < 1 {
+		return nil, fmt.Errorf("appProposal value too short: %d bytes", len(value))
+	}
+	if value[0] != appProposalSerializationVersion {
+		return nil, fmt.Errorf("unsupported appProposal serialization version %d", value[0])
+	}
+	appProposal, err := types.AppProposalConv.Unmarshal(value[1:])
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal appProposal: %w", err)
+	}
+	return appProposal, nil
+}
+
+// encodeAppQC marshals an AppQC to the bytes stored as its table value,
+// framed as [version:1][proto(AppQC)].
+func encodeAppQC(appQC *types.AppQC) []byte {
+	proto := types.AppQCConv.Marshal(appQC)
+	value := make([]byte, 0, 1+len(proto))
+	value = append(value, appQCSerializationVersion)
+	value = append(value, proto...)
+	return value
+}
+
+// decodeAppQC unmarshals an AppQC from the value produced by encodeAppQC.
+func decodeAppQC(value []byte) (*types.AppQC, error) {
+	if len(value) < 1 {
+		return nil, fmt.Errorf("appQC value too short: %d bytes", len(value))
+	}
+	if value[0] != appQCSerializationVersion {
+		return nil, fmt.Errorf("unsupported appQC serialization version %d", value[0])
+	}
+	appQC, err := types.AppQCConv.Unmarshal(value[1:])
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal appQC: %w", err)
+	}
+	return appQC, nil
 }
