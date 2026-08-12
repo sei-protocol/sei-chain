@@ -1,6 +1,7 @@
 package configcli_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -84,7 +85,7 @@ func TestSetWritesTheDeclaredTypeNotTheTypedText(t *testing.T) {
 	} {
 		t.Run(tc.key, func(t *testing.T) {
 			registerTyped(t)
-			path := seed(t, "schema_version = 1\n")
+			path := seed(t, "schema_version = 1\nnode_mode = \"validator\"\n")
 
 			change, err := configcli.Set(path, tc.key, tc.raw)
 			if err != nil {
@@ -107,7 +108,7 @@ func TestSetWritesTheDeclaredTypeNotTheTypedText(t *testing.T) {
 // TestSetWritesAListAsAList covers the one type that is not a single token.
 func TestSetWritesAListAsAList(t *testing.T) {
 	registerTyped(t)
-	path := seed(t, "schema_version = 1\n")
+	path := seed(t, "schema_version = 1\nnode_mode = \"validator\"\n")
 
 	if _, err := configcli.Set(path, "probe.peers", "x, y ,z"); err != nil {
 		t.Fatalf("Set: %v", err)
@@ -139,7 +140,7 @@ func TestSetRefusesTextThatIsNotTheDeclaredType(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			registerTyped(t)
-			path := seed(t, "schema_version = 1\n")
+			path := seed(t, "schema_version = 1\nnode_mode = \"validator\"\n")
 
 			if _, err := configcli.Set(path, tc.key, tc.raw); err == nil {
 				t.Errorf("set accepted %q for %s. The file would hold a value the node refuses, and "+
@@ -159,7 +160,7 @@ func TestSetRefusesTextThatIsNotTheDeclaredType(t *testing.T) {
 // the operator can see what they meant.
 func TestSetRefusesAKeyNoSectionDeclares(t *testing.T) {
 	registerTyped(t)
-	path := seed(t, "schema_version = 1\n")
+	path := seed(t, "schema_version = 1\nnode_mode = \"validator\"\n")
 
 	_, err := configcli.Set(path, "probe.worker", "16")
 	if err == nil {
@@ -177,7 +178,7 @@ func TestSetRefusesAKeyNoSectionDeclares(t *testing.T) {
 // operator wrote, and a freshly generated home does not carry the table for the same reason.
 func TestSetRefusesToWriteTheExperimentalTable(t *testing.T) {
 	registerTyped(t)
-	path := seed(t, "schema_version = 1\n")
+	path := seed(t, "schema_version = 1\nnode_mode = \"validator\"\n")
 
 	// Asserted on what the message says, not merely that one appeared. An experimental key is real
 	// and hand-written, so refusing it as a key nothing declares is wrong advice: the operator would
@@ -213,7 +214,7 @@ func TestSetRefusesToWriteTheExperimentalTable(t *testing.T) {
 // has no record of what they overwrote.
 func TestSetReportsWhatItReplaced(t *testing.T) {
 	registerTyped(t)
-	path := seed(t, "schema_version = 1\n\n[probe]\nworkers = 4\n")
+	path := seed(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nworkers = 4\n")
 
 	change, err := configcli.Set(path, "probe.workers", "16")
 	if err != nil {
@@ -235,7 +236,7 @@ func TestSetReportsWhatItReplaced(t *testing.T) {
 // tell a successful fallback from a mistyped key.
 func TestUnsetRemovesTheKeyAndReportsWhetherItWasThere(t *testing.T) {
 	registerTyped(t)
-	path := seed(t, "schema_version = 1\n\n[probe]\nworkers = 4\nenabled = true\n")
+	path := seed(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nworkers = 4\nenabled = true\n")
 
 	change, err := configcli.Unset(path, "probe.workers")
 	if err != nil {
@@ -268,7 +269,7 @@ func TestUnsetRemovesTheKeyAndReportsWhetherItWasThere(t *testing.T) {
 // before and after are indistinguishable and the test would pass for an unset that did nothing.
 func TestSetAndUnsetRoundTripThroughTheFile(t *testing.T) {
 	registerTyped(t)
-	path := seed(t, "schema_version = 1\n")
+	path := seed(t, "schema_version = 1\nnode_mode = \"validator\"\n")
 
 	if _, err := configcli.Set(path, "probe.workers", "16"); err != nil {
 		t.Fatalf("Set: %v", err)
@@ -312,7 +313,7 @@ func TestSetAndUnsetRoundTripThroughTheFile(t *testing.T) {
 func TestSetPreservesTheCommentOnTheKeyItChanges(t *testing.T) {
 	registerTyped(t)
 	const note = "# Raised during the March load test."
-	path := seed(t, "schema_version = 1\n\n[probe]\n"+note+"\nworkers = 4\n")
+	path := seed(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\n"+note+"\nworkers = 4\n")
 
 	if _, err := configcli.Set(path, "probe.workers", "16"); err != nil {
 		t.Fatalf("Set: %v", err)
@@ -366,7 +367,7 @@ func TestAKeysTypeDoesNotVaryByMode(t *testing.T) {
 // moment a release changes that baseline.
 func TestDiffSeparatesChosenValuesFromTrackedOnes(t *testing.T) {
 	registerTyped(t)
-	file := parseFile(t, "schema_version = 1\n\n[probe]\nworkers = 16\nratio = 0.5\nstray = 1\n")
+	file := parseFile(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nworkers = 16\nratio = 0.5\nstray = 1\n")
 
 	got, err := configcli.Diff(file, registry.ModeValidator)
 	if err != nil {
@@ -428,69 +429,138 @@ func TestDiffDoesNotReportEqualValuesAsDifferentBecauseOfTheirTypes(t *testing.T
 	}
 }
 
-// TestDiffFollowsTheModeItWasGiven holds that the mode reaches the comparison.
+// TestDiffFollowsTheModeTheFileRecords holds that the recorded mode reaches the comparison.
 //
-// Without it the tests above would pass for a diff that resolved one mode's baselines regardless,
-// which on an archive node would report a validator's defaults as its own.
-func TestDiffFollowsTheModeItWasGiven(t *testing.T) {
+// Two files carrying the same value and different modes must compare differently, or the mode never
+// reached the baselines and an archive node would be measured against a validator's defaults.
+func TestDiffFollowsTheModeTheFileRecords(t *testing.T) {
 	registerTyped(t)
-	file := parseFile(t, "schema_version = 1\n\n[probe]\nenabled = true\n")
+	const body = "schema_version = 1\nnode_mode = %q\n\n[probe]\nenabled = true\n"
 
-	validator, err := configcli.Diff(file, registry.ModeValidator)
+	validator, err := configcli.Diff(parseFile(t, fmt.Sprintf(body, "validator")), "")
 	if err != nil {
-		t.Fatalf("Diff(validator): %v", err)
+		t.Fatalf("Diff(validator file): %v", err)
 	}
-	archive, err := configcli.Diff(file, registry.ModeArchive)
+	archive, err := configcli.Diff(parseFile(t, fmt.Sprintf(body, "archive")), "")
 	if err != nil {
-		t.Fatalf("Diff(archive): %v", err)
+		t.Fatalf("Diff(archive file): %v", err)
 	}
 
+	if validator.Mode != registry.ModeValidator || archive.Mode != registry.ModeArchive {
+		t.Errorf("the comparisons ran against %q and %q, want the modes the files record",
+			validator.Mode, archive.Mode)
+	}
 	if len(validator.Differing) != 0 {
 		t.Errorf("enabled = true differs from the validator baseline, which is also true: %+v",
 			validator.Differing)
 	}
 	if len(archive.Differing) != 1 {
 		t.Errorf("enabled = true does not differ from the archive baseline, which is false: %+v.\n"+
-			"A diff that ignored its mode would report an archive node against a validator's defaults",
-			archive.Differing)
+			"A comparison that ignored the recorded mode would measure an archive node against a "+
+			"validator's defaults", archive.Differing)
+	}
+}
+
+// TestDiffRefusesAModeThatDisagreesWithTheFile is why the recorded mode is not merely a default.
+//
+// Silently preferring either one produces a comparison the operator did not ask for. The
+// disagreement is the thing they need to see, so it is the answer.
+func TestDiffRefusesAModeThatDisagreesWithTheFile(t *testing.T) {
+	registerTyped(t)
+	file := parseFile(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nenabled = true\n")
+
+	_, err := configcli.Diff(file, registry.ModeArchive)
+	if err == nil {
+		t.Fatal("a comparison against a mode the file does not record was accepted, so an operator " +
+			"would read differences that are not differences")
+	}
+	for _, want := range []string{"validator", "archive"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q, so the operator cannot see which two disagree: %v",
+				want, err)
+		}
+	}
+	// Naming the same mode the file records is not a disagreement.
+	if _, err := configcli.Diff(file, registry.ModeValidator); err != nil {
+		t.Errorf("naming the mode the file already records was refused: %v", err)
 	}
 	if _, err := configcli.Diff(file, registry.Mode("archival")); err == nil {
 		t.Error("Diff accepted a mode no node runs")
 	}
 }
 
-// TestALargeUnsignedBaselineIsNotConfusedWithANegativeWrittenValue holds the one comparison that
-// silently wraps.
+// TestDiffRefusesAFileWithNoUsableMode keeps a comparison from guessing which defaults to use.
 //
-// A file yields a signed whole number while a struct field may be unsigned. Cast to one type, an
-// unsigned value above the signed maximum becomes its negative counterpart, so a written value that
-// is nothing like the baseline compares equal to it and the key is reported as agreeing.
-func TestALargeUnsignedBaselineIsNotConfusedWithANegativeWrittenValue(t *testing.T) {
-	const aboveSignedMax = uint64(1) << 63
+// A file that records no mode, or one no release produced, cannot be compared against anything:
+// picking a mode chooses whose defaults the operator is shown against, and either choice is wrong
+// often enough to be useless.
+func TestDiffRefusesAFileWithNoUsableMode(t *testing.T) {
+	registerTyped(t)
 
-	registry.Reset()
-	registry.RegisterSection("probe", &struct {
-		Big uint64 `mapstructure:"big"`
-	}{}, func(registry.Mode) any {
-		return struct {
-			Big uint64 `mapstructure:"big"`
-		}{Big: aboveSignedMax}
-	})
-	for _, d := range registry.Defects() {
-		t.Fatalf("registering the probe section produced a defect: %v", d.Err)
+	for _, tc := range []struct{ name, body string }{
+		{"absent", "schema_version = 1\n\n[probe]\nenabled = true\n"},
+		{"unknown", "schema_version = 1\nnode_mode = \"archival\"\n"},
+		{"empty", "schema_version = 1\nnode_mode = \"\"\n"},
+		{"not text", "schema_version = 1\nnode_mode = 3\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := configcli.Diff(parseFile(t, tc.body), ""); err == nil {
+				t.Errorf("a file whose mode is %s was compared anyway, against whichever defaults the "+
+					"code happened to pick", tc.name)
+			}
+		})
+	}
+}
+
+// TestDoctorRefusesAFileWhoseModeItCannotUse holds the check that makes every other answer mean
+// something.
+//
+// A mode this binary does not know leaves nothing able to resolve the defaults the file's values were
+// chosen against, so no comparison can run and the node cannot be told whether its settings still
+// mean what they meant. Reporting the keys as fine while the mode is unusable would read as a clean
+// bill of health.
+func TestDoctorRefusesAFileWhoseModeItCannotUse(t *testing.T) {
+	registerTyped(t)
+
+	for _, tc := range []struct{ name, body string }{
+		{"absent", "schema_version = 1\n\n[probe]\nenabled = true\n"},
+		{"unknown", "schema_version = 1\nnode_mode = \"archival\"\n\n[probe]\nenabled = true\n"},
+		{"not text", "schema_version = 1\nnode_mode = 3\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := configcli.Doctor(parseFile(t, tc.body))
+			if err != nil {
+				t.Fatalf("Doctor: %v", err)
+			}
+
+			if d.Healthy() {
+				t.Errorf("a file whose mode is %s was reported healthy. Nothing can resolve the defaults "+
+					"its values were chosen against, so a clean report is a false one", tc.name)
+			}
+			if d.ModeProblem == "" {
+				t.Errorf("the diagnosis carries no mode problem: %+v. An operator cannot fix what the "+
+					"report does not name", d)
+			}
+			if !strings.Contains(d.Report(), "node mode") {
+				t.Errorf("the report does not mention the mode:\n%s", d.Report())
+			}
+		})
 	}
 
-	// The value this baseline becomes if it is cast to a signed type.
-	file := parseFile(t, "schema_version = 1\n\n[probe]\nbig = -9223372036854775808\n")
-
-	got, err := configcli.Diff(file, registry.ModeValidator)
+	// A usable mode leaves the diagnosis clean and names the mode it checked against, or the
+	// assertions above would hold for a doctor that refused every file.
+	good := parseFile(t, "schema_version = 1\nnode_mode = \"archive\"\n\n[probe]\nenabled = true\n")
+	d, err := configcli.Doctor(good)
 	if err != nil {
-		t.Fatalf("Diff: %v", err)
+		t.Fatalf("Doctor: %v", err)
 	}
-
-	if len(got.Differing) != 1 {
-		t.Errorf("a written -9223372036854775808 was reported as matching a baseline of %d: %+v.\n\n"+
-			"The two are only equal once the unsigned value has wrapped, so the operator is told "+
-			"their file agrees with the binary when it does not", aboveSignedMax, got)
+	if !d.Healthy() || d.ModeProblem != "" {
+		t.Errorf("a file recording a real mode was refused: %+v", d)
+	}
+	if d.Mode != "archive" {
+		t.Errorf("the diagnosis reports mode %q, want archive", d.Mode)
+	}
+	if !strings.Contains(d.Report(), "archive") {
+		t.Errorf("the clean report does not say which mode it checked against:\n%s", d.Report())
 	}
 }

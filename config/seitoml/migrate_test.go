@@ -25,7 +25,7 @@ func renameChain() []seitoml.Migration {
 		{
 			To:      2,
 			Summary: "move probe.workers to probe.worker_count",
-			Fixture: "schema_version = 1\n\n[probe]\nworkers = 4\n",
+			Fixture: "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nworkers = 4\n",
 			Apply: func(f *seitoml.File) error {
 				v, ok, err := f.Get("probe.workers")
 				if err != nil || !ok {
@@ -40,7 +40,7 @@ func renameChain() []seitoml.Migration {
 		{
 			To:      3,
 			Summary: "add probe.timeout",
-			Fixture: "schema_version = 2\n\n[probe]\nworker_count = 4\n",
+			Fixture: "schema_version = 2\nnode_mode = \"validator\"\n\n[probe]\nworker_count = 4\n",
 			Apply: func(f *seitoml.File) error {
 				return f.Set("probe.timeout", "30s")
 			},
@@ -73,7 +73,7 @@ func read(t *testing.T, path string) string {
 // only the last, fails. The steps are reported in order because that is what an operator reads to
 // understand what happened to their file.
 func TestUpgradeRunsEveryPendingStepInOrder(t *testing.T) {
-	path := write(t, "schema_version = 1\n\n[probe]\nworkers = 4\n")
+	path := write(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nworkers = 4\n")
 
 	steps, err := seitoml.Upgrade(path, renameChain(), false)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestUpgradeRunsEveryPendingStepInOrder(t *testing.T) {
 // A step reported with no keys is indistinguishable from a step that did nothing, so the diff is
 // what makes the report worth printing.
 func TestUpgradeReportsWhichKeysEachStepMoved(t *testing.T) {
-	path := write(t, "schema_version = 1\n\n[probe]\nworkers = 4\n")
+	path := write(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nworkers = 4\n")
 
 	steps, err := seitoml.Upgrade(path, renameChain(), false)
 	if err != nil {
@@ -143,7 +143,7 @@ func TestUpgradeReportsWhichKeysEachStepMoved(t *testing.T) {
 // A preview that reported something other than the real run would be worse than no preview, since
 // an operator would approve one change and get another.
 func TestADryRunPreviewsExactlyWhatARunWouldDo(t *testing.T) {
-	const body = "schema_version = 1\n\n[probe]\nworkers = 4\n"
+	const body = "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nworkers = 4\n"
 	preview := write(t, body)
 	real := write(t, body)
 
@@ -169,7 +169,7 @@ func TestADryRunPreviewsExactlyWhatARunWouldDo(t *testing.T) {
 // A crash part way through a chain must leave a file at a version some migration produced, not one
 // whose contents belong to no version. Held by failing the second step and reading what is on disk.
 func TestUpgradeAdvancesTheFileOneVersionPerWrite(t *testing.T) {
-	path := write(t, "schema_version = 1\n\n[probe]\nworkers = 4\n")
+	path := write(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nworkers = 4\n")
 	chain := renameChain()
 	chain[1].Apply = func(*seitoml.File) error {
 		return fmt.Errorf("this step fails")
@@ -207,7 +207,7 @@ func TestUpgradeAdvancesTheFileOneVersionPerWrite(t *testing.T) {
 // The file's keys were written against a schema this binary does not have. Reporting it current
 // would boot a node against a file it cannot fully read, and nothing would say so.
 func TestUpgradeRefusesAFileFromANewerBinary(t *testing.T) {
-	path := write(t, "schema_version = 9\n\n[probe]\nworkers = 4\n")
+	path := write(t, "schema_version = 9\nnode_mode = \"validator\"\n\n[probe]\nworkers = 4\n")
 
 	if _, err := seitoml.Upgrade(path, renameChain(), false); err == nil {
 		t.Error("a file from a newer binary was accepted as current. Its keys were written against a " +
@@ -222,7 +222,7 @@ func TestUpgradeRefusesAFileFromANewerBinary(t *testing.T) {
 //
 // Without it, the refusals above would hold for an upgrade that refused everything.
 func TestAFileAlreadyCurrentNeedsNoSteps(t *testing.T) {
-	path := write(t, "schema_version = 3\n\n[probe]\nworker_count = 4\n")
+	path := write(t, "schema_version = 3\nnode_mode = \"validator\"\n\n[probe]\nworker_count = 4\n")
 	before := read(t, path)
 
 	steps, err := seitoml.Upgrade(path, renameChain(), false)
@@ -243,7 +243,7 @@ func TestAFileAlreadyCurrentNeedsNoSteps(t *testing.T) {
 // Without it, the tests above would pass for an upgrade that always ran the whole chain, which on a
 // file already partly migrated would apply a step twice.
 func TestUpgradeStartsFromTheVersionTheFileRecords(t *testing.T) {
-	path := write(t, "schema_version = 2\n\n[probe]\nworker_count = 4\n")
+	path := write(t, "schema_version = 2\nnode_mode = \"validator\"\n\n[probe]\nworker_count = 4\n")
 
 	steps, err := seitoml.Upgrade(path, renameChain(), false)
 	if err != nil {
@@ -261,7 +261,7 @@ func TestUpgradeStartsFromTheVersionTheFileRecords(t *testing.T) {
 // A migration that set the version itself could raise it without transforming anything, and the
 // file would then claim a shape it does not have with nothing able to detect it.
 func TestAMigrationCannotClaimAVersionItsContentsDoNotMatch(t *testing.T) {
-	path := write(t, "schema_version = 1\n\n[probe]\nworkers = 4\n")
+	path := write(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nworkers = 4\n")
 	chain := []seitoml.Migration{{
 		To:      2,
 		Summary: "a migration that tries to set the version itself",

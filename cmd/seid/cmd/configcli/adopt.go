@@ -75,7 +75,7 @@ func Adopt(existing Source, lookupEnv func(string) (string, bool), mode registry
 		return Adoption{}, fmt.Errorf("no section has registered a key, so there is nothing to adopt")
 	}
 
-	file, err := seitoml.New()
+	file, err := seitoml.New(string(mode))
 	if err != nil {
 		return Adoption{}, err
 	}

@@ -189,7 +189,8 @@ func diffCmd(defaultHome string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String(flagMode, string(registry.ModeFull), modeUsage())
+	cmd.Flags().String(flagMode, "", "Compare against another mode's defaults instead of the one "+
+		"the file records; one of "+fmt.Sprint(registry.Modes()))
 	return cmd
 }
 
@@ -216,6 +217,9 @@ func doctorCmd(defaultHome string) *cobra.Command {
 			if !diagnosis.Healthy() {
 				// A non-zero exit is what lets an operator gate a deploy on this, and the report above
 				// already names every key, so this adds no second copy of the list.
+				if diagnosis.ModeProblem != "" {
+					return fmt.Errorf("sei.toml does not record a usable node mode")
+				}
 				return fmt.Errorf("%d written setting(s) are not recognized by this binary",
 					len(diagnosis.Unrecognized))
 			}

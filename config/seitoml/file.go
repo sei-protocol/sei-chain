@@ -22,6 +22,14 @@ const SchemaVersion = 1
 // the shape of the file it describes.
 const VersionKey = "schema_version"
 
+// ModeKey records which node mode the file's values resolve for.
+//
+// At the top level beside VersionKey, not inside a section, because the mode selects which baselines
+// apply and so cannot itself have a per-mode baseline. It is also the only durable record of an
+// archive node: seid init writes config.toml's mode as "full" for one, since Tendermint has no
+// archive mode, so nothing else on disk distinguishes the two.
+const ModeKey = "node_mode"
+
 // newFileMode is the permission a file created here gets.
 //
 // Narrow rather than the usual 0644, because a configuration may name a private endpoint or an
@@ -56,13 +64,49 @@ func Load(path string) (*File, error) {
 	return f, nil
 }
 
-// New returns an empty document carrying this binary's schema version.
-func New() (*File, error) {
+// New returns an empty document carrying this binary's schema version and the given node mode.
+//
+// The mode is required rather than optional. Every value a caller goes on to write resolves for one
+// mode, and a file that does not say which cannot be compared against a binary's defaults or checked
+// against the mode the node actually runs.
+func New(mode string) (*File, error) {
+	if mode == "" {
+		return nil, fmt.Errorf("a sei.toml needs a node mode: every value in it resolves for one, and " +
+			"a file that omits it cannot be compared against this binary's defaults")
+	}
 	f := &File{doc: &tomledit.Document{Global: &tomledit.Section{}}}
 	if err := f.setVersion(SchemaVersion); err != nil {
 		return nil, err
 	}
+	if err := f.Set(ModeKey, mode); err != nil {
+		return nil, err
+	}
 	return f, nil
+}
+
+// Mode returns the node mode the file's values resolve for.
+//
+// An absent mode is an error rather than a guess. Guessing picks one binary's idea of a default and
+// silently compares an archive node's file against a validator's baselines, which is the mistake
+// this key exists to make impossible.
+func (f *File) Mode() (string, error) {
+	e := f.doc.First(ModeKey)
+	if e == nil || e.KeyValue == nil {
+		return "", fmt.Errorf("sei.toml has no %s. Every value in it resolves for one node mode, so "+
+			"without it nothing can tell an archive node's file from a validator's", ModeKey)
+	}
+	v, err := goValue(e.Value)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", ModeKey, err)
+	}
+	mode, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("%s is %T (%v), want a mode name", ModeKey, v, v)
+	}
+	if mode == "" {
+		return "", fmt.Errorf("%s is empty", ModeKey)
+	}
+	return mode, nil
 }
 
 // Version returns the schema version the file records.

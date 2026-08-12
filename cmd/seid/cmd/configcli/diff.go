@@ -21,7 +21,7 @@ type Difference struct {
 
 // Comparison is what the file and the binary disagree about.
 type Comparison struct {
-	// Mode is the mode the baselines were resolved for.
+	// Mode is the node mode whose baselines the comparison ran against.
 	Mode registry.Mode
 	// Differing are the keys whose written value is not the baseline, sorted.
 	Differing []Difference
@@ -31,7 +31,12 @@ type Comparison struct {
 	Undeclared []string
 }
 
-// Diff compares a written file against this binary's baselines for a mode.
+// Diff compares a written file against this binary's baselines.
+//
+// The mode comes from the file, which records the one its values resolve for. A caller may pass one
+// to compare against a different mode, and a mismatch is an error rather than a silent choice of
+// either: comparing an archive node's file against a validator's baselines reports differences that
+// are not differences at all.
 //
 // The comparison is what an operator reads to answer two questions a file alone cannot: which of
 // these values did somebody choose, and which are simply the binary's own. On a fully generated
@@ -42,7 +47,8 @@ type Comparison struct {
 // rather than tracking, because the two behave differently the moment a release changes that
 // baseline.
 func Diff(file *seitoml.File, mode registry.Mode) (Comparison, error) {
-	if err := knownMode(mode); err != nil {
+	mode, err := reconcileMode(file, mode)
+	if err != nil {
 		return Comparison{}, err
 	}
 	resolved, err := registry.Resolve(mode)
@@ -195,4 +201,29 @@ func (c Comparison) Report() string {
 		b.WriteString("\nEvery declared key is written and matches this binary's defaults.\n")
 	}
 	return b.String()
+}
+
+// reconcileMode settles which mode a comparison runs against.
+//
+// The file's own mode wins when the caller names none. When the caller names one that disagrees, this
+// refuses rather than picking: either answer produces a comparison the operator did not ask for, and
+// the disagreement itself is what they need to see.
+func reconcileMode(file *seitoml.File, asked registry.Mode) (registry.Mode, error) {
+	recorded, err := file.Mode()
+	if err != nil {
+		return "", err
+	}
+	fromFile := registry.Mode(recorded)
+	if err := knownMode(fromFile); err != nil {
+		return "", fmt.Errorf("sei.toml records %s = %q: %w", seitoml.ModeKey, recorded, err)
+	}
+	if asked == "" || asked == fromFile {
+		return fromFile, nil
+	}
+	if err := knownMode(asked); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("sei.toml holds values resolved for %q mode and this asks for %q. Comparing "+
+		"against another mode's defaults reports differences that are not differences. Regenerate for "+
+		"%q, or drop the flag to compare against the mode the file records", fromFile, asked, asked)
 }

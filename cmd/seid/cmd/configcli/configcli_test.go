@@ -160,7 +160,9 @@ func TestGenerateWritesKeysInSortedOrder(t *testing.T) {
 			got = append(got, name)
 		}
 	}
-	want := []string{"schema_version", "alpha", "bravo", "charlie", "mike", "yankee", "zulu"}
+	// The two header keys come first, then the section's keys in order. schema_version and node_mode
+	// describe the file rather than configuring the node, so they sit outside the sorted run.
+	want := []string{"schema_version", "node_mode", "alpha", "bravo", "charlie", "mike", "yankee", "zulu"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("the file's keys are in the order %v, want %v. Written in map order, two nodes with "+
 			"identical configuration would produce a diff showing every line as changed", got, want)
@@ -274,6 +276,7 @@ func TestDoctorRefusesAnUnrecognizedStableKeyAndPermitsExperimental(t *testing.T
 	})
 
 	file := parseFile(t, `schema_version = 1
+node_mode = "validator"
 
 [giga_executor]
 enabled = true
@@ -302,7 +305,7 @@ probe.unknown = 1
 	}
 
 	// The refusal direction, on the same declared set.
-	broken := parseFile(t, "schema_version = 1\n\n[giga_executor]\nnot_a_key = true\n")
+	broken := parseFile(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[giga_executor]\nnot_a_key = true\n")
 	d, err = configcli.Doctor(broken)
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
@@ -357,7 +360,7 @@ func TestDoctorReportsARetiredExperimentalKeySeparately(t *testing.T) {
 		Name: "probe.old", Type: "int", Owner: "configtest", Since: "v6.5.0", RetiredIn: "v6.7.0",
 	})
 
-	file := parseFile(t, "schema_version = 1\n\n[experimental]\nprobe.old = 1\n")
+	file := parseFile(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[experimental]\nprobe.old = 1\n")
 
 	d, err := configcli.Doctor(file)
 	if err != nil {
@@ -384,7 +387,7 @@ func TestDoctorIgnoresKeysTheFileDoesNotWrite(t *testing.T) {
 	registerGiga(t)
 	experimental.Reset()
 
-	d, err := configcli.Doctor(parseFile(t, "schema_version = 1\n"))
+	d, err := configcli.Doctor(parseFile(t, "schema_version = 1\nnode_mode = \"validator\"\n"))
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
 	}

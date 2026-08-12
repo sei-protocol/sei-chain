@@ -153,7 +153,7 @@ func TestDoctorExitsNonZeroOnAnUnrecognizedKey(t *testing.T) {
 	registerTyped(t)
 	home := newHome(t)
 	if err := os.WriteFile(configcli.Path(home),
-		[]byte("schema_version = 1\n\n[probe]\nnot_a_key = 1\n"), 0o600); err != nil {
+		[]byte("schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nnot_a_key = 1\n"), 0o600); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 

@@ -13,6 +13,7 @@ import (
 // commented is a file written the way an operator writes one: a heading comment, a reason beside a
 // value, and a blank line for legibility.
 const commented = `schema_version = 1
+node_mode = "validator"
 
 # The giga executor. Turned on after the load test in March.
 [giga_executor]
@@ -205,7 +206,7 @@ func TestSetRoundTripsEveryTypeItAccepts(t *testing.T) {
 		{"string list", []string{"a", "b"}, []any{"a", "b"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f, err := seitoml.New()
+			f, err := seitoml.New("validator")
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -317,7 +318,7 @@ func TestUnsetRemovesTheKeyRatherThanWritingItsBaseline(t *testing.T) {
 // Without it, writing the first key of a section would need the operator to add the heading by
 // hand, and set would fail on exactly the file a new node starts from.
 func TestSetCreatesTheTableWhenTheSectionIsNew(t *testing.T) {
-	f, err := seitoml.New()
+	f, err := seitoml.New("validator")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -371,7 +372,7 @@ func TestValuesFlattensAnInlineTable(t *testing.T) {
 // back as something else. Refusing is what makes the round-trip guarantee above hold for every
 // type this accepts.
 func TestAnUnsupportedTypeIsRefused(t *testing.T) {
-	f, err := seitoml.New()
+	f, err := seitoml.New("validator")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -491,7 +492,7 @@ func TestSaveKeepsAnExistingFilesPermissions(t *testing.T) {
 // previous mode to inherit, so the choice has to be made here.
 func TestANewFileIsNotWorldReadable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sei.toml")
-	f, err := seitoml.New()
+	f, err := seitoml.New("validator")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -514,7 +515,7 @@ func TestANewFileIsNotWorldReadable(t *testing.T) {
 // A file written without one cannot be migrated later, and the failure appears at the first
 // upgrade rather than at the write that caused it.
 func TestNewCarriesThisBinarysSchemaVersion(t *testing.T) {
-	f, err := seitoml.New()
+	f, err := seitoml.New("validator")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -525,5 +526,85 @@ func TestNewCarriesThisBinarysSchemaVersion(t *testing.T) {
 	}
 	if v != seitoml.SchemaVersion {
 		t.Errorf("a new file records version %d, want %d", v, seitoml.SchemaVersion)
+	}
+}
+
+// TestANewFileRecordsItsNodeMode holds the field every value in the file depends on.
+//
+// The mode selects which defaults the values were chosen against, so a file that omits it cannot be
+// compared against a binary or checked against the mode the node runs.
+func TestANewFileRecordsItsNodeMode(t *testing.T) {
+	f, err := seitoml.New("archive")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	mode, err := parse(t, render(t, f)).Mode()
+	if err != nil {
+		t.Fatalf("a new file has no readable node mode: %v\nfile:\n%s", err, render(t, f))
+	}
+	if mode != "archive" {
+		t.Errorf("the file records mode %q, want archive", mode)
+	}
+	if _, err := seitoml.New(""); err == nil {
+		t.Error("a file was created with no mode. Every value written into it resolves for one, so " +
+			"nothing could later tell an archive node's file from a validator's")
+	}
+}
+
+// TestAnAbsentOrUnreadableNodeModeIsAnError keeps a comparison from guessing.
+//
+// Guessing picks one binary's idea of a default and silently measures an archive node's file against
+// a validator's baselines, which is the mistake this key exists to make impossible.
+func TestAnAbsentOrUnreadableNodeModeIsAnError(t *testing.T) {
+	for _, tc := range []struct{ name, body string }{
+		{"absent", "schema_version = 1\n"},
+		{"not text", "schema_version = 1\nnode_mode = 3\n"},
+		{"empty", "schema_version = 1\nnode_mode = \"\"\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parse(t, tc.body).Mode(); err == nil {
+				t.Errorf("a %s node mode was accepted, so a reader would compare the file against "+
+					"whichever defaults it happened to pick", tc.name)
+			}
+		})
+	}
+	if mode, err := parse(t, commented).Mode(); err != nil || mode != "validator" {
+		t.Errorf("a well-formed mode read (%q, %v), want validator", mode, err)
+	}
+}
+
+// TestTheNodeModeIsNotAConfigurationKey keeps file metadata out of the key space.
+//
+// It describes the file rather than configuring the node, so a check comparing written keys against
+// the declared set would otherwise report it as a key no section owns, on every node, forever.
+func TestTheNodeModeIsNotAConfigurationKey(t *testing.T) {
+	values, err := parse(t, commented).Values()
+	if err != nil {
+		t.Fatalf("Values: %v", err)
+	}
+
+	if _, present := values[seitoml.ModeKey]; present {
+		t.Errorf("%s appears in the written key space: %v", seitoml.ModeKey, values)
+	}
+	if len(values) != 2 {
+		t.Errorf("read %d keys, want the section's 2: %v", len(values), values)
+	}
+}
+
+// TestAMigrationCarriesTheNodeModeForward holds the field across an upgrade.
+//
+// A migration that dropped it would leave a file nothing can compare, and the failure would appear
+// at the next diff rather than at the upgrade that caused it.
+func TestAMigrationCarriesTheNodeModeForward(t *testing.T) {
+	f := parse(t, commented)
+
+	if err := f.Set("giga_executor.enabled", false); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	mode, err := parse(t, render(t, f)).Mode()
+	if err != nil || mode != "validator" {
+		t.Errorf("editing the file lost its node mode: (%q, %v)", mode, err)
 	}
 }

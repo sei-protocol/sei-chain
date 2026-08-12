@@ -22,10 +22,14 @@ type Diagnosis struct {
 	// Checked is how many written keys were examined, so a clean result is distinguishable from
 	// one that examined nothing.
 	Checked int
+	// Mode is the node mode the file records, empty when it records none this binary knows.
+	Mode string
+	// ModeProblem says why the recorded mode is unusable, and is empty when it is fine.
+	ModeProblem string
 }
 
 // Healthy reports whether the file may be booted from.
-func (d Diagnosis) Healthy() bool { return len(d.Unrecognized) == 0 }
+func (d Diagnosis) Healthy() bool { return len(d.Unrecognized) == 0 && d.ModeProblem == "" }
 
 // Doctor checks every written key against what this binary declares.
 //
@@ -47,6 +51,8 @@ func Doctor(file *seitoml.File) (Diagnosis, error) {
 	live, retired := experimentalNames()
 
 	var d Diagnosis
+	d.Mode, d.ModeProblem = diagnoseMode(file)
+
 	for key := range written {
 		d.Checked++
 		name, isExperimental := experimentalName(key)
@@ -65,6 +71,22 @@ func Doctor(file *seitoml.File) (Diagnosis, error) {
 	sort.Strings(d.UnrecognizedExperimental)
 	sort.Strings(d.Retired)
 	return d, nil
+}
+
+// diagnoseMode reads the recorded node mode and says what is wrong with it, if anything.
+//
+// A mode this binary does not know makes every other answer meaningless: nothing can resolve the
+// baselines the file's values were chosen against, so a comparison cannot run and the node cannot be
+// told whether its settings still mean what they meant.
+func diagnoseMode(file *seitoml.File) (mode, problem string) {
+	recorded, err := file.Mode()
+	if err != nil {
+		return "", err.Error()
+	}
+	if err := knownMode(registry.Mode(recorded)); err != nil {
+		return recorded, err.Error()
+	}
+	return recorded, ""
 }
 
 // experimentalName reports whether a written key sits in the experimental namespace, and returns
@@ -102,6 +124,10 @@ func experimentalNames() (live, retired map[string]bool) {
 // Report renders a diagnosis for an operator, most severe first.
 func (d Diagnosis) Report() string {
 	var b strings.Builder
+	if d.ModeProblem != "" {
+		b.WriteString("the node mode this file records is unusable: " + d.ModeProblem + "\n" +
+			"Nothing can resolve the defaults its values were chosen against until that is fixed.\n")
+	}
 	if len(d.Unrecognized) > 0 {
 		b.WriteString(fmt.Sprintf("%d written key(s) this binary does not recognize. Each was "+
 			"written expecting it to take effect, and none of them does:\n", len(d.Unrecognized)))
@@ -127,7 +153,8 @@ func (d Diagnosis) Report() string {
 		}
 	}
 	if b.Len() == 0 {
-		return fmt.Sprintf("%d written key(s) checked, all recognized.\n", d.Checked)
+		return fmt.Sprintf("%d written key(s) checked against %q mode, all recognized.\n",
+			d.Checked, d.Mode)
 	}
 	return b.String()
 }

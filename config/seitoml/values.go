@@ -12,9 +12,9 @@ import (
 
 // Values returns every key the file writes, as dotted paths to Go values.
 //
-// This leaves out the schema version. It describes the file rather than configuring the node, so a
-// reader checking written keys against the declared set would otherwise report it as a key no
-// section owns.
+// This leaves out the schema version and the node mode. Both describe the file rather than
+// configuring the node, so a reader checking written keys against the declared set would otherwise
+// report them as keys no section owns, on every node, forever.
 func (f *File) Values() (map[string]any, error) {
 	out := map[string]any{}
 	var bad error
@@ -24,7 +24,7 @@ func (f *File) Values() (map[string]any, error) {
 			return true // a table heading carries no value of its own
 		}
 		key := strings.ToLower(full.String())
-		if key == VersionKey {
+		if key == VersionKey || key == ModeKey {
 			return true
 		}
 		v, err := goValue(e.Value)
