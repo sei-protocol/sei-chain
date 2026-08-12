@@ -369,7 +369,7 @@ func TestGCExternalPruningStandsDownSnapshotPruner(t *testing.T) {
 			},
 		}
 		mkSnapshots(t, dir, 5, 10, 15)
-		s.pruneSnapshotsByCount(dir, 15)
+		pruneSnapshotsByCount(s.ctx, s.snapshotLayout(), 15)
 		return snapshotVersions(t, dir)
 	}
 

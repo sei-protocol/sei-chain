@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -10,9 +11,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -429,19 +432,38 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 	return snapDir, nil
 }
 
-// WriteSnapshot creates a PebbleDB checkpoint of the committed state.
-// The snapshot is written into a versioned subdirectory under the flatkv root
-// (e.g. flatkv/snapshot-00000000000000000100) and the current symlink is updated.
-// The dir parameter is ignored; snapshots are always stored alongside the live data.
+// snapshotLayout locates a flatkv snapshot tree and states how much of it to retain. It is the whole
+// of what writing a snapshot needs to know about its surroundings, which is what lets a write run off
+// the execution thread without reading store state.
+type snapshotLayout struct {
+	// dir is the flatkv root holding the snapshot directories, the current symlink and the working dir.
+	dir string
+
+	// keepRecent is how many snapshots below the newest to retain. Ignored when externalPruning is set.
+	keepRecent uint32
+
+	// externalPruning stands this store's count-based pruning down in favour of the
+	// StorageGarbageCollector's by-height retention.
+	externalPruning bool
+}
+
+// snapshotLayout describes where this store's snapshots live and how many of them are kept.
+func (s *CommitStore) snapshotLayout() snapshotLayout {
+	return snapshotLayout{
+		dir:             s.flatkvDir(),
+		keepRecent:      s.config.SnapshotKeepRecent,
+		externalPruning: s.config.ExternalPruning,
+	}
+}
+
+// WriteSnapshot writes a snapshot of the committed state and does not return until it is on disk,
+// whatever snapshot interval is configured. The dir parameter is ignored; snapshots are always stored
+// alongside the live data, under the flatkv root (e.g. flatkv/snapshot-00000000000000000100).
 //
-// Concurrency: this MUST NOT acquire s.mu. Commit calls it while already holding
-// the write lock (s.mu is not reentrant), and as a lifecycle operation it is
-// otherwise expected to be serialized by the caller. It only reads committed
-// state and checkpoints the DBs; it does not touch the pending-writes maps.
+// Concurrency: this MUST NOT acquire s.mu, which is not reentrant and is held by some callers.
+// Lifecycle operations are expected to be serialized by the caller.
 func (s *CommitStore) WriteSnapshot(_ string) (err error) {
-	var pruned int
-	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency,
-		"version", s.committedVersion)
+	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency, "version", s.committedVersion)
 	defer obs.done(&err, func() {
 		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, s.committedVersion)
 	})
@@ -454,67 +476,125 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
 	}
 
-	// Wait until the block we want to checkpoint has actually been flushed down to the pebble instances.
-	// Since we continue to hold the reservation on that block, later blocks are prevented from being
-	// flushed down to pebble, thus making the checkpoint operation thread safe.
-	if err := s.flushLatestVersion(); err != nil {
-		return fmt.Errorf("await flush before snapshot at version %d: %w", version, err)
+	// Let the cadence-driven writer finish whatever it has in flight. It writes into the same snapshot
+	// tree this is about to publish into, and only one writer of that tree may run at a time.
+	if s.snapshotWriter != nil {
+		if err := s.snapshotWriter.Flush(); err != nil {
+			return fmt.Errorf("await pending snapshot before writing version %d: %w", version, err)
+		}
 	}
 
-	dir := s.flatkvDir()
-	snapDir := snapshotName(version)
-	finalPath := filepath.Join(dir, snapDir)
-	tmpPath := finalPath + tmpSuffix
+	tmpPath, err := checkpointDatabases(s.ctx, s.flatkvDir(), version, s.lastSealed, s.checkpointables())
+	if err != nil {
+		return fmt.Errorf("checkpoint databases at version %d: %w", version, err)
+	}
+	pruned, err := publishSnapshot(s.ctx, s.snapshotLayout(), version, tmpPath)
+	if err != nil {
+		return fmt.Errorf("publish snapshot at version %d: %w", version, err)
+	}
 
+	logger.Info("FlatKV snapshot created",
+		"version", version, "pruned", pruned, "elapsed", obs.elapsed())
+	return nil
+}
+
+// checkpointDatabases copies every database at version into a fresh temporary directory and returns
+// its path. The directory is removed again if any part of the copy fails.
+//
+// The caller must hold a reservation on each snapshot passed in, and must keep holding it until this
+// returns. That is what stops a later block reaching Pebble mid-copy, and so what makes the result a
+// view of exactly this version rather than of no single moment.
+func checkpointDatabases(
+	ctx context.Context,
+	dir string,
+	version int64,
+	snapshots map[string]snapshot.Snapshot,
+	dbs map[string]types.Checkpointable,
+) (_ string, err error) {
+	// The databases are already flushing this block in the background; this waits for them to finish.
+	// On return Pebble holds exactly this block, and stays there while the reservations are held.
+	for name, snap := range snapshots {
+		if flushErr := snap.AwaitFlush(ctx); flushErr != nil {
+			return "", fmt.Errorf("await flush of %s at version %d: %w", name, version, flushErr)
+		}
+	}
+
+	tmpPath := filepath.Join(dir, snapshotName(version)) + tmpSuffix
 	_ = os.RemoveAll(tmpPath)
-
-	if err := os.MkdirAll(tmpPath, 0750); err != nil {
-		return fmt.Errorf("create snapshot tmp dir: %w", err)
+	if mkErr := os.MkdirAll(tmpPath, 0750); mkErr != nil {
+		return "", fmt.Errorf("create snapshot tmp dir: %w", mkErr)
 	}
-
-	success := false
 	defer func() {
-		if !success {
+		if err != nil {
 			_ = os.RemoveAll(tmpPath)
 		}
 	}()
 
-	for _, dir := range snapshotDBDirs {
-		cp, ok := s.rawDBFor(dir).(types.Checkpointable)
-		if !ok {
-			return fmt.Errorf("db %s does not support Checkpoint", dir)
-		}
-		if err := cp.Checkpoint(filepath.Join(tmpPath, dir)); err != nil {
-			return fmt.Errorf("checkpoint %s: %w", dir, err)
-		}
+	// Copied concurrently: the pin holds every database at this version for the whole call, so the
+	// five copies describe one moment no matter what order they run in. Serially, the pin — and with
+	// it the stall on every later block's flush — would last the sum of the five rather than the
+	// longest.
+	errs := make([]error, len(snapshotDBDirs))
+	var wg sync.WaitGroup
+	for i, name := range snapshotDBDirs {
+		idx, dbName := i, name
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			db, ok := dbs[dbName]
+			if !ok {
+				errs[idx] = fmt.Errorf("no checkpointable handle for db %s", dbName)
+				return
+			}
+			if cpErr := db.Checkpoint(filepath.Join(tmpPath, dbName)); cpErr != nil {
+				errs[idx] = fmt.Errorf("checkpoint %s: %w", dbName, cpErr)
+			}
+		}()
 	}
+	wg.Wait()
+	if err = errors.Join(errs...); err != nil {
+		return "", fmt.Errorf("checkpoint databases at version %d: %w", version, err)
+	}
+	return tmpPath, nil
+}
+
+// publishSnapshot makes a completed checkpoint directory the active snapshot: it takes the versioned
+// name, the current symlink comes to point at it, and snapshots beyond the retention count are
+// removed. Reports how many were removed.
+//
+// It touches no database, so a caller holding reservations may hand them back before calling this.
+func publishSnapshot(
+	ctx context.Context,
+	layout snapshotLayout,
+	version int64,
+	tmpPath string,
+) (pruned int, err error) {
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(tmpPath)
+		}
+	}()
+
+	snapDir := snapshotName(version)
+	finalPath := filepath.Join(layout.dir, snapDir)
 
 	_ = atomicRemoveDir(finalPath) // idempotent: stale final may exist
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		return fmt.Errorf("rename snapshot dir: %w", err)
+	if err = os.Rename(tmpPath, finalPath); err != nil {
+		return 0, fmt.Errorf("rename snapshot dir: %w", err)
 	}
 
-	if err := updateCurrentSymlink(dir, snapDir); err != nil {
-		return fmt.Errorf("update current symlink: %w", err)
+	if err = updateCurrentSymlink(layout.dir, snapDir); err != nil {
+		return 0, fmt.Errorf("update current symlink: %w", err)
 	}
 
 	// Keep SNAPSHOT_BASE in sync so the next restart reuses the working dir
 	// instead of re-cloning from the snapshot and replaying the full WAL gap.
-	workDir := filepath.Join(dir, workingDirName)
-	if err := writeSnapshotBase(workDir, snapDir); err != nil {
-		logger.Error("failed to update SNAPSHOT_BASE", "err", err)
+	workDir := filepath.Join(layout.dir, workingDirName)
+	if baseErr := writeSnapshotBase(workDir, snapDir); baseErr != nil {
+		logger.Error("failed to update SNAPSHOT_BASE", "err", baseErr)
 	}
 
-	pruned = s.pruneSnapshotsByCount(dir, version)
-
-	success = true
-	s.lastSnapshotTime = time.Now()
-	logger.Info("FlatKV snapshot created",
-		"version", version,
-		"dir", finalPath,
-		"pruned", pruned,
-		"elapsed", obs.elapsed())
-	return nil
+	return pruneSnapshotsByCount(ctx, layout, version), nil
 }
 
 // pruneSnapshotsByCount removes old snapshots beyond SnapshotKeepRecent, keeping
@@ -526,19 +606,20 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 // counting one as "old" would spend a keep slot on it and evict a genuinely older snapshot that rollback
 // still needs as a base. memiavl's pruneSnapshots applies the same guard.
 //
-// Does nothing when config.ExternalPruning is set, which hands retention to the
+// Does nothing when layout.externalPruning is set, which hands retention to the
 // StorageGarbageCollector and its by-block-height PruneSnapshots.
-func (s *CommitStore) pruneSnapshotsByCount(dir string, currentVersion int64) int {
-	if s.config.ExternalPruning {
+func pruneSnapshotsByCount(ctx context.Context, layout snapshotLayout, currentVersion int64) int {
+	if layout.externalPruning {
 		return 0
 	}
 
 	start := time.Now()
 	defer func() {
-		otelMetrics.SnapshotPruneLatency.Record(s.ctx, secondsSince(start))
+		otelMetrics.SnapshotPruneLatency.Record(ctx, secondsSince(start))
 	}()
 
-	keep := int(s.config.SnapshotKeepRecent)
+	dir := layout.dir
+	keep := int(layout.keepRecent)
 	pruned := 0
 
 	var older []int64
@@ -559,7 +640,7 @@ func (s *CommitStore) pruneSnapshotsByCount(dir string, currentVersion int64) in
 	for _, v := range older[keep:] {
 		snapPath := filepath.Join(dir, snapshotName(v))
 		err := atomicRemoveDir(snapPath)
-		otelMetrics.SnapshotPruneAttempts.Add(s.ctx, 1,
+		otelMetrics.SnapshotPruneAttempts.Add(ctx, 1,
 			metric.WithAttributes(successAttr(err)))
 		if err != nil {
 			logger.Error("prune snapshot failed", "version", v, "err", err)

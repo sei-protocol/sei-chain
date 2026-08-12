@@ -197,6 +197,9 @@ func TestReadOnlySurfacesReplayGap(t *testing.T) {
 	for v := int64(1); v <= 4; v++ {
 		commit(v, byte(v))
 	}
+	// CommitBlock offers snapshots to the writer without waiting, so wait here: the snapshots this test
+	// falls back to have to be on disk before the WAL is wiped.
+	require.NoError(t, s.FlushSnapshots())
 
 	// Wipe the WAL and resume, so it no longer reaches back to the snapshot at version 2.
 	resetWALForTest(t, s)

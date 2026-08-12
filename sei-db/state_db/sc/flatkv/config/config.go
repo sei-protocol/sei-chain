@@ -43,6 +43,20 @@ type Config struct {
 	// Default: 1
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
+	// MaxSnapshotLagBlocks is how many committed blocks may queue up behind a snapshot that is still
+	// being written before Commit blocks. A value below 1 is treated as 1.
+	//
+	// A snapshot being written holds every database pinned at its own height, so no later block can
+	// reach disk until it completes, and each one is retained in memory meanwhile. This bounds how far
+	// that can run, trading a pause in block production for the memory the backlog would otherwise
+	// consume. It bounds blocks rather than bytes, so it mitigates exhaustion rather than preventing it.
+	//
+	// Set it above the store configs' MaxUnflushedVersions, so a snapshot that finishes normally
+	// engages neither this limit nor the engines' own backpressure.
+	//
+	// Default: 8192
+	MaxSnapshotLagBlocks uint32 `mapstructure:"max-snapshot-lag-blocks"`
+
 	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its
 	// own snapshots (SnapshotKeepRecent) and stops truncating the state WAL.
 	//
@@ -142,6 +156,7 @@ func DefaultConfig() *Config {
 		AsyncWriteBuffer:          0,
 		SnapshotInterval:          DefaultSnapshotInterval,
 		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
+		MaxSnapshotLagBlocks:      8192,
 		EnablePebbleMetrics:       true,
 		AccountDBConfig:           pebbledb.DefaultConfig(),
 		AccountStoreConfig:        defaultStoreConfig("account"),

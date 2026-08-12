@@ -3350,6 +3350,167 @@
           ],
           "title": "DB Commit Time",
           "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 17886
+          },
+          "id": 300,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.4.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(flatkv_snapshot_write_latency_bucket[$__rate_interval])))",
+              "instant": false,
+              "legendFormat": "p99 total",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(flatkv_snapshot_write_latency_bucket[$__rate_interval])))",
+              "instant": false,
+              "legendFormat": "p95 total",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.5, sum by (le) (rate(flatkv_snapshot_write_latency_bucket[$__rate_interval])))",
+              "instant": false,
+              "legendFormat": "p50 total",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(flatkv_snapshot_write_latency_sum[$__rate_interval])) / sum(rate(flatkv_snapshot_write_latency_count[$__rate_interval]))",
+              "instant": false,
+              "legendFormat": "average total",
+              "range": true,
+              "refId": "D"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(flatkv_snapshot_pinned_latency_bucket[$__rate_interval])))",
+              "instant": false,
+              "legendFormat": "p99 pinned",
+              "range": true,
+              "refId": "E"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.5, sum by (le) (rate(flatkv_snapshot_pinned_latency_bucket[$__rate_interval])))",
+              "instant": false,
+              "legendFormat": "p50 pinned",
+              "range": true,
+              "refId": "F"
+            }
+          ],
+          "title": "Snapshot Write Time",
+          "type": "timeseries",
+          "description": "How long a FlatKV snapshot (Pebble checkpoint of all five DBs) takes.\n\ntotal = the whole job, including publishing and pruning.\npinned = the part that holds the databases at one height, during which no later block reaches disk. This is the number to size max-snapshot-lag-blocks against.\n\npinned is only reported once the async snapshot writer is in the build; before that only total has samples. Samples only appear on blocks that trip SnapshotInterval."
         }
       ],
       "title": "Commit",
@@ -4600,36 +4761,111 @@
           },
           "fieldConfig": {
             "defaults": {
-              "color": { "mode": "palette-classic" },
+              "color": {
+                "mode": "palette-classic"
+              },
               "custom": {
-                "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text",
-                "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "barWidthFactor": 0.6,
-                "drawStyle": "line", "fillOpacity": 0, "gradientMode": "none",
-                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-                "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1,
-                "pointSize": 5, "scaleDistribution": { "type": "linear" },
-                "showPoints": "auto", "showValues": false, "spanNulls": false,
-                "stacking": { "group": "A", "mode": "none" },
-                "thresholdsStyle": { "mode": "off" }
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
               },
               "mappings": [],
-              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 80 }] },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
               "unit": "s"
             },
             "overrides": []
           },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 48
+          },
           "id": 290,
           "options": {
-            "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
-            "tooltip": { "hideZeros": false, "mode": "single", "sort": "none" }
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
           },
           "pluginVersion": "12.4.0",
           "targets": [
-            { "editorMode": "code", "expr": "histogram_quantile(0.99, rate(cryptosim_receipt_cache_filter_scan_duration_seconds_bucket[$__rate_interval]))", "legendFormat": "p99", "range": true, "refId": "A" },
-            { "editorMode": "code", "expr": "histogram_quantile(0.95, rate(cryptosim_receipt_cache_filter_scan_duration_seconds_bucket[$__rate_interval]))", "legendFormat": "p95", "range": true, "refId": "B" },
-            { "editorMode": "code", "expr": "histogram_quantile(0.50, rate(cryptosim_receipt_cache_filter_scan_duration_seconds_bucket[$__rate_interval]))", "legendFormat": "p50", "range": true, "refId": "C" },
-            { "editorMode": "code", "expr": "rate(cryptosim_receipt_cache_filter_scan_duration_seconds_sum[$__rate_interval]) / rate(cryptosim_receipt_cache_filter_scan_duration_seconds_count[$__rate_interval])", "legendFormat": "average", "range": true, "refId": "D" }
+            {
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, rate(cryptosim_receipt_cache_filter_scan_duration_seconds_bucket[$__rate_interval]))",
+              "legendFormat": "p99",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, rate(cryptosim_receipt_cache_filter_scan_duration_seconds_bucket[$__rate_interval]))",
+              "legendFormat": "p95",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.50, rate(cryptosim_receipt_cache_filter_scan_duration_seconds_bucket[$__rate_interval]))",
+              "legendFormat": "p50",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "editorMode": "code",
+              "expr": "rate(cryptosim_receipt_cache_filter_scan_duration_seconds_sum[$__rate_interval]) / rate(cryptosim_receipt_cache_filter_scan_duration_seconds_count[$__rate_interval])",
+              "legendFormat": "average",
+              "range": true,
+              "refId": "D"
+            }
           ],
           "title": "Cache Filter Scan Duration",
           "type": "timeseries"
@@ -4641,36 +4877,111 @@
           },
           "fieldConfig": {
             "defaults": {
-              "color": { "mode": "palette-classic" },
+              "color": {
+                "mode": "palette-classic"
+              },
               "custom": {
-                "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text",
-                "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "barWidthFactor": 0.6,
-                "drawStyle": "line", "fillOpacity": 0, "gradientMode": "none",
-                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
-                "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1,
-                "pointSize": 5, "scaleDistribution": { "type": "linear" },
-                "showPoints": "auto", "showValues": false, "spanNulls": false,
-                "stacking": { "group": "A", "mode": "none" },
-                "thresholdsStyle": { "mode": "off" }
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
               },
               "mappings": [],
-              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 80 }] },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
               "unit": "s"
             },
             "overrides": []
           },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 48
+          },
           "id": 291,
           "options": {
-            "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
-            "tooltip": { "hideZeros": false, "mode": "single", "sort": "none" }
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
           },
           "pluginVersion": "12.4.0",
           "targets": [
-            { "editorMode": "code", "expr": "histogram_quantile(0.99, rate(cryptosim_receipt_cache_get_duration_seconds_bucket[$__rate_interval]))", "legendFormat": "p99", "range": true, "refId": "A" },
-            { "editorMode": "code", "expr": "histogram_quantile(0.95, rate(cryptosim_receipt_cache_get_duration_seconds_bucket[$__rate_interval]))", "legendFormat": "p95", "range": true, "refId": "B" },
-            { "editorMode": "code", "expr": "histogram_quantile(0.50, rate(cryptosim_receipt_cache_get_duration_seconds_bucket[$__rate_interval]))", "legendFormat": "p50", "range": true, "refId": "C" },
-            { "editorMode": "code", "expr": "rate(cryptosim_receipt_cache_get_duration_seconds_sum[$__rate_interval]) / rate(cryptosim_receipt_cache_get_duration_seconds_count[$__rate_interval])", "legendFormat": "average", "range": true, "refId": "D" }
+            {
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, rate(cryptosim_receipt_cache_get_duration_seconds_bucket[$__rate_interval]))",
+              "legendFormat": "p99",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, rate(cryptosim_receipt_cache_get_duration_seconds_bucket[$__rate_interval]))",
+              "legendFormat": "p95",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.50, rate(cryptosim_receipt_cache_get_duration_seconds_bucket[$__rate_interval]))",
+              "legendFormat": "p50",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "editorMode": "code",
+              "expr": "rate(cryptosim_receipt_cache_get_duration_seconds_sum[$__rate_interval]) / rate(cryptosim_receipt_cache_get_duration_seconds_count[$__rate_interval])",
+              "legendFormat": "average",
+              "range": true,
+              "refId": "D"
+            }
           ],
           "title": "Cache Get Duration",
           "type": "timeseries"

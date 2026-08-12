@@ -1342,6 +1342,9 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 		require.NoError(t, err)
 	}
 	expectedHash := s.RootHash()
+	// Close discards whatever the snapshot writer still has queued, so wait for it here: the gap this
+	// test is about only exists once the snapshots are on disk.
+	require.NoError(t, s.FlushSnapshots())
 	require.NoError(t, s.Close())
 
 	// Reopen normally -- large WAL gap between snapshot and HEAD.

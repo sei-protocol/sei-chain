@@ -117,13 +117,21 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	// Step 4: Clear per-block bookkeeping
 	s.clearPendingBlock()
 
-	// Periodic snapshot so WAL stays bounded and restarts are fast. A failure fails the commit: the
-	// flush wait inside WriteSnapshot is where a dead store surfaces, and a block whose data will never
-	// reach disk must not be reported as committed. The block is already durable in the WAL, so replay
-	// reconciles whatever the caller's halt leaves behind.
-	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
-		s.phaseTimer.SetPhase("commit_write_snapshot")
-		if err := s.WriteSnapshot(""); err != nil {
+	// Step 5: Offer the block to the snapshot writer, which decides whether it becomes a snapshot and,
+	// if so, writes it on its own goroutine. Periodic snapshots are what keep the WAL bounded and
+	// restarts fast.
+	//
+	// A failure here fails the commit. The writer latches its first error and reports it from every
+	// later call, so a checkpoint that failed with no caller to fail surfaces at the next commit
+	// instead of being lost: a block whose data will never reach disk must not be reported as
+	// committed. The block is already durable in the WAL, so replay reconciles whatever the caller's
+	// halt leaves behind.
+	//
+	// lastSealed still holds this block's reservations for the duration of the call, which is all the
+	// writer needs: it takes its own for as long as it keeps the block.
+	if s.snapshotWriter != nil {
+		s.phaseTimer.SetPhase("commit_offer_snapshot")
+		if err := s.snapshotWriter.Offer(version, s.lastSealed); err != nil {
 			return version, fmt.Errorf("auto snapshot at version %d: %w", version, err)
 		}
 	}
@@ -140,6 +148,16 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 		"changeSets", pendingChangeSets,
 		"elapsed", time.Since(start))
 	return version, nil
+}
+
+// FlushSnapshots blocks until no snapshot is being written. It is a synchronization point for callers
+// that need the snapshot tree on disk to have caught up with the blocks committed so far; block
+// commit does not need it.
+func (s *CommitStore) FlushSnapshots() error {
+	if s.snapshotWriter == nil {
+		return nil
+	}
+	return s.snapshotWriter.Flush()
 }
 
 // clearPendingBlock resets the per-block bookkeeping that Commit consumed.

@@ -74,10 +74,13 @@ func DefaultSnapshotEngineConfig(name string, reservedPrefix string) *SnapshotEn
 		Name:                         name,
 		MetricsEnabled:               true,
 		MetricsScrapeIntervalSeconds: 10,
-		MaxUnflushedVersions:         4,
-		TargetBytesPerFlush:          unit.MB * 4,
-		ReservedPrefix:               reservedPrefix,
-		FlushSync:                    false,
+		// Sized for the burst that lands when a long-held reservation is released, not for the
+		// steady-state trickle: a 10s checkpoint at a 5ms block accumulates ~2000 versions, none of
+		// which count as flush-eligible until the pin is handed back.
+		MaxUnflushedVersions: 4096,
+		TargetBytesPerFlush:  unit.MB * 4,
+		ReservedPrefix:       reservedPrefix,
+		FlushSync:            false,
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"time"
 
 	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel/attribute"
@@ -166,7 +165,10 @@ type CommitStore struct {
 	// only one block may be buffered per commit.
 	pendingBlockHeight int64
 
-	lastSnapshotTime time.Time
+	// Writes snapshots off the execution thread. Built by openStores once the stores exist and torn
+	// down by closeStores, so its lifetime is exactly the window in which the databases it checkpoints
+	// are open. Nil on a read-only store, which never commits.
+	snapshotWriter *SnapshotWriter
 
 	// File lock prevents multiple processes from opening the same DB.
 	fileLock filelock.TryLockerSafe
@@ -811,9 +813,31 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 		if err := s.sealBaseline(); err != nil {
 			return err
 		}
+		// Built last, and only here: it checkpoints the databases the stores above own, so it must not
+		// outlive them. closeStores drains it before those stores go away.
+		s.snapshotWriter = newSnapshotWriter(
+			s.ctx,
+			s.snapshotLayout(),
+			s.config.SnapshotInterval,
+			s.config.MaxSnapshotLagBlocks,
+			s.checkpointables(),
+		)
 	}
 
 	return nil
+}
+
+// checkpointables returns the handle each database is checkpointed through, keyed by database
+// directory name. Captured once while the stores exist, so a snapshot being written off-thread never
+// has to reach back into the store for a handle that teardown may have cleared.
+func (s *CommitStore) checkpointables() map[string]seidbtypes.Checkpointable {
+	dbs := make(map[string]seidbtypes.Checkpointable, len(snapshotDBDirs))
+	for _, name := range snapshotDBDirs {
+		if db, ok := s.rawDBFor(name).(seidbtypes.Checkpointable); ok {
+			dbs[name] = db
+		}
+	}
+	return dbs
 }
 
 // rawDBFor returns the raw database behind the named store, bypassing every guarantee the store
@@ -861,6 +885,17 @@ func (s *CommitStore) rawDBFor(name string) seidbtypes.KeyValueDB {
 // than short-circuited: every store must be given its chance to stop.
 func (s *CommitStore) closeStores() error {
 	var errs []error
+
+	// The writer must stop before anything below runs: closing a store closes the database it owns, and
+	// a checkpoint in progress would then be reading a closed handle. This is the choke point every
+	// teardown path reaches — Close directly, Rollback and resetForImport through closeDBsOnly — so the
+	// guard lives here rather than at each of them.
+	if s.snapshotWriter != nil {
+		if err := s.snapshotWriter.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close snapshot writer: %w", err))
+		}
+		s.snapshotWriter = nil
+	}
 
 	// Hand back the reservations on the last sealed block and forget the handles. They belong to the
 	// stores being torn down here, so keeping them would leave a reopened store (rollback, restore)

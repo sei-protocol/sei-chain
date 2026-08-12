@@ -94,11 +94,16 @@ func setupTestStoreWithConfig(t *testing.T, cfg *config.Config) *CommitStore {
 // without it a test that commits and then reads a database directly is looking at a disk that lags the
 // commit. It also matches how the Cosmos-era node drives the store, which forces a flush every block.
 // A test specifically about asynchronous flushing should call s.Commit directly instead.
+//
+// Snapshots are written off the execution thread for the same reason, so the wait covers them too: a
+// test that commits past SnapshotInterval and then looks at the snapshot tree would otherwise be
+// racing the writer.
 func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 	t.Helper()
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	requireFlushedToDisk(t, s)
+	require.NoError(t, s.FlushSnapshots())
 	return v
 }
 
