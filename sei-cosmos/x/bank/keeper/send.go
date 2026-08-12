@@ -2,6 +2,10 @@ package keeper
 
 import (
 	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
@@ -146,9 +150,7 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 		accExists := k.ak.HasAccount(ctx, outAddress)
 		if !accExists {
 			defer func() {
-				bankMetrics.newAccount.Add(ctx.Context(), 1)
-				// TODO(PLT-353): remove once bank_new_account verified
-				telemetry.IncrCounter(1, "new", "account")
+				recordNewAccounts(ctx.Context(), 1)
 			}()
 			k.ak.SetAccount(ctx, k.ak.NewAccountWithAddress(ctx, outAddress))
 		}
@@ -171,14 +173,29 @@ func (k BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAd
 	accExists := k.ak.HasAccount(ctx, toAddr)
 	if !accExists {
 		defer func() {
-			bankMetrics.newAccount.Add(ctx.Context(), 1)
-			// TODO(PLT-353): remove once bank_new_account verified
-			telemetry.IncrCounter(1, "new", "account")
+			recordNewAccounts(ctx.Context(), 1)
 		}()
 		k.ak.SetAccount(ctx, k.ak.NewAccountWithAddress(ctx, toAddr))
 	}
 
 	return nil
+}
+
+// recordNewAccounts dual-emits the legacy new-account counter and its OTel
+// counterpart (bank_new_account). Runs from consensus-critical send paths, so
+// a telemetry fault here must not panic into the caller.
+func recordNewAccounts(ctx context.Context, count int64) {
+	if count <= 0 {
+		return
+	}
+	defer func() {
+		if e := recover(); e != nil {
+			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
+		}
+	}()
+	// TODO(PLT-353): remove once bank_new_account verified
+	telemetry.IncrCounter(float32(count), "new", "account")
+	bankMetrics.newAccount.Add(ctx, count)
 }
 
 func (k BaseSendKeeper) SendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
