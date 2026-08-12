@@ -78,6 +78,16 @@ func TestWithdrawAuthorizationFlow(t *testing.T) {
 	require.NoError(t, err)
 	assertSuccess(distribution.WithdrawDelegationRewardsWithAuthzMethod, ret)
 
+	withdrawSeiAddr, withdrawEVMAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(statedb.Ctx(), withdrawSeiAddr, withdrawEVMAddr)
+	params := testApp.DistrKeeper.GetParams(statedb.Ctx())
+	params.WithdrawAddrEnabled = true
+	testApp.DistrKeeper.SetParams(statedb.Ctx(), params)
+	ret, err = call(operatorEVMAddr, distribution.SetWithdrawAddressMethod, nil, withdrawEVMAddr)
+	require.NoError(t, err)
+	assertSuccess(distribution.SetWithdrawAddressMethod, ret)
+	require.Equal(t, withdrawSeiAddr, testApp.DistrKeeper.GetDelegatorWithdrawAddr(statedb.Ctx(), operatorSeiAddr))
+
 	commission := sdk.DecCoins{sdk.NewDecCoin(sdk.DefaultBondDenom, sdk.NewInt(10))}
 	commissionCoins := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(10)))
 	require.NoError(t, testApp.BankKeeper.MintCoins(statedb.Ctx(), evmtypes.ModuleName, commissionCoins))
@@ -92,7 +102,9 @@ func TestWithdrawAuthorizationFlow(t *testing.T) {
 		validator,
 		distrtypes.ValidatorAccumulatedCommission{Commission: commission},
 	)
-	balanceBefore := testApp.BankKeeper.GetBalance(statedb.Ctx(), operatorSeiAddr, sdk.DefaultBondDenom)
+	withdrawBalanceBefore := testApp.BankKeeper.GetBalance(statedb.Ctx(), withdrawSeiAddr, sdk.DefaultBondDenom)
+	operatorBalanceBefore := testApp.BankKeeper.GetBalance(statedb.Ctx(), operatorSeiAddr, sdk.DefaultBondDenom)
+	logCountBefore := len(statedb.GetAllLogs())
 
 	ret, err = call(
 		granteeEVMAddr,
@@ -102,8 +114,16 @@ func TestWithdrawAuthorizationFlow(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assertSuccess(distribution.WithdrawValidatorCommissionWithAuthzMethod, ret)
-	balanceAfter := testApp.BankKeeper.GetBalance(statedb.Ctx(), operatorSeiAddr, sdk.DefaultBondDenom)
-	require.Equal(t, balanceBefore.Amount.AddRaw(10), balanceAfter.Amount)
+	withdrawBalanceAfter := testApp.BankKeeper.GetBalance(statedb.Ctx(), withdrawSeiAddr, sdk.DefaultBondDenom)
+	operatorBalanceAfter := testApp.BankKeeper.GetBalance(statedb.Ctx(), operatorSeiAddr, sdk.DefaultBondDenom)
+	require.Equal(t, withdrawBalanceBefore.Amount.AddRaw(10), withdrawBalanceAfter.Amount)
+	require.Equal(t, operatorBalanceBefore.Amount, operatorBalanceAfter.Amount)
+	logs := statedb.GetAllLogs()
+	require.Len(t, logs, logCountBefore+1)
+	require.Equal(t, distribution.ValidatorCommissionEventSig, logs[logCountBefore].Topics[0])
+	eventValues, err := p.ABI.Events[distribution.ValidatorCommissionEvent].Inputs.NonIndexed().Unpack(logs[logCountBefore].Data)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(10), eventValues[0])
 
 	ret, err = call(operatorEVMAddr, distribution.RevokeWithdrawMethod, nil, granteeEVMAddr)
 	require.NoError(t, err)

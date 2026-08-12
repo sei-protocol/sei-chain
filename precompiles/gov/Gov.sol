@@ -80,13 +80,13 @@ interface IGov {
     ) external returns (bool success);
 
     /**
-     * @dev Grant an account permission to cast simple votes or submit proposals on behalf of the caller
+     * @dev Grant an account permission to perform supported governance actions on behalf of the caller
      * @param grantee The account receiving the governance authorization
      * @param expiration Unix timestamp after which the authorization is invalid
      * @return success Whether the authorization was successfully granted
      * @notice This authorization is limited to MsgVote and MsgSubmitProposal and does not cover weighted votes
      */
-    function grantVoteAuthorization(
+    function grantGovernanceAuthorization(
         address grantee,
         int64 expiration
     ) external returns (bool success);
@@ -105,11 +105,11 @@ interface IGov {
     ) external returns (bool success);
 
     /**
-     * @dev Revoke an account's permission to cast simple votes or submit proposals on behalf of the caller
+     * @dev Revoke an account's permission to perform supported governance actions on behalf of the caller
      * @param grantee The account whose governance authorization is being revoked
      * @return success Whether the authorization was successfully revoked
      */
-    function revokeVoteAuthorization(
+    function revokeGovernanceAuthorization(
         address grantee
     ) external returns (bool success);
 

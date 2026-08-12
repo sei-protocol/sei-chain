@@ -933,7 +933,8 @@ func (p PrecompileExecutor) withdrawValidatorCommissionWithAuthorization(ctx sdk
 		return nil, 0, err
 	}
 	execute := func() (sdk.Int, error) {
-		balanceBefore := p.bankBalance(ctx, validator)
+		withdrawAddress := p.distrKeeper.GetDelegatorWithdrawAddr(ctx, validator)
+		balanceBefore := p.bankBalance(ctx, withdrawAddress)
 		msg := distrtypes.NewMsgWithdrawValidatorCommission(sdk.ValAddress(validator))
 		if err := msg.ValidateBasic(); err != nil {
 			return sdk.Int{}, err
@@ -941,7 +942,7 @@ func (p PrecompileExecutor) withdrawValidatorCommissionWithAuthorization(ctx sdk
 		if _, err := pcommon.ExecuteAuthorization(ctx, p.authzMsgServer, grantee, msg); err != nil {
 			return sdk.Int{}, err
 		}
-		return p.bankBalance(ctx, validator).Sub(balanceBefore), nil
+		return p.bankBalance(ctx, withdrawAddress).Sub(balanceBefore), nil
 	}
 	return p.withdrawValidatorCommissionFor(ctx, method, validator, evm, execute)
 }

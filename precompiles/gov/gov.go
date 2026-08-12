@@ -22,15 +22,22 @@ import (
 )
 
 const (
-	VoteMethod            = "vote"
-	VoteWeightedMethod    = "voteWeighted"
-	GrantVoteMethod       = "grantVoteAuthorization"
-	VoteWithAuthzMethod   = "voteWithAuthorization"
-	RevokeVoteMethod      = "revokeVoteAuthorization"
-	SubmitWithAuthzMethod = "submitProposalWithAuthorization"
-	DepositMethod         = "deposit"
-	SubmitProposalMethod  = "submitProposal"
+	VoteMethod             = "vote"
+	VoteWeightedMethod     = "voteWeighted"
+	GrantGovernanceMethod  = "grantGovernanceAuthorization"
+	VoteWithAuthzMethod    = "voteWithAuthorization"
+	RevokeGovernanceMethod = "revokeGovernanceAuthorization"
+	SubmitWithAuthzMethod  = "submitProposalWithAuthorization"
+	DepositMethod          = "deposit"
+	SubmitProposalMethod   = "submitProposal"
 )
+
+// governanceAuthorizationMsgs defines the actions covered by the EVM-facing
+// governance permission.
+var governanceAuthorizationMsgs = []sdk.Msg{
+	&govtypes.MsgVote{},
+	&govtypes.MsgSubmitProposal{},
+}
 
 // Query method names. The vote/deposit queries are named getVote/getDeposit
 // rather than overloading the vote/deposit transaction methods: overloads
@@ -65,14 +72,14 @@ type PrecompileExecutor struct {
 	address          common.Address
 	proposalHandlers map[string]ProposalHandler
 
-	VoteID            []byte
-	VoteWeightedID    []byte
-	GrantVoteID       []byte
-	VoteWithAuthzID   []byte
-	RevokeVoteID      []byte
-	SubmitWithAuthzID []byte
-	DepositID         []byte
-	SubmitProposalID  []byte
+	VoteID             []byte
+	VoteWeightedID     []byte
+	GrantGovernanceID  []byte
+	VoteWithAuthzID    []byte
+	RevokeGovernanceID []byte
+	SubmitWithAuthzID  []byte
+	DepositID          []byte
+	SubmitProposalID   []byte
 }
 
 func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
@@ -96,12 +103,12 @@ func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error)
 		switch name {
 		case VoteMethod:
 			p.VoteID = m.ID
-		case GrantVoteMethod:
-			p.GrantVoteID = m.ID
+		case GrantGovernanceMethod:
+			p.GrantGovernanceID = m.ID
 		case VoteWithAuthzMethod:
 			p.VoteWithAuthzID = m.ID
-		case RevokeVoteMethod:
-			p.RevokeVoteID = m.ID
+		case RevokeGovernanceMethod:
+			p.RevokeGovernanceID = m.ID
 		case SubmitWithAuthzMethod:
 			p.SubmitWithAuthzID = m.ID
 		case DepositMethod:
@@ -130,7 +137,7 @@ func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 // methods are views.
 func (p PrecompileExecutor) IsTransaction(method string) bool {
 	switch method {
-	case VoteMethod, VoteWeightedMethod, GrantVoteMethod, VoteWithAuthzMethod, RevokeVoteMethod, SubmitWithAuthzMethod, DepositMethod, SubmitProposalMethod:
+	case VoteMethod, VoteWeightedMethod, GrantGovernanceMethod, VoteWithAuthzMethod, RevokeGovernanceMethod, SubmitWithAuthzMethod, DepositMethod, SubmitProposalMethod:
 		return true
 	default:
 		return false
@@ -184,12 +191,12 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return p.vote(ctx, method, caller, args, value)
 	case VoteWeightedMethod:
 		return p.voteWeighted(ctx, method, caller, args, value)
-	case GrantVoteMethod:
-		return p.grantVoteAuthorization(ctx, method, caller, args, value)
+	case GrantGovernanceMethod:
+		return p.grantGovernanceAuthorization(ctx, method, caller, args, value)
 	case VoteWithAuthzMethod:
 		return p.voteWithAuthorization(ctx, method, caller, args, value)
-	case RevokeVoteMethod:
-		return p.revokeVoteAuthorization(ctx, method, caller, args, value)
+	case RevokeGovernanceMethod:
+		return p.revokeGovernanceAuthorization(ctx, method, caller, args, value)
 	case SubmitWithAuthzMethod:
 		return p.submitProposalWithAuthorization(ctx, method, caller, args, value, hooks, evm)
 	case DepositMethod:
@@ -200,7 +207,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) grantVoteAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+func (p PrecompileExecutor) grantGovernanceAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -224,8 +231,7 @@ func (p PrecompileExecutor) grantVoteAuthorization(ctx sdk.Context, method *abi.
 		granter,
 		grantee,
 		expiration,
-		&govtypes.MsgVote{},
-		&govtypes.MsgSubmitProposal{},
+		governanceAuthorizationMsgs...,
 	); err != nil {
 		return nil, 0, err
 	}
@@ -269,7 +275,7 @@ func (p PrecompileExecutor) voteWithAuthorization(ctx sdk.Context, method *abi.M
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), nil
 }
 
-func (p PrecompileExecutor) revokeVoteAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+func (p PrecompileExecutor) revokeGovernanceAuthorization(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -290,8 +296,7 @@ func (p PrecompileExecutor) revokeVoteAuthorization(ctx sdk.Context, method *abi
 		p.authzMsgServer,
 		granter,
 		grantee,
-		&govtypes.MsgVote{},
-		&govtypes.MsgSubmitProposal{},
+		governanceAuthorizationMsgs...,
 	); err != nil {
 		return nil, 0, err
 	}

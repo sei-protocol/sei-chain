@@ -327,7 +327,7 @@ func TestGovPrecompile(t *testing.T) {
 	}
 }
 
-func TestVoteAuthorizationFlow(t *testing.T) {
+func TestGovernanceAuthorizationFlow(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	blockTime := time.Unix(1_700_000_000, 0).UTC()
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2).WithBlockTime(blockTime)
@@ -365,7 +365,7 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 	expiration := blockTime.Add(time.Hour)
 	ret, err := call(
 		granterEVMAddr,
-		gov.GrantVoteMethod,
+		gov.GrantGovernanceMethod,
 		big.NewInt(0),
 		false,
 		false,
@@ -373,7 +373,7 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 		expiration.Unix(),
 	)
 	require.NoError(t, err)
-	assertSuccess(gov.GrantVoteMethod, ret)
+	assertSuccess(gov.GrantGovernanceMethod, ret)
 
 	voteMsgType := sdk.MsgTypeURL(&govtypes.MsgVote{})
 	authorization, storedExpiration := testApp.AuthzKeeper.GetCleanAuthorization(
@@ -442,9 +442,9 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 	// joined this EVM-facing permission. Group revocation must still remove it.
 	require.NoError(t, testApp.AuthzKeeper.DeleteGrant(statedb.Ctx(), granteeSeiAddr, granterSeiAddr, submitMsgType))
 
-	ret, err = call(granterEVMAddr, gov.RevokeVoteMethod, nil, false, false, granteeEVMAddr)
+	ret, err = call(granterEVMAddr, gov.RevokeGovernanceMethod, nil, false, false, granteeEVMAddr)
 	require.NoError(t, err)
-	assertSuccess(gov.RevokeVoteMethod, ret)
+	assertSuccess(gov.RevokeGovernanceMethod, ret)
 	authorization, _ = testApp.AuthzKeeper.GetCleanAuthorization(
 		statedb.Ctx(),
 		granteeSeiAddr,
@@ -477,7 +477,7 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 
 	_, err = call(
 		granterEVMAddr,
-		gov.GrantVoteMethod,
+		gov.GrantGovernanceMethod,
 		nil,
 		false,
 		false,
@@ -488,7 +488,7 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 
 	_, err = call(
 		granterEVMAddr,
-		gov.GrantVoteMethod,
+		gov.GrantGovernanceMethod,
 		big.NewInt(1),
 		false,
 		false,
@@ -499,7 +499,7 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 
 	_, err = call(
 		granterEVMAddr,
-		gov.GrantVoteMethod,
+		gov.GrantGovernanceMethod,
 		nil,
 		true,
 		false,
@@ -510,7 +510,7 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 
 	_, err = call(
 		granterEVMAddr,
-		gov.GrantVoteMethod,
+		gov.GrantGovernanceMethod,
 		nil,
 		false,
 		true,
