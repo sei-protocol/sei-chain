@@ -80,16 +80,22 @@ func (s *CosmosStateStore) Close() error {
 func (s *CosmosStateStore) SupportsCheckpoint() bool {
 	_, checkpointable := s.db.(types.Checkpointable)
 	_, barrier := s.db.(types.DrainBarrier)
-	_, versionSetter := s.db.(types.CheckpointVersionSetter)
-	return checkpointable && barrier && versionSetter
+	_, markerSetter := s.db.(types.CheckpointMarkerSetter)
+	return checkpointable && barrier && markerSetter
 }
 
 func (s *CosmosStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
 	types.ScheduleCheckpoint(s.db, destDir, shouldRun, done)
 }
 
-func (s *CosmosStateStore) SetCheckpointVersion(destDir string, version int64) error {
-	return types.SetCheckpointVersion(s.db, destDir, version)
+func (s *CosmosStateStore) SetCheckpointMarkers(destDir string, latest, earliest int64) error {
+	return types.SetCheckpointMarkers(s.db, destDir, latest, earliest)
+}
+
+// HighestEarliestVersion has one database to report on, so it agrees with
+// GetEarliestVersion.
+func (s *CosmosStateStore) HighestEarliestVersion() int64 {
+	return s.db.GetEarliestVersion()
 }
 
 func (s *CosmosStateStore) WaitForPendingWrites() {

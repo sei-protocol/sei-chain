@@ -122,10 +122,16 @@ type Checkpointable interface {
 	Checkpoint(destDir string) error
 }
 
-// CheckpointVersionSetter writes the logical height into a completed
+// CheckpointMarkerSetter writes the logical version range into a completed
 // checkpoint without changing the live database.
-type CheckpointVersionSetter interface {
-	SetCheckpointVersion(destDir string, version int64) error
+//
+// Both markers are stamped rather than inherited from the checkpoint. The
+// latest marker has to be stamped because a checkpoint is a copy of a database
+// whose marker may already have moved on. The earliest marker has to be stamped
+// because pruning advances it outside the write queue and one database at a
+// time, so two checkpoints of the same instant can disagree about it.
+type CheckpointMarkerSetter interface {
+	SetCheckpointMarkers(destDir string, latest, earliest int64) error
 }
 
 // DrainBarrier is an optional capability for engines that apply changesets from
@@ -139,7 +145,12 @@ type DrainBarrier interface {
 type CheckpointScheduler interface {
 	SupportsCheckpoint() bool
 	ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error))
-	SetCheckpointVersion(destDir string, version int64) error
+	SetCheckpointMarkers(destDir string, latest, earliest int64) error
+	// HighestEarliestVersion reports the largest earliest version among the
+	// databases this store owns. GetEarliestVersion reports the smallest, which
+	// is the right answer for serving reads but the wrong one for stamping a
+	// snapshot: it would claim a range a partly pruned database cannot serve.
+	HighestEarliestVersion() int64
 }
 
 // ErrCheckpointCanceled reports that a queued checkpoint was canceled before
@@ -168,14 +179,14 @@ func ScheduleCheckpoint(db StateStore, destDir string, shouldRun func() bool, do
 	})
 }
 
-// SetCheckpointVersion makes a completed checkpoint self-describing without
+// SetCheckpointMarkers makes a completed checkpoint self-describing without
 // changing the live database.
-func SetCheckpointVersion(db StateStore, destDir string, version int64) error {
-	setter, ok := db.(CheckpointVersionSetter)
+func SetCheckpointMarkers(db StateStore, destDir string, latest, earliest int64) error {
+	setter, ok := db.(CheckpointMarkerSetter)
 	if !ok {
-		return fmt.Errorf("state store backend %T cannot set checkpoint versions", db)
+		return fmt.Errorf("state store backend %T cannot set checkpoint markers", db)
 	}
-	return setter.SetCheckpointVersion(destDir, version)
+	return setter.SetCheckpointMarkers(destDir, latest, earliest)
 }
 
 // ---------------------------------------------------------------------------

@@ -58,6 +58,7 @@ func TestVersionedCheckpointPreservesFutureLiveMarker(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	require.NoError(t, store.SetLatestVersion(10))
+	require.NoError(t, store.SetEarliestVersion(4, false))
 
 	dest := filepath.Join(t.TempDir(), "snapshot")
 	done := make(chan error, 1)
@@ -65,17 +66,28 @@ func TestVersionedCheckpointPreservesFutureLiveMarker(t *testing.T) {
 		done <- err
 	})
 	require.NoError(t, <-done)
-	require.NoError(t, types.SetCheckpointVersion(store, dest, 5))
+	// The caller decides both markers. Neither has to match what the copy
+	// inherited: the label comes from the barrier, and the earliest version is
+	// reconciled across every tree in the snapshot.
+	require.NoError(t, types.SetCheckpointMarkers(store, dest, 5, 5))
+
 	require.Equal(t, int64(10), store.GetLatestVersion())
-	marker, closer, err := store.(*Database).storage.Get([]byte(latestVersionKey))
-	require.NoError(t, err)
-	require.Equal(t, uint64(10), binary.LittleEndian.Uint64(marker))
-	require.NoError(t, closer.Close())
+	require.Equal(t, int64(4), store.GetEarliestVersion())
+	for key, want := range map[string]uint64{latestVersionKey: 10, earliestVersionKey: 4} {
+		marker, closer, err := store.(*Database).storage.Get([]byte(key))
+		require.NoError(t, err)
+		require.Equal(t, want, binary.LittleEndian.Uint64(marker), "live %s changed", key)
+		require.NoError(t, closer.Close())
+	}
 
 	checkpoint, err := OpenDB(dest, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, checkpoint.Close()) })
 	require.Equal(t, int64(5), checkpoint.GetLatestVersion())
+	require.Equal(t, int64(5), checkpoint.GetEarliestVersion())
+
+	require.Error(t, types.SetCheckpointMarkers(store, dest, 5, 6),
+		"an earliest version above the label describes an empty range")
 }
 
 func TestScheduledCheckpointCanBeCanceledAtBarrier(t *testing.T) {

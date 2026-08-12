@@ -299,31 +299,42 @@ func (db *Database) Checkpoint(destDir string) error {
 	return nil
 }
 
-// SetCheckpointVersion writes version into a completed checkpoint without
-// changing the live database marker.
-func (db *Database) SetCheckpointVersion(destDir string, version int64) error {
-	if version < 0 {
-		return fmt.Errorf("version must be non-negative")
+// SetCheckpointMarkers writes the version range into a completed checkpoint
+// without changing the live database markers. Both are written under one open
+// so a checkpoint is never left describing half a range.
+func (db *Database) SetCheckpointMarkers(destDir string, latest, earliest int64) error {
+	if latest < 0 || earliest < 0 {
+		return fmt.Errorf("versions must be non-negative")
+	}
+	if earliest > latest {
+		return fmt.Errorf("earliest version %d is above latest version %d", earliest, latest)
 	}
 
 	opts := newPebbleOptions(db.config, nil)
 	opts.DisableAutomaticCompactions = true
 	checkpoint, err := pebble.Open(destDir, opts)
 	if err != nil {
-		return fmt.Errorf("open checkpoint %q to set version: %w", destDir, err)
+		return fmt.Errorf("open checkpoint %q to set markers: %w", destDir, err)
 	}
 
-	var marker [VersionSize]byte
-	binary.LittleEndian.PutUint64(marker[:], uint64(version))
-	setErr := checkpoint.Set([]byte(latestVersionKey), marker[:], pebble.Sync)
+	setErr := setCheckpointMarker(checkpoint, latestVersionKey, latest)
+	if setErr == nil {
+		setErr = setCheckpointMarker(checkpoint, earliestVersionKey, earliest)
+	}
 	closeErr := checkpoint.Close()
 	if setErr != nil {
-		setErr = fmt.Errorf("set checkpoint version %d: %w", version, setErr)
+		setErr = fmt.Errorf("set checkpoint markers latest=%d earliest=%d: %w", latest, earliest, setErr)
 	}
 	if closeErr != nil {
-		closeErr = fmt.Errorf("close checkpoint after setting version %d: %w", version, closeErr)
+		closeErr = fmt.Errorf("close checkpoint after setting markers: %w", closeErr)
 	}
 	return errors.Join(setErr, closeErr)
+}
+
+func setCheckpointMarker(checkpoint *pebble.DB, key string, version int64) error {
+	var marker [VersionSize]byte
+	binary.LittleEndian.PutUint64(marker[:], uint64(version))
+	return checkpoint.Set([]byte(key), marker[:], pebble.Sync)
 }
 
 func (db *Database) SetLatestVersion(version int64) error {

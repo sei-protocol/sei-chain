@@ -31,6 +31,34 @@ func openTestStore(t *testing.T) types.StateStore {
 	return store
 }
 
+// Prune runs the sub-DBs in parallel and each writes its own earliest marker
+// when it finishes, so mid-pass they disagree. The two readings answer different
+// questions: GetEarliestVersion reports what the store as a whole can still be
+// asked for, while HighestEarliestVersion reports the floor every sub-DB can
+// honor, which is what a snapshot has to be stamped with.
+func TestHighestEarliestVersionReportsTheFurthestPrunedSubDB(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig()
+	cfg.SeparateEVMSubDBs = true
+
+	store, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	require.Greater(t, len(store.managedDBs), 1)
+
+	require.Zero(t, store.GetEarliestVersion())
+	require.Zero(t, store.HighestEarliestVersion())
+
+	require.NoError(t, store.subDBs[StoreStorage].SetEarliestVersion(40, false))
+	require.Zero(t, store.GetEarliestVersion(), "an unpruned sub-DB still reads 0")
+	require.Equal(t, int64(40), store.HighestEarliestVersion())
+
+	// Once the pass finishes, the two agree again.
+	require.NoError(t, store.SetEarliestVersion(40, false))
+	require.Equal(t, int64(40), store.GetEarliestVersion())
+	require.Equal(t, int64(40), store.HighestEarliestVersion())
+}
+
 func TestEVMStateStoreDefaultUsesUnifiedDB(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig()
