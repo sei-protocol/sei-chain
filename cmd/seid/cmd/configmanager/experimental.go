@@ -106,9 +106,14 @@ func logFindings(lg logging, f experimental.Findings) {
 		"defects", len(f.Defects), "skipped", f.OversizeNames+f.Truncated)
 
 	if len(f.Unrecognized) > 0 {
-		keys, nearest, omitted := renderUnrecognized(f.Unrecognized)
-		lg.Warn("unrecognized [experimental] keys (advisory; left in place, not removed)",
-			"count", len(f.Unrecognized), "keys", keys, "nearest", nearest, "omitted", omitted)
+		keys, nearest, omitted, truncated := renderUnrecognized(f.Unrecognized)
+		args := []any{"count", len(f.Unrecognized), "keys", keys, "nearest", nearest, "omitted", omitted}
+		if truncated > 0 {
+			// Carried only when something was cut, so a reader who sees the field knows a rendered
+			// name is shorter than what their file holds, and never sees it otherwise.
+			args = append(args, "truncated", truncated, "maxbytes", experimental.MaxLoggedNameBytes)
+		}
+		lg.Warn("unrecognized [experimental] keys (advisory; left in place, not removed)", args...)
 	}
 	for _, ve := range f.Malformed {
 		lg.Warn("an [experimental] value is not usable; its declared default is in use",
@@ -156,7 +161,7 @@ type logging interface {
 // Names are rendered through logName so a name carrying a newline or an escape sequence cannot
 // forge a log line, and the list is capped so a rollback that invalidates a whole feature's keys
 // cannot produce a record some shippers drop and others split.
-func renderUnrecognized(us []experimental.Unrecognized) (keys, nearest []string, omitted int) {
+func renderUnrecognized(us []experimental.Unrecognized) (keys, nearest []string, omitted, truncated int) {
 	shown := us
 	if len(shown) > maxReportedKeys {
 		shown, omitted = shown[:maxReportedKeys], len(us)-maxReportedKeys
@@ -166,12 +171,13 @@ func renderUnrecognized(us []experimental.Unrecognized) (keys, nearest []string,
 		// Nearest is dropped for a truncated name, since it is computed on the full name and would
 		// otherwise sit beside a token describing a different string.
 		if len(u.Key) > experimental.MaxLoggedNameBytes {
+			truncated++
 			nearest = append(nearest, "")
 			continue
 		}
 		nearest = append(nearest, logName(u.Nearest))
 	}
-	return keys, nearest, omitted
+	return keys, nearest, omitted, truncated
 }
 
 // maxReportedKeys bounds the key list in one record, for the same reason maxLoggedDiagnostics
@@ -185,7 +191,10 @@ const maxReportedKeys = 10
 // the one that forgot.
 func logName(s string) string {
 	if len(s) > experimental.MaxLoggedNameBytes {
-		return strconv.QuoteToASCII(s[:experimental.MaxLoggedNameBytes] + "…")
+		// An ASCII ellipsis, not a Unicode one. QuoteToASCII renders U+2026 as the escape
+		// sequence \u2026, which reads as part of the name rather than as a mark that the name
+		// was cut.
+		return strconv.QuoteToASCII(s[:experimental.MaxLoggedNameBytes] + "...")
 	}
 	return strconv.QuoteToASCII(s)
 }

@@ -2,7 +2,9 @@ package experimental_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -368,4 +370,74 @@ func TestA19AZeroKeyIsSafe(t *testing.T) {
 	if _, ok := k.Reject("anything"); !ok {
 		t.Error("a zero Key rejected a value; there is no declaration to reject against")
 	}
+}
+
+// TestA19ReadsAgreeUnderRace holds the read path's concurrency contract.
+//
+// A Key is self-contained: Get consults the Key and never the registry, so a read takes no lock and
+// does not depend on package initialisation order or on which packages the binary linked. That is
+// only worth claiming if concurrent reads of one AppOptions actually agree, so this is the assertion
+// that makes `go test -race` mean something for it.
+func TestA19ReadsAgreeUnderRace(t *testing.T) {
+	k := declare(t)
+	opts := src(map[string]any{k.Path(): "16"})
+
+	const readers = 32
+	got := make([]int, readers)
+	var wg sync.WaitGroup
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			got[i] = k.Get(opts)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, v := range got {
+		if v != 16 {
+			t.Fatalf("reader %d resolved %d, want 16. Concurrent reads of one source have to agree, "+
+				"or a value read twice in one boot could differ", i, v)
+		}
+	}
+}
+
+// TestA19ConcurrentDeclarationAndReadAreSafe covers the one shape that could still race.
+//
+// The registry has a mutex as insurance against a lazily declared key, which the package doc
+// forbids. Reads never touch it, so a declaration landing while another key is being read must not
+// be observable by that read.
+func TestA19ConcurrentDeclarationAndReadAreSafe(t *testing.T) {
+	k := declare(t)
+	opts := src(map[string]any{k.Path(): "16"})
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			experimental.Int(experimental.Decl[int]{
+				Name:    fmt.Sprintf("probe.late_%02d", i),
+				Default: 1, Owner: "configtest", Since: "v1",
+			})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			if v := k.Get(opts); v != 16 {
+				t.Errorf("a read returned %d while declarations were landing, want 16. Get must not "+
+					"consult the registry, or a read's answer depends on init order", v)
+				return
+			}
+		}
+	}()
+	wg.Wait()
+
+	// And the accessors are safe to walk afterwards, since the sweep and the checks do exactly that.
+	if len(experimental.Declarations()) == 0 {
+		t.Error("no declarations survived the concurrent registration")
+	}
+	_ = experimental.Checkers()
+	_ = experimental.Defects()
 }
