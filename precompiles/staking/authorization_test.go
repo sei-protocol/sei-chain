@@ -106,6 +106,24 @@ func TestStakingAuthorizationFlow(t *testing.T) {
 		100,
 	)
 
+	_, err = call(
+		granteeEVMAddr,
+		staking.DelegateWithAuthzMethod,
+		big.NewInt(150_000_000_000_000),
+		granterEVMAddr,
+		validatorSrc.String(),
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+	assertStakingAuthorizationLimit(
+		t,
+		testApp,
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		&stakingtypes.MsgDelegate{},
+		100,
+	)
+
 	ret, err = call(
 		granteeEVMAddr,
 		staking.RedelegateWithAuthzMethod,

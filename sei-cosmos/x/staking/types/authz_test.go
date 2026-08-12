@@ -13,6 +13,7 @@ import (
 
 var (
 	coin100 = sdk.NewInt64Coin("steak", 100)
+	coin150 = sdk.NewInt64Coin("steak", 150)
 	coin50  = sdk.NewInt64Coin("steak", 50)
 	delAddr = sdk.AccAddress("_____delegator _____")
 	val1    = sdk.ValAddress("_____validator1_____")
@@ -83,6 +84,17 @@ func TestAuthzAuthorizations(t *testing.T) {
 				Validators: &stakingtypes.StakeAuthorization_AllowList{
 					AllowList: &stakingtypes.StakeAuthorization_Validators{Address: validators1_2},
 				}, MaxTokens: &coin50, AuthorizationType: stakingtypes.AuthorizationType_AUTHORIZATION_TYPE_DELEGATE},
+		},
+		{
+			"delegate: fail amount exceeds limit",
+			[]sdk.ValAddress{val1, val2},
+			[]sdk.ValAddress{},
+			stakingtypes.AuthorizationType_AUTHORIZATION_TYPE_DELEGATE,
+			&coin100,
+			stakingtypes.NewMsgDelegate(delAddr, val1, coin150),
+			true,
+			false,
+			nil,
 		},
 		{
 			"delegate: testing with invalid validator",
