@@ -74,6 +74,11 @@ type Store struct {
 	// captured only once (with the real, non-empty changeset) per block.
 	blockChangeSets          []*proto.NamedChangeSet
 	changesetCapturedVersion int64
+	// flushedVersion is the height whose changesets have already been handed to the commit store. A
+	// height is handed over at most once: baseapp asks for the working hash twice per block and then
+	// commits, so flush runs three times per height, and only the first run carries the block's writes.
+	// Handing the later, empty runs down would tell the commit store it has moved on to another block.
+	flushedVersion int64
 	// nextBlockHash is the Tendermint block hash supplied by baseapp for the block being committed.
 	nextBlockHash []byte
 	// nextResultHash is the result hash (merkle root over the block's deterministic tx results)
@@ -134,6 +139,8 @@ func NewStore(
 		hashLoggerConfig:   scConfig.HashLogger,
 		hashLoggerDisabled: !scConfig.HashLogger.Enable,
 		scDir:              scDir,
+		// No height has been flushed yet, and the first block is 1, so -1 cannot collide with it.
+		flushedVersion: -1,
 	}
 	if ssConfig.Enable {
 		ssStore, err := ss.NewStateStore(homeDir, ssConfig)
@@ -222,11 +229,25 @@ func (rs *Store) flush() error {
 			return changeSets[i].Name < changeSets[j].Name
 		})
 	}
-	// Capture the (sorted) aggregate changeset for hash logging once per block. rootmulti flushes twice
-	// per block (GetWorkingHash then Commit) but only the first flush carries the real changeset — the
-	// second sees an empty set because PopChangeSet already drained it — so capture only the first time.
-	// nil is normalized to an empty (non-nil) set so an empty block records the stable empty-changeset
-	// hash rather than a nil one.
+	// A height is handed down once. baseapp requests the working hash in FinalizeBlock and again in
+	// Commit before committing, so flush runs three times per height, and PopChangeSet has already
+	// drained the block's writes by the second run. Handing an empty changeset down is not harmless:
+	// the commit store stamps it with a height it derives from its own last committed block, which the
+	// first working-hash request already advanced, so it would conclude the chain had moved to the next
+	// block and commit one that never existed. Draining above is what makes this emptiness check
+	// meaningful, and it also keeps a stray pair from being attributed to the following height.
+	if rs.flushedVersion == currentVersion {
+		if len(changeSets) > 0 {
+			return fmt.Errorf("rootmulti: %d changeset(s) arrived for height %d after its working hash "+
+				"was taken; the app hash already announced no longer describes the state being committed",
+				len(changeSets), currentVersion)
+		}
+		return nil
+	}
+	rs.flushedVersion = currentVersion
+
+	// Capture the (sorted) aggregate changeset for hash logging once per block. nil is normalized to an
+	// empty (non-nil) set so an empty block records the stable empty-changeset hash rather than a nil one.
 	if !rs.hashLoggerDisabled && rs.changesetCapturedVersion != currentVersion {
 		if changeSets == nil {
 			rs.blockChangeSets = []*proto.NamedChangeSet{}
