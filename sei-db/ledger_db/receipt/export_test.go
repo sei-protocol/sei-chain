@@ -20,5 +20,14 @@ func GetLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
 // block below cutoff. Test-only hook so prune behavior can be asserted without
 // waiting on the background interval.
 func PruneLittIdx(store ReceiptStore, cutoff uint64) error {
-	return store.(*littReceiptStore).pruneBlocksBelow(cutoff)
+	s := store.(*littReceiptStore)
+	if err := s.flushReceipts(); err != nil {
+		return err
+	}
+	return s.pruneBlocksBelow(cutoff)
+}
+
+// FlushLittIdx makes every receipt body written before the call crash recoverable.
+func FlushLittIdx(store ReceiptStore) error {
+	return store.(*littReceiptStore).flushReceipts()
 }

@@ -41,16 +41,15 @@ func (s *blockDB) GetRollbackFloor(rollbackWindow uint64) uint64 {
 	return head - rollbackWindow
 }
 
-// GetLatestBlock returns the newest block number written, or 0 when none has been. It reports the
-// written cursor rather than the flushed one, so a block a crash would lose still counts as ingested.
+// GetLatestBlock returns the newest crash-recoverable block number, or 0 when none has been.
 //
 // Global block numbers start at genesis block 0, so a store holding only that block is
 // indistinguishable from an empty one.
 func (s *blockDB) GetLatestBlock() (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.hasBlocks {
+	if !s.hasDurableBlocks {
 		return 0, nil
 	}
-	return uint64(s.lastBlockNumber), nil
+	return uint64(s.lastDurableBlockNumber), nil
 }

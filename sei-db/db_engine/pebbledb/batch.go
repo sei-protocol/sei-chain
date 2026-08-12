@@ -29,6 +29,10 @@ func (pb *pebbleBatch) Delete(key []byte) error {
 	return pb.b.Delete(key, nil)
 }
 
+func (pb *pebbleBatch) DeleteRange(start, end []byte) error {
+	return pb.b.DeleteRange(start, end, nil)
+}
+
 func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
 	writeCount := int64(pb.b.Count())
 	err := pb.b.Commit(toPebbleWriteOpts(opts))

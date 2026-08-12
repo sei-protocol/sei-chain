@@ -30,6 +30,13 @@ func (w *stateWALImpl) ExternalPruning() bool {
 // WAL. Prune is the equivalent for the WAL's own owner; this one is safe to call from the collector's
 // goroutine, and leaves the WAL usable on failure rather than bricking it.
 func (w *stateWALImpl) PruneHistory(blockNumber uint64) error {
+	head := w.lastDurableBlock.Load()
+	if head == 0 {
+		return nil
+	}
+	if blockNumber > head {
+		blockNumber = head
+	}
 	if err := w.wal.PruneBefore(blockNumber); err != nil {
 		return fmt.Errorf("failed to prune state WAL below block %d: %w", blockNumber, err)
 	}
@@ -55,8 +62,8 @@ func (w *stateWALImpl) GetRollbackFloor(rollbackWindow uint64) uint64 {
 	return head - rollbackWindow
 }
 
-// GetLatestBlock returns the highest block ended by SignalEndOfBlock, or 0 when none has been. A
-// block written but not yet ended is excluded: it is still buffered rather than a record.
+// GetLatestBlock returns the highest block made crash recoverable by Flush or Close, or 0 when none
+// has been.
 func (w *stateWALImpl) GetLatestBlock() (uint64, error) {
-	return w.lastCompletedBlock.Load(), nil
+	return w.lastDurableBlock.Load(), nil
 }

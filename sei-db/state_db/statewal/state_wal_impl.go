@@ -15,7 +15,7 @@ var _ StateWAL = (*stateWALImpl)(nil)
 //
 // Not safe for concurrent use; see the StateWAL interface doc. The gc.PrunableStore surface in
 // state_wal_gc.go is the one exception: it runs on the collector's goroutine, and touches only
-// lastCompletedBlock and the WAL underneath.
+// lastDurableBlock and the WAL underneath.
 type stateWALImpl struct {
 	// The underlying generic WAL, keyed by block number, whose payload is a block's changesets.
 	wal seiwal.WAL[[]*proto.NamedChangeSet]
@@ -50,6 +50,11 @@ type stateWALImpl struct {
 	// 0 also means no block has completed yet, so a WAL whose only completed block is block 0 is
 	// indistinguishable from an empty one.
 	lastCompletedBlock atomic.Uint64
+
+	// The highest completed block made crash recoverable by Flush or Close. The garbage collector
+	// must measure its rollback window from this cursor rather than lastCompletedBlock: appends are
+	// asynchronous, so a completed but unflushed suffix can disappear on a process crash.
+	lastDurableBlock atomic.Uint64
 }
 
 // New opens (or creates) a state WAL in the configured directory, recovering any files left behind by a
@@ -125,6 +130,7 @@ func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
 		w.currentBlockEnded = true
 		w.hasCurrentBlock = true
 		w.lastCompletedBlock.Store(last)
+		w.lastDurableBlock.Store(last)
 	}
 	return w, nil
 }
@@ -216,9 +222,13 @@ func (w *stateWALImpl) Flush() error {
 	if w.fatalErr != nil {
 		return fmt.Errorf("state WAL failed: %w", w.fatalErr)
 	}
+	// Snapshot before Flush: an Append that overlaps the underlying flush is not guaranteed durable
+	// when it returns, so publishing lastCompletedBlock afterward could overstate the durable suffix.
+	lastCompletedBlock := w.lastCompletedBlock.Load()
 	if err := w.wal.Flush(); err != nil {
 		return w.fail(fmt.Errorf("failed to flush state WAL: %w", err))
 	}
+	w.lastDurableBlock.Store(lastCompletedBlock)
 	return nil
 }
 
@@ -281,6 +291,7 @@ func (w *stateWALImpl) Close() error {
 	if err := w.wal.Close(); err != nil {
 		return fmt.Errorf("failed to close state WAL: %w", err)
 	}
+	w.lastDurableBlock.Store(w.lastCompletedBlock.Load())
 	return nil
 }
 
