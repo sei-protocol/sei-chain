@@ -28,7 +28,7 @@ import (
 // topic position in disjoint keyspaces (criteria are positional).
 // firstLogIndex is the receipt's block-wide first log index, stored so reads
 // can number logs without decoding the receipts before it. Pruning a block
-// range is a single range tombstone (see deleteIndexRange).
+// range is a single range tombstone in the same batch as the retention-floor metadata.
 const (
 	littTagKeyPrefix = 't'
 

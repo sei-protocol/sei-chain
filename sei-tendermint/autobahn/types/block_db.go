@@ -126,8 +126,9 @@ type BlockDB interface {
 	//
 	// Pruning never empties the store. Once a block has been written, at
 	// least one block (and a QC covering it) always remains readable — a
-	// request that would remove every block is capped to retain the most
-	// recently written block (and the QC covering it).
+	// request that would remove every block is capped to retain the newest
+	// crash-recoverable block (and the QC covering it). A newer unflushed
+	// suffix cannot be the only retained history because a crash may lose it.
 	//
 	// Pruning is asynchronous and MAY BE DELAYED. PruneBefore records the
 	// watermark and returns; reclamation happens later, on the

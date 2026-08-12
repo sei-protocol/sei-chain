@@ -36,11 +36,10 @@ func openForGC(t *testing.T, dir string) (types.BlockDB, gc.PrunableStore) {
 	return db, store
 }
 
-// The head the collector reads is the newest block written — not the newest QC's coverage, since
-// a QC is written before the blocks it covers — and 0 while nothing has been ingested, so an
-// empty store drops out of the head minimum instead of dragging the lookback floor to 0. The reopen
-// at the end covers recovery: a store that reported 0 after a restart would let the other stores
-// prune past a height this one still holds.
+// The head the collector reads is the newest crash-recoverable block — not the newest written
+// block and not the newest QC's coverage. Counting an unflushed suffix would let the collector
+// prune durable history against records a process crash can lose, leaving less than the configured
+// rollback window. The reopen at the end covers recovery.
 func TestGCLatestBlock(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRngFromSeed(1)
@@ -53,6 +52,11 @@ func TestGCLatestBlock(t *testing.T) {
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19, QCs [0,5)..[15,20)
 	latest, err = store.GetLatestBlock()
 	require.NoError(t, err)
+	require.Equal(t, uint64(0), latest, "written but unflushed blocks must not advance the pruning head")
+
+	require.NoError(t, db.Flush())
+	latest, err = store.GetLatestBlock()
+	require.NoError(t, err)
 	require.Equal(t, uint64(19), latest)
 
 	// A QC covering 20..24 is written but none of its blocks are, so the head must not move.
@@ -62,7 +66,14 @@ func TestGCLatestBlock(t *testing.T) {
 	require.Equal(t, uint64(19), latest, "a QC ahead of its blocks must not advance the head")
 
 	require.NoError(t, db.WriteBlock(20, types.GenBlock(rng)))
+	latest, err = store.GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(19), latest, "an unflushed block must not advance the pruning head")
+
 	require.NoError(t, db.Flush())
+	latest, err = store.GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(20), latest)
 	require.NoError(t, db.Close())
 
 	_, reopened := openForGC(t, dir)
@@ -107,6 +118,7 @@ func TestGCRollbackFloorAndPruneHistory(t *testing.T) {
 	require.Equal(t, uint64(0), impl.watermark.Load())
 
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19, QCs [0,5),[5,10),[10,15),[15,20)
+	require.NoError(t, db.Flush())
 	require.Equal(t, uint64(19), store.GetRollbackFloor(0), "the whole store is inside a window of 0")
 	require.Equal(t, uint64(7), store.GetRollbackFloor(12))
 	// A window deeper than the store's own head is a rollback promise reaching past genesis, so
@@ -132,6 +144,7 @@ func TestGCPruneHistoryAboveHeadIsCapped(t *testing.T) {
 	rng := utils.TestRngFromSeed(3)
 
 	writeSyntheticBatches(t, db, rng, 4, 5) // blocks 0..19, newest cohort QC[15,20)
+	require.NoError(t, db.Flush())
 	require.NoError(t, store.PruneHistory(1_000))
 	require.Equal(t, uint64(15), db.(*blockDB).watermark.Load(), "a prune past the head is capped to the newest cohort")
 
@@ -140,6 +153,29 @@ func TestGCPruneHistoryAboveHeadIsCapped(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, blk.IsPresent(), "block %d in the newest cohort must survive", n)
 	}
+}
+
+// The never-empty cap is measured from the durable tip, not the newest write. Otherwise a concurrent
+// unflushed suffix could let pruning reclaim every crash-recoverable block; a process crash would
+// then lose the suffix and reopen without the history the cap promised to preserve.
+func TestGCPruneHistoryAboveHeadIsCappedToDurableCohort(t *testing.T) {
+	db, store := openForGC(t, t.TempDir())
+	rng := utils.TestRngFromSeed(5)
+
+	writeSyntheticBatches(t, db, rng, 2, 5) // durable blocks 0..9, newest durable cohort QC[5,10)
+	require.NoError(t, db.Flush())
+	for i := 2; i < 4; i++ {
+		first := types.GlobalBlockNumber(i * 5)
+		next := first + 5
+		require.NoError(t, db.WriteQC(types.GenFullCommitQCRange(rng, first, next)))
+		for n := first; n < next; n++ {
+			require.NoError(t, db.WriteBlock(n, types.GenBlock(rng)))
+		}
+	}
+
+	require.NoError(t, store.PruneHistory(1_000))
+	require.Equal(t, uint64(5), db.(*blockDB).watermark.Load(),
+		"the store must retain the newest durable cohort, not rely on an unflushed suffix")
 }
 
 func TestConfigValidateRetentionTime(t *testing.T) {

@@ -52,11 +52,12 @@ type blockDB struct {
 	mu              sync.Mutex
 	hasBlocks       bool
 	lastBlockNumber types.GlobalBlockNumber
-	hasQC           bool
-	lastQCNext      types.GlobalBlockNumber
-
-	// latestQCStartBlock is the most recently written QC's starting block number.
-	latestQCStartBlock types.GlobalBlockNumber
+	// The newest block covered by a successful Flush (or recovered on open). GC measures retention
+	// from this cursor so it never prunes durable history against a volatile write suffix.
+	hasDurableBlocks       bool
+	lastDurableBlockNumber types.GlobalBlockNumber
+	hasQC                  bool
+	lastQCNext             types.GlobalBlockNumber
 
 	// firstBlockNumber is the lowest block number this handle has seen. Iterator clamps its
 	// start up to it so a scan always opens on a block that exists: the first block may be
@@ -196,10 +197,14 @@ func (s *blockDB) recoverCursors() error {
 				if err != nil {
 					return fmt.Errorf("failed to unmarshal newest qc: %w", err)
 				}
-				s.latestQCStartBlock, s.lastQCNext = coveredRange(qc)
+				_, s.lastQCNext = coveredRange(qc)
 				s.hasQC = true
 			}
 		}
+	}
+	if s.hasBlocks {
+		s.hasDurableBlocks = true
+		s.lastDurableBlockNumber = s.lastBlockNumber
 	}
 	return nil
 }
@@ -329,7 +334,6 @@ func (s *blockDB) WriteQC(qc *types.FullCommitQC) error {
 		// discovering it by scanning; a reopen re-derives the same value.
 		s.oldestQCStart = first
 	}
-	s.latestQCStartBlock = first
 	s.lastQCNext = next
 	s.hasQC = true
 	return nil
@@ -345,8 +349,14 @@ func (s *blockDB) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 		return nil
 	}
 
-	if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); blockHeight > ceiling {
-		blockHeight = ceiling
+	// Never make the store depend on an unflushed suffix to remain non-empty. GC and callers may
+	// prune concurrently with the persistence loop; a process crash can lose every write above this
+	// cursor, so the newest durable block's whole QC cohort is the highest safe prune boundary.
+	if !s.hasDurableBlocks {
+		return nil
+	}
+	if blockHeight > s.lastDurableBlockNumber {
+		blockHeight = s.lastDurableBlockNumber
 	}
 
 	// Round the watermark down to the start of a QC's range, to avoid pruning a QC before its blocks.
@@ -405,8 +415,23 @@ func (s *blockDB) gcFilter(key []byte, _ bool) (bool, error) {
 }
 
 func (s *blockDB) Flush() error {
+	// Snapshot the write cursor before flushing. Table.Flush guarantees every Put that completed
+	// before it began, while overlapping writes may or may not be durable; recording this snapshot
+	// is therefore conservative without blocking the persistence loop for the duration of the I/O.
+	s.mu.Lock()
+	hasBlocks := s.hasBlocks
+	lastBlockNumber := s.lastBlockNumber
+	s.mu.Unlock()
+
 	if err := s.table.Flush(); err != nil {
 		return fmt.Errorf("failed to flush ledger table: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if hasBlocks && (!s.hasDurableBlocks || lastBlockNumber > s.lastDurableBlockNumber) {
+		s.hasDurableBlocks = true
+		s.lastDurableBlockNumber = lastBlockNumber
 	}
 	return nil
 }

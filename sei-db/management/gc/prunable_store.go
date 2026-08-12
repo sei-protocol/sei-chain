@@ -50,7 +50,7 @@ type PrunableStore interface {
 	// nothing clamps this answer.
 	GetRollbackFloor(rollbackWindow uint64) uint64
 
-	// GetLatestBlock returns the highest block this store has ingested, 0 when it has ingested
-	// nothing. It is the head GetRollbackFloor measures rollbackWindow against.
+	// GetLatestBlock returns the highest crash-recoverable block this store has ingested, or 0 when
+	// it has ingested nothing. It is the head GetRollbackFloor measures rollbackWindow against.
 	GetLatestBlock() (uint64, error)
 }
