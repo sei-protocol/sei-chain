@@ -49,15 +49,15 @@ import (
 // call ScheduleSnapshot. The rootmulti commit path owns the trigger for every
 // block, populated or empty, and is the only caller of ScheduleSnapshot.
 //
-// Because pruning is outside the barrier and advances one database at a time,
-// the version markers a snapshot publishes are stamped at publication rather
-// than inherited from each checkpoint. Otherwise a snapshot taken during a
-// prune pass would pair a pruned tree with an unpruned one and would be
-// rejected on reopen. See stampedEarliest.
-// Because pruning bypasses the barrier, a checkpoint can capture a partially
-// applied prune — the same state a crash mid-prune leaves on the live DB.
-// Reads at the label version are unaffected; only historical reads near the
-// pruning horizon can see it.
+// Pruning is the one writer nothing orders a snapshot against, and it has two
+// separate effects. In the data, a checkpoint can capture a partially applied
+// prune — the same state a crash mid-prune leaves on the live DB. That one is
+// harmless: reads at the label are unaffected, and only historical reads near
+// the pruning horizon can see it. In the version markers it is not harmless,
+// because pruning advances the databases one at a time and a snapshot would
+// pair a pruned tree with an unpruned one, which is rejected on reopen. The
+// markers are therefore stamped at publication rather than inherited from each
+// checkpoint. See stampedEarliest.
 //
 // SS rollback is not part of this feature, and the two do not compose yet. A
 // rollback leaves lastRequested at the pre-rollback high-water mark, so the
