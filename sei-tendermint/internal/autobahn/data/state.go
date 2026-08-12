@@ -167,8 +167,8 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 		}
 		i.nextBlock += 1
 		latency := t.Sub(b.Payload().CreatedAt()).Seconds()
-		m.Blocks.Receive.Observe(latency)
-		m.Txs.Receive.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+		m.BlockLatency.Receive.Observe(latency)
+		m.TxLatency.Receive.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 	}
 	if oldNextBlock < i.nextBlock {
 		m.BlockHeight.Receive.Set(int64(i.nextBlock))
@@ -193,9 +193,13 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
 	}
+	m := metrics.Get()
+	m.BlockHeight.Receive.Set(int64(inner.nextBlock))
+	m.BlockHeight.Execute.Set(int64(inner.nextAppProposal))
+	m.BlockHeight.Certify.Set(int64(inner.nextAppQC))
 	return &State{
 		cfg:     cfg,
-		metrics: metrics.Get(),
+		metrics: m,
 		inner:   utils.NewWatch(inner),
 		blockDB: blockDB,
 	}, nil
@@ -619,8 +623,8 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		for inner.nextAppProposal <= n {
 			b := inner.blocks[inner.nextAppProposal]
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
-			s.metrics.Blocks.Execute.Observe(latency)
-			s.metrics.Txs.Execute.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+			s.metrics.BlockLatency.Execute.Observe(latency)
+			s.metrics.TxLatency.Execute.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 			if txCount := len(b.Payload().Txs()); txCount > 0 {
 				var totalTxSize int
 				for _, tx := range b.Payload().Txs() {
@@ -631,6 +635,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.appProposals[inner.nextAppProposal] = proposal
 			inner.nextAppProposal += 1
 		}
+		s.metrics.BlockHeight.Execute.Set(int64(inner.nextAppProposal))
 		ctrl.Updated()
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
@@ -681,9 +686,10 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC) error {
 		for n := gr.First; n < gr.Next; n++ {
 			b := inner.blocks[n]
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
-			s.metrics.Blocks.Certify.Observe(latency)
-			s.metrics.Txs.Certify.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+			s.metrics.BlockLatency.Certify.Observe(latency)
+			s.metrics.TxLatency.Certify.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 		}
+		s.metrics.BlockHeight.Certify.Set(int64(inner.nextAppQC))
 		ctrl.Updated()
 		return nil
 	}
