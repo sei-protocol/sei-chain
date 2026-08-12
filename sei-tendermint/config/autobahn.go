@@ -70,7 +70,11 @@ type AutobahnFileConfig struct {
 	// fullnodes serving downstream block-sync are subject to the same
 	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers,omitzero"`
-	EnableEvmProxy          utils.Option[bool]   `json:"enable_evm_proxy,omitzero"`
+	// Whether to proxy mempool evm rpc request to the validator
+	// handling a given shard of addresses.
+	// Useful for loatesting (to compare enabled/disabled performance).
+	// Defaults to true.
+	EnableEvmProxy utils.Option[bool] `json:"enable_evm_proxy,omitzero"`
 	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig
 	// when PersistentStateDir is set. Zero value ⇒ littblock.DefaultConfig unchanged
 	// (see AutobahnBlockDBConfig for field semantics). Ignored when

@@ -296,6 +296,7 @@ func (r *gigaRouterCommon) runEvmProxies(ctx context.Context) error {
 	})
 }
 
+// gas used, as reported by finalizeBlock() call.
 func finalizeBlockGasUsed(resp *abci.ResponseFinalizeBlock) int64 {
 	var total int64
 	for _, result := range resp.TxResults {

@@ -109,7 +109,6 @@ func (s *State) Run(ctx context.Context) error {
 					// Wait for full payload with timeout.
 					// Note that in total the time between blocks is WaitForLocalCapacity delay + BlockInterval
 					// We don't want to cap them together with BlockInterval, because that will cause production of almost empty blocks.
-					// TODO(gprusak): double check that it works fine with txs rate limiting.
 					if err := utils.WithTimeout(ctx, s.cfg.BlockInterval, func(ctx context.Context) error {
 						return ctrl.WaitUntil(ctx, func() bool { return toProduce < m.next })
 					}); err != nil {
@@ -151,6 +150,7 @@ func (s *State) Run(ctx context.Context) error {
 				if _, err := availState.ProduceLocalBlock(toProduce, payload); err != nil {
 					return fmt.Errorf("availState.ProduceLocalBlock(): %w", err)
 				}
+				// TODO(gprusak): move this limit to insertTx instead.
 				if err := limiter.WaitN(ctx, len(payload.Txs())); err != nil {
 					return fmt.Errorf("limiter(): %w", err)
 				}
