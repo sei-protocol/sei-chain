@@ -239,7 +239,10 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 
 	// Validate EVM block height for pacific-1 chain
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
-	if err := ValidateEVMBlockHeight(sdkCtx.ChainID(), block.Block.Height); err != nil {
+	if err = ValidateEVMBlockHeight(sdkCtx.ChainID(), block.Block.Height); err != nil {
+		return nil, err
+	}
+	if err = a.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
 		return nil, err
 	}
 
@@ -286,6 +289,9 @@ func (a *BlockAPI) getBlockByNumber(
 	if block == nil {
 		return nil, nil
 	}
+	if err = a.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
+		return nil, err
+	}
 	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
 }
 
@@ -328,6 +334,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	}
 	if block == nil {
 		return nil, nil
+	}
+	if err = a.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
+		return nil, err
 	}
 
 	// Get all tx hashes for the block
