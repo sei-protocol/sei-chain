@@ -1,21 +1,9 @@
 package experimental
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 )
-
-// KeySpace enumerates the keys a configuration source actually carries.
-//
-// This is deliberately a second interface rather than a method on FlatView. Reading a
-// declared key needs only Get, and every AppOptions in the tree has that. Finding a key
-// nobody declared needs the written set, which Get cannot produce, and only a *viper.Viper
-// has it. Keeping them apart means a read site is not forced to accept a type it does not
-// need.
-type KeySpace interface {
-	AllKeys() []string
-}
 
 // Finding is one thing the check pass saw.
 type Finding struct {
@@ -23,78 +11,98 @@ type Finding struct {
 	Path string
 	// Unrecognized is true where no declaration matches the key.
 	Unrecognized bool
-	// Err is a conversion failure on a recognized key, and nil otherwise.
+	// Err is a conversion failure on a declared key, and nil otherwise.
 	Err error
 	// Owner is the declaring team, empty for an unrecognized key.
 	Owner string
+	// Kind is the declared type's name, empty for an unrecognized key.
+	Kind string
 }
 
-// String renders a finding for a log line.
+// String renders a finding for a caller that has nowhere structured to put it.
+//
+// It says what this binary does not declare rather than what no binary declares. The check
+// pass reads one in-process registry and has no knowledge of any other binary or of a release,
+// and an operator told their key is dead everywhere deletes it, which is the loss this
+// framework exists to prevent.
 func (f Finding) String() string {
 	switch {
 	case f.Unrecognized:
-		return f.Path + ": no binary in this release declares it"
+		return f.Path + ": this binary does not declare it"
 	case f.Err != nil:
-		return fmt.Sprintf("%s (owner %s): %v", f.Path, f.Owner, f.Err)
+		return f.Path + " (owner " + f.Owner + "): " + f.Err.Error()
 	default:
 		return f.Path
 	}
 }
 
-// Check reports what an operator wrote under [experimental] that this binary cannot use.
+// Check reports what this binary cannot use from a configuration source.
 //
-// Two findings, and the difference between them is the whole trade the framework makes.
-//
-// An unrecognized key is reported and left alone. It is not an error, because a config
-// written for the next release has to stay bootable on this one, and because deleting it
-// would lose a value a rollback needs. Callers must not halt on one.
-//
-// A recognized key whose value does not convert carries an Err. The freedom experimental
-// keys get is exemption from versioning ceremony, not from definition, so a declared type is
-// still a type. Whether that halts is the caller's decision, and today no caller does.
-//
-// Check reads only the written set and the registry. It resolves nothing and touches no file,
-// so it cannot change what a node boots on.
-func Check(keys KeySpace) []Finding {
-	prefix := Section + "."
+// It only reads. It writes nothing and touches no file, so it cannot change what a node boots
+// on, and it never halts.
+func Check(src Source) []Finding {
+	findings := append(checkDeclaredKeys(src), findUndeclaredKeys(src)...)
+	// Sorted so one configuration produces one order across boots, since a source enumerates
+	// in map order.
+	sort.Slice(findings, func(i, j int) bool { return findings[i].Path < findings[j].Path })
+	return findings
+}
 
+// checkDeclaredKeys reports declared keys whose value does not convert.
+//
+// It walks the registry rather than the source, and that direction is the whole point. A value
+// can reach Handle.Get through a channel the source does not enumerate, an environment variable
+// being the one that matters in practice, so a pass driven by what was written cannot see it.
+// Walking what this binary declares and asking the source for each one covers every channel the
+// read path can use.
+func checkDeclaredKeys(src Source) []Finding {
 	var out []Finding
-	for _, path := range keys.AllKeys() {
-		// AllKeys lowercases, and viper resolves case-insensitively, so the comparison has to
-		// as well or a key written [Experimental] would read as absent rather than as
-		// unrecognized.
-		if !strings.HasPrefix(strings.ToLower(path), prefix) {
-			continue
-		}
-		key := path[len(prefix):]
-
+	for _, key := range Keys() {
 		d, ok := Lookup(key)
 		if !ok {
-			out = append(out, Finding{Path: path, Unrecognized: true})
+			// Only reachable if a declaration were removed between the two calls, which nothing
+			// does; registrations land during package init.
 			continue
 		}
-		if err := d.Check(rawOf(keys, path)); err != nil {
-			out = append(out, Finding{Path: path, Err: err, Owner: d.Owner()})
+		if err := d.Check(src.Get(d.Path())); err != nil {
+			out = append(out, Finding{Path: d.Path(), Err: err, Owner: d.Owner(), Kind: d.Kind()})
 		}
 	}
-	// Sorted so a log line is stable across boots of the same configuration, since AllKeys
-	// order follows map iteration.
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
 }
 
-// rawOf reads a value where the KeySpace can also be read by key, which every caller's
-// concrete type can. A KeySpace that cannot yields nil, and Check then reports only the
-// unrecognized keys rather than failing.
-func rawOf(keys KeySpace, path string) any {
-	if v, ok := keys.(FlatView); ok {
-		return v.Get(path)
+// findUndeclaredKeys reports keys written under the section that no declaration matches.
+//
+// This half has to walk the source, because a key nobody declared is by definition absent from
+// the registry. It therefore sees only what the source enumerates, which is what an operator
+// wrote in a file.
+func findUndeclaredKeys(src Source) []Finding {
+	prefix := Section + "."
+
+	var out []Finding
+	for _, path := range src.AllKeys() {
+		// A source enumerates in lower case and resolves case-insensitively, so both the test
+		// and the key derived from it are taken on the lowered path. Deriving from the original
+		// would produce a key Lookup cannot match.
+		lowered := strings.ToLower(path)
+		if lowered == Section {
+			// The section written as a scalar rather than a table. Every declared key under it is
+			// then shadowed and resolves to its default, which is worth a word.
+			out = append(out, Finding{Path: path, Unrecognized: true})
+			continue
+		}
+		if !strings.HasPrefix(lowered, prefix) {
+			continue
+		}
+		if _, ok := Lookup(lowered[len(prefix):]); !ok {
+			out = append(out, Finding{Path: lowered, Unrecognized: true})
+		}
 	}
-	return nil
+	return out
 }
 
-// Unrecognized returns just the keys no declaration matches.
-func Unrecognized(findings []Finding) []string {
+// Undeclared returns the keys no declaration matches.
+func Undeclared(findings []Finding) []string {
 	var out []string
 	for _, f := range findings {
 		if f.Unrecognized {
@@ -104,7 +112,7 @@ func Unrecognized(findings []Finding) []string {
 	return out
 }
 
-// Invalid returns just the recognized keys whose value does not convert.
+// Invalid returns the declared keys whose value does not convert.
 func Invalid(findings []Finding) []Finding {
 	var out []Finding
 	for _, f := range findings {
