@@ -30,6 +30,9 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	if err != nil {
 		return ctx, err
 	}
+	if isGasless {
+		ctx = ctx.WithGasMeter(NewNoConsumptionGasMeter(ctx.GasMeter()))
+	}
 	isDeliverTx := !ctx.IsCheckTx() && !ctx.IsReCheckTx() && !simulate
 	if isDeliverTx || !isGasless {
 		// In the case of deliverTx, we want to deduct fees regardless of whether the tx is considered gasless or not, since
@@ -47,7 +50,7 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 }
 
 // checkGaslessWithoutConsumingGas isolates keeper reads from the declared transaction meter.
-// It never replaces the caller's meter, because fee exemption must not change GasWanted.
+// The caller separately preserves that meter's limit when suppressing gas consumption.
 func (gd GaslessDecorator) checkGaslessWithoutConsumingGas(ctx sdk.Context, tx sdk.Tx) (bool, error) {
 	queryCtx := ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
 	return IsTxGasless(tx, queryCtx, gd.oracleKeeper, gd.evmKeeper)

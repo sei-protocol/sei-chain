@@ -907,32 +907,43 @@ func signCosmosTx(
 	return txBytes
 }
 
-func TestCheckTxGaslessAssociateReportsDeclaredGas(t *testing.T) {
-	senderPriv := secp256k1.GenPrivKey()
-	senderPub := senderPriv.PubKey()
-	senderAddr := sdk.AccAddress(senderPub.Address())
-	genAcc := authtypes.NewBaseAccount(senderAddr, senderPub, 0, 0)
-	balance := banktypes.Balance{
-		Address: senderAddr.String(),
-		Coins:   sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1_000_000_000))),
+func TestCheckTxGaslessAssociatePreservesDeclaredGasAccounting(t *testing.T) {
+	testCases := []struct {
+		name     string
+		gasLimit uint64
+	}{
+		{name: "zero gas remains valid", gasLimit: 0},
+		{name: "non-zero gas is reported", gasLimit: 200_000},
 	}
-	tmPub, err := cryptocodec.ToTmPubKeyInterface(cosmosed25519.GenPrivKey().PubKey())
-	require.NoError(t, err)
-	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
-	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
 
-	ctx := testApp.NewUncachedContext(false, types.Header{Height: testApp.LastBlockHeight()})
-	acc := testApp.AccountKeeper.GetAccount(ctx, senderAddr)
-	require.NotNil(t, acc)
-	txBuilder := testApp.GetTxConfig().NewTxBuilder()
-	require.NoError(t, txBuilder.SetMsgs(evmtypes.NewMsgAssociate(senderAddr, "test")))
-	const gasLimit = uint64(200_000)
-	txBuilder.SetGasLimit(gasLimit)
-	txBytes := signCosmosTx(t, testApp.GetTxConfig(), txBuilder, senderPriv, acc)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			senderPriv := secp256k1.GenPrivKey()
+			senderPub := senderPriv.PubKey()
+			senderAddr := sdk.AccAddress(senderPub.Address())
+			genAcc := authtypes.NewBaseAccount(senderAddr, senderPub, 0, 0)
+			balance := banktypes.Balance{
+				Address: senderAddr.String(),
+				Coins:   sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1_000_000_000))),
+			}
+			tmPub, err := cryptocodec.ToTmPubKeyInterface(cosmosed25519.GenPrivKey().PubKey())
+			require.NoError(t, err)
+			valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+			testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
 
-	res := testApp.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
-	require.True(t, res.IsOK())
-	require.Equal(t, int64(gasLimit), res.GasWanted)
+			ctx := testApp.NewUncachedContext(false, types.Header{Height: testApp.LastBlockHeight()})
+			acc := testApp.AccountKeeper.GetAccount(ctx, senderAddr)
+			require.NotNil(t, acc)
+			txBuilder := testApp.GetTxConfig().NewTxBuilder()
+			require.NoError(t, txBuilder.SetMsgs(evmtypes.NewMsgAssociate(senderAddr, "test")))
+			txBuilder.SetGasLimit(tc.gasLimit)
+			txBytes := signCosmosTx(t, testApp.GetTxConfig(), txBuilder, senderPriv, acc)
+
+			res := testApp.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
+			require.True(t, res.IsOK())
+			require.Equal(t, int64(tc.gasLimit), res.GasWanted)
+		})
+	}
 }
 
 func TestDecodeFailureTxReportsZeroGas(t *testing.T) {

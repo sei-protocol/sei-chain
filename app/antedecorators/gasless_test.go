@@ -144,19 +144,25 @@ func TestNonGaslessMsg(t *testing.T) {
 	require.False(t, gasless)
 }
 
-func TestGaslessDecoratorRestoresDeclaredGasMeter(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).
-		WithIsCheckTx(true).
-		WithGasMeter(sdk.NewGasMeter(123_456, 1, 1))
-	sender := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
-	msg := evmtypes.NewMsgAssociate(sender, "test")
-	tx := FakeTx{FakeMsgs: []sdk.Msg{msg}, Gas: 123_456}
-	decorator := antedecorators.NewGaslessDecorator(nil, oraclekeeper.Keeper{}, k)
+func TestGaslessDecoratorPreservesDeclaredLimitWithoutConsumption(t *testing.T) {
+	for _, gasLimit := range []uint64{0, 123_456} {
+		t.Run(fmt.Sprintf("gas_%d", gasLimit), func(t *testing.T) {
+			k := &testkeeper.EVMTestApp.EvmKeeper
+			ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).
+				WithIsCheckTx(true).
+				WithGasMeter(sdk.NewGasMeter(gasLimit, 1, 1))
+			sender := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+			msg := evmtypes.NewMsgAssociate(sender, "test")
+			tx := FakeTx{FakeMsgs: []sdk.Msg{msg}, Gas: gasLimit}
+			decorator := antedecorators.NewGaslessDecorator(nil, oraclekeeper.Keeper{}, k)
 
-	resultCtx, err := decorator.AnteHandle(ctx, tx, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
-		return ctx, nil
-	})
-	require.NoError(t, err)
-	require.Equal(t, tx.Gas, resultCtx.GasMeter().Limit())
+			resultCtx, err := decorator.AnteHandle(ctx, tx, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+				ctx.GasMeter().ConsumeGas(gasLimit+1, "gasless execution")
+				return ctx, nil
+			})
+			require.NoError(t, err)
+			require.Equal(t, tx.Gas, resultCtx.GasMeter().Limit())
+			require.Zero(t, resultCtx.GasMeter().GasConsumed())
+		})
+	}
 }

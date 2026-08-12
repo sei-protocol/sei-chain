@@ -340,8 +340,9 @@ func SetGasMeter(ctx sdk.Context, gasLimit uint64, paramsKeeper paramskeeper.Kee
 }
 
 // checkGaslessAndSetGasMeter classifies fee exemption without charging the transaction,
-// then installs its declared gas limit. Gasless status controls fees only: keeping the meter
-// state-independent ensures CheckTx, recheck, and proposal processing agree on GasWanted.
+// then installs a meter that always reports its declared gas limit. Gasless transactions
+// retain zero-consumption execution while CheckTx, recheck, and proposal processing agree
+// on GasWanted independently of state.
 func checkGaslessAndSetGasMeter(
 	ctx sdk.Context,
 	tx GasTx,
@@ -351,7 +352,11 @@ func checkGaslessAndSetGasMeter(
 ) (sdk.Context, bool, error) {
 	queryCtx := ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
 	isGasless, err := antedecorators.IsTxGasless(tx, queryCtx, oracleKeeper, evmKeeper)
-	return SetGasMeter(queryCtx, tx.GetGas(), paramsKeeper), isGasless, err
+	txCtx := SetGasMeter(queryCtx, tx.GetGas(), paramsKeeper)
+	if isGasless {
+		txCtx = txCtx.WithGasMeter(antedecorators.NewNoConsumptionGasMeter(txCtx.GasMeter()))
+	}
+	return txCtx, isGasless, err
 }
 
 func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper, isGasless bool) (priority int64, err error) {
