@@ -34,26 +34,9 @@ import "testing"
 // verb. The adoption test below is written against the behaviour rather than the spelling, so it
 // holds either way.
 //
-// Generate and doctor are built, and their tests live beside the code in configcli_test.go rather
-// than here. What remains below is what is not built yet.
-
-// TestUpgradeRunsTheFrozenChainAtomicallyPerStep holds what upgrade promises.
-//
-// One atomic write per schema step, reported as a diff, with --dry-run previewing the same diff
-// without writing. Defaults are not part of upgrade, since baselines apply on their own. Held
-// on a file two schema versions behind, so a single-step implementation fails.
-func TestUpgradeRunsTheFrozenChainAtomicallyPerStep(t *testing.T) {
-	t.Fatal("unimplemented: upgrade and the migration registry are not built")
-}
-
-// TestAShippedMigrationIsImmutable is what makes a migration safe to run everywhere.
-//
-// A migration that has shipped never changes, so every node transforms its configuration the
-// same way and no node ends up with a variant of the file nobody else has. Enforced
-// mechanically, because a reviewer cannot be relied on to notice an edit to history.
-func TestAShippedMigrationIsImmutable(t *testing.T) {
-	t.Fatal("unimplemented: the frozen-migration check is not built")
-}
+// Generate, doctor, the migration chain and upgrade are built. Their tests live beside the code,
+// in configcli_test.go and in config/seitoml, rather than here. What remains below is what is not
+// built yet.
 
 // TestSetAndUnsetRoundTripThroughWrittenValues holds what the two verbs mean.
 //
