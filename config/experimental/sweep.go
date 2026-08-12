@@ -3,8 +3,6 @@ package experimental
 import (
 	"sort"
 	"strings"
-
-	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 )
 
 // The bounds Sweep applies. Each does a job none of the others can, which is why there are five
@@ -36,7 +34,7 @@ const (
 // key can be enumerated and still resolve to nothing: a variable naming any proper prefix of a
 // key's path collapses it while AllKeys keeps listing it.
 type Source interface {
-	servertypes.AppOptions // Get(string) any
+	AppOptions // Get(string) any
 	AllKeys() []string
 }
 

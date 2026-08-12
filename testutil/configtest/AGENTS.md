@@ -78,6 +78,7 @@ and `TestGuideListsEveryPrimitive` holds it to the exported surface.
 | `CheckWiring` | one of the calls above is deleted | `testdata/wiring_coverage.txt` |
 | `CheckExperimentalDeclarations` | a declaration whose name or metadata is refused reaches a binary, where it is inert and every read of it silently returns the default | the registry, and each declaration's own `Check` run against its own default |
 | `CheckExperimentalGolden` | a key is added, removed, renamed, re-typed, re-owned or re-defaulted without the change being visible | `testdata/<name>.experimental.golden`, keyed by name |
+| `CheckNoExperimentalKeyShadowsThisSection` | an experimental key declares a path a section already owns, so promoting it would put two declarations on one key | that section's own `[]KeySpec`, which only its test binary can see |
 
 The third column is the spec, and it is the one to read before wiring anything. Three of these
 compare against a checked-in file, one against the declared defaults, one against the reader's own

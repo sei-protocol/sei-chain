@@ -6,6 +6,7 @@
 # so this records which checks cover a section rather than how many times.
 # Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update` and read the diff.
 
+(section not a literal)	CheckNoExperimentalKeyShadowsThisSection
 api	CheckEveryRowHasADiscriminatingSeed
 api	CheckKeyNames
 api	CheckManifestCoversEveryField

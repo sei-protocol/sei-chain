@@ -226,3 +226,45 @@ func CheckExperimentalGolden(
 			"the diff in the review.", name, path, goldenDiff(want, got))
 	}
 }
+
+// CheckNoExperimentalKeyShadowsThisSection asserts no declared experimental key would collide with
+// one of this section's first-class keys once promoted.
+//
+// It has to be called from the section's own test binary. A KeySpec manifest is an unexported
+// package-level var in a _test.go file, and Go compiles that file only into its own package's test
+// binary, so no test elsewhere can reference it. The only binary that sees both a section's
+// manifest and Declarations() is that section's own.
+//
+// Two limits, stated rather than implied, because a check whose reach is misread is worse than one
+// that is absent.
+//
+// It compares whole paths, so it catches an identical spelling and nothing else. A semantic
+// duplicate under a different name, an experimental occ_worker_count beside a live
+// concurrency-workers, is invisible to any string comparison and stays a review question.
+//
+// A first-class key at TOML root scope is unreachable by it, and that is safe by construction
+// rather than by luck: a root-scope key has one segment, and a declared experimental name needs at
+// least two, so the two sets cannot intersect.
+func CheckNoExperimentalKeyShadowsThisSection(t testing.TB, section string, specs []KeySpec) {
+	t.Helper()
+
+	live := make(map[string]bool, len(specs))
+	for _, s := range specs {
+		live[s.Key] = true
+	}
+	if len(live) == 0 {
+		t.Fatalf("%s: the manifest passed in is empty, so this check would pass for a section whose "+
+			"every key an experimental declaration had taken over", section)
+	}
+
+	for _, d := range experimental.Declarations() {
+		if !live[d.Name] {
+			continue
+		}
+		t.Errorf("experimental key %q (owner %s) declares the path %s already owns as a first-class "+
+			"key.\n\nThe declared name is the path the key occupies after promotion, so promoting this "+
+			"one would put two declarations on one key. Before that, an operator writing "+
+			"experimental.%s and %s has written two different settings that look like one.",
+			d.Name, d.Owner, section, d.Name, d.Name)
+	}
+}

@@ -6,6 +6,7 @@
 # so this records which checks cover a section rather than how many times.
 # Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update` and read the diff.
 
+(section not a literal)	CheckNoExperimentalKeyShadowsThisSection
 eth_replay	CheckAbsent
 eth_replay	CheckDefaults
 eth_replay	CheckEveryRowHasADiscriminatingSeed

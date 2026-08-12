@@ -103,3 +103,21 @@ func TestManifestNamesEveryField(t *testing.T) {
 func TestWiringMatchesTheRecord(t *testing.T) {
 	configtest.CheckWiring(t)
 }
+
+// TestNoExperimentalKeyShadowsThisSection is this section's half of the experimental collision
+// check.
+//
+// It lives here because a KeySpec manifest is an unexported package-level var in a _test.go file,
+// so this is the only test binary that can see both this section's live keys and the experimental
+// registry. Its reach is exactly the declarations this binary links, which for a real key is this
+// package itself: the design requires a key be declared where it is read.
+func TestNoExperimentalKeyShadowsThisSection(t *testing.T) {
+	for _, m := range []struct {
+		section string
+		specs   []configtest.KeySpec
+	}{
+		{"giga_executor", gigaKeys},
+	} {
+		configtest.CheckNoExperimentalKeyShadowsThisSection(t, m.section, m.specs)
+	}
+}

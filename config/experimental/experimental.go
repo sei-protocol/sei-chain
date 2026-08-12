@@ -5,9 +5,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 )
+
+// AppOptions reads a configuration value by key.
+//
+// Declared here rather than imported from sei-cosmos/server/types, which is what the LLD's
+// dependency list named. That import creates a cycle the list did not anticipate: it reaches
+// sei-cosmos/server/config, which imports sei-db/config, and sei-db/config is one of the sections
+// the design requires to carry a collision row in its own test. Both cannot hold.
+//
+// The method set is identical, so a *viper.Viper and any servertypes.AppOptions satisfy both and no
+// read site needs an adapter. Two other packages in this tree declare the same one-method interface
+// for the same reason, at sei-cosmos/server/types/app.go and sei-db/config/receipt_config.go.
+type AppOptions interface {
+	Get(string) any
+}
 
 // Namespace is the single configuration table experimental keys live under. It is a constant,
 // not configurable: the on-disk contract names one table.
@@ -70,7 +82,7 @@ type Key[T Value] struct {
 //
 // An absent key, a value that does not convert to T, and a value that fails Check all yield the
 // declared default. The sweep is what makes the last two visible.
-func (k *Key[T]) Get(opts servertypes.AppOptions) T {
+func (k *Key[T]) Get(opts AppOptions) T {
 	v, _ := k.GetE(opts)
 	return v
 }
@@ -85,7 +97,7 @@ func (k *Key[T]) Get(opts servertypes.AppOptions) T {
 //
 // The value returned alongside a non-nil error is always the declared default, so a caller that
 // ignores the error behaves exactly as Get.
-func (k *Key[T]) GetE(opts servertypes.AppOptions) (T, error) {
+func (k *Key[T]) GetE(opts AppOptions) (T, error) {
 	if k == nil || k.parse == nil || k.inert || opts == nil {
 		return k.zeroOrDefault(), nil
 	}

@@ -1519,3 +1519,30 @@ func TestGetConfigGRPCAbsentReads(t *testing.T) {
 func TestWiringMatchesTheRecord(t *testing.T) {
 	configtest.CheckWiring(t)
 }
+
+// TestNoExperimentalKeyShadowsThisSection is this section's half of the experimental collision
+// check.
+//
+// It lives here because a KeySpec manifest is an unexported package-level var in a _test.go file,
+// so this is the only test binary that can see both this section's live keys and the experimental
+// registry. A test in cmd/seid/cmd cannot reference these vars at all.
+//
+// A declared experimental name is the path the key occupies after promotion, so a name equal to one
+// of these keys would put two declarations on one path. The check compares whole spellings only;
+// a semantic duplicate under a different name stays a review question.
+func TestNoExperimentalKeyShadowsThisSection(t *testing.T) {
+	for _, m := range []struct {
+		section string
+		specs   []configtest.KeySpec
+	}{
+		{"api", apiKeys},
+		{"base_config", baseConfigKeys},
+		{"grpc", grpcKeys},
+		{"grpc-web", grpcWebKeys},
+		{"rosetta", rosettaKeys},
+		{"state-sync", stateSyncKeys},
+		{"telemetry", telemetryKeys},
+	} {
+		configtest.CheckNoExperimentalKeyShadowsThisSection(t, m.section, m.specs)
+	}
+}
