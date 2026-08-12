@@ -29,10 +29,11 @@ import "testing"
 // it forward. The generated file says so in its own header, since an operator otherwise cannot
 // tell a value they chose from one generate filled in.
 //
-// One question is still open, and an implementer must not settle it by picking whichever reading
-// is convenient: how a node adopts, a --from-legacy flag on generate against a separate adopt
-// verb. The adoption test below is written against the behaviour rather than the spelling, so it
-// holds either way.
+// Adoption is reached as generate --from-legacy rather than as a verb of its own, because both
+// produce the file a node starts from and the only difference is where the values come from. The
+// behaviour is in Adopt, so moving it to its own verb later changes how it is reached and nothing
+// else. That spelling is still open to a decision; adopt is free as a verb name, since no client
+// configuration key uses it.
 //
 // Six verbs are built, and their tests live beside the code rather than here. They are mounted as
 // subcommands of the existing config command, which already reads and writes client.toml, so every
@@ -41,16 +42,6 @@ import "testing"
 // setting it always meant. That holds only while no verb is named after a client configuration key,
 // which a test compares. The verbs appear only where the v2 manager is selected, because they act on
 // a file no other manager reads. What remains below is what is not built yet.
-
-// TestAdoptionCarriesLegacyValuesOverAsWrittenValues is how a node that already exists moves.
-//
-// Resolving the node's existing configuration files rather than the binary's baselines, so its
-// current settings carry over as written values instead of being silently re-baselined.
-// Environment variables and flags sit above the file and are never folded into it, so adoption
-// reports them instead, and this asserts that report exists.
-func TestAdoptionCarriesLegacyValuesOverAsWrittenValues(t *testing.T) {
-	t.Fatal("unimplemented: the adoption path is not built")
-}
 
 // TestTheKeySetIsObservedNotHandListed is what makes the completeness claim above mean anything.
 //

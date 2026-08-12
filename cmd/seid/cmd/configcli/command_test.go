@@ -340,3 +340,101 @@ func TestEveryVerbHasHelpText(t *testing.T) {
 		})
 	}
 }
+
+// TestGenerateFromLegacyCarriesTheNodesExistingValues drives adoption through the command.
+//
+// Asserted on the file, because the report and the file can disagree: a verb that printed a correct
+// summary and wrote defaults would pass on the output alone, and that is the exact failure adoption
+// exists to prevent.
+func TestGenerateFromLegacyCarriesTheNodesExistingValues(t *testing.T) {
+	registerTyped(t)
+	home := newHome(t)
+	// The two files a node keeps today. The baseline for validator mode is workers=4.
+	if err := os.WriteFile(filepath.Join(home, "config", "app.toml"),
+		[]byte("[probe]\nworkers = 64\n"), 0o600); err != nil {
+		t.Fatalf("seed app.toml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "config.toml"),
+		[]byte("[probe]\nendpoint = \"sei:8545\"\n"), 0o600); err != nil {
+		t.Fatalf("seed config.toml: %v", err)
+	}
+
+	out, err := invoke(t, home, "generate", "--mode", "validator", "--from-legacy")
+	if err != nil {
+		t.Fatalf("generate --from-legacy: %v\n%s", err, out)
+	}
+
+	written := valuesAt(t, configcli.Path(home))
+	if written["probe.workers"] != int64(64) {
+		t.Errorf("workers adopted as %#v, want the 64 this node was running. Writing the baseline "+
+			"instead moves a running node onto a default nobody chose", written["probe.workers"])
+	}
+	if written["probe.endpoint"] != "sei:8545" {
+		t.Errorf("endpoint adopted as %#v, want the value config.toml held. Both files are read, so "+
+			"a value in either one carries over", written["probe.endpoint"])
+	}
+	if !strings.Contains(out, "existing configuration") {
+		t.Errorf("the output does not say the file came from the node's own configuration:\n%s", out)
+	}
+	// And without the flag the same home generates defaults, or this would pass for a generate that
+	// always read the old files.
+	if err := os.Remove(configcli.Path(home)); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if out, err := invoke(t, home, "generate", "--mode", "validator"); err != nil {
+		t.Fatalf("generate: %v\n%s", err, out)
+	}
+	if got := valuesAt(t, configcli.Path(home))["probe.workers"]; got != int64(4) {
+		t.Errorf("generate without --from-legacy wrote %#v, want the baseline 4", got)
+	}
+}
+
+// TestGenerateFromLegacySaysSoWhenThereIsNothingToAdopt is the first thing a new node hits.
+//
+// A home with no existing configuration has nothing to carry over. Producing a file of pure defaults
+// while reporting an adoption would tell an operator their settings were preserved when there were
+// none.
+func TestGenerateFromLegacySaysSoWhenThereIsNothingToAdopt(t *testing.T) {
+	registerTyped(t)
+	home := newHome(t)
+
+	_, err := invoke(t, home, "generate", "--from-legacy")
+	if err == nil {
+		t.Fatal("generate --from-legacy succeeded on a home with no existing configuration, so a file " +
+			"of pure defaults would be reported as an adoption")
+	}
+	if !strings.Contains(err.Error(), "app.toml") {
+		t.Errorf("the message does not name what it looked for: %v", err)
+	}
+	if _, statErr := os.Stat(configcli.Path(home)); statErr == nil {
+		t.Error("a refused adoption still wrote a file")
+	}
+}
+
+// TestGenerateFromLegacyReadsOnlyTheFiles keeps an environment value out of the written file.
+//
+// An environment variable overrides the file, so writing its value in changes nothing while it is set
+// and changes how the node runs the day it is unset. It is reported instead.
+func TestGenerateFromLegacyReadsOnlyTheFiles(t *testing.T) {
+	registerTyped(t)
+	home := newHome(t)
+	if err := os.WriteFile(filepath.Join(home, "config", "app.toml"),
+		[]byte("[probe]\nworkers = 64\n"), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	t.Setenv(registry.EnvName("probe.endpoint"), "from-the-environment")
+
+	out, err := invoke(t, home, "generate", "--mode", "validator", "--from-legacy")
+	if err != nil {
+		t.Fatalf("generate --from-legacy: %v\n%s", err, out)
+	}
+
+	written := valuesAt(t, configcli.Path(home))
+	if written["probe.endpoint"] == "from-the-environment" {
+		t.Error("the environment's value was written into the file. It overrides the file, so writing " +
+			"it changes nothing now and changes the node's behaviour the day it is unset")
+	}
+	if !strings.Contains(out, registry.EnvName("probe.endpoint")) {
+		t.Errorf("the output does not name the variable that overrides the file:\n%s", out)
+	}
+}

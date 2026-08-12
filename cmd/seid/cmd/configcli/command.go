@@ -2,6 +2,7 @@ package configcli
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -16,6 +17,14 @@ const FileName = "sei.toml"
 
 // flagMode names the node mode a verb resolves baselines for.
 const flagMode = "mode"
+
+// flagFromLegacy asks generate to carry an existing node's configuration over rather than write
+// defaults.
+//
+// A flag on generate rather than a verb of its own, because both produce the file a node starts
+// from and the only difference is where the values come from. The behaviour is in Adopt, so moving
+// this to its own verb later changes only how it is reached.
+const flagFromLegacy = "from-legacy"
 
 // Path is where a node's sei.toml lives, given its home directory.
 //
@@ -76,6 +85,10 @@ func generateCmd(defaultHome string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			home, err := homeDir(cmd, defaultHome)
+			if err != nil {
+				return err
+			}
 			force, err := cmd.Flags().GetBool("force")
 			if err != nil {
 				return err
@@ -86,6 +99,14 @@ func generateCmd(defaultHome string) *cobra.Command {
 						"including any you set. Pass --force to do that, or use diff to see what it "+
 						"holds first", path)
 				}
+			}
+
+			fromLegacy, err := cmd.Flags().GetBool(flagFromLegacy)
+			if err != nil {
+				return err
+			}
+			if fromLegacy {
+				return adoptInto(cmd, path, home, mode)
 			}
 
 			file, err := Generate(mode)
@@ -101,6 +122,8 @@ func generateCmd(defaultHome string) *cobra.Command {
 	}
 	cmd.Flags().String(flagMode, string(registry.ModeFull), modeUsage())
 	cmd.Flags().Bool("force", false, "Replace an existing file, discarding every value in it")
+	cmd.Flags().Bool(flagFromLegacy, false,
+		"Build the file from this node's existing app.toml and config.toml instead of from defaults")
 	return cmd
 }
 
@@ -281,11 +304,16 @@ func upgradeCmd(defaultHome string) *cobra.Command {
 }
 
 // path resolves the file this command acts on.
-//
-// The home directory comes from the --home the root command declares. A tree without that flag
-// falls back to the default this was built with, which is what lets a verb be exercised outside the
-// assembled command tree.
 func path(cmd *cobra.Command, defaultHome string) (string, error) {
+	home, err := homeDir(cmd, defaultHome)
+	if err != nil {
+		return "", err
+	}
+	return Path(home), nil
+}
+
+// homeDir resolves the node's home directory, which is where the existing configuration lives.
+func homeDir(cmd *cobra.Command, defaultHome string) (string, error) {
 	home := defaultHome
 	if cmd.Flags().Lookup(flags.FlagHome) != nil {
 		fromFlag, err := cmd.Flags().GetString(flags.FlagHome)
@@ -299,7 +327,25 @@ func path(cmd *cobra.Command, defaultHome string) (string, error) {
 	if home == "" {
 		return "", fmt.Errorf("no home directory; pass --home")
 	}
-	return Path(home), nil
+	return home, nil
+}
+
+// adoptInto builds the file from a node's existing configuration and reports what it did.
+func adoptInto(cmd *cobra.Command, path, home string, mode registry.Mode) error {
+	existing, err := LegacySource(home)
+	if err != nil {
+		return err
+	}
+	adoption, err := Adopt(existing, os.LookupEnv, mode)
+	if err != nil {
+		return err
+	}
+	if err := adoption.File.Save(path); err != nil {
+		return err
+	}
+	cmd.Printf("Wrote %s for %q mode, from this node's existing configuration.\n", path, mode)
+	cmd.Print(adoption.Report())
+	return nil
 }
 
 // target resolves both the file and the mode, for the verbs that need baselines.
