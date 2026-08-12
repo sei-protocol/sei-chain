@@ -454,11 +454,8 @@ func buildFullnodeGigaConfig(
 	}, nil
 }
 
-// p2pRouterOptions derives the router's connection budget and pacing from the
-// p2p config. Split out of createRouter so the derivation is testable on its
-// own: any RouterOptions field left unset here silently falls back to a package
-// default rather than failing, which is how the accept rate stayed pinned at
-// its 1/s default while max-connections appeared to govern it.
+// p2pRouterOptions returns the router's connection budget and pacing, derived
+// from the p2p config.
 func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []types.NodeID) *p2p.RouterOptions {
 	// MaxConnections defaults to 64
 	maxConns := 64
