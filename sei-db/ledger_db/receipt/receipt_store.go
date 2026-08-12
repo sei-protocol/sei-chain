@@ -27,11 +27,7 @@ var logger = seilog.NewLogger("db", "ledger-db", "receipt")
 
 // Sentinel errors for consistent error checking.
 var (
-	ErrNotFound = errors.New("receipt not found")
-	// ErrReceiptPruned is returned when a receipt existed but has fallen below
-	// the store's retention floor. It wraps ErrNotFound so existing not-found
-	// handling (e.g. eth_getTransactionReceipt returning null) still applies,
-	// while errors.Is(err, ErrReceiptPruned) lets trace guards react to it specifically.
+	ErrNotFound               = errors.New("receipt not found")
 	ErrReceiptPruned          = fmt.Errorf("receipt pruned: %w", ErrNotFound)
 	ErrNotConfigured          = errors.New("receipt store not configured")
 	ErrRangeQueryNotSupported = errors.New("range query not supported by this backend")
