@@ -2,11 +2,10 @@
 package pb
 
 import (
-	reflect "reflect"
-
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	reflect "reflect"
 )
 
 func (*ConsensusResp) MaxSize() int {
@@ -22,11 +21,11 @@ func (*PingResp) MaxSize() int {
 }
 
 func (*LaneVote) MaxSize() int {
-	return 224
+	return 238
 }
 
 func (*LaneProposal) MaxSize() int {
-	return 2056279
+	return 2056293
 }
 
 func (*AppVote) MaxSize() int {
@@ -54,7 +53,7 @@ func (*GetBlockReq) MaxSize() int {
 }
 
 func (*GetBlockResp) MaxSize() int {
-	return 2056171
+	return 2056185
 }
 
 func (*StreamFullCommitQCsReq) MaxSize() int {
