@@ -21,9 +21,10 @@ const flagMode = "mode"
 // flagFromLegacy asks generate to carry an existing node's configuration over rather than write
 // defaults.
 //
-// A flag on generate rather than a verb of its own, because both produce the file a node starts
-// from and only the source of the values differs. Adopt holds the behaviour, so moving this to its
-// own verb later changes only how it is reached.
+// A flag on generate rather than a verb of its own. Both produce the file a node starts from and
+// only the source of the values differs, and the whole command set is reachable only where the v2
+// manager runs, so a flag cannot surprise an operator who has not opted in. A separate verb would
+// add a name to the tree and answer no question this does not.
 const flagFromLegacy = "from-legacy"
 
 // Path is where a node's sei.toml lives, given its home directory.
