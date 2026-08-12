@@ -22,40 +22,20 @@ import "testing"
 //	flipping the default so unset means v2           after adoption
 //	deleting the legacy path                         last
 //
-// Two questions are open inside this scope, and an implementer must not settle either by
-// picking whichever reading is convenient. Both need a decision from the people who own the
-// generate path.
+// How much of the file generate writes is settled: every declared key, at the baseline for the
+// mode it was given. That has a consequence worth stating rather than discovering, because a
+// written value is a commitment this binary never rewrites. A generated node keeps the values it
+// was given even where a later release ships a different default, and regenerating is what moves
+// it forward. The generated file says so in its own header, since an operator otherwise cannot
+// tell a value they chose from one generate filled in.
 //
-// First, how a node adopts: a --from-legacy flag on generate, or a separate adopt verb. The
-// adoption test below is written against the behaviour rather than the spelling, so it holds
-// either way.
+// One question is still open, and an implementer must not settle it by picking whichever reading
+// is convenient: how a node adopts, a --from-legacy flag on generate against a separate adopt
+// verb. The adoption test below is written against the behaviour rather than the spelling, so it
+// holds either way.
 //
-// Second, how much of the file to materialize. A complete configuration runs to a hundred-plus
-// keys, and writing all of them may cost more legibility than the complete view buys. Whether
-// to group, fold or elide sections that provably do nothing has to be measured against a real
-// rendered file rather than argued. The first test below demands completeness because that is
-// what is agreed today; if the measurement changes it, that test changes with it in the same
-// change.
-
-// TestGenerateWritesAResolvedFileForTheDeclaredMode is the verb an external node operator
-// reaches for, and the only one they should need.
-//
-// Every stable key at the running binary's baseline for the declared mode, so the file is the
-// complete picture of what the node runs at generation time.
-func TestGenerateWritesAResolvedFileForTheDeclaredMode(t *testing.T) {
-	t.Fatal("unimplemented: generate is not built")
-}
-
-// TestDoctorHaltsOnAnUnrecognizedStableKeyAndWarnsOnExperimental is the asymmetry that makes
-// the experimental namespace worth having.
-//
-// A written stable value the binary does not recognize is a broken promise and halts with the
-// key named. An experimental key warns and boots. An unwritten key is healthy by definition,
-// since it resolves to the baseline. All three directions are asserted, because checking only
-// the halt would pass for a doctor that halted on everything.
-func TestDoctorHaltsOnAnUnrecognizedStableKeyAndWarnsOnExperimental(t *testing.T) {
-	t.Fatal("unimplemented: doctor is not built")
-}
+// Generate and doctor are built, and their tests live beside the code in configcli_test.go rather
+// than here. What remains below is what is not built yet.
 
 // TestUpgradeRunsTheFrozenChainAtomicallyPerStep holds what upgrade promises.
 //

@@ -71,6 +71,28 @@ func (f *File) insertGlobal(kv *parser.KeyValue) error {
 	return nil
 }
 
+// SetPreamble puts a comment block at the top of the document, above everything else.
+//
+// Written as comments rather than as keys, so nothing a reader needs to understand the file
+// becomes configuration surface the node has to recognize. Replaces any block this put there
+// before, so regenerating does not stack one preamble on the last.
+func (f *File) SetPreamble(lines []string) {
+	if f.doc.Global == nil {
+		f.doc.Global = &tomledit.Section{}
+	}
+	items := f.doc.Global.Items
+	if len(items) > 0 {
+		if _, leading := items[0].(parser.Comments); leading {
+			items = items[1:]
+		}
+	}
+	if len(lines) == 0 {
+		f.doc.Global.Items = items
+		return
+	}
+	f.doc.Global.Items = append([]parser.Item{parser.Comments(lines)}, items...)
+}
+
 // Unset removes a key and reports whether the file carried one.
 //
 // Removing rather than writing a zero, because an absent key resolves to the running binary's
