@@ -179,6 +179,35 @@ func TestGaslessDecoratorUsesFixedReportedLimitWithoutConsumption(t *testing.T) 
 	}
 }
 
+func TestGaslessDecoratorPreservesSimulationAndGenesisReporting(t *testing.T) {
+	testCases := []struct {
+		name      string
+		simulate  bool
+		isGenesis bool
+	}{
+		{name: "simulation", simulate: true},
+		{name: "genesis", isGenesis: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			k := &testkeeper.EVMTestApp.EvmKeeper
+			ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).
+				WithIsGenesis(tc.isGenesis).
+				WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
+			sender := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+			tx := FakeTx{FakeMsgs: []sdk.Msg{evmtypes.NewMsgAssociate(sender, "test")}, Gas: 50_000_000}
+			decorator := antedecorators.NewGaslessDecorator(nil, oraclekeeper.Keeper{}, k)
+
+			resultCtx, err := decorator.AnteHandle(ctx, tx, tc.simulate, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+				return ctx, nil
+			})
+			require.NoError(t, err)
+			require.Zero(t, resultCtx.GasMeter().Limit())
+		})
+	}
+}
+
 func TestGaslessDecoratorCapsNonExemptExecution(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).
@@ -234,11 +263,18 @@ func TestGasWantedForTx(t *testing.T) {
 			executionGas: antedecorators.FeeExemptTxGasWanted,
 		},
 		{
-			name:         "oracle-only transaction uses fixed contribution",
-			tx:           FakeTx{FakeMsgs: []sdk.Msg{vote, vote}},
+			name:         "single oracle vote uses fixed contribution",
+			tx:           FakeTx{FakeMsgs: []sdk.Msg{vote}},
 			declaredGas:  50_000_000,
 			expectedGas:  antedecorators.FeeExemptTxGasWanted,
 			executionGas: antedecorators.FeeExemptTxGasWanted,
+		},
+		{
+			name:         "multiple oracle votes keep declared contribution",
+			tx:           FakeTx{FakeMsgs: []sdk.Msg{vote, vote}},
+			declaredGas:  50_000_000,
+			expectedGas:  50_000_000,
+			executionGas: 50_000_000,
 		},
 		{
 			name:         "mixed transaction keeps declared contribution",
@@ -276,6 +312,15 @@ func TestGasWantedForTx(t *testing.T) {
 			require.Equal(t, tc.executionGas, antedecorators.ExecutionGasLimitForTx(tc.tx, tc.declaredGas))
 		})
 	}
+}
+
+func TestMultipleOracleVotesAreNotGasless(t *testing.T) {
+	vote := &oracletypes.MsgAggregateExchangeRateVote{}
+	tx := FakeTx{FakeMsgs: []sdk.Msg{vote, vote}}
+
+	isGasless, err := antedecorators.IsTxGasless(tx, sdk.Context{}, oraclekeeper.Keeper{}, nil)
+	require.NoError(t, err)
+	require.False(t, isGasless)
 }
 
 func TestReportingGasMeterPreservesExecutionLimit(t *testing.T) {

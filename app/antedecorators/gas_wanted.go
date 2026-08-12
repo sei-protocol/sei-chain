@@ -7,7 +7,9 @@ import (
 )
 
 // FeeExemptTxGasWanted is the fixed block-gas contribution for transactions that can be fee-exempt.
-const FeeExemptTxGasWanted uint64 = 25_000
+// Keep it above the maximum accepted MsgAssociate ante cost when auth memo/tx-size
+// parameters or the Cosmos gas multiplier change.
+const FeeExemptTxGasWanted uint64 = 35_000
 
 type feeExemptTxShape uint8
 
@@ -44,12 +46,9 @@ func feeExemptShape(tx sdk.Tx) feeExemptTxShape {
 			return associateFeeExempt
 		}
 	case *oracletypes.MsgAggregateExchangeRateVote:
-		for _, msg := range msgs[1:] {
-			if _, ok := msg.(*oracletypes.MsgAggregateExchangeRateVote); !ok {
-				return notFeeExempt
-			}
+		if len(msgs) == 1 {
+			return oracleVoteFeeExempt
 		}
-		return oracleVoteFeeExempt
 	}
 	return notFeeExempt
 }

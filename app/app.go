@@ -2870,12 +2870,8 @@ func isExpectedGaslessMetricsError(err error) bool {
 	return strings.Contains(err.Error(), oracletypes.ErrAggregateVoteExist.Error())
 }
 
-// couldBeGaslessTransaction is a fast heuristic that returns true when tx
-// might be gasless and a full IsTxGasless keeper check is therefore worth
-// running. It MUST be a conservative over-approximation: returning false for
-// a tx that is actually gasless would cause its gas to be counted against
-// the block limit, producing incorrect gas accounting (and in the worst case
-// rejecting an otherwise-valid block).
+// couldBeGaslessTransaction reports whether gasless-tx metrics need the
+// state-backed IsTxGasless classification for tx.
 func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
 	if tx == nil {
 		return false

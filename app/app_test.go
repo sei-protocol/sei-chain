@@ -909,14 +909,16 @@ func signCosmosTx(
 	return txBytes
 }
 
-func TestCheckTxGaslessAssociateUsesFixedGasAccounting(t *testing.T) {
+func TestCheckTxAssociateUsesFixedGasAccounting(t *testing.T) {
 	testCases := []struct {
-		name     string
-		gasLimit uint64
+		name       string
+		gasLimit   uint64
+		associated bool
 	}{
 		{name: "zero gas remains valid", gasLimit: 0},
 		{name: "default gas is bounded", gasLimit: 200_000},
 		{name: "excessive gas is bounded", gasLimit: 50_000_000},
+		{name: "already associated is bounded", gasLimit: 50_000_000, associated: true},
 	}
 
 	for _, tc := range testCases {
@@ -934,16 +936,27 @@ func TestCheckTxGaslessAssociateUsesFixedGasAccounting(t *testing.T) {
 			valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
 			testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
 
-			ctx := testApp.NewUncachedContext(false, types.Header{Height: testApp.LastBlockHeight()})
+			ctx := testApp.NewContext(true, types.Header{Height: testApp.LastBlockHeight()})
+			if tc.associated {
+				testApp.EvmKeeper.SetAddressMapping(ctx, senderAddr, common.BytesToAddress(senderAddr))
+			}
 			acc := testApp.AccountKeeper.GetAccount(ctx, senderAddr)
 			require.NotNil(t, acc)
 			txBuilder := testApp.GetTxConfig().NewTxBuilder()
-			require.NoError(t, txBuilder.SetMsgs(evmtypes.NewMsgAssociate(senderAddr, "test")))
+			customMessage := "test"
+			if tc.associated {
+				customMessage = strings.Repeat("x", 64)
+				txBuilder.SetMemo(strings.Repeat("m", int(authtypes.DefaultMaxMemoCharacters)))
+			}
+			require.NoError(t, txBuilder.SetMsgs(evmtypes.NewMsgAssociate(senderAddr, customMessage)))
 			txBuilder.SetGasLimit(tc.gasLimit)
+			if tc.associated {
+				txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 500_000)))
+			}
 			txBytes := signCosmosTx(t, testApp.GetTxConfig(), txBuilder, senderPriv, acc)
 
 			res := testApp.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
-			require.True(t, res.IsOK())
+			require.True(t, res.IsOK(), res.Log)
 			require.Equal(t, int64(antedecorators.FeeExemptTxGasWanted), res.GasWanted)
 		})
 	}
@@ -971,6 +984,7 @@ func TestDeliverTxAssociateGasAccounting(t *testing.T) {
 
 			txBuilder := testApp.GetTxConfig().NewTxBuilder()
 			require.NoError(t, txBuilder.SetMsgs(evmtypes.NewMsgAssociate(senderAddr, strings.Repeat("x", 64))))
+			txBuilder.SetMemo(strings.Repeat("m", int(authtypes.DefaultMaxMemoCharacters)))
 			txBuilder.SetGasLimit(50_000_000)
 			txBytes := signCosmosTx(t, testApp.GetTxConfig(), txBuilder, senderPriv, genAcc)
 			tx, err := testApp.GetTxConfig().TxDecoder()(txBytes)
@@ -1010,6 +1024,9 @@ func TestDeliverTxOracleVoteUsesFixedGasAccounting(t *testing.T) {
 	require.NoError(t, err)
 	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
 	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{validatorAcc, feederAcc}, feederBalance)
+	checkCtx := testApp.NewContext(true, types.Header{Height: testApp.LastBlockHeight()})
+	testApp.OracleKeeper.SetFeederDelegation(checkCtx, sdk.ValAddress(validatorAddr), feederAddr)
+	testApp.OracleKeeper.SetVoteTarget(checkCtx, "uatom")
 	deliverCtx := testApp.GetContextForDeliverTx(nil)
 	testApp.OracleKeeper.SetFeederDelegation(deliverCtx, sdk.ValAddress(validatorAddr), feederAddr)
 	testApp.OracleKeeper.SetVoteTarget(deliverCtx, "uatom")
@@ -1025,6 +1042,10 @@ func TestDeliverTxOracleVoteUsesFixedGasAccounting(t *testing.T) {
 	txBytes := signCosmosTx(t, testApp.GetTxConfig(), txBuilder, feederPriv, feederAcc)
 	tx, err := testApp.GetTxConfig().TxDecoder()(txBytes)
 	require.NoError(t, err)
+
+	checkRes := testApp.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
+	require.True(t, checkRes.IsOK(), checkRes.Log)
+	require.Equal(t, int64(antedecorators.FeeExemptTxGasWanted), checkRes.GasWanted)
 
 	res := testApp.DeliverTxWithResult(deliverCtx.WithTxBytes(txBytes), txBytes, tx)
 	require.Zero(t, res.Code, res.Log)

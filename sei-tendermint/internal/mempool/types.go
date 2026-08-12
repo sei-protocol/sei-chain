@@ -7,8 +7,8 @@ import "math"
 type TxConstraints struct {
 	MaxDataBytes int64
 	MaxGas       int64
-	// MaxGasWanted is enforced at admission only when positive; zero leaves
-	// admission unrestricted while retaining the existing empty-proposal behavior.
+	// MaxGasWanted uses -1 for unlimited. Zero remains accepted for backward
+	// compatibility and yields empty proposals.
 	MaxGasWanted int64
 }
 

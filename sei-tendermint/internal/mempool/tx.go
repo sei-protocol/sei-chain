@@ -672,7 +672,8 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 					break
 				}
 				evm, isEVM := wtx.evm.Get()
-				// Non-EVM transactions rely on inInclusionOrder's different-account assumption.
+				// Non-EVM ordering assumes transactions come from different accounts. If that
+				// assumption is violated, skipping sequence N can select N+1 and fail delivery.
 				if isEVM {
 					if _, blocked := blockedEVMAccounts[evm.address]; blocked {
 						continue

@@ -135,8 +135,8 @@ func TestCheckTotalBlockGas_GasEstimatePreferredOverGasWanted(t *testing.T) {
 	require.True(t, a.checkTotalBlockGas(ctx, txs))
 }
 
-// TestCheckTotalBlockGas_CosmosBankSendWithoutGaslessTypes exercises txs that are not
-// EVM and not oracle/associate: couldBeGaslessTransaction is false so IsTxGasless is skipped.
+// TestCheckTotalBlockGas_CosmosBankSendWithoutGaslessTypes exercises the declared-gas
+// accounting path for Cosmos transactions that have no fee-exempt message shape.
 func TestCheckTotalBlockGas_CosmosBankSendWithoutGaslessTypes(t *testing.T) {
 	a := Setup(t, false, false, false)
 	ctx := newBlockGasCtx(t, a, 1_000_000, 1_000_000)

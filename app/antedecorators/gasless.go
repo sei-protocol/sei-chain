@@ -21,6 +21,10 @@ type GaslessDecorator struct {
 	evmKeeper    *evmkeeper.Keeper
 }
 
+type gasTx interface {
+	GetGas() uint64
+}
+
 func NewGaslessDecorator(wrapped []sdk.AnteDecorator, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) GaslessDecorator {
 	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper, evmKeeper: evmKeeper}
 }
@@ -30,17 +34,19 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	if err != nil {
 		return ctx, err
 	}
-	declaredGas := ctx.GasMeter().Limit()
-	if gasTx, ok := tx.(interface{ GetGas() uint64 }); ok {
-		declaredGas = gasTx.GetGas()
-	}
-	reportedGas := GasWantedForTx(tx, declaredGas)
-	executionGas := ExecutionGasLimitForTx(tx, declaredGas)
-	if !simulate && !ctx.IsGenesis() && executionGas != ctx.GasMeter().Limit() {
-		ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, executionGas))
-	}
-	if reportedGas != ctx.GasMeter().Limit() {
-		ctx = ctx.WithGasMeter(NewReportingGasMeter(ctx.GasMeter(), reportedGas))
+	if !simulate && !ctx.IsGenesis() {
+		declaredGas := ctx.GasMeter().Limit()
+		if txWithGas, ok := tx.(gasTx); ok {
+			declaredGas = txWithGas.GetGas()
+		}
+		reportedGas := GasWantedForTx(tx, declaredGas)
+		executionGas := ExecutionGasLimitForTx(tx, declaredGas)
+		if executionGas != ctx.GasMeter().Limit() {
+			ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, executionGas))
+		}
+		if reportedGas != ctx.GasMeter().Limit() {
+			ctx = ctx.WithGasMeter(NewReportingGasMeter(ctx.GasMeter(), reportedGas))
+		}
 	}
 	if isGasless {
 		ctx = ctx.WithGasMeter(NewNoConsumptionGasMeter(ctx.GasMeter()))
