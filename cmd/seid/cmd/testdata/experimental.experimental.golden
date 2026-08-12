@@ -1,0 +1,8 @@
+# experimental registry. Regenerate with -update.
+# One line per key, name-keyed, so inserting a key does not rewrite the rest.
+#
+# A change here is a change to what this binary recognizes. It is deliberately
+# outside the schema fingerprint: an experimental key may change shape in a patch
+# release, so this record exists to make that change visible, not to freeze it.
+
+declared configtest.self_check type=int default=7 owner=configtest since=v6.6.0

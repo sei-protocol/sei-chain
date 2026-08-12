@@ -45,6 +45,21 @@ visible change into an invisible one:
 If a pinned behavior is genuinely wrong and worth fixing, fix it in the production
 reader and update the row in the same PR. The row then records the improvement.
 
+### The `[experimental]` carve-out
+
+Keys under the `[experimental]` table are **outside** this surface, deliberately and for the same
+reason they sit outside the schema fingerprint: a key that may change shape in a patch release
+cannot also be a recorded contract. A declaration there owes no `KeySpec` row, no seed, and no
+key-names record, and adding one does not fail the suite.
+
+What replaces those is `CheckExperimentalDeclarations` plus `CheckExperimentalGolden`, both called
+from `cmd/seid/cmd`. They are a weaker promise on purpose. The registry record makes a change
+visible; it does not freeze it.
+
+Promotion is what brings a key inside this surface. The `KeySpec` row, the seed and the key-names
+record land in the same change as the promotion, and from then on the standing rule above applies
+to it without exception.
+
 ## Primitives
 
 `CheckRow` is `CheckKey` plus `CheckDeterministic`, so there is one fewer property than there
@@ -61,6 +76,8 @@ and `TestGuideListsEveryPrimitive` holds it to the exported surface.
 | `CheckManifestCoversEveryField` | a resolved field no row claims | the manifest's `Path` and `AlsoWrites` entries |
 | `CheckEveryRowHasADiscriminatingSeed` | a row whose every seed would also pass against a reader that never looks its key up | the recorded seed corpus |
 | `CheckWiring` | one of the calls above is deleted | `testdata/wiring_coverage.txt` |
+| `CheckExperimentalDeclarations` | a declaration whose name or metadata is refused reaches a binary, where it is inert and every read of it silently returns the default | the registry, and each declaration's own `Check` run against its own default |
+| `CheckExperimentalGolden` | a key is added, removed, renamed, re-typed, re-owned or re-defaulted without the change being visible | `testdata/<name>.experimental.golden`, keyed by name |
 
 The third column is the spec, and it is the one to read before wiring anything. Three of these
 compare against a checked-in file, one against the declared defaults, one against the reader's own
