@@ -1,6 +1,6 @@
 Within sei-tendermint subdirectory
 * sei-tendermint is a root of the go module, but it is not the root of the repo. When refactoring check references across of the whole repo.
-  Comply with repo's root AGENT.md, except for rules with conflict with the rules below.
+  Comply with repo's root AGENTS.md, except where they conflict with the rules below.
 * use sei-tendermint/libs/utils.Option for optional values, passing nil as function value is not allowed,
     unless explicitly documented (except for maps and slices, for which nil is a valid empty value).
 * struct fields are assumed to be non-nil by default. Do not add defensive nil-checks in internal logic.

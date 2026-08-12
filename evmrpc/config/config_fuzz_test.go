@@ -38,6 +38,7 @@ var evmKeys = []configtest.KeySpec{
 	{Key: "evm.idle_timeout", Path: "IdleTimeout", Cast: configtest.CastDuration, Checked: true},
 	{Key: "evm.simulation_gas_limit", Path: "SimulationGasLimit", Cast: configtest.CastUint64, Checked: true},
 	{Key: "evm.simulation_evm_timeout", Path: "SimulationEVMTimeout", Cast: configtest.CastDuration, Checked: true},
+	{Key: "evm.enable_simulation", Path: "EnableSimulation", Cast: configtest.CastBool, Checked: true},
 	{Key: "evm.cors_origins", Path: "CORSOrigins", Cast: configtest.CastString, Checked: true},
 	{Key: "evm.ws_origins", Path: "WSOrigins", Cast: configtest.CastString, Checked: true},
 	{Key: "evm.filter_timeout", Path: "FilterTimeout", Cast: configtest.CastDuration, Checked: true},
@@ -119,7 +120,7 @@ func FuzzReadConfig(f *testing.F) {
 		// here were seeded with a value their cast accepts and nothing reached their error path.
 		//
 		// Added for every row rather than for those four, which is a deliberate trade. It grows this
-		// target's corpus from 104 entries to 156, and each extra seed drives a full read and a Dump
+		// target's corpus by one entry per row, and each extra seed drives a full read and a Dump
 		// comparison. What it buys is that a row added later gets the seed without anyone remembering
 		// to, so the property holds by construction instead of by a list that has to be maintained
 		// alongside the table.
@@ -133,13 +134,13 @@ func FuzzReadConfig(f *testing.F) {
 	seeds.AddRow(uint(1), fuzzing.KindNumericString, "", int64(8545), false)                 // env-style numeric string
 	seeds.AddRow(uint(4), fuzzing.KindString, "30s", int64(0), false)                        // duration spelling
 	seeds.AddRow(uint(4), fuzzing.KindInt64, "", int64(30), false)                           // bare number as a duration (nanoseconds)
-	seeds.AddRow(uint(16), fuzzing.KindStringSlice, "eth_call eth_getLogs", int64(0), false) // whitespace-split slice
-	seeds.AddRow(uint(16), fuzzing.KindAnySlice, "eth_call", int64(1), false)                // []any slice
+	seeds.AddRow(uint(17), fuzzing.KindStringSlice, "eth_call eth_getLogs", int64(0), false) // whitespace-split slice
+	seeds.AddRow(uint(17), fuzzing.KindAnySlice, "eth_call", int64(1), false)                // []any slice
 	seeds.AddRow(uint(8), fuzzing.KindInt64, "", int64(-1), false)                           // negative into an unsigned cast: rejected
 	seeds.AddRow(uint(8), fuzzing.KindUint64, "", int64(-1), false)                          // the same bits unsigned, near 2^64: accepted
-	seeds.AddRow(uint(10), fuzzing.KindMap, "", int64(0), false)                             // a table where a scalar belongs
+	seeds.AddRow(uint(11), fuzzing.KindMap, "", int64(0), false)                             // a table where a scalar belongs
 	seeds.AddRow(uint(0), fuzzing.KindString, "not-a-bool", int64(0), false)                 // must error, never resolve false
-	seeds.AddRow(uint(42), fuzzing.KindFloat64, "", int64(7), false)                         // float into a float key
+	seeds.AddRow(uint(44), fuzzing.KindFloat64, "", int64(7), false)                         // float into a float key
 
 	configtest.CheckEveryRowHasADiscriminatingSeed(f, "evm", readEVM, evmKeys, seeds)
 
@@ -379,7 +380,7 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	)
 }
 
-// TestKeyNamesMatchTheRecordedNames pins all forty-nine key names themselves.
+// TestKeyNamesMatchTheRecordedNames pins all key names themselves.
 //
 // The table's header states the decision to spell these keys as literals rather than through
 // the package's flag constants, precisely so that a rename in the reader leaves the row

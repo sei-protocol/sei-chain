@@ -137,25 +137,25 @@ log-format = "{{ .BaseConfig.LogFormat }}"
 # Path to the JSON file containing the initial validator set and other meta data
 genesis-file = "{{ js .BaseConfig.Genesis }}"
 
-# Path to the JSON file containing the private key to use for node authentication in the p2p protocol
+# A JSON file containing the private key to use for p2p authenticated encryption
 node-key-file = "{{ js .BaseConfig.NodeKey }}"
 
 # FastCheckTx bypasses application CheckTx with a stateless EVM transaction parser.
+# TEST-ONLY
 fast-check-tx = {{ .BaseConfig.FastCheckTx }}
 
 # MockApp replaces the provided ABCI application with an in-memory EVM nonce app.
+# TEST-ONLY
 mock-app = {{ .BaseConfig.MockApp }}
 
 #######################################################################
 ###                   Autobahn Configuration                        ###
 #######################################################################
 
-# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
-# Leave empty to disable Autobahn. The autobahn role follows the top-level
-# "mode" field: mode = "validator" runs the validator path; any other mode
-# runs as a fullnode that loads the committee for routing only and
-# forwards eth_sendRawTransaction to the shard owner. A warning is logged
-# at startup if mode disagrees with committee membership.
+# AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
+# configuration.
+#
+# Empty disables Autobahn.
 #
 # Placed here (as a top-level key, before any [section] header) so the
 # TOML parser sees it at root scope where mapstructure expects it — viper

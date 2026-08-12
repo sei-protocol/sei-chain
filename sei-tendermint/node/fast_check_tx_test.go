@@ -9,12 +9,12 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/gogo/protobuf/proto"
-	"github.com/stretchr/testify/require"
 
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
@@ -67,7 +67,8 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 		},
 	}, app)
 
-	require.IsType(t, &MockApp{}, prepared)
+	_, ok := prepared.(*MockApp)
+	require.True(t, ok)
 }
 
 func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
@@ -79,7 +80,29 @@ func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 		},
 	}, app)
 
-	require.IsType(t, fastCheckTxApplication{}, prepared)
+	_, ok := prepared.(fastCheckTxApplication)
+	require.True(t, ok)
+}
+
+func TestValidateNodeSetupConfigRejectsMockAppWithoutAutobahn(t *testing.T) {
+	err := validateNodeSetupConfig(&config.Config{
+		BaseConfig: config.BaseConfig{
+			MockApp: true,
+		},
+	})
+
+	require.Error(t, err)
+}
+
+func TestValidateNodeSetupConfigAllowsMockAppWithAutobahn(t *testing.T) {
+	err := validateNodeSetupConfig(&config.Config{
+		BaseConfig: config.BaseConfig{
+			MockApp: true,
+		},
+		AutobahnConfigFile: "/tmp/autobahn.json",
+	})
+
+	require.NoError(t, err)
 }
 
 type checkTxCountingApp struct {

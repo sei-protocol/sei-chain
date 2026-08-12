@@ -10,12 +10,12 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/gogo/protobuf/proto"
-	"github.com/stretchr/testify/require"
 
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -84,6 +84,31 @@ func TestMockAppFinalizeBlockFailsNonceMismatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, sdkerrors.ErrWrongSequence.ABCICode(), duplicate.TxResults[0].Code)
 	require.Equal(t, uint64(2), app.EvmNonce(addr))
+}
+
+func TestMockAppFinalizeBlockRecordsParseFailurePerTx(t *testing.T) {
+	key, err := ethcrypto.GenerateKey()
+	require.NoError(t, err)
+
+	tx0, _, addr := buildFastCheckTxBytesForKey(t, key, 0, 21_000)
+	tx1, _, _ := buildFastCheckTxBytesForKey(t, key, 1, 31_000)
+	app := NewMockApp(abci.BaseApplication{})
+	_, err = app.InitChain(&abci.RequestInitChain{InitialHeight: 1})
+	require.NoError(t, err)
+
+	res, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Txs:    [][]byte{tx0, []byte("not a tx"), tx1},
+		Header: &tmproto.Header{Height: 1},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.TxResults, 3)
+	require.Equal(t, abci.CodeTypeOK, res.TxResults[0].Code)
+	require.NotEqual(t, abci.CodeTypeOK, res.TxResults[1].Code)
+	require.Equal(t, int64(0), res.TxResults[1].GasWanted)
+	require.Equal(t, int64(0), res.TxResults[1].GasUsed)
+	require.Equal(t, abci.CodeTypeOK, res.TxResults[2].Code)
+	require.Equal(t, uint64(2), app.EvmNonce(addr))
+	require.Equal(t, int64(1), app.LastBlockHeight())
 }
 
 func TestMockAppFinalizeBlockRequiresSequentialHeader(t *testing.T) {

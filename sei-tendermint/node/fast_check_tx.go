@@ -62,6 +62,9 @@ func parseFastCheckTx(txBytes []byte) (*abci.ResponseCheckTxV2, error) {
 	if !ethTx.Protected() {
 		return nil, fmt.Errorf("unprotected EVM transaction")
 	}
+	// The mock-app/fast-check load-test path intentionally recovers against
+	// the transaction's own chain ID. The real app ante handler enforces the
+	// genesis EVM chain ID; this lightweight path only needs sender/nonce data.
 	signer := ethtypes.LatestSignerForChainID(ethTx.ChainId())
 	evmAddr, seiAddr, _, err := helpers.RecoverAddressesFromTx(ethTx, signer, ethTx.ChainId())
 	if err != nil {

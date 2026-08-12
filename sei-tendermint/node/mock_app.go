@@ -29,9 +29,9 @@ var (
 
 type mockAppTransition int
 
-const (
-	blocksToRetain = 10_000
+const blocksToRetain = 10_000
 
+const (
 	mockAppTransitionInitialize mockAppTransition = iota
 	mockAppTransitionFinalize
 	mockAppTransitionCommit
@@ -175,7 +175,12 @@ func (app *MockApp) Commit(context.Context) (*abci.ResponseCommit, error) {
 	panic("unreachable")
 }
 
-func (state *mockAppState) finalizeBlock(req *abci.RequestFinalizeBlock, txs []*abci.ResponseCheckTxV2) (*abci.ResponseFinalizeBlock, error) {
+type mockAppTx struct {
+	checkTx  *abci.ResponseCheckTxV2
+	parseErr error
+}
+
+func (state *mockAppState) finalizeBlock(req *abci.RequestFinalizeBlock, txs []mockAppTx) (*abci.ResponseFinalizeBlock, error) {
 	if err := state.checkTransition(mockAppTransitionFinalize); err != nil {
 		return nil, err
 	}
@@ -184,7 +189,15 @@ func (state *mockAppState) finalizeBlock(req *abci.RequestFinalizeBlock, txs []*
 	}
 
 	txResults := make([]*abci.ExecTxResult, len(txs))
-	for i, tx := range txs {
+	for i, parsed := range txs {
+		if parsed.parseErr != nil {
+			txResults[i] = &abci.ExecTxResult{
+				Code: 1,
+				Log:  parsed.parseErr.Error(),
+			}
+			continue
+		}
+		tx := parsed.checkTx
 		wantNonce := state.nextNonce[tx.EVMSenderAddress]
 		if tx.EVMNonce == wantNonce {
 			txResults[i] = &abci.ExecTxResult{
@@ -225,8 +238,8 @@ func (state *mockAppState) checkTransition(want mockAppTransition) error {
 	return nil
 }
 
-func parseMockAppTxs(txs [][]byte) ([]*abci.ResponseCheckTxV2, error) {
-	parsed := make([]*abci.ResponseCheckTxV2, len(txs))
+func parseMockAppTxs(txs [][]byte) ([]mockAppTx, error) {
+	parsed := make([]mockAppTx, len(txs))
 	workers := min(runtime.GOMAXPROCS(0), len(txs))
 	if workers == 0 {
 		return parsed, nil
@@ -237,9 +250,10 @@ func parseMockAppTxs(txs [][]byte) ([]*abci.ResponseCheckTxV2, error) {
 				for i := worker; i < len(txs); i += workers {
 					res, err := parseFastCheckTx(txs[i])
 					if err != nil {
-						return err
+						parsed[i].parseErr = err
+						continue
 					}
-					parsed[i] = res
+					parsed[i].checkTx = res
 				}
 				return nil
 			})

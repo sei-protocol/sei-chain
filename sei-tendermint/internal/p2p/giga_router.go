@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	rpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
