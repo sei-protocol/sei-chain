@@ -1,6 +1,7 @@
 package seitoml_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -206,7 +207,7 @@ func TestSetRoundTripsEveryTypeItAccepts(t *testing.T) {
 		{"string list", []string{"a", "b"}, []any{"a", "b"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f, err := seitoml.New("validator")
+			f, err := seitoml.New("validator", "v6.7.0")
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -318,7 +319,7 @@ func TestUnsetRemovesTheKeyRatherThanWritingItsBaseline(t *testing.T) {
 // Without it, writing the first key of a section would need the operator to add the heading by
 // hand, and set would fail on exactly the file a new node starts from.
 func TestSetCreatesTheTableWhenTheSectionIsNew(t *testing.T) {
-	f, err := seitoml.New("validator")
+	f, err := seitoml.New("validator", "v6.7.0")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -372,7 +373,7 @@ func TestValuesFlattensAnInlineTable(t *testing.T) {
 // back as something else. Refusing is what makes the round-trip guarantee above hold for every
 // type this accepts.
 func TestAnUnsupportedTypeIsRefused(t *testing.T) {
-	f, err := seitoml.New("validator")
+	f, err := seitoml.New("validator", "v6.7.0")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -492,7 +493,7 @@ func TestSaveKeepsAnExistingFilesPermissions(t *testing.T) {
 // previous mode to inherit, so the choice has to be made here.
 func TestANewFileIsNotWorldReadable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sei.toml")
-	f, err := seitoml.New("validator")
+	f, err := seitoml.New("validator", "v6.7.0")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -515,7 +516,7 @@ func TestANewFileIsNotWorldReadable(t *testing.T) {
 // A file written without one cannot be migrated later, and the failure appears at the first
 // upgrade rather than at the write that caused it.
 func TestNewCarriesThisBinarysSchemaVersion(t *testing.T) {
-	f, err := seitoml.New("validator")
+	f, err := seitoml.New("validator", "v6.7.0")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -534,7 +535,7 @@ func TestNewCarriesThisBinarysSchemaVersion(t *testing.T) {
 // The mode selects which defaults the values were chosen against, so a file that omits it cannot be
 // compared against a binary or checked against the mode the node runs.
 func TestANewFileRecordsItsNodeMode(t *testing.T) {
-	f, err := seitoml.New("archive")
+	f, err := seitoml.New("archive", "v6.7.0")
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -546,7 +547,7 @@ func TestANewFileRecordsItsNodeMode(t *testing.T) {
 	if mode != "archive" {
 		t.Errorf("the file records mode %q, want archive", mode)
 	}
-	if _, err := seitoml.New(""); err == nil {
+	if _, err := seitoml.New("", "v6.7.0"); err == nil {
 		t.Error("a file was created with no mode. Every value written into it resolves for one, so " +
 			"nothing could later tell an archive node's file from a validator's")
 	}
@@ -606,5 +607,146 @@ func TestAMigrationCarriesTheNodeModeForward(t *testing.T) {
 	mode, err := parse(t, render(t, f)).Mode()
 	if err != nil || mode != "validator" {
 		t.Errorf("editing the file lost its node mode: (%q, %v)", mode, err)
+	}
+}
+
+// TestTheReleaseThatWroteTheFileIsRecorded holds the provenance the file carries.
+//
+// Nobody could otherwise tell which binary produced a file, which is the first thing worth knowing
+// when its values look wrong and the first thing that says whether regenerating would change
+// anything.
+func TestTheReleaseThatWroteTheFileIsRecorded(t *testing.T) {
+	f, err := seitoml.New("validator", "v6.7.0")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	release, recorded := parse(t, render(t, f)).GeneratedBy()
+	if !recorded || release != "v6.7.0" {
+		t.Errorf("the file records (%q, %v), want v6.7.0\nfile:\n%s", release, recorded, render(t, f))
+	}
+}
+
+// TestABuildWithNoReleaseOmitsTheKey holds the case every developer hits.
+//
+// The release comes from a linker flag the release build sets, so a binary built any other way knows
+// none. Writing an empty string would put a key in an operator's file that says less than no key, and
+// refusing would leave a development build unable to produce a file at all.
+func TestABuildWithNoReleaseOmitsTheKey(t *testing.T) {
+	f, err := seitoml.New("validator", "")
+	if err != nil {
+		t.Fatalf("New refused a build that carries no release: %v", err)
+	}
+
+	body := render(t, f)
+	if strings.Contains(body, seitoml.GeneratedByKey) {
+		t.Errorf("the file carries %s with nothing behind it:\n%s", seitoml.GeneratedByKey, body)
+	}
+	if _, recorded := parse(t, body).GeneratedBy(); recorded {
+		t.Error("GeneratedBy reports a release for a file that records none")
+	}
+	// A file already on disk carrying an empty value reads the same way, since an empty release says
+	// nothing and a caller told one is present would print it as though it meant something.
+	onDisk := parse(t, "schema_version = 1\nnode_mode = \"validator\"\ngenerated_by = \"\"\n")
+	if release, recorded := onDisk.GeneratedBy(); recorded {
+		t.Errorf("a file recording an empty release reports (%q, %v), want it treated as absent",
+			release, recorded)
+	}
+	// And the file is otherwise complete, or omitting the key would have cost something.
+	if v, err := parse(t, body).Version(); err != nil || v != seitoml.SchemaVersion {
+		t.Errorf("the file lost its schema version: (%d, %v)", v, err)
+	}
+	if mode, err := parse(t, body).Mode(); err != nil || mode != "validator" {
+		t.Errorf("the file lost its node mode: (%q, %v)", mode, err)
+	}
+}
+
+// TestTheReleaseKeyIsNotAConfigurationKey keeps provenance out of the key space.
+//
+// Only the key at the document's top level. A key of the same name inside a table is an ordinary
+// setting called section.generated_by, and doctor should report it as one, so the exclusion is on the
+// exact path rather than on the name.
+func TestTheReleaseKeyIsNotAConfigurationKey(t *testing.T) {
+	f := parse(t, commented)
+	if err := f.SetGeneratedBy("v6.7.0"); err != nil {
+		t.Fatalf("SetGeneratedBy: %v", err)
+	}
+
+	values, err := f.Values()
+	if err != nil {
+		t.Fatalf("Values: %v", err)
+	}
+	if _, present := values[seitoml.GeneratedByKey]; present {
+		t.Errorf("%s appears in the written key space: %v", seitoml.GeneratedByKey, values)
+	}
+	if len(values) != 2 {
+		t.Errorf("read %d keys, want the section's 2: %v", len(values), values)
+	}
+
+	// The same name inside a table stays a configuration key, since it is one.
+	inTable := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\ngenerated_by = \"x\"\n")
+	nested, err := inTable.Values()
+	if err != nil {
+		t.Fatalf("Values: %v", err)
+	}
+	if _, present := nested["probe.generated_by"]; !present {
+		t.Errorf("probe.generated_by was excluded from the key space: %v. Only the top-level key is "+
+			"provenance; inside a table it is a setting like any other and doctor should say so", nested)
+	}
+}
+
+// TestNothingBehavesDifferentlyForTheReleaseKey is the constraint that makes the field safe.
+//
+// It is provenance, so no answer anywhere may depend on it. The moment something branches on it, a
+// development build writing no release becomes a node that cannot read its own configuration, and a
+// file hand-edited to a nonsense release becomes one nothing will touch.
+//
+// Held by driving every reader over the same file three ways: recording a release, recording none,
+// and recording something no release ever was. Every answer has to match.
+func TestNothingBehavesDifferentlyForTheReleaseKey(t *testing.T) {
+	const body = "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nworkers = 4\n"
+
+	answers := map[string][]string{}
+	for _, release := range []string{"", "v6.7.0", "not-a-release-anyone-shipped"} {
+		f := parse(t, body)
+		if err := f.SetGeneratedBy(release); err != nil {
+			t.Fatalf("SetGeneratedBy(%q): %v", release, err)
+		}
+
+		var got []string
+		version, err := f.Version()
+		got = append(got, fmt.Sprintf("version=%d err=%v", version, err))
+		mode, err := f.Mode()
+		got = append(got, fmt.Sprintf("mode=%q err=%v", mode, err))
+		values, err := f.Values()
+		got = append(got, fmt.Sprintf("values=%v err=%v", values, err))
+		value, present, err := f.Get("probe.workers")
+		got = append(got, fmt.Sprintf("get=%#v present=%v err=%v", value, present, err))
+
+		// Upgrade too, since it is the one reader that both writes the key and decides what to do.
+		path := filepath.Join(t.TempDir(), "sei.toml")
+		raw, err := f.Bytes()
+		if err != nil {
+			t.Fatalf("Bytes: %v", err)
+		}
+		if err := os.WriteFile(path, raw, 0o600); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		steps, err := seitoml.Upgrade(path, seitoml.Migrations(), false, "v6.8.0")
+		got = append(got, fmt.Sprintf("steps=%v err=%v", steps, err))
+
+		answers[release] = got
+	}
+
+	base := answers["v6.7.0"]
+	for release, got := range answers {
+		for i := range got {
+			if got[i] != base[i] {
+				t.Errorf("with %s = %q a reader answered\n  %s\nand with a recorded release it answered\n"+
+					"  %s\n\nThe field is provenance and nothing may depend on it: a development build "+
+					"writes none, so anything branching on it makes such a build unable to read its own "+
+					"configuration", seitoml.GeneratedByKey, release, got[i], base[i])
+			}
+		}
 	}
 }

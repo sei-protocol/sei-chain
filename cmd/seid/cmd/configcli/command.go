@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/config/seitoml"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 )
 
 // FileName is what the configuration is called inside a node's config directory.
@@ -295,7 +296,7 @@ func upgradeCmd(defaultHome string) *cobra.Command {
 				return err
 			}
 
-			steps, err := seitoml.Upgrade(path, seitoml.Migrations(), dryRun)
+			steps, err := seitoml.Upgrade(path, seitoml.Migrations(), dryRun, version.Version)
 			for _, step := range steps {
 				cmd.Printf("version %d: %s\n", step.To, step.Summary)
 				for _, key := range step.Changed {

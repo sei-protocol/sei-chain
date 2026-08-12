@@ -55,7 +55,10 @@ func Migrations() []Migration {
 //
 // With dryRun set this writes nothing and returns exactly the steps a real run performs, which is
 // what makes a preview worth trusting.
-func Upgrade(path string, chain []Migration, dryRun bool) ([]Step, error) {
+//
+// generatedBy records the release that moved the file, per step, so a chain stopping part way still
+// says which binary got it as far as it did.
+func Upgrade(path string, chain []Migration, dryRun bool, generatedBy string) ([]Step, error) {
 	if err := ValidateChain(chain); err != nil {
 		return nil, err
 	}
@@ -77,6 +80,9 @@ func Upgrade(path string, chain []Migration, dryRun bool) ([]Step, error) {
 		step, err := apply(file, m)
 		if err != nil {
 			return steps, fmt.Errorf("migrating to version %d (%s): %w", m.To, m.Summary, err)
+		}
+		if err := file.SetGeneratedBy(generatedBy); err != nil {
+			return steps, err
 		}
 		if !dryRun {
 			if err := file.Save(path); err != nil {

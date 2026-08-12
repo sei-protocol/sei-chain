@@ -6,6 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/config/seitoml"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 )
 
 // Generate renders the complete configuration for a node mode.
@@ -30,7 +31,7 @@ func Generate(mode registry.Mode) (*seitoml.File, error) {
 			"file that reads as a node with nothing configured")
 	}
 
-	file, err := seitoml.New(string(mode))
+	file, err := seitoml.New(string(mode), version.Version)
 	if err != nil {
 		return nil, err
 	}

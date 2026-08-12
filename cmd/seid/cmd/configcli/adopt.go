@@ -10,6 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/config/seitoml"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
 )
 
 // Source is an existing node's resolved configuration, read by key.
@@ -75,7 +76,7 @@ func Adopt(existing Source, lookupEnv func(string) (string, bool), mode registry
 		return Adoption{}, fmt.Errorf("no section has registered a key, so there is nothing to adopt")
 	}
 
-	file, err := seitoml.New(string(mode))
+	file, err := seitoml.New(string(mode), version.Version)
 	if err != nil {
 		return Adoption{}, err
 	}
