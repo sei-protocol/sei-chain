@@ -16,11 +16,11 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
-// A-15: a fresh home grows nothing.
+// A fresh home grows no experimental section.
 //
-// The [experimental] table is operator-created, which is the signed on-disk contract. Nothing seid
-// writes may put it there, because a section the binary generated would read as a value an operator
-// chose, and regenerating would then look like an intentional change.
+// The [experimental] table is created by an operator, never by the binary. A section seid wrote
+// would read as a value an operator chose, and regenerating the file would then look like an
+// intentional change.
 
 // materializeFreshHome runs the real handler on an empty home and returns the home plus the source
 // the handler populated.
@@ -57,12 +57,12 @@ func materializeFreshHome(t *testing.T, env map[string]string) (root string, src
 	return home.Root, serverCtx.Viper
 }
 
-// TestA15AFreshHomeGrowsNoExperimentalSection is the first two clauses.
+// TestAFreshHomeGrowsNoExperimentalSection is the first two clauses.
 //
 // Asserted on the written file and on the resolved key space, because they can disagree: a section
 // absent from the file could still be present in the source through a bound flag or a default, and
 // a key in the file could be absent from AllKeys if nothing enumerated it.
-func TestA15AFreshHomeGrowsNoExperimentalSection(t *testing.T) {
+func TestAFreshHomeGrowsNoExperimentalSection(t *testing.T) {
 	root, src := materializeFreshHome(t, nil)
 
 	appTOML := filepath.Join(root, "config", "app.toml")
@@ -87,11 +87,11 @@ func TestA15AFreshHomeGrowsNoExperimentalSection(t *testing.T) {
 	}
 }
 
-// TestA15AFreshHomeSweepsSilent is the consequence the two clauses above exist for.
+// TestAFreshHomeSweepsSilent is the consequence the two clauses above exist for.
 //
 // If a fresh home grew a section, every node would report findings against configuration it had
 // never been given. Held through the real reporter, so it covers the render path too.
-func TestA15AFreshHomeSweepsSilent(t *testing.T) {
+func TestAFreshHomeSweepsSilent(t *testing.T) {
 	_, src := materializeFreshHome(t, nil)
 
 	f := experimental.SweepRegistry(src, "SEID", os.Environ())
@@ -102,14 +102,14 @@ func TestA15AFreshHomeSweepsSilent(t *testing.T) {
 	}
 }
 
-// TestA15AnEnvironmentDeliveredKeyStillResolves is the third clause, and it is the asymmetry worth
+// TestAnEnvironmentDeliveredKeyStillResolves is the third clause, and it is the asymmetry worth
 // understanding rather than tidying away.
 //
 // The environment is a working delivery channel and an unenumerable one. AllKeys cannot see it, so
-// the sweep's undeclared half cannot either, and the design records environment delivery as
-// unsupported for this namespace rather than pretending otherwise. What must not happen is Get
-// silently ignoring a value an operator did supply.
-func TestA15AnEnvironmentDeliveredKeyStillResolves(t *testing.T) {
+// the sweep cannot report an undeclared key delivered that way. Environment delivery is therefore
+// unsupported for this namespace rather than half-supported. What must not happen is Get silently
+// ignoring a value an operator did supply.
+func TestAnEnvironmentDeliveredKeyStillResolves(t *testing.T) {
 	experimental.Reset()
 	k := experimental.Int(experimental.Decl[int]{
 		Name: "freshhome.workers", Default: 8, Owner: "configtest", Since: "v6.6.0",
@@ -134,7 +134,8 @@ func TestA15AnEnvironmentDeliveredKeyStillResolves(t *testing.T) {
 	for _, key := range src.AllKeys() {
 		if strings.EqualFold(key, k.Path()) {
 			t.Errorf("%q is enumerable after environment delivery. If that has become true, the sweep "+
-				"can see the environment channel and the design's unsupported-delivery note is stale",
+				"can see the environment, and the note above about environment delivery being unsupported "+
+				"is stale",
 				key)
 		}
 	}
@@ -145,9 +146,9 @@ func TestA15AnEnvironmentDeliveredKeyStillResolves(t *testing.T) {
 // Three copies of path.Base(os.Executable()) exist: this package's handlerEnvPrefix, which
 // production uses and which cannot import configtest; configtest.ServerEnvPrefix, which the harness
 // exposes for the same reason; and resolveHomeDir's inline one. Production cannot collapse them
-// while A-1 forbids touching sei-cosmos, so the next best thing is a test that fails the moment they
-// disagree. If they ever do, the shadow pass looks for variables under a prefix no node uses and
-// silently reports nothing.
+// while this change is not permitted to modify anything under sei-cosmos, so the next best thing is
+// a test that fails the moment they disagree. If they ever do, the shadow pass looks for variables
+// under a prefix no node uses and silently reports nothing.
 func TestTheEnvPrefixDerivationsAgree(t *testing.T) {
 	mine, err := handlerEnvPrefix()
 	if err != nil {

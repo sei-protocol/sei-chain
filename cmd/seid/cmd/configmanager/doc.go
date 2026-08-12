@@ -1,5 +1,6 @@
-// Package configmanager selects how seid loads its configuration, behind the
-// SEI_CONFIG_MANAGER gate. Every manager boots the node identically; the only
+// Package configmanager selects how seid loads its configuration, chosen by the
+// SEI_CONFIG_MANAGER environment variable. Every manager boots the node
+// identically; the only
 // variable is an advisory validation pass that never rewrites a file and never
 // refuses boot.
 //

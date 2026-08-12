@@ -8,7 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/config/experimental"
 )
 
-// A-13: names are rendered through one helper, and truncation is visible.
+// Key names reach the log through one helper, and truncation is visible when it happens.
 //
 // One helper rather than one render per call site, so no record can be the one that forgot. A key
 // name comes from an operator's file, so it can carry anything a TOML key can carry.
@@ -38,12 +38,12 @@ func (r record) arg(key string) (any, bool) {
 	return nil, false
 }
 
-// TestA13ANameCannotForgeALogLine is the property a key name makes possible.
+// TestANameCannotForgeALogLine is the property a key name makes possible.
 //
 // A name arrives from an operator's file, so it can hold a newline, a CRLF, an ANSI escape or a NUL.
 // Rendered raw, any of those lets a key name inject a line that reads as the node's own output.
 // QuoteToASCII is what makes that impossible, and it is applied in one place.
-func TestA13ANameCannotForgeALogLine(t *testing.T) {
+func TestANameCannotForgeALogLine(t *testing.T) {
 	for _, tc := range []struct {
 		name, raw, mustNotContain string
 	}{
@@ -69,11 +69,11 @@ func TestA13ANameCannotForgeALogLine(t *testing.T) {
 	}
 }
 
-// TestA13TruncationIsVisibleAndAscii holds the rest of A-13.
+// TestTruncationIsVisibleAndAscii holds that a shortened name says so, in plain ASCII.
 //
 // A name is resolvable up to MaxKeyBytes and readable up to MaxLoggedNameBytes, so a name between
 // them is classified normally and rendered short. That is only safe if the reader can tell.
-func TestA13TruncationIsVisibleAndAscii(t *testing.T) {
+func TestTruncationIsVisibleAndAscii(t *testing.T) {
 	long := "experimental." + strings.Repeat("a", experimental.MaxLoggedNameBytes)
 
 	got := logName(long)
@@ -95,11 +95,11 @@ func TestA13TruncationIsVisibleAndAscii(t *testing.T) {
 	}
 }
 
-// TestA13ATruncatedRecordCarriesItsLimits holds the two fields A-13 requires on that record.
+// TestATruncatedRecordCarriesItsLimits holds the two fields a shortened name owes a reader.
 //
 // Without them a reader cannot tell how much was cut, and Nearest is dropped because it is computed
 // on the full name and would otherwise sit beside a token describing a different string.
-func TestA13ATruncatedRecordCarriesItsLimits(t *testing.T) {
+func TestATruncatedRecordCarriesItsLimits(t *testing.T) {
 	long := "experimental." + strings.Repeat("b", experimental.MaxLoggedNameBytes)
 	var c captured
 
@@ -140,11 +140,11 @@ func TestA13ATruncatedRecordCarriesItsLimits(t *testing.T) {
 	}
 }
 
-// TestA13ARecordWithNothingTruncatedOmitsTheFields is the other direction.
+// TestARecordWithNothingTruncatedOmitsTheFields is the other direction.
 //
 // A field present on every record teaches a reader to ignore it, so it appears only when something
 // was actually cut.
-func TestA13ARecordWithNothingTruncatedOmitsTheFields(t *testing.T) {
+func TestARecordWithNothingTruncatedOmitsTheFields(t *testing.T) {
 	var c captured
 
 	logFindings(&c, experimental.Findings{
@@ -162,12 +162,12 @@ func TestA13ARecordWithNothingTruncatedOmitsTheFields(t *testing.T) {
 	}
 }
 
-// TestA13TheKeyListIsCappedAndSaysSo bounds one record.
+// TestTheKeyListIsCappedAndSaysSo bounds one record.
 //
 // A rollback can make a whole feature's key set unrecognized at once. An unbounded record is
 // dropped by some log shippers and split by others, so the count is what an operator acts on and
 // the list is what they grep.
-func TestA13TheKeyListIsCappedAndSaysSo(t *testing.T) {
+func TestTheKeyListIsCappedAndSaysSo(t *testing.T) {
 	var us []experimental.Unrecognized
 	for i := 0; i < maxReportedKeys*3; i++ {
 		us = append(us, experimental.Unrecognized{Key: fmt.Sprintf("experimental.bulk.k%02d", i)})
@@ -198,12 +198,12 @@ func TestA13TheKeyListIsCappedAndSaysSo(t *testing.T) {
 	t.Fatal("no unrecognized record was emitted")
 }
 
-// TestA11LevelsAreFixed holds which class lands at which level.
+// TestLevelsAreFixed holds which class lands at which level.
 //
 // One summary at error level gives an operator a single line to alert on. A shadow is also error,
 // because the operator's value is silently gone: the key is written, it resolves to nothing, and
 // the declared default is what runs. Everything else is warn.
-func TestA11LevelsAreFixed(t *testing.T) {
+func TestLevelsAreFixed(t *testing.T) {
 	var c captured
 
 	logFindings(&c, experimental.Findings{
@@ -227,11 +227,11 @@ func TestA11LevelsAreFixed(t *testing.T) {
 	}
 }
 
-// TestA3NothingIsEmittedWhenClean is A-3 held at the reporter rather than through a binary.
+// TestNothingIsEmittedWhenClean holds silence at the reporter rather than through a whole binary.
 //
 // Total silence when clean is what makes a node with no experimental keys byte-identical on every
-// command, and it is the reason the gate can be verified by reading output rather than a diff.
-func TestA3NothingIsEmittedWhenClean(t *testing.T) {
+// command, and checking it here means reading the records built rather than diffing output.
+func TestNothingIsEmittedWhenClean(t *testing.T) {
 	var c captured
 
 	logFindings(&c, experimental.Findings{})

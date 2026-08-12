@@ -36,7 +36,7 @@ var selfCheck = experimental.Int(experimental.Decl[int]{
 	Since:   "v6.6.0",
 })
 
-// TestExperimentalDeclarationsAreWellFormed is the registry-only gate.
+// TestExperimentalDeclarationsAreWellFormed checks every rule that needs only the registry.
 //
 // Every rule registration could judge without running caller code is already a defect by the time
 // this runs; this turns each into a build failure. It also runs each declaration's own Check
@@ -88,11 +88,11 @@ func TestExperimentalRegistryMatchesTheRecord(t *testing.T) {
 		experimental.Declarations(), experimental.Tombstones())
 }
 
-// TestOnlyApplicationCommandsSweep holds A-2 against the real command tree.
+// TestOnlyApplicationCommandsSweep holds the command restriction against the real command tree.
 //
-// Asserted on the assembled tree rather than a list of strings, because the gate compares
+// Asserted on the assembled tree rather than a list of strings, because the check compares
 // CommandPath() and only the real tree knows what those are. The two export commands are the point:
-// server/export.go and client/keys/export.go are both named export, so a gate matching on name or
+// server/export.go and client/keys/export.go are both named export, so a check matching on name or
 // prefix would emit records into a stream carrying an armored private key.
 func TestOnlyApplicationCommandsSweep(t *testing.T) {
 	root, _ := NewRootCmd()

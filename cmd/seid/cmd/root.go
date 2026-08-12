@@ -100,10 +100,10 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			// SEI_CONFIG_MANAGER is read once per PersistentPreRunE invocation
-			// (a clean two-way door). When PR2 adds the `seid config ...` subtree
-			// (which skips PersistentPreRunE), it must own single-read discipline
-			// so one process cannot select two different managers.
+			// SEI_CONFIG_MANAGER is read once per PersistentPreRunE invocation. A
+			// later `seid config ...` subtree skips PersistentPreRunE, so it has to
+			// read the variable once itself; otherwise one process could select two
+			// different managers.
 			mgr, err := configmanager.Select(os.Getenv)
 			if err != nil {
 				return err
@@ -117,8 +117,8 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 			// the handler, and one call outside both bodies keeps LegacyConfigManager.Apply a pure
 			// forward and Apply's signature a one-way door nobody widened.
 			//
-			// Gated by command path, so a node with no experimental keys is byte-identical on every
-			// command and one that has them gets output only where an application is built.
+			// Restricted to the commands that build an application, so a node with no experimental
+			// keys is byte-identical on every command and one that has them gets output only there.
 			if configmanager.SweepsExperimental(cmd) {
 				configmanager.ReportExperimental(cmd)
 			}

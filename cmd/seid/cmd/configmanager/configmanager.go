@@ -179,7 +179,8 @@ func (s stage) String() string {
 //
 // Running it after re-entry as well would also validate on boot #1, and it is
 // deliberately not done yet, because sei-config today reports an error against a freshly
-// generated default config (the pruning read-mapping gap the design tracks). Note this
+// generated default config: its pruning keys are read under names the generator does not
+// write, so the value it looks for is never there. Note this
 // ordering DEFERS that spurious warning by one boot rather than avoiding it: from the
 // second boot on, the pre-handler pass reads the same seid-generated, operator-untouched
 // config and logs the pruning-gap diagnostic until the gap closes, so a v2 node that

@@ -9,10 +9,9 @@ import (
 
 // AppOptions reads a configuration value by key.
 //
-// Declared here rather than imported from sei-cosmos/server/types, which is what the LLD's
-// dependency list named. That import creates a cycle the list did not anticipate: it reaches
-// sei-cosmos/server/config, which imports sei-db/config, and sei-db/config is one of the sections
-// the design requires to carry a collision row in its own test. Both cannot hold.
+// Declared here rather than imported from sei-cosmos/server/types, because that import creates a
+// cycle: it reaches sei-cosmos/server/config, which imports sei-db/config, and sei-db/config has a
+// test that imports this package to check its own keys for collisions.
 //
 // The method set is identical, so a *viper.Viper and any servertypes.AppOptions satisfy both and no
 // read site needs an adapter. Two other packages in this tree declare the same one-method interface

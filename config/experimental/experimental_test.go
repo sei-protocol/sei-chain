@@ -11,10 +11,10 @@ import (
 	"github.com/sei-protocol/sei-chain/config/experimental"
 )
 
-// PR3 of the ConfigManager stack, rebuilt against the ratified LLD.
+// Behaviour of the experimental configuration namespace.
 //
-// Each test names the acceptance criterion it holds. The criteria live in the LLD; the names here
-// are what makes a failure traceable to the decision it breaks.
+// Each test is named for the rule it holds, and each states what an operator or a node would
+// experience if that rule stopped holding.
 
 // fakeSource is a Source a test controls byte for byte, so the sweep is hermetic. A viper would
 // bring case folding and environment consultation into every assertion, and the sweep's contract
@@ -45,8 +45,9 @@ func declare(t *testing.T) *experimental.Key[int] {
 	})
 }
 
-// TestA6AbsentResolvesToTheDeclaredDefault holds A-6: never the type's zero.
-func TestA6AbsentResolvesToTheDeclaredDefault(t *testing.T) {
+// TestAbsentResolvesToTheDeclaredDefault holds that a key nobody wrote reads its declared default,
+// never the type's zero.
+func TestAbsentResolvesToTheDeclaredDefault(t *testing.T) {
 	k := declare(t)
 
 	if got := k.Get(src(nil)); got != 8 {
@@ -55,11 +56,11 @@ func TestA6AbsentResolvesToTheDeclaredDefault(t *testing.T) {
 	}
 }
 
-// TestA7RejectedValuesResolveToTheDefaultAndAreNamed holds A-7's rejection set.
+// TestRejectedValuesResolveToTheDefaultAndAreNamed covers every value shape that is refused.
 //
 // Each row is a coercion the legacy path performs silently. cast reads a blank as zero, a bool as
 // 0 or 1, and a bare number as nanoseconds, and discards the error every time.
-func TestA7RejectedValuesResolveToTheDefaultAndAreNamed(t *testing.T) {
+func TestRejectedValuesResolveToTheDefaultAndAreNamed(t *testing.T) {
 	experimental.Reset()
 	i := experimental.Int(experimental.Decl[int]{Name: "probe.n", Default: 8, Owner: "o", Since: "v1"})
 	b := experimental.Bool(experimental.Decl[bool]{Name: "probe.b", Default: true, Owner: "o", Since: "v1"})
@@ -96,7 +97,8 @@ func TestA7RejectedValuesResolveToTheDefaultAndAreNamed(t *testing.T) {
 				if ve == nil {
 					t.Fatal("a rejected value carried no ValueError, so nothing can report why")
 				}
-				// A-7 requires the raw value, its Go type, the declared type and the value used.
+				// The report has to carry the raw value, its Go type, the declared type and the value used,
+				// because an operator cannot correct a value the message does not quote back to them.
 				for _, want := range []string{ve.Key, ve.Want, ve.Used} {
 					if want == "" {
 						t.Errorf("the ValueError omits a field an operator needs: %+v", ve)
@@ -109,13 +111,13 @@ func TestA7RejectedValuesResolveToTheDefaultAndAreNamed(t *testing.T) {
 	}
 }
 
-// TestA17ADefectiveDeclarationIsInertAndNeverPanics is the criterion my first implementation
-// violated outright.
+// TestADefectiveDeclarationIsInertAndNeverPanics holds the rule that a bad declaration must not
+// stop the binary.
 //
 // A package-level panic in a library every feature imports is a boot failure for every invocation
 // including seid --help, which turns a compile-time-fixable mistake into a fleet-wide incident.
 // Three layers instead: the check fails CI, the declaration is recorded, and the handle is inert.
-func TestA17ADefectiveDeclarationIsInertAndNeverPanics(t *testing.T) {
+func TestADefectiveDeclarationIsInertAndNeverPanics(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		decl experimental.Decl[int]
@@ -164,12 +166,12 @@ func TestA17ADefectiveDeclarationIsInertAndNeverPanics(t *testing.T) {
 	}
 }
 
-// TestA17ADefaultFailingItsOwnCheckIsNotInert holds the one deliberate exception.
+// TestADefaultFailingItsOwnCheckIsNotInert holds the one deliberate exception.
 //
 // Inertness discards the operator's value in favour of the default, which is right when the name
 // or metadata is wrong. It is wrong here: the default is the thing at fault, and a Decl omitting
 // Default entirely would make Get return zero even when the operator wrote 8.
-func TestA17ADefaultFailingItsOwnCheckIsNotInert(t *testing.T) {
+func TestADefaultFailingItsOwnCheckIsNotInert(t *testing.T) {
 	experimental.Reset()
 	k := experimental.Int(experimental.Decl[int]{
 		Name: "probe.workers", Default: 0, Owner: "o", Since: "v1",
@@ -193,11 +195,11 @@ func TestA17ADefaultFailingItsOwnCheckIsNotInert(t *testing.T) {
 	}
 }
 
-// TestA9ClassificationComesFromResolution holds A-9 and A-10.
+// TestClassificationComesFromResolution holds where a key's classification comes from.
 //
 // A key can be enumerated and still resolve to nothing, and reporting that as unrecognized sends
 // an operator hunting a missing declaration when a variable ate their value.
-func TestA9ClassificationComesFromResolution(t *testing.T) {
+func TestClassificationComesFromResolution(t *testing.T) {
 	k := declare(t)
 
 	in := experimental.SweepInput{
@@ -229,8 +231,8 @@ func TestA9ClassificationComesFromResolution(t *testing.T) {
 	}
 }
 
-// TestA10TheShadowIsASet holds that a prefix variable is named for every key beneath it.
-func TestA10TheShadowIsASet(t *testing.T) {
+// TestTheShadowIsASet holds that a prefix variable is named for every key beneath it.
+func TestTheShadowIsASet(t *testing.T) {
 	vars := experimental.EnvShadowVars("SEID", "experimental.giga_executor.occ_workers")
 
 	want := []string{"SEID_EXPERIMENTAL", "SEID_EXPERIMENTAL_GIGA_EXECUTOR"}
@@ -246,11 +248,11 @@ func TestA10TheShadowIsASet(t *testing.T) {
 	}
 }
 
-// TestA25ARetiredKeyIsClassifiedFromItsTombstone holds A-25.
+// TestARetiredKeyIsClassifiedFromItsTombstone covers a key that has been promoted or removed.
 //
 // Telling an operator a deleted knob was promoted is its own wrong diagnostic, so the record
 // distinguishes the two.
-func TestA25ARetiredKeyIsClassifiedFromItsTombstone(t *testing.T) {
+func TestARetiredKeyIsClassifiedFromItsTombstone(t *testing.T) {
 	experimental.Reset()
 	experimental.Retired(experimental.Tombstone{
 		Name: "probe.promoted", Type: "int", Owner: "o", Since: "v1",
@@ -292,11 +294,12 @@ func TestA25ARetiredKeyIsClassifiedFromItsTombstone(t *testing.T) {
 	}
 }
 
-// TestA3SilenceWhenClean holds A-3, including the bounds the criterion calls out.
+// TestSilenceWhenClean holds that a well-formed section produces no output at all, and that the
+// bounds on a sweep hold.
 //
 // A section whose only anomaly is one over-long key would otherwise produce total silence, which
 // is the class the bounds themselves would have created.
-func TestA3SilenceWhenClean(t *testing.T) {
+func TestSilenceWhenClean(t *testing.T) {
 	k := declare(t)
 
 	clean := experimental.Sweep(experimental.SweepInput{
@@ -322,8 +325,9 @@ func TestA3SilenceWhenClean(t *testing.T) {
 	}
 }
 
-// TestA14ResultsAreDeterministic holds A-14: field-identical across runs, every slice sorted.
-func TestA14ResultsAreDeterministic(t *testing.T) {
+// TestResultsAreDeterministic holds that two sweeps of one input are field-identical, with every
+// slice sorted.
+func TestResultsAreDeterministic(t *testing.T) {
 	experimental.Reset()
 	in := experimental.SweepInput{Source: src(map[string]any{
 		"experimental.z.z": "1", "experimental.a.a": "1", "experimental.m.m": "1",
@@ -350,10 +354,10 @@ func TestA14ResultsAreDeterministic(t *testing.T) {
 	}
 }
 
-// TestA19AZeroKeyIsSafe holds the zero-value contract.
+// TestAZeroKeyIsSafe holds the zero-value contract.
 //
 // A struct field left unset must not panic inside a method documented not to fail.
-func TestA19AZeroKeyIsSafe(t *testing.T) {
+func TestAZeroKeyIsSafe(t *testing.T) {
 	var k experimental.Key[int]
 
 	defer func() {
@@ -372,13 +376,13 @@ func TestA19AZeroKeyIsSafe(t *testing.T) {
 	}
 }
 
-// TestA19ReadsAgreeUnderRace holds the read path's concurrency contract.
+// TestReadsAgreeUnderRace holds the read path's concurrency contract.
 //
 // A Key is self-contained: Get consults the Key and never the registry, so a read takes no lock and
 // does not depend on package initialisation order or on which packages the binary linked. That is
 // only worth claiming if concurrent reads of one AppOptions actually agree, so this is the assertion
 // that makes `go test -race` mean something for it.
-func TestA19ReadsAgreeUnderRace(t *testing.T) {
+func TestReadsAgreeUnderRace(t *testing.T) {
 	k := declare(t)
 	opts := src(map[string]any{k.Path(): "16"})
 
@@ -402,12 +406,12 @@ func TestA19ReadsAgreeUnderRace(t *testing.T) {
 	}
 }
 
-// TestA19ConcurrentDeclarationAndReadAreSafe covers the one shape that could still race.
+// TestConcurrentDeclarationAndReadAreSafe covers the one shape that could still race.
 //
 // The registry has a mutex as insurance against a lazily declared key, which the package doc
 // forbids. Reads never touch it, so a declaration landing while another key is being read must not
 // be observable by that read.
-func TestA19ConcurrentDeclarationAndReadAreSafe(t *testing.T) {
+func TestConcurrentDeclarationAndReadAreSafe(t *testing.T) {
 	k := declare(t)
 	opts := src(map[string]any{k.Path(): "16"})
 

@@ -32,8 +32,8 @@ var sweepingCommands = map[string]bool{
 
 // SweepsExperimental reports whether cmd is one of the commands that constructs an application.
 //
-// Gating on the path rather than emitting everywhere is what keeps the observable change honest.
-// Ungated, the hook runs on every command and seilog's stdout sink puts a line inside
+// Restricting by path rather than emitting everywhere is what keeps the observable change honest.
+// Without the check, the hook runs on every command and seilog's stdout sink puts a line inside
 // $(seid version) and inside any command a caller pipes.
 func SweepsExperimental(cmd *cobra.Command) bool {
 	if cmd == nil {
