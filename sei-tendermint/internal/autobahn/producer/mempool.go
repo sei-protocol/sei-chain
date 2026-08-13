@@ -80,8 +80,8 @@ func (m *mempoolInner) SealBlock() {
 // TODO(gprusak): this rpc is probably unused, but if it is
 // consider whether unsequenced/unexecuted lane txs should be included here.
 func (s *State) UnconfirmedTxs() [][]byte {
-	mp := s.mempool.Load()
-	if mp == nil {
+	mp, ok := s.mempool.Load().Get()
+	if !ok {
 		return nil
 	}
 	for m := range mp.inner.Lock() {
@@ -94,8 +94,8 @@ func (s *State) UnconfirmedTxs() [][]byte {
 }
 
 func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
-	mp := s.mempool.Load()
-	if mp == nil {
+	mp, ok := s.mempool.Load().Get()
+	if !ok {
 		return s.app.EvmNonce(addr)
 	}
 	for m := range mp.inner.Lock() {
@@ -109,8 +109,8 @@ func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 }
 
 func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
-	mp := s.mempool.Load()
-	if mp == nil {
+	mp, ok := s.mempool.Load().Get()
+	if !ok {
 		return nil, false
 	}
 	for m := range mp.inner.Lock() {
@@ -174,19 +174,18 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseChec
 	return s.insertTx(ctx, tx, true)
 }
 
-// session returns the produce session to insert into. With wait set it blocks
-// until a session is published, so that inserts racing the start of production
-// are admitted rather than rejected. Leave (LocalLane gone) ends the wait with
-// ErrNotProducing — including when clearMempool publishes nil after the session ends.
-func (s *State) session(ctx context.Context, wait bool) (*mempool, error) {
-	if mp := s.mempool.Load(); mp != nil {
+// getMempool waits until a produce session is published so inserts racing the
+// start of production are admitted. Leave (LocalLane gone) ends the wait with
+// ErrNotProducing — including when clearMempool publishes None after the session ends.
+func (s *State) getMempool(ctx context.Context) (*mempool, error) {
+	if mp, ok := s.mempool.Load().Get(); ok {
 		return mp, nil
 	}
-	if _, ok := s.consensus.Avail().LocalLane().Get(); !wait || !ok {
+	if _, ok := s.consensus.Avail().LocalLane().Get(); !ok {
 		return nil, ErrNotProducing
 	}
-	mp, err := s.mempool.Wait(ctx, func(mp *mempool) bool {
-		if mp != nil {
+	opt, err := s.mempool.Wait(ctx, func(opt utils.Option[*mempool]) bool {
+		if opt.IsPresent() {
 			return true
 		}
 		_, ok := s.consensus.Avail().LocalLane().Get()
@@ -195,7 +194,8 @@ func (s *State) session(ctx context.Context, wait bool) (*mempool, error) {
 	if err != nil {
 		return nil, err
 	}
-	if mp == nil {
+	mp, ok := opt.Get()
+	if !ok {
 		return nil, ErrNotProducing
 	}
 	return mp, nil
@@ -228,16 +228,21 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		return nil, errTooLarge
 	}
 
-	mp, err := s.session(ctx, waitIfFull)
-	if err != nil {
-		return nil, err
+	var mp *mempool
+	if waitIfFull {
+		mp, err = s.getMempool(ctx)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		loaded, ok := s.mempool.Load().Get()
+		if !ok {
+			return nil, ErrNotProducing
+		}
+		mp = loaded
 	}
 	for m, ctrl := range mp.inner.Lock() {
 		if m.closed {
-			return nil, ErrNotProducing
-		}
-		// Session lane must still be this node's LocalLane.
-		if loc, ok := s.consensus.Avail().LocalLane().Get(); !ok || loc != m.lane {
 			return nil, ErrNotProducing
 		}
 		if m.IsFull() && !waitIfFull {
@@ -254,9 +259,6 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 				return nil, err
 			}
 			if m.closed {
-				return nil, ErrNotProducing
-			}
-			if loc, ok := s.consensus.Avail().LocalLane().Get(); !ok || loc != m.lane {
 				return nil, ErrNotProducing
 			}
 		}

@@ -442,12 +442,12 @@ func (s *State) headers(ctx context.Context, ep *types.Epoch, lr *types.LaneRang
 	want := lr.LastHash()
 	headers := make([]*types.BlockHeader, lr.Next()-lr.First())
 	for inner, ctrl := range s.inner.Lock() {
+		if ep.IsClosed(lr.Lane()) {
+			return nil, types.ErrPruned
+		}
 		for i := range headers {
 			n := lr.Next() - types.BlockNumber(i) - 1 //nolint:gosec // i is bounded by len(headers) which is a small block range; no overflow risk
 			for {
-				if ep.IsClosed(lr.Lane()) {
-					return nil, types.ErrPruned
-				}
 				q, ok := inner.votes[lr.Lane()]
 				if !ok {
 					return nil, types.ErrPruned

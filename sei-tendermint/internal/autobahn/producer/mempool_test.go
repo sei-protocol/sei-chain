@@ -263,7 +263,7 @@ func (env *testEnv) alignLocalMempool() {
 // waitUntilProducing waits until runMempool has aligned the session mempool.
 func (env *testEnv) waitUntilProducing(ctx context.Context) error {
 	for {
-		if env.state.mempool.Load() != nil {
+		if env.state.mempool.Load().IsPresent() {
 			return nil
 		}
 		select {
@@ -503,8 +503,8 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 			}
 		}
 		for {
-			mp := env.state.mempool.Load()
-			if mp == nil {
+			mp, ok := env.state.mempool.Load().Get()
+			if !ok {
 				break
 			}
 			done := false
@@ -581,12 +581,8 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		if err := availState.WaitUntilClosed(ctx, lane0); err != nil {
 			return err
 		}
-
-		if _, err := env.state.TryInsertTx(ctx, env.genTx(rng, addr, app.EvmNonce(addr)).encode()); !errors.Is(err, ErrNotProducing) {
-			return fmt.Errorf("TryInsertTx after leave: got %v, want ErrNotProducing", err)
-		}
 		for {
-			if env.state.mempool.Load() == nil {
+			if !env.state.mempool.Load().IsPresent() {
 				break
 			}
 			select {
@@ -594,6 +590,10 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 				return ctx.Err()
 			case <-time.After(time.Millisecond):
 			}
+		}
+
+		if _, err := env.state.TryInsertTx(ctx, env.genTx(rng, addr, app.EvmNonce(addr)).encode()); !errors.Is(err, ErrNotProducing) {
+			return fmt.Errorf("TryInsertTx after leave: got %v, want ErrNotProducing", err)
 		}
 
 		epJoin, err := registry.ActivateEpoch(
@@ -619,7 +619,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 }
 
 // InsertTx waiting for a session must unblock with ErrNotProducing when leave
-// clears LocalLane and clearMempool publishes nil (not hang until ctx cancel).
+// clears LocalLane and clearMempool publishes None (not hang until ctx cancel).
 func TestInsertTx_WaitUnblocksOnLeave(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -636,7 +636,7 @@ func TestInsertTx_WaitUnblocksOnLeave(t *testing.T) {
 		errCh <- err
 	}()
 
-	// Let InsertTx reach session Wait (mempool still nil — producer not running).
+	// Let InsertTx reach getMempool Wait (mempool still None — producer not running).
 	time.Sleep(20 * time.Millisecond)
 
 	epLeave, err := registry.ActivateEpoch(

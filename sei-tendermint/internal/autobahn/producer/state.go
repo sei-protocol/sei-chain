@@ -39,17 +39,17 @@ func (c *Config) maxTxsPerBlock() uint64 {
 type State struct {
 	cfg       *Config
 	app       *proxy.Proxy
-	mempool   utils.AtomicSend[*mempool] // nil when not producing
+	mempool   utils.AtomicSend[utils.Option[*mempool]] // None when not producing
 	consensus *consensus.State
 }
 
 // NewState constructs a new block producer state.
-// Mempool starts nil; alignMempool creates it for each produce session.
+// Mempool starts None; alignMempool creates it for each produce session.
 func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State {
 	return &State{
 		cfg:       cfg,
 		app:       app,
-		mempool:   utils.NewAtomicSend[*mempool](nil),
+		mempool:   utils.NewAtomicSend(utils.None[*mempool]()),
 		consensus: consensus,
 	}
 }
@@ -59,15 +59,15 @@ func (s *State) alignMempool(lane types.LaneID) (*mempool, types.BlockNumber) {
 	n := s.consensus.Avail().NextBlock(lane)
 	m := newMempoolInner(avail.BlocksPerLane, lane, n)
 	mp := &mempool{inner: utils.NewWatch(m)}
-	s.mempool.Store(mp)
+	s.mempool.Store(utils.Some(mp))
 	return mp, n
 }
 
 func (s *State) clearMempool() {
-	mp := s.mempool.Load()
-	// Always publish nil so InsertTx waiters re-evaluate (e.g. LocalLane gone).
-	s.mempool.Store(nil)
-	if mp == nil {
+	mp, ok := s.mempool.Load().Get()
+	// Always publish None so InsertTx waiters re-evaluate (e.g. LocalLane gone).
+	s.mempool.Store(utils.None[*mempool]())
+	if !ok {
 		return
 	}
 	for m, ctrl := range mp.inner.Lock() {
