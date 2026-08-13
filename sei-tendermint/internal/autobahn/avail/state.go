@@ -1,12 +1,5 @@
 // Package avail is the Data Availability Plane and Ordered Event Log: lane
 // blocks, CommitQC/AppQC buffers, and pruning.
-//
-// Lane maps and WALs outlive committee membership until the anchor epoch
-// IsClosed that LaneID. Before any CommitQC exists, the anchor epoch is the
-// applied epoch.
-//
-// Per-lane vote queues supply LaneQC weight under the applied epoch, and
-// FullCommitQC headers until the anchor epoch IsClosed that LaneID.
 package avail
 
 import (
@@ -38,6 +31,13 @@ const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
 // NOTE: This component is more than an observer; it actively aggregates AppVotes
 // to trigger internal pruning, which allows it to manage memory independently
 // of the main consensus loop.
+//
+// Lane maps and WALs outlive committee membership until the anchor epoch
+// IsClosed that LaneID. Before any Anchor exists, the anchor epoch is the
+// applied epoch.
+//
+// Per-lane vote queues supply LaneQC weight under the applied epoch, and
+// FullCommitQC headers until the anchor epoch IsClosed that LaneID.
 type State struct {
 	key   types.SecretKey
 	data  *data.State
@@ -409,6 +409,8 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 			return nil
 		}
 		applied := inner.epoch.Load()
+		// TODO: return a meaningful validation error when the vote
+		// matches neither epoch, or when verification fails under a matching epoch.
 		if !laneVoteAccepted(applied, vote) &&
 			(applied.EpochIndex() == inner.anchorEpoch.EpochIndex() || !laneVoteAccepted(inner.anchorEpoch, vote)) {
 			return nil
@@ -630,7 +632,7 @@ func (s *State) runEvict(ctx context.Context) error {
 		}
 		for inner, ctrl := range s.inner.Lock() {
 			if anchor.CommitQC.Index() >= inner.roads.first {
-				ep, err := inner.anchorEpochOf(s.data.Registry(), anchor)
+				ep, err := anchorEpochOf(s.data.Registry(), anchor)
 				if err != nil {
 					return err
 				}

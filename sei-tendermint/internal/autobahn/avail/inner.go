@@ -18,7 +18,8 @@ type inner struct {
 	// epoch is the applied (next-CommitQC) epoch. ApplyEpoch is the sole
 	// writer after construction.
 	epoch utils.AtomicSend[*types.Epoch]
-	// anchorEpoch is the epoch of data's Anchor CommitQC.
+	// anchorEpoch is the epoch of data's Anchor CommitQC. Before any Anchor
+	// exists it equals the applied epoch.
 	anchorEpoch *types.Epoch
 	blocks      map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes       map[types.LaneID]*queue[types.BlockNumber, blockVotes]
@@ -69,7 +70,7 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 
 	// Apply the persisted prune anchor from the data.State.
 	if anchor, ok := ds.Anchor().Load().Get(); ok {
-		ep, err := i.anchorEpochOf(ds.Registry(), anchor)
+		ep, err := anchorEpochOf(ds.Registry(), anchor)
 		if err != nil {
 			return nil, err
 		}
@@ -175,12 +176,8 @@ func (i *inner) dropLanes(lanes []types.LaneID) int {
 	return n
 }
 
-// anchorEpochOf returns the epoch of anchor's CommitQC, taken from the road it
-// sealed while that road is retained and from the registry once it is not.
-func (i *inner) anchorEpochOf(registry *epoch.Registry, anchor data.Anchor) (*types.Epoch, error) {
-	if r, ok := i.roads.q[anchor.CommitQC.Index()]; ok {
-		return r.epoch, nil
-	}
+// anchorEpochOf returns the epoch of anchor's CommitQC from the registry.
+func anchorEpochOf(registry *epoch.Registry, anchor data.Anchor) (*types.Epoch, error) {
 	ei := anchor.CommitQC.Proposal().EpochIndex()
 	ep, ok := registry.EpochByIndex(ei)
 	if !ok {

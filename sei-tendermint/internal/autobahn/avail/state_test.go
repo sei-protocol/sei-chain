@@ -164,8 +164,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			if _, ok := inner.blocks[lane0]; !ok {
 				return fmt.Errorf("closing lane maps should still be present before anchor prune")
 			}
-			// Roads are empty, so the anchor epoch comes from the registry.
-			ep, err := inner.anchorEpochOf(registry, anchor)
+			ep, err := anchorEpochOf(registry, anchor)
 			if err != nil {
 				return fmt.Errorf("anchorEpochOf: %w", err)
 			}
