@@ -116,6 +116,7 @@ type Reactor struct {
 	blocksBehindThreshold     uint64
 	blocksBehindCheckInterval time.Duration
 	restartCooldownSeconds    uint64
+	freezeHeight              uint64
 }
 
 // NewReactor returns new reactor instance.
@@ -156,6 +157,11 @@ func NewReactor(
 
 	r.BaseService = *service.NewBaseService(logger, "BlockSync", r)
 	return r, nil
+}
+
+// SetFreezeHeight configures the first block height block sync must not execute.
+func (r *Reactor) SetFreezeHeight(height uint64) {
+	r.freezeHeight = height
 }
 
 // OnStart starts separate go routines for each p2p Channel and listens for
@@ -435,6 +441,9 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool) {
 
 	defer trySyncTicker.Stop()
 	defer switchToConsensusTicker.Stop()
+	if r.freezeAtState(ctx, state, blocksSynced, stateSynced) {
+		return
+	}
 
 	for {
 		select {
@@ -579,6 +588,9 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool) {
 			r.metrics.RecordConsMetrics(first)
 
 			blocksSynced++
+			if r.freezeAtState(ctx, state, blocksSynced, stateSynced) {
+				return
+			}
 
 			if blocksSynced%100 == 0 {
 				lastRate = 0.9*lastRate + 0.1*(100/time.Since(lastHundred).Seconds())
@@ -593,6 +605,29 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool) {
 			}
 		}
 	}
+}
+
+func (r *Reactor) freezeAtState(ctx context.Context, state sm.State, blocksSynced uint64, stateSynced bool) bool {
+	if !r.shouldFreeze(state) {
+		return false
+	}
+	height, _, _ := r.pool.GetStatus()
+	r.logger.Info("Block sync stopped before configured freeze height", "last_block_height", state.LastBlockHeight, "freeze_height", r.freezeHeight)
+	r.pool.Stop()
+	r.blockSync.UnSet()
+	if r.consReactor != nil {
+		r.consReactor.SwitchToConsensus(ctx, state, blocksSynced > 0 || stateSynced)
+	}
+	r.logger.Info("switched frozen node to consensus reactor", "height", height, "blocks_synced", blocksSynced, "state_synced", stateSynced, "max_peer_height", r.pool.MaxPeerHeight())
+	return true
+}
+
+func (r *Reactor) shouldFreeze(state sm.State) bool {
+	height := state.LastBlockHeight + 1
+	if height == 1 {
+		height = state.InitialHeight
+	}
+	return r.freezeHeight > 0 && height >= 0 && uint64(height) >= r.freezeHeight //nolint:gosec // negative heights are rejected first.
 }
 
 func (r *Reactor) GetMaxPeerBlockHeight() int64 {

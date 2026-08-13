@@ -14,6 +14,28 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
+type options struct {
+	freezeHeight uint64
+}
+
+// Option configures optional node behavior.
+type Option func(*options)
+
+// WithFreezeHeight stops block sync and consensus before executing height; 0 disables freezing.
+func WithFreezeHeight(height uint64) Option {
+	return func(opts *options) {
+		opts.freezeHeight = height
+	}
+}
+
+func resolveOptions(nodeOptions ...Option) options {
+	var opts options
+	for _, apply := range nodeOptions {
+		apply(&opts)
+	}
+	return opts
+}
+
 // NewDefault constructs a tendermint node service for use in go
 // process that host their own process-local tendermint node. This is
 // equivalent to running tendermint in it's own process communicating
@@ -42,6 +64,7 @@ func New(
 	gen *types.GenesisDoc,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
+	nodeOptions ...Option,
 ) (service.Service, error) {
 	nodeKey, err := types.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -75,8 +98,12 @@ func New(
 			logger,
 			tracerProviderOptions,
 			nodeMetrics,
+			nodeOptions...,
 		)
 	case config.ModeSeed:
+		if resolveOptions(nodeOptions...).freezeHeight > 0 {
+			return nil, fmt.Errorf("freeze height is not supported in seed mode")
+		}
 		return makeSeedNode(
 			ctx,
 			logger,

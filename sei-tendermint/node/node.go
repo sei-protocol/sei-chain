@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/netip"
@@ -58,6 +59,7 @@ type nodeImpl struct {
 	genesisDoc      *types.GenesisDoc   // initial validator set
 	privValidator   types.PrivValidator // local node's validator key
 	shouldHandshake bool                // set during makeNode
+	freezeHeight    uint64
 
 	// network
 	router           *p2p.Router
@@ -78,6 +80,31 @@ type nodeImpl struct {
 	shutdownOps    closer
 	rpcEnv         *rpccore.Environment
 	prometheusSrv  *http.Server
+}
+
+func validateFreezeHeight(freezeHeight uint64, initialHeight, stateHeight, blockStoreHeight, appHeight int64) error {
+	if freezeHeight == 0 {
+		return nil
+	}
+	if freezeHeight > math.MaxInt64 {
+		return fmt.Errorf("freeze height %d exceeds the maximum block height", freezeHeight)
+	}
+	if initialHeight > int64(freezeHeight) { //nolint:gosec // freezeHeight is bounded above.
+		return fmt.Errorf("freeze height %d is below initial height %d", freezeHeight, initialHeight)
+	}
+	for _, current := range []struct {
+		source string
+		height int64
+	}{
+		{source: "application", height: appHeight},
+		{source: "block store", height: blockStoreHeight},
+		{source: "state store", height: stateHeight},
+	} {
+		if current.height >= int64(freezeHeight) { //nolint:gosec // freezeHeight is bounded above.
+			return fmt.Errorf("%s height %d has already reached freeze height %d", current.source, current.height, freezeHeight)
+		}
+	}
+	return nil
 }
 
 // newDefaultNode returns a Tendermint node with default settings for the
@@ -145,7 +172,9 @@ func makeNode(
 	logger log.Logger,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
+	nodeOptions ...Option,
 ) (service.Service, error) {
+	opts := resolveOptions(nodeOptions...)
 
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
@@ -175,6 +204,15 @@ func makeNode(
 	}
 
 	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
+	if opts.freezeHeight > 0 {
+		info, err := client.Info(ctx, &abci.RequestInfo{})
+		if err != nil {
+			return nil, combineCloseError(err, makeCloser(closers))
+		}
+		if err := validateFreezeHeight(opts.freezeHeight, genDoc.InitialHeight, state.LastBlockHeight, blockStore.Height(), info.LastBlockHeight); err != nil {
+			return nil, combineCloseError(err, makeCloser(closers))
+		}
+	}
 	eventBus := eventbus.NewDefault(logger.With("module", "events"))
 
 	var eventLog *eventlog.Log
@@ -295,6 +333,10 @@ func makeNode(
 
 	// Determine whether we should attempt state sync.
 	stateSync := cfg.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)
+	if stateSync && opts.freezeHeight > 0 {
+		logger.Info("Freeze mode disables state sync; falling back to block sync", "freeze_height", opts.freezeHeight)
+		stateSync = false
+	}
 	if stateSync && state.LastBlockHeight > 0 {
 		logger.Info("Found local state with non-zero height, skipping state sync")
 		stateSync = false
@@ -320,6 +362,7 @@ func makeNode(
 	if err != nil {
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
+	csState.SetFreezeHeight(opts.freezeHeight)
 	node.rpcEnv.ConsensusState = csState
 
 	csReactor, err := consensus.NewReactor(
@@ -356,6 +399,7 @@ func makeNode(
 	if err != nil {
 		return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
 	}
+	bcReactor.SetFreezeHeight(opts.freezeHeight)
 	node.services = append(node.services, bcReactor)
 	node.rpcEnv.BlockSyncReactor = bcReactor
 
@@ -431,12 +475,16 @@ func makeNode(
 	node.rpcEnv.PubKey = pubKey
 
 	node.BaseService = *service.NewBaseService(logger, "Node", node)
+	node.freezeHeight = opts.freezeHeight
 
 	return node, nil
 }
 
 // OnStart starts the Node. It implements service.Service.
 func (n *nodeImpl) OnStart(ctx context.Context) error {
+	if n.freezeHeight > 0 {
+		n.logger.Info("Freeze mode enabled", "freeze_height", n.freezeHeight)
+	}
 	if err := n.rpcEnv.ProxyApp.Start(ctx); err != nil {
 		return fmt.Errorf("error starting proxy app connections: %w", err)
 	}
