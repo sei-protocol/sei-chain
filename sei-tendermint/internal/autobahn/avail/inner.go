@@ -16,9 +16,11 @@ type inner struct {
 
 	// epoch is the applied (next-CommitQC) epoch. ApplyEpoch is the sole
 	// writer after construction.
-	epoch  utils.AtomicSend[*types.Epoch]
-	blocks map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
-	votes  map[types.LaneID]*queue[types.BlockNumber, blockVotes]
+	epoch utils.AtomicSend[*types.Epoch]
+	// anchorEpoch is the epoch of data's Anchor CommitQC.
+	anchorEpoch *types.Epoch
+	blocks      map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
+	votes       map[types.LaneID]*queue[types.BlockNumber, blockVotes]
 	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
 	// RecvBatch only yields blocks below this cursor for voting.
 	// Always initialized (even when persistence is disabled — the no-op persist
@@ -52,6 +54,7 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		roads:              newQueue[types.RoadIndex, *road](),
 		epoch:              utils.NewAtomicSend(start),
+		anchorEpoch:        start,
 		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
@@ -59,25 +62,17 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	for lane := range start.Committee().Lanes().All() {
 		i.addLane(lane)
 	}
-
-	// Admit WAL lanes that are not closed at the prune-anchor epoch.
-	var anchorEp utils.Option[*types.Epoch]
-	if anchor, ok := ds.Anchor().Load().Get(); ok {
-		if ep, ok := ds.Registry().EpochByIndex(anchor.CommitQC.Proposal().EpochIndex()); ok {
-			anchorEp = utils.Some(ep)
-		}
-	}
 	for lane := range loaded.blocks {
-		if ep, ok := anchorEp.Get(); ok && ep.IsClosed(lane) {
-			continue
-		}
 		i.addLane(lane)
 	}
 
-	// Apply the persisted prune anchor from the data.State:
-	// avail.State can drop everything below AppQC persisted in data.State.
+	// Apply the persisted prune anchor from the data.State.
 	if anchor, ok := ds.Anchor().Load().Get(); ok {
-		i.prune(anchor)
+		ep, ok := ds.Registry().EpochByIndex(anchor.CommitQC.Proposal().EpochIndex())
+		if !ok {
+			return nil, fmt.Errorf("unknown epoch_index %d for anchor", anchor.CommitQC.Proposal().EpochIndex())
+		}
+		i.prune(anchor, ep)
 	}
 
 	// Restore persisted CommitQCs. prune() may have already pushed the
@@ -179,24 +174,31 @@ func (i *inner) dropLanes(lanes []types.LaneID) int {
 	return n
 }
 
-// prune advances the state up to Anchor of the data state.
-// Returns true iff pruning occurred.
-func (i *inner) prune(anchor data.Anchor) {
+// prune advances the state up to the data Anchor and drops lanes closed as of
+// anchorEpoch. Returns the number of lanes dropped.
+func (i *inner) prune(anchor data.Anchor, anchorEpoch *types.Epoch) int {
 	idx := anchor.CommitQC.Index()
-	if idx < i.roads.first {
-		return
-	}
-	i.roads.prune(idx + 1)
-	for lane, vq := range i.votes {
-		lr := anchor.CommitQC.LaneRange(lane)
-		bq := i.blocks[lane]
-		vq.prune(lr.Next())
-		bq.prune(lr.Next())
-		if i.nextBlockToPersist[lane] < lr.Next() {
-			i.nextBlockToPersist[lane] = lr.Next()
+	if idx >= i.roads.first {
+		i.roads.prune(idx + 1)
+		for lane, vq := range i.votes {
+			lr := anchor.CommitQC.LaneRange(lane)
+			bq := i.blocks[lane]
+			vq.prune(lr.Next())
+			bq.prune(lr.Next())
+			if i.nextBlockToPersist[lane] < lr.Next() {
+				i.nextBlockToPersist[lane] = lr.Next()
+			}
+		}
+		if i.roads.Len() == 0 {
+			i.persistedCommitQC.Store(utils.Some(anchor.CommitQC))
 		}
 	}
-	if i.roads.Len() == 0 {
-		i.persistedCommitQC.Store(utils.Some(anchor.CommitQC))
+	i.anchorEpoch = anchorEpoch
+	var closed []types.LaneID
+	for lane := range i.blocks {
+		if anchorEpoch.IsClosed(lane) {
+			closed = append(closed, lane)
+		}
 	}
+	return i.dropLanes(closed)
 }

@@ -1,8 +1,9 @@
 // Package avail is the Data Availability Plane and Ordered Event Log: lane
 // blocks, CommitQC/AppQC buffers, and pruning.
 //
-// Lane maps and WALs outlive committee membership until epochOfFirst.IsClosed;
-// SyncLanes then deletes the WAL.
+// Lane maps and WALs outlive committee membership until the anchor epoch
+// IsClosed that LaneID. Before any CommitQC exists, the anchor epoch is the
+// applied epoch.
 package avail
 
 import (
@@ -82,26 +83,6 @@ func (s *State) ApplyEpoch(ep *types.Epoch) {
 		inner.epoch.Store(ep)
 		ctrl.Updated()
 	}
-}
-
-// epochOfFirst returns the epoch of the oldest retained CommitQC, or the applied
-// (next-CommitQC) epoch when the road queue is empty.
-func epochOfFirst(inner *inner) *types.Epoch {
-	if inner.roads.Len() > 0 {
-		return inner.roads.q[inner.roads.first].epoch
-	}
-	return inner.epoch.Load()
-}
-
-// hasClosedLane reports whether any in-memory lane is closed as of epochOfFirst.
-func hasClosedLane(inner *inner) bool {
-	ep := epochOfFirst(inner)
-	for lane := range inner.blocks {
-		if ep.IsClosed(lane) {
-			return true
-		}
-	}
-	return false
 }
 
 // persisters holds all disk persistence components. Either all are present
@@ -630,11 +611,33 @@ func (s *State) runPushAppQC(ctx context.Context) error {
 }
 
 func (s *State) runEvict(ctx context.Context) error {
-	return s.data.Anchor().Iter(ctx, func(ctx context.Context, anchor utils.Option[data.Anchor]) error {
-		if anchor, ok := anchor.Get(); ok {
-			for inner, ctrl := range s.inner.Lock() {
-				inner.prune(anchor)
-				ctrl.Updated()
+	return s.data.Anchor().Iter(ctx, func(ctx context.Context, anchorOpt utils.Option[data.Anchor]) error {
+		anchor, ok := anchorOpt.Get()
+		if !ok {
+			return nil
+		}
+		var keep map[types.LaneID]struct{}
+		var dropped int
+		for inner, ctrl := range s.inner.Lock() {
+			idx := anchor.CommitQC.Index()
+			if idx >= inner.roads.first {
+				r, ok := inner.roads.q[idx]
+				if !ok {
+					return fmt.Errorf("no road for anchor CommitQC index %d", idx)
+				}
+				dropped = inner.prune(anchor, r.epoch)
+				if dropped > 0 {
+					keep = make(map[types.LaneID]struct{}, len(inner.blocks))
+					for lane := range inner.blocks {
+						keep[lane] = struct{}{}
+					}
+				}
+			}
+			ctrl.Updated()
+		}
+		if dropped > 0 {
+			if err := persist.SyncLanes(s.persisters.blocks, keep); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -737,8 +740,8 @@ func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 	}
 }
 
-// collectPersistBatch waits under lock for new blocks, CommitQCs, or closed lanes,
-// then collects a persist batch (dropping closed-lane maps first).
+// collectPersistBatch waits under lock for new blocks or CommitQCs, then
+// collects a persist batch.
 func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		// Derive the CommitQC persist cursor from persistedCommitQC. This is
@@ -754,24 +757,9 @@ func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) 
 					return true
 				}
 			}
-			if next < inner.roads.next {
-				return true
-			}
-			return hasClosedLane(inner)
+			return next < inner.roads.next
 		}); err != nil {
 			return nil, err
-		}
-		ep := epochOfFirst(inner)
-		var closed []types.LaneID
-		for lane := range inner.blocks {
-			if ep.IsClosed(lane) {
-				closed = append(closed, lane)
-			}
-		}
-		if len(closed) > 0 {
-			if inner.dropLanes(closed) > 0 {
-				ctrl.Updated()
-			}
 		}
 		b := &persistBatch{
 			blocks:    map[types.LaneID]blocksBatch{},

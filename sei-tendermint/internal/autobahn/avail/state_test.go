@@ -81,8 +81,9 @@ func TestStateWithPersistence(t *testing.T) {
 	}
 }
 
-// Test checking that State can correctly start collecting CommitQCs starting from arbitrary anchor.
-func TestCollectPersistBatch_EmptyRoadsDropsClosedLane(t *testing.T) {
+// TestPrune_AnchorEpochDropsClosedLane checks that prune drops closing-lane
+// maps when the Anchor epoch IsClosed them.
+func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
@@ -127,6 +128,12 @@ func TestCollectPersistBatch_EmptyRoadsDropsClosedLane(t *testing.T) {
 		}
 		state.ApplyEpoch(ep1)
 
+		for inner := range state.inner.Lock() {
+			if _, ok := inner.blocks[lane0]; !ok {
+				return fmt.Errorf("ApplyEpoch must not drop closing-lane maps")
+			}
+		}
+
 		qc1, blocks1 := data.TestCommitQC(rng, ep1, []types.SecretKey{b}, utils.Some(qc0.QC()))
 		if err := ds.PushQC(ctx, qc1, blocks1); err != nil {
 			return err
@@ -138,32 +145,33 @@ func TestCollectPersistBatch_EmptyRoadsDropsClosedLane(t *testing.T) {
 		if err := ds.PushAppQC(ctx, data.TestAppQC([]types.SecretKey{b}, types.NewAppProposal(qc1.QC().Proposal(), appHash1))); err != nil {
 			return err
 		}
-		if _, err := ds.Anchor().Wait(ctx, func(anchor utils.Option[data.Anchor]) bool {
-			got, ok := anchor.Get()
-			return ok && got.CommitQC.Index() == qc1.QC().Index()
+		var anchor data.Anchor
+		if _, err := ds.Anchor().Wait(ctx, func(a utils.Option[data.Anchor]) bool {
+			got, ok := a.Get()
+			if ok && got.CommitQC.Index() == qc1.QC().Index() {
+				anchor = got
+				return true
+			}
+			return false
 		}); err != nil {
 			return err
 		}
 
-		for inner := range state.inner.Lock() {
+		for inner, ctrl := range state.inner.Lock() {
 			if inner.roads.first < inner.roads.next {
-				return fmt.Errorf("roads should be empty for the anchor-fallback path")
+				return fmt.Errorf("roads should be empty after tip prune")
 			}
 			if _, ok := inner.blocks[lane0]; !ok {
-				return fmt.Errorf("closing lane maps should still be present before collect")
+				return fmt.Errorf("closing lane maps should still be present before anchor prune")
 			}
-			if !hasClosedLane(inner) {
-				return fmt.Errorf("hasClosedLane: empty roads + applied epoch-1 should see lane0 closed")
+			n := inner.prune(anchor, ep1)
+			if n != 1 {
+				return fmt.Errorf("prune dropped %d lanes, want 1", n)
 			}
-		}
-
-		if _, err := state.collectPersistBatch(ctx); err != nil {
-			return fmt.Errorf("collectPersistBatch: %w", err)
-		}
-		for inner := range state.inner.Lock() {
 			if _, ok := inner.blocks[lane0]; ok {
-				return fmt.Errorf("collectPersistBatch should have dropped closed lane0")
+				return fmt.Errorf("prune should have dropped closed lane0")
 			}
+			ctrl.Updated()
 		}
 		_, err = sub.Recv(ctx)
 		if !errors.Is(err, ErrLaneClosed) {
