@@ -218,6 +218,64 @@ func BenchmarkShardBatchSetRewrite(b *testing.B) {
 	}
 }
 
+// benchRepeatFraction is the share of a cryptosim block's writes that name a key already written in
+// an un-retired version, and so take versionHistory's in-place-update path rather than its
+// first-write path.
+//
+// It comes out of the harness config (cryptosim_config.go): 100 hot accounts drawn at
+// HotAccountProbability 0.1, and 100 hot ERC20 contracts of 10 slots each drawn at
+// HotErc20ContractProbability 0.5, against ~3,960 writes per block. Cold accounts come from a
+// million-key pool and essentially never recur inside an 8-32 version window.
+const benchRepeatFraction = 0.07
+
+// BenchmarkShardBatchSetMixed writes a realistic blend of keys new to the version window and keys
+// already in it. BenchmarkShardBatchSet and BenchmarkShardBatchSetRewrite bound this from either
+// side, but neither is the workload: holding versionHistory by value in versionedData made the
+// repeat path cost a map store where a pointer could have been mutated in place, and this is the
+// benchmark that says what that is worth at the rate it actually happens.
+//
+// The repeats here land at the version already held, which replaces the newest value in place. A key
+// repeated at a *later* version instead spills the previous value into the overflow deque, paying one
+// allocation the first time it is written at a second version and none after. That path is not
+// covered here; it costs one deque per repeatedly-written key, where the design this replaced paid
+// one per key.
+func BenchmarkShardBatchSetMixed(b *testing.B) {
+	db := newTestDB(nil)
+	defer func() { _ = db.Close() }()
+	pool := threading.NewElasticPool("bench-shard-mixed", 4)
+	defer pool.Close()
+
+	config := DefaultTestSnapshotEngineConfig()
+	config.EstimatedOverheadPerEntry = 256
+	s, err := NewShard(context.Background(), config, db, pool, 1<<30,
+		func() error { return ErrEngineClosed },
+		func(error) {})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	repeated := benchWriteSet(0)
+	repeatCount := int(float64(benchPairsPerBlock) * benchRepeatFraction)
+	// Seed the repeated keys so they are already present when the measured writes reach them.
+	if err := s.BatchSet(repeated[:repeatCount]); err != nil {
+		b.Fatal(err)
+	}
+
+	sets := make([][]*proto.KVPair, b.N)
+	for i := range sets {
+		fresh := benchWriteSet(i + 1)
+		sets[i] = append(append([]*proto.KVPair{}, repeated[:repeatCount]...), fresh[repeatCount:]...)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if err := s.BatchSet(sets[i]); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // BenchmarkDropVersions measures retiring one version's worth of writes. This runs on the lifecycle
 // goroutine but holds the same exclusive shard lock BatchSet needs, so whatever it costs is time the
 // execution thread can spend blocked. Compare it against the per-block BatchSet cost directly.

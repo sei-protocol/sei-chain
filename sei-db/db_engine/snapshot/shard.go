@@ -421,9 +421,13 @@ func (s *shard) BatchSet(entries []*proto.KVPair) error {
 	return nil
 }
 
-// BatchSetString is BatchSet for keys already held as strings. Refused on a shard that is out of
-// service, for the reason given on Set.
-func (s *shard) BatchSetString(entries []StringKVPair) error {
+// batchSetStringAt applies the updates named by indices, which index into updates. Refused on a
+// shard that is out of service, for the reason given on Set.
+//
+// Taking the whole batch plus the indices belonging to this shard, rather than a slice of just this
+// shard's updates, is what lets the caller bucket a batch by word-sized indices instead of copying
+// every update into a per-shard buffer.
+func (s *shard) batchSetStringAt(updates []StringKVPair, indices []int) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -431,13 +435,14 @@ func (s *shard) BatchSetString(entries []StringKVPair) error {
 	if err := s.cache.outOfServiceLocked(); err != nil {
 		return err
 	}
-	for i := range entries {
-		if entries[i].Delete {
+	for _, i := range indices {
+		update := &updates[i]
+		if update.Delete {
 			// A delete is stored as a nil-valued (tombstone) entry at the current version.
-			s.setLockedString(entries[i].Key, nil)
-		} else {
-			s.setLockedString(entries[i].Key, entries[i].Value)
+			s.setLockedString(update.Key, nil)
+			continue
 		}
+		s.setLockedString(update.Key, update.Value)
 	}
 	return nil
 }

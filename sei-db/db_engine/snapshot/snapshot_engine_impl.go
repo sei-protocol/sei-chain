@@ -241,6 +241,9 @@ func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
 	// keyed by it: shard indices are dense and known, so this needs no hashing and no growth. Each
 	// bucket is sized at twice an even split, so an uneven spread across shards still lands in one
 	// allocation rather than a resize and copy.
+	//
+	// These buckets hold pointers rather than the indices BatchSetString buckets, because a pointer
+	// is already word-sized; there is nothing to save here.
 	buckets := make([][]*proto.KVPair, len(c.shards))
 	bucketHint := 2*len(updates)/len(c.shards) + 1
 	for i := range updates {
@@ -278,16 +281,18 @@ func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
 }
 
 func (c *snapshotEngine) BatchSetString(updates []StringKVPair) error {
-	// Bucketed by shard exactly as BatchSet does, so the two differ only in how they hash a key and
-	// what they hand the shard.
-	buckets := make([][]StringKVPair, len(c.shards))
+	// Bucketed by index into updates rather than by copying the updates themselves: an index is a
+	// word where a StringKVPair is around fifty bytes, and these buffers are rebuilt for every batch.
+	// Each bucket is sized at twice an even split, so an uneven spread across shards still lands in
+	// one allocation rather than a resize and copy.
+	buckets := make([][]int, len(c.shards))
 	bucketHint := 2*len(updates)/len(c.shards) + 1
 	for i := range updates {
 		idx := c.shardManager.ShardString(updates[i].Key)
 		if buckets[idx] == nil {
-			buckets[idx] = make([]StringKVPair, 0, bucketHint)
+			buckets[idx] = make([]int, 0, bucketHint)
 		}
-		buckets[idx] = append(buckets[idx], updates[i])
+		buckets[idx] = append(buckets[idx], i)
 	}
 
 	var wg sync.WaitGroup
@@ -299,7 +304,7 @@ func (c *snapshotEngine) BatchSetString(updates []StringKVPair) error {
 		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			errs[shardIndex] = c.shards[shardIndex].BatchSetString(buckets[shardIndex])
+			errs[shardIndex] = c.shards[shardIndex].batchSetStringAt(updates, buckets[shardIndex])
 		})
 	}
 	wg.Wait()
