@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 // DBBackend defines the SS DB backend.
 type DBBackend string
 
@@ -63,6 +65,38 @@ type StateStoreConfig struct {
 	// defaults to false (use MVCCComparer for backwards compatibility)
 	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
 
+	// SnapshotEnable controls whether the state store takes periodic online
+	// snapshots. Snapshots are Pebble checkpoints (hardlink trees), so the
+	// backend must be pebbledb and every SS database must be able to hardlink
+	// into the snapshot root. Startup fails on either rather than running
+	// without snapshots. A custom Cosmos SS directory moves the snapshot root
+	// beside that directory, which keeps the link inside one filesystem.
+	//
+	// Taking a snapshot occupies each backend's SS apply goroutine for the WAL
+	// flush, the filesystem sync, and the checkpoint. No data is copied up
+	// front, but a queue that fills during that window applies write
+	// backpressure.
+	//
+	// Each retained snapshot pins the SSTs it references and prevents compaction
+	// from reclaiming them. Steady-state disk overhead is therefore the
+	// compaction churn accumulated over SnapshotInterval blocks, per retained
+	// snapshot — significant on a multi-TB state store. Managed snapshots are
+	// rollback restore points, not an archive format. They have no lease in this
+	// release, so node-external tools must not resolve a snapshot path and open it
+	// later without first adding a hold mechanism. Attempts, skips, outcomes,
+	// duration, in-flight state, height, count, and apparent bytes are exported as
+	// ss_snapshot_* metrics.
+	// defaults to false
+	SnapshotEnable bool `mapstructure:"snapshot-enable"`
+
+	// SnapshotInterval, SnapshotKeepRecent, and SnapshotMinTimeInterval are
+	// mirrored from the state-commit snapshot settings at runtime by
+	// AlignSSSnapshotWithSC. They are intentionally not exposed in app.toml;
+	// SnapshotEnable is the only SS-side knob.
+	SnapshotInterval        int64         `mapstructure:"-"`
+	SnapshotKeepRecent      int           `mapstructure:"-"`
+	SnapshotMinTimeInterval time.Duration `mapstructure:"-"`
+
 	// --- EVM optimization fields ---
 
 	// EVMSplit controls whether EVM data is routed to a dedicated SS backend.
@@ -93,7 +127,25 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		ImportNumWorkers:     DefaultSSImportWorkers,
 		KeepLastVersion:      true,
 		UseDefaultComparer:   false,
+		SnapshotEnable:       false,
 		EVMSplit:             false,
 		SeparateEVMSubDBs:    false,
 	}
+}
+
+// AlignSSSnapshotWithSC mirrors the state-commit interval, minimum time
+// interval, and retention settings onto the state store. SC and SS apply their
+// in-flight gates independently, so this does not promise identical retained
+// heights. When SS snapshots are disabled the cadence is zeroed.
+func AlignSSSnapshotWithSC(scConfig StateCommitConfig, ssConfig *StateStoreConfig) {
+	if !ssConfig.SnapshotEnable {
+		ssConfig.SnapshotInterval = 0
+		ssConfig.SnapshotKeepRecent = 0
+		ssConfig.SnapshotMinTimeInterval = 0
+		return
+	}
+	interval, keepRecent := EffectiveMemIAVLSnapshotCadence(scConfig.MemIAVLConfig)
+	ssConfig.SnapshotInterval = int64(interval)
+	ssConfig.SnapshotKeepRecent = int(keepRecent)
+	ssConfig.SnapshotMinTimeInterval = EffectiveMemIAVLSnapshotMinTimeInterval(scConfig.MemIAVLConfig)
 }

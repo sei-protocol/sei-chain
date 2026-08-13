@@ -140,6 +140,20 @@ ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 # Applies when ss-backend = "pebbledb". Default: false.
 ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
 
+# SnapshotEnable turns on periodic online state-store snapshots. The cadence is
+# not configurable here: it mirrors the state-commit snapshot settings.
+# Two configurations fail startup rather than run without snapshots: an
+# ss-backend other than "pebbledb", and SS databases that cannot hardlink into
+# the snapshot root, which needs every SS database and that root on one
+# filesystem.
+# Each retained snapshot pins the SST files it references against compaction, so
+# budget the write churn of one snapshot interval per retained snapshot. This is
+# substantial on a multi-TB state store.
+# Snapshot directories are rollback restore points, not an archive format.
+# They have no lease, so do not build tools that resolve one and open it later.
+# Cost and progress are exported as ss_snapshot_* metrics. Default: false.
+ss-snapshot-enable = {{ .StateStore.SnapshotEnable }}
+
 # EVMDBDirectory defines the directory for the optional EVM state-store DB(s).
 # If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
 evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"

@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	dbm "github.com/tendermint/tm-db"
@@ -34,6 +35,7 @@ type CompositeStateStore struct {
 	cosmosStore    types.StateStore // CosmosStateStore wrapping MVCC DB
 	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
+	snapshotMgr    *snapshotManager
 	config         config.StateStoreConfig
 	closeOnce      sync.Once
 	closeErr       error
@@ -60,6 +62,7 @@ func NewCompositeStateStore(
 		cosmosStore: cosmosStore,
 		config:      ssConfig,
 	}
+	snapshotSourceDirs := []string{dbHome}
 
 	if ssConfig.EVMSplit {
 		evmDir := ssConfig.EVMDBDirectory
@@ -79,6 +82,16 @@ func NewCompositeStateStore(
 			return nil, fmt.Errorf("failed to create EVM store: %w", err)
 		}
 		cs.evmStore = evmStore
+		if ssConfig.SeparateEVMSubDBs {
+			for _, storeType := range evm.AllEVMStoreTypes() {
+				snapshotSourceDirs = append(
+					snapshotSourceDirs,
+					filepath.Join(evmDir, evm.StoreTypeName(storeType)),
+				)
+			}
+		} else {
+			snapshotSourceDirs = append(snapshotSourceDirs, evmDir)
+		}
 		logger.Info("EVM state store enabled",
 			"dir", evmDir,
 			"separateDBs", ssConfig.SeparateEVMSubDBs,
@@ -97,12 +110,22 @@ func NewCompositeStateStore(
 		return nil, fmt.Errorf("failed to recover state store: %w", err)
 	}
 
-	// Mismatched earliest versions = DBs from different snapshots; reads would diverge.
-	if err := cs.validateEVMSSPostRecovery(); err != nil {
-		_ = cs.Close()
-		return nil, err
-	}
+	cs.validateEVMSSPostRecovery()
 
+	if ssConfig.SnapshotInterval > 0 {
+		snapshotRoot := utils.GetStateStoreSnapshotsPath(homeDir)
+		if ssConfig.DBDirectory != "" {
+			cleanDBHome := filepath.Clean(dbHome)
+			snapshotRoot = filepath.Join(
+				filepath.Dir(cleanDBHome),
+				filepath.Base(cleanDBHome)+"-"+utils.StateStoreSnapshotsDirName,
+			)
+		}
+		if err := cs.startSnapshotManager(snapshotRoot, snapshotSourceDirs); err != nil {
+			_ = cs.Close()
+			return nil, fmt.Errorf("start state store snapshot manager: %w", err)
+		}
+	}
 	cs.StartPruning()
 
 	return cs, nil
@@ -150,20 +173,23 @@ func (s *CompositeStateStore) validateEVMSSPreRecovery() error {
 	return nil
 }
 
-// validateEVMSSPostRecovery rejects mismatched earliest versions between the two SS DBs.
-func (s *CompositeStateStore) validateEVMSSPostRecovery() error {
+// validateEVMSSPostRecovery reports mismatched earliest versions between SS DBs.
+// Divergence is safe because GetEarliestVersion reports the highest member
+// floor, which is the first version every routed store can serve.
+func (s *CompositeStateStore) validateEVMSSPostRecovery() {
 	if s.evmStore == nil {
-		return nil
+		return
 	}
 	cosmosEarliest := s.cosmosStore.GetEarliestVersion()
 	evmEarliest := s.evmStore.GetEarliestVersion()
 	if cosmosEarliest != evmEarliest && (cosmosEarliest > 0 || evmEarliest > 0) {
-		return fmt.Errorf(
-			"EVM SS earliest version %d does not match Cosmos SS earliest version %d: state sync the EVM SS DB, or set evm-ss-split=false",
-			evmEarliest, cosmosEarliest,
+		logger.Warn(
+			"EVM SS earliest version does not match Cosmos SS earliest version; serving the highest floor",
+			"evmEarliest", evmEarliest,
+			"cosmosEarliest", cosmosEarliest,
+			"reportedEarliest", max(cosmosEarliest, evmEarliest),
 		)
 	}
-	return nil
 }
 
 func (s *CompositeStateStore) StartPruning() {
@@ -216,11 +242,18 @@ func (s *CompositeStateStore) GetLatestVersion() int64 {
 }
 
 func (s *CompositeStateStore) GetEarliestVersion() int64 {
-	return s.cosmosStore.GetEarliestVersion()
+	earliest := s.cosmosStore.GetEarliestVersion()
+	if s.evmStore != nil {
+		earliest = max(earliest, s.evmStore.GetEarliestVersion())
+	}
+	return earliest
 }
 
 func (s *CompositeStateStore) Close() error {
 	s.closeOnce.Do(func() {
+		if s.snapshotMgr != nil {
+			s.snapshotMgr.stop()
+		}
 		if s.pruningManager != nil {
 			s.pruningManager.Stop()
 		}
@@ -304,6 +337,19 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 		}
 	}
 	return nil
+}
+
+// ScheduleSnapshot asks the snapshot manager to capture version once the caller
+// has enqueued every state change for that version and nothing above it.
+//
+// This is deliberately not called from ApplyChangesetAsync. That method is part
+// of the general StateStore interface and has callers outside the commit path,
+// such as the benchmark wrappers, which would inherit a snapshot trigger they
+// never asked for. The rootmulti commit path is the single choke point that
+// sees both the populated and the empty block, so it owns the trigger. Direct
+// writes such as import, recovery, and prune must not use this hook.
+func (s *CompositeStateStore) ScheduleSnapshot(version int64) {
+	s.snapshotMgr.maybeSnapshot(version)
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {

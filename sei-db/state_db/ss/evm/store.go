@@ -1,7 +1,9 @@
 package evm
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -10,6 +12,7 @@ import (
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/management"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 )
@@ -152,16 +155,13 @@ func (s *EVMStateStore) SetLatestVersion(version int64) error {
 }
 
 func (s *EVMStateStore) GetEarliestVersion() int64 {
-	var minVersion int64 = -1
+	var maxVersion int64
 	for _, db := range s.managedDBs {
-		if v := db.GetEarliestVersion(); minVersion < 0 || v < minVersion {
-			minVersion = v
+		if v := db.GetEarliestVersion(); v > maxVersion {
+			maxVersion = v
 		}
 	}
-	if minVersion < 0 {
-		return 0
-	}
-	return minVersion
+	return maxVersion
 }
 
 func (s *EVMStateStore) SetEarliestVersion(version int64, ignoreVersion bool) error {
@@ -368,6 +368,100 @@ func (s *EVMStateStore) Close() error {
 		}
 	}
 	return lastErr
+}
+
+func (s *EVMStateStore) SupportsCheckpoint() bool {
+	for _, db := range s.managedDBs {
+		if _, checkpointable := db.(types.Checkpointable); !checkpointable {
+			return false
+		}
+		if _, barrier := db.(types.DrainBarrier); !barrier {
+			return false
+		}
+		if _, versionSetter := db.(types.CheckpointVersionSetter); !versionSetter {
+			return false
+		}
+	}
+	return len(s.managedDBs) > 0
+}
+
+// ScheduleCheckpoint places one barrier on each managed apply queue.
+//
+// Every sub-DB checkpoints at the same block without the sub-DBs having to agree
+// on anything. The caller runs this after it has enqueued the target block on
+// every sub-DB and before it enqueues any later block, so each barrier lands at
+// the same point in its own queue: after that block and before the next one. A
+// sub-DB then checkpoints its own state as of that block. Wall-clock times
+// differ, and no lock is shared. A sub-DB that received no change at the target
+// block stays at its last version, which is that sub-DB's correct state for the
+// block. SetCheckpointVersion afterwards labels every sub-DB with the same
+// block, so a reopened snapshot reports one version rather than five.
+func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
+	if !s.separateDBs {
+		db := s.primaryDB()
+		if db == nil {
+			// Unreachable: NewEVMStateStore either opens a managed DB or fails.
+			// Reporting success would publish a snapshot with no evm tree in it,
+			// which is only discovered by whoever tries to restore from it.
+			done(errors.New("EVM state store has no managed DB to checkpoint"))
+			return
+		}
+		management.ScheduleCheckpoint(db, destDir, shouldRun, done)
+		return
+	}
+
+	if err := os.MkdirAll(destDir, 0o750); err != nil {
+		done(fmt.Errorf("create EVM checkpoint dir %q: %w", destDir, err))
+		return
+	}
+
+	storeTypes := AllEVMStoreTypes()
+	var (
+		mu        sync.Mutex
+		remaining = len(storeTypes)
+		firstErr  error
+	)
+	for _, storeType := range storeTypes {
+		name := StoreTypeName(storeType)
+		dest := filepath.Join(destDir, name)
+		management.ScheduleCheckpoint(s.subDBs[storeType], dest, shouldRun, func(err error) {
+			mu.Lock()
+			if err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("checkpoint EVM sub-DB %s: %w", name, err)
+			}
+			remaining--
+			last, outcome := remaining == 0, firstErr
+			mu.Unlock()
+			if last {
+				done(outcome)
+			}
+		})
+	}
+}
+
+func (s *EVMStateStore) SetCheckpointVersion(destDir string, version int64) error {
+	if !s.separateDBs {
+		db := s.primaryDB()
+		if db == nil {
+			return errors.New("EVM state store has no managed DB to stamp")
+		}
+		return management.SetCheckpointVersion(db, destDir, version)
+	}
+	for _, storeType := range AllEVMStoreTypes() {
+		dest := filepath.Join(destDir, StoreTypeName(storeType))
+		if err := management.SetCheckpointVersion(s.subDBs[storeType], dest, version); err != nil {
+			return fmt.Errorf("set EVM sub-DB %s checkpoint version: %w", StoreTypeName(storeType), err)
+		}
+	}
+	return nil
+}
+
+func (s *EVMStateStore) WaitForPendingWrites() {
+	for _, db := range s.managedDBs {
+		if w, ok := db.(interface{ WaitForPendingWrites() }); ok {
+			w.WaitForPendingWrites()
+		}
+	}
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {

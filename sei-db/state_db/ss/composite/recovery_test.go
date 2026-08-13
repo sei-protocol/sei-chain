@@ -78,23 +78,35 @@ func TestEVMSSPreRecoveryAfterStateSync(t *testing.T) {
 	require.Contains(t, err.Error(), "EVM SS is empty")
 }
 
-// TestEVMSSPostRecoveryEarliestMismatch: diverging earliest versions must abort startup.
+// TestEVMSSPostRecoveryEarliestMismatch: diverging earliest versions are allowed
+// because the composite reports the highest member floor.
 func TestEVMSSPostRecoveryEarliestMismatch(t *testing.T) {
 	cosmos := &fakeStateStore{latest: 100, earliest: 50}
 	evm := &fakeStateStore{latest: 100, earliest: 75}
 	cs := newCompositeStateStoreWithStores(cosmos, evm, config.StateStoreConfig{EVMSplit: true})
-	err := cs.validateEVMSSPostRecovery()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "earliest version")
+	cs.validateEVMSSPostRecovery()
 
 	// Matching earliest → pass.
 	evm.earliest = 50
-	require.NoError(t, cs.validateEVMSSPostRecovery())
+	cs.validateEVMSSPostRecovery()
 
 	// Both zero → pass (fresh DBs).
 	cosmos.earliest = 0
 	evm.earliest = 0
-	require.NoError(t, cs.validateEVMSSPostRecovery())
+	cs.validateEVMSSPostRecovery()
+}
+
+func TestCompositeGetEarliestVersionReportsHighestMemberFloor(t *testing.T) {
+	cosmos := &fakeStateStore{latest: 100, earliest: 50}
+	evm := &fakeStateStore{latest: 100, earliest: 75}
+	cs := newCompositeStateStoreWithStores(cosmos, evm, config.StateStoreConfig{EVMSplit: true})
+	require.Equal(t, int64(75), cs.GetEarliestVersion())
+
+	cosmos.earliest = 90
+	require.Equal(t, int64(90), cs.GetEarliestVersion())
+
+	cs.evmStore = nil
+	require.Equal(t, int64(90), cs.GetEarliestVersion())
 }
 
 // fakeStateStore stubs latest/earliest for validator tests.

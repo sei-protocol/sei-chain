@@ -4,6 +4,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/management"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
@@ -75,4 +76,25 @@ func (s *CosmosStateStore) Import(version int64, ch <-chan types.SnapshotNode) e
 
 func (s *CosmosStateStore) Close() error {
 	return s.db.Close()
+}
+
+func (s *CosmosStateStore) SupportsCheckpoint() bool {
+	_, checkpointable := s.db.(types.Checkpointable)
+	_, barrier := s.db.(types.DrainBarrier)
+	_, versionSetter := s.db.(types.CheckpointVersionSetter)
+	return checkpointable && barrier && versionSetter
+}
+
+func (s *CosmosStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
+	management.ScheduleCheckpoint(s.db, destDir, shouldRun, done)
+}
+
+func (s *CosmosStateStore) SetCheckpointVersion(destDir string, version int64) error {
+	return management.SetCheckpointVersion(s.db, destDir, version)
+}
+
+func (s *CosmosStateStore) WaitForPendingWrites() {
+	if w, ok := s.db.(interface{ WaitForPendingWrites() }); ok {
+		w.WaitForPendingWrites()
+	}
 }

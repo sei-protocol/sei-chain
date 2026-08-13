@@ -247,14 +247,7 @@ func NewCompositeCommitStore(
 // different default. Note that mirroring a raw 0 is never correct here (0 means
 // "disable auto-snapshots" for FlatKV), which is why the zero is resolved first.
 func alignFlatKVSnapshotWithMemIAVL(cfg *config.StateCommitConfig) {
-	interval := cfg.MemIAVLConfig.SnapshotInterval
-	if interval == 0 {
-		interval = memiavl.DefaultSnapshotInterval
-	}
-	keepRecent := cfg.MemIAVLConfig.SnapshotKeepRecent
-	if keepRecent == 0 {
-		keepRecent = memiavl.DefaultSnapshotKeepRecent
-	}
+	interval, keepRecent := config.EffectiveMemIAVLSnapshotCadence(cfg.MemIAVLConfig)
 	cfg.FlatKVConfig.SnapshotInterval = interval
 	cfg.FlatKVConfig.SnapshotKeepRecent = keepRecent
 }
