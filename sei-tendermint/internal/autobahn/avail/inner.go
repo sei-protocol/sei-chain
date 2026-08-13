@@ -26,7 +26,7 @@ type inner struct {
 	// reconstructed from the blocks already on disk (see newInner).
 	//
 	// TODO: consider giving this its own AtomicSend to avoid waking unrelated
-	// inner waiters (PushVote, PushCommitQC, etc.) on markBlockPersisted calls.
+	// inner waiters (PushVote, PushCommitQC, etc.) on setNextBlockToPersist calls.
 	// Now that blocks are persisted concurrently by lane (one notification per
 	// lane per batch, not per block), the frequency is lower, but still not
 	// ideal. Only RecvBatch needs to be notified of cursor changes;
@@ -95,9 +95,6 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		}
 		i.roads.pushBack(newRoad(qc, epoch))
 	}
-	// It may happen that data.State has progressed beyond avail state.
-	// In this case the whole persisted avail.State is invalidated and anchor.CommitQC
-	// is NOT stored in avail.State. We need it to get persisted before we update persistedCommitQC.
 	if i.roads.Len() > 0 {
 		i.persistedCommitQC.Store(utils.Some(i.roads.q[i.roads.next-1].commitQC))
 	}
@@ -137,7 +134,8 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	return i, nil
 }
 
-// TODO: filter votes per-epoch committee once epoch transitions are wired up.
+// laneQC returns a LaneQC for (lane, n) if weight under the applied epoch's
+// committee meets LaneQuorum. Does not reweight votes when the committee changes.
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
 	c := i.epoch.Load().Committee()
 	votes, ok := i.votes[lane]
@@ -189,17 +187,13 @@ func (i *inner) prune(anchor data.Anchor) {
 		return
 	}
 	i.roads.prune(idx + 1)
-	for lane := range i.votes {
+	for lane, vq := range i.votes {
 		lr := anchor.CommitQC.LaneRange(lane)
-		vq, ok := i.votes[lr.Lane()]
-		if !ok {
-			continue
-		}
-		bq := i.blocks[lr.Lane()]
+		bq := i.blocks[lane]
 		vq.prune(lr.Next())
 		bq.prune(lr.Next())
-		if i.nextBlockToPersist[lr.Lane()] < lr.Next() {
-			i.nextBlockToPersist[lr.Lane()] = lr.Next()
+		if i.nextBlockToPersist[lane] < lr.Next() {
+			i.nextBlockToPersist[lane] = lr.Next()
 		}
 	}
 	if i.roads.Len() == 0 {

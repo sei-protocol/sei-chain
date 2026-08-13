@@ -44,10 +44,10 @@ func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.Lane
 	}
 }
 
-// WaitLane waits until the applied committee has a LaneID for pk.
+// WaitForNextLane waits until the applied committee has a LaneID for pk.
 // If exclude is Some, also requires the LaneID to differ (e.g. after the
 // previous identity was closed and a new LaneID allocated).
-func (s *State) WaitLane(ctx context.Context, pk types.PublicKey, exclude utils.Option[types.LaneID]) (types.LaneID, error) {
+func (s *State) WaitForNextLane(ctx context.Context, pk types.PublicKey, exclude utils.Option[types.LaneID]) (types.LaneID, error) {
 	ep, err := s.epoch.Wait(ctx, func(ep *types.Epoch) bool {
 		got, ok := ep.Committee().Lane(pk).Get()
 		if !ok {
@@ -61,7 +61,7 @@ func (s *State) WaitLane(ctx context.Context, pk types.PublicKey, exclude utils.
 	if err != nil {
 		return types.LaneID{}, err
 	}
-	return ep.Committee().Lane(pk).OrPanic("WaitLane"), nil
+	return ep.Committee().Lane(pk).OrPanic("WaitForNextLane"), nil
 }
 
 func (s *State) SubscribeLaneVotes() *LaneVotesRecv {

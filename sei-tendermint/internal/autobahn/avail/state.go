@@ -19,11 +19,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-// ErrBadLane .
-var ErrBadLane = errors.New("bad lane")
-
-// ErrLaneClosed is returned by SubscribeLaneProposals.Recv after the bound lane
-// is closed. Rejoin requires a new Subscribe with the new LaneID.
+// ErrLaneClosed is returned when a lane's maps are gone (closed) or by
+// SubscribeLaneProposals.Recv after that lane's maps are dropped.
 var ErrLaneClosed = errors.New("lane closed")
 
 const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
@@ -67,7 +64,7 @@ func (s *State) Lane(pk types.PublicKey) utils.Option[types.LaneID] {
 }
 
 func (s *State) WaitForLocalLane(ctx context.Context) (types.LaneID, error) {
-	return s.WaitLane(ctx, s.key.Public(), utils.None[types.LaneID]())
+	return s.WaitForNextLane(ctx, s.key.Public(), utils.None[types.LaneID]())
 }
 
 func (s *State) WaitUntilClosed(ctx context.Context, lane types.LaneID) error {
@@ -336,7 +333,8 @@ func (s *State) NextBlock(lane types.LaneID) types.BlockNumber {
 
 // Block returns block n of the given lane.
 // Waits until the block is available.
-// Returns ErrPruned if the block has been already pruned.
+// Returns ErrPruned if the block has already been pruned, or if the lane map is
+// missing (closed lane, or a LaneID never admitted — future lanes are not waited on).
 func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumber) (*types.Signed[*types.LaneProposal], error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -359,6 +357,8 @@ func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumbe
 
 // PushBlock pushes a block to the state.
 // Waits until all previous blocks are available.
+// A missing map (closed lane, or a LaneID never admitted) is a silent no-op —
+// future lanes are not waited on.
 func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LaneProposal]) error {
 	h := p.Msg().Block().Header()
 	if p.Key() != h.Lane().Validator {
@@ -462,6 +462,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 
 // headers collects headers for the given range.
 // Returns ErrPruned if the range is unavailable (missing map or below first).
+// Does not wait for future lanes.
 func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.BlockHeader, error) {
 	// Empty range is always available.
 	if lr.First() == lr.Next() {
@@ -498,6 +499,8 @@ func (s *State) headers(ctx context.Context, lr *types.LaneRange) ([]*types.Bloc
 	return headers, nil
 }
 
+// fullCommitQC builds a FullCommitQC for road index n.
+// Headers are collected from votes; this does not wait for future lanes.
 func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Epoch, *types.FullCommitQC, error) {
 	// Collect the CommitQC.
 	epoch, qc, err := s.commitQC(ctx, n)
@@ -529,7 +532,7 @@ func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduc
 			return err
 		}
 		if _, ok := inner.blocks[lane]; !ok {
-			return ErrBadLane
+			return ErrLaneClosed
 		}
 	}
 	return nil
@@ -574,7 +577,7 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 	for inner, ctrl := range s.inner.Lock() {
 		q, ok := inner.blocks[lane]
 		if !ok {
-			return nil, ErrBadLane
+			return nil, ErrLaneClosed
 		}
 		if n >= q.first+BlocksPerLane {
 			return nil, fmt.Errorf("lane full")
@@ -704,7 +707,7 @@ func (s *State) runPersist(ctx context.Context) error {
 						return err
 					}
 					if t := batch.tail; len(t) > 0 {
-						s.markBlockPersisted(lane, t[len(t)-1].Msg().Block().Header().BlockNumber()+1)
+						s.setNextBlockToPersist(lane, t[len(t)-1].Msg().Block().Header().BlockNumber()+1)
 					}
 					return nil
 				})
@@ -732,11 +735,11 @@ type persistBatch struct {
 	commitQCs commitQCsBatch
 }
 
-// markBlockPersisted advances the per-lane block persistence cursor.
+// setNextBlockToPersist sets the per-lane block persistence cursor to next.
 // Called once per lane after that lane's batch has been flushed so that
 // RecvBatch (and therefore voting) can unblock. Safe for concurrent
 // callers (acquires s.inner lock internally).
-func (s *State) markBlockPersisted(lane types.LaneID, next types.BlockNumber) {
+func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber) {
 	for inner, ctrl := range s.inner.Lock() {
 		if _, ok := inner.blocks[lane]; !ok {
 			return

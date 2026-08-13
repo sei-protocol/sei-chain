@@ -22,7 +22,7 @@ func pushPeerLaneBlock(state *State, key types.SecretKey, payload *types.Payload
 	for inner, ctrl := range state.inner.Lock() {
 		q, ok := inner.blocks[lane]
 		if !ok {
-			return nil, ErrBadLane
+			return nil, ErrLaneClosed
 		}
 		n := q.next
 		var parent types.BlockHeaderHash

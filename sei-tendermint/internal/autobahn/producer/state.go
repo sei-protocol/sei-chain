@@ -58,13 +58,12 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 // alignMempool installs a fresh session mempool for lane.
 func (s *State) alignMempool(lane types.LaneID) (*mempoolInner, types.BlockNumber) {
 	n := s.consensus.Avail().NextBlock(lane)
+	m := newMempoolInner(avail.BlocksPerLane, lane, n)
 	for mp, ctrl := range s.mempool.Lock() {
-		m := newMempoolInner(avail.BlocksPerLane, lane, n)
 		mp.inner = utils.Some(m)
 		ctrl.Updated()
-		return m, n
 	}
-	panic("unreachable")
+	return m, n
 }
 
 func (s *State) clearMempool() {
@@ -89,13 +88,12 @@ func (s *State) Run(ctx context.Context) error {
 		}
 
 		// WaitUntilClosed ends the session; runMempool is background and torn down with it.
-		err = utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+		if err := scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 			sc.SpawnBg(func() error {
 				return utils.IgnoreCancel(s.runMempool(ctx, availState, lane))
 			})
 			return availState.WaitUntilClosed(ctx, lane)
-		}))
-		if err != nil {
+		}); err != nil {
 			return err
 		}
 	}
@@ -128,7 +126,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 			limiter := rate.NewLimiter(limit, burst)
 			for toProduce := firstBlock; ; toProduce += 1 {
 				if err := availState.WaitForCapacity(ctx, lane, toProduce); err != nil {
-					if errors.Is(err, avail.ErrBadLane) {
+					if errors.Is(err, avail.ErrLaneClosed) {
 						return nil
 					}
 					return fmt.Errorf("availState.WaitForCapacity(): %w", err)
@@ -180,7 +178,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 					}
 				}
 				if _, err := availState.ProduceLocalBlock(lane, toProduce, payload); err != nil {
-					if errors.Is(err, avail.ErrBadLane) {
+					if errors.Is(err, avail.ErrLaneClosed) {
 						return nil
 					}
 					return fmt.Errorf("availState.ProduceLocalBlock(): %w", err)

@@ -583,7 +583,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 			return err
 		}
 		availState.ApplyEpoch(epJoin)
-		got, err := availState.WaitLane(ctx, a.Public(), utils.Some(lane0))
+		got, err := availState.WaitForNextLane(ctx, a.Public(), utils.Some(lane0))
 		if err != nil {
 			return err
 		}

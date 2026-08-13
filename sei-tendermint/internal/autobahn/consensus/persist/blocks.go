@@ -138,6 +138,8 @@ func (lw *laneWAL) maybePruneAndPersist(
 		if len(proposals) > 0 {
 			// persistBlock only schedules the write, so the blocks are not durable — and must not be
 			// reported as persisted — until this returns.
+			// TODO: benchmark flushing after each block for tx dissemination latency
+			// versus the current one-flush-per-batch.
 			if err := s.flush(lane); err != nil {
 				return err
 			}

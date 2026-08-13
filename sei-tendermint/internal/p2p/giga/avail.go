@@ -114,20 +114,15 @@ func (x *validatorService) serverStreamCommitQCs(ctx context.Context, server rpc
 
 func (x *validatorService) clientStreamLaneProposals(ctx context.Context, c rpc.Client[API], peer types.PublicKey) error {
 	a := x.state.Avail()
-	var closed utils.Option[types.LaneID]
 	for ctx.Err() == nil {
-		lane, err := a.WaitLane(ctx, peer, closed)
+		// Wait on the peer's current committee LaneID: returns immediately for a
+		// stay/transient redial, blocks across leave until rejoin.
+		lane, err := a.WaitForNextLane(ctx, peer, utils.None[types.LaneID]())
 		if err != nil {
 			return err
 		}
 		if err := x.streamLaneProposalsOnce(ctx, c, lane, a.NextBlock(lane)); err != nil {
 			return err
-		}
-		cur, ok := a.Lane(peer).Get()
-		if !ok || cur != lane {
-			closed = utils.Some(lane)
-		} else {
-			closed = utils.None[types.LaneID]()
 		}
 	}
 	return ctx.Err()

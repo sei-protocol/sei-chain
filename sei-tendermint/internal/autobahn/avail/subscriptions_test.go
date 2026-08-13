@@ -77,7 +77,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	lane0 := state.LocalLane().OrPanic("genesis")
-	got, err := state.WaitLane(ctx, peer, utils.None[types.LaneID]())
+	got, err := state.WaitForNextLane(ctx, peer, utils.None[types.LaneID]())
 	require.NoError(t, err)
 	require.Equal(t, lane0, got)
 
@@ -112,7 +112,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	}))
 	require.Equal(t, want1.Msg().Block().Header().Hash(), got1.Msg().Block().Header().Hash())
 	require.Equal(t, lane0, got1.Msg().Block().Header().Lane())
-	got, err = state.WaitLane(ctx, peer, utils.None[types.LaneID]())
+	got, err = state.WaitForNextLane(ctx, peer, utils.None[types.LaneID]())
 	require.NoError(t, err)
 	require.Equal(t, lane0, got)
 
@@ -132,11 +132,11 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	_, err = sub.Recv(ctx)
 	require.ErrorIs(t, err, ErrLaneClosed)
 
-	// Rejoin: WaitLane skips closed lane0 and observes the new LaneID.
+	// Rejoin: WaitForNextLane skips closed lane0 and observes the new LaneID.
 	var gotLane types.LaneID
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 		sc.Spawn(func() error {
-			lane, err := state.WaitLane(ctx, peer, utils.Some(lane0))
+			lane, err := state.WaitForNextLane(ctx, peer, utils.Some(lane0))
 			if err != nil {
 				return err
 			}
