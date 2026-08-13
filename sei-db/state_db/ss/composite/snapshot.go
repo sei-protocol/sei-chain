@@ -69,6 +69,19 @@ import (
 // a path remaining present across a retention pass. Until a lease API exists,
 // consumers must stop the node or use external coordination that prevents
 // pruning before they open or copy a snapshot.
+//
+// This file is the layer the planned per-SS restructure has to move. The
+// lifecycle here — layout, retention, the current symlink, staging and
+// publication, restart recovery — is reachable only as a method on
+// *CompositeStateStore, and startSnapshotManager requires a checkpointable
+// Cosmos store, so an EVM-only store cannot use it as written. The agreed
+// direction is for each SS to own its own snapshot creation and retention behind
+// gc.PrunableStore, with the composite reduced to fan-out, which also removes the
+// second retention path this file adds: prune here is count-based and has no
+// ExternalPruning stand-down, so pointing StorageGarbageCollector at SS before
+// then would give a store two independent pruners. GetRollbackFloor is the reason
+// this waits on the rollback work — count-based retention can delete the snapshot
+// a rollback needs, which is the same gap the paragraph above records.
 const (
 	// SnapshotsDirName is the directory under data/state_store that holds
 	// online snapshots.
@@ -336,8 +349,11 @@ func (m *snapshotManager) finishSnapshot() {
 // version on the backends and has not enqueued anything above it, so a barrier
 // placed in each apply queue now captures that backend with everything up to
 // version applied and nothing after it. The backends reach their barriers
-// independently and at different wall-clock times, and the caller waits for
-// none of it — enqueueing a barrier costs what enqueueing a changeset costs.
+// independently and at different wall-clock times, and the caller waits for none
+// of the checkpointing — enqueueing a barrier costs what enqueueing a changeset
+// costs. The caller does wait for the staging directories below: one Stat, one
+// RemoveAll and one MkdirAll per target, on the commit path and ahead of the SC
+// apply.
 func (m *snapshotManager) requestSnapshot(version int64, start time.Time) error {
 	name := SnapshotDirName(version)
 	finalDir := filepath.Join(m.root, name)

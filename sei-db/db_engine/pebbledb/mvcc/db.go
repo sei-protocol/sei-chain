@@ -58,6 +58,11 @@ const (
 	// so deleted data accumulates and slows every subsequent prune scan. Allowing
 	// Pebble to burst up to a few compactions clears that backlog.
 	maxConcurrentCompactions = 4
+
+	// earliestVersionAdvanceAttempts bounds the retries a prune pass makes when
+	// it raises the earliest-version marker before deleting. See
+	// Database.advanceEarliestVersion.
+	earliestVersionAdvanceAttempts = 3
 )
 
 var (
@@ -84,6 +89,12 @@ type Database struct {
 	// Map of module to when each was last updated
 	// Used in pruning to skip over stores that have not been updated recently
 	storeKeyDirty sync.Map
+
+	// pruneIncomplete records that a pass raised the earliest-version marker and
+	// then failed before it finished deleting. The next pass cannot use that
+	// marker as its skip baseline: rows below it are still on disk, and a store
+	// that has gone idle since would be skipped for as long as it stays idle.
+	pruneIncomplete atomic.Bool
 
 	// Changelog used to support async write
 	streamHandler wal.ChangelogWAL
@@ -412,6 +423,29 @@ func (db *Database) GetEarliestVersion() int64 {
 	return db.earliestVersion.Load()
 }
 
+// advanceEarliestVersion raises the earliest-version marker to target for a
+// prune pass that has not deleted anything yet.
+//
+// SetEarliestVersion fails its compare-and-swap when another writer moves the
+// marker at the same moment; in practice that writer is the state-sync restore
+// path. Retrying resolves it, and the pass has to keep going rather than return
+// the error: this call runs ahead of the deletes, so abandoning the pass here
+// reclaims nothing. A marker another writer already raised past target is not a
+// failure — SetEarliestVersion reports success for it.
+//
+// Persistence failures are still returned. Deleting history under a marker that
+// only moved in memory would advertise, after a restart, versions the pass has
+// already dropped.
+func (db *Database) advanceEarliestVersion(target int64) error {
+	var err error
+	for range earliestVersionAdvanceAttempts {
+		if err = db.SetEarliestVersion(target, false); err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
 // Retrieves earliest version from db, if not found, return 0
 func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
 	return retrieveVersionKey(db, earliestVersionKey)
@@ -682,6 +716,11 @@ func (db *Database) getDescending(storeKey string, targetVersion int64, key []by
 // NOTE: There is a rare case when a module's keys are skipped during pruning even though
 // it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
+// NOTE: the marker is raised before the deletes, so a pass that fails partway
+// leaves rows below the marker on disk. pruneIncomplete makes the next pass in
+// the same process rescan every store to reach them. A crash inside that window
+// loses the flag, and those rows stay on disk — unreachable by any read, since
+// the marker bounds reads too — until the store is written to again.
 func (db *Database) pruneDescending(version int64) (_err error) {
 	// Defensive check: ensure database is not closed
 	if db.storage == nil {
@@ -700,10 +739,22 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	}()
 
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
-	prevEarliestVersion := db.GetEarliestVersion()
-	if err := db.SetEarliestVersion(earliestVersion, false); err != nil {
+	skipBelow := db.GetEarliestVersion()
+	if err := db.advanceEarliestVersion(earliestVersion); err != nil {
 		return err
 	}
+	if db.pruneIncomplete.Load() {
+		// A previous pass raised the marker and then stopped short of its
+		// deletes, so the marker no longer bounds what is on disk. Scan every
+		// store to reach the rows it left behind.
+		skipBelow = 0
+	}
+	db.pruneIncomplete.Store(true)
+	defer func() {
+		if _err == nil {
+			db.pruneIncomplete.Store(false)
+		}
+	}()
 
 	itr, err := db.storage.NewIter(nil)
 	if err != nil {
@@ -751,10 +802,11 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 			updated, ok := db.storeKeyDirty.Load(storeKey)
 			versionUpdated, typeOk := updated.(int64)
 			// The marker is advanced before deletes so checkpoints never claim
-			// history that the prune has already dropped. The skip heuristic must
-			// still compare against the pre-prune marker; otherwise this pass would
-			// skip stores whose latest update is at or below the prune height.
-			if !ok || (typeOk && versionUpdated < prevEarliestVersion) {
+			// history that the prune has already dropped. skipBelow is the marker
+			// as it stood before this pass raised it; comparing against the raised
+			// value would skip every store whose latest update is at or below the
+			// prune height.
+			if !ok || (typeOk && versionUpdated < skipBelow) {
 				itr.SeekGE(storePrefix(storeKey + "0"))
 				continue
 			}

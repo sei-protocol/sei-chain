@@ -108,10 +108,22 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 	}()
 
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
-	prevEarliestVersion := db.GetEarliestVersion()
-	if err := db.SetEarliestVersion(earliestVersion, false); err != nil {
+	skipBelow := db.GetEarliestVersion()
+	if err := db.advanceEarliestVersion(earliestVersion); err != nil {
 		return err
 	}
+	if db.pruneIncomplete.Load() {
+		// A previous pass raised the marker and then stopped short of its
+		// deletes, so the marker no longer bounds what is on disk. Scan every
+		// store to reach the rows it left behind.
+		skipBelow = 0
+	}
+	db.pruneIncomplete.Store(true)
+	defer func() {
+		if _err == nil {
+			db.pruneIncomplete.Store(false)
+		}
+	}()
 
 	itr, err := db.storage.NewIter(nil)
 	if err != nil {
@@ -159,10 +171,11 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 			updated, ok := db.storeKeyDirty.Load(storeKey)
 			versionUpdated, typeOk := updated.(int64)
 			// The marker is advanced before deletes so checkpoints never claim
-			// history that the prune has already dropped. The skip heuristic must
-			// still compare against the pre-prune marker; otherwise this pass would
-			// skip stores whose latest update is at or below the prune height.
-			if !ok || (typeOk && versionUpdated < prevEarliestVersion) {
+			// history that the prune has already dropped. skipBelow is the marker
+			// as it stood before this pass raised it; comparing against the raised
+			// value would skip every store whose latest update is at or below the
+			// prune height.
+			if !ok || (typeOk && versionUpdated < skipBelow) {
 				itr.SeekGE(storePrefix(storeKey + "0"))
 				continue
 			}
