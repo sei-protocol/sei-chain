@@ -82,8 +82,6 @@ func TestStateWithPersistence(t *testing.T) {
 }
 
 // Test checking that State can correctly start collecting CommitQCs starting from arbitrary anchor.
-// When roads are empty, epochOfFirst falls back to the prune-anchor epoch so a
-// closed lane can still wake collectPersistBatch and be dropped.
 func TestCollectPersistBatch_EmptyRoadsDropsClosedLane(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -94,7 +92,6 @@ func TestCollectPersistBatch_EmptyRoadsDropsClosedLane(t *testing.T) {
 		ds := newTestDataState(&data.Config{Registry: registry})
 		sc.SpawnBgNamed("data.Run", func() error { return utils.IgnoreCancel(ds.Run(ctx)) })
 
-		// Genesis CommitQC + AppQC so data has an anchor (epoch 0).
 		ep0 := registry.LatestEpoch()
 		qc0, blocks0 := data.TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
 		if err := ds.PushQC(ctx, qc0, blocks0); err != nil {
@@ -114,7 +111,6 @@ func TestCollectPersistBatch_EmptyRoadsDropsClosedLane(t *testing.T) {
 			return err
 		}
 
-		// Avail admits both genesis lanes; roads stay empty (no PushCommitQC).
 		state, err := NewState(a, ds, utils.None[string]())
 		if err != nil {
 			return fmt.Errorf("NewState: %w", err)
@@ -122,7 +118,6 @@ func TestCollectPersistBatch_EmptyRoadsDropsClosedLane(t *testing.T) {
 		lane0 := state.LocalLane().OrPanic("genesis")
 		sub := state.SubscribeLaneProposals(lane0, 0)
 
-		// a leaves: lane0 stays in maps (closing) until epochOfFirst.IsClosed.
 		ep1, err := registry.ActivateEpoch(
 			map[types.PublicKey]uint64{b.Public(): 1},
 			types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
@@ -132,8 +127,6 @@ func TestCollectPersistBatch_EmptyRoadsDropsClosedLane(t *testing.T) {
 		}
 		state.ApplyEpoch(ep1)
 
-		// Advance the data anchor into epoch 1 (only b). Roads are still empty, so
-		// epochOfFirst must use this anchor — not return None — for the close.
 		qc1, blocks1 := data.TestCommitQC(rng, ep1, []types.SecretKey{b}, utils.Some(qc0.QC()))
 		if err := ds.PushQC(ctx, qc1, blocks1); err != nil {
 			return err

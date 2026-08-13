@@ -11,7 +11,6 @@ import (
 
 // SubscribeLaneProposals binds lane for this node's validator key.
 // Recv returns ErrLaneClosed after that lane's maps are dropped.
-// lane.Validator must be this node's key; callers (e.g. giga) filter first.
 func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.BlockNumber) *LaneProposalsRecv {
 	if lane.Validator != s.key.Public() {
 		panic(fmt.Sprintf("SubscribeLaneProposals: lane validator %v != local %v", lane.Validator, s.key.Public()))
@@ -30,7 +29,6 @@ func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.Lane
 		b, err := r.state.Block(ctx, r.lane, r.next)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
-				// Height prune advances next; a dropped map means the lane is closed.
 				for inner := range r.state.inner.Lock() {
 					if _, ok := inner.blocks[r.lane]; !ok {
 						return nil, ErrLaneClosed

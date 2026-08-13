@@ -222,8 +222,6 @@ func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[type
 		}
 		lane, err := types.LaneIDFromBytes(laneBytes)
 		if err != nil {
-			// Pre-LaneID hex(pubkey) dirs fail to parse; they leak until the
-			// operator wipes persistent_state_dir (no automatic migration).
 			logger.Warn("skipping lane dir with invalid LaneID (leaks until state wipe)", "name", e.Name(), "err", err)
 			continue
 		}
@@ -277,11 +275,6 @@ func (bp *BlockPersister) getOrCreateLane(lanes map[types.LaneID]*laneWAL, lane 
 //   - deleteBefore empty, proposals non-empty: append only, no truncation.
 //   - deleteBefore empty, proposals empty:     no-op.
 //
-// allowCreate: open a WAL if missing. Avail passes true when proposals are
-// non-empty, so a validator that left before the first open still flushes
-// pending proposals. After SyncLanes removes a lane, empty-proposal prune passes
-// false so the WAL is not recreated.
-//
 // Appends are not durable until this returns (one flush for the whole batch).
 // No-op persister (dir=None): skips disk I/O.
 // Does not spawn goroutines — the caller schedules parallelism per lane.
@@ -295,9 +288,6 @@ func (bp *BlockPersister) MaybePruneAndPersistLane(
 		return nil
 	}
 
-	// Keep the lanes map read-locked for the whole persist so SyncLanes cannot
-	// delete the WAL out from under this call. Lanes stay parallel: only the
-	// create path below needs the write lock.
 	for lanes := range bp.lanes.RLock() {
 		if lw, ok := lanes[lane]; ok {
 			return lw.maybePruneAndPersist(lane, deleteBefore, proposals)
@@ -306,7 +296,6 @@ func (bp *BlockPersister) MaybePruneAndPersistLane(
 	if !allowCreate {
 		return nil
 	}
-	// Create path: hold the write lock through create+persist so SyncLanes cannot race.
 	for lanes := range bp.lanes.Lock() {
 		lw, _, err := bp.getOrCreateLane(lanes, lane, true)
 		if err != nil {

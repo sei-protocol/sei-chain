@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/sei-protocol/seilog"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
@@ -13,6 +15,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "p2p", "giga")
 
 func (x *validatorService) serverStreamLaneProposals(ctx context.Context, server rpc.Server[API]) error {
 	return StreamLaneProposals.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.LaneProposal, *pb.StreamLaneProposalsReq]) error {
@@ -24,16 +28,16 @@ func (x *validatorService) serverStreamLaneProposals(ctx context.Context, server
 		if err != nil {
 			return fmt.Errorf("StreamLaneProposalsReqConv.Decode(): %w", err)
 		}
-		// Wrong producer: end this stream only; do not drop the giga connection.
-		if req.LaneID.Validator != x.state.Avail().PublicKey() {
+		local := x.state.Avail().PublicKey()
+		if req.LaneID.Validator != local {
+			logger.Warn("StreamLaneProposals: lane validator mismatch; ending stream",
+				"requested", req.LaneID.Validator, "local", local)
 			return nil
 		}
 		sub := x.state.Avail().SubscribeLaneProposals(req.LaneID, req.FirstBlockNumber)
 		for {
 			p, err := sub.Recv(ctx)
 			if err != nil {
-				// Lane closed: end the stream cleanly so the client can wait for
-				// a new LaneID of this producer.
 				if errors.Is(err, avail.ErrLaneClosed) {
 					return nil
 				}

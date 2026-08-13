@@ -59,9 +59,7 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		i.addLane(lane)
 	}
 
-	// Admit WAL lanes that are not closed at the prune-anchor epoch. If that
-	// epoch is missing from the registry, admit every loaded lane; #3736 will
-	// ensure the anchor epoch is always resolvable on restart.
+	// Admit WAL lanes that are not closed at the prune-anchor epoch.
 	var anchorEp utils.Option[*types.Epoch]
 	if anchor, ok := ds.Anchor().Load().Get(); ok {
 		if ep, ok := ds.Registry().EpochByIndex(anchor.CommitQC.Proposal().EpochIndex()); ok {

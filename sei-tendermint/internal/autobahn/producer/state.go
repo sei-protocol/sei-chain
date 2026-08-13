@@ -128,7 +128,6 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 			limiter := rate.NewLimiter(limit, burst)
 			for toProduce := firstBlock; ; toProduce += 1 {
 				if err := availState.WaitForCapacity(ctx, lane, toProduce); err != nil {
-					// Leave can surface ErrBadLane before WaitUntilClosed observes IsClosed.
 					if errors.Is(err, avail.ErrBadLane) {
 						return nil
 					}

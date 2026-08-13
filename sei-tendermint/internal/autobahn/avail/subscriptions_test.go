@@ -64,9 +64,6 @@ func TestSubscribeLaneProposals_WrongValidatorPanics(t *testing.T) {
 	state.SubscribeLaneProposals(types.LaneID{Validator: b.Public(), Joined: 0}, 0)
 }
 
-// After a validator leaves, the old LaneID becomes closed at epochOfFirst; rejoining
-// allocates a new LaneID. WaitLane skips the closed identity and Subscribe serves
-// the new lane (StreamLaneProposals client path).
 func TestWaitLane_LeaveRejoinNewLaneID(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -88,7 +85,6 @@ func TestWaitLane_LeaveRejoinNewLaneID(t *testing.T) {
 	_, err = sub.Recv(ctx)
 	require.NoError(t, err)
 
-	// Remove a from the committee. Closing-lane maps still serve until IsClosed.
 	epLeave, err := registry.ActivateEpoch(
 		map[types.PublicKey]uint64{b.Public(): 1},
 		types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
@@ -97,7 +93,6 @@ func TestWaitLane_LeaveRejoinNewLaneID(t *testing.T) {
 	state.ApplyEpoch(epLeave)
 	require.False(t, state.LocalLane().IsPresent())
 
-	// Dropping maps for the closed lane ends the stream with ErrLaneClosed.
 	for inner, ctrl := range state.inner.Lock() {
 		inner.dropLanes([]types.LaneID{lane0})
 		ctrl.Updated()
@@ -105,8 +100,6 @@ func TestWaitLane_LeaveRejoinNewLaneID(t *testing.T) {
 	_, err = sub.Recv(ctx)
 	require.ErrorIs(t, err, ErrLaneClosed)
 
-	// Client would WaitLane(..., exclude=lane0). LocalLane is None so it must not
-	// return the closed identity; after rejoin it observes the new LaneID.
 	var gotLane types.LaneID
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 		sc.Spawn(func() error {
@@ -132,8 +125,6 @@ func TestWaitLane_LeaveRejoinNewLaneID(t *testing.T) {
 	require.Equal(t, a.Public(), lane1.Validator)
 	require.Equal(t, lane1, gotLane)
 
-	// Subscribe on the new LaneID works; the closed lane0 still matches the validator
-	// key but Recv returns ErrLaneClosed because its map is gone.
 	sub0 := state.SubscribeLaneProposals(lane0, 0)
 	_, err = sub0.Recv(ctx)
 	require.ErrorIs(t, err, ErrLaneClosed)

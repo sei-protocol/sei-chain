@@ -111,7 +111,6 @@ func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
 }
 
 // Removes txs from mempool assigned to lane blocks <n.
-// Caller is the sole runMempool session; m is that session's inner.
 func (s *State) pruneMempool(m *mempoolInner, n types.BlockNumber) {
 	for _, ctrl := range s.mempool.Lock() {
 		if n < m.first {
@@ -198,8 +197,6 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 			}
 			m, ok = mp.inner.Get()
 			if !ok || m.lane != local {
-				// Session not aligned yet (startup / after clear). InsertTx waits;
-				// TryInsertTx fails fast.
 				if !waitIfFull {
 					return nil, ErrNotProducing
 				}
