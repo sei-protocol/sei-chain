@@ -667,3 +667,114 @@ func TestDoctorExitsNonZeroOnAValueItCannotRead(t *testing.T) {
 		t.Errorf("doctor did not name the value it cannot read:\n%s", out)
 	}
 }
+
+// ruled is a section with a rule its tags cannot express.
+type ruled struct {
+	WriteMode string `mapstructure:"write_mode"`
+}
+
+// Validate states this section's own rule.
+func (r ruled) Validate() error {
+	if r.WriteMode != "sync" && r.WriteMode != "async" {
+		return fmt.Errorf("write_mode is %q, want sync or async", r.WriteMode)
+	}
+	return nil
+}
+
+// registerRuled registers it at a baseline that satisfies the rule.
+func registerRuled(t *testing.T) {
+	t.Helper()
+	registry.Reset()
+	registry.RegisterSection("ruled", &ruled{}, func(registry.Mode) any {
+		return ruled{WriteMode: "sync"}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("registering ruled produced a defect: %v", d.Err)
+	}
+}
+
+// TestDoctorRefusesAValueASectionRejects closes the last of the three checks doctor owes.
+//
+// Type is not enough. A value can be the right type, inside a file that parses, under a key a section
+// declares, and still be a value that section cannot use, because which strings are members of an enum
+// is a fact only the section knows. Without this the node refuses it at its next start.
+func TestDoctorRefusesAValueASectionRejects(t *testing.T) {
+	registerRuled(t)
+	file := parseFile(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[ruled]\nwrite_mode = \"backwards\"\n")
+
+	d, err := configcli.Doctor(file, "")
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+
+	if d.Healthy() {
+		t.Errorf("a value the section cannot use was called healthy: %s", d.Report())
+	}
+	if len(d.Refused) != 1 || d.Refused[0].Section != "ruled" {
+		t.Fatalf("refusals are %v, want the one section that rejected its values", d.Refused)
+	}
+	if !strings.Contains(d.Refused[0].Error(), "write_mode") {
+		t.Errorf("the refusal does not name the setting: %v", d.Refused[0])
+	}
+	// It is the right type and a declared key, so neither of the other two checks fires. All three are
+	// separate findings because all three need different fixes.
+	if len(d.Malformed) != 0 || len(d.Unrecognized) != 0 {
+		t.Errorf("a value the section rejected was also reported as malformed (%v) or unrecognized (%v)",
+			d.Malformed, d.Unrecognized)
+	}
+	if !strings.Contains(d.Report(), "refused the values") {
+		t.Errorf("the report does not say a section refused anything:\n%s", d.Report())
+	}
+}
+
+// TestDoctorAcceptsAValueASectionAllows is the other direction.
+//
+// The refusal above would hold for a doctor that refused every file, so this drives a value inside the
+// rule and one the file does not write at all.
+func TestDoctorAcceptsAValueASectionAllows(t *testing.T) {
+	registerRuled(t)
+
+	for _, tc := range []struct{ name, body string }{
+		{"inside the rule", "schema_version = 1\nnode_mode = \"validator\"\n\n[ruled]\nwrite_mode = \"async\"\n"},
+		{"nothing written", "schema_version = 1\nnode_mode = \"validator\"\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := configcli.Doctor(parseFile(t, tc.body), "")
+			if err != nil {
+				t.Fatalf("Doctor: %v", err)
+			}
+			if !d.Healthy() {
+				t.Errorf("a file with %s was refused: %s", tc.name, d.Report())
+			}
+		})
+	}
+}
+
+// TestASectionIsNotAskedAboutValuesItCannotHaveSeen keeps one fault from becoming two findings.
+//
+// A mode this binary cannot use produces no resolution worth judging, and an unreadable value would reach
+// a section as a zero. Both are already reported on their own terms, so asking anyway would hand an
+// operator a section refusal caused by a fault somewhere else.
+func TestASectionIsNotAskedAboutValuesItCannotHaveSeen(t *testing.T) {
+	registerRuled(t)
+
+	for _, tc := range []struct{ name, body string }{
+		{"an unusable mode", "schema_version = 1\nnode_mode = \"archival\"\n\n[ruled]\nwrite_mode = \"sync\"\n"},
+		{"an unreadable value", "schema_version = 1\nnode_mode = \"validator\"\n\n[ruled]\nwrite_mode = 7\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := configcli.Doctor(parseFile(t, tc.body), "")
+			if err != nil {
+				t.Fatalf("Doctor: %v", err)
+			}
+			if d.Healthy() {
+				t.Fatalf("a file with %s was called healthy", tc.name)
+			}
+			if len(d.Refused) != 0 {
+				t.Errorf("with %s, a section was also asked and refused: %v. The fault is reported "+
+					"already, and a second finding caused by the first sends the operator the wrong way",
+					tc.name, d.Refused)
+			}
+		})
+	}
+}

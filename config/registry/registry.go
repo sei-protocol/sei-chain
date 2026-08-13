@@ -43,6 +43,9 @@ type Section struct {
 	Keys []string
 	// Defaults returns the section's baseline for a mode.
 	Defaults func(Mode) any
+	// Validate asks the section whether a set of resolved values is usable, and is nil when the
+	// section's type states no rules of its own.
+	Validate func(map[string]any) error
 }
 
 // Defect is a registration this package cannot use.
@@ -70,6 +73,10 @@ var (
 // tag. Nothing here reads a hand-typed key string, which is the property that makes template
 // and reader drift impossible rather than test-guarded.
 //
+// A section whose type has a Validate method also gains a check over its resolved values, which is
+// where an enum's members and a number's range are stated. A section without one states no rules and
+// is not asked.
+//
 // It never panics. A registration this package cannot use is recorded as a Defect and the
 // section is not registered.
 func RegisterSection(name string, proto any, defaults func(Mode) any) {
@@ -87,7 +94,14 @@ func RegisterSection(name string, proto any, defaults func(Mode) any) {
 			defects = append(defects, Defect{Section: name, Err: fmt.Errorf("section registered twice")})
 			return
 		}
-		sections[name] = Section{Name: name, Keys: keys, Defaults: defaults}
+		sections[name] = Section{
+			Name:     name,
+			Keys:     keys,
+			Defaults: defaults,
+			// Detected from the section's own type rather than declared separately, so a section
+			// that grows a Validate method is checked from then on with nothing to remember.
+			Validate: validatorFor(proto),
+		}
 	}
 }
 

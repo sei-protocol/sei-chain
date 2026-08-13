@@ -33,6 +33,8 @@ type Diagnosis struct {
 	// ModeConflict says how the recorded mode disagrees with the one Tendermint runs, and is empty
 	// when they agree or when there was nothing to compare against.
 	ModeConflict string
+	// Refused are the sections that judged their own resolved values unusable, sorted. Each halts.
+	Refused []registry.SectionError
 }
 
 // Malformation is one written value this binary cannot read.
@@ -49,7 +51,7 @@ type Malformation struct {
 
 // Healthy reports whether the file may be booted from.
 func (d Diagnosis) Healthy() bool {
-	return len(d.Unrecognized) == 0 && len(d.Malformed) == 0 &&
+	return len(d.Unrecognized) == 0 && len(d.Malformed) == 0 && len(d.Refused) == 0 &&
 		d.ModeProblem == "" && d.ModeConflict == ""
 }
 
@@ -66,6 +68,10 @@ func (d Diagnosis) Healthy() bool {
 // set converts a value on the way in, but hand-editing the file is equally legitimate and reaches no
 // such check, so this is where a hand-edited value is caught. The reading is shared with adoption,
 // which faces the same question about a value it did not write.
+//
+// Each section is then asked whether it can use the values that resolve for it. The tags say what shape
+// a value has and a section says which values are allowed, so an enum's members and a number's range are
+// checked here and nowhere else could know them.
 //
 // The mode the file records is compared against the one Tendermint runs, where a caller knows it. Not
 // for equality: an archive node is correctly set up with config.toml saying full, so the rule is that
@@ -120,7 +126,30 @@ func Doctor(file *seitoml.File, tendermintMode string) (Diagnosis, error) {
 	sort.Strings(d.UnrecognizedExperimental)
 	sort.Strings(d.Retired)
 	sort.Slice(d.Malformed, func(i, j int) bool { return d.Malformed[i].Key < d.Malformed[j].Key })
+
+	d.Refused = askEachSection(d, written)
 	return d, nil
+}
+
+// askEachSection resolves what the node would run and asks every section whether it can use it.
+//
+// Resolved rather than written, because a section's rule can span two keys and one handed only the
+// written ones would see a zero for every key the operator left alone. What each section judges is
+// therefore the configuration the node would actually run, which makes a clean report mean the boot
+// will be content with this file.
+//
+// Skipped when the mode is unusable or a value is unreadable. Neither can produce a resolution worth
+// judging, and both are already reported on their own terms, so asking anyway would turn one fault
+// into two findings.
+func askEachSection(d Diagnosis, written map[string]any) []registry.SectionError {
+	if d.ModeProblem != "" || len(d.Malformed) > 0 {
+		return nil
+	}
+	resolved, err := registry.Resolve(registry.Mode(d.Mode), registry.FileLayer(written))
+	if err != nil {
+		return []registry.SectionError{{Section: "", Err: err}}
+	}
+	return registry.ValidateResolved(resolved)
 }
 
 // diagnoseMode reads the recorded node mode and says what is wrong with it, if anything.
@@ -171,6 +200,13 @@ func (d Diagnosis) Report() string {
 	if d.ModeConflict != "" {
 		b.WriteString("this node's two configuration files disagree about what kind of node it is: " +
 			d.ModeConflict + "\n")
+	}
+	if len(d.Refused) > 0 {
+		b.WriteString(fmt.Sprintf("%d section(s) refused the values this file resolves to. The node "+
+			"will refuse them too:\n", len(d.Refused)))
+		for _, refusal := range d.Refused {
+			b.WriteString("  " + refusal.Error() + "\n")
+		}
 	}
 	if len(d.Unrecognized) > 0 {
 		b.WriteString(fmt.Sprintf("%d written key(s) this binary does not recognize. Each was "+
