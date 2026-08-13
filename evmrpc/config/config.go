@@ -134,6 +134,9 @@ type Config struct {
 	// controls whether to have txns go through one by one
 	Slow bool `mapstructure:"slow"`
 
+	// Enable simulation before broadcasting EVM RPC sendRawTransaction.
+	EnableSimulation bool `mapstructure:"enable_simulation"`
+
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
 
@@ -329,6 +332,7 @@ var DefaultConfig = Config{
 	CheckTxTimeout:               5 * time.Second,
 	MaxTxPoolTxs:                 1000,
 	Slow:                         false,
+	EnableSimulation:             true,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
 	MaxLogBytes:                  receipt.DefaultMaxLogBytes,
@@ -392,6 +396,7 @@ const (
 	flagMaxTxPoolTxs                 = "evm.max_tx_pool_txs"
 	flagCheckTxTimeout               = "evm.checktx_timeout"
 	flagSlow                         = "evm.slow"
+	flagEnableSimulation             = "evm.enable_simulation"
 	flagDenyList                     = "evm.deny_list"
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxLogBytes                  = "evm.max_log_bytes"
@@ -514,6 +519,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagSlow); v != nil {
 		if cfg.Slow, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagEnableSimulation); v != nil {
+		if cfg.EnableSimulation, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -835,6 +845,9 @@ checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 
 # controls whether to have txns go through one by one
 slow = {{ .EVM.Slow }}
+
+# Enables simulation before broadcasting EVM RPC sendRawTransaction.
+enable_simulation = {{ .EVM.EnableSimulation }}
 
 # Deny list defines list of methods that EVM RPC should fail fast, e.g ["debug_traceBlockByNumber"]
 deny_list = {{ .EVM.DenyList }}

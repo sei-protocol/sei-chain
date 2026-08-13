@@ -90,7 +90,7 @@ func NewEVMHTTPServer(
 
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
-	sendAPI := NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks)
+	sendAPI := NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks)
 
 	ctx := ctxProvider(LatestCtxHeight)
 	traceCtxProvider := defaultTraceContextProvider(ctxProvider)
@@ -320,7 +320,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks),
+			Service:   NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks),
 		},
 		{
 			Namespace: "eth",
