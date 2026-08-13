@@ -149,6 +149,20 @@ func tomlValue(v any) (parser.Value, error) {
 		return parser.ParseValue(strconv.FormatFloat(x, 'g', -1, 64))
 	case []string:
 		return parser.ParseValue("[" + strings.Join(quoteEach(x), ", ") + "]")
+	case []any:
+		// The shape reading an array back produces. Without this, anything that reads a list and writes
+		// it again fails on a value this package handed it, which is what a rename of a list-valued key
+		// does. An element this cannot render still fails, so the asymmetry closes without the writer
+		// accepting more than the reader can produce.
+		rendered := make([]string, 0, len(x))
+		for i, item := range x {
+			element, err := tomlValue(item)
+			if err != nil {
+				return parser.Value{}, fmt.Errorf("element %d: %w", i, err)
+			}
+			rendered = append(rendered, element.String())
+		}
+		return parser.ParseValue("[" + strings.Join(rendered, ", ") + "]")
 	default:
 		return parser.Value{}, fmt.Errorf("cannot write a %T to a configuration file", v)
 	}
