@@ -10,11 +10,6 @@ import (
 )
 
 // inner holds roads and per-LaneID block/vote maps.
-//
-// Each LaneID may have in-memory maps and an on-disk block WAL:
-//   - active: in the next-CommitQC committee (maps ensured at ApplyEpoch)
-//   - closing: left that committee, but not yet closed at epochOfFirst
-//   - closed: epochOfFirst.IsClosed — maps dropped, SyncLanes deletes the WAL
 type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
 	roads             *queue[types.RoadIndex, *road]
@@ -60,10 +55,13 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		votes:              map[types.LaneID]*queue[types.BlockNumber, blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
 	}
-	i.addCommitteeLanes(epoch.Committee())
+	for lane := range epoch.Committee().Lanes().All() {
+		i.addLane(lane)
+	}
 
-	// Admit WAL lanes that are not closed at the data.State prune anchor
-	// (closing lanes kept until epochOfFirst.IsClosed).
+	// Admit WAL lanes that are not closed at the prune-anchor epoch. If that
+	// epoch is missing from the registry, admit every loaded lane; #3736 will
+	// ensure the anchor epoch is always resolvable on restart.
 	var anchorEp utils.Option[*types.Epoch]
 	if anchor, ok := ds.Anchor().Load().Get(); ok {
 		if ep, ok := ds.Registry().EpochByIndex(anchor.CommitQC.Proposal().EpochIndex()); ok {
@@ -74,12 +72,7 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		if ep, ok := anchorEp.Get(); ok && ep.IsClosed(lane) {
 			continue
 		}
-		if _, ok := i.blocks[lane]; ok {
-			continue
-		}
-		i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
-		i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
-		i.nextBlockToPersist[lane] = 0
+		i.addLane(lane)
 	}
 
 	// Apply the persisted prune anchor from the data.State:
@@ -164,16 +157,15 @@ func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, b
 	return nil, false
 }
 
-// addCommitteeLanes adds empty queues for new committee LaneIDs.
-func (i *inner) addCommitteeLanes(c *types.Committee) {
-	for lane := range c.Lanes().All() {
-		if _, ok := i.blocks[lane]; ok {
-			continue
-		}
-		i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
-		i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
-		i.nextBlockToPersist[lane] = 0
+// addLane ensures empty block/vote queues and a zero persist cursor for lane.
+// No-op if the lane is already present.
+func (i *inner) addLane(lane types.LaneID) {
+	if _, ok := i.blocks[lane]; ok {
+		return
 	}
+	i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+	i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+	i.nextBlockToPersist[lane] = 0
 }
 
 func (i *inner) dropLanes(lanes []types.LaneID) int {

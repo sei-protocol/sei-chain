@@ -16,8 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// pushPeerLaneBlock admits a block signed by key onto state via PushBlock
-// (foreign keys; production ProduceLocalBlock only signs with the State's key).
 func pushPeerLaneBlock(state *State, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	lane := state.data.Registry().LatestEpoch().Committee().Lane(key.Public()).OrPanic("lane")
 	var b *types.Signed[*types.LaneProposal]

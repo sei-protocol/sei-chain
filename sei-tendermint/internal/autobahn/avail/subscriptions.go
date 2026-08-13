@@ -9,12 +9,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// SubscribeLaneProposals binds the given lane (must be this node's validator key).
-// Recv returns ErrLaneClosed once that lane's maps are dropped (epochOfFirst.IsClosed).
-// A later membership period needs a new Subscribe with the new LaneID.
-//
-// When AppQC (and thus epochOfFirst) advances into a later epoch before
-// ActivateEpoch installs the new LaneID, Recv ends on the old identity first.
+// SubscribeLaneProposals binds lane for this node's validator key.
+// Recv returns ErrLaneClosed after that lane's maps are dropped.
 func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.BlockNumber) (*LaneProposalsRecv, error) {
 	if lane.Validator != s.key.Public() {
 		return nil, ErrBadLane

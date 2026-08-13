@@ -1,23 +1,8 @@
 // Package avail is the Data Availability Plane and Ordered Event Log: lane
 // blocks, CommitQC/AppQC buffers, and pruning.
 //
-// LaneID identity rules live on types.LaneID. Production ApplyEpoch is wired
-// in #3736.
-//
-// Each LaneID may have in-memory block/vote maps and an on-disk block WAL:
-//   - active: in the next-CommitQC committee (maps ensured at ApplyEpoch)
-//   - closing: left that committee, but not yet closed at epochOfFirst;
-//     maps and WAL are kept
-//   - closed: epochOfFirst.IsClosed — maps dropped, SyncLanes deletes the WAL
-//
-// Block/vote ingest verifies against the registry's latest epoch committee.
-// A missing map is never waited on.
-//
-// SubscribeLaneProposals binds one LaneID and returns ErrLaneClosed once that
-// lane is closed. Produce sessions use WaitForLocalLane / WaitUntilClosed.
-//
-// Restart loads block WALs for lanes that are not closed as of the prune-anchor
-// epoch; SyncLanes deletes any leftover closed-lane WAL dirs.
+// Lane maps and WALs outlive committee membership until epochOfFirst.IsClosed;
+// SyncLanes then deletes the WAL.
 package avail
 
 import (
@@ -37,9 +22,8 @@ import (
 // ErrBadLane .
 var ErrBadLane = errors.New("bad lane")
 
-// ErrLaneClosed is returned by SubscribeLaneProposals.Recv when the bound lane's
-// maps have been dropped (epochOfFirst.IsClosed). Rejoin needs a new Subscribe
-// with the new LaneID.
+// ErrLaneClosed is returned by SubscribeLaneProposals.Recv after the bound lane
+// is closed. Rejoin requires a new Subscribe with the new LaneID.
 var ErrLaneClosed = errors.New("lane closed")
 
 const BlocksPerLane = 3 * types.MaxLaneRangeInProposal
@@ -67,12 +51,10 @@ func (s *State) PublicKey() types.PublicKey {
 	return s.key.Public()
 }
 
-// LocalLane is this node's applied-committee LaneID, if any.
 func (s *State) LocalLane() utils.Option[types.LaneID] {
 	return s.Lane(s.key.Public())
 }
 
-// Lane is pk's applied-committee LaneID, if any.
 func (s *State) Lane(pk types.PublicKey) utils.Option[types.LaneID] {
 	for inner := range s.inner.Lock() {
 		return inner.epoch.Committee().Lane(pk)
@@ -80,19 +62,10 @@ func (s *State) Lane(pk types.PublicKey) utils.Option[types.LaneID] {
 	panic("unreachable")
 }
 
-func (s *State) appliedCommittee() *types.Committee {
-	for inner := range s.inner.Lock() {
-		return inner.epoch.Committee()
-	}
-	panic("unreachable")
-}
-
-// WaitForLocalLane waits until LocalLane is Some.
 func (s *State) WaitForLocalLane(ctx context.Context) (types.LaneID, error) {
 	return s.WaitLane(ctx, s.key.Public(), utils.None[types.LaneID]())
 }
 
-// WaitUntilClosed waits until the applied epoch reports lane closed (produce session stop).
 func (s *State) WaitUntilClosed(ctx context.Context, lane types.LaneID) error {
 	for inner, ctrl := range s.inner.Lock() {
 		return ctrl.WaitUntil(ctx, func() bool {
@@ -102,20 +75,18 @@ func (s *State) WaitUntilClosed(ctx context.Context, lane types.LaneID) error {
 	panic("unreachable")
 }
 
-// ApplyEpoch advances the next-CommitQC epoch and admits new committee LaneIDs.
 func (s *State) ApplyEpoch(ep *types.Epoch) {
 	for inner, ctrl := range s.inner.Lock() {
-		inner.addCommitteeLanes(ep.Committee())
+		for lane := range ep.Committee().Lanes().All() {
+			inner.addLane(lane)
+		}
 		inner.epoch = ep
 		ctrl.Updated()
 	}
 }
 
-// epochOfFirst returns the epoch used to decide lane closure for persist.
-// When roads still hold CommitQCs, that is the oldest retained QC's epoch.
-// When the queue is empty (execution caught up, no newer QC yet), it falls back
-// to the prune-anchor epoch — the same source newInner uses on restart — so a
-// quiet chain can still drop closed lanes.
+// epochOfFirst returns the epoch of oldest CommitQC, or epoch of Anchor if there
+// are no CommitQCs.
 func epochOfFirst(inner *inner, ds *data.State) (utils.Option[*types.Epoch], error) {
 	if inner.roads.first < inner.roads.next {
 		idx := inner.roads.q[inner.roads.first].commitQC.Proposal().EpochIndex()
@@ -137,10 +108,6 @@ func epochOfFirst(inner *inner, ds *data.State) (utils.Option[*types.Epoch], err
 }
 
 // hasClosedLane reports whether any in-memory lane is closed as of epochOfFirst.
-// The persist loop waits on it so that a lane closing is itself a wake reason:
-// otherwise its maps and WAL survive until unrelated blocks or CommitQCs arrive,
-// and subscribers keep waiting instead of seeing ErrLaneClosed. An epoch that
-// cannot be resolved answers false; the same lookup after the wait reports it.
 func hasClosedLane(inner *inner, ds *data.State) bool {
 	epOfFirst, err := epochOfFirst(inner, ds)
 	if err != nil {
@@ -207,7 +174,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		_ = pers.close()
 		return nil, err
 	}
-	// Disk must match in-memory lanes (closed-lane WALs from crash / prune-anchor skip).
+	// Remove orphaned lanes on disk
 	if err := persist.SyncLanes(pers.blocks, inner.blocks); err != nil {
 		_ = pers.close()
 		return nil, fmt.Errorf("sync lane WALs to memory set: %w", err)
@@ -601,7 +568,7 @@ func (s *State) WaitForLaneQCs(
 	panic("unreachable")
 }
 
-// ProduceLocalBlock appends block n on the WaitForLocalLane session lane.
+// ProduceLocalBlock appends a new block to the producers lane.
 // Fails in case there is not enough capacity in the lane, or it is not the next block expected.
 func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	if lane.Validator != s.key.Public() {
@@ -706,12 +673,7 @@ func (s *State) Run(ctx context.Context) error {
 	})
 }
 
-// runPersist is the main loop for the persist goroutine.
-//  2. commitQCs.PruneAndPersist and each lane's blocks.MaybePruneAndPersistLane run
-//     concurrently via scope.Parallel (separate WALs, no early cancellation; first error
-//     is returned after all tasks finish).
-//     Each path publishes once after its batch flush (markCommitQCsPersisted /
-//     markBlockPersisted) so voting unblocks ASAP.
+// runPersist persists CommitQCs and per-lane blocks until ctx is cancelled.
 func (s *State) runPersist(ctx context.Context) error {
 	for ctx.Err() == nil {
 		batch, err := s.collectPersistBatch(ctx)
@@ -735,17 +697,17 @@ func (s *State) runPersist(ctx context.Context) error {
 				}
 				return nil
 			})
-			for lane, bb := range batch.blocks {
+			for lane, batch := range batch.blocks {
 				ps.Spawn(func() error {
 					if err := s.persisters.blocks.MaybePruneAndPersistLane(
 						lane,
-						len(bb.tail) > 0,
-						utils.Some(bb.first),
-						bb.tail,
+						len(batch.tail) > 0,
+						utils.Some(batch.first),
+						batch.tail,
 					); err != nil {
 						return err
 					}
-					if t := bb.tail; len(t) > 0 {
+					if t := batch.tail; len(t) > 0 {
 						s.markBlockPersisted(lane, t[len(t)-1].Msg().Block().Header().BlockNumber()+1)
 					}
 					return nil
@@ -796,9 +758,8 @@ func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 	}
 }
 
-// collectPersistBatch waits for new blocks or commitQCs and collects them under lock.
-// Lanes closed as of epochOfFirst are dropped from maps first; blocks keys are
-// then the surviving in-memory lanes.
+// collectPersistBatch waits under lock for new blocks, CommitQCs, or closed lanes,
+// then collects a persist batch (dropping closed-lane maps first).
 func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		// Derive the CommitQC persist cursor from persistedCommitQC. This is
