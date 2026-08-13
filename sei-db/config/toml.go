@@ -149,8 +149,8 @@ ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
 # Each retained snapshot pins the SST files it references against compaction, so
 # budget the write churn of one snapshot interval per retained snapshot. This is
 # substantial on a multi-TB state store.
-# Snapshot directories have no lease in this release: stop the node, or prevent
-# pruning by other means, before you copy one.
+# Snapshot directories are rollback restore points, not an archive format.
+# They have no lease, so do not build tools that resolve one and open it later.
 # Cost and progress are exported as ss_snapshot_* metrics. Default: false.
 ss-snapshot-enable = {{ .StateStore.SnapshotEnable }}
 

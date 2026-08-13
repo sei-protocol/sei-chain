@@ -25,6 +25,12 @@ import (
 // applies backpressure until the checkpoint finishes. The result is an
 // immutable, crash-consistent image of the query store.
 //
+// These snapshots are an input to SS rollback, not an export format. The
+// intended restore model matches SC FlatKV: restore from an SS snapshot, then
+// replay the state WAL forward to the target height. State sync imports the SC
+// snapshot stream and rebuilds SS from that stream; it does not consume these
+// SS snapshot directories.
+//
 // On-disk layout under the snapshot root. By default the root is
 // <home>/data/state_store/snapshots. A custom Cosmos SS directory <db> moves it
 // to the sibling <db>-snapshots directory so Pebble can use hardlinks.
@@ -37,12 +43,15 @@ import (
 //	      <subname>/                       (when EVM sub-DBs are separate)
 //
 // Snapshots are eligible at the same interval boundaries and minimum time
-// cadence as state commit. Each layer applies its in-flight gate independently,
-// so a skipped boundary can differ. For every accepted SS snapshot, the label
-// is exact: it is the version the write path had just handed to the backends
-// when the snapshot was requested. Placing a barrier in each backend's apply
-// queue — rather than sampling what the backends had applied — makes that label
-// exact without the request having to wait. See requestSnapshot.
+// cadence as state commit. This composite implementation uses one trigger and
+// one current link for all member stores, so its member snapshots share a label.
+// That same label is a property of this layout, not a rollback requirement:
+// rollback can replay the state WAL from each store's own nearest snapshot. For
+// every accepted SS snapshot, the label is exact: it is the version the write
+// path had just handed to the backends when the snapshot was requested. Placing
+// a barrier in each backend's apply queue — rather than sampling what the
+// backends had applied — makes that label exact without the request having to
+// wait. See requestSnapshot.
 //
 // The barrier orders only the async block-commit queues. Import, recovery,
 // pruning, and direct version-marker writes bypass those queues and must not
@@ -56,32 +65,37 @@ import (
 // range the DB has already dropped. Reopening a snapshot with different member
 // floors is allowed; the composite reports the highest floor any member carries.
 //
-// SS rollback is not part of this feature, and the two do not compose yet. A
-// rollback leaves lastRequested at the pre-rollback high-water mark, so the
-// re-executed boundaries are read as repeats and skipped, and the already
-// published snapshot-NNNNN directories keep labels that belong to the abandoned
-// chain. Nothing in the layout tells a consumer of current that this happened,
-// so the snapshot root must be cleared by hand after a rollback. State-syncing
-// to a height below existing snapshots in a reused home directory has the same
-// shape and needs the same manual clearing.
+// SS rollback is not implemented in this feature. When it is added, it should
+// use these snapshots the same way SC FlatKV does: restore from a snapshot
+// boundary, then replay the state WAL forward. Until then, rolling back or
+// state-syncing to a lower height in a reused home directory leaves two stale
+// facts behind: lastRequested still carries the old high-water mark, so repeated
+// boundaries can be skipped, and already published snapshot-NNNNN directories
+// keep labels from the abandoned chain. Clear the snapshot root by hand in that
+// case.
 //
-// Managed snapshot directories have no lease. A live consumer must not rely on
-// a path remaining present across a retention pass. Until a lease API exists,
-// consumers must stop the node or use external coordination that prevents
-// pruning before they open or copy a snapshot.
+// Managed snapshot directories have no lease because they are not a node-external
+// consumption API. Retention may remove any snapshot that rollback does not need.
+// If a future tool opens or copies these directories directly, it must first add
+// a lease or other hold mechanism.
 //
 // This file is the layer the planned per-SS restructure has to move. The
 // lifecycle here — layout, retention, the current symlink, staging and
 // publication, restart recovery — is reachable only as a method on
 // *CompositeStateStore, and startSnapshotManager requires a checkpointable
 // Cosmos store, so an EVM-only store cannot use it as written. The agreed
-// direction is for each SS to own its own snapshot creation and retention behind
-// gc.PrunableStore, with the composite reduced to fan-out, which also removes the
-// second retention path this file adds: prune here is count-based and has no
-// ExternalPruning stand-down, so pointing StorageGarbageCollector at SS before
-// then would give a store two independent pruners. GetRollbackFloor is the reason
-// this waits on the rollback work — count-based retention can delete the snapshot
-// a rollback needs, which is the same gap the paragraph above records.
+// direction is for each SS to own its own snapshot root, current link, creation,
+// and retention behind gc.PrunableStore, mirroring SC FlatKV. Composite mode can
+// then fan out to Cosmos SS and EVM SS, while Giga can use EVM SS directly. That
+// also removes the second retention path this file adds: prune here is
+// count-based and has no ExternalPruning stand-down, so pointing
+// StorageGarbageCollector at SS before then would give a store two independent
+// pruners. The shape waits on rollback not because GetRollbackFloor is unknown;
+// SC FlatKV already defines that floor. It waits because gc.PrunableStore must
+// not report a floor above what the store can actually restore to. The current
+// link semantics should change with that work too: this implementation points to
+// the newest published snapshot, while FlatKV's current link points to the
+// active snapshot that open/rollback clones and replays from.
 const (
 	// SnapshotsDirName is the directory under data/state_store that holds
 	// online snapshots.
