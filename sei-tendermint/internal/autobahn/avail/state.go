@@ -41,6 +41,8 @@ type State struct {
 	key   types.SecretKey
 	data  *data.State
 	inner utils.Watch[*inner]
+	// epoch is a Load-only view of inner.epoch (applied / next-CommitQC epoch).
+	epoch utils.AtomicRecv[*types.Epoch]
 
 	// persisters groups all disk persistence components.
 	// Always initialized: real when stateDir is set, no-op otherwise.
@@ -51,15 +53,17 @@ func (s *State) PublicKey() types.PublicKey {
 	return s.key.Public()
 }
 
+// Epoch returns the applied (next-CommitQC) epoch. ApplyEpoch advances it.
+func (s *State) Epoch() utils.AtomicRecv[*types.Epoch] {
+	return s.epoch
+}
+
 func (s *State) LocalLane() utils.Option[types.LaneID] {
 	return s.Lane(s.key.Public())
 }
 
 func (s *State) Lane(pk types.PublicKey) utils.Option[types.LaneID] {
-	for inner := range s.inner.Lock() {
-		return inner.epoch.Committee().Lane(pk)
-	}
-	panic("unreachable")
+	return s.epoch.Load().Committee().Lane(pk)
 }
 
 func (s *State) WaitForLocalLane(ctx context.Context) (types.LaneID, error) {
@@ -67,12 +71,10 @@ func (s *State) WaitForLocalLane(ctx context.Context) (types.LaneID, error) {
 }
 
 func (s *State) WaitUntilClosed(ctx context.Context, lane types.LaneID) error {
-	for inner, ctrl := range s.inner.Lock() {
-		return ctrl.WaitUntil(ctx, func() bool {
-			return inner.epoch.IsClosed(lane)
-		})
-	}
-	panic("unreachable")
+	_, err := s.epoch.Wait(ctx, func(ep *types.Epoch) bool {
+		return ep.IsClosed(lane)
+	})
+	return err
 }
 
 func (s *State) ApplyEpoch(ep *types.Epoch) {
@@ -80,7 +82,7 @@ func (s *State) ApplyEpoch(ep *types.Epoch) {
 		for lane := range ep.Committee().Lanes().All() {
 			inner.addLane(lane)
 		}
-		inner.epoch = ep
+		inner.epoch.Store(ep)
 		ctrl.Updated()
 	}
 }
@@ -183,6 +185,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		key:        key,
 		data:       data,
 		inner:      utils.NewWatch(inner),
+		epoch:      inner.epoch.Subscribe(),
 		persisters: pers,
 	}, nil
 }
@@ -450,7 +453,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		for q.next <= n {
 			q.pushBack(newBlockVotes())
 		}
-		if _, ok := q.q[n].pushVote(inner.epoch, vote); ok {
+		if _, ok := q.q[n].pushVote(inner.epoch.Load(), vote); ok {
 			ctrl.Updated()
 		}
 	}

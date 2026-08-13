@@ -2,6 +2,7 @@ package avail
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -64,27 +65,58 @@ func TestSubscribeLaneProposals_WrongValidatorPanics(t *testing.T) {
 	state.SubscribeLaneProposals(types.LaneID{Validator: b.Public(), Joined: 0}, 0)
 }
 
-func TestWaitLane_LeaveRejoinNewLaneID(t *testing.T) {
+func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	a, b := keys[0], keys[1]
+	peer := a.Public()
 	db := memblock.NewBlockDB()
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, db))
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	lane0 := state.LocalLane().OrPanic("genesis")
-	got, err := state.WaitLane(ctx, a.Public(), utils.None[types.LaneID]())
+	got, err := state.WaitLane(ctx, peer, utils.None[types.LaneID]())
 	require.NoError(t, err)
 	require.Equal(t, lane0, got)
 
 	sub := state.SubscribeLaneProposals(lane0, 0)
-	_, err = state.ProduceLocalBlock(lane0, 0, types.GenPayload(rng))
+	want0, err := state.ProduceLocalBlock(lane0, 0, types.GenPayload(rng))
 	require.NoError(t, err)
-	_, err = sub.Recv(ctx)
+	got0, err := sub.Recv(ctx)
 	require.NoError(t, err)
+	require.Equal(t, want0.Msg().Block().Header().Hash(), got0.Msg().Block().Header().Hash())
 
+	// Stay while Recv waits for the next block: ApplyEpoch must not end the subscribe.
+	var want1, got1 *types.Signed[*types.LaneProposal]
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+		sc.Spawn(func() error {
+			var err error
+			got1, err = sub.Recv(ctx)
+			return err
+		})
+		epStay, err := registry.ActivateEpoch(
+			map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
+			types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+		)
+		if err != nil {
+			return err
+		}
+		state.ApplyEpoch(epStay)
+		if cur := state.LocalLane().OrPanic("stay"); cur != lane0 {
+			return fmt.Errorf("stay LocalLane = %v, want %v", cur, lane0)
+		}
+		want1, err = state.ProduceLocalBlock(lane0, 1, types.GenPayload(rng))
+		return err
+	}))
+	require.Equal(t, want1.Msg().Block().Header().Hash(), got1.Msg().Block().Header().Hash())
+	require.Equal(t, lane0, got1.Msg().Block().Header().Lane())
+	got, err = state.WaitLane(ctx, peer, utils.None[types.LaneID]())
+	require.NoError(t, err)
+	require.Equal(t, lane0, got)
+
+	// Leave: peer drops from committee; map drop ends the subscribe.
 	epLeave, err := registry.ActivateEpoch(
 		map[types.PublicKey]uint64{b.Public(): 1},
 		types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
@@ -100,10 +132,11 @@ func TestWaitLane_LeaveRejoinNewLaneID(t *testing.T) {
 	_, err = sub.Recv(ctx)
 	require.ErrorIs(t, err, ErrLaneClosed)
 
+	// Rejoin: WaitLane skips closed lane0 and observes the new LaneID.
 	var gotLane types.LaneID
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 		sc.Spawn(func() error {
-			lane, err := state.WaitLane(ctx, a.Public(), utils.Some(lane0))
+			lane, err := state.WaitLane(ctx, peer, utils.Some(lane0))
 			if err != nil {
 				return err
 			}
@@ -122,7 +155,7 @@ func TestWaitLane_LeaveRejoinNewLaneID(t *testing.T) {
 	}))
 	lane1 := state.LocalLane().OrPanic("rejoin")
 	require.NotEqual(t, lane0, lane1)
-	require.Equal(t, a.Public(), lane1.Validator)
+	require.Equal(t, peer, lane1.Validator)
 	require.Equal(t, lane1, gotLane)
 
 	sub0 := state.SubscribeLaneProposals(lane0, 0)

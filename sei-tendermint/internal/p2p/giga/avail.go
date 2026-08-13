@@ -114,27 +114,20 @@ func (x *validatorService) serverStreamCommitQCs(ctx context.Context, server rpc
 
 func (x *validatorService) clientStreamLaneProposals(ctx context.Context, c rpc.Client[API], peer types.PublicKey) error {
 	a := x.state.Avail()
-	var exclude utils.Option[types.LaneID]
+	var closed utils.Option[types.LaneID]
 	for ctx.Err() == nil {
-		lane, err := a.WaitLane(ctx, peer, exclude)
+		lane, err := a.WaitLane(ctx, peer, closed)
 		if err != nil {
 			return err
 		}
-		// Resume from the next missing local block (0 for a new LaneID).
 		if err := x.streamLaneProposalsOnce(ctx, c, lane, a.NextBlock(lane)); err != nil {
 			return err
 		}
-		// Stream ended. Only exclude when the applied committee has dropped or
-		// replaced this LaneID. If it is still present, reconnect to the same
-		// identity — a transient disconnect must not hang on WaitLane(exclude).
-		// A rejoined validator gets a new LaneID at least one epoch after leaving,
-		// so the old LaneID is closed before the new one appears; we do not need
-		// to cancel the old stream early.
 		cur, ok := a.Lane(peer).Get()
 		if !ok || cur != lane {
-			exclude = utils.Some(lane)
+			closed = utils.Some(lane)
 		} else {
-			exclude = utils.None[types.LaneID]()
+			closed = utils.None[types.LaneID]()
 		}
 	}
 	return ctx.Err()

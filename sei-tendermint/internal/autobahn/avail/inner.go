@@ -14,8 +14,9 @@ type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
 	roads             *queue[types.RoadIndex, *road]
 
-	// Epoch is the current epoch for blocks votes collection.
-	epoch  *types.Epoch
+	// epoch is the applied (next-CommitQC) epoch. ApplyEpoch is the sole
+	// writer after construction.
+	epoch  utils.AtomicSend[*types.Epoch]
 	blocks map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes  map[types.LaneID]*queue[types.BlockNumber, blockVotes]
 	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
@@ -46,16 +47,16 @@ type loadedState struct {
 }
 
 func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
-	epoch := ds.Registry().LatestEpoch()
+	start := ds.Registry().LatestEpoch()
 	i := &inner{
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		roads:              newQueue[types.RoadIndex, *road](),
-		epoch:              epoch,
+		epoch:              utils.NewAtomicSend(start),
 		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
 	}
-	for lane := range epoch.Committee().Lanes().All() {
+	for lane := range start.Committee().Lanes().All() {
 		i.addLane(lane)
 	}
 
@@ -138,7 +139,7 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 
 // TODO: filter votes per-epoch committee once epoch transitions are wired up.
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
-	c := i.epoch.Committee()
+	c := i.epoch.Load().Committee()
 	votes, ok := i.votes[lane]
 	if !ok {
 		return nil, false
