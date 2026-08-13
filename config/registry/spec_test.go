@@ -32,12 +32,36 @@ const gigaSection = "giga_executor"
 func registerGiga(t *testing.T) {
 	t.Helper()
 	registry.Reset()
-	registry.RegisterSection(gigaSection, &gigaconfig.Config{}, func(m registry.Mode) any {
-		// The design's own worked example: OCC is off on an archive node.
-		return gigaconfig.Config{Enabled: true, OCCEnabled: m != registry.ModeArchive}
+	// The baseline this section actually runs, for every mode. An invented mode-varying default here
+	// would have tests asserting behaviour no node has, and the registry supporting mode-varying
+	// baselines is held below on a section built for that purpose instead.
+	registry.RegisterSection(gigaSection, &gigaconfig.Config{}, func(registry.Mode) any {
+		return gigaconfig.DefaultConfig
 	})
 	for _, d := range registry.Defects() {
 		t.Fatalf("registering %s produced a defect: %v", d.Section, d.Err)
+	}
+}
+
+// varying is a section whose baseline differs by mode, which giga's does not.
+type varying struct {
+	PerMode bool `mapstructure:"per_mode"`
+	Fixed   bool `mapstructure:"fixed"`
+}
+
+// registerVarying registers that section.
+//
+// Separate from any real section on purpose. Holding the registry's mode support against a real
+// section's baseline would make the test fail the day that section's defaults change, and would let a
+// behaviour change enter as the fix.
+func registerVarying(t *testing.T) {
+	t.Helper()
+	registry.Reset()
+	registry.RegisterSection("varying", &varying{}, func(m registry.Mode) any {
+		return varying{PerMode: m != registry.ModeArchive, Fixed: true}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("registering varying produced a defect: %v", d.Err)
 	}
 }
 
@@ -105,26 +129,26 @@ func TestAnUntaggedFieldIsADefectNotAFallback(t *testing.T) {
 // Held on a key whose baseline actually differs between two modes, since a key with one baseline
 // everywhere would pass against a registry that ignored mode entirely.
 func TestABaselineVariesByModeAndAnAbsentKeyTracksIt(t *testing.T) {
-	registerGiga(t)
-	s, _ := registry.Lookup(gigaSection)
+	registerVarying(t)
+	s, _ := registry.Lookup("varying")
 
-	archive, ok := s.Defaults(registry.ModeArchive).(gigaconfig.Config)
+	archive, ok := s.Defaults(registry.ModeArchive).(varying)
 	if !ok {
 		t.Fatalf("the baseline returned %T rather than the section's own type", s.Defaults(registry.ModeArchive))
 	}
-	validator := s.Defaults(registry.ModeValidator).(gigaconfig.Config)
+	validator := s.Defaults(registry.ModeValidator).(varying)
 
-	if archive.OCCEnabled {
-		t.Error("occ_enabled is true on an archive node; this section's baseline turns it off there")
+	if archive.PerMode {
+		t.Error("per_mode is true on an archive node; this section's baseline turns it off there")
 	}
-	if !validator.OCCEnabled {
-		t.Error("occ_enabled is false on a validator, so the baseline does not vary by mode and " +
+	if !validator.PerMode {
+		t.Error("per_mode is false on a validator, so the baseline does not vary by mode and " +
 			"this test would hold for a registry that ignored mode")
 	}
 	// And a key that does not vary still resolves, or the assertion above would be the only shape
 	// a baseline could take.
-	if !archive.Enabled || !validator.Enabled {
-		t.Error("enabled differs by mode; it is the same on both in this section's baseline")
+	if !archive.Fixed || !validator.Fixed {
+		t.Error("fixed differs by mode; it is the same on both in this section's baseline")
 	}
 }
 
@@ -493,7 +517,7 @@ func TestEachLayerWinsOverTheOneBelowIt(t *testing.T) {
 // an absent key track the binary's judgement rather than a zero value: a default lives in the
 // binary and is never written into an operator's file.
 func TestAnAbsentKeyTracksItsModeBaseline(t *testing.T) {
-	registerGiga(t)
+	registerVarying(t)
 
 	archive, err := registry.Resolve(registry.ModeArchive)
 	if err != nil {
@@ -504,8 +528,8 @@ func TestAnAbsentKeyTracksItsModeBaseline(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	a, _ := archive.From("giga_executor.occ_enabled")
-	v, _ := validator.From("giga_executor.occ_enabled")
+	a, _ := archive.From("varying.per_mode")
+	v, _ := validator.From("varying.per_mode")
 	if a.From != "default" || v.From != "default" {
 		t.Fatalf("an unmentioned key resolved from %q and %q, want default from both", a.From, v.From)
 	}

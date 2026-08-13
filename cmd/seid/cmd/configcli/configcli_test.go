@@ -18,8 +18,10 @@ import (
 func registerGiga(t *testing.T) {
 	t.Helper()
 	registry.Reset()
-	registry.RegisterSection("giga_executor", &gigaconfig.Config{}, func(m registry.Mode) any {
-		return gigaconfig.Config{Enabled: true, OCCEnabled: m != registry.ModeArchive}
+	// The baseline this section actually runs, for every mode. Tests needing a baseline that varies
+	// by mode use a section built for that, so none of them asserts behaviour no node has.
+	registry.RegisterSection("giga_executor", &gigaconfig.Config{}, func(registry.Mode) any {
+		return gigaconfig.DefaultConfig
 	})
 	for _, d := range registry.Defects() {
 		t.Fatalf("registering giga_executor produced a defect: %v", d.Err)
@@ -63,13 +65,21 @@ func TestGenerateWritesEveryDeclaredKeyAtTheModesBaseline(t *testing.T) {
 			"section owns, and doctor would refuse the file this verb just produced",
 			len(written), len(registry.Keys()), written)
 	}
-	// The values are the mode's, not the zero value of each type.
-	if written["giga_executor.occ_enabled"] != false {
-		t.Errorf("occ_enabled is %#v on an archive node, want false from that mode's baseline",
-			written["giga_executor.occ_enabled"])
+	// Each value is the one the registry resolved, not the zero value of its type. Compared against
+	// the resolution rather than a literal, so this states that generate writes the baseline rather
+	// than pinning whatever that baseline happens to be today.
+	resolved, err := registry.Resolve(registry.ModeArchive)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
 	}
-	if written["giga_executor.enabled"] != true {
-		t.Errorf("enabled is %#v, want true", written["giga_executor.enabled"])
+	for key, resolution := range resolved.Keys {
+		if written[key] != resolution.Value {
+			t.Errorf("%s was written as %#v and resolves to %#v. Generate writes the baseline, so a "+
+				"difference means it wrote something else", key, written[key], resolution.Value)
+		}
+	}
+	if written["giga_executor.enabled"] == nil {
+		t.Errorf("no value at all was written for giga_executor.enabled: %v", written)
 	}
 }
 
@@ -79,7 +89,10 @@ func TestGenerateWritesEveryDeclaredKeyAtTheModesBaseline(t *testing.T) {
 // baseline everywhere, which is exactly the bug that would put an archive node's settings on a
 // validator.
 func TestGenerateFollowsTheModeItWasGiven(t *testing.T) {
-	registerGiga(t)
+	// A section whose baseline varies by mode, which giga's does not. Held on a real mode-varying
+	// section rather than on giga, so the test measures the mode reaching the file rather than
+	// whatever giga's defaults happen to be.
+	registerTyped(t)
 
 	archive, err := configcli.Generate(registry.ModeArchive)
 	if err != nil {
@@ -92,9 +105,9 @@ func TestGenerateFollowsTheModeItWasGiven(t *testing.T) {
 
 	a, _ := archive.Values()
 	v, _ := validator.Values()
-	if a["giga_executor.occ_enabled"] == v["giga_executor.occ_enabled"] {
+	if a["probe.enabled"] == v["probe.enabled"] {
 		t.Errorf("both modes wrote %#v for a key whose baseline varies by mode, so the mode never "+
-			"reached the file", a["giga_executor.occ_enabled"])
+			"reached the file", a["probe.enabled"])
 	}
 }
 

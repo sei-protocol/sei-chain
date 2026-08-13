@@ -10,7 +10,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configcli"
 	"github.com/sei-protocol/sei-chain/config/registry"
-	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
@@ -160,17 +159,24 @@ func TestTheConstructionReadsSomeKeysMoreThanOnce(t *testing.T) {
 // This is the template each further section follows as it is declared. The keys the construction reads
 // outside any declared section are the remaining work, and that count is reported below rather than
 // asserted, because it shrinks one section at a time.
+//
+// Measured against the section this binary really registers, so a stand-in registration cannot agree
+// with generate while the real one disagrees.
 func TestGenerateCoversExactlyWhatTheConstructionReadsForAMigratedSection(t *testing.T) {
 	const section = "giga_executor"
 	recorder := recordConstructionReads(t)
 
-	registry.Reset()
-	t.Cleanup(registry.Reset)
-	registry.RegisterSection(section, &gigaconfig.Config{}, func(m registry.Mode) any {
-		return gigaconfig.Config{Enabled: true, OCCEnabled: m != registry.ModeArchive}
-	})
+	// The registration this binary carries, not one made here. giga/executor/config registers its own
+	// section on import, so this measures what a node actually declares rather than a stand-in that
+	// could differ from it in exactly the way the comparison is meant to catch.
+	if _, registered := registry.Lookup(section); !registered {
+		t.Fatalf("%s is not registered in this binary. Importing giga/executor/config is what "+
+			"registers it, and without it every comparison below is vacuous", section)
+	}
 	for _, d := range registry.Defects() {
-		t.Fatalf("registering %s produced a defect: %v", section, d.Err)
+		if d.Section == section {
+			t.Fatalf("registering %s produced a defect: %v", section, d.Err)
+		}
 	}
 
 	observed := recorder.Under(section)
