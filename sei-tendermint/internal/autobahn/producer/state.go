@@ -104,7 +104,7 @@ func (s *State) Run(ctx context.Context) error {
 				var payload *types.Payload
 				// Wait until either
 				// * there is a full proposal in mempool
-				// * BlockInterval since capacity appeared passed AND (AllowEmptyBlocks OR mempool is non-empty)
+				// * BlockInterval passed AND (AllowEmptyBlocks OR mempool is non-empty)
 				for m, ctrl := range s.mempool.Lock() {
 					// Wait for full payload with timeout.
 					// Note that in total the time between blocks is WaitForLocalCapacity delay + BlockInterval

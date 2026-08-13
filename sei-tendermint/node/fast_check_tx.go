@@ -16,6 +16,12 @@ import (
 
 const evmTxTypeURL = "/seiprotocol.seichain.evm.MsgEVMTransaction"
 
+// fastCheckTxApplication is an application wrapper which
+// replaces CheckTx with a minimal implementation which
+// just parses the transaction. It supports only EVM transactions.
+// Useful for loadtesting with minimal cost of evmrpc sendRawTransaction.
+// If you want to disable execution altogether from the loadtest,
+// then use MockApplication instead.
 type fastCheckTxApplication struct {
 	abci.Application
 }

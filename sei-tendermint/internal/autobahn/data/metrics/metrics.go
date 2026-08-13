@@ -12,10 +12,7 @@ type metrics struct {
 	// latency of resource processing up from production to the given stage
 	latency prometheus.HistogramVec `metrics_labels:"resource,stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
 	// Next block to process in the given stage.
-	// WARNING: It is intentionally last+1 to distinguish initial state,
-	// in case the first block is 0.
-	// TODO(gprusak): in case this is too confusing, set it to last block instead.
-	blockHeight prometheus.GaugeIntVec `metrics_labels:"stage"`
+	nextBlock prometheus.GaugeIntVec `metrics_labels:"stage"`
 	// gas used by executed blocks
 	gasUsed prometheus.CounterIntVec
 	// size of executed transactions in bytes
@@ -39,7 +36,7 @@ func newStageMetrics[T any](gen func(stage string) T) stageMetrics[T] {
 }
 
 type Metrics struct {
-	BlockHeight  stageMetrics[*prometheus.GaugeInt]
+	NextBlock    stageMetrics[*prometheus.GaugeInt]
 	BlockLatency stageMetrics[*prometheus.Histogram]
 	TxLatency    stageMetrics[*prometheus.Histogram]
 	GasUsed      *prometheus.CounterInt
@@ -49,7 +46,7 @@ type Metrics struct {
 
 func Get() *Metrics {
 	return &Metrics{
-		BlockHeight:  newStageMetrics(Global.blockHeightAt),
+		NextBlock:    newStageMetrics(Global.nextBlockAt),
 		BlockLatency: newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("blocks", stage) }),
 		TxLatency:    newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("txs", stage) }),
 		GasUsed:      Global.gasUsedAt(),

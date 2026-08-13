@@ -12,7 +12,7 @@ var Global = newMetrics()
 func init() {
 	prometheus.MustRegister(
 		Global.latency,
-		Global.blockHeight,
+		Global.nextBlock,
 		Global.gasUsed,
 		Global.txSize,
 	)
@@ -27,11 +27,11 @@ func newMetrics() *metrics {
 			Help:      "latency of resource processing up from production to the given stage",
 			Buckets:   prometheus.ExponentialBuckets(0.001, 1.5, 30),
 		}, []string{"resource", "stage"}),
-		blockHeight: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
+		nextBlock: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
-			Name:      "block_height",
-			Help:      "Next block to process in the given stage. WARNING: It is intentionally last+1 to distinguish initial state, in case the first block is 0. TODO(gprusak): in case this is too confusing, set it to last block instead.",
+			Name:      "next_block",
+			Help:      "Next block to process in the given stage.",
 		}, []string{"stage"}),
 		gasUsed: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
@@ -52,8 +52,8 @@ func (m *metrics) latencyAt(resource string, stage string) *tmprometheus.Histogr
 	return m.latency.WithLabelValues(resource, stage)
 }
 
-func (m *metrics) blockHeightAt(stage string) *tmprometheus.GaugeInt {
-	return m.blockHeight.WithLabelValues(stage)
+func (m *metrics) nextBlockAt(stage string) *tmprometheus.GaugeInt {
+	return m.nextBlock.WithLabelValues(stage)
 }
 
 func (m *metrics) gasUsedAt() *tmprometheus.CounterInt {
