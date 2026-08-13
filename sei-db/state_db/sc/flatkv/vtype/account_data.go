@@ -52,14 +52,12 @@ var _ VType = (*AccountData)(nil)
 // This data structure is not threadsafe. Values passed into and values received from this data structure
 // are not safe to modify without first copying them.
 type AccountData struct {
-	data []byte
+	data [accountDataLength]byte
 }
 
 // Create a new AccountData initialized to all 0s.
 func NewAccountData() *AccountData {
-	return &AccountData{
-		data: make([]byte, accountDataLength),
-	}
+	return &AccountData{}
 }
 
 // Serialize the account data to a byte slice. If the code hash is all zeros,
@@ -72,7 +70,7 @@ func (a *AccountData) Serialize() []byte {
 	}
 	for i := accountCodeHashStart; i < accountDataLength; i++ {
 		if a.data[i] != 0 {
-			return a.data
+			return a.data[:]
 		}
 	}
 	return a.data[:accountCompactLength]
@@ -80,6 +78,8 @@ func (a *AccountData) Serialize() []byte {
 
 // Deserialize the account data from the given byte slice. Accepts both the
 // compact (49 byte) and full (81 byte) forms.
+//
+// The returned AccountData owns its bytes; data may be reused or modified afterwards.
 func DeserializeAccountData(data []byte) (*AccountData, error) {
 	if len(data) == 0 {
 		return nil, errors.New("data is empty")
@@ -91,12 +91,11 @@ func DeserializeAccountData(data []byte) (*AccountData, error) {
 	}
 
 	switch len(data) {
-	case accountDataLength:
-		return &AccountData{data: data}, nil
-	case accountCompactLength:
-		full := make([]byte, accountDataLength)
-		copy(full, data)
-		return &AccountData{data: full}, nil
+	case accountDataLength, accountCompactLength:
+		// The compact form omits the trailing code hash, which stays zero from the fresh array.
+		accountData := &AccountData{}
+		copy(accountData.data[:], data)
+		return accountData, nil
 	default:
 		return nil, fmt.Errorf("data length at version %d should be %d or %d, got %d",
 			version, accountCompactLength, accountDataLength, len(data))
@@ -159,14 +158,13 @@ func (a *AccountData) IsDelete() bool {
 	return true
 }
 
-// Copy returns a deep copy of this AccountData. The copy has its own backing byte slice.
+// Copy returns a deep copy of this AccountData, or a zeroed one when the receiver is nil.
 func (a *AccountData) Copy() *AccountData {
 	if a == nil {
 		return NewAccountData()
 	}
-	cp := make([]byte, len(a.data))
-	copy(cp, a.data)
-	return &AccountData{data: cp}
+	cp := *a
+	return &cp
 }
 
 // Set the account's block height when this account was last modified/touched. Returns self.
@@ -211,4 +209,20 @@ func (a *AccountData) SetCodeHash(codeHash *CodeHash) *AccountData {
 	}
 	copy(a.data[accountCodeHashStart:accountDataLength], codeHash[:])
 	return a
+}
+
+// SetCodeHashBytes sets the account's code hash from its raw encoding, copying it straight in
+// rather than parsing a CodeHash out first. Returns self (or a new AccountData if nil).
+func (a *AccountData) SetCodeHashBytes(codeHash []byte) (*AccountData, error) {
+	if len(codeHash) != CodeHashLen {
+		return nil, fmt.Errorf(
+			"invalid codehash value length: got %d, expected %d",
+			len(codeHash), CodeHashLen,
+		)
+	}
+	if a == nil {
+		a = NewAccountData()
+	}
+	copy(a.data[accountCodeHashStart:accountDataLength], codeHash)
+	return a, nil
 }

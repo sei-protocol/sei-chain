@@ -9,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
 // benchAddr returns the i'th deterministic 20-byte address.
@@ -76,6 +77,138 @@ func singlePairChangeSets(pairs []*proto.KVPair) []*proto.NamedChangeSet {
 		})
 	}
 	return out
+}
+
+// benchClassified builds the classified buckets for a block made of the given per-kind counts,
+// mirroring what classifyAndPrefix produces. Account writes use codehash keys, matching the
+// cryptosim harness, which drives accounts through the codehash arm and never writes a nonce.
+func benchClassified(b *testing.B, accounts int, storage int, code int, misc int, codeSize int) classifiedChanges {
+	b.Helper()
+	pairs := make([]*proto.KVPair, 0, accounts+storage+code+misc)
+	for i := 0; i < accounts; i++ {
+		pairs = append(pairs, &proto.KVPair{
+			Key:   keys.BuildEVMKey(keys.EVMKeyCodeHash, benchAddr(i)),
+			Value: benchSlot(i),
+		})
+	}
+	for i := 0; i < storage; i++ {
+		pairs = append(pairs, &proto.KVPair{
+			Key:   keys.BuildEVMKey(keys.EVMKeyStorage, append(benchAddr(i), benchSlot(i)...)),
+			Value: benchSlot(i),
+		})
+	}
+	for i := 0; i < code; i++ {
+		pairs = append(pairs, &proto.KVPair{
+			Key:   keys.BuildEVMKey(keys.EVMKeyCode, benchAddr(i)),
+			Value: bytes.Repeat([]byte{byte(i)}, codeSize),
+		})
+	}
+	for i := 0; i < misc; i++ {
+		pairs = append(pairs, &proto.KVPair{
+			Key:   append([]byte{0x1b}, benchAddr(i)...),
+			Value: benchSlot(i),
+		})
+	}
+
+	classified, err := classifyAndPrefix(fatChangeSets(pairs), [keys.EVMKeyKindCount]int{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	return classified
+}
+
+// benchAccountOld returns the prior account values for the codehash bucket, so the merge exercises
+// the path that copies an existing account rather than the one that creates a fresh one.
+func benchAccountOld(b *testing.B, classified classifiedChanges) map[string]*vtype.AccountData {
+	b.Helper()
+	old := make(map[string]*vtype.AccountData, len(classified[keys.EVMKeyCodeHash]))
+	for i, change := range classified[keys.EVMKeyCodeHash] {
+		old[change.key] = vtype.NewAccountData().SetBlockHeight(1).SetNonce(uint64(i))
+	}
+	return old
+}
+
+// BenchmarkGatherValues covers the work in the apply_change_sets_gather_values phase: everything
+// prepareWrites does after the account read. Each kind runs on its own so a change to one is not
+// hidden by the others, and "cryptosim_mix" reproduces the harness's measured per-block shape.
+func BenchmarkGatherValues(b *testing.B) {
+	cases := []struct {
+		name                                   string
+		accounts, storage, code, misc, codeLen int
+	}{
+		{"accounts_only", 2000, 0, 0, 0, 0},
+		{"storage_only", 0, 2000, 0, 0, 0},
+		{"code_only", 0, 0, 2000, 0, 2048},
+		{"misc_only", 0, 0, 0, 2000, 0},
+		{"cryptosim_mix", 1930, 2030, 3, 0, 8},
+	}
+	for _, tc := range cases {
+		classified := benchClassified(b, tc.accounts, tc.storage, tc.code, tc.misc, tc.codeLen)
+		accountOld := benchAccountOld(b, classified)
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := gatherValues(classified, accountOld, 100); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkGatherAndSerialize covers gathering plus the Serialize call every value makes on its way
+// into the stores. Holding a value's serialized form moves cost out of Serialize and into
+// construction, so measuring either half alone misreports it; this measures both.
+func BenchmarkGatherAndSerialize(b *testing.B) {
+	cases := []struct {
+		name                                   string
+		accounts, storage, code, misc, codeLen int
+	}{
+		{"accounts_only", 2000, 0, 0, 0, 0},
+		{"storage_only", 0, 2000, 0, 0, 0},
+		{"code_only", 0, 0, 2000, 0, 2048},
+		{"misc_only", 0, 0, 0, 2000, 0},
+		{"cryptosim_mix", 1930, 2030, 3, 0, 8},
+	}
+	for _, tc := range cases {
+		classified := benchClassified(b, tc.accounts, tc.storage, tc.code, tc.misc, tc.codeLen)
+		accountOld := benchAccountOld(b, classified)
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				prepared, err := gatherValues(classified, accountOld, 100)
+				if err != nil {
+					b.Fatal(err)
+				}
+				benchSerializeAll(prepared)
+			}
+		})
+	}
+}
+
+// benchSerializeAll performs the same per-value work serializeAndPut does, minus the store write.
+func benchSerializeAll(prepared preparedWrites) {
+	for _, value := range prepared.accounts {
+		sink(value.IsDelete(), value.Serialize())
+	}
+	for _, value := range prepared.storage {
+		sink(value.IsDelete(), value.Serialize())
+	}
+	for _, value := range prepared.code {
+		sink(value.IsDelete(), value.Serialize())
+	}
+	for _, value := range prepared.misc {
+		sink(value.IsDelete(), value.Serialize())
+	}
+}
+
+// benchSink keeps serialized bytes from being optimized away.
+var benchSink []byte
+
+func sink(isDelete bool, serialized []byte) {
+	if !isDelete {
+		benchSink = serialized
+	}
 }
 
 func BenchmarkClassifyAndPrefix(b *testing.B) {

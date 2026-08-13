@@ -38,14 +38,27 @@ var _ VType = (*StorageData)(nil)
 // This data structure is not threadsafe. Values passed into and values received from this data structure
 // are not safe to modify without first copying them.
 type StorageData struct {
-	data []byte
+	data [storageDataLength]byte
 }
 
 // Create a new StorageData initialized to all 0s.
 func NewStorageData() *StorageData {
-	return &StorageData{
-		data: make([]byte, storageDataLength),
+	return &StorageData{}
+}
+
+// NewStorageDataFrom returns the storage data for a raw 32-byte slot value written at blockHeight.
+// It is the whole write path in one allocation: no intermediate value is parsed out of rawValue.
+func NewStorageDataFrom(blockHeight int64, rawValue []byte) (*StorageData, error) {
+	if len(rawValue) != StorageValueLength {
+		return nil, fmt.Errorf("invalid storage value length: got %d, expected %d",
+			len(rawValue), StorageValueLength)
 	}
+	storageData := &StorageData{}
+	storageData.data[storageVersionStart] = byte(StorageDataVersion0)
+	heightBytes := storageData.data[storageBlockHeightStart:storageValueStart]
+	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
+	copy(storageData.data[storageValueStart:], rawValue)
+	return storageData, nil
 }
 
 // Serialize the storage data to a byte slice.
@@ -55,27 +68,29 @@ func (s *StorageData) Serialize() []byte {
 	if s == nil {
 		return make([]byte, storageDataLength)
 	}
-	return s.data
+	return s.data[:]
 }
 
 // Deserialize the storage data from the given byte slice.
+//
+// The returned StorageData owns its bytes; data may be reused or modified afterwards.
 func DeserializeStorageData(data []byte) (*StorageData, error) {
 	if len(data) == 0 {
 		return nil, errors.New("data is empty")
 	}
 
-	storageData := &StorageData{
-		data: data,
+	// The length is checked before any field is read, because a fixed-size buffer cannot hold a
+	// short input and reading the version out of one would be an out-of-bounds read.
+	if len(data) != storageDataLength {
+		return nil, fmt.Errorf("data length should be %d, got %d", storageDataLength, len(data))
 	}
+
+	storageData := &StorageData{}
+	copy(storageData.data[:], data)
 
 	serializationVersion := storageData.GetSerializationVersion()
 	if serializationVersion != StorageDataVersion0 {
 		return nil, fmt.Errorf("unsupported serialization version: %d", serializationVersion)
-	}
-
-	if len(data) != storageDataLength {
-		return nil, fmt.Errorf("data length at version %d should be %d, got %d",
-			serializationVersion, storageDataLength, len(data))
 	}
 
 	return storageData, nil

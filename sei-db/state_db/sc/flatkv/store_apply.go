@@ -118,16 +118,29 @@ func (s *CommitStore) prepareWrites(
 	}
 
 	s.phaseTimer.SetPhase("apply_change_sets_gather_values")
+	return gatherValues(changesByType, accountOld, blockHeight)
+}
 
-	accountUpdates, err := mergeAccountUpdates(
+// gatherValues turns one block's classified changes into the values to write, per database.
+// accountOld supplies the current value of every account this block touches, which partial account
+// updates are merged onto.
+func gatherValues(
+	changesByType classifiedChanges,
+	accountOld map[string]*vtype.AccountData,
+	blockHeight int64,
+) (preparedWrites, error) {
+	var out preparedWrites
+
+	newAccounts, err := mergeAccountValues(
 		changesByType[keys.EVMKeyNonce],
 		changesByType[keys.EVMKeyCodeHash],
 		nil, // TODO: update this when we add a balance key!
+		accountOld,
+		blockHeight,
 	)
 	if err != nil {
 		return out, fmt.Errorf("failed to gather account updates: %w", err)
 	}
-	newAccounts := deriveNewAccountValues(accountUpdates, accountOld, blockHeight)
 
 	storageWrites, err := toStorageValues(changesByType[keys.EVMKeyStorage], blockHeight)
 	if err != nil {
@@ -410,14 +423,14 @@ func toStorageValues(
 	for _, change := range rawChanges {
 		if change.value == nil {
 			// Deletion is equivalent to setting the storage value to a zero value
-			result[change.key] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(&[32]byte{})
-		} else {
-			value, err := vtype.ParseStorageValue(change.value)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse storage value: %w", err)
-			}
-			result[change.key] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(value)
+			result[change.key] = vtype.NewStorageData().SetBlockHeight(blockHeight)
+			continue
 		}
+		storageData, err := vtype.NewStorageDataFrom(blockHeight, change.value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse storage value: %w", err)
+		}
+		result[change.key] = storageData
 	}
 
 	return result, nil
@@ -432,12 +445,8 @@ func toCodeValues(
 	result := make(map[string]*vtype.CodeData, len(rawChanges))
 
 	for _, change := range rawChanges {
-		if change.value == nil {
-			// Deletion is equivalent to setting the code to a zero value
-			result[change.key] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(nil)
-		} else {
-			result[change.key] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(change.value)
-		}
+		// A nil change is a deletion, which for code means empty bytecode.
+		result[change.key] = vtype.NewCodeDataFrom(blockHeight, change.value)
 	}
 	return result, nil
 }
@@ -452,10 +461,10 @@ func toMiscValues(
 
 	for _, change := range rawChanges {
 		if change.value == nil {
-			result[change.key] = vtype.NewMiscData().SetBlockHeight(blockHeight).MarkDeleted()
-		} else {
-			result[change.key] = vtype.NewMiscData().SetBlockHeight(blockHeight).SetValue(change.value)
+			result[change.key] = vtype.NewDeletedMiscData(blockHeight)
+			continue
 		}
+		result[change.key] = vtype.NewMiscDataFrom(blockHeight, change.value)
 	}
 	return result, nil
 }
@@ -512,22 +521,73 @@ func mergeAccountUpdates(
 	return updates, nil
 }
 
-// Combine the pending account writes with prior values to determine the new account values.
+// mergeAccountValues folds a block's per-field account changes onto the accounts they modify,
+// returning the new value of every account the block touches, keyed by physical key.
 //
-// We need to take this step because accounts are split into multiple fields, and it's possible to overwrite just a
-// single field (thus requiring us to copy the unmodified fields from the prior value).
-func deriveNewAccountValues(
-	pendingWrites map[string]*vtype.PendingAccountWrite,
+// An account is stored as one row but written a field at a time, so a change carrying only a nonce
+// or only a code hash has to be applied on top of the account's current value, which oldValues
+// supplies. An account with no current value starts from zero. Every touched account is stamped
+// with blockHeight even when no field value actually changed.
+func mergeAccountValues(
+	nonceChanges []classifiedChange,
+	codeHashChanges []classifiedChange,
+	balanceChanges []classifiedChange,
 	oldValues map[string]*vtype.AccountData,
 	blockHeight int64,
-) map[string]*vtype.AccountData {
-	result := make(map[string]*vtype.AccountData, len(pendingWrites))
+) (map[string]*vtype.AccountData, error) {
+	result := make(map[string]*vtype.AccountData, len(nonceChanges)+len(codeHashChanges))
 
-	for addrStr, pendingWrite := range pendingWrites {
-		oldValue := oldValues[addrStr]
-
-		newValue := pendingWrite.Merge(oldValue, blockHeight)
-		result[addrStr] = newValue
+	// accountFor returns the account being built for key, seeded from its current value the first
+	// time the key is seen. Later changes to the same account mutate that value in place, so an
+	// account named by several changes costs one map insert rather than one per change.
+	accountFor := func(key string) *vtype.AccountData {
+		if account, ok := result[key]; ok {
+			return account
+		}
+		account := oldValues[key].Copy()
+		account.SetBlockHeight(blockHeight)
+		result[key] = account
+		return account
 	}
-	return result
+
+	for _, change := range nonceChanges {
+		if change.value == nil {
+			// Deletion is equivalent to setting the nonce to 0
+			accountFor(change.key).SetNonce(0)
+			continue
+		}
+		nonce, err := vtype.ParseNonce(change.value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid nonce value: %w", err)
+		}
+		accountFor(change.key).SetNonce(nonce)
+	}
+
+	for _, change := range codeHashChanges {
+		if change.value == nil {
+			// Deletion is equivalent to setting the code hash to a zero hash
+			var zero vtype.CodeHash
+			accountFor(change.key).SetCodeHash(&zero)
+			continue
+		}
+		if _, err := accountFor(change.key).SetCodeHashBytes(change.value); err != nil {
+			return nil, fmt.Errorf("invalid codehash value: %w", err)
+		}
+	}
+
+	for _, change := range balanceChanges {
+		if change.value == nil {
+			// Deletion is equivalent to setting the balance to a zero balance
+			var zero vtype.Balance
+			accountFor(change.key).SetBalance(&zero)
+			continue
+		}
+		balance, err := vtype.ParseBalance(change.value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid balance value: %w", err)
+		}
+		accountFor(change.key).SetBalance(balance)
+	}
+
+	return result, nil
 }
