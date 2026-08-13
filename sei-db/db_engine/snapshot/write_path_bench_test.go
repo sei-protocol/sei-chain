@@ -94,6 +94,49 @@ func BenchmarkEngineBatchSet(b *testing.B) {
 	}
 }
 
+// benchStringWriteSet is benchWriteSet in the form the flatkv write path now hands over: keys as the
+// strings they already are, and pairs in one backing array rather than one allocation each.
+func benchStringWriteSet(block int) []StringKVPair {
+	pairs := make([]StringKVPair, 0, benchPairsPerBlock)
+	for _, pair := range benchWriteSet(block) {
+		pairs = append(pairs, StringKVPair{Key: string(pair.Key), Value: pair.Value})
+	}
+	return pairs
+}
+
+// BenchmarkEngineBatchSetString is BenchmarkEngineBatchSet over the same write set through the
+// string-keyed path, so the two are directly comparable.
+func BenchmarkEngineBatchSetString(b *testing.B) {
+	for _, window := range []int{0, 8, 32} {
+		b.Run(fmt.Sprintf("window=%d", window), func(b *testing.B) {
+			engine, cleanup := benchEngine(b, 8)
+			defer cleanup()
+
+			for block := 0; block < window; block++ {
+				if err := engine.BatchSetString(benchStringWriteSet(block)); err != nil {
+					b.Fatal(err)
+				}
+				if _, err := engine.Commit(); err != nil {
+					b.Fatal(err)
+				}
+			}
+
+			sets := make([][]StringKVPair, b.N)
+			for i := range sets {
+				sets[i] = benchStringWriteSet(window + i)
+			}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if err := engine.BatchSetString(sets[i]); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 // BenchmarkShardManagerShard measures just the per-key hashing in BatchSet's serial bucketing loop.
 // Every Set, Get, BatchSet and BatchGet key pays this.
 func BenchmarkShardManagerShard(b *testing.B) {

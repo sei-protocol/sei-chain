@@ -37,3 +37,9 @@ func (s *shardManager) Shard(addr []byte) uint64 {
 	// shard a Hash object would, with no object to allocate and pool per key.
 	return maphash.Bytes(s.seed, addr) & s.mask
 }
+
+// ShardString is Shard for a key already held as a string. maphash.String is defined as
+// Bytes(seed, []byte(addr)), so a key lands in the same shard whichever form it arrives in.
+func (s *shardManager) ShardString(addr string) uint64 {
+	return maphash.String(s.seed, addr) & s.mask
+}

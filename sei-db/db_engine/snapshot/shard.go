@@ -378,19 +378,26 @@ func (s *shard) Set(key []byte, value []byte) error {
 //
 // The Locked postfix indicates that the caller must hold the shard lock.
 func (s *shard) setLocked(key []byte, value []byte) {
-	keyStr := string(key)
-	s.versionDiffs[s.currentVersion][keyStr] = value
+	s.setLockedString(string(key), value)
+}
+
+// setLockedString is setLocked for a key already held as a string, which is then stored directly
+// rather than copied.
+//
+// The Locked postfix indicates that the caller must hold the shard lock.
+func (s *shard) setLockedString(key string, value []byte) {
+	s.versionDiffs[s.currentVersion][key] = value
 
 	written := versionedValue{version: s.currentVersion, value: value}
 	// A key seen for the first time in this version window starts a history holding only this
 	// value. Going through set would be wrong as well as wasteful: the zero history's newest is a
 	// nil value at version 0, which set would preserve as a real earlier value.
-	history, ok := s.versionedData[keyStr]
+	history, ok := s.versionedData[key]
 	if !ok {
-		s.versionedData[keyStr] = versionHistory{newest: written}
+		s.versionedData[key] = versionHistory{newest: written}
 		return
 	}
-	s.versionedData[keyStr] = history.set(written)
+	s.versionedData[key] = history.set(written)
 }
 
 // BatchSet sets the values for a batch of keys at the current version. Refused on a shard that is
@@ -409,6 +416,27 @@ func (s *shard) BatchSet(entries []*proto.KVPair) error {
 			s.setLocked(entries[i].Key, nil)
 		} else {
 			s.setLocked(entries[i].Key, entries[i].Value)
+		}
+	}
+	return nil
+}
+
+// BatchSetString is BatchSet for keys already held as strings. Refused on a shard that is out of
+// service, for the reason given on Set.
+func (s *shard) BatchSetString(entries []StringKVPair) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	// Checked once for the whole batch rather than per key: it cannot change while we hold the lock.
+	if err := s.cache.outOfServiceLocked(); err != nil {
+		return err
+	}
+	for i := range entries {
+		if entries[i].Delete {
+			// A delete is stored as a nil-valued (tombstone) entry at the current version.
+			s.setLockedString(entries[i].Key, nil)
+		} else {
+			s.setLockedString(entries[i].Key, entries[i].Value)
 		}
 	}
 	return nil

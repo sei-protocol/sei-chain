@@ -277,6 +277,41 @@ func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
 	return nil
 }
 
+func (c *snapshotEngine) BatchSetString(updates []StringKVPair) error {
+	// Bucketed by shard exactly as BatchSet does, so the two differ only in how they hash a key and
+	// what they hand the shard.
+	buckets := make([][]StringKVPair, len(c.shards))
+	bucketHint := 2*len(updates)/len(c.shards) + 1
+	for i := range updates {
+		idx := c.shardManager.ShardString(updates[i].Key)
+		if buckets[idx] == nil {
+			buckets[idx] = make([]StringKVPair, 0, bucketHint)
+		}
+		buckets[idx] = append(buckets[idx], updates[i])
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(buckets))
+	for shardIndex := range buckets {
+		if len(buckets[shardIndex]) == 0 {
+			continue
+		}
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			errs[shardIndex] = c.shards[shardIndex].BatchSetString(buckets[shardIndex])
+		})
+	}
+	wg.Wait()
+
+	for i := range errs {
+		if errs[i] != nil {
+			return fmt.Errorf("failed to batch set in shard: %w", errs[i])
+		}
+	}
+	return nil
+}
+
 func (c *snapshotEngine) BatchGet(keys [][]byte) (map[string][]byte, error) {
 	return c.BatchGetAtVersion(keys, c.currentVersion)
 }

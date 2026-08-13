@@ -1,7 +1,9 @@
 package flatkv
 
 import (
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -209,36 +211,58 @@ func (s *CommitStore) writeToStores(
 ) error {
 	s.phaseTimer.SetPhase("apply_change_write_to_stores")
 
-	// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL replay is external,
-	// we may be able to simplify this code since we will be able to assume that all stores start at the same block.
-	if alreadyHave[accountDBDir] < version {
-		if err := serializeAndPut(s.accountStore, prepared.accounts); err != nil {
-			return fmt.Errorf("write %s values: %w", accountDBDir, err)
-		}
-		addKVPairs(s.ctx, accountDBDir, len(prepared.accounts))
+	// The four databases are independent engines with independent locks, so their writes run
+	// concurrently rather than one store's fan-out waiting on the last. Account and storage carry
+	// most of a block between them, so overlapping the two is most of the win.
+	writes := []func() error{
+		// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL replay
+		// is external, we may be able to simplify this code since we will be able to assume that all stores
+		// start at the same block.
+		writeStore(s, s.accountStore, accountDBDir, prepared.accounts, version, alreadyHave),
+		writeStore(s, s.storageStore, storageDBDir, prepared.storage, version, alreadyHave),
+		writeStore(s, s.codeStore, codeDBDir, prepared.code, version, alreadyHave),
+		writeStore(s, s.miscStore, miscDBDir, prepared.misc, version, alreadyHave),
 	}
-	if alreadyHave[storageDBDir] < version {
-		if err := serializeAndPut(s.storageStore, prepared.storage); err != nil {
-			return fmt.Errorf("write %s values: %w", storageDBDir, err)
-		}
-		addKVPairs(s.ctx, storageDBDir, len(prepared.storage))
+	errs := make([]error, len(writes))
+	var wg sync.WaitGroup
+	for i, write := range writes {
+		wg.Add(1)
+		s.miscPool.Submit(func() {
+			defer wg.Done()
+			errs[i] = write()
+		})
 	}
-	if alreadyHave[codeDBDir] < version {
-		if err := serializeAndPut(s.codeStore, prepared.code); err != nil {
-			return fmt.Errorf("write %s values: %w", codeDBDir, err)
-		}
-		addKVPairs(s.ctx, codeDBDir, len(prepared.code))
-	}
-	if alreadyHave[miscDBDir] < version {
-		if err := serializeAndPut(s.miscStore, prepared.misc); err != nil {
-			return fmt.Errorf("write %s values: %w", miscDBDir, err)
-		}
-		addKVPairs(s.ctx, miscDBDir, len(prepared.misc))
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return err
 	}
 
 	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
 	s.pendingBlockHeight = version
 	return nil
+}
+
+// writeStore returns the write of one database's values, or a no-op for a store that already holds
+// this block. A store is skipped only during a startup replay catching the stores up to each other,
+// where its hash already includes the block and writing it again would count it twice.
+func writeStore[T vtype.VType](
+	s *CommitStore,
+	store snapshot.SnapshotEngine,
+	dbDir string,
+	values map[string]T,
+	version int64,
+	alreadyHave map[string]int64,
+) func() error {
+	return func() error {
+		if alreadyHave[dbDir] >= version {
+			return nil
+		}
+		if err := serializeAndPut(store, values); err != nil {
+			return fmt.Errorf("write %s values: %w", dbDir, err)
+		}
+		addKVPairs(s.ctx, dbDir, len(values))
+		return nil
+	}
 }
 
 // serializeAndPut writes values into the store's current version, to be sealed by the next Commit. A
@@ -249,15 +273,18 @@ func serializeAndPut[T vtype.VType](store snapshot.SnapshotEngine, values map[st
 	if len(values) == 0 {
 		return nil
 	}
-	pairs := make([]*proto.KVPair, 0, len(values))
+	// One slice of values rather than a slice of pointers, and the physical keys handed over as the
+	// strings they already are: the store keys its own structures by string, so converting them to
+	// []byte here only to have them converted back is the whole cost of this loop.
+	pairs := make([]snapshot.StringKVPair, 0, len(values))
 	for key, value := range values {
 		if value.IsDelete() {
-			pairs = append(pairs, &proto.KVPair{Key: []byte(key), Delete: true})
+			pairs = append(pairs, snapshot.StringKVPair{Key: key, Delete: true})
 			continue
 		}
-		pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: value.Serialize()})
+		pairs = append(pairs, snapshot.StringKVPair{Key: key, Value: value.Serialize()})
 	}
-	if err := store.BatchSet(pairs); err != nil {
+	if err := store.BatchSetString(pairs); err != nil {
 		return fmt.Errorf("batch write: %w", err)
 	}
 	return nil
