@@ -57,8 +57,10 @@ func envNameFor(t *testing.T, key string) string {
 // is what makes layering the only safe shape rather than a preference.
 func TestARealBootAnswersForKeysItDoesNotEnumerate(t *testing.T) {
 	configtest.Isolate(t)
-	// A key the construction reads that a generated app.toml does not carry.
-	const unenumerated = "evm.max_tx_pool_txs"
+	// A key the construction reads that a generated app.toml does not carry, and that no section
+	// declares. evm used to serve here and no longer can: once a section declares a key, the registry
+	// resolves it and the environment reaches it through the declared spelling instead.
+	const unenumerated = "receipt-store.backend"
 	t.Setenv(envNameFor(t, unenumerated), "4242")
 
 	ctx := bootSource(t)
@@ -85,7 +87,7 @@ func TestARealBootAnswersForKeysItDoesNotEnumerate(t *testing.T) {
 // do that, because the key is never touched.
 func TestInstallingIntoARealBootKeepsTheEnvironmentValue(t *testing.T) {
 	configtest.Isolate(t)
-	const unenumerated = "evm.max_tx_pool_txs"
+	const unenumerated = "receipt-store.backend"
 	t.Setenv(envNameFor(t, unenumerated), "4242")
 
 	ctx := bootSource(t)

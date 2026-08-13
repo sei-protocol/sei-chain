@@ -1,6 +1,7 @@
 package params
 
 import (
+	"github.com/sei-protocol/sei-chain/config/registry"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
@@ -95,7 +96,9 @@ const (
 
 // IsFullnodeType returns true if the node is a fullnode-like node (full or archive)
 func (m NodeMode) IsFullnodeType() bool {
-	return m == NodeModeFull || m == NodeModeArchive
+	// Read from one definition rather than spelled out here, because a section's own package needs the
+	// same fact to state a mode-varying baseline and cannot import this one.
+	return registry.IsFullnodeMode(registry.Mode(m))
 }
 
 // setValidatorTypeTendermintConfig sets common Tendermint config for validator-like nodes
@@ -198,7 +201,10 @@ func SetAppConfigByMode(config *srvconfig.Config, mode NodeMode) {
 // SetEVMConfigByMode sets EVM config based on node mode
 // Validators and seeds have EVM disabled, full nodes and archives have it enabled
 func SetEVMConfigByMode(config *evmrpcconfig.Config, mode NodeMode) {
-	evmEnabled := mode.IsFullnodeType()
-	config.HTTPEnabled = evmEnabled
-	config.WSEnabled = evmEnabled
+	// Read from the section's own definition rather than decided here, so what seid init writes and
+	// what the registry resolves for a mode are the same values by construction. Only the two fields a
+	// mode changes are copied, so this stays an adjustment to a config the caller already built.
+	defaults := evmrpcconfig.DefaultConfigForMode(registry.Mode(mode))
+	config.HTTPEnabled = defaults.HTTPEnabled
+	config.WSEnabled = defaults.WSEnabled
 }

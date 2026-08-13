@@ -2,6 +2,7 @@ package configmanager
 
 import (
 	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -40,10 +41,15 @@ func installResolved(cmd *cobra.Command, log *slog.Logger) {
 		log.Warn("cannot read the values sei.toml writes; every key reads as it always has", "err", err)
 		return
 	}
-	// The written values are a layer over the baselines, not a separate thing. A key the file writes is
-	// the operator's decision and beats the baseline; a key it omits takes the baseline for this mode.
-	// Resolving without the file would install baselines over the top of what the operator chose.
-	resolved, err := registry.Resolve(registry.Mode(mode), registry.FileLayer(written))
+	// Both channels an operator can use, in the order Precedence declares: the file beats the baseline,
+	// and the environment beats the file. Omitting either installs a lower layer over the top of what
+	// the operator chose, which is a value silently ignored rather than a value overridden.
+	//
+	// The environment layer is driven by the declared set, since an environment cannot be enumerated for
+	// a prefix. That is only possible for a declared key, which is the same reason an undeclared key is
+	// left to the source that already answers it.
+	resolved, err := registry.Resolve(registry.Mode(mode),
+		registry.FileLayer(written), registry.EnvLayer(os.LookupEnv))
 	if err != nil {
 		log.Warn("cannot resolve this node's configuration; every key reads as it always has",
 			"mode", mode, "err", err)
