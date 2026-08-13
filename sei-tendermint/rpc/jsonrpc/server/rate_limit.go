@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"io"
 	"math"
 	"strings"
@@ -10,6 +11,8 @@ import (
 )
 
 const cometbftRateLimitPlane = "cometbft"
+
+var errInvalidURIMethod = errors.New("invalid URI method")
 
 // RateLimitGate applies per-IP token-bucket rate limiting for CometBFT RPC HTTP
 // requests. POST JSON-RPC bodies are parsed with MethodParser before full decode;
@@ -74,19 +77,19 @@ func (g *RateLimitGate) CheckPOST(ctx context.Context, ip string, body io.Reader
 }
 
 // CheckURI applies per-IP rate limits for REST-style GET/HEAD RPC routes.
-func (g *RateLimitGate) CheckURI(ctx context.Context, ip, method string) (allowed bool, rejectMethod string) {
+func (g *RateLimitGate) CheckURI(ctx context.Context, ip, path string) (allowed bool, rejectMethod string, err error) {
 	if !g.enabled {
-		return true, ""
+		return true, "", nil
 	}
-	method = strings.TrimPrefix(method, "/")
+	method := strings.TrimPrefix(path, "/")
 	if method == "" {
 		if !g.registry.Allow(ctx, ip, g.plane, ratelimiter.MethodInvalid) {
-			return false, ratelimiter.MethodInvalid
+			return false, ratelimiter.MethodInvalid, nil
 		}
-		return false, ""
+		return false, "", errInvalidURIMethod
 	}
 	if !g.registry.Allow(ctx, ip, g.plane, method) {
-		return false, method
+		return false, method, nil
 	}
-	return true, ""
+	return true, "", nil
 }

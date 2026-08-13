@@ -324,3 +324,19 @@ func TestWalFile_BothExist_LegacyWins(t *testing.T) {
 	assert.Equal(t, expected, cfg.WalFile(),
 		"legacy should win when both locations exist")
 }
+
+func TestRPCRateLimitKeysKebabCase(t *testing.T) {
+	const body = `
+[rpc]
+ip-rate-limit-rps = 42.5
+ip-rate-limit-burst = 50
+rate-limiting-enabled = true
+trusted-proxy-cidrs = ["10.0.0.0/8"]
+`
+	conf, err := unmarshalConfigTOML(t, body)
+	require.NoError(t, err)
+	require.Equal(t, 42.5, conf.RPC.IPRateLimitRPS)
+	require.Equal(t, 50, conf.RPC.IPRateLimitBurst)
+	require.True(t, conf.RPC.RateLimitingEnabled)
+	require.Equal(t, []string{"10.0.0.0/8"}, conf.RPC.TrustedProxyCIDRs)
+}

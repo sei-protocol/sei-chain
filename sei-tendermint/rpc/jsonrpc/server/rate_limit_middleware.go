@@ -34,7 +34,11 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	ip := m.gate.registry.IPFromHTTPRequest(r)
 	if isCometBFTURIRPCRequest(r) {
-		allowed, rejectMethod := m.gate.CheckURI(r.Context(), ip, r.URL.Path)
+		allowed, rejectMethod, checkErr := m.gate.CheckURI(r.Context(), ip, r.URL.Path)
+		if checkErr != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
 		if !allowed {
 			if rejectMethod != "" {
 				logger.Debug("rate limit rejected URI request", "ip", ip, "method", rejectMethod, "plane", m.gate.plane)

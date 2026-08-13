@@ -2,7 +2,6 @@ package rpc
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/rs/cors"
@@ -76,18 +75,20 @@ func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) http.Handler {
 	if rpcConfig.IsCorsEnabled() {
 		rootHandler = addCORSHandler(rpcConfig, mux)
 	}
-	rateLimitRegistry, err := ratelimiter.New(rpcConfig.RateLimiterConfig())
-	if err != nil {
-		panic(fmt.Errorf("inspect rpc rate limiter: %w", err))
+	var rateLimitGate *server.RateLimitGate
+	if rpcConfig.RateLimitingEnabled {
+		rateLimitRegistry, err := ratelimiter.New(rpcConfig.RateLimiterConfig())
+		if err != nil {
+			logger.Error("RPC rate limiter disabled: invalid configuration", "err", err)
+		} else {
+			rateLimitGate = server.NewRateLimitGate(
+				rateLimitRegistry,
+				rpcConfig.MaxBodyBytes,
+				true,
+			)
+		}
 	}
-	rootHandler = server.NewRateLimitMiddleware(
-		rootHandler,
-		server.NewRateLimitGate(
-			rateLimitRegistry,
-			rpcConfig.MaxBodyBytes,
-			rpcConfig.RateLimitingEnabled,
-		),
-	)
+	rootHandler = server.NewRateLimitMiddleware(rootHandler, rateLimitGate)
 	return rootHandler
 }
 

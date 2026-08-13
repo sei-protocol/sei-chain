@@ -539,26 +539,26 @@ type RPCConfig struct {
 
 	// IPRateLimitRPS is the per-IP sustained request rate in requests/second for
 	// CometBFT RPC HTTP (:26657). Zero disables the token bucket (no HTTP 429
-	// rejections). When rate_limiting_enabled is true, the admission middleware
+	// rejections). When rate-limiting-enabled is true, the admission middleware
 	// still runs: bodies are parsed and oversize/malformed requests are rejected
 	// before dispatch.
-	IPRateLimitRPS float64 `mapstructure:"ip_rate_limit_rps"`
+	IPRateLimitRPS float64 `mapstructure:"ip-rate-limit-rps"`
 
 	// IPRateLimitBurst is the maximum per-IP burst size. Zero disables the token
-	// bucket (same effect as ip_rate_limit_rps = 0) and does not bypass the
-	// admission middleware when rate_limiting_enabled is true. Should be at least
+	// bucket (same effect as ip-rate-limit-rps = 0) and does not bypass the
+	// admission middleware when rate-limiting-enabled is true. Should be at least
 	// the JSON-RPC batch size limit (10) because the rate limiter charges one
 	// token per batch element.
-	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
+	IPRateLimitBurst int `mapstructure:"ip-rate-limit-burst"`
 
 	// RateLimitingEnabled is the master switch for the rate-limit admission
 	// middleware on the CometBFT RPC HTTP plane. When false, requests bypass
 	// method extraction and all rejections from that layer (HTTP 400/413/429).
-	RateLimitingEnabled bool `mapstructure:"rate_limiting_enabled"`
+	RateLimitingEnabled bool `mapstructure:"rate-limiting-enabled"`
 
 	// TrustedProxyCIDRs lists CIDRs whose X-Forwarded-For headers are trusted when
 	// resolving the client IP for rate limiting. Empty means trust no proxy.
-	TrustedProxyCIDRs []string `mapstructure:"trusted_proxy_cidrs"`
+	TrustedProxyCIDRs []string `mapstructure:"trusted-proxy-cidrs"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -658,7 +658,7 @@ func (cfg *RPCConfig) ValidateBasic() error {
 		return errors.New("max-search-scan-budget can't be negative")
 	}
 	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.IPRateLimitBurst < 10 {
-		return fmt.Errorf("ip_rate_limit_burst (%d) must be >= 10: the rate limiter charges one token per batch element",
+		return fmt.Errorf("ip-rate-limit-burst (%d) must be >= 10: the rate limiter charges one token per batch element",
 			cfg.IPRateLimitBurst)
 	}
 	return nil

@@ -363,18 +363,19 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 			})
 			rootHandler = corsMiddleware.Handler(mux)
 		}
-		rateLimitRegistry, err := ratelimiter.New(conf.RPC.RateLimiterConfig())
-		if err != nil {
-			return nil, fmt.Errorf("rpc rate limiter: %w", err)
-		}
-		rootHandler = rpcserver.NewRateLimitMiddleware(
-			rootHandler,
-			rpcserver.NewRateLimitGate(
+		var rateLimitGate *rpcserver.RateLimitGate
+		if conf.RPC.RateLimitingEnabled {
+			rateLimitRegistry, err := ratelimiter.New(conf.RPC.RateLimiterConfig())
+			if err != nil {
+				return nil, fmt.Errorf("rpc rate limiter: %w", err)
+			}
+			rateLimitGate = rpcserver.NewRateLimitGate(
 				rateLimitRegistry,
 				conf.RPC.MaxBodyBytes,
-				conf.RPC.RateLimitingEnabled,
-			),
-		)
+				true,
+			)
+		}
+		rootHandler = rpcserver.NewRateLimitMiddleware(rootHandler, rateLimitGate)
 		if conf.RPC.IsTLSEnabled() {
 			go func() {
 				if err := rpcserver.ServeTLS(
