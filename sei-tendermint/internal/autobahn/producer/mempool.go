@@ -29,14 +29,15 @@ type blockSpec struct {
 	evmNonces map[common.Address]uint64
 }
 
-// mempool is the Watch target on State.mempool. Watch cannot replace its
-// value, so the optional mempoolInner lives here (None when not producing).
+// mempool is one produce session. State.mempool publishes it; nil means idle.
 type mempool struct {
-	inner utils.Option[*mempoolInner]
+	inner utils.Watch[*mempoolInner]
 }
 
-// mempoolInner exists only while producing on a local lane.
+// mempoolInner is the lock-protected session state. The Watch value is fixed for
+// the session; closed ends the session without replacing that pointer.
 type mempoolInner struct {
+	closed    bool
 	capacity  uint64
 	lane      types.LaneID
 	first     types.BlockNumber
@@ -79,18 +80,26 @@ func (m *mempoolInner) SealBlock() {
 // TODO(gprusak): this rpc is probably unused, but if it is
 // consider whether unsequenced/unexecuted lane txs should be included here.
 func (s *State) UnconfirmedTxs() [][]byte {
-	for mp := range s.mempool.Lock() {
-		if m, ok := mp.inner.Get(); ok {
-			return m.nextBlock.txs
-		}
+	mp := s.mempool.Load()
+	if mp == nil {
 		return nil
+	}
+	for m := range mp.inner.Lock() {
+		if m.closed {
+			return nil
+		}
+		return m.nextBlock.txs
 	}
 	panic("unreachable")
 }
 
 func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
-	for mp := range s.mempool.Lock() {
-		if m, ok := mp.inner.Get(); ok {
+	mp := s.mempool.Load()
+	if mp == nil {
+		return s.app.EvmNonce(addr)
+	}
+	for m := range mp.inner.Lock() {
+		if !m.closed {
 			if nonce, ok := m.evmNonces[addr]; ok {
 				return nonce
 			}
@@ -100,20 +109,24 @@ func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 }
 
 func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
-	for mp := range s.mempool.Lock() {
-		if m, ok := mp.inner.Get(); ok {
-			tx, ok := m.evmTxs[hash]
-			return tx, ok
-		}
+	mp := s.mempool.Load()
+	if mp == nil {
 		return nil, false
+	}
+	for m := range mp.inner.Lock() {
+		if m.closed {
+			return nil, false
+		}
+		tx, ok := m.evmTxs[hash]
+		return tx, ok
 	}
 	panic("unreachable")
 }
 
 // Removes txs from mempool assigned to lane blocks <n.
-func (s *State) pruneMempool(m *mempoolInner, n types.BlockNumber) {
-	for _, ctrl := range s.mempool.Lock() {
-		if n < m.first {
+func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
+	for m, ctrl := range mp.inner.Lock() {
+		if m.closed || n < m.first {
 			return
 		}
 		ctrl.Updated()
@@ -188,52 +201,36 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		return nil, errTooLarge
 	}
 
-	for mp, ctrl := range s.mempool.Lock() {
-		var m *mempoolInner
-		for {
-			local, ok := s.consensus.Avail().LocalLane().Get()
-			if !ok {
-				return nil, ErrNotProducing
-			}
-			m, ok = mp.inner.Get()
-			if !ok || m.lane != local {
-				if !waitIfFull {
-					return nil, ErrNotProducing
-				}
-				if err := ctrl.WaitUntil(ctx, func() bool {
-					loc, ok := s.consensus.Avail().LocalLane().Get()
-					if !ok {
-						return true
-					}
-					m, ok := mp.inner.Get()
-					return ok && m.lane == loc
-				}); err != nil {
-					return nil, err
-				}
-				continue
-			}
-			if !m.IsFull() {
-				break
-			}
-			if !waitIfFull {
-				return nil, errMempoolFull
-			}
+	mp := s.mempool.Load()
+	if mp == nil {
+		return nil, ErrNotProducing
+	}
+	for m, ctrl := range mp.inner.Lock() {
+		if m.closed {
+			return nil, ErrNotProducing
+		}
+		// Session lane must still be this node's LocalLane.
+		if loc, ok := s.consensus.Avail().LocalLane().Get(); !ok || loc != m.lane {
+			return nil, ErrNotProducing
+		}
+		if m.IsFull() && !waitIfFull {
+			return nil, errMempoolFull
+		}
+		for m.IsFull() {
 			// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
 			// in favor of waiting for smaller txs. This simple algorithm allows us to cap
 			// pending txs to size of a single block. We can refine this rule later if needed.
 			// NOTE: in case there are N concurrent InsertTx calls, this condition is reevaluated N times
 			// every time mempool is updated. Depending on proportion of N to the block size it might get too
 			// expensive.
-			// Also wake when LocalLane clears so InsertTx cannot stall on IsFull forever.
-			if err := ctrl.WaitUntil(ctx, func() bool {
-				loc, ok := s.consensus.Avail().LocalLane().Get()
-				if !ok {
-					return true
-				}
-				m, ok := mp.inner.Get()
-				return !ok || m.lane != loc || !m.IsFull()
-			}); err != nil {
+			if err := ctrl.Wait(ctx); err != nil {
 				return nil, err
+			}
+			if m.closed {
+				return nil, ErrNotProducing
+			}
+			if loc, ok := s.consensus.Avail().LocalLane().Get(); !ok || loc != m.lane {
+				return nil, ErrNotProducing
 			}
 		}
 		if resp.IsEVM {

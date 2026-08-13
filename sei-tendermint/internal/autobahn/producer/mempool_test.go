@@ -262,10 +262,16 @@ func (env *testEnv) alignLocalMempool() {
 
 // waitUntilProducing waits until runMempool has aligned the session mempool.
 func (env *testEnv) waitUntilProducing(ctx context.Context) error {
-	for mp, ctrl := range env.state.mempool.Lock() {
-		return ctrl.WaitUntil(ctx, func() bool { return mp.inner.IsPresent() })
+	for {
+		if env.state.mempool.Load() != nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Millisecond):
+		}
 	}
-	panic("unreachable")
 }
 
 func TestInsertTx_TooLargeTx(t *testing.T) {
@@ -496,20 +502,30 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 				return err
 			}
 		}
-		for mp, ctrl := range env.state.mempool.Lock() {
-			if err := ctrl.WaitUntil(ctx, func() bool {
-				m, ok := mp.inner.Get()
-				if !ok {
-					return true
-				}
-				for _, tx := range txs {
-					if _, ok := m.evmTxs[tx.EVMHash]; ok {
-						return false
+		for {
+			mp := env.state.mempool.Load()
+			if mp == nil {
+				break
+			}
+			done := false
+			for m, ctrl := range mp.inner.Lock() {
+				if err := ctrl.WaitUntil(ctx, func() bool {
+					if m.closed {
+						return true
 					}
+					for _, tx := range txs {
+						if _, ok := m.evmTxs[tx.EVMHash]; ok {
+							return false
+						}
+					}
+					return true
+				}); err != nil {
+					return err
 				}
-				return true
-			}); err != nil {
-				return err
+				done = true
+			}
+			if done {
+				break
 			}
 		}
 		return nil
@@ -569,9 +585,14 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		if _, err := env.state.TryInsertTx(ctx, env.genTx(rng, addr, app.EvmNonce(addr)).encode()); !errors.Is(err, ErrNotProducing) {
 			return fmt.Errorf("TryInsertTx after leave: got %v, want ErrNotProducing", err)
 		}
-		for mp, ctrl := range env.state.mempool.Lock() {
-			if err := ctrl.WaitUntil(ctx, func() bool { return !mp.inner.IsPresent() }); err != nil {
-				return err
+		for {
+			if env.state.mempool.Load() == nil {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Millisecond):
 			}
 		}
 
