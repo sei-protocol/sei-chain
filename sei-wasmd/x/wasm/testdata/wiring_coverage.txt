@@ -13,3 +13,4 @@ wasm	CheckEveryRowHasADiscriminatingSeed
 wasm	CheckKeyNames
 wasm	CheckManifestCoversEveryField
 wasm	CheckRow
+wasm	CheckSchemaMatchesTheReader

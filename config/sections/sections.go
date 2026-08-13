@@ -21,6 +21,7 @@ import (
 	_ "github.com/sei-protocol/sei-chain/evmrpc/config"
 	_ "github.com/sei-protocol/sei-chain/giga/executor/config"
 	_ "github.com/sei-protocol/sei-chain/sei-db/config"
+	_ "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	_ "github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	_ "github.com/sei-protocol/sei-chain/x/evm/querier"
 	_ "github.com/sei-protocol/sei-chain/x/evm/replay"
@@ -40,6 +41,7 @@ var Names = []string{
 	"giga_executor",
 	"light_invariance",
 	"receipt-store",
+	"wasm",
 }
 
 // Missing returns the declared sections the registry does not hold, sorted.

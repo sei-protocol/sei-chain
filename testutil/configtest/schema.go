@@ -72,6 +72,18 @@ func CheckSchemaMatchesTheReader(t testing.TB, section string, c SchemaCheck) {
 			t.Errorf("%s: the resolver produced no baseline for %q", section, key)
 			continue
 		}
+		// The probe has to be the shape the schema declares, because that is the shape the resolved
+		// configuration delivers. A probe of some other shape tests a value no operator could cause to
+		// arrive, and a reader that accepts only one shape would look as though it accepted the
+		// declared one. The simulation gas limit is the case: its reader takes a non-empty string and
+		// ignores a number, so declaring it as a number gives an operator a setting that never applies.
+		if want, got := reflect.TypeOf(baseline.Value), reflect.TypeOf(probe); want != got {
+			t.Errorf("%s: the schema declares %q as %v and the probe is %v. The resolved configuration "+
+				"delivers the declared shape, so a probe of another shape checks a value that cannot "+
+				"arrive; make the probe match, or the schema match what the reader takes",
+				section, key, want, got)
+			continue
+		}
 		if sameValue(probe, baseline.Value) {
 			t.Errorf("%s: the probe for %q is %v, which is also its baseline. The reader's output would "+
 				"be identical either way, so this would hold for a key nothing reads",
@@ -200,8 +212,15 @@ func sameValue(a, b any) bool {
 		}
 		bv = bv.Elem()
 	}
-	if !av.IsValid() || !bv.IsValid() {
-		return av.IsValid() == bv.IsValid()
+	// A reader may hold an optional setting as a pointer and leave it nil when nothing is written,
+	// while a schema declares the type the key carries and says "nothing written" with that type's
+	// zero. Those are the same state, so they compare equal here. A non-zero baseline against an
+	// unset setting still does not, which is the drift worth catching.
+	if !av.IsValid() {
+		return !bv.IsValid() || bv.IsZero()
+	}
+	if !bv.IsValid() {
+		return av.IsZero()
 	}
 	if number(av.Kind()) && number(bv.Kind()) {
 		return fmt.Sprintf("%v", av.Interface()) == fmt.Sprintf("%v", bv.Interface())
