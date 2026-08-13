@@ -58,11 +58,6 @@ const (
 	// so deleted data accumulates and slows every subsequent prune scan. Allowing
 	// Pebble to burst up to a few compactions clears that backlog.
 	maxConcurrentCompactions = 4
-
-	// earliestVersionAdvanceAttempts bounds the retries a prune pass makes when
-	// it raises the earliest-version marker before deleting. See
-	// Database.advanceEarliestVersion.
-	earliestVersionAdvanceAttempts = 3
 )
 
 var (
@@ -76,7 +71,8 @@ type Database struct {
 	asyncWriteWG sync.WaitGroup
 	config       config.StateStoreConfig
 	// Earliest version for db after pruning
-	earliestVersion atomic.Int64
+	earliestVersion   atomic.Int64
+	earliestVersionMu sync.Mutex
 	// Latest version for db
 	latestVersion atomic.Int64
 	// descending indicates whether this DB uses descending-version MVCC
@@ -401,21 +397,21 @@ func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error 
 	if version < 0 {
 		return fmt.Errorf("version must be non-negative")
 	}
+	db.earliestVersionMu.Lock()
+	defer db.earliestVersionMu.Unlock()
+
 	earliestVersion := db.earliestVersion.Load()
-	if version > earliestVersion || ignoreVersion {
-		swapped := db.earliestVersion.CompareAndSwap(earliestVersion, version)
-		if swapped {
-			var ts [VersionSize]byte
-			binary.LittleEndian.PutUint64(ts[:], uint64(version))
-			err := db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
-			if err == nil {
-				db.operationMetrics.AddWrite(1)
-			}
-			return err
-		} else {
-			return fmt.Errorf("failed to set earliest version to: %d", version)
-		}
+	if version <= earliestVersion && !ignoreVersion {
+		return nil
 	}
+
+	var ts [VersionSize]byte
+	binary.LittleEndian.PutUint64(ts[:], uint64(version))
+	if err := db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts); err != nil {
+		return err
+	}
+	db.earliestVersion.Store(version)
+	db.operationMetrics.AddWrite(1)
 	return nil
 }
 
@@ -426,24 +422,13 @@ func (db *Database) GetEarliestVersion() int64 {
 // advanceEarliestVersion raises the earliest-version marker to target for a
 // prune pass that has not deleted anything yet.
 //
-// SetEarliestVersion fails its compare-and-swap when another writer moves the
-// marker at the same moment; in practice that writer is the state-sync restore
-// path. Retrying resolves it, and the pass has to keep going rather than return
-// the error: this call runs ahead of the deletes, so abandoning the pass here
-// reclaims nothing. A marker another writer already raised past target is not a
-// failure — SetEarliestVersion reports success for it.
-//
-// Persistence failures are still returned. Deleting history under a marker that
-// only moved in memory would advertise, after a restart, versions the pass has
-// already dropped.
+// SetEarliestVersion serializes competing writers and changes the in-memory
+// marker only after Pebble accepts the metadata write. A persistence failure is
+// therefore returned with both markers unchanged. Deleting history under a
+// marker that only moved in memory would advertise, after a restart, versions
+// the pass has already dropped.
 func (db *Database) advanceEarliestVersion(target int64) error {
-	var err error
-	for range earliestVersionAdvanceAttempts {
-		if err = db.SetEarliestVersion(target, false); err == nil {
-			return nil
-		}
-	}
-	return err
+	return db.SetEarliestVersion(target, false)
 }
 
 // Retrieves earliest version from db, if not found, return 0

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/cockroachdb/pebble/v2/vfs"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -184,4 +185,26 @@ func TestAdvanceEarliestVersionAcceptsAHigherMarker(t *testing.T) {
 	require.NoError(t, db.advanceEarliestVersion(151))
 	require.Equal(t, int64(200), db.GetEarliestVersion(),
 		"the target must not lower a marker another writer raised past it")
+}
+
+// TestAdvanceEarliestVersionReturnsPersistenceFailure pins that Pebble must
+// accept the metadata write before the in-memory marker moves. Otherwise a
+// later call with the same target would see the target in memory, return nil,
+// and let pruning delete history under a marker that was never persisted.
+func TestAdvanceEarliestVersionReturnsPersistenceFailure(t *testing.T) {
+	fs := vfs.NewMem()
+	storage, err := pebble.Open("db", &pebble.Options{FS: fs})
+	require.NoError(t, err)
+	require.NoError(t, storage.Close())
+
+	storage, err = pebble.Open("db", &pebble.Options{FS: fs, ReadOnly: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+
+	db := &Database{storage: storage}
+	err = db.advanceEarliestVersion(151)
+
+	require.ErrorIs(t, err, pebble.ErrReadOnly)
+	require.Zero(t, db.GetEarliestVersion(),
+		"a failed metadata write must not move the in-memory marker")
 }
