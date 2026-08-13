@@ -309,3 +309,72 @@ func TestTheBuiltSourceIsWhatAppNewTakes(t *testing.T) {
 		t.Errorf("read through the interface a node uses, legacy.key is %#v", opts.Get("legacy.key"))
 	}
 }
+
+// answersMoreThanItLists is a source that answers for a key it does not enumerate.
+//
+// Exactly what a boot viper does. It resolves an environment variable on Get whether or not the key
+// appears in a file, and AllKeys lists only what a file or a flag put there, so a value an operator
+// delivered through the environment is readable and invisible at the same time.
+type answersMoreThanItLists struct {
+	listed map[string]any
+	hidden map[string]any
+}
+
+func (s answersMoreThanItLists) AllKeys() []string {
+	out := make([]string, 0, len(s.listed))
+	for k := range s.listed {
+		out = append(out, k)
+	}
+	return out
+}
+
+func (s answersMoreThanItLists) Get(key string) any {
+	if v, ok := s.listed[key]; ok {
+		return v
+	}
+	return s.hidden[key]
+}
+
+// TestAKeyTheSourceAnswersButDoesNotListIsNotCarried is the limit that stops this replacing the boot
+// source, and it is here so nobody discovers it on a node.
+//
+// Build walks AllKeys, so it can only carry what the source enumerates. A boot viper resolves an
+// environment variable on Get without listing the key, which means an operator who delivered a value
+// that way has it read today and would have it silently replaced by a code default if this source were
+// installed in place of that viper. Measured on a real boot: of the 117 keys a construction reads, 12
+// are not enumerable, and setting one of those through the environment reads 4242 from the boot viper
+// and nil from what this builds.
+//
+// Closing it needs the key space to come from somewhere other than AllKeys, since an environment
+// cannot be enumerated for a prefix. The recorded set of keys a construction reads is that somewhere,
+// which makes the record load-bearing at run time rather than only in tests, and that is a decision
+// rather than a detail.
+func TestAKeyTheSourceAnswersButDoesNotListIsNotCarried(t *testing.T) {
+	registry.Reset()
+	source := answersMoreThanItLists{
+		listed: map[string]any{"in.the.file": 1},
+		hidden: map[string]any{"only.in.the.environment": "4242"},
+	}
+
+	built, report, err := appopts.Build(source, registry.Resolved{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	if got := built.Get("in.the.file"); got != 1 {
+		t.Errorf("an enumerated key reads %#v, want 1", got)
+	}
+	if source.Get("only.in.the.environment") != "4242" {
+		t.Fatal("the fixture does not answer for its hidden key, so this test measures nothing")
+	}
+	if got := built.Get("only.in.the.environment"); got != nil {
+		t.Errorf("the unlisted key reads %#v from what Build produced. If that has become possible, "+
+			"the key space no longer comes from AllKeys alone and this test should say what it does "+
+			"come from", got)
+	}
+	if report.Total() != 1 {
+		t.Errorf("the report accounts for %d keys, want the 1 the source lists. A key the source never "+
+			"listed cannot appear in the report either, which is why the report cannot be the thing "+
+			"that notices this", report.Total())
+	}
+}
