@@ -109,6 +109,7 @@ type SyncerConfig struct {
 	EventBus              *eventbus.EventBus
 	RestartEvent          func()
 	SelfRemediationConfig *config.SelfRemediationConfig
+	FreezeHeight          uint64
 }
 
 // Reactor owns the blocksync channel and always-on query serving path, while
@@ -156,6 +157,7 @@ type syncController struct {
 	blocksBehindThreshold     uint64
 	blocksBehindCheckInterval time.Duration
 	restartCooldownSeconds    uint64
+	freezeHeight              uint64
 
 	// blocksyncReady fires when the active sync routines should begin processing
 	// work, either during OnStart or later via SwitchToBlockSync.
@@ -189,6 +191,7 @@ func NewReactor(
 			blocksBehindThreshold:     cfg.SelfRemediationConfig.BlocksBehindThreshold,
 			blocksBehindCheckInterval: time.Duration(cfg.SelfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 			restartCooldownSeconds:    cfg.SelfRemediationConfig.RestartCooldownSeconds,
+			freezeHeight:              cfg.FreezeHeight,
 			blocksyncReady:            utils.NewAtomicSend(utils.None[blocksyncResult]()),
 			startInBlockSync:          cfg.BlockSync,
 		}
@@ -378,6 +381,9 @@ func (s *syncController) run(ctx context.Context) error {
 		if r, ok := s.consReactor.Get(); ok {
 			logger.Info("switching to consensus reactor", "height", handoff.height, "blocks_synced", handoff.blocksSynced, "state_synced", handoff.stateSynced, "max_peer_height", handoff.maxPeerHeight)
 			r.SwitchToConsensus(handoff.state, handoff.blocksSynced > 0 || handoff.stateSynced)
+			if s.shouldFreeze(handoff.state) {
+				return nil
+			}
 			s.autoRestartIfBehind(ctx, pool)
 		}
 		return nil
@@ -465,6 +471,10 @@ func (s *syncController) requestRoutine(ctx context.Context, pool *BlockPool) er
 //
 // NOTE: Don't sleep in the FOR_LOOP or otherwise slow it down!
 func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initialState sm.State, stateSynced bool) (consensusHandoff, error) {
+	if handoff, frozen := s.frozenHandoff(pool, initialState, 0, stateSynced); frozen {
+		return handoff, nil
+	}
+
 	var (
 		trySyncTicker           = time.NewTicker(trySyncIntervalMS * time.Millisecond)
 		switchToConsensusTicker = time.NewTicker(switchToConsensusIntervalSeconds * time.Second)
@@ -581,6 +591,9 @@ func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initi
 
 			s.metrics.RecordConsMetrics(first)
 			blocksSynced++
+			if handoff, frozen := s.frozenHandoff(pool, state, blocksSynced, stateSynced); frozen {
+				return handoff, nil
+			}
 
 			if blocksSynced%100 == 0 {
 				lastRate = 0.9*lastRate + 0.1*(100/time.Since(lastHundred).Seconds())
@@ -594,6 +607,26 @@ func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initi
 			}
 		}
 	}
+}
+
+func (s *syncController) frozenHandoff(pool *BlockPool, state sm.State, blocksSynced uint64, stateSynced bool) (consensusHandoff, bool) {
+	if !s.shouldFreeze(state) {
+		return consensusHandoff{}, false
+	}
+	height, _, _ := pool.GetStatus()
+	logger.Info("Block sync stopped before configured freeze height", "last_block_height", state.LastBlockHeight, "freeze_height", s.freezeHeight)
+	return consensusHandoff{
+		state:         state,
+		blocksSynced:  blocksSynced,
+		stateSynced:   stateSynced,
+		height:        height,
+		maxPeerHeight: pool.MaxPeerHeight(),
+	}, true
+}
+
+func (s *syncController) shouldFreeze(state sm.State) bool {
+	height := startHeightForState(state)
+	return s.freezeHeight > 0 && height >= 0 && uint64(height) >= s.freezeHeight //nolint:gosec // negative heights are rejected first.
 }
 
 // autoRestartIfBehind will check if the node is behind the max peer height by

@@ -667,6 +667,27 @@ func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {
 	t.Fatal("did not receive block response")
 }
 
+func TestPoolRoutineHandsOffAtFreezeHeight(t *testing.T) {
+	const freezeHeight = int64(10)
+	pool := NewBlockPool(freezeHeight, nil)
+	syncer := &syncController{freezeHeight: uint64(freezeHeight)} //nolint:gosec // the test height is positive.
+	state := sm.State{InitialHeight: 1, LastBlockHeight: freezeHeight - 1}
+
+	handoff, err := syncer.poolRoutine(t.Context(), pool, state, false)
+	if err != nil {
+		t.Fatalf("poolRoutine: %v", err)
+	}
+	if handoff.state.LastBlockHeight != freezeHeight-1 {
+		t.Fatalf("handoff state height = %d, want %d", handoff.state.LastBlockHeight, freezeHeight-1)
+	}
+	if handoff.height != freezeHeight {
+		t.Fatalf("handoff pool height = %d, want %d", handoff.height, freezeHeight)
+	}
+	if handoff.blocksSynced != 0 {
+		t.Fatalf("handoff blocks synced = %d, want 0", handoff.blocksSynced)
+	}
+}
+
 func TestQueryResponder_ServesStatusRequestsWhenBlockSyncDisabled(t *testing.T) {
 	ctx := t.Context()
 
