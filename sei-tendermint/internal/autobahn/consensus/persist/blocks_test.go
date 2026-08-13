@@ -20,10 +20,9 @@ func testSignedProposal(rng utils.Rng, key types.SecretKey, n types.BlockNumber)
 func testPersistBlock(t *testing.T, bp *BlockPersister, p *types.Signed[*types.LaneProposal]) {
 	t.Helper()
 	lane := p.Msg().Block().Header().Lane()
-	require.NoError(t, bp.MaybePruneAndPersistLane(
+	require.NoError(t, bp.PruneAndPersist(
 		lane,
-		true,
-		utils.None[types.BlockNumber](),
+		0,
 		[]*types.Signed[*types.LaneProposal]{p},
 	))
 }
@@ -210,8 +209,8 @@ func TestNoOpBlockPersister(t *testing.T) {
 		proposals[i] = testSignedProposal(rng, key, types.BlockNumber(i))
 	}
 
-	require.NoError(t, bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), proposals[:3]))
-	require.NoError(t, bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), proposals[3:]))
+	require.NoError(t, bp.PruneAndPersist(lane, 0, proposals[:3]))
+	require.NoError(t, bp.PruneAndPersist(lane, 0, proposals[3:]))
 	require.NoError(t, bp.Close())
 }
 
@@ -288,7 +287,7 @@ func TestDeleteBeforePastAllRejectsStaleBlock(t *testing.T) {
 
 	// Writing a stale block number (0) should be rejected.
 	stale := testSignedProposal(rng, key, 0)
-	err = bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), []*types.Signed[*types.LaneProposal]{stale})
+	err = bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{stale})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "out of sequence")
 
@@ -392,13 +391,13 @@ func TestPersistBlockOutOfSequence(t *testing.T) {
 
 	// Gap: skip block 1, try block 2.
 	gap := testSignedProposal(rng, key, 2)
-	err = bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), []*types.Signed[*types.LaneProposal]{gap})
+	err = bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{gap})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "out of sequence")
 
 	// Duplicate: try block 0 again.
 	dup := testSignedProposal(rng, key, 0)
-	err = bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), []*types.Signed[*types.LaneProposal]{dup})
+	err = bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{dup})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "out of sequence")
 
@@ -521,7 +520,7 @@ func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 		for i := range numLanes {
 			lane := types.LaneID{Validator: keys[i].Public(), Joined: 0}
 			ps.Spawn(func() error {
-				return bp.MaybePruneAndPersistLane(lane, true, utils.None[types.BlockNumber](), proposals[i])
+				return bp.PruneAndPersist(lane, 0, proposals[i])
 			})
 		}
 		return nil
@@ -541,7 +540,8 @@ func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 	}
 }
 
-func TestMaybePruneAndPersistLane_InactiveDoesNotRecreateAfterDelete(t *testing.T) {
+// SyncLanes removes a lane WAL that PruneAndPersist opened for a lane no longer in memory.
+func TestSyncLanesDeletesOpenLane(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	bp, _, err := NewBlockPersister(utils.Some(dir))
@@ -554,48 +554,15 @@ func TestMaybePruneAndPersistLane_InactiveDoesNotRecreateAfterDelete(t *testing.
 		types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)),
 	))
 
-	require.NoError(t, bp.MaybePruneAndPersistLane(
-		lane,
-		true,
-		utils.None[types.BlockNumber](),
-		[]*types.Signed[*types.LaneProposal]{proposal},
-	))
-	lanePath := filepath.Join(dir, blocksDir, laneDir(lane))
-	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
-	_, err = os.Stat(lanePath)
-	require.True(t, os.IsNotExist(err))
-	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
-
-	require.NoError(t, bp.MaybePruneAndPersistLane(
-		lane,
-		false,
-		utils.None[types.BlockNumber](),
-		nil,
-	))
-	_, err = os.Stat(lanePath)
-	require.True(t, os.IsNotExist(err))
-}
-
-func TestMaybePruneAndPersistLane_InactiveWithProposalsCreatesWAL(t *testing.T) {
-	rng := utils.TestRng()
-	dir := t.TempDir()
-	bp, _, err := NewBlockPersister(utils.Some(dir))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = bp.Close() })
-
-	leaver := types.GenSecretKey(rng)
-	lane := types.LaneID{Validator: leaver.Public(), Joined: 0}
-	proposal := types.Sign(leaver, types.NewLaneProposal(
-		types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)),
-	))
-
-	require.NoError(t, bp.MaybePruneAndPersistLane(
-		lane,
-		true,
-		utils.None[types.BlockNumber](),
-		[]*types.Signed[*types.LaneProposal]{proposal},
-	))
+	require.NoError(t, bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{proposal}))
 	lanePath := filepath.Join(dir, blocksDir, laneDir(lane))
 	_, err = os.Stat(lanePath)
 	require.NoError(t, err)
+
+	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
+	_, err = os.Stat(lanePath)
+	require.True(t, os.IsNotExist(err))
+
+	// Idempotent.
+	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
 }

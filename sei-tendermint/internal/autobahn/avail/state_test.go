@@ -541,10 +541,9 @@ func TestNewStateWithPersistence(t *testing.T) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 			signed := types.Sign(keys[0], types.NewLaneProposal(block))
 			parent = block.Header().Hash()
-			require.NoError(t, bp.MaybePruneAndPersistLane(
+			require.NoError(t, bp.PruneAndPersist(
 				lane,
-				true,
-				utils.None[types.BlockNumber](),
+				0,
 				[]*types.Signed[*types.LaneProposal]{signed},
 			))
 		}

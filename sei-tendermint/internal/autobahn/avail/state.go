@@ -624,8 +624,6 @@ func (s *State) runEvict(ctx context.Context) error {
 		if !ok {
 			return nil
 		}
-		var keep map[types.LaneID]struct{}
-		var dropped int
 		for inner, ctrl := range s.inner.Lock() {
 			idx := anchor.CommitQC.Index()
 			if idx >= inner.roads.first {
@@ -633,20 +631,9 @@ func (s *State) runEvict(ctx context.Context) error {
 				if !ok {
 					return fmt.Errorf("no road for anchor CommitQC index %d", idx)
 				}
-				dropped = inner.prune(anchor, r.epoch)
-				if dropped > 0 {
-					keep = make(map[types.LaneID]struct{}, len(inner.blocks))
-					for lane := range inner.blocks {
-						keep[lane] = struct{}{}
-					}
-				}
+				inner.prune(anchor, r.epoch)
 			}
 			ctrl.Updated()
-		}
-		if dropped > 0 {
-			if err := persist.SyncLanes(s.persisters.blocks, keep); err != nil {
-				return err
-			}
 		}
 		return nil
 	})
@@ -689,12 +676,7 @@ func (s *State) runPersist(ctx context.Context) error {
 			})
 			for lane, batch := range batch.blocks {
 				ps.Spawn(func() error {
-					if err := s.persisters.blocks.MaybePruneAndPersistLane(
-						lane,
-						len(batch.tail) > 0,
-						utils.Some(batch.first),
-						batch.tail,
-					); err != nil {
+					if err := s.persisters.blocks.PruneAndPersist(lane, batch.first, batch.tail); err != nil {
 						return err
 					}
 					if t := batch.tail; len(t) > 0 {
