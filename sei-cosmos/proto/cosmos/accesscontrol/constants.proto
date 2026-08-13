@@ -1,0 +1,137 @@
+syntax = "proto3";
+package cosmos.accesscontrol.v1beta1;
+
+option go_package = "github.com/cosmos/cosmos-sdk/types/accesscontrol";
+
+enum AccessType {
+    UNKNOWN = 0;
+    READ = 1;
+    WRITE = 2;
+    COMMIT = 3;
+}
+
+enum AccessOperationSelectorType {
+    NONE = 0;
+    JQ = 1;
+    JQ_BECH32_ADDRESS = 2;
+    JQ_LENGTH_PREFIXED_ADDRESS = 3;
+    SENDER_BECH32_ADDRESS = 4;
+    SENDER_LENGTH_PREFIXED_ADDRESS = 5;
+    CONTRACT_ADDRESS = 6;
+    JQ_MESSAGE_CONDITIONAL = 7;
+    CONSTANT_STRING_TO_HEX = 8;
+    CONTRACT_REFERENCE = 9;
+}
+
+enum ResourceType {
+    ANY = 0;
+    KV = 1; // child of ANY
+    Mem = 2; // child of ANY
+    reserved 3; // dex deprecated
+    KV_BANK = 4; // child of KV
+    KV_STAKING = 5; // child of KV
+    KV_WASM = 6; // child of KV
+    KV_ORACLE = 7; // child of KV
+    reserved 8; // dex deprecated
+    KV_EPOCH = 9; // child of KV
+    KV_TOKENFACTORY = 10; // child of KV
+    KV_ORACLE_VOTE_TARGETS = 11; // child of KV_ORACLE
+    KV_ORACLE_AGGREGATE_VOTES = 12; // child of KV_ORACLE
+    KV_ORACLE_FEEDERS = 13; // child of KV_ORACLE
+    KV_STAKING_DELEGATION = 14; // child of KV_STAKING
+    KV_STAKING_VALIDATOR = 15; // child of KV_STAKING
+    KV_AUTH = 16; // child of KV
+    KV_AUTH_ADDRESS_STORE = 17; // child of KV
+    KV_BANK_SUPPLY = 18; // child of KV_BANK
+    KV_BANK_DENOM = 19; // child of KV_BANK
+    KV_BANK_BALANCES = 20; // child of KV_BANK
+    KV_TOKENFACTORY_DENOM = 21; // child of KV_TOKENFACTORY
+    KV_TOKENFACTORY_METADATA = 22; // child of KV_TOKENFACTORY
+    KV_TOKENFACTORY_ADMIN = 23; // child of KV_TOKENFACTORY
+    KV_TOKENFACTORY_CREATOR = 24; // child of KV_TOKENFACTORY
+    KV_ORACLE_EXCHANGE_RATE = 25; // child of KV_ORACLE
+    KV_ORACLE_VOTE_PENALTY_COUNTER = 26; // child of KV_ORACLE
+    KV_ORACLE_PRICE_SNAPSHOT = 27; // child of KV_ORACLE
+
+    KV_STAKING_VALIDATION_POWER = 28; // child of KV_STAKING
+    KV_STAKING_TOTAL_POWER = 29; // child of KV_STAKING
+    KV_STAKING_VALIDATORS_CON_ADDR = 30; // child of KV_STAKING
+    KV_STAKING_UNBONDING_DELEGATION = 31; // child of KV_STAKING
+    KV_STAKING_UNBONDING_DELEGATION_VAL = 32; // child of KV_STAKING
+    KV_STAKING_REDELEGATION = 33; // child of KV_STAKING
+    KV_STAKING_REDELEGATION_VAL_SRC = 34; // child of KV_STAKING
+    KV_STAKING_REDELEGATION_VAL_DST = 35; // child of KV_STAKING
+    KV_STAKING_REDELEGATION_QUEUE = 36; // child of KV_STAKING
+    KV_STAKING_VALIDATOR_QUEUE = 37; // child of KV_STAKING
+    KV_STAKING_HISTORICAL_INFO = 38; // child of KV_STAKING
+    KV_STAKING_UNBONDING = 39; // child of KV_STAKING
+    KV_STAKING_VALIDATORS_BY_POWER = 41; // child of KV_STAKING
+
+    KV_DISTRIBUTION = 40; // child of KV
+    KV_DISTRIBUTION_FEE_POOL = 42; // child of KV_DISTRIBUTION
+    KV_DISTRIBUTION_PROPOSER_KEY = 43; // child of KV_DISTRIBUTION
+    KV_DISTRIBUTION_OUTSTANDING_REWARDS = 44; // child of KV_DISTRIBUTION
+    KV_DISTRIBUTION_DELEGATOR_WITHDRAW_ADDR = 45; // child of KV_DISTRIBUTION
+    KV_DISTRIBUTION_DELEGATOR_STARTING_INFO = 46; // child of KV_DISTRIBUTION
+    KV_DISTRIBUTION_VAL_HISTORICAL_REWARDS = 47; // child of KV_DISTRIBUTION
+    KV_DISTRIBUTION_VAL_CURRENT_REWARDS = 48; // child of KV_DISTRIBUTION
+    KV_DISTRIBUTION_VAL_ACCUM_COMMISSION = 49; // child of KV_DISTRIBUTION
+    KV_DISTRIBUTION_SLASH_EVENT = 50; // child of KV_DISTRIBUTION
+
+    reserved 51 to 70; // dex deprecated
+
+    KV_ACCESSCONTROL = 71; // child of KV
+    KV_ACCESSCONTROL_WASM_DEPENDENCY_MAPPING = 72; // child of KV_ACCESSCONTROL
+
+    KV_WASM_CODE = 73; // child of KV_WASM
+    KV_WASM_CONTRACT_ADDRESS = 74; // child of KV_WASM
+    KV_WASM_CONTRACT_STORE = 75; // child of KV_WASM
+    KV_WASM_SEQUENCE_KEY = 76; // child of KV_WASM
+    KV_WASM_CONTRACT_CODE_HISTORY = 77; // child of KV_WASM
+    KV_WASM_CONTRACT_BY_CODE_ID = 78; // child of KV_WASM
+    KV_WASM_PINNED_CODE_INDEX = 79; // child of KV_WASM
+
+    KV_AUTH_GLOBAL_ACCOUNT_NUMBER = 80; // child of KV_AUTH
+
+    KV_AUTHZ = 81; // child of KV
+
+    KV_FEEGRANT = 82; // child of KV
+    KV_FEEGRANT_ALLOWANCE = 83; // child of KV_FEEGRANT
+
+    KV_SLASHING = 84; // child of KV
+    KV_SLASHING_VAL_SIGNING_INFO = 85; // child of KV_SLASHING
+    KV_SLASHING_ADDR_PUBKEY_RELATION_KEY = 86; // child of KV_SLASHING
+
+    reserved 87 to 92; // dex deprecated
+
+    KV_BANK_DEFERRED = 93; // child of KV
+    reserved 94;
+    KV_BANK_DEFERRED_MODULE_TX_INDEX = 95; // child of KV_BANK_DEFERRED
+
+    KV_EVM = 96; // child of KV
+    KV_EVM_BALANCE = 97; // child of KV_EVM; deprecated
+    KV_EVM_TRANSIENT = 98; // child of KV_EVM
+    KV_EVM_ACCOUNT_TRANSIENT = 99; // child of KV_EVM
+    KV_EVM_MODULE_TRANSIENT = 100; // child of KV_EVM
+    KV_EVM_NONCE = 101; // child of KV_EVM
+    KV_EVM_RECEIPT = 102; // child of KV_EVM
+    KV_EVM_S2E = 103; // child of KV_EVM
+    KV_EVM_E2S = 104; // child of KV_EVM
+    KV_EVM_CODE_HASH = 105; // child of KV_EVM
+    KV_EVM_CODE = 106; // child of KV_EVM
+    KV_EVM_CODE_SIZE = 107; // child of KV_EVM
+
+    KV_BANK_WEI_BALANCE = 108; // child of KV_BANK
+
+    reserved 109, 110; // dex deprecated
+
+    KV_CT = 111; // child of KV
+    KV_CT_ACCOUNT = 112; // child of KV_CT
+
+    reserved 113 to 115; // CT reserved
+}
+
+enum WasmMessageSubtype {
+    QUERY = 0;
+    EXECUTE = 1;
+}
