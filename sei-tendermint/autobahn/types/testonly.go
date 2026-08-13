@@ -72,7 +72,6 @@ func GenSecretKey(rng utils.Rng) SecretKey {
 }
 
 // GenCommittee generates a random Committee of the given size.
-// Each member gets an independent random joined (via GenEpochIndex).
 // Returns the generated secret keys as well.
 func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 	sks := utils.GenSliceN(rng, size, GenSecretKey)
@@ -83,8 +82,9 @@ func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 	slices.SortStableFunc(sks, func(a, b SecretKey) int {
 		return -cmp.Compare(pks[a.Public()], pks[b.Public()])
 	})
-	prev := make(map[PublicKey]LaneID, len(pks))
-	for v := range pks {
+	prev := make(map[PublicKey]LaneID, len(sks))
+	for _, sk := range sks {
+		v := sk.Public()
 		prev[v] = LaneID{Validator: v, Joined: GenEpochIndex(rng)}
 	}
 	return utils.OrPanic1(newCommittee(prev, pks, 0)), sks

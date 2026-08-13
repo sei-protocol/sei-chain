@@ -14,19 +14,11 @@ import (
 
 // LaneID identifies a validator's continuous committee membership period.
 // Joined is the epoch in which that period began.
-//
-// While the validator remains in the committee, LaneID is unchanged. Leaving
-// ends that identity; rejoining allocates a new LaneID with Joined set to the
-// join epoch. How avail drops maps for a closed LaneID is documented in
-// package avail.
-//
-// LaneID is a plain value type (passed by value); fields are public by design.
 type LaneID struct {
 	Validator PublicKey
 	Joined    EpochIndex // epoch in which this membership period began
 }
 
-// Compare orders by validator, then joined.
 func (l LaneID) Compare(other LaneID) int {
 	return cmp.Or(
 		l.Validator.Compare(other.Validator),
@@ -34,7 +26,6 @@ func (l LaneID) Compare(other LaneID) int {
 	)
 }
 
-// Bytes returns a stable encoding: pubkey bytes || big-endian joined.
 func (l LaneID) Bytes() []byte {
 	vb := l.Validator.Bytes()
 	b := make([]byte, 0, len(vb)+8)
@@ -42,7 +33,6 @@ func (l LaneID) Bytes() []byte {
 	return binary.BigEndian.AppendUint64(b, uint64(l.Joined))
 }
 
-// LaneIDFromBytes parses Bytes() encoding (exactly ed25519 pubkey || u64be joined).
 func LaneIDFromBytes(b []byte) (LaneID, error) {
 	want := ed25519.PublicKeySize + 8
 	if len(b) != want {

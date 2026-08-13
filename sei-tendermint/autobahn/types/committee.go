@@ -23,11 +23,8 @@ func (s ImSlice[T]) All() iter.Seq[T] { return slices.Values(s.s) }
 
 // Committee represents the consensus committee.
 // Lanes carry membership (validator + joined); weights are voting stake.
-//
-// Membership order compares public keys so weighted proposer selection is
-// network-wide deterministic. Lanes() uses that order.
 type Committee struct {
-	validators  ImSlice[PublicKey] // membership order
+	validators  ImSlice[PublicKey] // ordered list
 	laneIDs     ImSlice[LaneID]    // same order as validators
 	lanes       map[PublicKey]LaneID
 	weights     map[PublicKey]uint64
@@ -54,18 +51,12 @@ func (c *Committee) Lane(v PublicKey) utils.Option[LaneID] {
 	return utils.Some(lane)
 }
 
-// Replicas yields validators in PublicKey order (membership order).
-func (c *Committee) Replicas() iter.Seq[PublicKey] {
-	return c.validators.All()
-}
-
-// Lanes returns each replica's LaneID in Replicas() order.
 func (c *Committee) Lanes() ImSlice[LaneID] {
 	return c.laneIDs
 }
 
 // Deterministic random oracle selecting a replica with probability proportional to the weight.
-// Walks membership (Replicas) order so seed → PublicKey is network-wide deterministic.
+// Walks validators membership order so seed → PublicKey is network-wide deterministic.
 func (c *Committee) randomReplica(seed []byte) PublicKey {
 	h := sha256.Sum256(seed[:])
 	var x, total uint256.Int
@@ -73,7 +64,7 @@ func (c *Committee) randomReplica(seed []byte) PublicKey {
 	total.SetUint64(c.totalWeight)
 	y := x.Mod(&x, &total).Uint64()
 	// TODO(gprusak): this can be optimized to O(1) lookup
-	for k := range c.Replicas() {
+	for k := range c.validators.All() {
 		w := c.weights[k]
 		if y < w {
 			return k
@@ -142,7 +133,6 @@ func NewCommittee(weights map[PublicKey]uint64) (*Committee, error) {
 
 // DeriveNext builds the committee for epoch e>0 from this committee:
 // validators that remain keep Joined; new members get Joined = e.
-// EpochIndex lives on Epoch, not Committee.
 func (c *Committee) DeriveNext(weights map[PublicKey]uint64, e EpochIndex) (*Committee, error) {
 	if e == 0 {
 		return nil, errors.New("DeriveNext: epoch must be > 0")
