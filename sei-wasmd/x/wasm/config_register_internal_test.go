@@ -14,22 +14,19 @@ import (
 // asks the reader which setting changed, and checks the baseline against what the reader leaves that
 // setting at when nothing is written.
 func TestTheWasmSchemaDescribesTheReaderItStandsInFor(t *testing.T) {
-	for _, mode := range registry.Modes() {
-		// The section name stays a literal. The wiring record reads it from this call's second
-		// argument, so a constant would record every schema check under one placeholder row.
-		configtest.CheckSchemaMatchesTheReader(t, "wasm", configtest.SchemaCheck{
-			Mode: mode,
-			Read: func(opts configtest.AppOpts) (any, error) {
-				return ReadWasmConfig(opts)
-			},
-			Probe: map[string]any{
-				flagWasmMemoryCacheSize: uint32(512),
-				flagWasmQueryGasLimit:   uint64(9_000_000),
-				// A string, because that is the only shape this reader takes for the simulation limit.
-				flagWasmSimulationGasLimit: "5000000",
-			},
-		})
-	}
+	// The section name stays a literal. The wiring record reads it from this call's second argument,
+	// so a constant would record every schema check under one placeholder row.
+	configtest.CheckSchemaMatchesTheReader(t, "wasm", configtest.SchemaCheck{
+		Read: func(opts configtest.AppOpts) (any, error) {
+			return ReadWasmConfig(opts)
+		},
+		Probe: map[string]any{
+			flagWasmMemoryCacheSize: uint32(512),
+			flagWasmQueryGasLimit:   uint64(9_000_000),
+			// A string, because that is the only shape this reader takes for the simulation limit.
+			flagWasmSimulationGasLimit: "5000000",
+		},
+	})
 }
 
 // TestTheSimulationLimitIsDeclaredAsTheShapeTheReaderTakes pins why that field is a string.

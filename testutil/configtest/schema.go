@@ -2,8 +2,10 @@ package configtest
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
@@ -20,13 +22,15 @@ import (
 // key and the setting it reaches. A test that states that correspondence twice proves nothing, since
 // both statements come from the same reading. This one asks the reader instead.
 type SchemaCheck struct {
-	// Mode is the node mode whose baseline is checked.
-	Mode registry.Mode
 	// Read runs the section's live reader over a set of written values.
 	Read func(AppOpts) (any, error)
-	// Probe is one value per declared key, each different from that key's baseline. A value equal to
-	// the baseline would leave the reader's output unchanged, and the check would hold for a key the
-	// reader never looks up.
+	// Probe is one value per declared key, each different from what the reader leaves that key's
+	// setting at when nothing is written. A value that is not different leaves the reader's output
+	// unchanged, which the check reports: it cannot tell that from a key the reader never looks up.
+	//
+	// Different from the empty read rather than from the baseline, because the two are not always the
+	// same. A reader that assigns straight from a lookup resolves an absent key to zero, so a key whose
+	// baseline is true needs a probe of true to be observable at all.
 	Probe map[string]any
 }
 
@@ -50,16 +54,39 @@ func CheckSchemaMatchesTheReader(t testing.TB, section string, c SchemaCheck) {
 	if len(registered.Keys) == 0 {
 		t.Fatalf("%s declares no keys, so every check below holds by covering nothing", section)
 	}
-	resolved, err := registry.Resolve(c.Mode)
-	if err != nil {
-		t.Fatalf("%s: cannot resolve the baseline for %q: %v", section, c.Mode, err)
-	}
 	base, err := c.Read(AppOpts{})
 	if err != nil {
 		t.Fatalf("%s: the reader refused an empty configuration, which is what a node that has written "+
 			"nothing has: %v", section, err)
 	}
 
+	divergences := make([]divergence, 0, len(registered.Keys)*len(registry.Modes()))
+	for _, mode := range registry.Modes() {
+		divergences = append(divergences, c.checkMode(t, section, registered, mode, base)...)
+	}
+	CheckAbsentReadDivergences(t, section, divergences)
+}
+
+// divergence is one key whose baseline is not what the reader produces for an empty configuration.
+type divergence struct {
+	Key      string
+	Mode     registry.Mode
+	Setting  string
+	Absent   string
+	Baseline string
+}
+
+// checkMode runs the per-key checks for one node mode and returns the divergences it found.
+func (c SchemaCheck) checkMode(t testing.TB, section string, registered registry.Section,
+	mode registry.Mode, base any) []divergence {
+	t.Helper()
+
+	resolved, err := registry.Resolve(mode)
+	if err != nil {
+		t.Fatalf("%s: cannot resolve the baseline for %q: %v", section, mode, err)
+	}
+
+	var found []divergence
 	for _, key := range registered.Keys {
 		probe, ok := c.Probe[key]
 		if !ok {
@@ -84,12 +111,6 @@ func CheckSchemaMatchesTheReader(t testing.TB, section string, c SchemaCheck) {
 				section, key, want, got)
 			continue
 		}
-		if sameValue(probe, baseline.Value) {
-			t.Errorf("%s: the probe for %q is %v, which is also its baseline. The reader's output would "+
-				"be identical either way, so this would hold for a key nothing reads",
-				section, key, probe)
-			continue
-		}
 
 		written, err := c.Read(AppOpts{key: probe})
 		if err != nil {
@@ -100,11 +121,15 @@ func CheckSchemaMatchesTheReader(t testing.TB, section string, c SchemaCheck) {
 		switch len(changed) {
 		case 1:
 			// The one setting this key reaches. Its value when nothing is written is what the section's
-			// baseline has to agree with.
+			// baseline agrees with, or a difference that gets recorded rather than asserted away.
 			if got := fieldValue(base, changed[0]); !sameValue(baseline.Value, got) {
-				t.Errorf("%s: the baseline for %q resolves to %#v and the reader leaves %s at %#v when "+
-					"nothing is written. Declaring this section changes what a node runs",
-					section, key, baseline.Value, changed[0], got)
+				found = append(found, divergence{
+					Key:      key,
+					Mode:     mode,
+					Setting:  changed[0],
+					Absent:   fmt.Sprintf("%#v", got),
+					Baseline: fmt.Sprintf("%#v", baseline.Value),
+				})
 			}
 		case 0:
 			t.Errorf("%s: writing %v under %q changed nothing the reader returns, so either the reader "+
@@ -116,6 +141,94 @@ func CheckSchemaMatchesTheReader(t testing.TB, section string, c SchemaCheck) {
 				section, probe, key, changed)
 		}
 	}
+	return found
+}
+
+// CheckAbsentReadDivergences records the keys whose baseline is not what the reader produces when
+// nothing is written, and holds that set against testdata/<section>.absent.golden.
+//
+// A record rather than an assertion, because some of these differences are deliberate. A reader that
+// assigns a value straight from a lookup, with no check that the key was present, resolves an absent
+// key to the zero value and clobbers its own declared default. What such a node runs when a key is
+// missing is therefore not what the code says the default is, and it is not what seid init writes into
+// app.toml either. Declaring the section has to pick one, and picking the declared default is a change
+// for those nodes.
+//
+// Recording both sides is what makes that reviewable, and it is what a written reason cannot do. A
+// reason keeps looking valid after it stops being true: guard the read and it still passes, silently,
+// for good. Here the absent column moves, the row changes, and the fix shows up in a diff.
+func CheckAbsentReadDivergences(t testing.TB, section string, found []divergence) {
+	t.Helper()
+
+	var b strings.Builder
+	b.WriteString("# Keys whose baseline is not what the reader produces when nothing is written.\n")
+	b.WriteString("# Regenerate with -update.\n")
+	b.WriteString("#\n")
+	b.WriteString("# A row means a node with this key missing runs the absent value today and would run\n")
+	b.WriteString("# the baseline once the section is declared. Guarding the read is what empties this\n")
+	b.WriteString("# file: the absent column then becomes the declared default and the row disappears.\n")
+	b.WriteString("#\n")
+	b.WriteString("# key\tsetting\tabsent\tbaseline\tmodes\n\n")
+
+	if len(found) == 0 {
+		b.WriteString("(none: every key resolves to what the reader produces for an empty configuration)\n")
+	}
+	for _, row := range groupByKey(found) {
+		b.WriteString(row + "\n")
+	}
+
+	got := strings.TrimRight(b.String(), "\n")
+	path := goldenFilePath(t, section, ".absent.golden")
+
+	if goldenUpdateRequested() {
+		writeGolden(t, section, path, got)
+		return
+	}
+	want, err := os.ReadFile(path) // #nosec G304 -- goldenFilePath confines this to testdata
+	if err != nil {
+		t.Fatalf("%s: cannot read %s: %v\n\nThis record says which keys change value for a node that has "+
+			"one of them missing. Create it with `go test ./<pkg>/ -update` and read the diff",
+			section, path, err)
+	}
+	if recorded := strings.TrimRight(string(want), "\n"); recorded != got {
+		t.Errorf("%s: the keys that change value for a node missing them no longer match %s.\n\ngot:\n%s"+
+			"\n\nrecorded:\n%s\n\nA row added here is a node's behaviour changing. A row removed is a "+
+			"reader being guarded, which is the fix. Regenerate with `go test ./<pkg>/ -update` and keep "+
+			"the diff in the change that caused it", section, path, got, recorded)
+	}
+}
+
+// groupByKey renders one line per distinct key and value pair, listing the modes it holds for.
+//
+// A baseline that does not vary by mode would otherwise repeat every row once per mode, and a genuine
+// per-mode difference would be lost in that repetition.
+func groupByKey(found []divergence) []string {
+	type shape struct{ key, setting, absent, baseline string }
+	modes := map[shape][]string{}
+	var order []shape
+	for _, d := range found {
+		s := shape{d.Key, d.Setting, d.Absent, d.Baseline}
+		if _, seen := modes[s]; !seen {
+			order = append(order, s)
+		}
+		modes[s] = append(modes[s], string(d.Mode))
+	}
+	sort.Slice(order, func(i, j int) bool {
+		if order[i].key != order[j].key {
+			return order[i].key < order[j].key
+		}
+		return order[i].setting < order[j].setting
+	})
+
+	out := make([]string, 0, len(order))
+	for _, s := range order {
+		where := strings.Join(modes[s], ",")
+		if len(modes[s]) == len(registry.Modes()) {
+			where = "all"
+		}
+		out = append(out, fmt.Sprintf("%s\t%s\t%s\t%s\t%s", s.key, s.setting, s.absent, s.baseline, where))
+	}
+	return out
 }
 
 // settingsThatDiffer returns the exported field paths whose values differ between two reader outputs.

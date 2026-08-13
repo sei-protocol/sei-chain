@@ -41,6 +41,7 @@ var Names = []string{
 	"giga_executor",
 	"light_invariance",
 	"receipt-store",
+	"state-store",
 	"wasm",
 }
 

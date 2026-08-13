@@ -30,3 +30,4 @@ state-store	CheckEveryRowHasADiscriminatingSeed
 state-store	CheckKeyNames
 state-store	CheckManifestCoversEveryField
 state-store	CheckRow
+state-store	CheckSchemaMatchesTheReader
