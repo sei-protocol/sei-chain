@@ -222,11 +222,13 @@ func decodeHexField(name, value string, wantLen int) ([]byte, error) {
 // explicit default config that the FlatKV wrapper factory requires.
 //
 // memiavl is opened with AsyncCommitBuffer=0 (synchronous WAL write) rather
-// than the shared bench default of 10. With the async buffer, memiavl's
-// Commit() returns once the WAL entry is enqueued, while FlatKV's Commit()
-// waits for its WAL write — the reported commit_ns/key would compare enqueue
-// latency against write latency. Neither backend fsyncs, so with a
-// synchronous WAL write on both sides the durability semantics match.
+// than the shared bench default of 10, so its Commit() does the WAL write
+// instead of returning once the entry is enqueued.
+//
+// The two sides are no longer symmetric: the bench opens FlatKV with no state
+// WAL at all, so its Commit() does no WAL work of any kind while memiavl's
+// still writes one. Read the reported commit_ns/key with that in mind — the
+// gap includes memiavl's WAL write, which FlatKV is not paying here.
 func OpenReplayWrapper(ctx context.Context, backend wrappers.DBType, dbDir string) (wrappers.DBWrapper, error) {
 	var dbConfig any
 	switch backend {

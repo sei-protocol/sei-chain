@@ -18,11 +18,12 @@ func flatKVEntry(version int64, value byte) *proto.ChangelogEntry {
 	}
 }
 
-// TestFlatKVWrapperCommitsOneBlockPerCommit drives the cryptosim
-// Database.FinalizeBlock pattern against a real state
-// WAL: each block is applied at Version()+1 and committed immediately. It runs
-// several cycles because the WAL only rejects a non-contiguous block number on
-// the commit after the first one.
+// TestFlatKVWrapperCommitsOneBlockPerCommit drives the cryptosim Database.FinalizeBlock pattern: each block
+// is applied at Version()+1 and committed immediately. It runs several cycles because the first block is the
+// one case a broken version calculation still gets right.
+//
+// The benchmark's flatkv store has no state WAL, so the contiguity this pins is flatkv's own — Commit refuses
+// any version that is not committed+1. The WAL's identical rule is covered by the flatkv package's tests.
 func TestFlatKVWrapperCommitsOneBlockPerCommit(t *testing.T) {
 	wrapper, err := NewDBImpl(t.Context(), FlatKV, t.TempDir(), nil)
 	require.NoError(t, err)

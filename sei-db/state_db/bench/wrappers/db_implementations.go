@@ -77,13 +77,19 @@ func newFlatKVCommitStore(ctx context.Context, dbDir string, config *flatkvConfi
 	config.DataDir = dbDir
 
 	fmt.Printf("Opening flatKV from directory %s\n", dbDir)
-	stateWAL, err := flatkv.OpenStateWAL(config)
+
+	// No state WAL: the store is given nil and so performs no WAL operations at all. Crash recovery belongs to
+	// the block WAL, which this benchmark does not model, and a benchmark's own crash durability is worth
+	// nothing — so writing one only costs the measured path a second serialization of every changeset and a
+	// blocking flush per block.
+	//
+	// What it costs: the state WAL is what let a reopen replay blocks the engines had not flushed yet, so those
+	// blocks are now lost at shutdown. The store still reopens — each Pebble database recovers its own flushed
+	// data through its own WAL, which this does not touch — it just comes up at the last flushed height. If the
+	// databases' flush frontiers differ, nothing reconciles them any more, which is a benchmark's problem to
+	// notice rather than a store that self-heals.
+	cs, err := flatkv.NewCommitStore(ctx, config, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open FlatKV state WAL: %w", err)
-	}
-	cs, err := flatkv.NewCommitStore(ctx, config, stateWAL)
-	if err != nil {
-		_ = stateWAL.Close()
 		return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
 	}
 	if err := cs.LoadLatest(); err != nil {
