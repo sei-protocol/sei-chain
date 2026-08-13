@@ -18,23 +18,20 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"golang.org/x/sync/errgroup"
 )
 
 const (
-	EthNamespace  = "eth"
-	SeiNamespace  = "sei"
-	Sei2Namespace = "sei2"
+	EthNamespace = "eth"
+	SeiNamespace = "sei"
 )
 
 // maxBlockReceiptsConcurrency is a hard cap on the number of goroutines
-// eth_getBlockReceipts (and its sei_/sei2_ variants) will fan out to when
+// eth_getBlockReceipts (and its sei_ variants) will fan out to when
 // fetching per-tx receipts.
 const maxBlockReceiptsConcurrency = 100
 
@@ -80,7 +77,6 @@ type BlockAPI struct {
 	connectionType       ConnectionType
 	namespace            string
 	includeShellReceipts bool
-	includeBankTransfers bool
 	watermarks           *WatermarkManager
 	globalBlockCache     BlockCache
 	cacheCreationMutex   *sync.Mutex
@@ -98,7 +94,6 @@ func NewBlockAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func
 		txConfigProvider:     txConfigProvider,
 		connectionType:       connectionType,
 		includeShellReceipts: false,
-		includeBankTransfers: false,
 		namespace:            EthNamespace,
 		watermarks:           watermarks,
 		globalBlockCache:     globalBlockCache,
@@ -123,7 +118,6 @@ func NewSeiBlockAPI(
 		txConfigProvider:     txConfigProvider,
 		connectionType:       connectionType,
 		includeShellReceipts: true,
-		includeBankTransfers: false,
 		namespace:            SeiNamespace,
 		watermarks:           watermarks,
 		globalBlockCache:     globalBlockCache,
@@ -132,22 +126,6 @@ func NewSeiBlockAPI(
 	return &SeiBlockAPI{
 		BlockAPI: blockAPI,
 	}
-}
-
-func NewSei2BlockAPI(
-	tmClient client.LocalClient,
-	k *keeper.Keeper,
-	ctxProvider func(int64) sdk.Context,
-	txConfigProvider func(int64) client.TxConfig,
-	connectionType ConnectionType,
-	watermarks *WatermarkManager,
-	globalBlockCache BlockCache,
-	cacheCreationMutex *sync.Mutex,
-) *SeiBlockAPI {
-	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, watermarks, globalBlockCache, cacheCreationMutex)
-	blockAPI.namespace = Sei2Namespace
-	blockAPI.includeBankTransfers = true
-	return blockAPI
 }
 
 func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]any, returnErr error) {
@@ -246,7 +224,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
+	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]any, returnErr error) {
@@ -292,7 +270,7 @@ func (a *BlockAPI) getBlockByNumber(
 	if err = a.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
 		return nil, err
 	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
+	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]any, returnErr error) {
@@ -409,7 +387,6 @@ func EncodeTmBlock(
 	block *coretypes.ResultBlock,
 	k *keeper.Keeper,
 	fullTx bool,
-	includeBankTransfers bool,
 	includeSyntheticTxs bool,
 	excludeUntraceable bool,
 	globalBlockCache BlockCache,
@@ -435,7 +412,7 @@ func EncodeTmBlock(
 	transactions := []any{}
 	latestCtx := ctxProvider(LatestCtxHeight)
 
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSyntheticTxs, includeBankTransfers, cacheCreationMutex, globalBlockCache)
+	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSyntheticTxs, cacheCreationMutex, globalBlockCache)
 
 	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, msg := range msgs {
@@ -500,31 +477,6 @@ func EncodeTmBlock(
 			bloom.SetBytes(receipt.LogsBloom)
 			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
 			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
-		case *banktypes.MsgSend:
-			th := sha256.Sum256(block.Block.Txs[msg.index])
-			receipt, _ := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
-			if !fullTx {
-				transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
-			} else {
-				rpcTx := &export.RPCTransaction{
-					BlockHash:   &blockhash,
-					BlockNumber: (*hexutil.Big)(number),
-					Hash:        th,
-				}
-				senderSeiAddr, _ := sdk.AccAddressFromBech32(m.FromAddress)
-				rpcTx.From = k.GetEVMAddressOrDefault(ctx, senderSeiAddr)
-				recipientSeiAddr, _ := sdk.AccAddressFromBech32(m.ToAddress)
-				recipientEvmAddr := k.GetEVMAddressOrDefault(ctx, recipientSeiAddr)
-				rpcTx.To = &recipientEvmAddr
-				amt := m.Amount.AmountOf("usei").Mul(state.SdkUseiToSweiMultiplier)
-				rpcTx.Value = (*hexutil.Big)(amt.BigInt())
-				ti := uint64(len(transactions))
-				rpcTx.TransactionIndex = (*hexutil.Uint64)(&ti)
-				transactions = append(transactions, rpcTx)
-			}
-			if receipt != nil {
-				blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
-			}
 		}
 	}
 	if len(transactions) == 0 {
@@ -585,7 +537,6 @@ func (a *BlockAPI) getEvmTxCount(block *coretypes.ResultBlock) *hexutil.Uint {
 		block,
 		a.keeper,
 		a.includeShellReceipts,
-		a.includeBankTransfers,
 		a.cacheCreationMutex,
 		a.globalBlockCache,
 	)
@@ -599,12 +550,11 @@ func countBlockTxsLikeEncodeTmBlock(
 	block *coretypes.ResultBlock,
 	k *keeper.Keeper,
 	includeShellReceipts bool,
-	includeBankTransfers bool,
 	cacheCreationMutex *sync.Mutex,
 	globalBlockCache BlockCache,
 ) int {
 	latestCtx := ctxProvider(LatestCtxHeight)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeShellReceipts, includeBankTransfers, cacheCreationMutex, globalBlockCache)
+	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeShellReceipts, cacheCreationMutex, globalBlockCache)
 	n := 0
 	for _, msg := range msgs {
 		switch m := msg.msg.(type) {
@@ -615,8 +565,6 @@ func countBlockTxsLikeEncodeTmBlock(
 			}
 			n++
 		case *wasmtypes.MsgExecuteContract:
-			n++
-		case *banktypes.MsgSend:
 			n++
 		}
 	}
