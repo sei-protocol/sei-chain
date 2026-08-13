@@ -394,3 +394,41 @@ func dedupeSorted(s []string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// CheckDeclaredSurface holds the whole declared configuration surface against
+// testdata/<name>.surface.golden.
+//
+// Every section, key and per-mode baseline in one file, so a key added, removed, renamed or retyped shows
+// as the line that moved, and so does a changed default. Recorded rather than hashed for exactly that
+// reason: a hash says something changed and a reviewer then has to work out what from the rest of the diff.
+func CheckDeclaredSurface(t testing.TB, name, surface string) {
+	t.Helper()
+
+	var b strings.Builder
+	b.WriteString("# Every configuration section this binary declares, its keys and its per-mode\n")
+	b.WriteString("# baselines. Regenerate with -update.\n")
+	b.WriteString("#\n")
+	b.WriteString("# A line added or removed here is the key space changing. A changed default is a\n")
+	b.WriteString("# changed contract for every node that never wrote that key, so it belongs in a\n")
+	b.WriteString("# diff beside the migration that handles it.\n\n")
+	b.WriteString(strings.TrimRight(surface, "\n"))
+
+	got := strings.TrimRight(b.String(), "\n")
+	path := goldenFilePath(t, name, ".surface.golden")
+
+	if goldenUpdateRequested() {
+		writeGolden(t, name, path, got)
+		return
+	}
+	want, err := os.ReadFile(path) // #nosec G304 -- goldenFilePath confines this to testdata
+	if err != nil {
+		t.Fatalf("%s: cannot read %s: %v\n\nThis record is the declared key space. Create it with "+
+			"`go test ./<pkg>/ -update` and read the diff", name, path, err)
+	}
+	if recorded := strings.TrimRight(string(want), "\n"); recorded != got {
+		t.Errorf("%s: the declared configuration surface no longer matches %s.\n\nRegenerate with "+
+			"`go test ./<pkg>/ -update` and keep the diff in the change that caused it. A key that "+
+			"changed spelling is a key an operator's file no longer reaches, and a changed default is "+
+			"what every node that never wrote the key now runs", name, path)
+	}
+}

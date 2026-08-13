@@ -77,6 +77,7 @@ and `TestGuideListsEveryPrimitive` holds it to the exported surface.
 | `CheckEveryRowHasADiscriminatingSeed` | a row whose every seed would also pass against a reader that never looks its key up | the recorded seed corpus |
 | `CheckSchemaMatchesTheReader` | a section whose keys are declared by a purpose-written struct pairs a key with the wrong setting, or resolves a baseline the reader does not | the reader itself, by writing a probe value under each key and observing which setting changed |
 | `CheckAbsentReadDivergences` | a key whose value changes for a node that has it missing, because its reader resolves an absent key to zero rather than to the default beside it | `testdata/<section>.absent.golden`, one row per key with both values |
+| `CheckDeclaredSurface` | a key added, removed, renamed or retyped, or a baseline changed, in any declared section | `testdata/<name>.surface.golden`, every section, key and per-mode baseline as text |
 | `CheckWiring` | one of the calls above is deleted | `testdata/wiring_coverage.txt` |
 | `CheckExperimentalDeclarations` | a declaration whose name or metadata is refused reaches a binary, where it is inert and every read of it silently returns the default | the registry, and each declaration's own `Check` run against its own default |
 | `CheckExperimentalGolden` | a key is added, removed, renamed, re-typed, re-owned or re-defaulted without the change being visible | `testdata/<name>.experimental.golden`, keyed by name |
@@ -521,3 +522,15 @@ flat map. Three classes sit outside it:
   is the layer the new manager has to reproduce, so nothing here asserts that a value
   written as TOML resolves the same way as the same value handed over as a map. That
   axis would need a value-to-TOML renderer, and it is unbuilt.
+
+`CheckDeclaredSurface` overlaps `CheckDefaults` on purpose, and the overlap is not the point
+of it. `CheckDefaults` anchors one section's own defaults struct, and twelve of the fourteen
+declared sections have one; the two that do not are the upstream sections in
+`config/cosmosbase`, whose defaults belong to sei-cosmos and would be a second copy of the
+same numbers if recorded per section. For those, the surface record is the only independent
+anchor. For the rest it is a second one, and it is the only record that shows the whole key
+space in one diff, which is what a reviewer needs when a change touches several sections.
+
+It records text rather than the hash of it deliberately. `Fingerprint` is the cheap thing a
+deploy compares; the surface is what a human reads when the comparison fails. A recorded hash
+fails with no way to see what moved.

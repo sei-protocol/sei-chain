@@ -1,11 +1,14 @@
 package sections_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/config/sections"
+	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
 // TestEverySectionThisBinaryDeclaresIsRegistered is the check the blank imports above exist for.
@@ -42,4 +45,41 @@ func TestTheDeclaredSetIsNotEmpty(t *testing.T) {
 	if len(registry.Keys()) == 0 {
 		t.Fatal("the registry declares no keys at all")
 	}
+}
+
+// TestTheDeclaredSurfaceMatchesTheRecord is the gate that makes a schema change impossible to miss.
+//
+// The record holds every section, every key and every per-mode baseline. So a key added, removed, renamed
+// or retyped fails here, and so does a changed default, which is a changed contract for every node that
+// never wrote the key.
+//
+// Recorded as text rather than as the hash of it. A hash fails with no way to see what moved, and the
+// reviewer then has to reconstruct the change from the rest of the diff. This way the thing that changed
+// is the diff, which is also what makes the record a freeze: nothing leaves the key space quietly either.
+//
+// It lives here because this is the package that imports every owner, so the record covers the whole
+// declared set rather than whichever sections a given test binary happened to register.
+func TestTheDeclaredSurfaceMatchesTheRecord(t *testing.T) {
+	if len(sections.Names) == 0 {
+		t.Fatal("no sections are declared, so the record would freeze an empty key space")
+	}
+	configtest.CheckDeclaredSurface(t, "sections", registry.Surface())
+}
+
+// TestTheFingerprintIsTheHashOfTheRecordedSurface keeps the two from drifting apart.
+//
+// The fingerprint is what a deploy can compare cheaply, and the surface is what a human reads. They have to
+// be the same statement, or a green fingerprint could sit alongside a surface nobody recorded.
+func TestTheFingerprintIsTheHashOfTheRecordedSurface(t *testing.T) {
+	want := sha256.Sum256([]byte(registry.Surface()))
+	if got := registry.Fingerprint(); got != hex.EncodeToString(want[:]) {
+		t.Errorf("the fingerprint is %s and the hash of the surface is %s. A deploy comparing the "+
+			"fingerprint would then be checking something other than what the record holds",
+			got, hex.EncodeToString(want[:]))
+	}
+}
+
+// TestWiringMatchesTheRecord records which checks this package calls.
+func TestWiringMatchesTheRecord(t *testing.T) {
+	configtest.CheckWiring(t)
 }

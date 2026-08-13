@@ -1,0 +1,204 @@
+# Every configuration section this binary declares, its keys and its per-mode
+# baselines. Regenerate with -update.
+#
+# A line added or removed here is the key space changing. A changed default is a
+# changed contract for every node that never wrote that key, so it belongs in a
+# diff beside the migration that handles it.
+
+section:admin_server
+key:admin_server.admin_address
+key:admin_server.admin_enabled
+default:admin_server:validator:admin.Config{Enabled:false, Address:"127.0.0.1:9095"}
+default:admin_server:full:admin.Config{Enabled:false, Address:"127.0.0.1:9095"}
+default:admin_server:seed:admin.Config{Enabled:false, Address:"127.0.0.1:9095"}
+default:admin_server:archive:admin.Config{Enabled:false, Address:"127.0.0.1:9095"}
+section:base
+root-keys:base
+key:compaction-interval
+key:concurrency-workers
+key:halt-height
+key:halt-time
+key:index-events
+key:inter-block-cache
+key:min-retain-blocks
+key:minimum-gas-prices
+key:occ-enabled
+key:pruning
+key:pruning-interval
+key:pruning-keep-every
+key:pruning-keep-recent
+default:base:validator:config.BaseConfig{MinGasPrices:"0.01usei", Pruning:"nothing", PruningKeepRecent:"0", PruningKeepEvery:"0", PruningInterval:"0", HaltHeight:0x0, HaltTime:0x0, MinRetainBlocks:0x0, InterBlockCache:true, IndexEvents:[]string(nil), CompactionInterval:0x0, ConcurrencyWorkers:20, OccEnabled:true}
+default:base:full:config.BaseConfig{MinGasPrices:"0.01usei", Pruning:"nothing", PruningKeepRecent:"0", PruningKeepEvery:"0", PruningInterval:"0", HaltHeight:0x0, HaltTime:0x0, MinRetainBlocks:0x0, InterBlockCache:true, IndexEvents:[]string(nil), CompactionInterval:0x0, ConcurrencyWorkers:20, OccEnabled:true}
+default:base:seed:config.BaseConfig{MinGasPrices:"0.01usei", Pruning:"nothing", PruningKeepRecent:"0", PruningKeepEvery:"0", PruningInterval:"0", HaltHeight:0x0, HaltTime:0x0, MinRetainBlocks:0x0, InterBlockCache:true, IndexEvents:[]string(nil), CompactionInterval:0x0, ConcurrencyWorkers:20, OccEnabled:true}
+default:base:archive:config.BaseConfig{MinGasPrices:"0.01usei", Pruning:"nothing", PruningKeepRecent:"0", PruningKeepEvery:"0", PruningInterval:"0", HaltHeight:0x0, HaltTime:0x0, MinRetainBlocks:0x0, InterBlockCache:true, IndexEvents:[]string(nil), CompactionInterval:0x0, ConcurrencyWorkers:20, OccEnabled:true}
+section:eth_blocktest
+key:eth_blocktest.eth_blocktest_enabled
+key:eth_blocktest.eth_blocktest_test_data_path
+default:eth_blocktest:validator:blocktest.Config{Enabled:false, TestDataPath:"~/testdata/"}
+default:eth_blocktest:full:blocktest.Config{Enabled:false, TestDataPath:"~/testdata/"}
+default:eth_blocktest:seed:blocktest.Config{Enabled:false, TestDataPath:"~/testdata/"}
+default:eth_blocktest:archive:blocktest.Config{Enabled:false, TestDataPath:"~/testdata/"}
+section:eth_replay
+key:eth_replay.contract_state_checks
+key:eth_replay.eth_data_dir
+key:eth_replay.eth_replay_enabled
+key:eth_replay.eth_rpc
+default:eth_replay:validator:replay.Config{Enabled:false, EthRPC:"http://44.234.105.54:18545", EthDataDir:"/root/.ethereum/chaindata", ContractStateChecks:false}
+default:eth_replay:full:replay.Config{Enabled:false, EthRPC:"http://44.234.105.54:18545", EthDataDir:"/root/.ethereum/chaindata", ContractStateChecks:false}
+default:eth_replay:seed:replay.Config{Enabled:false, EthRPC:"http://44.234.105.54:18545", EthDataDir:"/root/.ethereum/chaindata", ContractStateChecks:false}
+default:eth_replay:archive:replay.Config{Enabled:false, EthRPC:"http://44.234.105.54:18545", EthDataDir:"/root/.ethereum/chaindata", ContractStateChecks:false}
+section:evm
+key:evm.batch_request_limit
+key:evm.batch_response_max_size
+key:evm.body_read_idle_timeout
+key:evm.checktx_timeout
+key:evm.cors_origins
+key:evm.deny_list
+key:evm.enable_parallelized_block_trace
+key:evm.enable_test_api
+key:evm.enabled_legacy_sei_apis
+key:evm.filter_timeout
+key:evm.http_enabled
+key:evm.http_port
+key:evm.idle_timeout
+key:evm.ip_rate_limit_burst
+key:evm.ip_rate_limit_rps
+key:evm.max_blocks_for_log
+key:evm.max_concurrent_request_bytes
+key:evm.max_concurrent_simulation_calls
+key:evm.max_concurrent_trace_calls
+key:evm.max_estimate_gas_calls
+key:evm.max_log_bytes
+key:evm.max_log_no_block
+key:evm.max_open_connections
+key:evm.max_request_body_bytes
+key:evm.max_state_override_accounts
+key:evm.max_state_override_slots
+key:evm.max_subscriptions_logs
+key:evm.max_subscriptions_new_head
+key:evm.max_trace_lookback_blocks
+key:evm.max_trace_struct_log_bytes
+key:evm.max_tx_pool_txs
+key:evm.rate_limiting_enabled
+key:evm.read_header_timeout
+key:evm.read_timeout
+key:evm.rpc_stats_interval
+key:evm.simulation_evm_timeout
+key:evm.simulation_gas_limit
+key:evm.slow
+key:evm.trace_allow_js_tracers
+key:evm.trace_allowed_tracers
+key:evm.trace_bake_enabled
+key:evm.trace_bake_queue_size
+key:evm.trace_bake_snapshot_window
+key:evm.trace_bake_tracers
+key:evm.trace_bake_use_snapshot
+key:evm.trace_bake_window_blocks
+key:evm.trace_bake_workers
+key:evm.trace_timeout
+key:evm.trusted_proxy_cidrs
+key:evm.worker_pool_size
+key:evm.worker_queue_size
+key:evm.write_timeout
+key:evm.ws_admission_timeout
+key:evm.ws_enabled
+key:evm.ws_origins
+key:evm.ws_port
+default:evm:validator:config.Config{HTTPEnabled:false, HTTPPort:8545, WSEnabled:false, WSPort:8546, ReadTimeout:30000000000, ReadHeaderTimeout:30000000000, WriteTimeout:30000000000, IdleTimeout:120000000000, SimulationGasLimit:0x989680, SimulationEVMTimeout:60000000000, CORSOrigins:"*", WSOrigins:"*", FilterTimeout:120000000000, CheckTxTimeout:5000000000, MaxTxPoolTxs:0x3e8, Slow:false, DenyList:[]string{}, MaxLogNoBlock:10000, MaxLogBytes:67108864, MaxBlocksForLog:2000, MaxEstimateGasCalls:100, MaxStateOverrideAccounts:100, MaxStateOverrideSlots:1000, MaxSubscriptionsNewHead:0x2710, MaxSubscriptionsLogs:0x3e8, EnableTestAPI:false, MaxConcurrentTraceCalls:0xa, MaxConcurrentSimulationCalls:10, MaxTraceLookbackBlocks:10000, TraceTimeout:30000000000, MaxTraceStructLogBytes:0x2000000, TraceAllowedTracers:[]string{"callTracer", "prestateTracer", "flatCallTracer", "4byteTracer", "noopTracer", "muxTracer"}, TraceAllowJSTracers:false, EnableParallelizedBlockTrace:false, RPCStatsInterval:10000000000, WorkerPoolSize:20, WorkerQueueSize:1000, EnabledLegacySeiApis:[]string{"sei_getSeiAddress", "sei_getEVMAddress", "sei_getCosmosTx"}, TraceBakeEnabled:false, TraceBakeWorkers:1, TraceBakeQueueSize:4096, TraceBakeTracers:[]string{"callTracer"}, TraceBakeWindowBlocks:0, TraceBakeUseSnapshot:false, TraceBakeSnapshotWindow:64, IPRateLimitRPS:200, IPRateLimitBurst:1000, RateLimitingEnabled:false, TrustedProxyCIDRs:[]string(nil), BatchRequestLimit:1000, BatchResponseMaxSize:25000000, MaxRequestBodyBytes:5242880, MaxConcurrentRequestBytes:134217728, BodyReadIdleTimeout:10000000000, WSAdmissionTimeout:30000000000, MaxOpenConnections:2000}
+default:evm:full:config.Config{HTTPEnabled:true, HTTPPort:8545, WSEnabled:true, WSPort:8546, ReadTimeout:30000000000, ReadHeaderTimeout:30000000000, WriteTimeout:30000000000, IdleTimeout:120000000000, SimulationGasLimit:0x989680, SimulationEVMTimeout:60000000000, CORSOrigins:"*", WSOrigins:"*", FilterTimeout:120000000000, CheckTxTimeout:5000000000, MaxTxPoolTxs:0x3e8, Slow:false, DenyList:[]string{}, MaxLogNoBlock:10000, MaxLogBytes:67108864, MaxBlocksForLog:2000, MaxEstimateGasCalls:100, MaxStateOverrideAccounts:100, MaxStateOverrideSlots:1000, MaxSubscriptionsNewHead:0x2710, MaxSubscriptionsLogs:0x3e8, EnableTestAPI:false, MaxConcurrentTraceCalls:0xa, MaxConcurrentSimulationCalls:10, MaxTraceLookbackBlocks:10000, TraceTimeout:30000000000, MaxTraceStructLogBytes:0x2000000, TraceAllowedTracers:[]string{"callTracer", "prestateTracer", "flatCallTracer", "4byteTracer", "noopTracer", "muxTracer"}, TraceAllowJSTracers:false, EnableParallelizedBlockTrace:false, RPCStatsInterval:10000000000, WorkerPoolSize:20, WorkerQueueSize:1000, EnabledLegacySeiApis:[]string{"sei_getSeiAddress", "sei_getEVMAddress", "sei_getCosmosTx"}, TraceBakeEnabled:false, TraceBakeWorkers:1, TraceBakeQueueSize:4096, TraceBakeTracers:[]string{"callTracer"}, TraceBakeWindowBlocks:0, TraceBakeUseSnapshot:false, TraceBakeSnapshotWindow:64, IPRateLimitRPS:200, IPRateLimitBurst:1000, RateLimitingEnabled:false, TrustedProxyCIDRs:[]string(nil), BatchRequestLimit:1000, BatchResponseMaxSize:25000000, MaxRequestBodyBytes:5242880, MaxConcurrentRequestBytes:134217728, BodyReadIdleTimeout:10000000000, WSAdmissionTimeout:30000000000, MaxOpenConnections:2000}
+default:evm:seed:config.Config{HTTPEnabled:false, HTTPPort:8545, WSEnabled:false, WSPort:8546, ReadTimeout:30000000000, ReadHeaderTimeout:30000000000, WriteTimeout:30000000000, IdleTimeout:120000000000, SimulationGasLimit:0x989680, SimulationEVMTimeout:60000000000, CORSOrigins:"*", WSOrigins:"*", FilterTimeout:120000000000, CheckTxTimeout:5000000000, MaxTxPoolTxs:0x3e8, Slow:false, DenyList:[]string{}, MaxLogNoBlock:10000, MaxLogBytes:67108864, MaxBlocksForLog:2000, MaxEstimateGasCalls:100, MaxStateOverrideAccounts:100, MaxStateOverrideSlots:1000, MaxSubscriptionsNewHead:0x2710, MaxSubscriptionsLogs:0x3e8, EnableTestAPI:false, MaxConcurrentTraceCalls:0xa, MaxConcurrentSimulationCalls:10, MaxTraceLookbackBlocks:10000, TraceTimeout:30000000000, MaxTraceStructLogBytes:0x2000000, TraceAllowedTracers:[]string{"callTracer", "prestateTracer", "flatCallTracer", "4byteTracer", "noopTracer", "muxTracer"}, TraceAllowJSTracers:false, EnableParallelizedBlockTrace:false, RPCStatsInterval:10000000000, WorkerPoolSize:20, WorkerQueueSize:1000, EnabledLegacySeiApis:[]string{"sei_getSeiAddress", "sei_getEVMAddress", "sei_getCosmosTx"}, TraceBakeEnabled:false, TraceBakeWorkers:1, TraceBakeQueueSize:4096, TraceBakeTracers:[]string{"callTracer"}, TraceBakeWindowBlocks:0, TraceBakeUseSnapshot:false, TraceBakeSnapshotWindow:64, IPRateLimitRPS:200, IPRateLimitBurst:1000, RateLimitingEnabled:false, TrustedProxyCIDRs:[]string(nil), BatchRequestLimit:1000, BatchResponseMaxSize:25000000, MaxRequestBodyBytes:5242880, MaxConcurrentRequestBytes:134217728, BodyReadIdleTimeout:10000000000, WSAdmissionTimeout:30000000000, MaxOpenConnections:2000}
+default:evm:archive:config.Config{HTTPEnabled:true, HTTPPort:8545, WSEnabled:true, WSPort:8546, ReadTimeout:30000000000, ReadHeaderTimeout:30000000000, WriteTimeout:30000000000, IdleTimeout:120000000000, SimulationGasLimit:0x989680, SimulationEVMTimeout:60000000000, CORSOrigins:"*", WSOrigins:"*", FilterTimeout:120000000000, CheckTxTimeout:5000000000, MaxTxPoolTxs:0x3e8, Slow:false, DenyList:[]string{}, MaxLogNoBlock:10000, MaxLogBytes:67108864, MaxBlocksForLog:2000, MaxEstimateGasCalls:100, MaxStateOverrideAccounts:100, MaxStateOverrideSlots:1000, MaxSubscriptionsNewHead:0x2710, MaxSubscriptionsLogs:0x3e8, EnableTestAPI:false, MaxConcurrentTraceCalls:0xa, MaxConcurrentSimulationCalls:10, MaxTraceLookbackBlocks:10000, TraceTimeout:30000000000, MaxTraceStructLogBytes:0x2000000, TraceAllowedTracers:[]string{"callTracer", "prestateTracer", "flatCallTracer", "4byteTracer", "noopTracer", "muxTracer"}, TraceAllowJSTracers:false, EnableParallelizedBlockTrace:false, RPCStatsInterval:10000000000, WorkerPoolSize:20, WorkerQueueSize:1000, EnabledLegacySeiApis:[]string{"sei_getSeiAddress", "sei_getEVMAddress", "sei_getCosmosTx"}, TraceBakeEnabled:false, TraceBakeWorkers:1, TraceBakeQueueSize:4096, TraceBakeTracers:[]string{"callTracer"}, TraceBakeWindowBlocks:0, TraceBakeUseSnapshot:false, TraceBakeSnapshotWindow:64, IPRateLimitRPS:200, IPRateLimitBurst:1000, RateLimitingEnabled:false, TrustedProxyCIDRs:[]string(nil), BatchRequestLimit:1000, BatchResponseMaxSize:25000000, MaxRequestBodyBytes:5242880, MaxConcurrentRequestBytes:134217728, BodyReadIdleTimeout:10000000000, WSAdmissionTimeout:30000000000, MaxOpenConnections:2000}
+section:evm_query
+key:evm_query.evm_query_gas_limit
+default:evm_query:validator:querier.Config{GasLimit:0x493e0}
+default:evm_query:full:querier.Config{GasLimit:0x493e0}
+default:evm_query:seed:querier.Config{GasLimit:0x493e0}
+default:evm_query:archive:querier.Config{GasLimit:0x493e0}
+section:genesis
+key:genesis.import-file
+key:genesis.stream-import
+default:genesis:validator:app.genesisSchema{StreamImport:false, ImportFile:""}
+default:genesis:full:app.genesisSchema{StreamImport:false, ImportFile:""}
+default:genesis:seed:app.genesisSchema{StreamImport:false, ImportFile:""}
+default:genesis:archive:app.genesisSchema{StreamImport:false, ImportFile:""}
+section:giga_executor
+key:giga_executor.enabled
+key:giga_executor.occ_enabled
+default:giga_executor:validator:config.Config{Enabled:true, OCCEnabled:true}
+default:giga_executor:full:config.Config{Enabled:true, OCCEnabled:true}
+default:giga_executor:seed:config.Config{Enabled:true, OCCEnabled:true}
+default:giga_executor:archive:config.Config{Enabled:true, OCCEnabled:true}
+section:light_invariance
+key:light_invariance.supply_enabled
+default:light_invariance:validator:app.LightInvarianceConfig{SupplyEnabled:true}
+default:light_invariance:full:app.LightInvarianceConfig{SupplyEnabled:true}
+default:light_invariance:seed:app.LightInvarianceConfig{SupplyEnabled:true}
+default:light_invariance:archive:app.LightInvarianceConfig{SupplyEnabled:true}
+section:receipt-store
+key:receipt-store.async-write-buffer
+key:receipt-store.db-directory
+key:receipt-store.enable-read-write-metrics
+key:receipt-store.log-filter-parallelism
+key:receipt-store.prune-interval-seconds
+key:receipt-store.rs-backend
+default:receipt-store:validator:config.ReceiptStoreConfig{DBDirectory:"", Backend:"pebbledb", AsyncWriteBuffer:100, KeepRecent:0, PruneIntervalSeconds:600, ExternalPruning:false, EnableReadWriteMetrics:false, LogFilterParallelism:16}
+default:receipt-store:full:config.ReceiptStoreConfig{DBDirectory:"", Backend:"pebbledb", AsyncWriteBuffer:100, KeepRecent:0, PruneIntervalSeconds:600, ExternalPruning:false, EnableReadWriteMetrics:false, LogFilterParallelism:16}
+default:receipt-store:seed:config.ReceiptStoreConfig{DBDirectory:"", Backend:"pebbledb", AsyncWriteBuffer:100, KeepRecent:0, PruneIntervalSeconds:600, ExternalPruning:false, EnableReadWriteMetrics:false, LogFilterParallelism:16}
+default:receipt-store:archive:config.ReceiptStoreConfig{DBDirectory:"", Backend:"pebbledb", AsyncWriteBuffer:100, KeepRecent:0, PruneIntervalSeconds:600, ExternalPruning:false, EnableReadWriteMetrics:false, LogFilterParallelism:16}
+section:state-commit
+key:state-commit.flatkv.enable-read-write-metrics
+key:state-commit.sc-async-commit-buffer
+key:state-commit.sc-directory
+key:state-commit.sc-enable
+key:state-commit.sc-hash-logger-blocks-to-retain
+key:state-commit.sc-hash-logger-directory
+key:state-commit.sc-hash-logger-enable
+key:state-commit.sc-hash-logger-max-disk-size
+key:state-commit.sc-hash-logger-target-file-size
+key:state-commit.sc-historical-proof-burst
+key:state-commit.sc-historical-proof-max-inflight
+key:state-commit.sc-historical-proof-rate-limit
+key:state-commit.sc-keep-recent
+key:state-commit.sc-snapshot-interval
+key:state-commit.sc-snapshot-min-time-interval
+key:state-commit.sc-snapshot-prefetch-threshold
+key:state-commit.sc-snapshot-write-rate-mbps
+key:state-commit.sc-snapshot-writer-limit
+key:state-commit.sc-write-mode
+key:state-commit.sc-write-mode-enable-auto
+default:state-commit:validator:app.stateCommitSchema{Enable:true, Directory:"", AsyncCommitBuffer:100, SnapshotKeepRecent:0x1, SnapshotInterval:0x2710, SnapshotMinTimeInterval:0xe10, SnapshotWriterLimit:4, SnapshotPrefetchThreshold:0.8, SnapshotWriteRateMBps:100, HistoricalProofMaxInFlight:1, HistoricalProofRateLimit:1, HistoricalProofBurst:1, WriteMode:"memiavl_only", WriteModeEnableAuto:true, HashLoggerEnable:true, HashLoggerDirectory:"", HashLoggerBlocksToRetain:0x0, HashLoggerTargetFileSize:0x1000000, HashLoggerMaxDiskSize:0x400000000, FlatKV:app.stateCommitFlatKVSchema{EnableReadWriteMetrics:false}}
+default:state-commit:full:app.stateCommitSchema{Enable:true, Directory:"", AsyncCommitBuffer:100, SnapshotKeepRecent:0x1, SnapshotInterval:0x2710, SnapshotMinTimeInterval:0xe10, SnapshotWriterLimit:4, SnapshotPrefetchThreshold:0.8, SnapshotWriteRateMBps:100, HistoricalProofMaxInFlight:1, HistoricalProofRateLimit:1, HistoricalProofBurst:1, WriteMode:"memiavl_only", WriteModeEnableAuto:true, HashLoggerEnable:true, HashLoggerDirectory:"", HashLoggerBlocksToRetain:0x0, HashLoggerTargetFileSize:0x1000000, HashLoggerMaxDiskSize:0x400000000, FlatKV:app.stateCommitFlatKVSchema{EnableReadWriteMetrics:false}}
+default:state-commit:seed:app.stateCommitSchema{Enable:true, Directory:"", AsyncCommitBuffer:100, SnapshotKeepRecent:0x1, SnapshotInterval:0x2710, SnapshotMinTimeInterval:0xe10, SnapshotWriterLimit:4, SnapshotPrefetchThreshold:0.8, SnapshotWriteRateMBps:100, HistoricalProofMaxInFlight:1, HistoricalProofRateLimit:1, HistoricalProofBurst:1, WriteMode:"memiavl_only", WriteModeEnableAuto:true, HashLoggerEnable:true, HashLoggerDirectory:"", HashLoggerBlocksToRetain:0x0, HashLoggerTargetFileSize:0x1000000, HashLoggerMaxDiskSize:0x400000000, FlatKV:app.stateCommitFlatKVSchema{EnableReadWriteMetrics:false}}
+default:state-commit:archive:app.stateCommitSchema{Enable:true, Directory:"", AsyncCommitBuffer:100, SnapshotKeepRecent:0x1, SnapshotInterval:0x2710, SnapshotMinTimeInterval:0xe10, SnapshotWriterLimit:4, SnapshotPrefetchThreshold:0.8, SnapshotWriteRateMBps:100, HistoricalProofMaxInFlight:1, HistoricalProofRateLimit:1, HistoricalProofBurst:1, WriteMode:"memiavl_only", WriteModeEnableAuto:true, HashLoggerEnable:true, HashLoggerDirectory:"", HashLoggerBlocksToRetain:0x0, HashLoggerTargetFileSize:0x1000000, HashLoggerMaxDiskSize:0x400000000, FlatKV:app.stateCommitFlatKVSchema{EnableReadWriteMetrics:false}}
+section:state-store
+key:state-store.evm-ss-db-directory
+key:state-store.evm-ss-separate-dbs
+key:state-store.evm-ss-split
+key:state-store.ss-async-write-buffer
+key:state-store.ss-backend
+key:state-store.ss-db-directory
+key:state-store.ss-enable
+key:state-store.ss-enable-read-write-metrics
+key:state-store.ss-import-num-workers
+key:state-store.ss-keep-recent
+key:state-store.ss-prune-interval
+default:state-store:validator:app.stateStoreSchema{Enable:true, DBDirectory:"", Backend:"pebbledb", AsyncWriteBuffer:100, KeepRecent:100000, PruneIntervalSeconds:600, ImportNumWorkers:1, EnableReadWriteMetrics:false, EVMDBDirectory:"", SeparateEVMSubDBs:false, EVMSplit:false}
+default:state-store:full:app.stateStoreSchema{Enable:true, DBDirectory:"", Backend:"pebbledb", AsyncWriteBuffer:100, KeepRecent:100000, PruneIntervalSeconds:600, ImportNumWorkers:1, EnableReadWriteMetrics:false, EVMDBDirectory:"", SeparateEVMSubDBs:false, EVMSplit:false}
+default:state-store:seed:app.stateStoreSchema{Enable:true, DBDirectory:"", Backend:"pebbledb", AsyncWriteBuffer:100, KeepRecent:100000, PruneIntervalSeconds:600, ImportNumWorkers:1, EnableReadWriteMetrics:false, EVMDBDirectory:"", SeparateEVMSubDBs:false, EVMSplit:false}
+default:state-store:archive:app.stateStoreSchema{Enable:true, DBDirectory:"", Backend:"pebbledb", AsyncWriteBuffer:100, KeepRecent:100000, PruneIntervalSeconds:600, ImportNumWorkers:1, EnableReadWriteMetrics:false, EVMDBDirectory:"", SeparateEVMSubDBs:false, EVMSplit:false}
+section:state-sync
+key:state-sync.snapshot-directory
+key:state-sync.snapshot-interval
+key:state-sync.snapshot-keep-recent
+default:state-sync:validator:config.StateSyncConfig{SnapshotInterval:0x0, SnapshotKeepRecent:0x2, SnapshotDirectory:""}
+default:state-sync:full:config.StateSyncConfig{SnapshotInterval:0x0, SnapshotKeepRecent:0x2, SnapshotDirectory:""}
+default:state-sync:seed:config.StateSyncConfig{SnapshotInterval:0x0, SnapshotKeepRecent:0x2, SnapshotDirectory:""}
+default:state-sync:archive:config.StateSyncConfig{SnapshotInterval:0x0, SnapshotKeepRecent:0x2, SnapshotDirectory:""}
+section:wasm
+key:wasm.memory_cache_size
+key:wasm.query_gas_limit
+key:wasm.simulation_gas_limit
+default:wasm:validator:wasm.wasmSchema{MemoryCacheSize:0x64, QueryGasLimit:0x2dc6c0, SimulationGasLimit:""}
+default:wasm:full:wasm.wasmSchema{MemoryCacheSize:0x64, QueryGasLimit:0x2dc6c0, SimulationGasLimit:""}
+default:wasm:seed:wasm.wasmSchema{MemoryCacheSize:0x64, QueryGasLimit:0x2dc6c0, SimulationGasLimit:""}
+default:wasm:archive:wasm.wasmSchema{MemoryCacheSize:0x64, QueryGasLimit:0x2dc6c0, SimulationGasLimit:""}

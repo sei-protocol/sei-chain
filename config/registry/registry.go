@@ -223,25 +223,41 @@ func Keys() []string {
 	return out
 }
 
-// Fingerprint hashes every registration, so a key added, renamed or retyped changes it.
+// Surface renders every registration as text, one fact per line.
 //
-// This is what makes forgetting a schema bump impossible: CI compares the fingerprint against a
-// recorded one and fails until the bump and its migration land in the same change. Experimental
-// keys are absent from it by construction, since they are not registered here.
-func Fingerprint() string {
-	h := sha256.New()
+// This is what Fingerprint hashes, and having it as text is the difference between a check that says
+// something changed and one that says what. A recorded hash fails CI with no way to see the change; a
+// recorded surface fails with the key, the section or the default that moved sitting in the diff.
+//
+// Experimental keys are absent by construction, since they are not registered here.
+func Surface() string {
+	var b strings.Builder
 	for _, s := range Sections() {
-		_, _ = fmt.Fprintf(h, "section:%s\n", s.Name)
+		fmt.Fprintf(&b, "section:%s\n", s.Name)
+		if s.Prefix == "" {
+			// Worth saying, because a section whose keys carry no prefix is the one shape where the name
+			// and the keys are unrelated, and a reader of this file cannot infer it from the keys.
+			fmt.Fprintf(&b, "root-keys:%s\n", s.Name)
+		}
 		for _, k := range s.Keys {
-			_, _ = fmt.Fprintf(h, "key:%s\n", k)
+			fmt.Fprintf(&b, "key:%s\n", k)
 		}
 		// The baseline is part of the shape: a changed default is a changed contract for every
 		// node that never wrote the key. Rendered per mode, since a baseline may vary by mode.
 		for _, m := range Modes() {
-			_, _ = fmt.Fprintf(h, "default:%s:%s:%#v\n", s.Name, m, s.Defaults(m))
+			fmt.Fprintf(&b, "default:%s:%s:%#v\n", s.Name, m, s.Defaults(m))
 		}
 	}
-	return hex.EncodeToString(h.Sum(nil))
+	return b.String()
+}
+
+// Fingerprint hashes every registration, so a key added, renamed or retyped changes it.
+//
+// This is what makes forgetting a schema bump impossible: CI compares the fingerprint against a
+// recorded one and fails until the bump and its migration land in the same change.
+func Fingerprint() string {
+	sum := sha256.Sum256([]byte(Surface()))
+	return hex.EncodeToString(sum[:])
 }
 
 // deriveKeys walks a section's struct and returns the dotted keys it declares.
