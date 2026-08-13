@@ -16,7 +16,7 @@ func TestDistribution(t *testing.T) {
 		{
 			description: "send to accrue fee for next block",
 			input: []signing.Tx{
-				p.AdminSign(app, msgs.Send(p.Admin, p.AllAccounts[0], 1000)),
+				p.AdminSign(app, msgs.Send(p.Admin, p.AllAccounts[0], 1001)),
 			},
 			verifier:      []verify.Verifier{},
 			expectedCodes: []uint32{0},

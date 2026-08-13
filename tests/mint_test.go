@@ -33,7 +33,8 @@ func TestMint(t *testing.T) {
 		},
 	} {
 		if i > 0 {
-			time.Sleep(6 * time.Second)
+			duration := 6 * time.Second
+			time.Sleep(duration)
 		}
 		testCase.run(t, app)
 	}
