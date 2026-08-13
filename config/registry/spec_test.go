@@ -706,3 +706,85 @@ func TestAnEmptyMapstructureNameIsStillAnError(t *testing.T) {
 			"key space and nothing says so")
 	}
 }
+
+// TestOnlyAFlagTheOperatorChangedContributes is the whole of the flag layer's contract.
+//
+// A registered flag always answers, with its registration default when nobody typed it. A layer that
+// carried those would put every default at the top of the order, above the file, and an operator's
+// written value would lose to a default they never chose. That is the same inversion as ignoring the
+// flag, arriving from the other side.
+func TestOnlyAFlagTheOperatorChangedContributes(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("probe", &struct {
+		Typed   int `mapstructure:"typed"`
+		Untyped int `mapstructure:"untyped"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			Typed   int `mapstructure:"typed"`
+			Untyped int `mapstructure:"untyped"`
+		}{Typed: 1, Untyped: 2}
+	})
+
+	// A command where the operator typed one flag and left the other at its registration default.
+	layer := registry.FlagLayer(func(key string) (string, bool) {
+		if key == "probe.typed" {
+			return "99", true
+		}
+		return "", false
+	})
+
+	if layer.Source != "flag" {
+		t.Errorf("the layer names source %q, so Resolve cannot place it in the declared order", layer.Source)
+	}
+	if got, ok := layer.Values["probe.typed"]; !ok || got != "99" {
+		t.Errorf("the flag the operator set contributed %v (present=%v), want \"99\"", got, ok)
+	}
+	if _, ok := layer.Values["probe.untyped"]; ok {
+		t.Error("a flag nobody changed contributed a value. Its registration default would then sit " +
+			"above the operator's file, so a value they wrote down would lose to one they never chose")
+	}
+}
+
+// TestAFlagBeatsTheFileAndTheFileBeatsTheBaseline is the order an operator is promised.
+func TestAFlagBeatsTheFileAndTheFileBeatsTheBaseline(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("probe", &struct {
+		Both  int `mapstructure:"both"`
+		File  int `mapstructure:"file"`
+		Plain int `mapstructure:"plain"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			Both  int `mapstructure:"both"`
+			File  int `mapstructure:"file"`
+			Plain int `mapstructure:"plain"`
+		}{Both: 1, File: 1, Plain: 1}
+	})
+
+	resolved, err := registry.Resolve(registry.ModeFull,
+		registry.FileLayer(map[string]any{"probe.both": 2, "probe.file": 2}),
+		registry.FlagLayer(func(key string) (string, bool) {
+			if key == "probe.both" {
+				return "3", true
+			}
+			return "", false
+		}))
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	for _, want := range []struct {
+		key   string
+		value any
+		from  string
+	}{
+		{"probe.both", "3", "flag"},
+		{"probe.file", 2, "file"},
+		{"probe.plain", 1, "default"},
+	} {
+		got := resolved.Keys[want.key]
+		if got.Value != want.value || got.From != want.from {
+			t.Errorf("%s resolved to %#v from %q, want %#v from %q. An operator cannot be told which "+
+				"source won if the order is not this one", want.key, got.Value, got.From, want.value, want.from)
+		}
+	}
+}

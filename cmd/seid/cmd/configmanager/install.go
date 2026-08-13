@@ -4,8 +4,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/sei-protocol/sei-chain/config/appopts"
 	"github.com/sei-protocol/sei-chain/config/registry"
@@ -24,7 +26,7 @@ import (
 // a mode this binary does not know installs nothing and reads exactly as it always has, so selecting
 // this manager changes nothing until an operator generates a file. Refusing instead would turn a
 // mistyped file into an outage on the next restart, and the file is hand-editable by design.
-func installResolved(cmd *cobra.Command, log *slog.Logger) {
+func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logger) {
 	ctx := server.GetServerContextFromCmd(cmd)
 	if ctx == nil || ctx.Viper == nil {
 		log.Warn("no configuration source to install into; every key reads as it always has")
@@ -46,15 +48,21 @@ func installResolved(cmd *cobra.Command, log *slog.Logger) {
 		log.Warn("cannot read the values sei.toml writes; every key reads as it always has", "err", err)
 		return
 	}
-	// Both channels an operator can use, in the order Precedence declares: the file beats the baseline,
-	// and the environment beats the file. Omitting either installs a lower layer over the top of what
-	// the operator chose, which is a value silently ignored rather than a value overridden.
+	// Every channel an operator can use, in the order Precedence declares: the file beats the baseline,
+	// the environment beats the file, and a flag they typed beats both. Omitting any of them installs a
+	// lower layer over the top of what the operator chose, which is a value silently ignored rather
+	// than a value overridden. The flag layer matters most, because installing writes into the source's
+	// override layer, above a bound flag: without it, a declared key that a flag also delivers would
+	// resolve without ever seeing the command line and then bury it.
 	//
-	// The environment layer is driven by the declared set, since an environment cannot be enumerated for
-	// a prefix. That is only possible for a declared key, which is the same reason an undeclared key is
-	// left to the source that already answers it.
+	// The environment and flag layers are both driven by the declared set. An environment cannot be
+	// enumerated for a prefix, and enumerating a command's flags would report every unrelated one as a
+	// key nothing declares. That is only possible for a declared key, which is the same reason an
+	// undeclared key is left to the source that already answers it.
 	resolved, err := registry.Resolve(registry.Mode(mode),
-		registry.FileLayer(written), registry.EnvLayer(os.LookupEnv))
+		registry.FileLayer(written),
+		registry.EnvLayer(os.LookupEnv),
+		registry.FlagLayer(lookIn(typed)))
 	if err != nil {
 		log.Warn("cannot resolve this node's configuration; every key reads as it always has",
 			"mode", mode, "err", err)
@@ -124,5 +132,35 @@ func warnOnModeConflict(ctx *server.Context, mode string, log *slog.Logger) {
 	}
 	if err := appopts.ReconcileMode(mode, ctx.Config.Mode); err != nil {
 		log.Warn("this node's configuration files disagree about what kind of node it is", "err", err)
+	}
+}
+
+// TypedFlags records which flags this invocation actually carried, and has to run before anything else
+// touches them.
+//
+// A flag reports Changed when something called Set on it, and the legacy handler calls Set on every flag
+// whose name its configuration knows a value for, so that a file can supply a flag's default. After that
+// has run, Changed no longer distinguishes a flag the operator typed from a key their app.toml holds. A
+// flag layer built from it would put app.toml above sei.toml, which is a worse inversion than the one the
+// layer exists to prevent.
+//
+// So the snapshot is taken at the one point before that happens, which is the entry to Apply. Taking it
+// there rather than inside the install is the difference between an invariant and a convention: there is
+// no later point at which the truth is still available.
+func TypedFlags(cmd *cobra.Command) map[string]string {
+	out := map[string]string{}
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Changed {
+			out[strings.ToLower(f.Name)] = f.Value.String()
+		}
+	})
+	return out
+}
+
+// lookIn answers from a snapshot of the flags the operator typed.
+func lookIn(typed map[string]string) func(string) (string, bool) {
+	return func(key string) (string, bool) {
+		v, ok := typed[key]
+		return v, ok
 	}
 }

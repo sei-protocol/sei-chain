@@ -33,13 +33,7 @@ var notDeclaredBecause = map[string]string{
 		"declare: a key's first segment is its section's name and there is no section here. It needs " +
 		"no flag layer, since nothing registers a flag for it, which makes it the one root key that " +
 		"tests prefix-free declaration on its own",
-
-	"state-sync.snapshot-directory":   stateSyncPending,
-	"state-sync.snapshot-interval":    stateSyncPending,
-	"state-sync.snapshot-keep-recent": stateSyncPending,
 }
-
-const stateSyncPending = "an ordinary section that needs nothing new to declare, and is not declared yet"
 
 // TestEveryKeyTheNodeReadsIsAccountedFor is what makes the remaining work countable.
 //

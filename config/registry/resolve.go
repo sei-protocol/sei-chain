@@ -261,6 +261,29 @@ func EnvLayer(lookup func(string) (string, bool)) Layer {
 	return out
 }
 
+// FlagLayer reads the declared keys an operator set on the command line, as one layer.
+//
+// Only flags the operator changed. A registered flag always has a value, its registration default, so a
+// layer carrying every flag would put those defaults at the top of the order and each one would beat the
+// operator's file. Changed is this channel's version of a key being absent from a file: the flag exists,
+// and nobody asked for it.
+//
+// Driven by the declared set rather than by walking the command's flags, for the same reason the
+// environment layer is: a flag no section declares cannot be resolved into anything, and enumerating
+// would report every unrelated flag on the command as an unknown key.
+//
+// Values arrive as text, as they do from an environment, and the readers cast. Nothing here converts
+// them, so what an operator typed is what a diagnostic can quote back.
+func FlagLayer(set func(key string) (string, bool)) Layer {
+	out := Layer{Source: "flag", Values: map[string]any{}}
+	for _, key := range Keys() {
+		if v, ok := set(key); ok {
+			out.Values[key] = v
+		}
+	}
+	return out
+}
+
 // FileLayer takes the keys a configuration file supplied, normalised to lower case.
 //
 // Normalised here because a source enumerates lower-cased while a file may not be written that way,

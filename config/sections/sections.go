@@ -18,6 +18,7 @@ import (
 
 	_ "github.com/sei-protocol/sei-chain/admin"
 	_ "github.com/sei-protocol/sei-chain/app"
+	_ "github.com/sei-protocol/sei-chain/config/cosmosbase"
 	_ "github.com/sei-protocol/sei-chain/evmrpc/config"
 	_ "github.com/sei-protocol/sei-chain/giga/executor/config"
 	_ "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -43,6 +44,7 @@ var Names = []string{
 	"receipt-store",
 	"state-commit",
 	"state-store",
+	"state-sync",
 	"wasm",
 }
 
