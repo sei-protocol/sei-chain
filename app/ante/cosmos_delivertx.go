@@ -1,6 +1,7 @@
 package ante
 
 import (
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -37,9 +38,13 @@ func CosmosDeliverTxAnte(
 			returnErr = HandleOutofGas(r, tx.(GasTx).GetGas(), ctx.GasMeter().GasConsumed())
 		}
 	}()
-	ctx, _, err := checkGaslessAndSetGasMeter(ctx, tx.(GasTx), pk, oraclek, ek)
+	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
+	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oraclek, ek)
 	if err != nil {
 		return ctx, err
+	}
+	if !isGasless {
+		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 	}
 
 	if err := CheckMemoLength(tx, authParams); err != nil {

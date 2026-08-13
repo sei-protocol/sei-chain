@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"math"
 	"math/big"
 	"time"
 
@@ -162,10 +163,14 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 	if err != nil {
 		return wrapErr(err)
 	}
+	gasWanted := app.proposalGasWanted(sdkCtx, tx, uint64(len(req.Tx)), gInfo.GasWanted)
+	if gasWanted > math.MaxInt64 {
+		return wrapErr(sdkerrors.Wrapf(sdkerrors.ErrOutOfGas, "proposal gas wanted %d exceeds maximum supported value", gasWanted))
+	}
 
 	res := &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{
-			GasWanted:    int64(gInfo.GasWanted), //nolint:gosec
+			GasWanted:    int64(gasWanted), //nolint:gosec // bounded above
 			Data:         result.Data,
 			Priority:     txCtx.Priority(),
 			GasEstimated: int64(gInfo.GasEstimate), //nolint:gosec

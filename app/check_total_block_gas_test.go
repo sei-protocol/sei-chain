@@ -9,16 +9,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	appante "github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -51,6 +49,20 @@ func encodeDecodeTx(t *testing.T, a *App, tx sdk.Tx) sdk.Tx {
 	decoded, err := a.GetTxConfig().TxDecoder()(raw)
 	require.NoError(t, err)
 	return decoded
+}
+
+func encodeTxs(t *testing.T, a *App, txs []sdk.Tx) [][]byte {
+	t.Helper()
+	rawTxs := make([][]byte, len(txs))
+	for i, tx := range txs {
+		if tx == nil {
+			continue
+		}
+		var err error
+		rawTxs[i], err = a.GetTxConfig().TxEncoder()(tx)
+		require.NoError(t, err)
+	}
+	return rawTxs
 }
 
 // buildCosmosTx wraps a single Cosmos msg in a tx with the given gas limit and round-trips it.
@@ -104,7 +116,7 @@ func TestCheckTotalBlockGas_MultipleEVMUnderLimit(t *testing.T) {
 	for i := uint64(1); i <= 3; i++ {
 		txs = append(txs, buildSignedLegacyEVMTx(t, a, i, 21000, 0))
 	}
-	require.True(t, a.checkTotalBlockGas(ctx, txs))
+	require.True(t, a.checkTotalBlockGas(ctx, encodeTxs(t, a, txs), txs))
 }
 
 // TestCheckTotalBlockGas_MultipleEVMExceedsMaxGas ensures EVM gas accounting is unchanged
@@ -117,7 +129,7 @@ func TestCheckTotalBlockGas_MultipleEVMExceedsMaxGas(t *testing.T) {
 		buildSignedLegacyEVMTx(t, a, 1, 30_000, 0),
 		buildSignedLegacyEVMTx(t, a, 2, 30_000, 0),
 	}
-	require.False(t, a.checkTotalBlockGas(ctx, txs))
+	require.False(t, a.checkTotalBlockGas(ctx, encodeTxs(t, a, txs), txs))
 }
 
 // TestCheckTotalBlockGas_GasEstimatePreferredOverGasWanted exercises the branch where a
@@ -132,7 +144,7 @@ func TestCheckTotalBlockGas_GasEstimatePreferredOverGasWanted(t *testing.T) {
 	for i := uint64(1); i <= 3; i++ {
 		txs = append(txs, buildSignedLegacyEVMTx(t, a, i, 100_000, 21_000))
 	}
-	require.True(t, a.checkTotalBlockGas(ctx, txs))
+	require.True(t, a.checkTotalBlockGas(ctx, encodeTxs(t, a, txs), txs))
 }
 
 // TestCheckTotalBlockGas_CosmosBankSendWithoutGaslessTypes exercises the declared-gas
@@ -146,7 +158,8 @@ func TestCheckTotalBlockGas_CosmosBankSendWithoutGaslessTypes(t *testing.T) {
 		ToAddress:   sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String(),
 		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 1)),
 	}
-	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{buildCosmosTx(t, a, send, 80_000)}))
+	txs := []sdk.Tx{buildCosmosTx(t, a, send, 80_000)}
+	require.True(t, a.checkTotalBlockGas(ctx, encodeTxs(t, a, txs), txs))
 }
 
 // TestCheckTotalBlockGas_NilDecodedTx exercises the nil-entry branch of the accounting loop.
@@ -154,43 +167,27 @@ func TestCheckTotalBlockGas_NilDecodedTx(t *testing.T) {
 	a := Setup(t, false, false, false)
 	ctx := newBlockGasCtx(t, a, 1_000_000, 1_000_000)
 	evmTx := buildSignedLegacyEVMTx(t, a, 1, 21000, 0)
-	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{nil, evmTx}))
+	txs := []sdk.Tx{nil, evmTx}
+	require.False(t, a.checkTotalBlockGas(ctx, encodeTxs(t, a, txs), txs))
 }
 
-// TestCheckTotalBlockGas_AssociateTxUsesFixedGas verifies the stateless associate contribution.
-func TestCheckTotalBlockGas_AssociateTxUsesFixedGas(t *testing.T) {
+// TestCheckTotalBlockGas_AssociateTxUsesModeledGas verifies the stateless associate contribution.
+func TestCheckTotalBlockGas_AssociateTxUsesModeledGas(t *testing.T) {
 	a := Setup(t, false, false, false)
-	ctx := newBlockGasCtx(t, a, int64(antedecorators.FeeExemptTxGasWanted), int64(antedecorators.FeeExemptTxGasWanted))
 
 	msg := &evmtypes.MsgAssociate{
 		Sender:        sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String(),
 		CustomMessage: "test",
 	}
 	tx := buildCosmosTx(t, a, msg, 50_000_000)
-	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
-	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx, tx}))
-}
+	txs := []sdk.Tx{tx}
+	rawTxs := encodeTxs(t, a, txs)
+	authParams := a.AccountKeeper.GetParams(newBlockGasCtx(t, a, 1_000_000, 1_000_000))
+	cosmosGasParams := a.ParamsKeeper.GetCosmosGasParams(newBlockGasCtx(t, a, 1_000_000, 1_000_000))
+	modeledGas := appante.AssociateTxProposalGasWanted(uint64(len(rawTxs[0])), authParams, cosmosGasParams)
+	ctx := newBlockGasCtx(t, a, int64(modeledGas), int64(modeledGas)) //nolint:gosec // test params produce bounded gas
 
-// TestCheckTotalBlockGas_OracleVoteUsesFixedGas verifies the stateless oracle contribution.
-func TestCheckTotalBlockGas_OracleVoteUsesFixedGas(t *testing.T) {
-	valPub := secp256k1.GenPrivKey().PubKey()
-	tw := NewTestWrapper(t, time.Now().UTC(), valPub, false)
-
-	// Promote the validator to Bonded so ValidateFeeder succeeds.
-	valAddr := sdk.ValAddress(valPub.Address())
-	val, found := tw.App.StakingKeeper.GetValidator(tw.Ctx, valAddr)
-	require.True(t, found)
-	tw.App.StakingKeeper.SetValidator(tw.Ctx, val.UpdateStatus(stakingtypes.Bonded))
-
-	// Self-feeder oracle vote; no prior aggregate vote exists in fresh state.
-	vote := &oracletypes.MsgAggregateExchangeRateVote{
-		ExchangeRates: "1.2uatom",
-		Feeder:        sdk.AccAddress(valAddr).String(),
-		Validator:     valAddr.String(),
-	}
-	tx := buildCosmosTx(t, tw.App, vote, 50_000_000)
-
-	ctx := tw.Ctx.WithConsensusParams(blockGasParams(int64(antedecorators.FeeExemptTxGasWanted), int64(antedecorators.FeeExemptTxGasWanted)))
-	require.True(t, tw.App.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
-	require.False(t, tw.App.checkTotalBlockGas(ctx, []sdk.Tx{tx, tx}))
+	require.True(t, a.checkTotalBlockGas(ctx, rawTxs, txs))
+	txs = []sdk.Tx{tx, tx}
+	require.False(t, a.checkTotalBlockGas(ctx, encodeTxs(t, a, txs), txs))
 }

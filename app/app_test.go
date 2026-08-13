@@ -22,7 +22,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	appante "github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
 	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
@@ -909,7 +909,7 @@ func signCosmosTx(
 	return txBytes
 }
 
-func TestCheckTxAssociateUsesFixedGasAccounting(t *testing.T) {
+func TestCheckTxAssociateUsesModeledGasAccounting(t *testing.T) {
 	testCases := []struct {
 		name       string
 		gasLimit   uint64
@@ -957,7 +957,10 @@ func TestCheckTxAssociateUsesFixedGasAccounting(t *testing.T) {
 
 			res := testApp.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
 			require.True(t, res.IsOK(), res.Log)
-			require.Equal(t, int64(antedecorators.FeeExemptTxGasWanted), res.GasWanted)
+			authParams := testApp.AccountKeeper.GetParams(ctx)
+			cosmosGasParams := testApp.ParamsKeeper.GetCosmosGasParams(ctx)
+			expectedGas := appante.AssociateTxProposalGasWanted(uint64(len(txBytes)), authParams, cosmosGasParams)
+			require.Equal(t, int64(expectedGas), res.GasWanted) //nolint:gosec // test params produce bounded gas
 		})
 	}
 }
@@ -986,6 +989,9 @@ func TestDeliverTxAssociateGasAccounting(t *testing.T) {
 			require.NoError(t, txBuilder.SetMsgs(evmtypes.NewMsgAssociate(senderAddr, strings.Repeat("x", 64))))
 			txBuilder.SetMemo(strings.Repeat("m", int(authtypes.DefaultMaxMemoCharacters)))
 			txBuilder.SetGasLimit(50_000_000)
+			if associated {
+				txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 500_000)))
+			}
 			txBytes := signCosmosTx(t, testApp.GetTxConfig(), txBuilder, senderPriv, genAcc)
 			tx, err := testApp.GetTxConfig().TxDecoder()(txBytes)
 			require.NoError(t, err)
@@ -996,61 +1002,20 @@ func TestDeliverTxAssociateGasAccounting(t *testing.T) {
 
 			res := testApp.DeliverTxWithResult(deliverCtx, txBytes, tx)
 			require.Zero(t, res.Code)
-			require.Equal(t, int64(antedecorators.FeeExemptTxGasWanted), res.GasWanted)
 			if associated {
+				require.Equal(t, int64(50_000_000), res.GasWanted)
 				require.Positive(t, res.GasUsed)
-				require.LessOrEqual(t, res.GasUsed, int64(antedecorators.FeeExemptTxGasWanted))
+				authParams := testApp.AccountKeeper.GetParams(deliverCtx)
+				cosmosGasParams := testApp.ParamsKeeper.GetCosmosGasParams(deliverCtx)
+				proposalGas := appante.AssociateTxProposalGasWanted(uint64(len(txBytes)), authParams, cosmosGasParams)
+				require.LessOrEqual(t, res.GasUsed, int64(proposalGas)) //nolint:gosec // test params produce bounded gas
 				t.Logf("associated MsgAssociate gas used: %d", res.GasUsed)
 			} else {
+				require.Zero(t, res.GasWanted)
 				require.Zero(t, res.GasUsed)
 			}
 		})
 	}
-}
-
-func TestDeliverTxOracleVoteUsesFixedGasAccounting(t *testing.T) {
-	validatorPriv := cosmosed25519.GenPrivKey()
-	validatorPub := validatorPriv.PubKey()
-	validatorAddr := sdk.AccAddress(validatorPub.Address())
-	validatorAcc := authtypes.NewBaseAccount(validatorAddr, validatorPub, 0, 0)
-	feederPriv := secp256k1.GenPrivKey()
-	feederAddr := sdk.AccAddress(feederPriv.PubKey().Address())
-	feederAcc := authtypes.NewBaseAccount(feederAddr, feederPriv.PubKey(), 1, 0)
-	feederBalance := banktypes.Balance{
-		Address: feederAddr.String(),
-		Coins:   sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1_000_000_000))),
-	}
-	tmPub, err := cryptocodec.ToTmPubKeyInterface(validatorPub)
-	require.NoError(t, err)
-	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
-	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{validatorAcc, feederAcc}, feederBalance)
-	checkCtx := testApp.NewContext(true, types.Header{Height: testApp.LastBlockHeight()})
-	testApp.OracleKeeper.SetFeederDelegation(checkCtx, sdk.ValAddress(validatorAddr), feederAddr)
-	testApp.OracleKeeper.SetVoteTarget(checkCtx, "uatom")
-	deliverCtx := testApp.GetContextForDeliverTx(nil)
-	testApp.OracleKeeper.SetFeederDelegation(deliverCtx, sdk.ValAddress(validatorAddr), feederAddr)
-	testApp.OracleKeeper.SetVoteTarget(deliverCtx, "uatom")
-
-	vote := oracletypes.NewMsgAggregateExchangeRateVote(
-		"1.2uatom",
-		feederAddr,
-		sdk.ValAddress(validatorAddr),
-	)
-	txBuilder := testApp.GetTxConfig().NewTxBuilder()
-	require.NoError(t, txBuilder.SetMsgs(vote))
-	txBuilder.SetGasLimit(50_000_000)
-	txBytes := signCosmosTx(t, testApp.GetTxConfig(), txBuilder, feederPriv, feederAcc)
-	tx, err := testApp.GetTxConfig().TxDecoder()(txBytes)
-	require.NoError(t, err)
-
-	checkRes := testApp.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
-	require.True(t, checkRes.IsOK(), checkRes.Log)
-	require.Equal(t, int64(antedecorators.FeeExemptTxGasWanted), checkRes.GasWanted)
-
-	res := testApp.DeliverTxWithResult(deliverCtx.WithTxBytes(txBytes), txBytes, tx)
-	require.Zero(t, res.Code, res.Log)
-	require.Equal(t, int64(antedecorators.FeeExemptTxGasWanted), res.GasWanted)
-	require.Zero(t, res.GasUsed)
 }
 
 func TestDecodeFailureTxReportsZeroGas(t *testing.T) {

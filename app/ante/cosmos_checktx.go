@@ -92,9 +92,13 @@ func CosmosCheckTxAnte(
 			returnErr = HandleOutofGas(r, tx.(GasTx).GetGas(), ctx.GasMeter().GasConsumed())
 		}
 	}()
-	ctx, isGasless, err := checkGaslessAndSetGasMeter(ctx, tx.(GasTx), pk, oraclek, ek)
+	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
+	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oraclek, ek)
 	if err != nil {
 		return ctx, err
+	}
+	if !isGasless {
+		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 	}
 
 	if err := CheckMemoLength(tx, authParams); err != nil {
@@ -337,32 +341,6 @@ func validatePubKey(pubKey cryptotypes.PubKey, remainingSigCount *uint64, depth 
 func SetGasMeter(ctx sdk.Context, gasLimit uint64, paramsKeeper paramskeeper.Keeper) sdk.Context {
 	cosmosGasParams := paramsKeeper.GetCosmosGasParams(ctx)
 	return ctx.WithGasMeter(storetypes.NewMultiplierGasMeter(gasLimit, cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator))
-}
-
-// checkGaslessAndSetGasMeter classifies fee exemption and installs the execution and reporting meters.
-func checkGaslessAndSetGasMeter(
-	ctx sdk.Context,
-	tx GasTx,
-	paramsKeeper paramskeeper.Keeper,
-	oracleKeeper oraclekeeper.Keeper,
-	evmKeeper *evmkeeper.Keeper,
-) (sdk.Context, bool, error) {
-	queryCtx := ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
-	isGasless, err := antedecorators.IsTxGasless(tx, queryCtx, oracleKeeper, evmKeeper)
-	if err != nil {
-		return ctx, false, err
-	}
-
-	executionGas := antedecorators.ExecutionGasLimitForTx(tx, tx.GetGas())
-	txCtx := SetGasMeter(queryCtx, executionGas, paramsKeeper)
-	reportedGas := antedecorators.GasWantedForTx(tx, tx.GetGas())
-	if reportedGas != executionGas {
-		txCtx = txCtx.WithGasMeter(antedecorators.NewReportingGasMeter(txCtx.GasMeter(), reportedGas))
-	}
-	if isGasless {
-		txCtx = txCtx.WithGasMeter(antedecorators.NewNoConsumptionGasMeter(txCtx.GasMeter()))
-	}
-	return txCtx, isGasless, nil
 }
 
 func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper, isGasless bool) (priority int64, err error) {
