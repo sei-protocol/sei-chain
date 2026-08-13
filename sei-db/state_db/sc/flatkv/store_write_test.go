@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -1036,6 +1037,103 @@ func TestOverwriteSameKeyInSingleBlockAllKinds(t *testing.T) {
 	gotMisc, ok := s.Get("bank", moduleKey)
 	require.True(t, ok)
 	require.Equal(t, []byte("second"), gotMisc, "last misc write should win")
+}
+
+// dumpAllPairs returns every committed physical key and its value across the four data stores.
+func dumpAllPairs(t *testing.T, s *CommitStore) map[string][]byte {
+	t.Helper()
+	iter, err := s.RawGlobalIterator()
+	require.NoError(t, err)
+	defer func() { require.NoError(t, iter.Close()) }()
+
+	pairs := make(map[string][]byte)
+	for ; iter.Valid(); iter.Next() {
+		pairs[string(iter.Key())] = bytes.Clone(iter.Value())
+	}
+	require.NoError(t, iter.Error())
+	return pairs
+}
+
+// A block carrying duplicate keys must be indistinguishable from the same block with those
+// duplicates already collapsed to their final values: byte-identical database contents and an
+// identical lattice hash. classifyAndPrefix does not deduplicate, so a duplicated key reaches the
+// per-kind maps twice; this pins that neither copy can survive into the stores or the hash.
+func TestDuplicateKeysMatchPreCollapsedBlock(t *testing.T) {
+	addr := addrN(0x41)
+	otherAddr := addrN(0x42)
+	slot := slotN(0x43)
+	moduleKey := []byte("module-key")
+	finalCodeHash := codeHashN(0x02)
+
+	// Every kind duplicated, first write then second, so a surviving first write is detectable.
+	withDuplicates := []*proto.NamedChangeSet{
+		namedCS(
+			noncePair(addr, 1),
+			storagePair(addr, slot, padLeft32(0x01)),
+			codePair(addr, []byte("first")),
+			codeHashPair(addr, codeHashN(0x01)),
+			noncePair(addr, 7),
+			storagePair(addr, slot, padLeft32(0x02)),
+			codePair(addr, []byte("second")),
+			codeHashPair(addr, finalCodeHash),
+			// Never duplicated, so the two blocks are not trivially identical.
+			noncePair(otherAddr, 3),
+		),
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: moduleKey, Value: []byte("first")},
+			{Key: moduleKey, Value: []byte("second")},
+		}}},
+	}
+	preCollapsed := []*proto.NamedChangeSet{
+		namedCS(
+			noncePair(addr, 7),
+			storagePair(addr, slot, padLeft32(0x02)),
+			codePair(addr, []byte("second")),
+			codeHashPair(addr, finalCodeHash),
+			noncePair(otherAddr, 3),
+		),
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: moduleKey, Value: []byte("second")},
+		}}},
+	}
+
+	// applyBlock commits changeSets to a fresh store and returns its contents and lattice hash,
+	// asserting first that the later write of each duplicated key is the one that survived.
+	applyBlock := func(changeSets []*proto.NamedChangeSet) (map[string][]byte, []byte) {
+		t.Helper()
+		s := setupTestStore(t)
+		defer s.Close()
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, changeSets))
+		commitAndCheck(t, s)
+
+		gotNonce, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+		require.True(t, ok)
+		require.Equal(t, nonceBytes(7), gotNonce, "later nonce write should win")
+		gotCodeHash, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
+		require.True(t, ok)
+		require.Equal(t, finalCodeHash[:], gotCodeHash, "later codehash write should win")
+		gotStorage, ok := s.Get(keys.EVMStoreKey, evmStorageKey(addr, slot))
+		require.True(t, ok)
+		require.Equal(t, padLeft32(0x02), gotStorage, "later storage write should win")
+		gotCode, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
+		require.True(t, ok)
+		require.Equal(t, []byte("second"), gotCode, "later code write should win")
+		gotMisc, ok := s.Get("bank", moduleKey)
+		require.True(t, ok)
+		require.Equal(t, []byte("second"), gotMisc, "later misc write should win")
+
+		return dumpAllPairs(t, s), awaitRootHash(t, s)
+	}
+
+	duplicateContents, duplicateHash := applyBlock(withDuplicates)
+	collapsedContents, collapsedHash := applyBlock(preCollapsed)
+
+	require.NotEmpty(t, collapsedContents)
+	require.Equal(t, collapsedContents, duplicateContents,
+		"duplicate keys must leave the databases byte-identical to the collapsed block")
+	require.NotEmpty(t, duplicateHash)
+	require.Equal(t, collapsedHash, duplicateHash,
+		"duplicate keys in a block must not reach the lattice hash")
 }
 
 // A key set and then deleted inside one block must end up deleted, and vice versa. The ordering
