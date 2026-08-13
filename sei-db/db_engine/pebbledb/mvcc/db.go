@@ -299,15 +299,11 @@ func (db *Database) Checkpoint(destDir string) error {
 	return nil
 }
 
-// SetCheckpointMarkers writes the version range into a completed checkpoint
-// without changing the live database markers. Both are written under one open
-// so a checkpoint is never left describing half a range.
-func (db *Database) SetCheckpointMarkers(destDir string, latest, earliest int64) error {
-	if latest < 0 || earliest < 0 {
-		return fmt.Errorf("versions must be non-negative")
-	}
-	if earliest > latest {
-		return fmt.Errorf("earliest version %d is above latest version %d", earliest, latest)
+// SetCheckpointVersion writes the logical latest version into a completed
+// checkpoint without changing the live database marker.
+func (db *Database) SetCheckpointVersion(destDir string, version int64) error {
+	if version < 0 {
+		return fmt.Errorf("version must be non-negative")
 	}
 
 	opts := newPebbleOptions(db.config, nil)
@@ -318,16 +314,13 @@ func (db *Database) SetCheckpointMarkers(destDir string, latest, earliest int64)
 	}
 
 	// Converted here, where the non-negative check above is in view.
-	setErr := setCheckpointMarker(checkpoint, latestVersionKey, uint64(latest))
-	if setErr == nil {
-		setErr = setCheckpointMarker(checkpoint, earliestVersionKey, uint64(earliest))
-	}
+	setErr := setCheckpointMarker(checkpoint, latestVersionKey, uint64(version))
 	closeErr := checkpoint.Close()
 	if setErr != nil {
-		setErr = fmt.Errorf("set checkpoint markers latest=%d earliest=%d: %w", latest, earliest, setErr)
+		setErr = fmt.Errorf("set checkpoint version %d: %w", version, setErr)
 	}
 	if closeErr != nil {
-		closeErr = fmt.Errorf("close checkpoint after setting markers: %w", closeErr)
+		closeErr = fmt.Errorf("close checkpoint after setting version: %w", closeErr)
 	}
 	return errors.Join(setErr, closeErr)
 }
@@ -707,6 +700,10 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	}()
 
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
+	prevEarliestVersion := db.GetEarliestVersion()
+	if err := db.SetEarliestVersion(earliestVersion, false); err != nil {
+		return err
+	}
 
 	itr, err := db.storage.NewIter(nil)
 	if err != nil {
@@ -753,8 +750,11 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 			prevStore = storeKey
 			updated, ok := db.storeKeyDirty.Load(storeKey)
 			versionUpdated, typeOk := updated.(int64)
-			// Skip a store's keys if version it was last updated is less than last prune height
-			if !ok || (typeOk && versionUpdated < db.GetEarliestVersion()) {
+			// The marker is advanced before deletes so checkpoints never claim
+			// history that the prune has already dropped. The skip heuristic must
+			// still compare against the pre-prune marker; otherwise this pass would
+			// skip stores whose latest update is at or below the prune height.
+			if !ok || (typeOk && versionUpdated < prevEarliestVersion) {
 				itr.SeekGE(storePrefix(storeKey + "0"))
 				continue
 			}
@@ -825,9 +825,6 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	}
 	db.operationMetrics.AddRead(scanReads)
 
-	if err := db.SetEarliestVersion(earliestVersion, false); err != nil {
-		return err
-	}
 	return db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
 }
 

@@ -49,15 +49,12 @@ import (
 // call ScheduleSnapshot. The rootmulti commit path owns the trigger for every
 // block, populated or empty, and is the only caller of ScheduleSnapshot.
 //
-// Pruning is the one writer nothing orders a snapshot against, and it has two
-// separate effects. In the data, a checkpoint can capture a partially applied
-// prune — the same state a crash mid-prune leaves on the live DB. That one is
-// harmless: reads at the label are unaffected, and only historical reads near
-// the pruning horizon can see it. In the version markers it is not harmless,
-// because pruning advances the databases one at a time and a snapshot would
-// pair a pruned tree with an unpruned one, which is rejected on reopen. The
-// markers are therefore stamped at publication rather than inherited from each
-// checkpoint. See stampedEarliest.
+// Pruning is the one writer nothing orders a snapshot against. A checkpoint can
+// capture a partially applied prune — the same state a crash mid-prune leaves on
+// the live DB. This is safe for a snapshot because pruning advances each DB's
+// earliest marker before deleting history, so the checkpoint never claims a
+// range the DB has already dropped. Reopening a snapshot with different member
+// floors is allowed; the composite reports the highest floor any member carries.
 //
 // SS rollback is not part of this feature, and the two do not compose yet. A
 // rollback leaves lastRequested at the pre-rollback high-water mark, so the
@@ -432,12 +429,11 @@ func (m *snapshotManager) startPublish(
 			_ = os.RemoveAll(tmpDir)
 			return
 		}
-		earliest := m.stampedEarliest(version)
 		for _, target := range targets {
-			if err := target.store.SetCheckpointMarkers(target.dest, version, earliest); err != nil {
+			if err := target.store.SetCheckpointVersion(target.dest, version); err != nil {
 				recordSnapshotCompletion(start, "failure")
-				logger.Error("failed to set state store snapshot markers",
-					"version", version, "earliest", earliest, "dir", target.dest, "error", err)
+				logger.Error("failed to set state store snapshot version",
+					"version", version, "dir", target.dest, "error", err)
 				_ = os.RemoveAll(tmpDir)
 				return
 			}
@@ -448,41 +444,6 @@ func (m *snapshotManager) startPublish(
 			recordSnapshotCompletion(start, "failure")
 		}
 	}()
-}
-
-// stampedEarliest is the earliest version the published snapshot claims to
-// serve. Every tree in one snapshot gets this same value.
-//
-// A prune pass is the reason it cannot be left to each checkpoint. Pruning
-// bypasses the apply queues, so no barrier orders a snapshot against it, and it
-// advances the databases one at a time: composite.Prune finishes EVM, including
-// its compaction, before it starts the Cosmos scan. On a large store that gap
-// is minutes long, and a snapshot taken inside it would capture a Cosmos tree
-// that has not been pruned next to an EVM tree that has. Reopening that
-// snapshot fails the earliest-version agreement check in NewCompositeStateStore
-// and the snapshot is scrap.
-//
-// The value is the highest earliest version reached anywhere, because a
-// snapshot must not promise a version one of its trees has already dropped.
-// Reading it here rather than at checkpoint time can only overshoot what a tree
-// holds, since an earliest marker never moves backward outside a restore, and
-// overshooting is the safe direction: the snapshot serves less than it has
-// rather than claiming more. It is clamped to the label so the pair stays
-// ordered when retention is short enough for pruning to overtake the boundary.
-func (m *snapshotManager) stampedEarliest(label int64) int64 {
-	earliest := m.cosmosScheduler.HighestEarliestVersion()
-	if m.evmScheduler != nil {
-		if evmEarliest := m.evmScheduler.HighestEarliestVersion(); evmEarliest > earliest {
-			earliest = evmEarliest
-		}
-	}
-	if earliest > label {
-		return label
-	}
-	if earliest < 0 {
-		return 0
-	}
-	return earliest
 }
 
 // publish moves a finished checkpoint into place and reports whether the whole

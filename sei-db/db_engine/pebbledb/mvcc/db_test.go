@@ -66,10 +66,9 @@ func TestVersionedCheckpointPreservesFutureLiveMarker(t *testing.T) {
 		done <- err
 	})
 	require.NoError(t, <-done)
-	// The caller decides both markers. Neither has to match what the copy
-	// inherited: the label comes from the barrier, and the earliest version is
-	// reconciled across every tree in the snapshot.
-	require.NoError(t, types.SetCheckpointMarkers(store, dest, 5, 5))
+	// The caller stamps only the label. Earliest is inherited from the
+	// checkpointed DB because prune advances it before deleting history.
+	require.NoError(t, types.SetCheckpointVersion(store, dest, 5))
 
 	require.Equal(t, int64(10), store.GetLatestVersion())
 	require.Equal(t, int64(4), store.GetEarliestVersion())
@@ -84,10 +83,7 @@ func TestVersionedCheckpointPreservesFutureLiveMarker(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, checkpoint.Close()) })
 	require.Equal(t, int64(5), checkpoint.GetLatestVersion())
-	require.Equal(t, int64(5), checkpoint.GetEarliestVersion())
-
-	require.Error(t, types.SetCheckpointMarkers(store, dest, 5, 6),
-		"an earliest version above the label describes an empty range")
+	require.Equal(t, int64(4), checkpoint.GetEarliestVersion())
 }
 
 func TestScheduledCheckpointCanBeCanceledAtBarrier(t *testing.T) {

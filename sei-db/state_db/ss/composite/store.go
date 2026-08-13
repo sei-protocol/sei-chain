@@ -110,11 +110,7 @@ func NewCompositeStateStore(
 		return nil, fmt.Errorf("failed to recover state store: %w", err)
 	}
 
-	// Mismatched earliest versions = DBs from different snapshots; reads would diverge.
-	if err := cs.validateEVMSSPostRecovery(); err != nil {
-		_ = cs.Close()
-		return nil, err
-	}
+	cs.validateEVMSSPostRecovery()
 
 	if ssConfig.SnapshotInterval > 0 {
 		snapshotRoot := utils.GetStateStoreSnapshotsPath(homeDir)
@@ -177,20 +173,23 @@ func (s *CompositeStateStore) validateEVMSSPreRecovery() error {
 	return nil
 }
 
-// validateEVMSSPostRecovery rejects mismatched earliest versions between the two SS DBs.
-func (s *CompositeStateStore) validateEVMSSPostRecovery() error {
+// validateEVMSSPostRecovery reports mismatched earliest versions between SS DBs.
+// Divergence is safe because GetEarliestVersion reports the highest member
+// floor, which is the first version every routed store can serve.
+func (s *CompositeStateStore) validateEVMSSPostRecovery() {
 	if s.evmStore == nil {
-		return nil
+		return
 	}
 	cosmosEarliest := s.cosmosStore.GetEarliestVersion()
 	evmEarliest := s.evmStore.GetEarliestVersion()
 	if cosmosEarliest != evmEarliest && (cosmosEarliest > 0 || evmEarliest > 0) {
-		return fmt.Errorf(
-			"EVM SS earliest version %d does not match Cosmos SS earliest version %d: state sync the EVM SS DB, or set evm-ss-split=false",
-			evmEarliest, cosmosEarliest,
+		logger.Warn(
+			"EVM SS earliest version does not match Cosmos SS earliest version; serving the highest floor",
+			"evmEarliest", evmEarliest,
+			"cosmosEarliest", cosmosEarliest,
+			"reportedEarliest", max(cosmosEarliest, evmEarliest),
 		)
 	}
-	return nil
 }
 
 func (s *CompositeStateStore) StartPruning() {
@@ -243,7 +242,11 @@ func (s *CompositeStateStore) GetLatestVersion() int64 {
 }
 
 func (s *CompositeStateStore) GetEarliestVersion() int64 {
-	return s.cosmosStore.GetEarliestVersion()
+	earliest := s.cosmosStore.GetEarliestVersion()
+	if s.evmStore != nil {
+		earliest = max(earliest, s.evmStore.GetEarliestVersion())
+	}
+	return earliest
 }
 
 func (s *CompositeStateStore) Close() error {

@@ -119,4 +119,28 @@ func TestPruneDescendingOrder_DeletesOldVersions(t *testing.T) {
 		require.ElementsMatch(t, []int64{140}, rawVersionsForKey(t, db, store, k2))
 	})
 
+	t.Run("idle store still prunes against previous earliest marker", func(t *testing.T) {
+		db := newTestDB(t, true)
+
+		applyVersion(t, db, store, 50, key, []byte("v50"))
+		applyVersion(t, db, store, 100, key, []byte("v100"))
+
+		require.NoError(t, db.Prune(150))
+
+		versions := rawVersionsForKey(t, db, store, key)
+		require.ElementsMatch(t, []int64{100}, versions,
+			"prune must not use the just-advanced marker to skip this store")
+	})
+
+}
+
+func TestPruneAdvancesEarliestBeforeDeletingHistory(t *testing.T) {
+	db := newTestDB(t, true)
+
+	require.NoError(t, db.storage.Set([]byte("invalid-mvcc-key"), []byte("value"), defaultWriteOpts))
+
+	err := db.Prune(10)
+	require.Error(t, err)
+	require.Equal(t, int64(11), db.GetEarliestVersion(),
+		"earliest marker must advance before a later prune failure")
 }

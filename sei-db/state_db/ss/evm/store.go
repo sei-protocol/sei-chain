@@ -154,16 +154,13 @@ func (s *EVMStateStore) SetLatestVersion(version int64) error {
 }
 
 func (s *EVMStateStore) GetEarliestVersion() int64 {
-	var minVersion int64 = -1
+	var maxVersion int64
 	for _, db := range s.managedDBs {
-		if v := db.GetEarliestVersion(); minVersion < 0 || v < minVersion {
-			minVersion = v
+		if v := db.GetEarliestVersion(); v > maxVersion {
+			maxVersion = v
 		}
 	}
-	if minVersion < 0 {
-		return 0
-	}
-	return minVersion
+	return maxVersion
 }
 
 func (s *EVMStateStore) SetEarliestVersion(version int64, ignoreVersion bool) error {
@@ -380,7 +377,7 @@ func (s *EVMStateStore) SupportsCheckpoint() bool {
 		if _, barrier := db.(types.DrainBarrier); !barrier {
 			return false
 		}
-		if _, markerSetter := db.(types.CheckpointMarkerSetter); !markerSetter {
+		if _, versionSetter := db.(types.CheckpointVersionSetter); !versionSetter {
 			return false
 		}
 	}
@@ -433,35 +430,21 @@ func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool
 	}
 }
 
-func (s *EVMStateStore) SetCheckpointMarkers(destDir string, latest, earliest int64) error {
+func (s *EVMStateStore) SetCheckpointVersion(destDir string, version int64) error {
 	if !s.separateDBs {
 		db := s.primaryDB()
 		if db == nil {
 			return errors.New("EVM state store has no managed DB to stamp")
 		}
-		return types.SetCheckpointMarkers(db, destDir, latest, earliest)
+		return types.SetCheckpointVersion(db, destDir, version)
 	}
 	for _, storeType := range AllEVMStoreTypes() {
 		dest := filepath.Join(destDir, StoreTypeName(storeType))
-		if err := types.SetCheckpointMarkers(s.subDBs[storeType], dest, latest, earliest); err != nil {
-			return fmt.Errorf("set EVM sub-DB %s checkpoint markers: %w", StoreTypeName(storeType), err)
+		if err := types.SetCheckpointVersion(s.subDBs[storeType], dest, version); err != nil {
+			return fmt.Errorf("set EVM sub-DB %s checkpoint version: %w", StoreTypeName(storeType), err)
 		}
 	}
 	return nil
-}
-
-// HighestEarliestVersion reports the furthest any sub-DB has been pruned. Prune
-// runs the sub-DBs in parallel and each writes its own marker when it finishes,
-// so mid-pass they disagree, and only the highest is a floor every sub-DB can
-// honor.
-func (s *EVMStateStore) HighestEarliestVersion() int64 {
-	var highest int64
-	for _, db := range s.managedDBs {
-		if v := db.GetEarliestVersion(); v > highest {
-			highest = v
-		}
-	}
-	return highest
 }
 
 func (s *EVMStateStore) WaitForPendingWrites() {

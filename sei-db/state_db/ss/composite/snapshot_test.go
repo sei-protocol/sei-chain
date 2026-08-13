@@ -26,7 +26,7 @@ func (*noBarrierStateStore) Checkpoint(string) error {
 	return nil
 }
 
-func (*noBarrierStateStore) SetCheckpointMarkers(string, int64, int64) error {
+func (*noBarrierStateStore) SetCheckpointVersion(string, int64) error {
 	return nil
 }
 
@@ -59,12 +59,8 @@ func (s *controlledSnapshotScheduler) ScheduleCheckpoint(
 	}
 }
 
-func (*controlledSnapshotScheduler) SetCheckpointMarkers(string, int64, int64) error {
+func (*controlledSnapshotScheduler) SetCheckpointVersion(string, int64) error {
 	return nil
-}
-
-func (*controlledSnapshotScheduler) HighestEarliestVersion() int64 {
-	return 0
 }
 
 func bankChangeset(key, value string) []*proto.NamedChangeSet {
@@ -530,21 +526,19 @@ func TestSnapshotExcludesVersionsWrittenAfterTheBoundary(t *testing.T) {
 	require.Equal(t, []byte{byte(label + 2)}, val)
 }
 
-// A prune pass advances each database's earliest marker on its own schedule and
-// bypasses the barrier entirely, so the two SS trees disagree for as long as the
-// pass runs — minutes on a large store. A snapshot taken in that window must
-// still reopen, which is why the published markers are stamped rather than
-// inherited from whatever each checkpoint happened to capture.
-func TestSnapshotStampsOneEarliestVersionAcrossTrees(t *testing.T) {
+// A snapshot inherits each database's earliest marker. The composite is allowed
+// to reopen with different member floors because it reports the highest one.
+func TestSnapshotInheritsPerStoreEarliestMarkers(t *testing.T) {
 	store, root := setupSnapshotStore(t, 10, 5, false)
 
 	for v := int64(1); v <= 9; v++ {
 		writeBlock(t, store, v)
 	}
-	// Mid-prune: EVM has advanced its earliest marker, Cosmos has not been
-	// reached yet. composite.Prune visits EVM first, so this is the real order.
+	settle(t, store)
+	require.NoError(t, store.cosmosStore.SetEarliestVersion(2, false))
 	require.NoError(t, store.evmStore.SetEarliestVersion(5, false))
-	require.Equal(t, int64(0), store.cosmosStore.GetEarliestVersion())
+	require.Equal(t, int64(2), store.cosmosStore.GetEarliestVersion())
+	require.Equal(t, int64(5), store.evmStore.GetEarliestVersion())
 
 	writeBlock(t, store, 10)
 	settle(t, store)
@@ -560,27 +554,52 @@ func TestSnapshotStampsOneEarliestVersionAcrossTrees(t *testing.T) {
 		DBDirectory:      filepath.Join(snapDir, "cosmos", "pebbledb"),
 		EVMDBDirectory:   filepath.Join(snapDir, "evm", "pebbledb"),
 	}, t.TempDir())
-	require.NoError(t, err, "a snapshot taken during a prune pass must reopen")
+	require.NoError(t, err, "a snapshot with different member floors must reopen")
 	defer reopened.Close()
 
-	// The stamp is the highest earliest version any tree had reached, so the
-	// snapshot never claims to serve a version one of its trees has dropped.
+	require.Equal(t, int64(2), reopened.cosmosStore.GetEarliestVersion())
+	require.Equal(t, int64(5), reopened.GetEarliestVersion())
+	require.Equal(t, int64(5), reopened.evmStore.GetEarliestVersion())
+}
+
+func TestSnapshotInheritsEarliestMarkerAfterPrune(t *testing.T) {
+	store, root := setupSnapshotStore(t, 10, 5, false)
+
+	for v := int64(1); v <= 9; v++ {
+		writeBlock(t, store, v)
+	}
+	settle(t, store)
+	require.NoError(t, store.Prune(4))
+
+	writeBlock(t, store, 10)
+	settle(t, store)
+
+	snapDir := filepath.Join(root, SnapshotDirName(10))
+	reopened, err := NewCompositeStateStore(config.StateStoreConfig{
+		Backend:          "pebbledb",
+		AsyncWriteBuffer: 0,
+		KeepRecent:       100000,
+		EVMSplit:         true,
+		DBDirectory:      filepath.Join(snapDir, "cosmos", "pebbledb"),
+		EVMDBDirectory:   filepath.Join(snapDir, "evm", "pebbledb"),
+	}, t.TempDir())
+	require.NoError(t, err)
+	defer reopened.Close()
+
 	require.Equal(t, int64(5), reopened.GetEarliestVersion())
 	require.Equal(t, int64(5), reopened.cosmosStore.GetEarliestVersion())
 	require.Equal(t, int64(5), reopened.evmStore.GetEarliestVersion())
 }
 
-// With separate sub-DBs the stamp has to reach every one of them, not just the
-// tree root, or the reopened store reports the lowest sub-DB and the check that
-// guards a mixed pair fails again.
-func TestSnapshotStampsEveryEVMSubDB(t *testing.T) {
+// With separate sub-DBs the latest label has to reach every one of them, not
+// just the sub-DBs that took writes, or the snapshot is not self-describing at
+// its exact boundary.
+func TestSnapshotSetsLatestVersionEveryEVMSubDB(t *testing.T) {
 	store, root := setupSnapshotStore(t, 10, 5, true)
 
 	for v := int64(1); v <= 9; v++ {
 		writeBlock(t, store, v)
 	}
-	require.NoError(t, store.evmStore.SetEarliestVersion(6, false))
-	require.Equal(t, int64(0), store.cosmosStore.GetEarliestVersion())
 
 	writeBlock(t, store, 10)
 	settle(t, store)
@@ -596,12 +615,24 @@ func TestSnapshotStampsEveryEVMSubDB(t *testing.T) {
 		EVMDBDirectory:    filepath.Join(snapDir, "evm", "pebbledb"),
 	}, t.TempDir())
 	require.NoError(t, err)
-	defer reopened.Close()
 
-	require.Equal(t, int64(6), reopened.cosmosStore.GetEarliestVersion())
-	// EVMStateStore reports the lowest of its sub-DBs, so this reads 6 only if
-	// all of them were stamped.
-	require.Equal(t, int64(6), reopened.evmStore.GetEarliestVersion())
+	require.Equal(t, int64(10), reopened.evmStore.GetLatestVersion())
+	require.NoError(t, reopened.Close())
+
+	evmRoot := filepath.Join(snapDir, "evm", "pebbledb")
+	for _, storeType := range evm.AllEVMStoreTypes() {
+		subDir := filepath.Join(evmRoot, evm.StoreTypeName(storeType))
+		subDB, err := NewCompositeStateStore(config.StateStoreConfig{
+			Backend:            "pebbledb",
+			AsyncWriteBuffer:   0,
+			KeepRecent:         100000,
+			UseDefaultComparer: true,
+			DBDirectory:        subDir,
+		}, t.TempDir())
+		require.NoError(t, err)
+		require.Equal(t, int64(10), subDB.GetLatestVersion(), "sub-DB %s latest marker", evm.StoreTypeName(storeType))
+		require.NoError(t, subDB.Close())
+	}
 }
 
 // The reason the barrier has to be a message in every queue rather than a wait:
