@@ -110,6 +110,8 @@ func (api *DebugAPI) profiledTraceBlock(
 	}
 	threads := min(runtime.NumCPU(), tracedCount)
 	threads = min(threads, maxProfiledTraceWorkers)
+	// Both paths return nil, ctx.Err() on block-level timeout/cancellation.
+	// Partial results are only returned for per-tx trace failures or state-replay errors.
 	if threads <= 1 {
 		return api.profiledTraceBlockSequential(ctx, block, metadata, config, statedb, blockCtx, signer, blockHash, results)
 	}
@@ -291,6 +293,9 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 	pend.Wait()
 
 	if failed != nil {
+		if errors.Is(failed, context.DeadlineExceeded) || errors.Is(failed, context.Canceled) {
+			return nil, failed
+		}
 		// Fill error entries for txs that were never dispatched to workers,
 		// matching the sequential path's per-tx error semantics.
 		if len(metadata) == 0 {
