@@ -190,7 +190,7 @@ func TestStoreSealBlockUpdatesLocalMeta(t *testing.T) {
 	require.Equal(t, int64(1), v)
 
 	// LocalMeta should be updated
-	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
+	requireAllLocalMetaAt(t, s, 1)
 
 	// Verify it's persisted in DB
 	requireFlushedToDisk(t, s)
@@ -462,9 +462,8 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 
 	globalHash, err := loadGlobalLtHash(s.rawDBFor(metadataDir))
 	require.NoError(t, err)
-	require.Equal(t, s.committedLtHash.Checksum(), globalHash.Checksum())
-
-	expectedHash := s.committedLtHash.Checksum()
+	expectedHash := awaitWorkingLtHash(t, s).Checksum()
+	require.Equal(t, expectedHash, globalHash.Checksum())
 	require.NoError(t, s.Close())
 
 	cfg2 := config.DefaultConfig()

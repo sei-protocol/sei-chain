@@ -29,28 +29,10 @@ func newFlatKVHashCache() *flatKVHashCache {
 	return &flatKVHashCache{hashes: make(map[int64][]byte)}
 }
 
-// hashAtVersion returns flatkv's block hash for version, committing the pending block and then reading the
-// channel until that height arrives if it has not been seen yet.
+// hashAtVersion returns the flatkv hash that describes the state at version.
 //
 // It is called on the commit path, which is single-threaded, and holds no lock of its own.
 func (c *flatKVHashCache) hashAtVersion(store flatkv.Store, version int64) ([]byte, error) {
-	if hash, ok := c.hashes[version]; ok {
-		return hash, nil
-	}
-
-	// A store publishes the hash of the height it loaded at before it hashes anything, so a historical read —
-	// open at version N, ask for N — is answered here without a block ever being hashed. Waiting on the stream
-	// for it would wait forever: the hasher publishes N+1 onward.
-	published := store.PublishedHash()
-	if published.BlockHeight == version {
-		return published.Hash, nil
-	}
-	if version < published.BlockHeight || version <= c.highest {
-		// The stream is already past it, so waiting would never end.
-		return nil, fmt.Errorf("flatkv hash for version %d is no longer available (published %d, read to %d)",
-			version, published.BlockHeight, c.highest)
-	}
-
 	// A block that has not been committed has no hash, so asking for one is asking for the commit. The Commit
 	// that Cosmos issues afterwards finds the block already committed and does nothing.
 	if err := store.CommitPendingBlock(); err != nil {
@@ -58,30 +40,60 @@ func (c *flatKVHashCache) hashAtVersion(store flatkv.Store, version int64) ([]by
 			version, err)
 	}
 
+	// flatkv only has the heights it committed, and a block with no flatkv writes is not a block here at all —
+	// there is nothing to commit and so nothing to hash. The hash of the newest block flatkv does have
+	// describes the same state, which is what the height being asked about needs.
+	height := version
+	if committed := store.Version(); committed < height {
+		height = committed
+	}
+	return c.awaitHeight(store, height)
+}
+
+// awaitHeight returns flatkv's hash for a height it has committed, reading the channel until that height
+// arrives if it has not been seen yet.
+func (c *flatKVHashCache) awaitHeight(store flatkv.Store, height int64) ([]byte, error) {
+	if hash, ok := c.hashes[height]; ok {
+		return hash, nil
+	}
+
+	// A store publishes the hash of the height it loaded at before it hashes anything, so a historical read —
+	// open at version N, ask about N — is answered here without a block ever being hashed. Waiting on the
+	// channel for it would wait forever: the hasher publishes N+1 onward.
+	published := store.PublishedHash()
+	if published.BlockHeight == height {
+		return published.Hash, nil
+	}
+	if height < published.BlockHeight || height <= c.highest {
+		// The stream is already past it, so waiting would never end.
+		return nil, fmt.Errorf("flatkv hash for height %d is no longer available (published %d, read to %d)",
+			height, published.BlockHeight, c.highest)
+	}
+
 	for hash := range store.HashChan() {
 		c.hashes[hash.BlockHeight] = hash.Hash
 		if hash.BlockHeight > c.highest {
 			c.highest = hash.BlockHeight
 		}
-		if hash.BlockHeight >= version {
+		if hash.BlockHeight >= height {
 			break
 		}
 	}
 
-	hash, ok := c.hashes[version]
+	hash, ok := c.hashes[height]
 	if !ok {
 		// The channel closed before the height arrived, which means the store is failing or shutting down.
-		return nil, fmt.Errorf("flatkv stopped producing hashes before version %d", version)
+		return nil, fmt.Errorf("flatkv stopped producing hashes before height %d", height)
 	}
-	c.forget(version)
+	c.forget(height)
 	return hash, nil
 }
 
-// forget drops hashes for heights below version, which nothing will ask for again.
-func (c *flatKVHashCache) forget(version int64) {
-	for height := range c.hashes {
-		if height < version {
-			delete(c.hashes, height)
+// forget drops hashes for heights below height, which nothing will ask for again.
+func (c *flatKVHashCache) forget(height int64) {
+	for h := range c.hashes {
+		if h < height {
+			delete(c.hashes, h)
 		}
 	}
 }

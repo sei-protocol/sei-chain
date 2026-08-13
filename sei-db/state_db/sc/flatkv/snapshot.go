@@ -476,6 +476,13 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
 	}
 
+	// A block's hash metadata is written when the hasher finalizes the block, in the same atomic batch as
+	// the rows it describes. Checkpointing before that lands would capture the rows and not the metadata,
+	// and a store opened from that snapshot reads bookkeeping that describes an earlier block than its data.
+	if err := s.FlushHashes(); err != nil {
+		return fmt.Errorf("await pending hashes before writing version %d: %w", version, err)
+	}
+
 	// Let the cadence-driven writer finish whatever it has in flight. It writes into the same snapshot
 	// tree this is about to publish into, and only one writer of that tree may run at a time.
 	if s.snapshotWriter != nil {

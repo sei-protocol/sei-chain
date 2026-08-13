@@ -297,26 +297,57 @@ func (h *blockHasher) enqueue(message hasherMessage) error {
 // run drains the queue until the hasher is stopped or a block fails to hash.
 func (h *blockHasher) run() {
 	defer close(h.exited)
-	// Whatever is still queued is owed a hand-back, and a hand-back of something unfinalized bricks its
-	// engine — so the discard finalizes first.
-	defer h.discardQueued()
 
 	for {
 		select {
 		case <-h.ctx.Done():
+			h.finishQueued()
 			return
 		case message := <-h.messages:
 			err := h.dispatch(message)
 			if errors.Is(err, ErrBlockHasherClosed) {
-				// Stopped part way through a message rather than failing. The block's snapshots were
-				// finalized and handed back before this point, so only the hash itself is lost, and
-				// nothing wants it: whoever would have read it is why the hasher is stopping.
+				// Stopped part way through a message rather than failing. The block was finalized
+				// and its reservations handed back before this point, so only the published hash is
+				// lost, and whoever would have read it is why the hasher is stopping.
+				h.finishQueued()
 				return
 			}
 			if err != nil {
 				h.brick(err)
+				// The accumulator now describes nothing that can be trusted, so no further block
+				// may have metadata written from it. What is queued is discarded instead.
+				h.discardQueued()
 				return
 			}
+		}
+	}
+}
+
+// finishQueued hashes every block still queued when the hasher stopped, and answers anything else so its
+// caller is not left waiting.
+//
+// Stopping is not a reason to drop a block that was accepted. A block's metadata — its hashes, its stats, its
+// height — is written when it is finalized here, in the same atomic batch as the rows it describes. Dropping
+// it would leave those rows on disk with the store's bookkeeping describing an earlier block, and the
+// accumulator a reopened store seeds from would be short a delta it can never recover.
+//
+// Publishing may fail, because the stream's consumer is usually the reason the hasher is stopping. That costs
+// nothing: the hash is on disk by then, and a stopped hasher has no reader left to inform.
+func (h *blockHasher) finishQueued() {
+	for {
+		select {
+		case message := <-h.messages:
+			err := h.dispatch(message)
+			if err == nil || errors.Is(err, ErrBlockHasherClosed) {
+				continue
+			}
+			h.brick(err)
+			// Same reasoning as in run: once a block has failed to hash, nothing further may record
+			// metadata derived from the accumulator.
+			h.discardQueued()
+			return
+		default:
+			return
 		}
 	}
 }

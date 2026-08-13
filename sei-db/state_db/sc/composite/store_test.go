@@ -59,7 +59,7 @@ func (f *failingEVMStore) Rollback(int64) error                          { retur
 func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)        { return nil, nil }
 func (f *failingEVMStore) Importer(int64) (types.Importer, error)        { return nil, nil }
 func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer            { return nil }
-func (f *failingEVMStore) PublishedHash() []byte                         { return nil }
+func (f *failingEVMStore) PublishedHash() flatkv.BlockHash               { return flatkv.BlockHash{} }
 func (f *failingEVMStore) CommitPendingBlock() error                     { return nil }
 func (f *failingEVMStore) FlushHashes() error                            { return nil }
 func (f *failingEVMStore) HashChan() <-chan flatkv.BlockHash             { return nil }

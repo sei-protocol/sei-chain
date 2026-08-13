@@ -1297,6 +1297,11 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 	cs.latticeAppendLatched.Store(false)
 	cs.memiavlHashExcluded.Store(false)
 
+	// The flatkv hash cache reads flatkv's stream in one direction and refuses a height it has already read
+	// past, so a rollback — the one operation that moves heights backwards — has to leave it empty. The
+	// hashes it holds describe blocks that no longer exist.
+	cs.flatKVHashes = nil
+
 	// Rollback is offline (no commit cycle in flight); clear the per-block
 	// migration-advance gate defensively.
 	cs.migrationAdvancedThisCommit = false

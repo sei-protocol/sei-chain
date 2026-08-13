@@ -338,11 +338,11 @@ func TestStoreRootHashChanges(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0xEF), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Working hash should change
+	commitAndCheck(t, s)
+
+	// A committed block that changed state changes the hash.
 	hash2 := awaitRootHash(t, s)
 	require.NotEqual(t, hash1, hash2)
-
-	commitAndCheck(t, s)
 
 	// Committed hash should match working hash
 	hash3 := awaitRootHash(t, s)
@@ -366,9 +366,9 @@ func TestStoreRootHashChangesOnApply(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Working hash should change
+	commitAndCheck(t, s)
 	hash2 := awaitRootHash(t, s)
-	require.NotEqual(t, hash1, hash2, "hash should change after ApplyChangeSets")
+	require.NotEqual(t, hash1, hash2, "hash should change after a changeset is committed")
 }
 
 func TestStoreRootHashStableAfterCommit(t *testing.T) {
@@ -382,14 +382,15 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0x56), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Get working hash
-	workingHash := awaitRootHash(t, s)
+	// The hash of the block before this one, which the commit below must move away from.
+	previousHash := awaitRootHash(t, s)
 
 	commitAndCheck(t, s)
 
-	// Committed hash should match working hash
 	committedHash := awaitRootHash(t, s)
-	require.Equal(t, workingHash, committedHash)
+	require.NotEqual(t, previousHash, committedHash)
+	// Reading it again reads the same value: nothing but a commit moves the hash.
+	require.Equal(t, committedHash, awaitRootHash(t, s))
 }
 
 // =============================================================================

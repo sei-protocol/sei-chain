@@ -101,6 +101,10 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 	t.Helper()
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
+	// Hashes first: a block is not eligible to flush until the hasher has finalized its snapshots, and the
+	// block's own metadata is written by that finalization. Waiting for disk before waiting for the hasher
+	// would be waiting for something that cannot have happened yet.
+	require.NoError(t, s.FlushHashes())
 	requireFlushedToDisk(t, s)
 	require.NoError(t, s.FlushSnapshots())
 	return v

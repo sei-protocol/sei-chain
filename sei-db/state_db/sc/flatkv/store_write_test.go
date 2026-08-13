@@ -410,7 +410,7 @@ func TestStoreWriteMiscKeys(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Verify miscDB LocalMeta is updated
-	require.Equal(t, int64(1), s.localMeta[miscDBDir].CommittedVersion)
+	requireAllLocalMetaAt(t, s, 1)
 
 	// Verify data persisted (via Store.Get which deserializes)
 	got, found := s.Get(keys.EVMStoreKey, codeSizeKey)
@@ -505,15 +505,15 @@ func TestStoreMiscKeyIncludedInLtHash(t *testing.T) {
 	cs := makeChangeSet(miscKey, []byte{0x00, 0x20}, false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// LtHash should change after applying misc key changeset
+	commitAndCheck(t, s)
+
+	// The block's hash exists once the block is committed, and it must differ: a misc key is part of the
+	// hashed set.
 	hash2 := awaitRootHash(t, s)
 	require.NotEqual(t, hash1, hash2, "LtHash should change when misc key is written")
 
-	commitAndCheck(t, s)
-
-	// After commit, hash should be stable
-	hash3 := awaitRootHash(t, s)
-	require.Equal(t, hash2, hash3)
+	// Nothing further is committed, so nothing further moves the hash.
+	require.Equal(t, hash2, awaitRootHash(t, s))
 }
 
 func TestStoreMiscEmptyCommitLocalMeta(t *testing.T) {
@@ -1633,12 +1633,21 @@ func countLiveEntries(t *testing.T, db types.KeyValueDB) int {
 	return count
 }
 
+// requireAllLocalMetaAt asserts every data database has persisted its metadata at ver.
+//
+// Read back off pebble rather than from s.localMeta: the metadata a block writes is written by the hasher, in
+// the same atomic batch as the data it describes, so the store's in-memory copy stops describing the tip as
+// soon as the first block commits. On disk is where the invariant lives.
 func requireAllLocalMetaAt(t *testing.T, s *CommitStore, ver int64) {
 	t.Helper()
-	require.Equal(t, ver, s.localMeta[storageDBDir].CommittedVersion)
-	require.Equal(t, ver, s.localMeta[accountDBDir].CommittedVersion)
-	require.Equal(t, ver, s.localMeta[codeDBDir].CommittedVersion)
-	require.Equal(t, ver, s.localMeta[miscDBDir].CommittedVersion)
+	require.NoError(t, s.FlushHashes())
+	requireFlushedToDisk(t, s)
+	for _, dir := range dataDBDirs {
+		meta, err := loadLocalMeta(s.rawDBFor(dir))
+		require.NoError(t, err, "load %s local meta", dir)
+		require.NotNil(t, meta, "%s has no local meta", dir)
+		require.Equal(t, ver, meta.CommittedVersion, "%s local meta version", dir)
+	}
 }
 
 func TestApplyChangeSetsNilInput(t *testing.T) {
@@ -1673,8 +1682,6 @@ func TestApplyChangeSetsNonEVMModuleRoutesToMisc(t *testing.T) {
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	require.Len(t, s.pendingChangeSets, 1)
-	// Asking for the hash commits the block, so this has to come after the pending check.
-	require.NotEqual(t, hashBefore, awaitRootHash(t, s), "misc-routed key changes hash")
 
 	// Physical key in the misc store should be module-prefixed: "bank/some-bank-key"
 	physKey := string(ktype.ModulePhysicalKey("bank", []byte("some-bank-key")))
@@ -1683,6 +1690,7 @@ func TestApplyChangeSetsNonEVMModuleRoutesToMisc(t *testing.T) {
 
 	// Persist and verify round-trip via raw miscDB lookup
 	commitAndCheck(t, s)
+	require.NotEqual(t, hashBefore, awaitRootHash(t, s), "misc-routed key changes hash")
 	raw, err := s.rawDBFor(miscDBDir).Get([]byte(physKey))
 	require.NoError(t, err)
 	require.NotNil(t, raw, "miscDB should persist module-prefixed key")
@@ -1886,7 +1894,7 @@ func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
 	// (the AppHash input) stayed put.
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.True(t, s.committedLtHash.Equal(before.global))
+	require.True(t, awaitWorkingLtHash(t, s).Equal(before.global))
 	_, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
 	require.False(t, ok, "nonce row from the failed apply must not be persisted")
 	_, ok = s.Get(keys.EVMStoreKey, storageKey)
@@ -1895,38 +1903,53 @@ func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
 
 // TestCommitFailsCleanlyOnHashError pins that a hash failure does not leave the store believing it
 // committed.
-func TestCommitFailsCleanlyOnHashError(t *testing.T) {
+// TestHashFailureBricksStore pins what a hash failure does now that hashing is off the commit path: the block
+// that triggers it commits without complaint, and the failure surfaces at the next synchronization point and
+// on every commit after it, rather than being absorbed.
+//
+// The old shape of this test — Commit returns the hash error and the block does not land — is not reachable
+// any more. The hash for a block is computed after that block's Commit has returned.
+func TestHashFailureBricksStore(t *testing.T) {
 	s := setupTestStore(t)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	seedAddr := addrN(0xAC)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
-		makeChangeSet(keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(seedAddr, slotN(0x09))), padLeft32(0x99), false),
+		makeChangeSet(keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(seedAddr, slotN(0x09))),
+			padLeft32(0x99), false),
 		{Name: "gov", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("params"), Value: []byte{0x03}}}}},
 	}))
 	commitAndCheck(t, s)
-	committed := s.Version()
-	before := snapshotWorkingHashes(t, s)
+	healthy := s.Version()
 
-	s.ltCalc = lthash.NewHashCalculator(s.ltHashPool, dataDBDirs, func([]byte) (string, error) {
+	// Swapped after a flush, so the hasher is idle and the flush's reply orders this write against every read
+	// of the field the hasher has made or will make. The store's own ltCalc is not the one that matters: the
+	// hasher was handed its own reference when it was built.
+	require.NoError(t, s.FlushHashes())
+	s.hasher.ltCalc = lthash.NewHashCalculator(s.ltHashPool, dataDBDirs, func([]byte) (string, error) {
 		return "", fmt.Errorf("injected moduleOf failure")
 	})
 
-	addr := addrN(0xDD)
-	slot := slotN(0x03)
-	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
-
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0xDD), slotN(0x03)))
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		makeChangeSet(storageKey, padLeft32(0xEE), false),
 	}))
 
-	_, err := s.Commit(s.Version() + 1)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "injected moduleOf failure")
+	// The commit itself succeeds: it hands the block to the hasher and returns.
+	doomed, err := s.Commit(s.Version() + 1)
+	require.NoError(t, err)
+	require.Equal(t, healthy+1, doomed)
 
-	// The store must not look like the block landed.
-	require.Equal(t, committed, s.Version(), "a failed commit must not advance the version")
-	requireWorkingHashesUnchanged(t, s, before)
+	// The failure surfaces here, and keeps surfacing.
+	require.ErrorContains(t, s.FlushHashes(), "injected moduleOf failure")
+	require.ErrorContains(t, s.FlushHashes(), "injected moduleOf failure")
+
+	// And it reaches the commit path, so a caller cannot keep committing onto a store whose hashes stopped.
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		makeChangeSet(storageKey, padLeft32(0xEF), false),
+	}))
+	_, err = s.Commit(s.Version() + 1)
+	require.Error(t, err, "a commit onto a store whose hasher failed must not succeed")
 }
 
 func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {
@@ -1956,6 +1979,7 @@ func TestApplyChangeSetsNonPrefixedKeyGoesToMisc(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
 	require.NotEqual(t, hashBefore, awaitRootHash(t, s), "misc key changes hash")
 }
 

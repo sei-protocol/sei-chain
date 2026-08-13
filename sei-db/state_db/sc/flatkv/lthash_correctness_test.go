@@ -1088,19 +1088,18 @@ func TestLtHashAccountWriteZeroOrderIndependent(t *testing.T) {
 }
 
 // =============================================================================
-// PublishedHash vs RootHash Semantics
+// Commit-then-hash semantics
 // =============================================================================
 
-// TestLtHashCommittedVsWorkingDiverge verifies that after ApplyChangeSets,
-// RootHash (working) differs from PublishedHash, and after Commit they
-// converge again. Both must match fullScanLtHash at each checkpoint.
-func TestRootHashCommitsPendingBlock(t *testing.T) {
+// TestCommitPendingBlockThenHash walks the sequence a hash consumer has to follow: a block that has not been
+// committed has no hash, CommitPendingBlock is how a caller asks for one, and the hash that appears afterwards
+// describes exactly that block. Every checkpoint is also checked against a full rescan.
+func TestCommitPendingBlockThenHash(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Before any writes, the working and committed hashes describe the same (empty) state.
-	require.Equal(t, awaitRootHash(t, s), s.PublishedHash().Hash,
-		"before any writes, working and committed should be equal")
+	// Before any writes, the published hash describes the empty state at version 0.
+	require.Equal(t, int64(0), s.PublishedHash().BlockHeight)
 
 	// Block 1: create state.
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
@@ -1111,13 +1110,15 @@ func TestRootHashCommitsPendingBlock(t *testing.T) {
 	}))
 	require.Equal(t, int64(0), s.Version(), "ApplyChangeSets alone must not commit")
 
-	// Asking for the hash commits the block, because a block that has not been sealed has no hash to
-	// report. The two hashes therefore agree the moment either is observable.
+	// A block that has not been committed has no hash, so a caller that wants one asks for the commit. That
+	// request is CommitPendingBlock, and this is what Cosmos calls before it reads a hash.
+	require.NoError(t, s.CommitPendingBlock())
+	require.Equal(t, int64(1), s.Version(), "CommitPendingBlock must commit the pending block")
+	require.Empty(t, s.pendingChangeSets, "the commit consumes the pending block")
+
 	hash := awaitRootHash(t, s)
-	require.Equal(t, int64(1), s.Version(), "RootHash must commit the pending block")
-	require.Equal(t, hash, s.PublishedHash().Hash,
-		"the hash RootHash returns is the committed one")
-	require.Empty(t, s.pendingChangeSets, "the implicit commit consumes the pending block")
+	require.Equal(t, int64(1), s.PublishedHash().BlockHeight, "the hash describes the block just committed")
+	require.Equal(t, hash, s.PublishedHash().Hash)
 
 	// The Commit that Cosmos issues afterwards finds the block already committed and changes nothing.
 	v, err := s.Commit(1)
@@ -1130,17 +1131,18 @@ func TestRootHashCommitsPendingBlock(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addrN(1), 20)),
 	}))
-	require.NotEqual(t, hash, awaitRootHash(t, s), "a block that changes state changes the hash")
+	require.NoError(t, s.CommitPendingBlock())
 	require.Equal(t, int64(2), s.Version())
+	require.NotEqual(t, hash, awaitRootHash(t, s), "a block that changes state changes the hash")
 	verifyLtHashAtHeight(t, s, 2)
 
-	// Block 3: an empty block commits and leaves the hash where it was.
+	// Block 3: an empty block commits and leaves the hash where it was, at a new height.
 	before := awaitRootHash(t, s)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS()}))
-	require.Equal(t, before, awaitRootHash(t, s), "an empty block must not change the hash")
 	commitAndCheck(t, s)
-	require.Equal(t, before, awaitRootHash(t, s))
-	require.Equal(t, awaitRootHash(t, s), s.PublishedHash().Hash)
+	require.Equal(t, int64(3), s.Version())
+	require.Equal(t, before, awaitRootHash(t, s), "an empty block must not change the hash")
+	require.Equal(t, int64(3), s.PublishedHash().BlockHeight)
 }
 
 // =============================================================================

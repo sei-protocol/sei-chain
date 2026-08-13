@@ -300,6 +300,17 @@ func reopenInMigrateEVM(t *testing.T, dir string, batch int) *CompositeCommitSto
 	return cs
 }
 
+// flatKVHash returns the flatkv lattice hash describing every block committed so far.
+//
+// flatkv hashes off the execution thread, so the hash it has published right after a commit may still describe
+// an earlier block. A test comparing hashes between two runs has to compare caught-up values, or it compares
+// how far each run's hasher happened to be behind.
+func flatKVHash(t *testing.T, cs *CompositeCommitStore) []byte {
+	t.Helper()
+	require.NoError(t, cs.flatKV.FlushHashes())
+	return append([]byte(nil), cs.flatKV.PublishedHash().Hash...)
+}
+
 func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *testing.T) {
 	dir := t.TempDir()
 	key1 := evmStorageTestKey(0x01)
@@ -503,7 +514,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
 
 	preFlipVersion := cs.Version()
-	preFlipHash := append([]byte(nil), cs.flatKV.PublishedHash().Hash...)
+	preFlipHash := flatKVHash(t, cs)
 	require.NoError(t, cs.Close())
 
 	finalCfg := evmMigratedConfig()
@@ -516,7 +527,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	defer func() { _ = cs.Close() }()
 
 	require.Equal(t, preFlipVersion, cs.Version())
-	require.Equal(t, preFlipHash, cs.flatKV.PublishedHash().Hash)
+	require.Equal(t, preFlipHash, flatKVHash(t, cs))
 	for _, key := range [][]byte{zeroKeyBeforeBoundary, zeroKeyAfterBoundary} {
 		value, found, err := cs.Get(keys.EVMStoreKey, key)
 		require.NoError(t, err)
@@ -746,7 +757,7 @@ func TestComposite_MigrateEVM_CrashAndResume(t *testing.T) {
 		}
 
 		finalVersion = cs.Version()
-		flatkvHash = append([]byte(nil), cs.flatKV.PublishedHash().Hash...)
+		flatkvHash = flatKVHash(t, cs)
 		oracle = workload.snapshotOracle()
 		require.NoError(t, cs.Close())
 		return
@@ -811,7 +822,7 @@ func TestComposite_MigrateEVM_DeterministicAcrossTwoStores(t *testing.T) {
 			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(5, 5, 1, 2, 2)))
 			_, err := cs.Commit()
 			require.NoError(t, err)
-			perBlockHashes = append(perBlockHashes, append([]byte(nil), cs.flatKV.PublishedHash().Hash...))
+			perBlockHashes = append(perBlockHashes, flatKVHash(t, cs))
 		}
 		finalVersion = cs.Version()
 		return
@@ -853,7 +864,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 
 	preFlipVersion := cs.Version()
 	preFlipOracle := workload.snapshotOracle()
-	preFlipFlatkvHash := append([]byte(nil), cs.flatKV.PublishedHash().Hash...)
+	preFlipFlatkvHash := flatKVHash(t, cs)
 	require.NoError(t, cs.Close())
 
 	// --- Mode flip: reopen as EVMMigrated. ---
@@ -868,7 +879,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 
 	require.Equal(t, preFlipVersion, cs.Version(),
 		"EVMMigrated reopen must report the same version as the completed MigrateEVM run")
-	require.Equal(t, preFlipFlatkvHash, cs.flatKV.PublishedHash().Hash,
+	require.Equal(t, preFlipFlatkvHash, flatKVHash(t, cs),
 		"flatkv committed root hash must be invariant across the MigrateEVM -> EVMMigrated mode flip")
 	requireOracleMatches(t, cs, preFlipOracle)
 
