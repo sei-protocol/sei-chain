@@ -8,5 +8,6 @@
 
 (section not a literal)	CheckExperimentalDeclarations
 experimental	CheckExperimentalGolden
+newapp	CheckObservedKeys
 state-sync	CheckKeyNames
 tendermint	CheckKeyNames
