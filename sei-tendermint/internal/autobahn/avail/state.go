@@ -629,13 +629,12 @@ func (s *State) runEvict(ctx context.Context) error {
 			return nil
 		}
 		for inner, ctrl := range s.inner.Lock() {
-			idx := anchor.CommitQC.Index()
-			if idx >= inner.roads.first {
-				r, ok := inner.roads.q[idx]
-				if !ok {
-					return fmt.Errorf("no road for anchor CommitQC index %d", idx)
+			if anchor.CommitQC.Index() >= inner.roads.first {
+				ep, err := inner.anchorEpochOf(s.data.Registry(), anchor)
+				if err != nil {
+					return err
 				}
-				inner.prune(anchor, r.epoch)
+				inner.prune(anchor, ep)
 			}
 			ctrl.Updated()
 		}

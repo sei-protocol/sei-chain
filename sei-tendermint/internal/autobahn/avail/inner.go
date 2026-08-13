@@ -6,6 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -68,9 +69,9 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 
 	// Apply the persisted prune anchor from the data.State.
 	if anchor, ok := ds.Anchor().Load().Get(); ok {
-		ep, ok := ds.Registry().EpochByIndex(anchor.CommitQC.Proposal().EpochIndex())
-		if !ok {
-			return nil, fmt.Errorf("unknown epoch_index %d for anchor", anchor.CommitQC.Proposal().EpochIndex())
+		ep, err := i.anchorEpochOf(ds.Registry(), anchor)
+		if err != nil {
+			return nil, err
 		}
 		i.prune(anchor, ep)
 	}
@@ -172,6 +173,20 @@ func (i *inner) dropLanes(lanes []types.LaneID) int {
 		n++
 	}
 	return n
+}
+
+// anchorEpochOf returns the epoch of anchor's CommitQC, taken from the road it
+// sealed while that road is retained and from the registry once it is not.
+func (i *inner) anchorEpochOf(registry *epoch.Registry, anchor data.Anchor) (*types.Epoch, error) {
+	if r, ok := i.roads.q[anchor.CommitQC.Index()]; ok {
+		return r.epoch, nil
+	}
+	ei := anchor.CommitQC.Proposal().EpochIndex()
+	ep, ok := registry.EpochByIndex(ei)
+	if !ok {
+		return nil, fmt.Errorf("unknown epoch_index %d for anchor", ei)
+	}
+	return ep, nil
 }
 
 // prune advances the state up to the data Anchor and drops lanes closed as of
