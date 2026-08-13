@@ -59,6 +59,7 @@ func NewEVMHTTPServer(
 	pool.Metrics.DBSemaphoreCapacity.CompareAndSwap(0, int32(workerCount)) //nolint:gosec // G115: safe, max is 64
 
 	debugEnabled := IsDebugMetricsEnabled()
+
 	logger.Info("Started EVM RPC metrics exporter (interval: 5s)", "workers", workerCount, "queue", queueSize, "db_semaphore", workerCount, "debug_stdout", debugEnabled)
 	if !debugEnabled {
 		logger.Info("To enable debug metrics output to stdout, set EVM_DEBUG_METRICS=true")
