@@ -2,6 +2,7 @@ package configcli
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -35,6 +36,21 @@ type Diagnosis struct {
 	ModeConflict string
 	// Refused are the sections that judged their own resolved values unusable, sorted. Each halts.
 	Refused []registry.SectionError
+	// Overridden are written keys whose value the environment supplies instead, sorted by key. Each
+	// warns: the file is not what the node runs for that key, and nothing else says so.
+	Overridden []Override
+}
+
+// Override is one written key the environment answers instead of the file.
+type Override struct {
+	// Key is the dotted key.
+	Key string
+	// Written is what the file holds.
+	Written any
+	// Applied is what resolves instead.
+	Applied any
+	// Variable is the environment variable supplying it.
+	Variable string
 }
 
 // Malformation is one written value this binary cannot read.
@@ -127,7 +143,7 @@ func Doctor(file *seitoml.File, tendermintMode string) (Diagnosis, error) {
 	sort.Strings(d.Retired)
 	sort.Slice(d.Malformed, func(i, j int) bool { return d.Malformed[i].Key < d.Malformed[j].Key })
 
-	d.Refused = askEachSection(d, written)
+	d.Refused, d.Overridden = askEachSection(d, written)
 	return d, nil
 }
 
@@ -138,18 +154,50 @@ func Doctor(file *seitoml.File, tendermintMode string) (Diagnosis, error) {
 // therefore the configuration the node would actually run, which makes a clean report mean the boot
 // will be content with this file.
 //
+// The environment is resolved along with the file, because it beats the file: judging the file alone
+// would judge a configuration no node runs, and report a value as usable while the node used another.
+// Command-line flags are not resolved here and cannot be, since they belong to the start command and
+// this verb is a different one. So a clean report means the boot is content with this file and this
+// environment, and a flag typed at start time still wins over both.
+//
 // Skipped when the mode is unusable or a value is unreadable. Neither can produce a resolution worth
 // judging, and both are already reported on their own terms, so asking anyway would turn one fault
 // into two findings.
-func askEachSection(d Diagnosis, written map[string]any) []registry.SectionError {
+func askEachSection(d Diagnosis, written map[string]any) ([]registry.SectionError, []Override) {
 	if d.ModeProblem != "" || len(d.Malformed) > 0 {
-		return nil
+		return nil, nil
 	}
-	resolved, err := registry.Resolve(registry.Mode(d.Mode), registry.FileLayer(written))
+	resolved, err := registry.Resolve(registry.Mode(d.Mode),
+		registry.FileLayer(written), registry.EnvLayer(os.LookupEnv))
 	if err != nil {
-		return []registry.SectionError{{Section: "", Err: err}}
+		return []registry.SectionError{{Section: "", Err: err}}, nil
 	}
-	return registry.ValidateResolved(resolved)
+	return registry.ValidateResolved(resolved), environmentOverrides(resolved, written)
+}
+
+// environmentOverrides lists the written keys the environment answers instead of the file.
+//
+// Resolving without the environment would judge a configuration no node runs, since the environment
+// beats the file, so this verb has to include it. Having included it, an operator needs telling: a file
+// they wrote and a value the node uses are two different things for these keys, and nothing else reports
+// that. The legacy path cannot report it at all, because its layers merge inside one source before
+// anything observes them.
+func environmentOverrides(resolved registry.Resolved, written map[string]any) []Override {
+	var out []Override
+	for key, value := range written {
+		resolution, declared := resolved.From(key)
+		if !declared || resolution.From != "env" {
+			continue
+		}
+		out = append(out, Override{
+			Key:      key,
+			Written:  value,
+			Applied:  resolution.Value,
+			Variable: registry.EnvName(key),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
 }
 
 // diagnoseMode reads the recorded node mode and says what is wrong with it, if anything.
@@ -220,6 +268,14 @@ func (d Diagnosis) Report() string {
 			"each of them at its next start:\n", len(d.Malformed)))
 		for _, m := range d.Malformed {
 			b.WriteString(fmt.Sprintf("  %s = %#v: %s (expected %s)\n", m.Key, m.Value, m.Reason, m.Want))
+		}
+	}
+	if len(d.Overridden) > 0 {
+		b.WriteString(fmt.Sprintf("%d written key(s) the environment answers instead of this file. The "+
+			"node uses the environment's value, not the one written here:\n", len(d.Overridden)))
+		for _, o := range d.Overridden {
+			b.WriteString(fmt.Sprintf("  %s: this file says %#v, %s says %#v\n",
+				o.Key, o.Written, o.Variable, o.Applied))
 		}
 	}
 	for _, group := range []struct {

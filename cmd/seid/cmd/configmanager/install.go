@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -77,6 +78,38 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 		return
 	}
 	log.Info("resolved configuration installed", "mode", mode, "summary", report.Summary())
+	reportWhichChannelWon(resolved, log)
+}
+
+// reportWhichChannelWon names the keys that did not take their baseline, and what supplied them.
+//
+// This is what resolving through named layers is for. An operator whose file says one thing and whose
+// node does another has, on the legacy path, no way to find out why: its layers merge inside one source
+// before anything observes which won, so the value is visible and its origin is not. Here the origin is
+// recorded, and a node that starts with a value from somewhere other than its file says so once.
+//
+// One line per channel rather than per key, because a node reads over a hundred declared keys and a line
+// each would bury the fact in the noise it creates. Keys the baseline supplied are left out: they are
+// most of them, and a value nobody chose is not news.
+func reportWhichChannelWon(resolved registry.Resolved, log *slog.Logger) {
+	byChannel := map[string][]string{}
+	for _, key := range resolved.Overrides() {
+		res, ok := resolved.From(key)
+		if !ok {
+			continue
+		}
+		byChannel[res.From] = append(byChannel[res.From], key)
+	}
+	// In the declared order, so the report reads the way precedence does.
+	for _, channel := range registry.Precedence {
+		keys := byChannel[channel]
+		if len(keys) == 0 {
+			continue
+		}
+		sort.Strings(keys)
+		log.Info("configuration supplied by a channel other than this node's defaults",
+			"channel", channel, "count", len(keys), "keys", strings.Join(keys, ","))
+	}
 }
 
 // readSeiToml loads the node's sei.toml, reporting the ordinary absence quietly.

@@ -1,6 +1,7 @@
 package configcli_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -423,4 +424,93 @@ func parseFile(t *testing.T, body string) *seitoml.File {
 		t.Fatalf("Parse: %v", err)
 	}
 	return f
+}
+
+// TestDoctorNamesTheKeysTheEnvironmentTakesFromTheFile is what makes a clean report mean something.
+//
+// The environment beats the file, so a diagnosis resolved from the file alone judges a configuration no
+// node runs: it reports the written value as what applies while the node uses another. Reporting the
+// difference is the thing the legacy path cannot do at all, because its layers merge inside one source
+// before anything can observe which won.
+func TestDoctorNamesTheKeysTheEnvironmentTakesFromTheFile(t *testing.T) {
+	registerGiga(t)
+	t.Setenv(registry.EnvName(gigaconfig.FlagEnabled), "false")
+
+	file := parseFile(t, `schema_version = 1
+node_mode = "validator"
+
+[giga_executor]
+enabled = true
+`)
+
+	d, err := configcli.Doctor(file, "")
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+	if len(d.Overridden) != 1 {
+		t.Fatalf("reported %d overridden key(s), want 1. The file says enabled = true and the "+
+			"environment says false, so the node runs false and the file is not what it looks like",
+			len(d.Overridden))
+	}
+	got := d.Overridden[0]
+	if got.Key != gigaconfig.FlagEnabled {
+		t.Errorf("reported %q overridden, want %q", got.Key, gigaconfig.FlagEnabled)
+	}
+	if got.Variable != registry.EnvName(gigaconfig.FlagEnabled) {
+		t.Errorf("named %q as the variable, want %q. An operator cannot unset a variable this does not "+
+			"name", got.Variable, registry.EnvName(gigaconfig.FlagEnabled))
+	}
+	if !strings.Contains(d.Report(), got.Variable) {
+		t.Errorf("the report does not name the variable:\n%s", d.Report())
+	}
+}
+
+// TestDoctorRefusesAValueOnlyTheEnvironmentSupplies is the correctness half of resolving the environment.
+//
+// Before the environment was resolved here, a variable holding a value a section cannot use passed this
+// verb and stopped the node at its next start. The whole point of the verb is that a deploy can gate on
+// it, so a value it cannot see is a value it cannot gate on.
+func TestDoctorRefusesAValueOnlyTheEnvironmentSupplies(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("probe", &probeWithRule{}, func(registry.Mode) any {
+		return probeWithRule{Backend: "pebbledb"}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("registering the probe section produced a defect: %v", d.Err)
+	}
+	t.Setenv(registry.EnvName("probe.backend"), "rocksdb")
+
+	// The file itself is fine. Only the environment holds the unusable value.
+	file := parseFile(t, `schema_version = 1
+node_mode = "validator"
+
+[probe]
+backend = "pebbledb"
+`)
+
+	d, err := configcli.Doctor(file, "")
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+	if len(d.Refused) == 0 {
+		t.Fatalf("nothing was refused. The environment supplies a backend the section rejects, so the "+
+			"node stops at its next start and a deploy gating on this verb let it through:\n%s",
+			d.Report())
+	}
+	if d.Healthy() {
+		t.Error("the diagnosis reads healthy while a section refused its resolved values")
+	}
+}
+
+// probeWithRule is a section that states a rule of its own, so validation has something to refuse.
+type probeWithRule struct {
+	Backend string `mapstructure:"backend"`
+}
+
+// Validate accepts one backend name, which is enough for the refusal above to be about the value.
+func (p probeWithRule) Validate() error {
+	if p.Backend != "pebbledb" {
+		return fmt.Errorf("backend %q is not one this probe supports", p.Backend)
+	}
+	return nil
 }

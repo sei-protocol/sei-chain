@@ -28,6 +28,24 @@ rather than skipping the row or widening the assertion until it passes. Read
 [`testutil/configtest/AGENTS.md`](testutil/configtest/AGENTS.md) before changing a
 configuration read, and before adding one.
 
+There is a second mechanism, and adding a reader now has to satisfy it too. Sections
+register their keys in `config/registry`, which resolves each one through named layers
+in a stated order: a node's own defaults, then `sei.toml`, then the environment, then a
+flag the operator typed. A key no section registers is not resolved and is answered by
+whatever answered it before, which is silent by design during the migration.
+
+That silence is why `TestEveryKeyTheNodeReadsIsAccountedFor` in `cmd/seid/cmd` exists.
+It records every key the node's construction reads and requires each to be registered,
+delivered by a command flag, or named in `notDeclaredBecause` with the reason it must
+not be registered. A new reader fails it until one of those is true, so a key cannot be
+added and then quietly go unresolved.
+
+Two things to know before registering a section. A key that a command flag can also
+deliver has to reach the resolution through the flag layer, because installed values sit
+above a bound flag: without it the operator's flag is buried. And the set of flags the
+operator actually typed can only be read before the legacy handler runs, since that
+handler copies configuration values into flags and marks them changed.
+
 ## Code style
 
 All Go files must be both `gofmt`- and `goimports`-compliant (`.golangci.yml`
