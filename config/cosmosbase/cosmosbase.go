@@ -23,6 +23,8 @@ import (
 const (
 	StateSyncSectionName = "state-sync"
 	BaseSectionName      = "base"
+	APISectionName       = "api"
+	GRPCSectionName      = "grpc"
 )
 
 // Registration puts the upstream sections in the configuration registry.
@@ -33,7 +35,21 @@ const (
 func init() {
 	registry.RegisterSection(StateSyncSectionName, &srvconfig.StateSyncConfig{}, stateSyncBaseline)
 	registry.RegisterRootKeys(BaseSectionName, &srvconfig.BaseConfig{}, baseBaseline)
+	registry.RegisterSection(APISectionName, &srvconfig.APIConfig{}, apiBaseline)
+	registry.RegisterSection(GRPCSectionName, &srvconfig.GRPCConfig{}, grpcBaseline)
 }
+
+// apiBaseline and grpcBaseline are what these sections resolve to for a node that has written nothing.
+//
+// Both register their upstream type directly, because its mapstructure tags already name the keys the
+// reader resolves: eight tags and eight reads for the one, eleven and eleven for the other.
+//
+// Read out of the upstream defaults rather than written again here. The same values for every mode: which
+// interfaces a node serves is an operator's decision, and a seed node offers them no differently from a
+// validator.
+func apiBaseline(registry.Mode) any { return srvconfig.DefaultConfig().API }
+
+func grpcBaseline(registry.Mode) any { return srvconfig.DefaultConfig().GRPC }
 
 // baseBaseline is what the node-wide settings resolve to for a node that has written nothing.
 //

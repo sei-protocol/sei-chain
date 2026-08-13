@@ -1,0 +1,15 @@
+# Keys whose baseline is not what the reader produces when nothing is written.
+# Regenerate with -update.
+#
+# A row means a node with this key missing runs the absent value today and would run
+# the baseline once the section is declared. Guarding the read is what empties this
+# file: the absent column then becomes the declared default and the row disappears.
+#
+# A row compares two values and not what the reader does with them, so some rows are a
+# difference in how a value is written rather than in what a node runs: "" and "0" are
+# the same number to a reader that casts. Read the pair before treating a row as a change.
+#
+# key	setting	absent	baseline	modes
+
+grpc.address	Address	""	"0.0.0.0:9090"	all
+grpc.enable	Enable	false	true	all

@@ -12,6 +12,19 @@ default:admin_server:validator:admin.Config{Enabled:false, Address:"127.0.0.1:90
 default:admin_server:full:admin.Config{Enabled:false, Address:"127.0.0.1:9095"}
 default:admin_server:seed:admin.Config{Enabled:false, Address:"127.0.0.1:9095"}
 default:admin_server:archive:admin.Config{Enabled:false, Address:"127.0.0.1:9095"}
+section:api
+key:api.address
+key:api.enable
+key:api.enabled-unsafe-cors
+key:api.max-open-connections
+key:api.rpc-max-body-bytes
+key:api.rpc-read-timeout
+key:api.rpc-write-timeout
+key:api.swagger
+default:api:validator:config.APIConfig{Enable:false, Swagger:true, EnableUnsafeCORS:false, Address:"tcp://0.0.0.0:1317", MaxOpenConnections:0x3e8, RPCReadTimeout:0xa, RPCWriteTimeout:0x0, RPCMaxBodyBytes:0xf4240}
+default:api:full:config.APIConfig{Enable:false, Swagger:true, EnableUnsafeCORS:false, Address:"tcp://0.0.0.0:1317", MaxOpenConnections:0x3e8, RPCReadTimeout:0xa, RPCWriteTimeout:0x0, RPCMaxBodyBytes:0xf4240}
+default:api:seed:config.APIConfig{Enable:false, Swagger:true, EnableUnsafeCORS:false, Address:"tcp://0.0.0.0:1317", MaxOpenConnections:0x3e8, RPCReadTimeout:0xa, RPCWriteTimeout:0x0, RPCMaxBodyBytes:0xf4240}
+default:api:archive:config.APIConfig{Enable:false, Swagger:true, EnableUnsafeCORS:false, Address:"tcp://0.0.0.0:1317", MaxOpenConnections:0x3e8, RPCReadTimeout:0xa, RPCWriteTimeout:0x0, RPCMaxBodyBytes:0xf4240}
 section:base
 root-keys:base
 key:compaction-interval
@@ -128,6 +141,22 @@ default:giga_executor:validator:config.Config{Enabled:true, OCCEnabled:true}
 default:giga_executor:full:config.Config{Enabled:true, OCCEnabled:true}
 default:giga_executor:seed:config.Config{Enabled:true, OCCEnabled:true}
 default:giga_executor:archive:config.Config{Enabled:true, OCCEnabled:true}
+section:grpc
+key:grpc.address
+key:grpc.enable
+key:grpc.keepalive-min-time
+key:grpc.keepalive-permit-without-stream
+key:grpc.keepalive-time
+key:grpc.keepalive-timeout
+key:grpc.max-connection-age
+key:grpc.max-connection-age-grace
+key:grpc.max-connection-idle
+key:grpc.max-open-connections
+key:grpc.max-recv-msg-size
+default:grpc:validator:config.GRPCConfig{Enable:true, Address:"0.0.0.0:9090", MaxRecvMsgSize:4194304, MaxOpenConnections:0x3e8, MaxConnectionIdle:300000000000, MaxConnectionAge:0, MaxConnectionAgeGrace:0, KeepaliveTime:7200000000000, KeepaliveTimeout:20000000000, KeepaliveMinTime:300000000000, KeepalivePermitWithoutStream:false}
+default:grpc:full:config.GRPCConfig{Enable:true, Address:"0.0.0.0:9090", MaxRecvMsgSize:4194304, MaxOpenConnections:0x3e8, MaxConnectionIdle:300000000000, MaxConnectionAge:0, MaxConnectionAgeGrace:0, KeepaliveTime:7200000000000, KeepaliveTimeout:20000000000, KeepaliveMinTime:300000000000, KeepalivePermitWithoutStream:false}
+default:grpc:seed:config.GRPCConfig{Enable:true, Address:"0.0.0.0:9090", MaxRecvMsgSize:4194304, MaxOpenConnections:0x3e8, MaxConnectionIdle:300000000000, MaxConnectionAge:0, MaxConnectionAgeGrace:0, KeepaliveTime:7200000000000, KeepaliveTimeout:20000000000, KeepaliveMinTime:300000000000, KeepalivePermitWithoutStream:false}
+default:grpc:archive:config.GRPCConfig{Enable:true, Address:"0.0.0.0:9090", MaxRecvMsgSize:4194304, MaxOpenConnections:0x3e8, MaxConnectionIdle:300000000000, MaxConnectionAge:0, MaxConnectionAgeGrace:0, KeepaliveTime:7200000000000, KeepaliveTimeout:20000000000, KeepaliveMinTime:300000000000, KeepalivePermitWithoutStream:false}
 section:light_invariance
 key:light_invariance.supply_enabled
 default:light_invariance:validator:app.LightInvarianceConfig{SupplyEnabled:true}
