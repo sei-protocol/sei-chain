@@ -75,6 +75,7 @@ and `TestGuideListsEveryPrimitive` holds it to the exported surface.
 | `CheckAbsent` | an omitted key resolves to something other than the declared default | the declared defaults struct |
 | `CheckManifestCoversEveryField` | a resolved field no row claims | the manifest's `Path` and `AlsoWrites` entries |
 | `CheckEveryRowHasADiscriminatingSeed` | a row whose every seed would also pass against a reader that never looks its key up | the recorded seed corpus |
+| `CheckSchemaMatchesTheReader` | a section whose keys are declared by a purpose-written struct pairs a key with the wrong setting, or resolves a baseline the reader does not | the reader itself, by writing a probe value under each key and observing which setting changed |
 | `CheckWiring` | one of the calls above is deleted | `testdata/wiring_coverage.txt` |
 | `CheckExperimentalDeclarations` | a declaration whose name or metadata is refused reaches a binary, where it is inert and every read of it silently returns the default | the registry, and each declaration's own `Check` run against its own default |
 | `CheckExperimentalGolden` | a key is added, removed, renamed, re-typed, re-owned or re-defaulted without the change being visible | `testdata/<name>.experimental.golden`, keyed by name |
@@ -97,6 +98,22 @@ forbidden move 4 above.
 declared defaults, because some readers fill fields from outside the config.
 `CheckAbsent` is what ties that result to the declared defaults, so a section wired for
 rows and not for `CheckAbsent` has an unanchored baseline.
+
+`CheckSchemaMatchesTheReader` covers a case the others cannot. A section normally declares
+its keys from the type its reader fills, so the tags and the reader move together. Some
+sections cannot: the type carries no `mapstructure` tags at all, or tags naming something
+other than the keys the reader looks up, and it may live in a tree this repository does not
+change. Those sections declare a struct written only to hold the spelling, and nothing
+decodes into it.
+
+What then needs holding is which setting each key reaches, and stating that twice proves
+nothing, since both statements come from one reading. So this check asks the reader: it
+writes a probe value under a key, sees which field of the reader's output changed, and
+compares the section's baseline for that key against what the reader leaves that same field
+at when nothing is written. A schema field paired with the wrong setting fails here rather
+than resolving one operator's value into another's setting. The probe has to differ from the
+baseline, or the reader's output is identical either way and the check holds for a key
+nothing reads; the check refuses a probe that does not.
 
 **Before adding one.** Advancing coverage is normally wiring an existing check to another
 section, and that is the first thing to try. A new check earns its place by naming a

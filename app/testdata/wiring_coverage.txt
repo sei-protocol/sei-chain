@@ -14,6 +14,7 @@ genesis	CheckEveryRowHasADiscriminatingSeed
 genesis	CheckKeyNames
 genesis	CheckManifestCoversEveryField
 genesis	CheckRow
+genesis	CheckSchemaMatchesTheReader
 light_invariance	CheckAbsent
 light_invariance	CheckDefaults
 light_invariance	CheckEveryRowHasADiscriminatingSeed

@@ -36,6 +36,7 @@ var Names = []string{
 	"eth_replay",
 	"evm",
 	"evm_query",
+	"genesis",
 	"giga_executor",
 	"light_invariance",
 	"receipt-store",
