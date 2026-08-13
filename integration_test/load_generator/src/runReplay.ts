@@ -21,7 +21,7 @@ import {
 } from './replay/evmAdapters';
 import {
     REPLAY_DEPLOYMENT_SCHEMA_VERSION,
-    REPLAY_V4_CONTRACT_KEYS,
+    REPLAY_CONTRACT_KEYS,
     ReplayBlock,
     ReplayDeploymentManifest,
     ReplayEvmTransaction,
@@ -117,7 +117,7 @@ interface ReplayBlockCheckpoint {
     updatedAt: string;
 }
 
-async function main(): Promise<void> {
+export async function runReplayMain(): Promise<void> {
     if (FOLLOW_SEGMENTS && (MAX_SEGMENTS || REPLAY_THROUGH_BLOCK)) {
         throw new Error(
             'FOLLOW_SEGMENTS cannot be combined with MAX_SEGMENTS or REPLAY_THROUGH_BLOCK',
@@ -216,7 +216,12 @@ async function main(): Promise<void> {
 
     try {
         if (!replayConfig.skipFixturePrepare) {
-            await prepareSemanticFixtures(workers, deployment, FIXTURE_PREPARE_GAS_LIMIT);
+            await prepareSemanticFixtures(
+                workers,
+                deployment,
+                FIXTURE_PREPARE_GAS_LIMIT,
+                EVM_RECEIPT_TIMEOUT_MS,
+            );
         }
         let fees = await readFees(provider);
         let feeUpdatedAt = Date.now();
@@ -1074,7 +1079,7 @@ function validateTargetManifests(
         );
     }
     validateSushiV2Provenance(deployment);
-    for (const name of REPLAY_V4_CONTRACT_KEYS) {
+    for (const name of REPLAY_CONTRACT_KEYS) {
         if (!deployment.contracts[name]) throw new Error(`Deployment is missing ${name}`);
     }
 }
@@ -1329,7 +1334,9 @@ function skipReasonLabel(reason: string): string {
     return 'adapter_skipped';
 }
 
-main().catch(error => {
-    console.error('Fatal:', error instanceof Error ? error.message : error);
-    process.exit(1);
-});
+if (require.main === module) {
+    runReplayMain().catch(error => {
+        console.error('Fatal:', error instanceof Error ? error.message : error);
+        process.exitCode = 1;
+    });
+}

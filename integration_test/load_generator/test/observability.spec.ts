@@ -17,9 +17,7 @@ interface Dashboard {
 }
 
 describe('replay observability', () => {
-    const dashboardPath = path.resolve(
-        'observability/grafana/dashboards/pacific-replay.json',
-    );
+    const dashboardPath = path.resolve('observability/grafana/dashboards/pacific-replay.json');
 
     it('ships a valid dashboard covering every custom replay metric', () => {
         const dashboard = JSON.parse(fs.readFileSync(dashboardPath, 'utf8')) as Dashboard;
@@ -61,11 +59,30 @@ describe('replay observability', () => {
         expect(new Set(titles).size).to.equal(titles.length);
     });
 
+    it('ships a dashboard for generated workloads', () => {
+        const dashboard = JSON.parse(
+            fs.readFileSync(
+                path.resolve('observability/grafana/dashboards/sei-load-generator.json'),
+                'utf8',
+            ),
+        ) as Dashboard;
+        expect(dashboard.uid).to.equal('sei-load-generator');
+        const expressions = dashboard.panels
+            .flatMap(panel => panel.targets ?? [])
+            .map(target => target.expr ?? '')
+            .join('\n');
+        for (const metric of [
+            'sei_loadgen_target_tps',
+            'sei_loadgen_transactions_total',
+            'sei_loadgen_transaction_seconds_bucket',
+            'sei_loadgen_pending_transactions',
+        ]) {
+            expect(expressions, `${metric} is not displayed`).to.include(metric);
+        }
+    });
+
     it('binds dashboard services to localhost', () => {
-        const compose = fs.readFileSync(
-            path.resolve('observability/docker-compose.yml'),
-            'utf8',
-        );
+        const compose = fs.readFileSync(path.resolve('observability/docker-compose.yml'), 'utf8');
         expect(compose).to.include('127.0.0.1:9090:9090');
         expect(compose).to.include('127.0.0.1:3000:3000');
         expect(compose).to.include('GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD');

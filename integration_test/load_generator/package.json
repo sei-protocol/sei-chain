@@ -1,11 +1,12 @@
 {
-  "name": "sei-pacific-replay-load-generator",
+  "name": "sei-multi-mode-load-generator",
   "version": "1.0.0",
   "private": true,
-  "description": "Capture Pacific traffic and safely replay equivalent load on Sei testnets.",
+  "description": "Generate synthetic workloads or safely replay Pacific traffic on Sei testnets.",
   "license": "MIT",
   "scripts": {
     "compile": "hardhat compile",
+    "build": "npm run compile && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "mocha --require tsx/cjs \"test/**/*.spec.ts\"",
     "test:fixtures": "hardhat test hardhat-test/*.spec.ts",
@@ -15,6 +16,10 @@
     "replay:users": "tsx src/provisionUsers.ts",
     "replay:run": "tsx src/runReplay.ts",
     "replay:buffered": "tsx src/runBuffered.ts",
+    "load": "tsx src/runLoad.ts",
+    "load:setup": "tsx src/runLoad.ts setup",
+    "load:provision": "tsx src/runLoad.ts provision",
+    "k8s:bootstrap": "tsx src/bootstrapKubernetes.ts",
     "replay:setup": "npm run compile && npm run replay:deploy && npm run replay:users",
     "replay:start": "npm run replay:setup && npm run replay:capture && npm run replay:validate && npm run replay:run",
     "replay:start:buffered": "npm run replay:setup && npm run replay:buffered",
@@ -43,5 +48,8 @@
     "solc": "0.6.12",
     "tsx": "^4.19.0",
     "typescript": "^5.5.4"
+  },
+  "overrides": {
+    "protobufjs": "$protobufjs"
   }
 }

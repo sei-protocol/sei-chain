@@ -45,7 +45,7 @@ let stopping = false;
 let currentChild: ChildProcess | undefined;
 const segmentCache = new Map<string, ReplaySegment>();
 
-async function main(): Promise<void> {
+export async function runBufferedMain(): Promise<void> {
     if (TIME_SCALE > 1 && !bufferedConfig.allowBufferDrain) {
         throw new Error(
             'Buffered continuous replay cannot sustain TIME_SCALE > 1; ' +
@@ -290,11 +290,21 @@ async function runContinuousReplay(): Promise<void> {
 
 async function spawnNpm(script: string, extraEnvironment: Record<string, string>): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-        const child = spawn('npm', ['run', script], {
-            cwd: process.cwd(),
-            env: { ...process.env, ...extraEnvironment },
-            stdio: 'inherit',
-        });
+        const compiledEntries: Record<string, string> = {
+            'replay:capture': path.join(process.cwd(), 'dist', 'capture.js'),
+            'replay:run': path.join(process.cwd(), 'dist', 'runReplay.js'),
+        };
+        const compiledEntry =
+            process.env.LOADGEN_COMPILED === '1' ? compiledEntries[script] : undefined;
+        const child = spawn(
+            compiledEntry ? process.execPath : 'npm',
+            compiledEntry ? [compiledEntry] : ['run', script],
+            {
+                cwd: process.cwd(),
+                env: { ...process.env, ...extraEnvironment },
+                stdio: 'inherit',
+            },
+        );
         currentChild = child;
         child.once('error', reject);
         child.once('exit', (code, signal) => {
@@ -322,9 +332,11 @@ async function sleep(milliseconds: number): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-main().catch(error => {
-    stopping = true;
-    currentChild?.kill('SIGTERM');
-    console.error('Fatal:', error instanceof Error ? error.message : error);
-    process.exit(1);
-});
+if (require.main === module) {
+    runBufferedMain().catch(error => {
+        stopping = true;
+        currentChild?.kill('SIGTERM');
+        console.error('Fatal:', error instanceof Error ? error.message : error);
+        process.exitCode = 1;
+    });
+}

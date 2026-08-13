@@ -1,0 +1,60 @@
+{{- $root := . -}}
+{{- $seenSecrets := dict -}}
+{{- range .Values.fixtures.sets }}
+{{- $name := required "every fixture set requires a name" .name -}}
+{{- $mnemonicSecret := required (printf "fixture set %s requires mnemonicSecret" $name) .mnemonicSecret -}}
+{{- if hasKey $seenSecrets $mnemonicSecret -}}
+  {{- fail (printf "fixture sets must use unique mnemonic secrets; %s is repeated" $mnemonicSecret) -}}
+{{- end -}}
+{{- $_ := set $seenSecrets $mnemonicSecret true -}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "sei-load-generator.fixtureSetupName" (dict "root" $root "set" $name) }}
+  labels:
+    app.kubernetes.io/name: {{ include "sei-load-generator.name" $root }}
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    app.kubernetes.io/component: setup
+    sei.io/fixture-set: {{ $name | quote }}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "sei-load-generator.name" $root }}
+        app.kubernetes.io/instance: {{ $root.Release.Name }}
+        app.kubernetes.io/component: setup
+        sei.io/fixture-set: {{ $name | quote }}
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+      containers:
+        - name: setup
+          image: {{ include "sei-load-generator.image" $root }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          securityContext:
+            {{- include "sei-load-generator.containerSecurityContext" $root | nindent 12 }}
+          args: ["setup"]
+          env:
+            {{- include "sei-load-generator.targetEnv" $root | nindent 12 }}
+            - name: EXECUTE
+              value: "1"
+            - name: LOAD_DEPLOYMENT
+              value: /fixtures/deployment.json
+            - name: TARGET_MNEMONIC
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $mnemonicSecret }}
+                  key: mnemonic
+          volumeMounts:
+            - name: fixtures
+              mountPath: /fixtures
+      volumes:
+        - name: fixtures
+          persistentVolumeClaim:
+            claimName: {{ include "sei-load-generator.fixtureClaimName" (dict "root" $root "set" $name) }}
+{{ end }}

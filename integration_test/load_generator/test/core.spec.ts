@@ -182,7 +182,7 @@ describe('load generator pure behavior', () => {
             loadTargetConfig({ TARGET_NETWORK: 'arctic-1', USER_COUNT: '5' }).usersPath,
         ).to.equal(`${process.cwd()}/runtime/replay-users/arctic-1-5.json`);
         expect(loadTargetConfig({ TARGET_NETWORK: 'arctic-1' }).deploymentPath).to.equal(
-            `${process.cwd()}/runtime/replay-deployments/arctic-1-v4.json`,
+            `${process.cwd()}/runtime/replay-deployments/arctic-1-v5.json`,
         );
     });
 

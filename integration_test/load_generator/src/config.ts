@@ -54,7 +54,7 @@ export function loadTargetConfig(env: Environment = process.env): TargetConfig {
         deploymentPath: resolvePath(
             env,
             'LOAD_DEPLOYMENT',
-            `runtime/replay-deployments/${network}-v4.json`,
+            `runtime/replay-deployments/${network}-v5.json`,
         ),
         mnemonic: string(env, 'TARGET_MNEMONIC', string(env, 'SEI_ADMIN_MNEMONIC', '')),
     };
@@ -166,12 +166,12 @@ export function loadBufferedConfig(env: Environment = process.env) {
 }
 
 export function loadProvisionConfig(env: Environment = process.env) {
-    const fundSei = positiveNumber(env, 'FUND_SEI', 100);
+    const fundSei = string(env, 'FUND_SEI', '100');
     return {
         execute: flag(env, 'EXECUTE'),
         userCount: positiveInteger(env, 'USER_COUNT', 100),
         fundSei,
-        targetUsei: BigInt(Math.round(fundSei * 1_000_000)),
+        targetUsei: seiToUsei(fundSei, 'FUND_SEI'),
     };
 }
 
@@ -293,6 +293,16 @@ function positiveBigInt(env: Environment, key: string, fallback: bigint): bigint
     const value = BigInt(string(env, key, fallback.toString()));
     if (value <= 0n) throw new Error(`${key} must be greater than zero`);
     return value;
+}
+
+export function seiToUsei(value: string, key = 'SEI amount'): bigint {
+    const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(value.trim());
+    if (!match) {
+        throw new Error(`${key} must be a positive decimal with at most 6 decimal places`);
+    }
+    const usei = BigInt(match[1]) * 1_000_000n + BigInt((match[2] ?? '').padEnd(6, '0') || '0');
+    if (usei <= 0n) throw new Error(`${key} must be greater than zero`);
+    return usei;
 }
 
 function traceConfig(env: Environment): {

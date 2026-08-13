@@ -1,0 +1,237 @@
+{{- $root := . -}}
+{{- $seenRunnerNames := dict -}}
+{{- $seenRunnerSecrets := dict -}}
+{{- range .Values.runners }}
+{{- $runnerName := required "every runner requires a name" .name -}}
+{{- $mnemonicSecret := required (printf "runner %s requires mnemonicSecret" $runnerName) .mnemonicSecret -}}
+{{- if hasKey $seenRunnerNames $runnerName -}}
+  {{- fail (printf "runner name %s is duplicated" $runnerName) -}}
+{{- end -}}
+{{- if hasKey $seenRunnerSecrets $mnemonicSecret -}}
+  {{- fail (printf "runners must use unique mnemonic secrets; %s is repeated" $mnemonicSecret) -}}
+{{- end -}}
+{{- $_ := set $seenRunnerNames $runnerName true -}}
+{{- $_ := set $seenRunnerSecrets $mnemonicSecret true -}}
+{{- $fixtureSet := required (printf "runner %s requires fixtureSet" $runnerName) .fixtureSet -}}
+{{- $fixtureSetExists := false -}}
+{{- range $root.Values.fixtures.sets -}}
+  {{- if eq .name $fixtureSet -}}
+    {{- $fixtureSetExists = true -}}
+  {{- end -}}
+{{- end -}}
+{{- if not $fixtureSetExists -}}
+  {{- fail (printf "runner %s references unknown fixtureSet %s" $runnerName $fixtureSet) -}}
+{{- end -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sei-load-generator.fullname" $root }}-{{ .name }}
+  labels:
+    app.kubernetes.io/name: {{ include "sei-load-generator.name" $root }}
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    app.kubernetes.io/component: runner
+    sei.io/load-type: {{ .type | quote }}
+    sei.io/fixture-set: {{ $fixtureSet | quote }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      sei.io/load-runner: {{ .name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "sei-load-generator.name" $root }}
+        app.kubernetes.io/instance: {{ $root.Release.Name }}
+        app.kubernetes.io/component: runner
+        sei.io/load-runner: {{ .name }}
+        sei.io/load-type: {{ .type | quote }}
+        sei.io/fixture-set: {{ $fixtureSet | quote }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $root.Values.metrics.port | quote }}
+        prometheus.io/path: /metrics
+    spec:
+      terminationGracePeriodSeconds: 180
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+      initContainers:
+        - name: wait-for-fixtures
+          image: busybox:1.36
+          securityContext:
+            {{- include "sei-load-generator.containerSecurityContext" $root | nindent 12 }}
+          command:
+            - sh
+            - -ec
+            - timeout 1800 sh -c 'until test -s /fixtures/deployment.json; do echo "waiting for fixtures"; sleep 2; done'
+          volumeMounts:
+            - name: fixtures
+              mountPath: /fixtures
+              readOnly: true
+        - name: provision-users
+          image: {{ include "sei-load-generator.image" $root }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          securityContext:
+            {{- include "sei-load-generator.containerSecurityContext" $root | nindent 12 }}
+          args: ["provision"]
+          env:
+            {{- include "sei-load-generator.targetEnv" $root | nindent 12 }}
+            - name: EXECUTE
+              value: "1"
+            - name: LOAD_TYPE
+              value: {{ .type | quote }}
+            - name: TXS_PER_SECOND
+              value: {{ .tps | quote }}
+            - name: USERS_PER_TPS
+              value: {{ default 2 .usersPerTps | quote }}
+            - name: MAX_WORKER_COUNT
+              value: {{ default 200 .maxWorkerCount | quote }}
+            {{- if .workerCount }}
+            - name: WORKER_COUNT
+              value: {{ .workerCount | quote }}
+            {{- end }}
+            - name: MAX_SYNTHETIC_TPS
+              value: {{ default 100 .maxTps | quote }}
+            - name: FUND_SEI
+              value: {{ default "100" .fundSei | quote }}
+            - name: LOAD_USERS
+              value: /runtime/users.json
+            - name: LOAD_DEPLOYMENT
+              value: /fixtures/deployment.json
+            - name: TARGET_MNEMONIC
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $mnemonicSecret }}
+                  key: mnemonic
+          volumeMounts:
+            - name: runtime
+              mountPath: /runtime
+            - name: fixtures
+              mountPath: /fixtures
+              readOnly: true
+      containers:
+        - name: runner
+          image: {{ include "sei-load-generator.image" $root }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          securityContext:
+            {{- include "sei-load-generator.containerSecurityContext" $root | nindent 12 }}
+          args:
+            - run
+            - --type
+            - {{ .type | quote }}
+            - --tps
+            - {{ .tps | quote }}
+            - --run-id
+            - $(POD_NAME)
+            {{- if .durationSeconds }}
+            - --duration
+            - {{ .durationSeconds | quote }}
+            {{- end }}
+          env:
+            {{- include "sei-load-generator.targetEnv" $root | nindent 12 }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: EXECUTE
+              value: "1"
+            - name: USERS_PER_TPS
+              value: {{ default 2 .usersPerTps | quote }}
+            - name: MAX_WORKER_COUNT
+              value: {{ default 200 .maxWorkerCount | quote }}
+            {{- if .workerCount }}
+            - name: WORKER_COUNT
+              value: {{ .workerCount | quote }}
+            {{- end }}
+            - name: MAX_SYNTHETIC_TPS
+              value: {{ default 100 .maxTps | quote }}
+            - name: LOAD_USERS
+              value: /runtime/users.json
+            - name: LOAD_DEPLOYMENT
+              value: /fixtures/deployment.json
+            - name: LOAD_RUNTIME_DIR
+              value: /runtime/run
+            - name: REPLAY_DIR
+              value: /runtime/replay
+            - name: METRICS_HOST
+              value: 0.0.0.0
+            - name: METRICS_PORT
+              value: {{ $root.Values.metrics.port | quote }}
+            - name: LOAD_AUDIT_MAX_BYTES
+              value: {{ $root.Values.audit.maxBytes | quote }}
+            - name: LOAD_AUDIT_RETAIN_FILES
+              value: {{ $root.Values.audit.retainFiles | quote }}
+            - name: FIXTURE_PREPARE_GAS_LIMIT
+              value: {{ default "2000000" .fixturePrepareGasLimit | quote }}
+            {{- if .operationMix }}
+            - name: LOAD_MIX
+              value: {{ .operationMix | quote }}
+            {{- end }}
+            {{- if .cw1155Contract }}
+            - name: CW1155_CONTRACT
+              value: {{ .cw1155Contract | quote }}
+            {{- end }}
+            - name: TARGET_MNEMONIC
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $mnemonicSecret }}
+                  key: mnemonic
+          ports:
+            - name: metrics
+              containerPort: {{ $root.Values.metrics.port }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            periodSeconds: 5
+            failureThreshold: 12
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 5
+            failureThreshold: 120
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 15
+            failureThreshold: 4
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          volumeMounts:
+            - name: runtime
+              mountPath: /runtime
+            - name: fixtures
+              mountPath: /fixtures
+              readOnly: true
+      volumes:
+        - name: runtime
+          emptyDir:
+            sizeLimit: {{ $root.Values.runtime.sizeLimit | quote }}
+        - name: fixtures
+          persistentVolumeClaim:
+            claimName: {{ include "sei-load-generator.fixtureClaimName" (dict "root" $root "set" $fixtureSet) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sei-load-generator.fullname" $root }}-{{ .name }}
+  labels:
+    app.kubernetes.io/name: {{ include "sei-load-generator.name" $root }}
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    sei.io/load-runner: {{ .name }}
+    sei.io/fixture-set: {{ $fixtureSet | quote }}
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    sei.io/load-runner: {{ .name }}
+  ports:
+    - name: metrics
+      port: {{ $root.Values.metrics.port }}
+      targetPort: metrics
+{{ end }}

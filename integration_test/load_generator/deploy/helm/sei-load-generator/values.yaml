@@ -1,0 +1,44 @@
+image:
+  repository: sei-load-generator
+  tag: latest
+  pullPolicy: IfNotPresent
+
+target:
+  network: arctic-1
+  evmRpcUrl: ""
+  cosmosRpcUrl: ""
+
+fixtures:
+  storageClassName: ""
+  storageSize: 1Gi
+  accessModes:
+    - ReadWriteMany
+  sets:
+    - name: shared
+      mnemonicSecret: loadgen-fixture-deployer
+
+metrics:
+  port: 9465
+
+runtime:
+  sizeLimit: 10Gi
+
+audit:
+  maxBytes: "104857600"
+  retainFiles: "5"
+
+runners:
+  - name: defi-a
+    fixtureSet: shared
+    type: defi
+    tps: 10
+    maxTps: 100
+    durationSeconds: 0
+    usersPerTps: 2
+    maxWorkerCount: 200
+    fundSei: "100"
+    fixturePrepareGasLimit: "2000000"
+    mnemonicSecret: loadgen-defi-a
+    operationMix: ""
+    cw1155Contract: ""
+    resources: {}
