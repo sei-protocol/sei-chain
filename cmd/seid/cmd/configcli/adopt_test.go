@@ -1,12 +1,14 @@
 package configcli_test
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configcli"
 	"github.com/sei-protocol/sei-chain/config/registry"
+	"github.com/sei-protocol/sei-chain/config/seitoml"
 )
 
 // existing is a node's current configuration, controlled key by key.
@@ -458,4 +460,72 @@ func holdsKey(keys []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestAdoptionWritesARootKeyWhereItCanBeReadBack is the file-shape risk root keys introduce.
+//
+// A key with no section belongs above every table heading. Once a heading is open, every bare key after
+// it belongs to that table, so a node-wide setting written later would be read under the wrong name and an
+// operator's value would reach nothing.
+//
+// Adoption walks the declared keys in sorted order, which interleaves root keys with sectioned ones, so
+// nothing about the order it writes in puts them first. This holds the round trip instead: render the
+// file, read it back, and require the root key to still be a root key.
+func TestAdoptionWritesARootKeyWhereItCanBeReadBack(t *testing.T) {
+	registry.Reset()
+	registry.RegisterRootKeys("base", &struct {
+		Pruning string `mapstructure:"pruning"`
+		Workers int    `mapstructure:"concurrency-workers"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			Pruning string `mapstructure:"pruning"`
+			Workers int    `mapstructure:"concurrency-workers"`
+		}{Pruning: "nothing", Workers: 20}
+	})
+	// A section whose name sorts before one root key and after the other, so the sorted walk cannot
+	// happen to write both root keys first.
+	registry.RegisterSection("probe", &struct {
+		Enabled bool `mapstructure:"enabled"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			Enabled bool `mapstructure:"enabled"`
+		}{}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("registration was refused: %v", d.Err)
+	}
+
+	got, err := configcli.Adopt(existing{
+		"pruning":             "custom",
+		"concurrency-workers": 8,
+		"probe.enabled":       true,
+	}, noEnv, registry.ModeValidator)
+	if err != nil {
+		t.Fatalf("Adopt: %v", err)
+	}
+
+	raw, err := got.File.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+	reread, err := seitoml.Parse(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("the adopted file does not parse: %v\n\n%s", err, raw)
+	}
+	written, err := reread.Values()
+	if err != nil {
+		t.Fatalf("Values: %v", err)
+	}
+
+	for key, want := range map[string]any{
+		"pruning":             "custom",
+		"concurrency-workers": int64(8),
+		"probe.enabled":       true,
+	} {
+		if written[key] != want {
+			t.Errorf("%s reads back as %#v, want %#v.\n\nA root key written after a table heading is read "+
+				"under that table, so the operator's value reaches nothing:\n\n%s",
+				key, written[key], want, raw)
+		}
+	}
 }
