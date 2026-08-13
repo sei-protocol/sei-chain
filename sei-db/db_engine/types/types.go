@@ -1,8 +1,6 @@
 package types
 
 import (
-	"errors"
-	"fmt"
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -141,48 +139,10 @@ type DrainBarrier interface {
 	ScheduleAtDrain(fn func())
 }
 
-// CheckpointScheduler coordinates checkpoints for stores with in-flight writes.
-type CheckpointScheduler interface {
-	SupportsCheckpoint() bool
-	ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error))
-	SetCheckpointVersion(destDir string, version int64) error
-}
-
-// ErrCheckpointCanceled reports that a queued checkpoint was canceled before
-// it started.
-var ErrCheckpointCanceled = errors.New("state store checkpoint canceled")
-
-// ScheduleCheckpoint checkpoints an engine after all writes already enqueued
-// on it have been applied.
-func ScheduleCheckpoint(db StateStore, destDir string, shouldRun func() bool, done func(error)) {
-	cp, ok := db.(Checkpointable)
-	if !ok {
-		done(fmt.Errorf("state store backend %T does not support checkpoints", db))
-		return
-	}
-	barrier, ok := db.(DrainBarrier)
-	if !ok {
-		done(fmt.Errorf("state store backend %T does not support ordered checkpoint barriers", db))
-		return
-	}
-	barrier.ScheduleAtDrain(func() {
-		if shouldRun != nil && !shouldRun() {
-			done(ErrCheckpointCanceled)
-			return
-		}
-		done(cp.Checkpoint(destDir))
-	})
-}
-
-// SetCheckpointVersion makes a completed checkpoint self-describing without
-// changing the live database.
-func SetCheckpointVersion(db StateStore, destDir string, version int64) error {
-	setter, ok := db.(CheckpointVersionSetter)
-	if !ok {
-		return fmt.Errorf("state store backend %T cannot set checkpoint version", db)
-	}
-	return setter.SetCheckpointVersion(destDir, version)
-}
+// The three interfaces above are engine capabilities. Deciding when a checkpoint
+// runs, and what version it is labeled with, is coordination rather than engine
+// behavior and lives in sei-db/management: CheckpointScheduler,
+// ScheduleCheckpoint, SetCheckpointVersion and ErrCheckpointCanceled.
 
 // ---------------------------------------------------------------------------
 // SS DB layer

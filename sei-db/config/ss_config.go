@@ -66,13 +66,25 @@ type StateStoreConfig struct {
 	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
 
 	// SnapshotEnable controls whether the state store takes periodic online
-	// snapshots. Snapshots are Pebble checkpoints (hardlink trees), so each
-	// retained snapshot pins the SSTs it references and prevents compaction
+	// snapshots. Snapshots are Pebble checkpoints (hardlink trees), so the
+	// backend must be pebbledb and every SS database must be able to hardlink
+	// into the snapshot root. Startup fails on either rather than running
+	// without snapshots. A custom Cosmos SS directory moves the snapshot root
+	// beside that directory, which keeps the link inside one filesystem.
+	//
+	// Taking a snapshot occupies each backend's SS apply goroutine for the WAL
+	// flush, the filesystem sync, and the checkpoint. No data is copied up
+	// front, but a queue that fills during that window applies write
+	// backpressure.
+	//
+	// Each retained snapshot pins the SSTs it references and prevents compaction
 	// from reclaiming them. Steady-state disk overhead is therefore the
 	// compaction churn accumulated over SnapshotInterval blocks, per retained
 	// snapshot — significant on a multi-TB state store. Managed snapshots have
 	// no lease in this release, so consumers must quiesce generation and pruning
-	// before using a snapshot directory.
+	// before using a snapshot directory. Attempts, skips, outcomes, duration,
+	// in-flight state, height, count, and apparent bytes are exported as
+	// ss_snapshot_* metrics.
 	// defaults to false
 	SnapshotEnable bool `mapstructure:"snapshot-enable"`
 

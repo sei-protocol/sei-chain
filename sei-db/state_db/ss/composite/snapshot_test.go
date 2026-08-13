@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/management"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
@@ -50,7 +51,7 @@ func (s *controlledSnapshotScheduler) ScheduleCheckpoint(
 	}
 	s.pending <- func() {
 		if !shouldRun() {
-			done(types.ErrCheckpointCanceled)
+			done(management.ErrCheckpointCanceled)
 			return
 		}
 		s.checkpointCalls++

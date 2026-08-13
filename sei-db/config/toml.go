@@ -140,29 +140,18 @@ ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 # Applies when ss-backend = "pebbledb". Default: false.
 ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
 
-# SnapshotEnable controls whether the state store takes periodic online
-# snapshots. The cadence is not configurable here: it mirrors the state-commit
-# snapshot interval, minimum time interval, and retention settings. SC and SS
-# apply their in-flight gates independently, so a skipped boundary can differ.
-# Snapshots are PebbleDB checkpoints, i.e. hardlink trees, so ss-backend must be
-# pebbledb. Enabling this on any other backend fails startup instead of running
-# without snapshots. Creating one blocks each backend's SS apply worker for the
-# full WAL flush, filesystem sync, and checkpoint operation; a full async queue
-# then applies write backpressure. It does not copy data up front. Startup also
-# rejects snapshot configurations where a live SS database and the snapshot root
-# cannot hardlink to each other. Each enabled Cosmos and EVM SS database must
-# therefore use the same filesystem. A custom Cosmos SS directory moves the
-# snapshot root beside that directory.
-# Retained snapshots pin referenced SSTs, so compaction cannot reclaim them.
-# Expect steady-state disk overhead on the order of the compaction churn over
-# one snapshot interval per retained snapshot, which is substantial on a
-# multi-TB state store.
-# Managed snapshot directories have no lease in this release. Do not pack an
-# archive or serve state sync directly from them while the node is running:
-# retention can remove a directory during use. Stop the node, or use external
-# coordination that prevents pruning, before consuming a snapshot. Snapshot
-# attempts, skips, outcomes, duration, in-flight state, height, count, and
-# apparent bytes are exported through ss_snapshot_* metrics. Default: false.
+# SnapshotEnable turns on periodic online state-store snapshots. The cadence is
+# not configurable here: it mirrors the state-commit snapshot settings.
+# Two configurations fail startup rather than run without snapshots: an
+# ss-backend other than "pebbledb", and SS databases that cannot hardlink into
+# the snapshot root, which needs every SS database and that root on one
+# filesystem.
+# Each retained snapshot pins the SST files it references against compaction, so
+# budget the write churn of one snapshot interval per retained snapshot. This is
+# substantial on a multi-TB state store.
+# Snapshot directories have no lease in this release: stop the node, or prevent
+# pruning by other means, before you copy one.
+# Cost and progress are exported as ss_snapshot_* metrics. Default: false.
 ss-snapshot-enable = {{ .StateStore.SnapshotEnable }}
 
 # EVMDBDirectory defines the directory for the optional EVM state-store DB(s).

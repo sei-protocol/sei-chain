@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/management"
 )
 
 // Online state-store snapshots. Every SnapshotInterval blocks the store takes a
@@ -149,8 +149,8 @@ type snapshotManager struct {
 	keepRecent int
 	minTime    time.Duration
 
-	cosmosScheduler types.CheckpointScheduler
-	evmScheduler    types.CheckpointScheduler
+	cosmosScheduler management.CheckpointScheduler
+	evmScheduler    management.CheckpointScheduler
 	snapshotSizes   map[int64]int64
 
 	mu sync.Mutex
@@ -173,7 +173,7 @@ type snapshotManager struct {
 }
 
 type checkpointTarget struct {
-	store types.CheckpointScheduler
+	store management.CheckpointScheduler
 	dest  string
 }
 
@@ -185,13 +185,13 @@ func (s *CompositeStateStore) startSnapshotManager(root string, sourceDirs []str
 	if s.config.SnapshotInterval <= 0 {
 		return nil
 	}
-	cosmosScheduler, ok := s.cosmosStore.(types.CheckpointScheduler)
+	cosmosScheduler, ok := s.cosmosStore.(management.CheckpointScheduler)
 	if !ok || !cosmosScheduler.SupportsCheckpoint() {
 		return fmt.Errorf("cosmos backend %q does not support checkpoints", s.config.Backend)
 	}
-	var evmScheduler types.CheckpointScheduler
+	var evmScheduler management.CheckpointScheduler
 	if s.evmStore != nil {
-		evmScheduler, ok = s.evmStore.(types.CheckpointScheduler)
+		evmScheduler, ok = s.evmStore.(management.CheckpointScheduler)
 		if !ok || !evmScheduler.SupportsCheckpoint() {
 			return fmt.Errorf("EVM backend %q does not support checkpoints", s.config.Backend)
 		}
@@ -315,6 +315,9 @@ func (m *snapshotManager) maybeSnapshot(version int64) {
 	if !accepted {
 		if skipReason != "" {
 			recordSnapshotSkipped(skipReason)
+			// A skipped boundary is the reason a snapshot an operator expected is
+			// not on disk, so name the gate rather than leaving only a metric.
+			logger.Info("skipping state store snapshot", "version", version, "reason", skipReason)
 		}
 		return
 	}
@@ -436,7 +439,7 @@ func (m *snapshotManager) startPublish(
 		defer m.publishing.Done()
 		defer m.finishSnapshot()
 		if checkpointErr != nil {
-			if errors.Is(checkpointErr, types.ErrCheckpointCanceled) {
+			if errors.Is(checkpointErr, management.ErrCheckpointCanceled) {
 				recordSnapshotCompletion(start, "canceled")
 			} else {
 				recordSnapshotCompletion(start, "failure")
