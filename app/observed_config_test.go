@@ -258,6 +258,11 @@ func holdsString(keys []string, want string) bool {
 // Held against the observed record, because that is the only list of keys a node demonstrably reads. A
 // key read outside the application construction is not in it, and the honest answer there is to widen
 // the recording rather than to weaken this.
+//
+// Scoped to the sections this package's test binary registers. A section registers when its owning package
+// is imported, and some owners are reached only through config/sections, which this package does not
+// import, so their keys are absent from the count below. TestEveryDeclaredKeyIsReadBySomething in
+// cmd/seid/cmd is the same check over every section a binary declares.
 func TestEveryDeclaredKeyIsOneTheNodeActuallyReads(t *testing.T) {
 	declared := registry.Keys()
 	if len(declared) == 0 {
@@ -277,7 +282,9 @@ func TestEveryDeclaredKeyIsOneTheNodeActuallyReads(t *testing.T) {
 			"this recording does not reach, in which case widen the recording rather than remove "+
 			"this check.", key)
 	}
-	t.Logf("%d declared key(s), all of them read by the construction", len(declared))
+	t.Logf("%d declared key(s) visible to this test binary, all read by the construction. Sections whose "+
+		"owner this package does not import are absent from that count, and the binary-level check in "+
+		"cmd/seid/cmd is what covers them", len(declared))
 }
 
 // declaredButUnread returns the declared keys nothing was observed reading, sorted.

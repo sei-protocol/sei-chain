@@ -98,3 +98,67 @@ func boundStartFlags(t *testing.T) map[string]bool {
 	}
 	return out
 }
+
+// declaredButNotRead names every declared key this census does not see read, and what covers it instead.
+//
+// The other direction of the check above. A key the registry declares and nothing reads is a setting an
+// operator can write, a diagnostic reports on, and no node consults: worse than an undeclared key, because
+// the file says it takes effect.
+//
+// The census records what the application's creation resolves. Some configuration is read later, by the
+// server configuration reader at start time, which reaches a viper directly rather than through the object
+// this wraps. A key read only there is invisible here and is not unread.
+var declaredButNotRead = map[string]string{
+	"compaction-interval": "read by the server configuration reader at start time rather than during " +
+		"the application's creation, so this census cannot see it. The base section's own check writes a " +
+		"value under it and confirms which setting changes, which is the proof this cannot supply",
+}
+
+// TestEveryDeclaredKeyIsReadBySomething closes the direction the read census cannot.
+//
+// Both directions matter and they fail differently. An unaccounted read is a value that resolves through
+// the machinery the registry replaced. An unread declaration is a value that resolves through nothing at
+// all, while a file and a diagnostic both present it as a setting.
+func TestEveryDeclaredKeyIsReadBySomething(t *testing.T) {
+	declared := registry.Keys()
+	if len(declared) == 0 {
+		t.Fatal("no keys are declared, so this check holds over nothing")
+	}
+	observed := map[string]bool{}
+	for _, key := range recordAppCreatorReads(t).Keys() {
+		observed[key] = true
+	}
+
+	var unread []string
+	for _, key := range declared {
+		if observed[key] {
+			continue
+		}
+		if _, named := declaredButNotRead[key]; named {
+			continue
+		}
+		unread = append(unread, key)
+	}
+	sort.Strings(unread)
+
+	if len(unread) > 0 {
+		t.Errorf("these keys are declared and nothing reads them:\n  %s\n\nEach is a setting an operator "+
+			"can write and a diagnostic reports on, which no node consults. Remove the declaration, or "+
+			"name it in declaredButNotRead with what proves the key is read elsewhere",
+			strings.Join(unread, "\n  "))
+	}
+}
+
+// TestEveryReasonStillDescribesADeclaredKey keeps that list from outliving its entries too.
+func TestEveryReasonStillDescribesADeclaredKey(t *testing.T) {
+	declared := map[string]bool{}
+	for _, key := range registry.Keys() {
+		declared[key] = true
+	}
+	for key := range declaredButNotRead {
+		if !declared[key] {
+			t.Errorf("declaredButNotRead names %q and no section declares it. Either the declaration was "+
+				"removed, in which case drop the entry, or the key was renamed", key)
+		}
+	}
+}
