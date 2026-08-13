@@ -1,0 +1,59 @@
+syntax = "proto3";
+package tendermint.dbsync;
+
+option go_package = "github.com/tendermint/tendermint/proto/tendermint/dbsync";
+
+import "gogoproto/gogo.proto";
+import "tendermint/types/types.proto";
+import "tendermint/types/params.proto";
+
+message Message {
+  oneof sum {
+    MetadataRequest   metadata_request    = 1;
+    MetadataResponse  metadata_response   = 2;
+    FileRequest       file_request        = 3;
+    FileResponse      file_response       = 4;
+    LightBlockRequest  light_block_request  = 5;
+    LightBlockResponse light_block_response = 6;
+    ParamsRequest      params_request       = 7;
+    ParamsResponse     params_response      = 8;
+  }
+}
+
+message MetadataRequest {}
+
+message MetadataResponse {
+  uint64 height   = 1;
+  bytes  hash     = 2;
+  repeated string filenames = 3;
+  repeated bytes md5checksum = 4;
+}
+
+message FileRequest {
+  uint64 height = 1;
+  string filename = 2;
+}
+
+message FileResponse {
+  uint64 height  = 1;
+  string filename = 2;
+  bytes data = 3;
+}
+
+message LightBlockRequest {
+  uint64 height = 1;
+}
+
+message LightBlockResponse {
+  tendermint.types.LightBlock light_block = 1;
+}
+
+message ParamsRequest {
+  uint64 height = 1;
+}
+
+message ParamsResponse {
+  uint64                           height           = 1;
+  tendermint.types.ConsensusParams consensus_params = 2
+      [(gogoproto.nullable) = false];
+}
