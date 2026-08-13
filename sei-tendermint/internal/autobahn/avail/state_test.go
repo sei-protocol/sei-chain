@@ -152,8 +152,8 @@ func TestCollectPersistBatch_EmptyRoadsDropsClosedLane(t *testing.T) {
 			if _, ok := inner.blocks[lane0]; !ok {
 				return fmt.Errorf("closing lane maps should still be present before collect")
 			}
-			if !hasClosedLane(inner, ds) {
-				return fmt.Errorf("hasClosedLane: empty roads + epoch-1 anchor should see lane0 closed")
+			if !hasClosedLane(inner) {
+				return fmt.Errorf("hasClosedLane: empty roads + applied epoch-1 should see lane0 closed")
 			}
 		}
 

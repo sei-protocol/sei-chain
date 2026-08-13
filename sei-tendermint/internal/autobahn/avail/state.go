@@ -84,38 +84,18 @@ func (s *State) ApplyEpoch(ep *types.Epoch) {
 	}
 }
 
-// epochOfFirst returns the epoch of oldest CommitQC, or epoch of Anchor if there
-// are no CommitQCs.
-func epochOfFirst(inner *inner, ds *data.State) (utils.Option[*types.Epoch], error) {
-	if inner.roads.first < inner.roads.next {
-		idx := inner.roads.q[inner.roads.first].commitQC.Proposal().EpochIndex()
-		ep, found := ds.Registry().EpochByIndex(idx)
-		if !found {
-			return utils.None[*types.Epoch](), fmt.Errorf("unknown epoch_index %d for first retained CommitQC", idx)
-		}
-		return utils.Some(ep), nil
+// epochOfFirst returns the epoch of the oldest retained CommitQC, or the applied
+// (next-CommitQC) epoch when the road queue is empty.
+func epochOfFirst(inner *inner) *types.Epoch {
+	if inner.roads.Len() > 0 {
+		return inner.roads.q[inner.roads.first].epoch
 	}
-	anchor, ok := ds.Anchor().Load().Get()
-	if !ok {
-		return utils.None[*types.Epoch](), nil
-	}
-	ep, found := ds.Registry().EpochByIndex(anchor.CommitQC.Proposal().EpochIndex())
-	if !found {
-		return utils.None[*types.Epoch](), nil
-	}
-	return utils.Some(ep), nil
+	return inner.epoch.Load()
 }
 
 // hasClosedLane reports whether any in-memory lane is closed as of epochOfFirst.
-func hasClosedLane(inner *inner, ds *data.State) bool {
-	epOfFirst, err := epochOfFirst(inner, ds)
-	if err != nil {
-		return false
-	}
-	ep, ok := epOfFirst.Get()
-	if !ok {
-		return false
-	}
+func hasClosedLane(inner *inner) bool {
+	ep := epochOfFirst(inner)
 	for lane := range inner.blocks {
 		if ep.IsClosed(lane) {
 			return true
@@ -777,20 +757,15 @@ func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) 
 			if next < inner.roads.next {
 				return true
 			}
-			return hasClosedLane(inner, s.data)
+			return hasClosedLane(inner)
 		}); err != nil {
 			return nil, err
 		}
-		epOfFirst, err := epochOfFirst(inner, s.data)
-		if err != nil {
-			return nil, err
-		}
+		ep := epochOfFirst(inner)
 		var closed []types.LaneID
-		if ep, ok := epOfFirst.Get(); ok {
-			for lane := range inner.blocks {
-				if ep.IsClosed(lane) {
-					closed = append(closed, lane)
-				}
+		for lane := range inner.blocks {
+			if ep.IsClosed(lane) {
+				closed = append(closed, lane)
 			}
 		}
 		if len(closed) > 0 {
