@@ -459,6 +459,37 @@ process environment, `$HOME`, and the executable basename all feed the result.
   `EnvValueIsSettable` decline the values with no faithful spelling, which keeps a
   parse failure from being attributed to the layer under test.
 
+## Proving a Test Would Fail
+
+A suite that passes says nothing about whether it would fail. The other question is what this suite
+is for: take a claim the code makes, remove it, and name the test that objects. `scripts/mutation-check.sh`
+runs one such check and reports `CAUGHT by`, `SURVIVED`, or `INVALID MUTATION`.
+
+```bash
+scripts/mutation-check.sh <file> <old-text-file> <new-text-file> <package>...
+```
+
+Five properties it enforces, each written down because getting it wrong reports a false result and
+every one of them has produced one:
+
+1. **The baseline is green first.** A suite already failing reports every mutation as caught, because
+   the failure was there before the mutation was.
+2. **The mutation applied.** A stale anchor leaves the code unmutated, so the run tests the original
+   and reports a pass as a survived mutation.
+3. **Compile status comes from the compiler.** Deciding it by grepping test output for phrases like
+   `cannot use` misreads a test whose own failure message contains that phrase. A real catch then reads
+   as a build error, and the claim goes unverified while looking checked.
+4. **The restore is verified, not assumed.** An unrestored mutation poisons every run after it.
+5. **A survivor is a decision, never a pass.** It is an untested claim, and a test is owed, or an
+   equivalent mutant that changed no observable behaviour. Say which. Recording a survivor as
+   "verified" is how a suite comes to describe code it does not hold.
+
+One more that no script can check. A mutation is only worth running against a test that could
+distinguish it. A section registered at the defaults a node already runs cannot tell an install from a
+no-op, so a mutation removing the install survives against it for a reason that has nothing to do with
+the test being weak. When a survivor looks impossible, suspect the fixture before the code: the
+fixture has to make the behaviour observable.
+
 ## Out of Scope
 
 The suite covers the viper resolution and the keys `app.New` reads back out of the
