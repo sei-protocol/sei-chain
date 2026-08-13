@@ -1,9 +1,11 @@
 package metrics
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"runtime/debug"
 	"strconv"
 	"time"
@@ -15,9 +17,37 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/metric"
 	sdk "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 )
+
+// BankNewAccount* must stay byte-identical to the same consts in
+// sei-cosmos/x/bank/keeper and giga/deps/xbank/keeper so the three
+// Int64Counter declarations merge into one series.
+const (
+	BankNewAccountMeter       = "seicosmos_x_bank_keeper"
+	BankNewAccountName        = "bank_new_account"
+	BankNewAccountDescription = "Number of new accounts created during bank transfers"
+	BankNewAccountUnit        = "{count}"
+)
+
+// bankNewAccountCounter mirrors sei-cosmos/x/bank/keeper/metrics.go's
+// instrument of the same name/scope (and giga/deps/xbank/keeper/metrics.go's)
+// so precompile-originated and keeper-originated new-account events merge
+// into a single bank_new_account series.
+var bankNewAccountCounter = mustCounter(otel.Meter(BankNewAccountMeter).Int64Counter(
+	BankNewAccountName,
+	metric.WithDescription(BankNewAccountDescription),
+	metric.WithUnit(BankNewAccountUnit),
+))
+
+func mustCounter(c metric.Int64Counter, err error) metric.Int64Counter {
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
 
 func SetupOtelMetricsProvider(chainID string) error {
 	if chainID == "" {
@@ -50,6 +80,21 @@ func SetupOtelMetricsProvider(chainID string) error {
 		sdk.WithReader(metricsExporter),
 	))
 	return nil
+}
+
+// RecordBankNewAccount dual-emits the legacy new-account counter and its OTel
+// counterpart (bank_new_account). Call from defer when creating an account.
+// Runs during precompile execution, so a telemetry fault here must not panic
+// into a consensus-critical path.
+func RecordBankNewAccount(ctx context.Context) {
+	defer func() {
+		if e := recover(); e != nil {
+			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
+		}
+	}()
+	// TODO(PLT-353): remove once bank_new_account verified
+	telemetry.IncrCounter(1, "new", "account")
+	bankNewAccountCounter.Add(ctx, 1)
 }
 
 func SafeTelemetryIncrCounter(val float32, keys ...string) {
