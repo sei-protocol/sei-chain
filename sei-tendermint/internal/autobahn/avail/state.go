@@ -4,6 +4,9 @@
 // Lane maps and WALs outlive committee membership until the anchor epoch
 // IsClosed that LaneID. Before any CommitQC exists, the anchor epoch is the
 // applied epoch.
+//
+// Per-lane vote queues supply LaneQC weight under the applied epoch, and
+// FullCommitQC headers until the anchor epoch IsClosed that LaneID.
 package avail
 
 import (
@@ -488,7 +491,8 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Epo
 	return epoch, types.NewFullCommitQC(qc, commitHeaders), nil
 }
 
-// WaitForCapacity waits until the given lane has capacity for toProduce block.
+// WaitForCapacity waits until lane has room for toProduce.
+// Returns ErrLaneClosed if the lane map is missing. Does not wait for future lanes.
 func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID, toProduce types.BlockNumber) error {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {

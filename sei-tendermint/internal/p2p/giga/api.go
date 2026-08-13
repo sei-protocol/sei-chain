@@ -37,12 +37,8 @@ var StreamAppVotes = rpc.Register[API](4, "stream_app_votes",
 	rpc.Msg[*pb.AppVote]{MsgSize: 10 * kB, Window: 100},
 )
 var Consensus = rpc.Register[API](6, "consensus",
-	// Consensus streams are special in a sense that
-	// * each stream sends just 1 message per view
-	// * messages are streamed from client to server
-	// * there are many streams (1 per message type)
-	// This is an artifact of how Consensus was initially implemented,
-	// but it can be made to be consistent with all other streaming RPCs.
+	// Each Consensus stream carries one message type, client to server, one
+	// message per view.
 	rpc.Limit{Rate: 10, Concurrent: 10},
 	rpc.Msg[*apb.ConsensusReq]{MsgSize: 1200 * kB, Window: 1},
 	rpc.Msg[*pb.ConsensusResp]{MsgSize: kB, Window: 1},
