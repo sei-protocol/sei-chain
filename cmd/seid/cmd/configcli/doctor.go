@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/config/appopts"
 	"github.com/sei-protocol/sei-chain/config/experimental"
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/config/seitoml"
@@ -29,6 +30,9 @@ type Diagnosis struct {
 	Mode string
 	// ModeProblem says why the recorded mode is unusable, and is empty when it is fine.
 	ModeProblem string
+	// ModeConflict says how the recorded mode disagrees with the one Tendermint runs, and is empty
+	// when they agree or when there was nothing to compare against.
+	ModeConflict string
 }
 
 // Malformation is one written value this binary cannot read.
@@ -45,7 +49,8 @@ type Malformation struct {
 
 // Healthy reports whether the file may be booted from.
 func (d Diagnosis) Healthy() bool {
-	return len(d.Unrecognized) == 0 && len(d.Malformed) == 0 && d.ModeProblem == ""
+	return len(d.Unrecognized) == 0 && len(d.Malformed) == 0 &&
+		d.ModeProblem == "" && d.ModeConflict == ""
 }
 
 // Doctor checks every written key against what this binary declares.
@@ -62,10 +67,14 @@ func (d Diagnosis) Healthy() bool {
 // such check, so this is where a hand-edited value is caught. The reading is shared with adoption,
 // which faces the same question about a value it did not write.
 //
+// The mode the file records is compared against the one Tendermint runs, where a caller knows it. Not
+// for equality: an archive node is correctly set up with config.toml saying full, so the rule is that
+// Tendermint runs whatever this node's mode implies.
+//
 // A key the file does not write is healthy by definition, because it resolves to the baseline. That
 // is why this walks the written set rather than the declared one: checking the declared set would
 // report every unwritten key on a file that is entirely correct.
-func Doctor(file *seitoml.File) (Diagnosis, error) {
+func Doctor(file *seitoml.File, tendermintMode string) (Diagnosis, error) {
 	written, err := file.Values()
 	if err != nil {
 		return Diagnosis{}, err
@@ -78,6 +87,13 @@ func Doctor(file *seitoml.File) (Diagnosis, error) {
 
 	var d Diagnosis
 	d.Mode, d.ModeProblem = diagnoseMode(file)
+	// Compared only when both sides are known. An unreadable config.toml is not evidence about
+	// sei.toml, and a mode this binary cannot use has already been reported on its own terms.
+	if d.ModeProblem == "" && tendermintMode != "" {
+		if err := appopts.ReconcileMode(d.Mode, tendermintMode); err != nil {
+			d.ModeConflict = err.Error()
+		}
+	}
 
 	for key, value := range written {
 		d.Checked++
@@ -151,6 +167,10 @@ func (d Diagnosis) Report() string {
 	if d.ModeProblem != "" {
 		b.WriteString("the node mode this file records is unusable: " + d.ModeProblem + "\n" +
 			"Nothing can resolve the defaults its values were chosen against until that is fixed.\n")
+	}
+	if d.ModeConflict != "" {
+		b.WriteString("this node's two configuration files disagree about what kind of node it is: " +
+			d.ModeConflict + "\n")
 	}
 	if len(d.Unrecognized) > 0 {
 		b.WriteString(fmt.Sprintf("%d written key(s) this binary does not recognize. Each was "+

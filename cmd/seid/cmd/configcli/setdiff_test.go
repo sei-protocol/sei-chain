@@ -528,7 +528,7 @@ func TestDoctorRefusesAFileWhoseModeItCannotUse(t *testing.T) {
 		{"not text", "schema_version = 1\nnode_mode = 3\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			d, err := configcli.Doctor(parseFile(t, tc.body))
+			d, err := configcli.Doctor(parseFile(t, tc.body), "")
 			if err != nil {
 				t.Fatalf("Doctor: %v", err)
 			}
@@ -550,7 +550,7 @@ func TestDoctorRefusesAFileWhoseModeItCannotUse(t *testing.T) {
 	// A usable mode leaves the diagnosis clean and names the mode it checked against, or the
 	// assertions above would hold for a doctor that refused every file.
 	good := parseFile(t, "schema_version = 1\nnode_mode = \"archive\"\n\n[probe]\nenabled = true\n")
-	d, err := configcli.Doctor(good)
+	d, err := configcli.Doctor(good, "")
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
 	}
@@ -585,7 +585,7 @@ ratio = "half"
 endpoint = "sei:8545"
 `)
 
-	d, err := configcli.Doctor(file)
+	d, err := configcli.Doctor(file, "")
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
 	}
@@ -634,7 +634,7 @@ func TestDoctorAcceptsEveryTypeAFileLegitimatelyHolds(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 
-	d, err := configcli.Doctor(parseFile(t, render(t, generated)))
+	d, err := configcli.Doctor(parseFile(t, render(t, generated)), "")
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
 	}

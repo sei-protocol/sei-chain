@@ -126,3 +126,42 @@ func (r Report) Summary() string {
 		"%d declared but absent from the existing configuration",
 		len(r.Installed), len(r.Passthrough), len(r.Added))
 }
+
+// ArchiveMode is the node mode Tendermint has no name for.
+//
+// An archive node runs Tendermint as a full node, because Tendermint recognizes validator, full and
+// seed and nothing else. seid init writes config.toml that way, which is why config.toml cannot say
+// whether a node is an archive and why sei.toml records the mode itself.
+const ArchiveMode = "archive"
+
+// TendermintModeFor returns the mode Tendermint runs for a node mode.
+//
+// Everything but archive runs under its own name. This is the one mapping between the two, and both
+// the boot and the doctor read it here rather than each spelling the archive case out.
+func TendermintModeFor(nodeMode string) string {
+	if nodeMode == ArchiveMode {
+		return "full"
+	}
+	return nodeMode
+}
+
+// ReconcileMode reports whether the mode sei.toml records agrees with the one Tendermint runs.
+//
+// Not equality. An archive node is correctly configured with config.toml saying full, so a check
+// demanding the two match would fire on every archive node that is set up properly. What must hold is
+// that Tendermint is running the mode this node's mode implies.
+//
+// A disagreement means the node has one kind of consensus behaviour and another kind's application
+// defaults, which is a combination nobody chose.
+func ReconcileMode(nodeMode, tendermintMode string) error {
+	if nodeMode == "" {
+		return fmt.Errorf("sei.toml records no node mode, so there is nothing to compare against " +
+			"config.toml")
+	}
+	if want := TendermintModeFor(nodeMode); !strings.EqualFold(tendermintMode, want) {
+		return fmt.Errorf("sei.toml says this is a %q node, which runs Tendermint in %q mode, and "+
+			"config.toml says %q. The node would take one kind of consensus behaviour and another "+
+			"kind's application defaults", nodeMode, want, tendermintMode)
+	}
+	return nil
+}

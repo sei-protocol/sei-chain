@@ -24,6 +24,12 @@ var logger = seilog.NewLogger("cmd", "seid", "configmanager")
 // EnvVar gates which configuration manager seid uses.
 const EnvVar = "SEI_CONFIG_MANAGER"
 
+// seiTomlName is the configuration file this manager reads resolved values from.
+//
+// Named here rather than taken from the command package, so the boot does not depend on the verbs that
+// write the file. A test holds the two spellings against each other.
+const seiTomlName = "sei.toml"
+
 // ConfigManager resolves a seid node's configuration during PersistentPreRunE.
 // An implementation must leave serverCtx.Config and serverCtx.Viper populated
 // exactly as the legacy path does. The Apply signature matches
@@ -83,7 +89,13 @@ func (m SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate stri
 	out := validateAdvisory(cmd)
 	err := server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
 	reportAdvisory(m.log(), out)
-	return err
+	if err != nil {
+		return err
+	}
+	// After the handler, because the source it builds is the one the resolved values go into, and it
+	// does not exist before. Nothing this does can refuse boot.
+	installResolved(cmd, m.log())
+	return nil
 }
 
 // reportAdvisory logs an advisory outcome, containing a panic from the logging itself.

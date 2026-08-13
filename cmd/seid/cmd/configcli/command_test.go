@@ -117,14 +117,14 @@ func TestGenerateWillNotSilentlyReplaceAnExistingFile(t *testing.T) {
 	home := newHome(t)
 	path := configcli.Path(home)
 
-	if out, err := invoke(t, home, "generate"); err != nil {
+	if out, err := invoke(t, home, "generate", "--mode", "validator"); err != nil {
 		t.Fatalf("generate: %v\n%s", err, out)
 	}
 	if _, err := invoke(t, home, "set", "probe.workers", "16"); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 
-	out, err := invoke(t, home, "generate")
+	out, err := invoke(t, home, "generate", "--mode", "validator")
 	if err == nil {
 		t.Fatalf("generate replaced an existing file without being asked:\n%s", out)
 	}
@@ -137,7 +137,7 @@ func TestGenerateWillNotSilentlyReplaceAnExistingFile(t *testing.T) {
 	}
 
 	// And with --force it does replace it, or the refusal above would be a dead end.
-	if out, err := invoke(t, home, "generate", "--force"); err != nil {
+	if out, err := invoke(t, home, "generate", "--mode", "validator", "--force"); err != nil {
 		t.Fatalf("generate --force: %v\n%s", err, out)
 	}
 	if got := valuesAt(t, path)["probe.workers"]; got != int64(4) {
@@ -171,7 +171,7 @@ func TestDoctorExitsNonZeroOnAnUnrecognizedKey(t *testing.T) {
 func TestUpgradeOnACurrentFileSaysSoAndWritesNothing(t *testing.T) {
 	registerTyped(t)
 	home := newHome(t)
-	if out, err := invoke(t, home, "generate"); err != nil {
+	if out, err := invoke(t, home, "generate", "--mode", "validator"); err != nil {
 		t.Fatalf("generate: %v\n%s", err, out)
 	}
 	before, err := os.ReadFile(configcli.Path(home)) //nolint:gosec // a path under t.TempDir
@@ -271,7 +271,7 @@ func TestTheInheritedHomeFlagIsWhatDecidesThePath(t *testing.T) {
 	var out bytes.Buffer
 	parent.SetOut(&out)
 	parent.SetErr(&out)
-	parent.SetArgs([]string{"generate", "--" + flags.FlagHome, home})
+	parent.SetArgs([]string{"generate", "--mode", "validator", "--" + flags.FlagHome, home})
 	if err := parent.Execute(); err != nil {
 		t.Fatalf("generate: %v\n%s", err, out.String())
 	}
@@ -398,7 +398,7 @@ func TestGenerateFromLegacySaysSoWhenThereIsNothingToAdopt(t *testing.T) {
 	registerTyped(t)
 	home := newHome(t)
 
-	_, err := invoke(t, home, "generate", "--from-legacy")
+	_, err := invoke(t, home, "generate", "--mode", "validator", "--from-legacy")
 	if err == nil {
 		t.Fatal("generate --from-legacy succeeded on a home with no existing configuration, so a file " +
 			"of pure defaults would be reported as an adoption")
@@ -436,5 +436,43 @@ func TestGenerateFromLegacyReadsOnlyTheFiles(t *testing.T) {
 	}
 	if !strings.Contains(out, registry.EnvName("probe.endpoint")) {
 		t.Errorf("the output does not name the variable that overrides the file:\n%s", out)
+	}
+}
+
+// TestGenerateRefusesWithoutAMode is why the flag has no default.
+//
+// Every value generate writes is the default for one node mode, so a file written for the wrong one is
+// complete, plausible and wrong throughout. A default would make that the outcome for whichever mode
+// was not chosen as the default, silently, and adoption cannot even fall back on inference: the
+// existing configuration cannot say whether a node is an archive, because seid init wrote config.toml
+// as full for one.
+func TestGenerateRefusesWithoutAMode(t *testing.T) {
+	registerTyped(t)
+	home := newHome(t)
+
+	for _, args := range [][]string{
+		{"generate"},
+		{"generate", "--from-legacy"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			_, err := invoke(t, home, args...)
+			if err == nil {
+				t.Fatalf("%v was accepted with no mode, so the file it wrote claims a mode nobody chose",
+					args)
+			}
+			if !strings.Contains(err.Error(), "--mode") {
+				t.Errorf("the refusal does not name the flag to pass: %v", err)
+			}
+			if _, statErr := os.Stat(configcli.Path(home)); statErr == nil {
+				t.Error("a refused generate still wrote a file")
+			}
+		})
+	}
+	// And naming one works, or the refusal above would be a dead end.
+	if out, err := invoke(t, home, "generate", "--mode", "archive"); err != nil {
+		t.Fatalf("generate --mode archive: %v\n%s", err, out)
+	}
+	if got := valuesAt(t, configcli.Path(home)); len(got) == 0 {
+		t.Error("generate with a mode wrote no keys")
 	}
 }

@@ -335,3 +335,60 @@ func TestTheResultIsStillWhatAppNewTakes(t *testing.T) {
 // reflect.DeepEqual rather than a comparison written here, for the same reason: == panics on a slice
 // instead of returning false, so enumerating slice types by hand is wrong as soon as one is missed.
 func sameRead(a, b any) bool { return reflect.DeepEqual(a, b) }
+
+// TestArchiveRunsTendermintAsAFullNode is the one mapping between the two mode namespaces.
+//
+// Tendermint recognizes validator, full and seed. An archive node runs as a full one, which is why
+// config.toml cannot say whether a node is an archive and why sei.toml records the mode itself. Every
+// other mode runs under its own name.
+func TestArchiveRunsTendermintAsAFullNode(t *testing.T) {
+	if got := appopts.TendermintModeFor("archive"); got != "full" {
+		t.Errorf("an archive node maps to Tendermint mode %q, want full. Tendermint has no archive "+
+			"mode, so mapping it to itself names a mode Tendermint will reject", got)
+	}
+	for _, mode := range []string{"validator", "full", "seed"} {
+		if got := appopts.TendermintModeFor(mode); got != mode {
+			t.Errorf("%q maps to %q, want itself", mode, got)
+		}
+	}
+}
+
+// TestReconcileModeIsNotEquality is the rule a naive check would get backwards.
+//
+// An archive node is correctly set up with config.toml saying full, so demanding the two match would
+// report every properly configured archive node as broken. What must hold is that Tendermint is running
+// the mode this node's mode implies.
+func TestReconcileModeIsNotEquality(t *testing.T) {
+	for _, tc := range []struct {
+		name, node, tendermint string
+		agree                  bool
+	}{
+		{"an archive node", "archive", "full", true},
+		{"an archive node whose config.toml also says archive", "archive", "archive", false},
+		{"a validator", "validator", "validator", true},
+		{"a validator whose config.toml says full", "validator", "full", false},
+		{"a full node", "full", "full", true},
+		{"a seed", "seed", "seed", true},
+		{"a seed whose config.toml says validator", "seed", "validator", false},
+		{"case differing", "validator", "VALIDATOR", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := appopts.ReconcileMode(tc.node, tc.tendermint)
+			if tc.agree && err != nil {
+				t.Errorf("sei.toml %q with config.toml %q was reported as a conflict: %v", tc.node,
+					tc.tendermint, err)
+			}
+			if !tc.agree && err == nil {
+				t.Errorf("sei.toml %q with config.toml %q was accepted. The node would take one kind of "+
+					"consensus behaviour and another kind's application defaults", tc.node, tc.tendermint)
+			}
+			if !tc.agree && err != nil && !strings.Contains(err.Error(), tc.tendermint) {
+				t.Errorf("the conflict does not name what config.toml says: %v", err)
+			}
+		})
+	}
+	// A file recording no mode has nothing to compare, and that is an error rather than agreement.
+	if err := appopts.ReconcileMode("", "full"); err == nil {
+		t.Error("a file recording no node mode was reconciled successfully against config.toml")
+	}
+}

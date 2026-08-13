@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/config/seitoml"
@@ -86,6 +87,11 @@ func generateCmd(defaultHome string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if mode == "" {
+				return fmt.Errorf("generate needs --mode: every value it writes is the default for one "+
+					"node mode, and a file written for the wrong one is complete, plausible and wrong "+
+					"throughout. One of %v", registry.Modes())
+			}
 			if err := refuseUnlessForced(cmd, path); err != nil {
 				return err
 			}
@@ -103,7 +109,7 @@ func generateCmd(defaultHome string) *cobra.Command {
 			return writeDefaults(cmd, path, mode)
 		},
 	}
-	cmd.Flags().String(flagMode, string(registry.ModeFull), modeUsage())
+	cmd.Flags().String(flagMode, "", modeUsage())
 	cmd.Flags().Bool("force", false, "Replace an existing file, discarding every value in it")
 	cmd.Flags().Bool(flagFromLegacy, false,
 		"Build the file from this node's existing app.toml and config.toml instead of from defaults")
@@ -210,7 +216,16 @@ func doctorCmd(defaultHome string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			diagnosis, err := Doctor(file)
+			home, err := homeDir(cmd, defaultHome)
+			if err != nil {
+				return err
+			}
+			// An unreadable config.toml leaves the comparison out rather than failing the check. The
+			// node's own mode is still worth reporting, and a missing second file is not evidence of
+			// anything about the first.
+			tendermintMode, _ := tendermintMode(home)
+
+			diagnosis, err := Doctor(file, tendermintMode)
 			if err != nil {
 				return err
 			}
@@ -386,5 +401,20 @@ func target(cmd *cobra.Command, defaultHome string) (string, registry.Mode, erro
 
 // modeUsage lists the modes, so the help text cannot name one the registry does not have.
 func modeUsage() string {
-	return fmt.Sprintf("The node mode to resolve defaults for; one of %v", registry.Modes())
+	return fmt.Sprintf("The node mode to resolve defaults for (required); one of %v", registry.Modes())
+}
+
+// tendermintMode reads the mode config.toml declares.
+//
+// Read straight from the file rather than from a running node's context, because the doctor runs
+// without one. An absent or unreadable file yields no mode, which the caller treats as a comparison it
+// cannot make rather than as a finding.
+func tendermintMode(home string) (string, error) {
+	path := filepath.Join(home, "config", "config.toml")
+	v := viper.New()
+	v.SetConfigFile(path)
+	if err := v.ReadInConfig(); err != nil {
+		return "", err
+	}
+	return v.GetString("mode"), nil
 }

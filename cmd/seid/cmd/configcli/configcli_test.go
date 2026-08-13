@@ -299,7 +299,7 @@ probe.workers = 16
 probe.unknown = 1
 `)
 
-	d, err := configcli.Doctor(file)
+	d, err := configcli.Doctor(file, "")
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
 	}
@@ -319,7 +319,7 @@ probe.unknown = 1
 
 	// The refusal direction, on the same declared set.
 	broken := parseFile(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[giga_executor]\nnot_a_key = true\n")
-	d, err = configcli.Doctor(broken)
+	d, err = configcli.Doctor(broken, "")
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestDoctorPassesAFileGenerateJustWrote(t *testing.T) {
 	}
 	reread := parseFile(t, render(t, file))
 
-	d, err := configcli.Doctor(reread)
+	d, err := configcli.Doctor(reread, "")
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestDoctorReportsARetiredExperimentalKeySeparately(t *testing.T) {
 
 	file := parseFile(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[experimental]\nprobe.old = 1\n")
 
-	d, err := configcli.Doctor(file)
+	d, err := configcli.Doctor(file, "")
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestDoctorIgnoresKeysTheFileDoesNotWrite(t *testing.T) {
 	registerGiga(t)
 	experimental.Reset()
 
-	d, err := configcli.Doctor(parseFile(t, "schema_version = 1\nnode_mode = \"validator\"\n"))
+	d, err := configcli.Doctor(parseFile(t, "schema_version = 1\nnode_mode = \"validator\"\n"), "")
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
 	}

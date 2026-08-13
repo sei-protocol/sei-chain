@@ -11,6 +11,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sei-protocol/sei-chain/app/genesis"
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/config/appopts"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
@@ -103,13 +104,10 @@ For validator or seed nodes, pass --mode validator or --mode seed so RPC and P2P
 
 			// Create and configure Tendermint config (outputs to config.toml)
 			tmConfig := tmcfg.DefaultConfig()
-			// Tendermint only supports "validator", "full", "seed" modes
-			// Archive nodes use "full" mode in Tendermint but have different app config
-			if nodeMode == params.NodeModeArchive {
-				tmConfig.Mode = string(params.NodeModeFull)
-			} else {
-				tmConfig.Mode = string(nodeMode)
-			}
+			// Tendermint recognizes validator, full and seed, so an archive node runs as a full
+			// one. The mapping lives in one place, because the boot reads it back the other way to
+			// check that a node's recorded mode and its Tendermint mode agree.
+			tmConfig.Mode = appopts.TendermintModeFor(string(nodeMode))
 			params.SetTendermintConfigByMode(tmConfig)
 			tmConfig.SetRoot(clientCtx.HomeDir)
 			configPath := filepath.Join(tmConfig.RootDir, "config")

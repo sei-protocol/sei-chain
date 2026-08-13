@@ -101,7 +101,7 @@ func TestAdoptionStillWritesTheKeysTheOldConfigurationLacked(t *testing.T) {
 	}
 	assertEveryKeyAccountedFor(t, got)
 	// Doctor accepts it, or adoption would hand an operator a file the same tool refuses.
-	if d, err := configcli.Doctor(got.File); err != nil || !d.Healthy() {
+	if d, err := configcli.Doctor(got.File, ""); err != nil || !d.Healthy() {
 		t.Errorf("doctor refused an adopted file: %v %s", err, d.Report())
 	}
 }
