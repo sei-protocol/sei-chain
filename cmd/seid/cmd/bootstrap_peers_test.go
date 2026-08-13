@@ -35,9 +35,7 @@ func TestApplyDefaultBootstrapPeers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := tmcfg.DefaultConfig()
 			applyDefaultBootstrapPeers(cfg, tt.chainID)
-			if cfg.P2P.BootstrapPeers != tt.want {
-				t.Errorf("bootstrap-peers = %q, want %q", cfg.P2P.BootstrapPeers, tt.want)
-			}
+			require.Equal(t, tt.want, cfg.P2P.BootstrapPeers)
 		})
 	}
 }
@@ -65,9 +63,8 @@ func TestApplyDefaultBootstrapPeersPreservesExistingValue(t *testing.T) {
 	cfg.P2P.BootstrapPeers = existing
 	applyDefaultBootstrapPeers(cfg, "pacific-1")
 
-	if cfg.P2P.BootstrapPeers != existing {
-		t.Errorf("existing bootstrap-peers was overwritten: got %q, want %q", cfg.P2P.BootstrapPeers, existing)
-	}
+	require.Equal(t, existing, cfg.P2P.BootstrapPeers,
+		"an existing bootstrap-peers value must never be overwritten")
 }
 
 // runInit executes the real InitCmd against a temp home and returns the written

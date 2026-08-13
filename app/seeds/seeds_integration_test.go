@@ -1,9 +1,15 @@
 //go:build integration
 
-// Build-tagged off by default: this makes real network calls to the published
-// seed endpoints, so it belongs on CI (and on demand), not in the unit suite.
+// Reachability checks against the live published seed endpoints, build-tagged
+// off by default because they make real network calls:
 //
 //	go test -tags=integration ./app/seeds/...
+//
+// NOT WIRED TO CI. Nothing runs this file and nothing compile-checks it: the
+// `integration` tag is used nowhere else, and go vet and golangci-lint both
+// skip tagged files. Treat it as an on-demand tool, not as coverage. A
+// scheduled job is tracked separately, and should land after the seeds it
+// dials are all healthy, so its first run is green rather than red.
 package seeds
 
 import (

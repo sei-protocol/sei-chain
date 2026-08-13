@@ -11,9 +11,10 @@ package seeds
 import "strings"
 
 // chainSeeds maps a well-known chain-id to its Sei Labs seed nodes, each in
-// CometBFT's `NodeID@host:port` form. Three per network, one per cell
-// (eu-central-1, eu-west-1, us-east-2), so losing a region does not cost
-// bootstrap capability.
+// CometBFT's `NodeID@host:port` form. Three per network, one per cell, so
+// losing a region does not cost bootstrap capability. The cell is encoded in
+// the hostname: unsuffixed `prod` is eu-central-1, `prod-euw1` is eu-west-1,
+// and `prod-use2` is us-east-2.
 //
 // PERMANENCE: these strings ship inside released binaries and operators pin
 // them. The secret-connection handshake verifies the NodeID, so a changed ID
