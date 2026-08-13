@@ -467,7 +467,10 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
 	cfg := app.Cfg()
+	// 1ms interval can seal between InsertTx calls; MaxTxsPerBlock=1 makes
+	// single-tx blocks expected so env.Run's "sealed too early" check stays quiet.
 	cfg.BlockInterval = time.Millisecond
+	cfg.MaxTxsPerBlock = 1
 	env := newTestEnv(rng, cfg, app.Proxy())
 	addr, nonce := app.NewAccount(rng)
 
