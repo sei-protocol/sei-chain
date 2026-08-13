@@ -1,0 +1,95 @@
+syntax = "proto3";
+package cosmos.accesscontrol.v1beta1;
+
+import "gogoproto/gogo.proto";
+import "cosmos/accesscontrol/constants.proto";
+import "cosmos/accesscontrol/accesscontrol.proto";
+
+option go_package = "github.com/cosmos/cosmos-sdk/x/accesscontrol/types";
+
+message MsgUpdateResourceDependencyMappingProposal {
+    option (gogoproto.equal)            = false;
+    option (gogoproto.goproto_stringer) = false;
+    option (gogoproto.stringer)         = false;
+    option (gogoproto.goproto_getters)  = false;
+
+    string title = 1 [
+        (gogoproto.moretags) = "yaml:\"title\"",
+        (gogoproto.jsontag) = "title"
+    ];
+    string description = 2 [
+        (gogoproto.moretags) = "yaml:\"description\"",
+        (gogoproto.jsontag) = "description"
+     ];
+     repeated cosmos.accesscontrol.v1beta1.MessageDependencyMapping message_dependency_mapping = 3 [
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"message_dependency_mapping\""
+    ];
+}
+message MsgUpdateResourceDependencyMappingProposalJsonFile {
+    string title = 1 [
+        (gogoproto.moretags) = "yaml:\"title\"",
+        (gogoproto.jsontag) = "title"
+    ];
+    string description = 2 [
+        (gogoproto.moretags) = "yaml:\"description\"",
+        (gogoproto.jsontag) = "description"
+     ];
+     string deposit = 3 [
+        (gogoproto.moretags) = "yaml:\"deposit\"",
+        (gogoproto.jsontag) = "deposit"
+     ];
+     repeated cosmos.accesscontrol.v1beta1.MessageDependencyMapping message_dependency_mapping = 4 [
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"message_dependency_mapping\""
+    ];
+}
+
+message MsgUpdateResourceDependencyMappingProposalResponse {}
+
+message MsgUpdateWasmDependencyMappingProposal {
+    option (gogoproto.equal)            = false;
+    option (gogoproto.goproto_stringer) = false;
+    option (gogoproto.stringer)         = false;
+    option (gogoproto.goproto_getters)  = false;
+
+    string title = 1 [
+        (gogoproto.moretags) = "yaml:\"title\"",
+        (gogoproto.jsontag) = "title"
+    ];
+    string description = 2 [
+        (gogoproto.moretags) = "yaml:\"description\"",
+        (gogoproto.jsontag) = "description"
+    ];
+    string contract_address = 3 [
+        (gogoproto.moretags) = "yaml:\"contract_address\"",
+        (gogoproto.jsontag) = "contract_address"
+    ];
+    cosmos.accesscontrol.v1beta1.WasmDependencyMapping wasm_dependency_mapping = 4 [
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"wasm_dependency_mapping\""
+    ];
+}
+
+message MsgUpdateWasmDependencyMappingProposalJsonFile {
+    string title = 1 [
+        (gogoproto.moretags) = "yaml:\"title\"",
+        (gogoproto.jsontag) = "title"
+    ];
+    string description = 2 [
+        (gogoproto.moretags) = "yaml:\"description\"",
+        (gogoproto.jsontag) = "description"
+    ];
+    string deposit = 3 [
+        (gogoproto.moretags) = "yaml:\"deposit\"",
+        (gogoproto.jsontag) = "deposit"
+    ];
+    string contract_address = 4 [
+        (gogoproto.moretags) = "yaml:\"contract_address\"",
+        (gogoproto.jsontag) = "contract_address"
+    ];
+    cosmos.accesscontrol.v1beta1.WasmDependencyMapping wasm_dependency_mapping = 5 [
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"wasm_dependency_mapping\""
+    ];
+}
