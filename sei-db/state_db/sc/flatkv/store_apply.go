@@ -64,10 +64,11 @@ func (s *CommitStore) applyChangeSets(
 	// stamped at, so same-height repeats are accepted and no other height can reach here.
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	changesByType, err := classifyAndPrefix(changeSets)
+	changesByType, err := classifyAndPrefix(changeSets, s.classifyBucketSizes)
 	if err != nil {
 		return fmt.Errorf("classify changesets: %w", err)
 	}
+	s.classifyBucketSizes = changesByType.bucketSizes()
 	// Parse, gather, and sort. Nothing is written until all of it has validated, so a parse failure
 	// part way through cannot leave some of the block's values in a store.
 	prepared, err := s.prepareWrites(changesByType, version)
@@ -100,7 +101,7 @@ type preparedWrites struct {
 
 // prepareWrites applies EVM value semantics and returns the values to write, per database.
 func (s *CommitStore) prepareWrites(
-	changesByType map[keys.EVMKeyKind]map[string][]byte,
+	changesByType classifiedChanges,
 	blockHeight int64,
 ) (preparedWrites, error) {
 	var out preparedWrites
@@ -154,13 +155,13 @@ func (s *CommitStore) prepareWrites(
 // partial updates can be merged onto whole accounts. Keys come from both kinds, since either can name
 // an account the other does not.
 func (s *CommitStore) readAccountsForMerge(
-	changesByType map[keys.EVMKeyKind]map[string][]byte,
+	changesByType classifiedChanges,
 ) (map[string]*vtype.AccountData, error) {
 	touched := make(map[string]struct{},
 		len(changesByType[keys.EVMKeyNonce])+len(changesByType[keys.EVMKeyCodeHash]))
 	for _, kind := range []keys.EVMKeyKind{keys.EVMKeyNonce, keys.EVMKeyCodeHash} {
-		for key := range changesByType[kind] {
-			touched[key] = struct{}{}
+		for _, change := range changesByType[kind] {
+			touched[change.key] = struct{}{}
 		}
 	}
 	if len(touched) == 0 {
@@ -278,23 +279,54 @@ func moduleOfKey(physicalKey []byte) (string, error) {
 	return module, err
 }
 
-// classifyAndPrefix splits changeSets into per-EVMKeyKind maps whose keys are
-// already in physical format ("module/" + prefix_encoded_key). Non-EVM modules are
-// merged into the EVMKeyMisc bucket with a "<module>/" prefix.
-//
-// In the result the inner string is a physical key and its value is that key's new raw bytes, with nil
-// meaning the key was deleted.
-func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]map[string][]byte, error) {
-	result := make(map[keys.EVMKeyKind]map[string][]byte, 5)
+// classifiedChange is one changeset pair with its physical key already built.
+type classifiedChange struct {
+	// key is the physical DB key: "module/" + the module's encoded key.
+	key string
 
-	getOrCreate := func(kind keys.EVMKeyKind, sizeHint int) map[string][]byte {
-		m, ok := result[kind]
-		if !ok {
-			m = make(map[string][]byte, sizeHint)
-			result[kind] = m
-		}
-		return m
+	// value is the key's new raw bytes. A nil value means the key was deleted.
+	value []byte
+}
+
+// classifiedChanges holds one block's changeset pairs bucketed by EVM key kind.
+//
+// Pairs sit in the order they arrived and duplicate keys are kept, because the per-kind maps built
+// in prepareWrites already apply last-write-wins; deduplicating here as well would hash every key a
+// second time to reach the same answer.
+type classifiedChanges [keys.EVMKeyKindCount][]classifiedChange
+
+// bucketSizes returns the number of pairs in each kind's bucket, for sizing a later block's.
+func (c classifiedChanges) bucketSizes() [keys.EVMKeyKindCount]int {
+	var sizes [keys.EVMKeyKindCount]int
+	for kind, bucket := range c {
+		sizes[kind] = len(bucket)
 	}
+	return sizes
+}
+
+// classifyAndPrefix splits changeSets into per-EVMKeyKind buckets whose keys are already in
+// physical format ("module/" + prefix_encoded_key). Non-EVM modules are merged into the
+// EVMKeyMisc bucket with a "<module>/" prefix.
+//
+// sizeHints gives each bucket's length in the previous block. Buckets are allocated at twice that,
+// since a block that grows a little then still lands in a single allocation rather than a resize
+// and copy; a bucket with no hint grows on demand.
+func classifyAndPrefix(
+	changeSets []*proto.NamedChangeSet,
+	sizeHints [keys.EVMKeyKindCount]int,
+) (classifiedChanges, error) {
+	var result classifiedChanges
+	for kind, hint := range sizeHints {
+		if hint > 0 {
+			result[kind] = make([]classifiedChange, 0, 2*hint)
+		}
+	}
+
+	// One buffer for the whole block. The string conversion copies each physical key out of it, so
+	// it can be rewound and reused for every pair, leaving one allocation per key rather than one
+	// for the key bytes and a second for the string.
+	var scratchArray [ktype.MaxEVMPhysicalKeyLen]byte
+	scratch := scratchArray[:0]
 
 	for _, cs := range changeSets {
 		if cs == nil || len(cs.Changeset.Pairs) == 0 {
@@ -305,47 +337,46 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 			for _, pair := range cs.Changeset.Pairs {
 				kind, keyBytes := keys.ParseEVMKey(pair.Key)
 				if kind == keys.EVMKeyEmpty {
-					return nil, fmt.Errorf("flatkv: empty key in changeset")
+					return classifiedChanges{}, fmt.Errorf("flatkv: empty key in changeset")
 				}
 
-				var physKey string
 				if kind == keys.EVMKeyMisc {
-					physKey = string(ktype.ModulePhysicalKey(keys.EVMStoreKey, pair.Key))
+					scratch = ktype.AppendModulePhysicalKey(scratch[:0], keys.EVMStoreKey, pair.Key)
 				} else {
-					physKey = string(ktype.EVMPhysicalKey(kind, keyBytes))
+					scratch = ktype.AppendEVMPhysicalKey(scratch[:0], kind, keyBytes)
 				}
+				result[kind] = append(result[kind], newClassifiedChange(string(scratch), pair))
+			}
+			continue
+		}
 
-				kindMap := getOrCreate(kind, len(cs.Changeset.Pairs))
-				if pair.Delete {
-					kindMap[physKey] = nil
-				} else {
-					kindMap[physKey] = nonNilValue(pair.Value)
-				}
-			}
-		} else {
-			// An empty module name would fold into "/"+key here and later
-			// persist as the per-module meta key "_meta/x:/hash", which
-			// ParseModuleLtHashKey rejects on reload — a store that ever
-			// commits one becomes permanently unopenable (sum-to-root check
-			// fails forever). Reject it up front instead; module names are
-			// never empty in normal operation (Cosmos SDK's NewKVStoreKey
-			// panics on an empty name), so this only guards malformed input.
-			if cs.Name == "" {
-				return nil, fmt.Errorf("flatkv: empty module name in changeset")
-			}
-			miscMap := getOrCreate(keys.EVMKeyMisc, len(cs.Changeset.Pairs))
-			for _, pair := range cs.Changeset.Pairs {
-				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))
-				if pair.Delete {
-					miscMap[physKey] = nil
-				} else {
-					miscMap[physKey] = nonNilValue(pair.Value)
-				}
-			}
+		// An empty module name would fold into "/"+key here and later
+		// persist as the per-module meta key "_meta/x:/hash", which
+		// ParseModuleLtHashKey rejects on reload — a store that ever
+		// commits one becomes permanently unopenable (sum-to-root check
+		// fails forever). Reject it up front instead; module names are
+		// never empty in normal operation (Cosmos SDK's NewKVStoreKey
+		// panics on an empty name), so this only guards malformed input.
+		if cs.Name == "" {
+			return classifiedChanges{}, fmt.Errorf("flatkv: empty module name in changeset")
+		}
+		miscBucket := &result[keys.EVMKeyMisc]
+		for _, pair := range cs.Changeset.Pairs {
+			scratch = ktype.AppendModulePhysicalKey(scratch[:0], cs.Name, pair.Key)
+			*miscBucket = append(*miscBucket, newClassifiedChange(string(scratch), pair))
 		}
 	}
 
 	return result, nil
+}
+
+// newClassifiedChange pairs a physical key with a changeset pair's new value, recording a deleted
+// pair as a nil value.
+func newClassifiedChange(physicalKey string, pair *proto.KVPair) classifiedChange {
+	if pair.Delete {
+		return classifiedChange{key: physicalKey}
+	}
+	return classifiedChange{key: physicalKey, value: nonNilValue(pair.Value)}
 }
 
 // nonNilValue normalizes a non-delete changeset value so the downstream
@@ -371,21 +402,21 @@ func nonNilValue(v []byte) []byte {
 // toStorageValues turns raw storage changes into StorageData stamped with blockHeight. A nil change is
 // a deletion, which for storage means the zero value. Both maps are keyed by physical key.
 func toStorageValues(
-	rawChanges map[string][]byte,
+	rawChanges []classifiedChange,
 	blockHeight int64,
 ) (map[string]*vtype.StorageData, error) {
 	result := make(map[string]*vtype.StorageData, len(rawChanges))
 
-	for keyStr, rawChange := range rawChanges {
-		if rawChange == nil {
+	for _, change := range rawChanges {
+		if change.value == nil {
 			// Deletion is equivalent to setting the storage value to a zero value
-			result[keyStr] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(&[32]byte{})
+			result[change.key] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(&[32]byte{})
 		} else {
-			value, err := vtype.ParseStorageValue(rawChange)
+			value, err := vtype.ParseStorageValue(change.value)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse storage value: %w", err)
 			}
-			result[keyStr] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(value)
+			result[change.key] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(value)
 		}
 	}
 
@@ -395,17 +426,17 @@ func toStorageValues(
 // toCodeValues turns raw code changes into CodeData stamped with blockHeight. A nil change is a
 // deletion, which for code means empty bytecode. Both maps are keyed by physical key.
 func toCodeValues(
-	rawChanges map[string][]byte,
+	rawChanges []classifiedChange,
 	blockHeight int64,
 ) (map[string]*vtype.CodeData, error) {
 	result := make(map[string]*vtype.CodeData, len(rawChanges))
 
-	for keyStr, rawChange := range rawChanges {
-		if rawChange == nil {
+	for _, change := range rawChanges {
+		if change.value == nil {
 			// Deletion is equivalent to setting the code to a zero value
-			result[keyStr] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(nil)
+			result[change.key] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(nil)
 		} else {
-			result[keyStr] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(rawChange)
+			result[change.key] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(change.value)
 		}
 	}
 	return result, nil
@@ -414,16 +445,16 @@ func toCodeValues(
 // toMiscValues turns raw misc changes into MiscData stamped with blockHeight. A nil change is a
 // deletion, which for misc means an empty value. Both maps are keyed by physical key.
 func toMiscValues(
-	rawChanges map[string][]byte,
+	rawChanges []classifiedChange,
 	blockHeight int64,
 ) (map[string]*vtype.MiscData, error) {
 	result := make(map[string]*vtype.MiscData, len(rawChanges))
 
-	for keyStr, rawChange := range rawChanges {
-		if rawChange == nil {
-			result[keyStr] = vtype.NewMiscData().SetBlockHeight(blockHeight).MarkDeleted()
+	for _, change := range rawChanges {
+		if change.value == nil {
+			result[change.key] = vtype.NewMiscData().SetBlockHeight(blockHeight).MarkDeleted()
 		} else {
-			result[keyStr] = vtype.NewMiscData().SetBlockHeight(blockHeight).SetValue(rawChange)
+			result[change.key] = vtype.NewMiscData().SetBlockHeight(blockHeight).SetValue(change.value)
 		}
 	}
 	return result, nil
@@ -431,51 +462,51 @@ func toMiscValues(
 
 // Merge account updates down into a single update per account.
 func mergeAccountUpdates(
-	nonceChanges map[string][]byte,
-	codeHashChanges map[string][]byte,
-	balanceChanges map[string][]byte,
+	nonceChanges []classifiedChange,
+	codeHashChanges []classifiedChange,
+	balanceChanges []classifiedChange,
 ) (map[string]*vtype.PendingAccountWrite, error) {
 
 	updates := make(map[string]*vtype.PendingAccountWrite, len(nonceChanges)+len(codeHashChanges))
 
-	for key, nonceChange := range nonceChanges {
-		if nonceChange == nil {
+	for _, change := range nonceChanges {
+		if change.value == nil {
 			// Deletion is equivalent to setting the nonce to 0
-			updates[key] = updates[key].SetNonce(0)
+			updates[change.key] = updates[change.key].SetNonce(0)
 		} else {
-			nonce, err := vtype.ParseNonce(nonceChange)
+			nonce, err := vtype.ParseNonce(change.value)
 			if err != nil {
 				return nil, fmt.Errorf("invalid nonce value: %w", err)
 			}
-			updates[key] = updates[key].SetNonce(nonce)
+			updates[change.key] = updates[change.key].SetNonce(nonce)
 		}
 	}
 
-	for key, codeHashChange := range codeHashChanges {
-		if codeHashChange == nil {
+	for _, change := range codeHashChanges {
+		if change.value == nil {
 			// Deletion is equivalent to setting the code hash to a zero hash
 			var zero vtype.CodeHash
-			updates[key] = updates[key].SetCodeHash(&zero)
+			updates[change.key] = updates[change.key].SetCodeHash(&zero)
 		} else {
-			codeHash, err := vtype.ParseCodeHash(codeHashChange)
+			codeHash, err := vtype.ParseCodeHash(change.value)
 			if err != nil {
 				return nil, fmt.Errorf("invalid codehash value: %w", err)
 			}
-			updates[key] = updates[key].SetCodeHash(codeHash)
+			updates[change.key] = updates[change.key].SetCodeHash(codeHash)
 		}
 	}
 
-	for key, balanceChange := range balanceChanges {
-		if balanceChange == nil {
+	for _, change := range balanceChanges {
+		if change.value == nil {
 			// Deletion is equivalent to setting the balance to a zero balance
 			var zero vtype.Balance
-			updates[key] = updates[key].SetBalance(&zero)
+			updates[change.key] = updates[change.key].SetBalance(&zero)
 		} else {
-			balance, err := vtype.ParseBalance(balanceChange)
+			balance, err := vtype.ParseBalance(change.value)
 			if err != nil {
 				return nil, fmt.Errorf("invalid balance value: %w", err)
 			}
-			updates[key] = updates[key].SetBalance(balance)
+			updates[change.key] = updates[change.key].SetBalance(balance)
 		}
 	}
 	return updates, nil

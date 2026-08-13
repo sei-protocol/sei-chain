@@ -43,6 +43,9 @@ const (
 	EVMKeyMisc                       // Full original key preserved (address mappings, codesize, etc.)
 )
 
+// EVMKeyKindCount is the number of EVMKeyKind values. Sizes arrays indexed by kind.
+const EVMKeyKindCount = int(EVMKeyMisc) + 1
+
 // ParseEVMKey parses an EVM key from the x/evm store keyspace.
 //
 // For optimized keys (nonce, code, codehash, storage), keyBytes is the stripped key.

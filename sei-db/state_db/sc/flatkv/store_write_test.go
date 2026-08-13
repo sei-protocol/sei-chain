@@ -985,6 +985,87 @@ func TestOverwriteSameKeyInSingleBlock(t *testing.T) {
 	require.Equal(t, padLeft32(0x02), v, "last write should win")
 }
 
+// classifyAndPrefix keeps duplicate keys rather than collapsing them, leaving last-write-wins to
+// the per-kind maps built in prepareWrites. Nonce and codehash resolve in mergeAccountUpdates and
+// the rest in the to*Values helpers, so each kind is checked separately here.
+func TestOverwriteSameKeyInSingleBlockAllKinds(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0x11)
+	slot := slotN(0x22)
+	moduleKey := []byte("some-key")
+
+	cs := namedCS(
+		noncePair(addr, 1),
+		noncePair(addr, 2),
+		codeHashPair(addr, codeHashN(0x01)),
+		codeHashPair(addr, codeHashN(0x02)),
+		codePair(addr, []byte("first")),
+		codePair(addr, []byte("second")),
+		storagePair(addr, slot, padLeft32(0x01)),
+		storagePair(addr, slot, padLeft32(0x02)),
+	)
+	bankCS := &proto.NamedChangeSet{
+		Name: "bank",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: moduleKey, Value: []byte("first")},
+			{Key: moduleKey, Value: []byte("second")},
+		}},
+	}
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs, bankCS}))
+	commitAndCheck(t, s)
+
+	gotNonce, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+	require.True(t, ok)
+	require.Equal(t, nonceBytes(2), gotNonce, "last nonce write should win")
+
+	wantCodeHash := codeHashN(0x02)
+	gotCodeHash, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
+	require.True(t, ok)
+	require.Equal(t, wantCodeHash[:], gotCodeHash, "last codehash write should win")
+
+	gotCode, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
+	require.True(t, ok)
+	require.Equal(t, []byte("second"), gotCode, "last code write should win")
+
+	gotStorage, ok := s.Get(keys.EVMStoreKey, evmStorageKey(addr, slot))
+	require.True(t, ok)
+	require.Equal(t, padLeft32(0x02), gotStorage, "last storage write should win")
+
+	gotMisc, ok := s.Get("bank", moduleKey)
+	require.True(t, ok)
+	require.Equal(t, []byte("second"), gotMisc, "last misc write should win")
+}
+
+// A key set and then deleted inside one block must end up deleted, and vice versa. The ordering
+// now comes from the arrival order of the classified slice rather than from map overwrites.
+func TestSetThenDeleteSameKeyInSingleBlock(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	deletedAddr := addrN(0x31)
+	revivedAddr := addrN(0x32)
+	slot := slotN(0x01)
+
+	cs := namedCS(
+		storagePair(deletedAddr, slot, padLeft32(0x07)),
+		storageDeletePair(deletedAddr, slot),
+		codeDeletePair(revivedAddr),
+		codePair(revivedAddr, []byte("revived")),
+	)
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s)
+
+	// A deleted storage slot is stored as the zero value, which reads back as absent.
+	_, ok := s.Get(keys.EVMStoreKey, evmStorageKey(deletedAddr, slot))
+	require.False(t, ok, "delete after set should win")
+
+	gotCode, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCode, revivedAddr[:]))
+	require.True(t, ok)
+	require.Equal(t, []byte("revived"), gotCode, "set after delete should win")
+}
+
 // =============================================================================
 // Empty commit advances version
 // =============================================================================

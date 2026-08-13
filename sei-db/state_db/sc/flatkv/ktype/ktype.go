@@ -55,16 +55,23 @@ func StorageKey(addr Address, slot Slot) []byte {
 //	EVMKeyMisc    (orig)  miscDB   "evm/" + original_key  OR  "module/" + cosmos_key
 const EVMKeyAccount = keys.EVMKeyNonce
 
+// MaxEVMPhysicalKeyLen is the length of the longest physical key EVMPhysicalKey can produce:
+// "evm/" plus the type prefix byte plus a storage key (address || slot). Callers building EVM
+// physical keys into a reusable buffer can size it from this and never grow.
+const MaxEVMPhysicalKeyLen = len(keys.EVMStoreKey) + 2 + AddressLen + SlotLen
+
 // ModulePhysicalKey returns "moduleName/" + key.
 // All four data DBs (account, code, storage, misc) use this format so keys
 // remain unique and LtHash-stable when DBs are merged in the future.
 func ModulePhysicalKey(moduleName string, key []byte) []byte {
-	n := len(moduleName)
-	result := make([]byte, n+1+len(key))
-	copy(result, moduleName)
-	result[n] = '/'
-	copy(result[n+1:], key)
-	return result
+	return AppendModulePhysicalKey(make([]byte, 0, len(moduleName)+1+len(key)), moduleName, key)
+}
+
+// AppendModulePhysicalKey appends "moduleName/" + key to dst and returns the extended slice.
+func AppendModulePhysicalKey(dst []byte, moduleName string, key []byte) []byte {
+	dst = append(dst, moduleName...)
+	dst = append(dst, '/')
+	return append(dst, key...)
 }
 
 // StripModulePrefix splits a module-prefixed physical key into its module name
@@ -77,25 +84,33 @@ func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byt
 	return string(physicalKey[:idx]), physicalKey[idx+1:], nil
 }
 
-// EVMPhysicalKey returns the physical DB key for an EVM key kind.
-// Format: "evm/" + type_prefix_byte + stripped_key.
+// EVMPhysicalKey returns the physical DB key for an EVM key kind, or nil for a kind that has no
+// prefix byte (e.g. misc). Format: "evm/" + type_prefix_byte + stripped_key.
 // For account keys (nonce, codehash), canonicalizes to EVMKeyAccount (0x0a)
 // because these fields are merged into one physical row.
 func EVMPhysicalKey(kind keys.EVMKeyKind, strippedKey []byte) []byte {
+	buf := make([]byte, 0, len(keys.EVMStoreKey)+2+len(strippedKey))
+	physicalKey := AppendEVMPhysicalKey(buf, kind, strippedKey)
+	if len(physicalKey) == 0 {
+		// AppendEVMPhysicalKey appends nothing when the kind has no prefix byte.
+		return nil
+	}
+	return physicalKey
+}
+
+// AppendEVMPhysicalKey appends the physical DB key for an EVM key kind to dst and returns the
+// extended slice. Nothing is appended for a kind that has no prefix byte (e.g. misc).
+func AppendEVMPhysicalKey(dst []byte, kind keys.EVMKeyKind, strippedKey []byte) []byte {
 	if kind == keys.EVMKeyCodeHash {
 		kind = EVMKeyAccount
 	}
 	prefixByte, ok := keys.EVMKeyPrefixByte(kind)
 	if !ok {
-		return nil
+		return dst
 	}
-	mod := keys.EVMStoreKey
-	result := make([]byte, len(mod)+2+len(strippedKey))
-	copy(result, mod)
-	result[len(mod)] = '/'
-	result[len(mod)+1] = prefixByte
-	copy(result[len(mod)+2:], strippedKey)
-	return result
+	dst = append(dst, keys.EVMStoreKey...)
+	dst = append(dst, '/', prefixByte)
+	return append(dst, strippedKey...)
 }
 
 // StripEVMPhysicalKey extracts the EVM key kind and stripped key from a

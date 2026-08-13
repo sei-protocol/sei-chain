@@ -156,6 +156,10 @@ type CommitStore struct {
 
 	phaseTimer *metrics.PhaseTimer
 
+	// classifyBucketSizes records how many pairs each EVM key kind held in the last applied block,
+	// so the next block's buckets can be allocated up front. Guarded by mu.
+	classifyBucketSizes [keys.EVMKeyKindCount]int
+
 	// readOnly marks stores opened via LoadVersionReadOnly.
 	readOnly bool
 

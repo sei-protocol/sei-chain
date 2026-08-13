@@ -29,6 +29,10 @@ type Database struct {
 	// as part of a simulated "block". Stored as value []byte; converted to NamedChangeSet when applied to the DB.
 	batch *SyncMap[string, []byte]
 
+	// The number of pairs the previous block produced. The next block's pair slice is allocated at
+	// twice this, so a block that grows still lands in one allocation rather than a resize and copy.
+	previousBlockPairCount int
+
 	// A method that flushes the executors.
 	flushFunc func()
 
@@ -133,12 +137,13 @@ func (d *Database) FinalizeBlock(
 
 	d.metrics.SetMainThreadPhase("finalizing")
 
-	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+3)
+	// One changeset carrying every pair, matching the shape a real block produces: sei-cosmos emits
+	// one NamedChangeSet per module, so the evm module's whole block arrives as a single contiguous
+	// batch of pairs. Wrapping each pair in its own changeset instead would make the consuming store
+	// chase a separate allocation per pair, which is benchmark overhead rather than a real cost.
+	pairs := make([]*proto.KVPair, 0, 2*d.previousBlockPairCount+3)
 	for key, value := range d.batch.Iterator() {
-		changeSets = append(changeSets, &proto.NamedChangeSet{
-			Name:      wrappers.EVMStoreName,
-			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte(key), Value: value}}},
-		})
+		pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: value})
 	}
 	d.batch.Clear()
 
@@ -146,38 +151,27 @@ func (d *Database) FinalizeBlock(
 	nonceValue := make([]byte, 8)
 	//nolint:gosec // G115 - nextAccountID is benchmark counter, overflow acceptable
 	binary.BigEndian.PutUint64(nonceValue, uint64(nextAccountID))
-	changeSets = append(changeSets, &proto.NamedChangeSet{
-		Name: wrappers.EVMStoreName,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: AccountIDCounterKey(), Value: nonceValue},
-		}},
-	})
+	pairs = append(pairs, &proto.KVPair{Key: AccountIDCounterKey(), Value: nonceValue})
 
 	// Persist the ERC20 contract ID counter in every batch.
 	erc20ContractIDValue := make([]byte, 8)
 	//nolint:gosec // G115 - nextErc20ContractID is benchmark counter, overflow acceptable
 	binary.BigEndian.PutUint64(erc20ContractIDValue, uint64(nextErc20ContractID))
-	changeSets = append(changeSets, &proto.NamedChangeSet{
-		Name: wrappers.EVMStoreName,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: Erc20IDCounterKey(), Value: erc20ContractIDValue},
-		}},
-	})
+	pairs = append(pairs, &proto.KVPair{Key: Erc20IDCounterKey(), Value: erc20ContractIDValue})
 
 	// Persist the block number counter in every batch.
 	blockNumberValue := make([]byte, 8)
 	binary.BigEndian.PutUint64(blockNumberValue, d.nextBlockNumber)
-	changeSets = append(changeSets, &proto.NamedChangeSet{
-		Name: wrappers.EVMStoreName,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: BlockNumberCounterKey(), Value: blockNumberValue},
-		}},
-	})
+	pairs = append(pairs, &proto.KVPair{Key: BlockNumberCounterKey(), Value: blockNumberValue})
 	d.nextBlockNumber++
+	d.previousBlockPairCount = len(pairs)
 
 	entry := &proto.ChangelogEntry{
-		Version:    d.db.Version() + 1,
-		Changesets: changeSets,
+		Version: d.db.Version() + 1,
+		Changesets: []*proto.NamedChangeSet{{
+			Name:      wrappers.EVMStoreName,
+			Changeset: proto.ChangeSet{Pairs: pairs},
+		}},
 	}
 	err := d.db.ApplyChangeSets(entry)
 	if err != nil {

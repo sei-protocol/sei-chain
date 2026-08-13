@@ -44,6 +44,10 @@ type PhysicalKVPair struct {
 type ImportTranslator struct {
 	blockHeight  int64
 	pendingAccts map[string]*vtype.PendingAccountWrite
+
+	// classifyBucketSizes records how many pairs each EVM key kind held in the previous Translate
+	// call, so the next call's buckets can be allocated up front.
+	classifyBucketSizes [keys.EVMKeyKindCount]int
 }
 
 // NewImportTranslator creates a translator that stamps blockHeight onto every
@@ -87,10 +91,11 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 		Changeset: proto.ChangeSet{Pairs: filteredPairs},
 	}
 
-	changesByType, err := classifyAndPrefix([]*proto.NamedChangeSet{filteredCS})
+	changesByType, err := classifyAndPrefix([]*proto.NamedChangeSet{filteredCS}, t.classifyBucketSizes)
 	if err != nil {
 		return nil, err
 	}
+	t.classifyBucketSizes = changesByType.bucketSizes()
 
 	out := make([]PhysicalKVPair, 0, len(filteredPairs))
 
