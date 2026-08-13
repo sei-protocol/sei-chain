@@ -120,10 +120,7 @@ func TestCollectPersistBatch_EmptyRoadsDropsClosedLane(t *testing.T) {
 			return fmt.Errorf("NewState: %w", err)
 		}
 		lane0 := state.LocalLane().OrPanic("genesis")
-		sub, err := state.SubscribeLaneProposals(lane0, 0)
-		if err != nil {
-			return err
-		}
+		sub := state.SubscribeLaneProposals(lane0, 0)
 
 		// a leaves: lane0 stays in maps (closing) until epochOfFirst.IsClosed.
 		ep1, err := registry.ActivateEpoch(

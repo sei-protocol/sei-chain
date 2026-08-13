@@ -1,7 +1,6 @@
 package epoch
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -68,10 +67,6 @@ func (r *Registry) LatestEpoch() *types.Epoch {
 	panic("unreachable")
 }
 
-// ActivateEpoch appends latest+1 via Committee.DeriveNext.
-//
-// Scaffolding for #3736: does not validate roads.First vs prior RoadRange; prior
-// range left as stored. Tests may pass OpenRoadRange() until multi-epoch roads wire up.
 func (r *Registry) ActivateEpoch(
 	weights map[types.PublicKey]uint64,
 	roads types.RoadRange,
@@ -81,9 +76,6 @@ func (r *Registry) ActivateEpoch(
 	for s := range r.state.Lock() {
 		prev := s.m[s.latest]
 		next := s.latest + 1
-		if _, exists := s.m[next]; exists {
-			return nil, fmt.Errorf("epoch %d already exists", next)
-		}
 		committee, err := prev.Committee().DeriveNext(weights, next)
 		if err != nil {
 			return nil, err

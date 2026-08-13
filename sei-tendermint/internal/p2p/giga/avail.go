@@ -24,10 +24,11 @@ func (x *validatorService) serverStreamLaneProposals(ctx context.Context, server
 		if err != nil {
 			return fmt.Errorf("StreamLaneProposalsReqConv.Decode(): %w", err)
 		}
-		sub, err := x.state.Avail().SubscribeLaneProposals(req.LaneID, req.FirstBlockNumber)
-		if err != nil {
-			return err
+		// Wrong producer: end this stream only; do not drop the giga connection.
+		if req.LaneID.Validator != x.state.Avail().PublicKey() {
+			return nil
 		}
+		sub := x.state.Avail().SubscribeLaneProposals(req.LaneID, req.FirstBlockNumber)
 		for {
 			p, err := sub.Recv(ctx)
 			if err != nil {

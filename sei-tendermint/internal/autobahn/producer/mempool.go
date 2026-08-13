@@ -16,8 +16,6 @@ var errTooLarge = errors.New("transaction too large")
 var errBadNonce = errors.New("bad nonce")
 var errMempoolFull = errors.New("mempool is full")
 
-// ErrNotProducing: no local lane (not in the applied committee). InsertTx waits
-// for alignMempool when LocalLane is already set; TryInsertTx does not.
 var ErrNotProducing = errors.New("not producing")
 
 type blockSpec struct {

@@ -17,10 +17,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 					if !ok {
 						return errors.New("SubscribeLaneProposals: no local lane")
 					}
-					sub, err := from.SubscribeLaneProposals(lane, 0)
-					if err != nil {
-						return err
-					}
+					sub := from.SubscribeLaneProposals(lane, 0)
 					for {
 						p, err := sub.Recv(ctx)
 						if err != nil {

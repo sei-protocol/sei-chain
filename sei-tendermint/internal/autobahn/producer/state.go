@@ -56,19 +56,17 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 }
 
 // alignMempool installs a fresh session mempool for lane.
-func (s *State) alignMempool(lane types.LaneID) *mempoolInner {
+func (s *State) alignMempool(lane types.LaneID) (*mempoolInner, types.BlockNumber) {
 	n := s.consensus.Avail().NextBlock(lane)
 	for mp, ctrl := range s.mempool.Lock() {
 		m := newMempoolInner(avail.BlocksPerLane, lane, n)
 		mp.inner = utils.Some(m)
 		ctrl.Updated()
-		return m
+		return m, n
 	}
 	panic("unreachable")
 }
 
-// clearMempool drops the session so InsertTx sees no aligned mempool until alignMempool
-// (and returns ErrNotProducing once LocalLane is gone).
 func (s *State) clearMempool() {
 	for mp, ctrl := range s.mempool.Lock() {
 		mp.inner = utils.None[*mempoolInner]()
@@ -82,10 +80,6 @@ func (s *State) clearMempool() {
 // Note that mempool capacity bounds the number of unexecuted blocks of the local lane.
 // This is needed so that we can track the evm nonces of sequenced txs - mempool admits txs
 // sequentially in the nonce order.
-//
-// Sessions: WaitForLocalLane, then produce until WaitUntilClosed.
-// While the lane remains in the committee, WaitUntilClosed does not fire and
-// the session continues. runMempool aligns the mempool and clears it on exit.
 func (s *State) Run(ctx context.Context) error {
 	availState := s.consensus.Avail()
 	for ctx.Err() == nil {
@@ -109,9 +103,8 @@ func (s *State) Run(ctx context.Context) error {
 }
 
 func (s *State) runMempool(ctx context.Context, availState *avail.State, lane types.LaneID) error {
-	m := s.alignMempool(lane)
+	m, firstBlock := s.alignMempool(lane)
 	defer s.clearMempool()
-	firstBlock := m.first
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		scope.Spawn(func() error {
 			// Task pruning executed lane blocks from the mempool

@@ -162,9 +162,7 @@ func (lw *laneWAL) close() error {
 // other lanes' entries that follow it.
 // When dir is None, all disk I/O is skipped (no-op mode).
 //
-// All public methods are safe for concurrent use, including overlapping
-// MaybePruneAndPersistLane and SyncLanes. Lanes may be removed via SyncLanes
-// once epochOfFirst.IsClosed.
+// All public methods are safe for concurrent use.
 type BlockPersister struct {
 	dir   utils.Option[string] // immutable after construction
 	lanes utils.RWMutex[map[types.LaneID]*laneWAL]
@@ -250,8 +248,7 @@ func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[type
 	return bp, allBlocks, nil
 }
 
-// getOrCreateLane returns the lane WAL under the caller-held map lock,
-// creating it when allowCreate is true and the lane is not yet open.
+// getOrCreateLane returns the lane WAL under the caller-held map lock.
 func (bp *BlockPersister) getOrCreateLane(lanes map[types.LaneID]*laneWAL, lane types.LaneID, allowCreate bool) (*laneWAL, bool, error) {
 	if lw, ok := lanes[lane]; ok {
 		return lw, true, nil
@@ -327,10 +324,10 @@ func (bp *BlockPersister) deleteLaneLocked(lanes map[types.LaneID]*laneWAL, dir 
 	if !ok {
 		return nil
 	}
-	delete(lanes, lane)
 	if err := lw.close(); err != nil {
 		return fmt.Errorf("close lane %s WAL: %w", lane, err)
 	}
+	delete(lanes, lane)
 	path := filepath.Join(dir, laneDir(lane))
 	if err := os.RemoveAll(path); err != nil {
 		return fmt.Errorf("remove lane dir %s: %w", path, err)
@@ -340,8 +337,6 @@ func (bp *BlockPersister) deleteLaneLocked(lanes map[types.LaneID]*laneWAL, dir 
 }
 
 // SyncLanes deletes open WALs whose LaneID is not a key of keep. Idempotent.
-// Safe to call concurrently with MaybePruneAndPersistLane. Avail calls SyncLanes
-// after epochOfFirst.IsClosed map drop and before runPersist's Parallel batch.
 func SyncLanes[V any](bp *BlockPersister, keep map[types.LaneID]V) error {
 	dir, ok := bp.dir.Get()
 	if !ok {

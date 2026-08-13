@@ -11,11 +11,12 @@ import (
 
 // SubscribeLaneProposals binds lane for this node's validator key.
 // Recv returns ErrLaneClosed after that lane's maps are dropped.
-func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.BlockNumber) (*LaneProposalsRecv, error) {
+// lane.Validator must be this node's key; callers (e.g. giga) filter first.
+func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.BlockNumber) *LaneProposalsRecv {
 	if lane.Validator != s.key.Public() {
-		return nil, ErrBadLane
+		panic(fmt.Sprintf("SubscribeLaneProposals: lane validator %v != local %v", lane.Validator, s.key.Public()))
 	}
-	return &LaneProposalsRecv{s, lane, first}, nil
+	return &LaneProposalsRecv{s, lane, first}
 }
 
 type LaneProposalsRecv struct {

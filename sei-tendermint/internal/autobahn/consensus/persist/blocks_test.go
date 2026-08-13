@@ -40,8 +40,6 @@ func liveBlocks(loaded []LoadedBlock, first types.BlockNumber) []LoadedBlock {
 	return nil
 }
 
-// testDeleteBefore is a test helper that truncates lane WALs using a plain
-// map, avoiding the need to construct a full CommitQC.
 func testDeleteBefore(bp *BlockPersister, laneFirsts map[types.LaneID]types.BlockNumber) error {
 	for lanes := range bp.lanes.RLock() {
 		return scope.Parallel(func(ps scope.ParallelScope) error {
@@ -543,9 +541,6 @@ func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 	}
 }
 
-// After SyncLanes removes a lane, truncate-only persist (empty proposals) must
-// not recreate the WAL. Production runPersist never includes pruned lanes in a
-// block batch.
 func TestMaybePruneAndPersistLane_InactiveDoesNotRecreateAfterDelete(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
@@ -569,11 +564,11 @@ func TestMaybePruneAndPersistLane_InactiveDoesNotRecreateAfterDelete(t *testing.
 	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
 	_, err = os.Stat(lanePath)
 	require.True(t, os.IsNotExist(err))
-	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{})) // idempotent
+	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
 
 	require.NoError(t, bp.MaybePruneAndPersistLane(
 		lane,
-		false, // after SyncLanes: truncate-only must not recreate
+		false,
 		utils.None[types.BlockNumber](),
 		nil,
 	))
@@ -581,8 +576,6 @@ func TestMaybePruneAndPersistLane_InactiveDoesNotRecreateAfterDelete(t *testing.
 	require.True(t, os.IsNotExist(err))
 }
 
-// A lane that left before the first WAL open still flushes pending proposals
-// (allowCreate when proposals are non-empty even if the lane is inactive).
 func TestMaybePruneAndPersistLane_InactiveWithProposalsCreatesWAL(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
@@ -596,7 +589,6 @@ func TestMaybePruneAndPersistLane_InactiveWithProposalsCreatesWAL(t *testing.T) 
 		types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)),
 	))
 
-	// Inactive lane still flushes when proposals are non-empty (allowCreate=true).
 	require.NoError(t, bp.MaybePruneAndPersistLane(
 		lane,
 		true,
