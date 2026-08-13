@@ -47,6 +47,7 @@ const (
 	flagCPUProfile         = "cpu-profile"
 	FlagMinGasPrices       = "minimum-gas-prices"
 	FlagHaltHeight         = "halt-height"
+	FlagFreezeHeight       = "freeze-height"
 	FlagHaltTime           = "halt-time"
 	FlagInterBlockCache    = "inter-block-cache"
 	FlagUnsafeSkipUpgrades = "unsafe-skip-upgrades"
@@ -231,6 +232,7 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().String(FlagMinGasPrices, "", "Minimum gas prices to accept for transactions; Any fee in a tx must meet this minimum (e.g. 0.01photino;0.0001stake)")
 	cmd.Flags().IntSlice(FlagUnsafeSkipUpgrades, []int{}, "Skip a set of upgrade heights to continue the old binary")
 	cmd.Flags().Uint64(FlagHaltHeight, 0, "Block height at which to gracefully halt the chain and shutdown the node")
+	cmd.Flags().Uint64(FlagFreezeHeight, 0, "Block height to stop before executing while continuing to serve RPC")
 	cmd.Flags().Uint64(FlagHaltTime, 0, "Minimum block time (in Unix seconds) at which to gracefully halt the chain and shutdown the node")
 	cmd.Flags().Bool(FlagInterBlockCache, true, "Enable inter-block caching")
 	cmd.Flags().String(flagCPUProfile, "", "Enable CPU profiling and write to the provided file")
@@ -317,6 +319,13 @@ func startInProcess(
 	if err != nil {
 		return err
 	}
+	if err := config.ValidateFreeze(); err != nil {
+		return err
+	}
+	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
+	if gRPCOnly && config.FreezeHeight > 0 {
+		return errors.New("freeze-height cannot be used with grpc-only mode")
+	}
 
 	if err := config.ValidateBasic(ctx.Config); err != nil {
 		logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
@@ -325,7 +334,6 @@ func startInProcess(
 	}
 	app := appCreator(db, traceWriter, ctx.Config, ctx.Viper)
 
-	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
 	var tmNode service.Service
 
 	var restartMtx sync.Mutex
@@ -367,6 +375,7 @@ func startInProcess(
 			gen,
 			tracerProviderOptions,
 			nodeMetricsProvider,
+			node.WithFreezeHeight(config.FreezeHeight),
 		)
 		if err != nil {
 			return fmt.Errorf("error creating node: %w", err)

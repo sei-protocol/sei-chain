@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -160,6 +161,9 @@ type State struct {
 	heightSpan            otrace.Span
 	heightBeingTraced     int64
 	tracingCtx            context.Context
+
+	freezeHeight uint64
+	frozen       atomic.Bool
 }
 
 // StateOption sets an optional parameter on the State.
@@ -326,6 +330,30 @@ func (cs *State) SetPrivValidator(ctx context.Context, priv utils.Option[types.P
 	}
 }
 
+// SetFreezeHeight configures the first block height consensus must not execute.
+// It must be called before the state starts.
+func (cs *State) SetFreezeHeight(height uint64) {
+	cs.freezeHeight = height
+	cs.markFrozen(nextHeightForState(cs.state), cs.state.LastBlockHeight)
+}
+
+func (cs *State) markFrozen(nextHeight, lastBlockHeight int64) {
+	if cs.freezeHeight == 0 || nextHeight < 0 || uint64(nextHeight) < cs.freezeHeight { //nolint:gosec // negative heights are rejected first.
+		return
+	}
+	if cs.frozen.CompareAndSwap(false, true) {
+		logger.Info("Consensus frozen before configured height", "freeze_height", cs.freezeHeight, "last_block_height", lastBlockHeight)
+	}
+}
+
+func nextHeightForState(state sm.State) int64 {
+	height := state.LastBlockHeight + 1
+	if height == 1 {
+		height = state.InitialHeight
+	}
+	return height
+}
+
 // SetTimeoutTicker sets the local timer. It may be useful to overwrite for
 // testing.
 func (cs *State) SetTimeoutTicker(timeoutTicker TimeoutTicker) {
@@ -366,14 +394,16 @@ func (cs *State) Run(ctx context.Context) error {
 
 		// We may have lost some votes if the process crashed reload from consensus
 		// log to catchup.
-		if cs.doWALCatchup {
+		if cs.doWALCatchup && !cs.frozen.Load() {
 			if err := cs.catchupReplay(ctx, cs.roundState.Height()); err != nil {
 				return fmt.Errorf("cs.catchupReplay(): %w", err)
 			}
 		}
 		// Double Signing Risk Reduction
-		if err := cs.checkDoubleSigningRisk(cs.roundState.Height()); err != nil {
-			return err
+		if !cs.frozen.Load() {
+			if err := cs.checkDoubleSigningRisk(cs.roundState.Height()); err != nil {
+				return err
+			}
 		}
 
 		// now start the receiveRoutine
@@ -382,7 +412,9 @@ func (cs *State) Run(ctx context.Context) error {
 
 		// schedule the first round!
 		// use GetRoundState so we don't race the receiveRoutine for access
-		cs.scheduleRound0(cs.GetRoundState())
+		if !cs.frozen.Load() {
+			cs.scheduleRound0(cs.GetRoundState())
+		}
 		return nil
 	})
 }
@@ -576,6 +608,9 @@ func (cs *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
 // Updates State and increments height to match that of state.
 // The round becomes 0 and cs.Step becomes cstypes.RoundStepNewHeight.
 func (cs *State) updateToState(state sm.State) {
+	height := nextHeightForState(state)
+	cs.markFrozen(height, state.LastBlockHeight)
+
 	if cs.roundState.CommitRound() > -1 && 0 < cs.roundState.Height() && cs.roundState.Height() != state.LastBlockHeight {
 		panic(fmt.Sprintf(
 			"updateToState() expected state height of %v but found %v",
@@ -638,12 +673,6 @@ func (cs *State) updateToState(state sm.State) {
 			"last commit cannot be empty after initial block (H:%d)",
 			state.LastBlockHeight+1,
 		))
-	}
-
-	// Next desired block height
-	height := state.LastBlockHeight + 1
-	if height == 1 {
-		height = state.InitialHeight
 	}
 
 	// RoundState fields
@@ -749,6 +778,9 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 	}()
 
 	for {
+		if cs.frozen.Load() {
+			return cs.receiveWhileFrozen(ctx)
+		}
 		if maxSteps > 0 {
 			if cs.nSteps >= maxSteps {
 				logger.Debug("reached max steps; exiting receive routine")
@@ -795,6 +827,20 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		// TODO should we handle context cancels here?
 	}
 }
+
+func (cs *State) receiveWhileFrozen(ctx context.Context) error {
+	for {
+		select {
+		case <-cs.txNotifier.TxsAvailable():
+		case <-cs.peerMsgQueue:
+		case <-cs.internalMsgQueue:
+		case <-cs.timeoutTicker.Chan():
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
 func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompletion bool, height int64, span otrace.Span, onPropose bool) {
 	cs.metrics.ProposalBlockCreatedOnPropose.With("success", strconv.FormatBool(onPropose)).Add(1)
 	if fsyncUponCompletion {
@@ -1023,6 +1069,9 @@ func (cs *State) getTracingCtx(defaultCtx context.Context) context.Context {
 // Enter: +2/3 prevotes any or +2/3 precommits for block or any from (height, round)
 // NOTE: cs.StartTime was already set for height.
 func (cs *State) enterNewRound(ctx context.Context, height int64, round int32, entryLabel string) {
+	if cs.frozen.Load() {
+		return
+	}
 	if height > cs.heightBeingTraced {
 		if cs.heightSpan != nil {
 			cs.heightSpan.End()
