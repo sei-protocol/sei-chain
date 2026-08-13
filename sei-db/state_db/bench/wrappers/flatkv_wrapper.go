@@ -1,6 +1,8 @@
 package wrappers
 
 import (
+	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -68,6 +70,18 @@ func (f *flatKVWrapper) Close() error {
 func (f *flatKVWrapper) Read(key []byte) (data []byte, found bool, err error) {
 	val, ok := f.base.Get(keys.EVMStoreKey, key)
 	return val, ok, nil
+}
+
+// AwaitBlockHash reads flatkv's hash stream until the given version comes out of it. Versions before the one
+// asked for are read past and discarded — the benchmark checks no hashes, it only has to keep the stream
+// moving so the hasher never blocks.
+func (f *flatKVWrapper) AwaitBlockHash(version int64) error {
+	for hash := range f.base.HashChan() {
+		if hash.BlockHeight >= version {
+			return nil
+		}
+	}
+	return fmt.Errorf("flatkv stopped producing hashes before version %d", version)
 }
 
 func (f *flatKVWrapper) GetPhaseTimer() *metrics.PhaseTimer {

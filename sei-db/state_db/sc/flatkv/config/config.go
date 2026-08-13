@@ -57,6 +57,24 @@ type Config struct {
 	// Default: 8192
 	MaxSnapshotLagBlocks uint32 `mapstructure:"max-snapshot-lag-blocks"`
 
+	// HashQueueSize is how many sealed blocks may queue up waiting to be hashed before Commit blocks.
+	//
+	// This is what bounds the memory the hash pipeline costs. A block stays unfinalized while it waits here,
+	// and an unfinalized snapshot stops every database's flush frontier dead, so its diffs stay resident.
+	// Size it against memory: the cost is roughly this many blocks of diffs across all five databases.
+	//
+	// Default: 64
+	HashQueueSize uint32 `mapstructure:"hash-queue-size"`
+
+	// HashChanSize is the depth of the channel block hashes are published on.
+	//
+	// It is headroom for a consumer that reads later than it commits, not a memory bound: a block is
+	// finalized and its reservations handed back before its hash is published, so a full channel stalls the
+	// hasher without holding snapshots open. A consumer that stops reading entirely will block the store.
+	//
+	// Default: 1024
+	HashChanSize uint32 `mapstructure:"hash-chan-size"`
+
 	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its
 	// own snapshots (SnapshotKeepRecent) and stops truncating the state WAL.
 	//
@@ -157,6 +175,8 @@ func DefaultConfig() *Config {
 		SnapshotInterval:          DefaultSnapshotInterval,
 		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
 		MaxSnapshotLagBlocks:      8192,
+		HashQueueSize:             64,
+		HashChanSize:              1024,
 		EnablePebbleMetrics:       true,
 		AccountDBConfig:           pebbledb.DefaultConfig(),
 		AccountStoreConfig:        defaultStoreConfig("account"),

@@ -249,7 +249,7 @@ func TestStoreWriteAccountAndCode(t *testing.T) {
 	require.Equal(t, []byte{0x60, 0xA0}, code2)
 
 	// Verify LtHash was updated (includes all keys)
-	hash := s.RootHash()
+	hash := awaitRootHash(t, s)
 	require.NotNil(t, hash)
 	require.Equal(t, 32, len(hash))
 }
@@ -497,7 +497,7 @@ func TestStoreMiscKeyIncludedInLtHash(t *testing.T) {
 	defer s.Close()
 
 	// Get initial hash
-	hash1 := s.RootHash()
+	hash1 := awaitRootHash(t, s)
 
 	// Write a misc key
 	addr := ktype.Address{0xDD}
@@ -506,13 +506,13 @@ func TestStoreMiscKeyIncludedInLtHash(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// LtHash should change after applying misc key changeset
-	hash2 := s.RootHash()
+	hash2 := awaitRootHash(t, s)
 	require.NotEqual(t, hash1, hash2, "LtHash should change when misc key is written")
 
 	commitAndCheck(t, s)
 
 	// After commit, hash should be stable
-	hash3 := s.RootHash()
+	hash3 := awaitRootHash(t, s)
 	require.Equal(t, hash2, hash3)
 }
 
@@ -895,7 +895,7 @@ func TestLtHashDeterministicAcrossReopen(t *testing.T) {
 		commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
 		commitStorageEntry(t, s, ktype.Address{0x03}, ktype.Slot{0x03}, []byte{0xCC})
 
-		hash := s.RootHash()
+		hash := awaitRootHash(t, s)
 		require.NoError(t, s.Close())
 		return hash
 	}
@@ -916,12 +916,12 @@ func TestLtHashUpdatedByDelete(t *testing.T) {
 	cs1 := makeChangeSet(key, padLeft32(0xFF), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
 	commitAndCheck(t, s)
-	hashAfterWrite := s.RootHash()
+	hashAfterWrite := awaitRootHash(t, s)
 
 	cs2 := makeChangeSet(key, nil, true)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
-	hashAfterDelete := s.RootHash()
+	hashAfterDelete := awaitRootHash(t, s)
 
 	require.NotEqual(t, hashAfterWrite, hashAfterDelete, "delete should change LtHash")
 }
@@ -993,14 +993,14 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	hashBefore := s.RootHash()
+	hashBefore := awaitRootHash(t, s)
 
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, nil))
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v)
 
-	hashAfter := s.RootHash()
+	hashAfter := awaitRootHash(t, s)
 	require.Equal(t, hashBefore, hashAfter, "empty commit should not change LtHash")
 }
 
@@ -1645,25 +1645,25 @@ func TestApplyChangeSetsNilInput(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	hashBefore := s.RootHash()
+	hashBefore := awaitRootHash(t, s)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, nil))
-	require.Equal(t, hashBefore, s.RootHash(), "nil input should not change hash")
+	require.Equal(t, hashBefore, awaitRootHash(t, s), "nil input should not change hash")
 }
 
 func TestApplyChangeSetsEmptySlice(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	hashBefore := s.RootHash()
+	hashBefore := awaitRootHash(t, s)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{}))
-	require.Equal(t, hashBefore, s.RootHash(), "empty slice should not change hash")
+	require.Equal(t, hashBefore, awaitRootHash(t, s), "empty slice should not change hash")
 }
 
 func TestApplyChangeSetsNonEVMModuleRoutesToMisc(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	hashBefore := s.RootHash()
+	hashBefore := awaitRootHash(t, s)
 
 	cs := &proto.NamedChangeSet{
 		Name: "bank",
@@ -1674,7 +1674,7 @@ func TestApplyChangeSetsNonEVMModuleRoutesToMisc(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	require.Len(t, s.pendingChangeSets, 1)
 	// Asking for the hash commits the block, so this has to come after the pending check.
-	require.NotEqual(t, hashBefore, s.RootHash(), "misc-routed key changes hash")
+	require.NotEqual(t, hashBefore, awaitRootHash(t, s), "misc-routed key changes hash")
 
 	// Physical key in the misc store should be module-prefixed: "bank/some-bank-key"
 	physKey := string(ktype.ModulePhysicalKey("bank", []byte("some-bank-key")))
@@ -1729,7 +1729,7 @@ func TestApplyChangeSetsEmptyPairsVsNilPairs(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	hashBefore := s.RootHash()
+	hashBefore := awaitRootHash(t, s)
 
 	// nil Pairs: entire named CS skipped (not appended to pendingChangeSets processing).
 	nilPairsCS := &proto.NamedChangeSet{
@@ -1745,7 +1745,7 @@ func TestApplyChangeSetsEmptyPairsVsNilPairs(t *testing.T) {
 
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{nilPairsCS, emptyPairsCS}))
 	// Nothing to stage, so the working hashes are the only observable, and they must not move.
-	require.Equal(t, hashBefore, s.RootHash(), "empty changesets must not change the hash")
+	require.Equal(t, hashBefore, awaitRootHash(t, s), "empty changesets must not change the hash")
 }
 
 func TestApplyChangeSetsOnReadOnlyStore(t *testing.T) {
@@ -1809,7 +1809,7 @@ func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
 		{Name: "gov", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("proposal"), Value: []byte{0x01}}}}},
 	}))
 	commitAndCheck(t, s)
-	before := snapshotWorkingHashes(s)
+	before := snapshotWorkingHashes(t, s)
 
 	addr := addrN(0xBB)
 	slot := slotN(0x01)
@@ -1856,7 +1856,7 @@ func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("bal"), Value: []byte{0x02}}}}},
 	}))
 	commitAndCheck(t, s)
-	before := snapshotWorkingHashes(s)
+	before := snapshotWorkingHashes(t, s)
 
 	addr := addrN(0xCC)
 	slot := slotN(0x02)
@@ -1906,7 +1906,7 @@ func TestCommitFailsCleanlyOnHashError(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 	committed := s.Version()
-	before := snapshotWorkingHashes(s)
+	before := snapshotWorkingHashes(t, s)
 
 	s.ltCalc = lthash.NewHashCalculator(s.ltHashPool, dataDBDirs, func([]byte) (string, error) {
 		return "", fmt.Errorf("injected moduleOf failure")
@@ -1946,7 +1946,7 @@ func TestApplyChangeSetsNonPrefixedKeyGoesToMisc(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	hashBefore := s.RootHash()
+	hashBefore := awaitRootHash(t, s)
 
 	// A key with an unrecognized prefix goes to EVMKeyMisc, not skipped.
 	cs := &proto.NamedChangeSet{
@@ -1956,19 +1956,19 @@ func TestApplyChangeSetsNonPrefixedKeyGoesToMisc(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	require.NotEqual(t, hashBefore, s.RootHash(), "misc key changes hash")
+	require.NotEqual(t, hashBefore, awaitRootHash(t, s), "misc key changes hash")
 }
 
 func TestCommitWithoutPriorApply(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	hashBefore := s.RootHash()
+	hashBefore := awaitRootHash(t, s)
 
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v)
-	require.Equal(t, hashBefore, s.RootHash(), "hash should be unchanged after empty commit")
+	require.Equal(t, hashBefore, awaitRootHash(t, s), "hash should be unchanged after empty commit")
 }
 
 func TestDoubleCommitNoApplyBetween(t *testing.T) {
@@ -1983,13 +1983,13 @@ func TestDoubleCommitNoApplyBetween(t *testing.T) {
 	v1, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v1)
-	hashAfterV1 := s.RootHash()
+	hashAfterV1 := awaitRootHash(t, s)
 
 	// Second commit with no new apply.
 	v2, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v2)
-	require.Equal(t, hashAfterV1, s.RootHash(), "hash unchanged between commits without apply")
+	require.Equal(t, hashAfterV1, awaitRootHash(t, s), "hash unchanged between commits without apply")
 }
 
 func TestCommitOnReadOnlyStore(t *testing.T) {

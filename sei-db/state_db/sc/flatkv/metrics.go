@@ -32,6 +32,9 @@ var (
 		SnapshotPruneLatency      metric.Float64Histogram
 		SnapshotPruneAttempts     metric.Int64Counter
 		CurrentSnapshotHeight     metric.Int64Gauge
+		BlockHashLatency          metric.Float64Histogram
+		CurrentHashedHeight       metric.Int64Gauge
+		HashQueueDepth            metric.Int64Gauge
 		RollbackLatency           metric.Float64Histogram
 		ImportLatency             metric.Float64Histogram
 		ImportKVPairs             metric.Int64Counter
@@ -127,6 +130,22 @@ var (
 		CurrentSnapshotHeight: must(flatkvMeter.Int64Gauge(
 			"flatkv_current_snapshot_height",
 			metric.WithDescription("Current FlatKV snapshot height"),
+			metric.WithUnit("{count}"),
+		)),
+		BlockHashLatency: must(flatkvMeter.Float64Histogram(
+			"flatkv_block_hash_latency",
+			metric.WithDescription("Time taken to compute one block's FlatKV lattice hash"),
+			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+		)),
+		CurrentHashedHeight: must(flatkvMeter.Int64Gauge(
+			"flatkv_current_hashed_height",
+			metric.WithDescription("Highest FlatKV block height whose lattice hash has been computed"),
+			metric.WithUnit("{count}"),
+		)),
+		HashQueueDepth: must(flatkvMeter.Int64Gauge(
+			"flatkv_hash_queue_depth",
+			metric.WithDescription("Committed blocks queued behind the FlatKV block being hashed"),
 			metric.WithUnit("{count}"),
 		)),
 		RollbackLatency: must(flatkvMeter.Float64Histogram(

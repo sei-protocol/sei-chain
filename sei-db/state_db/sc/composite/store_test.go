@@ -50,7 +50,6 @@ func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil
 func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
 	return nil, nil
 }
-func (f *failingEVMStore) RootHash() []byte                              { return nil }
 func (f *failingEVMStore) Version() int64                                { return 0 }
 func (f *failingEVMStore) PendingVersion() int64                         { return 0 }
 func (f *failingEVMStore) EarliestVersion() int64                        { return 0 }
@@ -60,7 +59,10 @@ func (f *failingEVMStore) Rollback(int64) error                          { retur
 func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)        { return nil, nil }
 func (f *failingEVMStore) Importer(int64) (types.Importer, error)        { return nil, nil }
 func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer            { return nil }
-func (f *failingEVMStore) CommittedRootHash() []byte                     { return nil }
+func (f *failingEVMStore) PublishedHash() []byte                         { return nil }
+func (f *failingEVMStore) CommitPendingBlock() error                     { return nil }
+func (f *failingEVMStore) FlushHashes() error                            { return nil }
+func (f *failingEVMStore) HashChan() <-chan flatkv.BlockHash             { return nil }
 func (f *failingEVMStore) HashCategories() []string                      { return nil }
 func (f *failingEVMStore) RecordHashes(hashlog.HashLogger, uint64) error { return nil }
 func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error            { return nil }
@@ -286,12 +288,14 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 
 				// --- Working commit info ---
 				expectedCosmos := cs.memIAVL.WorkingCommitInfo()
-				var expectedEvmHash []byte
-				if tt.expectLattice {
-					expectedEvmHash = cs.flatKV.RootHash()
-				}
 
 				workingInfo := cs.WorkingCommitInfo()
+				var workingEvmHash []byte
+				if tt.expectLattice {
+					lattice := workingInfo.StoreInfos[len(workingInfo.StoreInfos)-1]
+					workingEvmHash = lattice.CommitId.Hash
+					require.NotEmpty(t, workingEvmHash)
+				}
 				cosmosCount := len(expectedCosmos.StoreInfos)
 				if tt.expectLattice {
 					require.Equal(t, cosmosCount+1, len(workingInfo.StoreInfos))
@@ -305,7 +309,6 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				if tt.expectLattice {
 					entry := workingInfo.StoreInfos[len(workingInfo.StoreInfos)-1]
 					require.Equal(t, "evm_lattice", entry.Name)
-					require.Equal(t, expectedEvmHash, entry.CommitId.Hash)
 					require.Equal(t, workingInfo.Version, entry.CommitId.Version)
 
 					// Verify no duplicate names — important for app hash merkle tree
@@ -324,11 +327,6 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 
 				// --- Last commit info ---
 				expectedCosmosLast := cs.memIAVL.LastCommitInfo()
-				var expectedEvmCommitted []byte
-				if tt.expectLattice {
-					expectedEvmCommitted = cs.flatKV.CommittedRootHash()
-					require.Equal(t, expectedEvmHash, expectedEvmCommitted)
-				}
 
 				lastInfo := cs.LastCommitInfo()
 				require.Equal(t, int64(round), lastInfo.Version)
@@ -345,7 +343,9 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				if tt.expectLattice {
 					entry := lastInfo.StoreInfos[len(lastInfo.StoreInfos)-1]
 					require.Equal(t, "evm_lattice", entry.Name)
-					require.Equal(t, expectedEvmCommitted, entry.CommitId.Hash)
+					// The working hash is asked for before the commit and the last commit
+					// info after it, but both name the same height, so they must agree.
+					require.Equal(t, workingEvmHash, entry.CommitId.Hash)
 					require.Equal(t, lastInfo.Version, entry.CommitId.Version)
 
 					// Verify no duplicate names — important for app hash merkle tree

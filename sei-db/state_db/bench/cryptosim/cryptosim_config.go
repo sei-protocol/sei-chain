@@ -163,6 +163,12 @@ type CryptoSimConfig struct {
 	// The capacity of the channel that holds blocks awaiting execution.
 	BlockChannelCapacity int
 
+	// The number of blocks the benchmark allows the database's hasher to fall behind before it waits for a
+	// hash. After committing block N the benchmark waits for the hash of block N-HashAsynchrony, so 0 makes
+	// hashing synchronous with execution and larger values let it overlap. Ignored by backends that do not
+	// hash blocks in the background.
+	HashAsynchrony int64
+
 	// If true, the benchmark will generate receipts for each transaction in each block and
 	// feed those receipts into the receipt store.
 	GenerateReceipts bool
@@ -274,6 +280,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		DeleteLogDirOnShutdown:            false,
 		FlatKVConfig:                      flatkvConfig.DefaultConfig(),
 		BlockChannelCapacity:              8,
+		HashAsynchrony:                    32,
 		GenerateReceipts:                  false,
 		RecieptChannelCapacity:            32,
 		DisableTransactionExecution:       false,
@@ -311,6 +318,16 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.LogDir == "" {
 		return fmt.Errorf("LogDir is required")
+	}
+	if c.HashAsynchrony < 0 {
+		return fmt.Errorf("HashAsynchrony must not be negative (got %d)", c.HashAsynchrony)
+	}
+	if c.FlatKVConfig != nil && c.HashAsynchrony >= int64(c.FlatKVConfig.HashChanSize) {
+		// The hash stream buffers HashChanSize hashes and then blocks the hasher, which blocks commits. Asking
+		// for a hash further behind than the stream is deep means commits stall before the benchmark reaches
+		// the block it is waiting for, and neither side ever moves again.
+		return fmt.Errorf("HashAsynchrony (%d) must be less than FlatKVConfig.HashChanSize (%d)",
+			c.HashAsynchrony, c.FlatKVConfig.HashChanSize)
 	}
 	if c.PaddedAccountSize < minPaddedAccountSize {
 		return fmt.Errorf("PaddedAccountSize must be at least %d (got %d)", minPaddedAccountSize, c.PaddedAccountSize)

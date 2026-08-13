@@ -133,13 +133,29 @@ type Store interface {
 		ascending bool,
 	) (dbm.Iterator, error)
 
-	// RootHash returns the 32-byte checksum of the working LtHash.
-	// Note: This is the Blake3-256 digest of the underlying 2048-byte
-	// raw LtHash vector.
-	RootHash() []byte
+	// PublishedHash returns the most recent block hash the store has published: the height, its lattice hash
+	// root, and each database's root. On a committing store this is whatever the hasher has reached, which
+	// lags the committed version. On a store that has just been loaded, and on a read-only store, it is the
+	// height that was loaded.
+	PublishedHash() BlockHash
 
-	// CommittedRootHash returns the 32-byte checksum of the last committed LtHash.
-	CommittedRootHash() []byte
+	// CommitPendingBlock commits the block currently being applied, if any, so that it has a hash. A no-op on a
+	// store with no pending writes, which is every store between blocks and every read-only store.
+	//
+	// A block that has not been committed has no hash — the hash is computed from the snapshots a commit
+	// produces — so a caller wanting one mid-block is asking for the block to be committed. This is that
+	// request, made explicitly. Post-Cosmos nothing asks for a hash mid-block and this goes away.
+	CommitPendingBlock() error
+
+	// FlushHashes blocks until the hasher has published a hash for every block committed so far.
+	FlushHashes() error
+
+	// HashChan returns a channel that produces the hash of each block. Exactly one hash per block committed,
+	// in block order, with no gaps or duplicates. Channel is closed if the database is closed or if it crashes.
+	//
+	// This channel is of finite size, and so failure to dequeue hashes for long enough will cause the database
+	// to become blocked. Every deployment therefore needs a consumer.
+	HashChan() <-chan BlockHash
 
 	// HashCategories returns the hash logger category names this store reports (the global root plus one
 	// per data DB). The set is fixed. The caller registers these on the logger.
@@ -188,4 +204,17 @@ type Store interface {
 	CleanupOrphanedReadOnlyDirs() error
 
 	io.Closer
+}
+
+// Contains the checksum of the lattice hash of a block.
+type BlockHash struct {
+	// The hash of the block.
+	Hash []byte
+
+	// The block height of the hash.
+	BlockHeight int64
+
+	// PerDBHashes is the checksum of each data database's lattice hash, keyed by database directory name.
+	// Reported into the hash log alongside the root; not part of the block hash itself.
+	PerDBHashes map[string][]byte
 }

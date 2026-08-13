@@ -50,6 +50,11 @@ func (n *noOpWrapper) Importer(_ int64) (scTypes.Importer, error) {
 	return nil, fmt.Errorf("import not supported for no-op wrapper")
 }
 
+// AwaitBlockHash returns immediately: this backend does not hash blocks in the background.
+func (n *noOpWrapper) AwaitBlockHash(int64) error {
+	return nil
+}
+
 func (n *noOpWrapper) GetPhaseTimer() *metrics.PhaseTimer {
 	return nil
 }

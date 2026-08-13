@@ -49,6 +49,9 @@ func TestFlatKVHashReporting(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(0x33), false)}))
 	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
+	// What gets reported is whatever the hasher has published, so this test is only about reporting once the
+	// hasher has caught up with the block just committed.
+	require.NoError(t, s.FlushHashes())
 
 	// Categories: the global root plus one per data DB (metadata DB excluded).
 	require.Equal(t, []string{
@@ -67,23 +70,25 @@ func TestFlatKVHashReporting(t *testing.T) {
 
 	require.NoError(t, s.RecordHashes(logger, 1))
 
-	// Every category is reported, and the root matches CommittedRootHash.
+	// Every category is reported, and the root matches PublishedHash.
 	for _, category := range s.HashCategories() {
 		_, ok := logger.hashes[category]
 		require.True(t, ok, "expected a hash for %q", category)
 	}
-	require.Equal(t, s.CommittedRootHash(), logger.hashes["flatKV/root"])
+	require.Equal(t, s.PublishedHash().Hash, logger.hashes["flatKV/root"])
 
-	// Each reported per-DB hash is the checksum of that DB's committed LtHash.
+	// Each reported per-DB hash is the checksum of that DB's accumulated LtHash.
+	seed := awaitHashSeed(t, s)
 	for _, dir := range dataDBDirs {
-		checksum := s.localMeta[dir].LtHash.Checksum()
+		checksum := seed.perDBLtHash[dir].Checksum()
 		require.Equal(t, checksum[:], logger.hashes["flatKV/db/"+dir])
 	}
 
-	// Homomorphic invariant: the per-DB LtHashes sum to the committed global LtHash.
+	// Homomorphic invariant: the per-DB LtHashes sum to the reported root.
 	sum := lthash.New()
 	for _, dir := range dataDBDirs {
-		sum.MixIn(s.localMeta[dir].LtHash)
+		sum.MixIn(seed.perDBLtHash[dir])
 	}
-	require.True(t, sum.Equal(s.committedLtHash))
+	sumChecksum := sum.Checksum()
+	require.Equal(t, sumChecksum[:], logger.hashes["flatKV/root"])
 }

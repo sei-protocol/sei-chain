@@ -169,6 +169,11 @@ type KVImporter struct {
 	store   *CommitStore
 	version int64
 
+	// seed is the hash state the workers start from and, once they finish, the state the hasher adopts. Read
+	// from the hasher up front, because the import replaces every database wholesale and so replaces every
+	// hash that describes them.
+	seed hasherSeed
+
 	ingestCh chan rawKVPair
 	workers  map[seidbtypes.KeyValueDB]*dbWorker
 	wg       sync.WaitGroup
@@ -182,8 +187,11 @@ type KVImporter struct {
 	finishErr  error
 }
 
-func NewKVImporter(store *CommitStore, version int64) types.Importer {
+// NewKVImporter builds an importer. seed is the hash state its workers start from, read from the hasher by
+// the caller — the workers accumulate on top of it and the store adopts the result at FinalizeImport.
+func NewKVImporter(store *CommitStore, version int64, seed hasherSeed) types.Importer {
 	imp := &KVImporter{
+		seed:     seed,
 		store:    store,
 		version:  version,
 		ingestCh: make(chan rawKVPair, ingestChanSize),
@@ -198,9 +206,9 @@ func NewKVImporter(store *CommitStore, version int64) types.Importer {
 			dir,
 			db,
 			store.ltCalc,
-			store.perDBWorkingLtHash[dir],
-			cloneModuleHashes(store.perDBModuleWorkingLtHash[dir]),
-			cloneModuleStats(store.perDBModuleWorkingStats[dir]),
+			imp.seed.perDBLtHash[dir],
+			cloneModuleHashes(imp.seed.perDBModuleLtHash[dir]),
+			cloneModuleStats(imp.seed.perDBModuleStats[dir]),
 		)
 		imp.workers[db] = w
 	}
@@ -357,13 +365,15 @@ func (imp *KVImporter) Close() error {
 			return
 		}
 
+		// The import replaced every database wholesale, so the hashes the hasher was carrying describe nothing
+		// that still exists. Adopt what the workers computed instead.
 		for _, w := range imp.workers {
-			imp.store.perDBWorkingLtHash[w.dir] = w.ltHash
-			imp.store.perDBModuleWorkingLtHash[w.dir] = w.moduleLtHash
-			imp.store.perDBModuleWorkingStats[w.dir] = w.moduleStats
+			imp.seed.perDBLtHash[w.dir] = w.ltHash
+			imp.seed.perDBModuleLtHash[w.dir] = w.moduleLtHash
+			imp.seed.perDBModuleStats[w.dir] = w.moduleStats
 		}
 
-		if err = imp.store.FinalizeImport(imp.version); err != nil {
+		if err = imp.store.FinalizeImport(imp.version, imp.seed); err != nil {
 			err = fmt.Errorf("failed to finalize import: %w", err)
 			return
 		}

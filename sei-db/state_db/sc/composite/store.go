@@ -43,6 +43,11 @@ type CompositeCommitStore struct {
 	// The flatKV backend. Will be nil if migration to flatKV has not yet started.
 	flatKV flatkv.Store
 
+	// flatKVHashes holds the block hashes read off flatkv's channel. flatkv hashes off the execution thread,
+	// so a height's hash may not exist when Cosmos asks for it; this is what waits for it, and what keeps the
+	// channel drained. Touched only from the commit path, which is single-threaded.
+	flatKVHashes *flatKVHashCache
+
 	// flatKVEarliestVersion is the height flatkv's history begins at, or 0 when flatkv holds no history
 	// (never materialized, or seeded from genesis). Heights below it belong to the pre-flatkv era and are
 	// served by memiavl alone; see FlatKVNeededAtHeight.
@@ -1111,7 +1116,7 @@ func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
 	}
 
 	if cs.shouldAppendLatticeHash() {
-		return cs.appendEvmLatticeHash(ci, cs.flatKV.RootHash())
+		return cs.appendEvmLatticeHash(ci, cs.mustLatticeHash(ci.Version))
 	}
 
 	return ci
@@ -1129,9 +1134,39 @@ func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
 	}
 
 	if cs.shouldAppendLatticeHash() {
-		return cs.appendEvmLatticeHash(ci, cs.flatKV.CommittedRootHash())
+		return cs.appendEvmLatticeHash(ci, cs.mustLatticeHash(ci.Version))
 	}
 	return ci
+}
+
+// HasFlatKV reports whether this store has a flatkv backend, and so whether it produces a lattice hash at all.
+func (cs *CompositeCommitStore) HasFlatKV() bool {
+	return cs.flatKV != nil
+}
+
+// LatticeHash returns flatkv's lattice hash for version, waiting for it if the hasher has not got there yet.
+// Asking for a version the store has not committed commits it, and asking for one whose hash has already been
+// read past is an error.
+//
+// Not safe to call concurrently with a commit, or with itself.
+func (cs *CompositeCommitStore) LatticeHash(version int64) ([]byte, error) {
+	if cs.flatKVHashes == nil {
+		cs.flatKVHashes = newFlatKVHashCache()
+	}
+	return cs.flatKVHashes.hashAtVersion(cs.flatKV, version)
+}
+
+// mustLatticeHash returns flatkv's lattice hash for version, panicking if it cannot be had.
+//
+// It panics rather than returning an error because nothing on the Cosmos commit-info path can carry one, and
+// a store that cannot produce a hash cannot produce a trustworthy one either — answering with a stale hash
+// would let the chain proceed on it.
+func (cs *CompositeCommitStore) mustLatticeHash(version int64) []byte {
+	hash, err := cs.LatticeHash(version)
+	if err != nil {
+		panic(fmt.Sprintf("composite: %v", err))
+	}
+	return hash
 }
 
 // GetChildStoreByName returns the underlying child store by module name.

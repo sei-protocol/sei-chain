@@ -34,14 +34,14 @@ func reopenCommittedRoot(t *testing.T, dir string, readOnly bool) []byte {
 	if !readOnly {
 		require.NoError(t, s.LoadLatest())
 		defer func() { require.NoError(t, s.Close()) }()
-		return s.CommittedRootHash()
+		return s.PublishedHash().Hash
 	}
 	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 	cs := ro.(*CommitStore)
 	defer func() { require.NoError(t, cs.Close()) }()
-	return cs.CommittedRootHash()
+	return cs.PublishedHash().Hash
 }
 
 // TestEmptyValueSurvivesWALReplay drives a key set to an empty value, then
@@ -64,7 +64,10 @@ func TestEmptyValueSurvivesWALReplay(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	liveRoot := s.CommittedRootHash()
+	// The hasher runs behind the commits above, so the live store's root only describes the last block once
+	// it has caught up.
+	require.NoError(t, s.FlushHashes())
+	liveRoot := s.PublishedHash().Hash
 	dir := s.config.DataDir
 
 	require.NoError(t, s.Close())

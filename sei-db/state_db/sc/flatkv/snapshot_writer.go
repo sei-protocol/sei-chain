@@ -328,6 +328,18 @@ func (w *SnapshotWriter) stoppedError() error {
 	return ErrSnapshotWriterClosed
 }
 
+// releaseSnapshots hands back a reservation on each of the given snapshots. Every one is attempted even if
+// another fails, because a reservation left held stalls its database's flushes indefinitely.
+func releaseSnapshots(snapshots map[string]snapshot.Snapshot) error {
+	var errs []error
+	for name, snap := range snapshots {
+		if err := snap.Release(); err != nil {
+			errs = append(errs, fmt.Errorf("release %s snapshot: %w", name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // reserveSnapshots takes a reservation on each of the given snapshots, for a consumer that will
 // outlive whoever already holds one. Every reservation taken is handed back if any one of them
 // fails, since a caller that gets an error takes ownership of nothing.

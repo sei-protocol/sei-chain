@@ -189,13 +189,37 @@ func (d *Database) FinalizeBlock(
 
 	// One commit per block: that is the store contract, so the benchmark must not batch.
 	d.metrics.SetMainThreadPhase("committing")
-	if _, err := d.db.Commit(); err != nil {
+	version, err := d.db.Commit()
+	if err != nil {
 		return fmt.Errorf("failed to commit: %w", err)
 	}
 	d.metrics.ReportDBCommit()
 
+	if err := d.awaitLaggingHash(version); err != nil {
+		return err
+	}
+
 	d.metrics.SetMainThreadPhase("executing")
 
+	return nil
+}
+
+// awaitLaggingHash waits for the hash of the block HashAsynchrony blocks behind the one just committed,
+// which is what consumes the database's hash stream.
+//
+// Time spent here is time hashing could not keep up with execution: the hash asked for is one the hasher has
+// had HashAsynchrony blocks to produce, so with any slack at all the wait is free.
+func (d *Database) awaitLaggingHash(version int64) error {
+	target := version - d.config.HashAsynchrony
+	if target < 1 {
+		// The chain is not that long yet, so there is nothing behind us to wait for.
+		return nil
+	}
+
+	d.metrics.SetMainThreadPhase("awaiting_hash")
+	if err := d.db.AwaitBlockHash(target); err != nil {
+		return fmt.Errorf("failed to await hash of block %d: %w", target, err)
+	}
 	return nil
 }
 

@@ -44,6 +44,10 @@ func (r *readTrackingWrapper) Importer(_ int64) (scTypes.Importer, error) {
 	return nil, nil
 }
 
+func (r *readTrackingWrapper) AwaitBlockHash(int64) error {
+	return nil
+}
+
 func (r *readTrackingWrapper) GetPhaseTimer() *commonmetrics.PhaseTimer {
 	return nil
 }

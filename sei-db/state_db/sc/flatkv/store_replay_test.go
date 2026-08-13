@@ -57,14 +57,14 @@ func TestCatchupRecoversGappedCommitBlockAfterMetadataLag(t *testing.T) {
 	require.NoError(t, s.SetInitialVersion(10))
 	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
 	require.Equal(t, int64(10), s.Version())
-	hashAfterCommit := append([]byte(nil), s.RootHash()...)
+	hashAfterCommit := append([]byte(nil), awaitRootHash(t, s)...)
 
 	// Rewind only the global watermark to mimic metadata lagging the WAL /
 	// per-DB commits. Catchup should replay the gapped WAL entry at v10.
 	s.committedVersion = 9
 	require.NoError(t, s.replayIntoMutableStore(0))
 	require.Equal(t, int64(10), s.committedVersion)
-	require.Equal(t, hashAfterCommit, s.RootHash())
+	require.Equal(t, hashAfterCommit, awaitRootHash(t, s))
 
 	height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)
 	require.NoError(t, err)
@@ -324,7 +324,7 @@ func TestReplayIntoReadOnlyCopyDoesNotDisturbPrimary(t *testing.T) {
 		commitStorageEntry(t, s, ktype.Address{i}, ktype.Slot{i}, []byte{i})
 	}
 	primaryVersion := s.committedVersion
-	primaryHash := append([]byte(nil), s.RootHash()...)
+	primaryHash := append([]byte(nil), awaitRootHash(t, s)...)
 
 	ro, err := s.LoadVersionReadOnly(2)
 	require.NoError(t, err)
@@ -332,7 +332,7 @@ func TestReplayIntoReadOnlyCopyDoesNotDisturbPrimary(t *testing.T) {
 
 	require.Equal(t, int64(2), ro.Version(), "the clone must land exactly on the requested version")
 	require.Equal(t, primaryVersion, s.committedVersion, "feeding a clone must not move the primary")
-	require.Equal(t, primaryHash, s.RootHash())
+	require.Equal(t, primaryHash, awaitRootHash(t, s))
 }
 
 // A store that already holds the block being replayed must not have its recorded height written

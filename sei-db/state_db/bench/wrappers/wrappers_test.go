@@ -48,6 +48,10 @@ func (m *mockDBWrapper) Importer(_ int64) (scTypes.Importer, error) {
 	return nil, nil
 }
 
+func (m *mockDBWrapper) AwaitBlockHash(int64) error {
+	return nil
+}
+
 func (m *mockDBWrapper) GetPhaseTimer() *metrics.PhaseTimer {
 	return nil
 }

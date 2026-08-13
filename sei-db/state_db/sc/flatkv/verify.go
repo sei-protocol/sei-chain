@@ -37,6 +37,13 @@ func verifyLtHashInternal(cs *CommitStore) error {
 		)
 	}
 
+	// The hashes being verified live in the hasher, and reading them through it also waits for every block
+	// already offered — so the maintained state compared below describes the same height the scan sees.
+	seed, err := cs.hasher.Seed()
+	if err != nil {
+		return fmt.Errorf("VerifyLtHash: read maintained hash state: %w", err)
+	}
+
 	// Recompute each DB's per-module hashes and stats from disk, validate the
 	// maintained per-module metadata against them, and accumulate the global
 	// root as the homomorphic sum of the derived per-DB roots.
@@ -50,15 +57,16 @@ func verifyLtHashInternal(cs *CommitStore) error {
 		if err != nil {
 			return fmt.Errorf("VerifyLtHash: scan %s: %w", store.Name(), err)
 		}
-		dbRoot, err := cs.verifyDBModuleMetadata(store.Name(), scanHash, scanStats)
+		dbRoot, err := cs.verifyDBModuleMetadata(store.Name(), seed, scanHash, scanStats)
 		if err != nil {
 			return err
 		}
 		global.MixIn(dbRoot)
 	}
 
-	// The scan reflects committed state, so committedLtHash is the reference.
-	if gc, cc := global.Checksum(), cs.committedLtHash.Checksum(); gc != cc {
+	// The scan reflects committed state, so the hash the pipeline has published for it is the reference.
+	published := seed.committed
+	if gc, cc := global.Checksum(), published.Hash; !bytes.Equal(gc[:], cc) {
 		return fmt.Errorf(
 			"VerifyLtHash: global mismatch at version %d\n  committed: %x\n  full-scan: %x",
 			cs.committedVersion, cc, gc,
@@ -127,11 +135,12 @@ func scanStoreByModule(
 // that is not zeroed, or the per-module sum not equaling the per-DB root.
 func (cs *CommitStore) verifyDBModuleMetadata(
 	dir string,
+	seed hasherSeed,
 	scanHash map[string]*lthash.LtHash,
 	scanStats map[string]lthash.ModuleStats,
 ) (*lthash.LtHash, error) {
-	workingHash := cs.perDBModuleWorkingLtHash[dir]
-	workingStats := cs.perDBModuleWorkingStats[dir]
+	workingHash := seed.perDBModuleLtHash[dir]
+	workingStats := seed.perDBModuleStats[dir]
 
 	// Every module on disk must match the maintained hash and stats.
 	for module, h := range scanHash {
@@ -182,7 +191,7 @@ func (cs *CommitStore) verifyDBModuleMetadata(
 
 	// The maintained per-module hashes must homomorphically sum to the
 	// maintained per-DB root, and that root must equal the scan.
-	root := cs.perDBWorkingLtHash[dir]
+	root := seed.perDBLtHash[dir]
 	sum := lthash.SumModuleHashes(workingHash)
 	if root == nil || !root.Equal(sum) {
 		return nil, fmt.Errorf(

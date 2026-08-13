@@ -60,7 +60,17 @@ func (s *CommitStore) replayIntoMutableStore(targetVersion int64) (err error) {
 	if err != nil {
 		return fmt.Errorf("catchup: WAL iterator [%d,%d]: %w", start, end, err)
 	}
+
+	// Hashes are published as replay goes, and nothing else is reading them here — so replay reads them
+	// itself, both to keep the channel from filling and stalling it, and because the last one is the hash of
+	// the height it lands on. Started before the first block and joined after the last.
+	drain := s.drainHashes(end)
+
 	if replayed, err = replayBlocks(s, it, alreadyHave); err != nil {
+		drain.abandon()
+		return fmt.Errorf("catchup: %w", err)
+	}
+	if err := drain.join(); err != nil {
 		return fmt.Errorf("catchup: %w", err)
 	}
 
@@ -225,7 +235,65 @@ func (s *CommitStore) applyAndCommit(
 		return fmt.Errorf("commit v%d: %w", version, err)
 	}
 	s.committedVersion = version
-	s.committedLtHash = s.workingLtHash.Clone()
 	s.clearPendingBlock()
+	return nil
+}
+
+// hashDrain reads hashes off the store while replay produces them, so a full channel cannot stall replay, and
+// keeps the last one seen.
+type hashDrain struct {
+	// done is closed when the goroutine has stopped reading.
+	done chan struct{}
+
+	// stop tells the goroutine to stop reading without waiting for the target.
+	stop chan struct{}
+
+	// last is the highest block hash seen, valid once done is closed.
+	last BlockHash
+
+	// reached reports whether the target height was seen.
+	reached bool
+}
+
+// drainHashes starts reading published hashes, stopping once the hash for target has been seen.
+func (s *CommitStore) drainHashes(target uint64) *hashDrain {
+	d := &hashDrain{done: make(chan struct{}), stop: make(chan struct{})}
+	hashes := s.HashChan()
+	go func() {
+		defer close(d.done)
+		for {
+			select {
+			case <-d.stop:
+				return
+			case hash, ok := <-hashes:
+				if !ok {
+					// Closed means the store is failing or shutting down. Nothing more will arrive, so
+					// stop rather than wait for a height that cannot come.
+					return
+				}
+				d.last = hash
+				//nolint:gosec // WAL heights are well below MaxInt64
+				if hash.BlockHeight >= int64(target) {
+					d.reached = true
+					return
+				}
+			}
+		}
+	}()
+	return d
+}
+
+// abandon stops the drain without waiting for the target, for a replay that failed part way.
+func (d *hashDrain) abandon() {
+	close(d.stop)
+	<-d.done
+}
+
+// join waits for the target height to be hashed.
+func (d *hashDrain) join() error {
+	<-d.done
+	if !d.reached {
+		return fmt.Errorf("hashing stopped before the last replayed block was hashed")
+	}
 	return nil
 }

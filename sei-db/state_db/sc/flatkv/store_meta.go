@@ -411,16 +411,24 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 		s.earliestVersion = seededVersion
 	}
 
+	// Seeding writes the store's starting hashes straight to Pebble, so it needs the hashes the hasher holds —
+	// and the hasher must carry back whatever this establishes, or the first real block would be measured
+	// against different state than was persisted.
+	seed, err := s.hasher.Seed()
+	if err != nil {
+		return fmt.Errorf("flatkv: SetInitialVersion: read hash state: %w", err)
+	}
+
 	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
 	for _, dir := range dataDBDirs {
 		db := s.rawDBFor(dir)
-		ltHash := s.perDBWorkingLtHash[dir]
+		ltHash := seed.perDBLtHash[dir]
 		if ltHash == nil {
 			ltHash = lthash.New()
-			s.perDBWorkingLtHash[dir] = ltHash
+			seed.perDBLtHash[dir] = ltHash
 		}
-		moduleHashes := s.perDBModuleWorkingLtHash[dir]
-		moduleStats := s.perDBModuleWorkingStats[dir]
+		moduleHashes := seed.perDBModuleLtHash[dir]
+		moduleStats := seed.perDBModuleStats[dir]
 		batch := db.NewBatch()
 		if err := writeLocalMetaToBatch(batch, seededVersion, ltHash, moduleHashes, moduleStats); err != nil {
 			_ = batch.Close()
@@ -440,6 +448,10 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	}
 
 	s.committedVersion = seededVersion
+	seed.committed = BlockHash{Hash: s.PublishedHash().Hash, BlockHeight: seededVersion}
+	if err := s.hasher.Reseed(seed); err != nil {
+		return fmt.Errorf("flatkv: SetInitialVersion: adopt seeded hash state: %w", err)
+	}
 	if seededVersion > 0 {
 		if err := s.WriteSnapshot(""); err != nil {
 			return fmt.Errorf("flatkv: SetInitialVersion: write seeded snapshot: %w", err)

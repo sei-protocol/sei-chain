@@ -175,6 +175,11 @@ func (h *historicalOffloadWrapper) Importer(_ int64) (scTypes.Importer, error) {
 	return nil, fmt.Errorf("import not supported for historical offload wrapper")
 }
 
+// AwaitBlockHash returns immediately: this backend does not hash blocks in the background.
+func (h *historicalOffloadWrapper) AwaitBlockHash(int64) error {
+	return nil
+}
+
 func (h *historicalOffloadWrapper) GetPhaseTimer() *metrics.PhaseTimer {
 	return nil
 }

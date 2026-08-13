@@ -1,6 +1,8 @@
 package wrappers
 
 import (
+	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
@@ -49,6 +51,18 @@ func (c *compositeWrapper) Read(key []byte) (data []byte, found bool, err error)
 	store := c.base.GetChildStoreByName(EVMStoreName)
 	data = store.Get(key)
 	return data, data != nil, nil
+}
+
+// AwaitBlockHash asks the composite store for the version's lattice hash, which is what drains flatkv's hash
+// stream. A composite store with no flatkv backend has no lattice hash and nothing to drain.
+func (c *compositeWrapper) AwaitBlockHash(version int64) error {
+	if !c.base.HasFlatKV() {
+		return nil
+	}
+	if _, err := c.base.LatticeHash(version); err != nil {
+		return fmt.Errorf("await composite lattice hash at version %d: %w", version, err)
+	}
+	return nil
 }
 
 func (c *compositeWrapper) GetPhaseTimer() *metrics.PhaseTimer {

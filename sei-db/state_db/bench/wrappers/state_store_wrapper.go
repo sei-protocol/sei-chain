@@ -66,6 +66,11 @@ func (s *stateStoreWrapper) Importer(_ int64) (scTypes.Importer, error) {
 	return nil, fmt.Errorf("import not supported for state store wrapper")
 }
 
+// AwaitBlockHash returns immediately: this backend does not hash blocks in the background.
+func (s *stateStoreWrapper) AwaitBlockHash(int64) error {
+	return nil
+}
+
 func (s *stateStoreWrapper) GetPhaseTimer() *metrics.PhaseTimer {
 	return nil
 }

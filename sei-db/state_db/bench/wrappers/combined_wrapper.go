@@ -66,6 +66,11 @@ func (c *combinedWrapper) Importer(version int64) (scTypes.Importer, error) {
 	return c.sc.Importer(version)
 }
 
+// AwaitBlockHash delegates to the State Commit backend, the only one of the pair that hashes blocks.
+func (c *combinedWrapper) AwaitBlockHash(version int64) error {
+	return c.sc.AwaitBlockHash(version)
+}
+
 func (c *combinedWrapper) GetPhaseTimer() *metrics.PhaseTimer {
 	return nil
 }

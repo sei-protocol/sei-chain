@@ -26,21 +26,22 @@ func (s *CommitStore) HashCategories() []string {
 	return categories
 }
 
-// RecordHashes reports this store's hashes for blockNumber: the committed global root and each data DB's
-// committed per-DB LtHash checksum. Intended to be called right after Commit, when localMeta holds the
-// just-committed per-DB hashes and CommittedRootHash reflects the same version.
+// RecordHashes reports this store's hashes for blockNumber: the global root and each data DB's per-DB LtHash
+// checksum.
+//
+// The hashes reported are the most recent the hasher has published, which on a committing store lags the
+// block being committed. blockNumber is the caller's label for the row, so a lagging report is recorded
+// against the height the caller is on rather than the height the hashes describe — the published height is
+// available on the same value if that distinction ever needs to be logged.
 func (s *CommitStore) RecordHashes(hl hashlog.HashLogger, blockNumber uint64) error {
-	if err := hl.ReportHash(blockNumber, FlatKVRootHashType, s.CommittedRootHash()); err != nil {
+	published := s.PublishedHash()
+
+	if err := hl.ReportHash(blockNumber, FlatKVRootHashType, published.Hash); err != nil {
 		return fmt.Errorf("failed to report flatkv root hash: %w", err)
 	}
 	for _, dir := range dataDBDirs {
-		var hash []byte
-		if meta := s.localMeta[dir]; meta != nil && meta.LtHash != nil {
-			checksum := meta.LtHash.Checksum()
-			hash = checksum[:]
-		}
 		category := flatKVDBHashPrefix + dir
-		if err := hl.ReportHash(blockNumber, category, hash); err != nil {
+		if err := hl.ReportHash(blockNumber, category, published.PerDBHashes[dir]); err != nil {
 			return fmt.Errorf("failed to report flatkv db hash %q: %w", category, err)
 		}
 	}

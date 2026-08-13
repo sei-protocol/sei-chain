@@ -57,6 +57,11 @@ func (m *memIAVLWrapper) Read(key []byte) (data []byte, found bool, err error) {
 	return data, data != nil, nil
 }
 
+// AwaitBlockHash returns immediately: this backend does not hash blocks in the background.
+func (m *memIAVLWrapper) AwaitBlockHash(int64) error {
+	return nil
+}
+
 func (m *memIAVLWrapper) GetPhaseTimer() *metrics.PhaseTimer {
 	return nil
 }

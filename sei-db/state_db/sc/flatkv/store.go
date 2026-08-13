@@ -66,13 +66,15 @@ type CommitStore struct {
 	// The directory holding this store's databases and its snapshot tree.
 	dbDir string
 
-	// The metadata each database most recently persisted, keyed by database directory name.
+	// The metadata each database had persisted when this store was opened, keyed by database directory
+	// name. A LocalMeta records a database's committed height, its LtHash, and its per-module hashes and
+	// stats.
 	//
-	// A LocalMeta records a database's committed height, its LtHash, and its per-module hashes and
-	// stats. Sealing a block hands each store its own LocalMeta as the block's finalization writes, so
-	// the metadata lands in the same atomic batch as the data it describes and a database on disk can
-	// never disagree with its own bookkeeping. This map is the in-memory copy of what was written, and
-	// is adopted only once every store has accepted the seal.
+	// Read at open, and rewritten only by the paths that replace a database's contents wholesale — import,
+	// rollback, and seeding an initial version. Committing a block does not update it: the block's metadata
+	// is written by the hasher, in the same atomic batch as the data it describes, so this map goes stale as
+	// soon as the first block commits. What consumes it runs before the stores exist — deciding where replay
+	// must start, and seeding the hasher's accumulator.
 	localMeta map[string]*ktype.LocalMeta
 
 	// The height of the most recently committed block. The next Commit must be exactly this plus one.
@@ -82,41 +84,11 @@ type CommitStore struct {
 	// hash. It does not move until a Commit has succeeded on all five stores.
 	committedLtHash *lthash.LtHash
 
-	// The root LtHash including the block currently being applied. ApplyChangeSets folds each change
-	// into it as it goes, and Commit copies it into committedLtHash once the seal succeeds.
-	//
-	// LtHash is homomorphic: a new value is mixed in and the value it replaced is mixed out, in any
-	// order. That is what lets this be maintained incrementally instead of recomputed per block, and it
-	// is the property that will eventually allow hashing to move off the execution thread — a Merkle
-	// root could not be deferred that way.
-	workingLtHash *lthash.LtHash
-
 	// earliestVersion is the version this store's history begins at, as
 	// recorded by SetInitialVersion (the seeded version). 0 when unknown:
 	// genesis stores and stores created before the record existed. See
 	// EarliestVersion.
 	earliestVersion int64
-
-	// Per-DB working LTHash tracking. Authoritative copies live in each
-	// DB's LocalMeta (atomically committed with data). On startup the
-	// working hashes are loaded from LocalMeta.
-	perDBWorkingLtHash map[string]*lthash.LtHash
-
-	// Per-DB, per-module working LtHash: dbDir -> module name -> hash.
-	// The per-DB root (perDBWorkingLtHash[dir]) is the homomorphic sum of
-	// the module hashes here. account/code/storage DBs only ever carry the
-	// "evm" module; miscDB may carry several (evm plus cosmos modules).
-	// Persisted alongside the per-DB root in each DB's LocalMeta and reloaded
-	// on startup. This is bookkeeping metadata only: it does not feed the
-	// global evm_lattice/AppHash.
-	perDBModuleWorkingLtHash map[string]map[string]*lthash.LtHash
-
-	// Per-DB, per-module working stats: dbDir -> module name -> key-count /
-	// byte totals. Accumulated alongside perDBModuleWorkingLtHash using the
-	// same key-membership rule, persisted in each DB's LocalMeta, and reloaded
-	// on startup. Consensus-irrelevant bookkeeping; per-DB / global totals are
-	// derived on demand.
-	perDBModuleWorkingStats map[string]map[string]lthash.ModuleStats
 
 	// The four data stores below mediate every read and write of their databases. The block being
 	// applied accumulates its writes inside each store, so a read through a store already sees what
@@ -164,6 +136,15 @@ type CommitStore struct {
 	// calls and Commit both require version to match when this is non-zero:
 	// only one block may be buffered per commit.
 	pendingBlockHeight int64
+
+	// Computes each committed block's lattice hash off the execution thread, and owns the accumulated hash
+	// state while doing so. Built by openStores once the stores exist and torn down by closeStores. Nil on a
+	// read-only store, which never commits — such a store answers hash queries from what it loaded.
+	hasher *blockHasher
+
+	// The hash state the next hasher is built from, produced by loadGlobalMetadata before the stores exist.
+	// Only meaningful between that load and the openStores that consumes it.
+	hashSeed hasherSeed
 
 	// Writes snapshots off the execution thread. Built by openStores once the stores exist and torn
 	// down by closeStores, so its lifetime is exactly the window in which the databases it checkpoints
@@ -268,22 +249,18 @@ func NewCommitStore(
 	ltCalc := lthash.NewHashCalculator(ltHashPool, dataDBDirs, moduleOfKey)
 
 	return &CommitStore{
-		ctx:                      ctx,
-		cancel:                   cancel,
-		config:                   *cfg,
-		localMeta:                make(map[string]*ktype.LocalMeta),
-		pendingChangeSets:        make([]*proto.NamedChangeSet, 0),
-		committedLtHash:          lthash.New(),
-		workingLtHash:            lthash.New(),
-		perDBWorkingLtHash:       make(map[string]*lthash.LtHash),
-		perDBModuleWorkingLtHash: newPerDBModuleLtHashMap(),
-		perDBModuleWorkingStats:  newPerDBModuleStatsMap(),
-		phaseTimer:               metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
-		readPool:                 readPool,
-		miscPool:                 miscPool,
-		ltHashPool:               ltHashPool,
-		ltCalc:                   ltCalc,
-		wal:                      stateWAL,
+		ctx:               ctx,
+		cancel:            cancel,
+		config:            *cfg,
+		localMeta:         make(map[string]*ktype.LocalMeta),
+		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
+		committedLtHash:   lthash.New(),
+		phaseTimer:        metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
+		readPool:          readPool,
+		miscPool:          miscPool,
+		ltHashPool:        ltHashPool,
+		ltCalc:            ltCalc,
+		wal:               stateWAL,
 	}, nil
 }
 
@@ -813,8 +790,16 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 		if err := s.sealBaseline(); err != nil {
 			return err
 		}
-		// Built last, and only here: it checkpoints the databases the stores above own, so it must not
-		// outlive them. closeStores drains it before those stores go away.
+		// Both are built here and only here, so neither outlives the stores it reads. closeStores drains them
+		// before those stores go away.
+		s.hasher = newBlockHasher(
+			s.ctx,
+			s.hashSeed,
+			s.ltCalc,
+			s.miscPool,
+			s.config.HashQueueSize,
+			s.config.HashChanSize,
+		)
 		s.snapshotWriter = newSnapshotWriter(
 			s.ctx,
 			s.snapshotLayout(),
@@ -885,6 +870,15 @@ func (s *CommitStore) rawDBFor(name string) seidbtypes.KeyValueDB {
 // than short-circuited: every store must be given its chance to stop.
 func (s *CommitStore) closeStores() error {
 	var errs []error
+
+	// The hasher stops before the writer, because the writer can be waiting for a block to flush and only
+	// finalization by the hasher makes that possible. Draining the other way round hangs teardown.
+	if s.hasher != nil {
+		if err := s.hasher.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close block hasher: %w", err))
+		}
+		s.hasher = nil
+	}
 
 	// The writer must stop before anything below runs: closing a store closes the database it owns, and
 	// a checkpoint in progress would then be reading a closed handle. This is the choke point every
@@ -982,10 +976,14 @@ func (s *CommitStore) loadGlobalMetadata(metaDB seidbtypes.KeyValueDB) error {
 	}
 	if globalLtHash != nil {
 		s.committedLtHash = globalLtHash
-		s.workingLtHash = globalLtHash.Clone()
 	} else {
 		s.committedLtHash = lthash.New()
-		s.workingLtHash = lthash.New()
+	}
+	rootChecksum := s.committedLtHash.Checksum()
+	s.hashSeed = hasherSeed{
+		perDBLtHash:       make(map[string]*lthash.LtHash, len(dataDBDirs)),
+		perDBModuleLtHash: newPerDBModuleLtHashMap(),
+		perDBModuleStats:  newPerDBModuleStatsMap(),
 	}
 
 	// Load per-DB LtHashes from each DB's LocalMeta (already loaded by loadLocalMeta).
@@ -997,16 +995,16 @@ func (s *CommitStore) loadGlobalMetadata(metaDB seidbtypes.KeyValueDB) error {
 			return err
 		}
 		if meta != nil && meta.LtHash != nil {
-			s.perDBWorkingLtHash[dbDir] = meta.LtHash.Clone()
+			s.hashSeed.perDBLtHash[dbDir] = meta.LtHash.Clone()
 		} else {
-			s.perDBWorkingLtHash[dbDir] = lthash.New()
+			s.hashSeed.perDBLtHash[dbDir] = lthash.New()
 		}
 		if meta != nil {
-			s.perDBModuleWorkingLtHash[dbDir] = cloneModuleHashes(meta.ModuleLtHashes)
-			s.perDBModuleWorkingStats[dbDir] = cloneModuleStats(meta.ModuleStats)
+			s.hashSeed.perDBModuleLtHash[dbDir] = cloneModuleHashes(meta.ModuleLtHashes)
+			s.hashSeed.perDBModuleStats[dbDir] = cloneModuleStats(meta.ModuleStats)
 		} else {
-			s.perDBModuleWorkingLtHash[dbDir] = make(map[string]*lthash.LtHash)
-			s.perDBModuleWorkingStats[dbDir] = make(map[string]lthash.ModuleStats)
+			s.hashSeed.perDBModuleLtHash[dbDir] = make(map[string]*lthash.LtHash)
+			s.hashSeed.perDBModuleStats[dbDir] = make(map[string]lthash.ModuleStats)
 		}
 		if meta != nil && meta.CommittedVersion < s.committedVersion {
 			logger.Warn("DB LocalMeta version behind global version, will catchup",
@@ -1016,6 +1014,9 @@ func (s *CommitStore) loadGlobalMetadata(metaDB seidbtypes.KeyValueDB) error {
 			s.committedVersion = meta.CommittedVersion
 		}
 	}
+
+	// Published before the first block is hashed, so a reader has an answer at the height the store loaded.
+	s.hashSeed.committed = BlockHash{Hash: rootChecksum[:], BlockHeight: s.committedVersion}
 
 	return nil
 }
@@ -1028,29 +1029,6 @@ func (s *CommitStore) Version() int64 {
 // buffered by ApplyChangeSets, or 0 when there are no buffered writes.
 func (s *CommitStore) PendingVersion() int64 {
 	return s.pendingBlockHeight
-}
-
-// RootHash returns the Blake3-256 digest of the LtHash, committing the pending block first if there
-// is one.
-//
-// The hash is computed from the snapshots a commit produces, so an uncommitted block has no hash. A
-// caller asking for one is therefore asking for the block to be committed, and gets it.
-//
-// This exists for Cosmos, which asks for the hash before it calls Commit. Committing early is safe
-// there because every one of the block's writes has already arrived: rootmulti's GetWorkingHash begins
-// by flushing every buffered changeset into this store, and only then reads the hash. The Commit that
-// follows finds the block already committed and does nothing (see Commit).
-//
-// Post-Cosmos this goes away along with rootmulti: a single call will supply a block's writes and
-// commit them, and nothing will ask for a hash mid-block.
-func (s *CommitStore) RootHash() []byte {
-	if err := s.commitPendingBlock(); err != nil {
-		// Nothing in the Cosmos hash path can carry an error, and a store that cannot commit cannot
-		// produce a trustworthy hash either. Returning a stale one would let the chain proceed on it.
-		panic(fmt.Sprintf("flatkv: commit pending block %d before hashing: %v", s.pendingBlockHeight, err))
-	}
-	checksum := s.workingLtHash.Checksum()
-	return checksum[:]
 }
 
 // commitPendingBlock commits the block currently being applied, if any. It is a no-op on a store with
@@ -1067,10 +1045,41 @@ func (s *CommitStore) commitPendingBlock() error {
 	return err
 }
 
-// CommittedRootHash returns the Blake3-256 digest of the last committed LtHash.
-func (s *CommitStore) CommittedRootHash() []byte {
+// CommitPendingBlock commits the block currently being applied, if any, so that it has a hash. It is a no-op
+// on a store with no pending writes, which is every store between blocks and every read-only store.
+//
+// This exists for Cosmos, which asks for a block's hash before it calls Commit. A block that has not been
+// committed has no hash — the hash is computed from the snapshots a commit produces — so a caller wanting one
+// mid-block is asking for the block to be committed, and this is that request made explicitly. Committing
+// early is safe there because every one of the block's writes has already arrived: rootmulti's
+// GetWorkingHash flushes every buffered changeset into this store before it reads the hash, and the Commit
+// that follows finds the block already committed and does nothing.
+//
+// Post-Cosmos this goes away along with rootmulti: a single call will supply a block's writes and commit
+// them, and nothing will ask for a hash mid-block.
+func (s *CommitStore) CommitPendingBlock() error {
+	return s.commitPendingBlock()
+}
+
+// HashChan implements Store.
+func (s *CommitStore) HashChan() <-chan BlockHash {
+	if s.hasher == nil {
+		// A read-only store never commits, so it never produces a hash. A closed channel reports that
+		// immediately rather than leaving a consumer waiting for a block that will not come.
+		empty := make(chan BlockHash)
+		close(empty)
+		return empty
+	}
+	return s.hasher.HashChan()
+}
+
+// PublishedHash implements Store.
+func (s *CommitStore) PublishedHash() BlockHash {
+	if s.hasher != nil {
+		return s.hasher.Published()
+	}
 	checksum := s.committedLtHash.Checksum()
-	return checksum[:]
+	return BlockHash{Hash: checksum[:], BlockHeight: s.committedVersion}
 }
 
 // EarliestVersion implements Store.
@@ -1101,7 +1110,13 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	if err := s.resetForImport(); err != nil {
 		return nil, fmt.Errorf("reset store for import: %w", err)
 	}
-	return NewKVImporter(s, version), nil
+	// The importer's workers accumulate on top of the hashes the hasher is carrying, so read them here where
+	// the error can be returned.
+	seed, err := s.hasher.Seed()
+	if err != nil {
+		return nil, fmt.Errorf("read hash state for import: %w", err)
+	}
+	return NewKVImporter(s, version, seed), nil
 }
 
 // resetForImport purges all existing data so that a subsequent import
@@ -1160,10 +1175,6 @@ func (s *CommitStore) resetForImport() error {
 
 	s.committedVersion = 0
 	s.committedLtHash = lthash.New()
-	s.workingLtHash = lthash.New()
-	s.perDBWorkingLtHash = newPerDBLtHashMap()
-	s.perDBModuleWorkingLtHash = newPerDBModuleLtHashMap()
-	s.perDBModuleWorkingStats = newPerDBModuleStatsMap()
 
 	return nil
 }

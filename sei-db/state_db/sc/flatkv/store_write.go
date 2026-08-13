@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -112,7 +113,6 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 
 	// Step 3: Update in-memory committed state, only once every store accepted the seal.
 	s.committedVersion = version
-	s.committedLtHash = s.workingLtHash.Clone()
 
 	// Step 4: Clear per-block bookkeeping
 	s.clearPendingBlock()
@@ -160,6 +160,16 @@ func (s *CommitStore) FlushSnapshots() error {
 	return s.snapshotWriter.Flush()
 }
 
+// FlushHashes blocks until the hasher has published a hash for every block committed so far. It is the
+// synchronization point for a caller that wants PublishedHash to describe the version it just
+// committed rather than however far behind the hasher is; block commit does not need it.
+func (s *CommitStore) FlushHashes() error {
+	if s.hasher == nil {
+		return nil
+	}
+	return s.hasher.Flush()
+}
+
 // clearPendingBlock resets the per-block bookkeeping that Commit consumed.
 func (s *CommitStore) clearPendingBlock() {
 	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0, len(s.pendingChangeSets))
@@ -202,57 +212,39 @@ func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) (re
 		snapshots[snap.Name()] = snap
 	}
 
-	if err := s.hashSealedBlock(snapshots); err != nil {
-		return fmt.Errorf("hash sealed block: %w", err)
-	}
-
-	s.phaseTimer.SetPhase("commit_finalize_stores")
-	for _, snap := range snapshots {
-		if err := s.finalizeStore(snap, version, alreadyHave); err != nil {
-			return fmt.Errorf("finalize %s: %w", snap.Name(), err)
-		}
-	}
-
-	// Adopt the freshly persisted per-DB metadata only once every store has accepted it. A store that
-	// kept its own metadata above keeps its in-memory copy too.
-	for _, dir := range dataDBDirs {
-		if alreadyHave[dir] >= version {
-			continue
-		}
-		s.localMeta[dir] = &ktype.LocalMeta{
-			CommittedVersion: version,
-			LtHash:           s.perDBWorkingLtHash[dir].Clone(),
-			ModuleLtHashes:   cloneModuleHashes(s.perDBModuleWorkingLtHash[dir]),
-			ModuleStats:      cloneModuleStats(s.perDBModuleWorkingStats[dir]),
-		}
-	}
-	return nil
+	s.phaseTimer.SetPhase("commit_offer_hash")
+	return s.offerHash(version, snapshots, alreadyHave)
 }
 
-// hashSealedBlock folds the block that was just sealed into the store's hashes.
+// offerHash hands the sealed block to the hasher, which computes its lattice hash, records that hash on the
+// block's snapshots, and publishes it.
 //
-// The new values are each data store's snapshot diff. The old values are those same keys read back
-// from the previous block's snapshot, which lastSealed still holds when this runs.
-func (s *CommitStore) hashSealedBlock(sealed map[string]snapshot.Snapshot) error {
-	s.phaseTimer.SetPhase("commit_compute_lt_hash")
-
-	changed, err := s.changedValuesByStore(sealed)
-	if err != nil {
-		return fmt.Errorf("gather changed values: %w", err)
-	}
-	res, err := s.ltCalc.Compute(
-		changed,
-		s.perDBWorkingLtHash,
-		s.perDBModuleWorkingLtHash,
-		s.perDBModuleWorkingStats)
-	if err != nil {
-		return fmt.Errorf("compute lt hash: %w", err)
+// Reservations are taken on this block and on the one before it, because the hash is a delta: the prior value
+// of every changed key is read from the preceding block, and holding that reservation is what keeps Pebble at
+// that version while the read happens. Release it early and the read returns this block's value instead — a
+// wrong hash, with no error. The hasher hands both sets back once it has read what it needs.
+func (s *CommitStore) offerHash(
+	version int64,
+	current map[string]snapshot.Snapshot,
+	alreadyHave map[string]int64,
+) error {
+	if s.hasher == nil {
+		return fmt.Errorf("cannot hash version %d: store has no block hasher", version)
 	}
 
-	s.perDBWorkingLtHash = res.PerDB
-	s.perDBModuleWorkingLtHash = res.PerModule
-	s.perDBModuleWorkingStats = res.PerModuleStats
-	s.workingLtHash = res.Global
+	reservedCurrent, err := reserveSnapshots(current)
+	if err != nil {
+		return fmt.Errorf("reserve version %d for hashing: %w", version, err)
+	}
+	reservedPrevious, err := reserveSnapshots(s.lastSealed)
+	if err != nil {
+		return errors.Join(
+			fmt.Errorf("reserve the block before version %d for hashing: %w", version, err),
+			releaseSnapshots(reservedCurrent))
+	}
+	if err := s.hasher.Offer(version, reservedCurrent, reservedPrevious, alreadyHave); err != nil {
+		return fmt.Errorf("hash version %d: %w", version, err)
+	}
 	return nil
 }
 
@@ -271,7 +263,11 @@ func (s *CommitStore) hashSealedBlock(sealed map[string]snapshot.Snapshot) error
 //
 // The store-wide root is likewise rebuilt from scratch on every seal — HashCalculator.Compute sums the
 // four per-database roots and never mixes in the previous store-wide value.
-func (s *CommitStore) changedValuesByStore(sealed map[string]snapshot.Snapshot) ([]lthash.DBPairs, error) {
+func changedValuesByStore(
+	pool threading.Pool,
+	current map[string]snapshot.Snapshot,
+	previous map[string]snapshot.Snapshot,
+) ([]lthash.DBPairs, error) {
 	changed := make([][]lthash.KVPairWithLastValue, len(dataDBDirs))
 	errs := make([]error, len(dataDBDirs))
 
@@ -279,11 +275,11 @@ func (s *CommitStore) changedValuesByStore(sealed map[string]snapshot.Snapshot) 
 	for i, dir := range dataDBDirs {
 		idx, name := i, dir
 		wg.Add(1)
-		s.miscPool.Submit(func() {
+		pool.Submit(func() {
 			defer wg.Done()
 			// A store committing its first block has no previous snapshot, so every key in that block
 			// is new. A missing entry yields nil, which changedValues reads as "no old values".
-			changed[idx], errs[idx] = changedValues(sealed[name], s.lastSealed[name])
+			changed[idx], errs[idx] = changedValues(current[name], previous[name])
 			if errs[idx] != nil {
 				errs[idx] = fmt.Errorf("%s changed values: %w", name, errs[idx])
 			}
@@ -382,35 +378,6 @@ func (s *CommitStore) flushLatestVersion() error {
 	return nil
 }
 
-// finalizeStore finalizes one store's sealed block, recording the metadata that describes it: a data
-// store records its LocalMeta, the metadata store records the committed version and root LtHash.
-//
-// A store that already reached this height records nothing. Its writes were skipped, so its hash still
-// describes the later height it holds; writing this block's height alongside that hash would persist a
-// pair that describes no single moment. Finalizing with an empty write set still makes the sealed
-// version flushable, which is the only thing finalization is required to do.
-func (s *CommitStore) finalizeStore(snap snapshot.Snapshot, version int64, alreadyHave map[string]int64) error {
-	if alreadyHave[snap.Name()] >= version {
-		return snap.Finalize(nil)
-	}
-
-	var writes []*proto.KVPair
-	if snap.Name() == metadataDir {
-		writes = encodeGlobalMetadata(version, s.workingLtHash)
-	} else {
-		writes = encodeLocalMeta(
-			version,
-			s.perDBWorkingLtHash[snap.Name()],
-			s.perDBModuleWorkingLtHash[snap.Name()],
-			s.perDBModuleWorkingStats[snap.Name()],
-		)
-	}
-	if err := snap.Finalize(writes); err != nil {
-		return fmt.Errorf("finalize snapshot at version %d: %w", version, err)
-	}
-	return nil
-}
-
 // rawKVPair is a raw physical key/value pair as stored on disk.
 type rawKVPair struct {
 	Key   []byte
@@ -420,14 +387,14 @@ type rawKVPair struct {
 // FinalizeImport persists per-DB metadata (version + LtHash) and global
 // metadata after all import data has been written. This must be called
 // exactly once at the end of an import to make the data durable across restarts.
-func (s *CommitStore) FinalizeImport(version int64) error {
+func (s *CommitStore) FinalizeImport(version int64, seed hasherSeed) error {
 	syncOpt := types.WriteOptions{Sync: true}
 	for _, dir := range dataDBDirs {
 		db := s.rawDBFor(dir)
-		moduleHashes := s.perDBModuleWorkingLtHash[dir]
-		moduleStats := s.perDBModuleWorkingStats[dir]
+		moduleHashes := seed.perDBModuleLtHash[dir]
+		moduleStats := seed.perDBModuleStats[dir]
 		batch := db.NewBatch()
-		err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[dir], moduleHashes, moduleStats)
+		err := writeLocalMetaToBatch(batch, version, seed.perDBLtHash[dir], moduleHashes, moduleStats)
 		if err != nil {
 			_ = batch.Close()
 			return fmt.Errorf("%s local meta: %w", dir, err)
@@ -439,7 +406,7 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 		_ = batch.Close()
 		s.localMeta[dir] = &ktype.LocalMeta{
 			CommittedVersion: version,
-			LtHash:           s.perDBWorkingLtHash[dir].Clone(),
+			LtHash:           seed.perDBLtHash[dir].Clone(),
 			ModuleLtHashes:   cloneModuleHashes(moduleHashes),
 			ModuleStats:      cloneModuleStats(moduleStats),
 		}
@@ -447,13 +414,20 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 
 	globalHash := lthash.New()
 	for _, dir := range dataDBDirs {
-		globalHash.MixIn(s.perDBWorkingLtHash[dir])
+		globalHash.MixIn(seed.perDBLtHash[dir])
 	}
-	s.workingLtHash = globalHash
 	s.committedVersion = version
-	s.committedLtHash = s.workingLtHash.Clone()
+	s.committedLtHash = globalHash.Clone()
 	if err := s.commitGlobalMetadata(version, s.committedLtHash); err != nil {
 		return fmt.Errorf("import global metadata: %w", err)
+	}
+
+	// The hasher must carry the imported hashes from here, or the next block would be measured against the
+	// state the import replaced.
+	checksum := s.committedLtHash.Checksum()
+	seed.committed = BlockHash{Hash: checksum[:], BlockHeight: version}
+	if err := s.hasher.Reseed(seed); err != nil {
+		return fmt.Errorf("adopt imported hash state: %w", err)
 	}
 	return nil
 }

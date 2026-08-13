@@ -2,7 +2,6 @@ package flatkv
 
 import (
 	"encoding/binary"
-	"maps"
 	"path/filepath"
 	"testing"
 
@@ -215,10 +214,9 @@ func CountKeys(s *CommitStore) (int64, error) {
 	return count, nil
 }
 
-// workingHashSnapshot captures the full working lattice state — global,
-// per-DB, and per-module hashes plus per-module stats — so a failed
-// ApplyChangeSets can assert none of it moved. Global equality alone is not
-// enough: two different per-module maps can sum to the same root.
+// workingHashSnapshot captures the full lattice state the hasher has accumulated — global, per-DB, and
+// per-module hashes plus per-module stats — so a failed ApplyChangeSets can assert none of it moved. Global
+// equality alone is not enough: two different per-module maps can sum to the same root.
 type workingHashSnapshot struct {
 	global         *lthash.LtHash
 	perDB          map[string]*lthash.LtHash
@@ -226,28 +224,13 @@ type workingHashSnapshot struct {
 	perModuleStats map[string]map[string]lthash.ModuleStats
 }
 
-func snapshotWorkingHashes(s *CommitStore) workingHashSnapshot {
-	perDB := make(map[string]*lthash.LtHash, len(s.perDBWorkingLtHash))
-	for dir, h := range s.perDBWorkingLtHash {
-		perDB[dir] = h.Clone()
-	}
-	perModule := make(map[string]map[string]*lthash.LtHash, len(s.perDBModuleWorkingLtHash))
-	for dir, mods := range s.perDBModuleWorkingLtHash {
-		cloned := make(map[string]*lthash.LtHash, len(mods))
-		for module, h := range mods {
-			cloned[module] = h.Clone()
-		}
-		perModule[dir] = cloned
-	}
-	perModuleStats := make(map[string]map[string]lthash.ModuleStats, len(s.perDBModuleWorkingStats))
-	for dir, mods := range s.perDBModuleWorkingStats {
-		perModuleStats[dir] = maps.Clone(mods)
-	}
+func snapshotWorkingHashes(t testing.TB, s *CommitStore) workingHashSnapshot {
+	t.Helper()
 	return workingHashSnapshot{
-		global:         s.workingLtHash.Clone(),
-		perDB:          perDB,
-		perModule:      perModule,
-		perModuleStats: perModuleStats,
+		global:         awaitWorkingLtHash(t, s),
+		perDB:          awaitHashSeed(t, s).perDBLtHash,
+		perModule:      awaitHashSeed(t, s).perDBModuleLtHash,
+		perModuleStats: awaitHashSeed(t, s).perDBModuleStats,
 	}
 }
 
@@ -256,24 +239,25 @@ func requireWorkingHashesUnchanged(t *testing.T, s *CommitStore, before workingH
 	// Compute clones prev* before folding; a regression that mutates those
 	// clones in place or swaps them onto the store on the error path must
 	// fail these checks. Global equality alone cannot catch a per-module rewrite.
-	require.True(t, s.workingLtHash.Equal(before.global), "workingLtHash mutated on failed Apply")
-	require.Equal(t, len(before.perDB), len(s.perDBWorkingLtHash), "perDBWorkingLtHash dir set changed")
+	after := snapshotWorkingHashes(t, s)
+	require.True(t, after.global.Equal(before.global), "the store-wide hash moved on a failed Apply")
+	require.Equal(t, len(before.perDB), len(after.perDB), "the per-DB hash dir set changed")
 	for dir, want := range before.perDB {
-		got := s.perDBWorkingLtHash[dir]
-		require.NotNil(t, got, "perDBWorkingLtHash[%s] missing", dir)
-		require.True(t, got.Equal(want), "perDBWorkingLtHash[%s] mutated on failed Apply", dir)
+		got := after.perDB[dir]
+		require.NotNil(t, got, "per-DB hash for %s missing", dir)
+		require.True(t, got.Equal(want), "the per-DB hash for %s moved on a failed Apply", dir)
 	}
-	require.Equal(t, len(before.perModule), len(s.perDBModuleWorkingLtHash), "perDBModuleWorkingLtHash dir set changed")
+	require.Equal(t, len(before.perModule), len(after.perModule), "the per-module hash dir set changed")
 	for dir, wantMods := range before.perModule {
-		gotMods := s.perDBModuleWorkingLtHash[dir]
-		require.Equal(t, len(wantMods), len(gotMods), "perDBModuleWorkingLtHash[%s] module set changed", dir)
+		gotMods := after.perModule[dir]
+		require.Equal(t, len(wantMods), len(gotMods), "the module set for %s changed", dir)
 		for module, want := range wantMods {
 			got := gotMods[module]
-			require.NotNil(t, got, "perDBModuleWorkingLtHash[%s][%s] missing", dir, module)
-			require.True(t, got.Equal(want), "perDBModuleWorkingLtHash[%s][%s] mutated on failed Apply", dir, module)
+			require.NotNil(t, got, "per-module hash for %s/%s missing", dir, module)
+			require.True(t, got.Equal(want), "the hash for %s/%s moved on a failed Apply", dir, module)
 		}
 	}
-	require.Equal(t, before.perModuleStats, s.perDBModuleWorkingStats, "perDBModuleWorkingStats mutated on failed Apply")
+	require.Equal(t, before.perModuleStats, after.perModuleStats, "per-module stats moved on a failed Apply")
 }
 
 // stagedRow reads a physical key back through its store and decodes it. The store reports whatever

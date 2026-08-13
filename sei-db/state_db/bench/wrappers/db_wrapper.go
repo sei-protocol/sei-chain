@@ -32,6 +32,14 @@ type DBWrapper interface {
 	// Importer return an importer which load snapshot data into the database
 	Importer(version int64) (types.Importer, error)
 
+	// AwaitBlockHash blocks until the DB has produced the hash of the given version. A DB that does not hash
+	// blocks in the background returns immediately.
+	//
+	// A DB that does hash in the background publishes each block's hash on a stream, and a stream nobody reads
+	// eventually stalls commits, so a benchmark run has to consume it. This is that consumer, and how far the
+	// version asked for trails the version committed is how much asynchrony the run allows the hasher.
+	AwaitBlockHash(version int64) error
+
 	// Get the phase timer used to measure time spent in various phases of execution. Useful for metrics
 	// integration with external phases of execution.
 	//
