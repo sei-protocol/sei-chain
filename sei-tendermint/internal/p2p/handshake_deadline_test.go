@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"errors"
 	"io"
 	"testing"
 	"time"
@@ -19,10 +18,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// acceptPeersRoutine holds an accept-semaphore slot until the peer's node info
-// has been exchanged, so every read before that point has to be covered by the
-// handshake deadline. A peer that completes the handshake and then stops
-// responding must be hung up on rather than left holding the slot.
+// The node info exchange is part of the handshake and holds an accept-semaphore
+// slot, so it has to run under the handshake deadline. A peer that goes quiet
+// part way through must be hung up on rather than left holding the slot.
 func TestRouter_InboundNodeInfoBoundedByHandshakeDeadline(t *testing.T) {
 	ctx := t.Context()
 
@@ -68,14 +66,13 @@ func TestRouter_InboundNodeInfoBoundedByHandshakeDeadline(t *testing.T) {
 		// the deadline covering exchangeNodeInfo the router never hangs up and this
 		// never returns; the go test timeout is the backstop.
 		buf := make([]byte, 1)
-		for {
+		for ctx.Err() == nil {
 			if err := tcpConn.Read(ctx, buf); err != nil {
-				return nil
+				break
 			}
 		}
+		return nil
 	})
 	// The router hanging up on us surfaces as EOF from the connection pump.
-	if !errors.Is(err, io.EOF) {
-		t.Fatalf("want the router to hang up at the handshake deadline, got %v", err)
-	}
+	require.ErrorIs(t, err, io.EOF)
 }

@@ -242,8 +242,9 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 						release()
 						return giga.RunInboundConn(ctx, hConn)
 					}
-					// handshakeCtx, not ctx: the accept slot is held until release()
-					// below, so an unbounded read here lets a peer hold it forever.
+					// The node info exchange is part of the handshake, so it runs under
+					// the same deadline. Without it a peer that loses connectivity
+					// mid-exchange holds an accept slot for as long as its socket lives.
 					info, err := exchangeNodeInfo(handshakeCtx, hConn, *r.nodeInfoProducer())
 					if err != nil {
 						return fmt.Errorf("exchangeNodeInfo(): %w", err)
