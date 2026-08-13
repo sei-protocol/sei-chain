@@ -174,6 +174,19 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseChec
 	return s.insertTx(ctx, tx, true)
 }
 
+// session returns the produce session to insert into. With wait set it blocks
+// until a session is published, so that inserts racing the start of production
+// are admitted rather than rejected.
+func (s *State) session(ctx context.Context, wait bool) (*mempool, error) {
+	if mp := s.mempool.Load(); mp != nil {
+		return mp, nil
+	}
+	if _, ok := s.consensus.Avail().LocalLane().Get(); !wait || !ok {
+		return nil, ErrNotProducing
+	}
+	return s.mempool.Wait(ctx, func(mp *mempool) bool { return mp != nil })
+}
+
 // Inserts transaction. Blocks until there is capacity in the mempool.
 // NOTE: we currently don't do any tx filtering, which would prevent expensive CheckTxSafe calls.
 // It has to be added after testnet launch.
@@ -201,9 +214,9 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		return nil, errTooLarge
 	}
 
-	mp := s.mempool.Load()
-	if mp == nil {
-		return nil, ErrNotProducing
+	mp, err := s.session(ctx, waitIfFull)
+	if err != nil {
+		return nil, err
 	}
 	for m, ctrl := range mp.inner.Lock() {
 		if m.closed {

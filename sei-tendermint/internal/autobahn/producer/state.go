@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -40,7 +39,7 @@ func (c *Config) maxTxsPerBlock() uint64 {
 type State struct {
 	cfg       *Config
 	app       *proxy.Proxy
-	mempool   atomic.Pointer[mempool] // nil when not producing
+	mempool   utils.AtomicSend[*mempool] // nil when not producing
 	consensus *consensus.State
 }
 
@@ -50,6 +49,7 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 	return &State{
 		cfg:       cfg,
 		app:       app,
+		mempool:   utils.NewAtomicSend[*mempool](nil),
 		consensus: consensus,
 	}
 }
@@ -64,10 +64,11 @@ func (s *State) alignMempool(lane types.LaneID) (*mempool, types.BlockNumber) {
 }
 
 func (s *State) clearMempool() {
-	mp := s.mempool.Swap(nil)
+	mp := s.mempool.Load()
 	if mp == nil {
 		return
 	}
+	s.mempool.Store(nil)
 	for m, ctrl := range mp.inner.Lock() {
 		m.closed = true
 		ctrl.Updated()
