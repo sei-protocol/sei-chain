@@ -240,3 +240,136 @@ func TestNoExperimentalKeyShadowsStateStoreAfterRegistration(t *testing.T) {
 	}
 	configtest.CheckNoExperimentalKeyShadowsThisSection(t, StateStoreSectionName, specs)
 }
+
+// TestTheStateCommitSchemaDescribesTheReaderItStandsInFor holds the schema against parseSCConfigs.
+//
+// config.StateCommitConfig nests its settings under MemIAVLConfig, FlatKVConfig and HashLogger while
+// the keys the reader looks up are flat names on the section, so no derivation from that type produces
+// them. This writes a value under each declared key and asks the reader which setting changed.
+//
+// Two keys need saying out loud, and both come from the write mode being derived rather than stored.
+// The written mode is ignored while automatic mode is on, so probing it without turning that off changes
+// nothing at all; and turning automatic mode off moves the mode along with it. Context supplies the
+// companion for the first and AlsoDerives names the second, so the one-setting rule keeps its meaning
+// for the other eighteen.
+func TestTheStateCommitSchemaDescribesTheReaderItStandsInFor(t *testing.T) {
+	// The section name stays a literal. The wiring record reads it from this call's second argument.
+	configtest.CheckSchemaMatchesTheReader(t, "state-commit", configtest.SchemaCheck{
+		Read: func(opts configtest.AppOpts) (any, error) {
+			return parseSCConfigs(opts), nil
+		},
+		Probe: map[string]any{
+			FlagSCEnable:                     true,
+			FlagSCDirectory:                  "/mnt/sc",
+			FlagSCAsyncCommitBuffer:          250,
+			FlagSCSnapshotKeepRecent:         uint32(9),
+			FlagSCSnapshotInterval:           uint32(5000),
+			FlagSCSnapshotMinTimeInterval:    uint32(1800),
+			FlagSCSnapshotWriterLimit:        16,
+			FlagSCSnapshotPrefetchThreshold:  0.5,
+			FlagSCSnapshotWriteRateMBps:      250,
+			FlagSCHistoricalProofMaxInFlight: 8,
+			FlagSCHistoricalProofRateLimit:   12.5,
+			FlagSCHistoricalProofBurst:       6,
+			FlagSCWriteMode:                  "flatkv_only",
+			FlagSCWriteModeEnableAuto:        false,
+			FlagSCHashLoggerEnable:           false,
+			FlagSCHashLoggerDirectory:        "/mnt/hashlog",
+			FlagSCHashLoggerBlocksToRetain:   uint(500),
+			FlagSCHashLoggerTargetFileSize:   uint(1 << 22),
+			FlagSCHashLoggerMaxDiskSize:      uint(1 << 35),
+			FlagSCFlatKVReadWriteMetrics:     true,
+		},
+		Context: map[string]configtest.AppOpts{
+			// Automatic mode overrides the written mode, so without turning it off this key reaches
+			// nothing observable and would read as a key the reader never looks up.
+			FlagSCWriteMode: {FlagSCWriteModeEnableAuto: false},
+		},
+		AlsoDerives: map[string][]string{
+			// Turning automatic mode off also settles what the write mode becomes, because the reader
+			// computes the mode from both keys rather than storing what was written.
+			FlagSCWriteModeEnableAuto: {"WriteMode"},
+		},
+	})
+}
+
+func TestTheDerivedStateCommitKeysAreTheKeysThisReaderResolves(t *testing.T) {
+	section, ok := registry.Lookup(StateCommitSectionName)
+	if !ok {
+		t.Fatalf("%s did not register", StateCommitSectionName)
+	}
+	derived := map[string]bool{}
+	for _, key := range section.Keys {
+		derived[key] = true
+	}
+	live := []string{
+		FlagSCEnable, FlagSCDirectory, FlagSCAsyncCommitBuffer, FlagSCSnapshotKeepRecent,
+		FlagSCSnapshotInterval, FlagSCSnapshotMinTimeInterval, FlagSCSnapshotWriterLimit,
+		FlagSCSnapshotPrefetchThreshold, FlagSCSnapshotWriteRateMBps, FlagSCHistoricalProofMaxInFlight,
+		FlagSCHistoricalProofRateLimit, FlagSCHistoricalProofBurst, FlagSCWriteMode,
+		FlagSCWriteModeEnableAuto, FlagSCHashLoggerEnable, FlagSCHashLoggerDirectory,
+		FlagSCHashLoggerBlocksToRetain, FlagSCHashLoggerTargetFileSize, FlagSCHashLoggerMaxDiskSize,
+		FlagSCFlatKVReadWriteMetrics,
+	}
+	for _, key := range live {
+		if !derived[key] {
+			t.Errorf("this reader resolves %q and the registry derives %v. An operator's value reaches "+
+				"one of those spellings and not the other", key, section.Keys)
+		}
+	}
+	if len(section.Keys) != len(live) {
+		t.Errorf("the registry derived %d keys and this reader resolves %d state-commit settings: %v",
+			len(section.Keys), len(live), section.Keys)
+	}
+}
+
+// TestTheRegistryRefusesAnUnknownWriteMode holds the one rule this section states.
+//
+// parseSCConfigs stops the node with a panic when it cannot recognise the written mode. A diagnostic
+// that refuses the same value is what lets an operator find out before a restart rather than during one.
+func TestTheRegistryRefusesAnUnknownWriteMode(t *testing.T) {
+	section, ok := registry.Lookup(StateCommitSectionName)
+	if !ok {
+		t.Fatalf("%s did not register", StateCommitSectionName)
+	}
+	if section.Validate == nil {
+		t.Fatal("the registry states no rule for this section, so a write mode this binary cannot " +
+			"recognise reads as usable and stops the node at the next restart")
+	}
+	if err := section.Validate(map[string]any{"sc-write-mode": "sideways"}); err == nil {
+		t.Error("an unrecognised write mode was accepted; the reader panics on it, so a diagnostic " +
+			"reporting the file as usable sends an operator into a node that will not start")
+	}
+	// An absent key arrives as an empty name and the reader keeps its default for it, so refusing that
+	// would refuse the configuration every node resolves to.
+	if err := section.Validate(map[string]any{"sc-write-mode": ""}); err != nil {
+		t.Errorf("an absent write mode was refused: %v", err)
+	}
+	for _, accepted := range []string{"memiavl_only", "flatkv_only", "cosmos_only"} {
+		if err := section.Validate(map[string]any{"sc-write-mode": accepted}); err != nil {
+			t.Errorf("the reader accepts %q and the registry refused it: %v", accepted, err)
+		}
+	}
+}
+
+func TestRegisteringStateCommitProducedNoDefect(t *testing.T) {
+	for _, defect := range registry.Defects() {
+		if defect.Section == StateCommitSectionName {
+			t.Errorf("registering %s was refused: %v\n\nThe section is absent from the registry, so "+
+				"every one of its keys silently reads from the legacy path instead",
+				defect.Section, defect.Err)
+		}
+	}
+}
+
+func TestNoExperimentalKeyShadowsStateCommitAfterRegistration(t *testing.T) {
+	section, ok := registry.Lookup(StateCommitSectionName)
+	if !ok {
+		t.Fatalf("%s did not register", StateCommitSectionName)
+	}
+	specs := make([]configtest.KeySpec, 0, len(section.Keys))
+	for _, key := range section.Keys {
+		specs = append(specs, configtest.KeySpec{Key: key})
+	}
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, StateCommitSectionName, specs)
+}

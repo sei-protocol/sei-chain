@@ -32,6 +32,15 @@ type SchemaCheck struct {
 	// same. A reader that assigns straight from a lookup resolves an absent key to zero, so a key whose
 	// baseline is true needs a probe of true to be observable at all.
 	Probe map[string]any
+	// Context is extra values written alongside a key's probe, and in the read its baseline is compared
+	// against. For a key whose effect another key suppresses, this is what makes it observable: the
+	// state-commit write mode is ignored while automatic mode is on, so probing it without turning that
+	// off changes nothing and reads as a key the reader never looks up.
+	Context map[string]AppOpts
+	// AlsoDerives names the settings a key changes besides its own. A reader that computes one setting
+	// from two keys moves more than one field when either is written, and naming which are derived is
+	// what keeps the one-setting rule meaningful instead of relaxed.
+	AlsoDerives map[string][]string
 }
 
 // CheckSchemaMatchesTheReader holds a purpose-written schema against the reader it describes.
@@ -54,15 +63,14 @@ func CheckSchemaMatchesTheReader(t testing.TB, section string, c SchemaCheck) {
 	if len(registered.Keys) == 0 {
 		t.Fatalf("%s declares no keys, so every check below holds by covering nothing", section)
 	}
-	base, err := c.Read(AppOpts{})
-	if err != nil {
+	if _, err := c.Read(AppOpts{}); err != nil {
 		t.Fatalf("%s: the reader refused an empty configuration, which is what a node that has written "+
 			"nothing has: %v", section, err)
 	}
 
 	divergences := make([]divergence, 0, len(registered.Keys)*len(registry.Modes()))
 	for _, mode := range registry.Modes() {
-		divergences = append(divergences, c.checkMode(t, section, registered, mode, base)...)
+		divergences = append(divergences, c.checkMode(t, section, registered, mode)...)
 	}
 	CheckAbsentReadDivergences(t, section, divergences)
 }
@@ -78,7 +86,7 @@ type divergence struct {
 
 // checkMode runs the per-key checks for one node mode and returns the divergences it found.
 func (c SchemaCheck) checkMode(t testing.TB, section string, registered registry.Section,
-	mode registry.Mode, base any) []divergence {
+	mode registry.Mode) []divergence {
 	t.Helper()
 
 	resolved, err := registry.Resolve(mode)
@@ -112,12 +120,19 @@ func (c SchemaCheck) checkMode(t testing.TB, section string, registered registry
 			continue
 		}
 
-		written, err := c.Read(AppOpts{key: probe})
+		// Read both sides with this key's companions, so the baseline is compared against the same
+		// state the probe is measured from.
+		base, err := c.Read(c.opts(key, nil))
+		if err != nil {
+			t.Errorf("%s: the reader refused the companions for %q: %v", section, key, err)
+			continue
+		}
+		written, err := c.Read(c.opts(key, probe))
 		if err != nil {
 			t.Errorf("%s: the reader refused %v under %q: %v", section, probe, key, err)
 			continue
 		}
-		changed := settingsThatDiffer(base, written)
+		changed := c.settingsOwnedBy(key, settingsThatDiffer(base, written))
 		switch len(changed) {
 		case 1:
 			// The one setting this key reaches. Its value when nothing is written is what the section's
@@ -231,6 +246,33 @@ func groupByKey(found []divergence) []string {
 	return out
 }
 
+// opts returns the values to read with for one key: its companions, plus the probe when there is one.
+func (c SchemaCheck) opts(key string, probe any) AppOpts {
+	out := AppOpts{}
+	for k, v := range c.Context[key] {
+		out[k] = v
+	}
+	if probe != nil {
+		out[key] = probe
+	}
+	return out
+}
+
+// settingsOwnedBy drops the settings a key only derives, leaving the one it stands for.
+func (c SchemaCheck) settingsOwnedBy(key string, changed []string) []string {
+	derived := map[string]bool{}
+	for _, name := range c.AlsoDerives[key] {
+		derived[name] = true
+	}
+	out := make([]string, 0, len(changed))
+	for _, name := range changed {
+		if !derived[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // settingsThatDiffer returns the exported field paths whose values differ between two reader outputs.
 func settingsThatDiffer(before, after any) []string {
 	var paths []string
@@ -337,6 +379,13 @@ func sameValue(a, b any) bool {
 	}
 	if number(av.Kind()) && number(bv.Kind()) {
 		return fmt.Sprintf("%v", av.Interface()) == fmt.Sprintf("%v", bv.Interface())
+	}
+	// A schema declares the shape the configuration carries, which for an enumerated setting is a
+	// plain string, while the reader may hold it as a named string type. A comparison that called
+	// those different would report drift no operator could observe. The declared shape has to stay
+	// plain: a named type does not survive the cast the reader performs on the written value.
+	if av.Kind() == reflect.String && bv.Kind() == reflect.String {
+		return av.String() == bv.String()
 	}
 	return reflect.DeepEqual(av.Interface(), bv.Interface())
 }

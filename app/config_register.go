@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
@@ -10,6 +12,7 @@ const (
 	LightInvarianceSectionName = "light_invariance"
 	GenesisSectionName         = "genesis"
 	StateStoreSectionName      = "state-store"
+	StateCommitSectionName     = "state-commit"
 )
 
 // genesisSchema declares the keys the genesis import reader resolves.
@@ -33,6 +36,7 @@ func init() {
 	registry.RegisterSection(LightInvarianceSectionName, &LightInvarianceConfig{}, lightInvarianceBaseline)
 	registry.RegisterSection(GenesisSectionName, &genesisSchema{}, genesisBaseline)
 	registry.RegisterSection(StateStoreSectionName, &stateStoreSchema{}, stateStoreBaseline)
+	registry.RegisterSection(StateCommitSectionName, &stateCommitSchema{}, stateCommitBaseline)
 }
 
 // lightInvarianceBaseline is what this section resolves to for a node that has written nothing.
@@ -111,5 +115,104 @@ func stateStoreBaseline(registry.Mode) any {
 		EVMDBDirectory:         live.EVMDBDirectory,
 		SeparateEVMSubDBs:      live.SeparateEVMSubDBs,
 		EVMSplit:               live.EVMSplit,
+	}
+}
+
+// stateCommitFlatKVSchema declares the one flat key-value setting that has a key of its own.
+//
+// A nested segment, because the key is state-commit.flatkv.enable-read-write-metrics. The rest of the
+// flat key-value configuration has no keys: nothing reads them from configuration, so declaring them
+// would give an operator two dozen settings a written value could not change.
+type stateCommitFlatKVSchema struct {
+	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
+}
+
+// stateCommitSchema declares the keys parseSCConfigs resolves.
+//
+// A schema and not a transport: nothing decodes into it. config.StateCommitConfig nests its settings
+// under MemIAVLConfig, FlatKVConfig and HashLogger, and the keys the reader looks up are flat names on
+// the section itself, so no derivation from that type produces them. It also holds many settings with
+// no key at all, which stay at whatever the defaults hold.
+//
+// The write mode is a plain string rather than the reader's own named type. A named string type does
+// not survive the conversion the reader applies to a written value, so declaring one would put a value
+// in the configuration that the reader cannot read.
+type stateCommitSchema struct {
+	Enable                     bool                    `mapstructure:"sc-enable"`
+	Directory                  string                  `mapstructure:"sc-directory"`
+	AsyncCommitBuffer          int                     `mapstructure:"sc-async-commit-buffer"`
+	SnapshotKeepRecent         uint32                  `mapstructure:"sc-keep-recent"`
+	SnapshotInterval           uint32                  `mapstructure:"sc-snapshot-interval"`
+	SnapshotMinTimeInterval    uint32                  `mapstructure:"sc-snapshot-min-time-interval"`
+	SnapshotWriterLimit        int                     `mapstructure:"sc-snapshot-writer-limit"`
+	SnapshotPrefetchThreshold  float64                 `mapstructure:"sc-snapshot-prefetch-threshold"`
+	SnapshotWriteRateMBps      int                     `mapstructure:"sc-snapshot-write-rate-mbps"`
+	HistoricalProofMaxInFlight int                     `mapstructure:"sc-historical-proof-max-inflight"`
+	HistoricalProofRateLimit   float64                 `mapstructure:"sc-historical-proof-rate-limit"`
+	HistoricalProofBurst       int                     `mapstructure:"sc-historical-proof-burst"`
+	WriteMode                  string                  `mapstructure:"sc-write-mode"`
+	WriteModeEnableAuto        bool                    `mapstructure:"sc-write-mode-enable-auto"`
+	HashLoggerEnable           bool                    `mapstructure:"sc-hash-logger-enable"`
+	HashLoggerDirectory        string                  `mapstructure:"sc-hash-logger-directory"`
+	HashLoggerBlocksToRetain   uint                    `mapstructure:"sc-hash-logger-blocks-to-retain"`
+	HashLoggerTargetFileSize   uint                    `mapstructure:"sc-hash-logger-target-file-size"`
+	HashLoggerMaxDiskSize      uint                    `mapstructure:"sc-hash-logger-max-disk-size"`
+	FlatKV                     stateCommitFlatKVSchema `mapstructure:"flatkv"`
+}
+
+// Validate reports whether this configuration is usable.
+//
+// The write mode names one of a fixed set of routing behaviours, and parseSCConfigs stops the node with
+// a panic when it cannot recognise the written name. Stating the rule here is what lets a diagnostic
+// refuse the file first, so an operator finds out before a restart rather than during one. An empty
+// name is not refused: that is how an absent key arrives, and the reader keeps its default for it.
+func (s stateCommitSchema) Validate() error {
+	if s.WriteMode == "" {
+		return nil
+	}
+	if _, err := config.ParseSCWriteMode(s.WriteMode); err != nil {
+		return fmt.Errorf("sc-write-mode %q is not a write mode this binary recognises: %w", s.WriteMode, err)
+	}
+	return nil
+}
+
+// stateCommitBaseline is what this section resolves to for a node that has written nothing.
+//
+// The declared defaults, which is what seid init writes into app.toml. Eighteen of the twenty reads in
+// parseSCConfigs already check that the key was present, so for those the declared default is also what
+// an absent key resolves to today. The two that do not are sc-enable and sc-directory, and
+// testdata/state-commit.absent.golden records what changes for a node missing either.
+//
+// sc-enable is the one that matters. An absent key reads as false, and SetupSeiDB stops the node when
+// state commitment is off, so no running node has that key missing. Resolving it to true is what every
+// working node already has in its app.toml.
+//
+// The same values for every mode. How often a node snapshots and how much proof history it serves are
+// decisions about disk and load that an operator writes down.
+func stateCommitBaseline(registry.Mode) any {
+	live := config.DefaultStateCommitConfig()
+	return stateCommitSchema{
+		Enable:                     live.Enable,
+		Directory:                  live.Directory,
+		AsyncCommitBuffer:          live.MemIAVLConfig.AsyncCommitBuffer,
+		SnapshotKeepRecent:         live.MemIAVLConfig.SnapshotKeepRecent,
+		SnapshotInterval:           live.MemIAVLConfig.SnapshotInterval,
+		SnapshotMinTimeInterval:    live.MemIAVLConfig.SnapshotMinTimeInterval,
+		SnapshotWriterLimit:        live.MemIAVLConfig.SnapshotWriterLimit,
+		SnapshotPrefetchThreshold:  live.MemIAVLConfig.SnapshotPrefetchThreshold,
+		SnapshotWriteRateMBps:      live.MemIAVLConfig.SnapshotWriteRateMBps,
+		HistoricalProofMaxInFlight: live.HistoricalProofMaxInFlight,
+		HistoricalProofRateLimit:   live.HistoricalProofRateLimit,
+		HistoricalProofBurst:       live.HistoricalProofBurst,
+		WriteMode:                  string(live.WriteMode),
+		WriteModeEnableAuto:        live.WriteModeEnableAuto,
+		HashLoggerEnable:           live.HashLogger.Enable,
+		HashLoggerDirectory:        live.HashLogger.Directory,
+		HashLoggerBlocksToRetain:   live.HashLogger.BlocksToRetain,
+		HashLoggerTargetFileSize:   live.HashLogger.TargetFileSize,
+		HashLoggerMaxDiskSize:      live.HashLogger.MaxDiskSize,
+		FlatKV: stateCommitFlatKVSchema{
+			EnableReadWriteMetrics: live.FlatKVConfig.EnableReadWriteMetrics,
+		},
 	}
 }
