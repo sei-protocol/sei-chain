@@ -85,7 +85,24 @@ func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.Respon
 
 // isCometBFTRateLimitExemptRequest reports requests that should bypass the gate.
 func isCometBFTRateLimitExemptRequest(r *http.Request) bool {
-	return r.Method == http.MethodOptions
+	if r.Method == http.MethodOptions {
+		return true
+	}
+	return isCometBFTMethodCatalogRequest(r)
+}
+
+// isCometBFTMethodCatalogRequest reports browser/catalog probes to / with no body.
+// CometBFT's JSON-RPC handler serves the method list page for these requests.
+func isCometBFTMethodCatalogRequest(r *http.Request) bool {
+	if r.URL.Path != "/" && r.URL.Path != "" {
+		return false
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodPost:
+		return r.ContentLength == 0
+	default:
+		return false
+	}
 }
 
 // isCometBFTURIRPCRequest reports REST-style CometBFT RPC routes (GET /status, etc.).
