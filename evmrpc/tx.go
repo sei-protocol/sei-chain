@@ -374,7 +374,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 }
 
 func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex uint32, includeSynthetic bool) (*export.RPCTransaction, error) {
-	msgs := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, includeSynthetic, false, t.cacheCreationMutex, t.globalBlockCache)
+	msgs := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, includeSynthetic, t.cacheCreationMutex, t.globalBlockCache)
 	if txIndex >= uint32(len(msgs)) { //nolint:gosec
 		// Ethereum JSON-RPC: eth_getTransactionByBlock*AndIndex returns null when the index has no transaction.
 		return nil, nil
@@ -438,7 +438,7 @@ func (t *TransactionAPI) Sign(ctx context.Context, addr common.Address, data hex
 }
 
 func (t *TransactionAPI) getFilteredMsgs(block *coretypes.ResultBlock) []indexedMsg {
-	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, t.includeSynthetic, false, t.cacheCreationMutex, t.globalBlockCache)
+	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, t.includeSynthetic, t.cacheCreationMutex, t.globalBlockCache)
 }
 
 func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction {
@@ -503,7 +503,7 @@ func encodeReceipt(
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
 	ctx := ctxProvider(block.Block.Height)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, false, cacheCreationMutex, globalBlockCache)
+	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, cacheCreationMutex, globalBlockCache)
 	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block, msgs, receipt.TransactionIndex, k, cacheCreationMutex, globalBlockCache)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	if !foundTx {

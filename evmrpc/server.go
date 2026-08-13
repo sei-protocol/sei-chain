@@ -131,10 +131,6 @@ func NewEVMHTTPServer(
 			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
-			Namespace: "sei2",
-			Service:   NewSei2BlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex),
-		},
-		{
 			Namespace: "eth",
 			Service:   txAPI,
 		},
