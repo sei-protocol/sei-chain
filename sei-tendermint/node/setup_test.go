@@ -356,37 +356,42 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 
 	t.Run("defaults reach the router", func(t *testing.T) {
 		cfg := config.DefaultConfig()
-		opts := p2pRouterOptions(cfg, ep, nil)
+		opts, err := p2pRouterOptions(cfg, ep, nil)
+		require.NoError(t, err)
 
 		require.Equal(t, utils.Some(rate.Every(cfg.P2P.AcceptInterval)), opts.MaxAcceptRate)
 		require.Equal(t, utils.Some(rate.Every(cfg.P2P.DialInterval)), opts.MaxDialRate)
 	})
 
-	// A negative value never reaches ValidateBasic on an already-deployed node,
-	// so it must not read as "disable" the way rate.Every would treat it.
-	t.Run("negative interval falls back to the default", func(t *testing.T) {
-		cfg := config.DefaultConfig()
-		cfg.P2P.AcceptInterval = -1 * time.Second
-		cfg.P2P.DialInterval = -1 * time.Second
-		opts := p2pRouterOptions(cfg, ep, nil)
-
-		defaults := config.DefaultP2PConfig()
-		require.Equal(t, utils.Some(rate.Every(defaults.AcceptInterval)), opts.MaxAcceptRate)
-		require.Equal(t, utils.Some(rate.Every(defaults.DialInterval)), opts.MaxDialRate)
-		require.NotEqual(t, utils.Some(rate.Inf), opts.MaxAcceptRate)
-	})
+	// A negative value never reaches ValidateBasic on an already-deployed node, and
+	// rate.Every would read it as "disable". Refuse it rather than start unpaced.
+	for _, key := range []string{"accept-interval", "dial-interval"} {
+		t.Run("negative "+key+" refuses to build options", func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			switch key {
+			case "accept-interval":
+				cfg.P2P.AcceptInterval = -1 * time.Second
+			case "dial-interval":
+				cfg.P2P.DialInterval = -1 * time.Second
+			}
+			_, err := p2pRouterOptions(cfg, ep, nil)
+			require.Error(t, err)
+		})
+	}
 
 	t.Run("zero interval disables the limiter", func(t *testing.T) {
 		cfg := config.DefaultConfig()
 		cfg.P2P.AcceptInterval = 0
-		opts := p2pRouterOptions(cfg, ep, nil)
+		opts, err := p2pRouterOptions(cfg, ep, nil)
+		require.NoError(t, err)
 		require.Equal(t, utils.Some(rate.Inf), opts.MaxAcceptRate)
 	})
 
 	t.Run("operator value flows through", func(t *testing.T) {
 		cfg := config.DefaultConfig()
 		cfg.P2P.AcceptInterval = 250 * time.Millisecond
-		opts := p2pRouterOptions(cfg, ep, nil)
+		opts, err := p2pRouterOptions(cfg, ep, nil)
+		require.NoError(t, err)
 		require.Equal(t, utils.Some(rate.Every(250*time.Millisecond)), opts.MaxAcceptRate)
 	})
 
@@ -402,7 +407,8 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 		t.Run(fmt.Sprintf("budget derives from max-connections=%d", tc.maxConns), func(t *testing.T) {
 			cfg := config.DefaultConfig()
 			cfg.P2P.MaxConnections = uint(tc.maxConns)
-			opts := p2pRouterOptions(cfg, ep, nil)
+			opts, err := p2pRouterOptions(cfg, ep, nil)
+			require.NoError(t, err)
 
 			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxInbound)
 			require.Equal(t, utils.Some(tc.wantOutbound), opts.MaxOutbound)

@@ -454,25 +454,22 @@ func buildFullnodeGigaConfig(
 	}, nil
 }
 
-// pacingRate returns the rate limit for a configured pacing interval, falling
-// back to def when the interval is negative.
-func pacingRate(key string, interval, def time.Duration) rate.Limit {
+// pacingRate returns the rate limit for a configured pacing interval.
+func pacingRate(key string, interval time.Duration) (rate.Limit, error) {
 	// rate.Every maps every non-positive interval to rate.Inf. A configured 0 means
-	// "disable the limiter" and is honoured, but a negative value is a typo, and on
-	// an already-deployed node it never reaches ValidateBasic — interceptConfigs
-	// validates only when it creates the file. Clamp it where every router passes,
-	// and say so: this is the one path where nothing else tells the operator.
+	// "disable the limiter" and is honoured; a negative value is a typo that would
+	// silently disable pacing instead. ValidateBasic rejects it wherever it runs,
+	// but an already-deployed config never reaches ValidateBasic, so refuse it here
+	// too rather than letting the two paths disagree about the same input.
 	if interval < 0 {
-		logger.Warn("negative p2p interval in config; using default instead",
-			"key", key, "configured", interval, "default", def)
-		interval = def
+		return 0, fmt.Errorf("p2p %v must not be negative, got %v", key, interval)
 	}
-	return rate.Every(interval)
+	return rate.Every(interval), nil
 }
 
 // p2pRouterOptions returns the router's connection budget and pacing, derived
 // from the p2p config.
-func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []types.NodeID) *p2p.RouterOptions {
+func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []types.NodeID) (*p2p.RouterOptions, error) {
 	// MaxConnections defaults to 64
 	maxConns := 64
 	if cfg.P2P.MaxConnections > 0 {
@@ -489,17 +486,24 @@ func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []type
 	// TODO(gprusak): eventually we should migrate configs to specify
 	// MaxInbound and MaxOutbound explicitly, rather than doing the computation above.
 	maxInbound := maxConns - maxOutbound
-	defaults := config.DefaultP2PConfig()
 	connection := conn.DefaultMConnConfig()
 	connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
 	connection.SendRate = cfg.P2P.SendRate
 	connection.RecvRate = cfg.P2P.RecvRate
 	connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
+	dialRate, err := pacingRate("dial-interval", cfg.P2P.DialInterval)
+	if err != nil {
+		return nil, err
+	}
+	acceptRate, err := pacingRate("accept-interval", cfg.P2P.AcceptInterval)
+	if err != nil {
+		return nil, err
+	}
 	return &p2p.RouterOptions{
 		Endpoint:                      ep,
 		MaxIncomingConnectionAttempts: utils.Some(cfg.P2P.MaxIncomingConnectionAttempts),
-		MaxDialRate:                   utils.Some(pacingRate("dial-interval", cfg.P2P.DialInterval, defaults.DialInterval)),
-		MaxAcceptRate:                 utils.Some(pacingRate("accept-interval", cfg.P2P.AcceptInterval, defaults.AcceptInterval)),
+		MaxDialRate:                   utils.Some(dialRate),
+		MaxAcceptRate:                 utils.Some(acceptRate),
 		HandshakeTimeout:              utils.Some(cfg.P2P.HandshakeTimeout),
 		DialTimeout:                   utils.Some(cfg.P2P.DialTimeout),
 		PexOnHandshake:                cfg.P2P.PexReactor,
@@ -508,7 +512,7 @@ func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []type
 		MaxOutbound:                   utils.Some(maxOutbound),
 		MaxConcurrentAccepts:          utils.Some(maxInbound),
 		Connection:                    connection,
-	}
+	}, nil
 }
 
 func createRouter(
@@ -532,7 +536,10 @@ func createRouter(
 		privatePeerIDs = append(privatePeerIDs, types.NodeID(id))
 	}
 
-	options := p2pRouterOptions(cfg, ep, privatePeerIDs)
+	options, err := p2pRouterOptions(cfg, ep, privatePeerIDs)
+	if err != nil {
+		return nil, closer, noneDB, err
+	}
 	if addr := cfg.P2P.ExternalAddress; addr != "" {
 		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID().AddressString(addr))
 		if err != nil {
