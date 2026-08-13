@@ -87,10 +87,7 @@ func NewBlockSim(
 	fmt.Printf("Initializing random number generator.\n")
 	rng := tmutils.TestRngFromSeed(config.Seed)
 
-	committee, keys, err := buildCommittee(rng, int(config.CommitteeSize)) //nolint:gosec // CommitteeSize is a small config value
-	if err != nil {
-		return nil, err
-	}
+	committee, keys := types.GenCommittee(rng, int(config.CommitteeSize)) //nolint:gosec // CommitteeSize is a small config value
 
 	// Pre-generate a random buffer once; all block/QC data generation slices into it
 	// (zero-copy) so the generator never runs math/rand on the hot path.
@@ -221,13 +218,6 @@ func recoverResumeState(
 	}
 
 	return prev, highest, nil
-}
-
-// buildCommittee creates a committee of the given size along with the secret
-// keys that sign its QCs (via types.GenCommittee).
-func buildCommittee(rng tmutils.Rng, size int) (*types.Committee, []types.SecretKey, error) {
-	committee, keys := types.GenCommittee(rng, size)
-	return committee, keys, nil
 }
 
 // backfillBlock builds a throwaway block for crash-recovery backfill using canned random

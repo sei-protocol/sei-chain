@@ -27,8 +27,7 @@ func TestRecoverResumeState(t *testing.T) {
 	// Mirror NewBlockSim: build the keygen RNG and the committee, then a CannedRandom
 	// for the generator's data.
 	rng := tmutils.TestRngFromSeed(cfg.Seed)
-	committee, keys, err := buildCommittee(rng, int(cfg.CommitteeSize)) //nolint:gosec // small config value
-	require.NoError(t, err)
+	committee, keys := types.GenCommittee(rng, int(cfg.CommitteeSize)) //nolint:gosec // small config value
 	cannedRand := crand.NewCannedRandom(int(cfg.RandomDataBufferSizeBytes), cfg.Seed) //nolint:gosec // bounded by config
 
 	pubKeys := make([]types.PublicKey, len(keys))
