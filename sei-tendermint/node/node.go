@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
@@ -53,6 +54,7 @@ type nodeImpl struct {
 	genesisDoc      *types.GenesisDoc   // initial validator set
 	privValidator   types.PrivValidator // local node's validator key
 	shouldHandshake bool                // set during makeNode
+	freezeHeight    uint64
 
 	// network
 	router           *p2p.Router
@@ -75,6 +77,31 @@ type nodeImpl struct {
 	prometheusSrv  *http.Server
 }
 
+func validateFreezeHeight(freezeHeight uint64, initialHeight, stateHeight, blockStoreHeight, appHeight int64) error {
+	if freezeHeight == 0 {
+		return nil
+	}
+	if freezeHeight > math.MaxInt64 {
+		return fmt.Errorf("freeze height %d exceeds the maximum block height", freezeHeight)
+	}
+	if initialHeight > int64(freezeHeight) { //nolint:gosec // freezeHeight is bounded above.
+		return fmt.Errorf("freeze height %d is below initial height %d", freezeHeight, initialHeight)
+	}
+	for _, current := range []struct {
+		source string
+		height int64
+	}{
+		{source: "application", height: appHeight},
+		{source: "block store", height: blockStoreHeight},
+		{source: "state store", height: stateHeight},
+	} {
+		if current.height >= int64(freezeHeight) { //nolint:gosec // freezeHeight is bounded above.
+			return fmt.Errorf("%s height %d has already reached freeze height %d", current.source, current.height, freezeHeight)
+		}
+	}
+	return nil
+}
+
 // makeNode returns a new, ready to go, Tendermint Node.
 func makeNode(
 	ctx context.Context,
@@ -87,7 +114,9 @@ func makeNode(
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
+	nodeOptions ...Option,
 ) (_ service.Service, err error) {
+	opts := resolveOptions(nodeOptions...)
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 
@@ -122,6 +151,15 @@ func makeNode(
 	}
 
 	proxyApp := proxy.New(app, nodeMetrics.proxy)
+	if opts.freezeHeight > 0 {
+		info, err := app.Info(ctx, &abci.RequestInfo{})
+		if err != nil {
+			return nil, combineCloseError(err, makeCloser(closers))
+		}
+		if err := validateFreezeHeight(opts.freezeHeight, genDoc.InitialHeight, state.LastBlockHeight, blockStore.Height(), info.LastBlockHeight); err != nil {
+			return nil, combineCloseError(err, makeCloser(closers))
+		}
+	}
 	eventBus := eventbus.NewDefault()
 
 	var eventLog *eventlog.Log
@@ -229,6 +267,10 @@ func makeNode(
 
 	// Determine whether we should attempt state sync.
 	stateSync := cfg.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)
+	if stateSync && opts.freezeHeight > 0 {
+		logger.Info("Freeze mode disables state sync; falling back to block sync", "freeze_height", opts.freezeHeight)
+		stateSync = false
+	}
 	if stateSync && state.LastBlockHeight > 0 {
 		logger.Info("Found local state with non-zero height, skipping state sync")
 		stateSync = false
@@ -260,6 +302,7 @@ func makeNode(
 		tracerProviderOptions,
 		nodeMetrics.consensus,
 	)
+	csState.SetFreezeHeight(opts.freezeHeight)
 	node.rpcEnv.ConsensusState = csState
 
 	csReactor, err := consensus.NewReactor(
@@ -294,6 +337,7 @@ func makeNode(
 	if err != nil {
 		return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
 	}
+	bcReactor.SetFreezeHeight(opts.freezeHeight)
 	node.services = append(node.services, bcReactor)
 	node.rpcEnv.BlockSyncReactor = bcReactor
 
@@ -368,12 +412,16 @@ func makeNode(
 
 	node.BaseService = *service.NewBaseService("Node", node)
 	node.shutdownOps = makeCloser(closers)
+	node.freezeHeight = opts.freezeHeight
 
 	return node, nil
 }
 
 // OnStart starts the Node. It implements service.Service.
 func (n *nodeImpl) OnStart(ctx context.Context) error {
+	if n.freezeHeight > 0 {
+		logger.Info("Freeze mode enabled", "freeze_height", n.freezeHeight)
+	}
 	// EventBus and IndexerService must be started before the handshake because
 	// we might need to index the txs of the replayed block as this might not have happened
 	// when the node stopped last time (i.e. the node stopped or crashed after it saved the block

@@ -16,6 +16,28 @@ import (
 
 var logger = seilog.NewLogger("tendermint", "node")
 
+type options struct {
+	freezeHeight uint64
+}
+
+// Option configures optional node behavior.
+type Option func(*options)
+
+// WithFreezeHeight stops block sync and consensus before executing height; 0 disables freezing.
+func WithFreezeHeight(height uint64) Option {
+	return func(opts *options) {
+		opts.freezeHeight = height
+	}
+}
+
+func resolveOptions(nodeOptions ...Option) options {
+	var opts options
+	for _, apply := range nodeOptions {
+		apply(&opts)
+	}
+	return opts
+}
+
 // New constructs a tendermint node. The provided app runs in the same
 // process as the tendermint node and will be wrapped in a local ABCI client
 // inside this function. The final option is a pointer to a Genesis document:
@@ -29,6 +51,7 @@ func New(
 	gen *tmtypes.GenesisDoc,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
+	nodeOptions ...Option,
 ) (service.Service, error) {
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -61,8 +84,12 @@ func New(
 			config.DefaultDBProvider,
 			tracerProviderOptions,
 			nodeMetrics,
+			nodeOptions...,
 		)
 	case config.ModeSeed:
+		if resolveOptions(nodeOptions...).freezeHeight > 0 {
+			return nil, fmt.Errorf("freeze height is not supported in seed mode")
+		}
 		return makeSeedNode(
 			conf,
 			config.DefaultDBProvider,

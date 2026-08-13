@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 
@@ -64,6 +65,10 @@ type BaseConfig struct {
 	//
 	// Note: Commitment of state will be attempted on the corresponding block.
 	HaltHeight uint64 `mapstructure:"halt-height"`
+
+	// FreezeHeight contains a non-zero block height at which the node stops
+	// before executing the block while continuing to serve RPC.
+	FreezeHeight uint64 `mapstructure:"freeze-height"`
 
 	// HaltTime contains a non-zero minimum block time (in Unix seconds) at which
 	// a node will gracefully halt and shutdown that can be used to assist
@@ -269,6 +274,7 @@ func DefaultConfig() *Config {
 			PruningKeepRecent:            "0",
 			PruningKeepEvery:             "0",
 			PruningInterval:              "0",
+			FreezeHeight:                 0,
 			MinRetainBlocks:              0,
 			IndexEvents:                  nil,
 			IAVLDisableFastNode:          true,
@@ -351,6 +357,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			PruningKeepRecent:            v.GetString("pruning-keep-recent"),
 			PruningInterval:              v.GetString("pruning-interval"),
 			HaltHeight:                   v.GetUint64("halt-height"),
+			FreezeHeight:                 v.GetUint64("freeze-height"),
 			HaltTime:                     v.GetUint64("halt-time"),
 			IndexEvents:                  v.GetStringSlice("index-events"),
 			MinRetainBlocks:              v.GetUint64("min-retain-blocks"),
@@ -450,5 +457,16 @@ func (c Config) ValidateBasic(tendermintConfig *tmcfg.Config) error {
 		)
 	}
 
+	return nil
+}
+
+// ValidateFreeze validates the configuration that controls freeze mode.
+func (c Config) ValidateFreeze() error {
+	if c.FreezeHeight > math.MaxInt64 {
+		return sdkerrors.ErrAppConfig.Wrapf("freeze-height must not exceed %d", int64(math.MaxInt64))
+	}
+	if c.FreezeHeight > 0 && (c.HaltHeight > 0 || c.HaltTime > 0) {
+		return sdkerrors.ErrAppConfig.Wrap("freeze-height cannot be combined with halt-height or halt-time")
+	}
 	return nil
 }
