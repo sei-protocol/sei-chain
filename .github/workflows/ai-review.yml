@@ -16,3 +16,4 @@ jobs:
       # See: https://github.com/sei-protocol/uci/pull/59
       uci-ref: c845bc43dd0e7aa9ca1a3d69524261911c322aff
       enable-cursor: false # Disabled for now since there is a dedicated Bugbot flow built into Cursor currently enabled on repo.
+      re-review-on-push: 'true'
