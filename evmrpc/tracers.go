@@ -89,6 +89,9 @@ func (api *DebugAPI) acquireTraceSemaphore(ctx context.Context) (func(), error) 
 
 // prepareTraceContext creates the trace timeout context and acquires a trace slot if one
 // is immediately available, returning a cleanup function for acquired resources.
+// Retention guards run before this so pruned or unavailable heights fail fast
+// without holding a concurrency slot; hash-based endpoints may perform Tendermint
+// lookups outside the limiter as part of those guards.
 func (api *DebugAPI) prepareTraceContext(ctx context.Context) (context.Context, func(), error) {
 	traceCtx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	release, err := api.acquireTraceSemaphore(traceCtx)

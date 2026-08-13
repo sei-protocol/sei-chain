@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
@@ -109,6 +110,34 @@ func TestTraceBlockByNumberRejectsConcurrencyLimitAfterGuard(t *testing.T) {
 	defer func() { <-api.traceCallSemaphore }()
 
 	_, err := api.TraceBlockByNumber(context.Background(), rpc.LatestBlockNumber, nil)
+	require.ErrorIs(t, err, errTraceConcurrencyLimit)
+}
+
+func TestTraceCallRejectsConcurrencyLimitAfterGuard(t *testing.T) {
+	t.Parallel()
+
+	latestHeight := int64(10)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	tmClient := newHeightTestClient(8, 1, latestHeight)
+	stateStore := &fakeStateStore{latest: latestHeight, earliest: 1}
+	watermarks := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, stateStore, &fakeReceiptStore{latest: latestHeight})
+	api := &DebugAPI{
+		tmClient:           tmClient,
+		ctxProvider:        func(int64) sdk.Context { return latestCtx },
+		connectionType:     ConnectionTypeHTTP,
+		traceCallSemaphore: make(chan struct{}, 1),
+		traceTimeout:       time.Second,
+		backend: &Backend{
+			tmClient:   tmClient,
+			watermarks: watermarks,
+		},
+	}
+
+	api.traceCallSemaphore <- struct{}{}
+	defer func() { <-api.traceCallSemaphore }()
+
+	blockNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+	_, err := api.TraceCall(context.Background(), export.TransactionArgs{}, blockNrOrHash, nil)
 	require.ErrorIs(t, err, errTraceConcurrencyLimit)
 }
 
