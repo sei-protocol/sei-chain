@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"sort"
 	"strings"
 	"testing"
 
@@ -230,4 +231,91 @@ func holdsString(keys []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestEveryDeclaredKeyIsOneTheNodeActuallyReads is the guard on migrating a section.
+//
+// Declaring a key that nothing reads is worse than useless. doctor refuses a written key no section
+// declares, so a section declared with spellings that differ from the ones its readers resolve makes
+// every real key unrecognized: the operator's file suddenly fails the check on every node, while the
+// keys the registry does declare are read by nobody.
+//
+// That is not hypothetical. A section's mapstructure tags and the keys its readers resolve can differ,
+// and in this tree they usually do. state-commit tags a field `async-commit-buffer` while operators
+// write `sc-async-commit-buffer`, so deriving keys from those tags produces twenty keys nothing reads
+// and leaves twenty real ones undeclared. giga_executor migrated cleanly because its tags happen to
+// match its flag constants, which makes it the easy case rather than the representative one.
+//
+// Held against the observed record, because that is the only list of keys a node demonstrably reads. A
+// key read outside the application construction is not in it, and the honest answer there is to widen
+// the recording rather than to weaken this.
+func TestEveryDeclaredKeyIsOneTheNodeActuallyReads(t *testing.T) {
+	declared := registry.Keys()
+	if len(declared) == 0 {
+		t.Skip("this binary declares no sections, so there is nothing to check")
+	}
+
+	recorder := recordConstructionReads(t)
+	observed := map[string]bool{}
+	for _, key := range recorder.Keys() {
+		observed[key] = true
+	}
+
+	for _, key := range declaredButUnread(declared, observed) {
+		t.Errorf("%q is declared and the construction never reads it.\n\nEither the section's tags "+
+			"derive a spelling its readers do not resolve, in which case doctor will report every "+
+			"real key under that section as unrecognized on every node, or the key is read somewhere "+
+			"this recording does not reach, in which case widen the recording rather than remove "+
+			"this check.", key)
+	}
+	t.Logf("%d declared key(s), all of them read by the construction", len(declared))
+}
+
+// declaredButUnread returns the declared keys nothing was observed reading, sorted.
+func declaredButUnread(declared []string, observed map[string]bool) []string {
+	var out []string
+	for _, key := range declared {
+		if !observed[key] {
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestTheDeclaredKeyCheckCatchesASpellingItsReadersDoNotResolve makes the guard above falsifiable.
+//
+// That guard passes today because the one migrated section's tags happen to match its flag constants,
+// so nothing about it would change if the comparison stopped working. This drives the comparison over
+// the spellings a real section's tags would produce against the keys that section's readers actually
+// resolve, and requires the mismatch to be reported.
+//
+// The pair is taken from state-commit, whose tags say async-commit-buffer while every reader and every
+// operator's file says sc-async-commit-buffer. Deriving keys from those tags would declare twenty keys
+// nothing reads and leave twenty real ones undeclared, which turns doctor into a check that fails on
+// every node.
+func TestTheDeclaredKeyCheckCatchesASpellingItsReadersDoNotResolve(t *testing.T) {
+	recorder := recordConstructionReads(t)
+	observed := map[string]bool{}
+	for _, key := range recorder.Keys() {
+		observed[key] = true
+	}
+
+	// What the node reads, and what deriving from the tags would have declared instead.
+	real := []string{"state-commit.sc-enable", "state-commit.sc-async-commit-buffer"}
+	fromTags := []string{"state-commit.enable", "state-commit.async-commit-buffer"}
+
+	for _, key := range real {
+		if !observed[key] {
+			t.Fatalf("%q is not in the observed set, so this test's premise is wrong and it measures "+
+				"nothing", key)
+		}
+	}
+	if unread := declaredButUnread(real, observed); len(unread) != 0 {
+		t.Errorf("the keys this section's readers resolve were reported as unread: %v", unread)
+	}
+	if unread := declaredButUnread(fromTags, observed); len(unread) != len(fromTags) {
+		t.Errorf("declaring %v was accepted, and the node reads none of them. A section registered that "+
+			"way would leave doctor refusing every real key under it, on every node", fromTags)
+	}
 }

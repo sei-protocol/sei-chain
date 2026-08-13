@@ -7,6 +7,7 @@
 # Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update` and read the diff.
 
 (section not a literal)	CheckNoExperimentalKeyShadowsThisSection
+app_new	CheckObservedKeys
 genesis	CheckAbsent
 genesis	CheckDefaults
 genesis	CheckEveryRowHasADiscriminatingSeed
