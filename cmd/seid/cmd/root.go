@@ -17,6 +17,16 @@ import (
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configcli"
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+
+	// Every configuration section this binary declares.
+	//
+	// Redundant today, and deliberately so: this package imports two of the owners for unrelated
+	// reasons and reaches the rest through app, so all of them already register. That is the problem
+	// rather than the reassurance, because removing one of those unrelated uses would take a
+	// section's keys out of every diagnostic and out of what a booting node installs, with nothing
+	// failing. This import is what makes the set independent of why the owners happen to be linked.
+	_ "github.com/sei-protocol/sei-chain/config/sections"
+
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"

@@ -11,6 +11,11 @@ import (
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/config/seitoml"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+
+	// Every section this binary declares, so the values installed into a booting node cover the whole
+	// key space. Without this the set is whatever the import graph produced, and a section left out
+	// resolves through the machinery that answered it before with nothing reporting the difference.
+	_ "github.com/sei-protocol/sei-chain/config/sections"
 )
 
 // installResolved puts the values sei.toml resolves into the source the boot just built.
