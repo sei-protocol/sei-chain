@@ -234,7 +234,7 @@ func (m *WatermarkManager) EnsureTraceHeightAvailable(ctx context.Context, heigh
 // ensureReplayParentBlockAvailable verifies the parent block height replay
 // tracing loads for validator set lookup in initializeBlock.
 func (m *WatermarkManager) ensureReplayParentBlockAvailable(ctx context.Context, height int64) error {
-	parentBlockHeight := max(height-1, 0)
+	parentBlockHeight := max(height-1, m.genesisInitialHeight())
 	return m.EnsureBlockHeightAvailable(ctx, parentBlockHeight)
 }
 

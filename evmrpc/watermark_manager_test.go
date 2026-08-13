@@ -201,6 +201,49 @@ func TestEnsureTraceHeightAvailable(t *testing.T) {
 	require.ErrorContains(t, wm.EnsureTraceHeightAvailable(t.Context(), 100), "has been pruned")
 }
 
+func TestEnsureTraceHeightAvailableGenesisBlock(t *testing.T) {
+	t.Parallel()
+
+	const latestHeight = int64(200)
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{
+			SyncInfo: coretypes.SyncInfo{
+				LatestBlockHeight:   latestHeight,
+				EarliestBlockHeight: 1,
+			},
+		},
+		genesisInitialHeight: 1,
+	}
+	stateStore := &fakeStateStore{latest: latestHeight, earliest: 1}
+	rs := &fakeReceiptStore{latest: latestHeight, earliest: 1}
+	wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(latestHeight), stateStore, rs)
+
+	require.NoError(t, wm.EnsureTraceHeightAvailable(t.Context(), 1))
+}
+
+func TestEnsureTraceHeightAvailableGenesisBlockNonDefaultInitialHeight(t *testing.T) {
+	t.Parallel()
+
+	const (
+		genesisHeight = int64(100)
+		latestHeight  = int64(200)
+	)
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{
+			SyncInfo: coretypes.SyncInfo{
+				LatestBlockHeight:   latestHeight,
+				EarliestBlockHeight: genesisHeight,
+			},
+		},
+		genesisInitialHeight: genesisHeight,
+	}
+	stateStore := &fakeStateStore{latest: latestHeight, earliest: genesisHeight}
+	rs := &fakeReceiptStore{latest: latestHeight, earliest: genesisHeight}
+	wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(latestHeight), stateStore, rs)
+
+	require.NoError(t, wm.EnsureTraceHeightAvailable(t.Context(), genesisHeight))
+}
+
 func TestEnsureTraceHeightAvailableParentBlockFloor(t *testing.T) {
 	t.Parallel()
 
