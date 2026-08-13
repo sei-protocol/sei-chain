@@ -87,27 +87,6 @@ func TestSeiLegacyGateError_UnknownSeiNamespaceFailsClosed(t *testing.T) {
 	}
 }
 
-func TestSeiLegacyGateError_Sei2BlockedUnlessListed(t *testing.T) {
-	err := seiLegacyGateError("sei2_getBlockByNumber", BuildSeiLegacyEnabledSet(nil))
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei2_getBlockByNumber"})
-	if err := seiLegacyGateError("SEI2_GETBLOCKBYNUMBER", enabled); err != nil {
-		t.Fatalf("unexpected: %v", err)
-	}
-}
-
-func TestBuildSeiLegacyEnabledSet_IncludesSei2(t *testing.T) {
-	s := BuildSeiLegacyEnabledSet([]string{"sei2_getBlockReceipts"})
-	if _, ok := s["sei2_getBlockReceipts"]; !ok {
-		t.Fatalf("got %v", s)
-	}
-	if _, ok := s["sei_getBlockReceipts"]; ok {
-		t.Fatal("sei_* should not be enabled from sei2_ name only")
-	}
-}
-
 func TestSeiLegacyGateError_NilAllowlistUngated(t *testing.T) {
 	err := seiLegacyGateError("sei_getBlockByNumber", nil)
 	if err != nil {
@@ -371,46 +350,6 @@ func TestWrapSeiLegacyHTTP_StringResultPassthrough(t *testing.T) {
 	}
 	if rec.Header().Get(SeiLegacyDeprecationHTTPHeader) == "" {
 		t.Fatal("expected deprecation HTTP header")
-	}
-}
-
-func TestWrapSeiLegacyHTTP_Sei2BlockedWhenNotAllowlisted(t *testing.T) {
-	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		t.Fatal("inner should not run")
-	})
-	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil), 0)
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(
-		`{"jsonrpc":"2.0","id":1,"method":"sei2_getBlockByNumber","params":["latest",false]}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	var resp map[string]interface{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp["error"] == nil {
-		t.Fatalf("expected error: %s", rec.Body.String())
-	}
-}
-
-func TestWrapSeiLegacyHTTP_Sei2AllowlistedPassthroughAndHeader(t *testing.T) {
-	called := false
-	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"number":"0x1"}}`))
-	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei2_getBlockByNumber"})
-	h := wrapSeiLegacyHTTP(inner, enabled, 0)
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(
-		`{"jsonrpc":"2.0","id":1,"method":"sei2_getBlockByNumber","params":["latest",false]}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if !called {
-		t.Fatal("inner should run")
-	}
-	if rec.Header().Get(SeiLegacyDeprecationHTTPHeader) == "" {
-		t.Fatal("expected deprecation header")
 	}
 }
 

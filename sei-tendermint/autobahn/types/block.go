@@ -117,8 +117,6 @@ type GlobalBlock struct {
 	Timestamp    time.Time
 	GlobalNumber GlobalBlockNumber
 	Payload      *Payload
-	// Highest known finalized state.
-	FinalAppState utils.Option[*AppProposal]
 }
 
 // NewBlock creates a new Block.

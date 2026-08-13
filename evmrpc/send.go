@@ -39,7 +39,12 @@ type SendAPI struct {
 }
 
 type SendConfig struct {
-	slow bool
+	slow             bool
+	enableSimulation bool
+}
+
+func NewSendConfig(slow bool, enableSimulation bool) *SendConfig {
+	return &SendConfig{slow: slow, enableSimulation: enableSimulation}
 }
 
 func NewSendAPI(
@@ -92,17 +97,8 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	// but we still need to handle it.
 	sender, senderErr := getSender(tx, s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
 	if senderErr == nil {
-		if url, ok := s.tmClient.EvmProxy(sender).Get(); ok {
+		if client, ok := s.tmClient.EvmProxy(sender).Get(); ok {
 			recordRedirectedRequest(ctx, "eth_sendRawTransaction", string(s.connectionType))
-			// HTTP transport pooling already happens globally underneath net/http, so
-			// creating a fresh RPC client per proxied request is fine here. If we
-			// start proxying over WebSocket, we'll need explicit custom pooling since
-			// the underlying TCP connection lifecycle is strictly bound to Dial -> Close calls.
-			client, err := rpc.DialContext(ctx, url.String())
-			if err != nil {
-				return hash, fmt.Errorf("rpc.DialContext(%q): %w", url.String(), err)
-			}
-			defer client.Close()
 
 			if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
 				// No error wrapping, because evm server is too dumb to handle wrapped error.
@@ -120,8 +116,8 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	if err != nil {
 		return hash, err
 	}
-	gasUsedEstimate := tx.Gas() // if issue simulating, fallback to gas limit
-	if senderErr == nil {       // simulation requires sender.
+	gasUsedEstimate := tx.Gas()                            // if issue simulating, fallback to gas limit
+	if s.sendConfig.enableSimulation && senderErr == nil { // simulation requires sender.
 		if gas, err := s.simulateTx(ctx, sender, tx); err == nil {
 			gasUsedEstimate = gas
 		}

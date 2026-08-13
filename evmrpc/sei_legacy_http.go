@@ -17,7 +17,7 @@ const (
 )
 
 // wrapSeiLegacyHTTP wraps the EVM JSON-RPC HTTP handler to enforce [evm].enabled_legacy_sei_apis for
-// gated sei_* and sei2_* methods. Disallowed calls get a JSON-RPC error without invoking the inner handler.
+// gated sei_* methods. Disallowed calls get a JSON-RPC error without invoking the inner handler.
 // Single-object allowed calls pass through unchanged; batches forward a filtered subset and merge inner
 // results back by JSON-RPC id. Deprecation header on successful forwards of gated methods. nil allowlist = no wrap.
 //
@@ -196,7 +196,7 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 	}
 
 	// Fast path: every element is forwarded (nothing blocked/invalid) and none
-	// are gated sei_*/sei2_* methods.  Skip the recorder so the gzip handler
+	// are gated sei_* methods.  Skip the recorder so the gzip handler
 	// writes directly to the real http.ResponseWriter — same fix as handleSingle.
 	allForwarded := len(forward) == len(msgs)
 	if allForwarded && !forwardLegacy {

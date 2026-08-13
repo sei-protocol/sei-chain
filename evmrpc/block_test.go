@@ -43,7 +43,7 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	}
 
 	// Call EncodeTmBlock with empty transactions
-	result, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, block, k, true, false, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	result, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, block, k, true, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 
 	// Assert txHash is equal to ethtypes.EmptyTxsHash
@@ -73,7 +73,7 @@ func TestEncodeBankMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, false, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 	txs := res["transactions"].([]any)
 	require.Equal(t, 0, len(txs))
@@ -113,7 +113,7 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, false, true, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, true, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 	txs := res["transactions"].([]any)
 	require.Equal(t, 1, len(txs))
@@ -126,53 +126,6 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 		From:             fromEvmAddr,
 		To:               &to,
 		Input:            []byte{1, 2, 3},
-		Hash:             common.Hash(sha256.Sum256(bz)),
-		TransactionIndex: (*hexutil.Uint64)(&ti),
-		V:                nil,
-		R:                nil,
-		S:                nil,
-	}, txs[0].(*export.RPCTransaction))
-}
-
-func TestEncodeBankTransferMsg(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
-	fromSeiAddr, fromEvmAddr := testkeeper.MockAddressPair()
-	k.SetAddressMapping(ctx, fromSeiAddr, fromEvmAddr)
-	toSeiAddr, _ := testkeeper.MockAddressPair()
-	b := TxConfig.NewTxBuilder()
-	b.SetMsgs(&banktypes.MsgSend{
-		FromAddress: fromSeiAddr.String(),
-		ToAddress:   toSeiAddr.String(),
-		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
-	})
-	ti := uint64(0)
-	tx := b.GetTx()
-	bz, _ := Encoder(tx)
-	resBlock := coretypes.ResultBlock{
-		BlockID: MockBlockID,
-		Block: &tmtypes.Block{
-			Header: mockBlockHeader(MockHeight8),
-			Data: tmtypes.Data{
-				Txs: []tmtypes.Tx{bz},
-			},
-			LastCommit: &tmtypes.Commit{
-				Height: MockHeight8 - 1,
-			},
-		},
-	}
-	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, true, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
-	require.Nil(t, err)
-	txs := res["transactions"].([]any)
-	require.Equal(t, 1, len(txs))
-	bh := common.HexToHash(MockBlockID.Hash.String())
-	to := common.Address(toSeiAddr)
-	require.Equal(t, &export.RPCTransaction{
-		BlockHash:        &bh,
-		BlockNumber:      (*hexutil.Big)(big.NewInt(MockHeight8)),
-		From:             fromEvmAddr,
-		To:               &to,
-		Value:            (*hexutil.Big)(big.NewInt(1_000_000_000_000)),
 		Hash:             common.Hash(sha256.Sum256(bz)),
 		TransactionIndex: (*hexutil.Uint64)(&ti),
 		V:                nil,
@@ -215,46 +168,9 @@ func TestEncodeWasmExecuteMsg_GasUsedFromReceipt(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, false, true, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, true, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 	require.Equal(t, hexutil.Uint64(54321), res["gasUsed"])
-	txs := res["transactions"].([]any)
-	require.Equal(t, 1, len(txs))
-}
-
-// Bank-send txs without a matching EVM receipt contribute 0 to the block's
-// gasUsed total. (This is the Autobahn case for plain MsgSend txs; under
-// legacy, bank sends that emit EVM-relevant events would have a synthetic
-// receipt and contribute receipt.GasUsed.)
-func TestEncodeBankTransferMsg_NoReceiptGasUsedZero(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
-	fromSeiAddr, fromEvmAddr := testkeeper.MockAddressPair()
-	k.SetAddressMapping(ctx, fromSeiAddr, fromEvmAddr)
-	toSeiAddr, _ := testkeeper.MockAddressPair()
-	b := TxConfig.NewTxBuilder()
-	b.SetMsgs(&banktypes.MsgSend{
-		FromAddress: fromSeiAddr.String(),
-		ToAddress:   toSeiAddr.String(),
-		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
-	})
-	tx := b.GetTx()
-	bz, _ := Encoder(tx)
-	resBlock := coretypes.ResultBlock{
-		BlockID: MockBlockID,
-		Block: &tmtypes.Block{
-			Header: mockBlockHeader(MockHeight8),
-			Data: tmtypes.Data{
-				Txs: []tmtypes.Tx{bz},
-			},
-			LastCommit: &tmtypes.Commit{
-				Height: MockHeight8 - 1,
-			},
-		},
-	}
-	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, k, true, true, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
-	require.Nil(t, err)
-	require.Equal(t, hexutil.Uint64(0), res["gasUsed"])
 	txs := res["transactions"].([]any)
 	require.Equal(t, 1, len(txs))
 }
@@ -329,7 +245,7 @@ func TestEncodeTmBlock_ExcludeUntraceable(t *testing.T) {
 
 	// excludeUntraceable=true: ante stub dropped, revert kept.
 	res, err := evmrpc.EncodeTmBlock(ctxProvider, txConfigProvider, block, k,
-		false /*fullTx*/, false /*includeBankTransfers*/, false /*includeSyntheticTxs*/, true, /*excludeUntraceable*/
+		false /*fullTx*/, false /*includeSyntheticTxs*/, true, /*excludeUntraceable*/
 		evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.NoError(t, err)
 	txs := res["transactions"].([]any)
@@ -339,7 +255,7 @@ func TestEncodeTmBlock_ExcludeUntraceable(t *testing.T) {
 	// excludeUntraceable=false: ante stub flows through (matches regular
 	// eth_getBlockBy* behavior per PR #2343's TestAnteFailureOthers).
 	res, err = evmrpc.EncodeTmBlock(ctxProvider, txConfigProvider, block, k,
-		false /*fullTx*/, false /*includeBankTransfers*/, false /*includeSyntheticTxs*/, false, /*excludeUntraceable*/
+		false /*fullTx*/, false /*includeSyntheticTxs*/, false, /*excludeUntraceable*/
 		evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.NoError(t, err)
 	txs = res["transactions"].([]any)

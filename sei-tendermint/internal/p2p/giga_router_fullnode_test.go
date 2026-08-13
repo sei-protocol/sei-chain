@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -74,6 +75,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		PersistentStateDir: utils.Some(dir),
 		App:                proxyApp,
 		GenDoc:             genDoc,
+		EnableEvmProxy:     true,
 	}
 	dataState, err := BuildDataState(cfg, blockDB)
 	require.NoError(t, err)
@@ -82,29 +84,33 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	// App is required for executeBlock but isn't exercised by this test.
 	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), dataState)
 	require.NoError(t, err)
+	clientByValidator := map[atypes.PublicKey]*ethrpc.Client{}
+	for validator, rpcURL := range urlByValidator {
+		clientByValidator[validator] = registerEvmProxyForTest(t, router.gigaRouterCommon, validator, rpcURL)
+	}
 
 	// EvmProxy: for every sender, the fullnode router resolves to the
-	// shard owner's URL. NewGigaRouter rejects configs where any
+	// shard owner's client. NewGigaRouter rejects configs where any
 	// committee member is missing an EVMRPC URL, so the (nil,false)
 	// branch is unreachable here. Crucially, no sender is ever proxied
 	// "to ourselves" — that short-circuit doesn't exist in fullnode mode.
-	expectedRemoteURLs := map[string]struct{}{}
-	for _, rpcURL := range urlByValidator {
-		expectedRemoteURLs[rpcURL.String()] = struct{}{}
+	expectedRemoteClients := map[*ethrpc.Client]struct{}{}
+	for _, client := range clientByValidator {
+		expectedRemoteClients[client] = struct{}{}
 	}
-	returnedRemoteURLs := map[string]struct{}{}
+	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
 		shardValidator := router.data.Registry().LatestEpoch().Committee().EvmShard(sender)
-		expectedURL := urlByValidator[shardValidator]
-		proxyURL, ok := router.EvmProxy(sender).Get()
+		expectedClient := clientByValidator[shardValidator]
+		proxyClient, ok := router.EvmProxy(sender).Get()
 		require.True(t, ok)
-		require.Equal(t, expectedURL.String(), proxyURL.String())
-		returnedRemoteURLs[proxyURL.String()] = struct{}{}
+		require.Equal(t, expectedClient, proxyClient)
+		returnedRemoteClients[proxyClient] = struct{}{}
 	}
 	// Sanity: with 200 random senders mapped uniformly over 5 shards we
 	// expect to have hit every shard owner at least once.
-	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
+	require.Equal(t, expectedRemoteClients, returnedRemoteClients)
 
 	// Read-path methods source from local data.State + genesis doc — no
 	// sentinels. Before any block is pushed (and InitChain hasn't run),
