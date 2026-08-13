@@ -48,6 +48,7 @@ var Names = []string{
 	"state-commit",
 	"state-store",
 	"state-sync",
+	"telemetry",
 	"wasm",
 }
 

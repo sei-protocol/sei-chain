@@ -10,9 +10,8 @@
 package cosmosbase
 
 import (
-	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
-
 	"github.com/sei-protocol/sei-chain/config/registry"
+	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 )
 
 // The names these sections are looked up and reported under.
@@ -25,7 +24,11 @@ const (
 	BaseSectionName      = "base"
 	APISectionName       = "api"
 	GRPCSectionName      = "grpc"
+	TelemetrySectionName = "telemetry"
 )
+
+// GlobalLabelsKey is the metric label set, and the one key no environment variable can supply.
+const GlobalLabelsKey = "telemetry.global-labels"
 
 // Registration puts the upstream sections in the configuration registry.
 //
@@ -37,6 +40,59 @@ func init() {
 	registry.RegisterRootKeys(BaseSectionName, &srvconfig.BaseConfig{}, baseBaseline)
 	registry.RegisterSection(APISectionName, &srvconfig.APIConfig{}, apiBaseline)
 	registry.RegisterSection(GRPCSectionName, &srvconfig.GRPCConfig{}, grpcBaseline)
+	registry.RegisterSection(TelemetrySectionName, &telemetrySchema{}, telemetryBaseline)
+
+	// The label set is a list of name/value pairs and the reader takes that exact type rather than casting
+	// what it finds. An environment variable carries one string, so there is no value of it the reader can
+	// use, and resolving one would install a value that stops the node.
+	registry.RefuseFromEnvironment(GlobalLabelsKey,
+		"the metric label set is a list of name/value pairs and its reader takes that exact type rather "+
+			"than casting, so no single environment string can supply it. Write it in sei.toml instead")
+}
+
+// telemetrySchema declares the keys the metric settings reader resolves.
+//
+// A schema rather than telemetry.Config, and this is the one upstream section that needs one. Its type
+// declares the label set as a list of string pairs, and the reader takes a list of untyped rows instead:
+// it asserts that exact type rather than casting what it finds, and refuses the struct's own type,
+// including the empty value of it. Registering the type directly would resolve a baseline the reader
+// refuses, and that refusal stops the node. Every node, not only one that wrote the key.
+//
+// Every other field matches, so the difference is one field's type and not the section's shape.
+type telemetrySchema struct {
+	ServiceName             string `mapstructure:"service-name"`
+	Enabled                 bool   `mapstructure:"enabled"`
+	EnableHostname          bool   `mapstructure:"enable-hostname"`
+	EnableHostnameLabel     bool   `mapstructure:"enable-hostname-label"`
+	EnableServiceLabel      bool   `mapstructure:"enable-service-label"`
+	PrometheusRetentionTime int64  `mapstructure:"prometheus-retention-time"`
+	GlobalLabels            []any  `mapstructure:"global-labels"`
+}
+
+// telemetryBaseline is what this section resolves to for a node that has written nothing.
+//
+// Read out of the upstream defaults, with the label set converted to the rows its reader accepts. The same
+// values for every mode: what a node labels its metrics with is an operator's decision about their
+// monitoring, and no node mode implies one.
+func telemetryBaseline(registry.Mode) any {
+	live := srvconfig.DefaultConfig().Telemetry
+	labels := make([]any, 0, len(live.GlobalLabels))
+	for _, pair := range live.GlobalLabels {
+		row := make([]any, 0, len(pair))
+		for _, item := range pair {
+			row = append(row, item)
+		}
+		labels = append(labels, row)
+	}
+	return telemetrySchema{
+		ServiceName:             live.ServiceName,
+		Enabled:                 live.Enabled,
+		EnableHostname:          live.EnableHostname,
+		EnableHostnameLabel:     live.EnableHostnameLabel,
+		EnableServiceLabel:      live.EnableServiceLabel,
+		PrometheusRetentionTime: live.PrometheusRetentionTime,
+		GlobalLabels:            labels,
+	}
 }
 
 // apiBaseline and grpcBaseline are what these sections resolve to for a node that has written nothing.

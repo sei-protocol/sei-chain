@@ -2,6 +2,7 @@ package seitoml_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/seitoml"
@@ -48,5 +49,55 @@ func TestAListThisCannotRenderStillFails(t *testing.T) {
 	if err := f.Set("probe", []any{"fine", struct{ Nope int }{}}); err == nil {
 		t.Error("a list holding a value the writer cannot render was accepted. The writer must not take " +
 			"more than the reader can produce, or an unrenderable value becomes a plausible-looking line")
+	}
+}
+
+// TestAListOfPairsCanBeWrittenAndReadBack is the shape a metric label set has.
+//
+// Written as untyped rows, which is both what a file reads back as and the only shape the metric settings
+// reader accepts. Its own struct declares a list of string pairs and the reader refuses that, so nothing
+// here needs to render it.
+func TestAListOfPairsCanBeWrittenAndReadBack(t *testing.T) {
+	f, err := seitoml.New("full", "seid test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []any{[]any{"chain_id", "pacific-1"}, []any{"region", "euw1"}}
+	if err := f.Set("telemetry.global-labels", want); err != nil {
+		t.Fatalf("write a list of pairs: %v", err)
+	}
+
+	raw, err := f.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reread, err := seitoml.Parse(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatalf("the written file does not parse: %v\n\n%s", err, raw)
+	}
+	got, present, err := reread.Get("telemetry.global-labels")
+	if err != nil || !present {
+		t.Fatalf("read back: present=%v err=%v\n\n%s", present, err, raw)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("read back as %#v, want %#v", got, want)
+	}
+}
+
+// TestAnEmptyLabelSetIsWritable is the default the telemetry section carries.
+func TestAnEmptyLabelSetIsWritable(t *testing.T) {
+	f, err := seitoml.New("full", "seid test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Set("telemetry.global-labels", []any{}); err != nil {
+		t.Fatalf("the default value cannot be written, so generate would fail on this section: %v", err)
+	}
+	raw, err := f.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "global-labels = []") {
+		t.Errorf("an absent label set rendered as something other than an empty list:\n\n%s", raw)
 	}
 }

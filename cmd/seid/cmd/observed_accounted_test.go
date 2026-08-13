@@ -120,6 +120,9 @@ var readByTheServerConfigReader = map[string]string{
 	"grpc": "read only by the upstream server configuration reader at start time. " +
 		"TestTheGRPCSchemaDescribesTheReaderItStandsInFor writes a value under each and confirms which " +
 		"setting changes",
+	"telemetry": "read only by the upstream server configuration reader at start time. " +
+		"TestTheTelemetrySchemaDescribesTheReaderItStandsInFor writes a value under each and confirms " +
+		"which setting changes",
 }
 
 // TestEveryDeclaredKeyIsReadBySomething closes the direction the read census cannot.

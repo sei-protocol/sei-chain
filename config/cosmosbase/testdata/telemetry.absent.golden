@@ -1,0 +1,16 @@
+# Keys whose baseline is not what the reader produces when nothing is written.
+# Regenerate with -update.
+#
+# A row means a node with this key missing runs the absent value today and would run
+# the baseline once the section is declared. Guarding the read is what empties this
+# file: the absent column then becomes the declared default and the row disappears.
+#
+# A row compares two values and not what the reader does with them, so some rows are a
+# difference in how a value is written rather than in what a node runs: "" and "0" are
+# the same number to a reader that casts. Read the pair before treating a row as a change.
+#
+# key	setting	absent	baseline	modes
+
+telemetry.enabled	Enabled	false	true	all
+telemetry.global-labels	GlobalLabels	[][]string{}	[]interface {}{}	all
+telemetry.prometheus-retention-time	PrometheusRetentionTime	0	7200	all

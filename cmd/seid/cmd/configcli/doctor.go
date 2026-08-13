@@ -39,6 +39,9 @@ type Diagnosis struct {
 	// Overridden are written keys whose value the environment supplies instead, sorted by key. Each
 	// warns: the file is not what the node runs for that key, and nothing else says so.
 	Overridden []Override
+	// IgnoredVariables are environment variables set for a key the environment cannot deliver, sorted by
+	// key. Each warns: the variable does nothing, and an operator who set it believes otherwise.
+	IgnoredVariables []Override
 }
 
 // Override is one written key the environment answers instead of the file.
@@ -144,6 +147,7 @@ func Doctor(file *seitoml.File, tendermintMode string) (Diagnosis, error) {
 	sort.Slice(d.Malformed, func(i, j int) bool { return d.Malformed[i].Key < d.Malformed[j].Key })
 
 	d.Refused, d.Overridden = askEachSection(d, written)
+	d.IgnoredVariables = ignoredVariables(os.LookupEnv, written)
 	return d, nil
 }
 
@@ -173,6 +177,29 @@ func askEachSection(d Diagnosis, written map[string]any) ([]registry.SectionErro
 		return []registry.SectionError{{Section: "", Err: err}}, nil
 	}
 	return registry.ValidateResolved(resolved), environmentOverrides(resolved, written)
+}
+
+// ignoredVariables lists the environment variables set for a key the environment cannot deliver.
+//
+// A key whose reader takes its value's exact type cannot be supplied by a variable, so the resolution skips
+// that channel and the node runs on its file instead. Which means a variable somebody set does nothing, and
+// nothing else in the system would ever say so. Reported here for the same reason every other silence in
+// this surface is: a setting that looks applied and is not is the failure the whole thing exists to remove.
+func ignoredVariables(lookupEnv func(string) (string, bool), written map[string]any) []Override {
+	if lookupEnv == nil {
+		return nil
+	}
+	var out []Override
+	for key := range registry.EnvCannotDeliver() {
+		name := registry.EnvName(key)
+		value, set := lookupEnv(name)
+		if !set || value == "" {
+			continue
+		}
+		out = append(out, Override{Key: key, Written: written[key], Applied: value, Variable: name})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
 }
 
 // environmentOverrides lists the written keys the environment answers instead of the file.
@@ -268,6 +295,14 @@ func (d Diagnosis) Report() string {
 			"each of them at its next start:\n", len(d.Malformed)))
 		for _, m := range d.Malformed {
 			b.WriteString(fmt.Sprintf("  %s = %#v: %s (expected %s)\n", m.Key, m.Value, m.Reason, m.Want))
+		}
+	}
+	if len(d.IgnoredVariables) > 0 {
+		b.WriteString(fmt.Sprintf("%d environment variable(s) set for a key the environment cannot supply. "+
+			"Each does nothing; write the value in this file instead:\n", len(d.IgnoredVariables)))
+		for _, v := range d.IgnoredVariables {
+			b.WriteString(fmt.Sprintf("  %s is set to %#v and %s does not take it\n",
+				v.Variable, v.Applied, v.Key))
 		}
 	}
 	if len(d.Overridden) > 0 {

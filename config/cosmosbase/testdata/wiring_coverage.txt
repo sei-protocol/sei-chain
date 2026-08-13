@@ -10,3 +10,4 @@ api	CheckSchemaMatchesTheReader
 base	CheckSchemaMatchesTheReader
 grpc	CheckSchemaMatchesTheReader
 state-sync	CheckNoExperimentalKeyShadowsThisSection
+telemetry	CheckSchemaMatchesTheReader

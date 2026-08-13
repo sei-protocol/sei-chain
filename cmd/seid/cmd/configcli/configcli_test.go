@@ -514,3 +514,41 @@ func (p probeWithRule) Validate() error {
 	}
 	return nil
 }
+
+// TestDoctorNamesAVariableTheEnvironmentCannotDeliver is the other half of refusing that channel.
+//
+// A key whose reader takes its value's exact type cannot be supplied by a variable, so the resolution skips
+// that channel and the node runs on its file. Which means a variable somebody set does nothing. Skipping the
+// channel without saying so would trade a node that refuses to start for a setting that silently has no
+// effect, and the second is the failure this whole surface exists to remove.
+func TestDoctorNamesAVariableTheEnvironmentCannotDeliver(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("probe", &struct {
+		Rows []any `mapstructure:"rows"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			Rows []any `mapstructure:"rows"`
+		}{Rows: []any{}}
+	})
+	registry.RefuseFromEnvironment("probe.rows", "its reader takes the exact type and no string supplies it")
+	for _, d := range registry.Defects() {
+		t.Fatalf("registration was refused: %v", d.Err)
+	}
+	t.Setenv(registry.EnvName("probe.rows"), "a=b")
+
+	d, err := configcli.Doctor(parseFile(t, "schema_version = 1\nnode_mode = \"validator\"\n"), "")
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+	if len(d.IgnoredVariables) != 1 {
+		t.Fatalf("reported %d ignored variable(s), want 1. The operator set one and it does nothing, and "+
+			"nothing else in the system would ever tell them", len(d.IgnoredVariables))
+	}
+	got := d.IgnoredVariables[0]
+	if got.Variable != registry.EnvName("probe.rows") || got.Key != "probe.rows" {
+		t.Errorf("named %q for key %q, want the variable and key that were set", got.Variable, got.Key)
+	}
+	if !strings.Contains(d.Report(), got.Variable) {
+		t.Errorf("the report does not name the variable, so an operator cannot find it:\n%s", d.Report())
+	}
+}

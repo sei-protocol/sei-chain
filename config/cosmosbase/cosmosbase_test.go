@@ -281,3 +281,63 @@ const (
 	APISectionNameForTest  = "api"
 	GRPCSectionNameForTest = "grpc"
 )
+
+// TestTheTelemetrySchemaDescribesTheReaderItStandsInFor holds the metric settings against GetConfig.
+//
+// The label set is probed with a list of pairs, which is the only shape its reader takes. That is the same
+// fact that keeps it out of the environment layer.
+func TestTheTelemetrySchemaDescribesTheReaderItStandsInFor(t *testing.T) {
+	// The section name stays a literal. The wiring record reads it from this call's second argument.
+	configtest.CheckSchemaMatchesTheReader(t, "telemetry", configtest.SchemaCheck{
+		Read: func(opts configtest.AppOpts) (any, error) {
+			cfg, err := readServerConfig(opts)
+			if err != nil {
+				return nil, err
+			}
+			return cfg.Telemetry, nil
+		},
+		Probe: map[string]any{
+			"telemetry.service-name":              "sei-probe",
+			"telemetry.enabled":                   true,
+			"telemetry.enable-hostname":           true,
+			"telemetry.enable-hostname-label":     true,
+			"telemetry.enable-service-label":      true,
+			"telemetry.prometheus-retention-time": int64(600),
+			"telemetry.global-labels":             []any{[]any{"chain_id", "pacific-1"}},
+		},
+	})
+}
+
+// TestTheLabelSetIsRefusedFromTheEnvironment is the decision this section is built around.
+//
+// The reader takes the label set's exact type rather than casting what it finds, so no single environment
+// string can supply it, and resolving one would install a value that stops the node. The channel is refused
+// instead, which means the file's value applies and the node runs.
+//
+// That is deliberately not what the machinery this replaces does. It resolves the variable and the node
+// refuses to start. The difference is recorded here rather than left for somebody to discover.
+func TestTheLabelSetIsRefusedFromTheEnvironment(t *testing.T) {
+	refused := registry.EnvCannotDeliver()
+	reason, named := refused[cosmosbase.GlobalLabelsKey]
+	if !named {
+		t.Fatalf("%s is not refused from the environment. A variable holding it resolves to the top of the "+
+			"order and installs a value the reader cannot use, which stops the node",
+			cosmosbase.GlobalLabelsKey)
+	}
+	if reason == "" {
+		t.Error("the refusal carries no reason, so an operator told their variable is ignored cannot learn why")
+	}
+
+	// The layer is what has to leave it out; the record above is only a statement about it.
+	layer := registry.EnvLayer(func(string) (string, bool) { return "chain_id=pacific-1", true })
+	if _, present := layer.Values[cosmosbase.GlobalLabelsKey]; present {
+		t.Error("the environment layer carried the label set anyway. The record and the layer have to agree, " +
+			"or the refusal is a comment")
+	}
+	// Every other key in the section still comes from the environment, so the refusal is one key and not
+	// the whole section.
+	if _, present := layer.Values["telemetry.service-name"]; !present {
+		t.Error("the environment layer dropped a key it can deliver. Refusing one key must not refuse the " +
+			"section it belongs to")
+	}
+}

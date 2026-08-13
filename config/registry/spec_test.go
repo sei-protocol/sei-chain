@@ -944,3 +944,26 @@ func (r rootRule) Validate() error {
 	}
 	return nil
 }
+
+// TestRefusingAChannelWithoutAReasonIsItselfRefused keeps the exemption from being unexplainable.
+//
+// A key left out of the environment layer is one whose variable does nothing, and an operator told that has
+// to be told why. A refusal with no reason gives a diagnostic nothing to print.
+func TestRefusingAChannelWithoutAReasonIsItselfRefused(t *testing.T) {
+	registry.Reset()
+	registry.RefuseFromEnvironment("probe.rows", "")
+
+	if len(registry.Defects()) != 1 {
+		t.Fatalf("recorded %d defects, want 1 naming the key with no reason", len(registry.Defects()))
+	}
+	if _, refused := registry.EnvCannotDeliver()["probe.rows"]; refused {
+		t.Error("the key was refused from the environment anyway. Its variable would then be ignored with " +
+			"nothing able to say why, which is worse than either resolving it or not")
+	}
+
+	registry.Reset()
+	registry.RefuseFromEnvironment("probe.rows", "its reader takes the exact type")
+	if _, refused := registry.EnvCannotDeliver()["probe.rows"]; !refused {
+		t.Error("a refusal carrying a reason was not recorded")
+	}
+}

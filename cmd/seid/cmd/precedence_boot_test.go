@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
@@ -269,4 +270,42 @@ func valuesFor(t *testing.T, key string) (inFile, inEnv, onCommandLine, want str
 			key, onCommandLine, err)
 	}
 	return inFile, inEnv, onCommandLine, f.Value.String()
+}
+
+// TestANodeStartsDespiteAVariableTheEnvironmentCannotDeliver is the divergence this manager takes on.
+//
+// The metric label set is a list of untyped rows and its reader takes that exact type rather than casting.
+// So a variable holding it is a string the reader refuses, and refusing propagates out of the start path:
+// the node does not come up. That is true on the machinery this replaces, today, with or without any of
+// this.
+//
+// Here the key is left out of the environment layer, so the file's value is what resolves and the node
+// starts. This is the one place a boot succeeds where the legacy path fails, and it is recorded rather than
+// discovered. The operator is told separately, by doctor, that their variable does nothing.
+func TestANodeStartsDespiteAVariableTheEnvironmentCannotDeliver(t *testing.T) {
+	refused := registry.EnvRefusedKeys()
+	if len(refused) == 0 {
+		t.Skip("no key is refused from the environment, so there is no divergence to hold")
+	}
+	configtest.Isolate(t)
+
+	for _, key := range refused {
+		t.Setenv(registry.EnvName(key), "not-a-value-this-reader-takes")
+	}
+	ctx := bootWithSeiToml(t, "schema_version = 1\nnode_mode = \"validator\"\n")
+
+	for _, key := range refused {
+		got := ctx.Viper.Get(key)
+		if text, isText := got.(string); isText && text == "not-a-value-this-reader-takes" {
+			t.Errorf("%s reads as the string the variable held. The environment layer carried a key it "+
+				"cannot deliver, and the reader refuses that value, so the node does not start", key)
+		}
+	}
+
+	// The whole point: the configuration the node would build is usable, which it is not when the variable
+	// reaches the reader.
+	if _, err := srvconfig.GetConfig(ctx.Viper); err != nil {
+		t.Errorf("the server configuration cannot be read after a boot with the variable set: %v\n\nThat is "+
+			"the failure refusing this channel exists to prevent", err)
+	}
 }

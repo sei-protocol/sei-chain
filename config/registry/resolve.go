@@ -251,9 +251,16 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 // enumerated for a prefix: a variable is only findable if you already know its name. That direction
 // is also what makes this layer complete, since every declared key has exactly one canonical
 // spelling and this asks for all of them.
+// A key whose declared shape an environment variable cannot carry is skipped. The environment delivers one
+// string, and a reader that takes the exact type rather than casting it cannot be given one. Including such
+// a key would resolve the variable to the top of the order and install a value that stops the node.
 func EnvLayer(lookup func(string) (string, bool)) Layer {
 	out := Layer{Source: "env", Values: map[string]any{}}
+	undeliverable := EnvCannotDeliver()
 	for _, key := range Keys() {
+		if _, refused := undeliverable[key]; refused {
+			continue
+		}
 		if v, ok := lookup(EnvName(key)); ok && v != "" {
 			out.Values[key] = v
 		}

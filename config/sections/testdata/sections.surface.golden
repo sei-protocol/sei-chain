@@ -223,6 +223,18 @@ default:state-sync:validator:config.StateSyncConfig{SnapshotInterval:0x0, Snapsh
 default:state-sync:full:config.StateSyncConfig{SnapshotInterval:0x0, SnapshotKeepRecent:0x2, SnapshotDirectory:""}
 default:state-sync:seed:config.StateSyncConfig{SnapshotInterval:0x0, SnapshotKeepRecent:0x2, SnapshotDirectory:""}
 default:state-sync:archive:config.StateSyncConfig{SnapshotInterval:0x0, SnapshotKeepRecent:0x2, SnapshotDirectory:""}
+section:telemetry
+key:telemetry.enable-hostname
+key:telemetry.enable-hostname-label
+key:telemetry.enable-service-label
+key:telemetry.enabled
+key:telemetry.global-labels
+key:telemetry.prometheus-retention-time
+key:telemetry.service-name
+default:telemetry:validator:cosmosbase.telemetrySchema{ServiceName:"", Enabled:true, EnableHostname:false, EnableHostnameLabel:false, EnableServiceLabel:false, PrometheusRetentionTime:7200, GlobalLabels:[]interface {}{}}
+default:telemetry:full:cosmosbase.telemetrySchema{ServiceName:"", Enabled:true, EnableHostname:false, EnableHostnameLabel:false, EnableServiceLabel:false, PrometheusRetentionTime:7200, GlobalLabels:[]interface {}{}}
+default:telemetry:seed:cosmosbase.telemetrySchema{ServiceName:"", Enabled:true, EnableHostname:false, EnableHostnameLabel:false, EnableServiceLabel:false, PrometheusRetentionTime:7200, GlobalLabels:[]interface {}{}}
+default:telemetry:archive:cosmosbase.telemetrySchema{ServiceName:"", Enabled:true, EnableHostname:false, EnableHostnameLabel:false, EnableServiceLabel:false, PrometheusRetentionTime:7200, GlobalLabels:[]interface {}{}}
 section:wasm
 key:wasm.memory_cache_size
 key:wasm.query_gas_limit

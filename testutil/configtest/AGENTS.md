@@ -534,3 +534,14 @@ space in one diff, which is what a reviewer needs when a change touches several 
 It records text rather than the hash of it deliberately. `Fingerprint` is the cheap thing a
 deploy compares; the surface is what a human reads when the comparison fails. A recorded hash
 fails with no way to see what moved.
+
+One channel can be refused for a key rather than resolved, and it is the only place this
+surface knowingly diverges from the machinery it replaces. An environment variable carries
+one string, and a reader that asserts its value's exact type rather than casting cannot be
+handed one: the metric label set is that case, and resolving a variable for it installs a
+value that stops the node. `registry.RefuseFromEnvironment` leaves the key out of the
+environment layer with a stated reason, so the file's value applies and the node starts
+where the legacy path refuses. The reason is required, because the trade is a refused boot
+for a setting that silently does nothing, and the second is only acceptable if somebody is
+told. `doctor` reports the variable as ignored, and a boot test holds that the node comes up
+with it set.
