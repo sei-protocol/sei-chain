@@ -114,7 +114,6 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		App:            proxy.New(&fixedHeightApp{height: int64(last)}),
 	}, db)
 	require.NoError(t, err)
-	require.Equal(t, last, state.FirstAppProposal())
 	got, err := state.TryBlock(last)
 	require.NoError(t, err)
 	require.Equal(t, blocks[gr.Len()/2].Header().Hash(), got.Header().Hash())

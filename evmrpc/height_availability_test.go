@@ -379,6 +379,45 @@ func TestGetBlockTransactionCountByHashReceiptsPruned(t *testing.T) {
 	require.Contains(t, err.Error(), "receipts have been pruned")
 }
 
+func TestGetBlockByNumberReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockByNumber(context.Background(), rpc.BlockNumber(100), false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
+func TestGetBlockByHashReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
+func TestGetBlockReceiptsReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(100)))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
 func TestStateAPIGetProofUnavailableHeight(t *testing.T) {
 	t.Parallel()
 

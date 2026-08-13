@@ -45,15 +45,6 @@ message StreamLaneProposalsReq {
   uint64 first_block_number = 1;
 }
 
-message StreamAppQCsReq {
-  option (wireguard.sized) = true;
-}
-message StreamAppQCsResp {
-  option (wireguard.sized) = true;
-  autobahn.AppQC app_qc = 1; // required
-  autobahn.CommitQC commit_qc = 2; // required
-}
-
 message StreamCommitQCsReq {
   option (wireguard.sized) = true;
 }
@@ -77,6 +68,11 @@ message GetBlockResp {
 }
 
 message StreamFullCommitQCsReq {
+  option (wireguard.sized) = true;
+  uint64 next_block = 1;
+}
+
+message StreamAppQCsReq {
   option (wireguard.sized) = true;
   uint64 next_block = 1;
 }

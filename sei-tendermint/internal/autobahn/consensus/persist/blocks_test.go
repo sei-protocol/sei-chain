@@ -17,8 +17,6 @@ func testSignedProposal(rng utils.Rng, key types.SecretKey, n types.BlockNumber)
 	return types.Sign(key, types.NewLaneProposal(block))
 }
 
-var noBlockCB = utils.None[func(*types.Signed[*types.LaneProposal])]()
-
 // liveBlocks drops blocks the prune anchor has moved past, mirroring the filter loadPersistedState
 // applies in the avail package. Pruning reclaims whole WAL files, so a pruned block can still be on
 // disk when the persister reloads; only what the anchor considers live is asserted on here.
@@ -33,35 +31,11 @@ func liveBlocks(loaded []LoadedBlock, first types.BlockNumber) []LoadedBlock {
 
 func testPersistBlock(t *testing.T, bp *BlockPersister, p *types.Signed[*types.LaneProposal]) {
 	t.Helper()
-	require.NoError(t, bp.MaybePruneAndPersistLane(
+	require.NoError(t, bp.PruneAndPersist(
 		p.Msg().Block().Header().Lane(),
-		utils.None[*types.CommitQC](),
+		0,
 		[]*types.Signed[*types.LaneProposal]{p},
-		noBlockCB,
 	))
-}
-
-// testDeleteBefore is a test helper that truncates lane WALs using a plain
-// map, avoiding the need to construct a full CommitQC.
-func testDeleteBefore(bp *BlockPersister, laneFirsts map[types.LaneID]types.BlockNumber) error {
-	for lanes := range bp.lanes.RLock() {
-		return scope.Parallel(func(ps scope.ParallelScope) error {
-			for lane, first := range laneFirsts {
-				lw, ok := lanes[lane]
-				if !ok {
-					continue
-				}
-				ps.Spawn(func() error {
-					for s := range lw.state.Lock() {
-						return s.truncateForAnchor(lane, first)
-					}
-					panic("unreachable")
-				})
-			}
-			return nil
-		})
-	}
-	panic("unreachable")
 }
 
 func TestNewBlockPersisterEmptyDir(t *testing.T) {
@@ -142,7 +116,7 @@ func TestDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 		testPersistBlock(t, bp, testSignedProposal(rng, key, i))
 	}
 
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 3}))
+	require.NoError(t, bp.PruneAndPersist(lane, 3, nil))
 	require.NoError(t, bp.Close())
 
 	_, blocks, err := NewBlockPersister(utils.Some(dir))
@@ -172,7 +146,9 @@ func TestDeleteBeforeAndRestart(t *testing.T) {
 	}
 
 	// lane1: truncate old blocks, lane2: delete nothing (first=0), lane3: empty (no WAL).
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane1: 2, lane2: 0, lane3: 0}))
+	require.NoError(t, bp.PruneAndPersist(lane1, 2, nil))
+	require.NoError(t, bp.PruneAndPersist(lane2, 0, nil))
+	require.NoError(t, bp.PruneAndPersist(lane3, 0, nil))
 	require.NoError(t, bp.Close())
 
 	// Restart — verify varied lane states load correctly.
@@ -213,16 +189,8 @@ func TestNoOpBlockPersister(t *testing.T) {
 		proposals[i] = testSignedProposal(rng, key, types.BlockNumber(i))
 	}
 
-	// Persist and prune with anchor + new proposals in no-op mode.
-	// Verify afterEach is still invoked for every proposal.
-	var called int
-	cb := utils.Some(func(_ *types.Signed[*types.LaneProposal]) { called++ })
-	require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), proposals[:3], cb))
-	require.Equal(t, 3, called)
-
-	called = 0
-	require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), proposals[3:], cb))
-	require.Equal(t, 2, called)
+	require.NoError(t, bp.PruneAndPersist(lane, 0, proposals[:3]))
+	require.NoError(t, bp.PruneAndPersist(lane, 0, proposals[3:]))
 
 	require.NoError(t, bp.Close())
 }
@@ -240,7 +208,7 @@ func TestDeleteBeforeThenPersistMore(t *testing.T) {
 	for i := range types.BlockNumber(5) {
 		testPersistBlock(t, bp, testSignedProposal(rng, key, i))
 	}
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 3}))
+	require.NoError(t, bp.PruneAndPersist(lane, 3, nil))
 	testPersistBlock(t, bp, testSignedProposal(rng, key, 5))
 	require.NoError(t, bp.Close())
 
@@ -267,7 +235,7 @@ func TestDeleteBeforePastAllBlocks(t *testing.T) {
 	}
 
 	// Anchor advanced past everything (nextBlockNum is 3, first=10).
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 10}))
+	require.NoError(t, bp.PruneAndPersist(lane, 10, nil))
 
 	// Lane WAL is now empty; new writes starting from 10 should work.
 	testPersistBlock(t, bp, testSignedProposal(rng, key, 10))
@@ -296,11 +264,11 @@ func TestDeleteBeforePastAllRejectsStaleBlock(t *testing.T) {
 	}
 
 	// Anchor advanced past everything; nextBlockNum re-anchored to 10.
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 10}))
+	require.NoError(t, bp.PruneAndPersist(lane, 10, nil))
 
 	// Writing a stale block number (0) should be rejected.
 	stale := testSignedProposal(rng, key, 0)
-	err = bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{stale}, noBlockCB)
+	err = bp.PruneAndPersist(lane, 10, []*types.Signed[*types.LaneProposal]{stale})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "out of sequence")
 
@@ -323,12 +291,12 @@ func TestTruncateOnEmptyWALAdvancesCursor(t *testing.T) {
 	}
 
 	// First truncation empties the WAL (first=10 > nextBlockNum=3).
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 10}))
+	require.NoError(t, bp.PruneAndPersist(lane, 10, nil))
 
 	// Second truncation on the already-empty WAL (first=15).
 	// Before the fix, nextBlockNum would stay at 10 and block 15 would
 	// be rejected as out of sequence.
-	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 15}))
+	require.NoError(t, bp.PruneAndPersist(lane, 15, nil))
 
 	testPersistBlock(t, bp, testSignedProposal(rng, key, 15))
 	require.NoError(t, bp.Close())
@@ -404,13 +372,13 @@ func TestPersistBlockOutOfSequence(t *testing.T) {
 
 	// Gap: skip block 1, try block 2.
 	gap := testSignedProposal(rng, key, 2)
-	err = bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{gap}, noBlockCB)
+	err = bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{gap})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "out of sequence")
 
 	// Duplicate: try block 0 again.
 	dup := testSignedProposal(rng, key, 0)
-	err = bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), []*types.Signed[*types.LaneProposal]{dup}, noBlockCB)
+	err = bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{dup})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "out of sequence")
 
@@ -506,35 +474,6 @@ func TestPruneReclaimsSealedFiles(t *testing.T) {
 	require.Equal(t, types.BlockNumber(total), s2.nextBlockNum)
 }
 
-// TestPersistBlockInvokesAfterEachOncePerBlock covers the on-disk path: appends are flushed as a batch
-// and afterEach then reports every block in it, exactly once and in order.
-func TestPersistBlockInvokesAfterEachOncePerBlock(t *testing.T) {
-	rng := utils.TestRng()
-	dir := t.TempDir()
-
-	key := types.GenSecretKey(rng)
-	lane := key.Public()
-	bp, _, err := NewBlockPersister(utils.Some(dir))
-	require.NoError(t, err)
-
-	proposals := make([]*types.Signed[*types.LaneProposal], 5)
-	for i := range proposals {
-		proposals[i] = testSignedProposal(rng, key, types.BlockNumber(i))
-	}
-
-	var seen []types.BlockNumber
-	cb := utils.Some(func(p *types.Signed[*types.LaneProposal]) {
-		seen = append(seen, p.Msg().Block().Header().BlockNumber())
-	})
-	require.NoError(t, bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), proposals, cb))
-	require.NoError(t, bp.Close())
-
-	require.Equal(t, len(proposals), len(seen))
-	for i := range seen {
-		require.Equal(t, types.BlockNumber(i), seen[i])
-	}
-}
-
 func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
@@ -562,7 +501,7 @@ func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 		for i := range numLanes {
 			lane := keys[i].Public()
 			ps.Spawn(func() error {
-				return bp.MaybePruneAndPersistLane(lane, utils.None[*types.CommitQC](), proposals[i], noBlockCB)
+				return bp.PruneAndPersist(lane, 0, proposals[i])
 			})
 		}
 		return nil
