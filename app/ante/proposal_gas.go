@@ -8,27 +8,45 @@ import (
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 )
 
-// AssociateTxStateAccessGas covers the state reads and writes in the paid
-// MsgAssociate ante path, including address association, account sequence
+// AssociateTxStateAccessGas covers one signer's state reads and writes in the
+// paid MsgAssociate ante path, including address association, account sequence
 // updates, and fee handling. It is calibrated above the 39,833 gas remaining
-// after size and signature charges for a maximal paid associate transaction
-// under the default store gas schedule. Changes to that path or schedule must
-// recalibrate this overhead; variable costs are added separately from params.
+// after size and signature charges for a maximal single-signer paid associate
+// under the default store gas schedule. The proposal model applies this amount
+// once per signer and once more for a distinct fee grant. Changes to those paths
+// or the store schedule must recalibrate this overhead.
 const AssociateTxStateAccessGas uint64 = 45_000
+
+// AssociateTxGasDimensions contains the state-independent transaction shape
+// used to model a native associate's proposal-gas contribution.
+type AssociateTxGasDimensions struct {
+	TxSize         uint64
+	SignerCount    uint64
+	SignatureCount uint64
+	UsesFeeGrant   bool
+}
 
 // AssociateTxProposalGasWanted returns the deterministic block-gas contribution
 // for a native MsgAssociate. It models the paid path as serialized size gas,
-// one secp256k1 signature verification, and fixed state-access overhead, then
-// applies the configured Cosmos gas multiplier. Association state and the
-// transaction's attacker-controlled gas limit do not affect the result.
+// configured verification gas per signature, and fixed state-access gas per
+// signer and fee grant, then applies the configured Cosmos gas multiplier.
+// Association state and the transaction's attacker-controlled gas limit do not
+// affect the result.
 func AssociateTxProposalGasWanted(
-	txSize uint64,
+	dimensions AssociateTxGasDimensions,
 	authParams authtypes.Params,
 	cosmosGasParams paramtypes.CosmosGasParams,
 ) uint64 {
-	txSizeGas := saturatingMultiply(txSize, authParams.TxSizeCostPerByte)
-	unscaledGas := saturatingAdd(txSizeGas, authParams.SigVerifyCostSecp256k1)
-	unscaledGas = saturatingAdd(unscaledGas, AssociateTxStateAccessGas)
+	txSizeGas := saturatingMultiply(dimensions.TxSize, authParams.TxSizeCostPerByte)
+	signatureCost := max(authParams.SigVerifyCostSecp256k1, authParams.SigVerifyCostED25519)
+	signatureGas := saturatingMultiply(dimensions.SignatureCount, signatureCost)
+	stateAccessCount := dimensions.SignerCount
+	if dimensions.UsesFeeGrant {
+		stateAccessCount = saturatingAdd(stateAccessCount, 1)
+	}
+	stateAccessGas := saturatingMultiply(stateAccessCount, AssociateTxStateAccessGas)
+	unscaledGas := saturatingAdd(txSizeGas, signatureGas)
+	unscaledGas = saturatingAdd(unscaledGas, stateAccessGas)
 	return saturatingMultiplyDivide(
 		unscaledGas,
 		cosmosGasParams.CosmosGasMultiplierNumerator,

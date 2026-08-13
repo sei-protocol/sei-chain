@@ -77,6 +77,10 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, _ oraclekeeper.Keeper, evmKeeper *e
 		}
 	}()
 
+	// MsgAggregateExchangeRateVote is intentionally not exempt. The legacy Oracle
+	// Price Feeder is retired (its default minimum-valid-vote threshold is already
+	// 0%) and its transactions are scheduled for deprecation, so native
+	// MsgAssociate is the only Cosmos fee-exempt transaction shape.
 	if !evmtypes.IsTxMsgAssociate(tx) {
 		return false, nil
 	}

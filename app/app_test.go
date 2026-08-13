@@ -35,6 +35,7 @@ import (
 	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	feegrant "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -878,31 +879,53 @@ func signCosmosTx(
 	privKey cryptotypes.PrivKey,
 	acc authtypes.AccountI,
 ) []byte {
-	// Set signatures with empty sig first to populate SignerInfos
-	sigV2 := signing.SignatureV2{
-		PubKey: privKey.PubKey(),
-		Data: &signing.SingleSignatureData{
-			SignMode:  txCfg.SignModeHandler().DefaultMode(),
-			Signature: nil,
-		},
-		Sequence: acc.GetSequence(),
+	return signCosmosTxWithSigners(t, txCfg, txBuilder, cosmosTxSigner{privKey: privKey, account: acc})
+}
+
+type cosmosTxSigner struct {
+	privKey cryptotypes.PrivKey
+	account authtypes.AccountI
+}
+
+func signCosmosTxWithSigners(
+	t *testing.T,
+	txCfg client.TxConfig,
+	txBuilder client.TxBuilder,
+	signers ...cosmosTxSigner,
+) []byte {
+	t.Helper()
+	signMode := txCfg.SignModeHandler().DefaultMode()
+	signatures := make([]signing.SignatureV2, len(signers))
+	for i, signer := range signers {
+		signatures[i] = signing.SignatureV2{
+			PubKey: signer.privKey.PubKey(),
+			Data: &signing.SingleSignatureData{
+				SignMode: signMode,
+			},
+			Sequence: signer.account.GetSequence(),
+		}
 	}
-	err := txBuilder.SetSignatures(sigV2)
+	err := txBuilder.SetSignatures(signatures...)
 	require.NoError(t, err)
 
-	// Sign for real
-	signerData := xauthsigning.SignerData{
-		ChainID:       "sei-test",
-		AccountNumber: acc.GetAccountNumber(),
-		Sequence:      acc.GetSequence(),
+	for i, signer := range signers {
+		signerData := xauthsigning.SignerData{
+			ChainID:       "sei-test",
+			AccountNumber: signer.account.GetAccountNumber(),
+			Sequence:      signer.account.GetSequence(),
+		}
+		signatures[i], err = clienttx.SignWithPrivKey(
+			signMode,
+			signerData,
+			txBuilder,
+			signer.privKey,
+			txCfg,
+			signer.account.GetSequence(),
+		)
+		require.NoError(t, err)
+		err = txBuilder.SetSignatures(signatures...)
+		require.NoError(t, err)
 	}
-	sigV2, err = clienttx.SignWithPrivKey(
-		txCfg.SignModeHandler().DefaultMode(),
-		signerData, txBuilder, privKey, txCfg, acc.GetSequence(),
-	)
-	require.NoError(t, err)
-	err = txBuilder.SetSignatures(sigV2)
-	require.NoError(t, err)
 
 	txBytes, err := txCfg.TxEncoder()(txBuilder.GetTx())
 	require.NoError(t, err)
@@ -959,7 +982,9 @@ func TestCheckTxAssociateUsesModeledGasAccounting(t *testing.T) {
 			require.True(t, res.IsOK(), res.Log)
 			authParams := testApp.AccountKeeper.GetParams(ctx)
 			cosmosGasParams := testApp.ParamsKeeper.GetCosmosGasParams(ctx)
-			expectedGas := appante.AssociateTxProposalGasWanted(uint64(len(txBytes)), authParams, cosmosGasParams)
+			expectedGas := appante.AssociateTxProposalGasWanted(appante.AssociateTxGasDimensions{
+				TxSize: uint64(len(txBytes)), SignerCount: 1, SignatureCount: 1,
+			}, authParams, cosmosGasParams)
 			require.Equal(t, int64(expectedGas), res.GasWanted) //nolint:gosec // test params produce bounded gas
 		})
 	}
@@ -1007,7 +1032,9 @@ func TestDeliverTxAssociateGasAccounting(t *testing.T) {
 				require.Positive(t, res.GasUsed)
 				authParams := testApp.AccountKeeper.GetParams(deliverCtx)
 				cosmosGasParams := testApp.ParamsKeeper.GetCosmosGasParams(deliverCtx)
-				proposalGas := appante.AssociateTxProposalGasWanted(uint64(len(txBytes)), authParams, cosmosGasParams)
+				proposalGas := appante.AssociateTxProposalGasWanted(appante.AssociateTxGasDimensions{
+					TxSize: uint64(len(txBytes)), SignerCount: 1, SignatureCount: 1,
+				}, authParams, cosmosGasParams)
 				require.LessOrEqual(t, res.GasUsed, int64(proposalGas)) //nolint:gosec // test params produce bounded gas
 				t.Logf("associated MsgAssociate gas used: %d", res.GasUsed)
 			} else {
@@ -1016,6 +1043,119 @@ func TestDeliverTxAssociateGasAccounting(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAssociateProposalGasBoundsDistinctFeePayerExecution(t *testing.T) {
+	senderPriv := secp256k1.GenPrivKey()
+	senderAddr := sdk.AccAddress(senderPriv.PubKey().Address())
+	senderAcc := authtypes.NewBaseAccount(senderAddr, senderPriv.PubKey(), 0, 0)
+	feePayerPriv := secp256k1.GenPrivKey()
+	feePayerAddr := sdk.AccAddress(feePayerPriv.PubKey().Address())
+	feePayerAcc := authtypes.NewBaseAccount(feePayerAddr, feePayerPriv.PubKey(), 1, 0)
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(cosmosed25519.GenPrivKey().PubKey())
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+	testApp := app.SetupWithGenesisValSet(
+		t,
+		valSet,
+		[]authtypes.GenesisAccount{senderAcc, feePayerAcc},
+		banktypes.Balance{Address: feePayerAddr.String(), Coins: sdk.NewCoins(sdk.NewInt64Coin("usei", 1_000_000_000))},
+	)
+
+	txBuilder := testApp.GetTxConfig().NewTxBuilder()
+	require.NoError(t, txBuilder.SetMsgs(evmtypes.NewMsgAssociate(senderAddr, strings.Repeat("x", 64))))
+	txBuilder.SetMemo(strings.Repeat("m", int(authtypes.DefaultMaxMemoCharacters)))
+	txBuilder.SetGasLimit(50_000_000)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 500_000)))
+	feePayerBuilder, ok := txBuilder.(interface{ SetFeePayer(sdk.AccAddress) })
+	require.True(t, ok)
+	feePayerBuilder.SetFeePayer(feePayerAddr)
+	txBytes := signCosmosTxWithSigners(
+		t,
+		testApp.GetTxConfig(),
+		txBuilder,
+		cosmosTxSigner{privKey: senderPriv, account: senderAcc},
+		cosmosTxSigner{privKey: feePayerPriv, account: feePayerAcc},
+	)
+	tx, err := testApp.GetTxConfig().TxDecoder()(txBytes)
+	require.NoError(t, err)
+
+	checkCtx := testApp.NewContext(true, types.Header{Height: testApp.LastBlockHeight()})
+	testApp.EvmKeeper.SetAddressMapping(checkCtx, senderAddr, common.BytesToAddress(senderAddr))
+	checkRes := testApp.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
+	require.True(t, checkRes.IsOK(), checkRes.Log)
+	authParams := testApp.AccountKeeper.GetParams(checkCtx)
+	cosmosGasParams := testApp.ParamsKeeper.GetCosmosGasParams(checkCtx)
+	expectedGas := appante.AssociateTxProposalGasWanted(appante.AssociateTxGasDimensions{
+		TxSize: uint64(len(txBytes)), SignerCount: 2, SignatureCount: 2,
+	}, authParams, cosmosGasParams)
+	require.Equal(t, int64(expectedGas), checkRes.GasWanted) //nolint:gosec // test params produce bounded gas
+
+	deliverCtx := testApp.GetContextForDeliverTx(txBytes)
+	testApp.EvmKeeper.SetAddressMapping(deliverCtx, senderAddr, common.BytesToAddress(senderAddr))
+	deliverRes := testApp.DeliverTxWithResult(deliverCtx, txBytes, tx)
+	require.Zero(t, deliverRes.Code, deliverRes.Log)
+	require.Positive(t, deliverRes.GasUsed)
+	require.LessOrEqual(t, deliverRes.GasUsed, int64(expectedGas)) //nolint:gosec // test params produce bounded gas
+}
+
+func TestAssociateProposalGasBoundsFeeGrantExecution(t *testing.T) {
+	senderPriv := secp256k1.GenPrivKey()
+	senderAddr := sdk.AccAddress(senderPriv.PubKey().Address())
+	senderAcc := authtypes.NewBaseAccount(senderAddr, senderPriv.PubKey(), 0, 0)
+	feeGranterPriv := secp256k1.GenPrivKey()
+	feeGranterAddr := sdk.AccAddress(feeGranterPriv.PubKey().Address())
+	feeGranterAcc := authtypes.NewBaseAccount(feeGranterAddr, feeGranterPriv.PubKey(), 1, 0)
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(cosmosed25519.GenPrivKey().PubKey())
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+	testApp := app.SetupWithGenesisValSet(
+		t,
+		valSet,
+		[]authtypes.GenesisAccount{senderAcc, feeGranterAcc},
+		banktypes.Balance{Address: feeGranterAddr.String(), Coins: sdk.NewCoins(sdk.NewInt64Coin("usei", 1_000_000_000))},
+	)
+
+	checkCtx := testApp.NewContext(true, types.Header{Height: testApp.LastBlockHeight()})
+	testApp.EvmKeeper.SetAddressMapping(checkCtx, senderAddr, common.BytesToAddress(senderAddr))
+	require.NoError(t, testApp.FeeGrantKeeper.GrantAllowance(
+		checkCtx,
+		feeGranterAddr,
+		senderAddr,
+		&feegrant.BasicAllowance{SpendLimit: sdk.NewCoins(sdk.NewInt64Coin("usei", 1_000_000))},
+	))
+
+	txBuilder := testApp.GetTxConfig().NewTxBuilder()
+	require.NoError(t, txBuilder.SetMsgs(evmtypes.NewMsgAssociate(senderAddr, strings.Repeat("x", 64))))
+	txBuilder.SetMemo(strings.Repeat("m", int(authtypes.DefaultMaxMemoCharacters)))
+	txBuilder.SetGasLimit(50_000_000)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 500_000)))
+	txBuilder.SetFeeGranter(feeGranterAddr)
+	txBytes := signCosmosTx(t, testApp.GetTxConfig(), txBuilder, senderPriv, senderAcc)
+	tx, err := testApp.GetTxConfig().TxDecoder()(txBytes)
+	require.NoError(t, err)
+
+	checkRes := testApp.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: txBytes})
+	require.True(t, checkRes.IsOK(), checkRes.Log)
+	authParams := testApp.AccountKeeper.GetParams(checkCtx)
+	cosmosGasParams := testApp.ParamsKeeper.GetCosmosGasParams(checkCtx)
+	expectedGas := appante.AssociateTxProposalGasWanted(appante.AssociateTxGasDimensions{
+		TxSize: uint64(len(txBytes)), SignerCount: 1, SignatureCount: 1, UsesFeeGrant: true,
+	}, authParams, cosmosGasParams)
+	require.Equal(t, int64(expectedGas), checkRes.GasWanted) //nolint:gosec // test params produce bounded gas
+
+	deliverCtx := testApp.GetContextForDeliverTx(txBytes)
+	testApp.EvmKeeper.SetAddressMapping(deliverCtx, senderAddr, common.BytesToAddress(senderAddr))
+	require.NoError(t, testApp.FeeGrantKeeper.GrantAllowance(
+		deliverCtx,
+		feeGranterAddr,
+		senderAddr,
+		&feegrant.BasicAllowance{SpendLimit: sdk.NewCoins(sdk.NewInt64Coin("usei", 1_000_000))},
+	))
+	deliverRes := testApp.DeliverTxWithResult(deliverCtx, txBytes, tx)
+	require.Zero(t, deliverRes.Code, deliverRes.Log)
+	require.Positive(t, deliverRes.GasUsed)
+	require.LessOrEqual(t, deliverRes.GasUsed, int64(expectedGas)) //nolint:gosec // test params produce bounded gas
 }
 
 func TestDecodeFailureTxReportsZeroGas(t *testing.T) {

@@ -184,7 +184,9 @@ func TestCheckTotalBlockGas_AssociateTxUsesModeledGas(t *testing.T) {
 	rawTxs := encodeTxs(t, a, txs)
 	authParams := a.AccountKeeper.GetParams(newBlockGasCtx(t, a, 1_000_000, 1_000_000))
 	cosmosGasParams := a.ParamsKeeper.GetCosmosGasParams(newBlockGasCtx(t, a, 1_000_000, 1_000_000))
-	modeledGas := appante.AssociateTxProposalGasWanted(uint64(len(rawTxs[0])), authParams, cosmosGasParams)
+	modeledGas := appante.AssociateTxProposalGasWanted(appante.AssociateTxGasDimensions{
+		TxSize: uint64(len(rawTxs[0])), SignerCount: 1, SignatureCount: 1,
+	}, authParams, cosmosGasParams)
 	ctx := newBlockGasCtx(t, a, int64(modeledGas), int64(modeledGas)) //nolint:gosec // test params produce bounded gas
 
 	require.True(t, a.checkTotalBlockGas(ctx, rawTxs, txs))

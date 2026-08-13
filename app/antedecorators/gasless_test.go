@@ -109,7 +109,7 @@ func TestOnlyUnassociatedAssociateIsGasless(t *testing.T) {
 	require.False(t, isGasless)
 }
 
-func TestOracleVoteIsNotGasless(t *testing.T) {
+func TestRetiredOracleVoteIsNotGasless(t *testing.T) {
 	tx := FakeTx{FakeMsgs: []sdk.Msg{&oracletypes.MsgAggregateExchangeRateVote{}}}
 
 	isGasless, err := antedecorators.IsTxGasless(tx, sdk.Context{}, oraclekeeper.Keeper{}, nil)
