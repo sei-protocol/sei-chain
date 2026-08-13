@@ -3,8 +3,14 @@
 // Seven commands over one versioned file. generate writes the whole file for a node mode, and with
 // --from-legacy builds it from the node's existing configuration instead of from defaults. show
 // prints it, diff compares it against this binary's defaults, and doctor reports every written
-// setting this binary does not recognize. set and unset are conveniences over hand-editing, and
-// upgrade moves the file through the migration chain.
+// setting this binary does not recognize along with every value it cannot read. set and unset are
+// conveniences over hand-editing, and upgrade moves the file through the migration chain.
+//
+// set converts a value on the way in, so a value typed at a command line is never the wrong type.
+// Hand-editing the file is equally legitimate and reaches no such check, which is why doctor reads
+// every written value against its key's declared type. Doctor checks types; the enum and range a
+// section wants for its own keys need a way to declare them, and StateCommitConfig and
+// AutobahnBlockDBConfig already carry Validate methods that are the shape to build on.
 //
 // A key written in the file is a commitment this binary never rewrites. A key absent from it
 // follows the default for the node's mode, which may change between releases, and regenerating

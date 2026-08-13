@@ -564,3 +564,106 @@ func TestDoctorRefusesAFileWhoseModeItCannotUse(t *testing.T) {
 		t.Errorf("the clean report does not say which mode it checked against:\n%s", d.Report())
 	}
 }
+
+// TestDoctorRefusesAValueItCannotRead closes the gap between what set checks and what a hand-edited
+// file can hold.
+//
+// set converts a value on the way in, so a value typed at the command line can never be the wrong
+// type. Hand-editing the file is equally legitimate and reaches no such check, so without this a
+// file could hold a value the node refuses at its next start while doctor called it healthy. That is
+// the worst place to find out.
+func TestDoctorRefusesAValueItCannotRead(t *testing.T) {
+	registerTyped(t)
+	file := parseFile(t, `schema_version = 1
+node_mode = "validator"
+
+[probe]
+workers = "banana"
+enabled = 42
+timeout = 30
+ratio = "half"
+endpoint = "sei:8545"
+`)
+
+	d, err := configcli.Doctor(file)
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+
+	if d.Healthy() {
+		t.Errorf("a file holding values this binary cannot read was called healthy: %s", d.Report())
+	}
+	malformed := map[string]bool{}
+	for _, m := range d.Malformed {
+		malformed[m.Key] = true
+		if m.Reason == "" || m.Want == "" {
+			t.Errorf("a malformation carries no reason or no expected type: %+v. An operator cannot "+
+				"correct a value the report does not describe", m)
+		}
+	}
+	for _, key := range []string{"probe.workers", "probe.enabled", "probe.timeout", "probe.ratio"} {
+		if !malformed[key] {
+			t.Errorf("%q holds a value of the wrong type and doctor did not report it: %+v", key,
+				d.Malformed)
+		}
+	}
+	// The one value that is the right type is not reported, or this would hold for a doctor that
+	// refused every value.
+	if malformed["probe.endpoint"] {
+		t.Errorf("probe.endpoint holds a valid string and was reported malformed: %+v", d.Malformed)
+	}
+	// A malformed key is recognized, so it must not also be reported as unrecognized.
+	if len(d.Unrecognized) != 0 {
+		t.Errorf("malformed keys were also reported as unrecognized: %v. They are declared; it is "+
+			"their values that are wrong, and the two need different fixes", d.Unrecognized)
+	}
+	if !strings.Contains(d.Report(), "cannot read") {
+		t.Errorf("the report does not flag the unreadable values:\n%s", d.Report())
+	}
+}
+
+// TestDoctorAcceptsEveryTypeAFileLegitimatelyHolds is the other direction.
+//
+// A configuration file writes a duration as text and every whole number as an integer, so a check
+// that demanded the exact Go type would report a correct file as broken. This drives one valid value
+// per declared type through the same path.
+func TestDoctorAcceptsEveryTypeAFileLegitimatelyHolds(t *testing.T) {
+	registerTyped(t)
+	generated, err := configcli.Generate(registry.ModeValidator)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	d, err := configcli.Doctor(parseFile(t, render(t, generated)))
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+
+	if !d.Healthy() {
+		t.Errorf("doctor refused the file generate just wrote: %s\nEvery value in it came from the "+
+			"binary's own baseline, so a check that rejects one is checking the wrong thing", d.Report())
+	}
+	if len(d.Malformed) != 0 {
+		t.Errorf("a generated file reported %d malformed values: %+v", len(d.Malformed), d.Malformed)
+	}
+}
+
+// TestDoctorExitsNonZeroOnAValueItCannotRead is what lets a deploy gate on the check.
+func TestDoctorExitsNonZeroOnAValueItCannotRead(t *testing.T) {
+	registerTyped(t)
+	home := newHome(t)
+	if err := os.WriteFile(configcli.Path(home),
+		[]byte("schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nworkers = \"banana\"\n"),
+		0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	out, err := invoke(t, home, "doctor")
+	if err == nil {
+		t.Errorf("doctor exited zero on a file holding a value it cannot read, so nothing automated "+
+			"can gate on it:\n%s", out)
+	}
+	if !strings.Contains(out, "probe.workers") {
+		t.Errorf("doctor did not name the value it cannot read:\n%s", out)
+	}
+}

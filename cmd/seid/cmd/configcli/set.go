@@ -45,6 +45,9 @@ func Set(path, key, raw string) (Change, error) {
 	if err != nil {
 		return Change{}, err
 	}
+	if len(types) == 0 {
+		return Change{}, fmt.Errorf("no section has registered a key, so no key can be set")
+	}
 	want, declared := types[key]
 	if !declared {
 		return Change{}, undeclaredKeyError(key, types)
@@ -166,11 +169,15 @@ func commonPrefix(a, b string) int {
 	return n
 }
 
-// declaredTypes returns the Go type each declared key holds.
+// declaredTypes returns the Go type each declared key holds, and is the one description of the
+// declared set every verb here reads.
 //
 // Read off a resolved baseline, because a baseline value comes from the section's own struct field
 // and therefore carries that field's type. Which mode produced it does not matter: a mode changes
 // what a key's value is, never what type it is, and a test holds that across every mode.
+//
+// An empty registry yields an empty map rather than an error. A verb that cannot work without a
+// declared key says so in its own terms; this only reports what is declared.
 func declaredTypes() (map[string]reflect.Type, error) {
 	modes := registry.Modes()
 	if len(modes) == 0 {
@@ -179,9 +186,6 @@ func declaredTypes() (map[string]reflect.Type, error) {
 	resolved, err := registry.Resolve(modes[0])
 	if err != nil {
 		return nil, err
-	}
-	if len(resolved.Keys) == 0 {
-		return nil, fmt.Errorf("no section has registered a key, so no key can be set")
 	}
 	out := make(map[string]reflect.Type, len(resolved.Keys))
 	for key, res := range resolved.Keys {

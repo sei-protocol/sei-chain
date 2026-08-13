@@ -19,6 +19,9 @@ type Diagnosis struct {
 	UnrecognizedExperimental []string
 	// Retired are experimental keys a tombstone covers, sorted. Each warns.
 	Retired []string
+	// Malformed are written keys whose value this binary cannot read as the key's declared type,
+	// sorted by key. Each halts.
+	Malformed []Malformation
 	// Checked is how many written keys were examined, so a clean result is distinguishable from
 	// one that examined nothing.
 	Checked int
@@ -28,8 +31,22 @@ type Diagnosis struct {
 	ModeProblem string
 }
 
+// Malformation is one written value this binary cannot read.
+type Malformation struct {
+	// Key is the dotted key.
+	Key string
+	// Value is what the file holds.
+	Value any
+	// Want is the type the key's section declares.
+	Want string
+	// Reason says why the value cannot be read as that type.
+	Reason string
+}
+
 // Healthy reports whether the file may be booted from.
-func (d Diagnosis) Healthy() bool { return len(d.Unrecognized) == 0 && d.ModeProblem == "" }
+func (d Diagnosis) Healthy() bool {
+	return len(d.Unrecognized) == 0 && len(d.Malformed) == 0 && d.ModeProblem == ""
+}
 
 // Doctor checks every written key against what this binary declares.
 //
@@ -39,6 +56,12 @@ func (d Diagnosis) Healthy() bool { return len(d.Unrecognized) == 0 && d.ModePro
 // this refuses. An experimental key is offered with no such promise, so it warns and the node
 // boots.
 //
+// A written value this binary cannot read as its key's declared type halts for the same reason. The
+// key is recognized, so nothing reports it, and the node refuses the value at its next boot instead.
+// set converts a value on the way in, but hand-editing the file is equally legitimate and reaches no
+// such check, so this is where a hand-edited value is caught. The reading is shared with adoption,
+// which faces the same question about a value it did not write.
+//
 // A key the file does not write is healthy by definition, because it resolves to the baseline. That
 // is why this walks the written set rather than the declared one: checking the declared set would
 // report every unwritten key on a file that is entirely correct.
@@ -47,19 +70,29 @@ func Doctor(file *seitoml.File) (Diagnosis, error) {
 	if err != nil {
 		return Diagnosis{}, err
 	}
-	declared := declaredStableKeys()
+	declared, err := declaredTypes()
+	if err != nil {
+		return Diagnosis{}, err
+	}
 	live, retired := experimentalNames()
 
 	var d Diagnosis
 	d.Mode, d.ModeProblem = diagnoseMode(file)
 
-	for key := range written {
+	for key, value := range written {
 		d.Checked++
 		name, isExperimental := experimentalName(key)
 		switch {
 		case !isExperimental:
-			if !declared[key] {
+			want, isDeclared := declared[key]
+			if !isDeclared {
 				d.Unrecognized = append(d.Unrecognized, key)
+				continue
+			}
+			if _, err := coerce(value, want); err != nil {
+				d.Malformed = append(d.Malformed, Malformation{
+					Key: key, Value: value, Want: want.String(), Reason: err.Error(),
+				})
 			}
 		case retired[name]:
 			d.Retired = append(d.Retired, key)
@@ -70,6 +103,7 @@ func Doctor(file *seitoml.File) (Diagnosis, error) {
 	sort.Strings(d.Unrecognized)
 	sort.Strings(d.UnrecognizedExperimental)
 	sort.Strings(d.Retired)
+	sort.Slice(d.Malformed, func(i, j int) bool { return d.Malformed[i].Key < d.Malformed[j].Key })
 	return d, nil
 }
 
@@ -99,16 +133,6 @@ func experimentalName(key string) (string, bool) {
 	return strings.TrimPrefix(key, prefix), true
 }
 
-// declaredStableKeys is the set of keys a section declares.
-func declaredStableKeys() map[string]bool {
-	keys := registry.Keys()
-	out := make(map[string]bool, len(keys))
-	for _, k := range keys {
-		out[k] = true
-	}
-	return out
-}
-
 // experimentalNames returns the live declarations and the tombstoned ones.
 func experimentalNames() (live, retired map[string]bool) {
 	live, retired = map[string]bool{}, map[string]bool{}
@@ -133,6 +157,13 @@ func (d Diagnosis) Report() string {
 			"written expecting it to take effect, and none of them does:\n", len(d.Unrecognized)))
 		for _, k := range d.Unrecognized {
 			b.WriteString("  " + k + "\n")
+		}
+	}
+	if len(d.Malformed) > 0 {
+		b.WriteString(fmt.Sprintf("%d written value(s) this binary cannot read. The node will refuse "+
+			"each of them at its next start:\n", len(d.Malformed)))
+		for _, m := range d.Malformed {
+			b.WriteString(fmt.Sprintf("  %s = %#v: %s (expected %s)\n", m.Key, m.Value, m.Reason, m.Want))
 		}
 	}
 	for _, group := range []struct {
