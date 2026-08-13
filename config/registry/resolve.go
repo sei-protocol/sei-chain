@@ -161,7 +161,7 @@ func baselineLayer(mode Mode) (Layer, error) {
 		if s.Defaults == nil {
 			return out, fmt.Errorf("section %q has no baseline function", s.Name)
 		}
-		values, err := sectionValues(s.Name, s.Defaults(mode))
+		values, err := sectionValues(s.Prefix, s.Defaults(mode))
 		if err != nil {
 			return out, fmt.Errorf("section %q baseline for mode %q: %w", s.Name, mode, err)
 		}
@@ -233,7 +233,7 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 			}
 			continue
 		}
-		path := prefix + "." + tag
+		path := join(prefix, tag)
 		if fv.Kind() == reflect.Struct && !isLeaf(fv.Type()) {
 			if err := walkValues(fv, path, out); err != nil {
 				return err

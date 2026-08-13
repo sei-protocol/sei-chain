@@ -143,20 +143,21 @@ func TestEveryDeclaredKeyAFlagCanDeliverTakesTheFlag(t *testing.T) {
 	for _, key := range delivered {
 		t.Run(key, func(t *testing.T) {
 			configtest.Isolate(t)
-			section, leaf, ok := strings.Cut(key, ".")
-			if !ok {
-				t.Fatalf("%q has no section, so this fixture cannot write it into a file", key)
-			}
-			body := "schema_version = 1\nnode_mode = \"validator\"\n\n[" + section + "]\n" + leaf + " = 111\n"
+			// Three values this flag's own type accepts, all different, so the winner is the channel and
+			// not the only value that parsed.
+			inFile, inEnv, onCommandLine, want := valuesFor(t, key)
 			// The environment as well, so the flag is shown beating the highest channel below it rather
 			// than only beating the file.
-			t.Setenv(registry.EnvName(key), "222")
+			t.Setenv(registry.EnvName(key), inEnv)
 
-			ctx := bootWithSeiTomlAndFlags(t, body, map[string]string{key: "333"})
-			if got := ctx.Viper.Get(key); !sameSetting(got, "333") {
-				t.Errorf("%s reads %#v with 111 in sei.toml, 222 in the environment and 333 on the "+
-					"command line, want 333. A flag layer that is not passed to the resolution leaves "+
-					"the operator's flag buried under the installed value", key, got)
+			ctx := bootWithSeiTomlAndFlags(t, seiTomlWriting(key, inFile),
+				map[string]string{key: onCommandLine})
+
+			if got := ctx.Viper.Get(key); !sameSetting(got, want) {
+				t.Errorf("%s reads %#v with %s in sei.toml, %s in the environment and %s on the command "+
+					"line, want %v. A flag layer that is not passed to the resolution leaves the "+
+					"operator's flag buried under the installed value",
+					key, got, inFile, inEnv, onCommandLine, want)
 			}
 		})
 	}
@@ -232,4 +233,40 @@ func TestAppTomlDoesNotReachTheFlagLayer(t *testing.T) {
 			"A value of 77 means app.toml arrived through the flag layer, because the handler marked the "+
 			"flag changed on its behalf. The snapshot has to be taken before the handler runs", got, key)
 	}
+}
+
+// seiTomlWriting returns a sei.toml body that writes one key, wherever that key belongs in the file.
+//
+// A key with no section goes above every table. Once a table heading is open, every bare key after it
+// belongs to that table, so a node-wide setting written after one would be read under the wrong name.
+func seiTomlWriting(key, value string) string {
+	const header = "schema_version = 1\nnode_mode = \"validator\"\n"
+	if section, leaf, ok := strings.Cut(key, "."); ok {
+		return header + "\n[" + section + "]\n" + leaf + " = " + value + "\n"
+	}
+	return header + key + " = " + value + "\n"
+}
+
+// valuesFor returns three distinct values this key's flag accepts, and what the flag layer will carry.
+//
+// Derived from the flag's own type rather than written per key. A boolean takes neither 111 nor 333, and a
+// flag carrying a list renders a value differently from the text that was set, so what the layer
+// contributes is read back from the flag instead of assumed.
+func valuesFor(t *testing.T, key string) (inFile, inEnv, onCommandLine, want string) {
+	t.Helper()
+	cmd := server.StartCmd(nil, t.TempDir(), []trace.TracerProviderOption{})
+	f := cmd.Flags().Lookup(key)
+	if f == nil {
+		t.Fatalf("%q is not a flag on the start command, so this subtest should not have been built", key)
+	}
+
+	inFile, inEnv, onCommandLine = "111", "222", "333"
+	if f.Value.Type() == "bool" {
+		inFile, inEnv, onCommandLine = "false", "false", "true"
+	}
+	if err := f.Value.Set(onCommandLine); err != nil {
+		t.Fatalf("the flag for %q refuses %q, so this subtest needs a value of its type: %v",
+			key, onCommandLine, err)
+	}
+	return inFile, inEnv, onCommandLine, f.Value.String()
 }

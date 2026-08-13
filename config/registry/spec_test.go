@@ -1,6 +1,7 @@
 package registry_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -787,4 +788,159 @@ func TestAFlagBeatsTheFileAndTheFileBeatsTheBaseline(t *testing.T) {
 				"source won if the order is not this one", want.key, got.Value, got.From, want.value, want.from)
 		}
 	}
+}
+
+// TestARootSectionDeclaresKeysWithNoPrefix is the whole of what RegisterRootKeys adds.
+//
+// Some settings are node-wide and are written at the top of a file rather than inside a table. Giving them
+// a section would rename them, and a renamed key is one an operator's existing file no longer reaches.
+func TestARootSectionDeclaresKeysWithNoPrefix(t *testing.T) {
+	registry.Reset()
+	registry.RegisterRootKeys("base", &struct {
+		Pruning     string `mapstructure:"pruning"`
+		HaltHeight  uint64 `mapstructure:"halt-height"`
+		Concurrency int    `mapstructure:"concurrency-workers"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			Pruning     string `mapstructure:"pruning"`
+			HaltHeight  uint64 `mapstructure:"halt-height"`
+			Concurrency int    `mapstructure:"concurrency-workers"`
+		}{Pruning: "default", Concurrency: 4}
+	})
+
+	for _, d := range registry.Defects() {
+		t.Fatalf("registering root keys was refused: %v", d.Err)
+	}
+	section, ok := registry.Lookup("base")
+	if !ok {
+		t.Fatal("the section did not register under its name, so nothing can look it up or report on it")
+	}
+	if section.Prefix != "" {
+		t.Errorf("the section carries prefix %q; a root section has none, and one here would rename every "+
+			"key it declares", section.Prefix)
+	}
+	if got := strings.Join(section.Keys, ","); got != "concurrency-workers,halt-height,pruning" {
+		t.Errorf("derived %q, want the three keys with no prefix. A leading segment is a key no operator "+
+			"writes", got)
+	}
+
+	// The baseline has to resolve under the same prefix-free names, or a declared key would have no value.
+	resolved, err := registry.Resolve(registry.ModeFull)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got, ok := resolved.From("pruning"); !ok || got.Value != "default" {
+		t.Errorf("pruning resolved to %#v (present=%v), want \"default\"", got.Value, ok)
+	}
+}
+
+// TestARootKeyAndASectionCannotShareAName holds a limit of the file format, not a matter of taste.
+//
+// TOML cannot express a value for trace and a table under trace in one file. So one of the two would be
+// unwritable, and which one an operator lost would depend on where in the file they wrote it.
+func TestARootKeyAndASectionCannotShareAName(t *testing.T) {
+	t.Run("the section is registered first", func(t *testing.T) {
+		registry.Reset()
+		registry.RegisterSection("pruning", &struct {
+			Mode string `mapstructure:"mode"`
+		}{}, func(registry.Mode) any { return struct{}{} })
+		registry.RegisterRootKeys("base", &struct {
+			Pruning string `mapstructure:"pruning"`
+		}{}, func(registry.Mode) any { return struct{}{} })
+
+		if _, ok := registry.Lookup("base"); ok {
+			t.Error("the root section registered a key that is also a section name. A file cannot hold " +
+				"both, so one of them is unreachable and nothing says which")
+		}
+		if len(registry.Defects()) != 1 {
+			t.Errorf("recorded %d defects, want 1 naming the collision", len(registry.Defects()))
+		}
+	})
+
+	t.Run("the root key is registered first", func(t *testing.T) {
+		registry.Reset()
+		registry.RegisterRootKeys("base", &struct {
+			Pruning string `mapstructure:"pruning"`
+		}{}, func(registry.Mode) any { return struct{}{} })
+		registry.RegisterSection("pruning", &struct {
+			Mode string `mapstructure:"mode"`
+		}{}, func(registry.Mode) any { return struct{}{} })
+
+		if _, ok := registry.Lookup("pruning"); ok {
+			t.Error("a section registered under a name a root key already holds. Registration order is " +
+				"not something an operator can see, so the refusal cannot depend on it")
+		}
+	})
+}
+
+// TestTwoSectionsCannotDeclareTheSameKey was impossible before a key could sit at the root.
+//
+// Two prefixes cannot collide, so this could not happen while every key carried its section's name. Two
+// root sections can, and the baseline resolved for such a key would be whichever section the walk reached
+// last.
+func TestTwoSectionsCannotDeclareTheSameKey(t *testing.T) {
+	registry.Reset()
+	registry.RegisterRootKeys("base", &struct {
+		Pruning string `mapstructure:"pruning"`
+	}{}, func(registry.Mode) any { return struct{}{} })
+	registry.RegisterRootKeys("other", &struct {
+		Pruning string `mapstructure:"pruning"`
+	}{}, func(registry.Mode) any { return struct{}{} })
+
+	if _, ok := registry.Lookup("other"); ok {
+		t.Error("both sections declared the same key. One baseline resolves over the other and which one " +
+			"wins depends on the order the sections are walked, so the value a node runs is not decided " +
+			"by anything an operator or a reviewer can see")
+	}
+}
+
+// TestARootSectionIsAskedOnlyAboutItsOwnKeys holds the validation half of having no prefix.
+//
+// A section is handed its own resolved values to judge, and with no prefix there is nothing to match on, so
+// the values are collected from the keys the section declares.
+//
+// Collecting by prefix instead would hand a root section every key in the resolution, and that turns out
+// to be harmless today: the decoder drops a key the struct does not model, and a struct can only model
+// keys it declares, because the keys are derived from its tags. So this test does not distinguish the two,
+// and a mutation to the prefix form survives it. What the exact form buys is not depending on that. A
+// decoder configured to refuse an unmodelled key, which is a reasonable thing to want, would turn the
+// prefix form into a section refusing configurations over settings it has never heard of.
+func TestARootSectionIsAskedOnlyAboutItsOwnKeys(t *testing.T) {
+	registry.Reset()
+	registry.RegisterRootKeys("base", &rootRule{}, func(registry.Mode) any {
+		return rootRule{Pruning: "default"}
+	})
+	registry.RegisterRootKeys("other", &struct {
+		Unrelated string `mapstructure:"unrelated"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			Unrelated string `mapstructure:"unrelated"`
+		}{Unrelated: "whatever it likes"}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("registration was refused: %v", d.Err)
+	}
+
+	resolved, err := registry.Resolve(registry.ModeFull)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	for _, refusal := range registry.ValidateResolved(resolved) {
+		t.Errorf("a section refused a usable configuration: %v.\n\nThe rule is about pruning, and the "+
+			"other section's unrelated key resolves to a value that is not a pruning strategy, so a "+
+			"section collecting every root key would refuse this", refusal)
+	}
+}
+
+// rootRule is a root section that states a rule, so validation has something to run.
+type rootRule struct {
+	Pruning string `mapstructure:"pruning"`
+}
+
+// Validate accepts the one strategy this probe knows.
+func (r rootRule) Validate() error {
+	if r.Pruning != "default" {
+		return fmt.Errorf("pruning %q is not a strategy this probe supports", r.Pruning)
+	}
+	return nil
 }

@@ -45,7 +45,7 @@ func ValidateResolved(resolved Resolved) []SectionError {
 		if section.Validate == nil {
 			continue
 		}
-		if err := section.Validate(valuesFor(name, resolved)); err != nil {
+		if err := section.Validate(valuesFor(section, resolved)); err != nil {
 			out = append(out, SectionError{Section: name, Err: err})
 		}
 	}
@@ -54,15 +54,31 @@ func ValidateResolved(resolved Resolved) []SectionError {
 }
 
 // valuesFor collects one section's resolved keys, with the section prefix removed.
-func valuesFor(name string, resolved Resolved) map[string]any {
-	prefix := name + "."
+//
+// Driven by the keys the section declares rather than by matching its prefix, because a section whose keys
+// sit at the root of the file has no prefix to match: two such sections would each collect the other's
+// values, and each would then judge settings it does not own.
+func valuesFor(section Section, resolved Resolved) map[string]any {
+	own := make(map[string]bool, len(section.Keys))
+	for _, key := range section.Keys {
+		own[key] = true
+	}
 	out := map[string]any{}
 	for key, resolution := range resolved.Keys {
-		if strings.HasPrefix(key, prefix) {
-			out[strings.TrimPrefix(key, prefix)] = resolution.Value
+		if !own[key] {
+			continue
 		}
+		out[leafOf(section.Prefix, key)] = resolution.Value
 	}
 	return out
+}
+
+// leafOf returns a key with its section prefix removed, which for a root key is the key itself.
+func leafOf(prefix, key string) string {
+	if prefix == "" {
+		return key
+	}
+	return strings.TrimPrefix(key, prefix+".")
 }
 
 // validatorFor returns a function asking a section's own type whether its values are usable.

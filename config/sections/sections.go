@@ -34,6 +34,7 @@ import (
 // the import graph produced, which is the thing this list exists to check.
 var Names = []string{
 	"admin_server",
+	"base",
 	"eth_blocktest",
 	"eth_replay",
 	"evm",

@@ -37,8 +37,16 @@ var Precedence = []string{"default", "file", "env", "flag"}
 
 // Section is one registered configuration section.
 type Section struct {
-	// Name is the section's own segment, and the first segment of every key it declares.
+	// Name identifies the section. It is what a lookup, a report and a recorded file are keyed by, and
+	// for most sections it is also the first segment of every key.
 	Name string
+	// Prefix is the first segment of every key this section declares, and is empty for a section whose
+	// keys sit at the root of the file with no section of their own.
+	//
+	// Separate from Name because the two are different jobs. A node-wide setting such as the pruning
+	// strategy is written at the top of app.toml and read as "pruning", so it has no segment to take a
+	// name from, and it still needs one to be looked up and reported under.
+	Prefix string
 	// Keys are the dotted paths this section declares, sorted.
 	Keys []string
 	// Defaults returns the section's baseline for a mode.
@@ -80,7 +88,24 @@ var (
 // It never panics. A registration this package cannot use is recorded as a Defect and the
 // section is not registered.
 func RegisterSection(name string, proto any, defaults func(Mode) any) {
-	keys, err := deriveKeys(name, proto)
+	record(name, name, proto, defaults)
+}
+
+// RegisterRootKeys records a section whose keys sit at the root of the file, with no section of their own.
+//
+// name identifies the section for lookups and reports and is not part of any key. Everything else matches
+// RegisterSection: the keys come from the mapstructure tags, and the tags are the only spelling.
+//
+// This exists because some settings are node-wide and are written at the top of a file rather than inside
+// a table. Giving them a section would rename them, and a renamed key is one an operator's existing file
+// no longer reaches.
+func RegisterRootKeys(name string, proto any, defaults func(Mode) any) {
+	record(name, "", proto, defaults)
+}
+
+// record is the one path both registrations take.
+func record(name, prefix string, proto any, defaults func(Mode) any) {
+	keys, err := deriveKeys(name, prefix, proto)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -94,8 +119,13 @@ func RegisterSection(name string, proto any, defaults func(Mode) any) {
 			defects = append(defects, Defect{Section: name, Err: fmt.Errorf("section registered twice")})
 			return
 		}
+		if err := refuseOverlap(name, prefix, keys); err != nil {
+			defects = append(defects, Defect{Section: name, Err: err})
+			return
+		}
 		sections[name] = Section{
 			Name:     name,
+			Prefix:   prefix,
 			Keys:     keys,
 			Defaults: defaults,
 			// Detected from the section's own type rather than declared separately, so a section
@@ -103,6 +133,56 @@ func RegisterSection(name string, proto any, defaults func(Mode) any) {
 			Validate: validatorFor(proto),
 		}
 	}
+}
+
+// refuseOverlap rejects a registration whose keys cannot coexist with what is already registered.
+//
+// Two shapes of overlap, and neither was possible before a section could declare a key at the root. A key
+// two sections both declare has one baseline resolved over the other, and which one depends on map order.
+// And a root key that is also a section's name cannot be written at all: a file holding both a value for
+// it and a table under it is not valid TOML, so one of the two would be unreachable.
+//
+// Called with the lock held.
+func refuseOverlap(name, prefix string, keys []string) error {
+	declared := map[string]string{}
+	names := map[string]string{}
+	for _, s := range sections {
+		for _, k := range s.Keys {
+			declared[k] = s.Name
+		}
+		if s.Prefix != "" {
+			names[s.Prefix] = s.Name
+		}
+	}
+
+	for _, key := range keys {
+		if owner, taken := declared[key]; taken {
+			return fmt.Errorf("%s declares %q and so does %s; one baseline would resolve over the other "+
+				"and which one wins depends on the order sections are walked", name, key, owner)
+		}
+		if prefix == "" {
+			if owner, taken := names[key]; taken {
+				return fmt.Errorf("%s declares %q at the root of the file and %s is a section of that "+
+					"name; a file cannot hold both a value for %q and a table under it, so one of them "+
+					"would be unreachable", name, key, owner, key)
+			}
+		}
+	}
+	if prefix != "" {
+		for _, s := range sections {
+			if s.Prefix != "" {
+				continue
+			}
+			for _, k := range s.Keys {
+				if k == prefix {
+					return fmt.Errorf("%s is a section named %q and %s declares %q at the root of the "+
+						"file; a file cannot hold both a table and a value under that name",
+						name, prefix, s.Name, k)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // Sections returns every registered section, sorted by name.
@@ -173,13 +253,13 @@ func Fingerprint() string {
 // operator-facing keys reach their field only through a spelling the tags do not produce, and a
 // silent fallback is what made that invisible. Refusing to guess is what keeps the tag
 // authoritative.
-func deriveKeys(section string, proto any) ([]string, error) {
-	if section == "" {
+func deriveKeys(name, prefix string, proto any) ([]string, error) {
+	if name == "" {
 		return nil, fmt.Errorf("section name is empty")
 	}
-	if section != strings.ToLower(section) {
+	if name != strings.ToLower(name) {
 		return nil, fmt.Errorf("section name %q is not lower case; configuration sources "+
-			"enumerate lower-cased, so a key under it would never match a written one", section)
+			"enumerate lower-cased, so a key under it would never match a written one", name)
 	}
 	if proto == nil {
 		return nil, fmt.Errorf("no struct")
@@ -193,7 +273,7 @@ func deriveKeys(section string, proto any) ([]string, error) {
 	}
 
 	var keys []string
-	if err := walk(t, section, &keys); err != nil {
+	if err := walk(t, prefix, &keys); err != nil {
 		return nil, err
 	}
 	if len(keys) == 0 {
@@ -236,7 +316,7 @@ func walk(t reflect.Type, prefix string, keys *[]string) error {
 			continue
 		}
 
-		path := prefix + "." + tag
+		path := join(prefix, tag)
 		if ft.Kind() == reflect.Struct && !isLeaf(ft) {
 			if err := walk(ft, path, keys); err != nil {
 				return err
@@ -246,6 +326,14 @@ func walk(t reflect.Type, prefix string, keys *[]string) error {
 		*keys = append(*keys, path)
 	}
 	return nil
+}
+
+// join appends a key segment to a prefix, and returns the segment alone when there is no prefix.
+func join(prefix, segment string) string {
+	if prefix == "" {
+		return segment
+	}
+	return prefix + "." + segment
 }
 
 // tagOf returns a field's mapstructure name, or reports that the field cannot be addressed.

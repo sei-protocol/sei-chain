@@ -11,9 +11,10 @@
 #
 # key	setting	absent	baseline	modes
 
-state-store.ss-async-write-buffer	AsyncWriteBuffer	0	100	all
-state-store.ss-backend	Backend	""	"pebbledb"	all
-state-store.ss-enable	Enable	false	true	all
-state-store.ss-import-num-workers	ImportNumWorkers	0	1	all
-state-store.ss-keep-recent	KeepRecent	0	100000	all
-state-store.ss-prune-interval	PruneIntervalSeconds	0	600	all
+concurrency-workers	ConcurrencyWorkers	0	20	all
+inter-block-cache	InterBlockCache	false	true	all
+minimum-gas-prices	MinGasPrices	""	"0.01usei"	all
+occ-enabled	OccEnabled	false	true	all
+pruning	Pruning	""	"nothing"	all
+pruning-interval	PruningInterval	""	"0"	all
+pruning-keep-recent	PruningKeepRecent	""	"0"	all

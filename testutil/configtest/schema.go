@@ -37,6 +37,12 @@ type SchemaCheck struct {
 	// state-commit write mode is ignored while automatic mode is on, so probing it without turning that
 	// off changes nothing and reads as a key the reader never looks up.
 	Context map[string]AppOpts
+	// Skip names a key this reader does not resolve, and what covers it instead. A section's keys are
+	// not always read by one function: a value may be resolved by a different reader into a different
+	// type, and probing it against this one would report a key that reaches nothing. The reason is
+	// required, so an exclusion has to say where the key is covered rather than only that it is not
+	// covered here.
+	Skip map[string]string
 	// AlsoDerives names the settings a key changes besides its own. A reader that computes one setting
 	// from two keys moves more than one field when either is written, and naming which are derived is
 	// what keeps the one-setting rule meaningful instead of relaxed.
@@ -96,6 +102,13 @@ func (c SchemaCheck) checkMode(t testing.TB, section string, registered registry
 
 	var found []divergence
 	for _, key := range registered.Keys {
+		if reason, skipped := c.Skip[key]; skipped {
+			if reason == "" {
+				t.Errorf("%s: %q is skipped with no reason. An exclusion has to name what covers the key "+
+					"instead, or it is indistinguishable from one nothing covers", section, key)
+			}
+			continue
+		}
 		probe, ok := c.Probe[key]
 		if !ok {
 			t.Errorf("%s: no probe value for %q, so nothing checks which setting it reaches or what it "+
@@ -182,6 +195,10 @@ func CheckAbsentReadDivergences(t testing.TB, section string, found []divergence
 	b.WriteString("# A row means a node with this key missing runs the absent value today and would run\n")
 	b.WriteString("# the baseline once the section is declared. Guarding the read is what empties this\n")
 	b.WriteString("# file: the absent column then becomes the declared default and the row disappears.\n")
+	b.WriteString("#\n")
+	b.WriteString("# A row compares two values and not what the reader does with them, so some rows are a\n")
+	b.WriteString("# difference in how a value is written rather than in what a node runs: \"\" and \"0\" are\n")
+	b.WriteString("# the same number to a reader that casts. Read the pair before treating a row as a change.\n")
 	b.WriteString("#\n")
 	b.WriteString("# key\tsetting\tabsent\tbaseline\tmodes\n\n")
 

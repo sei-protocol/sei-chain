@@ -24,15 +24,6 @@ var notDeclaredBecause = map[string]string{
 
 	"receipt-store.backend": "read only to refuse it, so an operator who used the wrong name is told to " +
 		"use rs-backend instead. Declaring it would turn that message into a value the registry stores",
-
-	"index-events": "a key at the root of app.toml with no section, and the second of the two root " +
-		"keys no flag delivers. It carries a list rather than a scalar, which is a shape no declared " +
-		"key has yet",
-
-	"occ-enabled": "a key at the root of app.toml with no section, which the registry cannot yet " +
-		"declare: a key's first segment is its section's name and there is no section here. It needs " +
-		"no flag layer, since nothing registers a flag for it, which makes it the one root key that " +
-		"tests prefix-free declaration on its own",
 }
 
 // TestEveryKeyTheNodeReadsIsAccountedFor is what makes the remaining work countable.

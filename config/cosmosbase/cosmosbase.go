@@ -15,8 +15,15 @@ import (
 	"github.com/sei-protocol/sei-chain/config/registry"
 )
 
-// StateSyncSectionName is this section's name in the configuration key space.
-const StateSyncSectionName = "state-sync"
+// The names these sections are looked up and reported under.
+//
+// BaseSectionName names a section whose keys carry no prefix at all: they sit at the root of app.toml and
+// are read as "pruning", "occ-enabled" and so on. The name is for lookups and reports and is not part of
+// any key, because giving those settings a section would rename every one of them.
+const (
+	StateSyncSectionName = "state-sync"
+	BaseSectionName      = "base"
+)
 
 // Registration puts the upstream sections in the configuration registry.
 //
@@ -25,6 +32,21 @@ const StateSyncSectionName = "state-sync"
 // SeiDB sections needed a schema precisely because their tags name something else.
 func init() {
 	registry.RegisterSection(StateSyncSectionName, &srvconfig.StateSyncConfig{}, stateSyncBaseline)
+	registry.RegisterRootKeys(BaseSectionName, &srvconfig.BaseConfig{}, baseBaseline)
+}
+
+// baseBaseline is what the node-wide settings resolve to for a node that has written nothing.
+//
+// The upstream defaults, which is what seid init writes into app.toml. Every one of these keys is read
+// with a casting getter, and an absent key casts to zero, so a node whose app.toml predates one of them
+// runs the zero rather than the default beside it. testdata/base.absent.golden records which keys that is;
+// five of the thirteen have a non-zero default, and the pruning strategy is the one that matters most,
+// since an empty strategy is not a strategy.
+//
+// The same values for every mode. How much history a node keeps and how many workers it runs are
+// decisions about disk and CPU that an operator writes down.
+func baseBaseline(registry.Mode) any {
+	return srvconfig.DefaultConfig().BaseConfig
 }
 
 // stateSyncBaseline is what this section resolves to for a node that has written nothing.
