@@ -419,7 +419,7 @@ func TestVoteAndProposalAuthorizationFlow(t *testing.T) {
 	_, err = call(
 		granteeEVMAddr,
 		gov.SubmitWithAuthzMethod,
-		nil,
+		big.NewInt(0),
 		false,
 		false,
 		granterEVMAddr,
@@ -537,7 +537,7 @@ func TestVoteAndProposalAuthorizationFlow(t *testing.T) {
 	_, err = call(
 		granteeEVMAddr,
 		gov.SubmitWithAuthzMethod,
-		nil,
+		big.NewInt(0),
 		false,
 		false,
 		granterEVMAddr,
