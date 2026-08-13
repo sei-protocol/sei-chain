@@ -65,10 +65,11 @@ func (s *State) alignMempool(lane types.LaneID) (*mempool, types.BlockNumber) {
 
 func (s *State) clearMempool() {
 	mp := s.mempool.Load()
+	// Always publish nil so InsertTx waiters re-evaluate (e.g. LocalLane gone).
+	s.mempool.Store(nil)
 	if mp == nil {
 		return
 	}
-	s.mempool.Store(nil)
 	for m, ctrl := range mp.inner.Lock() {
 		m.closed = true
 		ctrl.Updated()

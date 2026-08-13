@@ -176,7 +176,8 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseChec
 
 // session returns the produce session to insert into. With wait set it blocks
 // until a session is published, so that inserts racing the start of production
-// are admitted rather than rejected.
+// are admitted rather than rejected. Leave (LocalLane gone) ends the wait with
+// ErrNotProducing — including when clearMempool publishes nil after the session ends.
 func (s *State) session(ctx context.Context, wait bool) (*mempool, error) {
 	if mp := s.mempool.Load(); mp != nil {
 		return mp, nil
@@ -184,7 +185,20 @@ func (s *State) session(ctx context.Context, wait bool) (*mempool, error) {
 	if _, ok := s.consensus.Avail().LocalLane().Get(); !wait || !ok {
 		return nil, ErrNotProducing
 	}
-	return s.mempool.Wait(ctx, func(mp *mempool) bool { return mp != nil })
+	mp, err := s.mempool.Wait(ctx, func(mp *mempool) bool {
+		if mp != nil {
+			return true
+		}
+		_, ok := s.consensus.Avail().LocalLane().Get()
+		return !ok
+	})
+	if err != nil {
+		return nil, err
+	}
+	if mp == nil {
+		return nil, ErrNotProducing
+	}
+	return mp, nil
 }
 
 // Inserts transaction. Blocks until there is capacity in the mempool.

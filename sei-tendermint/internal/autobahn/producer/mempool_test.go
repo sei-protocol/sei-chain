@@ -617,3 +617,40 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// InsertTx waiting for a session must unblock with ErrNotProducing when leave
+// clears LocalLane and clearMempool publishes nil (not hang until ctx cancel).
+func TestInsertTx_WaitUnblocksOnLeave(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env, registry, keys := newTestEnvN(rng, 2, app.Cfg(), app.Proxy())
+	b := keys[1]
+	availState := env.consensus.Avail()
+	_, ok := availState.LocalLane().Get()
+	require.True(t, ok)
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := env.state.InsertTx(ctx, env.genTx(rng, common.Address{1}, 0).encode())
+		errCh <- err
+	}()
+
+	// Let InsertTx reach session Wait (mempool still nil — producer not running).
+	time.Sleep(20 * time.Millisecond)
+
+	epLeave, err := registry.ActivateEpoch(
+		map[types.PublicKey]uint64{b.Public(): 1},
+		types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+	)
+	require.NoError(t, err)
+	availState.ApplyEpoch(epLeave)
+	env.state.clearMempool()
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, ErrNotProducing)
+	case <-time.After(time.Second):
+		t.Fatal("InsertTx did not unblock after leave")
+	}
+}
