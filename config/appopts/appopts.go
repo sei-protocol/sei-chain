@@ -1,17 +1,21 @@
-// Package appopts builds the configuration a booting node reads.
+// Package appopts installs resolved configuration into the source a booting node reads.
 //
-// What a node reads is a source carrying one resolved value per key, never an in-memory struct. A
-// struct silently drops any key it does not model, and a round-trip test over one passes while being
-// wrong, so the shape that reaches app.New has to be able to hold a key nothing has migrated yet.
+// It layers rather than replaces. A key a section declares is written at override precedence, so the
+// registry's answer wins over the file, the environment and any flag, and no resolution runs when the
+// node reads it. Every other key is left exactly as it was, answered by the machinery that answers it
+// today.
 //
-// Every value goes in at override precedence, so no resolution runs when the node reads. Whatever
-// decided a value decided it here, and Get returns exactly what was installed rather than consulting
-// an environment variable or a file again behind the reader's back.
+// Layering is what makes the migration possible at all. A key's value can only be resolved ahead of
+// the read if its name is known, and a name is known only once a section declares it: an environment
+// cannot be enumerated for a prefix, so a value delivered that way under a key nothing declares is
+// readable and unlistable at the same time. Building a fresh source from an enumeration would drop
+// exactly those values and replace an operator's setting with a code default. Leaving them alone
+// cannot, because the code that answers them is unchanged.
 //
-// That is also what makes the migration incremental. A key no section declares comes from the
-// configuration the node reads today and is reported as remaining work; a key a section declares comes
-// from the registry instead. The key space does not change as keys move across, so no read site
-// changes with them.
+// The two halves partition the problem rather than overlapping. Declared keys are resolvable because
+// their names are known; undeclared keys are delegated because theirs are not. The delegated half
+// shrinks as sections are declared, and when the last one lands the source carries a resolved value
+// for every key, which is where the design says it ends up.
 package appopts
 
 import (
@@ -24,127 +28,101 @@ import (
 	"github.com/sei-protocol/sei-chain/config/registry"
 )
 
-// Source is a resolved configuration that can be enumerated.
-//
-// Declared here rather than imported, so this package depends on no particular type carrying a node's
-// configuration. Anything that lists its keys and answers for one satisfies it.
-type Source interface {
-	AllKeys() []string
-	Get(string) any
-}
-
-// Report says where each key in the built configuration came from.
+// Report says where each key in the resulting configuration comes from.
 type Report struct {
-	// Passthrough are keys the existing configuration supplies that no section declares, sorted.
-	// This is the migration that remains, and it shrinks one section at a time.
+	// Installed are the declared keys written at override precedence, sorted. The registry answers
+	// for these.
+	Installed []string
+	// Passthrough are keys the source enumerates that no section declares, sorted. These still read
+	// as they always have, and they are the migration that remains.
 	Passthrough []string
-	// Migrated are keys both supply, sorted. The registry's value is the one installed.
-	Migrated []string
-	// Added are keys a section declares that the existing configuration does not enumerate, sorted.
+	// Added are declared keys the source did not enumerate, sorted. A node reads these for the first
+	// time from the registry.
 	Added []string
 }
 
-// Build installs every resolved key into a fresh source a node can read.
+// Install writes every resolved value into the source the boot already built.
 //
-// The existing configuration supplies the key space and the registry overrides it, so a key that has
-// moved into a section reads from the section while every key that has not keeps working unchanged.
-// Nothing is dropped in either direction: a key either side supplies is present in the result, which
-// is the property an in-memory struct cannot offer.
-func Build(existing Source, resolved registry.Resolved) (*viper.Viper, Report, error) {
-	if existing == nil {
-		return nil, Report{}, fmt.Errorf("no existing configuration to build from")
+// Override precedence is what makes a declared key's answer final: viper checks the override layer
+// before the file, the environment or a bound flag, so what the registry resolved is what the node
+// reads. Nothing else in the source is touched.
+func Install(target *viper.Viper, resolved registry.Resolved) (Report, error) {
+	if target == nil {
+		return Report{}, fmt.Errorf("no configuration source to install into")
 	}
-	values, report := merge(existing, resolved)
-	if err := refuseShadowedKeys(values); err != nil {
-		return nil, report, err
+	if err := refuseColliding(resolved); err != nil {
+		return Report{}, err
 	}
-	return install(values), report, nil
+
+	report := describe(target, resolved)
+	for key, resolution := range resolved.Keys {
+		target.Set(key, resolution.Value)
+	}
+	return report, nil
 }
 
-// merge decides each key's value and records where it came from.
-func merge(existing Source, resolved registry.Resolved) (map[string]any, Report) {
-	values := map[string]any{}
+// describe records where every key comes from, before anything is installed.
+//
+// Read before the write, because installing a declared key the source did not enumerate makes it
+// enumerable, and a report built afterwards could not tell that key from one the source always had.
+func describe(target *viper.Viper, resolved registry.Resolved) Report {
+	enumerated := map[string]bool{}
+	for _, key := range target.AllKeys() {
+		enumerated[strings.ToLower(key)] = true
+	}
+
 	var report Report
-
-	for _, key := range existing.AllKeys() {
-		lowered := strings.ToLower(key)
-		if _, declared := resolved.Keys[lowered]; declared {
-			report.Migrated = append(report.Migrated, lowered)
-			continue // the registry supplies it below
-		}
-		values[lowered] = existing.Get(key)
-		report.Passthrough = append(report.Passthrough, lowered)
-	}
-
-	migrated := make(map[string]bool, len(report.Migrated))
-	for _, key := range report.Migrated {
-		migrated[key] = true
-	}
-	for key, resolution := range resolved.Keys {
-		values[key] = resolution.Value
-		if !migrated[key] {
+	for key := range resolved.Keys {
+		report.Installed = append(report.Installed, key)
+		if !enumerated[key] {
 			report.Added = append(report.Added, key)
 		}
 	}
+	for key := range enumerated {
+		if _, declared := resolved.Keys[key]; !declared {
+			report.Passthrough = append(report.Passthrough, key)
+		}
+	}
 
+	sort.Strings(report.Installed)
 	sort.Strings(report.Passthrough)
-	sort.Strings(report.Migrated)
 	sort.Strings(report.Added)
-	return values, report
+	return report
 }
 
-// refuseShadowedKeys rejects a key space where one key is a prefix of another.
+// refuseColliding rejects a declared set holding a key that is a prefix of another.
 //
-// Installing both loses one of them. A leaf set before its parent becomes a map and the leaf's value
-// is gone; a parent set before its leaf leaves the leaf unreadable. Which one survives depends on the
-// order they were installed, so neither answer is right and the loss is invisible to the reader.
-//
-// No such pair exists in the key space a node reads today, which a test pins. This exists for the day
-// somebody adds one, so it fails here rather than on whichever node happened to read the lost key.
-func refuseShadowedKeys(values map[string]any) error {
-	keys := make([]string, 0, len(values))
-	for key := range values {
+// Two such keys cannot both live in the override layer: whichever is written second turns the other
+// into a map or leaves it unreadable, and which one survives depends only on iteration order. A
+// section cannot produce such a pair, because keys derive from struct leaves and a leaf is never the
+// prefix of another leaf. This is here for a pair arriving from two sections at once.
+func refuseColliding(resolved registry.Resolved) error {
+	keys := make([]string, 0, len(resolved.Keys))
+	for key := range resolved.Keys {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 
-	// Sorted, so a key's prefixes are the entries immediately before it.
-	var shadowed []string
+	var collisions []string
 	for i, key := range keys {
 		for j := i + 1; j < len(keys); j++ {
 			if !strings.HasPrefix(keys[j], key+".") {
 				break
 			}
-			shadowed = append(shadowed, key+" and "+keys[j])
+			collisions = append(collisions, key+" and "+keys[j])
 		}
 	}
-	if len(shadowed) > 0 {
-		return fmt.Errorf("these key pairs cannot both be installed, because one is a prefix of the "+
-			"other and whichever is written second destroys the first: %s", strings.Join(shadowed, ", "))
+	if len(collisions) > 0 {
+		return fmt.Errorf("these declared key pairs cannot both be installed, because one is a prefix "+
+			"of the other and whichever is written second destroys the first: %s",
+			strings.Join(collisions, ", "))
 	}
 	return nil
 }
 
-// install writes every value at override precedence into a fresh source.
-//
-// Override precedence is what makes the result final. Anything lower that viper would otherwise
-// consult, an environment variable or a config file, cannot change an answer, so what a node reads is
-// what was resolved rather than whatever the process environment happens to hold at read time.
-func install(values map[string]any) *viper.Viper {
-	v := viper.New()
-	for key, value := range values {
-		v.Set(key, value)
-	}
-	return v
-}
-
-// Total is how many keys the report accounts for.
-func (r Report) Total() int {
-	return len(r.Passthrough) + len(r.Migrated) + len(r.Added)
-}
-
 // Summary is one line an operator or a log can carry.
 func (r Report) Summary() string {
-	return fmt.Sprintf("%d key(s) read from sei.toml, %d still read from the legacy configuration, "+
-		"%d declared but absent from it", len(r.Migrated), len(r.Passthrough), len(r.Added))
+	return fmt.Sprintf("%d key(s) resolved from the registry, %d still read as they always have, "+
+		"%d declared but absent from the existing configuration",
+		len(r.Installed), len(r.Passthrough), len(r.Added))
 }
