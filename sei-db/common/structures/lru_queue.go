@@ -33,26 +33,51 @@ func (lru *LRUQueue) Push(
 	// the size of the key + value
 	size uint64,
 ) {
+	// Indexing the map with string(key) does not copy the key; only a key that turns out to be new
+	// is converted, which is the one case that has to retain it.
 	if elem, ok := lru.entries[string(key)]; ok {
-		entry := elem.Value.(*lruQueueEntry)
-		if lru.totalSize < entry.size {
-			// should be impossible
-			panic(fmt.Errorf("size tracking is corrupted: totalSize %d < entry.size %d",
-				lru.totalSize, entry.size))
-		}
-		lru.totalSize -= entry.size
-		lru.totalSize += size
-		entry.size = size
-		lru.order.MoveToBack(elem)
+		lru.resize(elem, size)
 		return
 	}
+	lru.insert(string(key), size)
+}
 
-	keyStr := string(key)
+// PushString is Push for a caller that already holds the key as a string, which is then retained
+// rather than copied.
+func (lru *LRUQueue) PushString(
+	// the key that was recently interacted with
+	key string,
+	// the size of the key + value
+	size uint64,
+) {
+	if elem, ok := lru.entries[key]; ok {
+		lru.resize(elem, size)
+		return
+	}
+	lru.insert(key, size)
+}
+
+// resize updates an existing entry's weight and marks it most recently used.
+func (lru *LRUQueue) resize(elem *list.Element, size uint64) {
+	entry := elem.Value.(*lruQueueEntry)
+	if lru.totalSize < entry.size {
+		// should be impossible
+		panic(fmt.Errorf("size tracking is corrupted: totalSize %d < entry.size %d",
+			lru.totalSize, entry.size))
+	}
+	lru.totalSize -= entry.size
+	lru.totalSize += size
+	entry.size = size
+	lru.order.MoveToBack(elem)
+}
+
+// insert adds a key not already in the queue as the most recently used entry.
+func (lru *LRUQueue) insert(key string, size uint64) {
 	elem := lru.order.PushBack(&lruQueueEntry{
-		key:  keyStr,
+		key:  key,
 		size: size,
 	})
-	lru.entries[keyStr] = elem
+	lru.entries[key] = elem
 	lru.totalSize += size
 }
 

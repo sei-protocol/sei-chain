@@ -237,11 +237,18 @@ func (c *snapshotEngine) getCacheSizeInfo() (bytes uint64, entries uint64) {
 }
 
 func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
-	// Sort entries by shard index so each shard is locked only once.
-	shardMap := make(map[uint64][]*proto.KVPair)
+	// Sort entries by shard index so each shard is locked only once. Indexed by shard rather than
+	// keyed by it: shard indices are dense and known, so this needs no hashing and no growth. Each
+	// bucket is sized at twice an even split, so an uneven spread across shards still lands in one
+	// allocation rather than a resize and copy.
+	buckets := make([][]*proto.KVPair, len(c.shards))
+	bucketHint := 2*len(updates)/len(c.shards) + 1
 	for i := range updates {
 		idx := c.shardManager.Shard(updates[i].Key)
-		shardMap[idx] = append(shardMap[idx], updates[i])
+		if buckets[idx] == nil {
+			buckets[idx] = make([]*proto.KVPair, 0, bucketHint)
+		}
+		buckets[idx] = append(buckets[idx], updates[i])
 	}
 
 	// Fan out to shards. A shard refusing the write — it is out of service, so the engine is closed or
@@ -249,16 +256,15 @@ func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
 	// the batch is not atomic across shards in that case. That is acceptable because the engine contract
 	// makes any error fatal.
 	var wg sync.WaitGroup
-	shardIndices := make([]uint64, 0, len(shardMap))
-	for shardIndex := range shardMap {
-		shardIndices = append(shardIndices, shardIndex)
-	}
-	errs := make([]error, len(shardIndices))
-	for i, shardIndex := range shardIndices {
+	errs := make([]error, len(buckets))
+	for shardIndex := range buckets {
+		if len(buckets[shardIndex]) == 0 {
+			continue
+		}
 		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			errs[i] = c.shards[shardIndex].BatchSet(shardMap[shardIndex])
+			errs[shardIndex] = c.shards[shardIndex].BatchSet(buckets[shardIndex])
 		})
 	}
 	wg.Wait()

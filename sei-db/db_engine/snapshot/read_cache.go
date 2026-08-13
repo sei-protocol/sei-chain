@@ -443,12 +443,12 @@ func (c *readCache) bulkInjectValues(reads []pendingRead) {
 			entry.status = statusDeleted
 			entry.value = nil
 			size := uint64(len(reads[i].key)) + c.overheadPerEntry
-			c.gcQueue.Push([]byte(reads[i].key), size)
+			c.gcQueue.PushString(reads[i].key, size)
 		} else {
 			entry.status = statusAvailable
 			entry.value = result.value
 			size := uint64(len(reads[i].key)) + uint64(len(result.value)) + c.overheadPerEntry
-			c.gcQueue.Push([]byte(reads[i].key), size)
+			c.gcQueue.PushString(reads[i].key, size)
 		}
 	}
 	if failure != nil {
@@ -468,18 +468,41 @@ func (c *readCache) bulkInjectValues(reads []pendingRead) {
 //
 // The Locked postfix indicates that the caller must hold the shared lock.
 func (c *readCache) entryLocked(key []byte, createIfMissing bool) *cacheEntry {
+	// Indexing the map with string(key) does not copy the key; only the insert below does, which is
+	// the one case that has to retain it.
 	if entry, ok := c.entries[string(key)]; ok {
 		return entry
 	}
 	if !createIfMissing {
 		return nil
 	}
-	entry := &cacheEntry{
+	entry := newCacheEntry(c)
+	c.entries[string(key)] = entry
+	return entry
+}
+
+// entryLockedString is entryLocked for a caller that already holds the key as a string, which is
+// then retained rather than copied.
+//
+// The Locked postfix indicates that the caller must hold the shared lock.
+func (c *readCache) entryLockedString(key string, createIfMissing bool) *cacheEntry {
+	if entry, ok := c.entries[key]; ok {
+		return entry
+	}
+	if !createIfMissing {
+		return nil
+	}
+	entry := newCacheEntry(c)
+	c.entries[key] = entry
+	return entry
+}
+
+// newCacheEntry returns an entry for a key whose state is not yet known.
+func newCacheEntry(c *readCache) *cacheEntry {
+	return &cacheEntry{
 		cache:  c,
 		status: statusUnknown,
 	}
-	c.entries[string(key)] = entry
-	return entry
 }
 
 // putRetiredLocked installs data retired out of the shard's MVCC layer. A nil value marks the
@@ -490,9 +513,9 @@ func (c *readCache) entryLocked(key []byte, createIfMissing bool) *cacheEntry {
 func (c *readCache) putRetiredLocked(data map[string][]byte) {
 	for k, v := range data {
 		if v == nil {
-			c.deleteRetiredLocked([]byte(k))
+			c.deleteRetiredLocked(k)
 		} else {
-			c.setRetiredLocked([]byte(k), v)
+			c.setRetiredLocked(k, v)
 		}
 	}
 
@@ -505,20 +528,20 @@ func (c *readCache) putRetiredLocked(data map[string][]byte) {
 // Set a retired value.
 //
 // The Locked postfix indicates that the caller must hold the shared lock.
-func (c *readCache) setRetiredLocked(key []byte, value []byte) {
-	entry := c.entryLocked(key, true)
+func (c *readCache) setRetiredLocked(key string, value []byte) {
+	entry := c.entryLockedString(key, true)
 	entry.status = statusAvailable
 	entry.value = value
 
 	size := uint64(len(key)) + uint64(len(value)) + c.overheadPerEntry
-	c.gcQueue.Push(key, size)
+	c.gcQueue.PushString(key, size)
 }
 
 // Delete a retired value.
 //
 // The Locked postfix indicates that the caller must hold the shared lock.
-func (c *readCache) deleteRetiredLocked(key []byte) {
-	entry := c.entryLocked(key, false)
+func (c *readCache) deleteRetiredLocked(key string) {
+	entry := c.entryLockedString(key, false)
 	if entry == nil {
 		// Key is not in the cache, so nothing to do.
 		return
@@ -527,7 +550,7 @@ func (c *readCache) deleteRetiredLocked(key []byte) {
 	entry.value = nil
 
 	size := uint64(len(key)) + c.overheadPerEntry
-	c.gcQueue.Push(key, size)
+	c.gcQueue.PushString(key, size)
 }
 
 // Evicts least recently used entries until the cache is within its size budget.

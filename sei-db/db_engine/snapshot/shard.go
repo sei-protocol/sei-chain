@@ -30,7 +30,7 @@ type shard struct {
 	lock sync.Mutex
 
 	// Data at various versions. This is for data that has not yet been flushed down into the DB.
-	versionedData map[string] /* key */ *structures.Deque[versionedValue] /* values at various versions */
+	versionedData map[string] /* key */ versionHistory /* values at various versions */
 
 	// For each version, contains the values set in that version.  If a value is set more than once
 	// in a version, only the last value is stored. Although possible to find the value at a specifc
@@ -72,6 +72,77 @@ type versionedValue struct {
 	version uint64
 }
 
+// versionHistory holds every value a key has taken across the shard's un-retired versions, ordered
+// oldest to newest.
+//
+// It is stored by value in versionedData, and the newest value is held inline, because a key is
+// almost always written in only one un-retired version: a key written once costs no allocation at
+// all. Only a key written in a second version allocates, spilling its earlier values into older.
+type versionHistory struct {
+	// The value at the most recent version this key was written at.
+	newest versionedValue
+
+	// Values at earlier versions, oldest first. Nil until the key is written at a second version.
+	older *structures.Deque[versionedValue]
+}
+
+// olderLen returns how many values older holds, treating a nil deque as empty.
+func (h versionHistory) olderLen() int {
+	if h.older == nil {
+		return 0
+	}
+	return h.older.Len()
+}
+
+// len returns how many versions this history holds. A history in the map always holds at least one.
+func (h versionHistory) len() int {
+	return h.olderLen() + 1
+}
+
+// get returns the i'th value, counting from the oldest.
+func (h versionHistory) get(i int) versionedValue {
+	if i < h.olderLen() {
+		return h.older.Get(i)
+	}
+	return h.newest
+}
+
+// oldest returns the value at the earliest version this history holds.
+func (h versionHistory) oldest() versionedValue {
+	if h.olderLen() == 0 {
+		return h.newest
+	}
+	return h.older.PeekFront()
+}
+
+// set records value at the current version, returning the updated history. A repeat write at the
+// version already held replaces it rather than appending, so a history never holds one version
+// twice.
+func (h versionHistory) set(value versionedValue) versionHistory {
+	if h.newest.version == value.version {
+		h.newest = value
+		return h
+	}
+	if h.older == nil {
+		h.older = structures.NewDequeWithCapacity[versionedValue](1)
+	}
+	h.older.PushBack(h.newest)
+	h.newest = value
+	return h
+}
+
+// dropOlderThan discards every value written before version, returning the updated history and
+// whether anything is left. A history with nothing left must be removed from versionedData.
+func (h versionHistory) dropOlderThan(version uint64) (versionHistory, bool) {
+	for h.olderLen() > 0 && h.older.PeekFront().version < version {
+		h.older.PopFront()
+	}
+	if h.olderLen() == 0 && h.newest.version < version {
+		return versionHistory{}, false
+	}
+	return h, true
+}
+
 // Creates a new Shard.
 func NewShard(
 	ctx context.Context,
@@ -106,7 +177,7 @@ func NewShard(
 	versionDiffs[1] = make(map[string][]byte) // versions start at 1
 
 	s := &shard{
-		versionedData:  make(map[string]*structures.Deque[versionedValue]),
+		versionedData:  make(map[string]versionHistory),
 		versionDiffs:   versionDiffs,
 		currentVersion: 1, // important: versions start at 1, not 0, to allow (version - 1) without underflow
 		oldestVersion:  1,
@@ -183,19 +254,19 @@ func (s *shard) validateVersionLocked(version uint64) error {
 //
 // The Locked postfix indicates that the caller must hold the shard lock.
 func (s *shard) lookupVersionedLocked(key string, version uint64) ([]byte, bool) {
-	deque, ok := s.versionedData[key]
+	history, ok := s.versionedData[key]
 	if !ok {
 		return nil, false
 	}
 	if version == s.oldestVersion {
-		next := deque.PeekFront()
+		next := history.oldest()
 		if next.version == version {
 			return next.value, true
 		}
 		return nil, false
 	}
-	for i := deque.Len() - 1; i >= 0; i-- {
-		next := deque.Get(i)
+	for i := history.len() - 1; i >= 0; i-- {
+		next := history.get(i)
 		if next.version <= version {
 			return next.value, true
 		}
@@ -310,17 +381,16 @@ func (s *shard) setLocked(key []byte, value []byte) {
 	keyStr := string(key)
 	s.versionDiffs[s.currentVersion][keyStr] = value
 
-	deque, ok := s.versionedData[keyStr]
+	written := versionedValue{version: s.currentVersion, value: value}
+	// A key seen for the first time in this version window starts a history holding only this
+	// value. Going through set would be wrong as well as wasteful: the zero history's newest is a
+	// nil value at version 0, which set would preserve as a real earlier value.
+	history, ok := s.versionedData[keyStr]
 	if !ok {
-		deque = structures.NewDeque[versionedValue]()
-		s.versionedData[keyStr] = deque
+		s.versionedData[keyStr] = versionHistory{newest: written}
+		return
 	}
-	if deque.IsEmpty() || deque.PeekBack().version < s.currentVersion {
-		deque.PushBack(versionedValue{version: s.currentVersion, value: value})
-	} else {
-		deque.PopBack()
-		deque.PushBack(versionedValue{version: s.currentVersion, value: value})
-	}
+	s.versionedData[keyStr] = history.set(written)
 }
 
 // BatchSet sets the values for a batch of keys at the current version. Refused on a shard that is
@@ -355,9 +425,12 @@ func (s *shard) Commit() uint64 {
 	s.lock.Lock()
 
 	newVersion := s.currentVersion + 1
-	s.currentVersion = newVersion
 
-	s.versionDiffs[newVersion] = make(map[string][]byte)
+	// Sized at twice the version just sealed. The map is created here but filled by the next
+	// version's writes, and growing it there means rehashing every key written so far, on the
+	// thread doing the writing and under this shard's lock.
+	s.versionDiffs[newVersion] = make(map[string][]byte, 2*len(s.versionDiffs[s.currentVersion]))
+	s.currentVersion = newVersion
 
 	s.lock.Unlock()
 
@@ -414,10 +487,7 @@ func (s *shard) materializeCurrentOverrides(lowerBound []byte, upperBound []byte
 	}
 
 	out := make([]kvPair, 0, len(s.versionedData))
-	for key, deque := range s.versionedData {
-		if deque.IsEmpty() {
-			continue
-		}
+	for key, history := range s.versionedData {
 		if lowerBound != nil && key < string(lowerBound) {
 			continue
 		}
@@ -426,7 +496,7 @@ func (s *shard) materializeCurrentOverrides(lowerBound []byte, upperBound []byte
 		}
 		out = append(out, kvPair{
 			key:   []byte(key),
-			value: deque.PeekBack().value,
+			value: history.newest.value,
 		})
 	}
 	return out, nil
@@ -480,17 +550,12 @@ func (s *shard) DropVersions(
 
 	// Clean up the versioned data map.
 	for k := range combinedData {
-		deque := s.versionedData[k]
-		for !deque.IsEmpty() {
-			next := deque.PeekFront()
-			if next.version >= lastVersion {
-				break
-			}
-			deque.PopFront()
-		}
-		if deque.IsEmpty() {
+		history, remaining := s.versionedData[k].dropOlderThan(lastVersion)
+		if !remaining {
 			delete(s.versionedData, k)
+			continue
 		}
+		s.versionedData[k] = history
 	}
 
 	// Push the combined data down into the read cache, still under the same lock grab, so
