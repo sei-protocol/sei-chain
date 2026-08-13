@@ -146,11 +146,17 @@ func (api *DebugAPI) profiledTraceBlockSequential(
 
 	if len(metadata) == 0 {
 		for i, tx := range txs {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			traceOne(i, tx)
 		}
 		return results, nil
 	}
 	for _, md := range metadata {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if md.ShouldIncludeInTraceResult {
 			i := md.IdxInEthBlock
 			traceOne(i, txs[i])
@@ -246,6 +252,10 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 
 	if len(metadata) == 0 {
 		for i, tx := range txs {
+			if err := ctx.Err(); err != nil {
+				failed = err
+				break
+			}
 			if err := feedTraceTask(i); err != nil {
 				failed = err
 				break
@@ -257,6 +267,10 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 		}
 	} else {
 		for _, md := range metadata {
+			if err := ctx.Err(); err != nil {
+				failed = err
+				break
+			}
 			if md.ShouldIncludeInTraceResult {
 				i := md.IdxInEthBlock
 				if err := feedTraceTask(i); err != nil {
