@@ -4,6 +4,8 @@ import (
 	"errors"
 	"time"
 
+	gogotypes "github.com/gogo/protobuf/types"
+
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -40,8 +42,8 @@ func GrantAuthorizations(
 	if len(authorizations) == 0 {
 		return sdkerrors.ErrInvalidRequest.Wrap("at least one authorization is required")
 	}
-	if !expiration.After(ctx.BlockTime()) {
-		return sdkerrors.ErrInvalidRequest.Wrap("authorization expiration must be after the current block time")
+	if err := validateAuthorizationExpiration(ctx, expiration); err != nil {
+		return err
 	}
 
 	for _, authorization := range authorizations {
@@ -57,6 +59,18 @@ func GrantAuthorizations(
 		}
 	}
 
+	return nil
+}
+
+// validateAuthorizationExpiration keeps the user-provided time within the
+// protobuf Timestamp range used to marshal native authz grants.
+func validateAuthorizationExpiration(ctx sdk.Context, expiration time.Time) error {
+	if !expiration.After(ctx.BlockTime()) {
+		return sdkerrors.ErrInvalidRequest.Wrap("authorization expiration must be after the current block time")
+	}
+	if _, err := gogotypes.TimestampProto(expiration); err != nil {
+		return sdkerrors.ErrInvalidRequest.Wrapf("authorization expiration cannot be encoded as a protobuf timestamp: %v", err)
+	}
 	return nil
 }
 
