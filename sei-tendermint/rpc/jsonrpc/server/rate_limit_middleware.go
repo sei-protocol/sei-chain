@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
 var errRateLimitBodyTooLarge = errors.New("request body too large")
@@ -19,6 +20,10 @@ type rateLimitMiddleware struct {
 
 // NewRateLimitMiddleware wraps inner with CometBFT RPC HTTP rate-limit admission.
 // When gate is nil or disabled, inner is returned unchanged.
+//
+// POST / JSON-RPC bodies and GET/HEAD URI routes (including the WebSocket
+// handshake GET /websocket, charged as method "websocket") are limited.
+// WebSocket frames after upgrade are not covered by this middleware.
 func NewRateLimitMiddleware(inner http.Handler, gate *RateLimitGate) http.Handler {
 	if gate == nil || !gate.enabled {
 		return inner
@@ -53,10 +58,10 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	body, err := readRateLimitBoundedBody(r.Body, m.gate.maxBodyBytes)
 	if err != nil {
 		if isRateLimitRequestBodyTooLarge(err) {
-			m.rejectAdmission(r.Context(), w, ip, http.StatusRequestEntityTooLarge, "request body too large")
+			m.rejectAdmission(r.Context(), w, r, ip, body, http.StatusRequestEntityTooLarge, rpctypes.CodeInvalidRequest, "request body too large")
 			return
 		}
-		m.rejectAdmission(r.Context(), w, ip, http.StatusBadRequest, "bad request")
+		m.rejectAdmission(r.Context(), w, r, ip, body, http.StatusBadRequest, rpctypes.CodeInvalidRequest, "bad request")
 		return
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -64,7 +69,11 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	allowed, rejectMethod, checkErr := m.gate.CheckPOST(r.Context(), ip, bytes.NewReader(body))
 	if checkErr != nil {
 		if ratelimiter.IsBodyTooLarge(checkErr) {
-			m.rejectAdmission(r.Context(), w, ip, http.StatusRequestEntityTooLarge, "request body too large")
+			m.rejectAdmission(r.Context(), w, r, ip, body, http.StatusRequestEntityTooLarge, rpctypes.CodeInvalidRequest, "request body too large")
+			return
+		}
+		if isCometBFTPostJSONRPCRequest(r) {
+			writeJSONRPCErrorWithStatus(w, body, http.StatusBadRequest, rpctypes.CodeParseError, "decoding request: %v", checkErr)
 			return
 		}
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -72,6 +81,10 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	if !allowed {
 		logger.Debug("rate limit rejected POST request", "ip", ip, "method", rejectMethod, "plane", m.gate.plane)
+		if isCometBFTPostJSONRPCRequest(r) {
+			writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
+			return
+		}
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
 		return
 	}
@@ -79,9 +92,17 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	m.inner.ServeHTTP(w, r)
 }
 
-func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.ResponseWriter, ip string, status int, msg string) {
+func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.ResponseWriter, r *http.Request, ip string, body []byte, status int, code rpctypes.ErrorCode, msg string) {
 	if m.gate.chargeAdmissionRejection(ctx, ip) {
+		if isCometBFTPostJSONRPCRequest(r) {
+			writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
+			return
+		}
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
+		return
+	}
+	if isCometBFTPostJSONRPCRequest(r) && status != http.StatusRequestEntityTooLarge {
+		writeJSONRPCErrorWithStatus(w, body, status, code, "%s", msg)
 		return
 	}
 	http.Error(w, msg, status)
@@ -107,6 +128,11 @@ func isCometBFTMethodCatalogRequest(r *http.Request) bool {
 	default:
 		return false
 	}
+}
+
+// isCometBFTPostJSONRPCRequest reports POST requests to the JSON-RPC root path.
+func isCometBFTPostJSONRPCRequest(r *http.Request) bool {
+	return r.Method == http.MethodPost && (r.URL.Path == "/" || r.URL.Path == "")
 }
 
 // isCometBFTURIRPCRequest reports REST-style CometBFT RPC routes (GET /status, etc.).

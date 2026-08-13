@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -66,6 +68,7 @@ func TestRateLimitMiddleware_POST_RejectsAfterBurst(t *testing.T) {
 	rec2 := httptest.NewRecorder()
 	h.ServeHTTP(rec2, req2)
 	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
+	requireJSONRPCError(t, rec2.Body.Bytes(), int(rpctypes.CodeInternalError), "too many requests")
 }
 
 func TestRateLimitMiddleware_POST_PerIPIsolation(t *testing.T) {
@@ -296,6 +299,61 @@ func TestRateLimitMiddleware_POST_RejectionEmitsMetric(t *testing.T) {
 		}
 	}
 	require.True(t, found, "expected rpc_rate_limit_rejected_total{plane=cometbft}")
+}
+
+func TestRateLimitMiddleware_POST_OversizeBodyReturns413(t *testing.T) {
+	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
+	gate := NewRateLimitGate(reg, 64, true)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner should not be called")
+	})
+	h := NewRateLimitMiddleware(inner, gate)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", 100))))
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	require.Contains(t, rec.Body.String(), "request body too large")
+}
+
+func TestRateLimitMiddleware_POST_MalformedJSONReturns400(t *testing.T) {
+	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
+	gate := NewRateLimitGate(reg, 0, true)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("inner should not be called")
+	})
+	h := NewRateLimitMiddleware(inner, gate)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"method":123,"id":1}`)))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp rpctypes.RPCResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Error)
+	require.Equal(t, int(rpctypes.CodeParseError), resp.Error.Code)
+}
+
+func TestRateLimitMiddleware_GETRootServesMethodCatalog(t *testing.T) {
+	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
+	gate := NewRateLimitGate(reg, 0, true)
+	h := NewRateLimitMiddleware(testMux(), gate)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "203.0.113.1:1"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Header().Get("Content-Type"), "text/html")
+	require.Contains(t, rec.Body.String(), "Available RPC endpoints")
+}
+
+func requireJSONRPCError(t *testing.T, body []byte, wantCode int, wantSubstring string) {
+	t.Helper()
+	var resp rpctypes.RPCResponse
+	require.NoError(t, json.Unmarshal(body, &resp))
+	require.NotNil(t, resp.Error)
+	require.Equal(t, wantCode, resp.Error.Code)
+	require.Contains(t, resp.Error.Data, wantSubstring)
 }
 
 func attributeValue(set attribute.Set, key string) string {

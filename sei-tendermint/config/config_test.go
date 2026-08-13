@@ -95,6 +95,15 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 	assert.NoError(t, cfg2.ValidateBasic())
 	cfg2.TimeoutWrite = 0 // 0 disables; constraint does not apply
 	assert.NoError(t, cfg2.ValidateBasic())
+
+	cfg3 := TestRPCConfig()
+	cfg3.RateLimitingEnabled = true
+	cfg3.IPRateLimitBurst = 5
+	assert.Error(t, cfg3.ValidateBasic())
+	cfg3.IPRateLimitBurst = 10
+	assert.NoError(t, cfg3.ValidateBasic())
+	cfg3.IPRateLimitBurst = 0
+	assert.NoError(t, cfg3.ValidateBasic())
 }
 
 func TestMempoolConfigValidateBasic(t *testing.T) {
