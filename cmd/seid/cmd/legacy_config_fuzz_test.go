@@ -356,6 +356,7 @@ var appKeys = []appKey{
 	// concurrency-workers is registered as an Int flag, which is one of the few
 	// types viper converts rather than passing through as text.
 	{Key: "concurrency-workers", Values: [3]string{"4", "8", "16"}, Numeric: true, WantGoType: "int"},
+	{Key: "freeze-height", Values: [3]string{"100", "200", "300"}, Numeric: true, WantGoType: "string"},
 }
 
 // FuzzApplyPrecedenceApp pins the same ordering on the other channel. App
@@ -749,6 +750,7 @@ func FuzzApplyMalformedAppTOML(f *testing.F) {
 	f.Add([]byte(""))
 	f.Add([]byte("halt-height = 1\n"))
 	f.Add([]byte("halt-height = \n"))
+	f.Add([]byte("freeze-height = 1\n"))
 	f.Add([]byte("[telemetry\nenabled = true\n"))
 	f.Add([]byte("moniker = \"app-toml-wins\"\n"))
 	f.Add([]byte("telemetry.global-labels = \"not-a-list\"\n"))

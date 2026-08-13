@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -238,6 +239,35 @@ func TestValidateBasic(t *testing.T) {
 				cfg := DefaultConfig()
 				cfg.Pruning = storetypes.PruningOptionEverything
 				cfg.StateSync.SnapshotInterval = 1000
+				return cfg
+			},
+			expectErr: true,
+		},
+		{
+			name: "freeze height above maximum block height",
+			setupCfg: func() *Config {
+				cfg := DefaultConfig()
+				cfg.FreezeHeight = uint64(math.MaxInt64) + 1
+				return cfg
+			},
+			expectErr: true,
+		},
+		{
+			name: "freeze and halt heights",
+			setupCfg: func() *Config {
+				cfg := DefaultConfig()
+				cfg.FreezeHeight = 100
+				cfg.HaltHeight = 100
+				return cfg
+			},
+			expectErr: true,
+		},
+		{
+			name: "freeze height and halt time",
+			setupCfg: func() *Config {
+				cfg := DefaultConfig()
+				cfg.FreezeHeight = 100
+				cfg.HaltTime = 100
 				return cfg
 			},
 			expectErr: true,
