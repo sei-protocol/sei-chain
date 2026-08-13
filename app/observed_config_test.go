@@ -211,15 +211,24 @@ func TestGenerateCoversExactlyWhatTheConstructionReadsForAMigratedSection(t *tes
 		}
 	}
 
-	// The rest of what the construction reads is the work still to do, reported so it is visible and
-	// so a section moving across shows up as this number falling.
+	// The rest of what the construction reads is the work still to do, reported so it is visible and so
+	// a section moving across shows up as this number falling.
+	//
+	// Counted against every declared key rather than against this one section. Scoped to one section it
+	// measured how much sits outside that section, which stops being the backlog the moment a second
+	// section lands: with two migrated it still read 115, which is true of giga alone and says nothing
+	// about what remains.
+	declared := map[string]bool{}
+	for _, key := range registry.Keys() {
+		declared[key] = true
+	}
 	remaining := 0
 	for _, key := range recorder.Keys() {
-		if !strings.HasPrefix(key, section+".") {
+		if !declared[key] {
 			remaining++
 		}
 	}
-	t.Logf("%d of %d keys the construction reads are not yet under a declared section",
+	t.Logf("%d of %d keys the construction reads are not yet under any declared section",
 		remaining, len(recorder.Keys()))
 }
 
