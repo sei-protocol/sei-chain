@@ -23,6 +23,8 @@ COMPARE_BUFFER=${FLATKV_PARTIAL_LOSS_COMPARE_BUFFER:-2}
 # reliably loses that race on busy CI runners.
 CATCHUP_TIMEOUT=${FLATKV_PARTIAL_LOSS_CATCHUP_TIMEOUT:-240}
 CATCHUP_TOLERANCE=${FLATKV_PARTIAL_LOSS_CATCHUP_TOLERANCE:-10}
+LOUD_FAILURE_STATUS=2
+VICTIM_LOG="/sei-protocol/sei-chain/build/generated/logs/seid-${VICTIM_INDEX}.log"
 
 echo "verify_flatkv_partial_loss_fails_loudly: victim=$VICTIM_NODE flatkv_dir=$FLATKV_DIR"
 
@@ -50,18 +52,30 @@ node_height() {
     || echo 0
 }
 
+# has_consensus_app_hash_rejection detects Tendermint rejecting a block whose
+# AppHash disagrees with the victim's local state. The restart script truncates
+# the log before starting seid, so every matching entry is from this restart.
+has_consensus_app_hash_rejection() {
+  docker exec "$VICTIM_NODE" \
+    grep -Fq 'wrong Block.Header.AppHash:' "$VICTIM_LOG" 2>/dev/null
+}
+
 # wait_for_catchup polls until the victim's height is within $tolerance of the
-# maximum height across the other (non-victim) validators, or until $timeout
-# seconds elapse. This must run before dump-flatkv: while the victim is
-# blocksyncing it rolls new FlatKV snapshots and truncates the WAL, which the
-# dump tool can only ride out for a small fixed number of retries before
-# panicking with "source kept churning".
+# maximum height across the other (non-victim) validators, detects a loud
+# AppHash failure, or reaches $timeout. This must run before dump-flatkv: while
+# the victim is blocksyncing it rolls new FlatKV snapshots and truncates the
+# WAL, which the dump tool can only ride out for a small fixed number of retries
+# before panicking with "source kept churning".
 wait_for_catchup() {
   local victim=$1
   local timeout=$2
   local tolerance=$3
   local elapsed=0
   while [ "$elapsed" -lt "$timeout" ]; do
+    if has_consensus_app_hash_rejection; then
+      echo "$victim rejected divergent state with an AppHash mismatch"
+      return "$LOUD_FAILURE_STATUS"
+    fi
     local max_other_h=0 victim_h gap
     for i in $(seq 0 $((NODE_COUNT - 1))); do
       if [ "$i" = "$VICTIM_INDEX" ]; then
@@ -207,7 +221,7 @@ sleep "$RESTART_OBSERVE_SECS"
 if ! docker exec "$VICTIM_NODE" pgrep -f "seid start" >/dev/null 2>&1; then
   echo "$VICTIM_NODE exited after FlatKV-only loss; checking for a clear startup error"
   if docker exec "$VICTIM_NODE" bash -lc \
-    "grep -Eiq 'flatkv|version|missing|LoadVersion|reconcile|state_commit' /sei-protocol/sei-chain/build/generated/logs/seid-${VICTIM_INDEX}.log"; then
+    "grep -Eiq 'flatkv|version|missing|LoadVersion|reconcile|state_commit' '$VICTIM_LOG'"; then
     echo "PASS: $VICTIM_NODE failed loudly after FlatKV-only loss"
     exit 0
   fi
@@ -226,7 +240,16 @@ fi
 # Wait for the victim to catch up before dumping FlatKV; see CATCHUP_TIMEOUT
 # comment at the top of this script for why running dump-flatkv against an
 # actively-syncing node is unreliable.
-wait_for_catchup "$VICTIM_NODE" "$CATCHUP_TIMEOUT" "$CATCHUP_TOLERANCE"
+catchup_status=0
+wait_for_catchup "$VICTIM_NODE" "$CATCHUP_TIMEOUT" "$CATCHUP_TOLERANCE" \
+  || catchup_status=$?
+if [ "$catchup_status" -eq "$LOUD_FAILURE_STATUS" ]; then
+  echo "PASS: $VICTIM_NODE failed loudly after FlatKV-only loss"
+  exit 0
+fi
+if [ "$catchup_status" -ne 0 ]; then
+  exit "$catchup_status"
+fi
 
 assert_flatkv_digests_match
 echo "PASS: $VICTIM_NODE self-healed after FlatKV-only loss and matches FlatKV digests"
