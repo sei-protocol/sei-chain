@@ -205,9 +205,12 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 		if !f.IsExported() {
 			continue
 		}
-		tag, squash, err := tagOf(f, prefix)
+		tag, squash, skip, err := tagOf(f, prefix)
 		if err != nil {
 			return err
+		}
+		if skip {
+			continue
 		}
 
 		fv := v.Field(i)

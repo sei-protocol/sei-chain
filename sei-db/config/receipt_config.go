@@ -90,6 +90,30 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 	}
 }
 
+// Validate reports whether this configuration is usable.
+//
+// The backend names a storage implementation, and an unrecognised one leaves the node with no receipt
+// store at all. Stated on the type so a diagnostic refuses the same value the boot refuses, rather
+// than reporting a file as usable and leaving the refusal for the next restart.
+func (c ReceiptStoreConfig) Validate() error {
+	_, err := normalizeBackend(c.Backend)
+	return err
+}
+
+// normalizeBackend returns the canonical spelling of a backend name.
+//
+// Case and surrounding space are an operator's to get wrong, so they are absorbed here rather than
+// refused. An unrecognised name is not, because there is no implementation to fall back to.
+func normalizeBackend(raw string) (string, error) {
+	backend := strings.ToLower(strings.TrimSpace(raw))
+	switch backend {
+	case "pebbledb", "pebble", "littidx":
+		return backend, nil
+	default:
+		return "", fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, littidx", backend)
+	}
+}
+
 // ReadReceiptConfig reads receipt store config from app options (e.g. TOML / Viper).
 func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 	cfg := DefaultReceiptStoreConfig()
@@ -104,17 +128,15 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 		cfg.DBDirectory = strings.TrimSpace(dbDirectory)
 	}
 	if v := opts.Get(flagRSBackend); v != nil {
-		backend, err := cast.ToStringE(v)
+		raw, err := cast.ToStringE(v)
 		if err != nil {
 			return cfg, err
 		}
-		backend = strings.ToLower(strings.TrimSpace(backend))
-		switch backend {
-		case "pebbledb", "pebble", "littidx":
-			cfg.Backend = backend
-		default:
-			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, littidx", backend)
+		backend, err := normalizeBackend(raw)
+		if err != nil {
+			return cfg, err
 		}
+		cfg.Backend = backend
 	}
 	if v := opts.Get(flagRSAsyncWriteBuffer); v != nil {
 		asyncWriteBuffer, err := cast.ToIntE(v)

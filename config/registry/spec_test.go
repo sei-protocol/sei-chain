@@ -643,3 +643,66 @@ func TestEnvLayerIsDrivenByTheDeclaredSet(t *testing.T) {
 		t.Errorf("the declared key resolved to %#v, want false", l.Values["giga_executor.occ_enabled"])
 	}
 }
+
+// TestAFieldMarkedNotFromConfigContributesNoKey holds mapstructure's own skip idiom.
+//
+// A dash is how mapstructure says a field is not populated from configuration. Such a field has no key,
+// so deriving one would declare a key nothing reads and leave doctor refusing an operator's file. Read as
+// an error instead, it refuses the whole section, and every one of that section's keys silently falls
+// back to the legacy path.
+//
+// Both are silent in their own way, which is why this is held rather than left to whichever reading the
+// code happened to take. receipt-store carries two such fields, documented as derived at the app layer
+// rather than read from configuration, and it was the first section that could not register because of it.
+func TestAFieldMarkedNotFromConfigContributesNoKey(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("probe", &struct {
+		Read       bool `mapstructure:"read"`
+		NotFromCfg int  `mapstructure:"-"`
+		AlsoRead   bool `mapstructure:"also_read"`
+	}{}, func(registry.Mode) any { return struct{}{} })
+
+	for _, d := range registry.Defects() {
+		t.Fatalf("a field marked as not from configuration was refused: %v.\n\nThe section does not "+
+			"register at all, so every key it declares silently reads from the legacy path instead", d.Err)
+	}
+	s, ok := registry.Lookup("probe")
+	if !ok {
+		t.Fatal("the section did not register")
+	}
+	if strings.Join(s.Keys, ",") != "probe.also_read,probe.read" {
+		t.Errorf("derived %v, want only the two fields that are read from configuration. A key derived "+
+			"for a field nothing populates is one doctor would refuse in an operator's file", s.Keys)
+	}
+}
+
+// TestAnEmptyMapstructureNameIsStillAnError keeps the fix above from swallowing the real mistake.
+//
+// A dash says something deliberate. An empty name says nothing, and a key with an empty final segment
+// matches no written key, so it stays a defect.
+//
+// The probe carries a validly named field alongside the nameless one on purpose. With only the
+// nameless field, a rule that quietly skipped it would still be refused, for declaring no keys at
+// all, and this would pass while proving nothing. With two fields the section registers under that
+// rule and the nameless field vanishes without a word, which is the outcome being refused here.
+func TestAnEmptyMapstructureNameIsStillAnError(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("probe", &struct {
+		Read     bool `mapstructure:"read"`
+		Nameless bool `mapstructure:""`
+	}{}, func(registry.Mode) any { return struct{}{} })
+
+	defects := registry.Defects()
+	if len(defects) != 1 {
+		t.Fatalf("an empty mapstructure name produced %d defects, want 1. It is not the skip idiom and "+
+			"a key ending in nothing matches no written key", len(defects))
+	}
+	if !strings.Contains(defects[0].Err.Error(), "Nameless") {
+		t.Errorf("the defect is %q and does not name the field at fault, so whoever reads it has to "+
+			"find which of the struct's fields is the problem", defects[0].Err)
+	}
+	if _, ok := registry.Lookup("probe"); ok {
+		t.Error("the section registered despite the defect, so the nameless field is absent from the " +
+			"key space and nothing says so")
+	}
+}

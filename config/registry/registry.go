@@ -211,9 +211,12 @@ func walk(t reflect.Type, prefix string, keys *[]string) error {
 			continue
 		}
 
-		tag, squash, err := tagOf(f, prefix)
+		tag, squash, skip, err := tagOf(f, prefix)
 		if err != nil {
 			return err
+		}
+		if skip {
+			continue
 		}
 
 		ft := f.Type
@@ -246,10 +249,10 @@ func walk(t reflect.Type, prefix string, keys *[]string) error {
 }
 
 // tagOf returns a field's mapstructure name, or reports that the field cannot be addressed.
-func tagOf(f reflect.StructField, prefix string) (name string, squash bool, err error) {
+func tagOf(f reflect.StructField, prefix string) (name string, squash, skip bool, err error) {
 	tag, ok := f.Tag.Lookup("mapstructure")
 	if !ok {
-		return "", false, fmt.Errorf("%s.%s has no mapstructure tag; a key derived from a field "+
+		return "", false, false, fmt.Errorf("%s.%s has no mapstructure tag; a key derived from a field "+
 			"name is a key no operator writes, which is how ninety-two legacy keys became "+
 			"unreachable through their tags", prefix, f.Name)
 	}
@@ -263,20 +266,26 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash bool, err 
 	}
 	if squash {
 		if name != "" {
-			return "", false, fmt.Errorf("%s.%s is squashed and also names %q; one or the other",
+			return "", false, false, fmt.Errorf("%s.%s is squashed and also names %q; one or the other",
 				prefix, f.Name, name)
 		}
-		return "", true, nil
+		return "", true, false, nil
 	}
-	if name == "" || name == "-" {
-		return "", false, fmt.Errorf("%s.%s has an empty mapstructure name", prefix, f.Name)
+	// A dash is how mapstructure says a field is not populated from configuration at all. Such a field
+	// has no key, so it contributes none, and treating it as a defect would refuse every struct that
+	// carries a value derived somewhere else.
+	if name == "-" {
+		return "", false, true, nil
+	}
+	if name == "" {
+		return "", false, false, fmt.Errorf("%s.%s has an empty mapstructure name", prefix, f.Name)
 	}
 	if name != strings.ToLower(name) {
-		return "", false, fmt.Errorf("%s.%s names %q, which is not lower case; a configuration "+
+		return "", false, false, fmt.Errorf("%s.%s names %q, which is not lower case; a configuration "+
 			"source enumerates lower-cased, so this key would never match a written one",
 			prefix, f.Name, name)
 	}
-	return name, false, nil
+	return name, false, false, nil
 }
 
 // isLeaf reports whether a struct type is a value rather than a group of keys.

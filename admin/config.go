@@ -13,6 +13,13 @@ const (
 	DefaultAddress = "127.0.0.1:9095"
 )
 
+// The keys this section resolves. Named once so the read site and the configuration registry
+// cannot spell the same setting two ways.
+const (
+	flagEnabled = "admin_server.admin_enabled"
+	flagAddress = "admin_server.admin_address"
+)
+
 // Config defines configuration for the admin gRPC server.
 type Config struct {
 	// Enabled controls whether the admin gRPC server starts.
@@ -29,20 +36,30 @@ var DefaultConfig = Config{
 // ReadConfig reads admin config from app options (Viper-backed).
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	cfg := DefaultConfig
-	if v := opts.Get("admin_server.admin_enabled"); v != nil {
+	if v := opts.Get(flagEnabled); v != nil {
 		cfg.Enabled = cast.ToBool(v)
 	}
-	if v := opts.Get("admin_server.admin_address"); v != nil {
+	if v := opts.Get(flagAddress); v != nil {
 		if s := cast.ToString(v); s != "" {
 			cfg.Address = s
 		}
 	}
-	if cfg.Enabled {
-		if err := validateLoopback(cfg.Address); err != nil {
-			return cfg, err
-		}
+	if err := cfg.Validate(); err != nil {
+		return cfg, err
 	}
 	return cfg, nil
+}
+
+// Validate reports whether this configuration is usable.
+//
+// A disabled server binds nothing, so its address is not checked. Enabled, the address decides who
+// can reach a surface that changes a running node's log level, and a non-loopback address exposes
+// that beyond the machine.
+func (c Config) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	return validateLoopback(c.Address)
 }
 
 // validateLoopback ensures the address is bound to a loopback interface.
