@@ -20,10 +20,10 @@ type rateLimitMiddleware struct {
 // NewRateLimitMiddleware wraps inner with CometBFT RPC HTTP rate-limit admission.
 // When gate is nil or disabled, inner is returned unchanged.
 //
-// POST / JSON-RPC bodies, GET/HEAD URI routes (including the WebSocket
-// handshake GET /websocket, charged as method "websocket"), and browser catalog
-// probes to / with no body are limited. WebSocket frames after upgrade are not
-// covered by this middleware. OPTIONS is exempt for CORS preflight.
+// JSON-RPC POST bodies to /, URI routes on any other path (including POST
+// /status and form-encoded /broadcast_tx_commit), and browser catalog probes
+// to / with no body are limited. WebSocket frames after upgrade are not covered
+// by this middleware. OPTIONS is exempt for CORS preflight.
 func NewRateLimitMiddleware(inner http.Handler, gate *RateLimitGate) http.Handler {
 	if gate == nil || !gate.enabled {
 		return inner
@@ -70,50 +70,34 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	body, err := readRateLimitBoundedBody(r.Body, m.gate.maxBodyBytes)
 	if err != nil {
 		if isRateLimitRequestBodyTooLarge(err) {
-			m.rejectAdmission(r.Context(), w, r, ip, body, http.StatusRequestEntityTooLarge, rpctypes.CodeInvalidRequest, "request body too large")
+			m.rejectAdmission(r.Context(), w, ip, body, http.StatusRequestEntityTooLarge, rpctypes.CodeInvalidRequest, "request body too large")
 			return
 		}
-		m.rejectAdmission(r.Context(), w, r, ip, body, http.StatusBadRequest, rpctypes.CodeInvalidRequest, "bad request")
+		m.rejectAdmission(r.Context(), w, ip, body, http.StatusBadRequest, rpctypes.CodeInvalidRequest, "bad request")
 		return
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
 	allowed, rejectMethod, checkErr := m.gate.CheckPOST(r.Context(), ip, bytes.NewReader(body))
 	if checkErr != nil {
-		if isCometBFTPostJSONRPCRequest(r) {
-			writeJSONRPCErrorWithStatus(w, body, http.StatusBadRequest, rpctypes.CodeParseError, "decoding request: %v", checkErr)
-			return
-		}
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeJSONRPCErrorWithStatus(w, body, http.StatusBadRequest, rpctypes.CodeParseError, "decoding request: %v", checkErr)
 		return
 	}
 	if !allowed {
-		logger.Debug("rate limit rejected POST request", "ip", ip, "method", rejectMethod, "plane", m.gate.plane)
-		if isCometBFTPostJSONRPCRequest(r) {
-			writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
-			return
-		}
-		http.Error(w, "too many requests", http.StatusTooManyRequests)
+		logger.Debug("rate limit rejected JSON-RPC request", "ip", ip, "method", rejectMethod, "plane", m.gate.plane)
+		writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
 		return
 	}
 
 	m.inner.ServeHTTP(w, r)
 }
 
-func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.ResponseWriter, r *http.Request, ip string, body []byte, status int, code rpctypes.ErrorCode, msg string) {
+func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.ResponseWriter, ip string, body []byte, status int, code rpctypes.ErrorCode, msg string) {
 	if m.gate.chargeAdmissionRejection(ctx, ip) {
-		if isCometBFTPostJSONRPCRequest(r) {
-			writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
-			return
-		}
-		http.Error(w, "too many requests", http.StatusTooManyRequests)
+		writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
 		return
 	}
-	if isCometBFTPostJSONRPCRequest(r) {
-		writeJSONRPCErrorWithStatus(w, body, status, code, "%s", msg)
-		return
-	}
-	http.Error(w, msg, status)
+	writeJSONRPCErrorWithStatus(w, body, status, code, "%s", msg)
 }
 
 // isCometBFTRateLimitExemptRequest reports requests that should bypass the gate.
@@ -135,19 +119,11 @@ func isCometBFTMethodCatalogRequest(r *http.Request) bool {
 	}
 }
 
-// isCometBFTPostJSONRPCRequest reports POST requests to the JSON-RPC root path.
-func isCometBFTPostJSONRPCRequest(r *http.Request) bool {
-	return r.Method == http.MethodPost && (r.URL.Path == "/" || r.URL.Path == "")
-}
-
-// isCometBFTURIRPCRequest reports REST-style CometBFT RPC routes (GET /status, etc.).
+// isCometBFTURIRPCRequest reports CometBFT URI RPC routes (/status, /block, etc.).
+// The mux registers these for any HTTP method; params may arrive in the query
+// string or form-encoded body.
 func isCometBFTURIRPCRequest(r *http.Request) bool {
-	switch r.Method {
-	case http.MethodGet, http.MethodHead:
-		return r.URL.Path != "/" && r.URL.Path != ""
-	default:
-		return false
-	}
+	return r.URL.Path != "/" && r.URL.Path != ""
 }
 
 func readRateLimitBoundedBody(body io.ReadCloser, maxBytes int64) ([]byte, error) {

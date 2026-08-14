@@ -144,6 +144,71 @@ func TestRateLimitMiddleware_GET_ExtractsMethodFromPath(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
 }
 
+func TestRateLimitMiddleware_POSTURI_AllowsUnderLimit(t *testing.T) {
+	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
+	gate := NewRateLimitGate(reg, 0, true)
+
+	t.Run("query params", func(t *testing.T) {
+		called := false
+		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called = true
+			require.Equal(t, http.MethodPost, r.Method)
+			require.Equal(t, "/status", r.URL.Path)
+			require.Equal(t, "1", r.URL.Query().Get("height"))
+			w.WriteHeader(http.StatusOK)
+		})
+		h := NewRateLimitMiddleware(inner, gate)
+
+		req := httptest.NewRequest(http.MethodPost, "/status?height=1", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.True(t, called)
+	})
+
+	t.Run("form body", func(t *testing.T) {
+		called := false
+		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called = true
+			require.Equal(t, http.MethodPost, r.Method)
+			require.Equal(t, "/broadcast_tx_commit", r.URL.Path)
+			require.NoError(t, r.ParseForm())
+			require.Equal(t, "74657374", r.Form.Get("tx"))
+			w.WriteHeader(http.StatusOK)
+		})
+		h := NewRateLimitMiddleware(inner, gate)
+
+		req := httptest.NewRequest(http.MethodPost, "/broadcast_tx_commit", strings.NewReader("tx=74657374"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.True(t, called)
+	})
+}
+
+func TestRateLimitMiddleware_POSTURI_RejectsAfterBurst(t *testing.T) {
+	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
+	gate := NewRateLimitGate(reg, 0, true)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := NewRateLimitMiddleware(inner, gate)
+	remote := "203.0.113.20:1"
+
+	req1 := httptest.NewRequest(http.MethodPost, "/status?height=1", nil)
+	req1.RemoteAddr = remote
+	rec1 := httptest.NewRecorder()
+	h.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	req2 := httptest.NewRequest(http.MethodPost, "/status?height=1", nil)
+	req2.RemoteAddr = remote
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, req2)
+	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
+}
+
 func TestRateLimitMiddleware_GET_PerIPIsolation(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
 	gate := NewRateLimitGate(reg, 0, true)
