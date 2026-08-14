@@ -405,19 +405,3 @@ func TestGetBlockReceiptsReceiptsPruned(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "receipts have been pruned")
 }
-
-func TestStateAPIGetProofUnavailableHeight(t *testing.T) {
-	t.Parallel()
-
-	earliest := int64(2)
-	latest := int64(80)
-	highHeight := latest + 4
-	client := newHeightTestClient(highHeight, earliest, latest)
-	watermarks := newHeightTestWatermarks(client, latest)
-	api := NewStateAPI(client, nil, testCtxProvider, ConnectionTypeHTTP, watermarks)
-
-	blockParam := rpc.BlockNumberOrHashWithHash(common.HexToHash(highBlockHashHex), true)
-	_, err := api.GetProof(context.Background(), common.Address{}, []string{}, blockParam)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "requested height")
-}
