@@ -1004,47 +1004,18 @@ func (s *CommitStore) PendingVersion() int64 {
 	return s.pendingBlockHeight
 }
 
-// RootHash returns the Blake3-256 digest of the LtHash, committing the pending block first if there
-// is one.
+// RootHash returns the Blake3-256 digest of the committed LtHash and the height that digest
+// describes.
 //
-// The hash is computed from the snapshots a commit produces, so an uncommitted block has no hash. A
-// caller asking for one is therefore asking for the block to be committed, and gets it.
-//
-// This exists for Cosmos, which asks for the hash before it calls Commit. Committing early is safe
-// there because every one of the block's writes has already arrived: rootmulti's GetWorkingHash begins
-// by flushing every buffered changeset into this store, and only then reads the hash. The Commit that
-// follows finds the block already committed and does nothing (see Commit).
-//
-// Post-Cosmos this goes away along with rootmulti: a single call will supply a block's writes and
-// commit them, and nothing will ask for a hash mid-block.
-func (s *CommitStore) RootHash() []byte {
-	if err := s.commitPendingBlock(); err != nil {
-		// Nothing in the Cosmos hash path can carry an error, and a store that cannot commit cannot
-		// produce a trustworthy hash either. Returning a stale one would let the chain proceed on it.
-		panic(fmt.Sprintf("flatkv: commit pending block %d before hashing: %v", s.pendingBlockHeight, err))
-	}
-	checksum := s.workingLtHash.Checksum()
-	return checksum[:]
-}
-
-// commitPendingBlock commits the block currently being applied, if any. It is a no-op on a store with
-// no pending writes, which is every store between blocks and every read-only store.
-func (s *CommitStore) commitPendingBlock() error {
+// The hash is computed from the snapshots a commit produces, so a block that has not been committed
+// has no hash: while one is being applied this reports the previous block's hash and height. A caller
+// that needs a block's own hash commits it first and checks the height it gets back.
+func (s *CommitStore) RootHash() ([]byte, int64) {
 	s.mu.RLock()
-	pending := s.pendingBlockHeight
-	s.mu.RUnlock()
+	defer s.mu.RUnlock()
 
-	if pending == 0 || s.readOnly {
-		return nil
-	}
-	_, err := s.Commit(pending)
-	return err
-}
-
-// CommittedRootHash returns the Blake3-256 digest of the last committed LtHash.
-func (s *CommitStore) CommittedRootHash() []byte {
 	checksum := s.committedLtHash.Checksum()
-	return checksum[:]
+	return checksum[:], s.committedVersion
 }
 
 // EarliestVersion implements Store.

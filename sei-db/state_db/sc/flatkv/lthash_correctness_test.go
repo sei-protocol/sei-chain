@@ -407,7 +407,7 @@ func TestLtHashEmptyBlocksNoEffect(t *testing.T) {
 		),
 	}))
 	commitAndCheck(t, s)
-	hashAfterBlock1 := s.RootHash()
+	hashAfterBlock1 := rootHash(s)
 
 	// Blocks 2-10: all empty
 	for i := 2; i <= 10; i++ {
@@ -415,7 +415,7 @@ func TestLtHashEmptyBlocksNoEffect(t *testing.T) {
 		commitAndCheck(t, s)
 	}
 
-	require.Equal(t, hashAfterBlock1, s.RootHash(),
+	require.Equal(t, hashAfterBlock1, rootHash(s),
 		"empty blocks must not change the root hash")
 	verifyLtHashAtHeight(t, s, 10)
 }
@@ -1088,19 +1088,18 @@ func TestLtHashAccountWriteZeroOrderIndependent(t *testing.T) {
 }
 
 // =============================================================================
-// CommittedRootHash vs RootHash Semantics
+// RootHash Semantics
 // =============================================================================
 
-// TestLtHashCommittedVsWorkingDiverge verifies that after ApplyChangeSets,
-// RootHash (working) differs from CommittedRootHash, and after Commit they
-// converge again. Both must match fullScanLtHash at each checkpoint.
-func TestRootHashCommitsPendingBlock(t *testing.T) {
+// TestRootHashReportsTheCommittedBlock verifies that RootHash describes the last committed block and
+// the height it was committed at: staging a block leaves both where they are, and committing moves
+// them together. The state must match fullScanLtHash at each checkpoint.
+func TestRootHashReportsTheCommittedBlock(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Before any writes, the working and committed hashes describe the same (empty) state.
-	require.Equal(t, s.RootHash(), s.CommittedRootHash(),
-		"before any writes, working and committed should be equal")
+	empty, emptyVersion := s.RootHash()
+	require.Equal(t, int64(0), emptyVersion, "a store with no commits describes height 0")
 
 	// Block 1: create state.
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
@@ -1111,36 +1110,43 @@ func TestRootHashCommitsPendingBlock(t *testing.T) {
 	}))
 	require.Equal(t, int64(0), s.Version(), "ApplyChangeSets alone must not commit")
 
-	// Asking for the hash commits the block, because a block that has not been sealed has no hash to
-	// report. The two hashes therefore agree the moment either is observable.
-	hash := s.RootHash()
-	require.Equal(t, int64(1), s.Version(), "RootHash must commit the pending block")
-	require.Equal(t, hash, s.CommittedRootHash(),
-		"the hash RootHash returns is the committed one")
-	require.Empty(t, s.pendingChangeSets, "the implicit commit consumes the pending block")
+	// A block that has not been sealed has no hash to report, so the store still describes the
+	// previous height.
+	staged, stagedVersion := s.RootHash()
+	require.Equal(t, empty, staged, "staging a block must not move the hash")
+	require.Equal(t, emptyVersion, stagedVersion)
+
+	commitAndCheck(t, s)
+	hash, hashVersion := s.RootHash()
+	require.NotEqual(t, empty, hash, "committing a block that changes state changes the hash")
+	require.Equal(t, int64(1), hashVersion)
+	require.Empty(t, s.pendingChangeSets, "the commit consumes the pending block")
+	verifyLtHashAtHeight(t, s, 1)
 
 	// The Commit that Cosmos issues afterwards finds the block already committed and changes nothing.
 	v, err := s.Commit(1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v)
-	require.Equal(t, hash, s.RootHash())
-	verifyLtHashAtHeight(t, s, 1)
+	again, againVersion := s.RootHash()
+	require.Equal(t, hash, again)
+	require.Equal(t, hashVersion, againVersion)
 
 	// Block 2: modify. Same sequence, and the hash must move.
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		namedCS(noncePair(addrN(1), 20)),
 	}))
-	require.NotEqual(t, hash, s.RootHash(), "a block that changes state changes the hash")
+	commitAndCheck(t, s)
+	require.NotEqual(t, hash, rootHash(s), "a block that changes state changes the hash")
 	require.Equal(t, int64(2), s.Version())
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Block 3: an empty block commits and leaves the hash where it was.
-	before := s.RootHash()
+	before := rootHash(s)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS()}))
-	require.Equal(t, before, s.RootHash(), "an empty block must not change the hash")
 	commitAndCheck(t, s)
-	require.Equal(t, before, s.RootHash())
-	require.Equal(t, s.RootHash(), s.CommittedRootHash())
+	after, afterVersion := s.RootHash()
+	require.Equal(t, before, after, "an empty block must not change the hash")
+	require.Equal(t, int64(3), afterVersion)
 }
 
 // =============================================================================
@@ -1173,7 +1179,7 @@ func TestLtHashReadOnlyMatchesParent(t *testing.T) {
 		commitAndCheck(t, s)
 	}
 
-	parentHash := s.CommittedRootHash()
+	parentHash := rootHash(s)
 	verifyLtHashAtHeight(t, s, 5)
 
 	ro, err := s.LoadVersionReadOnly(0)
@@ -1181,10 +1187,7 @@ func TestLtHashReadOnlyMatchesParent(t *testing.T) {
 	defer ro.Close()
 
 	require.Equal(t, int64(5), ro.Version())
-	require.Equal(t, parentHash, ro.RootHash(),
-		"read-only RootHash should match parent CommittedRootHash")
-	require.Equal(t, parentHash, ro.CommittedRootHash(),
-		"read-only CommittedRootHash should match parent")
+	require.Equal(t, parentHash, rootHash(ro), "read-only root hash should match parent")
 
 	// Full-scan the read-only store's DBs
 	roStore := ro.(*CommitStore)
@@ -1227,7 +1230,7 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	commitAndCheck(t, s)
 
 	verifyLtHashAtHeight(t, s, 1)
-	srcHash := s.RootHash()
+	srcHash := rootHash(s)
 
 	// Export
 	exp, err := s.Exporter(1)
@@ -1260,7 +1263,7 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	require.NoError(t, imp.Close())
 
 	require.Equal(t, int64(1), s2.Version())
-	require.Equal(t, srcHash, s2.RootHash(),
+	require.Equal(t, srcHash, rootHash(s2),
 		"imported store RootHash should match source")
 	verifyLtHashAtHeight(t, s2, 1)
 	require.NoError(t, s2.Close())
@@ -1296,7 +1299,7 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 		commitMixedState(t, s1, i)
 	}
 	verifyLtHashAtHeight(t, s1, 7)
-	expectedHash := s1.RootHash()
+	expectedHash := rootHash(s1)
 	require.NoError(t, s1.Close())
 
 	// Reopen — snapshot is at v3, WAL catchup replays v4-v7
@@ -1309,7 +1312,7 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(7), s2.Version())
-	require.Equal(t, expectedHash, s2.RootHash(),
+	require.Equal(t, expectedHash, rootHash(s2),
 		"RootHash should survive snapshot + WAL catchup")
 	verifyLtHashAtHeight(t, s2, 7)
 }
@@ -1337,7 +1340,7 @@ func TestLtHashRollbackFullScan(t *testing.T) {
 		commitMixedState(t, s, i)
 	}
 	require.NoError(t, s.WriteSnapshot(""))
-	hashAtV5 := s.RootHash()
+	hashAtV5 := rootHash(s)
 
 	for i := byte(6); i <= 8; i++ {
 		commitMixedState(t, s, i)
@@ -1346,7 +1349,7 @@ func TestLtHashRollbackFullScan(t *testing.T) {
 	// Rollback to v5
 	require.NoError(t, s.Rollback(5))
 	require.Equal(t, int64(5), s.Version())
-	require.Equal(t, hashAtV5, s.RootHash(),
+	require.Equal(t, hashAtV5, rootHash(s),
 		"RootHash after rollback should match pre-rollback v5 hash")
 	verifyLtHashAtHeight(t, s, 5)
 
@@ -1379,13 +1382,13 @@ func TestLtHashDeterministicFreshStores(t *testing.T) {
 
 	s1 := setupTestStore(t)
 	applyWorkload(s1)
-	h1 := s1.RootHash()
+	h1 := rootHash(s1)
 	verifyLtHashAtHeight(t, s1, 10)
 	require.NoError(t, s1.Close())
 
 	s2 := setupTestStore(t)
 	applyWorkload(s2)
-	h2 := s2.RootHash()
+	h2 := rootHash(s2)
 	verifyLtHashAtHeight(t, s2, 10)
 	require.NoError(t, s2.Close())
 

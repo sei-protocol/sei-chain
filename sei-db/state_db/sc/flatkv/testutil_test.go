@@ -102,6 +102,13 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 	return v
 }
 
+// rootHash returns the store's committed root hash, discarding the height it describes. Tests that
+// care about the height assert on it directly rather than through this.
+func rootHash(s Store) []byte {
+	hash, _ := s.RootHash()
+	return hash
+}
+
 // ---------- helpers to build prefix-encoded changeset pairs ----------
 func nonceBytes(n uint64) []byte {
 	b := make([]byte, vtype.NonceLen)

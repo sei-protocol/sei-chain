@@ -1100,21 +1100,52 @@ func (cs *CompositeCommitStore) shouldIncludeMemiavlInfos() bool {
 }
 
 // WorkingCommitInfo returns the working commit info
-func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
+func (cs *CompositeCommitStore) WorkingCommitInfo(version int64) *proto.CommitInfo {
 	var ci *proto.CommitInfo
 	if cs.shouldIncludeMemiavlInfos() {
-		ci = cs.memIAVL.WorkingCommitInfo()
+		ci = cs.memIAVL.WorkingCommitInfo(version)
 	} else {
 		ci = &proto.CommitInfo{
-			Version: cs.Version(),
+			Version: version,
 		}
 	}
 
 	if cs.shouldAppendLatticeHash() {
-		return cs.appendEvmLatticeHash(ci, cs.flatKV.RootHash())
+		return cs.appendEvmLatticeHash(ci, cs.flatKVWorkingHash(version))
 	}
 
 	return ci
+}
+
+// flatKVWorkingHash seals the pending block and returns its root hash.
+//
+// Cosmos asks for a block's hash before it calls Commit, and FlatKV has a hash only once the block is
+// sealed, so the seal happens here. The Commit that follows finds the block already committed and does
+// nothing. Sealing early is safe because every one of the block's writes has already arrived:
+// rootmulti's GetWorkingHash flushes every buffered changeset into the store before reading the hash,
+// and a changeset arriving afterwards is rejected rather than silently excluded.
+//
+// version is the height the caller is building. Sealing that height rather than one FlatKV derives for
+// itself is what keeps FlatKV in step: a block whose writes all miss FlatKV leaves it with nothing
+// staged, and a store left to its own devices would stay a height behind with a hash that happens to
+// be right — an empty block does not move the LtHash — but describes the wrong block.
+//
+// Post-Cosmos this goes away along with rootmulti: a single call will supply a block's writes and
+// commit them, and nothing will ask for a hash mid-block.
+func (cs *CompositeCommitStore) flatKVWorkingHash(version int64) []byte {
+	if _, err := cs.flatKV.Commit(version); err != nil {
+		// Consensus-critical: nothing in the Cosmos hash path can carry an error, and a store that
+		// cannot commit cannot produce a trustworthy hash either. Returning a stale one would let the
+		// chain proceed on it.
+		panic(fmt.Sprintf("composite: failed to seal flatkv block %d before hashing: %v", version, err))
+	}
+
+	hash, hashed := cs.flatKV.RootHash()
+	if hashed != version {
+		panic(fmt.Sprintf(
+			"composite: flatkv hashed block %d but the chain is building block %d", hashed, version))
+	}
+	return hash
 }
 
 // LastCommitInfo returns the last commit info
@@ -1129,7 +1160,8 @@ func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
 	}
 
 	if cs.shouldAppendLatticeHash() {
-		return cs.appendEvmLatticeHash(ci, cs.flatKV.CommittedRootHash())
+		hash, _ := cs.flatKV.RootHash()
+		return cs.appendEvmLatticeHash(ci, hash)
 	}
 	return ci
 }

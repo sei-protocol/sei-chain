@@ -1246,7 +1246,7 @@ func verifyCommitInfo(t *testing.T, cs *CompositeCommitStore, expectLattice bool
 	require.NotNil(t, last)
 	require.Equal(t, expectLattice, containsLatticeStoreInfo(last.StoreInfos),
 		"evm_lattice presence in LastCommitInfo")
-	working := cs.WorkingCommitInfo()
+	working := cs.WorkingCommitInfo(cs.Version() + 1)
 	require.NotNil(t, working)
 	require.Equal(t, expectLattice, containsLatticeStoreInfo(working.StoreInfos),
 		"evm_lattice presence in WorkingCommitInfo")

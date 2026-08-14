@@ -1045,7 +1045,7 @@ func (rs *Store) GetWorkingHash() ([]byte, error) {
 	if err := rs.flush(); err != nil {
 		return nil, err
 	}
-	commitInfo := convertCommitInfo(rs.scStore.WorkingCommitInfo())
+	commitInfo := convertCommitInfo(rs.scStore.WorkingCommitInfo(rs.lastCommitInfo.Version + 1))
 	// for sdk 0.46 and backward compatibility
 	commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	return commitInfo.Hash(), nil

@@ -50,7 +50,7 @@ func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil
 func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
 	return nil, nil
 }
-func (f *failingEVMStore) RootHash() []byte                              { return nil }
+func (f *failingEVMStore) RootHash() ([]byte, int64)                     { return nil, 0 }
 func (f *failingEVMStore) Version() int64                                { return 0 }
 func (f *failingEVMStore) PendingVersion() int64                         { return 0 }
 func (f *failingEVMStore) EarliestVersion() int64                        { return 0 }
@@ -60,11 +60,17 @@ func (f *failingEVMStore) Rollback(int64) error                          { retur
 func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)        { return nil, nil }
 func (f *failingEVMStore) Importer(int64) (types.Importer, error)        { return nil, nil }
 func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer            { return nil }
-func (f *failingEVMStore) CommittedRootHash() []byte                     { return nil }
 func (f *failingEVMStore) HashCategories() []string                      { return nil }
 func (f *failingEVMStore) RecordHashes(hashlog.HashLogger, uint64) error { return nil }
 func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error            { return nil }
 func (f *failingEVMStore) Close() error                                  { return nil }
+
+// flatKVRootHash returns the committed root hash of the store's flatkv backend, discarding the height
+// it describes. Tests that care about the height assert on it directly rather than through this.
+func flatKVRootHash(cs *CompositeCommitStore) []byte {
+	hash, _ := cs.flatKV.RootHash()
+	return hash
+}
 
 // eraFailingEVMStore is a failingEVMStore with a configurable
 // EarliestVersion, used to exercise Exporter's pre-era vs in-history
@@ -208,7 +214,7 @@ func TestWorkingAndLastCommitInfo(t *testing.T) {
 		require.NoError(t, cs.Close())
 	}()
 
-	workingInfo := cs.WorkingCommitInfo()
+	workingInfo := cs.WorkingCommitInfo(cs.Version() + 1)
 	require.NotNil(t, workingInfo)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -285,13 +291,17 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				require.NoError(t, cs.ApplyChangeSets(makeChangesets(round)))
 
 				// --- Working commit info ---
-				expectedCosmos := cs.memIAVL.WorkingCommitInfo()
+				expectedCosmos := cs.memIAVL.WorkingCommitInfo(cs.Version() + 1)
+
+				workingInfo := cs.WorkingCommitInfo(cs.Version() + 1)
+
+				// Read after WorkingCommitInfo: it is what seals the block, and an unsealed block has
+				// no hash to compare against.
 				var expectedEvmHash []byte
 				if tt.expectLattice {
-					expectedEvmHash = cs.flatKV.RootHash()
+					expectedEvmHash, _ = cs.flatKV.RootHash()
 				}
 
-				workingInfo := cs.WorkingCommitInfo()
 				cosmosCount := len(expectedCosmos.StoreInfos)
 				if tt.expectLattice {
 					require.Equal(t, cosmosCount+1, len(workingInfo.StoreInfos))
@@ -326,7 +336,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				expectedCosmosLast := cs.memIAVL.LastCommitInfo()
 				var expectedEvmCommitted []byte
 				if tt.expectLattice {
-					expectedEvmCommitted = cs.flatKV.CommittedRootHash()
+					expectedEvmCommitted, _ = cs.flatKV.RootHash()
 					require.Equal(t, expectedEvmHash, expectedEvmCommitted)
 				}
 
@@ -518,7 +528,7 @@ func TestMigrateEVMGenesisPreFirstCommitOmitsLatticeHash(t *testing.T) {
 		"MigrateEVM LastCommitInfo before any commit must not contain evm_lattice "+
 			"(the migration boundary is NotStarted)")
 
-	working := cs.WorkingCommitInfo()
+	working := cs.WorkingCommitInfo(cs.Version() + 1)
 	require.NotNil(t, working)
 	require.False(t, containsLatticeStoreInfo(working.StoreInfos),
 		"MigrateEVM WorkingCommitInfo before any commit must not contain evm_lattice")
@@ -974,7 +984,7 @@ func TestLoadVersionDoesNotMountMigrationStoreInMigrationMode(t *testing.T) {
 
 	require.Nil(t, cs.memIAVL.GetChildStoreByName(migration.MigrationStore),
 		"migration mode must not mount a migration tree on memiavl")
-	for _, si := range cs.WorkingCommitInfo().StoreInfos {
+	for _, si := range cs.WorkingCommitInfo(cs.Version() + 1).StoreInfos {
 		require.NotEqual(t, migration.MigrationStore, si.Name,
 			"WorkingCommitInfo must not contain a migration StoreInfo on memiavl")
 	}
@@ -2037,7 +2047,7 @@ func TestMigrateEVMReopenPreservesPreFlipLastCommitInfo(t *testing.T) {
 			{Key: []byte("bal"), Value: []byte{0xFF}},
 		}}},
 	}))
-	working := cs2.WorkingCommitInfo()
+	working := cs2.WorkingCommitInfo(cs2.Version() + 1)
 	require.True(t, hasLattice(working),
 		"the next block after the migration should include the flatkv lattice hash")
 
@@ -2606,7 +2616,7 @@ func TestLoadVersionReadOnlyDuringMigrateEVMTransition(t *testing.T) {
 	// CommitInfo and so to the app hash.
 	require.Nil(t, cs2.memIAVL.GetChildStoreByName(migration.MigrationStore),
 		"writable handle must not materialize a migration tree on memiavl")
-	for _, si := range cs2.WorkingCommitInfo().StoreInfos {
+	for _, si := range cs2.WorkingCommitInfo(cs2.Version() + 1).StoreInfos {
 		require.NotEqual(t, migration.MigrationStore, si.Name,
 			"writable handle's WorkingCommitInfo must not include a migration StoreInfo")
 	}

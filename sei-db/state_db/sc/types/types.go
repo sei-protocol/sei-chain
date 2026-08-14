@@ -84,9 +84,10 @@ type Committer interface {
 	// state are skipped. Passing an empty slice is a no-op.
 	ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error
 
-	// WorkingCommitInfo returns the CommitInfo describing the uncommitted
-	// working state, suitable for computing the app hash before Commit.
-	WorkingCommitInfo() *proto.CommitInfo
+	// WorkingCommitInfo returns the CommitInfo describing the uncommitted working state, suitable for
+	// computing the app hash before Commit. version is the height being built; a backend on any other
+	// height is a panic.
+	WorkingCommitInfo(version int64) *proto.CommitInfo
 
 	// LastCommitInfo returns the CommitInfo of the most recent persisted
 	// commit. The returned value reflects on-disk state and is unaffected

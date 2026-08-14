@@ -30,8 +30,8 @@ func TestCommitStoreImplementsStore(t *testing.T) {
 
 	// Verify Store interface methods
 	require.Equal(t, int64(0), s.Version())
-	require.NotNil(t, s.RootHash())
-	require.Len(t, s.RootHash(), 32)
+	require.NotNil(t, rootHash(s))
+	require.Len(t, rootHash(s), 32)
 }
 
 // =============================================================================
@@ -363,9 +363,10 @@ func TestStoreRootHashChanges(t *testing.T) {
 	defer s.Close()
 
 	// Initial hash
-	hash1 := s.RootHash()
+	hash1, version1 := s.RootHash()
 	require.NotNil(t, hash1)
 	require.Equal(t, 32, len(hash1)) // Blake3-256
+	require.Equal(t, int64(0), version1)
 
 	// Apply changeset
 	addr := ktype.Address{0xAB}
@@ -375,23 +376,20 @@ func TestStoreRootHashChanges(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0xEF), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Working hash should change
-	hash2 := s.RootHash()
+	committed := commitAndCheck(t, s)
+
+	// Committing a block that changes state changes the hash, and the height moves with it.
+	hash2, version2 := s.RootHash()
 	require.NotEqual(t, hash1, hash2)
-
-	commitAndCheck(t, s)
-
-	// Committed hash should match working hash
-	hash3 := s.RootHash()
-	require.Equal(t, hash2, hash3)
+	require.Equal(t, committed, version2)
 }
 
-func TestStoreRootHashChangesOnApply(t *testing.T) {
+func TestStoreRootHashUnchangedByApply(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	// Initial hash
-	hash1 := s.RootHash()
+	hash1, version1 := s.RootHash()
 	require.NotNil(t, hash1)
 	require.Equal(t, 32, len(hash1)) // Blake3-256
 
@@ -403,9 +401,10 @@ func TestStoreRootHashChangesOnApply(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Working hash should change
-	hash2 := s.RootHash()
-	require.NotEqual(t, hash1, hash2, "hash should change after ApplyChangeSets")
+	// A block that has not been sealed has no hash, so the store still describes the previous height.
+	hash2, version2 := s.RootHash()
+	require.Equal(t, hash1, hash2, "staging a block must not move the hash")
+	require.Equal(t, version1, version2)
 }
 
 func TestStoreRootHashStableAfterCommit(t *testing.T) {
@@ -419,14 +418,17 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0x56), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Get working hash
-	workingHash := s.RootHash()
+	committed := commitAndCheck(t, s)
+	committedHash, committedVersion := s.RootHash()
+	require.Equal(t, committed, committedVersion)
 
-	commitAndCheck(t, s)
+	// Staging the next block must leave the committed hash exactly where it is.
+	next := makeChangeSet(key, padLeft32(0x78), false)
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{next}))
 
-	// Committed hash should match working hash
-	committedHash := s.RootHash()
-	require.Equal(t, workingHash, committedHash)
+	stagedHash, stagedVersion := s.RootHash()
+	require.Equal(t, committedHash, stagedHash)
+	require.Equal(t, committedVersion, stagedVersion)
 }
 
 // =============================================================================
@@ -582,7 +584,7 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		commitStorageEntry(t, s1, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
-	hashAtV10 := s1.RootHash()
+	hashAtV10 := rootHash(s1)
 
 	require.NoError(t, s1.WriteSnapshot(""))
 	require.NoError(t, s1.Close())
@@ -596,7 +598,7 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(10), s2.Version())
-	require.Equal(t, hashAtV10, s2.RootHash())
+	require.Equal(t, hashAtV10, rootHash(s2))
 }
 
 // =============================================================================
@@ -612,7 +614,7 @@ func TestVersionStartsAtZero(t *testing.T) {
 func TestRootHashIsBlake3_256(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
-	hash := s.RootHash()
+	hash := rootHash(s)
 	require.Len(t, hash, 32)
 }
 
@@ -677,7 +679,7 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	require.NoError(t, s1.ApplyChangeSets(s1.Version()+1, []*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s1)
 
-	hash := s1.RootHash()
+	hash := rootHash(s1)
 	require.NoError(t, s1.Close())
 
 	cfg = config.DefaultTestConfig(t)
@@ -689,7 +691,7 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(1), s2.Version())
-	require.Equal(t, hash, s2.RootHash())
+	require.Equal(t, hash, rootHash(s2))
 
 	v, ok := s2.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, ok)
@@ -730,8 +732,8 @@ func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	got, found := ro.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
-	require.NotNil(t, ro.RootHash())
-	require.Len(t, ro.RootHash(), 32)
+	require.NotNil(t, rootHash(ro))
+	require.Len(t, rootHash(ro), 32)
 }
 
 func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
@@ -997,14 +999,14 @@ func TestLoadVersionReload(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	expectedHash := s.RootHash()
+	expectedHash := rootHash(s)
 
 	// Re-call LoadLatest on the same store: should close and reopen.
 	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	require.Equal(t, int64(1), s.Version())
-	require.Equal(t, expectedHash, s.RootHash())
+	require.Equal(t, expectedHash, rootHash(s))
 
 	val, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
@@ -1074,8 +1076,8 @@ func TestLoadVersionEmptyWAL(t *testing.T) {
 
 	// Fresh store with no commits: WAL is empty.
 	require.Equal(t, int64(0), s.Version())
-	require.NotNil(t, s.RootHash())
-	require.Len(t, s.RootHash(), 32)
+	require.NotNil(t, rootHash(s))
+	require.Len(t, rootHash(s), 32)
 	require.NoError(t, s.Close())
 }
 
@@ -1166,8 +1168,8 @@ func TestRootHashAndVersionAfterClose(t *testing.T) {
 
 	// Version and RootHash access in-memory fields, should not panic.
 	require.Equal(t, int64(1), s.Version())
-	require.NotNil(t, s.RootHash())
-	require.Len(t, s.RootHash(), 32)
+	require.NotNil(t, rootHash(s))
+	require.Len(t, rootHash(s), 32)
 }
 
 func TestCatchupWithEmptyWAL(t *testing.T) {
@@ -1198,7 +1200,7 @@ func TestCatchupSkipsAlreadyCommittedEntries(t *testing.T) {
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
-	hashV5 := s.RootHash()
+	hashV5 := rootHash(s)
 	require.NoError(t, s.Close())
 
 	// Reopen: catchup should replay only entries after the committed version
@@ -1210,7 +1212,7 @@ func TestCatchupSkipsAlreadyCommittedEntries(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(5), s2.Version())
-	require.Equal(t, hashV5, s2.RootHash())
+	require.Equal(t, hashV5, rootHash(s2))
 }
 
 func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
@@ -1232,7 +1234,7 @@ func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
 		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
-		hashes[i] = s.RootHash()
+		hashes[i] = rootHash(s)
 	}
 	require.NoError(t, s.Close())
 
@@ -1247,7 +1249,7 @@ func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
 	defer func() { require.NoError(t, ro.Close()) }()
 
 	require.Equal(t, int64(3), ro.Version())
-	require.Equal(t, hashes[3], ro.RootHash())
+	require.Equal(t, hashes[3], rootHash(ro))
 }
 
 func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
@@ -1378,7 +1380,7 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
-	expectedHash := s.RootHash()
+	expectedHash := rootHash(s)
 	require.NoError(t, s.Close())
 
 	// Reopen normally -- large WAL gap between snapshot and HEAD.
@@ -1389,7 +1391,7 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(20), s2.Version())
-	require.Equal(t, expectedHash, s2.RootHash())
+	require.Equal(t, expectedHash, rootHash(s2))
 	verifyLtHashConsistency(t, s2)
 
 	// All 20 storage slots should be readable.
@@ -1419,7 +1421,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, s.WriteSnapshot(""))
-	expectedHash := s.RootHash()
+	expectedHash := rootHash(s)
 	expectedVersion := s.Version()
 
 	// Clear the WAL entirely (simulate WAL lost after snapshot).
@@ -1434,7 +1436,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, expectedVersion, s2.Version())
-	require.Equal(t, expectedHash, s2.RootHash())
+	require.Equal(t, expectedHash, rootHash(s2))
 
 	val, found := s2.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
@@ -1607,7 +1609,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	hashAfterV1 := s.RootHash()
+	hashAfterV1 := rootHash(s)
 
 	// Now simulate writing v2 to WAL but "crashing" before DB commit.
 	cs2 := makeChangeSet(key, padLeft32(0x22), false)
@@ -1631,7 +1633,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(2), s2.Version())
-	require.NotEqual(t, hashAfterV1, s2.RootHash(), "hash should differ after v2 replay")
+	require.NotEqual(t, hashAfterV1, rootHash(s2), "hash should differ after v2 replay")
 
 	val, found := s2.Get(keys.EVMStoreKey, key)
 	require.True(t, found)

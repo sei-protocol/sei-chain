@@ -218,7 +218,7 @@ func TestCommitInfo(t *testing.T) {
 	}()
 
 	// WorkingCommitInfo before any commit
-	workingInfo := cs.WorkingCommitInfo()
+	workingInfo := cs.WorkingCommitInfo(cs.Version() + 1)
 	require.NotNil(t, workingInfo)
 
 	// Apply and commit

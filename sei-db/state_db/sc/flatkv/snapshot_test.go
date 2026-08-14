@@ -104,7 +104,7 @@ func TestOpenFromSnapshot(t *testing.T) {
 	commitStorageEntry(t, s1, ktype.Address{0x10}, ktype.Slot{0x03}, []byte{0x03})
 	require.Equal(t, int64(3), s1.Version())
 
-	hashAtV3 := s1.RootHash()
+	hashAtV3 := rootHash(s1)
 	require.NoError(t, s1.Close())
 
 	// Phase 2: reopen - should catchup from v2 snapshot + WAL entry for v3
@@ -117,7 +117,7 @@ func TestOpenFromSnapshot(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(3), s2.Version())
-	require.Equal(t, hashAtV3, s2.RootHash())
+	require.Equal(t, hashAtV3, rootHash(s2))
 
 	// Verify data from all 3 versions is present
 	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x10}, ktype.Slot{0x01}))
@@ -146,11 +146,11 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 	require.NoError(t, s1.WriteSnapshot(""))
 
 	commitStorageEntry(t, s1, ktype.Address{0x20}, ktype.Slot{0x03}, []byte{0x30})
-	hashAtV3 := s1.RootHash()
+	hashAtV3 := rootHash(s1)
 
 	commitStorageEntry(t, s1, ktype.Address{0x20}, ktype.Slot{0x04}, []byte{0x40})
 	commitStorageEntry(t, s1, ktype.Address{0x20}, ktype.Slot{0x05}, []byte{0x50})
-	hashAtV5 := s1.RootHash()
+	hashAtV5 := rootHash(s1)
 	require.NoError(t, s1.Close())
 
 	// Reopen: catchup from v2 snapshot through v3,v4,v5 via WAL
@@ -163,7 +163,7 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(5), s2.Version())
-	require.Equal(t, hashAtV5, s2.RootHash(), "LtHash after catchup must match original")
+	require.Equal(t, hashAtV5, rootHash(s2), "LtHash after catchup must match original")
 
 	_ = hashAtV3 // referenced for clarity but not re-checked here
 }
@@ -182,14 +182,14 @@ func TestRollbackRewindsState(t *testing.T) {
 	require.NoError(t, s.WriteSnapshot(""))
 
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x04}, []byte{0x04})
-	hashAtV4 := s.RootHash()
+	hashAtV4 := rootHash(s)
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x05}, []byte{0x05})
 	require.Equal(t, int64(5), s.Version())
 
 	// Rollback to v4: restores from v3 snapshot, catches up to v4 via WAL
 	require.NoError(t, s.Rollback(4))
 	require.Equal(t, int64(4), s.Version())
-	require.Equal(t, hashAtV4, s.RootHash())
+	require.Equal(t, hashAtV4, rootHash(s))
 
 	// v5's data should not exist (WAL truncated, snapshot pruned)
 	key5 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x30}, ktype.Slot{0x05}))
@@ -214,7 +214,7 @@ func TestRollbackToSnapshotExact(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0x40}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0x40}, ktype.Slot{0x02}, []byte{0x02})
-	hashAtV2 := s.RootHash()
+	hashAtV2 := rootHash(s)
 	require.NoError(t, s.WriteSnapshot(""))
 
 	commitStorageEntry(t, s, ktype.Address{0x40}, ktype.Slot{0x03}, []byte{0x03})
@@ -222,7 +222,7 @@ func TestRollbackToSnapshotExact(t *testing.T) {
 
 	require.NoError(t, s.Rollback(2))
 	require.Equal(t, int64(2), s.Version())
-	require.Equal(t, hashAtV2, s.RootHash())
+	require.Equal(t, hashAtV2, rootHash(s))
 
 	require.NoError(t, s.Close())
 }
@@ -333,7 +333,7 @@ func TestOpenVersionValidation(t *testing.T) {
 
 	commitStorageEntry(t, s1, ktype.Address{0x60}, ktype.Slot{0x01}, []byte{0x11})
 	commitStorageEntry(t, s1, ktype.Address{0x60}, ktype.Slot{0x02}, []byte{0x22})
-	hashAtV2 := s1.RootHash()
+	hashAtV2 := rootHash(s1)
 	require.NoError(t, s1.Close())
 
 	// Phase 2: tamper with one DB's local meta to simulate an incomplete commit
@@ -361,7 +361,7 @@ func TestOpenVersionValidation(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(2), s2.Version())
-	require.Equal(t, hashAtV2, s2.RootHash())
+	require.Equal(t, hashAtV2, rootHash(s2))
 }
 
 func TestSnapshotNameParsing(t *testing.T) {
@@ -435,7 +435,7 @@ func TestReadOnlyAtTargetVersion(t *testing.T) {
 	commitStorageEntry(t, s1, ktype.Address{0x70}, ktype.Slot{0x02}, []byte{0x02})
 	require.NoError(t, s1.WriteSnapshot(""))
 	commitStorageEntry(t, s1, ktype.Address{0x70}, ktype.Slot{0x03}, []byte{0x03})
-	hashAtV3 := s1.RootHash()
+	hashAtV3 := rootHash(s1)
 	commitStorageEntry(t, s1, ktype.Address{0x70}, ktype.Slot{0x04}, []byte{0x04})
 	require.NoError(t, s1.Close())
 
@@ -452,7 +452,7 @@ func TestReadOnlyAtTargetVersion(t *testing.T) {
 	defer func() { require.NoError(t, ro.Close()) }()
 
 	require.Equal(t, int64(3), ro.Version())
-	require.Equal(t, hashAtV3, ro.RootHash())
+	require.Equal(t, hashAtV3, rootHash(ro))
 }
 
 // TestSnapshotThenCatchupThenVerifyCorrectness verifies that commits after a
@@ -535,12 +535,12 @@ func TestReadOnlyAtIsUnaffectedByLoadLatest(t *testing.T) {
 
 	commitStorageEntry(t, s, addr, slot, []byte{0x01})
 	commitStorageEntry(t, s, addr, slot, []byte{0x02})
-	hashAtV2 := s.RootHash()
+	hashAtV2 := rootHash(s)
 	require.NoError(t, s.WriteSnapshot(""))
 
 	commitStorageEntry(t, s, addr, slot, []byte{0x03})
 	commitStorageEntry(t, s, addr, slot, []byte{0x04})
-	hashAtV4 := s.RootHash()
+	hashAtV4 := rootHash(s)
 	require.NoError(t, s.Close())
 
 	// Reopen at latest: the working dir is now dirty at v4, well past the v2 snapshot.
@@ -551,7 +551,7 @@ func TestReadOnlyAtIsUnaffectedByLoadLatest(t *testing.T) {
 	require.NoError(t, s2.LoadLatest())
 	defer func() { require.NoError(t, s2.Close()) }()
 	require.Equal(t, int64(4), s2.Version())
-	require.Equal(t, hashAtV4, s2.RootHash())
+	require.Equal(t, hashAtV4, rootHash(s2))
 
 	requireViewAtV2 := func(what string) {
 		t.Helper()
@@ -559,7 +559,7 @@ func TestReadOnlyAtIsUnaffectedByLoadLatest(t *testing.T) {
 		require.NoError(t, err, what)
 		defer func() { require.NoError(t, ro.Close()) }()
 		require.Equal(t, int64(2), ro.Version(), what)
-		require.Equal(t, hashAtV2, ro.RootHash(), what)
+		require.Equal(t, hashAtV2, rootHash(ro), what)
 		v, ok := ro.Get(keys.EVMStoreKey, key)
 		require.True(t, ok, what)
 		require.Equal(t, padLeft32(0x02), v, what)
@@ -590,7 +590,7 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 	// Build: v1..v5, snapshot at v2.
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x02}, []byte{0x02})
-	hashAtV2 := s.RootHash()
+	hashAtV2 := rootHash(s)
 	require.NoError(t, s.WriteSnapshot(""))
 
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x03}, []byte{0x03})
@@ -600,7 +600,7 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 	// Rollback to v2: lands at the v2 snapshot exactly, with the WAL tail beyond v2 pruned.
 	require.NoError(t, s.Rollback(2))
 	require.Equal(t, int64(2), s.Version())
-	require.Equal(t, hashAtV2, s.RootHash())
+	require.Equal(t, hashAtV2, rootHash(s))
 
 	// The WAL must not hold anything above the rolled-back version, or a restart would re-apply v3..v5.
 	ok, _, last, err := s.wal.GetStoredRange()
@@ -612,7 +612,7 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 	require.Equal(t, int64(3), s.Version())
 
 	// Simulate restart from the rolled-back-then-advanced state: should land at v3.
-	hashAtV3 := s.RootHash()
+	hashAtV3 := rootHash(s)
 	require.NoError(t, s.Close())
 	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
@@ -623,7 +623,7 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(3), s2.Version())
-	require.Equal(t, hashAtV3, s2.RootHash())
+	require.Equal(t, hashAtV3, rootHash(s2))
 }
 
 // rollbackFixture returns a store with v1..v5 committed and a snapshot at v2.
@@ -1360,7 +1360,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 		require.NoError(t, s.WriteSnapshot(""))
-		hashes = append(hashes, s.RootHash())
+		hashes = append(hashes, rootHash(s))
 	}
 	require.NoError(t, s.Close())
 
@@ -1377,7 +1377,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 		ro, err := s2.LoadVersionReadOnly(ver)
 		require.NoError(t, err)
 		require.Equal(t, ver, ro.Version())
-		require.Equal(t, expectedHash, ro.RootHash(), "hash mismatch at version %d", ver)
+		require.Equal(t, expectedHash, rootHash(ro), "hash mismatch at version %d", ver)
 		require.NoError(t, ro.Close())
 	}
 }
@@ -1411,7 +1411,7 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0xF0}, ktype.Slot{0x03}, []byte{0x03})
 	commitStorageEntry(t, s, ktype.Address{0xF0}, ktype.Slot{0x04}, []byte{0x04})
 	commitStorageEntry(t, s, ktype.Address{0xF0}, ktype.Slot{0x05}, []byte{0x05})
-	hashAtV5 := s.RootHash()
+	hashAtV5 := rootHash(s)
 	require.NoError(t, s.Close())
 
 	// Reopen: working dir should be reused (SNAPSHOT_BASE matches current),
@@ -1426,7 +1426,7 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(5), s2.Version())
-	require.Equal(t, hashAtV5, s2.RootHash())
+	require.Equal(t, hashAtV5, rootHash(s2))
 }
 
 func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
@@ -1451,7 +1451,7 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	hash := s.RootHash()
+	hash := rootHash(s)
 	require.NoError(t, s.WriteSnapshot(""))
 	require.NoError(t, s.Close())
 
@@ -1464,7 +1464,7 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(1), s2.Version())
-	require.Equal(t, hash, s2.RootHash())
+	require.Equal(t, hash, rootHash(s2))
 
 	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	v, ok := s2.Get(keys.EVMStoreKey, storageKey)
@@ -1504,7 +1504,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 	}
 
 	require.Equal(t, int64(3), s.Version())
-	hashBefore := s.RootHash()
+	hashBefore := rootHash(s)
 	require.NoError(t, s.Close())
 
 	cfg2 := config.DefaultConfig()
@@ -1516,7 +1516,7 @@ func TestReopenAfterEmptyCommits(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(3), s2.Version(), "version should be preserved after reopen")
-	require.Equal(t, hashBefore, s2.RootHash(), "LtHash should be unchanged after reopen")
+	require.Equal(t, hashBefore, rootHash(s2), "LtHash should be unchanged after reopen")
 }
 
 // =============================================================================
@@ -1564,7 +1564,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	hashBefore := s.RootHash()
+	hashBefore := rootHash(s)
 	require.NoError(t, s.Close())
 
 	cfg2 := config.DefaultConfig()
@@ -1575,7 +1575,7 @@ func TestReopenAfterDeletes(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, hashBefore, s2.RootHash())
+	require.Equal(t, hashBefore, rootHash(s2))
 
 	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	_, found := s2.Get(keys.EVMStoreKey, storageKey)
@@ -1657,7 +1657,7 @@ func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
 	}
 
 	s.tryTruncateWAL()
-	hashBefore := s.RootHash()
+	hashBefore := rootHash(s)
 	require.NoError(t, s.Close())
 
 	s2, err := newCommitStoreWithWAL(context.Background(), cfg)
@@ -1667,7 +1667,7 @@ func TestReopenAfterSnapshotAndTruncation(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(10), s2.Version())
-	require.Equal(t, hashBefore, s2.RootHash())
+	require.Equal(t, hashBefore, rootHash(s2))
 
 	for i := 1; i <= 10; i++ {
 		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(byte(i)), slotN(byte(i))))
@@ -1951,7 +1951,7 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	hashBefore := s.RootHash()
+	hashBefore := rootHash(s)
 	require.NoError(t, s.Close())
 
 	s2, err := newCommitStoreWithWAL(context.Background(), cfg)
@@ -1960,7 +1960,7 @@ func TestAccountRowDeletePersistsAfterReopen(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	require.Equal(t, hashBefore, s2.RootHash(), "LtHash should match after reopen")
+	require.Equal(t, hashBefore, rootHash(s2), "LtHash should match after reopen")
 
 	nonceVal, found := s2.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should not be found after reopen (row deleted)")
@@ -2001,7 +2001,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1) // v2
 	require.NoError(t, err)
 
-	hashAtV2 := s.RootHash()
+	hashAtV2 := rootHash(s)
 	require.NoError(t, s.Close())
 
 	// Simulate crash: rewind global version to v1 so catchup must replay v2
@@ -2021,7 +2021,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(2), s2.Version())
-	require.Equal(t, hashAtV2, s2.RootHash(), "LtHash should match after WAL replay")
+	require.Equal(t, hashAtV2, rootHash(s2), "LtHash should match after WAL replay")
 
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	_, found := s2.Get(keys.EVMStoreKey, nonceKey)
@@ -2113,12 +2113,12 @@ func TestRollbackToCurrentVersion(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s) // v1 + snapshot
 
-	hashV1 := s.RootHash()
+	hashV1 := rootHash(s)
 
 	// Rollback to current version: should be a valid no-op.
 	require.NoError(t, s.Rollback(1))
 	require.Equal(t, int64(1), s.Version())
-	require.Equal(t, hashV1, s.RootHash())
+	require.Equal(t, hashV1, rootHash(s))
 
 	val, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
@@ -2232,7 +2232,7 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
-	hashAfterNewCommits := s.RootHash()
+	hashAfterNewCommits := rootHash(s)
 	require.NoError(t, s.Close())
 
 	// Reopen and verify WAL continuity is intact.
@@ -2243,7 +2243,7 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(4), s2.Version())
-	require.Equal(t, hashAfterNewCommits, s2.RootHash())
+	require.Equal(t, hashAfterNewCommits, rootHash(s2))
 }
 
 func TestWriteSnapshotOnReadOnlyStore(t *testing.T) {

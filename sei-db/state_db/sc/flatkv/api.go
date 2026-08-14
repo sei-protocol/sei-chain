@@ -133,13 +133,10 @@ type Store interface {
 		ascending bool,
 	) (dbm.Iterator, error)
 
-	// RootHash returns the 32-byte checksum of the working LtHash.
-	// Note: This is the Blake3-256 digest of the underlying 2048-byte
-	// raw LtHash vector.
-	RootHash() []byte
-
-	// CommittedRootHash returns the 32-byte checksum of the last committed LtHash.
-	CommittedRootHash() []byte
+	// RootHash returns the 32-byte checksum of the committed LtHash and the height that checksum
+	// describes. Note: the checksum is the Blake3-256 digest of the underlying 2048-byte raw LtHash
+	// vector.
+	RootHash() ([]byte, int64)
 
 	// HashCategories returns the hash logger category names this store reports (the global root plus one
 	// per data DB). The set is fixed. The caller registers these on the logger.

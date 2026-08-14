@@ -173,8 +173,18 @@ func (cs *CommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 	return cs.db.ApplyUpgrades(upgrades)
 }
 
-func (cs *CommitStore) WorkingCommitInfo() *proto.CommitInfo {
-	return cs.db.WorkingCommitInfo()
+func (cs *CommitStore) WorkingCommitInfo(version int64) *proto.CommitInfo {
+	ci := cs.db.WorkingCommitInfo()
+	if cs.db.Version() == 0 {
+		// A store that has never committed may start its history above height 1, so memiavl and the
+		// caller can disagree here without either being wrong.
+		return ci
+	}
+	if ci.Version != version {
+		panic(fmt.Sprintf("memiavl: working commit info is for block %d but the caller is building block %d",
+			ci.Version, version))
+	}
+	return ci
 }
 
 func (cs *CommitStore) LastCommitInfo() *proto.CommitInfo {
@@ -183,7 +193,7 @@ func (cs *CommitStore) LastCommitInfo() *proto.CommitInfo {
 
 func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
 	// The underlying DB is opened lazily via LoadVersion / Rollback. Reads can
-	// arrive before that happens (for example, the mempool reactor invokes
+	// arrive before that happens (for example, the mempool reactor invokesgg
 	// CheckTx during state-sync while the snapshot is still being applied),
 	// so a typed nil return must be safe.
 	if cs == nil || cs.db == nil {

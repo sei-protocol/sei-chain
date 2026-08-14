@@ -194,7 +194,7 @@ func isFlatKVBucket(name string) bool {
 // per-DB ones for us.
 func DumpFlatKVData(dbDir, outputDir string, height int64, bucket string, withLtHash bool, lthashOnly bool, readLimitMiBps float64) error {
 	// Determine, before the main scan, whether the snapshot selected for this
-	// height carries an LtHash watermark. CommittedRootHash() on the opened
+	// height carries an LtHash watermark. RootHash() on the opened
 	// store cannot tell a full-state hash apart from a partial WAL-deltas-only
 	// hash, so we check the selected snapshot's metadata DB directly. See
 	// snapshotCommittedLtHashIsFullState.
@@ -244,7 +244,7 @@ func snapshotMetadataMakesCommittedHashFullState(snapshotVersion int64, hasLtHas
 // snapshotCommittedLtHashIsFullState probes the FlatKV snapshot selected for
 // height and reports whether a store opened on top of it will have a
 // full-state committed LtHash. It checks the selected snapshot's metadata DB
-// for ktype.MetaLtHashKey directly instead of using CommittedRootHash(): a
+// for ktype.MetaLtHashKey directly instead of using RootHash(): a
 // legitimate LtHash watermark may be all-zero, so hash value alone cannot
 // distinguish "metadata present" from "metadata absent".
 func snapshotCommittedLtHashIsFullState(dbDir string, height int64) (bool, error) {
@@ -413,7 +413,7 @@ func dumpFlatKVFromStore(store flatkv.Store, outputDir string, version int64, bu
 		// committedIsFullState is false when the selected snapshot predates
 		// LtHash metadata: the store opened with a zero baseline LtHash and
 		// catchup only mixed in the deltas of the WAL blocks replayed on top,
-		// so CommittedRootHash() is a partial hash (WAL deltas only, not the
+		// so RootHash() is a partial hash (WAL deltas only, not the
 		// snapshot's pre-existing rows). Cross-checking a full re-scan against
 		// it would falsely fail, so skip verification; it becomes verifiable
 		// again once a new snapshot with LtHash metadata exists.
@@ -510,11 +510,11 @@ func printFlatKVLtHash(hashers map[string]*bucketLtHasher, version int64) {
 
 // verifyFlatKVLtHash cross-checks the freshly re-scanned total LtHash against
 // the committed global LtHash the FlatKV store loaded from snapshot metadata
-// (CommittedRootHash). A PASS means the physical bytes on disk hash to exactly
+// (RootHash). A PASS means the physical bytes on disk hash to exactly
 // the committed root recorded at this version. Returns an error on mismatch so
 // the CLI exits non-zero.
 func verifyFlatKVLtHash(store flatkv.Store, hashers map[string]*bucketLtHasher) error {
-	committedTotal := store.CommittedRootHash()
+	committedTotal, _ := store.RootHash()
 
 	// A store that loaded no LtHash from metadata reports the checksum of the
 	// zero LtHash. Treat that as "nothing to verify against" rather than a

@@ -191,7 +191,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	srcHash := s.RootHash()
+	srcHash := rootHash(s)
 
 	// --- Export ---
 	exp, err := s.Exporter(1)
@@ -231,7 +231,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	require.Equal(t, codeHashVal, got)
 
 	// LtHash should match because import recomputes it from the same physical key/value pairs
-	require.Equal(t, srcHash, s2.RootHash())
+	require.Equal(t, srcHash, rootHash(s2))
 
 	require.NoError(t, s2.Close())
 }
@@ -303,7 +303,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 		}}},
 	}))
 	commitAndCheck(t, src)
-	srcHash := src.RootHash()
+	srcHash := rootHash(src)
 
 	exp, err := src.Exporter(1)
 	require.NoError(t, err)
@@ -350,7 +350,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	require.True(t, found, "nonce key must survive reopen")
 	require.Equal(t, nonceVal, got)
 
-	require.Equal(t, srcHash, s2.RootHash())
+	require.Equal(t, srcHash, rootHash(s2))
 }
 
 // TestImportPurgesStaleData verifies that importing a snapshot into a store
@@ -434,7 +434,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 		}}},
 	}))
 	commitAndCheck(t, src)
-	srcHash := src.RootHash()
+	srcHash := rootHash(src)
 
 	exp, err := src.Exporter(1)
 	require.NoError(t, err)
@@ -480,7 +480,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 		require.False(t, found, "stale key should NOT exist after import")
 	}
 
-	require.Equal(t, srcHash, s.RootHash(), "LtHash must match source after clean import")
+	require.Equal(t, srcHash, rootHash(s), "LtHash must match source after clean import")
 
 	// Verify the store survives a reopen.
 	require.NoError(t, s.Close())
@@ -494,7 +494,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 		_, found = s.Get(keys.EVMStoreKey, k)
 		require.False(t, found, "stale key must remain absent after reopen")
 	}
-	require.Equal(t, srcHash, s.RootHash())
+	require.Equal(t, srcHash, rootHash(s))
 }
 
 func TestImporterFailsWhenResetCannotRemoveCurrentLink(t *testing.T) {
@@ -793,7 +793,7 @@ func TestExportImportLargerDataset(t *testing.T) {
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
-	originalHash := s.RootHash()
+	originalHash := rootHash(s)
 
 	// Export.
 	exp, err := s.Exporter(1)
@@ -819,7 +819,7 @@ func TestExportImportLargerDataset(t *testing.T) {
 	require.NoError(t, imp.Close())
 
 	require.Equal(t, int64(1), s2.Version())
-	require.Equal(t, originalHash, s2.RootHash(), "imported store should have identical RootHash")
+	require.Equal(t, originalHash, rootHash(s2), "imported store should have identical RootHash")
 	require.NoError(t, s2.Close())
 }
 
@@ -962,7 +962,7 @@ func TestExporterImporterNonEVMMiscRoundTrip(t *testing.T) {
 	}))
 	commitAndCheck(t, src)
 
-	srcHash := src.RootHash()
+	srcHash := rootHash(src)
 
 	exp, err := src.Exporter(2)
 	require.NoError(t, err)
@@ -1028,7 +1028,7 @@ func TestExporterImporterNonEVMMiscRoundTrip(t *testing.T) {
 	// Round-trip LtHash invariance: import recomputes the LtHash from the
 	// same physical key/value pairs, so the global RootHash must match
 	// bit-for-bit.
-	require.Equalf(t, srcHash, dst.RootHash(),
+	require.Equalf(t, srcHash, rootHash(dst),
 		"RootHash after non-EVM round-trip mismatch")
 
 	// Full-scan verification catches any silent drift between miscDB's
