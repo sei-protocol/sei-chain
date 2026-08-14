@@ -1,6 +1,7 @@
 package persist
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -71,14 +72,11 @@ func openWAL[T any](
 		return nil, fmt.Errorf("invalid WAL config for %s: %w", dir, err)
 	}
 
-	wal, err := seiwal.NewGenericWAL[T](
+	wal := seiwal.NewGenericWAL(
 		config,
-		func(entry T) ([]byte, error) { return codec.Marshal(entry), nil },
+		func(entry T) []byte { return codec.Marshal(entry) },
 		codec.Unmarshal,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("open WAL in %s: %w", dir, err)
-	}
 	return wal, nil
 }
 
@@ -87,8 +85,8 @@ func openWAL[T any](
 //
 // Pruning is lazy, so the result may include records below the last requested prune point. Callers
 // decide what to do with those; see contiguousSuffix.
-func readAll[T any](w seiwal.WAL[T]) (entries []walEntry[T], err error) {
-	ok, first, last, err := w.Bounds()
+func readAll[T any](ctx context.Context, w seiwal.WAL[T]) (entries []walEntry[T], err error) {
+	ok, first, last, err := w.Bounds(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read WAL bounds: %w", err)
 	}

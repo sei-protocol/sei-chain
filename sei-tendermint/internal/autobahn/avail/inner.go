@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -46,7 +45,7 @@ type inner struct {
 // newInner requires both to be contiguous and returns an error on gaps.
 type loadedState struct {
 	commitQCs []*types.CommitQC
-	blocks    map[types.LaneID][]persist.LoadedBlock
+	blocks    map[types.LaneID][]*types.Signed[*types.LaneProposal]
 }
 
 func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
@@ -101,26 +100,27 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 			continue
 		}
 		for _, b := range bs {
+			n := b.Msg().Block().Header().BlockNumber()
 			if q.Len() >= BlocksPerLane {
 				return nil, fmt.Errorf("lane %s: loaded %d blocks exceeds capacity %d", lane, len(bs), BlocksPerLane)
 			}
-			if b.Number < q.next {
+			if n < q.next {
 				continue
 			}
-			if b.Number != q.next {
-				return nil, fmt.Errorf("lane %s: non-contiguous persisted blocks: expected %d, got %d", lane, q.next, b.Number)
+			if n != q.next {
+				return nil, fmt.Errorf("lane %s: non-contiguous persisted blocks: expected %d, got %d", lane, q.next, n)
 			}
 			// We check the parent hash only for the blocks above the anchor, because:
 			// * node can cast LaneVote for the block of the lane without checking the parent hash,
 			//   in case the previous block was already (executed and) pruned from memory.
 			// * current WAL implementation is lazily pruning on disk, so old executed blocks might be loaded on startup.
 			if q.Len() > 0 {
-				ph := b.Proposal.Msg().Block().Header().ParentHash()
+				ph := b.Msg().Block().Header().ParentHash()
 				if q.q[q.next-1].Msg().Block().Header().Hash() != ph {
-					return nil, fmt.Errorf("lane %s: parent hash mismatch at block %d", lane, b.Number)
+					return nil, fmt.Errorf("lane %s: parent hash mismatch at block %d", lane, n)
 				}
 			}
-			q.pushBack(b.Proposal)
+			q.pushBack(b)
 		}
 		i.nextBlockToPersist[lane] = q.next
 	}

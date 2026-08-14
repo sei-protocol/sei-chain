@@ -15,8 +15,6 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-var _ WAL[[]byte] = (*walImpl)(nil)
-
 var logger = seilog.NewLogger("db", "seiwal")
 
 // dataToBeWritten carries a framed record from a caller to the writer to be appended.
@@ -182,7 +180,7 @@ func recoverDirectory(path string) error {
 	return nil
 }
 
-func newWAL(config *Config) (WAL[[]byte], error) {
+func newWAL(config *Config) (*walImpl, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid WAL config: %w", err)
 	}

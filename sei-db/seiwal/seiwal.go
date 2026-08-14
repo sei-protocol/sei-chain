@@ -1,8 +1,8 @@
 package seiwal
 
 import (
+	"context"
 	"errors"
-	"fmt"
 )
 
 // ErrIteratorRange is returned by Iterator when the requested [startIndex, endIndex] range is invalid:
@@ -40,13 +40,13 @@ type WAL[T any] interface {
 	// data, and every slice reachable through it, must not be modified after this call: the payload may be
 	// retained and serialized asynchronously, so mutating it races the WAL and can corrupt what is
 	// persisted. Callers that need to reuse or mutate the buffer must copy it first.
-	Append(index uint64, data T) error
+	Append(ctx context.Context, index uint64, data T) error
 
 	// Flush blocks until all previously scheduled appends are durable.
-	Flush() error
+	Flush(ctx context.Context) error
 
 	// Bounds reports the range of record indices currently stored in the WAL.
-	Bounds() (
+	Bounds(ctx context.Context) (
 		// If true, there is at least one record in the WAL and first/last are valid. If false, the WAL is
 		// empty and first/last are undefined.
 		ok bool,
@@ -69,7 +69,7 @@ type WAL[T any] interface {
 	// with any method including Append and Close, and implementations must support that without
 	// external serialization. Such a call is unordered with respect to appends: whether a record
 	// appended around the same instant is pruned is unspecified.
-	PruneBefore(lowestIndexToKeep uint64) error
+	PruneBefore(ctx context.Context, lowestIndexToKeep uint64) error
 
 	// Iterator returns an iterator over the WAL across the inclusive index range [startIndex, endIndex].
 	//
@@ -84,10 +84,7 @@ type WAL[T any] interface {
 	// start and the return of this call. Records appended before that instant are included; records
 	// appended after it are not. For records appended concurrently with this call, whether they are
 	// included is unspecified.
-	Iterator(startIndex uint64, endIndex uint64) (Iterator[T], error)
-
-	// Close flushes pending appends, seals the current file, and releases resources.
-	Close() error
+	Iterator(ctx context.Context, startIndex uint64, endIndex uint64) (Iterator[T], error)
 }
 
 // Iterator iterates over the records of a WAL in ascending index order.
@@ -115,21 +112,11 @@ type Iterator[T any] interface {
 	Close() error
 }
 
-// NewWAL opens (or creates) a byte-oriented WAL in the configured directory, recovering any files left
-// behind by a previous session. Operates on []byte payloads.
-func NewWAL(config *Config) (WAL[[]byte], error) {
-	return newWAL(config)
-}
-
 // NewGenericWAL opens a WAL over payloads of type T that does serialization on a background goroutine.
 func NewGenericWAL[T any](
 	config *Config,
-	serialize func(T) ([]byte, error),
+	serialize func(T) []byte,
 	deserialize func([]byte) (T, error),
-) (WAL[T], error) {
-	inner, err := NewWAL(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open inner WAL: %w", err)
-	}
-	return newSerializingWAL(config, inner, serialize, deserialize), nil
+) WAL[T] {
+	return newSerializingWAL(config, serialize, deserialize)
 }

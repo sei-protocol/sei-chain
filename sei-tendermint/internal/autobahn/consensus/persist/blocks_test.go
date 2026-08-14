@@ -20,9 +20,12 @@ func testSignedProposal(rng utils.Rng, key types.SecretKey, n types.BlockNumber)
 // liveBlocks drops blocks the prune anchor has moved past, mirroring the filter loadPersistedState
 // applies in the avail package. Pruning reclaims whole WAL files, so a pruned block can still be on
 // disk when the persister reloads; only what the anchor considers live is asserted on here.
-func liveBlocks(loaded []LoadedBlock, first types.BlockNumber) []LoadedBlock {
+func liveBlocks(
+	loaded []*types.Signed[*types.LaneProposal],
+	first types.BlockNumber,
+) []*types.Signed[*types.LaneProposal] {
 	for i, b := range loaded {
-		if b.Number >= first {
+		if b.Msg().Block().Header().BlockNumber() >= first {
 			return loaded[i:]
 		}
 	}
@@ -70,10 +73,10 @@ func TestPersistBlockAndLoad(t *testing.T) {
 	require.NotNil(t, bp2)
 	require.Equal(t, 1, len(blocks), "should have 1 lane")
 	require.Equal(t, 2, len(blocks[lane]), "should have 2 blocks")
-	require.Equal(t, types.BlockNumber(0), blocks[lane][0].Number)
-	require.Equal(t, types.BlockNumber(1), blocks[lane][1].Number)
-	require.NoError(t, utils.TestDiff(b0, blocks[lane][0].Proposal))
-	require.NoError(t, utils.TestDiff(b1, blocks[lane][1].Proposal))
+	require.Equal(t, types.BlockNumber(0), blocks[lane][0].Msg().Block().Header().BlockNumber())
+	require.Equal(t, types.BlockNumber(1), blocks[lane][1].Msg().Block().Header().BlockNumber())
+	require.NoError(t, utils.TestDiff(b0, blocks[lane][0]))
+	require.NoError(t, utils.TestDiff(b1, blocks[lane][1]))
 	require.NoError(t, bp2.Close())
 }
 
@@ -99,8 +102,8 @@ func TestPersistBlockMultipleLanes(t *testing.T) {
 	require.Equal(t, 2, len(blocks), "should have 2 lanes")
 	require.Equal(t, 1, len(blocks[lane1]))
 	require.Equal(t, 1, len(blocks[lane2]))
-	require.NoError(t, utils.TestDiff(b1, blocks[lane1][0].Proposal))
-	require.NoError(t, utils.TestDiff(b2, blocks[lane2][0].Proposal))
+	require.NoError(t, utils.TestDiff(b1, blocks[lane1][0]))
+	require.NoError(t, utils.TestDiff(b2, blocks[lane2][0]))
 }
 
 func TestDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
@@ -123,8 +126,8 @@ func TestDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 	require.NoError(t, err)
 	live := liveBlocks(blocks[lane], 3)
 	require.Equal(t, 2, len(live), "should have blocks 3 and 4")
-	require.Equal(t, types.BlockNumber(3), live[0].Number)
-	require.Equal(t, types.BlockNumber(4), live[1].Number)
+	require.Equal(t, types.BlockNumber(3), live[0].Msg().Block().Header().BlockNumber())
+	require.Equal(t, types.BlockNumber(4), live[1].Msg().Block().Header().BlockNumber())
 }
 
 func TestDeleteBeforeAndRestart(t *testing.T) {
@@ -156,7 +159,7 @@ func TestDeleteBeforeAndRestart(t *testing.T) {
 	require.NoError(t, err)
 	lane1Live := liveBlocks(blocks[lane1], 2)
 	require.Equal(t, 1, len(lane1Live), "lane1 should have block 2")
-	require.Equal(t, types.BlockNumber(2), lane1Live[0].Number)
+	require.Equal(t, types.BlockNumber(2), lane1Live[0].Msg().Block().Header().BlockNumber())
 	require.Equal(t, 3, len(blocks[lane2]), "lane2 should have all 3 blocks")
 	require.Equal(t, 0, len(blocks[lane3]), "lane3 never had blocks")
 
@@ -169,9 +172,9 @@ func TestDeleteBeforeAndRestart(t *testing.T) {
 	require.NoError(t, err)
 	lane1Live2 := liveBlocks(blocks2[lane1], 2)
 	require.Equal(t, 2, len(lane1Live2), "lane1 should have blocks 2,3")
-	require.Equal(t, types.BlockNumber(3), lane1Live2[1].Number)
+	require.Equal(t, types.BlockNumber(3), lane1Live2[1].Msg().Block().Header().BlockNumber())
 	require.Equal(t, 4, len(blocks2[lane2]), "lane2 should have blocks 0..3")
-	require.Equal(t, types.BlockNumber(3), blocks2[lane2][3].Number)
+	require.Equal(t, types.BlockNumber(3), blocks2[lane2][3].Msg().Block().Header().BlockNumber())
 }
 
 func TestNoOpBlockPersister(t *testing.T) {
@@ -216,9 +219,9 @@ func TestDeleteBeforeThenPersistMore(t *testing.T) {
 	require.NoError(t, err)
 	live := liveBlocks(blocks[lane], 3)
 	require.Equal(t, 3, len(live), "should have blocks 3, 4, 5")
-	require.Equal(t, types.BlockNumber(3), live[0].Number)
-	require.Equal(t, types.BlockNumber(4), live[1].Number)
-	require.Equal(t, types.BlockNumber(5), live[2].Number)
+	require.Equal(t, types.BlockNumber(3), live[0].Msg().Block().Header().BlockNumber())
+	require.Equal(t, types.BlockNumber(4), live[1].Msg().Block().Header().BlockNumber())
+	require.Equal(t, types.BlockNumber(5), live[2].Msg().Block().Header().BlockNumber())
 }
 
 func TestDeleteBeforePastAllBlocks(t *testing.T) {
@@ -246,8 +249,8 @@ func TestDeleteBeforePastAllBlocks(t *testing.T) {
 	_, blocks, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 2, len(blocks[lane]))
-	require.Equal(t, types.BlockNumber(10), blocks[lane][0].Number)
-	require.Equal(t, types.BlockNumber(11), blocks[lane][1].Number)
+	require.Equal(t, types.BlockNumber(10), blocks[lane][0].Msg().Block().Header().BlockNumber())
+	require.Equal(t, types.BlockNumber(11), blocks[lane][1].Msg().Block().Header().BlockNumber())
 }
 
 func TestDeleteBeforePastAllRejectsStaleBlock(t *testing.T) {
@@ -327,7 +330,7 @@ func TestEmptyLaneWALSurvivesReopen(t *testing.T) {
 	_, blocks2, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(blocks2[lane]))
-	require.Equal(t, types.BlockNumber(0), blocks2[lane][0].Number)
+	require.Equal(t, types.BlockNumber(0), blocks2[lane][0].Msg().Block().Header().BlockNumber())
 }
 
 func TestNewBlockPersisterSkipsNonHexDir(t *testing.T) {
@@ -407,7 +410,7 @@ func TestLoadAllDropsBlocksBehindGap(t *testing.T) {
 	_, blocks, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(blocks[lane]), "block 0 sits behind the gap and is dropped")
-	require.Equal(t, types.BlockNumber(2), blocks[lane][0].Number)
+	require.Equal(t, types.BlockNumber(2), blocks[lane][0].Msg().Block().Header().BlockNumber())
 }
 
 func TestPersistBlockAutoCreatesLane(t *testing.T) {
@@ -432,7 +435,7 @@ func TestPersistBlockAutoCreatesLane(t *testing.T) {
 	_, blocks, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(blocks[lane]))
-	require.Equal(t, types.BlockNumber(0), blocks[lane][0].Number)
+	require.Equal(t, types.BlockNumber(0), blocks[lane][0].Msg().Block().Header().BlockNumber())
 }
 
 // TestPruneReclaimsSealedFiles verifies that the block number truncateForAnchor prunes at actually
@@ -468,9 +471,9 @@ func TestPruneReclaimsSealedFiles(t *testing.T) {
 	require.NoError(t, s2.wal.Close())
 
 	require.True(t, len(loaded) > 0, "live blocks must survive pruning")
-	require.True(t, loaded[0].Number > 0, "pruning should have reclaimed the oldest blocks")
-	require.True(t, loaded[0].Number <= anchor, "pruning must not reclaim blocks at or above the anchor")
-	require.Equal(t, types.BlockNumber(total-1), loaded[len(loaded)-1].Number)
+	require.True(t, loaded[0].Msg().Block().Header().BlockNumber() > 0, "pruning should have reclaimed the oldest blocks")
+	require.True(t, loaded[0].Msg().Block().Header().BlockNumber() <= anchor, "pruning must not reclaim blocks at or above the anchor")
+	require.Equal(t, types.BlockNumber(total-1), loaded[len(loaded)-1].Msg().Block().Header().BlockNumber())
 	require.Equal(t, types.BlockNumber(total), s2.nextBlockNum)
 }
 
@@ -516,7 +519,7 @@ func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 		lane := keys[i].Public()
 		require.Equal(t, blocksPerLane, len(blocks[lane]))
 		for j := range blocksPerLane {
-			require.Equal(t, types.BlockNumber(j), blocks[lane][j].Number)
+			require.Equal(t, types.BlockNumber(j), blocks[lane][j].Msg().Block().Header().BlockNumber())
 		}
 	}
 }
