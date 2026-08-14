@@ -43,6 +43,7 @@ message AppVote {
 message StreamLaneProposalsReq {
   option (wireguard.sized) = true;
   uint64 first_block_number = 1;
+  optional autobahn.LaneID lane_id = 2; // required
 }
 
 message StreamCommitQCsReq {

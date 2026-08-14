@@ -503,8 +503,8 @@ func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []type
 	return &p2p.RouterOptions{
 		Endpoint:                      ep,
 		MaxIncomingConnectionAttempts: utils.Some(cfg.P2P.MaxIncomingConnectionAttempts),
-		MaxDialRate:                   utils.Some(dialRate),
-		MaxAcceptRate:                 utils.Some(acceptRate),
+		MaxDialRate:                   dialRate,
+		MaxAcceptRate:                 acceptRate,
 		HandshakeTimeout:              utils.Some(cfg.P2P.HandshakeTimeout),
 		DialTimeout:                   utils.Some(cfg.P2P.DialTimeout),
 		PexOnHandshake:                cfg.P2P.PexReactor,

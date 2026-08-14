@@ -111,8 +111,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					Endpoint:                 e,
 					Connection:               conn.DefaultMConnConfig(),
 					IncomingConnectionWindow: utils.Some(time.Duration(0)),
-					MaxAcceptRate:            utils.Some(rate.Inf),
-					MaxDialRate:              utils.Some(rate.Limit(30)),
+					MaxAcceptRate:            rate.Inf,
+					MaxDialRate:              rate.Limit(30),
 					Giga:                     utils.Some[GigaRouter](giga),
 				},
 			)

@@ -359,8 +359,8 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 		opts, err := p2pRouterOptions(cfg, ep, nil)
 		require.NoError(t, err)
 
-		require.Equal(t, utils.Some(rate.Every(cfg.P2P.AcceptInterval)), opts.MaxAcceptRate)
-		require.Equal(t, utils.Some(rate.Every(cfg.P2P.DialInterval)), opts.MaxDialRate)
+		require.Equal(t, rate.Every(cfg.P2P.AcceptInterval), opts.MaxAcceptRate)
+		require.Equal(t, rate.Every(cfg.P2P.DialInterval), opts.MaxDialRate)
 	})
 
 	// A negative value never reaches ValidateBasic on an already-deployed node, and
@@ -384,7 +384,7 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 		cfg.P2P.AcceptInterval = 0
 		opts, err := p2pRouterOptions(cfg, ep, nil)
 		require.NoError(t, err)
-		require.Equal(t, utils.Some(rate.Inf), opts.MaxAcceptRate)
+		require.Equal(t, rate.Inf, opts.MaxAcceptRate)
 	})
 
 	t.Run("operator value flows through", func(t *testing.T) {
@@ -392,7 +392,7 @@ func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
 		cfg.P2P.AcceptInterval = 250 * time.Millisecond
 		opts, err := p2pRouterOptions(cfg, ep, nil)
 		require.NoError(t, err)
-		require.Equal(t, utils.Some(rate.Every(250*time.Millisecond)), opts.MaxAcceptRate)
+		require.Equal(t, rate.Every(250*time.Millisecond), opts.MaxAcceptRate)
 	})
 
 	// Non-default totals, so the assertions track the derivation rather than

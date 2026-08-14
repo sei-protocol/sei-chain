@@ -42,12 +42,9 @@ var (
 var seiLegacyGatedMethods = map[string]struct{}{
 	"sei_associate":                             {},
 	"sei_getBlockByHash":                        {},
-	"sei_getBlockByNumber":                      {},
-	"sei_getBlockReceipts":                      {},
 	"sei_getBlockTransactionCountByHash":        {},
 	"sei_getBlockTransactionCountByNumber":      {},
 	"sei_getBlockByHashExcludeTraceFail":        {},
-	"sei_getBlockByNumberExcludeTraceFail":      {},
 	"sei_getCosmosTx":                           {},
 	"sei_getEVMAddress":                         {},
 	"sei_getEvmTx":                              {},

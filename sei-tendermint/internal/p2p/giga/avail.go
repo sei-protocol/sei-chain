@@ -5,11 +5,18 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/sei-protocol/seilog"
+
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "p2p", "giga")
 
 func (x *validatorService) serverStreamLaneProposals(ctx context.Context, server rpc.Server[API]) error {
 	return StreamLaneProposals.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.LaneProposal, *pb.StreamLaneProposalsReq]) error {
@@ -21,10 +28,19 @@ func (x *validatorService) serverStreamLaneProposals(ctx context.Context, server
 		if err != nil {
 			return fmt.Errorf("StreamLaneProposalsReqConv.Decode(): %w", err)
 		}
-		sub := x.state.Avail().SubscribeLaneProposals(req.FirstBlockNumber)
+		local := x.state.Avail().PublicKey()
+		if req.LaneID.Validator != local {
+			logger.Warn("StreamLaneProposals: lane validator mismatch; ending stream",
+				"requested", req.LaneID.Validator, "local", local)
+			return nil
+		}
+		sub := x.state.Avail().SubscribeLaneProposals(req.LaneID, req.FirstBlockNumber)
 		for {
 			p, err := sub.Recv(ctx)
 			if err != nil {
+				if errors.Is(err, avail.ErrLaneClosed) {
+					return nil
+				}
 				return err
 			}
 			if err := stream.Send(ctx, LaneProposalConv.Encode(p)); err != nil {
@@ -96,34 +112,50 @@ func (x *validatorService) serverStreamCommitQCs(ctx context.Context, server rpc
 	})
 }
 
-func (x *validatorService) clientStreamLaneProposals(ctx context.Context, c rpc.Client[API]) error {
+func (x *validatorService) clientStreamLaneProposals(ctx context.Context, c rpc.Client[API], peer types.PublicKey) error {
+	a := x.state.Avail()
+	for ctx.Err() == nil {
+		// Wait on the peer's current committee LaneID: returns immediately for a
+		// stay/transient redial, blocks across leave until rejoin.
+		lane, err := a.WaitForNextLane(ctx, peer, utils.None[types.LaneID]())
+		if err != nil {
+			return err
+		}
+		if err := x.streamLaneProposalsOnce(ctx, c, lane, a.NextBlock(lane)); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func (x *validatorService) streamLaneProposalsOnce(ctx context.Context, c rpc.Client[API], lane types.LaneID, first types.BlockNumber) error {
 	stream, err := StreamLaneProposals.Call(ctx, c)
 	if err != nil {
 		return err
 	}
 	defer stream.Close()
-	req := &StreamLaneProposalsReq{}
 	// TODO(gprusak): dissemination of LaneProposals is the main source of bandwidth consumption.
-	// * to keep low latency, we need to push the lane proposals (streaming is required)
-	// * to avoid wasting bandwidth, we should set req.FirstBlockNumber (for that we need to authenticate validator in handshake)
-	// * the current implementation assumes a fully connected network - with a different topology we will need to be smarter.
+	// To keep low latency, we need to push the lane proposals (streaming is required).
+	req := &StreamLaneProposalsReq{LaneID: lane, FirstBlockNumber: first}
 	if err := stream.Send(ctx, StreamLaneProposalsReqConv.Encode(req)); err != nil {
 		return fmt.Errorf("client.StreamLaneProposals(): %w", err)
 	}
 	for {
 		rawProposal, err := stream.Recv(ctx)
 		if err != nil {
+			// Server closed after the lane closed (handler returns nil, mux CLOSE).
+			if errors.Is(err, mux.ErrRemoteClosed) {
+				return nil
+			}
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
 		proposal, err := LaneProposalConv.Decode(rawProposal)
 		if err != nil {
 			return fmt.Errorf("LaneProposalConv.Decode(): %w", err)
 		}
-		// Sanity check, checking that the producer only sends their own proposals.
-		// TODO(gprusak): authenticate the peer to be able to do this check.
-		/*if got, want := proposal.Msg().Block().Header().Lane(), c.cfg.GetKey(); got != want {
-			return fmt.Errorf("producer = %q, want %q", got, want)
-		}*/
+		if proposal.Msg().Block().Header().Lane() != lane {
+			return fmt.Errorf("producer lane = %v, want %v", proposal.Msg().Block().Header().Lane(), lane)
+		}
 		if err := x.state.Avail().PushBlock(ctx, proposal); err != nil {
 			return fmt.Errorf("s.PushLaneProposal(): %w", err)
 		}

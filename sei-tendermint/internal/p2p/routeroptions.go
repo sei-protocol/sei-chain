@@ -65,12 +65,15 @@ type RouterOptions struct {
 	// can attempt to create a new connection. Defaults to 100ms.
 	IncomingConnectionWindow utils.Option[time.Duration]
 
-	// MaxDialRate limits the rate at which router is dialing peers. Defaults to 0.1/s.
-	MaxDialRate utils.Option[rate.Limit]
+	// MaxDialRate limits the rate at which router is dialing peers.
+	MaxDialRate rate.Limit
 
 	// MaxAcceptRate limits the sustained rate at which router is accepting TCP
-	// connections; the limiter's burst is MaxConcurrentAccepts. Defaults to 100/s.
-	MaxAcceptRate utils.Option[rate.Limit]
+	// connections; the limiter's burst is MaxConcurrentAccepts. Required — the
+	// default lives on the `accept-interval` config key, not here, and Validate
+	// rejects a zero value rather than letting a construction site inherit a rate
+	// too low to drain the listen backlog.
+	MaxAcceptRate rate.Limit
 
 	// ResolveTimeout is the timeout for resolving NodeAddress URLs.
 	ResolveTimeout utils.Option[time.Duration]
@@ -133,6 +136,12 @@ func (o *RouterOptions) peerStoreInterval() time.Duration {
 
 // Validate validates the options.
 func (o *RouterOptions) Validate() error {
+	if o.MaxDialRate <= 0 {
+		return fmt.Errorf("MaxDialRate = %v, want > 0", o.MaxDialRate)
+	}
+	if o.MaxAcceptRate <= 0 {
+		return fmt.Errorf("MaxAcceptRate = %v, want > 0", o.MaxAcceptRate)
+	}
 	for _, addr := range o.BootstrapPeers {
 		if err := addr.Validate(); err != nil {
 			return fmt.Errorf("invalid BoodstrapPeer address %v: %w", addr, err)
@@ -162,11 +171,11 @@ func (o *RouterOptions) Validate() error {
 }
 
 func (o *RouterOptions) maxDialRate() rate.Limit {
-	return o.MaxDialRate.Or(rate.Every(10 * time.Second))
+	return o.MaxDialRate
 }
 
 func (o *RouterOptions) maxAcceptRate() rate.Limit {
-	return o.MaxAcceptRate.Or(rate.Every(10 * time.Millisecond))
+	return o.MaxAcceptRate
 }
 
 func (o *RouterOptions) incomingConnectionWindow() time.Duration {

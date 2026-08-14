@@ -78,7 +78,7 @@ func (e *testEnv) AddNode(key types.SecretKey) *testNode {
 
 func (e *testEnv) Run(ctx context.Context) error {
 	return utils.IgnoreAfterCancel(ctx, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		for _, x := range e.nodes {
+		for xKey, x := range e.nodes {
 			s.SpawnNamed("node", func() error { return x.Run(ctx) })
 			for _, y := range e.nodes {
 				xConn, yConn := conn.NewTestConn()
@@ -87,7 +87,7 @@ func (e *testEnv) Run(ctx context.Context) error {
 				s.SpawnNamed("mux server", func() error { return server.Run(ctx, xConn) })
 				s.SpawnNamed("mux client", func() error { return client.Run(ctx, yConn) })
 				s.SpawnNamed("RunServer", func() error { return x.service.RunServer(ctx, server, true) })
-				s.SpawnNamed("RunClient", func() error { return y.service.RunClient(ctx, client, true) })
+				s.SpawnNamed("RunClient", func() error { return y.service.RunClient(ctx, client, xKey, true) })
 			}
 		}
 		return nil
