@@ -15,7 +15,7 @@ type registryState struct {
 // Registry is the authoritative source of epoch and committee information.
 // All layers (consensus, data, avail) read from it.
 type Registry struct {
-	state utils.RWMutex[registryState]
+	state utils.RWMutex[*registryState]
 }
 
 // NewRegistry creates a Registry with the genesis committee.
@@ -26,7 +26,7 @@ func NewRegistry(
 ) (*Registry, error) {
 	ep := types.NewEpoch(0, types.OpenRoadRange(), genesisTimestamp, committee, firstBlock)
 	return &Registry{
-		state: utils.NewRWMutex(registryState{
+		state: utils.NewRWMutex(&registryState{
 			m:      map[types.EpochIndex]*types.Epoch{0: ep},
 			latest: 0,
 		}),
@@ -67,10 +67,31 @@ func (r *Registry) LatestEpoch() *types.Epoch {
 	panic("unreachable")
 }
 
+func (r *Registry) ActivateEpoch(
+	weights map[types.PublicKey]uint64,
+	roads types.RoadRange,
+	firstTimestamp time.Time,
+	firstBlock types.GlobalBlockNumber,
+) (*types.Epoch, error) {
+	for s := range r.state.Lock() {
+		prev := s.m[s.latest]
+		next := s.latest + 1
+		committee, err := prev.Committee().DeriveNext(weights, next)
+		if err != nil {
+			return nil, err
+		}
+		ep := types.NewEpoch(next, roads, firstTimestamp, committee, firstBlock)
+		s.m[next] = ep
+		s.latest = next
+		return ep, nil
+	}
+	panic("unreachable")
+}
+
 // VerifyInWindow calls fn against the latest epoch's committee and returns it if accepted.
 // Returns a slice of all matching epochs so callers can skip re-verification for any
 // epoch already checked here.
-// TODO: expand to neighbor epochs (previous and next) once multi-epoch transitions are wired up.
+// TODO(#3736): expand to neighbor epochs (previous and next) once multi-epoch transitions are wired up.
 func (r *Registry) VerifyInWindow(fn func(*types.Committee) error) ([]*types.Epoch, error) {
 	for s := range r.state.RLock() {
 		ep := s.m[s.latest]

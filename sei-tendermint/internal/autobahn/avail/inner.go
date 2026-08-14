@@ -6,22 +6,23 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// TODO: when dynamic committee changes are supported, newly joined members
-// must be added to blocks, votes, and nextBlockToPersist.
-// Currently all four are initialized once in newInner from c.Lanes().All().
-// BlockPersister creates lane WALs lazily inside PruneAndPersist, but the new
-// member must also appear in inner.blocks before the next persist cycle.
+// inner holds roads and per-LaneID block/vote maps.
 type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
 	roads             *queue[types.RoadIndex, *road]
 
-	// Epoch is the current epoch for blocks votes collection.
-	epoch  *types.Epoch
-	blocks map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
-	votes  map[types.LaneID]*queue[types.BlockNumber, blockVotes]
+	// epoch is the applied (next-CommitQC) epoch. ApplyEpoch is the sole
+	// writer after construction.
+	epoch utils.AtomicSend[*types.Epoch]
+	// anchorEpoch is the epoch of data's Anchor CommitQC. Before any Anchor
+	// exists it equals the applied epoch.
+	anchorEpoch *types.Epoch
+	blocks      map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
+	votes       map[types.LaneID]*queue[types.BlockNumber, blockVotes]
 	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
 	// RecvBatch only yields blocks below this cursor for voting.
 	// Always initialized (even when persistence is disabled — the no-op persist
@@ -29,7 +30,7 @@ type inner struct {
 	// reconstructed from the blocks already on disk (see newInner).
 	//
 	// TODO: consider giving this its own AtomicSend to avoid waking unrelated
-	// inner waiters (PushVote, PushCommitQC, etc.) on markBlockPersisted calls.
+	// inner waiters (PushVote, PushCommitQC, etc.) on setNextBlockToPersist calls.
 	// Now that blocks are persisted concurrently by lane (one notification per
 	// lane per batch, not per block), the frequency is lower, but still not
 	// ideal. Only RecvBatch needs to be notified of cursor changes;
@@ -50,24 +51,30 @@ type loadedState struct {
 }
 
 func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
-	epoch := ds.Registry().LatestEpoch()
+	start := ds.Registry().LatestEpoch()
 	i := &inner{
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		roads:              newQueue[types.RoadIndex, *road](),
-		epoch:              epoch,
+		epoch:              utils.NewAtomicSend(start),
+		anchorEpoch:        start,
 		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
 	}
-	for lane := range epoch.Committee().Lanes().All() {
-		i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
-		i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+	for lane := range start.Committee().Lanes().All() {
+		i.addLane(lane)
+	}
+	for lane := range loaded.blocks {
+		i.addLane(lane)
 	}
 
-	// Apply the persisted prune anchor from the data.State:
-	// avail.State can drop everything below AppQC persisted in data.State.
+	// Apply the persisted prune anchor from the data.State.
 	if anchor, ok := ds.Anchor().Load().Get(); ok {
-		i.prune(anchor)
+		ep, err := anchorEpochOf(ds.Registry(), anchor)
+		if err != nil {
+			return nil, err
+		}
+		i.prune(anchor, ep)
 	}
 
 	// Restore persisted CommitQCs. prune() may have already pushed the
@@ -85,9 +92,6 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		}
 		i.roads.pushBack(newRoad(qc, epoch))
 	}
-	// It may happen that data.State has progressed beyond avail state.
-	// In this case the whole persisted avail.State is invalidated and anchor.CommitQC
-	// is NOT stored in avail.State. We need it to get persisted before we update persistedCommitQC.
 	if i.roads.Len() > 0 {
 		i.persistedCommitQC.Store(utils.Some(i.roads.q[i.roads.next-1].commitQC))
 	}
@@ -127,10 +131,19 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	return i, nil
 }
 
-// TODO: filter votes per-epoch committee once epoch transitions are wired up.
+// laneQC returns a LaneQC for (lane, n) if weight under the applied epoch's
+// committee meets LaneQuorum. Does not reweight votes when the committee changes.
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, bool) {
-	c := i.epoch.Committee()
-	for _, byHash := range i.votes[lane].q[n].byHash {
+	c := i.epoch.Load().Committee()
+	votes, ok := i.votes[lane]
+	if !ok {
+		return nil, false
+	}
+	entry, ok := votes.q[n]
+	if !ok {
+		return nil, false
+	}
+	for _, byHash := range entry.byHash {
 		if byHash.weight >= c.LaneQuorum() {
 			return types.NewLaneQC(byHash.votes[:]), true
 		}
@@ -138,23 +151,66 @@ func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) (*types.LaneQC, b
 	return nil, false
 }
 
-// prune advances the state up to Anchor of the data state.
-// Returns true iff pruning occurred.
-func (i *inner) prune(anchor data.Anchor) {
-	idx := anchor.CommitQC.Index()
-	if idx < i.roads.first {
+// addLane ensures empty block/vote queues and a zero persist cursor for lane.
+// No-op if the lane is already present.
+func (i *inner) addLane(lane types.LaneID) {
+	if _, ok := i.blocks[lane]; ok {
 		return
 	}
-	i.roads.prune(idx + 1)
-	for lane := range i.votes {
-		lr := anchor.CommitQC.LaneRange(lane)
-		i.votes[lr.Lane()].prune(lr.Next())
-		i.blocks[lr.Lane()].prune(lr.Next())
-		if i.nextBlockToPersist[lr.Lane()] < lr.Next() {
-			i.nextBlockToPersist[lr.Lane()] = lr.Next()
+	i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+	i.votes[lane] = newQueue[types.BlockNumber, blockVotes]()
+	i.nextBlockToPersist[lane] = 0
+}
+
+func (i *inner) dropLanes(lanes []types.LaneID) int {
+	n := 0
+	for _, lane := range lanes {
+		if _, ok := i.blocks[lane]; !ok {
+			continue
+		}
+		delete(i.blocks, lane)
+		delete(i.votes, lane)
+		delete(i.nextBlockToPersist, lane)
+		n++
+	}
+	return n
+}
+
+// anchorEpochOf returns the epoch of anchor's CommitQC from the registry.
+func anchorEpochOf(registry *epoch.Registry, anchor data.Anchor) (*types.Epoch, error) {
+	ei := anchor.CommitQC.Proposal().EpochIndex()
+	ep, ok := registry.EpochByIndex(ei)
+	if !ok {
+		return nil, fmt.Errorf("unknown epoch_index %d for anchor", ei)
+	}
+	return ep, nil
+}
+
+// prune advances the state up to the data Anchor and drops lanes closed as of
+// anchorEpoch. Returns the number of lanes dropped.
+func (i *inner) prune(anchor data.Anchor, anchorEpoch *types.Epoch) int {
+	idx := anchor.CommitQC.Index()
+	if idx >= i.roads.first {
+		i.roads.prune(idx + 1)
+		for lane, vq := range i.votes {
+			lr := anchor.CommitQC.LaneRange(lane)
+			bq := i.blocks[lane]
+			vq.prune(lr.Next())
+			bq.prune(lr.Next())
+			if i.nextBlockToPersist[lane] < lr.Next() {
+				i.nextBlockToPersist[lane] = lr.Next()
+			}
+		}
+		if i.roads.Len() == 0 {
+			i.persistedCommitQC.Store(utils.Some(anchor.CommitQC))
 		}
 	}
-	if i.roads.Len() == 0 {
-		i.persistedCommitQC.Store(utils.Some(anchor.CommitQC))
+	i.anchorEpoch = anchorEpoch
+	var closed []types.LaneID
+	for lane := range i.blocks {
+		if anchorEpoch.IsClosed(lane) {
+			closed = append(closed, lane)
+		}
 	}
+	return i.dropLanes(closed)
 }
