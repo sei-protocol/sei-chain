@@ -205,22 +205,15 @@ func (s *CompositeStateStore) evmRouted(storeKey string) bool {
 	return s.evmStore != nil && storeKey == evm.EVMStoreKey
 }
 
-// validateReadVersion rejects a version that one or more routed stores can no
-// longer serve. GetEarliestVersion reports the highest member floor, so applying
-// it here prevents a query from combining valid data from one member with empty
-// results from a further-pruned member.
-func (s *CompositeStateStore) validateReadVersion(version int64) error {
-	earliest := s.GetEarliestVersion()
-	if version < earliest {
-		return fmt.Errorf("state store version %d is below earliest available version %d", version, earliest)
-	}
-	return nil
-}
+// The read methods below route by store key and do not re-check
+// GetEarliestVersion. The cosmos KVStore wrapper over a StateStore panics on any
+// read error, and pruning can raise the floor after a query store was built, so
+// an error here would crash the process for a request that must merely fail. The
+// floor is enforced where an error is representable: query-store construction
+// and VersionExists. Below the floor a pruned member reports the key as absent,
+// as its engine already does.
 
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
-	if err := s.validateReadVersion(version); err != nil {
-		return nil, err
-	}
 	if s.evmRouted(storeKey) {
 		return s.evmStore.Get(storeKey, version, key)
 	}
@@ -228,9 +221,6 @@ func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([
 }
 
 func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
-	if err := s.validateReadVersion(version); err != nil {
-		return false, err
-	}
 	if s.evmRouted(storeKey) {
 		return s.evmStore.Has(storeKey, version, key)
 	}
@@ -238,9 +228,6 @@ func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (b
 }
 
 func (s *CompositeStateStore) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	if err := s.validateReadVersion(version); err != nil {
-		return nil, err
-	}
 	if s.evmRouted(storeKey) {
 		return s.evmStore.Iterator(storeKey, version, start, end)
 	}
@@ -248,9 +235,6 @@ func (s *CompositeStateStore) Iterator(storeKey string, version int64, start, en
 }
 
 func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	if err := s.validateReadVersion(version); err != nil {
-		return nil, err
-	}
 	if s.evmRouted(storeKey) {
 		return s.evmStore.ReverseIterator(storeKey, version, start, end)
 	}

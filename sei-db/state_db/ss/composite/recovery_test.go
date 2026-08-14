@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
+	dbm "github.com/tendermint/tm-db"
 )
 
 func newCompositeStateStoreWithStores(
@@ -112,32 +113,62 @@ func TestCompositeGetEarliestVersionReportsHighestMemberFloor(t *testing.T) {
 	require.Equal(t, int64(90), cs.GetEarliestVersion())
 }
 
-func TestCompositeReadsRejectVersionBelowHighestMemberFloor(t *testing.T) {
+// TestCompositeReadsBelowFloorDoNotError pins the read contract that keeps a
+// prune racing an in-flight query from crashing the node: the cosmos KVStore
+// wrapper panics on any read error, so a version below the reported floor must
+// route through and report absence instead of returning an error.
+func TestCompositeReadsBelowFloorDoNotError(t *testing.T) {
 	cosmos := &fakeStateStore{latest: 100, earliest: 50}
 	evmStore := &fakeStateStore{latest: 100, earliest: 75}
 	cs := newCompositeStateStoreWithStores(cosmos, evmStore, config.StateStoreConfig{EVMSplit: true})
+	require.Equal(t, int64(75), cs.GetEarliestVersion())
 
-	_, err := cs.Get("bank", 74, []byte("key"))
-	require.ErrorContains(t, err, "below earliest available version 75")
+	value, err := cs.Get("bank", 74, []byte("key"))
+	require.NoError(t, err)
+	require.Nil(t, value)
 
-	_, err = cs.Has(evm.EVMStoreKey, 74, []byte("key"))
-	require.ErrorContains(t, err, "below earliest available version 75")
+	has, err := cs.Has(evm.EVMStoreKey, 74, []byte("key"))
+	require.NoError(t, err)
+	require.False(t, has)
 
 	_, err = cs.Iterator("bank", 74, nil, nil)
-	require.ErrorContains(t, err, "below earliest available version 75")
+	require.NoError(t, err)
 
 	_, err = cs.ReverseIterator(evm.EVMStoreKey, 74, nil, nil)
-	require.ErrorContains(t, err, "below earliest available version 75")
+	require.NoError(t, err)
+
+	require.Equal(t, 4, cosmos.reads+evmStore.reads, "every read must reach its routed member")
 }
 
-// fakeStateStore stubs latest/earliest for validator tests.
+// fakeStateStore stubs latest/earliest and absent reads for validator tests.
 type fakeStateStore struct {
 	types.StateStore
 	latest, earliest int64
+	reads            int
 }
 
 func (f *fakeStateStore) GetLatestVersion() int64   { return f.latest }
 func (f *fakeStateStore) GetEarliestVersion() int64 { return f.earliest }
+
+func (f *fakeStateStore) Get(string, int64, []byte) ([]byte, error) {
+	f.reads++
+	return nil, nil
+}
+
+func (f *fakeStateStore) Has(string, int64, []byte) (bool, error) {
+	f.reads++
+	return false, nil
+}
+
+func (f *fakeStateStore) Iterator(string, int64, []byte, []byte) (dbm.Iterator, error) {
+	f.reads++
+	return nil, nil
+}
+
+func (f *fakeStateStore) ReverseIterator(string, int64, []byte, []byte) (dbm.Iterator, error) {
+	f.reads++
+	return nil, nil
+}
 
 func TestRecoverCompositeStateStore(t *testing.T) {
 	dir, err := os.MkdirTemp("", "composite_recovery_test")
