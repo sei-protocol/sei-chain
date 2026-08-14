@@ -1,10 +1,11 @@
 {
-    "Comment": "Same parameters as standard-perf.json, except that no new accounts are created once setup finishes. The key count stays fixed for the whole run, so the working set never grows and numbers stay flattering. Not representative of a chain that keeps onboarding accounts.",
+    "Comment": "Same parameters as standard-perf.json, except that no new accounts are created once setup finishes and blocks hold 4000 transactions. The key count stays fixed for the whole run, so the working set never grows, and the block size is double the consensus cap of 2000. Neither is representative of a real chain.",
     "DataDir": "data",
     "LogDir": "logs",
     "MinimumNumberOfColdAccounts": 1000000,
     "MinimumNumberOfDormantAccounts": 100000000,
     "NewAccountProbability": 0.0,
+    "TransactionsPerBlock": 4000,
     "FlatKVConfig": {
         "AccountStoreConfig": { "MaxSize": 1073741824 },
         "CodeStoreConfig": { "MaxSize": 1073741824 },
