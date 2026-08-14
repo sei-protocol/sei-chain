@@ -134,7 +134,7 @@ func NewCommittee(weights map[PublicKey]uint64) (*Committee, error) {
 // DeriveNext builds the committee for epoch e>0 from this committee:
 // validators that remain keep Joined; new members get Joined = e.
 func (c *Committee) DeriveNext(weights map[PublicKey]uint64, e EpochIndex) (*Committee, error) {
-	if e == 0 {
+	if e <= 0 {
 		return nil, errors.New("DeriveNext: epoch must be > 0")
 	}
 	return newCommittee(c.lanes, weights, e)

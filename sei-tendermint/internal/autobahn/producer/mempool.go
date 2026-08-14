@@ -208,6 +208,22 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
 		return nil, errTooLarge
 	}
+	// Reject / wait for a produce session before CheckTxSafe — IsFull and closed
+	// are checked after, since they can change while CheckTx runs.
+	var mp *mempool
+	var err error
+	if waitIfFull {
+		mp, err = s.getMempool(ctx)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		loaded, ok := s.mempool.Load().Get()
+		if !ok {
+			return nil, ErrNotProducing
+		}
+		mp = loaded
+	}
 	resp, err := s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil {
 		return nil, err
@@ -228,19 +244,6 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		return nil, errTooLarge
 	}
 
-	var mp *mempool
-	if waitIfFull {
-		mp, err = s.getMempool(ctx)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		loaded, ok := s.mempool.Load().Get()
-		if !ok {
-			return nil, ErrNotProducing
-		}
-		mp = loaded
-	}
 	for m, ctrl := range mp.inner.Lock() {
 		if m.closed {
 			return nil, ErrNotProducing

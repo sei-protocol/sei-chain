@@ -293,6 +293,7 @@ func TestInsertTx_GasWantedExceeded(t *testing.T) {
 	app := newTestApp()
 	cfg := app.Cfg()
 	env := newTestEnv(rng, cfg, app.Proxy())
+	env.alignLocalMempool()
 	// Tx with gas wanted exceeding block limit
 	addr, nonce := app.NewAccount(rng)
 	tx := env.genTx(rng, addr, nonce)
@@ -311,6 +312,7 @@ func TestInsertTx_GasEstimatedExceeded(t *testing.T) {
 	cfg.MaxGasEstimatedPerBlock = 10000
 	cfg.MaxGasWantedPerBlock = cfg.MaxGasEstimatedPerBlock * 2
 	env := newTestEnv(rng, cfg, app.Proxy())
+	env.alignLocalMempool()
 	// Tx with gas wanted exceeding block limit
 	addr, nonce := app.NewAccount(rng)
 	tx := env.genTx(rng, addr, nonce)
@@ -327,6 +329,7 @@ func TestInsertTx_AppRejectsTx(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
 	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
 	// Construct tx with invalid encoding.
 	tx := utils.GenBytes(rng, 1)
 	_, err := decodeTxSpec(tx)
