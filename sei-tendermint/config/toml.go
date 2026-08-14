@@ -303,8 +303,9 @@ ip-rate-limit-rps = {{ .RPC.IPRateLimitRPS }}
 # ip-rate-limit-burst is the maximum per-IP burst above the sustained rate.
 # Zero disables the token bucket (same effect as ip-rate-limit-rps = 0) and does
 # not bypass the admission middleware when rate-limiting-enabled is true. Must be
-# at least 10 when both are positive and rate-limiting-enabled is true because the
-# rate limiter charges one token per JSON-RPC batch element.
+# at least the JSON-RPC batch size limit when both are positive and
+# rate-limiting-enabled is true because the rate limiter charges one token per
+# JSON-RPC batch element.
 ip-rate-limit-burst = {{ .RPC.IPRateLimitBurst }}
 
 # rate-limiting-enabled is the master switch for the rate-limit admission

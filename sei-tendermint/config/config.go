@@ -15,6 +15,7 @@ import (
 	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -547,8 +548,8 @@ type RPCConfig struct {
 	// IPRateLimitBurst is the maximum per-IP burst size. Zero disables the token
 	// bucket (same effect as ip-rate-limit-rps = 0) and does not bypass the
 	// admission middleware when rate-limiting-enabled is true. Should be at least
-	// the JSON-RPC batch size limit (10) because the rate limiter charges one
-	// token per batch element.
+	// the JSON-RPC batch size limit because the rate limiter charges one token
+	// per batch element.
 	IPRateLimitBurst int `mapstructure:"ip-rate-limit-burst"`
 
 	// RateLimitingEnabled is the master switch for the rate-limit admission
@@ -657,9 +658,9 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	if cfg.MaxSearchScanBudget < 0 {
 		return errors.New("max-search-scan-budget can't be negative")
 	}
-	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.IPRateLimitBurst < 10 {
-		return fmt.Errorf("ip-rate-limit-burst (%d) must be >= 10: the rate limiter charges one token per batch element",
-			cfg.IPRateLimitBurst)
+	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.IPRateLimitBurst < rpctypes.RequestBatchSizeLimit {
+		return fmt.Errorf("ip-rate-limit-burst (%d) must be >= %d: the rate limiter charges one token per batch element",
+			cfg.IPRateLimitBurst, rpctypes.RequestBatchSizeLimit)
 	}
 	return nil
 }

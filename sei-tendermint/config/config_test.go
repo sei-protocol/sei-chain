@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,9 +99,9 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 
 	cfg3 := TestRPCConfig()
 	cfg3.RateLimitingEnabled = true
-	cfg3.IPRateLimitBurst = 5
+	cfg3.IPRateLimitBurst = rpctypes.RequestBatchSizeLimit - 1
 	assert.Error(t, cfg3.ValidateBasic())
-	cfg3.IPRateLimitBurst = 10
+	cfg3.IPRateLimitBurst = rpctypes.RequestBatchSizeLimit
 	assert.NoError(t, cfg3.ValidateBasic())
 	cfg3.IPRateLimitBurst = 0
 	assert.NoError(t, cfg3.ValidateBasic())
