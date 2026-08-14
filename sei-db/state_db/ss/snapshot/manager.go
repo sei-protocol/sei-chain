@@ -291,8 +291,11 @@ func (m *Manager) ModTime(version int64) time.Time {
 	return info.ModTime()
 }
 
+// PruneSnapshots deletes every snapshot below cutLine, never the current one. It acts whether or not
+// retention is external: an external collector prunes this store through here, and it is the internal
+// count-based retention that stands down instead.
 func (m *Manager) PruneSnapshots(cutLine int64) error {
-	if m == nil || m.externalPruning {
+	if m == nil {
 		return nil
 	}
 	versions, err := m.Versions()

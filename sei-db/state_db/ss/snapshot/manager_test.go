@@ -90,11 +90,28 @@ func TestManagerExternalPruningStandsDownInternalRetention(t *testing.T) {
 
 	stageAndCommit(t, manager, scheduler, 10)
 	stageAndCommit(t, manager, scheduler, 20)
+
+	versions, err := manager.Versions()
+	require.NoError(t, err)
+	require.Equal(t, []int64{10, 20}, versions,
+		"keepRecent would have dropped 10 if internal retention still ran")
+}
+
+// PruneSnapshots is how an external collector prunes this store, and external pruning is the only mode
+// it is called in, so the cut line must be honored there. The current snapshot survives it.
+func TestManagerPruneSnapshotsActsUnderExternalPruning(t *testing.T) {
+	root := t.TempDir()
+	scheduler := &controlledScheduler{pending: make(chan func(), 1)}
+	manager := openManager(t, root, scheduler, 0, true)
+
+	stageAndCommit(t, manager, scheduler, 10)
+	stageAndCommit(t, manager, scheduler, 20)
+
 	require.NoError(t, manager.PruneSnapshots(20))
 
 	versions, err := manager.Versions()
 	require.NoError(t, err)
-	require.Equal(t, []int64{10, 20}, versions)
+	require.Equal(t, []int64{20}, versions)
 }
 
 func TestManagerAbortRemovesStagedSnapshot(t *testing.T) {
