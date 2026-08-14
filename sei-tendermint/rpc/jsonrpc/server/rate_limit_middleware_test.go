@@ -312,7 +312,7 @@ func TestRateLimitMiddleware_POST_OversizeBodyReturns413(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", 100))))
 	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
-	require.Contains(t, rec.Body.String(), "request body too large")
+	requireJSONRPCError(t, rec.Body.Bytes(), int(rpctypes.CodeInvalidRequest), "request body too large")
 }
 
 func TestRateLimitMiddleware_POST_UnlimitedBodyWhenMaxBodyBytesZero(t *testing.T) {

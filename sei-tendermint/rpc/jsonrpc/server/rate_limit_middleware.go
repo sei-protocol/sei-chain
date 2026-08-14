@@ -96,7 +96,7 @@ func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.Respon
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
 		return
 	}
-	if isCometBFTPostJSONRPCRequest(r) && status != http.StatusRequestEntityTooLarge {
+	if isCometBFTPostJSONRPCRequest(r) {
 		writeJSONRPCErrorWithStatus(w, body, status, code, "%s", msg)
 		return
 	}
