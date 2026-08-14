@@ -188,7 +188,9 @@ func TestBlockBloom(t *testing.T) {
 	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, erc20Initializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", false)
-			blockBloomString := res["result"].(map[string]interface{})["logsBloom"]
+			block := res["result"].(map[string]interface{})
+			blockHash := block["hash"]
+			blockBloomString := block["logsBloom"]
 			blockBloomBz, _ := hex.DecodeString(strings.TrimPrefix(blockBloomString.(string), "0x"))
 			blockBloom := ethtypes.Bloom{}
 			blockBloom.SetBytes(blockBloomBz)
@@ -209,7 +211,7 @@ func TestBlockBloom(t *testing.T) {
 			bitutil.ORBytes(expected, tx1Bloom[:], tx2Bloom[:])
 			require.Equal(t, expected, blockBloom[:])
 
-			res = sendRequestWithNamespace("sei", port, "getBlockByNumber", "0x2", false)
+			res = sendRequestWithNamespace("sei", port, "getBlockByHash", blockHash, false)
 			blockBloomString = res["result"].(map[string]interface{})["logsBloom"]
 			blockBloomBz, _ = hex.DecodeString(strings.TrimPrefix(blockBloomString.(string), "0x"))
 			blockBloom = ethtypes.Bloom{}

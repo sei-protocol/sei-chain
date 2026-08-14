@@ -270,8 +270,8 @@ max_concurrent_simulation_calls = 0
 trace_allowed_tracers = ["callTracer", "prestateTracer", "flatCallTracer", "4byteTracer", "noopTracer", "muxTracer"]
 trace_allow_js_tracers = false
 
-# Legacy sei_* / sei2_* JSON-RPC (EVM HTTP only).
-# DEPRECATION: All sei_* and sei2_* methods are deprecated and scheduled for removal - no new integrations.
+# Legacy sei_* JSON-RPC (EVM HTTP only).
+# DEPRECATION: All sei_* methods are deprecated and scheduled for removal - no new integrations.
 # HTTP 200; gate errors: JSON-RPC error (data legacy_sei_deprecated). Success: unchanged body; optional header Sei-Legacy-RPC-Deprecation.
 # Same allowlist as docker/localnode (all gated methods except sei_sign for integration coverage).
 enabled_legacy_sei_apis = [
@@ -279,9 +279,6 @@ enabled_legacy_sei_apis = [
   "sei_associate",
   "sei_getBlockByHash",
   "sei_getBlockByHashExcludeTraceFail",
-  "sei_getBlockByNumber",
-  "sei_getBlockByNumberExcludeTraceFail",
-  "sei_getBlockReceipts",
   "sei_getBlockTransactionCountByHash",
   "sei_getBlockTransactionCountByNumber",
   "sei_getCosmosTx",
@@ -302,11 +299,4 @@ enabled_legacy_sei_apis = [
   "sei_newBlockFilter",
   "sei_newFilter",
   "sei_uninstallFilter",
-  "sei2_getBlockByHash",
-  "sei2_getBlockByHashExcludeTraceFail",
-  "sei2_getBlockByNumber",
-  "sei2_getBlockByNumberExcludeTraceFail",
-  "sei2_getBlockReceipts",
-  "sei2_getBlockTransactionCountByHash",
-  "sei2_getBlockTransactionCountByNumber",
 ]

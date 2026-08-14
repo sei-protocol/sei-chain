@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"encoding/hex"
-	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -42,8 +41,8 @@ func (*heightTestClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (*heightTestClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	return utils.None[*url.URL]()
+func (*heightTestClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	return utils.None[*rpc.Client]()
 }
 
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {
@@ -283,17 +282,6 @@ func TestGetBlockReceiptsGenesisByNumber(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, receipts)
 	require.Empty(t, receipts)
-}
-
-func TestGetBlockByNumberExcludeTraceFailGenesis(t *testing.T) {
-	t.Parallel()
-
-	client := newHeightTestClient(1, 1, 1)
-	api := NewSeiBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
-	block, err := api.GetBlockByNumberExcludeTraceFail(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.NotNil(t, block)
-	require.Equal(t, genesisBlockHashHex, block["hash"])
 }
 
 func TestGetBlockNumberByNrOrHashGenesis(t *testing.T) {

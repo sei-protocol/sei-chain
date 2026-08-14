@@ -27,21 +27,34 @@ func TestBuildSeiLegacyEnabledSet_Empty(t *testing.T) {
 }
 
 func TestBuildSeiLegacyEnabledSet_InitDefaults(t *testing.T) {
-	s := BuildSeiLegacyEnabledSet([]string{"sei_getSeiAddress", "sei_getEVMAddress", "sei_getCosmosTx"})
+	s := BuildSeiLegacyEnabledSet([]string{
+		"sei_getSeiAddress",
+		"sei_getEVMAddress",
+		"sei_getCosmosTx",
+		"sei_getBlockByNumber",
+		"sei_getBlockByNumberExcludeTraceFail",
+		"sei_getBlockReceipts",
+	})
 	if len(s) != 3 {
 		t.Fatalf("want 3 entries, got %d", len(s))
 	}
-	if _, ok := s["sei_getBlockByNumber"]; ok {
-		t.Fatal("block should be off")
+	for _, removed := range []string{
+		"sei_getBlockByNumber",
+		"sei_getBlockByNumberExcludeTraceFail",
+		"sei_getBlockReceipts",
+	} {
+		if _, ok := s[removed]; ok {
+			t.Fatalf("removed method %s should not be accepted", removed)
+		}
 	}
 }
 
 func TestBuildSeiLegacyEnabledSet_Extra(t *testing.T) {
-	s := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber", "SEI_GETBLOCKRECEIPTS"})
-	if _, ok := s["sei_getBlockByNumber"]; !ok {
-		t.Fatal("expected sei_getBlockByNumber")
+	s := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByHash", "SEI_GETBLOCKTRANSACTIONCOUNTBYHASH"})
+	if _, ok := s["sei_getBlockByHash"]; !ok {
+		t.Fatal("expected sei_getBlockByHash")
 	}
-	if _, ok := s["sei_getBlockReceipts"]; !ok {
+	if _, ok := s["sei_getBlockTransactionCountByHash"]; !ok {
 		t.Fatal("expected case-insensitive match")
 	}
 }
@@ -65,15 +78,15 @@ func TestSeiLegacyGateError_DisabledWhenEmptyAllowlist(t *testing.T) {
 }
 
 func TestSeiLegacyGateError_AllowedWhenListed(t *testing.T) {
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
-	err := seiLegacyGateError("Sei_GetBlockByNumber", enabled)
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByHash"})
+	err := seiLegacyGateError("Sei_GetBlockByHash", enabled)
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
 }
 
 func TestSeiLegacyGateError_UnknownSeiNamespaceFailsClosed(t *testing.T) {
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByHash"})
 	err := seiLegacyGateError("sei_notARealRegisteredMethod", enabled)
 	if err == nil {
 		t.Fatal("expected error for unknown sei_* method when allowlist is active")
@@ -84,27 +97,6 @@ func TestSeiLegacyGateError_UnknownSeiNamespaceFailsClosed(t *testing.T) {
 	}
 	if withData.ErrorData() != "legacy_sei_deprecated" {
 		t.Fatalf("error data: %v", withData.ErrorData())
-	}
-}
-
-func TestSeiLegacyGateError_Sei2BlockedUnlessListed(t *testing.T) {
-	err := seiLegacyGateError("sei2_getBlockByNumber", BuildSeiLegacyEnabledSet(nil))
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei2_getBlockByNumber"})
-	if err := seiLegacyGateError("SEI2_GETBLOCKBYNUMBER", enabled); err != nil {
-		t.Fatalf("unexpected: %v", err)
-	}
-}
-
-func TestBuildSeiLegacyEnabledSet_IncludesSei2(t *testing.T) {
-	s := BuildSeiLegacyEnabledSet([]string{"sei2_getBlockReceipts"})
-	if _, ok := s["sei2_getBlockReceipts"]; !ok {
-		t.Fatalf("got %v", s)
-	}
-	if _, ok := s["sei_getBlockReceipts"]; ok {
-		t.Fatal("sei_* should not be enabled from sei2_ name only")
 	}
 }
 
@@ -119,7 +111,7 @@ func TestWrapSeiLegacyHTTP_UnknownSeiMethodBlocked(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner should not run for unknown sei_* method")
 	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByHash"})
 	h := wrapSeiLegacyHTTP(inner, enabled, 0)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"sei_futureHypotheticalMethod","params":[]}`))
@@ -180,12 +172,12 @@ func TestWrapSeiLegacyHTTP_RaisedBodyLimitNotTruncated(t *testing.T) {
 		gotLen = len(b)
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
 	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByHash"})
 	h := wrapSeiLegacyHTTP(inner, enabled, maxBody)
 
 	// Allowed gated method with a padded param pushing the body well past 5MiB.
 	pad := strings.Repeat("a", 6*1024*1024)
-	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["` + pad + `"]}`
+	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByHash","params":["` + pad + `"]}`
 	if len(body) <= seiLegacyHTTPDefault5MiB {
 		t.Fatalf("test body %d must exceed 5MiB to exercise truncation", len(body))
 	}
@@ -205,13 +197,13 @@ func TestWrapSeiLegacyHTTP_OverLimitBodyRejectedNotTruncated(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		innerCalled = true
 	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByHash"})
 	h := wrapSeiLegacyHTTP(inner, enabled, maxBody)
 
 	// Body exceeds maxBody. The gate must reject with 413 rather than silently
 	// truncating to maxBody and forwarding to the inner handler.
 	pad := strings.Repeat("a", maxBody)
-	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["` + pad + `"]}`
+	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByHash","params":["` + pad + `"]}`
 	if int64(len(body)) <= maxBody {
 		t.Fatalf("test body %d must exceed maxBody %d", len(body), maxBody)
 	}
@@ -239,10 +231,10 @@ func TestWrapSeiLegacyHTTP_BodyExactlyAtLimitForwarded(t *testing.T) {
 		gotLen = len(b)
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
 	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByHash"})
 	h := wrapSeiLegacyHTTP(inner, enabled, maxBody)
 
-	prefix := `{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["`
+	prefix := `{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByHash","params":["`
 	suffix := `"]}`
 	pad := strings.Repeat("a", maxBody-len(prefix)-len(suffix))
 	body := prefix + pad + suffix
@@ -269,9 +261,9 @@ func TestWrapSeiLegacyHTTP_BodyExactlyAtLimitForwarded(t *testing.T) {
 // be rejected with 413 without reaching the inner handler, and an at-limit body must pass.
 func TestComposedStack_OverLimitRejectedConsistently(t *testing.T) {
 	const maxBody = 1024
-	prefix := `{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["`
+	prefix := `{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByHash","params":["`
 	suffix := `"]}`
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByHash"})
 
 	mkBody := func(total int) string {
 		return prefix + strings.Repeat("a", total-len(prefix)-len(suffix)) + suffix
@@ -324,10 +316,10 @@ func TestWrapSeiLegacyHTTP_AllowedMethodPassthroughAndDeprecationHeader(t *testi
 		called = true
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"number":"0x1"}}`))
 	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByNumber"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByHash"})
 	h := wrapSeiLegacyHTTP(inner, enabled, 0)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(
-		`{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":["latest",false]}`))
+		`{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByHash","params":["0x1",false]}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -371,46 +363,6 @@ func TestWrapSeiLegacyHTTP_StringResultPassthrough(t *testing.T) {
 	}
 	if rec.Header().Get(SeiLegacyDeprecationHTTPHeader) == "" {
 		t.Fatal("expected deprecation HTTP header")
-	}
-}
-
-func TestWrapSeiLegacyHTTP_Sei2BlockedWhenNotAllowlisted(t *testing.T) {
-	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		t.Fatal("inner should not run")
-	})
-	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil), 0)
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(
-		`{"jsonrpc":"2.0","id":1,"method":"sei2_getBlockByNumber","params":["latest",false]}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	var resp map[string]interface{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp["error"] == nil {
-		t.Fatalf("expected error: %s", rec.Body.String())
-	}
-}
-
-func TestWrapSeiLegacyHTTP_Sei2AllowlistedPassthroughAndHeader(t *testing.T) {
-	called := false
-	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"number":"0x1"}}`))
-	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei2_getBlockByNumber"})
-	h := wrapSeiLegacyHTTP(inner, enabled, 0)
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(
-		`{"jsonrpc":"2.0","id":1,"method":"sei2_getBlockByNumber","params":["latest",false]}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if !called {
-		t.Fatal("inner should run")
-	}
-	if rec.Header().Get(SeiLegacyDeprecationHTTPHeader) == "" {
-		t.Fatal("expected deprecation header")
 	}
 }
 

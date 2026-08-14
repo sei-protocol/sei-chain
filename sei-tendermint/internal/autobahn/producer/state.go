@@ -97,7 +97,6 @@ func (s *State) Run(ctx context.Context) error {
 				burst = int(l + s.cfg.MaxTxsPerBlock) // nolint:gosec
 			}
 			limiter := rate.NewLimiter(limit, burst)
-			lastBlockTime := time.Now()
 			for toProduce := firstBlock; ; toProduce += 1 {
 				if err := availState.WaitForLocalCapacity(ctx, toProduce); err != nil {
 					return fmt.Errorf("availState.WaitForLocalCapacity(): %w", err)
@@ -105,10 +104,12 @@ func (s *State) Run(ctx context.Context) error {
 				var payload *types.Payload
 				// Wait until either
 				// * there is a full proposal in mempool
-				// * BlockInterval since the last block passed AND (AllowEmptyBlocks OR mempool is non-empty)
+				// * BlockInterval passed AND (AllowEmptyBlocks OR mempool is non-empty)
 				for m, ctrl := range s.mempool.Lock() {
 					// Wait for full payload with timeout.
-					if err := utils.WithDeadline(ctx, utils.Some(lastBlockTime.Add(s.cfg.BlockInterval)), func(ctx context.Context) error {
+					// Note that in total the time between blocks is WaitForLocalCapacity delay + BlockInterval
+					// We don't want to cap them together with BlockInterval, because that will cause production of almost empty blocks.
+					if err := utils.WithTimeout(ctx, s.cfg.BlockInterval, func(ctx context.Context) error {
 						return ctrl.WaitUntil(ctx, func() bool { return toProduce < m.next })
 					}); err != nil {
 						if ctx.Err() != nil {
@@ -149,7 +150,7 @@ func (s *State) Run(ctx context.Context) error {
 				if _, err := availState.ProduceLocalBlock(toProduce, payload); err != nil {
 					return fmt.Errorf("availState.ProduceLocalBlock(): %w", err)
 				}
-				lastBlockTime = time.Now()
+				// TODO(gprusak): move this limit to insertTx instead.
 				if err := limiter.WaitN(ctx, len(payload.Txs())); err != nil {
 					return fmt.Errorf("limiter(): %w", err)
 				}

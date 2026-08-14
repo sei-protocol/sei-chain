@@ -26,7 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -206,7 +205,6 @@ func filterTransactions(
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
 	includeSyntheticTxs bool,
-	includeBankTransfers bool,
 	cacheCreationMutex *sync.Mutex,
 	globalBlockCache BlockCache,
 ) []indexedMsg {
@@ -257,11 +255,6 @@ func filterTransactions(
 				th := sha256.Sum256(block.Block.Txs[i])
 				_, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
 				if !found {
-					continue
-				}
-				txs = append(txs, indexedMsg{index: i, msg: msg})
-			case *banktypes.MsgSend:
-				if !includeBankTransfers {
 					continue
 				}
 				txs = append(txs, indexedMsg{index: i, msg: msg})
@@ -334,7 +327,7 @@ func getTxHashesFromBlock(
 	globalBlockCache BlockCache,
 ) []typedTxHash {
 	txHashes := []typedTxHash{}
-	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false, cacheCreationMutex, globalBlockCache) {
+	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, cacheCreationMutex, globalBlockCache) {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
