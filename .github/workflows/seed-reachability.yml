@@ -2,14 +2,20 @@ name: Seed Reachability
 run-name: Seed Reachability / published seeds serve P2P
 
 # Dials the published Sei Labs seed endpoints and asserts each one actually
-# speaks P2P, rather than merely accepting the TCP connection. Seed mode
-# publishes no Prometheus metrics and the pods report Ready while serving
-# nothing, so this is the only signal that would catch a seed going dark.
+# speaks P2P, rather than merely accepting the TCP connection.
 #
-# Manual for now. It talks to live external infrastructure, so it is not a PR
-# gate: a seed hiccup or CI egress trouble must not block unrelated work. The
-# scheduled trigger is added once every published seed is serving, so its first
-# automated run is green rather than red.
+# Deliberately manual. This is a verification tool, not a monitor:
+#
+#   - run it after the seeds are rolled onto a new build, to confirm they came
+#     back
+#   - run it before cutting a release that ships the seed defaults
+#   - run it when someone reports trouble bootstrapping
+#
+# Not a PR gate, because it talks to live external infrastructure and a seed
+# hiccup or CI egress trouble must not block unrelated work. Not scheduled
+# either: continuous detection of a seed going dark belongs in the monitoring
+# stack, which cannot see seeds today because seed mode starts no Prometheus
+# listener. A cron here would paper over that rather than fix it.
 on:
   workflow_dispatch:
 
