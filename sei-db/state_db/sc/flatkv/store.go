@@ -285,8 +285,6 @@ func NewCommitStore(
 	}, nil
 }
 
-// lthashWorkerCount computes the fixed lattice-hash pool worker count from
-// config, clamped to at least 1 (LtHash computation always needs a worker).
 // initializeDataDirectories sets the DataDir for each nested PebbleDB config
 // that does not already have one, using DataDir as the base path. The DBs live
 // under the working directory: <DataDir>/working/<subdir>.
@@ -308,6 +306,7 @@ func initializeDataDirectories(c *config.Config) {
 		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
 	}
 	applyPebbleMetricsConfig(c)
+	applyFlushSyncConfig(c)
 }
 
 func applyPebbleMetricsConfig(c *config.Config) {
@@ -326,6 +325,16 @@ func applyPebbleMetricsConfig(c *config.Config) {
 	c.MetadataDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 }
 
+func applyFlushSyncConfig(c *config.Config) {
+	c.AccountStoreConfig.FlushSync = c.Fsync
+	c.CodeStoreConfig.FlushSync = c.Fsync
+	c.StorageStoreConfig.FlushSync = c.Fsync
+	c.MiscStoreConfig.FlushSync = c.Fsync
+	c.MetadataStoreConfig.FlushSync = c.Fsync
+}
+
+// lthashWorkerCount computes the fixed lattice-hash pool worker count from
+// config, clamped to at least 1 (LtHash computation always needs a worker).
 func lthashWorkerCount(cfg *config.Config, coreCount int) int {
 	n := int(cfg.LtHashThreadsPerCore * float64(coreCount))
 	if n < 1 {

@@ -19,9 +19,10 @@ type Config struct {
 	// Must be set before calling Validate().
 	DataDir string
 
-	// Fsync controls whether PebbleDB writes (data DBs + metadataDB) use fsync.
-	// WAL always uses NoSync (matching memiavl); crash recovery relies on
-	// WAL catchup, which is idempotent.
+	// Fsync controls whether FlatKV's PebbleDB commits are fsync'd: the metadata database's
+	// writes and every snapshot engine's flush. It overwrites each store config's FlushSync,
+	// so the five databases are always synced alike. The state WAL is unaffected and always
+	// writes NoSync.
 	// Default: false
 	Fsync bool `mapstructure:"fsync"`
 

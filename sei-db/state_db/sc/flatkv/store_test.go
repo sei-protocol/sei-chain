@@ -67,6 +67,43 @@ func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
 	require.False(t, cfg.MetadataDBConfig.EnableMetrics)
 }
 
+func TestInitializeDataDirectoriesPropagatesFsync(t *testing.T) {
+	for _, fsync := range []bool{true, false} {
+		cfg := config.DefaultConfig()
+		cfg.DataDir = t.TempDir()
+		cfg.Fsync = fsync
+		// Seeded opposite so the assertion cannot pass on the default alone.
+		cfg.AccountStoreConfig.FlushSync = !fsync
+		cfg.CodeStoreConfig.FlushSync = !fsync
+		cfg.StorageStoreConfig.FlushSync = !fsync
+		cfg.MiscStoreConfig.FlushSync = !fsync
+		cfg.MetadataStoreConfig.FlushSync = !fsync
+
+		initializeDataDirectories(cfg)
+
+		require.Equal(t, fsync, cfg.AccountStoreConfig.FlushSync)
+		require.Equal(t, fsync, cfg.CodeStoreConfig.FlushSync)
+		require.Equal(t, fsync, cfg.StorageStoreConfig.FlushSync)
+		require.Equal(t, fsync, cfg.MiscStoreConfig.FlushSync)
+		require.Equal(t, fsync, cfg.MetadataStoreConfig.FlushSync)
+	}
+}
+
+func TestStoreFsyncReachesEveryStoreConfig(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.Fsync = true
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	defer s.Close()
+
+	require.True(t, s.config.AccountStoreConfig.FlushSync)
+	require.True(t, s.config.CodeStoreConfig.FlushSync)
+	require.True(t, s.config.StorageStoreConfig.FlushSync)
+	require.True(t, s.config.MiscStoreConfig.FlushSync)
+	require.True(t, s.config.MetadataStoreConfig.FlushSync)
+}
+
 func TestStoreClose(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
