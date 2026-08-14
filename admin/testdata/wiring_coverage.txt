@@ -13,3 +13,4 @@ admin_server	CheckEveryRowHasADiscriminatingSeed
 admin_server	CheckKeyNames
 admin_server	CheckManifestCoversEveryField
 admin_server	CheckRow
+admin_server	CheckZeroWhenAbsentMatchesTheReader

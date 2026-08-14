@@ -78,6 +78,7 @@ and `TestGuideListsEveryPrimitive` holds it to the exported surface.
 | `CheckSchemaMatchesTheReader` | a section whose keys are declared by a purpose-written struct pairs a key with the wrong setting, or resolves a baseline the reader does not | the reader itself, by writing a probe value under each key and observing which setting changed |
 | `CheckAbsentReadDivergences` | a key whose value changes for a node that has it missing, because its reader resolves an absent key to zero rather than to the default beside it | `testdata/<section>.absent.golden`, one row per key with both values |
 | `CheckDeclaredSurface` | a key added, removed, renamed or retyped, or a baseline changed, in any declared section | `testdata/<name>.surface.golden`, every section, key and per-mode baseline as text |
+| `CheckZeroWhenAbsentMatchesTheReader` | a migration writing a key's default where the node runs its zero, or the reverse | the reader itself, by writing each candidate and requiring the reader's output to be unchanged |
 | `CheckWiring` | one of the calls above is deleted | `testdata/wiring_coverage.txt` |
 | `CheckExperimentalDeclarations` | a declaration whose name or metadata is refused reaches a binary, where it is inert and every read of it silently returns the default | the registry, and each declaration's own `Check` run against its own default |
 | `CheckExperimentalGolden` | a key is added, removed, renamed, re-typed, re-owned or re-defaulted without the change being visible | `testdata/<name>.experimental.golden`, keyed by name |

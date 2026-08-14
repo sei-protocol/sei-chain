@@ -14,6 +14,13 @@ const SectionName = "evm"
 // registry derives what a node actually reads without anything being restated here.
 func init() {
 	registry.RegisterSection(SectionName, &Config{}, baseline)
+
+	// This section's baseline varies by node mode and its reader's default does not. seid init writes
+	// these per mode, so the baseline matches a node it provisioned, while a node whose file lacks them
+	// serves both interfaces whatever kind of node it is. A migration has to carry what the node runs,
+	// which is that, so the value is named rather than derived from either rule.
+	registry.DeclareValueWhenAbsent(SectionName, flagHTTPEnabled, DefaultConfig.HTTPEnabled)
+	registry.DeclareValueWhenAbsent(SectionName, flagWSEnabled, DefaultConfig.WSEnabled)
 }
 
 // baseline is what this section resolves to for a node that has written nothing.

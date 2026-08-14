@@ -14,3 +14,4 @@ wasm	CheckKeyNames
 wasm	CheckManifestCoversEveryField
 wasm	CheckRow
 wasm	CheckSchemaMatchesTheReader
+wasm	CheckZeroWhenAbsentMatchesTheReader

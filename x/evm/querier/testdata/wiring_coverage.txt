@@ -13,3 +13,4 @@ evm_query	CheckEveryRowHasADiscriminatingSeed
 evm_query	CheckKeyNames
 evm_query	CheckManifestCoversEveryField
 evm_query	CheckRow
+evm_query	CheckZeroWhenAbsentMatchesTheReader

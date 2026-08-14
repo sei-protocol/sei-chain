@@ -7,7 +7,12 @@
 # Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update` and read the diff.
 
 api	CheckSchemaMatchesTheReader
+api	CheckZeroWhenAbsentMatchesTheReader
 base	CheckSchemaMatchesTheReader
+base	CheckZeroWhenAbsentMatchesTheReader
 grpc	CheckSchemaMatchesTheReader
+grpc	CheckZeroWhenAbsentMatchesTheReader
 state-sync	CheckNoExperimentalKeyShadowsThisSection
+state-sync	CheckZeroWhenAbsentMatchesTheReader
 telemetry	CheckSchemaMatchesTheReader
+telemetry	CheckZeroWhenAbsentMatchesTheReader

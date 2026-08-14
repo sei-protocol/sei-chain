@@ -373,3 +373,27 @@ func TestNoExperimentalKeyShadowsStateCommitAfterRegistration(t *testing.T) {
 	}
 	configtest.CheckNoExperimentalKeyShadowsThisSection(t, StateCommitSectionName, specs)
 }
+
+// The value a migration writes for a key an operator's files do not carry, held against what each reader
+// actually does with an absent key. The section name stays a literal, since the wiring record reads it from
+// the call's second argument.
+
+func TestTheStateStoreZeroWhenAbsentDeclarationMatchesItsReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "state-store",
+		func(o configtest.AppOpts) (any, error) { return parseSSConfigs(o), nil })
+}
+
+func TestTheStateCommitZeroWhenAbsentDeclarationMatchesItsReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "state-commit",
+		func(o configtest.AppOpts) (any, error) { return parseSCConfigs(o), nil })
+}
+
+func TestTheGenesisZeroWhenAbsentDeclarationMatchesItsReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "genesis",
+		func(o configtest.AppOpts) (any, error) { return ReadGenesisImportConfig(o) })
+}
+
+func TestTheLightInvarianceZeroWhenAbsentDeclarationMatchesItsReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "light_invariance",
+		func(o configtest.AppOpts) (any, error) { return ReadLightInvarianceConfig(o) })
+}

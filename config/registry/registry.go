@@ -412,6 +412,8 @@ func Reset() {
 	sections = map[string]Section{}
 	defects = nil
 	envCannotDeliver = map[string]string{}
+	zeroWhenAbsent = map[string]bool{}
+	valueWhenAbsent = map[string]any{}
 }
 
 // EnvPrefix is the environment namespace for every derived key.

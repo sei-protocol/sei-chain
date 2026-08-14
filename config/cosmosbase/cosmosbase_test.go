@@ -341,3 +341,39 @@ func TestTheLabelSetIsRefusedFromTheEnvironment(t *testing.T) {
 			"section it belongs to")
 	}
 }
+
+// The value a migration writes for a key an operator's files do not carry, for each upstream section.
+// Nine of these keys are also bound start flags, whose registration default reaches the reader first, so a
+// migration consults the flag before it consults this. The declaration describes the reader.
+
+func TestTheBaseZeroWhenAbsentDeclarationMatchesItsReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "base", readBaseConfig)
+}
+
+func TestTheAPIZeroWhenAbsentDeclarationMatchesItsReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "api", func(o configtest.AppOpts) (any, error) {
+		c, err := readServerConfig(o)
+		return c.API, err
+	})
+}
+
+func TestTheGRPCZeroWhenAbsentDeclarationMatchesItsReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "grpc", func(o configtest.AppOpts) (any, error) {
+		c, err := readServerConfig(o)
+		return c.GRPC, err
+	})
+}
+
+func TestTheTelemetryZeroWhenAbsentDeclarationMatchesItsReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "telemetry", func(o configtest.AppOpts) (any, error) {
+		c, err := readServerConfig(o)
+		return c.Telemetry, err
+	})
+}
+
+func TestTheStateSyncZeroWhenAbsentDeclarationMatchesItsReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "state-sync", func(o configtest.AppOpts) (any, error) {
+		c, err := readServerConfig(o)
+		return c.StateSync, err
+	})
+}

@@ -13,3 +13,4 @@ giga_executor	CheckEveryRowHasADiscriminatingSeed
 giga_executor	CheckKeyNames
 giga_executor	CheckManifestCoversEveryField
 giga_executor	CheckRow
+giga_executor	CheckZeroWhenAbsentMatchesTheReader

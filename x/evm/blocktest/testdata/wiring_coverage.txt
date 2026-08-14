@@ -13,3 +13,4 @@ eth_blocktest	CheckEveryRowHasADiscriminatingSeed
 eth_blocktest	CheckKeyNames
 eth_blocktest	CheckManifestCoversEveryField
 eth_blocktest	CheckRow
+eth_blocktest	CheckZeroWhenAbsentMatchesTheReader

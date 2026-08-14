@@ -70,3 +70,10 @@ func TestNoExperimentalKeyShadowsThisSectionAfterRegistration(t *testing.T) {
 	}
 	configtest.CheckNoExperimentalKeyShadowsThisSection(t, SectionName, specs)
 }
+
+// TestTheZeroWhenAbsentDeclarationMatchesThisReader holds what a migration writes for a key this
+// section's keys are absent from, against what the reader actually does with an absent key.
+func TestTheZeroWhenAbsentDeclarationMatchesThisReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "eth_blocktest",
+		func(o configtest.AppOpts) (any, error) { return ReadConfig(o) })
+}

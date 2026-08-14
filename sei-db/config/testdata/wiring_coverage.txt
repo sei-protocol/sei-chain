@@ -13,3 +13,4 @@ receipt-store	CheckEveryRowHasADiscriminatingSeed
 receipt-store	CheckKeyNames
 receipt-store	CheckManifestCoversEveryField
 receipt-store	CheckRow
+receipt-store	CheckZeroWhenAbsentMatchesTheReader

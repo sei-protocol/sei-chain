@@ -13,3 +13,4 @@ evm	CheckEveryRowHasADiscriminatingSeed
 evm	CheckKeyNames
 evm	CheckManifestCoversEveryField
 evm	CheckRow
+evm	CheckZeroWhenAbsentMatchesTheReader

@@ -37,6 +37,19 @@ func init() {
 	registry.RegisterSection(GenesisSectionName, &genesisSchema{}, genesisBaseline)
 	registry.RegisterSection(StateStoreSectionName, &stateStoreSchema{}, stateStoreBaseline)
 	registry.RegisterSection(StateCommitSectionName, &stateCommitSchema{}, stateCommitBaseline)
+
+	// parseSSConfigs assigns every field straight from a lookup, so a key nothing supplies resolves to
+	// the zero and the default beside it is lost. A migration writing the default for these changes what
+	// the node runs: enabling the state store on a node whose store has no data stops it starting.
+	registry.DeclareZeroWhenAbsent(StateStoreSectionName,
+		FlagSSEnable, FlagSSBackend, FlagSSAsyncWriterBuffer,
+		FlagSSKeepRecent, FlagSSPruneInterval, FlagSSImportNumWorkers,
+	)
+
+	// parseSCConfigs checks the rest of its reads, and not this one. A node with state commitment off
+	// does not start at all, so no running node has this key absent, but the declaration follows the
+	// reader rather than what is likely.
+	registry.DeclareZeroWhenAbsent(StateCommitSectionName, FlagSCEnable)
 }
 
 // lightInvarianceBaseline is what this section resolves to for a node that has written nothing.

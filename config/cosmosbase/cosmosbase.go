@@ -45,6 +45,25 @@ func init() {
 	// The label set is a list of name/value pairs and the reader takes that exact type rather than casting
 	// what it finds. An environment variable carries one string, so there is no value of it the reader can
 	// use, and resolving one would install a value that stops the node.
+	// The upstream server configuration reader assigns these straight from a lookup, so a key nothing
+	// supplies resolves to the zero rather than to the default beside it. Nine of them are also bound
+	// start flags, whose registration default reaches the reader first, so a migration consults the flag
+	// before it consults this. The declaration describes the reader; what a node actually resolves is
+	// decided by which channel answers.
+	registry.DeclareZeroWhenAbsent(BaseSectionName,
+		"concurrency-workers", "inter-block-cache", "minimum-gas-prices", "occ-enabled",
+		"pruning", "pruning-interval", "pruning-keep-recent",
+	)
+	registry.DeclareZeroWhenAbsent(APISectionName,
+		"api.address", "api.max-open-connections", "api.rpc-max-body-bytes",
+		"api.rpc-read-timeout", "api.swagger",
+	)
+	registry.DeclareZeroWhenAbsent(GRPCSectionName, "grpc.address", "grpc.enable")
+	registry.DeclareZeroWhenAbsent(StateSyncSectionName, "state-sync.snapshot-keep-recent")
+	registry.DeclareZeroWhenAbsent(TelemetrySectionName,
+		"telemetry.enabled", "telemetry.prometheus-retention-time",
+	)
+
 	registry.RefuseFromEnvironment(GlobalLabelsKey,
 		"the metric label set is a list of name/value pairs and its reader takes that exact type rather "+
 			"than casting, so no single environment string can supply it. Write it in sei.toml instead")

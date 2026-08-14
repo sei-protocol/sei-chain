@@ -6,7 +6,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/config/registry"
+	"github.com/sei-protocol/sei-chain/evmrpc/config"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
 // The second section to enter the registry, and the first whose baseline varies by mode.
@@ -130,4 +132,11 @@ func TestRegisteringProducedNoDefect(t *testing.T) {
 				"from the legacy path instead", defect.Section, defect.Err)
 		}
 	}
+}
+
+// TestTheZeroWhenAbsentDeclarationMatchesThisReader holds what a migration writes for a key this
+// section's keys are absent from, against what the reader actually does with an absent key.
+func TestTheZeroWhenAbsentDeclarationMatchesThisReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "evm",
+		func(o configtest.AppOpts) (any, error) { return config.ReadConfig(o) })
 }

@@ -130,3 +130,10 @@ func TestNoExperimentalKeyShadowsReceiptStoreAfterRegistration(t *testing.T) {
 	}
 	configtest.CheckNoExperimentalKeyShadowsThisSection(t, ReceiptStoreSectionName, specs)
 }
+
+// TestTheZeroWhenAbsentDeclarationMatchesThisReader holds what a migration writes for a key this
+// section's keys are absent from, against what the reader actually does with an absent key.
+func TestTheZeroWhenAbsentDeclarationMatchesThisReader(t *testing.T) {
+	configtest.CheckZeroWhenAbsentMatchesTheReader(t, "receipt-store",
+		func(o configtest.AppOpts) (any, error) { return ReadReceiptConfig(o) })
+}
