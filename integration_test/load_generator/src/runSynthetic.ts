@@ -11,6 +11,7 @@ import { cosmosWalletAt, privateKeyAt, replayRegistry } from './keys';
 import { LoadAuditWriter } from './loadAudit';
 import { LoadGeneratorConfig } from './loadConfig';
 import { LoadMetrics, LoadOutcome } from './loadMetrics';
+import { formatRunSummary, LoadStopReason, summarizeRun } from './loadSummary';
 import {
     ReplayDeploymentManifest,
     REPLAY_DEPLOYMENT_SCHEMA_VERSION,
@@ -122,8 +123,10 @@ export async function runSynthetic(config: LoadGeneratorConfig): Promise<void> {
         config.auditRetainFiles,
     );
     const abort = new AbortController();
+    let stopReason: LoadStopReason = 'completed';
     const requestStop = (signal: string) => {
         if (abort.signal.aborted) return;
+        stopReason = 'signal';
         console.log(`Received ${signal}; stopping new submissions...`);
         abort.abort();
     };
@@ -176,6 +179,9 @@ export async function runSynthetic(config: LoadGeneratorConfig): Promise<void> {
                 `(safety ceiling ${config.maxTps} tx/s)`,
         );
         await runSchedule(config, target.cosmosRpcUrl, workers, operations, metrics, audit, abort);
+    } catch (error) {
+        stopReason = 'error';
+        throw error;
     } finally {
         metrics.setReady(false);
         abort.abort();
@@ -186,8 +192,46 @@ export async function runSynthetic(config: LoadGeneratorConfig): Promise<void> {
             }),
         );
         await audit.flush();
+        await reportRun(config, executionId, startedAt, stopReason, metrics);
         await metrics.close();
         provider.destroy();
+    }
+}
+
+/**
+ * Writes this process's aggregate report next to the run manifest and prints it. A reporting
+ * failure is logged rather than thrown, so it cannot replace the error that ended the run.
+ */
+async function reportRun(
+    config: LoadGeneratorConfig,
+    executionId: string,
+    startedAt: string,
+    stopReason: LoadStopReason,
+    metrics: LoadMetrics,
+): Promise<void> {
+    try {
+        const completedAt = new Date();
+        const summary = summarizeRun(
+            {
+                runId: config.runId,
+                executionId,
+                loadType: config.type,
+                targetTps: config.tps,
+                workerCount: config.workerCount,
+                partitionIndex: config.partitionIndex,
+            },
+            {
+                startedAt,
+                completedAt: completedAt.toISOString(),
+                durationSeconds: (completedAt.getTime() - Date.parse(startedAt)) / 1_000,
+            },
+            stopReason,
+            await metrics.snapshot(),
+        );
+        await writeJsonAtomic(path.join(config.runtimeDirectory, 'summary.json'), summary);
+        console.log(formatRunSummary(summary));
+    } catch (error) {
+        console.error(`Run summary unavailable: ${error instanceof Error ? error.message : error}`);
     }
 }
 

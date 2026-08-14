@@ -6,6 +6,8 @@ import path from 'node:path';
 import { loadProvisionConfig } from '../src/config';
 import { LoadAuditWriter } from '../src/loadAudit';
 import { loadGeneratorConfig } from '../src/loadConfig';
+import { LoadMetrics } from '../src/loadMetrics';
+import { formatRunSummary, histogramQuantile, summarizeRun } from '../src/loadSummary';
 import { configureProvisioningEnvironment } from '../src/runLoad';
 import { selectWorkerUsers } from '../src/runSynthetic';
 import {
@@ -85,6 +87,18 @@ describe('multi-mode load generator', () => {
         ).to.throw('worker count 5 exceeds USERS_PER_PARTITION 4');
     });
 
+    it('rejects an unresolved downward-api value instead of defaulting it', () => {
+        expect(() => loadGeneratorConfig(['--type', 'defi'], { PARTITION_INDEX: '' })).to.throw(
+            'PARTITION_INDEX must be a non-negative integer',
+        );
+        expect(() => loadGeneratorConfig(['--type', 'defi'], { METRICS_PORT: ' ' })).to.throw(
+            'METRICS_PORT must be a non-negative integer',
+        );
+        expect(loadGeneratorConfig(['--type', 'defi'], { METRICS_PORT: '0' }).metricsPort).to.equal(
+            0,
+        );
+    });
+
     it('assigns disjoint deterministic user-pool partitions', () => {
         const users: ReplayUserManifest['users'] = Array.from({ length: 6 }, (_, offset) => {
             const index = offset + 1;
@@ -120,6 +134,62 @@ describe('multi-mode load generator', () => {
         );
         expect(provisionEnvironment.USER_COUNT).to.equal('40');
         expect(provisionEnvironment.WORKER_COUNT).to.equal('40');
+    });
+
+    it('reports run totals and latency percentiles from the collected metrics', async () => {
+        const metrics = new LoadMetrics('defi', 20);
+        for (let count = 0; count < 100; count++) {
+            metrics.record('evm', 'swap_a_to_b', 'submitted');
+        }
+        for (let count = 0; count < 90; count++) {
+            metrics.record('evm', 'swap_a_to_b', 'included');
+            metrics.observe('evm', 'swap_a_to_b', 'included', 0.2);
+        }
+        for (let count = 0; count < 10; count++) {
+            metrics.record('evm', 'swap_a_to_b', 'rejected');
+        }
+        metrics.record('cosmos', 'cosmos_bank_send', 'skipped');
+
+        const summary = summarizeRun(
+            {
+                runId: 'summary-test',
+                executionId: 'execution-a',
+                loadType: 'defi',
+                targetTps: 20,
+                workerCount: 40,
+                partitionIndex: 1,
+            },
+            {
+                startedAt: new Date(0).toISOString(),
+                completedAt: new Date(10_000).toISOString(),
+                durationSeconds: 10,
+            },
+            'completed',
+            await metrics.snapshot(),
+        );
+
+        expect(summary.transactions.offered).to.equal(101);
+        expect(summary.transactions.submitted).to.equal(100);
+        expect(summary.transactions.included).to.equal(90);
+        expect(summary.transactions.successRatePercent).to.equal(90);
+        expect(summary.throughput.includedTps).to.equal(9);
+        expect(summary.includedLatencySeconds.mean).to.equal(0.2);
+        expect(summary.includedLatencySeconds.p50).to.equal(0.175);
+        expect(summary.includedLatencySeconds.p99).to.equal(0.2485);
+        expect(formatRunSummary(summary)).to.contain('success 90%');
+    });
+
+    it('clamps quantiles above the highest finite latency bucket', () => {
+        const overflowing = {
+            buckets: [
+                { upperBound: 1, count: 1 },
+                { upperBound: Number.POSITIVE_INFINITY, count: 2 },
+            ],
+            count: 2,
+            sum: 100,
+        };
+        expect(histogramQuantile(overflowing, 0.99)).to.equal(1);
+        expect(histogramQuantile({ buckets: [], count: 0, sum: 0 }, 0.5)).to.equal(0);
     });
 
     it('parses large funding targets without number precision loss', () => {

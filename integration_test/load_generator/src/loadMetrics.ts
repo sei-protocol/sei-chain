@@ -11,6 +11,26 @@ export type LoadOutcome =
     | 'rejected'
     | 'skipped';
 
+export interface LoadTransactionCount {
+    lane: LoadLane;
+    operation: string;
+    outcome: LoadOutcome;
+    count: number;
+}
+
+export interface LoadLatencyHistogram {
+    buckets: { upperBound: number; count: number }[];
+    count: number;
+    sum: number;
+}
+
+export interface LoadMetricsSnapshot {
+    transactions: LoadTransactionCount[];
+    includedLatency: LoadLatencyHistogram;
+}
+
+type HistogramValues = Awaited<ReturnType<Histogram<string>['get']>>['values'];
+
 export class LoadMetrics {
     private readonly registry = new Registry();
     private readonly transactions = new Counter({
@@ -68,6 +88,24 @@ export class LoadMetrics {
         this.ready = ready;
     }
 
+    // Reading the counters back keeps the end-of-run report and the Prometheus dashboards on
+    // one source of truth, and it works when the metrics server is disabled.
+    async snapshot(): Promise<LoadMetricsSnapshot> {
+        const [transactions, latency] = await Promise.all([
+            this.transactions.get(),
+            this.latency.get(),
+        ]);
+        return {
+            transactions: transactions.values.map(value => ({
+                lane: String(value.labels.lane) as LoadLane,
+                operation: String(value.labels.operation),
+                outcome: String(value.labels.outcome) as LoadOutcome,
+                count: value.value,
+            })),
+            includedLatency: includedLatency(latency.values),
+        };
+    }
+
     async listen(port: number, host: string): Promise<void> {
         this.server = http.createServer(async (request, response) => {
             if (request.url === '/healthz') {
@@ -104,4 +142,29 @@ export class LoadMetrics {
         });
         this.server = undefined;
     }
+}
+
+function includedLatency(values: HistogramValues): LoadLatencyHistogram {
+    const buckets = new Map<number, number>();
+    let count = 0;
+    let sum = 0;
+    for (const value of values) {
+        if (value.labels.outcome !== 'included') continue;
+        if (value.metricName?.endsWith('_bucket')) {
+            const upperBound =
+                value.labels.le === '+Inf' ? Number.POSITIVE_INFINITY : Number(value.labels.le);
+            buckets.set(upperBound, (buckets.get(upperBound) ?? 0) + value.value);
+        } else if (value.metricName?.endsWith('_sum')) {
+            sum += value.value;
+        } else if (value.metricName?.endsWith('_count')) {
+            count += value.value;
+        }
+    }
+    return {
+        buckets: [...buckets]
+            .sort(([left], [right]) => left - right)
+            .map(([upperBound, bucketCount]) => ({ upperBound, count: bucketCount })),
+        count,
+        sum,
+    };
 }

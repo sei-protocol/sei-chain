@@ -342,6 +342,20 @@ Each executed run writes:
 
 Override paths with `BUCKET_AUDIT_PATH`, `UNBUCKETED_AUDIT_PATH`, and `REPLAY_REPORT`.
 
+Each executed `defi`, `tokenops`, or `nativetransfers` run writes into
+`runtime/load-runs/<RUN_ID>/`, or `LOAD_RUNTIME_DIR` when set:
+
+- `run.json`: the configuration the process started with, including its worker partition.
+- `transactions.jsonl`: one line per transaction with operation, lane, outcome, hash, and error.
+- `summary.json`: the aggregate report, also printed to stdout when the run ends.
+
+The summary covers one process. It reports offered, submitted, and included counts, the
+success rate over transactions that reached the chain, achieved against target TPS, and
+p50/p90/p95/p99 inclusion latency interpolated from the metric histogram, so its resolution is
+bounded by the histogram bucket edges. `stopReason` distinguishes a run that finished from one
+cut short by a signal or an error. To aggregate across a multi-pod deployment, use the
+Prometheus report in `sei-protocol/platform`.
+
 ## Verification
 
 ```bash

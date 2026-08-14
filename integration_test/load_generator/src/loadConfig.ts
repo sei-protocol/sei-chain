@@ -204,7 +204,9 @@ function positiveInteger(value: string, name: string): number {
 }
 
 function nonNegativeInteger(value: string, name: string): number {
-    const parsed = Number(value);
+    // An empty value reaches here when the downward API cannot resolve a field, so it must
+    // fail rather than parse as zero: PARTITION_INDEX 0 puts every pod on the same accounts.
+    const parsed = value.trim() ? Number(value) : Number.NaN;
     if (!Number.isInteger(parsed) || parsed < 0) {
         throw new Error(`${name} must be a non-negative integer`);
     }
