@@ -58,15 +58,10 @@ These endpoints bridge the gap between Cosmos and EVM by exposing Cosmos-native 
   - Ideal for historical event queries
 
 ##### Block Data
-- `sei_getBlockByNumber` and `sei_getBlockByHash`
-  - Enhanced versions of their `eth_` counterparts
+- `sei_getBlockByHash`
+  - Enhanced version of its `eth_` counterpart
   - Include synthetic transactions in block data
   - Provide complete block information
-
-- `sei_getBlockReceipts`
-  - Enhanced version of `eth_getBlockReceipts`
-  - Includes receipts for synthetic transactions
-  - Maintains transaction order and relationships
 
 > **Note**: For synthetic transactions, you can use `eth_getTransactionReceipt` with the synthetic transaction hash to retrieve receipt data. There is no `sei_getTransactionByReceipt`.
 
@@ -89,8 +84,8 @@ These transactions are included in blocks but have no meaningful EVM trace. The 
   - Only returns receipts for successfully executed transactions
   - Helps avoid confusion with failed transactions
 
-- `sei_getBlockByNumberExcludeTraceFail` and `sei_getBlockByHashExcludeTraceFail`
-  - Enhanced versions of their `eth_` counterparts
+- `sei_getBlockByHashExcludeTraceFail`
+  - Enhanced version of its `eth_` counterpart
   - Exclude transactions that failed pre-state checks
   - Provide cleaner block data
 
@@ -104,46 +99,6 @@ These transactions are included in blocks but have no meaningful EVM trace. The 
    - Debug specific failure cases
    - Maintain compatibility with standard Ethereum tooling
 
-## Transaction Index Mismatches
-
-### Overview
-When querying block receipts, there is a discrepancy between the transaction indices returned by `eth_getBlockReceipts` and `sei_getBlockReceipts` endpoints. This occurs because `eth_getBlockReceipts` only includes EVM transactions, while `sei_getBlockReceipts` includes both EVM and Cosmos transactions.
-
-### Example
-Consider a block containing the following transactions in order:
-```
-Block Transactions:
-1. EVM Transaction 1
-2. Cosmos Transaction 1
-3. EVM Transaction 2
-```
-
-The transaction indices will differ between endpoints:
-
-#### eth_getBlockReceipts
-Returns only EVM transactions with sequential indices:
-- EVM Transaction 1 (tx index: 0)
-- EVM Transaction 2 (tx index: 1)
-
-#### sei_getBlockReceipts
-Returns all transactions (both EVM and Cosmos) with sequential indices:
-- EVM Transaction 1 (tx index: 0)
-- Cosmos Transaction 1 (tx index: 1)
-- EVM Transaction 2 (tx index: 2)
-
 ### Receipts and Logs
 - For EVM‑originating transactions, synthetic events are included in both `eth_getLogs` and `eth_getTransactionReceipt`. The set of logs is identical across these endpoints for a given block/tx, and `logIndex` values are strictly increasing and consistent between them.
-- For Cosmos‑originating transactions, synthetic events are not included in `eth_` methods. Use `sei_getLogs` and `sei_getBlockReceipts` to access Cosmos‑sourced synthetic logs.
-- When comparing indices, note that `eth_` transaction indices and log indices reflect only EVM transactions/logs, while `sei_` indices reflect the combined EVM+Cosmos view. For full accounting of interoperable assets, combine both data sources or use the `sei_` endpoints.
-
-### Important Note
-When working with transaction indices, be aware that:
-1. The same transaction will have different indices depending on which endpoint you use
-2. `eth_getBlockReceipts` indices are based only on EVM transactions
-3. `sei_getBlockReceipts` indices include all transactions in the block
-4. Applications should handle these differences appropriately based on which endpoint they're using
-
-### Best Practices
-- Always use the same endpoint consistently within your application
-- When switching between endpoints, be sure to account for the index differences
-- Consider using transaction hashes instead of indices when possible, as they remain consistent across endpoints
+- For Cosmos‑originating transactions, synthetic events are not included in `eth_` methods. Use `sei_getLogs` to access Cosmos‑sourced synthetic logs.

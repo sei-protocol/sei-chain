@@ -31,8 +31,7 @@ const (
 )
 
 // maxBlockReceiptsConcurrency is a hard cap on the number of goroutines
-// eth_getBlockReceipts (and its sei_ variants) will fan out to when
-// fetching per-tx receipts.
+// eth_getBlockReceipts will fan out to when fetching per-tx receipts.
 const maxBlockReceiptsConcurrency = 100
 
 // genesisBlockHashHex is the block hash returned by GetBlockByNumber("0x0"). Hash-based lookups
@@ -83,7 +82,7 @@ type BlockAPI struct {
 }
 
 type SeiBlockAPI struct {
-	*BlockAPI
+	blockAPI *BlockAPI
 }
 
 func NewBlockAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
@@ -124,19 +123,26 @@ func NewSeiBlockAPI(
 		cacheCreationMutex:   cacheCreationMutex,
 	}
 	return &SeiBlockAPI{
-		BlockAPI: blockAPI,
+		blockAPI: blockAPI,
 	}
 }
 
-func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]any, returnErr error) {
-	// Exclude synthetic txs (filterTransactions drops them) and ante-failure
-	// stub receipts (EncodeTmBlock drops them via excludeUntraceable).
-	return a.getBlockByNumber(ctx, number, fullTx, false, true)
+func (a *SeiBlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]any, returnErr error) {
+	return a.blockAPI.GetBlockByHash(ctx, blockHash, fullTx)
+}
+
+func (a *SeiBlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
+	return a.blockAPI.GetBlockTransactionCountByNumber(ctx, number)
+}
+
+func (a *SeiBlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
+	return a.blockAPI.GetBlockTransactionCountByHash(ctx, blockHash)
 }
 
 func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]any, returnErr error) {
-	// See note on GetBlockByNumberExcludeTraceFail.
-	return a.getBlockByHash(ctx, blockHash, fullTx, false, true)
+	// Exclude synthetic txs (filterTransactions drops them) and ante-failure
+	// stub receipts (EncodeTmBlock drops them via excludeUntraceable).
+	return a.blockAPI.getBlockByHash(ctx, blockHash, fullTx, false, true)
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
