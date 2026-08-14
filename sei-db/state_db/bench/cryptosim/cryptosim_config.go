@@ -80,7 +80,9 @@ type CryptoSimConfig struct {
 	// It is not legal to modify this value after the benchmark has started.
 	Erc20InteractionsPerAccount int
 
-	// The number of transactions that will be processed in each "block".
+	// The number of transactions that will be processed in each "block". The consensus layer caps
+	// blocks at 2000 transactions. Consensus is not executed here, so nothing enforces that cap;
+	// values above it simulate blocks that cannot exist.
 	TransactionsPerBlock int
 
 	// The directory to store the benchmark data.
@@ -258,7 +260,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		Erc20StorageSlotSize:              32,
 		AccountBalanceSize:                32,
 		Erc20InteractionsPerAccount:       10,
-		TransactionsPerBlock:              1024,
+		TransactionsPerBlock:              2000, // the consensus block limit
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,

@@ -21,8 +21,8 @@ import (
 const (
 	// Must be larger than cacheWindow * TransactionsPerBlock so that the
 	// oldest ring entries have aged past the cache window. With the default
-	// cache window of ~1000 blocks and 1024 txns/block the minimum is ~1.02M;
-	// 3M gives comfortable headroom for cache.
+	// cache window of ~1000 blocks and 2000 txns/block the minimum is ~2M;
+	// 3M clears that with 1.5x headroom.
 	defaultTxHashRingSize = 3_000_000
 )
 
