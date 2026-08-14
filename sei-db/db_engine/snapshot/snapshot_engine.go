@@ -70,6 +70,11 @@ type SnapshotEngine interface {
 	// recoverable. It is not safe to mutate the returned key or value slices.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
+	// BatchGetString is BatchGet for a caller that already holds its keys as strings. The engine
+	// keys its internal structures by string, so these are looked up directly rather than converted
+	// to []byte here and back to a string on the way in.
+	BatchGetString(keys []string) (map[string][]byte, error)
+
 	// Set writes the value for the given key into the current (mutable) version. Not visible to
 	// iterators created earlier (see Iterator).
 	Set(key []byte, value []byte) error

@@ -323,27 +323,36 @@ func (c *snapshotEngine) BatchGet(keys [][]byte) (map[string][]byte, error) {
 
 // Similar semantics to BatchGet, but reads from the given version of the engine.
 func (c *snapshotEngine) BatchGetAtVersion(keys [][]byte, version uint64) (map[string][]byte, error) {
-	// Partition the keys by shard so each shard is queried once.
-	work := make(map[uint64][][]byte)
-	for _, key := range keys {
-		shardIndex := c.shardManager.Shard(key)
-		work[shardIndex] = append(work[shardIndex], key)
+	// The engine keys everything it holds by string, so the conversion happens once here rather than
+	// per lookup inside the shards.
+	stringKeys := make([]string, len(keys))
+	for i, key := range keys {
+		stringKeys[i] = string(key)
 	}
+	return c.BatchGetStringAtVersion(stringKeys, version)
+}
+
+func (c *snapshotEngine) BatchGetString(keys []string) (map[string][]byte, error) {
+	return c.BatchGetStringAtVersion(keys, c.currentVersion)
+}
+
+// Similar semantics to BatchGetString, but reads from the given version of the engine.
+func (c *snapshotEngine) BatchGetStringAtVersion(keys []string, version uint64) (map[string][]byte, error) {
+	work := c.partitionByShard(keys)
 
 	// Fan out to shards, collecting each shard's found results (or its error).
-	shardIndices := make([]uint64, 0, len(work))
-	for shardIndex := range work {
-		shardIndices = append(shardIndices, shardIndex)
-	}
-	results := make([]map[string][]byte, len(shardIndices))
-	errs := make([]error, len(shardIndices))
+	results := make([]map[string][]byte, len(c.shards))
+	errs := make([]error, len(c.shards))
 
 	var wg sync.WaitGroup
-	for i, shardIndex := range shardIndices {
+	for shardIndex := range work {
+		if len(work[shardIndex]) == 0 {
+			continue
+		}
 		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			results[i], errs[i] = c.shards[shardIndex].BatchGet(work[shardIndex], version)
+			results[shardIndex], errs[shardIndex] = c.shards[shardIndex].BatchGetString(work[shardIndex], version)
 		})
 	}
 	wg.Wait()
@@ -359,6 +368,24 @@ func (c *snapshotEngine) BatchGetAtVersion(keys [][]byte, version uint64) (map[s
 		}
 	}
 	return merged, nil
+}
+
+// partitionByShard splits keys into one bucket per shard, so each shard is queried once. The
+// returned slice is indexed by shard, and a shard no key landed in holds an empty bucket.
+//
+// Buckets start out sized for an even spread, which is what the seeded hash produces; a bucket that
+// lands above its share still grows on demand.
+func (c *snapshotEngine) partitionByShard(keys []string) [][]string {
+	work := make([][]string, len(c.shards))
+	perShard := len(keys)/len(c.shards) + 1
+	for _, key := range keys {
+		shardIndex := c.shardManager.ShardString(key)
+		if work[shardIndex] == nil {
+			work[shardIndex] = make([]string, 0, perShard)
+		}
+		work[shardIndex] = append(work[shardIndex], key)
+	}
+	return work
 }
 
 func (c *snapshotEngine) Delete(key []byte) error {

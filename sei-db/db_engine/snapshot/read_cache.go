@@ -281,6 +281,39 @@ func (c *readCache) lookupLocked(
 	}
 }
 
+// lookupStringLocked is lookupLocked for a caller that already holds the key as a string, which the
+// cache retains rather than copying when the key turns out to be new.
+//
+// The Locked postfix indicates that the caller must hold the shared lock.
+func (c *readCache) lookupStringLocked(key string, updateLru bool) lookupOutcome {
+	entry := c.entryLockedString(key, true)
+
+	switch entry.status {
+	case statusAvailable:
+		if updateLru {
+			c.gcQueue.TouchString(key)
+		}
+		return lookupOutcome{immediate: true, value: entry.value, found: true}
+	case statusDeleted:
+		if updateLru {
+			c.gcQueue.TouchString(key)
+		}
+		return lookupOutcome{immediate: true}
+	case statusScheduled:
+		return lookupOutcome{valueChan: entry.valueChan, entry: entry}
+	case statusUnknown:
+		entry.status = statusScheduled
+		entry.valueChan = make(chan readResult, 1)
+		return lookupOutcome{valueChan: entry.valueChan, entry: entry, needsSchedule: true}
+	default:
+		// statusFailed lands here, and that is intended: an entry becomes statusFailed only in the
+		// same critical section that takes the cache out of service, and the shard checks that under
+		// the same lock before classifying, so reaching this is an invariant violation rather than a
+		// state to serve.
+		panic(fmt.Sprintf("unexpected status: %#v", entry.status))
+	}
+}
+
 // resolve completes a read classified by lookupLocked. Must be called without the shared lock:
 // it submits the DB read when this caller owns scheduling, and may block until the in-flight
 // read completes.

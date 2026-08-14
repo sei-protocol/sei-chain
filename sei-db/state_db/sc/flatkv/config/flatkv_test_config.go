@@ -24,7 +24,7 @@ func smallTestEngineConfig(name string) snapshot.SnapshotEngineConfig {
 
 // DefaultTestConfig returns a Config suitable for unit tests. It uses
 // t.TempDir() as the DataDir root, small cache sizes, and disables metrics.
-func DefaultTestConfig(t *testing.T) *Config {
+func DefaultTestConfig(t testing.TB) *Config {
 	t.Helper()
 	return &Config{
 		DataDir:                filepath.Join(t.TempDir(), "flatkv"),

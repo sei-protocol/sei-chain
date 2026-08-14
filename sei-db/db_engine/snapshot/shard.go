@@ -278,6 +278,17 @@ func (s *shard) lookupVersionedLocked(key string, version uint64) ([]byte, bool)
 // keys that were found to their values. Not-found and deleted keys are absent from the map. Any read
 // error fails the whole call and returns a nil map.
 func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, error) {
+	// The shard keys everything it holds by string, so the conversion happens once here rather than
+	// per lookup below.
+	stringKeys := make([]string, len(keys))
+	for i, key := range keys {
+		stringKeys[i] = string(key)
+	}
+	return s.BatchGetString(stringKeys, version)
+}
+
+// BatchGetString is BatchGet for a caller that already holds its keys as strings.
+func (s *shard) BatchGetString(keys []string, version uint64) (map[string][]byte, error) {
 	results := make(map[string][]byte, len(keys))
 	pending := make([]pendingRead, 0, len(keys))
 	var hits int64
@@ -297,28 +308,27 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 	}
 
 	for _, key := range keys {
-		keyStr := string(key)
-		if value, found := s.lookupVersionedLocked(keyStr, version); found {
+		if value, found := s.lookupVersionedLocked(key, version); found {
 			// found includes tombstones (nil value); only non-nil values are real hits to return.
 			if value != nil {
-				results[keyStr] = value
+				results[key] = value
 			}
 			hits++
 			continue
 		}
 
 		// The batch path never touches the LRU queue on hits, hence updateLru=false.
-		outcome := s.cache.lookupLocked(key, false)
+		outcome := s.cache.lookupStringLocked(key, false)
 		if outcome.immediate {
 			// Resolved from cache. A not-found (deleted) key counts as a hit but is not a result.
 			if outcome.found {
-				results[keyStr] = outcome.value
+				results[key] = outcome.value
 			}
 			hits++
 			continue
 		}
 		pending = append(pending, pendingRead{
-			key:           keyStr,
+			key:           key,
 			entry:         outcome.entry,
 			valueChan:     outcome.valueChan,
 			needsSchedule: outcome.needsSchedule,

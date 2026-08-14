@@ -91,6 +91,15 @@ func (lru *LRUQueue) Touch(key []byte) {
 	lru.order.MoveToBack(elem)
 }
 
+// TouchString is Touch for a caller that already holds the key as a string.
+func (lru *LRUQueue) TouchString(key string) {
+	elem, ok := lru.entries[key]
+	if !ok {
+		return
+	}
+	lru.order.MoveToBack(elem)
+}
+
 // GetTotalSize returns the total size of all entries in the LRU queue.
 func (lru *LRUQueue) GetTotalSize() uint64 {
 	return lru.totalSize

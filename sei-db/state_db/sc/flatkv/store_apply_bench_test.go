@@ -9,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -117,20 +118,120 @@ func benchClassified(b *testing.B, accounts int, storage int, code int, misc int
 	return classified
 }
 
-// benchAccountOld returns the prior account values for the codehash bucket, so the merge exercises
-// the path that copies an existing account rather than the one that creates a fresh one.
-func benchAccountOld(b *testing.B, classified classifiedChanges) map[string]*vtype.AccountData {
+// benchReadAccounts returns the accounts the merge folds changes onto, as readAccountsToMerge would
+// have returned them: every account the codehash bucket names, already carrying a prior value, so the
+// merge exercises the path that modifies an existing account rather than the one that starts at zero.
+func benchReadAccounts(b *testing.B, classified classifiedChanges) map[string]*vtype.AccountData {
 	b.Helper()
-	old := make(map[string]*vtype.AccountData, len(classified[keys.EVMKeyCodeHash]))
+	accounts := touchedAccounts(classified)
+	stored := make(map[string][]byte, len(accounts))
 	for i, change := range classified[keys.EVMKeyCodeHash] {
-		old[change.key] = vtype.NewAccountData().SetBlockHeight(1).SetNonce(uint64(i))
+		stored[change.key] = vtype.NewAccountData().SetBlockHeight(1).SetNonce(uint64(i)).Serialize()
 	}
-	return old
+	if err := populateAccounts(accounts, stored, 100); err != nil {
+		b.Fatal(err)
+	}
+	return accounts
 }
 
-// BenchmarkGatherValues covers the work in the apply_change_sets_gather_values phase: everything
-// prepareWrites does after the account read. Each kind runs on its own so a change to one is not
-// hidden by the others, and "cryptosim_mix" reproduces the harness's measured per-block shape.
+// benchPrepare runs the value-building half of prepareWrites: the three databases gathered while the
+// account read is in flight, plus the merge of the account changes onto what that read returned.
+func benchPrepare(classified classifiedChanges, accounts map[string]*vtype.AccountData) (preparedWrites, error) {
+	out, err := gatherNonAccountValues(classified, 100)
+	if err != nil {
+		return preparedWrites{}, err
+	}
+	if err := mergeAccountValues(
+		accounts,
+		classified[keys.EVMKeyNonce],
+		classified[keys.EVMKeyCodeHash],
+		nil,
+	); err != nil {
+		return preparedWrites{}, err
+	}
+	out.accounts = accounts
+	return out, nil
+}
+
+// benchAccountPairs returns n codehash writes, one per account, matching the shape the cryptosim
+// harness produces: it drives every account through the codehash arm and never writes a nonce.
+// Code hashes start at 1, since an account whose every field is zero stores as a deletion and would
+// not come back from a read.
+func benchAccountPairs(n int) []*proto.KVPair {
+	pairs := make([]*proto.KVPair, 0, n)
+	for i := 0; i < n; i++ {
+		pairs = append(pairs, &proto.KVPair{
+			Key:   keys.BuildEVMKey(keys.EVMKeyCodeHash, benchAddr(i)),
+			Value: benchSlot(i + 1),
+		})
+	}
+	return pairs
+}
+
+// benchWarmStore returns a store where every one of pairs' accounts has been written, committed and
+// flushed. That is the state a running node's apply path reads against — the accounts a block touches
+// were written by earlier blocks, so they are served from the read cache rather than from the block's
+// own uncommitted writes.
+func benchWarmStore(b *testing.B, pairs []*proto.KVPair) *CommitStore {
+	b.Helper()
+	s, err := newCommitStoreWithWAL(b.Context(), config.DefaultTestConfig(b))
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := s.LoadLatest(); err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			b.Fatal(err)
+		}
+	})
+	if err := s.ApplyChangeSets(1, fatChangeSets(pairs)); err != nil {
+		b.Fatal(err)
+	}
+	if _, err := s.Commit(1); err != nil {
+		b.Fatal(err)
+	}
+	if err := s.FlushHashes(); err != nil {
+		b.Fatal(err)
+	}
+	if err := s.flushLatestVersion(); err != nil {
+		b.Fatal(err)
+	}
+	return s
+}
+
+// BenchmarkReadAccountsToMerge covers the apply_change_sets_read_accounts phase: the batch read of
+// every account a block's nonce and codehash changes touch, with every key already in cache. Sizes
+// span one block's worth of account writes at the 2000-transaction consensus cap and at the doubled
+// block the rf-perf scenario drives.
+func BenchmarkReadAccountsToMerge(b *testing.B) {
+	for _, accounts := range []int{2000, 8000} {
+		b.Run(fmt.Sprintf("accounts=%d", accounts), func(b *testing.B) {
+			pairs := benchAccountPairs(accounts)
+			s := benchWarmStore(b, pairs)
+			classified, err := classifyAndPrefix(fatChangeSets(pairs), [keys.EVMKeyKindCount]int{})
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				old, err := s.readAccountsToMerge(classified, 100)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(old) != accounts {
+					b.Fatalf("read %d accounts, want %d", len(old), accounts)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkGatherValues covers everything prepareWrites does other than the account read: the three
+// databases gathered off the apply thread plus the account merge on it. Each kind runs on its own so
+// a change to one is not hidden by the others, and "cryptosim_mix" reproduces the harness's measured
+// per-block shape.
 func BenchmarkGatherValues(b *testing.B) {
 	cases := []struct {
 		name                                   string
@@ -144,11 +245,11 @@ func BenchmarkGatherValues(b *testing.B) {
 	}
 	for _, tc := range cases {
 		classified := benchClassified(b, tc.accounts, tc.storage, tc.code, tc.misc, tc.codeLen)
-		accountOld := benchAccountOld(b, classified)
+		accounts := benchReadAccounts(b, classified)
 		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := gatherValues(classified, accountOld, 100); err != nil {
+				if _, err := benchPrepare(classified, accounts); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -172,11 +273,11 @@ func BenchmarkGatherAndSerialize(b *testing.B) {
 	}
 	for _, tc := range cases {
 		classified := benchClassified(b, tc.accounts, tc.storage, tc.code, tc.misc, tc.codeLen)
-		accountOld := benchAccountOld(b, classified)
+		accounts := benchReadAccounts(b, classified)
 		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				prepared, err := gatherValues(classified, accountOld, 100)
+				prepared, err := benchPrepare(classified, accounts)
 				if err != nil {
 					b.Fatal(err)
 				}

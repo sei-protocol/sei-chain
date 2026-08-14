@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -29,6 +30,37 @@ func mergeAccountValuesReference(
 		result[addrStr] = pendingWrite.Merge(oldValues[addrStr], blockHeight)
 	}
 	return result
+}
+
+// mergeOnto runs the production merge the way ApplyChangeSets does: the accounts the changes name are
+// read out of the store first, then the changes are folded onto them. oldValues stands in for the
+// store, holding the accounts that already exist.
+func mergeOnto(
+	t *testing.T,
+	nonceChanges []classifiedChange,
+	codeHashChanges []classifiedChange,
+	balanceChanges []classifiedChange,
+	oldValues map[string]*vtype.AccountData,
+	blockHeight int64,
+) (map[string]*vtype.AccountData, error) {
+	t.Helper()
+	var changesByType classifiedChanges
+	changesByType[keys.EVMKeyNonce] = nonceChanges
+	changesByType[keys.EVMKeyCodeHash] = codeHashChanges
+
+	accounts := touchedAccounts(changesByType)
+	stored := make(map[string][]byte, len(oldValues))
+	for key := range accounts {
+		if old, ok := oldValues[key]; ok {
+			stored[key] = old.Serialize()
+		}
+	}
+	require.NoError(t, populateAccounts(accounts, stored, blockHeight))
+
+	if err := mergeAccountValues(accounts, nonceChanges, codeHashChanges, balanceChanges); err != nil {
+		return nil, err
+	}
+	return accounts, nil
 }
 
 // requireSameAccounts asserts two account maps hold the same keys with byte-identical serialized
@@ -96,7 +128,7 @@ func TestMergeAccountValuesMatchesReference(t *testing.T) {
 
 		blockHeight := int64(100 + round)
 		want := mergeAccountValuesReference(t, nonceChanges, codeHashChanges, nil, oldValues, blockHeight)
-		got, err := mergeAccountValues(nonceChanges, codeHashChanges, nil, oldValues, blockHeight)
+		got, err := mergeOnto(t, nonceChanges, codeHashChanges, nil, oldValues, blockHeight)
 		require.NoError(t, err, "round %d", round)
 		requireSameAccounts(t, want, got)
 	}
@@ -111,7 +143,7 @@ func TestMergeAccountValuesDoesNotMutateOldValues(t *testing.T) {
 	before := append([]byte(nil), old.Serialize()...)
 
 	newCodeHash := codeHashN(0x99)
-	_, err := mergeAccountValues(
+	_, err := mergeOnto(t,
 		[]classifiedChange{{key: key, value: nonceBytes(42)}},
 		[]classifiedChange{{key: key, value: newCodeHash[:]}},
 		nil,
@@ -134,7 +166,7 @@ func TestMergeAccountValuesRejectsMalformedValues(t *testing.T) {
 		"short codehash": {codeHash: []classifiedChange{{key: key, value: []byte{0x01}}}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := mergeAccountValues(changes.nonce, changes.codeHash, nil, nil, 1)
+			_, err := mergeOnto(t, changes.nonce, changes.codeHash, nil, nil, 1)
 			require.Error(t, err)
 		})
 	}
@@ -146,7 +178,7 @@ func TestMergeAccountValuesCombinesKindsIntoOneAccount(t *testing.T) {
 	key := string(accountPhysKey(addrN(0x03)))
 	codeHash := codeHashN(0x55)
 
-	got, err := mergeAccountValues(
+	got, err := mergeOnto(t,
 		[]classifiedChange{{key: key, value: nonceBytes(9)}},
 		[]classifiedChange{{key: key, value: codeHash[:]}},
 		nil,
