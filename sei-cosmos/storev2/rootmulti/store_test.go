@@ -135,6 +135,21 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	})
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
+
+	// Once SS reports a higher floor, historical SS queries below it must fail
+	// before a cache store can mix available Cosmos data with unavailable routed
+	// data.
+	require.NoError(t, store.ssStore.SetEarliestVersion(c2.Version, false))
+	_, err = store.CacheMultiStoreWithVersion(c1.Version)
+	require.ErrorContains(t, err, "below earliest available version 2")
+
+	resp = store.Query(context.Background(), abci.RequestQuery{
+		Path:   "/bank/key",
+		Data:   keyBytes,
+		Height: c1.Version,
+		Prove:  false,
+	})
+	require.NotEqualValues(t, 0, resp.Code)
 }
 
 // flush owns the SS snapshot trigger for every block, so a boundary must be

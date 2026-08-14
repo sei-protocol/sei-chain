@@ -774,6 +774,25 @@ func TestSnapshotPrune(t *testing.T) {
 	require.Equal(t, SnapshotDirName(15), target)
 }
 
+func TestSnapshotPruneKeepsCurrentTarget(t *testing.T) {
+	root := t.TempDir()
+	for _, version := range []int64{5, 10, 15, 20} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, SnapshotDirName(version)), 0o750))
+	}
+	require.NoError(t, os.Symlink(SnapshotDirName(5), filepath.Join(root, snapshotCurrentLink)))
+
+	manager := &snapshotManager{root: root, keepRecent: 1}
+	manager.prune()
+
+	versions, err := ListSnapshotVersions(root)
+	require.NoError(t, err)
+	require.Equal(t, []int64{5, 15, 20}, versions,
+		"retention may keep one extra snapshot but must not dangle current")
+	target, err := os.Readlink(filepath.Join(root, snapshotCurrentLink))
+	require.NoError(t, err)
+	require.Equal(t, SnapshotDirName(5), target)
+}
+
 func TestSnapshotManagerResumesFromNewestSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateStoreConfig()

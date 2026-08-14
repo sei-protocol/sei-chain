@@ -380,6 +380,9 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		if version <= 0 {
 			version = rs.ssStore.GetLatestVersion()
 		}
+		if err := rs.validateSSReadVersion(version); err != nil {
+			return nil, err
+		}
 		// add the transient/mem stores registered in current app.
 		for k, store := range rs.ckvStores {
 			if store.GetStoreType() != types.StoreTypeIAVL {
@@ -396,6 +399,16 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	}
 
 	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
+}
+
+// validateSSReadVersion rejects a historical query below the common SS floor
+// before constructing stores that would otherwise return partial state.
+func (rs *Store) validateSSReadVersion(version int64) error {
+	earliest := rs.ssStore.GetEarliestVersion()
+	if version < earliest {
+		return fmt.Errorf("state store version %d is below earliest available version %d", version, earliest)
+	}
+	return nil
 }
 
 func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
@@ -882,6 +895,9 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 
 	// Fast path: no proof + SS enabled
 	if !needProof && rs.ssStore != nil {
+		if err := rs.validateSSReadVersion(version); err != nil {
+			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, err.Error()))
+		}
 		store := types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
 		return store.Query(ctx, req)
 	}

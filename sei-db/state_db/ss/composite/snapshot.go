@@ -96,6 +96,7 @@ import (
 // link semantics should change with that work too: this implementation points to
 // the newest published snapshot, while FlatKV's current link points to the
 // active snapshot that open/rollback clones and replays from.
+
 const (
 	// SnapshotsDirName is the directory under data/state_store that holds
 	// online snapshots.
@@ -633,11 +634,19 @@ func (m *snapshotManager) prune() {
 		return
 	}
 	defer m.recordRetentionMetrics()
+	currentVersion, hasCurrent, err := m.currentSnapshotVersion()
+	if err != nil {
+		logger.Error("failed to resolve current state store snapshot before pruning", "error", err)
+		return
+	}
 	keep := 1 + m.keepRecent
 	if len(versions) <= keep {
 		return
 	}
 	for _, v := range versions[:len(versions)-keep] {
+		if hasCurrent && v == currentVersion {
+			continue
+		}
 		dir := filepath.Join(m.root, SnapshotDirName(v))
 		if err := os.RemoveAll(dir); err != nil {
 			logger.Error("failed to prune state store snapshot", "dir", dir, "error", err)
@@ -645,6 +654,21 @@ func (m *snapshotManager) prune() {
 		}
 		logger.Info("pruned state store snapshot", "dir", dir)
 	}
+}
+
+func (m *snapshotManager) currentSnapshotVersion() (version int64, exists bool, err error) {
+	target, err := os.Readlink(filepath.Join(m.root, snapshotCurrentLink))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("read current snapshot link: %w", err)
+	}
+	version, ok := ParseSnapshotVersion(filepath.Base(target))
+	if !ok {
+		return 0, false, fmt.Errorf("current snapshot link has invalid target %q", target)
+	}
+	return version, true, nil
 }
 
 func (m *snapshotManager) recordRetentionMetrics() {

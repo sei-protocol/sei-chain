@@ -85,15 +85,18 @@ func TestEVMSSPostRecoveryEarliestMismatch(t *testing.T) {
 	evm := &fakeStateStore{latest: 100, earliest: 75}
 	cs := newCompositeStateStoreWithStores(cosmos, evm, config.StateStoreConfig{EVMSplit: true})
 	cs.validateEVMSSPostRecovery()
+	require.Equal(t, int64(75), cs.GetEarliestVersion())
 
 	// Matching earliest → pass.
 	evm.earliest = 50
 	cs.validateEVMSSPostRecovery()
+	require.Equal(t, int64(50), cs.GetEarliestVersion())
 
 	// Both zero → pass (fresh DBs).
 	cosmos.earliest = 0
 	evm.earliest = 0
 	cs.validateEVMSSPostRecovery()
+	require.Zero(t, cs.GetEarliestVersion())
 }
 
 func TestCompositeGetEarliestVersionReportsHighestMemberFloor(t *testing.T) {
@@ -107,6 +110,24 @@ func TestCompositeGetEarliestVersionReportsHighestMemberFloor(t *testing.T) {
 
 	cs.evmStore = nil
 	require.Equal(t, int64(90), cs.GetEarliestVersion())
+}
+
+func TestCompositeReadsRejectVersionBelowHighestMemberFloor(t *testing.T) {
+	cosmos := &fakeStateStore{latest: 100, earliest: 50}
+	evmStore := &fakeStateStore{latest: 100, earliest: 75}
+	cs := newCompositeStateStoreWithStores(cosmos, evmStore, config.StateStoreConfig{EVMSplit: true})
+
+	_, err := cs.Get("bank", 74, []byte("key"))
+	require.ErrorContains(t, err, "below earliest available version 75")
+
+	_, err = cs.Has(evm.EVMStoreKey, 74, []byte("key"))
+	require.ErrorContains(t, err, "below earliest available version 75")
+
+	_, err = cs.Iterator("bank", 74, nil, nil)
+	require.ErrorContains(t, err, "below earliest available version 75")
+
+	_, err = cs.ReverseIterator(evm.EVMStoreKey, 74, nil, nil)
+	require.ErrorContains(t, err, "below earliest available version 75")
 }
 
 // fakeStateStore stubs latest/earliest for validator tests.
