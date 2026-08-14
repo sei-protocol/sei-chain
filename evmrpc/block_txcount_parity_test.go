@@ -3,7 +3,6 @@ package evmrpc_test
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -44,8 +43,8 @@ func (*parityTxCountTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (*parityTxCountTMClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	return utils.None[*url.URL]()
+func (*parityTxCountTMClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	return utils.None[*rpc.Client]()
 }
 
 func (c *parityTxCountTMClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {
@@ -127,7 +126,7 @@ func TestBlockTransactionCountMatchesGetBlockByNumber(t *testing.T) {
 	decodeOnly := countDecodeOnlyEvmTxs(block.Block.Txs, TxConfig.TxDecoder())
 	require.Equal(t, 2, decodeOnly)
 
-	encoded, err := evmrpc.EncodeTmBlock(ctxProvider, txConfigProvider, block, k, false, false, false, false, cache, mu)
+	encoded, err := evmrpc.EncodeTmBlock(ctxProvider, txConfigProvider, block, k, false, false, false, cache, mu)
 	require.NoError(t, err)
 	list := encoded["transactions"].([]interface{})
 

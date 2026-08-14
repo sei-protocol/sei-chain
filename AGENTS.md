@@ -11,7 +11,7 @@ changes. These contain domain-specific architecture decisions, conventions, and
 constraints that supplement this top-level guide. Context increases
 progressively the deeper you go. Existing package guides include:
 
-- `evmrpc/AGENTS.md` — EVM JSON-RPC (`eth_*`, `sei_*`, `sei2_*`, `debug_*`) semantics
+- `evmrpc/AGENTS.md` — EVM JSON-RPC (`eth_*`, `sei_*`, `debug_*`) semantics
 - `x/evm/AGENTS.md` — EVM module: address association, StateDB bridge, precompiles, pointers
 - `sei-tendermint/AGENTS.md` — sei-tendermint module conventions
 - `testutil/configtest/AGENTS.md` — configuration characterization: how to pin a new key, section, or default
@@ -49,6 +49,38 @@ Verify the whole tree (each prints nothing when everything is clean):
 ```bash
 gofmt -s -l .
 goimports -l .
+```
+
+### Godoc
+
+Godocs say **what** a thing is, not why it came to be or how it works inside.
+
+1. **Explain WHAT, not WHY or HOW.** Rationale, trade-offs, and mechanism belong in
+   an inline comment at the line that needs them, or nowhere.
+2. **Never record design history.** No "this was previously X", "used to mean Y",
+   "renamed from Z". The diff and the git log hold that.
+3. **Multi-paragraph godocs are rare.** Most functions do not earn a second
+   paragraph. One or two sentences is the norm.
+4. **Rewrite, don't patch.** When a godoc needs to change, write it again from
+   scratch; incrementally editing one reliably produces a rambling comment.
+5. **Document the subject, not the system.** A godoc is not the place to explain
+   the surrounding architecture. Describe this function, type, or field.
+
+```go
+// ❌ BAD — history, mechanism, and a system tour
+// GetRollbackFloor returns the earliest height a rollback may target. The window is
+// measured against the store's own head rather than a height handed down, because the
+// collector takes a minimum across stores, so a lagging store sets the depth. 0 means
+// nothing is eligible; it is a height rather than a sentinel, since CannotServeRollback
+// used to serve that role and was removed. Answering high is the damaging direction,
+// as nothing above clamps it: the collector derives its cut lines from these answers.
+func (s *blockDB) GetRollbackFloor(rollbackWindow uint64) uint64
+
+// ✅ GOOD — what it returns, and what the caller must know
+// GetRollbackFloor returns the earliest height a rollback may target, measured against
+// this store's own head. It returns 0 when the window is deeper than the store's
+// history, meaning no data here is eligible for pruning.
+func (s *blockDB) GetRollbackFloor(rollbackWindow uint64) uint64
 ```
 
 ## Structural corrections

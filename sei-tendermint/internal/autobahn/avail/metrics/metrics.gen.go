@@ -12,9 +12,7 @@ var Global = newMetrics()
 func init() {
 	prometheus.MustRegister(
 		Global.commitRoadIndex,
-		Global.appRoadIndex,
 		Global.commitGlobalBlockNumber,
-		Global.appGlobalBlockNumber,
 		Global.proposalToCommitLatency,
 		Global.commitToCommitLatency,
 	)
@@ -28,23 +26,11 @@ func newMetrics() *metrics {
 			Name:      "commit_road_index",
 			Help:      "Road index of the highest observed commitQC.",
 		}, nil),
-		appRoadIndex: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "app_road_index",
-			Help:      "Road index of the highest observed appQC.",
-		}, nil),
 		commitGlobalBlockNumber: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "commit_global_block_number",
 			Help:      "Global block number of the highest observed commitQC.",
-		}, nil),
-		appGlobalBlockNumber: tmprometheus.NewGaugeIntVec(prometheus.GaugeOpts{
-			Namespace: MetricsNamespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "app_global_block_number",
-			Help:      "Global block number of the highest observed appQC.",
 		}, nil),
 		proposalToCommitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
@@ -66,16 +52,8 @@ func (m *metrics) commitRoadIndexAt() *tmprometheus.GaugeInt {
 	return m.commitRoadIndex.WithLabelValues()
 }
 
-func (m *metrics) appRoadIndexAt() *tmprometheus.GaugeInt {
-	return m.appRoadIndex.WithLabelValues()
-}
-
 func (m *metrics) commitGlobalBlockNumberAt() *tmprometheus.GaugeInt {
 	return m.commitGlobalBlockNumber.WithLabelValues()
-}
-
-func (m *metrics) appGlobalBlockNumberAt() *tmprometheus.GaugeInt {
-	return m.appGlobalBlockNumber.WithLabelValues()
 }
 
 func (m *metrics) proposalToCommitLatencyAt() *tmprometheus.Histogram {
