@@ -12,6 +12,9 @@ import (
 
 const cometbftRateLimitPlane = "cometbft"
 
+// cometbftMethodCatalog is the fixed bucket label for browser catalog probes to /.
+const cometbftMethodCatalog = "catalog"
+
 var errInvalidURIMethod = errors.New("invalid URI method")
 
 // RateLimitGate applies per-IP token-bucket rate limiting for CometBFT RPC HTTP
@@ -75,6 +78,17 @@ func (g *RateLimitGate) CheckPOST(ctx context.Context, ip string, body io.Reader
 		return false, methods[0], nil
 	}
 	return true, "", nil
+}
+
+// CheckCatalog applies per-IP rate limits for browser catalog probes to /.
+func (g *RateLimitGate) CheckCatalog(ctx context.Context, ip string) (allowed bool, rejectMethod string) {
+	if !g.enabled {
+		return true, ""
+	}
+	if !g.registry.Allow(ctx, ip, g.plane, cometbftMethodCatalog) {
+		return false, cometbftMethodCatalog
+	}
+	return true, ""
 }
 
 // CheckURI applies per-IP rate limits for REST-style GET/HEAD RPC routes.

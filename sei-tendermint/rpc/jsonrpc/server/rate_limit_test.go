@@ -7,6 +7,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRateLimitGate_CheckCatalog_RejectsAfterBurst(t *testing.T) {
+	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
+	gate := NewRateLimitGate(reg, 0, true)
+	ip := "203.0.113.50"
+
+	allowed, rejectMethod := gate.CheckCatalog(t.Context(), ip)
+	require.True(t, allowed)
+	require.Empty(t, rejectMethod)
+
+	allowed, rejectMethod = gate.CheckCatalog(t.Context(), ip)
+	require.False(t, allowed)
+	require.Equal(t, cometbftMethodCatalog, rejectMethod)
+}
+
 func TestRateLimitGate_CheckURI_InvalidPathReturns400(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
 	gate := NewRateLimitGate(reg, 0, true)

@@ -20,9 +20,10 @@ type rateLimitMiddleware struct {
 // NewRateLimitMiddleware wraps inner with CometBFT RPC HTTP rate-limit admission.
 // When gate is nil or disabled, inner is returned unchanged.
 //
-// POST / JSON-RPC bodies and GET/HEAD URI routes (including the WebSocket
-// handshake GET /websocket, charged as method "websocket") are limited.
-// WebSocket frames after upgrade are not covered by this middleware.
+// POST / JSON-RPC bodies, GET/HEAD URI routes (including the WebSocket
+// handshake GET /websocket, charged as method "websocket"), and browser catalog
+// probes to / with no body are limited. WebSocket frames after upgrade are not
+// covered by this middleware. OPTIONS is exempt for CORS preflight.
 func NewRateLimitMiddleware(inner http.Handler, gate *RateLimitGate) http.Handler {
 	if gate == nil || !gate.enabled {
 		return inner
@@ -37,6 +38,18 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 
 	ip := m.gate.registry.IPFromHTTPRequest(r)
+	if isCometBFTMethodCatalogRequest(r) {
+		allowed, rejectMethod := m.gate.CheckCatalog(r.Context(), ip)
+		if !allowed {
+			if rejectMethod != "" {
+				logger.Debug("rate limit rejected catalog request", "ip", ip, "method", rejectMethod, "plane", m.gate.plane)
+			}
+			http.Error(w, "too many requests", http.StatusTooManyRequests)
+			return
+		}
+		m.inner.ServeHTTP(w, r)
+		return
+	}
 	if isCometBFTURIRPCRequest(r) {
 		allowed, rejectMethod, checkErr := m.gate.CheckURI(r.Context(), ip, r.URL.Path)
 		if checkErr != nil {
@@ -105,10 +118,7 @@ func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.Respon
 
 // isCometBFTRateLimitExemptRequest reports requests that should bypass the gate.
 func isCometBFTRateLimitExemptRequest(r *http.Request) bool {
-	if r.Method == http.MethodOptions {
-		return true
-	}
-	return isCometBFTMethodCatalogRequest(r)
+	return r.Method == http.MethodOptions
 }
 
 // isCometBFTMethodCatalogRequest reports browser/catalog probes to / with no body.

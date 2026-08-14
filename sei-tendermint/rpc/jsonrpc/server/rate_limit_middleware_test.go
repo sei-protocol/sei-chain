@@ -185,27 +185,28 @@ func TestRateLimitMiddleware_DisabledBypassesGate(t *testing.T) {
 	}
 }
 
-func TestRateLimitMiddleware_MethodCatalogPassthrough(t *testing.T) {
-	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
-	called := false
+func TestRateLimitMiddleware_MethodCatalogRateLimited(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
 		w.WriteHeader(http.StatusOK)
 	})
-	h := NewRateLimitMiddleware(inner, gate)
 
 	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost} {
 		t.Run(method, func(t *testing.T) {
-			called = false
-			for i := 0; i < 3; i++ {
-				req := httptest.NewRequest(method, "/", nil)
-				req.RemoteAddr = "203.0.113.1:1"
-				rec := httptest.NewRecorder()
-				h.ServeHTTP(rec, req)
-				require.Equal(t, http.StatusOK, rec.Code, "iteration %d", i)
-			}
-			require.True(t, called)
+			reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
+			gate := NewRateLimitGate(reg, 0, true)
+			h := NewRateLimitMiddleware(inner, gate)
+
+			req1 := httptest.NewRequest(method, "/", nil)
+			req1.RemoteAddr = "203.0.113.1:1"
+			rec1 := httptest.NewRecorder()
+			h.ServeHTTP(rec1, req1)
+			require.Equal(t, http.StatusOK, rec1.Code)
+
+			req2 := httptest.NewRequest(method, "/", nil)
+			req2.RemoteAddr = "203.0.113.1:1"
+			rec2 := httptest.NewRecorder()
+			h.ServeHTTP(rec2, req2)
+			require.Equal(t, http.StatusTooManyRequests, rec2.Code)
 		})
 	}
 }
