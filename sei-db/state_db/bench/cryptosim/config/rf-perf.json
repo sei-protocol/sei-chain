@@ -1,0 +1,13 @@
+{
+    "Comment": "Same parameters as standard-perf.json, except that no new accounts are created once setup finishes. The key count stays fixed for the whole run, so the working set never grows and numbers stay flattering. Not representative of a chain that keeps onboarding accounts.",
+    "DataDir": "data",
+    "LogDir": "logs",
+    "MinimumNumberOfColdAccounts": 1000000,
+    "MinimumNumberOfDormantAccounts": 100000000,
+    "NewAccountProbability": 0.0,
+    "FlatKVConfig": {
+        "AccountStoreConfig": { "MaxSize": 1073741824 },
+        "CodeStoreConfig": { "MaxSize": 1073741824 },
+        "StorageStoreConfig": { "MaxSize": 4294967296 }
+    }
+}
