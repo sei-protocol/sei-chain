@@ -268,7 +268,6 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | net_version                            | get-network-id.io                                              | Eth exec api |
 | sei_associate                          | associate-invalid.io                                           | Sei          |
 | sei_getBlockByHashExcludeTraceFail     | getBlockByHashExcludeTraceFail.iox                             | Sei          |
-| sei_getBlockByNumberExcludeTraceFail   | getBlockByNumberExcludeTraceFail.io                            | Sei          |
 | sei_getCosmosTx                        | getCosmosTx.io                                                 | Sei          |
 | sei_getEVMAddress                      | getEVMAddress-invalid.io                                       | Sei          |
 | sei_getEvmTx                           | getEvmTx-invalid.io                                            | Sei          |
