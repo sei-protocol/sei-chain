@@ -1,17 +1,9 @@
-import { loadGeneratorConfig } from './loadConfig';
+import { LoadGeneratorConfig, loadGeneratorConfig } from './loadConfig';
 import { runSynthetic } from './runSynthetic';
 
 export async function runLoadMain(): Promise<void> {
     const config = loadGeneratorConfig();
-    if (config.command === 'provision') {
-        if (!process.env.USER_COUNT?.trim()) {
-            process.env.USER_COUNT = String(config.workerCount);
-        }
-        process.env.WORKER_COUNT = process.env.USER_COUNT;
-    } else if (config.command === 'run' && config.type !== 'simulate') {
-        process.env.USER_COUNT = String(config.workerCount);
-        process.env.WORKER_COUNT = String(config.workerCount);
-    }
+    configureProvisioningEnvironment(config);
     if (config.command === 'setup') {
         const { deployFixturesMain } = await import('./deployFixtures');
         await deployFixturesMain();
@@ -50,6 +42,15 @@ export async function runLoadMain(): Promise<void> {
         return;
     }
     throw new Error('SIMULATE_MODE must be buffered or corpus');
+}
+
+export function configureProvisioningEnvironment(
+    config: Pick<LoadGeneratorConfig, 'command' | 'workerCount'>,
+    env: NodeJS.ProcessEnv = process.env,
+): void {
+    if (config.command !== 'provision') return;
+    env.USER_COUNT = env.USER_COUNT?.trim() || String(config.workerCount);
+    env.WORKER_COUNT = env.USER_COUNT;
 }
 
 if (require.main === module) {

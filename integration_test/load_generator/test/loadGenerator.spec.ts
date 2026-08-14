@@ -6,6 +6,7 @@ import path from 'node:path';
 import { loadProvisionConfig } from '../src/config';
 import { LoadAuditWriter } from '../src/loadAudit';
 import { loadGeneratorConfig } from '../src/loadConfig';
+import { configureProvisioningEnvironment } from '../src/runLoad';
 import { selectWorkerUsers } from '../src/runSynthetic';
 import {
     applyOperationWeights,
@@ -102,6 +103,23 @@ describe('multi-mode load generator', () => {
         expect(() => selectWorkerUsers(users, 2, 2)).to.throw(
             'derivation index 99, expected 3',
         );
+    });
+
+    it('preserves the provisioned pool size when running a partition', () => {
+        const runEnvironment: NodeJS.ProcessEnv = { USER_COUNT: '2000' };
+        configureProvisioningEnvironment(
+            { command: 'run', workerCount: 20 },
+            runEnvironment,
+        );
+        expect(runEnvironment.USER_COUNT).to.equal('2000');
+
+        const provisionEnvironment: NodeJS.ProcessEnv = {};
+        configureProvisioningEnvironment(
+            { command: 'provision', workerCount: 40 },
+            provisionEnvironment,
+        );
+        expect(provisionEnvironment.USER_COUNT).to.equal('40');
+        expect(provisionEnvironment.WORKER_COUNT).to.equal('40');
     });
 
     it('parses large funding targets without number precision loss', () => {
