@@ -23,14 +23,6 @@ func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
 			require.Equal(t, "0x0", res["result"].(map[string]any)["transactionIndex"].(string))
 			require.Equal(t, signedTx3.Hash().Hex(), res["result"].(map[string]any)["hash"].(string))
 
-			// if sei_, the first tx should be tx2 and the second tx should be tx3. tx1
-			// is excluded because bank transfers are not surfaced as EVM transactions.
-			// The first tx cannot be represented as RPCTransaction because it's not an EVM transaction.
-			res = sendRequestWithNamespace("sei", port, "getTransactionByBlockNumberAndIndex", "0x2", "0x0")
-			require.Contains(t, res["error"].(map[string]any)["message"].(string), "transaction is not an EVM transaction")
-			res = sendRequestWithNamespace("sei", port, "getTransactionByBlockNumberAndIndex", "0x2", "0x1")
-			require.Equal(t, "0x1", res["result"].(map[string]any)["transactionIndex"].(string))
-			require.Equal(t, signedTx3.Hash().Hex(), res["result"].(map[string]any)["hash"].(string))
 		},
 	)
 }
@@ -53,16 +45,6 @@ func TestGetTransactionByHash(t *testing.T) {
 			res = sendRequestWithNamespace("eth", port, "getTransactionByHash", common.Hash(sha256.Sum256(tx2)).Hex())
 			require.Nil(t, res["result"])
 
-			// if sei_, the first tx should be tx2 and the second tx should be tx3. tx1
-			// is excluded because bank transfers are not surfaced as EVM transactions.
-			// The first tx cannot be represented as RPCTransaction because it's not an EVM transaction.
-			res = sendRequestWithNamespace("sei", port, "getTransactionByHash", signedTx3.Hash().Hex())
-			require.Equal(t, "0x1", res["result"].(map[string]any)["transactionIndex"].(string))
-			require.Equal(t, signedTx3.Hash().Hex(), res["result"].(map[string]any)["hash"].(string))
-			res = sendRequestWithNamespace("sei", port, "getTransactionByHash", common.Hash(sha256.Sum256(tx1)).Hex())
-			require.Nil(t, res["result"])
-			res = sendRequestWithNamespace("sei", port, "getTransactionByHash", common.Hash(sha256.Sum256(tx2)).Hex())
-			require.Contains(t, res["error"].(map[string]any)["message"].(string), "transaction is not an EVM transaction")
 		},
 	)
 }
