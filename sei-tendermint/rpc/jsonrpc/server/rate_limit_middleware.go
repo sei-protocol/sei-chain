@@ -154,6 +154,10 @@ func readRateLimitBoundedBody(body io.ReadCloser, maxBytes int64) ([]byte, error
 		_ = body.Close()
 	}()
 
+	if maxBytes <= 0 {
+		return io.ReadAll(body)
+	}
+
 	lr := &io.LimitedReader{R: body, N: maxBytes + 1}
 	buf, err := io.ReadAll(lr)
 	if err != nil {

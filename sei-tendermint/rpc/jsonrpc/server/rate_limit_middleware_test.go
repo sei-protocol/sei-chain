@@ -315,6 +315,28 @@ func TestRateLimitMiddleware_POST_OversizeBodyReturns413(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "request body too large")
 }
 
+func TestRateLimitMiddleware_POST_UnlimitedBodyWhenMaxBodyBytesZero(t *testing.T) {
+	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
+	gate := NewRateLimitGate(reg, 0, true)
+	called := false
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Greater(t, int64(len(body)), DefaultConfig().MaxBodyBytes)
+		w.WriteHeader(http.StatusOK)
+	})
+	h := NewRateLimitMiddleware(inner, gate)
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"broadcast_tx_sync","params":["` + strings.Repeat("a", int(DefaultConfig().MaxBodyBytes)+1) + `"]}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.RemoteAddr = "203.0.113.1:1"
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, called)
+}
+
 func TestRateLimitMiddleware_POST_MalformedJSONReturns400(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
 	gate := NewRateLimitGate(reg, 0, true)

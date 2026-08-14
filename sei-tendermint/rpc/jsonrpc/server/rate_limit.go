@@ -26,11 +26,12 @@ type RateLimitGate struct {
 }
 
 // NewRateLimitGate returns a gate for CometBFT RPC HTTP (plane "cometbft").
-// registry must be non-nil. maxBodyBytes should match max-body-bytes; non-positive
-// values use DefaultConfig().MaxBodyBytes.
+// registry must be non-nil. maxBodyBytes is max-body-bytes from config; non-positive
+// means unlimited and the gate does not apply its own body-size rejection (the outer
+// MaxBytesHandler enforces a positive limit when configured).
 func NewRateLimitGate(registry *ratelimiter.Registry, maxBodyBytes int64, enabled bool) *RateLimitGate {
 	if maxBodyBytes <= 0 {
-		maxBodyBytes = DefaultConfig().MaxBodyBytes
+		maxBodyBytes = 0
 	}
 	if maxBodyBytes == math.MaxInt64 {
 		maxBodyBytes = math.MaxInt64 - 1
