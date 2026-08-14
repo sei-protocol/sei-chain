@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -30,6 +31,7 @@ const (
 	snapshotCurrentTmpLink = "current-tmp"
 	snapshotTmpPrefix      = "tmp-"
 	snapshotSizeFile       = ".apparent-size"
+	linkProbeName          = ".ss-snapshot-link-probe"
 )
 
 // Config wires one SS member into a snapshot Manager.
@@ -41,6 +43,67 @@ type Config struct {
 	KeepRecent      int
 	ExternalPruning bool
 	Scheduler       management.CheckpointScheduler
+	// Floor names a height this member's retention must keep. Leave it nil when the member is the only
+	// one that has to hold the height a restore starts from.
+	Floor *Floor
+}
+
+// Floor is a height retention must keep, shared by the members of a coordinated snapshot set. A
+// restore reads the newest height every member holds, and a member counting its own directories cannot
+// see the other roots: an unpaired newer directory would otherwise consume the keep slot that height
+// occupies. The coordinator publishes the shared height here after every publication.
+//
+// Keeping it costs one directory beyond KeepRecent while the members disagree.
+type Floor struct {
+	height atomic.Int64
+}
+
+// NewFloor returns a Floor holding height, which may be 0 for "no height to keep".
+func NewFloor(height int64) *Floor {
+	f := &Floor{}
+	f.Set(height)
+	return f
+}
+
+func (f *Floor) Height() int64 {
+	if f == nil {
+		return 0
+	}
+	return f.height.Load()
+}
+
+func (f *Floor) Set(height int64) {
+	if f == nil {
+		return
+	}
+	f.height.Store(height)
+}
+
+// NewestCommonVersion returns the newest snapshot height present under every root, 0 when the roots
+// share none. A root that cannot be read is treated as holding nothing, so the answer never names a
+// height that may be absent.
+func NewestCommonVersion(roots []string) int64 {
+	if len(roots) == 0 {
+		return 0
+	}
+	counts := map[int64]int{}
+	for _, root := range roots {
+		versions, err := ListSnapshotVersions(root)
+		if err != nil {
+			logger.Error("failed to list state store snapshots", "root", root, "error", err)
+			return 0
+		}
+		for _, v := range versions {
+			counts[v]++
+		}
+	}
+	var newest int64
+	for version, count := range counts {
+		if count == len(roots) && version > newest {
+			newest = version
+		}
+	}
+	return newest
 }
 
 // Manager owns one SS member's snapshot root, staging directories, current
@@ -53,6 +116,7 @@ type Manager struct {
 	keepRecent      int
 	externalPruning bool
 	scheduler       management.CheckpointScheduler
+	floor           *Floor
 	snapshotSizes   map[int64]int64
 
 	publishMu     sync.Mutex
@@ -135,6 +199,7 @@ func Open(cfg Config) (*Manager, error) {
 		keepRecent:      cfg.KeepRecent,
 		externalPruning: cfg.ExternalPruning,
 		scheduler:       cfg.Scheduler,
+		floor:           cfg.Floor,
 		snapshotSizes:   map[int64]int64{},
 	}
 	m.lastPublished = m.Newest()
@@ -316,11 +381,15 @@ func (m *Manager) PruneSnapshots(cutLine int64) error {
 	if err != nil {
 		return err
 	}
+	floor := m.floor.Height()
 	for _, v := range versions {
 		if v >= cutLine {
 			continue
 		}
 		if hasCurrent && v == currentVersion {
+			continue
+		}
+		if v == floor {
 			continue
 		}
 		dir := filepath.Join(m.root, SnapshotDirName(v))
@@ -399,8 +468,12 @@ func (m *Manager) prune() {
 	if len(versions) <= keep {
 		return
 	}
+	floor := m.floor.Height()
 	for _, v := range versions[:len(versions)-keep] {
 		if hasCurrent && v == currentVersion {
+			continue
+		}
+		if v == floor {
 			continue
 		}
 		dir := filepath.Join(m.root, SnapshotDirName(v))
@@ -468,21 +541,27 @@ func (m *Manager) recordRetentionMetrics() {
 	recordApparentBytes(m.name, apparentBytes)
 }
 
+// verifyHardlinks proves the snapshot root can hold hardlinks to each source directory, which is how a
+// checkpoint avoids copying the database.
+//
+// The probe has a fixed name in both places so a process that dies between the link and the removals
+// leaves one known path per directory, which the next start reclaims rather than accumulating.
 func verifyHardlinks(root string, sourceDirs []string) error {
 	if err := os.MkdirAll(root, 0o750); err != nil {
 		return fmt.Errorf("create snapshot root %q: %w", root, err)
 	}
 	for _, sourceDir := range sourceDirs {
-		probe, err := os.CreateTemp(sourceDir, ".ss-snapshot-link-probe-*")
-		if err != nil {
+		source := filepath.Join(sourceDir, linkProbeName)
+		target := filepath.Join(root, linkProbeName)
+		if err := removeIfExists(source); err != nil {
+			return fmt.Errorf("clear hardlink probe %q: %w", source, err)
+		}
+		if err := removeIfExists(target); err != nil {
+			return fmt.Errorf("clear hardlink probe %q: %w", target, err)
+		}
+		if err := os.WriteFile(source, nil, 0o600); err != nil {
 			return fmt.Errorf("create hardlink probe in state store %q: %w", sourceDir, err)
 		}
-		source := probe.Name()
-		if err := probe.Close(); err != nil {
-			_ = os.Remove(source)
-			return fmt.Errorf("close hardlink probe in state store %q: %w", sourceDir, err)
-		}
-		target := filepath.Join(root, filepath.Base(source))
 		if err := os.Link(source, target); err != nil {
 			_ = os.Remove(source)
 			return fmt.Errorf(
@@ -499,6 +578,13 @@ func verifyHardlinks(root string, sourceDirs []string) error {
 		if err := os.Remove(target); err != nil {
 			return fmt.Errorf("remove hardlink probe %q: %w", target, err)
 		}
+	}
+	return nil
+}
+
+func removeIfExists(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
 	}
 	return nil
 }

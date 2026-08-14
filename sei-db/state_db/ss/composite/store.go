@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
+	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/seilog"
 )
@@ -103,7 +104,6 @@ func NewCompositeStateStore(
 	cs.validateEVMSSPostRecovery()
 
 	if ssConfig.SnapshotInterval > 0 {
-		members := make([]snapshotMember, 0, 2)
 		cosmosSnapshotRoot := utils.GetStateStoreSnapshotsPath(homeDir)
 		if ssConfig.DBDirectory != "" {
 			cleanDBHome := filepath.Clean(dbHome)
@@ -112,20 +112,31 @@ func NewCompositeStateStore(
 				filepath.Base(cleanDBHome)+"-"+utils.StateStoreSnapshotsDirName,
 			)
 		}
-		if err := cosmosStore.StartSnapshots(cosmosSnapshotRoot, []string{dbHome}, ssConfig); err != nil {
+		evmStore, hasEVM := cs.evmStore.(*evm.EVMStateStore)
+		var evmSnapshotRoot string
+		roots := []string{cosmosSnapshotRoot}
+		if hasEVM {
+			evmSnapshotRoot = evmStore.Dir() + "-" + utils.StateStoreSnapshotsDirName
+			roots = append(roots, evmSnapshotRoot)
+		}
+		// Resolved before any member opens, because opening one runs its retention, and the height a
+		// restore would start from is the newest the members share rather than the newest either holds.
+		floor := sssnapshot.NewFloor(sssnapshot.NewestCommonVersion(roots))
+
+		members := make([]snapshotMember, 0, len(roots))
+		if err := cosmosStore.StartSnapshots(cosmosSnapshotRoot, []string{dbHome}, ssConfig, floor); err != nil {
 			_ = cs.Close()
 			return nil, fmt.Errorf("start Cosmos state store snapshot manager: %w", err)
 		}
 		members = append(members, snapshotMember{name: "cosmos", manager: cosmosStore.Snapshots()})
-		if evmStore, ok := cs.evmStore.(*evm.EVMStateStore); ok {
-			evmSnapshotRoot := evmStore.Dir() + "-" + utils.StateStoreSnapshotsDirName
-			if err := evmStore.StartSnapshots(evmSnapshotRoot, ssConfig); err != nil {
+		if hasEVM {
+			if err := evmStore.StartSnapshots(evmSnapshotRoot, ssConfig, floor); err != nil {
 				_ = cs.Close()
 				return nil, fmt.Errorf("start EVM state store snapshot manager: %w", err)
 			}
 			members = append(members, snapshotMember{name: "evm", manager: evmStore.Snapshots()})
 		}
-		if err := cs.startSnapshotManager(members); err != nil {
+		if err := cs.startSnapshotManager(members, floor); err != nil {
 			_ = cs.Close()
 			return nil, fmt.Errorf("start state store snapshot manager: %w", err)
 		}

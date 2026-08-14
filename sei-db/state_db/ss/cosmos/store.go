@@ -105,7 +105,12 @@ func (s *CosmosStateStore) SetCheckpointVersion(destDir string, version int64) e
 	return management.SetCheckpointVersion(s.db, destDir, version)
 }
 
-func (s *CosmosStateStore) StartSnapshots(root string, sourceDirs []string, ssConfig config.StateStoreConfig) error {
+func (s *CosmosStateStore) StartSnapshots(
+	root string,
+	sourceDirs []string,
+	ssConfig config.StateStoreConfig,
+	floor *sssnapshot.Floor,
+) error {
 	manager, err := sssnapshot.Open(sssnapshot.Config{
 		Name:            "cosmos",
 		Root:            root,
@@ -114,6 +119,7 @@ func (s *CosmosStateStore) StartSnapshots(root string, sourceDirs []string, ssCo
 		KeepRecent:      ssConfig.SnapshotKeepRecent,
 		ExternalPruning: ssConfig.ExternalPruning,
 		Scheduler:       s,
+		Floor:           floor,
 	})
 	if err != nil {
 		return err

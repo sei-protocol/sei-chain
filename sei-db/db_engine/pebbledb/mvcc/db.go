@@ -92,6 +92,9 @@ type Database struct {
 	// that has gone idle since would be skipped for as long as it stays idle.
 	pruneIncomplete atomic.Bool
 
+	// pruneFailures counts the prune passes that have failed in a row, reported as a gauge.
+	pruneFailures atomic.Int64
+
 	// Changelog used to support async write
 	streamHandler wal.ChangelogWAL
 
@@ -706,6 +709,20 @@ func (db *Database) getDescending(storeKey string, targetVersion int64, key []by
 // the same process rescan every store to reach them. A crash inside that window
 // loses the flag, and those rows stay on disk — unreachable by any read, since
 // the marker bounds reads too — until the store is written to again.
+// recordPruneOutcome reports how many prune passes have failed in a row. A failed pass has already
+// raised the earliest-version marker, so repeated failures narrow the range reads and checkpoints are
+// allowed to serve once per prune interval while disk keeps growing. Nothing else makes that visible:
+// the rows left behind are unreachable, so the store looks consistent from the outside.
+func (db *Database) recordPruneOutcome(err error) {
+	failures := int64(0)
+	if err == nil {
+		db.pruneFailures.Store(0)
+	} else {
+		failures = db.pruneFailures.Add(1)
+	}
+	otelMetrics.pruneConsecutiveFailures.Record(context.Background(), failures)
+}
+
 func (db *Database) pruneDescending(version int64) (_err error) {
 	// Defensive check: ensure database is not closed
 	if db.storage == nil {
@@ -714,6 +731,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 
 	startTime := time.Now()
 	defer func() {
+		db.recordPruneOutcome(_err)
 		otelMetrics.pruneLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),

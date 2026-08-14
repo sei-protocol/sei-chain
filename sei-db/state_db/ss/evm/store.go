@@ -480,7 +480,11 @@ func (s *EVMStateStore) SetCheckpointVersion(destDir string, version int64) erro
 	return nil
 }
 
-func (s *EVMStateStore) StartSnapshots(root string, ssConfig config.StateStoreConfig) error {
+func (s *EVMStateStore) StartSnapshots(
+	root string,
+	ssConfig config.StateStoreConfig,
+	floor *sssnapshot.Floor,
+) error {
 	manager, err := sssnapshot.Open(sssnapshot.Config{
 		Name:            "evm",
 		Root:            root,
@@ -489,6 +493,7 @@ func (s *EVMStateStore) StartSnapshots(root string, ssConfig config.StateStoreCo
 		KeepRecent:      ssConfig.SnapshotKeepRecent,
 		ExternalPruning: ssConfig.ExternalPruning,
 		Scheduler:       s,
+		Floor:           floor,
 	})
 	if err != nil {
 		return err

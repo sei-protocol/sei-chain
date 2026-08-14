@@ -114,6 +114,50 @@ func TestManagerPruneSnapshotsActsUnderExternalPruning(t *testing.T) {
 	require.Equal(t, []int64{20}, versions)
 }
 
+// Retention counts only this member's directories, so a height an unpaired newer snapshot has pushed out
+// of the keep window can still be the newest one every member holds — the height a restore starts from.
+func TestManagerRetentionKeepsTheSharedFloor(t *testing.T) {
+	root := t.TempDir()
+	for _, version := range []int64{10, 20, 30} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, SnapshotDirName(version)), 0o750))
+	}
+	floor := NewFloor(10)
+	scheduler := &controlledScheduler{pending: make(chan func(), 1)}
+	manager := openManagerWithFloor(t, root, scheduler, 0, false, floor)
+
+	versions, err := manager.Versions()
+	require.NoError(t, err)
+	require.Equal(t, []int64{10, 30}, versions, "only the unpaired 20 is beyond the keep window")
+
+	// The members agree again, so the height they used to share is free to go.
+	floor.Set(30)
+	require.NoError(t, manager.PruneSnapshots(30))
+
+	versions, err = manager.Versions()
+	require.NoError(t, err)
+	require.Equal(t, []int64{30}, versions)
+}
+
+// A hardlink probe left by a crash is reclaimed rather than accumulating, in the source directory and in
+// the snapshot root alike.
+func TestOpenClearsLeftoverHardlinkProbes(t *testing.T) {
+	root, source := t.TempDir(), t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(source, linkProbeName), nil, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, linkProbeName), nil, 0o600))
+
+	_, err := Open(Config{
+		Name:       "test",
+		Root:       root,
+		SourceDirs: []string{source},
+		Backend:    config.PebbleDBBackend,
+		Scheduler:  &controlledScheduler{pending: make(chan func(), 1)},
+	})
+	require.NoError(t, err)
+
+	require.NoFileExists(t, filepath.Join(source, linkProbeName))
+	require.NoFileExists(t, filepath.Join(root, linkProbeName))
+}
+
 func TestManagerAbortRemovesStagedSnapshot(t *testing.T) {
 	root := t.TempDir()
 	scheduler := &controlledScheduler{pending: make(chan func(), 1)}
@@ -144,6 +188,18 @@ func TestManagerPrepareRefusesExistingStagingDir(t *testing.T) {
 
 func openManager(t *testing.T, root string, scheduler *controlledScheduler, keepRecent int, external bool) *Manager {
 	t.Helper()
+	return openManagerWithFloor(t, root, scheduler, keepRecent, external, nil)
+}
+
+func openManagerWithFloor(
+	t *testing.T,
+	root string,
+	scheduler *controlledScheduler,
+	keepRecent int,
+	external bool,
+	floor *Floor,
+) *Manager {
+	t.Helper()
 	manager, err := Open(Config{
 		Name:            "test",
 		Root:            root,
@@ -152,6 +208,7 @@ func openManager(t *testing.T, root string, scheduler *controlledScheduler, keep
 		KeepRecent:      keepRecent,
 		ExternalPruning: external,
 		Scheduler:       scheduler,
+		Floor:           floor,
 	})
 	require.NoError(t, err)
 	return manager

@@ -200,7 +200,7 @@ func TestCompositeCoordinatorPublishesEveryMember(t *testing.T) {
 	schedulerB := &controlledSnapshotScheduler{pending: make(chan func(), 1)}
 	managerA := openTestManager(t, "cosmos", rootA, schedulerA)
 	managerB := openTestManager(t, "evm", rootB, schedulerB)
-	coord := newSnapshotCoordinator(10, 0, []snapshotMember{
+	coord := newTestSnapshotCoordinator(10, 0, []snapshotMember{
 		{name: "cosmos", manager: managerA},
 		{name: "evm", manager: managerB},
 	})
@@ -221,7 +221,7 @@ func TestCompositeCoordinatorAbortsEveryMemberOnStageFailure(t *testing.T) {
 	schedulerB := &controlledSnapshotScheduler{pending: make(chan func(), 1), fail: true}
 	managerA := openTestManager(t, "cosmos", rootA, schedulerA)
 	managerB := openTestManager(t, "evm", rootB, schedulerB)
-	coord := newSnapshotCoordinator(10, 0, []snapshotMember{
+	coord := newTestSnapshotCoordinator(10, 0, []snapshotMember{
 		{name: "cosmos", manager: managerA},
 		{name: "evm", manager: managerB},
 	})
@@ -244,7 +244,7 @@ func TestCompositeCoordinatorQueuesNothingWhenAMemberCannotPrepare(t *testing.T)
 	schedulerB := &controlledSnapshotScheduler{pending: make(chan func(), 1)}
 	managerA := openTestManager(t, "cosmos", rootA, schedulerA)
 	managerB := openTestManager(t, "evm", rootB, schedulerB)
-	coord := newSnapshotCoordinator(10, 0, []snapshotMember{
+	coord := newTestSnapshotCoordinator(10, 0, []snapshotMember{
 		{name: "cosmos", manager: managerA},
 		{name: "evm", manager: managerB},
 	})
@@ -266,16 +266,23 @@ func TestUnpairedSnapshotHeightsSurviveStartupAndCommonHeightIsLower(t *testing.
 	require.NoError(t, os.MkdirAll(filepath.Join(rootA, SnapshotDirName(20)), 0o750))
 	require.NoError(t, os.MkdirAll(filepath.Join(rootB, SnapshotDirName(10)), 0o750))
 
-	managerA := openTestManager(t, "cosmos", rootA, &controlledSnapshotScheduler{pending: make(chan func(), 1)})
-	managerB := openTestManager(t, "evm", rootB, &controlledSnapshotScheduler{pending: make(chan func(), 1)})
+	// Retention that keeps one snapshot would drop 10 from the cosmos root, where the unpaired 20 holds
+	// the only keep slot, leaving the members with no height in common to restore from.
+	floor := sssnapshot.NewFloor(sssnapshot.NewestCommonVersion([]string{rootA, rootB}))
+	schedulerA := &controlledSnapshotScheduler{pending: make(chan func(), 1)}
+	schedulerB := &controlledSnapshotScheduler{pending: make(chan func(), 1)}
+	managerA := openTestManagerWithRetention(t, "cosmos", rootA, schedulerA, 0, floor)
+	managerB := openTestManagerWithRetention(t, "evm", rootB, schedulerB, 0, floor)
 	coord := newSnapshotCoordinator(10, 0, []snapshotMember{
 		{name: "cosmos", manager: managerA},
 		{name: "evm", manager: managerB},
-	})
+	}, floor)
 
+	require.DirExists(t, filepath.Join(rootA, SnapshotDirName(10)), "the shared height must survive retention")
 	require.DirExists(t, filepath.Join(rootA, SnapshotDirName(20)))
 	require.Equal(t, int64(20), coord.lastRequested)
 	require.Equal(t, int64(10), newestCommonSnapshot(coord.members))
+	require.Equal(t, int64(10), floor.Height())
 }
 
 func TestSnapshotCoversEmptyBlock(t *testing.T) {
@@ -295,7 +302,7 @@ func TestSnapshotMinTimeIntervalSkipsBoundary(t *testing.T) {
 	rootA := t.TempDir()
 	scheduler := &controlledSnapshotScheduler{pending: make(chan func(), 1)}
 	manager := openTestManager(t, "cosmos", rootA, scheduler)
-	coord := newSnapshotCoordinator(10, time.Hour, []snapshotMember{{name: "cosmos", manager: manager}})
+	coord := newTestSnapshotCoordinator(10, time.Hour, []snapshotMember{{name: "cosmos", manager: manager}})
 
 	coord.maybeSnapshot(10)
 	(<-scheduler.pending)()
@@ -308,17 +315,37 @@ func TestSnapshotMinTimeIntervalSkipsBoundary(t *testing.T) {
 
 func openTestManager(t *testing.T, name, root string, scheduler *controlledSnapshotScheduler) *sssnapshot.Manager {
 	t.Helper()
+	return openTestManagerWithRetention(t, name, root, scheduler, 1, nil)
+}
+
+func openTestManagerWithRetention(
+	t *testing.T,
+	name, root string,
+	scheduler *controlledSnapshotScheduler,
+	keepRecent int,
+	floor *sssnapshot.Floor,
+) *sssnapshot.Manager {
+	t.Helper()
 	source := t.TempDir()
 	manager, err := sssnapshot.Open(sssnapshot.Config{
 		Name:       name,
 		Root:       root,
 		SourceDirs: []string{source},
 		Backend:    config.PebbleDBBackend,
-		KeepRecent: 1,
+		KeepRecent: keepRecent,
 		Scheduler:  scheduler,
+		Floor:      floor,
 	})
 	require.NoError(t, err)
 	return manager
+}
+
+func newTestSnapshotCoordinator(
+	interval int64,
+	minTime time.Duration,
+	members []snapshotMember,
+) *snapshotCoordinator {
+	return newSnapshotCoordinator(interval, minTime, members, sssnapshot.NewFloor(0))
 }
 
 type cosmosStoreWithSnapshots interface {

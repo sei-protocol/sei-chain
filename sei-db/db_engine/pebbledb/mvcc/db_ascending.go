@@ -98,6 +98,7 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 
 	startTime := time.Now()
 	defer func() {
+		db.recordPruneOutcome(_err)
 		otelMetrics.pruneLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),

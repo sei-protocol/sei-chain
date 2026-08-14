@@ -76,6 +76,9 @@ type snapshotCoordinator struct {
 	interval int64
 	minTime  time.Duration
 	members  []snapshotMember
+	// floor carries the newest height every member holds to the members' own retention, which counts
+	// only its own directories and would otherwise let an unpaired newer height crowd it out.
+	floor *sssnapshot.Floor
 
 	mu sync.Mutex
 	// lastRequested is the newest label already requested or present in any
@@ -92,19 +95,33 @@ type snapshotCoordinator struct {
 	publishing sync.WaitGroup
 }
 
-func newSnapshotCoordinator(interval int64, minTime time.Duration, members []snapshotMember) *snapshotCoordinator {
+func newSnapshotCoordinator(
+	interval int64,
+	minTime time.Duration,
+	members []snapshotMember,
+	floor *sssnapshot.Floor,
+) *snapshotCoordinator {
 	c := &snapshotCoordinator{
 		interval: interval,
 		minTime:  minTime,
 		members:  members,
+		floor:    floor,
 	}
 	c.lastRequested = newestMemberSnapshot(members)
 	c.lastRequestAt = newestMemberSnapshotModTime(members, c.lastRequested)
-	sssnapshot.RecordCommonHeight(newestCommonSnapshot(members))
+	c.recordCommonHeight()
 	return c
 }
 
-func (s *CompositeStateStore) startSnapshotManager(members []snapshotMember) error {
+// recordCommonHeight republishes the height every member holds, which is both what retention must keep
+// and what an operator watches to see the members drifting apart.
+func (c *snapshotCoordinator) recordCommonHeight() {
+	common := newestCommonSnapshot(c.members)
+	c.floor.Set(common)
+	sssnapshot.RecordCommonHeight(common)
+}
+
+func (s *CompositeStateStore) startSnapshotManager(members []snapshotMember, floor *sssnapshot.Floor) error {
 	if s.config.SnapshotInterval <= 0 {
 		return nil
 	}
@@ -120,6 +137,7 @@ func (s *CompositeStateStore) startSnapshotManager(members []snapshotMember) err
 		s.config.SnapshotInterval,
 		s.config.SnapshotMinTimeInterval,
 		members,
+		floor,
 	)
 	logger.Info("state store snapshotting enabled",
 		"interval", s.config.SnapshotInterval,
@@ -210,7 +228,7 @@ func (c *snapshotCoordinator) finishSnapshot() {
 	c.inFlight = false
 	sssnapshot.RecordInFlight(0)
 	c.mu.Unlock()
-	sssnapshot.RecordCommonHeight(newestCommonSnapshot(c.members))
+	c.recordCommonHeight()
 }
 
 // requestSnapshot asks every member to checkpoint itself into a staging
@@ -352,29 +370,12 @@ func newestMemberSnapshotModTime(members []snapshotMember, version int64) time.T
 }
 
 func newestCommonSnapshot(members []snapshotMember) int64 {
-	if len(members) == 0 {
-		return 0
-	}
-	counts := map[int64]int{}
+	roots := make([]string, 0, len(members))
 	for _, member := range members {
 		if member.manager == nil {
 			return 0
 		}
-		versions, err := member.manager.Versions()
-		if err != nil {
-			logger.Error("failed to list state store snapshots for common height",
-				"member", member.name, "error", err)
-			return 0
-		}
-		for _, version := range versions {
-			counts[version]++
-		}
+		roots = append(roots, member.manager.Root())
 	}
-	var newest int64
-	for version, count := range counts {
-		if count == len(members) && version > newest {
-			newest = version
-		}
-	}
-	return newest
+	return sssnapshot.NewestCommonVersion(roots)
 }
