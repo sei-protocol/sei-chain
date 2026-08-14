@@ -68,6 +68,8 @@ func checkConfig(t *testing.T, configFile string) {
 		"timeout",
 		"broadcast",
 		"send",
+		"fast-check-tx = false",
+		"mock-app = false",
 		"addr",
 		"wal",
 		"propose",

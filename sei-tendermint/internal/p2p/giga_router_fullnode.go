@@ -6,6 +6,9 @@ import (
 	"math/rand/v2"
 	"slices"
 
+	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
@@ -30,6 +33,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			service:            giga.NewFullNodeService(dataState),
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			proxies:            utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			app:                cfg.App,
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
@@ -53,8 +57,15 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
+		s.SpawnNamed("evmProxies", func() error { return r.runEvmProxies(ctx) })
 		return nil
 	})
+}
+
+// EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
+// EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
+func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
+	return r.evmProxy(r.data.Registry().LatestEpoch().Committee().EvmShard(sender))
 }
 
 // runFullnodeSubscriber: pick a committee member, dial + block-sync,

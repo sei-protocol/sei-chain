@@ -25,6 +25,7 @@ type opts struct {
 	checkTxTimeout               interface{}
 	maxTxPoolTxs                 interface{}
 	slow                         interface{}
+	enableSimulation             interface{}
 	disableWatermark             interface{}
 	denyList                     interface{}
 	maxLogNoBlock                interface{}
@@ -109,6 +110,9 @@ func (o *opts) Get(k string) interface{} {
 	}
 	if k == "evm.slow" {
 		return o.slow
+	}
+	if k == "evm.enable_simulation" {
+		return o.enableSimulation
 	}
 	if k == "evm.disable_watermark" {
 		return o.disableWatermark
@@ -245,6 +249,7 @@ func getDefaultOpts() opts {
 		time.Duration(5),
 		1000,
 		false,
+		true,
 		false,
 		make([]string, 0),
 		20000,
@@ -287,6 +292,7 @@ func TestReadConfig(t *testing.T) {
 	cfg, err := config.ReadConfig(&goodOpts)
 	require.Nil(t, err)
 	require.False(t, cfg.EnableParallelizedBlockTrace)
+	require.True(t, cfg.EnableSimulation)
 	// Round-trip: an explicitly-supplied value overrides the default.
 	require.Equal(t, uint64(256*1024*1024), cfg.MaxTraceStructLogBytes)
 	require.Equal(t, []string{"callTracer", "prestateTracer"}, cfg.TraceAllowedTracers)
@@ -298,6 +304,7 @@ func TestReadConfig(t *testing.T) {
 	require.Equal(t, 9, cfg.MaxStateOverrideSlots)
 	require.Equal(t, 100, config.DefaultConfig.MaxStateOverrideAccounts)
 	require.Equal(t, 1000, config.DefaultConfig.MaxStateOverrideSlots)
+	require.True(t, config.DefaultConfig.EnableSimulation)
 	badOpts := goodOpts
 	badOpts.httpEnabled = "bad"
 	_, err = config.ReadConfig(&badOpts)
@@ -360,6 +367,10 @@ func TestReadConfig(t *testing.T) {
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.slow = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+	badOpts = goodOpts
+	badOpts.enableSimulation = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts

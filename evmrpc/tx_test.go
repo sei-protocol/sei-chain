@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -49,19 +48,19 @@ func waitForReceipt(t *testing.T, ctx sdk.Context, txHash common.Hash) *types.Re
 
 type pendingNonceClient struct {
 	*MockClient
-	nextNonce uint64
-	proxyURL  *url.URL
+	nextNonce   uint64
+	proxyClient *rpc.Client
 }
 
 func (c *pendingNonceClient) EvmNextPendingNonce(common.Address) uint64 {
 	return c.nextNonce
 }
 
-func (c *pendingNonceClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	if c.proxyURL == nil {
-		return utils.None[*url.URL]()
+func (c *pendingNonceClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	if c.proxyClient == nil {
+		return utils.None[*rpc.Client]()
 	}
-	return utils.Some(c.proxyURL)
+	return utils.Some(c.proxyClient)
 }
 
 func TestGetTransactionCount(t *testing.T) {
@@ -305,8 +304,8 @@ func (c *lowLatestTMClient) GenesisInitialHeight() int64               { return 
 
 func (c *lowLatestTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) { return nil, false }
 
-func (c *lowLatestTMClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	return utils.None[*url.URL]()
+func (c *lowLatestTMClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	return utils.None[*rpc.Client]()
 }
 
 func (c *lowLatestTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
@@ -993,11 +992,12 @@ func TestGetTransactionCountPendingUsesProxy(t *testing.T) {
 	}))
 	defer server.Close()
 
-	proxyURL, err := url.Parse(server.URL)
+	proxyClient, err := rpc.DialContext(t.Context(), server.URL)
 	require.NoError(t, err)
+	t.Cleanup(proxyClient.Close)
 
 	api := evmrpc.NewTransactionAPI(
-		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7, proxyURL: proxyURL},
+		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7, proxyClient: proxyClient},
 		nil,
 		nil,
 		nil,

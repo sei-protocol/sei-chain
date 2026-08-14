@@ -24,7 +24,7 @@ func TestGetTransactionByBlockNumberAndIndex(t *testing.T) {
 			require.Equal(t, signedTx3.Hash().Hex(), res["result"].(map[string]any)["hash"].(string))
 
 			// if sei_, the first tx should be tx2 and the second tx should be tx3. tx1
-			// is excluded because we don't support sei2_getTransaction*.
+			// is excluded because bank transfers are not surfaced as EVM transactions.
 			// The first tx cannot be represented as RPCTransaction because it's not an EVM transaction.
 			res = sendRequestWithNamespace("sei", port, "getTransactionByBlockNumberAndIndex", "0x2", "0x0")
 			require.Contains(t, res["error"].(map[string]any)["message"].(string), "transaction is not an EVM transaction")
@@ -54,7 +54,7 @@ func TestGetTransactionByHash(t *testing.T) {
 			require.Nil(t, res["result"])
 
 			// if sei_, the first tx should be tx2 and the second tx should be tx3. tx1
-			// is excluded because we don't support sei2_getTransaction*.
+			// is excluded because bank transfers are not surfaced as EVM transactions.
 			// The first tx cannot be represented as RPCTransaction because it's not an EVM transaction.
 			res = sendRequestWithNamespace("sei", port, "getTransactionByHash", signedTx3.Hash().Hex())
 			require.Equal(t, "0x1", res["result"].(map[string]any)["transactionIndex"].(string))

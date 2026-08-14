@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"encoding/hex"
-	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -42,8 +41,8 @@ func (*heightTestClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (*heightTestClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	return utils.None[*url.URL]()
+func (*heightTestClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	return utils.None[*rpc.Client]()
 }
 
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {
@@ -375,6 +374,45 @@ func TestGetBlockTransactionCountByHashReceiptsPruned(t *testing.T) {
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	_, err := api.GetBlockTransactionCountByHash(context.Background(), common.HexToHash(highBlockHashHex))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
+func TestGetBlockByNumberReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockByNumber(context.Background(), rpc.BlockNumber(100), false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
+func TestGetBlockByHashReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
+func TestGetBlockReceiptsReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(100)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "receipts have been pruned")
 }
