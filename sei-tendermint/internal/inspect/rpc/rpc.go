@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/rs/cors"
@@ -51,10 +52,10 @@ func Routes(cfg config.RPCConfig, s state.Store, bs state.BlockStore, es []index
 	}
 }
 
-// Handler returns the http.Handler configured for use with an Inspector server. Handler
-// registers the routes on the http.Handler and also registers the websocket handler
-// and the CORS handler if specified by the configuration options.
-func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) http.Handler {
+// Handler returns the Inspector HTTP handler with routes, websocket, CORS, and
+// the rate-limit gate when enabled. It returns an error if the rate limiter
+// cannot be constructed.
+func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	var eventBus eventBusUnsubscriber
@@ -79,17 +80,16 @@ func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) http.Handler {
 	if rpcConfig.RateLimitingEnabled {
 		rateLimitRegistry, err := ratelimiter.New(rpcConfig.RateLimiterConfig())
 		if err != nil {
-			logger.Error("RPC rate limiter disabled: invalid configuration", "err", err)
-		} else {
-			rateLimitGate = server.NewRateLimitGate(
-				rateLimitRegistry,
-				rpcConfig.MaxBodyBytes,
-				true,
-			)
+			return nil, fmt.Errorf("rpc rate limiter: %w", err)
 		}
+		rateLimitGate = server.NewRateLimitGate(
+			rateLimitRegistry,
+			rpcConfig.MaxBodyBytes,
+			true,
+		)
 	}
 	rootHandler = server.NewRateLimitMiddleware(rootHandler, rateLimitGate)
-	return rootHandler
+	return rootHandler, nil
 }
 
 func addCORSHandler(rpcConfig *config.RPCConfig, h http.Handler) http.Handler {
