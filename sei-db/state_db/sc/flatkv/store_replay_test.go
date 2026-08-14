@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"bytes"
 	"path/filepath"
 	"testing"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/stretchr/testify/require"
 )
 
@@ -136,7 +136,7 @@ func TestLoadVersionSurfacesCatchupGap(t *testing.T) {
 	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
 
 	// Rewind the persisted watermark so the reopened store needs blocks 6-9, which this WAL never held.
-	require.NoError(t, s.commitGlobalMetadata(5, lthash.New()))
+	rewindVersionRecords(t, s, 5)
 	require.NoError(t, s.Close())
 
 	reopened, err := newCommitStoreWithWAL(t.Context(), cfg)
@@ -327,4 +327,67 @@ func TestReplayIntoReadOnlyCopyDoesNotDisturbPrimary(t *testing.T) {
 	require.Equal(t, int64(2), ro.Version(), "the clone must land exactly on the requested version")
 	require.Equal(t, primaryVersion, s.committedVersion, "feeding a clone must not move the primary")
 	require.Equal(t, primaryHash, s.RootHash())
+}
+
+// TestReplayConvergesOnPartialAccountFieldWrites pins the one case where replaying
+// a block into a DB that already holds it is not obviously a no-op. An account row
+// is a merge, not an overwrite: deriveNewAccountValues folds a nonce-only or
+// codehash-only update onto whatever is currently on disk. Replaying a range where
+// different blocks touch different fields therefore rebuilds the row field by field
+// through intermediate values that were never on-chain. It converges because the
+// last block to write each field writes it last — and the LtHash must land on the
+// same value either way, since that value feeds the AppHash.
+func TestReplayConvergesOnPartialAccountFieldWrites(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+
+	addr := ktype.Address{0xAB}
+	// Block 1 sets the nonce, block 2 is unrelated, block 3 sets only the codehash.
+	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{{
+		Name:      keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 7)}},
+	}}))
+	require.NoError(t, s.CommitBlock(2, []*proto.NamedChangeSet{{
+		Name: keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, ktype.Slot{0x01})),
+				Value: padLeft32(0x22)},
+		}},
+	}}))
+	require.NoError(t, s.CommitBlock(3, []*proto.NamedChangeSet{{
+		Name:      keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{codePair(addr, []byte{0x60, 0x0A})}},
+	}}))
+
+	wantRoot := bytes.Clone(s.CommittedRootHash())
+	wantAccount, found := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+	require.True(t, found)
+	require.NoError(t, s.Close())
+
+	// Rewind accountDB alone to block 1, leaving its rows at block 3. Replay of
+	// blocks 2 and 3 now runs against an account row that already holds both fields.
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s2.LoadLatest())
+	rewindVersionRecords(t, s2, 1, accountDBDir)
+	require.NoError(t, s2.Close())
+
+	s3, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s3.LoadLatest())
+	defer s3.Close()
+
+	require.Equal(t, int64(3), s3.Version())
+	require.Equal(t, wantRoot, s3.CommittedRootHash(),
+		"rebuilding an account row through partial-field replays must land on the same root")
+	gotAccount, found := s3.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+	require.True(t, found)
+	require.Equal(t, wantAccount, gotAccount)
+	require.NoError(t, VerifyLtHash(s3))
 }

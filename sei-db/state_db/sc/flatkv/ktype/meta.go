@@ -9,14 +9,13 @@ import (
 const metaKeyPrefix = "_meta/"
 
 const (
-	metaVersion  = metaKeyPrefix + "version"
-	metaLtHash   = metaKeyPrefix + "hash"
-	metaEarliest = metaKeyPrefix + "earliest"
+	metaVersion = metaKeyPrefix + "version"
+	metaLtHash  = metaKeyPrefix + "hash"
 
 	// moduleLtHashPrefix brackets the per-module metadata keys stored in each
 	// data DB, e.g. "_meta/x:evm/hash", "_meta/x:gov/stats". The "x:" segment
 	// namespaces module names so they never collide with the fixed per-DB keys
-	// (version / hash / earliest). Each module has a "/hash" key (its per-module
+	// (version / hash). Each module has a "/hash" key (its per-module
 	// LtHash) and a "/stats" key (its per-module key-count / byte totals).
 	moduleLtHashPrefix = metaKeyPrefix + "x:"
 	moduleLtHashSuffix = "/hash"
@@ -27,11 +26,6 @@ var (
 	MetaKeyPrefixBytes = []byte(metaKeyPrefix)
 	MetaVersionKey     = []byte(metaVersion)
 	MetaLtHashKey      = []byte(metaLtHash)
-	// MetaEarliestVersionKey records the version a seeded store's history
-	// begins at (written once by SetInitialVersion, global metadata DB
-	// only). Absent on genesis stores and stores predating the record.
-	MetaEarliestVersionKey = []byte(metaEarliest)
-
 	// ModuleLtHashPrefixBytes is the inclusive lower bound for iterating the
 	// per-module LtHash keys ("_meta/x:") within a data DB.
 	ModuleLtHashPrefixBytes = []byte(moduleLtHashPrefix)

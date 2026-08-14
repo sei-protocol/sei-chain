@@ -43,15 +43,6 @@ type CompositeCommitStore struct {
 	// The flatKV backend. Will be nil if migration to flatKV has not yet started.
 	flatKV flatkv.Store
 
-	// flatKVEarliestVersion is the height flatkv's history begins at, or 0 when flatkv holds no history
-	// (never materialized, or seeded from genesis). Heights below it belong to the pre-flatkv era and are
-	// served by memiavl alone; see FlatKVNeededAtHeight.
-	//
-	// Read from disk by the constructor, before any flatkv instance exists to hold a PebbleDB lock, and
-	// refreshed by materializeFlatKV when a live transition seeds flatkv mid-run. Those are the only two
-	// moments the underlying record can change, so every read of this field is free.
-	flatKVEarliestVersion int64
-
 	// Manages routing of traffic between the memiavl and flatkv backends.
 	// Built (and rebuilt) inside LoadVersion against the just-opened
 	// backends so that lazily-eager constructors like
@@ -179,22 +170,8 @@ func NewCompositeCommitStore(
 		openFlatKV = false
 	}
 
-	// Resolve the flatkv era boundary here, while the directory is still unopened. Both era-classifying
-	// reads (this one and FlatKVNeededAtHeight) are properties of the directory rather than of any store,
-	// and PebbleDB takes an exclusive directory lock — so the only moment a plain point read of flatkv's
-	// metadata is possible is before the flatkv instance below exists to hold that lock. A directory that
-	// exists but whose metadata cannot be read is corrupt or mid-materialization, which must not be
-	// mistaken for "no flatkv here": those keys were deleted out of memiavl, so continuing would answer
-	// "absent" for keys that exist.
-	var earliestVersion int64
 	var flatKV flatkv.Store
 	if openFlatKV {
-		v, err := flatkv.GetEarliestVersion(cfg.FlatKVConfig.DataDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read FlatKV earliest version: %w", err)
-		}
-		earliestVersion = v
-
 		stateWAL, err := flatkv.OpenStateWAL(&cfg.FlatKVConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open FlatKV state WAL: %w", err)
@@ -208,13 +185,12 @@ func NewCompositeCommitStore(
 	}
 
 	return &CompositeCommitStore{
-		memIAVL:               memIAVL,
-		flatKV:                flatKV,
-		flatKVEarliestVersion: earliestVersion,
-		homeDir:               homeDir,
-		config:                cfg,
-		currentWriteMode:      cfg.WriteMode,
-		ctx:                   ctx,
+		memIAVL:          memIAVL,
+		flatKV:           flatKV,
+		homeDir:          homeDir,
+		config:           cfg,
+		currentWriteMode: cfg.WriteMode,
+		ctx:              ctx,
 	}, nil
 }
 
@@ -334,7 +310,6 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 		if err := cs.flatKV.SetInitialVersion(initialVersion); err != nil {
 			return fmt.Errorf("flatkv SetInitialVersion: %w", err)
 		}
-		cs.flatKVEarliestVersion = cs.flatKV.EarliestVersion()
 	}
 	return nil
 }
@@ -399,7 +374,6 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 				return fmt.Errorf("failed to seed flatkv to memiavl version %d: %w",
 					cs.memIAVL.Version(), err)
 			}
-			cs.flatKVEarliestVersion = cs.flatKV.EarliestVersion()
 		}
 
 		// A crash between the sequential cosmos and EVM commits can leave the backends at different
@@ -455,7 +429,7 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 		}
 	}
 
-	if FlatKVNeededAtHeight(cs.flatKV != nil, cs.flatKVEarliestVersion, cs.config.WriteMode, targetVersion) {
+	if cs.flatKV != nil {
 		fkv, err := cs.flatKV.LoadVersionReadOnly(targetVersion)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
@@ -468,13 +442,12 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 	// inherits cs.ctx so cancellation of the parent context cascades, but buildRouter installs its own
 	// child cancel so closing this handle does not affect the parent.
 	ro := &CompositeCommitStore{
-		memIAVL:               memIAVLCommitter,
-		flatKV:                flatKVStore,
-		flatKVEarliestVersion: cs.flatKVEarliestVersion,
-		homeDir:               cs.homeDir,
-		config:                cs.config,
-		ctx:                   cs.ctx,
-		derived:               true,
+		memIAVL: memIAVLCommitter,
+		flatKV:  flatKVStore,
+		homeDir: cs.homeDir,
+		config:  cs.config,
+		ctx:     cs.ctx,
+		derived: true,
 	}
 	if err := ro.resolveCurrentWriteMode(false); err != nil {
 		return nil, fmt.Errorf("failed to resolve effective write mode for read-only handle: %w", err)
@@ -750,9 +723,6 @@ func (cs *CompositeCommitStore) materializeFlatKV() error {
 		}
 	}
 	cs.flatKV = loaded
-	// The seeding above is what writes flatkv's earliest-history record, so this is the one moment the
-	// constructor's on-disk read goes out of date. Take the value the load already has in memory.
-	cs.flatKVEarliestVersion = loaded.EarliestVersion()
 	return nil
 }
 
@@ -1307,61 +1277,37 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 	includeFlatKV := cs.flatKV != nil
 
 	if includeFlatKV && exportNeedsMetadataGating(cs.config.WriteMode) {
-		// Distinguish a genuinely pre-flatkv-era version from an in-history
-		// flatkv load failure using flatkv's persisted earliest-history
-		// record, NOT the load failing — mirroring FlatKVNeededAtHeight.
-		// "no snapshot at target" / version-mismatch is also what a pruned or
-		// corrupt in-history version produces (flatkv prunes old snapshots and
-		// truncates the WAL beneath them while the earliest-history record stays
-		// fixed at the seeded value), so keying on the load failing would silently
-		// emit a memiavl-only snapshot that drops consensus-visible flatkv state
-		// and is byte-indistinguishable from a legitimate pre-era stream.
-		//
-		// Read the composite's copy rather than cs.flatKV.EarliestVersion(): the
-		// latter is populated as a side effect of a load, so it is zero on a
-		// never-loaded handle, which would classify every version as in-era.
-		earliest := cs.flatKVEarliestVersion
-		if earliest > 0 && version < earliest {
-			// Genuinely pre-flatkv era: every consensus value at this height
-			// lived in memiavl, so omitting flatkv is correct.
-			logger.Info("export version predates flatkv history; exporting memiavl only",
-				"version", version, "flatkvEarliestVersion", earliest)
-			includeFlatKV = false
-		} else {
-			// Evaluate the hash predicates against metadata as-of the
-			// exported version: flatkv read-only clones replay the WAL to the
-			// target version, so the boundary/version keys reflect historical
-			// state, not the live store's.
-			ro, err := cs.flatKV.LoadVersionReadOnly(version)
-			if err != nil {
-				// In-history load failure (pruned snapshot/WAL, corruption, or
-				// a transient fault) at a version where flatkv participates in
-				// the AppHash. Silently omitting flatkv here would produce a
-				// consensus-incomplete snapshot, so fail loud instead.
-				return nil, fmt.Errorf("failed to load flatkv at export version %d (>= earliest %d): %w",
-					version, earliest, err)
-			}
-			started, gateErr := migrationStarted(ro)
-			var bankDone bool
-			if gateErr == nil {
-				bankDone, gateErr = migration.IsModeComplete(ro, types.MigrateBank)
-			}
-			closeErr := ro.Close()
-			if gateErr != nil {
-				return nil, fmt.Errorf("failed to read migration metadata for export gating: %w", gateErr)
-			}
-			if closeErr != nil {
-				return nil, fmt.Errorf("failed to close export gating handle: %w", closeErr)
-			}
-			if cs.config.WriteMode == types.MigrateBank {
-				// Fixed MigrateBank descends from a flatkv-bearing
-				// predecessor; flatkv is in its hash at every version it
-				// can serve. Only the memiavl side is version-dependent.
-				started = true
-			}
-			includeFlatKV = started
-			includeMemiavl = includeMemiavl && !bankDone
+		// Evaluate the hash predicates against metadata as-of the exported
+		// version: flatkv read-only clones replay the WAL to the target
+		// version, so the boundary/version keys reflect historical state, not
+		// the live store's.
+		ro, err := cs.flatKV.LoadVersionReadOnly(version)
+		if err != nil {
+			// Silently omitting flatkv here would produce a consensus-incomplete
+			// snapshot, byte-indistinguishable from a legitimate memiavl-only
+			// stream, so fail loud instead.
+			return nil, fmt.Errorf("failed to load flatkv at export version %d: %w", version, err)
 		}
+		started, gateErr := migrationStarted(ro)
+		var bankDone bool
+		if gateErr == nil {
+			bankDone, gateErr = migration.IsModeComplete(ro, types.MigrateBank)
+		}
+		closeErr := ro.Close()
+		if gateErr != nil {
+			return nil, fmt.Errorf("failed to read migration metadata for export gating: %w", gateErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("failed to close export gating handle: %w", closeErr)
+		}
+		if cs.config.WriteMode == types.MigrateBank {
+			// Fixed MigrateBank descends from a flatkv-bearing predecessor;
+			// flatkv is in its hash at every version it can serve. Only the
+			// memiavl side is version-dependent.
+			started = true
+		}
+		includeFlatKV = started
+		includeMemiavl = includeMemiavl && !bankDone
 	}
 
 	var memIAVLExporter types.Exporter

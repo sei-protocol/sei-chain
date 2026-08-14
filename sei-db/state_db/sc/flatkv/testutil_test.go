@@ -23,6 +23,25 @@ import (
 // =============================================================================
 
 // evmStorageKey builds a prefix-encoded storage key for the external Get/Has API.
+// rewindVersionRecords rewrites every data DB's version record, lowering the
+// store's watermark the way a torn commit does. Pass one dir to skew a single DB.
+func rewindVersionRecords(t *testing.T, s *CommitStore, version int64, dirs ...string) {
+	t.Helper()
+	want := make(map[string]struct{}, len(dirs))
+	for _, d := range dirs {
+		want[d] = struct{}{}
+	}
+	for _, ndb := range s.namedDataDBs() {
+		if len(want) > 0 {
+			if _, ok := want[ndb.dir]; !ok {
+				continue
+			}
+		}
+		require.NoError(t, ndb.db.Set(ktype.MetaVersionKey, versionToBytes(version),
+			types.WriteOptions{Sync: true}))
+	}
+}
+
 func evmStorageKey(addr ktype.Address, slot ktype.Slot) []byte {
 	internal := ktype.StorageKey(addr, slot)
 	return keys.BuildEVMKey(keys.EVMKeyStorage, internal)

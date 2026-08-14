@@ -55,7 +55,6 @@ func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
 	cfg.CodeDBConfig.EnableMetrics = true
 	cfg.StorageDBConfig.EnableMetrics = true
 	cfg.MiscDBConfig.EnableMetrics = true
-	cfg.MetadataDBConfig.EnableMetrics = true
 
 	InitializeDataDirectories(cfg)
 
@@ -63,7 +62,6 @@ func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
 	require.False(t, cfg.CodeDBConfig.EnableMetrics)
 	require.False(t, cfg.StorageDBConfig.EnableMetrics)
 	require.False(t, cfg.MiscDBConfig.EnableMetrics)
-	require.False(t, cfg.MetadataDBConfig.EnableMetrics)
 }
 
 func TestStoreClose(t *testing.T) {
@@ -1638,41 +1636,6 @@ func TestCrashRecoveryLtHashConsistencyAfterAllPaths(t *testing.T) {
 	verifyLtHashConsistency(t, s3)
 }
 
-func TestCrashRecoveryCorruptLtHashBlobInMetadata(t *testing.T) {
-	dir := t.TempDir()
-	cfg := config.DefaultTestConfig(t)
-	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
-
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
-
-	cs := makeChangeSet(
-		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
-		padLeft32(0x11), false,
-	)
-	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	_, err = s.Commit(s.Version() + 1)
-	require.NoError(t, err)
-
-	// Write garbage to the global _meta/hash key in metadataDB.
-	batch := s.metadataDB.NewBatch()
-	require.NoError(t, batch.Set(ktype.MetaLtHashKey, []byte{0xDE, 0xAD, 0xBE, 0xEF}))
-	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
-	_ = batch.Close()
-
-	require.NoError(t, s.Close())
-
-	// Reopen should fail with an LtHash unmarshal error.
-	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	defer s2.Close()
-	err = s2.LoadLatest()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid LtHash size")
-}
-
 func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultTestConfig(t)
@@ -1708,7 +1671,7 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 	require.Contains(t, err.Error(), "invalid LtHash size")
 }
 
-func TestCrashRecoveryGlobalVersionOverflow(t *testing.T) {
+func TestCrashRecoveryVersionRecordOverflow(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
@@ -1726,10 +1689,10 @@ func TestCrashRecoveryGlobalVersionOverflow(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	// Write a version value that exceeds math.MaxInt64 to the global metadata.
+	// Write a version value that exceeds math.MaxInt64 to accountDB's metadata.
 	overflowBytes := make([]byte, 8)
 	overflowBytes[0] = 0xFF // 0xFF00000000000000 > MaxInt64
-	batch := s.metadataDB.NewBatch()
+	batch := s.accountDB.NewBatch()
 	require.NoError(t, batch.Set(ktype.MetaVersionKey, overflowBytes))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
@@ -1742,7 +1705,7 @@ func TestCrashRecoveryGlobalVersionOverflow(t *testing.T) {
 	defer s2.Close()
 	err = s2.LoadLatest()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "global version overflow")
+	require.Contains(t, err.Error(), "overflow")
 }
 
 func TestInitializeDataDirectories(t *testing.T) {
@@ -1752,7 +1715,6 @@ func TestInitializeDataDirectories(t *testing.T) {
 	cfg.CodeDBConfig.DataDir = ""
 	cfg.StorageDBConfig.DataDir = ""
 	cfg.MiscDBConfig.DataDir = ""
-	cfg.MetadataDBConfig.DataDir = ""
 
 	InitializeDataDirectories(cfg)
 
@@ -1760,7 +1722,6 @@ func TestInitializeDataDirectories(t *testing.T) {
 	require.Equal(t, "/base/flatkv/working/code", cfg.CodeDBConfig.DataDir)
 	require.Equal(t, "/base/flatkv/working/storage", cfg.StorageDBConfig.DataDir)
 	require.Equal(t, "/base/flatkv/working/misc", cfg.MiscDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/metadata", cfg.MetadataDBConfig.DataDir)
 }
 
 func TestInitializeDataDirectoriesPreservesExisting(t *testing.T) {

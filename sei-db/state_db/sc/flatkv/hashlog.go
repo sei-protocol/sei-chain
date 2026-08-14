@@ -7,8 +7,7 @@ import (
 )
 
 // Hash logger category names owned by the flatKV backend. flatKVDBHashPrefix is joined with a data DB
-// directory name (e.g. "flatKV/db/account"). The metadata DB is intentionally excluded — it holds only
-// watermarks, not state.
+// directory name (e.g. "flatKV/db/account").
 const (
 	FlatKVRootHashType = "flatKV/root"
 	flatKVDBHashPrefix = "flatKV/db/"

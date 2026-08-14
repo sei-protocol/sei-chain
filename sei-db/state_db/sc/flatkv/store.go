@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,7 +45,6 @@ const (
 	codeDBDir    = "code"
 	storageDBDir = "storage"
 	miscDBDir    = "misc"
-	metadataDir  = "metadata"
 
 	// Suffixes for atomic directory operations
 	tmpSuffix      = "-tmp"
@@ -86,13 +86,12 @@ type CommitStore struct {
 	config config.Config
 	dbDir  string
 
-	// Five separate PebbleDB instances.
+	// Four separate PebbleDB instances.
 	// Physical key format: "module/" + type_prefix + stripped_key.
-	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
-	accountDB  seidbtypes.KeyValueDB // "evm/"+0x0a+addr(20) → vtype.AccountData
-	codeDB     seidbtypes.KeyValueDB // "evm/"+0x07+addr(20) → vtype.CodeData
-	storageDB  seidbtypes.KeyValueDB // "evm/"+0x03+addr(20)||slot(32) → vtype.StorageData
-	miscDB     seidbtypes.KeyValueDB // "module/"+key → vtype.MiscData
+	accountDB seidbtypes.KeyValueDB // "evm/"+0x0a+addr(20) → vtype.AccountData
+	codeDB    seidbtypes.KeyValueDB // "evm/"+0x07+addr(20) → vtype.CodeData
+	storageDB seidbtypes.KeyValueDB // "evm/"+0x03+addr(20)||slot(32) → vtype.StorageData
+	miscDB    seidbtypes.KeyValueDB // "module/"+key → vtype.MiscData
 
 	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
 	localMeta map[string]*ktype.LocalMeta
@@ -101,12 +100,6 @@ type CommitStore struct {
 	committedVersion int64
 	committedLtHash  *lthash.LtHash
 	workingLtHash    *lthash.LtHash
-
-	// earliestVersion is the version this store's history begins at, as
-	// recorded by SetInitialVersion (the seeded version). 0 when unknown:
-	// genesis stores and stores created before the record existed. See
-	// EarliestVersion.
-	earliestVersion int64
 
 	// Per-DB working LTHash tracking. Authoritative copies live in each
 	// DB's LocalMeta (atomically committed with data). On startup the
@@ -185,7 +178,7 @@ type CommitStore struct {
 }
 
 // dataDBs returns the four data PebbleDB instances in fixed iteration order:
-// accountDB, codeDB, storageDB, miscDB. metadataDB is excluded.
+// accountDB, codeDB, storageDB, miscDB.
 func (s *CommitStore) dataDBs() []seidbtypes.KeyValueDB {
 	return []seidbtypes.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.miscDB}
 }
@@ -410,7 +403,6 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 	ro.config.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
 	ro.config.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
 	ro.config.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
-	ro.config.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
 
 	// Transfer the lazily-acquired lock to the view so that ro.Close()
 	// releases it, preventing a leak when this store is never closed.
@@ -617,7 +609,6 @@ func (s *CommitStore) openDBs(dbDir string) (retErr error) {
 			for _, c := range toClose {
 				_ = c.Close()
 			}
-			s.metadataDB = nil
 			s.accountDB = nil
 			s.codeDB = nil
 			s.storageDB = nil
@@ -651,12 +642,6 @@ func (s *CommitStore) openDBs(dbDir string) (retErr error) {
 	}
 	toClose = append(toClose, s.miscDB)
 
-	s.metadataDB, err = s.openPebbleDB(&s.config.MetadataDBConfig, &s.config.MetadataCacheConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open metadata DB: %w", err)
-	}
-	toClose = append(toClose, s.metadataDB)
-
 	for _, ndb := range s.namedDataDBs() {
 		meta, err := loadLocalMeta(ndb.db)
 		if err != nil {
@@ -668,34 +653,20 @@ func (s *CommitStore) openDBs(dbDir string) (retErr error) {
 	return nil
 }
 
+// loadGlobalMetadata rebuilds the store's in-memory global state from the data
+// DBs' metadata.
 func (s *CommitStore) loadGlobalMetadata() error {
-	globalVersion, err := s.loadGlobalVersion()
-	if err != nil {
-		return fmt.Errorf("failed to load global version: %w", err)
+	if err := s.hydratePerDBState(); err != nil {
+		return err
 	}
-	s.committedVersion = globalVersion
+	s.deriveGlobalState()
+	return nil
+}
 
-	earliestVersion, err := s.loadGlobalEarliestVersion()
-	if err != nil {
-		return fmt.Errorf("failed to load global earliest version: %w", err)
-	}
-	s.earliestVersion = earliestVersion
-
-	globalLtHash, err := s.loadGlobalLtHash()
-	if err != nil {
-		return fmt.Errorf("failed to load global LtHash: %w", err)
-	}
-	if globalLtHash != nil {
-		s.committedLtHash = globalLtHash
-		s.workingLtHash = globalLtHash.Clone()
-	} else {
-		s.committedLtHash = lthash.New()
-		s.workingLtHash = lthash.New()
-	}
-
-	// Load per-DB LtHashes from each DB's LocalMeta (already loaded in openDBs).
-	// If any DB's version is behind the global version (partial commit or
-	// corruption), lower committedVersion so catchup replays from there.
+// hydratePerDBState populates the working per-DB and per-module hash state from
+// each data DB's LocalMeta. It rejects a DB whose per-module hashes do not sum
+// to its recorded root.
+func (s *CommitStore) hydratePerDBState() error {
 	for _, dbDir := range dataDBDirs {
 		meta := s.localMeta[dbDir]
 		if err := validatePerModuleMetadata(dbDir, meta); err != nil {
@@ -713,15 +684,56 @@ func (s *CommitStore) loadGlobalMetadata() error {
 			s.perDBModuleWorkingLtHash[dbDir] = make(map[string]*lthash.LtHash)
 			s.perDBModuleWorkingStats[dbDir] = make(map[string]lthash.ModuleStats)
 		}
-		if meta != nil && meta.CommittedVersion < s.committedVersion {
-			logger.Warn("DB LocalMeta version behind global version, will catchup",
+	}
+	return nil
+}
+
+// deriveGlobalState sets the committed version to the lowest version any data DB
+// reached and the committed LtHash to the homomorphic sum of their roots.
+func (s *CommitStore) deriveGlobalState() {
+	version := int64(math.MaxInt64)
+	global := lthash.New()
+	for _, dbDir := range dataDBDirs {
+		global.MixIn(s.perDBWorkingLtHash[dbDir])
+		if meta := s.localMeta[dbDir]; meta != nil && meta.CommittedVersion < version {
+			version = meta.CommittedVersion
+		}
+	}
+	if version == math.MaxInt64 {
+		version = 0
+	}
+
+	for _, dbDir := range dataDBDirs {
+		if meta := s.localMeta[dbDir]; meta != nil && meta.CommittedVersion > version {
+			logger.Warn("data DB versions disagree, catchup will replay from the lowest",
 				"db", dbDir,
 				"localVersion", meta.CommittedVersion,
-				"globalVersion", s.committedVersion)
-			s.committedVersion = meta.CommittedVersion
+				"storeVersion", version)
 		}
 	}
 
+	s.committedVersion = version
+	s.committedLtHash = global
+	s.workingLtHash = global.Clone()
+}
+
+// requireAlignedDataDBs returns an error unless every data DB sits at the
+// store's committed version. The condition holds once catchup has run; before
+// then the DBs may legally disagree.
+func (s *CommitStore) requireAlignedDataDBs() error {
+	for _, dbDir := range dataDBDirs {
+		meta := s.localMeta[dbDir]
+		if meta == nil {
+			return fmt.Errorf("flatkv: %s has no local metadata after load", dbDir)
+		}
+		if meta.CommittedVersion != s.committedVersion {
+			return fmt.Errorf(
+				"flatkv: %s is at version %d but the store is at %d; this store holds a block "+
+					"its write-ahead log lost, which no replay can reconcile (restore from a snapshot)",
+				dbDir, meta.CommittedVersion, s.committedVersion,
+			)
+		}
+	}
 	return nil
 }
 
@@ -745,11 +757,6 @@ func (s *CommitStore) RootHash() []byte {
 func (s *CommitStore) CommittedRootHash() []byte {
 	checksum := s.committedLtHash.Checksum()
 	return checksum[:]
-}
-
-// EarliestVersion implements Store.
-func (s *CommitStore) EarliestVersion() int64 {
-	return s.earliestVersion
 }
 
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
@@ -888,9 +895,6 @@ func InitializeDataDirectories(c *config.Config) {
 	if c.MiscDBConfig.DataDir == "" {
 		c.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
 	}
-	if c.MetadataDBConfig.DataDir == "" {
-		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
-	}
 	applyPebbleMetricsConfig(c)
 }
 
@@ -901,11 +905,9 @@ func applyPebbleMetricsConfig(c *config.Config) {
 	c.CodeDBConfig.EnableMetrics = c.EnablePebbleMetrics
 	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
 	c.MiscDBConfig.EnableMetrics = c.EnablePebbleMetrics
-	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
 
 	c.AccountDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 	c.CodeDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 	c.StorageDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 	c.MiscDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
-	c.MetadataDBConfig.EnableReadWriteMetrics = c.EnableReadWriteMetrics
 }
