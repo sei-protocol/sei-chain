@@ -102,7 +102,7 @@ func (a *StateAPI) GetProof(ctx context.Context, _ common.Address, _ []string, _
 	defer func() {
 		recordMetrics(ctx, "eth_getProof", a.connectionType, startTime)
 	}()
-	return nil, &ErrEVMNotSupported{Msg: "eth_getProof is not supported yet; please reach out to the Sei team if you need this endpoint"}
+	return nil, &ErrEVMNotSupported{Msg: "eth_getProof is not supported yet; please reach out to the Sei Labs if you need this endpoint"}
 }
 
 func (a *StateAPI) GetNonce(ctx context.Context, address common.Address) uint64 {
