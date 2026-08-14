@@ -130,10 +130,7 @@ func readRateLimitBoundedBody(body io.ReadCloser, maxBytes int64) ([]byte, error
 	if body == nil {
 		return nil, errors.New("missing request body")
 	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, body)
-		_ = body.Close()
-	}()
+	defer body.Close()
 
 	if maxBytes <= 0 {
 		return io.ReadAll(body)
@@ -145,6 +142,8 @@ func readRateLimitBoundedBody(body io.ReadCloser, maxBytes int64) ([]byte, error
 		return nil, err
 	}
 	if int64(len(buf)) > maxBytes {
+		// Leave the unread remainder for net/http to drop the connection rather
+		// than draining an unbounded oversize payload here.
 		return nil, errRateLimitBodyTooLarge
 	}
 	return buf, nil
