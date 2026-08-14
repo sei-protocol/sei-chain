@@ -233,7 +233,7 @@ func (api *DebugAPI) resolveDebugTraceBlockNumber(ctx context.Context, number rp
 }
 
 func (api *DebugAPI) guardHistoricalDebugTraceHeight(ctx context.Context, endpoint string, blockHeight int64) error {
-	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
+	latest := api.latestTraceHeight(ctx)
 	if !isHistoricalDebugTraceBlock(blockHeight, latest, api.maxBlockLookback) {
 		return nil
 	}

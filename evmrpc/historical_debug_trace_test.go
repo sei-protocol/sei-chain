@@ -268,8 +268,9 @@ func TestTraceLatestTagGuardMatchesBlockResolution(t *testing.T) {
 	stateStore := &fakeStateStore{latest: safeLatest, earliest: 1}
 	wm := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, stateStore, rs)
 	api := &DebugAPI{
-		tmClient:    tmClient,
-		ctxProvider: func(int64) sdk.Context { return latestCtx },
+		tmClient:         tmClient,
+		ctxProvider:      func(int64) sdk.Context { return latestCtx },
+		maxBlockLookback: 0,
 		backend: &Backend{
 			tmClient:   tmClient,
 			watermarks: wm,
@@ -285,6 +286,10 @@ func TestTraceLatestTagGuardMatchesBlockResolution(t *testing.T) {
 	tmBlock, err := blockByNumberRespectingWatermarks(t.Context(), tmClient, wm, blockNumberPtr, 1)
 	require.NoError(t, err)
 	require.Equal(t, guardHeight, tmBlock.Block.Height)
+
+	// Lookback must measure against the same safe latest, not the raw app tip.
+	err = api.guardTraceRequestByNumber(t.Context(), "debug_traceBlockByNumber", rpc.LatestBlockNumber)
+	require.NoError(t, err)
 }
 
 type traceGuardReceiptStore struct {
