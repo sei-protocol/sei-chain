@@ -123,6 +123,43 @@ func TestEngineBatchSetThenBatchGet(t *testing.T) {
 	require.False(t, missingPresent, "not-found key must be absent")
 }
 
+// BatchGetStringInto reports each key's value at that key's own position, and reports a key it has no
+// value for as nil — which is what a caller reads not-found from. Several shards are configured so the
+// keys land across more than one of them, making the positions survive the fan-out.
+func TestEngineBatchGetStringInto(t *testing.T) {
+	engine := newTestEngineWithDB(t, newTestDB(nil), 4, 1<<20)
+	require.NoError(t, engine.BatchSet([]*proto.KVPair{
+		{Key: []byte("a"), Value: []byte("1")},
+		{Key: []byte("b"), Value: []byte("2")},
+		{Key: []byte("c"), Delete: true}, // delete of a non-existent key
+		{Key: []byte("d"), Value: []byte{}},
+	}))
+
+	keys := []string{"a", "b", "c", "missing", "d"}
+	values := make([][]byte, len(keys))
+	require.NoError(t, engine.BatchGetStringInto(keys, values))
+
+	require.Equal(t, []byte("1"), values[0])
+	require.Equal(t, []byte("2"), values[1])
+	require.Nil(t, values[2], "deleted key must read as nil")
+	require.Nil(t, values[3], "not-found key must read as nil")
+	require.NotNil(t, values[4], "a stored empty value must not read as not-found")
+	require.Empty(t, values[4])
+}
+
+// A values slice that cannot hold one element per key is refused, rather than read into as far as it
+// reaches.
+func TestEngineBatchGetStringIntoRejectsMismatchedValues(t *testing.T) {
+	engine := newTestEngineWithDB(t, newTestDB(nil), 4, 1<<20)
+	require.NoError(t, engine.BatchSet([]*proto.KVPair{{Key: []byte("a"), Value: []byte("1")}}))
+
+	values := make([][]byte, 1)
+	err := engine.BatchGetStringInto([]string{"a", "b"}, values)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "not the 2 keys to read")
+	require.Nil(t, values[0], "a refused read must not write anything")
+}
+
 func TestNameReportsConfiguredName(t *testing.T) {
 	cfg := newTestConfig(1, 1<<20)
 	cfg.Name = "account"

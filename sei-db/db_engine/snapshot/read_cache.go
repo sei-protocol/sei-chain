@@ -132,7 +132,9 @@ type cacheEntry struct {
 
 // Tracks a key whose value is not yet available and must be waited on.
 type pendingRead struct {
-	key           string
+	key string
+	// The key's position in the batch, which is where its value is written once the read completes.
+	index         int
 	entry         *cacheEntry
 	valueChan     chan readResult
 	needsSchedule bool
@@ -348,14 +350,14 @@ func (c *readCache) resolve(key []byte, outcome lookupOutcome) ([]byte, bool, er
 	return result.value, result.value != nil, nil
 }
 
-// resolveBatch completes the pending reads of a batch classified via lookupLocked, writing found
-// values into results. Must be called without the shared lock: it schedules the not-yet-scheduled
-// reads and blocks until every pending read completes, then applies the terminal cache states
-// asynchronously (bulkInjectValues).
+// resolveBatch completes the pending reads of a batch classified via lookupLocked, writing each
+// read's value into values at that read's own index. Must be called without the shared lock: it
+// schedules the not-yet-scheduled reads and blocks until every pending read completes, then applies
+// the terminal cache states asynchronously (bulkInjectValues).
 //
 // A non-nil return means the whole batch failed. The first read error is returned after the full
 // drain, unless the engine shuts down first.
-func (c *readCache) resolveBatch(pending []pendingRead, results map[string][]byte) error {
+func (c *readCache) resolveBatch(pending []pendingRead, values [][]byte) error {
 	if len(pending) == 0 {
 		return nil
 	}
@@ -397,9 +399,7 @@ func (c *readCache) resolveBatch(pending []pendingRead, results map[string][]byt
 			}
 			continue
 		}
-		if result.value != nil {
-			results[pending[i].key] = result.value
-		}
+		values[pending[i].index] = result.value
 	}
 
 	c.metrics.reportCacheMissLatency(time.Since(startTime))

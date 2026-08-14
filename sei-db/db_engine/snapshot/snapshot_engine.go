@@ -70,10 +70,18 @@ type SnapshotEngine interface {
 	// recoverable. It is not safe to mutate the returned key or value slices.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
-	// BatchGetString is BatchGet for a caller that already holds its keys as strings. The engine
-	// keys its internal structures by string, so these are looked up directly rather than converted
-	// to []byte here and back to a string on the way in.
-	BatchGetString(keys []string) (map[string][]byte, error)
+	// BatchGetStringInto reads the given keys against the current (mutable) version, writing each
+	// key's value into values at the same index. values must hold exactly as many elements as keys.
+	// It is the batch read with nothing allocated per key: keys already held as strings are looked up
+	// as they are, and the results land in the caller's slice rather than in a map the engine builds.
+	//
+	// A key with no value is left as nil. This is what distinguishes not-found from a found empty
+	// value, which is a non-nil zero-length slice — nil is never a stored value.
+	//
+	// If any read fails, BatchGetStringInto returns that error and the elements it did not reach keep
+	// whatever they held; reads are not partially recoverable. It is not safe to mutate the returned
+	// value slices.
+	BatchGetStringInto(keys []string, values [][]byte) error
 
 	// Set writes the value for the given key into the current (mutable) version. Not visible to
 	// iterators created earlier (see Iterator).

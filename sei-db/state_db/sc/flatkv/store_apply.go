@@ -196,12 +196,12 @@ func (s *CommitStore) readAccountsToMerge(
 	for key := range accounts {
 		physKeys = append(physKeys, key)
 	}
-	stored, err := s.accountStore.BatchGetString(physKeys)
-	if err != nil {
+	stored := make([][]byte, len(physKeys))
+	if err := s.accountStore.BatchGetStringInto(physKeys, stored); err != nil {
 		return nil, fmt.Errorf("read accounts to merge onto: %w", err)
 	}
 
-	if err := populateAccounts(accounts, stored, blockHeight); err != nil {
+	if err := populateAccounts(accounts, physKeys, stored, blockHeight); err != nil {
 		return nil, err
 	}
 	return accounts, nil
@@ -226,23 +226,25 @@ func touchedAccounts(changesByType classifiedChanges) map[string]*vtype.AccountD
 // populateAccounts gives every account in accounts its value: the account database's stored value
 // where there is one, and a zero account everywhere else, each stamped with blockHeight.
 //
-// stored is keyed by physical key and holds only the keys the account database had a value for.
+// keys and stored are parallel, as the batch read leaves them: stored[i] is the account database's
+// value for keys[i], or nil where it held none. keys must name every account in accounts, which is
+// what leaves none of them without a value.
 func populateAccounts(
 	accounts map[string]*vtype.AccountData,
-	stored map[string][]byte,
+	keys []string,
+	stored [][]byte,
 	blockHeight int64,
 ) error {
-	for key, value := range stored {
+	for i, value := range stored {
+		if value == nil {
+			accounts[keys[i]] = vtype.NewAccountData().SetBlockHeight(blockHeight)
+			continue
+		}
 		account, err := vtype.DeserializeAccountData(value)
 		if err != nil {
 			return fmt.Errorf("failed to deserialize accountDB old value: %w", err)
 		}
-		accounts[key] = account.SetBlockHeight(blockHeight)
-	}
-	for key, account := range accounts {
-		if account == nil {
-			accounts[key] = vtype.NewAccountData().SetBlockHeight(blockHeight)
-		}
+		accounts[keys[i]] = account.SetBlockHeight(blockHeight)
 	}
 	return nil
 }

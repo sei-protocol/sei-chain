@@ -49,13 +49,17 @@ func mergeOnto(
 	changesByType[keys.EVMKeyCodeHash] = codeHashChanges
 
 	accounts := touchedAccounts(changesByType)
-	stored := make(map[string][]byte, len(oldValues))
+	physKeys := make([]string, 0, len(accounts))
+	stored := make([][]byte, 0, len(accounts))
 	for key := range accounts {
+		physKeys = append(physKeys, key)
 		if old, ok := oldValues[key]; ok {
-			stored[key] = old.Serialize()
+			stored = append(stored, old.Serialize())
+			continue
 		}
+		stored = append(stored, nil)
 	}
-	require.NoError(t, populateAccounts(accounts, stored, blockHeight))
+	require.NoError(t, populateAccounts(accounts, physKeys, stored, blockHeight))
 
 	if err := mergeAccountValues(accounts, nonceChanges, codeHashChanges, balanceChanges); err != nil {
 		return nil, err

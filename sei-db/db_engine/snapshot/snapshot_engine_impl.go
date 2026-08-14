@@ -329,19 +329,28 @@ func (c *snapshotEngine) BatchGetAtVersion(keys [][]byte, version uint64) (map[s
 	for i, key := range keys {
 		stringKeys[i] = string(key)
 	}
-	return c.BatchGetStringAtVersion(stringKeys, version)
+	values := make([][]byte, len(stringKeys))
+	if err := c.batchGetIntoAtVersion(stringKeys, values, version); err != nil {
+		return nil, err
+	}
+	return foundValuesByKey(stringKeys, values), nil
 }
 
-func (c *snapshotEngine) BatchGetString(keys []string) (map[string][]byte, error) {
-	return c.BatchGetStringAtVersion(keys, c.currentVersion)
+func (c *snapshotEngine) BatchGetStringInto(keys []string, values [][]byte) error {
+	return c.batchGetIntoAtVersion(keys, values, c.currentVersion)
 }
 
-// Similar semantics to BatchGetString, but reads from the given version of the engine.
-func (c *snapshotEngine) BatchGetStringAtVersion(keys []string, version uint64) (map[string][]byte, error) {
-	work := c.partitionByShard(keys)
+// Similar semantics to BatchGetStringInto, but reads from the given version of the engine.
+func (c *snapshotEngine) batchGetIntoAtVersion(keys []string, values [][]byte, version uint64) error {
+	if len(values) != len(keys) {
+		return fmt.Errorf("values holds %d elements, which is not the %d keys to read",
+			len(values), len(keys))
+	}
 
-	// Fan out to shards, collecting each shard's found results (or its error).
-	results := make([]map[string][]byte, len(c.shards))
+	// Fan out to shards. Each shard writes only the elements of values whose keys hashed to it, and
+	// no key hashes to two shards, so the shards write disjoint elements and need no lock between
+	// them.
+	work := c.partitionIndicesByShard(keys)
 	errs := make([]error, len(c.shards))
 
 	var wg sync.WaitGroup
@@ -352,40 +361,49 @@ func (c *snapshotEngine) BatchGetStringAtVersion(keys []string, version uint64) 
 		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			results[shardIndex], errs[shardIndex] = c.shards[shardIndex].BatchGetString(work[shardIndex], version)
+			errs[shardIndex] = c.shards[shardIndex].batchGetInto(keys, work[shardIndex], values, version)
 		})
 	}
 	wg.Wait()
 
-	// Merge into a single result map. Any shard error fails the whole call.
-	merged := make(map[string][]byte, len(keys))
-	for i := range results {
-		if errs[i] != nil {
-			return nil, fmt.Errorf("failed to batch get from shard: %w", errs[i])
-		}
-		for key, value := range results[i] {
-			merged[key] = value
+	// Any shard error fails the whole call.
+	for _, err := range errs {
+		if err != nil {
+			return fmt.Errorf("failed to batch get from shard: %w", err)
 		}
 	}
-	return merged, nil
+	return nil
 }
 
-// partitionByShard splits keys into one bucket per shard, so each shard is queried once. The
-// returned slice is indexed by shard, and a shard no key landed in holds an empty bucket.
+// partitionIndicesByShard groups the positions of keys by the shard each key belongs to, so each
+// shard is queried once. The returned slice is indexed by shard, and a shard no key landed in holds
+// an empty bucket.
 //
 // Buckets start out sized for an even spread, which is what the seeded hash produces; a bucket that
 // lands above its share still grows on demand.
-func (c *snapshotEngine) partitionByShard(keys []string) [][]string {
-	work := make([][]string, len(c.shards))
+func (c *snapshotEngine) partitionIndicesByShard(keys []string) [][]int {
+	work := make([][]int, len(c.shards))
 	perShard := len(keys)/len(c.shards) + 1
-	for _, key := range keys {
+	for index, key := range keys {
 		shardIndex := c.shardManager.ShardString(key)
 		if work[shardIndex] == nil {
-			work[shardIndex] = make([]string, 0, perShard)
+			work[shardIndex] = make([]int, 0, perShard)
 		}
-		work[shardIndex] = append(work[shardIndex], key)
+		work[shardIndex] = append(work[shardIndex], index)
 	}
 	return work
+}
+
+// foundValuesByKey pairs each key with the value read for it, leaving out the keys that had none.
+func foundValuesByKey(keys []string, values [][]byte) map[string][]byte {
+	found := make(map[string][]byte, len(keys))
+	for i, value := range values {
+		if value == nil {
+			continue
+		}
+		found[keys[i]] = value
+	}
+	return found
 }
 
 func (c *snapshotEngine) Delete(key []byte) error {

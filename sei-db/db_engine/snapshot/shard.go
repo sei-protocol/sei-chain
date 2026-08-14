@@ -274,23 +274,17 @@ func (s *shard) lookupVersionedLocked(key string, version uint64) ([]byte, bool)
 	return nil, false
 }
 
-// BatchGet reads the given keys at the given version, returning a map (keyed by string(key)) of the
-// keys that were found to their values. Not-found and deleted keys are absent from the map. Any read
-// error fails the whole call and returns a nil map.
-func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, error) {
-	// The shard keys everything it holds by string, so the conversion happens once here rather than
-	// per lookup below.
-	stringKeys := make([]string, len(keys))
-	for i, key := range keys {
-		stringKeys[i] = string(key)
-	}
-	return s.BatchGetString(stringKeys, version)
-}
-
-// BatchGetString is BatchGet for a caller that already holds its keys as strings.
-func (s *shard) BatchGetString(keys []string, version uint64) (map[string][]byte, error) {
-	results := make(map[string][]byte, len(keys))
-	pending := make([]pendingRead, 0, len(keys))
+// batchGetInto reads the keys named by indices at the given version, writing each key's value into
+// values at that key's own index. A key this shard has no value for is left alone, so the caller's
+// nil stands for not-found; a found value is never nil, which is what makes the two distinguishable.
+//
+// keys and values are the caller's full-batch slices, indexed alike, and only the elements named by
+// indices are read or written. Concurrent calls for different shards are therefore safe: a key's
+// shard is a function of the key, so no two shards share an index.
+//
+// Any read error fails the call, and the elements it did not reach keep whatever they held.
+func (s *shard) batchGetInto(keys []string, indices []int, values [][]byte, version uint64) error {
+	pending := make([]pendingRead, 0, len(indices))
 	var hits int64
 
 	s.lock.Lock()
@@ -299,20 +293,19 @@ func (s *shard) BatchGetString(keys []string, version uint64) (map[string][]byte
 	// not just those that would have reached the DB.
 	if err := s.cache.outOfServiceLocked(); err != nil {
 		s.lock.Unlock()
-		return nil, err
+		return err
 	}
 
 	if err := s.validateVersionLocked(version); err != nil {
 		s.lock.Unlock()
-		return nil, err
+		return err
 	}
 
-	for _, key := range keys {
+	for _, index := range indices {
+		key := keys[index]
 		if value, found := s.lookupVersionedLocked(key, version); found {
-			// found includes tombstones (nil value); only non-nil values are real hits to return.
-			if value != nil {
-				results[key] = value
-			}
+			// found includes tombstones, whose nil value lands as the not-found the caller reads it as.
+			values[index] = value
 			hits++
 			continue
 		}
@@ -320,15 +313,14 @@ func (s *shard) BatchGetString(keys []string, version uint64) (map[string][]byte
 		// The batch path never touches the LRU queue on hits, hence updateLru=false.
 		outcome := s.cache.lookupStringLocked(key, false)
 		if outcome.immediate {
-			// Resolved from cache. A not-found (deleted) key counts as a hit but is not a result.
-			if outcome.found {
-				results[key] = outcome.value
-			}
+			// Resolved from cache. A deleted key carries a nil value, as above.
+			values[index] = outcome.value
 			hits++
 			continue
 		}
 		pending = append(pending, pendingRead{
 			key:           key,
+			index:         index,
 			entry:         outcome.entry,
 			valueChan:     outcome.valueChan,
 			needsSchedule: outcome.needsSchedule,
@@ -340,11 +332,8 @@ func (s *shard) BatchGetString(keys []string, version uint64) (map[string][]byte
 		s.metrics.reportCacheHits(hits)
 	}
 
-	if err := s.cache.resolveBatch(pending, results); err != nil {
-		// DB errors are fatal; fail the whole batch.
-		return nil, err
-	}
-	return results, nil
+	// DB errors are fatal; they fail the whole batch.
+	return s.cache.resolveBatch(pending, values)
 }
 
 // getSizeInfo returns the current cache size (bytes) and entry count under the shard lock.

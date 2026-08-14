@@ -124,11 +124,17 @@ func benchClassified(b *testing.B, accounts int, storage int, code int, misc int
 func benchReadAccounts(b *testing.B, classified classifiedChanges) map[string]*vtype.AccountData {
 	b.Helper()
 	accounts := touchedAccounts(classified)
-	stored := make(map[string][]byte, len(accounts))
+	nonceFor := make(map[string]uint64, len(accounts))
 	for i, change := range classified[keys.EVMKeyCodeHash] {
-		stored[change.key] = vtype.NewAccountData().SetBlockHeight(1).SetNonce(uint64(i)).Serialize()
+		nonceFor[change.key] = uint64(i)
 	}
-	if err := populateAccounts(accounts, stored, 100); err != nil {
+	physKeys := make([]string, 0, len(accounts))
+	stored := make([][]byte, 0, len(accounts))
+	for key := range accounts {
+		physKeys = append(physKeys, key)
+		stored = append(stored, vtype.NewAccountData().SetBlockHeight(1).SetNonce(nonceFor[key]).Serialize())
+	}
+	if err := populateAccounts(accounts, physKeys, stored, 100); err != nil {
 		b.Fatal(err)
 	}
 	return accounts
