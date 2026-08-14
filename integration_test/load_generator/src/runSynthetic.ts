@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { coins } from '@cosmjs/amino';
 import { SigningStargateClient, StargateClient, TimeoutError } from '@cosmjs/stargate';
 import { ethers } from 'ethers';
@@ -83,8 +84,11 @@ export async function runSynthetic(config: LoadGeneratorConfig): Promise<void> {
     const target = loadTargetConfig();
     if (!target.mnemonic) throw new Error('TARGET_MNEMONIC is required');
     await fs.mkdir(config.runtimeDirectory, { recursive: true });
+    const executionId = randomUUID();
+    const startedAt = new Date().toISOString();
     await writeJsonAtomic(path.join(config.runtimeDirectory, 'run.json'), {
         runId: config.runId,
+        executionId,
         type: config.type,
         tps: config.tps,
         maxTps: config.maxTps,
@@ -96,7 +100,7 @@ export async function runSynthetic(config: LoadGeneratorConfig): Promise<void> {
         workerIndexEnd: config.workerIndexOffset + config.workerCount,
         reservedUserIndexEnd: config.workerIndexOffset + config.usersPerPartition,
         usersPerTps: config.usersPerTps,
-        startedAt: new Date().toISOString(),
+        startedAt,
     });
     const [usersManifest, deployment] = await Promise.all([
         readJson<ReplayUserManifest>(target.usersPath),
@@ -146,6 +150,7 @@ export async function runSynthetic(config: LoadGeneratorConfig): Promise<void> {
         if (workers.length < 2) throw new Error('At least two provisioned workers are required');
         const context: WorkloadContext = {
             runId: config.runId,
+            executionId,
             deployment,
             provider,
             workers,

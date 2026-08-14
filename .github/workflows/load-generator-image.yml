@@ -28,6 +28,19 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: integration_test/load_generator/package-lock.json
+      - name: Test load generator
+        working-directory: integration_test/load_generator
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run test:fixtures
       - name: Login to GitHub Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee

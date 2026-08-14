@@ -164,32 +164,16 @@ export async function runReplayMain(): Promise<void> {
     ]);
     validateTargetManifests(manifest, deployment, target.network, target.evmChainId);
     if (manifest.users.length < 2) throw new Error('At least two replay users are required');
+    const users = { ...manifest, users: manifest.users.slice(0, WORKER_COUNT) };
 
     const provider = new ethers.JsonRpcProvider(target.evmRpcUrl);
     provider.pollingInterval = 200;
-    await verifyTargetRpc(target, provider);
-    const cosmosVerifier = await StargateClient.connect(target.cosmosRpcUrl);
-    try {
-        await verifyTargetCosmosRpc(target, cosmosVerifier);
-    } finally {
-        cosmosVerifier.disconnect();
-    }
-    await verifyDeploymentCode(deployment, provider);
-    const users = { ...manifest, users: manifest.users.slice(0, WORKER_COUNT) };
-    const workers = await createWorkers(users, target.mnemonic, provider);
     const liveMetrics = new ReplayMetrics(
         'pacific-1',
         target.network,
         TIME_SCALE,
         PRIVILEGED_REPLAY_MODE,
     );
-    if (METRICS_PORT > 0) {
-        await liveMetrics.listen(METRICS_PORT, METRICS_HOST);
-        console.log(
-            `Prometheus metrics: http://${METRICS_HOST}:${METRICS_PORT}/metrics ` +
-                `(health: /healthz)`,
-        );
-    }
     const auditRunId = Date.now();
     const bucketAudit = new BucketAuditWriter(
         path.resolve(
@@ -202,7 +186,29 @@ export async function runReplayMain(): Promise<void> {
         ),
         LOG_BUCKETS,
     );
-    await bucketAudit.initialize();
+    let workers: Worker[] = [];
+    try {
+        await verifyTargetRpc(target, provider);
+        const cosmosVerifier = await StargateClient.connect(target.cosmosRpcUrl);
+        try {
+            await verifyTargetCosmosRpc(target, cosmosVerifier);
+        } finally {
+            cosmosVerifier.disconnect();
+        }
+        await verifyDeploymentCode(deployment, provider);
+        workers = await createWorkers(users, target.mnemonic, provider);
+        if (METRICS_PORT > 0) {
+            await liveMetrics.listen(METRICS_PORT, METRICS_HOST);
+            console.log(
+                `Prometheus metrics: http://${METRICS_HOST}:${METRICS_PORT}/metrics ` +
+                    `(health: /healthz)`,
+            );
+        }
+        await bucketAudit.initialize();
+    } catch (error) {
+        await closeReplayResources(provider, liveMetrics, workers);
+        throw error;
+    }
     console.log(`Bucket audit: ${bucketAudit.auditPath}`);
     console.log(`No-semantic-bucket list: ${bucketAudit.unmatchedPath}`);
     let stopRequested = false;
@@ -546,9 +552,23 @@ export async function runReplayMain(): Promise<void> {
         console.log(`Bucket summary: ${JSON.stringify(bucketAudit.summary())}`);
         console.log(`Report: ${reportPath}`);
     } finally {
-        await bucketAudit.flush();
-        for (const worker of workers) worker.cosmosClient?.disconnect();
+        try {
+            await bucketAudit.flush();
+        } finally {
+            await closeReplayResources(provider, liveMetrics, workers);
+        }
+    }
+}
+
+async function closeReplayResources(
+    provider: ethers.JsonRpcProvider,
+    liveMetrics: ReplayMetrics,
+    workers: Worker[],
+): Promise<void> {
+    for (const worker of workers) worker.cosmosClient?.disconnect();
+    try {
         await liveMetrics.close();
+    } finally {
         provider.destroy();
     }
 }

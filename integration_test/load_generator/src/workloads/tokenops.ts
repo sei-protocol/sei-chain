@@ -47,7 +47,7 @@ export function tokenOperations(context: WorkloadContext): LoadOperation[] {
         evmOperation('erc20_burn', 8, token, ERC20, 'burn', GAS_LIMIT, () => [AMOUNT / 20n]),
         evmOperation('erc721_mint', 14, nft, ERC721, 'safeMint', GAS_LIMIT, (worker, sequence) => [
             worker.evmAddress,
-            uniqueTokenId(context.runId, worker, sequence),
+            uniqueTokenId(context.executionId, worker, sequence),
         ]),
         evmOperation(
             'erc721_round_trip',
@@ -157,12 +157,12 @@ export async function prepareTokenFixtures(
     });
 }
 
-function uniqueTokenId(runId: string, worker: LoadWorker, sequence: number): bigint {
+function uniqueTokenId(executionId: string, worker: LoadWorker, sequence: number): bigint {
     return BigInt(
         ethers.keccak256(
             ethers.solidityPacked(
                 ['string', 'address', 'uint256'],
-                [runId, worker.evmAddress, sequence + 1],
+                [executionId, worker.evmAddress, sequence + 1],
             ),
         ),
     );

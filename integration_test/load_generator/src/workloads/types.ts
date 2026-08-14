@@ -14,6 +14,7 @@ export interface LoadWorker {
 
 export interface WorkloadContext {
     runId: string;
+    executionId: string;
     deployment: ReplayDeploymentManifest;
     provider: ethers.JsonRpcProvider;
     workers: LoadWorker[];

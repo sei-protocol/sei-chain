@@ -201,9 +201,9 @@ describe('multi-mode load generator', () => {
         ]);
     });
 
-    it('uses the run id to avoid ERC721 mint collisions across reruns', async () => {
+    it('uses a unique execution id for ERC721 mints when a run restarts', async () => {
         const first = workloadContext();
-        const second = { ...first, runId: 'second-run' };
+        const second = { ...first, executionId: 'second-execution' };
         const firstMint = tokenOperations(first).find(item => item.name === 'erc721_mint')!;
         const secondMint = tokenOperations(second).find(item => item.name === 'erc721_mint')!;
         const [firstLoad, secondLoad] = await Promise.all([
@@ -254,6 +254,7 @@ function workloadContext(): WorkloadContext {
     const walletB = new ethers.Wallet(ethers.id('load-b'));
     return {
         runId: 'test-run',
+        executionId: 'first-execution',
         deployment,
         provider: {} as ethers.JsonRpcProvider,
         workers: [

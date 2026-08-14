@@ -6,7 +6,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { ethers } from 'ethers';
-import { loadDeployConfig, loadTargetConfig, verifyTargetRpc } from './config';
+import { loadDeployConfig, loadTargetConfig, TargetConfig, verifyTargetRpc } from './config';
 import { minBigInt } from './numeric';
 import {
     REPLAY_DEPLOYMENT_SCHEMA_VERSION,
@@ -41,6 +41,17 @@ export async function deployFixturesMain(): Promise<void> {
 
     const provider = new ethers.JsonRpcProvider(target.evmRpcUrl);
     provider.pollingInterval = 200;
+    try {
+        await deployFixtures(target, provider);
+    } finally {
+        provider.destroy();
+    }
+}
+
+async function deployFixtures(
+    target: TargetConfig,
+    provider: ethers.JsonRpcProvider,
+): Promise<void> {
     await verifyTargetRpc(target, provider);
     const artifacts = await loadArtifacts();
     validateSushiArtifacts(artifacts);
@@ -48,7 +59,6 @@ export async function deployFixturesMain(): Promise<void> {
     if (existing && !FORCE_DEPLOY) {
         await verifyExisting(existing, target.network, target.evmChainId, provider, artifacts);
         console.log('Existing deployment is valid; set FORCE_DEPLOY=1 to replace it.');
-        provider.destroy();
         return;
     }
 
@@ -510,7 +520,6 @@ export async function deployFixturesMain(): Promise<void> {
     await fs.mkdir(path.dirname(target.deploymentPath), { recursive: true });
     await writeJsonAtomic(target.deploymentPath, manifest);
     console.log(`Saved replay deployment to ${target.deploymentPath}`);
-    provider.destroy();
 }
 
 async function loadArtifacts(): Promise<Record<string, Artifact>> {

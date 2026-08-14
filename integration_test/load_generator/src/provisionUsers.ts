@@ -29,6 +29,7 @@ const {
     execute: EXECUTE,
 } = provisionConfig;
 const ASSOCIATION_BUFFER_USEI = 100_000n;
+const PROVISION_CONCURRENCY = 5;
 
 interface LoadUser {
     index: number;
@@ -78,7 +79,7 @@ export async function provisionUsersMain(): Promise<void> {
         try {
             await verifyTargetCosmosRpc(target, admin);
 
-            const associations = await mapConcurrent(users, 5, async user => {
+            const associations = await mapConcurrent(users, PROVISION_CONCURRENCY, async user => {
                 const mapping = await queryEvmAssociation(target.cosmosRpcUrl, user.seiAddress);
                 if (
                     mapping.associated &&
@@ -94,11 +95,7 @@ export async function provisionUsersMain(): Promise<void> {
             const associationByAddress = new Map(
                 users.map((user, index) => [user.seiAddress, associations[index]]),
             );
-            const initialBalances = await Promise.all(
-                users.map(async user =>
-                    BigInt((await admin.getBalance(user.seiAddress, 'usei')).amount),
-                ),
-            );
+            const initialBalances = await readBalances(admin, users);
             await sendFundingBatches(
                 admin,
                 adminAddress,
@@ -115,7 +112,7 @@ export async function provisionUsersMain(): Promise<void> {
 
             let associated = 0;
             let newAssociations = 0;
-            await mapConcurrent(users, 5, async user => {
+            await mapConcurrent(users, PROVISION_CONCURRENCY, async user => {
                 const mapping = associationByAddress.get(user.seiAddress)!;
                 if (mapping.associated) {
                     associated++;
@@ -160,11 +157,7 @@ export async function provisionUsersMain(): Promise<void> {
                     `${newAssociations} newly associated`,
             );
 
-            const balancesAfterAssociation = await Promise.all(
-                users.map(async user =>
-                    BigInt((await admin.getBalance(user.seiAddress, 'usei')).amount),
-                ),
-            );
+            const balancesAfterAssociation = await readBalances(admin, users);
             await sendFundingBatches(
                 admin,
                 adminAddress,
@@ -178,11 +171,7 @@ export async function provisionUsersMain(): Promise<void> {
                 `fund ${target.network} replay users`,
             );
 
-            const finalBalances = await Promise.all(
-                users.map(async user =>
-                    BigInt((await admin.getBalance(user.seiAddress, 'usei')).amount),
-                ),
-            );
+            const finalBalances = await readBalances(admin, users);
             const manifest = {
                 schemaVersion: 1,
                 network: target.network,
@@ -208,6 +197,15 @@ export async function provisionUsersMain(): Promise<void> {
     } finally {
         provider.destroy();
     }
+}
+
+async function readBalances(
+    client: SigningStargateClient,
+    users: LoadUser[],
+): Promise<bigint[]> {
+    return mapConcurrent(users, PROVISION_CONCURRENCY, async user =>
+        BigInt((await client.getBalance(user.seiAddress, 'usei')).amount),
+    );
 }
 
 function formatUsei(usei: bigint): string {
