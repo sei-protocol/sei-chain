@@ -26,6 +26,6 @@ COPY --from=build --chown=node:node /app/vendor ./vendor
 USER node
 EXPOSE 9465
 HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=3 \
-    CMD node -e "fetch('http://127.0.0.1:9465/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+    CMD node -e "fetch('http://127.0.0.1:9465/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 ENTRYPOINT ["node", "dist/runLoad.js"]
 CMD ["run"]

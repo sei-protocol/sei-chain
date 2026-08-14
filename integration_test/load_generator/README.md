@@ -326,12 +326,13 @@ Executed replay exposes Prometheus metrics on `127.0.0.1:9465/metrics` and `/hea
 GRAFANA_ADMIN_PASSWORD='<choose-a-password>' npm run dashboard:up
 ```
 
-Grafana dashboards are at `http://localhost:3000/d/sei-load-generator` for generated
-workloads and `http://localhost:3000/d/pacific-replay` for replay; Prometheus is at
-`http://localhost:9090`. Both ports bind to localhost. Prometheus scrapes the host
+The local replay dashboard is at `http://localhost:3000/d/pacific-replay`; Prometheus is
+at `http://localhost:9090`. Both ports bind to localhost. Prometheus scrapes the host
 runner at `host.docker.internal:9465`, so keep `METRICS_HOST=0.0.0.0` and
 `METRICS_PORT=9465` when using the bundled stack. The Grafana user is `admin`;
-`GRAFANA_ADMIN_PASSWORD` is required. Stop the stack with `npm run dashboard:down`.
+`GRAFANA_ADMIN_PASSWORD` is required. Production generated-load dashboards and aggregate
+reports are owned by `sei-protocol/platform`. Stop the local stack with
+`npm run dashboard:down`.
 
 Each executed run writes:
 
