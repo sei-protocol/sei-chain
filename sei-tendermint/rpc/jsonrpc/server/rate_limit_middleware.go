@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/sei-protocol/sei-chain/ratelimiter"
 	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 )
 
@@ -68,10 +67,6 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	allowed, rejectMethod, checkErr := m.gate.CheckPOST(r.Context(), ip, bytes.NewReader(body))
 	if checkErr != nil {
-		if ratelimiter.IsBodyTooLarge(checkErr) {
-			m.rejectAdmission(r.Context(), w, r, ip, body, http.StatusRequestEntityTooLarge, rpctypes.CodeInvalidRequest, "request body too large")
-			return
-		}
 		if isCometBFTPostJSONRPCRequest(r) {
 			writeJSONRPCErrorWithStatus(w, body, http.StatusBadRequest, rpctypes.CodeParseError, "decoding request: %v", checkErr)
 			return
