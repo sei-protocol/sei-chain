@@ -500,7 +500,8 @@ func createRouter(
 	options := &p2p.RouterOptions{
 		Endpoint:                      ep,
 		MaxIncomingConnectionAttempts: utils.Some(cfg.P2P.MaxIncomingConnectionAttempts),
-		MaxDialRate:                   utils.Some(rate.Every(cfg.P2P.DialInterval)),
+		MaxDialRate:                   rate.Every(cfg.P2P.DialInterval),
+		MaxAcceptRate:                 rate.Every(time.Second),
 		HandshakeTimeout:              utils.Some(cfg.P2P.HandshakeTimeout),
 		DialTimeout:                   utils.Some(cfg.P2P.DialTimeout),
 		PexOnHandshake:                cfg.P2P.PexReactor,

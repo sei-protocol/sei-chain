@@ -40,7 +40,8 @@ func TestRouter_InboundNodeInfoBoundedByHandshakeDeadline(t *testing.T) {
 			Endpoint:                 endpoint,
 			Connection:               conn.DefaultMConnConfig(),
 			IncomingConnectionWindow: utils.Some[time.Duration](0),
-			MaxAcceptRate:            utils.Some(rate.Inf),
+			MaxAcceptRate:            rate.Inf,
+			MaxDialRate:              rate.Every(10 * time.Second),
 			// Short, so the test fails fast rather than waiting out the 10s default.
 			HandshakeTimeout: utils.Some(100 * time.Millisecond),
 		},
