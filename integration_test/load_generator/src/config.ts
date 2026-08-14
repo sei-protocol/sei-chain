@@ -8,21 +8,6 @@ const PACIFIC_EVM_RPC = 'https://node-wave-0-evm.pacific-1.platform.sei.io/';
 const PACIFIC_COSMOS_RPC = 'https://node-wave-0-rpc.pacific-1.platform.sei.io/';
 const DEFAULT_REPLAY_DIR = 'runtime/replay/pacific-1/pacific-1-20m';
 
-const TARGETS = {
-    'arctic-1': {
-        evmChainId: 713715n,
-        cosmosChainId: 'arctic-1',
-        evmRpcUrl: 'https://node-wave-0-evm.arctic-1.platform.sei.io/',
-        cosmosRpcUrl: 'https://node-wave-0-rpc.arctic-1.platform.sei.io/',
-    },
-    'atlantic-2': {
-        evmChainId: 1328n,
-        cosmosChainId: 'atlantic-2',
-        evmRpcUrl: 'https://node-wave-0-evm.atlantic-2.platform.sei.io/',
-        cosmosRpcUrl: 'https://node-wave-0-rpc.atlantic-2.platform.sei.io/',
-    },
-} as const;
-
 export interface TargetConfig {
     network: ReplayTargetNetwork;
     evmChainId: bigint;
@@ -35,17 +20,17 @@ export interface TargetConfig {
 }
 
 export function loadTargetConfig(env: Environment = process.env): TargetConfig {
-    const network = string(env, 'TARGET_NETWORK', 'arctic-1');
-    if (network !== 'arctic-1' && network !== 'atlantic-2') {
-        throw new Error('TARGET_NETWORK must be "arctic-1" or "atlantic-2"');
+    const network = requiredString(env, 'TARGET_NETWORK');
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(network)) {
+        throw new Error('TARGET_NETWORK must be a path-safe network name');
     }
-    const defaults = TARGETS[network];
     const userCount = positiveInteger(env, 'USER_COUNT', 100);
     return {
         network,
-        ...defaults,
-        evmRpcUrl: string(env, 'TARGET_EVM_RPC', defaults.evmRpcUrl),
-        cosmosRpcUrl: string(env, 'TARGET_COSMOS_RPC', defaults.cosmosRpcUrl),
+        evmChainId: targetEvmChainId(env),
+        cosmosChainId: requiredString(env, 'TARGET_COSMOS_CHAIN_ID'),
+        evmRpcUrl: requiredString(env, 'TARGET_EVM_RPC'),
+        cosmosRpcUrl: requiredString(env, 'TARGET_COSMOS_RPC'),
         usersPath: resolvePath(
             env,
             'LOAD_USERS',
@@ -58,6 +43,17 @@ export function loadTargetConfig(env: Environment = process.env): TargetConfig {
         ),
         mnemonic: string(env, 'TARGET_MNEMONIC', string(env, 'SEI_ADMIN_MNEMONIC', '')),
     };
+}
+
+function targetEvmChainId(env: Environment): bigint {
+    requiredString(env, 'TARGET_EVM_CHAIN_ID');
+    return positiveBigInt(env, 'TARGET_EVM_CHAIN_ID', 1n);
+}
+
+function requiredString(env: Environment, key: string): string {
+    const value = env[key]?.trim();
+    if (value) return value;
+    throw new Error(`${key} is required`);
 }
 
 export function loadCaptureConfig(env: Environment = process.env) {

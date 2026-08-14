@@ -6,7 +6,7 @@
  *   REPLAY_DIR=runtime/replay/pacific-1/pacific-1-20m npm run replay:buffered
  *
  * Continuous execution:
- *   TARGET_NETWORK=arctic-1 REPLAY_DIR=... EXECUTE=1 npm run replay:buffered
+ *   TARGET_NETWORK=<target> REPLAY_DIR=... EXECUTE=1 npm run replay:buffered
  */
 import fs from 'fs/promises';
 import path from 'path';

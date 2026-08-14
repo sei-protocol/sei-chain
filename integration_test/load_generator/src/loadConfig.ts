@@ -14,6 +14,9 @@ export interface LoadGeneratorConfig {
     runId: string;
     runtimeDirectory: string;
     workerCount: number;
+    partitionIndex: number;
+    usersPerPartition: number;
+    workerIndexOffset: number;
     usersPerTps: number;
     maxWorkerCount: number;
     maxPendingPerWorker: number;
@@ -53,6 +56,26 @@ export function loadGeneratorConfig(
                 `raise the safety limit explicitly`,
         );
     }
+    const usersPerPartition = positiveInteger(
+        env.USERS_PER_PARTITION ?? String(workerCount),
+        'USERS_PER_PARTITION',
+    );
+    if (workerCount > usersPerPartition) {
+        throw new Error(
+            `worker count ${workerCount} exceeds USERS_PER_PARTITION ${usersPerPartition}; ` +
+                `increase the reserved range before increasing active workers`,
+        );
+    }
+    const partitionIndex = nonNegativeInteger(
+        env.PARTITION_INDEX ?? '0',
+        'PARTITION_INDEX',
+    );
+    const workerIndexOffset = env.WORKER_INDEX_OFFSET?.trim()
+        ? nonNegativeInteger(env.WORKER_INDEX_OFFSET, 'WORKER_INDEX_OFFSET')
+        : partitionIndex * usersPerPartition;
+    if (!Number.isSafeInteger(workerIndexOffset + usersPerPartition)) {
+        throw new Error('worker index range exceeds the safe integer limit');
+    }
     const durationRaw = args.duration ?? env.RUN_DURATION_SECONDS;
     const durationSeconds = durationRaw ? positiveNumber(durationRaw, 'duration') : undefined;
     const execute = env.EXECUTE === '1';
@@ -72,6 +95,9 @@ export function loadGeneratorConfig(
             args.runtimeDirectory ?? env.LOAD_RUNTIME_DIR ?? `runtime/load-runs/${effectiveRunId}`,
         ),
         workerCount,
+        partitionIndex,
+        usersPerPartition,
+        workerIndexOffset,
         usersPerTps,
         maxWorkerCount,
         maxPendingPerWorker: positiveInteger(

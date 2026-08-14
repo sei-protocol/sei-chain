@@ -6,6 +6,7 @@ import path from 'node:path';
 import { loadProvisionConfig } from '../src/config';
 import { LoadAuditWriter } from '../src/loadAudit';
 import { loadGeneratorConfig } from '../src/loadConfig';
+import { selectWorkerUsers } from '../src/runSynthetic';
 import {
     applyOperationWeights,
     chooseOperation,
@@ -19,6 +20,7 @@ import { LoadOperation, WorkloadContext } from '../src/workloads/types';
 import {
     REPLAY_DEPLOYMENT_SCHEMA_VERSION,
     ReplayDeploymentManifest,
+    ReplayUserManifest,
 } from '../src/replay/replayTypes';
 import { SUSHI_V2_PROVENANCE } from '../src/sushiV2';
 
@@ -26,7 +28,13 @@ describe('multi-mode load generator', () => {
     it('parses CLI arguments and enforces run identity for execution', () => {
         const config = loadGeneratorConfig(
             ['run', '--type', 'defi', '--tps=12.5', '--duration', '30', '--run-id', 'defi-a'],
-            { EXECUTE: '1', WORKER_COUNT: '4', FIXTURE_PREPARE_GAS_LIMIT: '3000000' },
+            {
+                EXECUTE: '1',
+                WORKER_COUNT: '4',
+                PARTITION_INDEX: '3',
+                USERS_PER_PARTITION: '200',
+                FIXTURE_PREPARE_GAS_LIMIT: '3000000',
+            },
         );
         expect(config.type).to.equal('defi');
         expect(config.tps).to.equal(12.5);
@@ -34,6 +42,9 @@ describe('multi-mode load generator', () => {
         expect(config.durationSeconds).to.equal(30);
         expect(config.runId).to.equal('defi-a');
         expect(config.workerCount).to.equal(4);
+        expect(config.partitionIndex).to.equal(3);
+        expect(config.usersPerPartition).to.equal(200);
+        expect(config.workerIndexOffset).to.equal(600);
         expect(config.usersPerTps).to.equal(2);
         expect(config.maxWorkerCount).to.equal(200);
         expect(config.fixturePrepareGasLimit).to.equal(3_000_000n);
@@ -58,6 +69,39 @@ describe('multi-mode load generator', () => {
                 MAX_SYNTHETIC_TPS: '101',
             }),
         ).to.throw('worker count 202 exceeds MAX_WORKER_COUNT 200');
+        expect(
+            loadGeneratorConfig(['--type', 'defi'], {
+                WORKER_COUNT: '4',
+                PARTITION_INDEX: '3',
+                WORKER_INDEX_OFFSET: '20',
+            }).workerIndexOffset,
+        ).to.equal(20);
+        expect(() =>
+            loadGeneratorConfig(['--type', 'defi'], {
+                WORKER_COUNT: '5',
+                USERS_PER_PARTITION: '4',
+            }),
+        ).to.throw('worker count 5 exceeds USERS_PER_PARTITION 4');
+    });
+
+    it('assigns disjoint deterministic user-pool partitions', () => {
+        const users: ReplayUserManifest['users'] = Array.from({ length: 6 }, (_, offset) => {
+            const index = offset + 1;
+            return {
+                index,
+                derivationPath: `m/44'/118'/0'/0/${index}`,
+                seiAddress: `sei${index}`,
+                evmAddress: `0x${index}`,
+            };
+        });
+        expect(selectWorkerUsers(users, 2, 2).map(user => user.index)).to.deep.equal([3, 4]);
+        expect(() => selectWorkerUsers(users, 4, 3)).to.throw(
+            'requires indexes 5-7',
+        );
+        users[2].index = 99;
+        expect(() => selectWorkerUsers(users, 2, 2)).to.throw(
+            'derivation index 99, expected 3',
+        );
     });
 
     it('parses large funding targets without number precision loss', () => {

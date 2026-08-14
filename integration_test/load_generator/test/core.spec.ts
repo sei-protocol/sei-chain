@@ -33,6 +33,14 @@ import {
     summarizePrestateDiff,
     summarizeStructLogs,
 } from '../src/replay/traceCapture';
+
+const ARCTIC_TARGET = {
+    TARGET_NETWORK: 'arctic-1',
+    TARGET_EVM_CHAIN_ID: '713715',
+    TARGET_COSMOS_CHAIN_ID: 'arctic-1',
+    TARGET_EVM_RPC: 'https://evm.arctic.example',
+    TARGET_COSMOS_RPC: 'https://rpc.arctic.example',
+};
 import { replayEntriesForBlock } from '../src/replay/replayScheduling';
 import { SUSHI_V2_PROVENANCE } from '../src/sushiV2';
 import { queryEvmAssociation } from '../src/association';
@@ -179,17 +187,55 @@ describe('load generator pure behavior', () => {
                 .fixturePrepareGasLimit,
         ).to.equal(3_000_000n);
         expect(
-            loadTargetConfig({ TARGET_NETWORK: 'arctic-1', USER_COUNT: '5' }).usersPath,
+            loadTargetConfig({ ...ARCTIC_TARGET, USER_COUNT: '5' }).usersPath,
         ).to.equal(`${process.cwd()}/runtime/replay-users/arctic-1-5.json`);
-        expect(loadTargetConfig({ TARGET_NETWORK: 'arctic-1' }).deploymentPath).to.equal(
+        expect(loadTargetConfig(ARCTIC_TARGET).deploymentPath).to.equal(
             `${process.cwd()}/runtime/replay-deployments/arctic-1-v5.json`,
         );
+        const local = loadTargetConfig({
+            TARGET_NETWORK: 'local',
+            TARGET_EVM_CHAIN_ID: '713714',
+            TARGET_COSMOS_CHAIN_ID: 'sei',
+            TARGET_EVM_RPC: 'http://127.0.0.1:8545',
+            TARGET_COSMOS_RPC: 'http://127.0.0.1:26657',
+        });
+        expect(local.evmChainId).to.equal(713714n);
+        expect(local.cosmosChainId).to.equal('sei');
+        expect(local.evmRpcUrl).to.equal('http://127.0.0.1:8545');
+        const custom = loadTargetConfig({
+            TARGET_NETWORK: 'devnet-7',
+            TARGET_EVM_CHAIN_ID: '7007',
+            TARGET_COSMOS_CHAIN_ID: 'devnet-7',
+            TARGET_EVM_RPC: 'https://evm.devnet.example',
+            TARGET_COSMOS_RPC: 'https://rpc.devnet.example',
+        });
+        expect(custom.evmChainId).to.equal(7007n);
+        expect(custom.cosmosChainId).to.equal('devnet-7');
     });
 
-    it('rejects unsafe or unknown target configuration', () => {
+    it('rejects unsafe or incomplete target configuration', () => {
         expect(() => loadTargetConfig({ TARGET_NETWORK: 'pacific-1' })).to.throw(
-            'TARGET_NETWORK',
+            'TARGET_EVM_CHAIN_ID',
         );
+        expect(() => loadTargetConfig({ TARGET_NETWORK: '../arctic-1' })).to.throw(
+            'path-safe',
+        );
+        expect(() =>
+            loadTargetConfig({
+                TARGET_NETWORK: 'devnet-7',
+                TARGET_EVM_CHAIN_ID: '0',
+                TARGET_COSMOS_CHAIN_ID: 'devnet-7',
+                TARGET_EVM_RPC: 'https://evm.devnet.example',
+                TARGET_COSMOS_RPC: 'https://rpc.devnet.example',
+            }),
+        ).to.throw('TARGET_EVM_CHAIN_ID');
+        expect(() =>
+            loadTargetConfig({
+                TARGET_NETWORK: 'devnet-7',
+                TARGET_EVM_CHAIN_ID: '7007',
+                TARGET_COSMOS_CHAIN_ID: 'devnet-7',
+            }),
+        ).to.throw('TARGET_EVM_RPC');
         expect(() => loadReplayConfig({ MAX_TPS: '0' })).to.throw('MAX_TPS');
         expect(() => loadCaptureConfig({ BLOCKS_PER_BATCH: '21' })).to.throw(
             'BLOCKS_PER_BATCH',
@@ -211,7 +257,7 @@ describe('load generator pure behavior', () => {
     });
 
     it('rejects a mismatched Cosmos target chain', async () => {
-        const target = loadTargetConfig({ TARGET_NETWORK: 'arctic-1' });
+        const target = loadTargetConfig(ARCTIC_TARGET);
         await verifyTargetCosmosRpc(target, { getChainId: async () => 'arctic-1' });
         try {
             await verifyTargetCosmosRpc(target, { getChainId: async () => 'pacific-1' });

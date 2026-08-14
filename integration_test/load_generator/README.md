@@ -1,6 +1,6 @@
 # Sei multi-mode load generator
 
-Standalone TypeScript package for generated DeFi, token, and chain-native load, plus capture and replay of canonical Pacific-1 traffic on Arctic-1 or Atlantic-2. It never rebroadcasts Pacific signatures or assumes Pacific addresses and state exist on the target.
+Standalone TypeScript package for generated DeFi, token, and chain-native load, plus capture and replay of canonical Pacific-1 traffic on configurable Sei networks. It never rebroadcasts Pacific signatures or assumes Pacific addresses and state exist on the target.
 
 ## Safety
 
@@ -10,7 +10,7 @@ Standalone TypeScript package for generated DeFi, token, and chain-native load, 
 - Wrapped EVM transactions are correlated by reconstructing their signed hash from `MsgEVMTransaction`; Cosmos and EVM indexes are never assumed to align.
 - Privileged module traffic becomes labelled bank-shaped load by default (`PRIVILEGED_REPLAY_MODE=skip` omits it).
 - Successful unknown contract creations use `SyntheticCreationHarness` for bounded safe CREATE/CREATE2 load. Unknown traced calls use the allowlisted `CallGraphHarness`; untraced calls use `ProfileLoadHarness`. None executes source-selected target addresses or untrusted Pacific initcode.
-- Mnemonics come only from `TARGET_MNEMONIC` or `SEI_ADMIN_MNEMONIC` and are never persisted.
+- Mnemonics come only from `TARGET_MNEMONIC` or `SEI_ADMIN_MNEMONIC` and are not included in generated manifests. `load:prepare-account` writes only to the explicitly selected mode-`0600` mnemonic file.
 
 ## Local quick start
 
@@ -27,6 +27,8 @@ workers are derived from accounts 1 through `USER_COUNT`.
 
 ```bash
 TARGET_NETWORK=arctic-1
+TARGET_EVM_CHAIN_ID=713715
+TARGET_COSMOS_CHAIN_ID=arctic-1
 TARGET_EVM_RPC=https://...
 TARGET_COSMOS_RPC=https://...
 TARGET_MNEMONIC="<funded mnemonic>"
@@ -49,6 +51,20 @@ Every command loads `.env` automatically. Use another file with
 `DOTENV_CONFIG_PATH=.env.arctic`. Explicit shell variables override `.env`. Never put a
 real mnemonic in `.env.example` or another tracked file.
 
+Every target is explicit and supports any path-safe network name:
+
+```bash
+TARGET_NETWORK=devnet-7
+TARGET_EVM_CHAIN_ID=7007
+TARGET_COSMOS_CHAIN_ID=devnet-7
+TARGET_EVM_RPC=https://evm.devnet.example
+TARGET_COSMOS_RPC=https://rpc.devnet.example
+```
+
+Chain IDs remain mandatory so the generator can refuse a misconfigured RPC before
+submitting transactions. Network-specific values belong in the deployment repository
+or an untracked local env file, not application code.
+
 ## Load modes
 
 The unified entry point is `npm run load -- run --type <mode> --tps <rate>`.
@@ -57,7 +73,23 @@ variables. Generated workloads reject rates above the per-process
 `MAX_SYNTHETIC_TPS` safety ceiling (default `100`); raise both values explicitly for
 intentional higher-rate tests. Worker count defaults to
 `ceil(TXS_PER_SECOND * USERS_PER_TPS)` with `USERS_PER_TPS=2`; `WORKER_COUNT` is an
-explicit override. Kubernetes aggregate TPS is the sum of all runner TPS.
+explicit override. Aggregate TPS across processes is the sum of their configured rates.
+
+Concurrent processes can share one pre-provisioned user pool without sharing accounts.
+Each process reserves `USERS_PER_PARTITION` users beginning at
+`PARTITION_INDEX * USERS_PER_PARTITION`, then activates the first `WORKER_COUNT` users in
+that range; `WORKER_INDEX_OFFSET` overrides the calculated offset. Keeping the reserved
+range fixed prevents rate changes from moving accounts between processes. Provision the
+full pool separately, for example:
+
+```bash
+EXECUTE=1 USER_COUNT=2000 FUND_SEI=1000 npm run load:provision
+```
+
+For a 2,000-user pool and `USERS_PER_PARTITION=200`, partition indexes 0–9 receive stable,
+non-overlapping ranges. `WORKER_COUNT` may vary from 1 to 200 without changing ownership.
+Scaling beyond the prepared pool or activating more than the reserved range fails before
+load starts.
 
 - `defi`: bidirectional swaps, farming, lending/borrowing, liquid staking, and vault operations against the shared fixture state.
 - `tokenops`: ERC20, ERC1155, and ERC721 mint/transfer traffic, including repeatable
@@ -103,9 +135,9 @@ Add headroom for uneven operation weights and fee spikes. Synthetic audit files 
 at 100 MiB and retain five old files by default; tune `LOAD_AUDIT_MAX_BYTES` and
 `LOAD_AUDIT_RETAIN_FILES` for longer runs.
 
-## Docker and Kubernetes
+## Docker
 
-Build one image for setup, provisioning, and runners:
+Build one image for fixture deployment, pool provisioning, and runners:
 
 ```bash
 docker build -t sei-load-generator:local .
@@ -123,85 +155,25 @@ docker run --rm --env-file .env -p 9465:9465 \
   sei-load-generator:local run --type defi --tps 10
 ```
 
-Push the image, then bootstrap one uniquely funded account for each isolated fixture
-stack or runner. The command creates missing mnemonic Secrets, reuses existing Secrets,
-and tops up each account 0 from `TARGET_MNEMONIC` to the requested balance:
+For isolated runner stacks, prepare account 0 from a separate treasury before using
+that runner mnemonic for fixture deployment and user provisioning:
 
 ```bash
-K8S_NAMESPACE=loadgen \
-K8S_ACCOUNT_SECRETS=loadgen-fixture-deployer,loadgen-fixture-deployer-b,loadgen-defi-a,loadgen-defi-b,loadgen-defi-c \
-K8S_ACCOUNT_FUND_SEI=1000 \
-K8S_BOOTSTRAP_EXECUTE=1 npm run k8s:bootstrap
+TARGET_MNEMONIC="$TREASURY_MNEMONIC" \
+RUNNER_MNEMONIC_PATH=runtime/runner.mnemonic \
+RUNNER_ACCOUNT_FUND_SEI=2000001000 \
+EXECUTE=1 npm run load:prepare-account
 ```
 
-`K8S_ACCOUNT_FUND_SEI` is a target balance, so rerunning the command only sends the
-shortfall. It must cover contract deployment when the account owns a fixture set,
-`fundSei * ceil(tps * usersPerTps)` for its workers, and transaction fees. For an
-isolated stack, use the same Secret for its fixture set and runner: fixture setup
-finishes before that runner provisions workers. Concurrent fixture sets and runners
-must not share an account.
+The command creates the mnemonic file with mode `0600`, tops the account up to the
+requested balance, and verifies its EVM association. It has no Kubernetes or secret
+store dependency.
 
-Create `loadgen-values.yaml`:
-
-```yaml
-image:
-  repository: registry.example/sei-load-generator
-  tag: v1
-target:
-  network: arctic-1
-  evmRpcUrl: https://...
-  cosmosRpcUrl: https://...
-fixtures:
-  sets:
-    - name: market-a
-      mnemonicSecret: loadgen-fixture-deployer
-    - name: market-b
-      mnemonicSecret: loadgen-fixture-deployer-b
-      accessModes: [ReadWriteOnce]
-runners:
-  - name: defi-a
-    fixtureSet: market-a
-    type: defi
-    tps: 20
-    usersPerTps: 2
-    durationSeconds: 0
-    fundSei: "1000000"
-    mnemonicSecret: loadgen-defi-a
-  - name: defi-b
-    fixtureSet: market-a
-    type: defi
-    tps: 20
-    usersPerTps: 2
-    fundSei: "1000000"
-    mnemonicSecret: loadgen-defi-b
-  - name: defi-c
-    fixtureSet: market-b
-    type: defi
-    tps: 10
-    usersPerTps: 2
-    fundSei: "1000000"
-    mnemonicSecret: loadgen-defi-c
-```
-
-Install and inspect:
-
-```bash
-helm upgrade --install loadgen deploy/helm/sei-load-generator -f loadgen-values.yaml
-kubectl get jobs,pods
-kubectl logs job/loadgen-sei-load-generator-setup-market-a-1
-kubectl logs -f deployment/loadgen-sei-load-generator-defi-a
-kubectl port-forward service/loadgen-sei-load-generator-defi-a 9465:9465
-```
-
-The chart creates one PVC and setup Job per fixture set, then one single-replica
-Deployment per runner. `defi-a` and `defi-b` above share `market-a`; `defi-c` uses its
-own `market-b` stack. A fixture set shared across Kubernetes nodes needs RWX storage; a
-set used by one runner may override `accessModes` with `ReadWriteOnce`. Accounts,
-nonces, Cosmos sequences, runtime files, and audit files remain isolated per runner.
-Do not increase a runner's replica count while it uses one mnemonic. Runner runtime and
-audit files use `emptyDir` and are lost when the pod is replaced; scrape metrics or
-export the audit files externally when they must be retained. Pin an immutable image
-tag for long runs.
+Kubernetes manifests, SOPS Secrets, fixture and user-pool ConfigMaps, replica counts,
+cluster RPC endpoints, resource limits, and PodMonitor configuration are owned by the
+`sei-protocol/platform` repository. Platform maps StatefulSet ordinals to the generic
+partition variables above. This package intentionally contains no Helm chart or direct
+cluster orchestration.
 
 ## Single-command run
 

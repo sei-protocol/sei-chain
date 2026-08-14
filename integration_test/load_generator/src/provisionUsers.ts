@@ -1,8 +1,7 @@
 /**
  * Derive, associate, and fund replay users on Arctic-1 or Atlantic-2.
  *
- *   TARGET_NETWORK=arctic-1 EXECUTE=1 npm run replay:users
- *   TARGET_NETWORK=atlantic-2 EXECUTE=1 npm run replay:users
+ *   TARGET_NETWORK=<target> EXECUTE=1 npm run replay:users
  */
 import fs from 'fs/promises';
 import path from 'path';

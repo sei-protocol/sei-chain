@@ -1,8 +1,7 @@
 /**
  * Deploy the allowlisted contracts used by Pacific semantic replay.
  *
- *   TARGET_NETWORK=arctic-1 EXECUTE=1 npm run replay:deploy
- *   TARGET_NETWORK=atlantic-2 EXECUTE=1 npm run replay:deploy
+ *   TARGET_NETWORK=<target> EXECUTE=1 npm run replay:deploy
  */
 import fs from 'fs/promises';
 import path from 'path';

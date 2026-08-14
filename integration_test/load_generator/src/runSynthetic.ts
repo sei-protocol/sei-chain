@@ -71,6 +71,10 @@ export async function runSynthetic(config: LoadGeneratorConfig): Promise<void> {
     if (!config.execute) {
         console.log(
             `Dry-run ${config.type}: ${config.tps} tx/s, ${config.workerCount} workers, ` +
+                `pool users ${config.workerIndexOffset + 1}-` +
+                `${config.workerIndexOffset + config.workerCount} from reserved range ` +
+                `${config.workerIndexOffset + 1}-` +
+                `${config.workerIndexOffset + config.usersPerPartition}, ` +
                 `${config.durationSeconds ?? 'unbounded'} seconds ` +
                 `(safety ceiling ${config.maxTps} tx/s)`,
         );
@@ -85,6 +89,12 @@ export async function runSynthetic(config: LoadGeneratorConfig): Promise<void> {
         tps: config.tps,
         maxTps: config.maxTps,
         workerCount: config.workerCount,
+        partitionIndex: config.partitionIndex,
+        usersPerPartition: config.usersPerPartition,
+        workerIndexOffset: config.workerIndexOffset,
+        workerIndexStart: config.workerIndexOffset + 1,
+        workerIndexEnd: config.workerIndexOffset + config.workerCount,
+        reservedUserIndexEnd: config.workerIndexOffset + config.usersPerPartition,
         usersPerTps: config.usersPerTps,
         startedAt: new Date().toISOString(),
     });
@@ -93,12 +103,11 @@ export async function runSynthetic(config: LoadGeneratorConfig): Promise<void> {
         readJson<ReplayDeploymentManifest>(target.deploymentPath),
     ]);
     validateManifests(usersManifest, deployment, target.network, target.evmChainId);
-    if (usersManifest.users.length < config.workerCount) {
-        throw new Error(
-            `User manifest has ${usersManifest.users.length} workers but this run requires ` +
-                `${config.workerCount}; provision again with the same TPS and worker settings`,
-        );
-    }
+    const selectedUsers = selectWorkerUsers(
+        usersManifest.users,
+        config.workerIndexOffset,
+        config.workerCount,
+    );
 
     const provider = new ethers.JsonRpcProvider(target.evmRpcUrl);
     provider.pollingInterval = 200;
@@ -132,11 +141,7 @@ export async function runSynthetic(config: LoadGeneratorConfig): Promise<void> {
             verifier.disconnect();
         }
         workers.push(
-            ...(await createWorkers(
-                usersManifest.users.slice(0, config.workerCount),
-                target.mnemonic,
-                provider,
-            )),
+            ...(await createWorkers(selectedUsers, target.mnemonic, provider)),
         );
         if (workers.length < 2) throw new Error('At least two provisioned workers are required');
         const context: WorkloadContext = {
@@ -442,6 +447,31 @@ async function cosmosClient(
         broadcastTimeoutMs: 60_000,
     });
     return worker.cosmosClient;
+}
+
+export function selectWorkerUsers(
+    users: ReplayUserManifest['users'],
+    offset: number,
+    count: number,
+): ReplayUserManifest['users'] {
+    const end = offset + count;
+    if (end > users.length) {
+        throw new Error(
+            `User pool has ${users.length} workers but this pod requires indexes ` +
+                `${offset + 1}-${end}; provision a larger pool or reduce replicas`,
+        );
+    }
+    const selected = users.slice(offset, end);
+    selected.forEach((user, index) => {
+        const expected = offset + index + 1;
+        if (user.index !== expected) {
+            throw new Error(
+                `User pool entry ${offset + index} has derivation index ${user.index}, ` +
+                    `expected ${expected}`,
+            );
+        }
+    });
+    return selected;
 }
 
 async function createWorkers(

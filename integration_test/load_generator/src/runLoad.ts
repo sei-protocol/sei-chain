@@ -3,10 +3,12 @@ import { runSynthetic } from './runSynthetic';
 
 export async function runLoadMain(): Promise<void> {
     const config = loadGeneratorConfig();
-    if (
-        config.command === 'provision' ||
-        (config.command === 'run' && config.type !== 'simulate')
-    ) {
+    if (config.command === 'provision') {
+        if (!process.env.USER_COUNT?.trim()) {
+            process.env.USER_COUNT = String(config.workerCount);
+        }
+        process.env.WORKER_COUNT = process.env.USER_COUNT;
+    } else if (config.command === 'run' && config.type !== 'simulate') {
         process.env.USER_COUNT = String(config.workerCount);
         process.env.WORKER_COUNT = String(config.workerCount);
     }

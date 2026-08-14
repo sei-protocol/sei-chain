@@ -5,7 +5,7 @@
  *   REPLAY_DIR=runtime/replay/pacific-1/<capture> npm run replay:run
  *
  * Execute:
- *   TARGET_NETWORK=arctic-1 REPLAY_DIR=... EXECUTE=1 npm run replay:run
+ *   TARGET_NETWORK=<target> REPLAY_DIR=... EXECUTE=1 npm run replay:run
  */
 import path from 'path';
 import { SigningStargateClient, StargateClient, TimeoutError } from '@cosmjs/stargate';

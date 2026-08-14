@@ -38,7 +38,7 @@ export const REPLAY_CONTRACT_KEYS = [
     'strategyVaultProxy',
 ] as const;
 
-export type ReplayTargetNetwork = 'arctic-1' | 'atlantic-2';
+export type ReplayTargetNetwork = string;
 export type ReplayTransactionKind = 'transfer' | 'contractCall' | 'contractCreation';
 
 export interface ReplayCallFrame {
