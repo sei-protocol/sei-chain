@@ -235,6 +235,31 @@ func TestCompositeCoordinatorAbortsEveryMemberOnStageFailure(t *testing.T) {
 	require.NoDirExists(t, filepath.Join(rootB, SnapshotDirName(10)))
 }
 
+// A request that fails must queue no barrier at all. The commit path can call maybeSnapshot twice for
+// one block, so a failed request releases its version for another attempt; a barrier left behind by the
+// first attempt would then be writing into the staging directory the retry reserves.
+func TestCompositeCoordinatorQueuesNothingWhenAMemberCannotPrepare(t *testing.T) {
+	rootA, rootB := t.TempDir(), t.TempDir()
+	schedulerA := &controlledSnapshotScheduler{pending: make(chan func(), 1)}
+	schedulerB := &controlledSnapshotScheduler{pending: make(chan func(), 1)}
+	managerA := openTestManager(t, "cosmos", rootA, schedulerA)
+	managerB := openTestManager(t, "evm", rootB, schedulerB)
+	coord := newSnapshotCoordinator(10, 0, []snapshotMember{
+		{name: "cosmos", manager: managerA},
+		{name: "evm", manager: managerB},
+	})
+	// Occupy the name the evm member would publish version 10 under, so its prepare fails after the
+	// cosmos member has already been prepared.
+	require.NoError(t, os.WriteFile(filepath.Join(rootB, SnapshotDirName(10)), nil, 0o600))
+
+	coord.maybeSnapshot(10)
+
+	require.Empty(t, schedulerA.pending, "a member must not be scheduled once another cannot prepare")
+	require.Empty(t, schedulerB.pending)
+	require.Equal(t, int64(0), coord.lastRequested, "the version stays available for another attempt")
+	require.False(t, coord.inFlight)
+}
+
 func TestUnpairedSnapshotHeightsSurviveStartupAndCommonHeightIsLower(t *testing.T) {
 	rootA, rootB := t.TempDir(), t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(rootA, SnapshotDirName(10)), 0o750))

@@ -169,35 +169,45 @@ func (m *Manager) Root() string {
 	return m.root
 }
 
-func (m *Manager) Stage(version int64, shouldRun func() bool, done func(*Staged, error)) error {
+// Prepare reserves a staging directory for version without queueing any work. A caller that snapshots
+// several members prepares all of them before it schedules any, so a member that cannot be prepared
+// leaves no barrier queued for a version nothing will publish.
+func (m *Manager) Prepare(version int64) (*Staged, error) {
 	name := SnapshotDirName(version)
 	finalDir := filepath.Join(m.root, name)
 	if _, err := os.Stat(finalDir); err == nil {
-		return fmt.Errorf("%s snapshot dir %q already exists", m.name, finalDir)
+		return nil, fmt.Errorf("%s snapshot dir %q already exists", m.name, finalDir)
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("inspect %s snapshot dir %q: %w", m.name, finalDir, err)
+		return nil, fmt.Errorf("inspect %s snapshot dir %q: %w", m.name, finalDir, err)
 	}
 	tmpDir := filepath.Join(m.root, snapshotTmpPrefix+name)
-	if err := os.RemoveAll(tmpDir); err != nil {
-		return fmt.Errorf("clear stale %s snapshot tmp dir: %w", m.name, err)
+	// Refused rather than cleared: a checkpoint may still be writing into it, and deleting underneath
+	// one leaves a partial directory that is then published under an exact label. Open clears the
+	// staging directories a crash left behind, so a stale one does not block the next boundary.
+	if _, err := os.Stat(tmpDir); err == nil {
+		return nil, fmt.Errorf("%s snapshot staging dir %q already exists", m.name, tmpDir)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("inspect %s snapshot staging dir %q: %w", m.name, tmpDir, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(tmpDir), 0o750); err != nil {
-		return fmt.Errorf("create %s snapshot root: %w", m.name, err)
+	if err := os.MkdirAll(m.root, 0o750); err != nil {
+		return nil, fmt.Errorf("create %s snapshot root: %w", m.name, err)
 	}
-	staged := &Staged{
+	return &Staged{
 		manager:  m,
 		version:  version,
 		tmpDir:   tmpDir,
 		finalDir: finalDir,
+	}, nil
+}
+
+// Schedule queues staged's checkpoint behind the writes already enqueued on this member's backend.
+// done is called exactly once, so a caller counting members can wait on it.
+func (m *Manager) Schedule(staged *Staged, shouldRun func() bool, done func(error)) {
+	if staged == nil || staged.manager != m {
+		done(fmt.Errorf("%s staged snapshot belongs to a different manager", m.name))
+		return
 	}
-	m.scheduler.ScheduleCheckpoint(tmpDir, shouldRun, func(err error) {
-		if err != nil {
-			done(nil, err)
-			return
-		}
-		done(staged, nil)
-	})
-	return nil
+	m.scheduler.ScheduleCheckpoint(staged.tmpDir, shouldRun, done)
 }
 
 func (m *Manager) Commit(staged *Staged) error {

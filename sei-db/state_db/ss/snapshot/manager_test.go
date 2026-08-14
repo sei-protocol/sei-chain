@@ -118,17 +118,28 @@ func TestManagerAbortRemovesStagedSnapshot(t *testing.T) {
 	root := t.TempDir()
 	scheduler := &controlledScheduler{pending: make(chan func(), 1)}
 	manager := openManager(t, root, scheduler, 1, false)
-	var staged *Staged
 
-	require.NoError(t, manager.Stage(10, func() bool { return true }, func(s *Staged, err error) {
-		require.NoError(t, err)
-		staged = s
-	}))
-	(<-scheduler.pending)()
+	staged := stage(t, manager, scheduler, 10)
 	staged.Abort()
 
 	require.NoDirExists(t, filepath.Join(root, snapshotTmpPrefix+SnapshotDirName(10)))
 	require.NoDirExists(t, filepath.Join(root, SnapshotDirName(10)))
+}
+
+// A staging directory that already exists may hold a checkpoint still being written, so preparing the
+// same version again must refuse rather than clear it: clearing it publishes whatever the interrupted
+// checkpoint had reached under a label that claims to be exact.
+func TestManagerPrepareRefusesExistingStagingDir(t *testing.T) {
+	root := t.TempDir()
+	scheduler := &controlledScheduler{pending: make(chan func(), 1)}
+	manager := openManager(t, root, scheduler, 1, false)
+
+	staged := stage(t, manager, scheduler, 10)
+	require.DirExists(t, staged.tmpDir)
+
+	_, err := manager.Prepare(10)
+	require.Error(t, err)
+	require.DirExists(t, staged.tmpDir, "the first attempt's checkpoint must survive the refusal")
 }
 
 func openManager(t *testing.T, root string, scheduler *controlledScheduler, keepRecent int, external bool) *Manager {
@@ -148,11 +159,17 @@ func openManager(t *testing.T, root string, scheduler *controlledScheduler, keep
 
 func stageAndCommit(t *testing.T, manager *Manager, scheduler *controlledScheduler, version int64) {
 	t.Helper()
-	var staged *Staged
-	require.NoError(t, manager.Stage(version, func() bool { return true }, func(s *Staged, err error) {
-		require.NoError(t, err)
-		staged = s
-	}))
-	(<-scheduler.pending)()
+	staged := stage(t, manager, scheduler, version)
 	require.NoError(t, manager.Commit(staged))
+}
+
+func stage(t *testing.T, manager *Manager, scheduler *controlledScheduler, version int64) *Staged {
+	t.Helper()
+	staged, err := manager.Prepare(version)
+	require.NoError(t, err)
+	manager.Schedule(staged, func() bool { return true }, func(err error) {
+		require.NoError(t, err)
+	})
+	(<-scheduler.pending)()
+	return staged
 }

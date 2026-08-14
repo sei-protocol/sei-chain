@@ -189,6 +189,9 @@ func (c *snapshotCoordinator) maybeSnapshot(version int64) {
 	start := time.Now()
 	sssnapshot.RecordAttempt()
 	if err := c.requestSnapshot(version, start); err != nil {
+		// requestSnapshot only reports an error before it queues anything, so this version is free to
+		// be requested again: no barrier is writing under its label, and the write path has enqueued
+		// nothing above it yet, which is what keeps a retry within the same block exact.
 		sssnapshot.RecordCompletion(start, "failure")
 		c.mu.Lock()
 		if c.lastRequested == version {
@@ -216,6 +219,23 @@ func (c *snapshotCoordinator) requestSnapshot(version int64, start time.Time) er
 	if len(c.members) == 0 {
 		return errors.New("no state store snapshot members")
 	}
+	// Every member is prepared before any of them is scheduled, so a member that cannot take this
+	// version fails the whole request with nothing queued. Half-queued requests are what let a retry
+	// of the same version reach a staging directory a barrier from the first attempt still writes to.
+	staged := make([]*sssnapshot.Staged, len(c.members))
+	for i, member := range c.members {
+		if member.manager == nil {
+			abortStaged(staged)
+			return fmt.Errorf("state store snapshot member %q has no manager", member.name)
+		}
+		s, err := member.manager.Prepare(version)
+		if err != nil {
+			abortStaged(staged)
+			return fmt.Errorf("prepare %s snapshot: %w", member.name, err)
+		}
+		staged[i] = s
+	}
+
 	var canceled atomic.Bool
 	shouldRun := func() bool {
 		return c.isRunning() && !canceled.Load()
@@ -224,21 +244,18 @@ func (c *snapshotCoordinator) requestSnapshot(version int64, start time.Time) er
 	var (
 		mu        sync.Mutex
 		remaining = len(c.members)
-		staged    = make([]*sssnapshot.Staged, len(c.members))
 		firstErr  error
 	)
 	for i, member := range c.members {
-		if member.manager == nil {
-			canceled.Store(true)
-			return fmt.Errorf("state store snapshot member %q has no manager", member.name)
-		}
-		err := member.manager.Stage(version, shouldRun, func(s *sssnapshot.Staged, err error) {
+		member.manager.Schedule(staged[i], shouldRun, func(err error) {
 			mu.Lock()
-			if err != nil && firstErr == nil {
-				firstErr = fmt.Errorf("stage %s snapshot: %w", member.name, err)
-			}
-			if s != nil {
-				staged[i] = s
+			if err != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("stage %s snapshot: %w", member.name, err)
+				}
+				// A snapshot only publishes when every member has it, so a peer still queued has
+				// nothing left to produce.
+				canceled.Store(true)
 			}
 			remaining--
 			last, outcome := remaining == 0, firstErr
@@ -248,10 +265,6 @@ func (c *snapshotCoordinator) requestSnapshot(version int64, start time.Time) er
 			}
 			c.startPublish(version, staged, outcome, start)
 		})
-		if err != nil {
-			canceled.Store(true)
-			return err
-		}
 	}
 	return nil
 }
