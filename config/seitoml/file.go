@@ -14,7 +14,10 @@ import (
 )
 
 // SchemaVersion is the schema this binary writes and reads.
-const SchemaVersion = 1
+//
+// Raised in the same change as the migration that produces it, which a test enforces: a version no
+// migration reaches is one an operator's file can claim and nothing can produce.
+const SchemaVersion = 2
 
 // VersionKey records which schema the file follows.
 //

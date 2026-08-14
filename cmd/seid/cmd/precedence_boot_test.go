@@ -10,6 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/config/registry"
+	"github.com/sei-protocol/sei-chain/config/seitoml"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
@@ -307,5 +308,49 @@ func TestANodeStartsDespiteAVariableTheEnvironmentCannotDeliver(t *testing.T) {
 	if _, err := srvconfig.GetConfig(ctx.Viper); err != nil {
 		t.Errorf("the server configuration cannot be read after a boot with the variable set: %v\n\nThat is "+
 			"the failure refusing this channel exists to prevent", err)
+	}
+}
+
+// TestAnUpgradedFileReachesTheReaderItWasMigratedFor closes the loop the migration exists to close.
+//
+// The transformation is only worth anything if the value it produces is the one the node then runs. Every
+// other test of the chain stops at the file. This one upgrades a file an operator could be holding, boots
+// with it, and asks the reader that consumes the key what it got.
+func TestAnUpgradedFileReachesTheReaderItWasMigratedFor(t *testing.T) {
+	configtest.Isolate(t)
+	home := configtest.NewHome(t)
+	if err := os.MkdirAll(filepath.Join(home.Root, "config"), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(home.Root, "config", "sei.toml")
+
+	// A file from a release that used the old spelling, with automatic mode off so the written mode is the
+	// one the node runs rather than being overridden.
+	body := "schema_version = 1\nnode_mode = \"validator\"\n\n[state-commit]\n" +
+		"sc-write-mode = \"cosmos_only\"\nsc-write-mode-enable-auto = false\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write sei.toml: %v", err)
+	}
+
+	steps, err := seitoml.Upgrade(path, seitoml.Migrations(), false, "seid test")
+	if err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("the upgrade ran %d step(s), want 1", len(steps))
+	}
+
+	cmd := server.StartCmd(nil, home.Root, []trace.TracerProviderOption{})
+	if err := cmd.Flags().Set("home", home.Root); err != nil {
+		t.Fatalf("set --home: %v", err)
+	}
+	ctx, err := runManager(t, configmanager.SeiConfigManager{}, cmd)
+	if err != nil {
+		t.Fatalf("Apply refused the boot after an upgrade: %v", err)
+	}
+
+	if got := ctx.Viper.Get("state-commit.sc-write-mode"); !sameSetting(got, "memiavl_only") {
+		t.Errorf("the booted source reads %#v for the write mode, want the migrated value. A migration "+
+			"whose result does not reach the reader has moved a file and nothing else", got)
 	}
 }

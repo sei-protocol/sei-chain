@@ -354,10 +354,12 @@ func TestTheShippedChainIsWellFormedAndMatchesTheSchemaVersion(t *testing.T) {
 // migration instead. A reviewer sees which shipped step changed rather than being asked to spot an
 // edit inside a function body.
 //
-// The table is empty because no migration has shipped. The first entry is added in the same change
-// as the first migration.
+// One entry, for the first shipped migration. Each later one is added in the same change that appends it.
 func TestEveryShippedMigrationMatchesItsRecordedResult(t *testing.T) {
-	recorded := map[int]string{}
+	recorded := map[int]string{
+		// Renames the state-commit write mode cosmos_only to memiavl_only.
+		2: "fb68bcc4d7917352e4ca928efb2c67df9aea6206c4ca6ed9a7985e99b33b6d0b",
+	}
 
 	for _, m := range seitoml.Migrations() {
 		t.Run(fmt.Sprintf("to-v%d", m.To), func(t *testing.T) {

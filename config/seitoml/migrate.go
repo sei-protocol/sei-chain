@@ -36,9 +36,25 @@ type Step struct {
 
 // migrations is the frozen chain, in ascending order. Entries are appended, never edited.
 //
-// Empty because the schema sits at its first version and nothing needs transforming yet. The first
-// entry here produces version 2 and raises SchemaVersion in the same change, which a test enforces.
-var migrations []Migration
+// A shipped entry never changes. Every node running it transforms its configuration the same way, and a
+// migration behaving differently in a later release leaves two nodes agreeing on their version and
+// disagreeing on their contents. testdata/chain.golden holds what each one does to its own fixture, so
+// editing a shipped step moves that record.
+var migrations = []Migration{
+	{
+		To:      2,
+		Summary: "rename the state-commit write mode cosmos_only to memiavl_only",
+		Fixture: "schema_version = 1\nnode_mode = \"full\"\n\n[state-commit]\n" +
+			"sc-write-mode = \"cosmos_only\"\nsc-keep-recent = 1\n",
+		// The two names describe the same routing. Releases before v6.6 called it cosmos_only and this one
+		// calls it memiavl_only, and the reader has translated the old name on every start since. Moving
+		// the file once is what lets a node stop depending on that translation.
+		//
+		// The reader keeps accepting the old name, and must: app.toml is not migrated by anything, so a
+		// node still reading its settings from there depends on it.
+		Apply: MapValues("state-commit.sc-write-mode", map[string]string{"cosmos_only": "memiavl_only"}),
+	},
+}
 
 // Migrations returns the frozen chain.
 func Migrations() []Migration {
