@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 
 	dbm "github.com/tendermint/tm-db"
@@ -106,17 +105,13 @@ func NewCompositeStateStore(
 	if ssConfig.SnapshotInterval > 0 {
 		cosmosSnapshotRoot := utils.GetStateStoreSnapshotsPath(homeDir)
 		if ssConfig.DBDirectory != "" {
-			cleanDBHome := filepath.Clean(dbHome)
-			cosmosSnapshotRoot = filepath.Join(
-				filepath.Dir(cleanDBHome),
-				filepath.Base(cleanDBHome)+"-"+utils.StateStoreSnapshotsDirName,
-			)
+			cosmosSnapshotRoot = utils.GetStateStoreSnapshotsSiblingPath(dbHome)
 		}
 		evmStore, hasEVM := cs.evmStore.(*evm.EVMStateStore)
 		var evmSnapshotRoot string
 		roots := []string{cosmosSnapshotRoot}
 		if hasEVM {
-			evmSnapshotRoot = evmStore.Dir() + "-" + utils.StateStoreSnapshotsDirName
+			evmSnapshotRoot = utils.GetStateStoreSnapshotsSiblingPath(evmStore.Dir())
 			roots = append(roots, evmSnapshotRoot)
 		}
 		// Resolved before any member opens, because opening one runs its retention, and the height a

@@ -434,6 +434,47 @@ func (db *Database) advanceEarliestVersion(target int64) error {
 	return db.SetEarliestVersion(target, false)
 }
 
+// beginPrunePass raises the earliest-version marker to earliestVersion and returns the version below
+// which an unmodified store's keys may be skipped.
+//
+// The baseline is the marker as it stood before this pass: the raised value would skip every store whose
+// latest update is at or below the prune height. It is 0 when an earlier pass failed after raising the
+// marker, since the rows it left behind are below that marker and an idle store would never be revisited.
+func (db *Database) beginPrunePass(earliestVersion int64) (skipBelow int64, err error) {
+	skipBelow = db.GetEarliestVersion()
+	if err := db.advanceEarliestVersion(earliestVersion); err != nil {
+		return 0, err
+	}
+	if db.pruneIncomplete.Load() {
+		skipBelow = 0
+	}
+	db.pruneIncomplete.Store(true)
+	return skipBelow, nil
+}
+
+// endPrunePass clears the incomplete flag for a pass that finished its deletes, and reports the pass
+// outcome. A failed pass leaves the flag set, so the next one rescans every store.
+func (db *Database) endPrunePass(err error) {
+	if err == nil {
+		db.pruneIncomplete.Store(false)
+	}
+	db.recordPruneOutcome(err)
+}
+
+// recordPruneOutcome reports how many prune passes have failed in a row. A failed pass has already
+// raised the earliest-version marker, so repeated failures narrow the range reads and checkpoints may
+// serve, once per prune interval, while disk keeps growing. Nothing else makes that visible: the rows
+// left behind are unreachable, so the store looks consistent from the outside.
+func (db *Database) recordPruneOutcome(err error) {
+	failures := int64(0)
+	if err == nil {
+		db.pruneFailures.Store(0)
+	} else {
+		failures = db.pruneFailures.Add(1)
+	}
+	otelMetrics.pruneConsecutiveFailures.Record(context.Background(), failures)
+}
+
 // Retrieves earliest version from db, if not found, return 0
 func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
 	return retrieveVersionKey(db, earliestVersionKey)
@@ -709,20 +750,6 @@ func (db *Database) getDescending(storeKey string, targetVersion int64, key []by
 // the same process rescan every store to reach them. A crash inside that window
 // loses the flag, and those rows stay on disk — unreachable by any read, since
 // the marker bounds reads too — until the store is written to again.
-// recordPruneOutcome reports how many prune passes have failed in a row. A failed pass has already
-// raised the earliest-version marker, so repeated failures narrow the range reads and checkpoints are
-// allowed to serve once per prune interval while disk keeps growing. Nothing else makes that visible:
-// the rows left behind are unreachable, so the store looks consistent from the outside.
-func (db *Database) recordPruneOutcome(err error) {
-	failures := int64(0)
-	if err == nil {
-		db.pruneFailures.Store(0)
-	} else {
-		failures = db.pruneFailures.Add(1)
-	}
-	otelMetrics.pruneConsecutiveFailures.Record(context.Background(), failures)
-}
-
 func (db *Database) pruneDescending(version int64) (_err error) {
 	// Defensive check: ensure database is not closed
 	if db.storage == nil {
@@ -731,7 +758,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 
 	startTime := time.Now()
 	defer func() {
-		db.recordPruneOutcome(_err)
+		db.endPrunePass(_err)
 		otelMetrics.pruneLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
@@ -742,22 +769,10 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	}()
 
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
-	skipBelow := db.GetEarliestVersion()
-	if err := db.advanceEarliestVersion(earliestVersion); err != nil {
+	skipBelow, err := db.beginPrunePass(earliestVersion)
+	if err != nil {
 		return err
 	}
-	if db.pruneIncomplete.Load() {
-		// A previous pass raised the marker and then stopped short of its
-		// deletes, so the marker no longer bounds what is on disk. Scan every
-		// store to reach the rows it left behind.
-		skipBelow = 0
-	}
-	db.pruneIncomplete.Store(true)
-	defer func() {
-		if _err == nil {
-			db.pruneIncomplete.Store(false)
-		}
-	}()
 
 	itr, err := db.storage.NewIter(nil)
 	if err != nil {
@@ -804,11 +819,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 			prevStore = storeKey
 			updated, ok := db.storeKeyDirty.Load(storeKey)
 			versionUpdated, typeOk := updated.(int64)
-			// The marker is advanced before deletes so checkpoints never claim
-			// history that the prune has already dropped. skipBelow is the marker
-			// as it stood before this pass raised it; comparing against the raised
-			// value would skip every store whose latest update is at or below the
-			// prune height.
+			// skipBelow is the marker as it stood before this pass raised it; see beginPrunePass.
 			if !ok || (typeOk && versionUpdated < skipBelow) {
 				itr.SeekGE(storePrefix(storeKey + "0"))
 				continue

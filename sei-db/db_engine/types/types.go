@@ -139,8 +139,14 @@ type DrainBarrier interface {
 	ScheduleAtDrain(fn func())
 }
 
-// The three interfaces above are engine capabilities. Deciding when a checkpoint
-// runs, and what version it is labeled with, is coordination rather than engine
+// PendingWriteWaiter is an optional capability for engines that apply changesets
+// from an async queue. It blocks until the queue is empty.
+type PendingWriteWaiter interface {
+	WaitForPendingWrites()
+}
+
+// The interfaces above are engine capabilities. Deciding when a checkpoint runs,
+// and what version it is labeled with, is coordination rather than engine
 // behavior and lives in sei-db/management: CheckpointScheduler,
 // ScheduleCheckpoint, SetCheckpointVersion and ErrCheckpointCanceled.
 

@@ -91,10 +91,7 @@ func (s *CosmosStateStore) Close() error {
 }
 
 func (s *CosmosStateStore) SupportsCheckpoint() bool {
-	_, checkpointable := s.db.(types.Checkpointable)
-	_, barrier := s.db.(types.DrainBarrier)
-	_, versionSetter := s.db.(types.CheckpointVersionSetter)
-	return checkpointable && barrier && versionSetter
+	return management.SupportsCheckpoint(s.db)
 }
 
 func (s *CosmosStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
@@ -134,7 +131,7 @@ func (s *CosmosStateStore) Snapshots() *sssnapshot.Manager {
 }
 
 func (s *CosmosStateStore) WaitForPendingWrites() {
-	if w, ok := s.db.(interface{ WaitForPendingWrites() }); ok {
+	if w, ok := s.db.(types.PendingWriteWaiter); ok {
 		w.WaitForPendingWrites()
 	}
 }

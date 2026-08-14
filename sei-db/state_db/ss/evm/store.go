@@ -377,11 +377,18 @@ func (s *EVMStateStore) snapshotSourceDirs() []string {
 	if !s.separateDBs {
 		return []string{s.dir}
 	}
-	dirs := make([]string, 0, len(AllEVMStoreTypes()))
-	for _, storeType := range AllEVMStoreTypes() {
-		dirs = append(dirs, filepath.Join(s.dir, StoreTypeName(storeType)))
+	storeTypes := AllEVMStoreTypes()
+	dirs := make([]string, 0, len(storeTypes))
+	for _, storeType := range storeTypes {
+		dirs = append(dirs, subDBPath(s.dir, storeType))
 	}
 	return dirs
+}
+
+// subDBPath returns the directory a sub-DB occupies under base. The live database, a checkpoint, and a
+// snapshot source all use this layout.
+func subDBPath(base string, storeType EVMStoreType) string {
+	return filepath.Join(base, StoreTypeName(storeType))
 }
 
 func (s *EVMStateStore) Close() error {
@@ -396,13 +403,7 @@ func (s *EVMStateStore) Close() error {
 
 func (s *EVMStateStore) SupportsCheckpoint() bool {
 	for _, db := range s.managedDBs {
-		if _, checkpointable := db.(types.Checkpointable); !checkpointable {
-			return false
-		}
-		if _, barrier := db.(types.DrainBarrier); !barrier {
-			return false
-		}
-		if _, versionSetter := db.(types.CheckpointVersionSetter); !versionSetter {
+		if !management.SupportsCheckpoint(db) {
 			return false
 		}
 	}
@@ -440,25 +441,14 @@ func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool
 	}
 
 	storeTypes := AllEVMStoreTypes()
-	var (
-		mu        sync.Mutex
-		remaining = len(storeTypes)
-		firstErr  error
-	)
+	report := management.FanIn(len(storeTypes), done)
 	for _, storeType := range storeTypes {
 		name := StoreTypeName(storeType)
-		dest := filepath.Join(destDir, name)
-		management.ScheduleCheckpoint(s.subDBs[storeType], dest, shouldRun, func(err error) {
-			mu.Lock()
-			if err != nil && firstErr == nil {
-				firstErr = fmt.Errorf("checkpoint EVM sub-DB %s: %w", name, err)
+		management.ScheduleCheckpoint(s.subDBs[storeType], subDBPath(destDir, storeType), shouldRun, func(err error) {
+			if err != nil {
+				err = fmt.Errorf("checkpoint EVM sub-DB %s: %w", name, err)
 			}
-			remaining--
-			last, outcome := remaining == 0, firstErr
-			mu.Unlock()
-			if last {
-				done(outcome)
-			}
+			report(err)
 		})
 	}
 }
@@ -472,9 +462,9 @@ func (s *EVMStateStore) SetCheckpointVersion(destDir string, version int64) erro
 		return management.SetCheckpointVersion(db, destDir, version)
 	}
 	for _, storeType := range AllEVMStoreTypes() {
-		dest := filepath.Join(destDir, StoreTypeName(storeType))
-		if err := management.SetCheckpointVersion(s.subDBs[storeType], dest, version); err != nil {
-			return fmt.Errorf("set EVM sub-DB %s checkpoint version: %w", StoreTypeName(storeType), err)
+		name := StoreTypeName(storeType)
+		if err := management.SetCheckpointVersion(s.subDBs[storeType], subDBPath(destDir, storeType), version); err != nil {
+			return fmt.Errorf("set EVM sub-DB %s checkpoint version: %w", name, err)
 		}
 	}
 	return nil
@@ -509,7 +499,7 @@ func (s *EVMStateStore) Snapshots() *sssnapshot.Manager {
 
 func (s *EVMStateStore) WaitForPendingWrites() {
 	for _, db := range s.managedDBs {
-		if w, ok := db.(interface{ WaitForPendingWrites() }); ok {
+		if w, ok := db.(types.PendingWriteWaiter); ok {
 			w.WaitForPendingWrites()
 		}
 	}

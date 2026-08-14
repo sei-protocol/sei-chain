@@ -136,7 +136,7 @@ func (s *Staged) Abort() {
 	if s == nil || s.manager == nil {
 		return
 	}
-	s.manager.Abort(s)
+	s.manager.abort(s)
 }
 
 // SnapshotDirName returns the directory name for a snapshot labeled with the
@@ -305,9 +305,6 @@ func (m *Manager) Commit(staged *Staged) error {
 		return fmt.Errorf("persist %s snapshot publication: %w", m.name, err)
 	}
 	if sizeErr == nil {
-		if m.snapshotSizes == nil {
-			m.snapshotSizes = map[int64]int64{}
-		}
 		m.snapshotSizes[staged.version] = apparentBytes
 	}
 	logger.Info("state store member snapshot created",
@@ -324,7 +321,7 @@ func (m *Manager) Commit(staged *Staged) error {
 	return nil
 }
 
-func (m *Manager) Abort(staged *Staged) {
+func (m *Manager) abort(staged *Staged) {
 	if staged == nil || staged.manager != m {
 		return
 	}
@@ -373,37 +370,46 @@ func (m *Manager) PruneSnapshots(cutLine int64) error {
 	if m == nil {
 		return nil
 	}
+	// Publication renames a directory in and swaps current under this lock, so retention has to hold it
+	// too: otherwise a cut line resolved a moment earlier can delete what current now names.
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+	defer m.recordRetentionMetrics()
+
 	versions, err := m.Versions()
 	if err != nil {
 		return err
 	}
+	candidates := make([]int64, 0, len(versions))
+	for _, v := range versions {
+		if v < cutLine {
+			candidates = append(candidates, v)
+		}
+	}
+	return m.removeSnapshots(candidates)
+}
+
+// removeSnapshots deletes each candidate except the current snapshot and the shared floor. Every
+// candidate is attempted, the removals being independent of each other.
+func (m *Manager) removeSnapshots(candidates []int64) error {
 	currentVersion, hasCurrent, err := m.currentSnapshotVersion()
 	if err != nil {
 		return err
 	}
 	floor := m.floor.Height()
-	for _, v := range versions {
-		if v >= cutLine {
-			continue
-		}
-		if hasCurrent && v == currentVersion {
-			continue
-		}
-		if v == floor {
+	var errs []error
+	for _, v := range candidates {
+		if (hasCurrent && v == currentVersion) || v == floor {
 			continue
 		}
 		dir := filepath.Join(m.root, SnapshotDirName(v))
 		if err := os.RemoveAll(dir); err != nil {
-			return fmt.Errorf("remove %s snapshot %q: %w", m.name, dir, err)
+			errs = append(errs, fmt.Errorf("remove %s snapshot %q: %w", m.name, dir, err))
+			continue
 		}
 		logger.Info("pruned state store snapshot", "store", m.name, "dir", dir)
 	}
-	m.recordRetentionMetrics()
-	return nil
-}
-
-func (m *Manager) CurrentVersion() (int64, bool, error) {
-	return m.currentSnapshotVersion()
+	return errors.Join(errs...)
 }
 
 func (m *Manager) removeStaleTmpDirs() {
@@ -458,31 +464,12 @@ func (m *Manager) prune() {
 		return
 	}
 	defer m.recordRetentionMetrics()
-	currentVersion, hasCurrent, err := m.currentSnapshotVersion()
-	if err != nil {
-		logger.Error("failed to resolve current state store snapshot before pruning",
-			"store", m.name, "error", err)
-		return
-	}
 	keep := 1 + m.keepRecent
 	if len(versions) <= keep {
 		return
 	}
-	floor := m.floor.Height()
-	for _, v := range versions[:len(versions)-keep] {
-		if hasCurrent && v == currentVersion {
-			continue
-		}
-		if v == floor {
-			continue
-		}
-		dir := filepath.Join(m.root, SnapshotDirName(v))
-		if err := os.RemoveAll(dir); err != nil {
-			logger.Error("failed to prune state store snapshot",
-				"store", m.name, "dir", dir, "error", err)
-			continue
-		}
-		logger.Info("pruned state store snapshot", "store", m.name, "dir", dir)
+	if err := m.removeSnapshots(versions[:len(versions)-keep]); err != nil {
+		logger.Error("failed to prune state store snapshots", "store", m.name, "error", err)
 	}
 }
 

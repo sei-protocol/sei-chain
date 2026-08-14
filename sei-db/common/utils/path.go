@@ -70,6 +70,13 @@ func GetStateStoreSnapshotsPath(homePath string) string {
 	return filepath.Join(homePath, "data", "state_store", StateStoreSnapshotsDirName)
 }
 
+// GetStateStoreSnapshotsSiblingPath returns the snapshot root beside an SS database directory, which is
+// where that member's snapshots live when its database sits outside the default home layout. Beside
+// rather than inside, because a checkpoint hardlinks into it and the two must share a filesystem.
+func GetStateStoreSnapshotsSiblingPath(dbDir string) string {
+	return filepath.Clean(dbDir) + "-" + StateStoreSnapshotsDirName
+}
+
 // GetReceiptStorePath returns the path for the receipt store.
 // New nodes use data/ledger/receipt/{backend}; existing nodes with
 // data/receipt.db continue using the legacy path for backward compatibility.

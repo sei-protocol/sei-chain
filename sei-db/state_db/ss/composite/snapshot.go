@@ -51,11 +51,7 @@ import (
 // If a future tool opens or copies these directories directly, it must first add
 // a lease or other hold mechanism.
 
-const (
-	SnapshotsDirName    = sssnapshot.SnapshotsDirName
-	snapshotCurrentLink = "current"
-	snapshotTmpPrefix   = "tmp-"
-)
+const SnapshotsDirName = sssnapshot.SnapshotsDirName
 
 func SnapshotDirName(version int64) string {
 	return sssnapshot.SnapshotDirName(version)
@@ -242,10 +238,6 @@ func (c *snapshotCoordinator) requestSnapshot(version int64, start time.Time) er
 	// of the same version reach a staging directory a barrier from the first attempt still writes to.
 	staged := make([]*sssnapshot.Staged, len(c.members))
 	for i, member := range c.members {
-		if member.manager == nil {
-			abortStaged(staged)
-			return fmt.Errorf("state store snapshot member %q has no manager", member.name)
-		}
 		s, err := member.manager.Prepare(version)
 		if err != nil {
 			abortStaged(staged)
@@ -259,29 +251,18 @@ func (c *snapshotCoordinator) requestSnapshot(version int64, start time.Time) er
 		return c.isRunning() && !canceled.Load()
 	}
 
-	var (
-		mu        sync.Mutex
-		remaining = len(c.members)
-		firstErr  error
-	)
+	report := management.FanIn(len(c.members), func(err error) {
+		c.startPublish(version, staged, err, start)
+	})
 	for i, member := range c.members {
 		member.manager.Schedule(staged[i], shouldRun, func(err error) {
-			mu.Lock()
 			if err != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("stage %s snapshot: %w", member.name, err)
-				}
 				// A snapshot only publishes when every member has it, so a peer still queued has
 				// nothing left to produce.
 				canceled.Store(true)
+				err = fmt.Errorf("stage %s snapshot: %w", member.name, err)
 			}
-			remaining--
-			last, outcome := remaining == 0, firstErr
-			mu.Unlock()
-			if !last {
-				return
-			}
-			c.startPublish(version, staged, outcome, start)
+			report(err)
 		})
 	}
 	return nil
@@ -347,9 +328,6 @@ func abortStaged(staged []*sssnapshot.Staged) {
 func newestMemberSnapshot(members []snapshotMember) int64 {
 	var newest int64
 	for _, member := range members {
-		if member.manager == nil {
-			continue
-		}
 		newest = max(newest, member.manager.Newest())
 	}
 	return newest
@@ -358,9 +336,6 @@ func newestMemberSnapshot(members []snapshotMember) int64 {
 func newestMemberSnapshotModTime(members []snapshotMember, version int64) time.Time {
 	var newest time.Time
 	for _, member := range members {
-		if member.manager == nil {
-			continue
-		}
 		modTime := member.manager.ModTime(version)
 		if modTime.After(newest) {
 			newest = modTime
@@ -372,9 +347,6 @@ func newestMemberSnapshotModTime(members []snapshotMember, version int64) time.T
 func newestCommonSnapshot(members []snapshotMember) int64 {
 	roots := make([]string, 0, len(members))
 	for _, member := range members {
-		if member.manager == nil {
-			return 0
-		}
 		roots = append(roots, member.manager.Root())
 	}
 	return sssnapshot.NewestCommonVersion(roots)

@@ -6,6 +6,7 @@ package management
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -25,6 +26,40 @@ type CheckpointScheduler interface {
 // ErrCheckpointCanceled reports that a queued checkpoint was canceled before
 // it started.
 var ErrCheckpointCanceled = errors.New("state store checkpoint canceled")
+
+// SupportsCheckpoint reports whether db carries every engine capability a scheduled checkpoint needs.
+// A store built from several engines answers for the set: one engine short of the capabilities makes
+// the whole snapshot unpublishable.
+func SupportsCheckpoint(db types.StateStore) bool {
+	_, checkpointable := db.(types.Checkpointable)
+	_, barrier := db.(types.DrainBarrier)
+	_, versionSetter := db.(types.CheckpointVersionSetter)
+	return checkpointable && barrier && versionSetter
+}
+
+// FanIn returns a report callback for n parallel branches. Each branch calls it once, and the last
+// call passes done the first error any branch reported, or nil.
+func FanIn(n int, done func(error)) func(error) {
+	var (
+		mu        sync.Mutex
+		remaining = n
+		firstErr  error
+	)
+	return func(err error) {
+		mu.Lock()
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		remaining--
+		isLast := remaining == 0
+		// Read under the lock: a peer branch may report between the unlock and the call to done.
+		outcome := firstErr
+		mu.Unlock()
+		if isLast {
+			done(outcome)
+		}
+	}
+}
 
 // ScheduleCheckpoint checkpoints an engine after all writes already enqueued
 // on it have been applied.
