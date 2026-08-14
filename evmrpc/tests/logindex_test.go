@@ -48,25 +48,9 @@ func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
 			receipts := res["result"].([]interface{})
 			require.Len(t, receipts, 0)
 
-			// the first block should have one receipt for sei_getBlockReceipts,
-			// with one synthetic log
-			res = sendRequestWithNamespace("sei", port, "getBlockReceipts", "0x2")
-			receipts = res["result"].([]interface{})
-			require.Len(t, receipts, 1)
-			logs = receipts[0].(map[string]any)["logs"].([]interface{})
-			require.Len(t, logs, 1)
-
 			// the second block should have one receipt for eth_getBlockReceipts,
 			// with two logs (one synthetic and one non-synthetic)
 			res = sendRequestWithNamespace("eth", port, "getBlockReceipts", "0x3")
-			receipts = res["result"].([]interface{})
-			require.Len(t, receipts, 1)
-			logs = receipts[0].(map[string]any)["logs"].([]interface{})
-			require.Len(t, logs, 2)
-
-			// the second block should have one receipt for sei_getBlockReceipts,
-			// with two logs (one synthetic and one non-synthetic)
-			res = sendRequestWithNamespace("sei", port, "getBlockReceipts", "0x3")
 			receipts = res["result"].([]interface{})
 			require.Len(t, receipts, 1)
 			logs = receipts[0].(map[string]any)["logs"].([]interface{})

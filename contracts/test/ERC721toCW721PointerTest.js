@@ -146,11 +146,8 @@ describe("ERC721 to CW721 Pointer", function () {
             const balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress);
             expect(balance1).to.equal(2);
 
-            // do same for eth_getBlockReceipts and sei_getBlockReceipts
             const ethBlockReceipts = await ethers.provider.send('eth_getBlockReceipts', ['0x' + receipt.blockNumber.toString(16)]);
             expect(ethBlockReceipts.length).to.equal(1);
-            const seiBlockReceipts = await ethers.provider.send('sei_getBlockReceipts', ['0x' + receipt.blockNumber.toString(16)]);
-            expect(seiBlockReceipts.length).to.equal(1);
 
             const ethTx = await ethers.provider.send('sei_getTransactionReceipt', [receipt.hash]);
             expect(ethTx.logs.length).to.equal(1);

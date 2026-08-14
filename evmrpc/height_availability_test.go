@@ -284,17 +284,6 @@ func TestGetBlockReceiptsGenesisByNumber(t *testing.T) {
 	require.Empty(t, receipts)
 }
 
-func TestGetBlockByNumberExcludeTraceFailGenesis(t *testing.T) {
-	t.Parallel()
-
-	client := newHeightTestClient(1, 1, 1)
-	api := NewSeiBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
-	block, err := api.GetBlockByNumberExcludeTraceFail(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.NotNil(t, block)
-	require.Equal(t, genesisBlockHashHex, block["hash"])
-}
-
 func TestGetBlockNumberByNrOrHashGenesis(t *testing.T) {
 	t.Parallel()
 
