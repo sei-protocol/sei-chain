@@ -72,10 +72,6 @@ func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) (http.Handler, 
 	mux.HandleFunc("/websocket", wm.WebsocketHandler)
 
 	server.RegisterRPCFuncs(mux, routes)
-	var rootHandler http.Handler = mux
-	if rpcConfig.IsCorsEnabled() {
-		rootHandler = addCORSHandler(rpcConfig, mux)
-	}
 	var rateLimitGate *server.RateLimitGate
 	if rpcConfig.RateLimitingEnabled {
 		rateLimitRegistry, err := ratelimiter.New(rpcConfig.RateLimiterConfig())
@@ -88,7 +84,10 @@ func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) (http.Handler, 
 			true,
 		)
 	}
-	rootHandler = server.NewRateLimitMiddleware(rootHandler, rateLimitGate)
+	rootHandler := server.NewRateLimitMiddleware(mux, rateLimitGate)
+	if rpcConfig.IsCorsEnabled() {
+		rootHandler = addCORSHandler(rpcConfig, rootHandler)
+	}
 	return rootHandler, nil
 }
 

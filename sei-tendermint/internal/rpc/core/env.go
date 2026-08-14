@@ -367,16 +367,15 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 			return nil, err
 		}
 
-		var rootHandler http.Handler = mux
+		rootHandler := rpcserver.NewRateLimitMiddleware(mux, rateLimitGate)
 		if conf.RPC.IsCorsEnabled() {
 			corsMiddleware := cors.New(cors.Options{
 				AllowedOrigins: conf.RPC.CORSAllowedOrigins,
 				AllowedMethods: conf.RPC.CORSAllowedMethods,
 				AllowedHeaders: conf.RPC.CORSAllowedHeaders,
 			})
-			rootHandler = corsMiddleware.Handler(mux)
+			rootHandler = corsMiddleware.Handler(rootHandler)
 		}
-		rootHandler = rpcserver.NewRateLimitMiddleware(rootHandler, rateLimitGate)
 		if conf.RPC.IsTLSEnabled() {
 			go func() {
 				if err := rpcserver.ServeTLS(
