@@ -68,7 +68,7 @@ func TestNoExperimentalKeyShadowsLightInvarianceAfterRegistration(t *testing.T) 
 	for _, key := range section.Keys {
 		specs = append(specs, configtest.KeySpec{Key: key})
 	}
-	configtest.CheckNoExperimentalKeyShadowsThisSection(t, LightInvarianceSectionName, specs)
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "light_invariance", specs)
 }
 
 // TestTheGenesisSchemaDescribesTheReaderItStandsInFor is what holds the two apart-ness together.
@@ -132,7 +132,7 @@ func TestNoExperimentalKeyShadowsGenesisAfterRegistration(t *testing.T) {
 	for _, key := range section.Keys {
 		specs = append(specs, configtest.KeySpec{Key: key})
 	}
-	configtest.CheckNoExperimentalKeyShadowsThisSection(t, GenesisSectionName, specs)
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "genesis", specs)
 }
 
 // TestTheStateStoreSchemaDescribesTheReaderItStandsInFor holds the schema against parseSSConfigs.
@@ -238,7 +238,7 @@ func TestNoExperimentalKeyShadowsStateStoreAfterRegistration(t *testing.T) {
 	for _, key := range section.Keys {
 		specs = append(specs, configtest.KeySpec{Key: key})
 	}
-	configtest.CheckNoExperimentalKeyShadowsThisSection(t, StateStoreSectionName, specs)
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "state-store", specs)
 }
 
 // TestTheStateCommitSchemaDescribesTheReaderItStandsInFor holds the schema against parseSCConfigs.
@@ -371,7 +371,7 @@ func TestNoExperimentalKeyShadowsStateCommitAfterRegistration(t *testing.T) {
 	for _, key := range section.Keys {
 		specs = append(specs, configtest.KeySpec{Key: key})
 	}
-	configtest.CheckNoExperimentalKeyShadowsThisSection(t, StateCommitSectionName, specs)
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "state-commit", specs)
 }
 
 // The value a migration writes for a key an operator's files do not carry, held against what each reader

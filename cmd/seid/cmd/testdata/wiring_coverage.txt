@@ -6,7 +6,7 @@
 # so this records which checks cover a section rather than how many times.
 # Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update` and read the diff.
 
-(section not a literal)	CheckExperimentalDeclarations
+(package)	CheckExperimentalDeclarations
 experimental	CheckExperimentalGolden
 newapp	CheckObservedKeys
 state-sync	CheckKeyNames

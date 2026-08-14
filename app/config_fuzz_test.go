@@ -737,15 +737,8 @@ func TestWiringMatchesTheRecord(t *testing.T) {
 // of these keys would put two declarations on one path. The check compares whole spellings only;
 // a semantic duplicate under a different name stays a review question.
 func TestNoExperimentalKeyShadowsThisSection(t *testing.T) {
-	for _, m := range []struct {
-		section string
-		specs   []configtest.KeySpec
-	}{
-		{"genesis", genesisKeys},
-		{"light-invariance", lightInvarianceKeys},
-		{"state-commit", scKeys},
-		{"state-store", ssKeys},
-	} {
-		configtest.CheckNoExperimentalKeyShadowsThisSection(t, m.section, m.specs)
-	}
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "genesis", genesisKeys)
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "light_invariance", lightInvarianceKeys)
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "state-commit", scKeys)
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "state-store", ssKeys)
 }

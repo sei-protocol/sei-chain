@@ -6,13 +6,13 @@
 # so this records which checks cover a section rather than how many times.
 # Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update` and read the diff.
 
-(section not a literal)	CheckNoExperimentalKeyShadowsThisSection
 app_new	CheckObservedKeys
 genesis	CheckAbsent
 genesis	CheckDefaults
 genesis	CheckEveryRowHasADiscriminatingSeed
 genesis	CheckKeyNames
 genesis	CheckManifestCoversEveryField
+genesis	CheckNoExperimentalKeyShadowsThisSection
 genesis	CheckRow
 genesis	CheckSchemaMatchesTheReader
 genesis	CheckZeroWhenAbsentMatchesTheReader
@@ -21,11 +21,13 @@ light_invariance	CheckDefaults
 light_invariance	CheckEveryRowHasADiscriminatingSeed
 light_invariance	CheckKeyNames
 light_invariance	CheckManifestCoversEveryField
+light_invariance	CheckNoExperimentalKeyShadowsThisSection
 light_invariance	CheckRow
 light_invariance	CheckZeroWhenAbsentMatchesTheReader
 state-commit	CheckDefaults
 state-commit	CheckEveryRowHasADiscriminatingSeed
 state-commit	CheckKeyNames
+state-commit	CheckNoExperimentalKeyShadowsThisSection
 state-commit	CheckRow
 state-commit	CheckSchemaMatchesTheReader
 state-commit	CheckZeroWhenAbsentMatchesTheReader
@@ -33,6 +35,7 @@ state-store	CheckDefaults
 state-store	CheckEveryRowHasADiscriminatingSeed
 state-store	CheckKeyNames
 state-store	CheckManifestCoversEveryField
+state-store	CheckNoExperimentalKeyShadowsThisSection
 state-store	CheckRow
 state-store	CheckSchemaMatchesTheReader
 state-store	CheckZeroWhenAbsentMatchesTheReader

@@ -76,7 +76,7 @@ func TestNoExperimentalKeyShadowsThisSectionAfterRegistration(t *testing.T) {
 	for _, key := range section.Keys {
 		specs = append(specs, configtest.KeySpec{Key: key})
 	}
-	configtest.CheckNoExperimentalKeyShadowsThisSection(t, SectionName, specs)
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "eth_replay", specs)
 }
 
 // TestTheZeroWhenAbsentDeclarationMatchesThisReader holds what a migration writes for a key this

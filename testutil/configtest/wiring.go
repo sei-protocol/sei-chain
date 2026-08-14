@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -75,6 +76,12 @@ func CheckWiring(t testing.TB) {
 		t.Fatal("no configtest checks were found in this package, so the wiring record would be " +
 			"empty and would assert nothing. CheckWiring reads the package in the working directory, " +
 			"which for a test is the package's own directory.")
+	}
+	if slices.ContainsFunc(got, func(pair string) bool { return strings.HasPrefix(pair, notALiteral) }) {
+		t.Fatalf("this package calls a check whose section argument is not a string literal, so the " +
+			"record cannot name it.\n\nWrite the section name at the call site. A constant does not " +
+			"resolve here, and neither does a table's loop variable: every such call collapses to one " +
+			"row, so deleting any of them leaves this record unchanged and stops protecting the rest.")
 	}
 
 	path := goldenFilePath(t, wiringRecordName, wiringRecordSuffix)
@@ -179,7 +186,7 @@ func wiringIn(file *ast.File) []string {
 		if !ok {
 			return true
 		}
-		pairs = append(pairs, sectionOf(call)+"\t"+check)
+		pairs = append(pairs, sectionOf(call, check)+"\t"+check)
 		return true
 	})
 	return pairs
@@ -233,6 +240,19 @@ func configtestCheckName(call *ast.CallExpr, local string) (string, bool) {
 	return selector.Sel.Name, true
 }
 
+// packageWide names the checks that cover a package rather than one of its sections.
+//
+// Such a check carries no section to read, so it is recorded under a stable label rather than refused.
+// Nothing is missing: the check is wired, and what it is wired to is the package. Named explicitly, so a
+// check that ought to carry a section cannot join this set by accident.
+var packageWide = map[string]bool{
+	// Judges every experimental declaration, defect, checker and tombstone in the binary at once.
+	"CheckExperimentalDeclarations": true,
+}
+
+// packageWideLabel is the section column for a check that covers the package.
+const packageWideLabel = "(package)"
+
 // sectionOf returns the section name a check call names.
 //
 // Every check takes the section as its second argument, after the testing.TB or testing.F, and that is
@@ -240,26 +260,35 @@ func configtestCheckName(call *ast.CallExpr, local string) (string, bool) {
 // than a fixed list, so a new check is recorded without anyone editing this file, and a new check that
 // puts its section anywhere but the second argument would be recorded under the placeholder below.
 //
-// A call whose section is not a literal is recorded under a placeholder rather than skipped, because
-// skipping it would let a section drop out of the record by being named through a variable. The record
-// pins the literal text of the argument, so it will faithfully pin a wrong one. A package that spells
-// one section two ways shows up as two sections, which is a thing to notice in the diff rather than a
-// thing this can decide.
-func sectionOf(call *ast.CallExpr) string {
+// A call whose section is not a literal is refused rather than recorded, because the record cannot name
+// it. Two such calls collapse to one row, so deleting either leaves the record unchanged and the check
+// silently stops protecting them. A placeholder row also hid a section spelled two ways in one package,
+// which is the sort of thing this record exists to make visible.
+//
+// The record pins the literal text of the argument, so it will faithfully pin a wrong one. A package that
+// spells one section two ways shows up as two sections, which is a thing to notice in the diff rather than
+// a thing this can decide.
+func sectionOf(call *ast.CallExpr, check string) string {
+	if packageWide[check] {
+		return packageWideLabel
+	}
 	const sectionArg = 1
 	if len(call.Args) <= sectionArg {
 		return "(no section argument)"
 	}
 	literal, ok := call.Args[sectionArg].(*ast.BasicLit)
 	if !ok || literal.Kind != token.STRING {
-		return "(section not a literal)"
+		return notALiteral
 	}
 	name, err := strconv.Unquote(literal.Value)
 	if err != nil {
-		return "(section not a literal)"
+		return notALiteral
 	}
 	return name
 }
+
+// notALiteral marks a call whose section this cannot read. CheckWiring refuses it rather than recording it.
+const notALiteral = "(section not a literal)"
 
 // wiringDiff reports which pairs were lost and which were added, so a failure names the change rather
 // than printing two lists for a reader to compare by eye.

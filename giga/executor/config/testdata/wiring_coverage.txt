@@ -6,11 +6,11 @@
 # so this records which checks cover a section rather than how many times.
 # Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update` and read the diff.
 
-(section not a literal)	CheckNoExperimentalKeyShadowsThisSection
 giga_executor	CheckAbsent
 giga_executor	CheckDefaults
 giga_executor	CheckEveryRowHasADiscriminatingSeed
 giga_executor	CheckKeyNames
 giga_executor	CheckManifestCoversEveryField
+giga_executor	CheckNoExperimentalKeyShadowsThisSection
 giga_executor	CheckRow
 giga_executor	CheckZeroWhenAbsentMatchesTheReader

@@ -128,7 +128,7 @@ func TestNoExperimentalKeyShadowsReceiptStoreAfterRegistration(t *testing.T) {
 	for _, key := range section.Keys {
 		specs = append(specs, configtest.KeySpec{Key: key})
 	}
-	configtest.CheckNoExperimentalKeyShadowsThisSection(t, ReceiptStoreSectionName, specs)
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "receipt-store", specs)
 }
 
 // TestTheZeroWhenAbsentDeclarationMatchesThisReader holds what a migration writes for a key this

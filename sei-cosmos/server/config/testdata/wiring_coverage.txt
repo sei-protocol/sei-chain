@@ -6,34 +6,40 @@
 # so this records which checks cover a section rather than how many times.
 # Regenerate with `go test ./<pkg>/ -run TestWiringMatchesTheRecord -update` and read the diff.
 
-(section not a literal)	CheckNoExperimentalKeyShadowsThisSection
 api	CheckEveryRowHasADiscriminatingSeed
 api	CheckKeyNames
 api	CheckManifestCoversEveryField
+api	CheckNoExperimentalKeyShadowsThisSection
 api	CheckRow
 base_config	CheckEveryRowHasADiscriminatingSeed
 base_config	CheckKeyNames
 base_config	CheckManifestCoversEveryField
+base_config	CheckNoExperimentalKeyShadowsThisSection
 base_config	CheckRow
 grpc	CheckEveryRowHasADiscriminatingSeed
 grpc	CheckKeyNames
 grpc	CheckManifestCoversEveryField
+grpc	CheckNoExperimentalKeyShadowsThisSection
 grpc	CheckRow
 grpc-web	CheckEveryRowHasADiscriminatingSeed
 grpc-web	CheckKeyNames
 grpc-web	CheckManifestCoversEveryField
+grpc-web	CheckNoExperimentalKeyShadowsThisSection
 grpc-web	CheckRow
 rosetta	CheckEveryRowHasADiscriminatingSeed
 rosetta	CheckKeyNames
 rosetta	CheckManifestCoversEveryField
+rosetta	CheckNoExperimentalKeyShadowsThisSection
 rosetta	CheckRow
 server_config	CheckDefaults
 state-sync	CheckDefaults
 state-sync	CheckEveryRowHasADiscriminatingSeed
 state-sync	CheckKeyNames
 state-sync	CheckManifestCoversEveryField
+state-sync	CheckNoExperimentalKeyShadowsThisSection
 state-sync	CheckRow
 telemetry	CheckEveryRowHasADiscriminatingSeed
 telemetry	CheckKeyNames
 telemetry	CheckManifestCoversEveryField
+telemetry	CheckNoExperimentalKeyShadowsThisSection
 telemetry	CheckRow

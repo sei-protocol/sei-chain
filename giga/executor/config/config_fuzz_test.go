@@ -112,12 +112,5 @@ func TestWiringMatchesTheRecord(t *testing.T) {
 // registry. Its reach is exactly the declarations this binary links, which for a real key is this
 // package itself, because a key is declared in the package that reads it.
 func TestNoExperimentalKeyShadowsThisSection(t *testing.T) {
-	for _, m := range []struct {
-		section string
-		specs   []configtest.KeySpec
-	}{
-		{"giga_executor", gigaKeys},
-	} {
-		configtest.CheckNoExperimentalKeyShadowsThisSection(t, m.section, m.specs)
-	}
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "giga_executor", gigaKeys)
 }

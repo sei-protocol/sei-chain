@@ -102,6 +102,14 @@ declared defaults, because some readers fill fields from outside the config.
 `CheckAbsent` is what ties that result to the declared defaults, so a section wired for
 rows and not for `CheckAbsent` has an unanchored baseline.
 
+A check's section argument has to be a string literal, and `CheckWiring` refuses the package when it
+is not. A constant does not resolve, and neither does a table's loop variable: every such call
+collapses to one row, so deleting any of them leaves the record unchanged and stops protecting the
+rest. The placeholder that used to stand in for those was also hiding a section spelled two ways in
+one package, which is the sort of thing this record exists to make visible. A check that covers the
+package rather than a section is named in `packageWide` and records under `(package)`, which is a
+different thing from a section this cannot read.
+
 `CheckSchemaMatchesTheReader` covers a case the others cannot. A section normally declares
 its keys from the type its reader fills, so the tags and the reader move together. Some
 sections cannot: the type carries no `mapstructure` tags at all, or tags naming something

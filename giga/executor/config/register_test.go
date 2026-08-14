@@ -98,7 +98,7 @@ func TestNoExperimentalKeyShadowsThisSectionAfterRegistration(t *testing.T) {
 	for _, key := range section.Keys {
 		specs = append(specs, configtest.KeySpec{Key: key})
 	}
-	configtest.CheckNoExperimentalKeyShadowsThisSection(t, gigaconfig.SectionName, specs)
+	configtest.CheckNoExperimentalKeyShadowsThisSection(t, "giga_executor", specs)
 }
 
 // TestTheZeroWhenAbsentDeclarationMatchesThisReader holds what a migration writes for a key this
