@@ -33,6 +33,9 @@ func TestRouter_InboundNodeInfoBoundedByHandshakeDeadline(t *testing.T) {
 		Network:    "test",
 	}
 	router, err := NewRouter(
+		// release/v6.6's NewRouter takes metrics; the signature on main does not,
+		// so the cherry-pick lands textually clean and only fails at compile.
+		NopMetrics(),
 		privKey,
 		func() *types.NodeInfo { return &nodeInfo },
 		dbm.NewMemDB(),
