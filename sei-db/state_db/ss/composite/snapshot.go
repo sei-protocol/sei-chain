@@ -1,62 +1,43 @@
 package composite
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"slices"
-	"strconv"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/management"
+	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 )
 
-// Online state-store snapshots. Every SnapshotInterval blocks the store takes a
-// Pebble checkpoint of each backend while the node keeps producing blocks.
-// Checkpoints are hardlink trees, so they do not copy database contents, but
-// each one occupies its backend's apply goroutine for the full checkpoint
-// operation. Writes continue to enter the bounded queue, but a full queue
-// applies backpressure until the checkpoint finishes. The result is an
-// immutable, crash-consistent image of the query store.
+// Online state-store snapshots. Every SnapshotInterval blocks the composite
+// store asks each enabled SS member to stage a Pebble checkpoint while the node
+// keeps producing blocks. Each member owns its own snapshot root, current link,
+// retention, and metadata; composite only chooses the height and coordinates the
+// best-effort joint publication.
 //
-// These snapshots are an input to SS rollback, not an export format. The
-// intended restore model matches SC FlatKV: restore from an SS snapshot, then
-// replay the state WAL forward to the target height. State sync imports the SC
-// snapshot stream and rebuilds SS from that stream; it does not consume these
-// SS snapshot directories.
+// These snapshots are an input to SS rollback, not an export format. The restore
+// model matches SC FlatKV: restore from an SS snapshot, then replay the state WAL
+// forward to the target height. State sync imports the SC snapshot stream and
+// rebuilds SS from that stream; it does not consume these SS snapshot
+// directories.
 //
-// On-disk layout under the snapshot root. By default the root is
-// <home>/data/state_store/snapshots. A custom Cosmos SS directory <db> moves it
-// to the sibling <db>-snapshots directory so Pebble can use hardlinks.
+// For every accepted SS snapshot, the label is exact: it is the version the
+// write path had just handed to the backends when the snapshot was requested.
+// Placing a barrier in each backend's apply queue — rather than sampling what
+// the backends had applied — makes that label exact without the request having
+// to wait. The barrier orders only the async block-commit queues. Import,
+// recovery, pruning, and direct version-marker writes bypass those queues and
+// must not call ScheduleSnapshot.
 //
-//	snapshots/
-//	  current -> snapshot-NNNNN            (symlink to newest snapshot)
-//	  snapshot-NNNNN/                      (immutable; NNNNN = label version)
-//	    cosmos/<backend>/                  (Pebble checkpoint of Cosmos SS)
-//	    evm/<backend>/                     (Pebble checkpoint of EVM SS, if split)
-//	      <subname>/                       (when EVM sub-DBs are separate)
-//
-// Snapshots are eligible at the same interval boundaries and minimum time
-// cadence as state commit. This composite implementation uses one trigger and
-// one current link for all member stores, so its member snapshots share a label.
-// That same label is a property of this layout, not a rollback requirement:
-// rollback can replay the state WAL from each store's own nearest snapshot. For
-// every accepted SS snapshot, the label is exact: it is the version the write
-// path had just handed to the backends when the snapshot was requested. Placing
-// a barrier in each backend's apply queue — rather than sampling what the
-// backends had applied — makes that label exact without the request having to
-// wait. See requestSnapshot.
-//
-// The barrier orders only the async block-commit queues. Import, recovery,
-// pruning, and direct version-marker writes bypass those queues and must not
-// call ScheduleSnapshot. The rootmulti commit path owns the trigger for every
-// block, populated or empty, and is the only caller of ScheduleSnapshot.
+// Cross-member pairing is best-effort, not an invariant. Composite stages every
+// member and commits only after all members stage successfully, so the normal
+// path publishes the same height everywhere. Once members have separate roots,
+// however, publication is multiple renames and cannot be atomic across
+// directories. Startup therefore does not delete an unpaired height; rollback
+// must pick the newest snapshot height present in every required member. In an
+// EVM-only process that rule degenerates to the newest EVM snapshot.
 //
 // Pruning is the one writer nothing orders a snapshot against. A checkpoint can
 // capture a partially applied prune — the same state a crash mid-prune leaves on
@@ -65,112 +46,41 @@ import (
 // range the DB has already dropped. Reopening a snapshot with different member
 // floors is allowed; the composite reports the highest floor any member carries.
 //
-// SS rollback is not implemented in this feature. When it is added, it should
-// use these snapshots the same way SC FlatKV does: restore from a snapshot
-// boundary, then replay the state WAL forward. Until then, rolling back or
-// state-syncing to a lower height in a reused home directory leaves two stale
-// facts behind: lastRequested still carries the old high-water mark, so repeated
-// boundaries can be skipped, and already published snapshot-NNNNN directories
-// keep labels from the abandoned chain. Clear the snapshot root by hand in that
-// case.
-//
 // Managed snapshot directories have no lease because they are not a node-external
 // consumption API. Retention may remove any snapshot that rollback does not need.
 // If a future tool opens or copies these directories directly, it must first add
 // a lease or other hold mechanism.
-//
-// This file is the layer the planned per-SS restructure has to move. The
-// lifecycle here — layout, retention, the current symlink, staging and
-// publication, restart recovery — is reachable only as a method on
-// *CompositeStateStore, and startSnapshotManager requires a checkpointable
-// Cosmos store, so an EVM-only store cannot use it as written. The agreed
-// direction is for each SS to own its own snapshot root, current link, creation,
-// and retention behind gc.PrunableStore, mirroring SC FlatKV. Composite mode can
-// then fan out to Cosmos SS and EVM SS, while Giga can use EVM SS directly. That
-// also removes the second retention path this file adds: prune here is
-// count-based and has no ExternalPruning stand-down, so pointing
-// StorageGarbageCollector at SS before then would give a store two independent
-// pruners. The shape waits on rollback not because GetRollbackFloor is unknown;
-// SC FlatKV already defines that floor. It waits because gc.PrunableStore must
-// not report a floor above what the store can actually restore to. The current
-// link semantics should change with that work too: this implementation points to
-// the newest published snapshot, while FlatKV's current link points to the
-// active snapshot that open/rollback clones and replays from.
 
 const (
-	// SnapshotsDirName is the directory under data/state_store that holds
-	// online snapshots.
-	SnapshotsDirName = utils.StateStoreSnapshotsDirName
-
-	snapshotPrefix = "snapshot-"
-	// snapshotDirLen is "snapshot-" + 20-digit zero-padded version.
-	snapshotDirLen = len(snapshotPrefix) + 20
-
-	snapshotCurrentLink    = "current"
-	snapshotCurrentTmpLink = "current-tmp"
-	snapshotTmpPrefix      = "tmp-"
-	snapshotSizeFile       = ".apparent-size"
+	SnapshotsDirName    = sssnapshot.SnapshotsDirName
+	snapshotCurrentLink = "current"
+	snapshotTmpPrefix   = "tmp-"
 )
 
-// SnapshotDirName returns the directory name for a snapshot labeled with the
-// given version.
 func SnapshotDirName(version int64) string {
-	return fmt.Sprintf("%s%020d", snapshotPrefix, version)
+	return sssnapshot.SnapshotDirName(version)
 }
 
-// ParseSnapshotVersion parses a snapshot directory name; ok is false for
-// anything that is not a snapshot-<20 digits> name.
-func ParseSnapshotVersion(name string) (version int64, ok bool) {
-	if !strings.HasPrefix(name, snapshotPrefix) || len(name) != snapshotDirLen {
-		return 0, false
-	}
-	v, err := strconv.ParseInt(name[len(snapshotPrefix):], 10, 64)
-	if err != nil || v < 0 {
-		return 0, false
-	}
-	return v, true
-}
-
-// ListSnapshotVersions returns the labels of all snapshots under root in
-// ascending order. A missing root is not an error (no snapshots yet).
 func ListSnapshotVersions(root string) ([]int64, error) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read snapshots dir %q: %w", root, err)
-	}
-	var versions []int64
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if v, ok := ParseSnapshotVersion(entry.Name()); ok {
-			versions = append(versions, v)
-		}
-	}
-	slices.Sort(versions)
-	return versions, nil
+	return sssnapshot.ListSnapshotVersions(root)
 }
 
-// snapshotManager owns the snapshots directory and the one-at-a-time discipline
-// for filling it. It has no goroutine of its own: snapshots are requested from
-// the write path and completed on the backends' apply goroutines.
-type snapshotManager struct {
-	root       string
-	backend    string
-	interval   int64
-	keepRecent int
-	minTime    time.Duration
+type snapshotMember struct {
+	name    string
+	manager *sssnapshot.Manager
+}
 
-	cosmosScheduler management.CheckpointScheduler
-	evmScheduler    management.CheckpointScheduler
-	snapshotSizes   map[int64]int64
+// snapshotCoordinator owns the one-at-a-time cadence for composite mode. It has
+// no snapshot root of its own.
+type snapshotCoordinator struct {
+	interval int64
+	minTime  time.Duration
+	members  []snapshotMember
 
 	mu sync.Mutex
-	// lastRequested is the newest label already requested or on disk, so a
-	// boundary is not snapshotted twice across a restart or a re-sent version.
+	// lastRequested is the newest label already requested or present in any
+	// member, so an unpaired height does not get retried under an exact label the
+	// write path has already moved past.
 	lastRequested int64
 	lastRequestAt time.Time
 	inFlight      bool
@@ -180,239 +90,155 @@ type snapshotManager struct {
 	scheduling sync.WaitGroup
 	// publishing tracks the goroutine finishing the accepted snapshot off.
 	publishing sync.WaitGroup
-
-	// publishMu serializes the publish step, which reads and rewrites the
-	// shared directory (the current link, and pruning).
-	publishMu     sync.Mutex
-	lastPublished int64
 }
 
-type checkpointTarget struct {
-	store management.CheckpointScheduler
-	dest  string
+func newSnapshotCoordinator(interval int64, minTime time.Duration, members []snapshotMember) *snapshotCoordinator {
+	c := &snapshotCoordinator{
+		interval: interval,
+		minTime:  minTime,
+		members:  members,
+	}
+	c.lastRequested = newestMemberSnapshot(members)
+	c.lastRequestAt = newestMemberSnapshotModTime(members, c.lastRequested)
+	sssnapshot.RecordCommonHeight(newestCommonSnapshot(members))
+	return c
 }
 
-// startSnapshotManager wires the manager into the composite store. Snapshot
-// enablement is fail-closed: every backend must support checkpoints, and every
-// live DB must be able to hardlink into root. Pebble otherwise silently falls
-// back to copying SSTs across filesystems while its apply worker is blocked.
-func (s *CompositeStateStore) startSnapshotManager(root string, sourceDirs []string) error {
+func (s *CompositeStateStore) startSnapshotManager(members []snapshotMember) error {
 	if s.config.SnapshotInterval <= 0 {
 		return nil
 	}
-	cosmosScheduler, ok := s.cosmosStore.(management.CheckpointScheduler)
-	if !ok || !cosmosScheduler.SupportsCheckpoint() {
-		return fmt.Errorf("cosmos backend %q does not support checkpoints", s.config.Backend)
+	if len(members) == 0 {
+		return errors.New("no state store snapshot members")
 	}
-	var evmScheduler management.CheckpointScheduler
-	if s.evmStore != nil {
-		evmScheduler, ok = s.evmStore.(management.CheckpointScheduler)
-		if !ok || !evmScheduler.SupportsCheckpoint() {
-			return fmt.Errorf("EVM backend %q does not support checkpoints", s.config.Backend)
+	for _, member := range members {
+		if member.manager == nil {
+			return fmt.Errorf("state store snapshot member %q has no manager", member.name)
 		}
 	}
-	if err := verifySnapshotHardlinks(root, sourceDirs); err != nil {
-		return err
-	}
-	m := &snapshotManager{
-		root:            root,
-		backend:         s.config.Backend,
-		interval:        s.config.SnapshotInterval,
-		keepRecent:      s.config.SnapshotKeepRecent,
-		minTime:         s.config.SnapshotMinTimeInterval,
-		cosmosScheduler: cosmosScheduler,
-		evmScheduler:    evmScheduler,
-		snapshotSizes:   map[int64]int64{},
-	}
-	m.lastRequested = m.newestSnapshotVersion()
-	m.lastPublished = m.lastRequested
-	m.lastRequestAt = m.snapshotModTime(m.lastRequested)
-	m.removeStaleTmpDirs()
-	m.prune()
-	if m.lastPublished > 0 {
-		if err := m.updateCurrentLink(SnapshotDirName(m.lastPublished)); err != nil {
-			logger.Error("failed to restore state store snapshot current link",
-				"version", m.lastPublished, "error", err)
-		}
-		snapshotMetrics.CurrentHeight.Record(context.Background(), m.lastPublished)
-	}
-	s.snapshotMgr = m
-	logger.Info("state store snapshotting enabled",
-		"root", root,
-		"interval", m.interval,
-		"minTimeInterval", m.minTime,
-		"keepRecent", m.keepRecent,
+	s.snapshotMgr = newSnapshotCoordinator(
+		s.config.SnapshotInterval,
+		s.config.SnapshotMinTimeInterval,
+		members,
 	)
-	return nil
-}
-
-func verifySnapshotHardlinks(root string, sourceDirs []string) error {
-	if err := os.MkdirAll(root, 0o750); err != nil {
-		return fmt.Errorf("create snapshot root %q: %w", root, err)
-	}
-	for _, sourceDir := range sourceDirs {
-		probe, err := os.CreateTemp(sourceDir, ".ss-snapshot-link-probe-*")
-		if err != nil {
-			return fmt.Errorf("create hardlink probe in state store %q: %w", sourceDir, err)
-		}
-		source := probe.Name()
-		if err := probe.Close(); err != nil {
-			_ = os.Remove(source)
-			return fmt.Errorf("close hardlink probe in state store %q: %w", sourceDir, err)
-		}
-		target := filepath.Join(root, filepath.Base(source))
-		if err := os.Link(source, target); err != nil {
-			_ = os.Remove(source)
-			return fmt.Errorf(
-				"state store %q cannot hardlink snapshots into %q; place all SS databases and the snapshot root on one filesystem: %w",
-				sourceDir,
-				root,
-				err,
-			)
-		}
-		if err := os.Remove(source); err != nil {
-			_ = os.Remove(target)
-			return fmt.Errorf("remove hardlink probe %q: %w", source, err)
-		}
-		if err := os.Remove(target); err != nil {
-			return fmt.Errorf("remove hardlink probe %q: %w", target, err)
-		}
-	}
+	logger.Info("state store snapshotting enabled",
+		"interval", s.config.SnapshotInterval,
+		"minTimeInterval", s.config.SnapshotMinTimeInterval,
+		"keepRecent", s.config.SnapshotKeepRecent,
+		"members", len(members),
+	)
 	return nil
 }
 
 // stop prevents further snapshots, waits for accepted requests to enqueue their
 // barriers, and then waits for active publication. Queued barriers are canceled
 // before they start when backend close drains their queues.
-func (m *snapshotManager) stop() {
-	m.mu.Lock()
-	m.stopped = true
-	m.mu.Unlock()
-	m.scheduling.Wait()
-	m.publishing.Wait()
+func (c *snapshotCoordinator) stop() {
+	c.mu.Lock()
+	c.stopped = true
+	c.mu.Unlock()
+	c.scheduling.Wait()
+	c.publishing.Wait()
 }
 
-func (m *snapshotManager) isRunning() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return !m.stopped
+func (c *snapshotCoordinator) isRunning() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return !c.stopped
 }
 
 // maybeSnapshot takes a snapshot when version lands on an interval boundary.
 // It is called from the write path for every version, so the common case is the
 // modulo test and nothing else.
-func (m *snapshotManager) maybeSnapshot(version int64) {
-	if m == nil || version <= 0 || m.interval <= 0 || version%m.interval != 0 {
+func (c *snapshotCoordinator) maybeSnapshot(version int64) {
+	if c == nil || version <= 0 || c.interval <= 0 || version%c.interval != 0 {
 		return
 	}
 	now := time.Now()
-	m.mu.Lock()
-	previous := m.lastRequested
-	previousRequestAt := m.lastRequestAt
+	c.mu.Lock()
+	previous := c.lastRequested
+	previousRequestAt := c.lastRequestAt
 	var skipReason string
 	accepted := false
 	switch {
-	case m.stopped || version <= m.lastRequested:
+	case c.stopped || version <= c.lastRequested:
 		// A repeated commit-path call is expected and is not a skipped attempt.
-	case m.inFlight:
+	case c.inFlight:
 		skipReason = "in_flight"
-	case !m.lastRequestAt.IsZero() && now.Sub(m.lastRequestAt) < m.minTime:
+	case !c.lastRequestAt.IsZero() && now.Sub(c.lastRequestAt) < c.minTime:
 		skipReason = "minimum_time_interval"
 	default:
-		m.lastRequested = version
-		m.lastRequestAt = now
-		m.inFlight = true
-		m.scheduling.Add(1)
-		recordSnapshotInFlight(1)
+		c.lastRequested = version
+		c.lastRequestAt = now
+		c.inFlight = true
+		c.scheduling.Add(1)
+		sssnapshot.RecordInFlight(1)
 		accepted = true
 	}
-	m.mu.Unlock()
+	c.mu.Unlock()
 	if !accepted {
 		if skipReason != "" {
-			recordSnapshotSkipped(skipReason)
+			sssnapshot.RecordSkipped(skipReason)
 			// A skipped boundary is the reason a snapshot an operator expected is
 			// not on disk, so name the gate rather than leaving only a metric.
 			logger.Info("skipping state store snapshot", "version", version, "reason", skipReason)
 		}
 		return
 	}
-	defer m.scheduling.Done()
+	defer c.scheduling.Done()
 	start := time.Now()
-	recordSnapshotAttempt()
-	if err := m.requestSnapshot(version, start); err != nil {
-		recordSnapshotCompletion(start, "failure")
-		m.mu.Lock()
-		if m.lastRequested == version {
-			m.lastRequested = previous
-			m.lastRequestAt = previousRequestAt
-			m.inFlight = false
-			recordSnapshotInFlight(0)
+	sssnapshot.RecordAttempt()
+	if err := c.requestSnapshot(version, start); err != nil {
+		sssnapshot.RecordCompletion(start, "failure")
+		c.mu.Lock()
+		if c.lastRequested == version {
+			c.lastRequested = previous
+			c.lastRequestAt = previousRequestAt
+			c.inFlight = false
+			sssnapshot.RecordInFlight(0)
 		}
-		m.mu.Unlock()
+		c.mu.Unlock()
 		logger.Error("state store snapshot failed", "version", version, "error", err)
 	}
 }
 
-func (m *snapshotManager) finishSnapshot() {
-	m.mu.Lock()
-	m.inFlight = false
-	recordSnapshotInFlight(0)
-	m.mu.Unlock()
+func (c *snapshotCoordinator) finishSnapshot() {
+	c.mu.Lock()
+	c.inFlight = false
+	sssnapshot.RecordInFlight(0)
+	c.mu.Unlock()
+	sssnapshot.RecordCommonHeight(newestCommonSnapshot(c.members))
 }
 
-// requestSnapshot asks every backend to checkpoint itself into a staging
+// requestSnapshot asks every member to checkpoint itself into a staging
 // directory and publishes the result once they all have.
-//
-// The label is exact because of when this runs: the caller has just enqueued
-// version on the backends and has not enqueued anything above it, so a barrier
-// placed in each apply queue now captures that backend with everything up to
-// version applied and nothing after it. The backends reach their barriers
-// independently and at different wall-clock times, and the caller waits for none
-// of the checkpointing — enqueueing a barrier costs what enqueueing a changeset
-// costs. The caller does wait for the staging directories below: one Stat, one
-// RemoveAll and one MkdirAll per target, on the commit path and ahead of the SC
-// apply.
-func (m *snapshotManager) requestSnapshot(version int64, start time.Time) error {
-	name := SnapshotDirName(version)
-	finalDir := filepath.Join(m.root, name)
-	if _, err := os.Stat(finalDir); err == nil {
-		return fmt.Errorf("snapshot dir %q already exists", finalDir)
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("inspect snapshot dir %q: %w", finalDir, err)
+func (c *snapshotCoordinator) requestSnapshot(version int64, start time.Time) error {
+	if len(c.members) == 0 {
+		return errors.New("no state store snapshot members")
 	}
-	tmpDir := filepath.Join(m.root, snapshotTmpPrefix+name)
-	if err := os.RemoveAll(tmpDir); err != nil {
-		return fmt.Errorf("clear stale snapshot tmp dir: %w", err)
-	}
-
-	targets := []checkpointTarget{
-		{m.cosmosScheduler, filepath.Join(tmpDir, "cosmos", m.backend)},
-	}
-	if m.evmScheduler != nil {
-		targets = append(targets, checkpointTarget{
-			m.evmScheduler,
-			filepath.Join(tmpDir, "evm", m.backend),
-		})
-	}
-	for _, target := range targets {
-		if err := os.MkdirAll(filepath.Dir(target.dest), 0o750); err != nil {
-			_ = os.RemoveAll(tmpDir)
-			return fmt.Errorf("create snapshot dir: %w", err)
-		}
+	var canceled atomic.Bool
+	shouldRun := func() bool {
+		return c.isRunning() && !canceled.Load()
 	}
 
 	var (
 		mu        sync.Mutex
-		remaining = len(targets)
+		remaining = len(c.members)
+		staged    = make([]*sssnapshot.Staged, len(c.members))
 		firstErr  error
 	)
-	// Set up before scheduling because callbacks can complete while the loop is
-	// still scheduling the remaining targets.
-	for _, target := range targets {
-		target.store.ScheduleCheckpoint(target.dest, m.isRunning, func(err error) {
+	for i, member := range c.members {
+		if member.manager == nil {
+			canceled.Store(true)
+			return fmt.Errorf("state store snapshot member %q has no manager", member.name)
+		}
+		err := member.manager.Stage(version, shouldRun, func(s *sssnapshot.Staged, err error) {
 			mu.Lock()
 			if err != nil && firstErr == nil {
-				firstErr = err
+				firstErr = fmt.Errorf("stage %s snapshot: %w", member.name, err)
+			}
+			if s != nil {
+				staged[i] = s
 			}
 			remaining--
 			last, outcome := remaining == 0, firstErr
@@ -420,8 +246,12 @@ func (m *snapshotManager) requestSnapshot(version int64, start time.Time) error 
 			if !last {
 				return
 			}
-			m.startPublish(version, tmpDir, finalDir, targets, outcome, start)
+			c.startPublish(version, staged, outcome, start)
 		})
+		if err != nil {
+			canceled.Store(true)
+			return err
+		}
 	}
 	return nil
 }
@@ -430,332 +260,108 @@ func (m *snapshotManager) requestSnapshot(version int64, start time.Time) error 
 // on whichever backend's apply goroutine finished last, so it must not do the
 // work itself: publishing renames directories and prunes old snapshots, and a
 // writer stalled on that is a writer not applying blocks.
-func (m *snapshotManager) startPublish(
+func (c *snapshotCoordinator) startPublish(
 	version int64,
-	tmpDir, finalDir string,
-	targets []checkpointTarget,
+	staged []*sssnapshot.Staged,
 	checkpointErr error,
 	start time.Time,
 ) {
 	// Taken under the same lock stop uses, so no goroutine is registered after
 	// stop has started waiting.
-	m.mu.Lock()
-	if m.stopped {
-		m.mu.Unlock()
-		_ = os.RemoveAll(tmpDir)
-		recordSnapshotCompletion(start, "canceled")
-		m.finishSnapshot()
+	c.mu.Lock()
+	if c.stopped {
+		c.mu.Unlock()
+		abortStaged(staged)
+		sssnapshot.RecordCompletion(start, "canceled")
+		c.finishSnapshot()
 		return
 	}
-	m.publishing.Add(1)
-	m.mu.Unlock()
+	c.publishing.Add(1)
+	c.mu.Unlock()
 
 	go func() {
-		defer m.publishing.Done()
-		defer m.finishSnapshot()
+		defer c.publishing.Done()
+		defer c.finishSnapshot()
 		if checkpointErr != nil {
 			if errors.Is(checkpointErr, management.ErrCheckpointCanceled) {
-				recordSnapshotCompletion(start, "canceled")
+				sssnapshot.RecordCompletion(start, "canceled")
 			} else {
-				recordSnapshotCompletion(start, "failure")
+				sssnapshot.RecordCompletion(start, "failure")
 				logger.Error("state store snapshot failed", "version", version, "error", checkpointErr)
 			}
-			_ = os.RemoveAll(tmpDir)
+			abortStaged(staged)
 			return
 		}
-		for _, target := range targets {
-			if err := target.store.SetCheckpointVersion(target.dest, version); err != nil {
-				recordSnapshotCompletion(start, "failure")
-				logger.Error("failed to set state store snapshot version",
-					"version", version, "dir", target.dest, "error", err)
-				_ = os.RemoveAll(tmpDir)
+		for i, member := range c.members {
+			if err := member.manager.Commit(staged[i]); err != nil {
+				sssnapshot.RecordCompletion(start, "failure")
+				logger.Error("failed to publish state store member snapshot",
+					"version", version, "member", member.name, "error", err)
+				abortStaged(staged[i+1:])
 				return
 			}
 		}
-		if m.publish(version, tmpDir, finalDir, start) {
-			recordSnapshotCompletion(start, "success")
-		} else {
-			recordSnapshotCompletion(start, "failure")
-		}
+		sssnapshot.RecordCompletion(start, "success")
 	}()
 }
 
-// publish moves a finished checkpoint into place and reports whether the whole
-// publication succeeded. Retention runs either way.
-//
-// A boundary that fails anywhere past the barrier is given up on, and this is
-// deliberate. maybeSnapshot restores lastRequested when requestSnapshot fails,
-// because that failure happens before any barrier is enqueued and the boundary
-// was never claimed. Once the barriers are out, the version they captured is
-// the only image of that boundary there will ever be: the write path has moved
-// on, so re-running the attempt would checkpoint a later state under the older
-// label, which is the one thing the label is supposed to rule out. Recovery is
-// therefore the next boundary rather than a retry of this one, at the cost of
-// one snapshot interval of coverage. The error log and the outcome="failure"
-// counter are the signal.
-func (m *snapshotManager) publish(version int64, tmpDir, finalDir string, start time.Time) bool {
-	apparentBytes, sizeErr := snapshotDirApparentBytes(tmpDir)
-	if sizeErr != nil {
-		logger.Error("failed to measure state store snapshot", "dir", tmpDir, "error", sizeErr)
-	} else if err := writeSnapshotSize(tmpDir, apparentBytes); err != nil {
-		logger.Error("failed to persist state store snapshot size", "dir", tmpDir, "error", err)
-		sizeErr = err
-	}
-
-	m.publishMu.Lock()
-	defer m.publishMu.Unlock()
-	defer m.prune()
-
-	if err := os.Rename(tmpDir, finalDir); err != nil {
-		logger.Error("failed to finalize state store snapshot", "version", version, "error", err)
-		_ = os.RemoveAll(tmpDir)
-		return false
-	}
-	if err := syncDir(m.root); err != nil {
-		logger.Error("failed to persist state store snapshot publication",
-			"version", version, "dir", finalDir, "error", err)
-		return false
-	}
-	if sizeErr == nil {
-		if m.snapshotSizes == nil {
-			m.snapshotSizes = map[int64]int64{}
+func abortStaged(staged []*sssnapshot.Staged) {
+	for _, s := range staged {
+		if s != nil {
+			s.Abort()
 		}
-		m.snapshotSizes[version] = apparentBytes
 	}
-	logger.Info("state store snapshot created",
-		"version", version, "dir", finalDir, "took", time.Since(start).String())
-
-	// Snapshots can finish out of order, so only move the link forward.
-	if version > m.lastPublished {
-		if err := m.updateCurrentLink(SnapshotDirName(version)); err != nil {
-			// The snapshot itself is intact and discoverable by name; only the
-			// convenience symlink is stale. The link is part of the publication
-			// contract, so record this attempt as a failure.
-			logger.Error("failed to update state store snapshot current link",
-				"version", version, "error", err)
-			return false
-		}
-		m.lastPublished = version
-	}
-	snapshotMetrics.CurrentHeight.Record(context.Background(), m.lastPublished)
-	return true
 }
 
-func (m *snapshotManager) newestSnapshotVersion() int64 {
-	versions, err := ListSnapshotVersions(m.root)
-	if err != nil {
-		logger.Error("failed to list state store snapshots", "error", err)
+func newestMemberSnapshot(members []snapshotMember) int64 {
+	var newest int64
+	for _, member := range members {
+		if member.manager == nil {
+			continue
+		}
+		newest = max(newest, member.manager.Newest())
+	}
+	return newest
+}
+
+func newestMemberSnapshotModTime(members []snapshotMember, version int64) time.Time {
+	var newest time.Time
+	for _, member := range members {
+		if member.manager == nil {
+			continue
+		}
+		modTime := member.manager.ModTime(version)
+		if modTime.After(newest) {
+			newest = modTime
+		}
+	}
+	return newest
+}
+
+func newestCommonSnapshot(members []snapshotMember) int64 {
+	if len(members) == 0 {
 		return 0
 	}
-	if len(versions) == 0 {
-		return 0
-	}
-	return versions[len(versions)-1]
-}
-
-func (m *snapshotManager) snapshotModTime(version int64) time.Time {
-	if version <= 0 {
-		return time.Time{}
-	}
-	info, err := os.Stat(filepath.Join(m.root, SnapshotDirName(version)))
-	if err != nil {
-		logger.Error("failed to read state store snapshot modification time",
-			"version", version, "error", err)
-		return time.Time{}
-	}
-	return info.ModTime()
-}
-
-// removeStaleTmpDirs clears staging directories left behind by a crash or a
-// shutdown that landed mid-snapshot. They are named after the snapshot they
-// were staging, so they would otherwise sit there until that exact boundary
-// came round again.
-func (m *snapshotManager) removeStaleTmpDirs() {
-	tmpLink := filepath.Join(m.root, snapshotCurrentTmpLink)
-	if err := os.Remove(tmpLink); err != nil && !os.IsNotExist(err) {
-		logger.Error("failed to remove stale state store snapshot link", "path", tmpLink, "error", err)
-	}
-
-	entries, err := os.ReadDir(m.root)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			logger.Error("failed to scan state store snapshots dir", "error", err)
+	counts := map[int64]int{}
+	for _, member := range members {
+		if member.manager == nil {
+			return 0
 		}
-		return
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), snapshotTmpPrefix) {
-			continue
-		}
-		dir := filepath.Join(m.root, entry.Name())
-		if err := os.RemoveAll(dir); err != nil {
-			logger.Error("failed to remove stale snapshot tmp dir", "dir", dir, "error", err)
-			continue
-		}
-		logger.Info("removed stale state store snapshot tmp dir", "dir", dir)
-	}
-}
-
-// updateCurrentLink atomically points the current symlink at name.
-func (m *snapshotManager) updateCurrentLink(name string) error {
-	tmpLink := filepath.Join(m.root, snapshotCurrentTmpLink)
-	_ = os.Remove(tmpLink)
-	if err := os.Symlink(name, tmpLink); err != nil {
-		return fmt.Errorf("create snapshot current symlink: %w", err)
-	}
-	if err := os.Rename(tmpLink, filepath.Join(m.root, snapshotCurrentLink)); err != nil {
-		return fmt.Errorf("swap snapshot current symlink: %w", err)
-	}
-	return syncDir(m.root)
-}
-
-func syncDir(path string) error {
-	// #nosec G304 -- path is an internal database or snapshot directory, not request input.
-	dir, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open directory %q for sync: %w", path, err)
-	}
-	syncErr := dir.Sync()
-	closeErr := dir.Close()
-	if syncErr != nil {
-		syncErr = fmt.Errorf("sync directory %q: %w", path, syncErr)
-	}
-	if closeErr != nil {
-		closeErr = fmt.Errorf("close directory %q after sync: %w", path, closeErr)
-	}
-	return errors.Join(syncErr, closeErr)
-}
-
-// prune removes all but the newest 1+keepRecent snapshots.
-func (m *snapshotManager) prune() {
-	versions, err := ListSnapshotVersions(m.root)
-	if err != nil {
-		logger.Error("failed to list state store snapshots for pruning", "error", err)
-		return
-	}
-	defer m.recordRetentionMetrics()
-	currentVersion, hasCurrent, err := m.currentSnapshotVersion()
-	if err != nil {
-		logger.Error("failed to resolve current state store snapshot before pruning", "error", err)
-		return
-	}
-	keep := 1 + m.keepRecent
-	if len(versions) <= keep {
-		return
-	}
-	for _, v := range versions[:len(versions)-keep] {
-		if hasCurrent && v == currentVersion {
-			continue
-		}
-		dir := filepath.Join(m.root, SnapshotDirName(v))
-		if err := os.RemoveAll(dir); err != nil {
-			logger.Error("failed to prune state store snapshot", "dir", dir, "error", err)
-			continue
-		}
-		logger.Info("pruned state store snapshot", "dir", dir)
-	}
-}
-
-func (m *snapshotManager) currentSnapshotVersion() (version int64, exists bool, err error) {
-	target, err := os.Readlink(filepath.Join(m.root, snapshotCurrentLink))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return 0, false, nil
-		}
-		return 0, false, fmt.Errorf("read current snapshot link: %w", err)
-	}
-	version, ok := ParseSnapshotVersion(filepath.Base(target))
-	if !ok {
-		return 0, false, fmt.Errorf("current snapshot link has invalid target %q", target)
-	}
-	return version, true, nil
-}
-
-func (m *snapshotManager) recordRetentionMetrics() {
-	versions, err := ListSnapshotVersions(m.root)
-	if err != nil {
-		logger.Error("failed to list state store snapshots for metrics", "error", err)
-		return
-	}
-	snapshotMetrics.RetainedCount.Record(context.Background(), int64(len(versions)))
-
-	if m.snapshotSizes == nil {
-		m.snapshotSizes = map[int64]int64{}
-	}
-	retained := make(map[int64]struct{}, len(versions))
-	var apparentBytes int64
-	for _, version := range versions {
-		retained[version] = struct{}{}
-		if size, ok := m.snapshotSizes[version]; ok {
-			apparentBytes += size
-			continue
-		}
-		dir := filepath.Join(m.root, SnapshotDirName(version))
-		size, err := readSnapshotSize(dir)
+		versions, err := member.manager.Versions()
 		if err != nil {
-			if !os.IsNotExist(err) {
-				logger.Error("failed to read state store snapshot size", "dir", dir, "error", err)
-			}
-			continue
+			logger.Error("failed to list state store snapshots for common height",
+				"member", member.name, "error", err)
+			return 0
 		}
-		m.snapshotSizes[version] = size
-		apparentBytes += size
-	}
-	for version := range m.snapshotSizes {
-		if _, ok := retained[version]; !ok {
-			delete(m.snapshotSizes, version)
+		for _, version := range versions {
+			counts[version]++
 		}
 	}
-	snapshotMetrics.ApparentBytes.Record(context.Background(), apparentBytes)
-}
-
-func snapshotDirApparentBytes(dir string) (int64, error) {
-	var apparentBytes int64
-	err := filepath.WalkDir(dir, func(_ string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	var newest int64
+	for version, count := range counts {
+		if count == len(members) && version > newest {
+			newest = version
 		}
-		if !entry.Type().IsRegular() {
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		apparentBytes += info.Size()
-		return nil
-	})
-	return apparentBytes, err
-}
-
-func writeSnapshotSize(dir string, size int64) error {
-	path := filepath.Join(dir, snapshotSizeFile)
-	// #nosec G304 -- dir is a managed snapshot directory and the file name is fixed.
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
 	}
-	_, writeErr := fmt.Fprintf(file, "%d\n", size)
-	syncErr := file.Sync()
-	closeErr := file.Close()
-	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
-		return err
-	}
-	return syncDir(dir)
-}
-
-func readSnapshotSize(dir string) (int64, error) {
-	// #nosec G304 -- dir is a managed snapshot directory and the file name is fixed.
-	data, err := os.ReadFile(filepath.Join(dir, snapshotSizeFile))
-	if err != nil {
-		return 0, err
-	}
-	size, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("parse snapshot size in %q: %w", dir, err)
-	}
-	if size < 0 {
-		return 0, fmt.Errorf("snapshot size in %q must be non-negative", dir)
-	}
-	return size, nil
+	return newest
 }

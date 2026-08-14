@@ -67,10 +67,9 @@ type StateStoreConfig struct {
 
 	// SnapshotEnable controls whether the state store takes periodic online
 	// snapshots. Snapshots are Pebble checkpoints (hardlink trees), so the
-	// backend must be pebbledb and every SS database must be able to hardlink
-	// into the snapshot root. Startup fails on either rather than running
-	// without snapshots. A custom Cosmos SS directory moves the snapshot root
-	// beside that directory, which keeps the link inside one filesystem.
+	// backend must be pebbledb and each SS database must be able to hardlink into
+	// its own snapshot root. Startup fails on either rather than running without
+	// snapshots.
 	//
 	// Taking a snapshot occupies each backend's SS apply goroutine for the WAL
 	// flush, the filesystem sync, and the checkpoint. No data is copied up
@@ -84,8 +83,8 @@ type StateStoreConfig struct {
 	// rollback restore points, not an archive format. They have no lease in this
 	// release, so node-external tools must not resolve a snapshot path and open it
 	// later without first adding a hold mechanism. Attempts, skips, outcomes,
-	// duration, in-flight state, height, count, and apparent bytes are exported as
-	// ss_snapshot_* metrics.
+	// duration, in-flight state, per-store height, retained count, apparent bytes,
+	// and newest common height are exported as ss_snapshot_* metrics.
 	// defaults to false
 	SnapshotEnable bool `mapstructure:"snapshot-enable"`
 
@@ -96,6 +95,12 @@ type StateStoreConfig struct {
 	SnapshotInterval        int64         `mapstructure:"-"`
 	SnapshotKeepRecent      int           `mapstructure:"-"`
 	SnapshotMinTimeInterval time.Duration `mapstructure:"-"`
+
+	// ExternalPruning hands SS history and snapshot retention to the
+	// StorageGarbageCollector. Internal pruning stands down when set.
+	// This field is set by the code wiring SS into a collector, not app.toml.
+	// defaults to false
+	ExternalPruning bool `mapstructure:"-"`
 
 	// --- EVM optimization fields ---
 

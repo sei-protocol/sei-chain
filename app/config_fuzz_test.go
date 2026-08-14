@@ -683,9 +683,12 @@ func TestManifestNamesEveryField(t *testing.T) {
 			// point: they are tagged mapstructure:"-" so no key can bind them even in principle,
 			// and AlignSSSnapshotWithSC derives all three at runtime from the state-commit cadence.
 			// ss-snapshot-enable is the only SS-side knob, and it has a row of its own above.
+			// ExternalPruning is also runtime-only: future GC wiring sets it when it registers SS,
+			// not through app.toml.
 			"SnapshotInterval",
 			"SnapshotKeepRecent",
 			"SnapshotMinTimeInterval",
+			"ExternalPruning",
 		)
 	})
 	t.Run("light_invariance", func(t *testing.T) {

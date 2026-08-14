@@ -143,9 +143,8 @@ ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
 # SnapshotEnable turns on periodic online state-store snapshots. The cadence is
 # not configurable here: it mirrors the state-commit snapshot settings.
 # Two configurations fail startup rather than run without snapshots: an
-# ss-backend other than "pebbledb", and SS databases that cannot hardlink into
-# the snapshot root, which needs every SS database and that root on one
-# filesystem.
+# ss-backend other than "pebbledb", and any SS database that cannot hardlink into
+# its own snapshot root.
 # Each retained snapshot pins the SST files it references against compaction, so
 # budget the write churn of one snapshot interval per retained snapshot. This is
 # substantial on a multi-TB state store.

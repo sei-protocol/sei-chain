@@ -35,7 +35,7 @@ type CompositeStateStore struct {
 	cosmosStore    types.StateStore // CosmosStateStore wrapping MVCC DB
 	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
-	snapshotMgr    *snapshotManager
+	snapshotMgr    *snapshotCoordinator
 	config         config.StateStoreConfig
 	closeOnce      sync.Once
 	closeErr       error
@@ -57,12 +57,12 @@ func NewCompositeStateStore(
 		return nil, fmt.Errorf("failed to create cosmos MVCC DB: %w", err)
 	}
 	cosmosStore := cosmos.NewCosmosStateStore(mvccDB)
+	cosmosStore.SetExternalPruning(ssConfig.ExternalPruning)
 
 	cs := &CompositeStateStore{
 		cosmosStore: cosmosStore,
 		config:      ssConfig,
 	}
-	snapshotSourceDirs := []string{dbHome}
 
 	if ssConfig.EVMSplit {
 		evmDir := ssConfig.EVMDBDirectory
@@ -82,16 +82,6 @@ func NewCompositeStateStore(
 			return nil, fmt.Errorf("failed to create EVM store: %w", err)
 		}
 		cs.evmStore = evmStore
-		if ssConfig.SeparateEVMSubDBs {
-			for _, storeType := range evm.AllEVMStoreTypes() {
-				snapshotSourceDirs = append(
-					snapshotSourceDirs,
-					filepath.Join(evmDir, evm.StoreTypeName(storeType)),
-				)
-			}
-		} else {
-			snapshotSourceDirs = append(snapshotSourceDirs, evmDir)
-		}
 		logger.Info("EVM state store enabled",
 			"dir", evmDir,
 			"separateDBs", ssConfig.SeparateEVMSubDBs,
@@ -113,15 +103,29 @@ func NewCompositeStateStore(
 	cs.validateEVMSSPostRecovery()
 
 	if ssConfig.SnapshotInterval > 0 {
-		snapshotRoot := utils.GetStateStoreSnapshotsPath(homeDir)
+		members := make([]snapshotMember, 0, 2)
+		cosmosSnapshotRoot := utils.GetStateStoreSnapshotsPath(homeDir)
 		if ssConfig.DBDirectory != "" {
 			cleanDBHome := filepath.Clean(dbHome)
-			snapshotRoot = filepath.Join(
+			cosmosSnapshotRoot = filepath.Join(
 				filepath.Dir(cleanDBHome),
 				filepath.Base(cleanDBHome)+"-"+utils.StateStoreSnapshotsDirName,
 			)
 		}
-		if err := cs.startSnapshotManager(snapshotRoot, snapshotSourceDirs); err != nil {
+		if err := cosmosStore.StartSnapshots(cosmosSnapshotRoot, []string{dbHome}, ssConfig); err != nil {
+			_ = cs.Close()
+			return nil, fmt.Errorf("start Cosmos state store snapshot manager: %w", err)
+		}
+		members = append(members, snapshotMember{name: "cosmos", manager: cosmosStore.Snapshots()})
+		if evmStore, ok := cs.evmStore.(*evm.EVMStateStore); ok {
+			evmSnapshotRoot := evmStore.Dir() + "-" + utils.StateStoreSnapshotsDirName
+			if err := evmStore.StartSnapshots(evmSnapshotRoot, ssConfig); err != nil {
+				_ = cs.Close()
+				return nil, fmt.Errorf("start EVM state store snapshot manager: %w", err)
+			}
+			members = append(members, snapshotMember{name: "evm", manager: evmStore.Snapshots()})
+		}
+		if err := cs.startSnapshotManager(members); err != nil {
 			_ = cs.Close()
 			return nil, fmt.Errorf("start state store snapshot manager: %w", err)
 		}
@@ -193,6 +197,10 @@ func (s *CompositeStateStore) validateEVMSSPostRecovery() {
 }
 
 func (s *CompositeStateStore) StartPruning() {
+	if s.config.ExternalPruning {
+		logger.Info("state store internal pruning disabled by external pruning")
+		return
+	}
 	pm := pruning.NewPruningManager(s, int64(s.config.KeepRecent), int64(s.config.PruneIntervalSeconds))
 	pm.Start()
 	s.pruningManager = pm

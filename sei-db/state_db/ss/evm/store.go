@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/management"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
+	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 )
 
 var _ types.StateStore = (*EVMStateStore)(nil)
@@ -27,6 +28,9 @@ type EVMStateStore struct {
 	managedDBs  []types.StateStore
 	dir         string
 	separateDBs bool
+	snapshotMgr *sssnapshot.Manager
+
+	externalPruning bool
 }
 
 // NewEVMStateStore opens either a single unified MVCC DB for all EVM state
@@ -35,9 +39,10 @@ func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateSt
 	opener := backend.ResolveBackend(ssConfig.Backend)
 
 	store := &EVMStateStore{
-		subDBs:      make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes),
-		dir:         dir,
-		separateDBs: ssConfig.SeparateEVMSubDBs,
+		subDBs:          make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes),
+		dir:             dir,
+		separateDBs:     ssConfig.SeparateEVMSubDBs,
+		externalPruning: ssConfig.ExternalPruning,
 	}
 
 	if ssConfig.SeparateEVMSubDBs {
@@ -80,6 +85,10 @@ func (s *EVMStateStore) primaryDB() types.StateStore {
 		return nil
 	}
 	return s.managedDBs[0]
+}
+
+func (s *EVMStateStore) Dir() string {
+	return s.dir
 }
 
 func (s *EVMStateStore) routeKey(key []byte) types.StateStore {
@@ -360,6 +369,21 @@ func (s *EVMStateStore) Prune(version int64) error {
 	return nil
 }
 
+func (s *EVMStateStore) ExternalPruning() bool {
+	return s.externalPruning
+}
+
+func (s *EVMStateStore) snapshotSourceDirs() []string {
+	if !s.separateDBs {
+		return []string{s.dir}
+	}
+	dirs := make([]string, 0, len(AllEVMStoreTypes()))
+	for _, storeType := range AllEVMStoreTypes() {
+		dirs = append(dirs, filepath.Join(s.dir, StoreTypeName(storeType)))
+	}
+	return dirs
+}
+
 func (s *EVMStateStore) Close() error {
 	var lastErr error
 	for _, db := range s.managedDBs {
@@ -454,6 +478,28 @@ func (s *EVMStateStore) SetCheckpointVersion(destDir string, version int64) erro
 		}
 	}
 	return nil
+}
+
+func (s *EVMStateStore) StartSnapshots(root string, ssConfig config.StateStoreConfig) error {
+	manager, err := sssnapshot.Open(sssnapshot.Config{
+		Name:            "evm",
+		Root:            root,
+		SourceDirs:      s.snapshotSourceDirs(),
+		Backend:         ssConfig.Backend,
+		KeepRecent:      ssConfig.SnapshotKeepRecent,
+		ExternalPruning: ssConfig.ExternalPruning,
+		Scheduler:       s,
+	})
+	if err != nil {
+		return err
+	}
+	s.snapshotMgr = manager
+	s.externalPruning = ssConfig.ExternalPruning
+	return nil
+}
+
+func (s *EVMStateStore) Snapshots() *sssnapshot.Manager {
+	return s.snapshotMgr
 }
 
 func (s *EVMStateStore) WaitForPendingWrites() {
