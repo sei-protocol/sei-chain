@@ -150,7 +150,7 @@ write_fixture "flatkv_evm_recipient_addr.txt" "$RECIPIENT_ADDR"
 write_fixture "flatkv_evm_missing_addr.txt" "$MISSING_ADDR"
 write_fixture "flatkv_evm_storage_slot.txt" "$STORAGE_SLOT_ZERO"
 
-run_seid tx evm associate-address \
+run_seid tx evm native-associate "" \
   --from "$FROM" \
   "${KEYRING_ARGS[@]}" \
   --chain-id "$CHAIN_ID" \
