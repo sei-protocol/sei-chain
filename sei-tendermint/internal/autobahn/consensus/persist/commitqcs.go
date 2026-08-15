@@ -63,9 +63,11 @@ func (s *commitQCState) flush() error {
 	return nil
 }
 
-// deleteBefore prunes WAL entries below the anchor's index, then re-persists the anchor for crash
-// recovery. Pruning is lazy, so entries below the anchor may remain on disk until the file holding
-// them falls entirely below the threshold. Caller must hold the lock.
+// deleteBefore prunes WAL entries below idx and advances the retained range so that idx becomes the
+// oldest live index. An idx at or below the oldest retained index prunes nothing.
+//
+// Pruning is lazy, so entries below idx may remain on disk until the file holding them falls entirely
+// below the threshold. Caller must hold the lock.
 func (s *commitQCState) deleteBefore(idx types.RoadIndex) error {
 	if idx <= s.persisted.First {
 		return nil
@@ -101,9 +103,9 @@ type CommitQCPersister struct {
 //
 // When stateDir is None, returns a no-op persister.
 //
-// After crash recovery with an empty WAL, LoadNext() returns 0. The caller MUST
-// use PruneAndPersist with the prune CommitQC in Anchor to re-establish the
-// cursor and re-persist the anchor's CommitQC before appending more QCs.
+// After crash recovery with an empty WAL, Next() returns 0. The caller MUST
+// re-establish the cursor by calling PruneAndPersist with deleteBefore set to the
+// first index it intends to append; appending above Next is rejected as a gap.
 func NewCommitQCPersister(stateDir utils.Option[string]) (*CommitQCPersister, []*types.CommitQC, error) {
 	sd, ok := stateDir.Get()
 	if !ok {
@@ -139,23 +141,15 @@ func (cp *CommitQCPersister) Next() types.RoadIndex {
 	panic("unreachable")
 }
 
-// PruneAndPersist optionally truncates the WAL and/or appends new
-// CommitQCs, depending on which arguments are present:
+// PruneAndPersist prunes the WAL below deleteBefore, then appends commitQCs in order and flushes them
+// as one batch. An empty commitQCs prunes only, and a deleteBefore at or below the oldest retained
+// index prunes nothing. Duplicates below the cursor are skipped; a gap above it is an error.
 //
-//   - anchor set, commitQCs non-empty: truncate WAL below anchor, re-persist
-//     the anchor QC for crash recovery, then append new QCs (runtime path).
-//   - anchor set, commitQCs empty:     truncate and re-persist anchor only
-//     (startup prune path).
-//   - anchor empty, commitQCs non-empty: append only, no truncation.
-//   - anchor empty, commitQCs empty:     no-op.
-//
-// Pruning is lazy, so QCs below the anchor may remain on disk for a while; the anchor is what defines
-// which of them are live.
+// Pruning is lazy, so QCs below deleteBefore may remain on disk until the file holding them falls
+// entirely below the threshold.
 //
 // The lock is held for the entire prune-then-append sequence, so callers
 // need not coordinate ordering.
-// afterEach, when present, is called after each successful append. It is
-// invoked while the lock is held, so it must not re-enter the persister.
 func (cp *CommitQCPersister) PruneAndPersist(deleteBefore types.RoadIndex, commitQCs []*types.CommitQC) error {
 	for s := range cp.state.Lock() {
 		if err := s.deleteBefore(deleteBefore); err != nil {

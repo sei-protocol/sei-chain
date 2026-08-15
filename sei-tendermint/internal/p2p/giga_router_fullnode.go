@@ -79,12 +79,14 @@ func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrp
 // sync). This loop is correct for "fresh cluster" and "restart of a
 // near-tip node."
 func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
-	addrs := slices.Collect(maps.Values(r.cfg.ValidatorAddrs))
-	rand.Shuffle(len(addrs), func(i, j int) { addrs[i], addrs[j] = addrs[j], addrs[i] })
-	for i := 0; ; i = (i + 1) % len(addrs) {
-		addr := addrs[i]
+	validators := slices.Collect(maps.Keys(r.cfg.ValidatorAddrs))
+	rand.Shuffle(len(validators), func(i, j int) { validators[i], validators[j] = validators[j], validators[i] })
+	for i := 0; ; i = (i + 1) % len(validators) {
+		validator := validators[i]
+		addr := r.cfg.ValidatorAddrs[validator]
 		err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
-			return r.service.RunClient(ctx, client, true)
+			// Consensus PublicKey (map key), not GigaNodeAddr.Key (p2p NodePublicKey).
+			return r.service.RunClient(ctx, client, validator, true)
 		})
 		logger.Info("fullnode giga connection ended; failing over", "addr", addr, "err", err)
 		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
