@@ -432,3 +432,30 @@ func TestRecoveryBlockGap(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, mid, state.NextBlock(), "replay must resume at the first unfilled number")
 }
+
+func TestNewState_SetupInitialEpochsFromCommitQCSpan(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 4)
+	qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+
+	db := memblock.NewBlockDB()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	writeToBlockDB(t, db, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
+
+	_, err := registry.EpochAt(epoch.FirstRoad(1))
+	require.NoError(t, err, "precondition: genesis epochs 0 and 1 are registered")
+	_, err = registry.EpochAt(epoch.FirstRoad(2))
+	require.Error(t, err, "precondition: epoch 2 absent before NewState")
+
+	_, err = NewState(&Config{Registry: registry}, db)
+	require.NoError(t, err)
+
+	for _, idx := range []types.EpochIndex{0, 1} {
+		if _, err := registry.EpochAt(epoch.FirstRoad(idx)); err != nil {
+			t.Fatalf("EpochAt(epoch %d) after NewState: %v", idx, err)
+		}
+	}
+	if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
+		t.Fatal("epoch 2 should not be seeded from a single epoch-0 CommitQC")
+	}
+}

@@ -103,13 +103,18 @@ func (i inner) View() types.View {
 	return vs.View()
 }
 
-// newInner creates the inner state from persisted data loaded by NewPersister.
-// data is None on fresh start (persistence disabled or no prior state).
-// Returns error if persisted state is corrupt (see persistedInner.validate).
-func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (inner, error) {
+// newInner restores consensus state from avail's ConsensusSpec. The tip CommitQC
+// and next-view epoch always come from the spec. The WAL is kept only for
+// same-view votes / TimeoutQC / PrepareQC when its tip matches the spec.
+// specOpt is None at genesis (no durable tip yet). Returns
+// ErrAvailBehindConsensus when the WAL tip is ahead of the spec.
+func newInner(
+	loaded utils.Option[*pb.PersistedInner],
+	specOpt utils.Option[types.ConsensusSpec],
+	registry *epoch.Registry,
+) (inner, error) {
 	var persisted persistedInner
-
-	if p, ok := data.Get(); ok {
+	if p, ok := loaded.Get(); ok {
 		decoded, err := innerProtoConv.Decode(p)
 		if err != nil {
 			return inner{}, fmt.Errorf("corrupt persisted state: %w", err)
@@ -117,26 +122,50 @@ func newInner(data utils.Option[*pb.PersistedInner], registry *epoch.Registry) (
 		persisted = *decoded
 	}
 
-	// TODO: when AddEpoch is wired, resolve the epoch from the persisted QC/proposal
-	// rather than assuming LatestEpoch — otherwise a restart after an epoch transition
-	// fails validation with an epoch/road mismatch.
-	ep := registry.LatestEpoch()
-	if err := persisted.validate(ep); err != nil {
-		return inner{}, err
+	persistedViewIdx := types.NextIndexOpt(persisted.CommitQC)
+	spec, hasSpec := specOpt.Get()
+	specViewIdx := types.RoadIndex(0)
+	if hasSpec {
+		specViewIdx = spec.CommitQC.Index() + 1
+	}
+	if persistedViewIdx > specViewIdx {
+		return inner{}, fmt.Errorf("%w: persisted tip %d > ConsensusSpec tip %d",
+			ErrAvailBehindConsensus, persistedViewIdx, specViewIdx)
 	}
 
-	logger.Info("restored consensus state", "state", innerProtoConv.Encode(&persisted))
+	if !hasSpec { // genesis: no ConsensusSpec (and thus no WAL CommitQC)
+		ep, ok := registry.EpochByIndex(0)
+		if !ok {
+			panic("genesis epoch 0 not registered")
+		}
+		if err := persisted.validate(ep); err != nil {
+			return inner{}, err
+		}
+		logger.Info("restored consensus state", "state", innerProtoConv.Encode(&persisted))
+		return inner{persistedInner: persisted, epoch: ep}, nil
+	}
 
-	return inner{persistedInner: persisted, epoch: ep}, nil
+	if specViewIdx == persistedViewIdx {
+		// Same tip: take CommitQC from the spec; keep WAL votes / view QCs.
+		out := persisted
+		out.CommitQC = utils.Some(spec.CommitQC)
+		if err := out.validate(spec.Epoch); err != nil {
+			return inner{}, err
+		}
+		logger.Info("restored consensus state", "state", innerProtoConv.Encode(&out))
+		return inner{persistedInner: out, epoch: spec.Epoch}, nil
+	}
+
+	out := persistedInner{CommitQC: utils.Some(spec.CommitQC)}
+	logger.Info("restored consensus state from avail ConsensusSpec", "state", innerProtoConv.Encode(&out))
+	return inner{persistedInner: out, epoch: spec.Epoch}, nil
 }
 
-func (s *State) pushCommitQC(qc *types.CommitQC) error {
-	i := s.innerRecv.Load()
-	if qc.Proposal().Index() < i.View().Index {
+// pushSpecFromAvail installs avail's ConsensusSpec tip and clears per-view state.
+func (s *State) pushSpecFromAvail(spec types.ConsensusSpec) error {
+	qc := spec.CommitQC
+	if qc.Proposal().Index() < s.innerRecv.Load().View().Index {
 		return nil
-	}
-	if err := qc.Verify(i.epoch); err != nil {
-		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for iSend := range s.inner.Lock() {
 		i := iSend.Load()
@@ -144,8 +173,7 @@ func (s *State) pushCommitQC(qc *types.CommitQC) error {
 			return nil
 		}
 		// CommitQC advances to new index; clear all state for new view.
-		// TODO: rotate ep when epoch transitions are wired up.
-		iSend.Store(inner{persistedInner: persistedInner{CommitQC: utils.Some(qc)}, epoch: i.epoch})
+		iSend.Store(inner{persistedInner: persistedInner{CommitQC: utils.Some(spec.CommitQC)}, epoch: spec.Epoch})
 	}
 	return nil
 }

@@ -125,6 +125,14 @@ func (v View) Next() View {
 	return v
 }
 
+// ConsensusSpec is the durable CommitQC tip paired with the epoch of the view
+// that follows it. Avail publishes Option[ConsensusSpec] (None until a tip
+// exists); consensus installs Some values verbatim.
+type ConsensusSpec struct {
+	CommitQC *CommitQC
+	Epoch    *Epoch
+}
+
 // ViewSpec is the full local context for starting a view: justification QCs plus
 // the epoch active at that view. Epoch is required; View(), NextGlobalBlock(), and
 // NextTimestamp() panic if it is nil.

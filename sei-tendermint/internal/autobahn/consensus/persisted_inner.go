@@ -72,12 +72,6 @@ type persistedInner struct {
 // validate checks internal consistency and cryptographic signatures of persisted state.
 // Returns error on corrupt state.
 func (p *persistedInner) validate(ep *types.Epoch) error {
-	if cqc, ok := p.CommitQC.Get(); ok {
-		if err := cqc.Verify(ep); err != nil {
-			return fmt.Errorf("corrupt persisted state: CommitQC failed verification: %w", err)
-		}
-	}
-
 	// TimeoutQC index must equal NextIndexOpt(CommitQC) (i.e., CommitQC.Index+1, or 0 if missing).
 	// Since we persist the entire inner state atomically, a mismatched index is always corrupt.
 	if tqc, ok := p.TimeoutQC.Get(); ok {

@@ -41,6 +41,10 @@ type gigaRouterCommon struct {
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 	proxies utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
 	app     *proxy.Proxy
+	// commitEpoch is data.CommitEpoch() cached at construction so EvmProxy
+	// can Load() without taking the data lock on every call. Used for EVM
+	// tx sharding (Committee.EvmShard).
+	commitEpoch utils.AtomicRecv[*atypes.Epoch]
 
 	// inboundFullnodeCount tracks live non-committee inbound block-sync
 	// connections. Optimistic Add(1) + compare against cap; over-rejects
