@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -100,14 +101,19 @@ func newState(
 	pers utils.Option[persist.Persister[*pb.PersistedInner]],
 	persistedData utils.Option[*pb.PersistedInner],
 ) (*State, error) {
-	initialInner, err := newInner(persistedData, data.Registry())
-	if err != nil {
-		return nil, fmt.Errorf("newInner: %w", err)
-	}
-
 	availState, err := avail.NewState(cfg.Key, data, cfg.PersistentStateDir)
 	if err != nil {
 		return nil, fmt.Errorf("avail.NewState: %w", err)
+	}
+
+	initialInner, err := newInner(
+		persistedData,
+		availState.SubscribeConsensusSpec().Load(),
+		data.Registry(),
+	)
+	if err != nil {
+		_ = availState.Close()
+		return nil, fmt.Errorf("newInner: %w", err)
 	}
 
 	innerSend := utils.Alloc(utils.NewAtomicSend(initialInner))
@@ -123,7 +129,7 @@ func newState(
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
 		commitVotes:  utils.NewMutex(newCommitVotes()),
 
-		myView:        utils.NewAtomicSend(types.ViewSpec{Epoch: initialInner.epoch}),
+		myView:        utils.NewAtomicSend(types.ViewSpec{CommitQC: initialInner.CommitQC, TimeoutQC: initialInner.TimeoutQC, Epoch: initialInner.epoch}),
 		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
 		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
 		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
@@ -132,6 +138,9 @@ func newState(
 	}
 	return s, nil
 }
+
+// ErrAvailBehindConsensus means the consensus WAL tip is ahead of ConsensusSpec.
+var ErrAvailBehindConsensus = errors.New("consensus WAL tip ahead of ConsensusSpec")
 
 // Close releases the availability state's WALs, and with them the exclusive lock each holds on its
 // directory.
@@ -306,15 +315,16 @@ func (s *State) Run(ctx context.Context) error {
 				return nil
 			})
 		})
-		scope.SpawnNamed("pushCommitQC", func() error {
-			// We pull the CommitQC back from "avail" for dissemination. This ensures
-			// that we only push CommitQCs that have been successfully "logged" and
-			// sequenced by the availability layer.
-			return s.avail.LastCommitQC().Iter(ctx, func(ctx context.Context, last utils.Option[*types.CommitQC]) error {
-				if qc, ok := last.Get(); ok {
-					return s.pushCommitQC(qc)
+		scope.SpawnNamed("pushSpecFromAvail", func() error {
+			// We pull the tip back from "avail" for dissemination. This ensures we
+			// only advance on CommitQCs that avail has verified, logged, and paired
+			// with the epoch of the next view — consensus resolves no epochs itself.
+			return s.avail.SubscribeConsensusSpec().Iter(ctx, func(ctx context.Context, specOpt utils.Option[types.ConsensusSpec]) error {
+				spec, ok := specOpt.Get()
+				if !ok {
+					return nil
 				}
-				return nil
+				return s.pushSpecFromAvail(spec)
 			})
 		})
 		scope.SpawnNamed("pushPrepareQC", func() error {

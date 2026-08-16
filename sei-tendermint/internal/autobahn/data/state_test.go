@@ -34,11 +34,14 @@ func newSnapshot() Snapshot {
 
 func snapshot(s *State) Snapshot {
 	for inner := range s.inner.Lock() {
-		aps := maps.Clone(inner.appProposals)
+		qcs := make(map[types.GlobalBlockNumber]*types.FullCommitQC, len(inner.qcs))
+		for n, e := range inner.qcs {
+			qcs[n] = e.qc
+		}
 		return Snapshot{
-			QCs:          maps.Clone(inner.qcs),
+			QCs:          qcs,
 			Blocks:       maps.Clone(inner.blocks),
-			AppProposals: aps,
+			AppProposals: maps.Clone(inner.appProposals),
 		}
 	}
 	panic("unreachable")
@@ -110,6 +113,26 @@ func pushAppQCForBlock(ctx context.Context, state *State, keys []types.SecretKey
 		return err
 	}
 	return state.PushAppQC(ctx, TestAppQC(keys, vote.Proposal()))
+}
+
+func TestCommitEpoch_TracksLatestCommitQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	require.Equal(t, registry.LatestEpoch(), state.CommitEpoch().Load())
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error {
+			return utils.IgnoreCancel(state.Run(ctx))
+		})
+		qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return err
+		}
+		require.Equal(t, registry.LatestEpoch(), state.CommitEpoch().Load())
+		return nil
+	}))
 }
 
 func TestState(t *testing.T) {
@@ -423,6 +446,63 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 	}))
 }
 
+func TestPushAppHash_AdvancesRegistryAtEpochBoundary(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+
+	t.Run("mid-epoch road does not seed epoch 2", func(t *testing.T) {
+		registry, keys := epoch.GenRegistry(rng, 3)
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+		require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+			qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+			if err := state.PushQC(ctx, qc, blocks); err != nil {
+				return err
+			}
+			if err := state.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
+				return err
+			}
+			if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
+				return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Proposal().Index())
+			}
+			return nil
+		}))
+	})
+
+	t.Run("LastRoad does not seed epoch 2", func(t *testing.T) {
+		registry, keys := epoch.GenRegistry(rng, 3)
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+		ep := registry.LatestEpoch()
+		require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+			// A valid QC stamped at the epoch boundary: ProposalAt finalizes one block on
+			// lane 0 starting at ep.FirstBlock(), which a fresh state admits since PushQC
+			// requires global-block contiguity, not road contiguity. block must stay
+			// identical to the one ProposalAt builds, or the header hashes disagree.
+			proposal := types.ProposalAt(ep, types.View{Index: epoch.LastRoad(0), Number: 0})
+			block := types.NewBlock(ep.Committee().Lanes().At(0), 0, types.BlockHeaderHash{}, &types.Payload{})
+			votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
+			for _, k := range keys {
+				votes = append(votes, types.Sign(k, types.NewCommitVote(proposal)))
+			}
+			qc := types.NewFullCommitQC(types.NewCommitQC(votes), []*types.BlockHeader{block.Header()})
+			if qc.QC().Proposal().Index() != epoch.LastRoad(0) {
+				return fmt.Errorf("road = %d, want %d", qc.QC().Proposal().Index(), epoch.LastRoad(0))
+			}
+			if err := state.PushQC(ctx, qc, []*types.Block{block}); err != nil {
+				return err
+			}
+			if err := state.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
+				return err
+			}
+			if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
+				return fmt.Errorf("PushAppHash at LastRoad(0) must not seed epoch 2")
+			}
+			return nil
+		}))
+	})
+}
+
 func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -590,7 +670,7 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 			if inner.first != evictionBound {
 				return fmt.Errorf("after catching up, first = %d, want eviction bound %d", inner.first, evictionBound)
 			}
-			if anchor, ok := inner.anchor.Load().Get(); !ok || anchor.AppQC != inner.appQCs[inner.first] || anchor.CommitQC != inner.qcs[inner.first].QC() {
+			if anchor, ok := inner.anchor.Load().Get(); !ok || anchor.AppQC != inner.appQCs[inner.first] || anchor.CommitQC != inner.qcs[inner.first].qc.QC() {
 				return fmt.Errorf("anchor must cover inner.first %d", inner.first)
 			}
 			for n := gr1.First; n < inner.first; n++ {
@@ -744,7 +824,7 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 			if inner.nextAppProposal >= inner.nextQC {
 				return fmt.Errorf("nextAppProposal = %d, want < nextQC %d", inner.nextAppProposal, inner.nextQC)
 			}
-			fqc := inner.qcs[inner.nextAppProposal]
+			fqc := inner.qcs[inner.nextAppProposal].qc
 			if fqc == nil {
 				return fmt.Errorf("QC %d missing", inner.nextAppProposal)
 			}
