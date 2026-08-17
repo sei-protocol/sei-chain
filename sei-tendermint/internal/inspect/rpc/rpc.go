@@ -83,6 +83,15 @@ func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) (http.Handler, 
 			rpcConfig.MaxBodyBytes,
 			true,
 		)
+		if rpcConfig.IPRateLimitRPS <= 0 || rpcConfig.IPRateLimitBurst <= 0 {
+			logger.Info(
+				"RPC rate-limit admission is enabled but the token bucket is disabled "+
+					"(ip-rate-limit-rps and/or ip-rate-limit-burst <= 0); HTTP 429 throttling will not occur",
+				"module", "rpc-server",
+				"ip-rate-limit-rps", rpcConfig.IPRateLimitRPS,
+				"ip-rate-limit-burst", rpcConfig.IPRateLimitBurst,
+			)
+		}
 	}
 	rootHandler := server.NewRateLimitMiddleware(mux, rateLimitGate)
 	if rpcConfig.IsCorsEnabled() {

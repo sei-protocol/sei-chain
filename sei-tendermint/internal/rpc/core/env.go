@@ -334,6 +334,15 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 			conf.RPC.MaxBodyBytes,
 			true,
 		)
+		if conf.RPC.IPRateLimitRPS <= 0 || conf.RPC.IPRateLimitBurst <= 0 {
+			logger.Info(
+				"RPC rate-limit admission is enabled but the token bucket is disabled "+
+					"(ip-rate-limit-rps and/or ip-rate-limit-burst <= 0); HTTP 429 throttling will not occur",
+				"module", "rpc-server",
+				"ip-rate-limit-rps", conf.RPC.IPRateLimitRPS,
+				"ip-rate-limit-burst", conf.RPC.IPRateLimitBurst,
+			)
+		}
 	}
 
 	// We may expose the RPC over both TCP and a Unix-domain socket.
