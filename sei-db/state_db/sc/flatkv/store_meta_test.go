@@ -491,6 +491,10 @@ func TestCommitStoreGetLatestVersionFallsBackToDiskWhenUnloaded(t *testing.T) {
 // root from the per-DB roots safe. A DB left above the WAL tail holds a block no
 // replay can reconcile, and summing its root with the others would produce a root
 // for a state that never existed — which is what feeds the AppHash.
+//
+// The store holds data here, which is what separates this from an interrupted
+// initialization: the refusal must survive, and the message must report what was
+// observed rather than asserting a cause it cannot distinguish.
 func TestOpenRejectsDataDBAheadOfWAL(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
@@ -515,8 +519,11 @@ func TestOpenRejectsDataDBAheadOfWAL(t *testing.T) {
 
 	err = s2.LoadLatest()
 	require.Error(t, err, "a data DB above the WAL tail must refuse to open")
-	require.ErrorContains(t, err, accountDBDir)
-	require.ErrorContains(t, err, "write-ahead log lost")
+	require.NotContains(t, err.Error(), "no data DB holds any data",
+		"a store holding data must never be reported as a discardable initialization")
+	require.ErrorContains(t, err, accountDBDir, "the message must name the misaligned DB")
+	require.ErrorContains(t, err, storageDBDir, "the message must name the DBs that hold data")
+	require.ErrorContains(t, err, "no replay can reconcile this")
 }
 
 // TestEmptyBlockAdvancesWatermarkAcrossReopen pins that a block touching no data

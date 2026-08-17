@@ -28,7 +28,8 @@ func TestCatchupNoOpWhenWALBehindCommittedVersion(t *testing.T) {
 	}
 	require.Equal(t, int64(3), s.committedVersion)
 
-	require.NoError(t, s.replayIntoMutableStore(0))
+	_, err = s.replayIntoMutableStore(0)
+	require.NoError(t, err)
 	require.Equal(t, int64(3), s.committedVersion)
 }
 
@@ -62,7 +63,8 @@ func TestCatchupRecoversGappedCommitBlockAfterMetadataLag(t *testing.T) {
 	// Rewind only the global watermark to mimic metadata lagging the WAL /
 	// per-DB commits. Catchup should replay the gapped WAL entry at v10.
 	s.committedVersion = 9
-	require.NoError(t, s.replayIntoMutableStore(0))
+	_, err = s.replayIntoMutableStore(0)
+	require.NoError(t, err)
 	require.Equal(t, int64(10), s.committedVersion)
 	require.Equal(t, hashAfterCommit, s.RootHash())
 
@@ -104,7 +106,7 @@ func TestCatchupRejectsWALStartingAfterReplayStart(t *testing.T) {
 
 	// Replay must start at 6, but the WAL begins at 10: blocks 6-9 are gone.
 	s.committedVersion = 5
-	err := s.replayIntoMutableStore(0)
+	_, err := s.replayIntoMutableStore(0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "blocks 6-9 are missing")
 	require.Equal(t, int64(5), s.committedVersion, "committedVersion must not advance over a gap")
@@ -117,7 +119,8 @@ func TestCatchupAcceptsWALStartingExactlyAtReplayStart(t *testing.T) {
 	defer func() { require.NoError(t, s.Close()) }()
 
 	s.committedVersion = 9
-	require.NoError(t, s.replayIntoMutableStore(0))
+	_, err := s.replayIntoMutableStore(0)
+	require.NoError(t, err)
 	require.Equal(t, int64(10), s.committedVersion)
 }
 

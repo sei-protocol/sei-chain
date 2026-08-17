@@ -27,13 +27,25 @@ func versionToBytes(v int64) []byte {
 	return b
 }
 
-// loadLocalMeta loads per-DB metadata by reading separate keys.
+// loadLocalMeta loads per-DB metadata by reading separate keys. A DB missing its version record is
+// reported as one that has never been written, and rejected if it carries any other metadata.
 func loadLocalMeta(db types.KeyValueDB) (*ktype.LocalMeta, error) {
 	meta := &ktype.LocalMeta{}
 
 	versionData, err := db.Get(ktype.MetaVersionKey)
 	if err != nil {
 		if errorutils.IsNotFound(err) {
+			// Metadata is written as a set, so a DB missing its version must hold no metadata at
+			// all. Reporting one that holds some as never-written would hide a lost root behind a
+			// replay that cannot restore it: the hashes are maintained by unmixing the old value
+			// and mixing the new, so re-applying a block whose rows are already on disk cancels
+			// out and leaves those rows uncounted, silently changing the store root.
+			//
+			// Rebuilding the root here instead would mean a full scan of the DB, and unlike an
+			// import or an empty DB this path is not already making one.
+			if err := requireNoMetadata(db); err != nil {
+				return nil, err
+			}
 			return &ktype.LocalMeta{CommittedVersion: 0}, nil
 		}
 		return nil, fmt.Errorf("could not read meta version: %w", err)
@@ -70,9 +82,28 @@ func loadLocalMeta(db types.KeyValueDB) (*ktype.LocalMeta, error) {
 	return meta, nil
 }
 
+// requireNoMetadata returns an error if db holds any key in the _meta/ namespace.
+func requireNoMetadata(db types.KeyValueDB) error {
+	iter, err := db.NewIter(&types.IterOptions{
+		LowerBound: ktype.MetaKeyPrefixBytes,
+		UpperBound: ktype.PrefixEnd(ktype.MetaKeyPrefixBytes),
+	})
+	if err != nil {
+		return fmt.Errorf("open metadata iterator: %w", err)
+	}
+	defer func() { _ = iter.Close() }()
+
+	if iter.Valid() {
+		return fmt.Errorf("flatkv: %s is absent but %s is present; this DB lost its version record, "+
+			"and no replay can rebuild the root it should have",
+			ktype.MetaVersionKey, iter.Key())
+	}
+	return iter.Error()
+}
+
 // loadModuleLtHashes reads every per-module LtHash key ("_meta/x:<module>/hash")
 // from db and returns them keyed by module name. Returns an empty map when the
-// DB carries none (fresh store or a store written before per-module tracking).
+// DB carries none, meaning it has never been written or holds no module's keys.
 func loadModuleLtHashes(db types.KeyValueDB) (map[string]*lthash.LtHash, error) {
 	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: ktype.ModuleLtHashPrefixBytes,
@@ -103,8 +134,7 @@ func loadModuleLtHashes(db types.KeyValueDB) (map[string]*lthash.LtHash, error) 
 
 // loadModuleStats reads every per-module stats key ("_meta/x:<module>/stats")
 // from db and returns them keyed by module name. Returns an empty map when the
-// DB carries none (fresh store or a store written before per-module stats
-// tracking).
+// DB carries none, meaning it has never been written or holds no module's keys.
 func loadModuleStats(db types.KeyValueDB) (map[string]lthash.ModuleStats, error) {
 	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: ktype.ModuleLtHashPrefixBytes,
@@ -134,7 +164,8 @@ func loadModuleStats(db types.KeyValueDB) (map[string]lthash.ModuleStats, error)
 }
 
 // writeLocalMetaToBatch writes per-DB metadata (version + per-DB root LtHash +
-// per-module LtHashes + per-module stats) as separate keys.
+// per-module LtHashes + per-module stats) as separate keys. It rejects a nil
+// ltHash.
 func writeLocalMetaToBatch(
 	batch types.Batch,
 	version int64,
@@ -142,13 +173,18 @@ func writeLocalMetaToBatch(
 	moduleHashes map[string]*lthash.LtHash,
 	moduleStats map[string]lthash.ModuleStats,
 ) error {
+	if ltHash == nil {
+		// The version and the root must be co-present on disk. deriveGlobalState sums the persisted
+		// per-DB roots into the store root, and hydratePerDBState substitutes the identity for a DB
+		// that records none — so a DB carrying a version without a root would contribute nothing to
+		// the store root while holding data, silently omitting its keys from the AppHash.
+		return fmt.Errorf("flatkv: refusing to write metadata for version %d with no root hash", version)
+	}
 	if err := batch.Set(ktype.MetaVersionKey, versionToBytes(version)); err != nil {
 		return fmt.Errorf("set meta version: %w", err)
 	}
-	if ltHash != nil {
-		if err := batch.Set(ktype.MetaLtHashKey, ltHash.Marshal()); err != nil {
-			return fmt.Errorf("set meta hash: %w", err)
-		}
+	if err := batch.Set(ktype.MetaLtHashKey, ltHash.Marshal()); err != nil {
+		return fmt.Errorf("set meta hash: %w", err)
 	}
 	for module, h := range moduleHashes {
 		if h == nil {
@@ -282,9 +318,11 @@ func newPerDBModuleStatsMap() map[string]map[string]lthash.ModuleStats {
 // Implementation notes:
 //   - We persist version = initialVersion - 1 to every per-DB LocalMeta, so
 //     Commit(initialVersion) is ahead of the current watermark.
-//   - Any partial-write crash recovers as "fresh store": the store's watermark
-//     is the minimum per-DB watermark, so an unseeded DB holds it at 0. A retry
-//     with the same initialVersion is idempotent.
+//   - The four writes are not atomic with one another. A crash partway through
+//     leaves some DBs seeded and some not, which the open path recognizes as an
+//     interrupted initialization and discards (see checkDataDBAlignment); the
+//     caller then re-seeds. A retry with any initialVersion is therefore valid,
+//     not only the one that was interrupted.
 //   - LtHashes stay at their zero values (lthash.New()) — a freshly seeded
 //     store has no data, so committed/working LtHashes remain the identity.
 func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
@@ -307,10 +345,6 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
 	for _, ndb := range s.namedDataDBs() {
 		ltHash := s.perDBWorkingLtHash[ndb.dir]
-		if ltHash == nil {
-			ltHash = lthash.New()
-			s.perDBWorkingLtHash[ndb.dir] = ltHash
-		}
 		moduleHashes := s.perDBModuleWorkingLtHash[ndb.dir]
 		moduleStats := s.perDBModuleWorkingStats[ndb.dir]
 		batch := ndb.db.NewBatch()

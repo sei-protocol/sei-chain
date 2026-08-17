@@ -15,12 +15,15 @@ import (
 // replayIntoMutableStore brings this store up to targetVersion from its own WAL, or to the end of the WAL when
 // targetVersion <= 0, and rejects a store whose data DBs did not all reach that version.
 //
+// interruptedInitialization carries checkDataDBAlignment's verdict: it is true only alongside a non-nil error,
+// and marks the one misalignment a caller may discard the store to clear rather than surface.
+//
 // It runs at startup (open/openTo) and during Rollback, never concurrently with live commits.
-func (s *CommitStore) replayIntoMutableStore(targetVersion int64) error {
+func (s *CommitStore) replayIntoMutableStore(targetVersion int64) (interruptedInitialization bool, err error) {
 	if err := s.catchUpFromWAL(targetVersion); err != nil {
-		return err
+		return false, err
 	}
-	return s.requireAlignedDataDBs()
+	return s.checkDataDBAlignment()
 }
 
 // catchUpFromWAL replays this store's own WAL up to targetVersion, or to the end of the WAL when
@@ -92,7 +95,10 @@ func (s *CommitStore) replayIntoReadOnlyCopy(clone *CommitStore, targetVersion i
 	if err := s.feedWALToReadOnlyCopy(clone, targetVersion); err != nil {
 		return err
 	}
-	return clone.requireAlignedDataDBs()
+	// The verdict is discarded on purpose: a clone does not own the data directory, so every
+	// misalignment surfaces here, including the one the mutable open path would repair.
+	_, err := clone.checkDataDBAlignment()
+	return err
 }
 
 // feedWALToReadOnlyCopy replays this store's WAL into clone up to targetVersion, or to the latest WAL block

@@ -86,16 +86,35 @@ func parseModuleKey(key []byte, suffix string) (string, bool) {
 // 0x5F6D657461 ("_meta") — probability ~2^-48 for random addresses and
 // negligible even under CREATE2 brute-force. Misc DB keys must not use
 // the _meta/ prefix.
+//
+// The meta namespace is a cache. Every record in it is derived — the per-DB root and
+// the per-module hashes and stats from a full scan of the DB's keys, the version
+// from whatever wrote them — and it is kept on disk only because that scan is
+// expensive. Consistently with being a cache it is neither hashed nor exported:
+// the LtHash scan and RawGlobalIterator both skip it, so it is outside consensus
+// and a state-synced node rebuilds all of it from the data it imported.
+//
+// A key that would be a source of truth rather than a cached derivation belongs
+// in a module keyspace, the way migration progress does.
 func IsMetaKey(key []byte) bool {
 	return bytes.HasPrefix(key, MetaKeyPrefixBytes)
 }
 
-// LocalMeta stores per-DB version tracking metadata.
-// Version is stored at _meta/version, the per-DB root LtHash at _meta/hash,
-// and per-module LtHashes at _meta/x:<module>/hash.
+// LocalMeta stores one data DB's own view of its committed state, held at
+// _meta/version, _meta/hash and _meta/x:<module>/hash.
+//
+// The version and the root are written together or not at all, so a DB either
+// reports both or has never had metadata written to it: a brand-new DB reports
+// neither, a seeded DB reports a version with the identity root, and a DB that
+// has committed a block reports its real root.
 type LocalMeta struct {
-	CommittedVersion int64          // Current committed version in this DB
-	LtHash           *lthash.LtHash // per-DB root; nil for old format (version-only)
+	// CommittedVersion is the version this DB last committed. It reads as 0 when
+	// no metadata has been written, which is indistinguishable from a genuine 0.
+	CommittedVersion int64
+
+	// LtHash is this DB's root over its own keys. nil only when no metadata has
+	// been written; writeLocalMetaToBatch refuses to record a version without one.
+	LtHash *lthash.LtHash
 
 	// ModuleLtHashes holds the LtHash of each module's keys within this DB,
 	// keyed by module name (e.g. "evm", "gov"). The per-DB root (LtHash)
