@@ -34,6 +34,7 @@ EVM RPCs prefixed by `eth_` and `debug_` on Sei generally follows [Ethereum's sp
   - `debug_getRawBlock`, `debug_getRawHeader`, `debug_getRawReceipts`, `debug_getRawTransaction`
   - `eth_newPendingTransactionFilter`
   - `eth_syncing`
+  - `eth_getProof` — deprecated rather than permanently incompatible; the message directs callers who need proofs to the Sei team.
 
 ## `sei_` prefixed endpoints
 Several `eth_` prefixed endpoints have a `sei_` prefixed counterpart. `eth_` endpoints only have visibility into EVM transactions, whereas `sei_` endpoints have visibility into EVM transactions plus Cosmos transactions that have synthetic EVM receipts.
