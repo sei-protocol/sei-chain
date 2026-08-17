@@ -83,6 +83,11 @@ redirect $BINARY --home $CHAINDIR/$CHAINID gentx validator $delegate $KEYRING --
 sleep 1
 redirect $BINARY --home $CHAINDIR/$CHAINID collect-gentxs
 sleep 1
+jq '.consensus_params["timeout"]["commit"]="1000000000"' $CHAINDIR/$CHAINID/config/genesis.json > $CHAINDIR/$CHAINID/config/tmp_genesis.json
+mv $CHAINDIR/$CHAINID/config/tmp_genesis.json $CHAINDIR/$CHAINID/config/genesis.json
+jq '.consensus_params["timeout"]["propose"]="1000000000"' $CHAINDIR/$CHAINID/config/genesis.json > $CHAINDIR/$CHAINID/config/tmp_genesis.json
+mv $CHAINDIR/$CHAINID/config/tmp_genesis.json $CHAINDIR/$CHAINID/config/genesis.json
+sleep 1
 
 # Check platform
 platform='unknown'
@@ -97,16 +102,12 @@ if [ $platform = 'linux' ]; then
   sed -i 's#"tcp://127.0.0.1:26657"#"tcp://0.0.0.0:'"$RPCPORT"'"#g' $CHAINDIR/$CHAINID/config/config.toml
   sed -i 's#"tcp://0.0.0.0:26656"#"tcp://0.0.0.0:'"$P2PPORT"'"#g' $CHAINDIR/$CHAINID/config/config.toml
   sed -i 's#"localhost:6060"#"localhost:'"$P2PPORT"'"#g' $CHAINDIR/$CHAINID/config/config.toml
-  sed -i 's/timeout_commit = "5s"/timeout_commit = "1s"/g' $CHAINDIR/$CHAINID/config/config.toml
-  sed -i 's/timeout_propose = "3s"/timeout_propose = "1s"/g' $CHAINDIR/$CHAINID/config/config.toml
   sed -i 's/index_all_keys = false/index_all_keys = true/g' $CHAINDIR/$CHAINID/config/config.toml
   # sed -i '' 's#index-events = \[\]#index-events = \["message.action","send_packet.packet_src_channel","send_packet.packet_sequence"\]#g' $CHAINDIR/$CHAINID/config/app.toml
 else
   sed -i '' 's#"tcp://127.0.0.1:26657"#"tcp://0.0.0.0:'"$RPCPORT"'"#g' $CHAINDIR/$CHAINID/config/config.toml
   sed -i '' 's#"tcp://0.0.0.0:26656"#"tcp://0.0.0.0:'"$P2PPORT"'"#g' $CHAINDIR/$CHAINID/config/config.toml
   sed -i '' 's#"localhost:6060"#"localhost:'"$P2PPORT"'"#g' $CHAINDIR/$CHAINID/config/config.toml
-  sed -i '' 's/timeout_commit = "5s"/timeout_commit = "1s"/g' $CHAINDIR/$CHAINID/config/config.toml
-  sed -i '' 's/timeout_propose = "3s"/timeout_propose = "1s"/g' $CHAINDIR/$CHAINID/config/config.toml
   sed -i '' 's/index_all_keys = false/index_all_keys = true/g' $CHAINDIR/$CHAINID/config/config.toml
   # sed -i '' 's#index-events = \[\]#index-events = \["message.action","send_packet.packet_src_channel","send_packet.packet_sequence"\]#g' $CHAINDIR/$CHAINID/config/app.toml
 fi
