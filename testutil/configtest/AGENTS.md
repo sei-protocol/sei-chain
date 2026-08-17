@@ -80,7 +80,7 @@ rows and not for `CheckAbsent` has an unanchored baseline.
 
 **Before adding one.** Advancing coverage is normally wiring an existing check to another
 section, and that is the first thing to try. A new check earns its place by naming a
-failure none of the eight can see. A signature that changes twice, or a second check
+failure none of the seven can see. A signature that changes twice, or a second check
 proposed for a property one of these already touches, is the signal to redesign rather
 than patch.
 
@@ -324,7 +324,7 @@ configtest.CheckDefaults(t, "evm", config.DefaultConfig,
 
 ## Adding a Section
 
-A new section needs six things, and the last three are the ones that are easy to miss:
+A new section needs five things, and the last two are the ones that are easy to miss:
 
 1. `CheckDefaults` against a checked-in `testdata/<section>.golden`.
 2. `CheckAbsent`, asserting that a reader handed no keys returns exactly the
