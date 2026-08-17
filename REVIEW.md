@@ -100,3 +100,38 @@ transaction to land for a sender that is already associated (or already voted)
 at the time of broadcast — then the fee path does apply and the transaction is
 rejected. When in doubt, check `IsTxGasless` for the authoritative set rather
 than reasoning from `minimum-gas-prices` alone.
+
+## 4. Verify live consensus params before flagging timeout-override removal
+
+Legacy `unsafe-*-timeout-override` handling intentionally remained active while
+on-chain timeout parameters matched `types.DefaultTimeoutParams()`. Once governance
+changes the on-chain values, `ConsensusConfig.ResolveTimeouts` already ignores those
+overrides unless `unsafe-overrides-enabled` is explicitly set.
+
+Do not infer current network state from an old source comment or from the historical
+`badParams` value. Before reporting that removing override support will change
+validator timings on restart:
+
+- query `/consensus_params` on each affected live network,
+- compare the returned timeout object with `types.DefaultTimeoutParams()`, and
+- check whether the configuration explicitly enables unsafe overrides.
+
+The removal is not an operational timing change when live params differ from
+`badParams` and unsafe overrides are disabled. It becomes a real finding when an
+affected live network still has default or unset timeout params, or explicitly
+enabled overrides would stop applying without an announced migration.
+
+This does not excuse local harness regressions. Docker, scripts, and test networks
+that relied on overrides must move their intended values into genesis consensus
+params, and tests must inspect the final genesis after gentx collection because
+genesis export helpers may replace `ConsensusParams`.
+
+## 5. Unknown legacy TOML keys do not require placeholder struct fields
+
+The current Viper unmarshalling path ignores unknown TOML keys. Do not claim that
+deprecated placeholder fields are required merely so an existing config file will
+load without error.
+
+Placeholder fields are useful only when their values are consumed, validated, or
+reported. Before requesting compatibility coverage, identify the strict decoder,
+validation call, or warning call site that would otherwise reject or report the key.
