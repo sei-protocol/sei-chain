@@ -16,6 +16,8 @@ var errTooLarge = errors.New("transaction too large")
 var errBadNonce = errors.New("bad nonce")
 var errMempoolFull = errors.New("mempool is full")
 
+var ErrNotProducing = errors.New("not producing")
+
 type blockSpec struct {
 	gasEstimated uint64
 	gasWanted    uint64
@@ -27,8 +29,17 @@ type blockSpec struct {
 	evmNonces map[common.Address]uint64
 }
 
+// mempool is one produce session. State.mempool publishes it; nil means idle.
 type mempool struct {
+	inner utils.Watch[*mempoolInner]
+}
+
+// mempoolInner is the lock-protected session state. The Watch value is fixed for
+// the session; closed ends the session without replacing that pointer.
+type mempoolInner struct {
+	closed    bool
 	capacity  uint64
+	lane      types.LaneID
 	first     types.BlockNumber
 	next      types.BlockNumber
 	blocks    map[types.BlockNumber]*blockSpec
@@ -37,15 +48,28 @@ type mempool struct {
 	evmTxs    map[common.Hash]tmtypes.Tx
 }
 
-func (m *mempool) IsFull() bool {
+func newMempoolInner(capacity uint64, lane types.LaneID, n types.BlockNumber) *mempoolInner {
+	return &mempoolInner{
+		capacity:  capacity,
+		lane:      lane,
+		first:     n,
+		next:      n,
+		blocks:    map[types.BlockNumber]*blockSpec{},
+		nextBlock: &blockSpec{evmNonces: map[common.Address]uint64{}},
+		evmNonces: map[common.Address]uint64{},
+		evmTxs:    map[common.Hash]tmtypes.Tx{},
+	}
+}
+
+func (m *mempoolInner) IsFull() bool {
 	return uint64(m.next-m.first) >= m.capacity && len(m.nextBlock.txs) > 0
 }
 
-func (m *mempool) CanSealBlock(allowEmpty bool) bool {
+func (m *mempoolInner) CanSealBlock(allowEmpty bool) bool {
 	return uint64(m.next-m.first) < m.capacity && (allowEmpty || len(m.nextBlock.txs) > 0)
 }
 
-func (m *mempool) SealBlock() {
+func (m *mempoolInner) SealBlock() {
 	m.blocks[m.next] = m.nextBlock
 	m.next += 1
 	m.nextBlock = &blockSpec{
@@ -56,40 +80,53 @@ func (m *mempool) SealBlock() {
 // TODO(gprusak): this rpc is probably unused, but if it is
 // consider whether unsequenced/unexecuted lane txs should be included here.
 func (s *State) UnconfirmedTxs() [][]byte {
-	for m := range s.mempool.Lock() {
+	mp, ok := s.mempool.Load().Get()
+	if !ok {
+		return nil
+	}
+	for m := range mp.inner.Lock() {
+		if m.closed {
+			return nil
+		}
 		return m.nextBlock.txs
 	}
-	panic("uneachable")
+	panic("unreachable")
 }
 
 func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
-	for m := range s.mempool.Lock() {
-		if nonce, ok := m.evmNonces[addr]; ok {
-			return nonce
+	mp, ok := s.mempool.Load().Get()
+	if !ok {
+		return s.app.EvmNonce(addr)
+	}
+	for m := range mp.inner.Lock() {
+		if !m.closed {
+			if nonce, ok := m.evmNonces[addr]; ok {
+				return nonce
+			}
 		}
 	}
 	return s.app.EvmNonce(addr)
 }
 
 func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
-	for m := range s.mempool.Lock() {
+	mp, ok := s.mempool.Load().Get()
+	if !ok {
+		return nil, false
+	}
+	for m := range mp.inner.Lock() {
+		if m.closed {
+			return nil, false
+		}
 		tx, ok := m.evmTxs[hash]
 		return tx, ok
 	}
 	panic("unreachable")
 }
 
-func (s *State) mempoolFirst() types.BlockNumber {
-	for m := range s.mempool.Lock() {
-		return m.first
-	}
-	panic("unreachable")
-}
-
 // Removes txs from mempool assigned to lane blocks <n.
-func (s *State) pruneMempool(n types.BlockNumber) {
-	for m, ctrl := range s.mempool.Lock() {
-		if n < m.first {
+func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
+	for m, ctrl := range mp.inner.Lock() {
+		if m.closed || n < m.first {
 			return
 		}
 		ctrl.Updated()
@@ -137,12 +174,55 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseChec
 	return s.insertTx(ctx, tx, true)
 }
 
+// getMempool waits until a produce session is published so inserts racing the
+// start of production are admitted. Leave (LocalLane gone) ends the wait with
+// ErrNotProducing — including when clearMempool publishes None after the session ends.
+func (s *State) getMempool(ctx context.Context) (*mempool, error) {
+	if mp, ok := s.mempool.Load().Get(); ok {
+		return mp, nil
+	}
+	if _, ok := s.consensus.Avail().LocalLane().Get(); !ok {
+		return nil, ErrNotProducing
+	}
+	opt, err := s.mempool.Wait(ctx, func(opt utils.Option[*mempool]) bool {
+		if opt.IsPresent() {
+			return true
+		}
+		_, ok := s.consensus.Avail().LocalLane().Get()
+		return !ok
+	})
+	if err != nil {
+		return nil, err
+	}
+	mp, ok := opt.Get()
+	if !ok {
+		return nil, ErrNotProducing
+	}
+	return mp, nil
+}
+
 // Inserts transaction. Blocks until there is capacity in the mempool.
 // NOTE: we currently don't do any tx filtering, which would prevent expensive CheckTxSafe calls.
 // It has to be added after testnet launch.
 func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
 	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
 		return nil, errTooLarge
+	}
+	// Reject / wait for a produce session before CheckTxSafe — IsFull and closed
+	// are checked after, since they can change while CheckTx runs.
+	var mp *mempool
+	var err error
+	if waitIfFull {
+		mp, err = s.getMempool(ctx)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		loaded, ok := s.mempool.Load().Get()
+		if !ok {
+			return nil, ErrNotProducing
+		}
+		mp = loaded
 	}
 	resp, err := s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil {
@@ -164,19 +244,26 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		return nil, errTooLarge
 	}
 
-	for m, ctrl := range s.mempool.Lock() {
-		if waitIfFull {
+	for m, ctrl := range mp.inner.Lock() {
+		if m.closed {
+			return nil, ErrNotProducing
+		}
+		if m.IsFull() && !waitIfFull {
+			return nil, errMempoolFull
+		}
+		for m.IsFull() {
 			// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
 			// in favor of waiting for smaller txs. This simple algorithm allows us to cap
 			// pending txs to size of a single block. We can refine this rule later if needed.
 			// NOTE: in case there are N concurrent InsertTx calls, this condition is reevaluated N times
 			// every time mempool is updated. Depending on proportion of N to the block size it might get too
 			// expensive.
-			if err := ctrl.WaitUntil(ctx, func() bool { return !m.IsFull() }); err != nil {
+			if err := ctrl.Wait(ctx); err != nil {
 				return nil, err
 			}
-		} else if m.IsFull() {
-			return nil, errMempoolFull
+			if m.closed {
+				return nil, ErrNotProducing
+			}
 		}
 		if resp.IsEVM {
 			addr := resp.EVMSenderAddress

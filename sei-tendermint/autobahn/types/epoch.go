@@ -49,3 +49,10 @@ func (e *Epoch) RoadRange() RoadRange          { return e.roads }
 func (e *Epoch) FirstTimestamp() time.Time     { return e.firstTimestamp }
 func (e *Epoch) Committee() *Committee         { return e.committee }
 func (e *Epoch) FirstBlock() GlobalBlockNumber { return e.firstBlock }
+
+// IsClosed reports whether the lane's previous membership period has ended in
+// this epoch: Joined is strictly before this epoch and the lane is absent from
+// this committee.
+func (e *Epoch) IsClosed(lane LaneID) bool {
+	return lane.Joined < e.epochIndex && !e.committee.HasLane(lane)
+}

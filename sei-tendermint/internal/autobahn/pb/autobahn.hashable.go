@@ -4,6 +4,7 @@ package pb
 func (*Timestamp) IsHashable()   {}
 func (*Duration) IsHashable()    {}
 func (*PublicKey) IsHashable()   {}
+func (*LaneID) IsHashable()      {}
 func (*Signature) IsHashable()   {}
 func (*BlockHeader) IsHashable() {}
 func (*Payload) IsHashable()     {}

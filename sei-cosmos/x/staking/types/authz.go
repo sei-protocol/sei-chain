@@ -102,6 +102,16 @@ func (a StakeAuthorization) Accept(ctx sdk.Context, msg sdk.Msg) (authz.AcceptRe
 		return authz.AcceptResponse{Accept: true, Delete: false,
 			Updated: &StakeAuthorization{Validators: a.GetValidators(), AuthorizationType: a.GetAuthorizationType()}}, nil
 	}
+	if a.MaxTokens.Denom != amount.Denom {
+		return authz.AcceptResponse{}, sdkerrors.ErrInvalidRequest.Wrapf(
+			"cannot use %s with a %s staking authorization",
+			amount.Denom,
+			a.MaxTokens.Denom,
+		)
+	}
+	if a.MaxTokens.Amount.LT(amount.Amount) {
+		return authz.AcceptResponse{}, sdkerrors.ErrInsufficientFunds.Wrap("requested amount is more than staking authorization limit")
+	}
 
 	limitLeft := a.MaxTokens.Sub(amount)
 	if limitLeft.IsZero() {

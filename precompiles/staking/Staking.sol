@@ -115,6 +115,51 @@ interface IStaking {
     ) external returns (bool success);
 
     /**
+     * @notice Authorize a grantee to delegate, redelegate, and undelegate within explicit validator and token limits
+     * @param grantee The account receiving the staking authorization
+     * @param allowedValidators Validators the grantee may target. For redelegation this limits destination validators
+     * @param maxTokens Maximum cumulative base-denom amount for each of delegate, redelegate, and undelegate
+     * @param expiration Unix timestamp after which the authorization is invalid
+     * @dev Creates three native StakeAuthorizations with independent maxTokens budgets. They can be used through this precompile or native Cosmos MsgExec
+     * @dev Native MsgExec delegation spends the granter's liquid balance, not the grantee's funds. Grant this permission only to a trusted account
+     */
+    function grantStakingAuthorization(
+        address grantee,
+        string[] memory allowedValidators,
+        uint256 maxTokens,
+        int64 expiration
+    ) external returns (bool success);
+
+    /** @notice Delegate using an authorization granted by delegator. For this EVM method only, the caller supplies msg.value. */
+    function delegateWithAuthorization(
+        address delegator,
+        string memory valAddress
+    ) external payable returns (bool success);
+
+    /**
+     * @notice Redelegate using an authorization granted by delegator
+     * @dev If a destination delegation exists, this first withdraws its accrued rewards to the delegator's configured withdraw address and resets its reward starting info
+     */
+    function redelegateWithAuthorization(
+        address delegator,
+        string memory srcAddress,
+        string memory dstAddress,
+        uint256 amount
+    ) external returns (bool success);
+
+    /** @notice Undelegate using an authorization granted by delegator. */
+    function undelegateWithAuthorization(
+        address delegator,
+        string memory valAddress,
+        uint256 amount
+    ) external returns (bool success);
+
+    /** @notice Revoke a grantee's delegate, redelegate, and undelegate authorization. */
+    function revokeStakingAuthorization(
+        address grantee
+    ) external returns (bool success);
+
+    /**
      * @notice Create a new validator. Delegation amount must be provided as value in wei
      * @param pubKeyHex Ed25519 public key in hex format (64 characters)
      * @param moniker Validator display name

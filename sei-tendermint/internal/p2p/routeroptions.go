@@ -68,7 +68,11 @@ type RouterOptions struct {
 	// MaxDialRate limits the rate at which router is dialing peers.
 	MaxDialRate rate.Limit
 
-	// MaxAcceptRate limits the rate at which router is accepting TCP connections.
+	// MaxAcceptRate limits the sustained rate at which router is accepting TCP
+	// connections; the limiter's burst is MaxConcurrentAccepts. Required — the
+	// default lives on the `accept-interval` config key, not here, and Validate
+	// rejects a zero value rather than letting a construction site inherit a rate
+	// too low to drain the listen backlog.
 	MaxAcceptRate rate.Limit
 
 	// ResolveTimeout is the timeout for resolving NodeAddress URLs.
