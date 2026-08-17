@@ -355,6 +355,10 @@ func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 		select {
 		case <-time.After(r.blocksBehindCheckInterval):
 			selfHeight := r.store.Height()
+			if r.freezeHeight > 0 && selfHeight >= 0 && uint64(selfHeight) >= r.freezeHeight-1 { //nolint:gosec // negative heights are rejected first.
+				r.logger.Info("Auto remediation stopped at configured freeze height", "selfHeight", selfHeight, "freeze_height", r.freezeHeight)
+				return
+			}
 			maxPeerHeight := r.pool.MaxPeerHeight()
 			threshold := int64(r.blocksBehindThreshold)
 			behindHeight := maxPeerHeight - selfHeight
