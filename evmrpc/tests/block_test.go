@@ -148,7 +148,9 @@ func TestBlockBloom(t *testing.T) {
 	signedTx2 := signTxWithMnemonic(txdata2, erc20DeployerMnemonics)
 	tx1 := encodeEvmTx(txdata1, signedTx1)
 	tx2 := encodeEvmTx(txdata2, signedTx2)
-	SetupTestServer(t, [][][]byte{{tx1, tx2}}, erc20Initializer(), mnemonicInitializer(mnemonic1)).Run(
+	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	tx3 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 9, 0)
+	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, erc20Initializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", false)
 			block := res["result"].(map[string]interface{})
@@ -171,8 +173,6 @@ func TestBlockBloom(t *testing.T) {
 
 			expected := make([]byte, ethtypes.BloomByteLength)
 			bitutil.ORBytes(expected, tx1Bloom[:], tx2Bloom[:])
-			require.Equal(t, expected, blockBloom[:])
-
 			require.Equal(t, expected, blockBloom[:])
 		},
 	)

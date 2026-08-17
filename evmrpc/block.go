@@ -25,10 +25,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const (
-	EthNamespace = "eth"
-	SeiNamespace = "sei"
-)
+const EthNamespace = "eth"
 
 // maxBlockReceiptsConcurrency is a hard cap on the number of goroutines
 // eth_getBlockReceipts will fan out to when fetching per-tx receipts.
@@ -69,30 +66,28 @@ func encodeGenesisBlock() map[string]any {
 }
 
 type BlockAPI struct {
-	tmClient             client.LocalClient
-	keeper               *keeper.Keeper
-	ctxProvider          func(int64) sdk.Context
-	txConfigProvider     func(int64) client.TxConfig
-	connectionType       ConnectionType
-	namespace            string
-	includeShellReceipts bool
-	watermarks           *WatermarkManager
-	globalBlockCache     BlockCache
-	cacheCreationMutex   *sync.Mutex
+	tmClient           client.LocalClient
+	keeper             *keeper.Keeper
+	ctxProvider        func(int64) sdk.Context
+	txConfigProvider   func(int64) client.TxConfig
+	connectionType     ConnectionType
+	namespace          string
+	watermarks         *WatermarkManager
+	globalBlockCache   BlockCache
+	cacheCreationMutex *sync.Mutex
 }
 
 func NewBlockAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
 	return &BlockAPI{
-		tmClient:             tmClient,
-		keeper:               k,
-		ctxProvider:          ctxProvider,
-		txConfigProvider:     txConfigProvider,
-		connectionType:       connectionType,
-		includeShellReceipts: false,
-		namespace:            EthNamespace,
-		watermarks:           watermarks,
-		globalBlockCache:     globalBlockCache,
-		cacheCreationMutex:   cacheCreationMutex,
+		tmClient:           tmClient,
+		keeper:             k,
+		ctxProvider:        ctxProvider,
+		txConfigProvider:   txConfigProvider,
+		connectionType:     connectionType,
+		namespace:          EthNamespace,
+		watermarks:         watermarks,
+		globalBlockCache:   globalBlockCache,
+		cacheCreationMutex: cacheCreationMutex,
 	}
 }
 
@@ -145,10 +140,10 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 }
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]any, returnErr error) {
-	return a.getBlockByHash(ctx, blockHash, fullTx, a.includeShellReceipts)
+	return a.getBlockByHash(ctx, blockHash, fullTx)
 }
 
-func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool) (result map[string]any, returnErr error) {
+func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]any, returnErr error) {
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr, recover())
@@ -180,7 +175,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, includeSyntheticTxs, a.globalBlockCache, a.cacheCreationMutex)
+	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]any, returnErr error) {
@@ -188,14 +183,13 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr, recover())
 	}()
-	return a.getBlockByNumber(ctx, number, fullTx, a.includeShellReceipts)
+	return a.getBlockByNumber(ctx, number, fullTx)
 }
 
 func (a *BlockAPI) getBlockByNumber(
 	ctx context.Context,
 	number rpc.BlockNumber,
 	fullTx bool,
-	includeSyntheticTxs bool,
 ) (result map[string]any, returnErr error) {
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
@@ -225,7 +219,7 @@ func (a *BlockAPI) getBlockByNumber(
 	if err = a.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
 		return nil, err
 	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, includeSyntheticTxs, a.globalBlockCache, a.cacheCreationMutex)
+	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, false, a.globalBlockCache, a.cacheCreationMutex)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]any, returnErr error) {
@@ -275,7 +269,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	// Get all tx hashes for the block
 	height := block.Block.Height
 
-	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, shouldIncludeSynthetic(a.namespace), a.cacheCreationMutex, a.globalBlockCache)
+	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, false, a.cacheCreationMutex, a.globalBlockCache)
 
 	// Get tx receipts for all hashes in parallel, with a hard cap on the
 	// goroutine fan-out, so a block with a very large number of txs
@@ -302,7 +296,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 				}
 				return err
 			}
-			encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
+			encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, false, a.globalBlockCache, a.cacheCreationMutex)
 			if err != nil {
 				return err
 			}
@@ -469,7 +463,6 @@ func (a *BlockAPI) getEvmTxCount(block *coretypes.ResultBlock) *hexutil.Uint {
 		a.txConfigProvider,
 		block,
 		a.keeper,
-		a.includeShellReceipts,
 		a.cacheCreationMutex,
 		a.globalBlockCache,
 	)
@@ -482,12 +475,11 @@ func countBlockTxsLikeEncodeTmBlock(
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
 	k *keeper.Keeper,
-	includeShellReceipts bool,
 	cacheCreationMutex *sync.Mutex,
 	globalBlockCache BlockCache,
 ) int {
 	latestCtx := ctxProvider(LatestCtxHeight)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeShellReceipts, cacheCreationMutex, globalBlockCache)
+	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, false, cacheCreationMutex, globalBlockCache)
 	n := 0
 	for _, msg := range msgs {
 		switch m := msg.msg.(type) {

@@ -302,7 +302,7 @@ async function waitForProposalStatus(
 async function associateKey(keyName) {
     try {
         const seiAddress = await getKeySeiAddress(keyName)
-        await execute(`seid tx evm native-associate integration-test --from ${keyName} -b sync`)
+        await execute(`seid tx evm native-associate integration-test --from ${keyName} -b sync -y`)
         await waitForCondition(
             async () => (await getEvmAddressAssociation(seiAddress)).associated === true,
             `${seiAddress} to have an associated EVM address`,
@@ -316,7 +316,7 @@ async function associateKey(keyName) {
 // Strict helper for tests that are explicitly asserting association behavior.
 async function associateKeyStrict(keyName) {
     const seiAddress = await getKeySeiAddress(keyName)
-    await execute(`seid tx evm native-associate integration-test --from ${keyName} -b sync`)
+    await execute(`seid tx evm native-associate integration-test --from ${keyName} -b sync -y`)
     await waitForCondition(
         async () => (await getEvmAddressAssociation(seiAddress)).associated === true,
         `${seiAddress} to have an associated EVM address`,
