@@ -19,9 +19,8 @@ import (
 const StoreTypeSSStore = 100
 
 var (
-	_ types.KVStore         = (*Store)(nil)
-	_ types.Queryable       = (*Store)(nil)
-	_ types.ContextIterator = (*Store)(nil)
+	_ types.KVStore   = (*Store)(nil)
+	_ types.Queryable = (*Store)(nil)
 )
 
 // Store wraps a SS store and implements a cosmos KVStore
@@ -72,23 +71,15 @@ func (st *Store) Delete(_ []byte) {
 }
 
 func (st *Store) Iterator(start, end []byte) types.Iterator {
-	return st.iterator(context.Background(), start, end, true)
-}
-
-func (st *Store) IteratorWithContext(ctx context.Context, start, end []byte) types.Iterator {
-	return st.iterator(ctx, start, end, true)
+	itr, err := st.store.Iterator(st.storeKey.Name(), st.version, start, end)
+	if err != nil {
+		panic(err)
+	}
+	return itr
 }
 
 func (st *Store) ReverseIterator(start, end []byte) types.Iterator {
-	return st.iterator(context.Background(), start, end, false)
-}
-
-func (st *Store) ReverseIteratorWithContext(ctx context.Context, start, end []byte) types.Iterator {
-	return st.iterator(ctx, start, end, false)
-}
-
-func (st *Store) iterator(ctx context.Context, start, end []byte, ascending bool) types.Iterator {
-	itr, err := seidbtypes.IterateWithContext(st.store, ctx, st.storeKey.Name(), st.version, start, end, !ascending)
+	itr, err := st.store.ReverseIterator(st.storeKey.Name(), st.version, start, end)
 	if err != nil {
 		panic(err)
 	}

@@ -1,8 +1,6 @@
 package cosmos
 
 import (
-	"context"
-
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -11,7 +9,6 @@ import (
 
 // Compile-time check: CosmosStateStore implements db_engine.StateStore.
 var _ types.StateStore = (*CosmosStateStore)(nil)
-var _ types.ContextIteratorStore = (*CosmosStateStore)(nil)
 
 // CosmosStateStore wraps a single StateStore (MVCC DB) and satisfies db_engine.StateStore.
 // It is the SS-layer adapter for the main Cosmos state (all non-EVM modules).
@@ -38,14 +35,6 @@ func (s *CosmosStateStore) Iterator(storeKey string, version int64, start, end [
 
 func (s *CosmosStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	return s.db.ReverseIterator(storeKey, version, start, end)
-}
-
-func (s *CosmosStateStore) IteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	return types.IterateWithContext(s.db, ctx, storeKey, version, start, end, false)
-}
-
-func (s *CosmosStateStore) ReverseIteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	return types.IterateWithContext(s.db, ctx, storeKey, version, start, end, true)
 }
 
 func (s *CosmosStateStore) RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error) {

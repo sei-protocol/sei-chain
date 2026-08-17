@@ -1,7 +1,6 @@
 package composite
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -28,7 +27,6 @@ var logger = seilog.NewLogger("db", "state-db", "ss", "composite")
 
 // Compile-time check.
 var _ types.StateStore = (*CompositeStateStore)(nil)
-var _ types.ContextIteratorStore = (*CompositeStateStore)(nil)
 
 // CompositeStateStore routes operations between Cosmos_SS and EVM_SS.
 // Both are db_engine.StateStore; the composite itself also implements db_engine.StateStore.
@@ -207,20 +205,6 @@ func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, st
 		return s.evmStore.ReverseIterator(storeKey, version, start, end)
 	}
 	return s.cosmosStore.ReverseIterator(storeKey, version, start, end)
-}
-
-func (s *CompositeStateStore) IteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	if s.evmRouted(storeKey) {
-		return types.IterateWithContext(s.evmStore, ctx, storeKey, version, start, end, false)
-	}
-	return types.IterateWithContext(s.cosmosStore, ctx, storeKey, version, start, end, false)
-}
-
-func (s *CompositeStateStore) ReverseIteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	if s.evmRouted(storeKey) {
-		return types.IterateWithContext(s.evmStore, ctx, storeKey, version, start, end, true)
-	}
-	return types.IterateWithContext(s.cosmosStore, ctx, storeKey, version, start, end, true)
 }
 
 func (s *CompositeStateStore) RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error) {

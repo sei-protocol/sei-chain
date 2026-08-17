@@ -1,8 +1,6 @@
 package baseapp
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"runtime/debug"
 
@@ -80,23 +78,6 @@ func newOCCAbortRecoveryMiddleware(next recoveryMiddleware) recoveryMiddleware {
 				abort.DependentTxIdx, abort.Err,
 			),
 		)
-	}
-
-	return newRecoveryMiddleware(handler, next)
-}
-
-// newContextCancelledRecoveryMiddleware recovers a store access that panicked
-// because the caller's context was cancelled or exceeded its deadline.
-func newContextCancelledRecoveryMiddleware(next recoveryMiddleware) recoveryMiddleware {
-	handler := func(recoveryObj interface{}) error {
-		err, ok := recoveryObj.(error)
-		if !ok {
-			return nil
-		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return err
-		}
-		return nil
 	}
 
 	return newRecoveryMiddleware(handler, next)

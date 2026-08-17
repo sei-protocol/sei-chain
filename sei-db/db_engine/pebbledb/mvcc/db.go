@@ -31,8 +31,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
-var _ types.ContextIteratorStore = (*Database)(nil)
-
 const (
 	VersionSize = 8
 
@@ -542,25 +540,19 @@ func (db *Database) compactPrunedRange(first, last []byte) error {
 // Iterator dispatches between descending- and ascending-mode implementations
 // depending on the on-disk encoding detected at open time.
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	return db.IteratorWithContext(context.Background(), storeKey, version, start, end)
-}
-
-func (db *Database) IteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if db.descending {
-		return db.iteratorDescending(ctx, storeKey, version, start, end)
+		return db.iteratorDescending(storeKey, version, start, end)
 	}
-	return db.iteratorAscending(ctx, storeKey, version, start, end)
+	return db.iteratorAscending(storeKey, version, start, end)
 }
 
+// ReverseIterator dispatches between descending- and ascending-mode
+// implementations depending on the on-disk encoding detected at open time.
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	return db.ReverseIteratorWithContext(context.Background(), storeKey, version, start, end)
-}
-
-func (db *Database) ReverseIteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if db.descending {
-		return db.reverseIteratorDescending(ctx, storeKey, version, start, end)
+		return db.reverseIteratorDescending(storeKey, version, start, end)
 	}
-	return db.reverseIteratorAscending(ctx, storeKey, version, start, end)
+	return db.reverseIteratorAscending(storeKey, version, start, end)
 }
 
 // ---------------------------------------------------------------------------
@@ -762,7 +754,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	return db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
 }
 
-func (db *Database) iteratorDescending(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) iteratorDescending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -785,10 +777,10 @@ func (db *Database) iteratorDescending(ctx context.Context, storeKey string, ver
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return finishMVCCIterator(newPebbleDBIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, db.config.UseDefaultComparer, storeKey, db.operationMetrics))
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, db.config.UseDefaultComparer, storeKey, db.operationMetrics), nil
 }
 
-func (db *Database) reverseIteratorDescending(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) reverseIteratorDescending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -811,7 +803,7 @@ func (db *Database) reverseIteratorDescending(ctx context.Context, storeKey stri
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return finishMVCCIterator(newPebbleDBIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, db.config.UseDefaultComparer, storeKey, db.operationMetrics))
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, db.config.UseDefaultComparer, storeKey, db.operationMetrics), nil
 }
 
 func getMVCCSliceDescending(db *pebble.DB, storeKey string, key []byte, version int64) (_ []byte, err error) {

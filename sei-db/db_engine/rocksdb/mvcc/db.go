@@ -5,7 +5,6 @@ package mvcc
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -348,14 +347,6 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	readOpts := newTSReadOptions(version)
 	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
 	return NewRocksDBIterator(itr, readOpts, prefix, start, end, version, db.earliestVersion, true), nil
-}
-
-func (db *Database) IteratorWithContext(_ context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	return db.Iterator(storeKey, version, start, end)
-}
-
-func (db *Database) ReverseIteratorWithContext(_ context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
-	return db.ReverseIterator(storeKey, version, start, end)
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
