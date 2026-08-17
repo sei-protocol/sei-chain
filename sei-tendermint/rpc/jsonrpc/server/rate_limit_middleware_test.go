@@ -300,24 +300,25 @@ func TestRateLimitMiddleware_GETRootWithBodyRateLimited(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
 }
 
-func TestRateLimitMiddleware_OPTIONSExempt(t *testing.T) {
+func TestRateLimitMiddleware_OPTIONSNotExempt(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
 	gate := NewRateLimitGate(reg, 0, true)
-	called := false
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
 		w.WriteHeader(http.StatusOK)
 	})
 	h := NewRateLimitMiddleware(inner, gate)
 
-	for i := 0; i < 3; i++ {
-		req := httptest.NewRequest(http.MethodOptions, "/status", nil)
-		req.RemoteAddr = "203.0.113.1:1"
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusOK, rec.Code)
-	}
-	require.True(t, called)
+	req1 := httptest.NewRequest(http.MethodOptions, "/status", nil)
+	req1.RemoteAddr = "203.0.113.1:1"
+	rec1 := httptest.NewRecorder()
+	h.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	req2 := httptest.NewRequest(http.MethodOptions, "/status", nil)
+	req2.RemoteAddr = "203.0.113.1:1"
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, req2)
+	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
 }
 
 func TestRateLimitMiddleware_POST_RejectionEmitsMetric(t *testing.T) {
