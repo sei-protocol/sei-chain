@@ -165,11 +165,54 @@ func baselineLayer(mode Mode) (Layer, error) {
 		if err != nil {
 			return out, fmt.Errorf("section %q baseline for mode %q: %w", s.Name, mode, err)
 		}
+		if err := matchesDeclaration(s.Keys, values); err != nil {
+			return out, fmt.Errorf("section %q baseline for mode %q: %w", s.Name, mode, err)
+		}
 		for k, v := range values {
 			out.Values[k] = v
 		}
 	}
 	return out, nil
+}
+
+// matchesDeclaration reports whether a rendered baseline states one value for each declared key.
+//
+// A declared key its baseline omits cannot resolve, and neither way of filling the hole is honest. A
+// zero value claims a judgement the binary never made, and dropping the key from the declared set
+// makes an operator's written value indistinguishable from a typo. An optional subtree left nil is
+// how a baseline arrives short, because the type walk unwraps a pointer to derive its keys and the
+// value walk skips a nil one rather than claiming defaults the section does not have.
+//
+// A baseline carrying a key the section does not declare means it is not the registered struct's
+// type, which is the general case the missing keys are one instance of.
+func matchesDeclaration(declared []string, values map[string]any) error {
+	stated := make(map[string]bool, len(declared))
+	var missing, extra []string
+	for _, k := range declared {
+		stated[k] = true
+		if _, ok := values[k]; !ok {
+			missing = append(missing, k)
+		}
+	}
+	for k := range values {
+		if !stated[k] {
+			extra = append(extra, k)
+		}
+	}
+	sort.Strings(missing)
+	sort.Strings(extra)
+	switch {
+	case len(missing) > 0 && len(extra) > 0:
+		return fmt.Errorf("baseline states %v while the section declares %v, so the baseline is not "+
+			"the registered struct's type", extra, missing)
+	case len(missing) > 0:
+		return fmt.Errorf("declares %v and its baseline states no value for them; a section states a "+
+			"value for every key it declares, or declares against a struct without the field", missing)
+	case len(extra) > 0:
+		return fmt.Errorf("baseline states %v, which the section does not declare, so the baseline "+
+			"carries fields the registered struct does not", extra)
+	}
+	return nil
 }
 
 // sectionValues walks a section's struct instance and returns its per-key values.
@@ -225,6 +268,12 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 		}
 
 		if squash {
+			// The guard walk has on the type side. Without it a baseline whose type squashes a
+			// non-struct reaches NumField on a string, and Resolve panics in a package whose whole
+			// posture is that a bad registration never does.
+			if fv.Kind() != reflect.Struct {
+				return fmt.Errorf("%s.%s is squashed but is a %s, not a struct", prefix, f.Name, fv.Kind())
+			}
 			if err := walkValues(fv, prefix, out); err != nil {
 				return err
 			}

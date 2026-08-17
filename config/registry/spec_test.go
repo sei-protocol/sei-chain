@@ -619,3 +619,81 @@ func TestEnvLayerIsDrivenByTheDeclaredSet(t *testing.T) {
 		t.Errorf("the declared key resolved to %#v, want false", l.Values["giga_executor.occ_enabled"])
 	}
 }
+
+// TestEveryDeclaredKeyResolves holds Resolve to the property its documentation states.
+//
+// A section whose baseline leaves an optional subtree nil declares keys the baseline states no value
+// for, because the type walk unwraps a pointer to derive its keys and the value walk skips a nil one.
+// Either every declared key resolves, or Resolve names the ones that cannot. A silent hole is the
+// worse of the two: Overrides never reports the key and From answers ok=false, so a diagnostic that
+// renders Keys and calls From prints nothing for it and looks correct.
+func TestEveryDeclaredKeyResolves(t *testing.T) {
+	type inner struct {
+		Cert string `mapstructure:"cert"`
+	}
+	type optional struct {
+		Name string `mapstructure:"name"`
+		TLS  *inner `mapstructure:"tls"`
+	}
+
+	registry.Reset()
+	registry.RegisterSection("svc", &optional{}, func(registry.Mode) any {
+		return optional{Name: "n"} // TLS left nil, which is how a baseline arrives short
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("registering the probe section produced a defect: %v", d.Err)
+	}
+
+	for _, m := range registry.Modes() {
+		res, err := registry.Resolve(m)
+		if err != nil {
+			// A named refusal is an answer. A resolution missing a declared key is not.
+			continue
+		}
+		for _, key := range registry.Keys() {
+			if _, ok := res.From(key); !ok {
+				t.Errorf("mode %s: %q is declared and has no resolution, so a caller iterating Keys "+
+					"and calling From is handed an absence the documentation rules out", m, key)
+			}
+		}
+	}
+}
+
+// TestADivergentBaselineIsRefusedRatherThanPanicking pins the other half of the same seam.
+//
+// The two walks share tagOf and are meant to traverse the same type, and nothing held them to it: the
+// prototype's type derives the keys while whatever Defaults returns supplies the values. A baseline
+// whose type squashes a non-struct reached reflect.NumField on a string, so Resolve panicked in a
+// package whose stated posture is that a bad registration never does.
+func TestADivergentBaselineIsRefusedRatherThanPanicking(t *testing.T) {
+	// Both embedded types are exported on purpose. An unexported embed is skipped before its squash
+	// tag is read, so a probe using one would pass while exercising nothing.
+	type Good struct {
+		Addr string `mapstructure:"addr"`
+	}
+	type prototype struct {
+		Good `mapstructure:",squash"`
+		Name string `mapstructure:"name"`
+	}
+	type NotAStruct string
+	type divergent struct {
+		NotAStruct `mapstructure:",squash"`
+		Name       string `mapstructure:"name"`
+	}
+
+	registry.Reset()
+	registry.RegisterSection("svc", &prototype{}, func(registry.Mode) any { return divergent{Name: "n"} })
+	for _, d := range registry.Defects() {
+		t.Fatalf("the prototype is valid and should register cleanly, got: %v", d.Err)
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Resolve panicked on a divergent baseline: %v", r)
+		}
+	}()
+	if _, err := registry.Resolve(registry.ModeFull); err == nil {
+		t.Error("a baseline whose type is not the registered struct's resolved without complaint, so " +
+			"every declared key silently carried no value")
+	}
+}
