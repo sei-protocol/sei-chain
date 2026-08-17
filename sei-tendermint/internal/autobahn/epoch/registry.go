@@ -10,6 +10,7 @@ import (
 )
 
 // EpochLength is the number of road indices per epoch.
+// TODO: move on-chain when epoch length becomes configurable.
 const EpochLength types.RoadIndex = 108_000
 
 // IndexForRoad returns the epoch index containing road.
@@ -137,7 +138,7 @@ func (r *Registry) ActivateEpoch(
 			}
 			next++
 		}
-		prev := s.m[next-1]
+		prev := s.m[s.latest]
 		committee, err := prev.Committee().DeriveNext(weights, next)
 		if err != nil {
 			return nil, err

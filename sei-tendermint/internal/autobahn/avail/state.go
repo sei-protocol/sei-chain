@@ -345,9 +345,12 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	}
 	lane := h.Lane()
 	n := h.BlockNumber()
+	if err := types.VerifyLaneProposalPayloadAndSignature(p); err != nil {
+		return err
+	}
 	for inner, ctrl := range s.inner.Lock() {
 		if !laneAcceptedUnder(inner, func(ep *types.Epoch) bool {
-			return laneProposalAcceptedByEpoch(ep, p)
+			return p.Msg().VerifyCommitteeMembership(ep.Committee()) == nil
 		}) {
 			return nil
 		}
@@ -403,6 +406,9 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	h := vote.Msg().Header()
 	lane := h.Lane()
 	n := h.BlockNumber()
+	if err := vote.VerifySignature(); err != nil {
+		return fmt.Errorf("VerifySignature(): %w", err)
+	}
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			q, ok := inner.votes[lane]
@@ -420,13 +426,13 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		if n < q.first {
 			return nil
 		}
-		applied := inner.epoch.Load()
 		// TODO: accept future-epoch joiner votes.
 		if !laneAcceptedUnder(inner, func(ep *types.Epoch) bool {
-			return laneVoteAcceptedByEpoch(ep, vote)
+			return laneVoteCommitteeOK(ep, vote)
 		}) {
 			return nil
 		}
+		applied := inner.epoch.Load()
 		for q.next <= n {
 			q.pushBack(newBlockVotes())
 		}
@@ -437,16 +443,10 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	return nil
 }
 
-// laneVoteAcceptedByEpoch reports whether vote verifies under ep's committee.
-func laneVoteAcceptedByEpoch(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) bool {
+// laneVoteCommitteeOK reports whether the vote's header lane and signer are in ep's committee.
+func laneVoteCommitteeOK(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) bool {
 	c := ep.Committee()
-	return vote.Msg().Verify(c) == nil && vote.VerifySig(c) == nil
-}
-
-// laneProposalAcceptedByEpoch reports whether p verifies under ep's committee.
-func laneProposalAcceptedByEpoch(ep *types.Epoch, p *types.Signed[*types.LaneProposal]) bool {
-	c := ep.Committee()
-	return p.Msg().Verify(c) == nil && p.VerifySig(c) == nil
+	return vote.Msg().Verify(c) == nil && c.HasReplica(vote.Key())
 }
 
 // laneAcceptedUnder reports whether accept holds for the applied epoch, or for

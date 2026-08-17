@@ -262,8 +262,13 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 	}
 	for _, b := range suffix.Blocks {
 		entry := inner.qcs[b.Number]
-		if err := b.Block.Verify(entry.epoch.Committee()); err != nil {
-			return nil, fmt.Errorf("verify block %d from BlockStore: %w", b.Number, err)
+		c := entry.epoch.Committee()
+		prop := types.NewLaneProposal(b.Block)
+		if err := prop.VerifyPayload(); err != nil {
+			return nil, fmt.Errorf("verify block %d payload from BlockStore: %w", b.Number, err)
+		}
+		if err := prop.VerifyCommitteeMembership(c); err != nil {
+			return nil, fmt.Errorf("verify block %d membership from BlockStore: %w", b.Number, err)
 		}
 		if err := inner.insertBlock(b.Number, b.Block); err != nil {
 			return nil, fmt.Errorf("insert block %d from BlockStore: %w", b.Number, err)
@@ -343,8 +348,12 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	committee := ep.Committee()
 	for _, b := range blocks {
 		byHash[b.Header().Hash()] = b
-		if err := b.Verify(committee); err != nil {
-			return fmt.Errorf("b.Verify(): %w", err)
+		prop := types.NewLaneProposal(b)
+		if err := prop.VerifyPayload(); err != nil {
+			return fmt.Errorf("VerifyPayload(): %w", err)
+		}
+		if err := prop.VerifyCommitteeMembership(committee); err != nil {
+			return fmt.Errorf("VerifyCommitteeMembership(): %w", err)
 		}
 	}
 	// Atomically insert QC and blocks.
@@ -403,8 +412,12 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		ep = inner.qcs[n].epoch
 	}
 	// Verify outside the lock against the epoch stashed with the QC.
-	if err := block.Verify(ep.Committee()); err != nil {
-		return fmt.Errorf("block.Verify(): %w", err)
+	prop := types.NewLaneProposal(block)
+	if err := prop.VerifyPayload(); err != nil {
+		return fmt.Errorf("VerifyPayload(): %w", err)
+	}
+	if err := prop.VerifyCommitteeMembership(ep.Committee()); err != nil {
+		return fmt.Errorf("VerifyCommitteeMembership(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		// insertBlock may no-op if n fell into the contiguous prefix (or was

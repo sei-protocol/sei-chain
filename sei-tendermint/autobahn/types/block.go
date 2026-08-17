@@ -139,17 +139,6 @@ func (b *Block) Header() *BlockHeader { return b.header }
 // Payload .
 func (b *Block) Payload() *Payload { return b.payload }
 
-// Verify validates the Block.
-func (b *Block) Verify(c *Committee) error {
-	if err := b.Header().Verify(c); err != nil {
-		return fmt.Errorf("header.Verify(): %w", err)
-	}
-	if got, want := b.Payload().Hash(), b.Header().PayloadHash(); got != want {
-		return fmt.Errorf("payload.Hash() = %v, want %v", got, want)
-	}
-	return nil
-}
-
 // Hash of the BlockHeader.
 func (h *BlockHeader) Hash() BlockHeaderHash {
 	return BlockHeaderHash(hashable.ToHash(BlockHeaderConv.Encode(h)))

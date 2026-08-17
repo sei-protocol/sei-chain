@@ -22,9 +22,30 @@ func NewLaneProposal(block *Block) *LaneProposal {
 // Block .
 func (m *LaneProposal) Block() *Block { return m.block }
 
-// Verify verifies that the LaneProposal is consistent with the Committee.
-func (m *LaneProposal) Verify(c *Committee) error {
-	return m.block.Verify(c)
+// VerifyPayload checks that the payload hashes to the header payload hash.
+func (m *LaneProposal) VerifyPayload() error {
+	b := m.block
+	if got, want := b.payload.Hash(), b.header.payloadHash; got != want {
+		return fmt.Errorf("payload.Hash() = %v, want %v", got, want)
+	}
+	return nil
+}
+
+// VerifyCommitteeMembership checks that the proposal's lane is in the committee.
+func (m *LaneProposal) VerifyCommitteeMembership(c *Committee) error {
+	return m.block.header.Verify(c)
+}
+
+// VerifyLaneProposalPayloadAndSignature verifies payload hash and signature. It
+// does not check committee membership.
+func VerifyLaneProposalPayloadAndSignature(p *Signed[*LaneProposal]) error {
+	if err := p.Msg().VerifyPayload(); err != nil {
+		return fmt.Errorf("VerifyPayload(): %w", err)
+	}
+	if err := p.VerifySignature(); err != nil {
+		return fmt.Errorf("VerifySignature(): %w", err)
+	}
+	return nil
 }
 
 // LaneProposalConv is a protobuf converter for LaneProposal.
