@@ -3,6 +3,7 @@ package config
 import (
 	"testing"
 
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -40,4 +41,13 @@ func TestOCCEnabled(t *testing.T) {
 func TestDefaultSwaggerConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.API.Swagger)
+}
+
+func TestGetConfigRejectsNegativeFreezeHeight(t *testing.T) {
+	v := viper.New()
+	v.Set("telemetry.global-labels", []interface{}{})
+	v.Set("freeze-height", -1)
+
+	_, err := GetConfig(v)
+	require.Error(t, err)
 }
