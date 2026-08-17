@@ -3,6 +3,7 @@ package mvcc
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -43,14 +44,17 @@ type iterator struct {
 }
 
 func abortIfCancelled(ctx context.Context) error {
-	if ctx == nil {
+	if ctx == nil || ctx.Done() == nil {
 		return nil
 	}
 	return ctx.Err()
 }
 
+// finishMVCCIterator returns a construction-time cancel or deadline as an
+// error so the caller can abort. Other iterator errors stay on the iterator.
 func finishMVCCIterator(itr dbm.Iterator) (dbm.Iterator, error) {
-	if err := itr.Error(); err != nil {
+	err := itr.Error()
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		_ = itr.Close()
 		return nil, err
 	}

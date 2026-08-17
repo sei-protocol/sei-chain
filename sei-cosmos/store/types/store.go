@@ -259,9 +259,10 @@ type ContextIterator interface {
 	ReverseIteratorWithContext(ctx context.Context, start, end []byte) Iterator
 }
 
-// IteratorOn iterates store, using ctx when store implements ContextIterator.
+// IteratorOn iterates store, using ctx when store implements ContextIterator
+// and ctx can be cancelled.
 func IteratorOn(store KVStore, ctx context.Context, start, end []byte, ascending bool) Iterator {
-	if ctx != nil {
+	if ctx != nil && ctx.Done() != nil {
 		if ci, ok := store.(ContextIterator); ok {
 			if ascending {
 				return ci.IteratorWithContext(ctx, start, end)
