@@ -25,3 +25,25 @@ func TestSetFreezeHeightDisabled(t *testing.T) {
 
 	require.False(t, cs.frozen.Load())
 }
+
+func TestFrozenStateDoesNotWriteNewStepToWAL(t *testing.T) {
+	wal := &countingWAL{}
+	cs := &State{wal: wal}
+
+	cs.newStep()
+	require.Equal(t, 1, wal.writes)
+
+	cs.frozen.Store(true)
+	cs.newStep()
+	require.Equal(t, 1, wal.writes)
+}
+
+type countingWAL struct {
+	nilWAL
+	writes int
+}
+
+func (w *countingWAL) Write(WALMessage) error {
+	w.writes++
+	return nil
+}
