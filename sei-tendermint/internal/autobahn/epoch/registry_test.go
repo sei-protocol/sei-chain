@@ -192,6 +192,41 @@ func TestActivateEpoch_SkipsExistingSeeds(t *testing.T) {
 	require.Equal(t, 1, ep.Committee().Lanes().Len())
 }
 
+func TestActivateEpoch_RejoinJoinedFromLatestNotPlaceholder(t *testing.T) {
+	rng := utils.TestRng()
+	a := types.GenSecretKey(rng)
+	b := types.GenSecretKey(rng)
+	committee := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
+		a.Public(): 1, b.Public(): 1,
+	}))
+	r := utils.OrPanic1(NewRegistry(committee, 0, time.Time{}))
+	r.SetupInitialEpochs(utils.None[types.RoadRange]())
+
+	epLeave, err := r.ActivateEpoch(
+		map[types.PublicKey]uint64{b.Public(): 1},
+		time.Time{}, r.FirstBlock(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(2), epLeave.EpochIndex())
+	require.False(t, epLeave.Committee().HasReplica(a.Public()))
+
+	// Seed a genesis-committee placeholder ahead of latest. Deriving from that
+	// slot would treat A as still present and keep Joined=0.
+	r.AdvanceIfNeeded(LastRoad(2))
+	seeded, ok := r.EpochByIndex(3)
+	require.True(t, ok)
+	require.True(t, seeded.Committee().HasReplica(a.Public()))
+
+	epJoin, err := r.ActivateEpoch(
+		map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
+		time.Time{}, r.FirstBlock(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(4), epJoin.EpochIndex())
+	lane := epJoin.Committee().Lane(a.Public()).OrPanic("rejoin")
+	require.Equal(t, types.EpochIndex(4), lane.Joined)
+}
+
 func TestWaitForEpoch_FastPathAndWait(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, _ := makeRegistry(t)
