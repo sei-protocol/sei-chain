@@ -337,7 +337,8 @@ func testStateLockNoPOL(t *testing.T) {
 	// Deflake: when cs1 is proposer in round 3, proposal construction can race
 	// timeoutPropose on loaded CI runners and force an early prevote nil.
 	cs1.state.ConsensusParams.Timeout.Propose = time.Second
-	cs1.state.ConsensusParams.Timeout.ProposeDelta = 0
+	cs1.state.ConsensusParams.Timeout.ProposeDelta = time.Nanosecond
+	cs1.state.ConsensusParams.Timeout.Commit = 50 * time.Millisecond
 	vs2 := vss[1]
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
 	round = cs1.findStartRoundForLocalLeaderPattern(ctx, t, height, round, []bool{true, false, true, false}, 64)
@@ -1242,7 +1243,8 @@ func TestStateLock_POLSafety1(t *testing.T) {
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	// Deflake: SetProposalAndBlock in round 2 can race timeoutPropose under CI load.
 	cs1.state.ConsensusParams.Timeout.Propose = time.Second
-	cs1.state.ConsensusParams.Timeout.ProposeDelta = 0
+	cs1.state.ConsensusParams.Timeout.ProposeDelta = time.Nanosecond
+	cs1.state.ConsensusParams.Timeout.Commit = 50 * time.Millisecond
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
 	round = cs1.findStartRoundForLocalLeaderPattern(ctx, t, height, round, []bool{true, false, false}, 128)

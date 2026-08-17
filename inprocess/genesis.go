@@ -42,9 +42,8 @@ type genesisBuilder struct {
 	chainID   string
 	bondDenom string
 
-	timeoutCommit time.Duration
-	accounts      []authtypes.GenesisAccount
-	balances      []banktypes.Balance
+	accounts []authtypes.GenesisAccount
+	balances []banktypes.Balance
 }
 
 // fundValidator stores a validator operator key in kb, funds its genesis account
@@ -154,7 +153,6 @@ func (b *genesisBuilder) writeBaseGenesis(baseState map[string]json.RawMessage, 
 		Validators:      nil, // empty-valset invariant: derive valset from InitChain.
 		ConsensusParams: tmtypes.DefaultConsensusParams(),
 	}
-	genDoc.ConsensusParams.Timeout.Commit = b.timeoutCommit
 	for _, gf := range genFiles {
 		if err := genDoc.SaveAs(gf); err != nil {
 			return err
@@ -166,7 +164,7 @@ func (b *genesisBuilder) writeBaseGenesis(baseState map[string]json.RawMessage, 
 // collectGentxs folds every validator's gentx into each node's genesis app state
 // under one canonical genesis time (consensus timestamp validation diverges if
 // the nodes disagree on GenesisTime). Mirrors collectGenFiles.
-func (b *genesisBuilder) collectGentxs(nodes []*node, gentxsDir string) error {
+func (b *genesisBuilder) collectGentxs(nodes []*node, gentxsDir string, timeoutCommit time.Duration) error {
 	genTime := tmtime.Now()
 	for _, n := range nodes {
 		initCfg := genutiltypes.NewInitConfig(b.chainID, gentxsDir, n.nodeID, n.pubKey)
@@ -181,7 +179,7 @@ func (b *genesisBuilder) collectGentxs(nodes []*node, gentxsDir string) error {
 		if err != nil {
 			return err
 		}
-		if err := genutil.ExportGenesisFileWithTime(genFile, b.chainID, nil, appState, genTime); err != nil {
+		if err := genutil.ExportGenesisFileWithTime(genFile, b.chainID, nil, timeoutCommit, appState, genTime); err != nil {
 			return err
 		}
 	}

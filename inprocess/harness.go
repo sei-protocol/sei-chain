@@ -191,11 +191,10 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 
 	enc := app.MakeEncodingConfig()
 	gb := &genesisBuilder{
-		codec:         enc.Marshaler,
-		txConfig:      enc.TxConfig,
-		chainID:       opts.ChainID,
-		bondDenom:     sdk.DefaultBondDenom,
-		timeoutCommit: opts.TimeoutCommit,
+		codec:     enc.Marshaler,
+		txConfig:  enc.TxConfig,
+		chainID:   opts.ChainID,
+		bondDenom: sdk.DefaultBondDenom,
 	}
 
 	if err := net.provisionNodes(enc, gb); err != nil {
@@ -213,7 +212,7 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 	if err := gb.writeBaseGenesis(baseState, genFiles); err != nil {
 		return nil, fmt.Errorf("write base genesis: %w", err)
 	}
-	if err := gb.collectGentxs(net.nodes, filepath.Join(baseDir, "gentxs")); err != nil {
+	if err := gb.collectGentxs(net.nodes, filepath.Join(baseDir, "gentxs"), opts.TimeoutCommit); err != nil {
 		return nil, fmt.Errorf("collect gentxs: %w", err)
 	}
 	// gentx-derived peer mesh guard: collectGentxs is what populates each node's
