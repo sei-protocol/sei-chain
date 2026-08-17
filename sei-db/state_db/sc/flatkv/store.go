@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -94,7 +93,9 @@ type CommitStore struct {
 	storageDB seidbtypes.KeyValueDB // "evm/"+0x03+addr(20)||slot(32) → vtype.StorageData
 	miscDB    seidbtypes.KeyValueDB // "module/"+key → vtype.MiscData
 
-	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
+	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir). openDBs populates an entry
+	// for every dataDBDirs entry, so readers index it directly; it is empty only between closeDBsOnly
+	// and the next open, when no reader runs.
 	localMeta map[string]*ktype.LocalMeta
 
 	// LtHash state for integrity checking
@@ -516,11 +517,7 @@ func (s *CommitStore) rebuildIfAnyDataDBIsUnreachable() error {
 
 	unreachable := make([]string, 0, len(dataDBDirs))
 	for _, dbDir := range dataDBDirs {
-		meta := s.localMeta[dbDir]
-		if meta == nil {
-			return fmt.Errorf("flatkv: %s has no local metadata after load", dbDir)
-		}
-		if meta.CommittedVersion > reachable {
+		if meta := s.localMeta[dbDir]; meta.CommittedVersion > reachable {
 			unreachable = append(unreachable, fmt.Sprintf("%s at %d", dbDir, meta.CommittedVersion))
 		}
 	}
@@ -747,20 +744,17 @@ func (s *CommitStore) hydratePerDBState() error {
 // deriveGlobalState sets the committed version to the lowest version any data DB
 // reached and the committed LtHash to the homomorphic sum of their roots.
 func (s *CommitStore) deriveGlobalState() {
-	version := int64(math.MaxInt64)
+	version := s.localMeta[dataDBDirs[0]].CommittedVersion
 	global := lthash.New()
 	for _, dbDir := range dataDBDirs {
 		global.MixIn(s.perDBWorkingLtHash[dbDir])
-		if meta := s.localMeta[dbDir]; meta != nil && meta.CommittedVersion < version {
-			version = meta.CommittedVersion
+		if v := s.localMeta[dbDir].CommittedVersion; v < version {
+			version = v
 		}
-	}
-	if version == math.MaxInt64 {
-		version = 0
 	}
 
 	for _, dbDir := range dataDBDirs {
-		if meta := s.localMeta[dbDir]; meta != nil && meta.CommittedVersion > version {
+		if meta := s.localMeta[dbDir]; meta.CommittedVersion > version {
 			logger.Warn("data DB versions disagree, catchup will replay from the lowest",
 				"db", dbDir,
 				"localVersion", meta.CommittedVersion,
@@ -782,11 +776,7 @@ func (s *CommitStore) deriveGlobalState() {
 func (s *CommitStore) requireAlignedDataDBs() error {
 	misaligned := make([]string, 0, len(dataDBDirs))
 	for _, dbDir := range dataDBDirs {
-		meta := s.localMeta[dbDir]
-		if meta == nil {
-			return fmt.Errorf("flatkv: %s has no local metadata after load", dbDir)
-		}
-		if meta.CommittedVersion != s.committedVersion {
+		if meta := s.localMeta[dbDir]; meta.CommittedVersion != s.committedVersion {
 			misaligned = append(misaligned, fmt.Sprintf("%s at %d", dbDir, meta.CommittedVersion))
 		}
 	}

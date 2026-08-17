@@ -34,7 +34,7 @@ func (s *CommitStore) RecordHashes(hl hashlog.HashLogger, blockNumber uint64) er
 	}
 	for _, dir := range dataDBDirs {
 		var hash []byte
-		if meta := s.localMeta[dir]; meta != nil && meta.LtHash != nil {
+		if meta := s.localMeta[dir]; meta.LtHash != nil {
 			checksum := meta.LtHash.Checksum()
 			hash = checksum[:]
 		}
