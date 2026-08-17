@@ -162,7 +162,7 @@ func (b *budgetBody) Read(p []byte) (int, error) {
 		}
 		if isReadIdleTimeout(err) {
 			b.fail(rejectReasonSlowBody, http.StatusRequestTimeout, "request timeout", err)
-			return n, err
+			return n, errSlowBody
 		}
 		b.release()
 	}
@@ -311,6 +311,7 @@ func (b *budgetBody) setOutcome(reason string, status int, message string) {
 }
 
 var errBudgetExhausted = errors.New("request byte budget exhausted")
+var errSlowBody = errors.New("request body read idle timeout")
 
 func isReadIdleTimeout(err error) bool {
 	if errors.Is(err, os.ErrDeadlineExceeded) {

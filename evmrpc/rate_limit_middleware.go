@@ -37,7 +37,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			m.rejectAdmission(r.Context(), w, ip, rejectReasonOversize, http.StatusRequestEntityTooLarge, "request body too large")
 			return
 		}
-		if errors.Is(err, errBudgetExhausted) || isReadIdleTimeout(err) {
+		if errors.Is(err, errBudgetExhausted) || errors.Is(err, errSlowBody) {
 			// The outer requestSizeLimiter already recorded the rejection reason
 			// (budget_midread/slow_body) and owns the response for this failure;
 			// charging admission here would debit an innocent client's per-IP
