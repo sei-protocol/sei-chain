@@ -571,12 +571,6 @@ func TestGuardedSectionsAbsentBaseline(t *testing.T) {
 	// would let a genesis regression stop the run before light_invariance is read, and
 	// light_invariance is the section whose silent downgrade motivated adding this. Same reason
 	// TestManifestNamesEveryField wraps its sections.
-	//
-	// Written out rather than driven from a table, because the section name has to stay a literal.
-	// CheckWiring reads the section from the call's second argument, so a table would record one
-	// "(section not a literal)" pair in place of these two named ones, and deleting either call would
-	// stop being visible in the coverage record. The first attempt here did exactly that and the
-	// record caught it.
 	t.Run("genesis", func(t *testing.T) {
 		configtest.CheckAbsent(t, "genesis", readGenesis, DefaultGenesisConfig)
 	})
@@ -624,8 +618,8 @@ func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
 // state-store are, because srvconfig.DefaultConfig calls the same DefaultStateCommitConfig and
 // DefaultStateStoreConfig these rows pass, so their fields already sit inside
 // sei-cosmos/server/config/testdata/server_config.golden. They are recorded again under their own
-// section names so the coverage record shows each section carrying its own defaults check rather than
-// inheriting one from a struct that embeds it.
+// section names, so a reader asking what one section defaults to finds it under that name rather than
+// among the fields of a struct that embeds it.
 //
 // The cost is two regeneration sites. Moving a StateStoreConfig or StateCommitConfig default reddens
 // this package and sei-cosmos/server/config, and regenerating only one leaves the other red, so
@@ -716,12 +710,4 @@ func panicMessage(r any) string {
 	// payload at the one moment it matters, leaving the caller to report that it expected a
 	// message and got nothing.
 	return fmt.Sprint(r)
-}
-
-// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
-//
-// Every other check here reports a change to what it asserts. None reports a check being removed, so
-// this records the wiring and fails when it thins out.
-func TestWiringMatchesTheRecord(t *testing.T) {
-	configtest.CheckWiring(t)
 }

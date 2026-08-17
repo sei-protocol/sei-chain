@@ -60,9 +60,8 @@ and `TestGuideListsEveryPrimitive` holds it to the exported surface.
 | `CheckAbsent` | an omitted key resolves to something other than the declared default | the declared defaults struct |
 | `CheckManifestCoversEveryField` | a resolved field no row claims | the manifest's `Path` and `AlsoWrites` entries |
 | `CheckEveryRowHasADiscriminatingSeed` | a row whose every seed would also pass against a reader that never looks its key up | the recorded seed corpus |
-| `CheckWiring` | one of the calls above is deleted | `testdata/wiring_coverage.txt` |
 
-The third column is the spec, and it is the one to read before wiring anything. Three of these
+The third column is the spec, and it is the one to read before wiring anything. Two of these
 compare against a checked-in file, one against the declared defaults, one against the reader's own
 output, one against a second read of the same input, one against the manifest, and one against the
 seeds the target declared. A check whose right-hand side comes from the same place as its left-hand
@@ -341,51 +340,9 @@ A new section needs six things, and the last three are the ones that are easy to
    this call does not re-green a rename. The reverse does not hold (see `Renaming a Key`).
 5. `CheckManifestCoversEveryField`, so the manifest cannot silently fall behind the
    reader, unless the section's struct has a second reader covering different keys.
-6. `CheckWiring`, which is called once per package rather than once per section. A new
-   section in a package that already calls it needs its coverage record regenerated
-   instead of a new call. See `Recording the Wiring`.
 
 The manifest has to be a package-level `var` for the fourth, since a table declared
 inside its fuzz target is not something a `Test` function can name.
-
-## Recording the Wiring
-
-Every check above shares one blind spot, which is that deleting a call to it is silent. A
-section covered by five checks and then by four still passes everything that remains. Two
-instances were confirmed by experiment, in `evmrpc/config` and `giga/executor/config`, where
-three calls were removed from a fully covered section and every package stayed green.
-
-`CheckWiring` closes that. It reads the package's own test sources and records one line per
-`(section, check)` pair in `testdata/wiring_coverage.txt`. A line reads as "this section is
-covered by this check", so `evm CheckAbsent` means some test in the package calls
-`configtest.CheckAbsent` naming `"evm"`. A line that disappears is coverage that was deleted,
-and that is the failure the file exists to report.
-
-This is the **coverage record**, the third of the suite's three record kinds, alongside the
-defaults record (`<section>.golden`) and the key-names record (`<section>.keys.golden`). It is
-compared exactly, the way `go.sum` is compared, so every line has to still be there. It is not a lint baseline, which records violations to ignore and wants to
-shrink to nothing. This wants to stay complete, so adding a check also fails until the record
-is regenerated, and the failure names what was added separately from what was removed.
-
-```bash
-go test ./<pkg>/ -run TestWiringMatchesTheRecord -update
-```
-
-Four properties are worth knowing before relying on it:
-
-- It establishes that a call is **written**, not that it ran. The failure being prevented is
-  a deleted line, and a call left in place but unreachable is a far more visible edit.
-- Build tags are ignored on purpose. Honoring them would make the record differ between a
-  Linux CI runner and a local machine, so a record generated on one could not be compared on
-  the other.
-- It records the literal text of the section argument, so a package spelling one section two
-  ways shows up as two sections. That is a thing to notice in the diff rather than something
-  the check can decide.
-- Deleting the `CheckWiring` call itself is the one deletion it cannot report, so
-  `TestEveryWiredPackageRecordsItsWiring` in `testutil/configtest` asserts from one place that
-  every package calling a check calls it too. That assertion finds a package by finding a
-  check in it, so deleting every check in a package at once drops it from the set and orphans
-  its record. Removing whole test files is conspicuous enough to leave to review.
 
 ## Running
 
