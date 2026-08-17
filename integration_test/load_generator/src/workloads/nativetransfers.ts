@@ -4,7 +4,10 @@ import { nextWorker } from './common';
 import { LoadOperation, WorkloadContext } from './types';
 
 const BANK_PRECOMPILE = '0x0000000000000000000000000000000000001001';
-const BANK = new ethers.Interface(['function send(address,address,string,uint256) returns(bool)']);
+const BANK = new ethers.Interface(['function sendNative(string) payable returns(bool)']);
+
+// sendNative moves EVM value, which is denominated in wei rather than usei.
+const WEI_PER_USEI = 10n ** 12n;
 
 export function nativeTransferOperations(context: WorkloadContext): LoadOperation[] {
     return [
@@ -55,12 +58,12 @@ export function nativeTransferOperations(context: WorkloadContext): LoadOperatio
                     lane: 'evm',
                     transaction: {
                         to: BANK_PRECOMPILE,
-                        data: BANK.encodeFunctionData('send', [
-                            worker.evmAddress,
-                            nextWorker(context, worker.slot).evmAddress,
-                            'usei',
-                            1,
+                        // `send` is gated to the denom's ERC20 pointer contract,
+                        // so an EOA worker must use sendNative instead.
+                        data: BANK.encodeFunctionData('sendNative', [
+                            nextWorker(context, worker.slot).seiAddress,
                         ]),
+                        value: WEI_PER_USEI,
                         gasLimit: 500_000n,
                     },
                 };
