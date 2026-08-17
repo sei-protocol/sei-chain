@@ -345,6 +345,10 @@ func TestStateFreezesAfterTargetBlock(t *testing.T) {
 	require.True(t, cs.frozen.Load())
 	require.Equal(t, height+1, frozenState.Height)
 	require.Equal(t, cstypes.RoundStepNewHeight, frozenState.Step)
+	walHeight, walMessages, err := cs.wal.ReadLastHeightMsgs()
+	require.NoError(t, err)
+	require.Equal(t, height+1, walHeight)
+	require.Empty(t, walMessages)
 
 	cs.enterNewRound(ctx, height+1, 0, "test")
 	require.Equal(t, cstypes.RoundStepNewHeight, cs.GetRoundState().Step)
