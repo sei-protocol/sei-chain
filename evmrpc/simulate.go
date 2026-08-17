@@ -575,13 +575,14 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 	return statedb, release, nil
 }
 
-func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ctxProvider TraceContextProvider) (sdk.Context, *coretypes.ResultBlock, tracers.StateReleaseFunc, error) {
+func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ctxProvider TraceContextProvider) (sdkCtx sdk.Context, tmBlock *coretypes.ResultBlock, release tracers.StateReleaseFunc, err error) {
 	emptyRelease := func() {}
+	release = emptyRelease
 	// get the parent block using block.parentHash
 	prevBlockHeight := block.Number().Int64() - 1
 
 	blockNumber := block.Number().Int64()
-	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNumber, 1)
+	tmBlock, err = blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNumber, 1)
 	if err != nil {
 		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("cannot find block %d from tendermint", blockNumber)
 	}
@@ -593,22 +594,57 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
 	reqBeginBlock.Simulate = true
 	baseCtx, baseRelease := ctxProvider(prevBlockHeight)
-	sdkCtx := baseCtx.WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
+	var nextRelease func()
+	var released bool
+	release = func() {
+		if released {
+			return
+		}
+		released = true
+		if nextRelease != nil {
+			nextRelease()
+		}
+		baseRelease()
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = releaseOnContextPanic(release, r)
+			release = emptyRelease
+			sdkCtx = sdk.Context{}
+			tmBlock = nil
+		}
+	}()
+	sdkCtx = baseCtx.WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	if ctx != nil {
 		// The RPC/trace deadline must be on the SDK context so KVStore
 		// iteration can pass it into the SS MVCC skip loops.
 		sdkCtx = sdkCtx.WithContext(ctx)
 	}
-	legacyabci.BeginBlock(sdkCtx, blockNumber, reqBeginBlock.LastCommitInfo.Votes, tmBlock.Block.Evidence.ToABCI(), b.beginBlockKeepers)
-	nextCtx, nextRelease := ctxProvider(sdkCtx.BlockHeight())
+	runTraceBeginBlock(sdkCtx, blockNumber, reqBeginBlock.LastCommitInfo.Votes, tmBlock.Block.Evidence.ToABCI(), b.beginBlockKeepers)
+	var nextCtx sdk.Context
+	nextCtx, nextRelease = ctxProvider(sdkCtx.BlockHeight())
 	sdkCtx = sdkCtx.WithNextMs(
 		nextCtx.MultiStore(),
 		[]string{"oracle", "oracle_mem"},
 	)
-	return sdkCtx, tmBlock, func() {
-		nextRelease()
-		baseRelease()
-	}, nil
+	return sdkCtx, tmBlock, release, nil
+}
+
+// runTraceBeginBlock is the BeginBlock used when reconstructing historical
+// state for traces.
+var runTraceBeginBlock = legacyabci.BeginBlock
+
+// releaseOnContextPanic releases leased snapshots and returns a cancel or
+// deadline panic as an error. Other panics are re-raised after release.
+func releaseOnContextPanic(release func(), recovered any) error {
+	if release != nil {
+		release()
+	}
+	err, ok := recovered.(error)
+	if ok && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return err
+	}
+	panic(recovered)
 }
 
 func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, h *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
