@@ -669,6 +669,9 @@ func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtype
 		}
 		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTxV2{Tx: tx}, sdkTx, sha256.Sum256(tx))
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, emptyRelease, err
+	}
 	success = true
 	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, release, nil
 }
@@ -702,6 +705,11 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	reqBeginBlock.Simulate = true
 	baseCtx, baseRelease := ctxProvider(prevBlockHeight)
 	sdkCtx := baseCtx.WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
+	if ctx != nil {
+		// The RPC/trace deadline must be on the SDK context so KVStore
+		// iteration can pass it into the SS MVCC skip loops.
+		sdkCtx = sdkCtx.WithContext(ctx)
+	}
 	legacyabci.BeginBlock(sdkCtx, blockNumber, reqBeginBlock.LastCommitInfo.Votes, tmBlock.Block.Evidence.ToABCI(), b.beginBlockKeepers)
 	nextCtx, nextRelease := ctxProvider(sdkCtx.BlockHeight())
 	sdkCtx = sdkCtx.WithNextMs(
