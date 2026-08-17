@@ -182,10 +182,12 @@ func initGenFiles(cfg Config, genAccounts []authtypes.GenesisAccount, genBalance
 	}
 
 	genDoc := types.GenesisDoc{
-		ChainID:    cfg.ChainID,
-		AppState:   appGenStateJSON,
-		Validators: nil,
+		ChainID:         cfg.ChainID,
+		AppState:        appGenStateJSON,
+		Validators:      nil,
+		ConsensusParams: types.DefaultConsensusParams(),
 	}
+	genDoc.ConsensusParams.Timeout.Commit = cfg.TimeoutCommit
 
 	// generate empty genesis files for each validator and save
 	for i := 0; i < cfg.NumValidators; i++ {

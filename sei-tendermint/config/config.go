@@ -1205,92 +1205,29 @@ type ConsensusConfig struct {
 	// compatibility and is ignored.
 	StatelessLeaderElection bool `mapstructure:"stateless-leader-election"`
 
-	// TODO: The following fields are all temporary overrides that should exist only
-	// for the duration of the v0.36 release. The below fields should be completely
-	// removed in the v0.37 release of Tendermint.
-	// See: https://github.com/tendermint/tendermint/issues/8188
-
-	// If false, all the Unsafe<..>TimeoutOverride fields are ignored.
-	// Defaults to false.
-	UnsafeOverridesEnabled bool `mapstructure:"unsafe-overrides-enabled"`
-	// UnsafeProposeTimeoutOverride provides an unsafe override of the Propose
-	// timeout consensus parameter. It configures how long the consensus engine
-	// will wait to receive a proposal block before prevoting nil.
-	UnsafeProposeTimeoutOverride time.Duration `mapstructure:"unsafe-propose-timeout-override"`
-	// UnsafeProposeTimeoutDeltaOverride provides an unsafe override of the
-	// ProposeDelta timeout consensus parameter. It configures how much the
-	// propose timeout increases with each round.
-	UnsafeProposeTimeoutDeltaOverride time.Duration `mapstructure:"unsafe-propose-timeout-delta-override"`
-	// UnsafeVoteTimeoutOverride provides an unsafe override of the Vote timeout
-	// consensus parameter. It configures how long the consensus engine will wait
-	// to gather additional votes after receiving +2/3 votes in a round.
-	UnsafeVoteTimeoutOverride time.Duration `mapstructure:"unsafe-vote-timeout-override"`
-	// UnsafeVoteTimeoutDeltaOverride provides an unsafe override of the VoteDelta
-	// timeout consensus parameter. It configures how much the vote timeout
-	// increases with each round.
-	UnsafeVoteTimeoutDeltaOverride time.Duration `mapstructure:"unsafe-vote-timeout-delta-override"`
-	// UnsafeCommitTimeoutOverride provides an unsafe override of the Commit timeout
-	// consensus parameter. It configures how long the consensus engine will wait
-	// after receiving +2/3 precommits before beginning the next height.
-	UnsafeCommitTimeoutOverride time.Duration `mapstructure:"unsafe-commit-timeout-override"`
-
-	// UnsafeBypassCommitTimeoutOverride provides an unsafe override of the
-	// BypassCommitTimeout consensus parameter. It configures if the consensus
-	// engine will wait for the full Commit timeout before proceeding to the next height.
-	// If it is set to true, the consensus engine will proceed to the next height
-	// as soon as the node has gathered votes from all of the validators on the network.
-	UnsafeBypassCommitTimeoutOverride *bool `mapstructure:"unsafe-bypass-commit-timeout-override"`
-
 	// Deprecated timeout parameters. These parameters are present in this struct
 	// so that they can be parsed so that validation can check if they have erroneously
 	// been included and provide a helpful error message.
-	// These fields should be completely removed in v0.37.
-	// See: https://github.com/tendermint/tendermint/issues/8188
-	DeprecatedTimeoutPropose        *any `mapstructure:"timeout-propose"`
-	DeprecatedTimeoutProposeDelta   *any `mapstructure:"timeout-propose-delta"`
-	DeprecatedTimeoutPrevote        *any `mapstructure:"timeout-prevote"`
-	DeprecatedTimeoutPrevoteDelta   *any `mapstructure:"timeout-prevote-delta"`
-	DeprecatedTimeoutPrecommit      *any `mapstructure:"timeout-precommit"`
-	DeprecatedTimeoutPrecommitDelta *any `mapstructure:"timeout-precommit-delta"`
-	DeprecatedTimeoutCommit         *any `mapstructure:"timeout-commit"`
-	DeprecatedSkipTimeoutCommit     *any `mapstructure:"skip-timeout-commit"`
+	DeprecatedUnsafeOverridesEnabled            bool          `mapstructure:"unsafe-overrides-enabled"`
+	DeprecatedUnsafeProposeTimeoutOverride      time.Duration `mapstructure:"unsafe-propose-timeout-override"`
+	DeprecatedUnsafeProposeTimeoutDeltaOverride time.Duration `mapstructure:"unsafe-propose-timeout-delta-override"`
+	DeprecatedUnsafeVoteTimeoutOverride         time.Duration `mapstructure:"unsafe-vote-timeout-override"`
+	DeprecatedUnsafeVoteTimeoutDeltaOverride    time.Duration `mapstructure:"unsafe-vote-timeout-delta-override"`
+	DeprecatedUnsafeCommitTimeoutOverride       time.Duration `mapstructure:"unsafe-commit-timeout-override"`
+	DeprecatedUnsafeBypassCommitTimeoutOverride *bool         `mapstructure:"unsafe-bypass-commit-timeout-override"`
+	DeprecatedTimeoutPropose                    *any          `mapstructure:"timeout-propose"`
+	DeprecatedTimeoutProposeDelta               *any          `mapstructure:"timeout-propose-delta"`
+	DeprecatedTimeoutPrevote                    *any          `mapstructure:"timeout-prevote"`
+	DeprecatedTimeoutPrevoteDelta               *any          `mapstructure:"timeout-prevote-delta"`
+	DeprecatedTimeoutPrecommit                  *any          `mapstructure:"timeout-precommit"`
+	DeprecatedTimeoutPrecommitDelta             *any          `mapstructure:"timeout-precommit-delta"`
+	DeprecatedTimeoutCommit                     *any          `mapstructure:"timeout-commit"`
+	DeprecatedSkipTimeoutCommit                 *any          `mapstructure:"skip-timeout-commit"`
 }
 
-// Timeout params on Sei pacific-1, as of 2026-06-16.
-// Overrides will be disabled by default in release 6.6,
-// but only after the onchain timeout params are set
-// to correct values via gov proposal. Until then
-// (i.e. while onchain timeout params are still equal to badParams)
-// overrides are still enabled by default.
-var badParams = types.TimeoutParams{
-	Propose:             1 * time.Second,
-	ProposeDelta:        500 * time.Millisecond,
-	Vote:                50 * time.Millisecond,
-	VoteDelta:           500 * time.Millisecond,
-	Commit:              50 * time.Millisecond,
-	BypassCommitTimeout: false,
-}
-
-func (c *ConsensusConfig) ResolveTimeouts(t types.TimeoutParams) types.TimeoutParams {
-	t = t.Or(types.DefaultTimeoutParams())
-	// Overrides are ineffective iff !UnsafeOverridesEnabled AND t != badParams:
-	// see doc on badParams.
-	if !c.UnsafeOverridesEnabled && t != badParams {
-		return t
-	}
-	overrides := types.TimeoutParams{
-		Propose:      c.UnsafeProposeTimeoutOverride,
-		ProposeDelta: c.UnsafeProposeTimeoutDeltaOverride,
-		Vote:         c.UnsafeVoteTimeoutOverride,
-		VoteDelta:    c.UnsafeVoteTimeoutDeltaOverride,
-		Commit:       c.UnsafeCommitTimeoutOverride,
-	}
-	t = overrides.Or(t)
-	// BypassCommitTimeout is special because it can be overridden to false.
-	if bcto := c.UnsafeBypassCommitTimeoutOverride; bcto != nil {
-		t.BypassCommitTimeout = *bcto
-	}
-	return t
+// ResolveTimeouts returns timeout params with defaults applied.
+func (*ConsensusConfig) ResolveTimeouts(t types.TimeoutParams) types.TimeoutParams {
+	return t.Or(types.DefaultTimeoutParams())
 }
 
 // DefaultConsensusConfig returns a default configuration for the consensus service
@@ -1347,21 +1284,6 @@ func (cfg *ConsensusConfig) WalFile() string {
 // ValidateBasic performs basic validation (checking param bounds, etc.) and
 // returns an error if any check fails.
 func (cfg *ConsensusConfig) ValidateBasic() error {
-	if cfg.UnsafeProposeTimeoutOverride < 0 {
-		return errors.New("unsafe-propose-timeout-override can't be negative")
-	}
-	if cfg.UnsafeProposeTimeoutDeltaOverride < 0 {
-		return errors.New("unsafe-propose-timeout-delta-override can't be negative")
-	}
-	if cfg.UnsafeVoteTimeoutOverride < 0 {
-		return errors.New("unsafe-vote-timeout-override can't be negative")
-	}
-	if cfg.UnsafeVoteTimeoutDeltaOverride < 0 {
-		return errors.New("unsafe-vote-timeout-delta-override can't be negative")
-	}
-	if cfg.UnsafeCommitTimeoutOverride < 0 {
-		return errors.New("unsafe-commit-timeout-override can't be negative")
-	}
 	if cfg.CreateEmptyBlocksInterval < 0 {
 		return errors.New("create-empty-blocks-interval can't be negative")
 	}

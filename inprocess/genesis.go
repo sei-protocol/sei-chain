@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
@@ -41,8 +42,9 @@ type genesisBuilder struct {
 	chainID   string
 	bondDenom string
 
-	accounts []authtypes.GenesisAccount
-	balances []banktypes.Balance
+	timeoutCommit time.Duration
+	accounts      []authtypes.GenesisAccount
+	balances      []banktypes.Balance
 }
 
 // fundValidator stores a validator operator key in kb, funds its genesis account
@@ -147,10 +149,12 @@ func (b *genesisBuilder) writeBaseGenesis(baseState map[string]json.RawMessage, 
 		return err
 	}
 	genDoc := tmtypes.GenesisDoc{
-		ChainID:    b.chainID,
-		AppState:   appStateJSON,
-		Validators: nil, // empty-valset invariant: derive valset from InitChain.
+		ChainID:         b.chainID,
+		AppState:        appStateJSON,
+		Validators:      nil, // empty-valset invariant: derive valset from InitChain.
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
 	}
+	genDoc.ConsensusParams.Timeout.Commit = b.timeoutCommit
 	for _, gf := range genFiles {
 		if err := genDoc.SaveAs(gf); err != nil {
 			return err

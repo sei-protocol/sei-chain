@@ -331,13 +331,13 @@ func TestStateLock_NoPOL(t *testing.T) {
 func testStateLockNoPOL(t *testing.T) {
 	config := configSetup(t)
 	chainID := tmconfig.TestLoadGenesis(config).ChainID
-	// Deflake: when cs1 is proposer in round 3, proposal construction can race
-	// timeoutPropose on loaded CI runners and force an early prevote nil.
-	config.Consensus.UnsafeProposeTimeoutOverride = time.Second
-	config.Consensus.UnsafeProposeTimeoutDeltaOverride = 0
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
+	// Deflake: when cs1 is proposer in round 3, proposal construction can race
+	// timeoutPropose on loaded CI runners and force an early prevote nil.
+	cs1.state.ConsensusParams.Timeout.Propose = time.Second
+	cs1.state.ConsensusParams.Timeout.ProposeDelta = 0
 	vs2 := vss[1]
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
 	round = cs1.findStartRoundForLocalLeaderPattern(ctx, t, height, round, []bool{true, false, true, false}, 64)
@@ -1236,13 +1236,13 @@ func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
 func TestStateLock_POLSafety1(t *testing.T) {
 	config := configSetup(t)
 	chainID := tmconfig.TestLoadGenesis(config).ChainID
-	// Deflake: SetProposalAndBlock in round 2 can race timeoutPropose under CI load.
-	config.Consensus.UnsafeProposeTimeoutOverride = time.Second
-	config.Consensus.UnsafeProposeTimeoutDeltaOverride = 0
 
 	ctx := t.Context()
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
+	// Deflake: SetProposalAndBlock in round 2 can race timeoutPropose under CI load.
+	cs1.state.ConsensusParams.Timeout.Propose = time.Second
+	cs1.state.ConsensusParams.Timeout.ProposeDelta = 0
 	vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
 	round = cs1.findStartRoundForLocalLeaderPattern(ctx, t, height, round, []bool{true, false, false}, 128)
@@ -2919,18 +2919,6 @@ func TestStateTimeoutResolution(t *testing.T) {
 		}
 	}
 
-	cfgWithOverrides := func(enabled bool, bypass bool) *tmconfig.ConsensusConfig {
-		cfg := tmconfig.DefaultConsensusConfig()
-		cfg.UnsafeOverridesEnabled = enabled
-		cfg.UnsafeProposeTimeoutOverride = 9 * time.Second
-		cfg.UnsafeProposeTimeoutDeltaOverride = 8 * time.Second
-		cfg.UnsafeVoteTimeoutOverride = 7 * time.Second
-		cfg.UnsafeVoteTimeoutDeltaOverride = 6 * time.Second
-		cfg.UnsafeCommitTimeoutOverride = 5 * time.Second
-		cfg.UnsafeBypassCommitTimeoutOverride = utils.Alloc(bypass)
-		return cfg
-	}
-
 	onchain := types.TimeoutParams{
 		Propose:             2 * time.Second,
 		ProposeDelta:        250 * time.Millisecond,
@@ -2939,16 +2927,10 @@ func TestStateTimeoutResolution(t *testing.T) {
 		Commit:              4 * time.Second,
 		BypassCommitTimeout: false,
 	}
-	overridden := types.TimeoutParams{
-		Propose:             9 * time.Second,
-		ProposeDelta:        8 * time.Second,
-		Vote:                7 * time.Second,
-		VoteDelta:           6 * time.Second,
-		Commit:              5 * time.Second,
-		BypassCommitTimeout: true,
+	withBypass := func(params types.TimeoutParams) types.TimeoutParams {
+		params.BypassCommitTimeout = true
+		return params
 	}
-	overriddenFalseBypass := overridden
-	overriddenFalseBypass.BypassCommitTimeout = false
 
 	testCases := []struct {
 		name     string
@@ -2956,9 +2938,9 @@ func TestStateTimeoutResolution(t *testing.T) {
 		params   types.TimeoutParams
 		expected types.TimeoutParams
 	}{
-		{"disabled uses onchain params", cfgWithOverrides(false, true), onchain, onchain},
-		{"disabled keeps legacy behavior", cfgWithOverrides(false, true), types.DefaultTimeoutParams(), overridden},
-		{"enabled applies overrides", cfgWithOverrides(true, false), onchain, overriddenFalseBypass},
+		{"uses onchain params", tmconfig.DefaultConsensusConfig(), onchain, onchain},
+		{"fills onchain defaults", tmconfig.DefaultConsensusConfig(), types.TimeoutParams{}, types.DefaultTimeoutParams()},
+		{"uses onchain bypass", tmconfig.DefaultConsensusConfig(), withBypass(onchain), withBypass(onchain)},
 	}
 
 	for _, tc := range testCases {
@@ -2972,19 +2954,4 @@ func TestStateTimeoutResolution(t *testing.T) {
 		})
 	}
 
-	t.Run("nil bypass override differs from false pointer", func(t *testing.T) {
-		params := onchain
-		params.BypassCommitTimeout = true
-
-		cfgNil := tmconfig.DefaultConsensusConfig()
-		cfgNil.UnsafeOverridesEnabled = true
-		cfgNil.UnsafeBypassCommitTimeoutOverride = nil
-
-		cfgFalse := tmconfig.DefaultConsensusConfig()
-		cfgFalse.UnsafeOverridesEnabled = true
-		cfgFalse.UnsafeBypassCommitTimeoutOverride = utils.Alloc(false)
-
-		require.True(t, newState(cfgNil, params).bypassCommitTimeout())
-		require.False(t, newState(cfgFalse, params).bypassCommitTimeout())
-	})
 }

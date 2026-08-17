@@ -191,10 +191,11 @@ func Start(ctx context.Context, opts Options) (_ *Network, retErr error) {
 
 	enc := app.MakeEncodingConfig()
 	gb := &genesisBuilder{
-		codec:     enc.Marshaler,
-		txConfig:  enc.TxConfig,
-		chainID:   opts.ChainID,
-		bondDenom: sdk.DefaultBondDenom,
+		codec:         enc.Marshaler,
+		txConfig:      enc.TxConfig,
+		chainID:       opts.ChainID,
+		bondDenom:     sdk.DefaultBondDenom,
+		timeoutCommit: opts.TimeoutCommit,
 	}
 
 	if err := net.provisionNodes(enc, gb); err != nil {
@@ -262,7 +263,7 @@ func (net *Network) provisionNodes(enc encoding, gb *genesisBuilder) error {
 			return err
 		}
 
-		tmCfg, addrs, err := buildNodeConfig(nodeDir, moniker, net.opts.TimeoutCommit)
+		tmCfg, addrs, err := buildNodeConfig(nodeDir, moniker)
 		if err != nil {
 			return err
 		}
@@ -434,13 +435,12 @@ type nodeAddrs struct {
 // scope), and the conn-tracker ceiling raised (loopback conn-tracker ceiling).
 // EVM bind-host is not config-scopable (evmrpc hardcodes 0.0.0.0); the EVM ports
 // are allocated free here and dialed via loopback (the 0.0.0.0 EVM caveat).
-func buildNodeConfig(nodeDir, moniker string, timeoutCommit time.Duration) (*config.Config, nodeAddrs, error) {
+func buildNodeConfig(nodeDir, moniker string) (*config.Config, nodeAddrs, error) {
 	sctx := server.NewDefaultContext()
 	tmCfg := sctx.Config
 	tmCfg.Mode = config.ModeValidator
 	tmCfg.Moniker = moniker
 	tmCfg.SetRoot(nodeDir)
-	tmCfg.Consensus.UnsafeCommitTimeoutOverride = timeoutCommit
 	tmCfg.TxIndex = config.TestTxIndexConfig()
 	// loopback conn-tracker ceiling: loopback collapses every peer onto 127.0.0.1,
 	// so the router's IP-keyed conn-tracker counts all N-1 inbound on one key.
