@@ -908,8 +908,10 @@ func (cs *State) updateToState(state sm.State) {
 
 func (cs *State) newStep() {
 	rs := cs.roundState.RoundStateEvent()
-	if err := cs.wal.Write(rs); err != nil {
-		cs.logger.Error("failed writing to WAL", "err", err)
+	if !cs.frozen.Load() {
+		if err := cs.wal.Write(rs); err != nil {
+			cs.logger.Error("failed writing to WAL", "err", err)
+		}
 	}
 
 	cs.nSteps++
