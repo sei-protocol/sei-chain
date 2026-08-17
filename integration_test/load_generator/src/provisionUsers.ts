@@ -24,6 +24,8 @@ import { sendFundingBatches } from './funding';
 const provisionConfig = loadProvisionConfig();
 const {
     userCount: USER_COUNT,
+    usersPerPartition: USERS_PER_PARTITION,
+    activePerPartition: ACTIVE_PER_PARTITION,
     fundSei: FUND_SEI,
     targetUsei: TARGET_USEI,
     execute: EXECUTE,
@@ -38,11 +40,29 @@ interface LoadUser {
     evmAddress: string;
 }
 
+/**
+ * A pod reads users [partition * USERS_PER_PARTITION, + WORKER_COUNT), so only the first
+ * ACTIVE_PER_PARTITION indexes of each stride are ever spent from. The rest exist to keep
+ * derivation indexes aligned as replicas scale, and are derived into the manifest unfunded.
+ */
+function isActive(index: number): boolean {
+    return (index - 1) % USERS_PER_PARTITION < ACTIVE_PER_PARTITION;
+}
+
 export async function provisionUsersMain(): Promise<void> {
     const target = loadTargetConfig();
+    const activeCount = countActive(USER_COUNT);
     console.log(
-        `Replay users: ${target.network}, ${USER_COUNT} users, target ${FUND_SEI} SEI each`,
+        `Replay users: ${target.network}, ${USER_COUNT} users, ` +
+            `${activeCount} funded to ${FUND_SEI} SEI each`,
     );
+    if (activeCount < USER_COUNT) {
+        console.log(
+            `Reserved: ${USER_COUNT - activeCount} users left unfunded, holding derivation ` +
+                `indexes past the first ${ACTIVE_PER_PARTITION} of every ` +
+                `${USERS_PER_PARTITION}. Raise ACTIVE_PER_PARTITION and re-run to fund more.`,
+        );
+    }
     console.log(`Manifest: ${target.usersPath}`);
     if (!target.mnemonic) {
         if (!EXECUTE) {
@@ -53,7 +73,7 @@ export async function provisionUsersMain(): Promise<void> {
     }
     const adminWallet = await cosmosWalletAt(target.mnemonic, 0);
     const adminAddress = (await adminWallet.getAccounts())[0].address;
-    const workerFundingUsei = TARGET_USEI * BigInt(USER_COUNT);
+    const workerFundingUsei = TARGET_USEI * BigInt(activeCount);
     console.log(`Funding account: ${adminAddress}`);
     console.log(
         `Worker funding target: ${formatUsei(workerFundingUsei)} SEI ` +
@@ -67,7 +87,10 @@ export async function provisionUsersMain(): Promise<void> {
     const provider = new ethers.JsonRpcProvider(target.evmRpcUrl);
     try {
         await verifyTargetRpc(target, provider);
-        const users = await deriveUsers(target.mnemonic);
+        const pool = await deriveUsers(target.mnemonic);
+        // Everything below this line acts on the funded set only. Reserved users cost a
+        // derivation each and are rejoined when the manifest is written.
+        const users = pool.filter(user => isActive(user.index));
         const admin = await SigningStargateClient.connectWithSigner(
             target.cosmosRpcUrl,
             adminWallet,
@@ -172,6 +195,9 @@ export async function provisionUsersMain(): Promise<void> {
             );
 
             const finalBalances = await readBalances(admin, users);
+            const balanceByIndex = new Map(
+                users.map((user, index) => [user.index, finalBalances[index].toString()]),
+            );
             const manifest = {
                 schemaVersion: 1,
                 network: target.network,
@@ -183,14 +209,22 @@ export async function provisionUsersMain(): Promise<void> {
                     source: 'TARGET_MNEMONIC or SEI_ADMIN_MNEMONIC',
                     privateKeysPersisted: false,
                 },
-                users: users.map((user, index) => ({
-                    ...user,
-                    balanceUsei: finalBalances[index].toString(),
-                })),
+                usersPerPartition: USERS_PER_PARTITION,
+                activePerPartition: ACTIVE_PER_PARTITION,
+                // A reserved user is written without balanceUsei rather than with a zero.
+                // The runner refuses to start on an entry that has no balance, so widening
+                // WORKER_COUNT past the funded width fails at boot instead of part way
+                // through a run once the empty accounts start rejecting.
+                users: pool.map(user => {
+                    const balanceUsei = balanceByIndex.get(user.index);
+                    return balanceUsei ? { ...user, balanceUsei } : { ...user };
+                }),
             };
             await fs.mkdir(path.dirname(target.usersPath), { recursive: true });
             await writeJsonAtomic(target.usersPath, manifest);
-            console.log(`Saved ${users.length} users to ${target.usersPath}`);
+            console.log(
+                `Saved ${pool.length} users (${users.length} funded) to ${target.usersPath}`,
+            );
         } finally {
             admin.disconnect();
         }
@@ -206,6 +240,14 @@ async function readBalances(
     return mapConcurrent(users, PROVISION_CONCURRENCY, async user =>
         BigInt((await client.getBalance(user.seiAddress, 'usei')).amount),
     );
+}
+
+function countActive(userCount: number): number {
+    let count = 0;
+    for (let index = 1; index <= userCount; index++) {
+        if (isActive(index)) count++;
+    }
+    return count;
 }
 
 function formatUsei(usei: bigint): string {

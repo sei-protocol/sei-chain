@@ -513,6 +513,11 @@ async function cosmosClient(
     return worker.cosmosClient;
 }
 
+function isFunded(balanceUsei: string | undefined): boolean {
+    if (!balanceUsei || !/^\d+$/.test(balanceUsei)) return false;
+    return BigInt(balanceUsei) > 0n;
+}
+
 export function selectWorkerUsers(
     users: ReplayUserManifest['users'],
     offset: number,
@@ -535,6 +540,17 @@ export function selectWorkerUsers(
             );
         }
     });
+    // Provisioning funds only the first ACTIVE_PER_PARTITION indexes of each partition and
+    // leaves the reserved remainder without a balance. Raising WORKER_COUNT past that width
+    // reaches them, so fail here rather than let every send revert for insufficient funds.
+    const unfunded = selected.filter(user => !isFunded(user.balanceUsei));
+    if (unfunded.length > 0) {
+        throw new Error(
+            `${unfunded.length} of this pod's ${count} users are unfunded in the pool ` +
+                `manifest, starting at derivation index ${unfunded[0].index}; re-provision ` +
+                `with ACTIVE_PER_PARTITION at least ${count}`,
+        );
+    }
     return selected;
 }
 

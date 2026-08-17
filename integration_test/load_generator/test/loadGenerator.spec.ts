@@ -107,12 +107,18 @@ describe('multi-mode load generator', () => {
                 derivationPath: `m/44'/118'/0'/0/${index}`,
                 seiAddress: `sei${index}`,
                 evmAddress: `0x${index}`,
+                balanceUsei: '10000000',
             };
         });
         expect(selectWorkerUsers(users, 2, 2).map(user => user.index)).to.deep.equal([3, 4]);
         expect(() => selectWorkerUsers(users, 4, 3)).to.throw(
             'requires indexes 5-7',
         );
+        delete users[3].balanceUsei;
+        expect(() => selectWorkerUsers(users, 2, 2)).to.throw(
+            'unfunded in the pool manifest, starting at derivation index 4',
+        );
+        users[3].balanceUsei = '10000000';
         users[2].index = 99;
         expect(() => selectWorkerUsers(users, 2, 2)).to.throw(
             'derivation index 99, expected 3',
@@ -122,18 +128,35 @@ describe('multi-mode load generator', () => {
     it('preserves the provisioned pool size when running a partition', () => {
         const runEnvironment: NodeJS.ProcessEnv = { USER_COUNT: '2000' };
         configureProvisioningEnvironment(
-            { command: 'run', workerCount: 20 },
+            { command: 'run', workerCount: 20, usersPerPartition: 20 },
             runEnvironment,
         );
         expect(runEnvironment.USER_COUNT).to.equal('2000');
 
         const provisionEnvironment: NodeJS.ProcessEnv = {};
         configureProvisioningEnvironment(
-            { command: 'provision', workerCount: 40 },
+            { command: 'provision', workerCount: 40, usersPerPartition: 40 },
             provisionEnvironment,
         );
         expect(provisionEnvironment.USER_COUNT).to.equal('40');
         expect(provisionEnvironment.WORKER_COUNT).to.equal('40');
+    });
+
+    it('funds only the active width of each partition when provisioning a reserved pool', () => {
+        const environment: NodeJS.ProcessEnv = { USER_COUNT: '2000' };
+        configureProvisioningEnvironment(
+            { command: 'provision', workerCount: 20, usersPerPartition: 200 },
+            environment,
+        );
+        // WORKER_COUNT widens to the whole pool so every index is derived, but the funded
+        // set stays the first 20 of each 200.
+        expect(environment.WORKER_COUNT).to.equal('2000');
+        expect(environment.USERS_PER_PARTITION).to.equal('200');
+        expect(environment.ACTIVE_PER_PARTITION).to.equal('20');
+
+        const config = loadProvisionConfig(environment);
+        expect(config.usersPerPartition).to.equal(200);
+        expect(config.activePerPartition).to.equal(20);
     });
 
     it('reports run totals and latency percentiles from the collected metrics', async () => {

@@ -45,10 +45,15 @@ export async function runLoadMain(): Promise<void> {
 }
 
 export function configureProvisioningEnvironment(
-    config: Pick<LoadGeneratorConfig, 'command' | 'workerCount'>,
+    config: Pick<LoadGeneratorConfig, 'command' | 'workerCount' | 'usersPerPartition'>,
     env: NodeJS.ProcessEnv = process.env,
 ): void {
     if (config.command !== 'provision') return;
+    // Provisioning derives the whole pool, so WORKER_COUNT is widened to USER_COUNT below.
+    // Record the run's real partition shape before that happens: it is what decides which
+    // indexes get funded, and the widened value would fund every reserved account instead.
+    env.USERS_PER_PARTITION = String(config.usersPerPartition);
+    env.ACTIVE_PER_PARTITION = env.ACTIVE_PER_PARTITION?.trim() || String(config.workerCount);
     env.USER_COUNT = env.USER_COUNT?.trim() || String(config.workerCount);
     env.WORKER_COUNT = env.USER_COUNT;
 }

@@ -163,9 +163,23 @@ export function loadBufferedConfig(env: Environment = process.env) {
 
 export function loadProvisionConfig(env: Environment = process.env) {
     const fundSei = string(env, 'FUND_SEI', '100');
+    const userCount = positiveInteger(env, 'USER_COUNT', 100);
+    // A partitioned pool reserves USERS_PER_PARTITION indexes per pod but only ever spends
+    // from the first ACTIVE_PER_PARTITION of each stride. Funding the whole pool would park
+    // the difference in accounts nothing draws from, and there is no recovery path.
+    const usersPerPartition = positiveInteger(env, 'USERS_PER_PARTITION', userCount);
+    const activePerPartition = positiveInteger(env, 'ACTIVE_PER_PARTITION', usersPerPartition);
+    if (activePerPartition > usersPerPartition) {
+        throw new Error(
+            `ACTIVE_PER_PARTITION ${activePerPartition} exceeds ` +
+                `USERS_PER_PARTITION ${usersPerPartition}`,
+        );
+    }
     return {
         execute: flag(env, 'EXECUTE'),
-        userCount: positiveInteger(env, 'USER_COUNT', 100),
+        userCount,
+        usersPerPartition,
+        activePerPartition,
         fundSei,
         targetUsei: seiToUsei(fundSei, 'FUND_SEI'),
     };
