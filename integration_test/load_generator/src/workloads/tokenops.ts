@@ -113,7 +113,6 @@ export function tokenOperations(context: WorkloadContext): LoadOperation[] {
                         },
                     ],
                     gas: '600000',
-                    feeUsei: '50000',
                     memo: 'loadgen cw1155 send',
                 };
             },

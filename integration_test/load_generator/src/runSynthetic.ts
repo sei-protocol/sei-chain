@@ -357,7 +357,14 @@ async function executeOperation(
                 feeOracle,
             );
         } else {
-            hash = await executeCosmos(worker, built, cosmosRpcUrl, metrics, operation.name);
+            hash = await executeCosmos(
+                worker,
+                built,
+                cosmosRpcUrl,
+                metrics,
+                operation.name,
+                config.cosmosGasPriceUsei,
+            );
         }
         outcome = 'included';
     } catch (error) {
@@ -445,21 +452,29 @@ async function resyncEvmNonce(worker: SyntheticWorker): Promise<void> {
     }
 }
 
+// Cosmos charges the declared fee in full rather than refunding unused gas, so the fee
+// tracks declared gas at the network's minimum price instead of a fixed generous amount.
+function cosmosFeeUsei(gas: string, gasPriceUsei: number): string {
+    return String(Math.ceil(Number(gas) * gasPriceUsei));
+}
+
 async function executeCosmos(
     worker: SyntheticWorker,
     built: Extract<BuiltLoad, { lane: 'cosmos' }>,
     cosmosRpcUrl: string,
     metrics: LoadMetrics,
     operation: string,
+    gasPriceUsei: number,
 ): Promise<string> {
     const client = await cosmosClient(worker, cosmosRpcUrl);
+    const gas = built.gas ?? '250000';
     try {
         const result = await client.signAndBroadcast(
             worker.seiAddress,
             [...built.messages],
             {
-                amount: coins(built.feeUsei ?? '25000', 'usei'),
-                gas: built.gas ?? '250000',
+                amount: coins(built.feeUsei ?? cosmosFeeUsei(gas, gasPriceUsei), 'usei'),
+                gas,
             },
             built.memo ?? `loadgen ${operation}`,
         );

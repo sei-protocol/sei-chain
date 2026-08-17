@@ -28,8 +28,9 @@ export function nativeTransferOperations(context: WorkloadContext): LoadOperatio
                             }),
                         },
                     ],
-                    gas: '150000',
-                    feeUsei: '25000',
+                    // Measured usage is ~52k; the fee is derived from this figure, so
+                    // headroom here is paid for on every transaction.
+                    gas: '80000',
                     memo: 'loadgen bank send',
                 };
             },
@@ -64,7 +65,10 @@ export function nativeTransferOperations(context: WorkloadContext): LoadOperatio
                             nextWorker(context, worker.slot).seiAddress,
                         ]),
                         value: WEI_PER_USEI,
-                        gasLimit: 500_000n,
+                        // ~50k when the receiver exists, more when sendNative has to create
+                        // the account. Unused EVM gas is refunded, but a revert burns the
+                        // whole limit, so this stays close to worst-case usage.
+                        gasLimit: 150_000n,
                     },
                 };
             },

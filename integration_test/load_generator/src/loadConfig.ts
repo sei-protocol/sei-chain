@@ -20,6 +20,7 @@ export interface LoadGeneratorConfig {
     usersPerTps: number;
     maxWorkerCount: number;
     maxPendingPerWorker: number;
+    cosmosGasPriceUsei: number;
     metricsHost: string;
     metricsPort: number;
     receiptTimeoutMs: number;
@@ -103,6 +104,12 @@ export function loadGeneratorConfig(
         maxPendingPerWorker: positiveInteger(
             env.MAX_PENDING_PER_LANE ?? '2',
             'MAX_PENDING_PER_LANE',
+        ),
+        // Cosmos charges the declared fee in full, so this must track the target network's
+        // minimum gas price rather than being set generously.
+        cosmosGasPriceUsei: positiveNumber(
+            env.COSMOS_GAS_PRICE_USEI ?? '0.025',
+            'COSMOS_GAS_PRICE_USEI',
         ),
         metricsHost: (env.METRICS_HOST ?? '127.0.0.1').trim(),
         metricsPort: nonNegativeInteger(env.METRICS_PORT ?? '9465', 'METRICS_PORT'),
