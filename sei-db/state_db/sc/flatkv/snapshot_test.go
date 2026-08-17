@@ -286,22 +286,13 @@ func TestOpenVersionValidation(t *testing.T) {
 	commitStorageEntry(t, s1, ktype.Address{0x60}, ktype.Slot{0x01}, []byte{0x11})
 	commitStorageEntry(t, s1, ktype.Address{0x60}, ktype.Slot{0x02}, []byte{0x22})
 	hashAtV2 := s1.RootHash()
+
+	// Phase 2: rewind one DB's version record to simulate an incomplete commit — accountDB reads as
+	// v1 while every other DB and the WAL are at v2. The rewind goes into the working dir, which is
+	// what the next open reads; tampering with the snapshot instead has no effect, because
+	// SNAPSHOT_BASE still matches and the working dir is reused rather than re-cloned.
+	rewindVersionRecords(t, s1, 1, accountDBDir)
 	require.NoError(t, s1.Close())
-
-	// Phase 2: tamper with one DB's local meta to simulate an incomplete commit
-	// (accountDB thinks it's at v1, but global says v2)
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
-	snapDir, _, err := currentSnapshotDir(flatkvDir)
-	require.NoError(t, err)
-
-	accountDBPath := filepath.Join(snapDir, accountDBDir)
-	acctCfg := pebbledb.DefaultConfig()
-	acctCfg.DataDir = accountDBPath
-	acctCfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &acctCfg)
-	require.NoError(t, err)
-	require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
-	require.NoError(t, db.Close())
 
 	// Phase 3: reopen - should detect skew and catchup
 	cfg = config.DefaultTestConfig(t)

@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -113,20 +112,12 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	for _, dbDir := range dataDBDirs {
 		wantPerDB[dbDir] = s1.perDBWorkingLtHash[dbDir].Checksum()
 	}
+	// Rewind accountDB's version record to 1, leaving its data — and every other DB — at 2. The
+	// store must open at 1 and replay block 2. The rewind goes into the working dir, which is what a
+	// torn commit leaves behind and what the next open actually reads: tampering with the snapshot
+	// instead has no effect, because SNAPSHOT_BASE still matches and the working dir is reused.
+	rewindVersionRecords(t, s1, 1, accountDBDir)
 	require.NoError(t, s1.Close())
-
-	// Rewind accountDB's version record to 1, leaving its data — and every
-	// other DB — at 2. The store must open at 1 and replay block 2.
-	snapDir, _, err := currentSnapshotDir(dbDir)
-	require.NoError(t, err)
-
-	acctCfg := pebbledb.DefaultConfig()
-	acctCfg.DataDir = filepath.Join(snapDir, accountDBDir)
-	acctCfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &acctCfg)
-	require.NoError(t, err)
-	require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
-	require.NoError(t, db.Close())
 
 	// Reopen -- catchup should replay version 2 from WAL
 	cfg2 := config.DefaultTestConfig(t)

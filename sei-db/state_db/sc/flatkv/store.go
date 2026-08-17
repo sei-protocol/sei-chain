@@ -519,14 +519,13 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 // discardInterruptedInitialization throws away the working directory and reopens from the snapshot the
 // current symlink names, leaving the store as if it had never been initialized. Everything in the
 // working directory is destroyed, so callers must first establish that no data DB holds a key.
-//
-// Only the working directory is removed. An initialization that got far enough to write a snapshot also
-// finished stamping every watermark, so a store reaching here has no snapshot at the version it was
-// being initialized to, and re-clones from the one current still points at.
+// Snapshots are left in place.
 func (s *CommitStore) discardInterruptedInitialization() error {
 	if err := s.closeDBsOnly(); err != nil {
 		return fmt.Errorf("flatkv: close before discarding interrupted initialization: %w", err)
 	}
+	// The snapshots can stay: an initialization that got far enough to write one had already finished
+	// stamping every watermark, so a store reaching here has none of its own to discard.
 	workDir := filepath.Join(s.flatkvDir(), workingDirName)
 	if err := atomicRemoveDir(workDir); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("flatkv: remove %s while discarding interrupted initialization: %w",
@@ -977,7 +976,7 @@ func (s *CommitStore) reopenWAL() error {
 	if err := s.wal.Close(); err != nil {
 		return fmt.Errorf("close state WAL: %w", err)
 	}
-	w, err := statewal.New(stateWALConfig(&s.config))
+	w, err := statewal.New(stateWALConfig(s.config.DataDir))
 	if err != nil {
 		return fmt.Errorf("open state WAL: %w", err)
 	}

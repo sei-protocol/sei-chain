@@ -20,12 +20,13 @@ import (
 // operations (e.g. read-only export clones). This is the single seam outside package flatkv that needs to
 // know FlatKV's on-disk WAL layout.
 func OpenStateWAL(cfg *config.Config) (statewal.StateWAL, error) {
-	return statewal.New(stateWALConfig(cfg))
+	return statewal.New(stateWALConfig(cfg.DataDir))
 }
 
-// stateWALConfig builds the state WAL configuration for a store configured by cfg: a "changelog"
-// subdirectory of the data dir, with a fixed instance name used only to label metrics. It is the single
-// definition of that layout convention.
-func stateWALConfig(cfg *config.Config) *statewal.Config {
-	return statewal.DefaultConfig(filepath.Join(cfg.DataDir, changelogDir), "flatkv")
+// stateWALConfig builds the state WAL configuration for a store whose data directory is dir: a
+// "changelog" subdirectory of it, with a fixed instance name used only to label metrics. It is the
+// single definition of that layout convention, and GetLatestVersion reads the WAL's range through it
+// without an open store.
+func stateWALConfig(dir string) *statewal.Config {
+	return statewal.DefaultConfig(filepath.Join(dir, changelogDir), "flatkv")
 }

@@ -1,18 +1,16 @@
 package flatkv
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 // versionToBytes encodes a non-negative version as 8-byte big-endian.
@@ -375,55 +373,74 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	return nil
 }
 
-// GetLatestVersion returns the latest committed version persisted under
-// dir without holding an open *CommitStore. Mirrors memiavl.GetLatestVersion
-// in role: a side-channel for callers that need the on-disk watermark
-// before LoadLatest has run (e.g. the rootmulti sanity check at
-// process startup). Returns 0 when the store has never been opened or
-// has no commits yet.
+// GetLatestVersion returns the version a store opened on dir will report once LoadLatest has run.
+// A directory that has never been opened reads as 0.
 //
-// The truth source is MetaVersionKey in working/misc. The working
-// dir survives across restarts and is updated on every Commit, so this
-// matches the precision of memiavl.GetLatestVersion (which reads the
-// WAL tail). It must not be called concurrently with a running
-// CommitStore on dir, because the underlying PebbleDB takes an
-// exclusive file lock.
-// An absent directory or key reads as 0.
+// It must not be called while a CommitStore holds dir's WAL open; such a caller should use
+// CommitStore.GetLatestVersion instead.
 func GetLatestVersion(dir string) (int64, error) {
-	miscDir := filepath.Join(dir, workingDirName, miscDBDir)
-	if _, err := os.Stat(miscDir); err != nil {
+	return latestVersion(dir, nil)
+}
+
+// latestVersion resolves the version a store on dir will open at, reading the WAL range through wal
+// when that is non-nil and out-of-band otherwise.
+func latestVersion(dir string, wal statewal.StateWAL) (int64, error) {
+	// An open loads the working directory from the current snapshot and then replays the WAL forward
+	// over it, so the higher of those two is where it lands. A per-DB watermark would not do: those
+	// are written after the WAL record and trail it by a block whenever a commit is interrupted.
+	snapshotVersion, err := currentSnapshotVersion(dir)
+	if err != nil {
+		return 0, err
+	}
+	walVersion, err := walTailVersion(dir, wal)
+	if err != nil {
+		return 0, err
+	}
+	return max(snapshotVersion, walVersion), nil
+}
+
+// currentSnapshotVersion returns the version of the snapshot the current symlink names, or 0 when
+// there is none.
+func currentSnapshotVersion(dir string) (int64, error) {
+	_, version, err := currentSnapshotDir(dir)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil
 		}
-		return 0, fmt.Errorf("flatkv: stat working misc dir %q: %w", miscDir, err)
+		return 0, fmt.Errorf("flatkv: resolve current snapshot under %q: %w", dir, err)
 	}
-
-	cfg := pebbledb.DefaultConfig()
-	cfg.DataDir = miscDir
-	cfg.EnableMetrics = false
-	db, err := pebbledb.Open(context.Background(), &cfg)
-	if err != nil {
-		return 0, fmt.Errorf("flatkv: open working misc at %q: %w", cfg.DataDir, err)
-	}
-	defer func() { _ = db.Close() }()
-
-	data, err := db.Get(ktype.MetaVersionKey)
-	if errorutils.IsNotFound(err) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("flatkv: read %s: %w", ktype.MetaVersionKey, err)
-	}
-	return decodeVersion(ktype.MetaVersionKey, data)
+	return version, nil
 }
 
-// GetLatestVersion returns the latest committed version. When the store
-// is open, the in-memory committed watermark is authoritative; before
-// LoadLatest has run, it falls back to the free-standing on-disk
-// helper. Either path returns 0 on a fresh store.
+// walTailVersion returns the last block the state WAL under dir holds, or 0 when it holds none. It
+// reads through wal when that is non-nil and out-of-band otherwise.
+func walTailVersion(dir string, wal statewal.StateWAL) (int64, error) {
+	readRange := func() (bool, uint64, uint64, error) {
+		if wal != nil {
+			return wal.GetStoredRange()
+		}
+		// Reading out-of-band takes the changelog's exclusive lock, so it fails against a store that
+		// holds the WAL — which is why a caller with a handle passes it rather than relying on dir.
+		return statewal.GetRange(stateWALConfig(dir))
+	}
+	stored, _, last, err := readRange()
+	if err != nil {
+		return 0, fmt.Errorf("flatkv: read state WAL range under %q: %w", dir, err)
+	}
+	if !stored {
+		return 0, nil
+	}
+	if last > math.MaxInt64 {
+		return 0, fmt.Errorf("flatkv: state WAL last block %d exceeds max int64", last)
+	}
+	return int64(last), nil //nolint:gosec // bounds checked above
+}
+
+// GetLatestVersion returns the version this store is at, or will be at once loaded. A fresh store
+// returns 0.
 func (s *CommitStore) GetLatestVersion() (int64, error) {
 	if !s.isClosed() {
 		return s.committedVersion, nil
 	}
-	return GetLatestVersion(s.flatkvDir())
+	return latestVersion(s.flatkvDir(), s.wal)
 }
