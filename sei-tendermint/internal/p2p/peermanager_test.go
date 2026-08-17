@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -101,6 +102,8 @@ func TestRouterOptions(t *testing.T) {
 		addrs2 := utils.Slice(makeAddr(rng))
 		ids := utils.Slice(addrs[0].NodeID, addrs[2].NodeID)
 		return RouterOptions{
+			MaxDialRate:        rate.Inf,
+			MaxAcceptRate:      rate.Inf,
 			PersistentPeers:    addrs,
 			BootstrapPeers:     addrs2,
 			BlockSyncPeers:     ids,
@@ -119,12 +122,18 @@ func TestRouterOptions(t *testing.T) {
 	optsBadUnconditional.UnconditionalPeers[0] = "Z"
 	optsBadPrivate := makeOpts(rng)
 	optsBadPrivate.PrivatePeers[1] = "W"
+	optsMissingMaxDialRate := makeOpts(rng)
+	optsMissingMaxDialRate.MaxDialRate = 0
+	optsMissingMaxAcceptRate := makeOpts(rng)
+	optsMissingMaxAcceptRate.MaxAcceptRate = 0
 	testcases := map[string]struct {
 		options RouterOptions
 		ok      bool
 	}{
-		"empty":                  {RouterOptions{}, true},
+		"empty":                  {RouterOptions{}, false},
 		"valid":                  {optsOk, true},
+		"missing MaxDialRate":    {optsMissingMaxDialRate, false},
+		"missing MaxAcceptRate":  {optsMissingMaxAcceptRate, false},
 		"bad PersistentPeers":    {optsBadPersistent, false},
 		"bad BootstrapPeers":     {optsBadBootstrap, false},
 		"bad BlockSyncPeers":     {optsBadBlockSync, false},

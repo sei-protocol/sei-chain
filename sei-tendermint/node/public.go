@@ -51,6 +51,10 @@ func New(
 	consensusPolicy tmtypes.ConsensusPolicy,
 	nodeOptions ...Option,
 ) (local.NodeService, error) {
+	if err := validateNodeSetupConfig(conf); err != nil {
+		return nil, err
+	}
+	app = prepareApplication(conf, app)
 	proxyApp := proxy.New(app)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -98,4 +102,21 @@ func New(
 	default:
 		return nil, fmt.Errorf("%q is not a valid mode", conf.Mode)
 	}
+}
+
+func validateNodeSetupConfig(conf *config.Config) error {
+	if conf.MockApp && conf.AutobahnConfigFile == "" {
+		return fmt.Errorf("mock-app requires autobahn-config-file")
+	}
+	return nil
+}
+
+func prepareApplication(conf *config.Config, app abci.Application) abci.Application {
+	if conf.MockApp {
+		return NewMockApp(app)
+	}
+	if conf.FastCheckTx {
+		return fastCheckTxApplication{Application: app}
+	}
+	return app
 }

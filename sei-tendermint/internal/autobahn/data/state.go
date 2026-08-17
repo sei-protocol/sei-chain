@@ -159,15 +159,19 @@ func (i *inner) insertBlock(n types.GlobalBlockNumber, block *types.Block) error
 
 func (i *inner) updateNextBlock(m *metrics.Metrics) {
 	t := time.Now()
+	oldNextBlock := i.nextBlock
 	for {
 		b, ok := i.blocks[i.nextBlock]
 		if !ok {
-			return
+			break
 		}
 		i.nextBlock += 1
 		latency := t.Sub(b.Payload().CreatedAt()).Seconds()
-		m.Blocks.Receive.Observe(latency)
-		m.Txs.Receive.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+		m.BlockLatency.Receive.Observe(latency)
+		m.TxLatency.Receive.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+	}
+	if oldNextBlock < i.nextBlock {
+		m.NextBlock.Receive.Set(utils.Clamp[int64](i.nextBlock))
 	}
 }
 
@@ -189,9 +193,14 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
 	}
+	m := metrics.Get()
+	m.NextBlock.Receive.Set(utils.Clamp[int64](inner.nextBlock))
+	m.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
+	m.NextBlock.Certify.Set(utils.Clamp[int64](inner.nextAppQC))
+	m.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
 	return &State{
 		cfg:     cfg,
-		metrics: metrics.Get(),
+		metrics: m,
 		inner:   utils.NewWatch(inner),
 		blockDB: blockDB,
 	}, nil
@@ -615,11 +624,19 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		for inner.nextAppProposal <= n {
 			b := inner.blocks[inner.nextAppProposal]
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
-			s.metrics.Blocks.Execute.Observe(latency)
-			s.metrics.Txs.Execute.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+			s.metrics.BlockLatency.Execute.Observe(latency)
+			s.metrics.TxLatency.Execute.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+			if txCount := len(b.Payload().Txs()); txCount > 0 {
+				var totalTxSize int
+				for _, tx := range b.Payload().Txs() {
+					totalTxSize += len(tx)
+				}
+				s.metrics.TxSize.ObserveWithWeight(float64(totalTxSize)/float64(txCount), uint64(txCount))
+			}
 			inner.appProposals[inner.nextAppProposal] = proposal
 			inner.nextAppProposal += 1
 		}
+		s.metrics.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
 		ctrl.Updated()
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
@@ -629,6 +646,10 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		}
 	}
 	return nil
+}
+
+func (s *State) PushGasUsed(gasUsed int64) {
+	s.metrics.GasUsed.Add(gasUsed)
 }
 
 // AppVote returns an appVote for a block >= n.
@@ -666,9 +687,10 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC) error {
 		for n := gr.First; n < gr.Next; n++ {
 			b := inner.blocks[n]
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
-			s.metrics.Blocks.Certify.Observe(latency)
-			s.metrics.Txs.Certify.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+			s.metrics.BlockLatency.Certify.Observe(latency)
+			s.metrics.TxLatency.Certify.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
 		}
+		s.metrics.NextBlock.Certify.Set(utils.Clamp[int64](inner.nextAppQC))
 		ctrl.Updated()
 		return nil
 	}
@@ -822,19 +844,25 @@ func (s *State) runPersist(ctx context.Context) error {
 		// Prune the inner state.
 		for inner, ctrl := range s.inner.Lock() {
 			inner.persisted = status
+			t := time.Now()
 			for inner.first < inner.persisted.First {
 				// Divergence detection
 				n := inner.first
 				if got, want := inner.appProposals[n].AppHash(), inner.appQCs[n].Proposal().AppHash(); !bytes.Equal(got, want) {
 					return fmt.Errorf("AppHash divergence detected at block %v: local AppHash = %v, quorum Apphash = %v", n, got, want)
 				}
-				delete(inner.blockHashes, inner.blocks[n].Header().Hash())
+				b := inner.blocks[n]
+				latency := t.Sub(b.Payload().CreatedAt()).Seconds()
+				s.metrics.BlockLatency.Evict.Observe(latency)
+				s.metrics.TxLatency.Evict.ObserveWithWeight(latency, uint64(len(b.Payload().Txs())))
+				delete(inner.blockHashes, b.Header().Hash())
 				delete(inner.blocks, n)
 				delete(inner.qcs, n)
 				delete(inner.appQCs, n)
 				delete(inner.appProposals, n)
 				inner.first += 1
 			}
+			s.metrics.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
 			inner.setAnchor()
 			ctrl.Updated()
 		}

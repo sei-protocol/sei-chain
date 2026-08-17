@@ -45,18 +45,4 @@ describe("Sei Endpoints Tester", function () {
         expect(seilogs.length).to.equal(1);
     });
 
-    it("sei_getBlockByNumberExcludeTraceFail should not have the synthetic tx", async function () {
-        // create a synthetic tx
-        const res = await executeWasm(cw20Address,  { transfer: { recipient: accounts[1].seiAddress, amount: "1" } });
-        const blockNumber = parseInt(res["height"], 10);
-
-        // Query sei_getBlockByNumber - should have synthetic tx
-        const seiBlock = await ethers.provider.send('sei_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
-        expect(seiBlock.transactions.length).to.equal(1);
-
-        // Query sei_getBlockByNumberExcludeTraceFail - should not have synthetic tx
-        const seiBlockExcludeTrace = await ethers.provider.send('sei_getBlockByNumberExcludeTraceFail', ['0x' + blockNumber.toString(16), false]);
-        expect(seiBlockExcludeTrace.transactions.length).to.equal(0);
-    });
-
 })

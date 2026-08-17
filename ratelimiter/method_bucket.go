@@ -24,7 +24,6 @@ var knownRPCNamespaces = map[string]struct{}{
 	"net":      {},
 	"personal": {},
 	"sei":      {},
-	"sei2":     {},
 	"trace":    {},
 	"txpool":   {},
 	"web3":     {},

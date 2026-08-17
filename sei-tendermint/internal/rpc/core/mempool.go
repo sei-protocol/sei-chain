@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"net/url"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -16,14 +16,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// EvmProxy returns the EVM RPC URL of the autobahn validator that owns the
+// EvmProxy returns the EVM RPC client of the autobahn validator that owns the
 // sender shard, or None if the sender maps to the local validator (handle
 // locally) or autobahn isn't configured.
-func (env *Environment) EvmProxy(sender common.Address) utils.Option[*url.URL] {
+func (env *Environment) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
 	if r, ok := env.gigaRouter().Get(); ok {
 		return r.EvmProxy(sender)
 	}
-	return utils.None[*url.URL]()
+	return utils.None[*ethrpc.Client]()
 }
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {

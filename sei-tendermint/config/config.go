@@ -150,6 +150,9 @@ func (cfg *Config) ValidateBasic() error {
 	if err := cfg.RPC.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [rpc] section: %w", err)
 	}
+	if err := cfg.P2P.ValidateBasic(); err != nil {
+		return fmt.Errorf("error in [p2p] section: %w", err)
+	}
 	if err := cfg.Mempool.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [mempool] section: %w", err)
 	}
@@ -235,6 +238,14 @@ type BaseConfig struct {
 
 	// A JSON file containing the private key to use for p2p authenticated encryption
 	NodeKey string `mapstructure:"node-key-file"`
+
+	// FastCheckTx bypasses application CheckTx with a stateless EVM transaction parser.
+	// TEST-ONLY
+	FastCheckTx bool `mapstructure:"fast-check-tx"`
+
+	// MockApp replaces the provided ABCI application with an in-memory EVM nonce app.
+	// TEST-ONLY
+	MockApp bool `mapstructure:"mock-app"`
 
 	// Deprecated: out-of-process ABCI has been removed and this option no longer
 	// has any effect.
@@ -724,6 +735,10 @@ type P2PConfig struct {
 	// How often node should dial a new peer.
 	DialInterval time.Duration `mapstructure:"dial-interval"`
 
+	// How often node should accept a new inbound connection. A value of 0 disables
+	// the limiter.
+	AcceptInterval time.Duration `mapstructure:"accept-interval"`
+
 	// Testing params.
 	// Force dial to fail
 	TestDialFail bool `mapstructure:"test-dial-fail"`
@@ -754,6 +769,7 @@ func DefaultP2PConfig() *P2PConfig {
 		HandshakeTimeout:              10 * time.Second,
 		DialTimeout:                   3 * time.Second,
 		DialInterval:                  10 * time.Second,
+		AcceptInterval:                10 * time.Millisecond,
 		TestDialFail:                  false,
 		QueueType:                     "simple-priority",
 	}
@@ -773,6 +789,12 @@ func (cfg *P2PConfig) ValidateBasic() error {
 	}
 	if cfg.RecvRate < 0 {
 		return errors.New("recv-rate can't be negative")
+	}
+	if cfg.DialInterval < 0 {
+		return errors.New("dial-interval can't be negative")
+	}
+	if cfg.AcceptInterval < 0 {
+		return errors.New("accept-interval can't be negative")
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -19,6 +20,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.NotNil(t, cfg.P2P)
 	assert.NotNil(t, cfg.Mempool)
 	assert.NotNil(t, cfg.Consensus)
+	assert.False(t, cfg.FastCheckTx)
 
 	// check the root dir stuff...
 	cfg.SetRoot("/foo")
@@ -36,6 +38,16 @@ func TestConfigValidateBasic(t *testing.T) {
 	// tamper with unsafe-propose-timeout-override
 	cfg.Consensus.UnsafeProposeTimeoutOverride = -10 * time.Second
 	assert.Error(t, cfg.ValidateBasic())
+}
+
+// Asserts Config.ValidateBasic routes the [p2p] section, not merely that the
+// section's own checks work.
+func TestConfigValidateBasicRoutesP2P(t *testing.T) {
+	cfg := DefaultConfig()
+	require.NoError(t, cfg.ValidateBasic())
+
+	cfg.P2P.AcceptInterval = -1
+	require.Error(t, cfg.ValidateBasic())
 }
 
 func TestTLSConfiguration(t *testing.T) {
@@ -230,6 +242,8 @@ func TestP2PConfigValidateBasic(t *testing.T) {
 		"MaxPacketMsgPayloadSize",
 		"SendRate",
 		"RecvRate",
+		"DialInterval",
+		"AcceptInterval",
 	}
 
 	for _, fieldName := range fieldsToTest {
@@ -237,6 +251,21 @@ func TestP2PConfigValidateBasic(t *testing.T) {
 		assert.Error(t, cfg.ValidateBasic())
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(0)
 	}
+}
+
+// Pins the accept-interval default exactly, so changing it is deliberate and
+// visible in the diff.
+func TestP2PConfigAcceptInterval(t *testing.T) {
+	cfg := DefaultP2PConfig()
+	require.NoError(t, cfg.ValidateBasic())
+
+	require.Equal(t, 10*time.Millisecond, cfg.AcceptInterval)
+
+	// A zero interval is the documented escape hatch for disabling the limiter
+	// outright, and must stay valid rather than becoming a zero rate.
+	cfg.AcceptInterval = 0
+	require.NoError(t, cfg.ValidateBasic())
+	require.Equal(t, rate.Inf, rate.Every(cfg.AcceptInterval))
 }
 
 // --- WalFile legacy fallback tests ---

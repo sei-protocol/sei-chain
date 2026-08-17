@@ -134,6 +134,9 @@ type Config struct {
 	// controls whether to have txns go through one by one
 	Slow bool `mapstructure:"slow"`
 
+	// Enable simulation before broadcasting EVM RPC sendRawTransaction.
+	EnableSimulation bool `mapstructure:"enable_simulation"`
+
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
 
@@ -217,7 +220,7 @@ type Config struct {
 	// Set to 0 to use default: 1000
 	WorkerQueueSize int `mapstructure:"worker_queue_size"`
 
-	// EnabledLegacySeiApis lists which gated sei_* and sei2_* JSON-RPC methods are allowed on the EVM HTTP endpoint.
+	// EnabledLegacySeiApis lists which gated sei_* JSON-RPC methods are allowed on the EVM HTTP endpoint.
 	// Set in app.toml [evm] as enabled_legacy_sei_apis (see ReadConfig and ConfigTemplate defaults).
 	EnabledLegacySeiApis []string `mapstructure:"enabled_legacy_sei_apis"`
 
@@ -329,6 +332,7 @@ var DefaultConfig = Config{
 	CheckTxTimeout:               5 * time.Second,
 	MaxTxPoolTxs:                 1000,
 	Slow:                         false,
+	EnableSimulation:             true,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
 	MaxLogBytes:                  receipt.DefaultMaxLogBytes,
@@ -392,6 +396,7 @@ const (
 	flagMaxTxPoolTxs                 = "evm.max_tx_pool_txs"
 	flagCheckTxTimeout               = "evm.checktx_timeout"
 	flagSlow                         = "evm.slow"
+	flagEnableSimulation             = "evm.enable_simulation"
 	flagDenyList                     = "evm.deny_list"
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxLogBytes                  = "evm.max_log_bytes"
@@ -514,6 +519,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagSlow); v != nil {
 		if cfg.Slow, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagEnableSimulation); v != nil {
+		if cfg.EnableSimulation, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -836,19 +846,21 @@ checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 # controls whether to have txns go through one by one
 slow = {{ .EVM.Slow }}
 
+# Enables simulation before broadcasting EVM RPC sendRawTransaction.
+enable_simulation = {{ .EVM.EnableSimulation }}
+
 # Deny list defines list of methods that EVM RPC should fail fast, e.g ["debug_traceBlockByNumber"]
 deny_list = {{ .EVM.DenyList }}
 
-# Legacy sei_* / sei2_* JSON-RPC (EVM HTTP only - not Cosmos REST on 1317).
+# Legacy sei_* JSON-RPC (EVM HTTP only - not Cosmos REST on 1317).
 #
-# DEPRECATION: The sei_* and sei2_* JSON-RPC surfaces are deprecated and scheduled for removal. Do not
+# DEPRECATION: The sei_* JSON-RPC surface is deprecated and scheduled for removal. Do not
 # build new integrations on them; use eth_* / debug_* and documented replacements. HTTP 200;
 # gate errors use standard JSON-RPC error encoding (see evmrpc/AGENTS.md). Successful allowlisted
 # responses are unchanged; nodes may set HTTP header Sei-Legacy-RPC-Deprecation (see AGENTS.md).
 #
 # Only methods listed in enabled_legacy_sei_apis are allowed. Init defaults enable the three
-# address/Cosmos helpers; uncomment optional lines below to enable more legacy methods (include
-# sei2_* block methods at the end of the list if you need them).
+# address/Cosmos helpers; uncomment optional lines below to enable more legacy methods.
 enabled_legacy_sei_apis = [
 {{- range .EVM.EnabledLegacySeiApis }}
   "{{ . }}",
@@ -858,9 +870,6 @@ enabled_legacy_sei_apis = [
   # "sei_associate",
   # "sei_getBlockByHash",
   # "sei_getBlockByHashExcludeTraceFail",
-  # "sei_getBlockByNumber",
-  # "sei_getBlockByNumberExcludeTraceFail",
-  # "sei_getBlockReceipts",
   # "sei_getBlockTransactionCountByHash",
   # "sei_getBlockTransactionCountByNumber",
   # "sei_getEvmTx",
@@ -879,15 +888,6 @@ enabled_legacy_sei_apis = [
   # "sei_newFilter",
   # "sei_sign",
   # "sei_uninstallFilter",
-  #
-  # Optional sei2_* block namespace (bank transfers in blocks; HTTP only):
-  # "sei2_getBlockByHash",
-  # "sei2_getBlockByHashExcludeTraceFail",
-  # "sei2_getBlockByNumber",
-  # "sei2_getBlockByNumberExcludeTraceFail",
-  # "sei2_getBlockReceipts",
-  # "sei2_getBlockTransactionCountByHash",
-  # "sei2_getBlockTransactionCountByNumber",
 ]
 
 # max number of logs a single eth_getLogs query may match before it errors,
