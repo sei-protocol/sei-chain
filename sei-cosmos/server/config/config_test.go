@@ -278,3 +278,12 @@ func TestSetAndGetMinGasPrices(t *testing.T) {
 	require.Equal(t, "usei", parsed[0].Denom)
 	require.Equal(t, "uatom", parsed[1].Denom)
 }
+
+func TestGetConfigRejectsNegativeFreezeHeight(t *testing.T) {
+	v := viper.New()
+	v.Set("telemetry.global-labels", []interface{}{})
+	v.Set("freeze-height", -1)
+
+	_, err := GetConfig(v)
+	require.Error(t, err)
+}
