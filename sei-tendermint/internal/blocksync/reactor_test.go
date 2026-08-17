@@ -371,3 +371,23 @@ func TestAutoRestartIfBehind(t *testing.T) {
 		})
 	}
 }
+
+func TestAutoRestartStopsAtFreezeBoundary(t *testing.T) {
+	const freezeHeight = uint64(101)
+	mockBlockStore := new(MockBlockStore)
+	mockBlockStore.On("Height").Return(int64(freezeHeight - 1))
+
+	restart := utils.NewAtomicSend(false)
+	r := &Reactor{
+		store:                     mockBlockStore,
+		pool:                      &BlockPool{height: int64(freezeHeight), maxPeerHeight: int64(freezeHeight + 100)},
+		blocksBehindThreshold:     1,
+		blocksBehindCheckInterval: time.Nanosecond,
+		restartEvent:              func() { restart.Store(true) },
+		blockSync:                 newAtomicBool(false),
+		freezeHeight:              freezeHeight,
+	}
+
+	r.autoRestartIfBehind(context.Background())
+	require.False(t, restart.Load())
+}
