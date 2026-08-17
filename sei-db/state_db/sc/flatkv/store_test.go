@@ -1549,7 +1549,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	require.NoError(t, s.wal.SignalEndOfBlock())
 	require.NoError(t, s.wal.Flush())
 
-	// Do NOT call commitBatches or update global metadata.
+	// Do NOT call commitBatches: the WAL holds the block but no data DB has it.
 	// Reset in-memory state to v1 to simulate crash.
 	s.clearPendingWrites()
 	s.committedVersion = 1

@@ -32,46 +32,48 @@ func TestCatchupNoOpWhenWALBehindCommittedVersion(t *testing.T) {
 	require.Equal(t, int64(3), s.committedVersion)
 }
 
-// TestCatchupRecoversGappedCommitBlockAfterMetadataLag simulates the crash
-// window after Commit Step 1 (WAL write) / Step 2 (per-DB commit) but before
-// Step 3 (global metadata): per-DB state and WAL are at a gapped height while
-// the in-memory/global watermark still lags. Catchup must apply the gapped
-// WAL entry instead of aborting with "WAL hole"/"WAL gap".
-func TestCatchupRecoversGappedCommitBlockAfterMetadataLag(t *testing.T) {
+// TestCatchupReplaysAlreadyAppliedBlockOnSeededStore pins replay over a store whose history begins
+// mid-chain. The WAL's first block is the seeded height, so replay must start there rather than treat
+// blocks 1..seed-1 as missing, and re-applying a block the DBs already hold must land on the same root
+// it had before.
+//
+// The lagging watermark is written to disk rather than poked into memory: the store derives its
+// version from the per-DB records, so an in-memory-only value is a state no crash can produce.
+func TestCatchupReplaysAlreadyAppliedBlockOnSeededStore(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
 
 	addr := ktype.Address{0xAB}
 	slot := ktype.Slot{0xCD}
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 
-	// Seed so history legally begins at 10, then commit it: the crash window this simulates is a lagging
-	// watermark, not a store that skipped blocks 1-9.
+	// History legally begins at 10, so this is a lagging watermark rather than a store that skipped
+	// blocks 1-9.
 	require.NoError(t, s.SetInitialVersion(10))
 	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
-	require.Equal(t, int64(10), s.Version())
 	hashAfterCommit := append([]byte(nil), s.RootHash()...)
 
-	// Rewind only the global watermark to mimic metadata lagging the WAL /
-	// per-DB commits. Catchup should replay the gapped WAL entry at v10.
-	s.committedVersion = 9
-	require.NoError(t, s.replayIntoMutableStore(0))
-	require.Equal(t, int64(10), s.committedVersion)
-	require.Equal(t, hashAfterCommit, s.RootHash())
+	rewindVersionRecords(t, s, 9)
+	require.NoError(t, s.Close())
 
-	height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)
+	reopened, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	defer reopened.Close()
+
+	require.NoError(t, reopened.LoadLatest())
+	require.Equal(t, int64(10), reopened.Version())
+	require.Equal(t, hashAfterCommit, reopened.RootHash())
+
+	height, found, err := reopened.GetBlockHeightModified(keys.EVMStoreKey, key)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, int64(10), height)
-
-	require.NoError(t, s.Close())
 }
 
 // gappedWALStore returns a store whose WAL holds exactly one block, at firstBlock, with nothing before it.
@@ -273,8 +275,8 @@ func TestResolveReplayRangeOnEmptyWAL(t *testing.T) {
 }
 
 // TestReplayBlocksReturnsAppliedCount pins the one value replayBlocks promises on success: how many blocks it
-// applied. replayIntoMutableStore uses it both to decide whether to persist the watermark and to report the
-// replayed-blocks metric, so an off-by-one here would either skip the watermark commit or misreport progress.
+// applied. Catchup reports it as the replayed-blocks metric and in its progress log, so an off-by-one here
+// misreports how much recovery a restart actually did.
 func TestReplayBlocksReturnsAppliedCount(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)

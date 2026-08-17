@@ -561,9 +561,8 @@ func (s *CommitStore) rebuildWorkingCopy() error {
 //	  working/{account,code,...}/          (mutable clone)
 //	  changelog/                           (WAL, shared)
 //
-// The baseline snapshot is cloned into working/ on every open so that
-// PebbleDB writes never mutate snapshot directories. On first run,
-// existing flat DB directories are migrated into a snapshot.
+// The baseline snapshot is cloned into working/ so that PebbleDB writes never mutate snapshot
+// directories. The clone is skipped when working/ already records the same snapshot as its source.
 func (s *CommitStore) open() (retErr error) {
 	s.clearPendingWrites()
 

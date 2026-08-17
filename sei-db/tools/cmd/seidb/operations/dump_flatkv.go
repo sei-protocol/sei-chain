@@ -385,11 +385,9 @@ func printFlatKVLtHash(hashers map[string]*bucketLtHasher, version int64) {
 	fmt.Printf("  TOTAL          lthash=%x\n", total.Checksum())
 }
 
-// verifyFlatKVLtHash cross-checks the freshly re-scanned total LtHash against
-// the committed global LtHash the FlatKV store loaded from snapshot metadata
-// (CommittedRootHash). A PASS means the physical bytes on disk hash to exactly
-// the committed root recorded at this version. Returns an error on mismatch so
-// the CLI exits non-zero.
+// verifyFlatKVLtHash cross-checks the freshly re-scanned total LtHash against the store's committed
+// root (CommittedRootHash). A PASS means the physical bytes on disk hash to exactly the root the store
+// reports at this version. Returns an error on mismatch so the CLI exits non-zero.
 func verifyFlatKVLtHash(store flatkv.Store, hashers map[string]*bucketLtHasher) error {
 	committedTotal := store.CommittedRootHash()
 
