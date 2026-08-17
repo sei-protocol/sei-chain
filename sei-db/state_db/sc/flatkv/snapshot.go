@@ -633,9 +633,7 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 		s.wal = w
 	}
 
-	// The verdict is discarded on purpose: a rollback targets a version, so a store that turns out to
-	// hold no initialization to roll back to is an error here rather than something to repair.
-	if _, err := s.replayIntoMutableStore(targetVersion); err != nil {
+	if err := s.replayIntoMutableStore(targetVersion); err != nil {
 		return fmt.Errorf("catchup after rollback: %w", err)
 	}
 

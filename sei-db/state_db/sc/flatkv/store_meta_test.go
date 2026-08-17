@@ -487,15 +487,16 @@ func TestCommitStoreGetLatestVersionFallsBackToDiskWhenUnloaded(t *testing.T) {
 // Data DB alignment
 // =============================================================================
 
-// TestOpenRejectsDataDBAheadOfWAL pins the guard that makes deriving the store's
-// root from the per-DB roots safe. A DB left above the WAL tail holds a block no
-// replay can reconcile, and summing its root with the others would produce a root
-// for a state that never existed — which is what feeds the AppHash.
+// TestDataDBAheadOfWALIsRebuiltNotRefused pins the repair for a data DB left above the WAL tail. It
+// holds a block that is in no other DB and in no snapshot, so no consistent state includes it and
+// nothing can be served from it. The store rebuilds its working copy from the snapshot and replays
+// forward rather than refusing to open, because refusing would take a node down until an operator
+// performed by hand the very deletion the rebuild performs.
 //
-// The store holds data here, which is what separates this from an interrupted
-// initialization: the refusal must survive, and the message must report what was
-// observed rather than asserting a cause it cannot distinguish.
-func TestOpenRejectsDataDBAheadOfWAL(t *testing.T) {
+// This is the variant where the replayed blocks do not touch the ahead DB. The variant where they do —
+// which is what let replay rewrite the DB's record downward and hide the problem — is covered by
+// TestDataDBAheadOfWALTouchedByReplayIsRebuilt.
+func TestDataDBAheadOfWALIsRebuiltNotRefused(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
@@ -507,7 +508,7 @@ func TestOpenRejectsDataDBAheadOfWAL(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
 
-	// Push accountDB one block past the WAL tail. Nothing can replay it away.
+	// Push accountDB one block past the WAL tail. No replay can carry it there.
 	rewindVersionRecords(t, s, 3, accountDBDir)
 	require.NoError(t, s.Close())
 
@@ -517,13 +518,14 @@ func TestOpenRejectsDataDBAheadOfWAL(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
-	err = s2.LoadLatest()
-	require.Error(t, err, "a data DB above the WAL tail must refuse to open")
-	require.NotContains(t, err.Error(), "no data DB holds any data",
-		"a store holding data must never be reported as a discardable initialization")
-	require.ErrorContains(t, err, accountDBDir, "the message must name the misaligned DB")
-	require.ErrorContains(t, err, storageDBDir, "the message must name the DBs that hold data")
-	require.ErrorContains(t, err, "no replay can reconcile this")
+	require.NoError(t, s2.LoadLatest(), "an unreachable version must be repaired, not fatal")
+	require.Equal(t, int64(2), s2.Version(), "the store lands at the WAL tail")
+	for _, ndb := range s2.namedDataDBs() {
+		meta, err := loadLocalMeta(ndb.db)
+		require.NoError(t, err)
+		require.Equal(t, int64(2), meta.CommittedVersion, "%s version record", ndb.dir)
+	}
+	require.NoError(t, VerifyLtHash(s2), "the store root must describe what the DBs actually hold")
 }
 
 // TestEmptyBlockAdvancesWatermarkAcrossReopen pins that a block touching no data

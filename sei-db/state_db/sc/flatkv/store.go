@@ -488,51 +488,65 @@ func (s *CommitStore) openReadOnly(targetVersion int64) error {
 // openTo opens all DBs and catches up via WAL to the given version.
 //   - 0  -> replay to end of WAL (latest).
 //   - >0 -> replay up to (and including) that version.
-//
-// A store left mid-initialization by a crash is discarded and reopened once, so the caller can seed
-// or restore it again rather than facing a store that can never open.
 func (s *CommitStore) openTo(catchupTarget int64) error {
 	if err := s.open(); err != nil {
 		return err
 	}
-	interrupted, err := s.replayIntoMutableStore(catchupTarget)
-	if err == nil {
-		return nil
-	}
-	if !interrupted {
+	if err := s.rebuildIfAnyDataDBIsUnreachable(); err != nil {
 		return err
 	}
-
-	// Losing the working directory costs nothing here: checkDataDBAlignment established that no data DB
-	// holds a key, so the working DBs contain nothing but the derived _meta/ cache (see ktype.IsMetaKey),
-	// and rebuilding that over an empty DB is free.
-	logger.Warn("FlatKV discarding an interrupted initialization", "reason", err)
-	if err := s.discardInterruptedInitialization(); err != nil {
-		return err
-	}
-	// The retry is deliberately not a loop. A discard that leaves the same state behind — a skew baked
-	// into the snapshot the working dir is re-cloned from — must surface, not spin.
-	_, err = s.replayIntoMutableStore(catchupTarget)
-	return err
+	return s.replayIntoMutableStore(catchupTarget)
 }
 
-// discardInterruptedInitialization throws away the working directory and reopens from the snapshot the
-// current symlink names, leaving the store as if it had never been initialized. Everything in the
-// working directory is destroyed, so callers must first establish that no data DB holds a key.
-// Snapshots are left in place.
-func (s *CommitStore) discardInterruptedInitialization() error {
-	if err := s.closeDBsOnly(); err != nil {
-		return fmt.Errorf("flatkv: close before discarding interrupted initialization: %w", err)
+// rebuildIfAnyDataDBIsUnreachable discards the working copy when a data DB records a version that
+// neither the snapshots nor the WAL can account for, leaving the store at a version replay can reach.
+//
+// It must run before replay, because replay erases the evidence: applying an older block to a DB that
+// is past it rewrites that DB's version record downward to match the others while leaving the later
+// block's rows in place. Nothing after replay can then tell the two apart.
+//
+// The blocks discarded here were never servable. A block present in one data DB and absent from the
+// WAL is a block no consistent state includes, so rebuilding from the snapshot loses nothing that
+// could have been read back — which is why this repairs rather than refusing and taking the node down.
+func (s *CommitStore) rebuildIfAnyDataDBIsUnreachable() error {
+	reachable, err := latestVersion(s.flatkvDir(), s.wal)
+	if err != nil {
+		return err
 	}
-	// The snapshots can stay: an initialization that got far enough to write one had already finished
-	// stamping every watermark, so a store reaching here has none of its own to discard.
+
+	unreachable := make([]string, 0, len(dataDBDirs))
+	for _, dbDir := range dataDBDirs {
+		meta := s.localMeta[dbDir]
+		if meta == nil {
+			return fmt.Errorf("flatkv: %s has no local metadata after load", dbDir)
+		}
+		if meta.CommittedVersion > reachable {
+			unreachable = append(unreachable, fmt.Sprintf("%s at %d", dbDir, meta.CommittedVersion))
+		}
+	}
+	if len(unreachable) == 0 {
+		return nil
+	}
+
+	logger.Warn("FlatKV rebuilding the working copy: a data DB holds blocks nothing can account for",
+		"dataDBs", strings.Join(unreachable, ", "), "highestReachableVersion", reachable)
+	return s.rebuildWorkingCopy()
+}
+
+// rebuildWorkingCopy throws away the working directory and reopens from the snapshot the current
+// symlink names, discarding everything the working copy held beyond that snapshot. Snapshots are left
+// in place; the current one is at or below the highest reachable version by construction, so replaying
+// forward from it is always valid.
+func (s *CommitStore) rebuildWorkingCopy() error {
+	if err := s.closeDBsOnly(); err != nil {
+		return fmt.Errorf("flatkv: close before rebuilding the working copy: %w", err)
+	}
 	workDir := filepath.Join(s.flatkvDir(), workingDirName)
 	if err := atomicRemoveDir(workDir); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("flatkv: remove %s while discarding interrupted initialization: %w",
-			workingDirName, err)
+		return fmt.Errorf("flatkv: remove %s while rebuilding the working copy: %w", workingDirName, err)
 	}
 	if err := s.open(); err != nil {
-		return fmt.Errorf("flatkv: reopen after discarding interrupted initialization: %w", err)
+		return fmt.Errorf("flatkv: reopen after rebuilding the working copy: %w", err)
 	}
 	return nil
 }
@@ -760,91 +774,29 @@ func (s *CommitStore) deriveGlobalState() {
 	s.workingLtHash = global.Clone()
 }
 
-// checkDataDBAlignment reports whether every data DB sits at the store's committed version. The
-// condition holds once catchup has run; before then the DBs may legally disagree.
+// requireAlignedDataDBs returns an error unless every data DB sits at the store's committed version.
+// The condition holds once replay has run; before then the DBs may legally disagree, and
+// rebuildIfAnyDataDBIsUnreachable has already removed the disagreements replay cannot close.
 //
-// The three outcomes are distinct:
-//   - (false, nil) — aligned.
-//   - (true, err) — the DBs disagree and none of them holds data, so an initialization was
-//     interrupted. SetInitialVersion and FinalizeImport each stamp the four watermarks
-//     non-atomically, and those versions never entered the WAL, so no replay can reconcile them.
-//     The caller may discard the store instead of surfacing err.
-//   - (false, err) — the DBs disagree while data is present, or the check itself failed. err is for
-//     the operator.
-func (s *CommitStore) checkDataDBAlignment() (interruptedInitialization bool, err error) {
+// This is what makes summing the per-DB roots into the store root sound: the sum only describes a real
+// state if every DB contributed at the same version.
+func (s *CommitStore) requireAlignedDataDBs() error {
 	misaligned := make([]string, 0, len(dataDBDirs))
 	for _, dbDir := range dataDBDirs {
 		meta := s.localMeta[dbDir]
 		if meta == nil {
-			return false, fmt.Errorf("flatkv: %s has no local metadata after load", dbDir)
+			return fmt.Errorf("flatkv: %s has no local metadata after load", dbDir)
 		}
 		if meta.CommittedVersion != s.committedVersion {
 			misaligned = append(misaligned, fmt.Sprintf("%s at %d", dbDir, meta.CommittedVersion))
 		}
 	}
 	if len(misaligned) == 0 {
-		return false, nil
+		return nil
 	}
-
-	populated, err := s.populatedDataDBs()
-	if err != nil {
-		return false, err
-	}
-	if len(populated) == 0 {
-		return true, fmt.Errorf("flatkv: store is at %d but %s, and no data DB holds any data",
-			s.committedVersion, strings.Join(misaligned, ", "))
-	}
-	return false, fmt.Errorf(
-		"flatkv: store is at version %d but %s, while %s hold data; no replay can reconcile this, "+
-			"because either a block is committed that the write-ahead log no longer holds or a DB lost "+
-			"its metadata (restore from a snapshot, or re-sync)",
-		s.committedVersion, strings.Join(misaligned, ", "), strings.Join(populated, ", "),
-	)
-}
-
-// populatedDataDBs returns the directory names of the data DBs that hold at least one key outside the
-// _meta/ namespace, in dataDBDirs order.
-func (s *CommitStore) populatedDataDBs() ([]string, error) {
-	populated := make([]string, 0, len(dataDBDirs))
-	for _, ndb := range s.namedDataDBs() {
-		holdsData, err := dbHoldsData(ndb.db)
-		if err != nil {
-			return nil, fmt.Errorf("flatkv: probe %s for data: %w", ndb.dir, err)
-		}
-		if holdsData {
-			populated = append(populated, ndb.dir)
-		}
-	}
-	return populated, nil
-}
-
-// dbHoldsData reports whether db holds any key outside the _meta/ namespace.
-//
-// The _meta/ keys occupy one contiguous range, so the two keyspaces surrounding it are probed rather
-// than scanned past: each probe is a single seek, and the cost does not grow with the number of
-// modules whose metadata the DB carries.
-func dbHoldsData(db seidbtypes.KeyValueDB) (bool, error) {
-	for _, bounds := range []*seidbtypes.IterOptions{
-		{UpperBound: ktype.MetaKeyPrefixBytes},
-		{LowerBound: ktype.PrefixEnd(ktype.MetaKeyPrefixBytes)},
-	} {
-		iter, err := db.NewIter(bounds)
-		if err != nil {
-			return false, fmt.Errorf("open data probe iterator: %w", err)
-		}
-		holdsData := iter.Valid()
-		err = iter.Error()
-		if closeErr := iter.Close(); err == nil {
-			err = closeErr
-		}
-		if err != nil {
-			return false, fmt.Errorf("data probe iterator: %w", err)
-		}
-		if holdsData {
-			return true, nil
-		}
-	}
-	return false, nil
+	return fmt.Errorf("flatkv: store is at version %d after replay but %s; the write-ahead log did not "+
+		"bring every data DB to the same version (restore from a snapshot, or re-sync)",
+		s.committedVersion, strings.Join(misaligned, ", "))
 }
 
 func (s *CommitStore) Version() int64 {

@@ -1,8 +1,10 @@
 package flatkv
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 // SetInitialVersion and FinalizeImport each stamp the four data DBs' watermarks non-atomically, so a
@@ -40,18 +43,19 @@ func reopenStore(t *testing.T, s *CommitStore, cfg *config.Config) *CommitStore 
 }
 
 // requireAllDataDBsAt asserts every data DB records version.
-func requireAllDataDBsAt(t *testing.T, s *CommitStore, version int64) {
+func requireAllDataDBsAt(t *testing.T, s *CommitStore, version int64, because ...string) {
 	t.Helper()
 	for _, ndb := range s.namedDataDBs() {
 		meta, err := loadLocalMeta(ndb.db)
 		require.NoError(t, err)
-		require.Equal(t, version, meta.CommittedVersion, "%s version record", ndb.dir)
+		require.Equal(t, version, meta.CommittedVersion, "%s version record %s", ndb.dir, strings.Join(because, " "))
 	}
 }
 
-// TestCheckDataDBAlignmentOutcomes pins the classifier's three outcomes directly, since every branch
-// of the open path turns on which one it returns.
-func TestCheckDataDBAlignmentOutcomes(t *testing.T) {
+// TestRebuildTriggersOnlyAboveTheReachableVersion pins the condition the open path repairs on: a data
+// DB recording a version that neither the snapshots nor the WAL can account for. Everything at or
+// below that ceiling is left alone, including the ordinary disagreement a torn commit leaves.
+func TestRebuildTriggersOnlyAboveTheReachableVersion(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
 
@@ -59,24 +63,28 @@ func TestCheckDataDBAlignmentOutcomes(t *testing.T) {
 	require.NoError(t, err)
 	defer s.Close()
 	require.NoError(t, s.LoadLatest())
+	for i := int64(1); i <= 3; i++ {
+		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+	}
 
-	interrupted, err := s.checkDataDBAlignment()
-	require.NoError(t, err, "a fresh store's DBs all report 0")
-	require.False(t, interrupted)
+	reachable, err := latestVersion(cfg.DataDir, s.wal)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), reachable, "the WAL holds block 3, so 3 is reachable")
 
-	// An initialization that stamped one DB and stopped. Nothing holds data, so it is discardable.
-	s.localMeta[accountDBDir].CommittedVersion = 99
-	interrupted, err = s.checkDataDBAlignment()
-	require.Error(t, err)
-	require.True(t, interrupted)
-	require.ErrorContains(t, err, "no data DB holds any data")
+	// A DB behind the others is the ordinary torn commit: replay closes it, so no rebuild.
+	s.localMeta[accountDBDir].CommittedVersion = 2
+	require.NoError(t, s.rebuildIfAnyDataDBIsUnreachable())
 
-	// The same skew with a row on disk. The verdict must flip: this one cannot be discarded.
-	writeRawDataKey(t, s, storageDBDir, storagePhysKey(addrN(0x01), slotN(0x01)), padLeft32(0xAA))
-	interrupted, err = s.checkDataDBAlignment()
-	require.Error(t, err)
-	require.False(t, interrupted, "data on disk must never be reported as discardable")
-	require.ErrorContains(t, err, storageDBDir)
+	// A DB above the ceiling holds a block nothing can account for. The rebuild re-clones from the
+	// current snapshot and stops there; bringing the store back up is replay's job.
+	snapVersion, err := currentSnapshotVersion(cfg.DataDir)
+	require.NoError(t, err)
+	s.localMeta[accountDBDir].CommittedVersion = 4
+	require.NoError(t, s.rebuildIfAnyDataDBIsUnreachable())
+	requireAllDataDBsAt(t, s, snapVersion, "the working copy comes back from the snapshot")
+
+	require.NoError(t, s.replayIntoMutableStore(0))
+	require.Equal(t, int64(3), s.Version(), "replay then carries it to the WAL tail")
 }
 
 // TestUntouchedDataDBsOpenAtZero is the baseline of the classification: four DBs that have never had
@@ -143,10 +151,11 @@ func TestCompletedSeedSurvivesReopen(t *testing.T) {
 	requireAllDataDBsAt(t, reopened, 99)
 }
 
-// TestTornSeedHoldingDataRefuses is the boundary that separates a lossless discard from data loss.
-// The watermarks look exactly like an interrupted seed, but one DB holds a row, so discarding would
-// destroy it. The store must refuse instead.
-func TestTornSeedHoldingDataRefuses(t *testing.T) {
+// TestTornSeedHoldingUnreachableDataIsRebuilt covers a torn seed that also left a row behind. The row
+// was never committed — no snapshot and no WAL block accounts for it — so no consistent state includes
+// it and the rebuild discards it along with the half-written watermarks. Data presence is not the
+// discriminator; reachability is.
+func TestTornSeedHoldingUnreachableDataIsRebuilt(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
 
@@ -160,19 +169,20 @@ func TestTornSeedHoldingDataRefuses(t *testing.T) {
 	reopened := reopenStore(t, s, cfg)
 	defer reopened.Close()
 
-	err = reopened.LoadLatest()
-	require.Error(t, err, "a store holding data must never be discarded")
-	require.NotContains(t, err.Error(), "no data DB holds any data")
-	require.ErrorContains(t, err, storageDBDir, "the message must name the DB that holds data")
+	require.NoError(t, reopened.LoadLatest(), "an unreachable state must be repaired, not fatal")
+	require.Equal(t, int64(0), reopened.Version())
+	requireAllDataDBsAt(t, reopened, 0, "the working copy is rebuilt from the empty baseline")
+
+	_, found := reopened.Get(keys.EVMStoreKey, evmStorageKey(addrN(0x01), slotN(0x01)))
+	require.False(t, found, "the unreachable row is discarded with the rest of the working copy")
 }
 
-// TestOrphanedDataOutsideTheWALRefuses covers the state an interrupted state-sync restore and a live
-// store that lost one DB's metadata both present as: one DB holds data that no metadata accounts for
-// and that the WAL cannot replay, while the others carry watermarks. An import writes its rows
-// outside the WAL, which is why replay cannot rebuild the missing metadata the way it does after a
-// torn commit. The two causes are not distinguishable and discarding would destroy a live store's
-// rows, so this refuses. Loosening it to a repair is the mistake this test exists to catch.
-func TestOrphanedDataOutsideTheWALRefuses(t *testing.T) {
+// TestInterruptedImportIsRebuilt covers the shape a state-sync restore leaves when it is interrupted:
+// rows written outside the WAL, watermarks on the DBs that were finalized before the crash, and no
+// snapshot vouching for any of it. Nothing reaches that height, so the store rebuilds to the baseline
+// and comes up empty, ready for the restore to be redone — rather than refusing and taking the node
+// down until an operator wipes the directory by hand.
+func TestInterruptedImportIsRebuilt(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
 
@@ -180,18 +190,35 @@ func TestOrphanedDataOutsideTheWALRefuses(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
 
-	// Rows written straight into misc, as an import does, plus watermarks on the DBs that were
-	// finalized before the crash. The WAL never saw any of it.
 	writeRawDataKey(t, s, miscDBDir, []byte(keys.BankStoreKey+"/k"), []byte("v"))
 	stampSeedRecords(t, s, 1, accountDBDir, codeDBDir, storageDBDir)
 
 	reopened := reopenStore(t, s, cfg)
 	defer reopened.Close()
 
-	err = reopened.LoadLatest()
-	require.Error(t, err, "data the WAL cannot account for must refuse, not be discarded")
-	require.NotContains(t, err.Error(), "no data DB holds any data")
-	require.ErrorContains(t, err, miscDBDir, "the message must name the DB that holds data")
+	require.NoError(t, reopened.LoadLatest())
+	require.Equal(t, int64(0), reopened.Version())
+	requireAllDataDBsAt(t, reopened, 0)
+}
+
+// TestCompletedImportSurvivesReopen is the other side of it: a finished import writes a snapshot at the
+// restored height, and that snapshot is what makes the height reachable with an empty WAL. Without it
+// the store would be rebuilt away.
+func TestCompletedImportSurvivesReopen(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	require.NoError(t, s.SetInitialVersion(100))
+
+	reopened := reopenStore(t, s, cfg)
+	defer reopened.Close()
+
+	require.NoError(t, reopened.LoadLatest())
+	require.Equal(t, int64(99), reopened.Version(), "the snapshot vouches for the height")
+	requireAllDataDBsAt(t, reopened, 99)
 }
 
 // TestTornCommitStillRecoversFromWAL guards the ordinary case against the new classification: a DB
@@ -271,10 +298,10 @@ func TestIdentityRootsAtNonZeroVersionOpen(t *testing.T) {
 	requireAllDataDBsAt(t, reopened, 2)
 }
 
-// TestReadOnlyCloneRefusesInterruptedInitialization pins that only the mutable open path repairs. A
-// clone does not own the data directory, so a torn baseline must surface as an error and leave the
-// working directory the live store is using alone.
-func TestReadOnlyCloneRefusesInterruptedInitialization(t *testing.T) {
+// TestReadOnlyCloneNeverRebuilds pins that only the mutable open path repairs. A clone does not own
+// the data directory, so a torn baseline must surface as an error and leave the working directory the
+// live store is using alone.
+func TestReadOnlyCloneNeverRebuilds(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
@@ -303,10 +330,10 @@ func TestReadOnlyCloneRefusesInterruptedInitialization(t *testing.T) {
 	require.Equal(t, int64(99), reopened.Version(), "the live store must be undisturbed")
 }
 
-// TestDiscardIsNotRetriedForever pins that the repair happens once. When the torn state lives in the
-// snapshot the working dir is re-cloned from, discarding reproduces it, and that has to surface
-// rather than spin.
-func TestDiscardIsNotRetriedForever(t *testing.T) {
+// TestUnrepairableSnapshotSurfaces pins that the rebuild is not a loop. When the damage lives in the
+// snapshot the working copy is re-cloned from, rebuilding reproduces it, and the post-replay alignment
+// check has to surface that rather than the open spinning on it.
+func TestUnrepairableSnapshotSurfaces(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
@@ -326,9 +353,8 @@ func TestDiscardIsNotRetriedForever(t *testing.T) {
 	defer reopened.Close()
 
 	err = reopened.LoadLatest()
-	require.Error(t, err, "a discard that cannot fix the state must surface")
-	require.ErrorContains(t, err, "no data DB holds any data",
-		"the second attempt must surface the same verdict rather than loop")
+	require.Error(t, err, "damage inside the snapshot must surface rather than loop")
+	require.ErrorContains(t, err, "did not bring every data DB to the same version")
 }
 
 // stripSnapshotMeta deletes the version and root records from one DB inside the current snapshot,
@@ -363,4 +389,82 @@ func TestWriteLocalMetaRejectsNilHash(t *testing.T) {
 	require.ErrorContains(t, err, "no root hash")
 
 	require.NoError(t, writeLocalMetaToBatch(batch, 7, lthash.New(), nil, nil))
+}
+
+// TestDataDBAheadOfWALTouchedByReplayIsRebuilt is the case that was silently mis-handled. Replay
+// applying an older block to a DB that is past it rewrites that DB's version record downward while
+// leaving the later block's rows in place, so the post-replay alignment check saw four agreeing DBs
+// and passed — with the store's root summed over contents belonging to a height it no longer claimed.
+//
+// The fixture needs three things together, and dropping any one of them makes it pass without the fix:
+// the ahead DB must physically hold the later block's rows, the replayed block must touch that DB so
+// replay rewrites its record, and the later block must write a key the replayed block does not, so
+// replay cannot overwrite the evidence. The assertion is against the root captured at the height the
+// store ends up claiming.
+func TestDataDBAheadOfWALTouchedByReplayIsRebuilt(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+
+	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{bankPair([]byte("a"), []byte{1})}))
+	require.NoError(t, s.CommitBlock(2, []*proto.NamedChangeSet{bankPair([]byte("a"), []byte{2})}))
+	wantRoot := bytes.Clone(s.CommittedRootHash())
+
+	// Block 3 writes a different key, so replaying block 2 cannot overwrite it.
+	require.NoError(t, s.CommitBlock(3, []*proto.NamedChangeSet{bankPair([]byte("b"), []byte{3})}))
+
+	// Drop block 3 from the WAL, leaving misc holding its rows and recording version 3.
+	require.NoError(t, s.wal.Close())
+	require.NoError(t, statewal.PruneAfter(stateWALConfig(cfg.DataDir), 2))
+	w, err := statewal.New(stateWALConfig(cfg.DataDir))
+	require.NoError(t, err)
+	s.wal = w
+
+	// Only misc may be left ahead. A commit advances every DB's record, so the other three are put
+	// back to 2 — where replay skips them — and account to 1 so replay has a block to apply at all.
+	// Were any untouched DB left ahead, the post-replay check would catch it and the store would fail
+	// loudly instead of taking the silent path this test exists to close.
+	rewindVersionRecords(t, s, 2, codeDBDir, storageDBDir)
+	rewindVersionRecords(t, s, 1, accountDBDir)
+
+	reopened := reopenStore(t, s, cfg)
+	defer reopened.Close()
+
+	require.NoError(t, reopened.LoadLatest(), "the unreachable block is discarded, not carried forward")
+	require.Equal(t, int64(2), reopened.Version())
+	requireAllDataDBsAt(t, reopened, 2)
+	require.Equal(t, wantRoot, reopened.CommittedRootHash(),
+		"the root must be the one that belongs to the height the store reports")
+
+	_, found := reopened.Get(keys.BankStoreKey, []byte("b"))
+	require.False(t, found, "block 3's row must not survive at a store claiming version 2")
+	require.NoError(t, VerifyLtHash(reopened))
+}
+
+// TestTwoDataDBsAheadAtDifferentVersions covers more than one DB above the reachable version, so the
+// rebuild cannot be keyed on a single offending DB.
+func TestTwoDataDBsAheadAtDifferentVersions(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	for i := int64(1); i <= 2; i++ {
+		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+	}
+
+	rewindVersionRecords(t, s, 5, miscDBDir)
+	rewindVersionRecords(t, s, 4, storageDBDir)
+
+	reopened := reopenStore(t, s, cfg)
+	defer reopened.Close()
+
+	require.NoError(t, reopened.LoadLatest())
+	require.Equal(t, int64(2), reopened.Version())
+	requireAllDataDBsAt(t, reopened, 2)
+	require.NoError(t, VerifyLtHash(reopened))
 }
