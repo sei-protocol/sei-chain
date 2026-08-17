@@ -904,6 +904,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
 			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
+			recoveryMW = newContextCancelledRecoveryMiddleware(recoveryMW)
 			err, runTxRes.result = processRecovery(r, recoveryMW), nil
 		}
 		if ctx.GasMeter() == blockGasMeter {
