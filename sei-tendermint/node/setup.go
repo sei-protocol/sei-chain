@@ -263,26 +263,22 @@ func buildGigaConfig(
 	}, nil
 }
 
-func createRouter(
-	p2pMetrics *p2p.Metrics,
-	nodeInfoProducer func() *types.NodeInfo,
-	nodeKey types.NodeKey,
-	validatorKey utils.Option[atypes.SecretKey],
-	cfg *config.Config,
-	app utils.Option[*proxy.Proxy],
-	genDoc *types.GenesisDoc,
-	dbProvider config.DBProvider,
-) (*p2p.Router, closer, error) {
-	closer := func() error { return nil }
-	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
-	if err != nil {
-		return nil, closer, err
+// pacingRate returns the rate limit for a configured pacing interval.
+func pacingRate(key string, interval time.Duration) (rate.Limit, error) {
+	// rate.Every maps every non-positive interval to rate.Inf. A configured 0 means
+	// "disable the limiter" and is honoured; a negative value is a typo that would
+	// silently disable pacing instead. ValidateBasic rejects it wherever it runs,
+	// but an already-deployed config never reaches ValidateBasic, so refuse it here
+	// too rather than letting the two paths disagree about the same input.
+	if interval < 0 {
+		return 0, fmt.Errorf("p2p %v must not be negative, got %v", key, interval)
 	}
-	var privatePeerIDs []types.NodeID
-	for _, id := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PrivatePeerIDs, ",", " ") {
-		privatePeerIDs = append(privatePeerIDs, types.NodeID(id))
-	}
+	return rate.Every(interval), nil
+}
 
+// p2pRouterOptions returns the router's connection budget and pacing, derived
+// from the p2p config.
+func p2pRouterOptions(cfg *config.Config, ep p2p.Endpoint, privatePeerIDs []types.NodeID) (*p2p.RouterOptions, error) {
 	// MaxConnections defaults to 64
 	maxConns := 64
 	if cfg.P2P.MaxConnections > 0 {
@@ -304,10 +300,19 @@ func createRouter(
 	connection.SendRate = cfg.P2P.SendRate
 	connection.RecvRate = cfg.P2P.RecvRate
 	connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
-	options := &p2p.RouterOptions{
+	dialRate, err := pacingRate("dial-interval", cfg.P2P.DialInterval)
+	if err != nil {
+		return nil, err
+	}
+	acceptRate, err := pacingRate("accept-interval", cfg.P2P.AcceptInterval)
+	if err != nil {
+		return nil, err
+	}
+	return &p2p.RouterOptions{
 		Endpoint:                      ep,
 		MaxIncomingConnectionAttempts: utils.Some(cfg.P2P.MaxIncomingConnectionAttempts),
-		MaxDialRate:                   utils.Some(rate.Every(cfg.P2P.DialInterval)),
+		MaxDialRate:                   utils.Some(dialRate),
+		MaxAcceptRate:                 utils.Some(acceptRate),
 		HandshakeTimeout:              utils.Some(cfg.P2P.HandshakeTimeout),
 		DialTimeout:                   utils.Some(cfg.P2P.DialTimeout),
 		PexOnHandshake:                cfg.P2P.PexReactor,
@@ -316,6 +321,32 @@ func createRouter(
 		MaxOutbound:                   utils.Some(maxOutbound),
 		MaxConcurrentAccepts:          utils.Some(maxInbound),
 		Connection:                    connection,
+	}, nil
+}
+
+func createRouter(
+	p2pMetrics *p2p.Metrics,
+	nodeInfoProducer func() *types.NodeInfo,
+	nodeKey types.NodeKey,
+	validatorKey utils.Option[atypes.SecretKey],
+	cfg *config.Config,
+	app utils.Option[*proxy.Proxy],
+	genDoc *types.GenesisDoc,
+	dbProvider config.DBProvider,
+) (*p2p.Router, closer, error) {
+	closer := func() error { return nil }
+	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
+	if err != nil {
+		return nil, closer, err
+	}
+	var privatePeerIDs []types.NodeID
+	for _, id := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PrivatePeerIDs, ",", " ") {
+		privatePeerIDs = append(privatePeerIDs, types.NodeID(id))
+	}
+
+	options, err := p2pRouterOptions(cfg, ep, privatePeerIDs)
+	if err != nil {
+		return nil, closer, err
 	}
 	if addr := cfg.P2P.ExternalAddress; addr != "" {
 		nodeAddr, err := p2p.ParseNodeAddress(nodeKey.ID().AddressString(addr))

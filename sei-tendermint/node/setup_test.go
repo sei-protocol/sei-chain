@@ -2,6 +2,7 @@ package node
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -280,4 +282,77 @@ func TestBuildGigaConfig_NodeKeyMismatch(t *testing.T) {
 	_, err := buildGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "node key mismatch")
+}
+
+// Every other RouterOptions construction site substitutes rate.Inf, so this
+// derivation is the only place the production accept rate is exercised.
+//
+// The rate assertions wrap in utils.Some because MaxDialRate/MaxAcceptRate are
+// still Option-typed on this branch — #3922, which unwraps them, is on main only.
+func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
+	ep, err := p2p.ResolveEndpoint("tcp://0000000000000000000000000000000000000000@127.0.0.1:26656")
+	require.NoError(t, err)
+
+	t.Run("defaults reach the router", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		opts, err := p2pRouterOptions(cfg, ep, nil)
+		require.NoError(t, err)
+
+		require.Equal(t, utils.Some(rate.Every(cfg.P2P.AcceptInterval)), opts.MaxAcceptRate)
+		require.Equal(t, utils.Some(rate.Every(cfg.P2P.DialInterval)), opts.MaxDialRate)
+	})
+
+	// A negative value never reaches ValidateBasic on an already-deployed node, and
+	// rate.Every would read it as "disable". Refuse it rather than start unpaced.
+	for _, key := range []string{"accept-interval", "dial-interval"} {
+		t.Run("negative "+key+" refuses to build options", func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			switch key {
+			case "accept-interval":
+				cfg.P2P.AcceptInterval = -1 * time.Second
+			case "dial-interval":
+				cfg.P2P.DialInterval = -1 * time.Second
+			}
+			_, err := p2pRouterOptions(cfg, ep, nil)
+			require.Error(t, err)
+		})
+	}
+
+	t.Run("zero interval disables the limiter", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.P2P.AcceptInterval = 0
+		opts, err := p2pRouterOptions(cfg, ep, nil)
+		require.NoError(t, err)
+		require.Equal(t, utils.Some(rate.Inf), opts.MaxAcceptRate)
+	})
+
+	t.Run("operator value flows through", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.P2P.AcceptInterval = 250 * time.Millisecond
+		opts, err := p2pRouterOptions(cfg, ep, nil)
+		require.NoError(t, err)
+		require.Equal(t, utils.Some(rate.Every(250*time.Millisecond)), opts.MaxAcceptRate)
+	})
+
+	// Non-default totals, so the assertions track the derivation rather than
+	// restating DefaultP2PConfig. 50 exercises the flat 20-outbound reservation;
+	// 30 exercises the min(20, (maxConns+1)/2) branch, which nothing else reaches.
+	for _, tc := range []struct {
+		maxConns, wantInbound, wantOutbound int
+	}{
+		{maxConns: 50, wantInbound: 30, wantOutbound: 20},
+		{maxConns: 30, wantInbound: 15, wantOutbound: 15},
+	} {
+		t.Run(fmt.Sprintf("budget derives from max-connections=%d", tc.maxConns), func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			cfg.P2P.MaxConnections = uint(tc.maxConns)
+			opts, err := p2pRouterOptions(cfg, ep, nil)
+			require.NoError(t, err)
+
+			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxInbound)
+			require.Equal(t, utils.Some(tc.wantOutbound), opts.MaxOutbound)
+			// MaxConcurrentAccepts tracks the inbound pool, not max-connections.
+			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxConcurrentAccepts)
+		})
+	}
 }
