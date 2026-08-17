@@ -244,7 +244,7 @@ func TestValidateBasic(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			name: "freeze height above maximum block height",
+			name: "freeze height above maximum int64",
 			setupCfg: func() *Config {
 				cfg := DefaultConfig()
 				cfg.FreezeHeight = uint64(math.MaxInt64) + 1
@@ -285,6 +285,14 @@ func TestValidateBasic(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetConfigRejectsNegativeFreezeHeight(t *testing.T) {
+	v := seedViperWithDefaultConfig(t)
+	v.Set("freeze-height", -1)
+
+	_, err := GetConfig(v)
+	require.Error(t, err)
 }
 
 func TestGetMinGasPrices(t *testing.T) {

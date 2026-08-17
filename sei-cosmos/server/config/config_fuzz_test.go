@@ -1234,7 +1234,7 @@ func requireEveryManifestRowIsAnchored(t *testing.T, covered map[string]bool) {
 }
 
 // baseConfigKeys covers the thirteen keys GetConfig reads at the top level of app.toml, the ones
-// written without a section header (config.go:555-568). Every one is a bare viper getter.
+// written without a section header. FreezeHeight is checked; the other fields use bare viper getters.
 var baseConfigKeys = []configtest.KeySpec{
 	{
 		Key: "minimum-gas-prices", Path: "MinGasPrices", Cast: configtest.CastString,
@@ -1299,7 +1299,7 @@ var baseConfigKeys = []configtest.KeySpec{
 			"app.toml lacks the key executes without optimistic concurrency control",
 	},
 	{
-		Key: "freeze-height", Path: "FreezeHeight", Cast: configtest.CastUint64, Unguarded: true,
+		Key: "freeze-height", Path: "FreezeHeight", Cast: configtest.CastUint64, Unguarded: true, Checked: true,
 		Why: "0 is both the declared default and the spelling for allowing consensus to advance",
 	},
 }
@@ -1326,6 +1326,7 @@ func FuzzBaseConfig(f *testing.F) {
 	seeds.AddRow(uint(10), fuzzing.KindInt64, "", int64(7), false)
 	seeds.AddRow(uint(11), fuzzing.KindBool, "", int64(0), true)
 	seeds.AddRow(uint(12), fuzzing.KindInt64, "", int64(9000000), false)
+	seeds.AddRow(uint(12), fuzzing.KindInt64, "", int64(-1), false)
 
 	configtest.CheckEveryRowHasADiscriminatingSeed(f, "base_config", readBaseConfig(f),
 		baseConfigKeys, seeds)

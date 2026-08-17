@@ -13,6 +13,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/spf13/cast"
 	"github.com/spf13/viper"
 )
 
@@ -427,6 +428,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	if !ok {
 		return Config{}, fmt.Errorf("failed to parse global-labels config")
 	}
+	freezeHeight, err := cast.ToUint64E(v.Get("freeze-height"))
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid freeze-height: %w", err)
+	}
 
 	globalLabels := make([][]string, 0, len(globalLabelsRaw))
 	for idx, glr := range globalLabelsRaw {
@@ -565,7 +570,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			PruningKeepRecent:  v.GetString("pruning-keep-recent"),
 			PruningInterval:    v.GetString("pruning-interval"),
 			HaltHeight:         v.GetUint64("halt-height"),
-			FreezeHeight:       v.GetUint64("freeze-height"),
+			FreezeHeight:       freezeHeight,
 			HaltTime:           v.GetUint64("halt-time"),
 			IndexEvents:        v.GetStringSlice("index-events"),
 			MinRetainBlocks:    v.GetUint64("min-retain-blocks"),

@@ -645,6 +645,10 @@ func (s *syncController) autoRestartIfBehind(ctx context.Context, pool *BlockPoo
 		select {
 		case <-time.After(s.blocksBehindCheckInterval):
 			selfHeight := s.store.Height()
+			if s.freezeHeight > 0 && selfHeight >= 0 && uint64(selfHeight) >= s.freezeHeight-1 { //nolint:gosec // negative heights are rejected first.
+				logger.Info("Auto remediation stopped at configured freeze height", "selfHeight", selfHeight, "freeze_height", s.freezeHeight)
+				return
+			}
 			maxPeerHeight := pool.MaxPeerHeight()
 			threshold := int64(s.blocksBehindThreshold) //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 			behindHeight := maxPeerHeight - selfHeight

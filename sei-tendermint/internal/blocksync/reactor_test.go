@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -25,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	utilsrequire "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -454,6 +456,30 @@ func TestAutoRestartIfBehind(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAutoRestartStopsAtFreezeBoundary(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const freezeHeight = uint64(101)
+		mockBlockStore := new(MockBlockStore)
+		mockBlockStore.On("Height").Return(int64(freezeHeight - 1))
+
+		blockPool := &BlockPool{
+			height:        int64(freezeHeight),
+			maxPeerHeight: int64(freezeHeight + 100),
+		}
+		restart := utils.NewAtomicSend(false)
+		syncer := &syncController{
+			store:                     mockBlockStore,
+			blocksBehindThreshold:     1,
+			blocksBehindCheckInterval: time.Hour,
+			freezeHeight:              freezeHeight,
+			restartEvent:              func() { restart.Store(true) },
+		}
+
+		syncer.autoRestartIfBehind(t.Context(), blockPool)
+		utilsrequire.False(t, restart.Load())
+	})
 }
 
 func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {

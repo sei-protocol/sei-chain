@@ -661,8 +661,10 @@ func (cs *State) updateToState(state sm.State) {
 
 func (cs *State) newStep() {
 	rs := cs.roundState.RoundStateEvent()
-	if err := cs.wal.Append(NewWALMessage(rs)); err != nil {
-		panic(fmt.Errorf("failed writing to WAL: %w", err))
+	if !cs.frozen.Load() {
+		if err := cs.wal.Append(NewWALMessage(rs)); err != nil {
+			panic(fmt.Errorf("failed writing to WAL: %w", err))
+		}
 	}
 
 	cs.nSteps++
