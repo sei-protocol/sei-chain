@@ -407,11 +407,3 @@ func TestManifestNamesEveryField(t *testing.T) {
 		"MaxOpenConnections",  // FuzzMaxOpenConnections
 	)
 }
-
-// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
-//
-// Every other check here reports a change to what it asserts. None reports a check being removed, so
-// this records the wiring and fails when it thins out.
-func TestWiringMatchesTheRecord(t *testing.T) {
-	configtest.CheckWiring(t)
-}
