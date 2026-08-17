@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -162,7 +163,7 @@ func (b *budgetBody) Read(p []byte) (int, error) {
 		}
 		if isReadIdleTimeout(err) {
 			b.fail(rejectReasonSlowBody, http.StatusRequestTimeout, "request timeout", err)
-			return n, errSlowBody
+			return n, fmt.Errorf("%w: %w", errSlowBody, err)
 		}
 		b.release()
 	}

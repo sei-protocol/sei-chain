@@ -37,11 +37,13 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			m.rejectAdmission(r.Context(), w, ip, rejectReasonOversize, http.StatusRequestEntityTooLarge, "request body too large")
 			return
 		}
-		if errors.Is(err, errBudgetExhausted) || errors.Is(err, errSlowBody) {
-			// The outer requestSizeLimiter already recorded the rejection reason
-			// (budget_midread/slow_body) and owns the response for this failure;
-			// charging admission here would debit an innocent client's per-IP
-			// bucket for a server-side capacity event and double-count the metric.
+		if errors.Is(err, errBudgetExhausted) {
+			// Server-side capacity event; outer limiter already owns the response.
+			return
+		}
+		if errors.Is(err, errSlowBody) {
+			// Client-caused stall: still charge the per-IP bucket.
+			_ = m.gate.chargeAdmissionRejection(r.Context(), ip)
 			return
 		}
 		m.rejectAdmission(r.Context(), w, ip, rejectReasonReadError, http.StatusBadRequest, "bad request")
