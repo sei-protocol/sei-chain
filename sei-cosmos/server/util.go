@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands/debug"
@@ -266,7 +265,6 @@ func interceptConfigs(rootViper *viper.Viper, customAppTemplate string, customCo
 		conf.RPC.PprofListenAddress = "localhost:6060"
 		conf.P2P.RecvRate = 5120000
 		conf.P2P.SendRate = 5120000
-		conf.Consensus.UnsafeCommitTimeoutOverride = 5 * time.Second
 		err := tmcfg.WriteConfigFile(rootDir, conf)
 		if err != nil {
 			return nil, err
