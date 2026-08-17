@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,6 +108,15 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 	assert.NoError(t, cfg2.ValidateBasic())
 	cfg2.TimeoutWrite = 0 // 0 disables; constraint does not apply
 	assert.NoError(t, cfg2.ValidateBasic())
+
+	cfg3 := TestRPCConfig()
+	cfg3.RateLimitingEnabled = true
+	cfg3.IPRateLimitBurst = rpctypes.RequestBatchSizeLimit - 1
+	assert.Error(t, cfg3.ValidateBasic())
+	cfg3.IPRateLimitBurst = rpctypes.RequestBatchSizeLimit
+	assert.NoError(t, cfg3.ValidateBasic())
+	cfg3.IPRateLimitBurst = 0
+	assert.NoError(t, cfg3.ValidateBasic())
 }
 
 func TestMempoolConfigValidateBasic(t *testing.T) {
@@ -352,4 +362,20 @@ func TestWalFile_BothExist_LegacyWins(t *testing.T) {
 	expected := filepath.Join(legacyDir, "wal")
 	assert.Equal(t, expected, cfg.WalFile(),
 		"legacy should win when both locations exist")
+}
+
+func TestRPCRateLimitKeysKebabCase(t *testing.T) {
+	const body = `
+[rpc]
+ip-rate-limit-rps = 42.5
+ip-rate-limit-burst = 50
+rate-limiting-enabled = true
+trusted-proxy-cidrs = ["10.0.0.0/8"]
+`
+	conf, err := unmarshalConfigTOML(t, body)
+	require.NoError(t, err)
+	require.Equal(t, 42.5, conf.RPC.IPRateLimitRPS)
+	require.Equal(t, 50, conf.RPC.IPRateLimitBurst)
+	require.True(t, conf.RPC.RateLimitingEnabled)
+	require.Equal(t, []string{"10.0.0.0/8"}, conf.RPC.TrustedProxyCIDRs)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/rs/cors"
 	"github.com/sei-protocol/seilog"
 
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
@@ -322,6 +323,19 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 		logger.Info("Event log subscription enabled")
 	}
 
+	var rateLimitGate *rpcserver.RateLimitGate
+	if conf.RPC.RateLimitingEnabled {
+		rateLimitRegistry, err := ratelimiter.New(conf.RPC.RateLimiterConfig())
+		if err != nil {
+			return nil, fmt.Errorf("rpc rate limiter: %w", err)
+		}
+		rateLimitGate = rpcserver.NewRateLimitGate(
+			rateLimitRegistry,
+			conf.RPC.MaxBodyBytes,
+			true,
+		)
+	}
+
 	// We may expose the RPC over both TCP and a Unix-domain socket.
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, listenAddr := range listenAddrs {
@@ -353,14 +367,14 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 			return nil, err
 		}
 
-		var rootHandler http.Handler = mux
+		rootHandler := rpcserver.NewRateLimitMiddleware(mux, rateLimitGate)
 		if conf.RPC.IsCorsEnabled() {
 			corsMiddleware := cors.New(cors.Options{
 				AllowedOrigins: conf.RPC.CORSAllowedOrigins,
 				AllowedMethods: conf.RPC.CORSAllowedMethods,
 				AllowedHeaders: conf.RPC.CORSAllowedHeaders,
 			})
-			rootHandler = corsMiddleware.Handler(mux)
+			rootHandler = corsMiddleware.Handler(rootHandler)
 		}
 		if conf.RPC.IsTLSEnabled() {
 			go func() {
