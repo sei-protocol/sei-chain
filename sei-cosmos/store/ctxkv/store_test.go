@@ -32,6 +32,19 @@ func TestWrapIsNoopWhenContextCannotCancel(t *testing.T) {
 	require.Equal(t, parent, ctxkv.Wrap(parent, context.Background()))
 }
 
+func TestIteratorOnUsesContextIteratorOnlyWhenCancellable(t *testing.T) {
+	parent := &recordingStore{}
+	_ = types.IteratorOn(parent, nil, nil, nil, true)
+	require.Nil(t, parent.gotCtx)
+	_ = types.IteratorOn(parent, context.Background(), nil, nil, true)
+	require.Nil(t, parent.gotCtx)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_ = types.IteratorOn(parent, ctx, nil, nil, true)
+	require.Equal(t, ctx, parent.gotCtx)
+}
+
 func TestWrapForwardsDeadlineToContextIterator(t *testing.T) {
 	parent := &recordingStore{}
 	ctx, cancel := context.WithCancel(context.Background())

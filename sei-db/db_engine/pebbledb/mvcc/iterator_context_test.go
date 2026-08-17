@@ -2,6 +2,7 @@ package mvcc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -62,3 +63,37 @@ func TestAscendingIteratorWithCancelledContextAbortsSkip(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.Nil(t, itr)
 }
+
+func TestFinishMVCCIteratorReturnsOnlyCancelErrors(t *testing.T) {
+	pebbleErr := errors.New("pebble: seek failed")
+	readErr := &finishIterStub{err: pebbleErr}
+	got, err := finishMVCCIterator(readErr)
+	require.NoError(t, err)
+	require.Equal(t, readErr, got)
+	require.False(t, readErr.closed)
+
+	canceled := &finishIterStub{err: context.Canceled}
+	got, err = finishMVCCIterator(canceled)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, got)
+	require.True(t, canceled.closed)
+
+	deadline := &finishIterStub{err: context.DeadlineExceeded}
+	got, err = finishMVCCIterator(deadline)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Nil(t, got)
+	require.True(t, deadline.closed)
+}
+
+type finishIterStub struct {
+	err    error
+	closed bool
+}
+
+func (s *finishIterStub) Domain() ([]byte, []byte) { return nil, nil }
+func (s *finishIterStub) Valid() bool              { return false }
+func (s *finishIterStub) Next()                    {}
+func (s *finishIterStub) Key() []byte              { return nil }
+func (s *finishIterStub) Value() []byte            { return nil }
+func (s *finishIterStub) Error() error             { return s.err }
+func (s *finishIterStub) Close() error             { s.closed = true; return nil }
