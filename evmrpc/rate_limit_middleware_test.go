@@ -557,11 +557,7 @@ func TestComposedStack_BudgetMidreadDoesNotChargeInnocentIP(t *testing.T) {
 
 	reg := mustRateLimitRegistry(t, 0.001, 1) // burst=1: any charge exhausts the bucket
 	gate := NewRateLimitGate(reg, maxBody, true, "evm")
-	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		admitted <- struct{}{}
-		<-release
-		w.WriteHeader(http.StatusOK)
-	})
+	inner := blockUntilRelease(release, func() { admitted <- struct{}{} })
 	stack := newRequestSizeLimiter(newRateLimitMiddleware(inner, gate), maxBody, budget, 0)
 
 	// A well-formed JSON-RPC body padded to exactly maxBody bytes: it must parse
