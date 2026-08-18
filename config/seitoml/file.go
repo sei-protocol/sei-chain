@@ -327,8 +327,14 @@ func modeToWrite(path string) (os.FileMode, error) {
 
 // writeAndSync writes the whole payload, sets the mode, and flushes to the device.
 //
-// The sync makes the rename meaningful: without it the rename can land before the contents, leaving
-// a file whose name is new and whose bytes are absent.
+// The sync is what makes the rename meaningful: without it the rename can land before the contents,
+// leaving a file whose name is new and whose bytes are absent, which is the one outcome a node cannot
+// boot from.
+//
+// This is the reason the write is by hand rather than through creachadair/atomicfile, which this module
+// already depends on and which sei-tendermint's confix uses for the same job. That package renames on
+// Close and never syncs, and its temporary file is unexported, so the flush cannot be added from
+// outside. Fewer lines are not worth the flush here.
 func writeAndSync(tmp *os.File, raw []byte, mode os.FileMode) error {
 	defer func() { _ = tmp.Close() }()
 
