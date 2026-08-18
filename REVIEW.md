@@ -103,9 +103,10 @@ than reasoning from `minimum-gas-prices` alone.
 
 ## 4. Genesis rewrites must preserve consensus parameters
 
-Any code that rewrites an existing genesis document must carry its complete
-`ConsensusParams` into the replacement document. Rebuilding only the chain ID,
-validators, application state, and genesis time silently restores omitted
+Any code that rewrites an existing genesis document must carry every consensus
+parameter deliberately customized earlier in the generation flow unless replacing
+those values is an explicit responsibility of the rewrite. Rebuilding only the
+chain ID, validators, application state, and genesis time silently restores omitted
 consensus parameters to their defaults.
 
 Review the complete genesis-generation flow rather than only the initial write.
@@ -123,7 +124,8 @@ migration path consumes it.
 Do not request global unknown-field errors as a local deprecation fix. Changing
 the decoder to reject unknown keys alters compatibility for every configuration
 section and must be an intentional change at the shared decoding choke point,
-with the configuration characterization suite updated to record the behavior.
+with dedicated startup or TOML-decoding tests that record the behavior.
 
 A deprecated field is a real finding when the code or documentation promises a
 warning or migration but no startup path consumes it, or when removing it changes
+documented compatibility without an explicit replacement policy.
