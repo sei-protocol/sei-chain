@@ -115,24 +115,69 @@ func pushAppQCForBlock(ctx context.Context, state *State, keys []types.SecretKey
 	return state.PushAppQC(ctx, TestAppQC(keys, vote.Proposal()))
 }
 
-func TestCommitEpoch_TracksLatestCommitQC(t *testing.T) {
+func commitQCAtRoad(
+	ep *types.Epoch,
+	keys []types.SecretKey,
+	road types.RoadIndex,
+	globalFirst types.GlobalBlockNumber,
+) (*types.FullCommitQC, []*types.Block) {
+	proposal := types.ProposalAt(ep, types.View{Index: road, Number: 0}, globalFirst)
+	block := types.NewBlock(ep.Committee().Lanes().At(0), 0, types.BlockHeaderHash{}, &types.Payload{})
+	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
+	for _, k := range keys {
+		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal)))
+	}
+	return types.NewFullCommitQC(types.NewCommitQC(votes), []*types.BlockHeader{block.Header()}), []*types.Block{block}
+}
+
+func TestNextCommitEpoch_TracksNextRoadEpoch(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep0, ok := registry.EpochByIndex(0)
+	require.True(t, ok)
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
-	require.Equal(t, registry.LatestEpoch(), state.CommitEpoch().Load())
+	require.Equal(t, ep0, state.NextCommitEpoch().Load())
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
-		qc, blocks := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
+		qc, blocks := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
 		if err := state.PushQC(ctx, qc, blocks); err != nil {
 			return err
 		}
-		require.Equal(t, registry.LatestEpoch(), state.CommitEpoch().Load())
+		require.Equal(t, ep0, state.NextCommitEpoch().Load())
 		return nil
 	}))
+}
+
+func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep1, ok := registry.EpochByIndex(1)
+	require.True(t, ok)
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+
+	qcMid, blocksMid := commitQCAtRoad(ep1, keys, epoch.FirstRoad(1), ep1.FirstBlock())
+	require.NoError(t, state.PushQC(ctx, qcMid, blocksMid))
+	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "mid-epoch next road is still in epoch 1")
+	grMid := qcMid.QC().GlobalRange()
+	require.NoError(t, pushAppHashesRunning(ctx, state, rng, grMid.First, grMid.Next))
+	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "mid-epoch AppHash must not seed epoch 2")
+
+	qcLast, blocksLast := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), grMid.Next)
+	require.NoError(t, state.PushQC(ctx, qcLast, blocksLast))
+	_, err := registry.EpochAt(epoch.FirstRoad(2))
+	require.Error(t, err, "epoch 2 must stay unregistered until the boundary AppProposal lands")
+	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "unregistered next epoch: previous publish stands")
+
+	grLast := qcLast.QC().GlobalRange()
+	require.NoError(t, pushAppHashesRunning(ctx, state, rng, grLast.First, grLast.Next))
+	ep2, err := registry.EpochAt(epoch.FirstRoad(2))
+	require.NoError(t, err)
+	require.Equal(t, ep2, state.NextCommitEpoch().Load())
 }
 
 func TestState(t *testing.T) {
@@ -475,21 +520,11 @@ func TestPushAppHash_AdvancesRegistryAtEpochBoundary(t *testing.T) {
 		ep := registry.LatestEpoch()
 		require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-			// A valid QC stamped at the epoch boundary: ProposalAt finalizes one block on
-			// lane 0 starting at ep.FirstBlock(), which a fresh state admits since PushQC
-			// requires global-block contiguity, not road contiguity. block must stay
-			// identical to the one ProposalAt builds, or the header hashes disagree.
-			proposal := types.ProposalAt(ep, types.View{Index: epoch.LastRoad(0), Number: 0})
-			block := types.NewBlock(ep.Committee().Lanes().At(0), 0, types.BlockHeaderHash{}, &types.Payload{})
-			votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
-			for _, k := range keys {
-				votes = append(votes, types.Sign(k, types.NewCommitVote(proposal)))
-			}
-			qc := types.NewFullCommitQC(types.NewCommitQC(votes), []*types.BlockHeader{block.Header()})
+			qc, blocks := commitQCAtRoad(ep, keys, epoch.LastRoad(0), ep.FirstBlock())
 			if qc.QC().Proposal().Index() != epoch.LastRoad(0) {
 				return fmt.Errorf("road = %d, want %d", qc.QC().Proposal().Index(), epoch.LastRoad(0))
 			}
-			if err := state.PushQC(ctx, qc, []*types.Block{block}); err != nil {
+			if err := state.PushQC(ctx, qc, blocks); err != nil {
 				return err
 			}
 			if err := state.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {

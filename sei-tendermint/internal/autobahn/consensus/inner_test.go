@@ -154,7 +154,7 @@ func TestNewInner_RejectsWALAheadOfSpec(t *testing.T) {
 
 	last := epoch.LastRoad(0)
 	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}))),
+		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}, ep0.FirstBlock()))),
 	})
 	qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
 	require.Equal(t, last, qcLast.Index())
@@ -186,7 +186,7 @@ func TestNewInner_EqualTipKeepsVotes(t *testing.T) {
 
 	last := epoch.LastRoad(0)
 	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}))),
+		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}, ep0.FirstBlock()))),
 	})
 	qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
 
@@ -1149,7 +1149,7 @@ func newConsensusState(t *testing.T, registry *epoch.Registry, key types.SecretK
 
 func commitQCAtRoad(ep *types.Epoch, keys []types.SecretKey, idx types.RoadIndex) *types.CommitQC {
 	parent := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep, types.View{Index: idx - 1, Number: 0}))),
+		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep, types.View{Index: idx - 1, Number: 0}, ep.FirstBlock()))),
 	})
 	qc := types.BuildCommitQC(ep, keys, utils.Some(parent), nil)
 	if qc.Proposal().Index() != idx {

@@ -102,7 +102,7 @@ func setRoadAppQC(s *State, idx types.RoadIndex, appQC *types.AppQC) {
 
 func tipLink(ep *types.Epoch, key types.SecretKey, idx types.RoadIndex) *types.CommitQC {
 	return types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(key, types.NewCommitVote(types.ProposalAt(ep, types.View{Index: idx, Number: 0}))),
+		types.Sign(key, types.NewCommitVote(types.ProposalAt(ep, types.View{Index: idx, Number: 0}, ep.FirstBlock()))),
 	})
 }
 

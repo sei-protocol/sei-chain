@@ -30,7 +30,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			cfg:                cfg,
 			key:                key,
 			data:               dataState,
-			commitEpoch:        dataState.CommitEpoch(),
+			nextCommitEpoch:    dataState.NextCommitEpoch(),
 			service:            giga.NewFullNodeService(dataState),
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
@@ -66,7 +66,7 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 // EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
 // EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
 func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
-	return r.evmProxy(r.commitEpoch.Load().Committee().EvmShard(sender))
+	return r.evmProxy(r.nextCommitEpoch.Load().Committee().EvmShard(sender))
 }
 
 // runFullnodeSubscriber: pick a committee member, dial + block-sync,

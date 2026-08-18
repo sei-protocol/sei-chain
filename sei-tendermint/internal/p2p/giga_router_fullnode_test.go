@@ -104,7 +104,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.CommitEpoch().Load().Committee().EvmShard(sender)
+		shardValidator := router.data.NextCommitEpoch().Load().Committee().EvmShard(sender)
 		expectedClient := clientByValidator[shardValidator]
 		proxyClient, ok := router.EvmProxy(sender).Get()
 		require.True(t, ok)
