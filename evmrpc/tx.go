@@ -38,14 +38,9 @@ type TransactionAPI struct {
 	homeDir            string
 	connectionType     ConnectionType
 	methodTimeout      utils.Option[time.Duration]
-	includeSynthetic   bool
 	watermarks         *WatermarkManager
 	globalBlockCache   BlockCache
 	cacheCreationMutex *sync.Mutex
-}
-
-type SeiTransactionAPI struct {
-	transactionAPI *TransactionAPI
 }
 
 func NewTransactionAPI(
@@ -74,36 +69,14 @@ func NewTransactionAPI(
 	}
 }
 
-func NewSeiTransactionAPI(
-	tmClient client.LocalClient,
-	k *keeper.Keeper,
-	ctxProvider func(int64) sdk.Context,
-	txConfigProvider func(int64) client.TxConfig,
-	homeDir string,
-	connectionType ConnectionType,
-	methodTimeout utils.Option[time.Duration],
-	watermarks *WatermarkManager,
-	globalBlockCache BlockCache,
-	cacheCreationMutex *sync.Mutex,
-) *SeiTransactionAPI {
-	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, methodTimeout, watermarks, globalBlockCache, cacheCreationMutex)
-	baseAPI.includeSynthetic = true
-	return &SeiTransactionAPI{transactionAPI: baseAPI}
-}
-
-func (t *SeiTransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]any, returnErr error) {
-	return getTransactionReceipt(ctx, t.transactionAPI, hash, true)
-}
-
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]any, returnErr error) {
-	return getTransactionReceipt(ctx, t, hash, t.includeSynthetic)
+	return getTransactionReceipt(ctx, t, hash)
 }
 
 func getTransactionReceipt(
 	ctx context.Context,
 	t *TransactionAPI,
 	hash common.Hash,
-	includeSynthetic bool,
 ) (result map[string]any, returnErr error) {
 	startTime := time.Now()
 	defer func() {
@@ -161,7 +134,7 @@ func getTransactionReceipt(
 			}
 		}
 	}
-	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, includeSynthetic, t.globalBlockCache, t.cacheCreationMutex)
+	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, false, t.globalBlockCache, t.cacheCreationMutex)
 }
 
 func (t *TransactionAPI) GetVMError(ctx context.Context, hash common.Hash) (result string, returnErr error) {
@@ -207,7 +180,7 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 	if block == nil {
 		return nil, nil
 	}
-	return t.getTransactionWithBlock(block, txIndex, t.includeSynthetic)
+	return t.getTransactionWithBlock(block, txIndex)
 }
 
 func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, txIndex hexutil.Uint) (result *export.RPCTransaction, _err error) {
@@ -232,7 +205,7 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	return t.getTransactionWithBlock(block, idx, t.includeSynthetic)
+	return t.getTransactionWithBlock(block, idx)
 }
 
 // TODO(gprusak): for autobahn txs sharding, we might need to proxy this rpc as well,
@@ -357,8 +330,8 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
-func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex uint32, includeSynthetic bool) (*export.RPCTransaction, error) {
-	msgs := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, includeSynthetic, t.cacheCreationMutex, t.globalBlockCache)
+func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex uint32) (*export.RPCTransaction, error) {
+	msgs := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
 	if txIndex >= uint32(len(msgs)) { //nolint:gosec
 		// Ethereum JSON-RPC: eth_getTransactionByBlock*AndIndex returns null when the index has no transaction.
 		return nil, nil
@@ -422,7 +395,7 @@ func (t *TransactionAPI) Sign(ctx context.Context, addr common.Address, data hex
 }
 
 func (t *TransactionAPI) getFilteredMsgs(block *coretypes.ResultBlock) []indexedMsg {
-	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, t.includeSynthetic, t.cacheCreationMutex, t.globalBlockCache)
+	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
 }
 
 func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction {
