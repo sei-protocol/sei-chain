@@ -25,6 +25,10 @@ Registering a section states the key once. The dotted identity, the environment 
 read site all come from the struct field and its `mapstructure` tag, so editing the tag moves all
 three together and there is no second place to forget.
 
+Deriving the spelling also makes a collision visible. A dot and a hyphen both become an underscore,
+so two keys differing only in that punctuation answer to one environment variable; the registration
+is refused rather than leaving one of them unsettable with nothing reporting it.
+
 Nothing here is enforced by the compiler. The tag is a string literal, so a rename is still a rename
 of text; what changes is that there is one occurrence of it instead of three. Step 4 of `Adding a
 Section` below is what turns that into a failure when the one occurrence and the reader disagree.
@@ -35,7 +39,7 @@ A section registers the struct its reader already uses:
 
 ```go
 func init() {
-	registry.RegisterSection(SectionName, &Config{}, default)
+	registry.RegisterSection(SectionName, &Config{}, defaults)
 }
 ```
 
@@ -49,7 +53,7 @@ comment saying why the reader's own struct could not serve, because a purpose-wr
 the second statement this package exists to avoid and is only worth it when the first cannot be
 used.
 
-`default` answers per node mode, because a validator and a seed node do not default alike.
+The third argument answers per node mode, because a validator and a seed node do not default alike.
 
 ## Defaults
 
@@ -87,6 +91,10 @@ cannot change the answer by reordering its arguments.
 
 A registration this package cannot use is recorded as a `Defect` and the section is not
 registered. `Defects` returns them, and a test turns them into a failure.
+
+What counts as unusable is anything that would make a key unreachable: a field with no tag, a tag
+that is upper-case or carries a dot or a space, an unexported field carrying a tag, two fields
+declaring one path, a struct that declares no key, and a struct that contains itself.
 
 Panicking would run during the package initialisation of something every feature imports, so it
 would take down every `seid` invocation including `--help`, and it would turn a mistake that a

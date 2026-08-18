@@ -26,12 +26,19 @@ const (
 // Modes returns every mode a default is asked for, in a fixed order.
 func Modes() []Mode { return []Mode{ModeValidator, ModeFull, ModeSeed, ModeArchive} }
 
-// Precedence is the declared order in which layers win, lowest to highest.
+// precedence is the declared order in which layers win, lowest to highest.
 //
 // The legacy path has no equivalent. Its order emerges from which viper instance a caller
 // asked, which is why two orders are observable across the key set. Stating it as data is what
 // lets a diagnostic tell a node operator that their environment variable beat their file.
-var Precedence = []string{"default", "file", "env", "flag"}
+var precedence = []string{"default", "file", "env", "flag"}
+
+// Precedence returns the declared order in which layers win, lowest to highest.
+//
+// A copy, and a function rather than a variable, because an order any importer could assign to is
+// an order no caller can rely on: one package reordering it at init would change every other
+// package's resolved values with nothing to point at.
+func Precedence() []string { return append([]string(nil), precedence...) }
 
 // Section is one registered configuration section.
 type Section struct {
@@ -47,8 +54,8 @@ type Section struct {
 //
 // Recorded rather than panicked. A panic here runs during package initialisation of a package
 // every feature imports, so it would take down every seid invocation including --help, and it
-// converts a compile-time-fixable mistake into a fleet-wide incident. CheckRegistrations is
-// what turns these into a failing test.
+// converts a compile-time-fixable mistake into a fleet-wide incident. Defects is what a package's
+// own test reads to turn these into a failure.
 type Defect struct {
 	// Section is the name the registration was made under, empty if that was the problem.
 	Section string
@@ -85,8 +92,37 @@ func RegisterSection(name string, proto any, defaults func(Mode) any) {
 			defects = append(defects, Defect{Section: name, Err: fmt.Errorf("section registered twice")})
 			return
 		}
+		if err := envNamesAreDistinct(keys); err != nil {
+			defects = append(defects, Defect{Section: name, Err: err})
+			return
+		}
 		sections[name] = Section{Name: name, Keys: keys, Defaults: defaults}
 	}
+}
+
+// envNamesAreDistinct refuses keys that share one environment spelling. Callers hold mu.
+//
+// Dots and hyphens both become underscores, so two keys differing only in that punctuation answer to
+// one variable and one of them can never be set from the environment. Checked against the sections
+// already registered too, because the collision does not have to be inside one section.
+func envNamesAreDistinct(adding []string) error {
+	// Only the keys arriving are checked. Every registration passes through here, so the keys already
+	// registered are already known distinct from each other.
+	spellings := map[string]string{}
+	for _, s := range sections {
+		for _, key := range s.Keys {
+			spellings[EnvName(key)] = key
+		}
+	}
+	for _, key := range adding {
+		env := EnvName(key)
+		if other, taken := spellings[env]; taken {
+			return fmt.Errorf("%q and %q both answer to %s, because a dot and a hyphen are the same "+
+				"character to the environment, so one of them can never be set from it", other, key, env)
+		}
+		spellings[env] = key
+	}
+	return nil
 }
 
 // Sections returns every registered section, sorted by name.
@@ -95,6 +131,7 @@ func Sections() []Section {
 	defer mu.RUnlock()
 	out := make([]Section, 0, len(sections))
 	for _, s := range sections {
+		s.Keys = append([]string(nil), s.Keys...)
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -106,6 +143,9 @@ func Lookup(name string) (Section, bool) {
 	mu.RLock()
 	defer mu.RUnlock()
 	s, ok := sections[name]
+	// Copied, so a caller sorting or writing into Keys cannot reach the registry's own storage from
+	// outside the mutex. Defects copies for the same reason.
+	s.Keys = append([]string(nil), s.Keys...)
 	return s, ok
 }
 
@@ -144,6 +184,11 @@ func deriveKeys(section string, proto any) ([]string, error) {
 		return nil, fmt.Errorf("section name %q is not lower case; configuration sources "+
 			"enumerate lower-cased, so a key under it would never match a written one", section)
 	}
+	if strings.Contains(section, ".") {
+		return nil, fmt.Errorf("section name %q carries a dot, and a section is one segment. A dotted "+
+			"name declares keys inside another section's subtree, where the two sections' defaults "+
+			"land in one map and whichever renders last silently wins", section)
+	}
 	if proto == nil {
 		return nil, fmt.Errorf("no struct")
 	}
@@ -156,21 +201,49 @@ func deriveKeys(section string, proto any) ([]string, error) {
 	}
 
 	var keys []string
-	if err := walk(t, section, &keys); err != nil {
+	if err := walk(t, section, &keys, map[reflect.Type]bool{}); err != nil {
 		return nil, err
 	}
 	if len(keys) == 0 {
 		return nil, fmt.Errorf("declares no keys")
 	}
 	sort.Strings(keys)
+	// A path two fields both produce leaves one of them unreachable, and which one is not
+	// observable: the value walk writes them into one map. That is the unaddressable-key failure
+	// this package exists to refuse, so it cannot be allowed to arrive through the package itself.
+	for i := 1; i < len(keys); i++ {
+		if keys[i] == keys[i-1] {
+			return nil, fmt.Errorf("two fields both declare %q, so one of them is unreachable and "+
+				"which one is not observable", keys[i])
+		}
+	}
 	return keys, nil
 }
 
 // walk appends the dotted keys a struct declares under prefix.
-func walk(t reflect.Type, prefix string, keys *[]string) error {
+//
+// open carries the struct types on the current path, so a self-referential one is refused rather than
+// recursed into. A stack overflow cannot be recovered into a Defect, so this is the one refusal that
+// has to happen before the recursion rather than after it.
+func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]bool) error {
+	if open[t] {
+		return fmt.Errorf("%s is %s, which contains itself; a key space derived from it has no end",
+			prefix, t)
+	}
+	open[t] = true
+	defer delete(open, t)
+
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		if !f.IsExported() {
+			// An unexported field with no tag is a struct's private state and declares nothing. One
+			// carrying a tag is a contradiction: reflection cannot write to it, so the tag names a key
+			// that reaches nothing, and an embedded unexported type with ,squash loses its whole subtree
+			// this way with no other sign.
+			if _, tagged := f.Tag.Lookup("mapstructure"); tagged {
+				return fmt.Errorf("%s.%s is unexported and carries a mapstructure tag; nothing can write "+
+					"to it, so the tag names a key that reaches no field", prefix, f.Name)
+			}
 			continue
 		}
 
@@ -190,7 +263,7 @@ func walk(t reflect.Type, prefix string, keys *[]string) error {
 			if ft.Kind() != reflect.Struct {
 				return fmt.Errorf("%s.%s is squashed but is a %s, not a struct", prefix, f.Name, ft.Kind())
 			}
-			if err := walk(ft, prefix, keys); err != nil {
+			if err := walkSubtree(ft, prefix, prefix+"."+f.Name, keys, open); err != nil {
 				return err
 			}
 			continue
@@ -198,12 +271,28 @@ func walk(t reflect.Type, prefix string, keys *[]string) error {
 
 		path := prefix + "." + tag
 		if ft.Kind() == reflect.Struct && !isLeaf(ft) {
-			if err := walk(ft, path, keys); err != nil {
+			if err := walkSubtree(ft, path, prefix+"."+f.Name, keys, open); err != nil {
 				return err
 			}
 			continue
 		}
 		*keys = append(*keys, path)
+	}
+	return nil
+}
+
+// walkSubtree appends the keys a struct-typed field declares, and refuses one that declares none.
+//
+// A struct configuration cannot reach is a setting an operator writes into nothing. A defined type
+// over a leaf, an empty struct, and a struct whose every field is unexported all arrive here having
+// contributed nothing, and both walks agree about it, so no later check can see the loss.
+func walkSubtree(t reflect.Type, path, field string, keys *[]string, open map[reflect.Type]bool) error {
+	before := len(*keys)
+	if err := walk(t, path, keys, open); err != nil {
+		return err
+	}
+	if len(*keys) == before {
+		return fmt.Errorf("%s is a %s that declares no key, so configuration cannot reach it", field, t)
 	}
 	return nil
 }
@@ -234,6 +323,11 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash bool, err 
 	if name == "" || name == "-" {
 		return "", false, fmt.Errorf("%s.%s has an empty mapstructure name", prefix, f.Name)
 	}
+	if strings.ContainsAny(name, ". ") {
+		return "", false, fmt.Errorf("%s.%s names %q, which carries a dot or a space. A dot makes the "+
+			"field claim a subtree the struct does not have, and neither survives a round trip through "+
+			"a configuration source", prefix, f.Name, name)
+	}
 	if name != strings.ToLower(name) {
 		return "", false, fmt.Errorf("%s.%s names %q, which is not lower case; a configuration "+
 			"source enumerates lower-cased, so this key would never match a written one",
@@ -248,7 +342,7 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash bool, err 
 // would invent keys no operator writes.
 func isLeaf(t reflect.Type) bool {
 	switch t.String() {
-	case "time.Time", "time.Duration", "big.Int":
+	case "time.Time", "big.Int":
 		return true
 	}
 	return false

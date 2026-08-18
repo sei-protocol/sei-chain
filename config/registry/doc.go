@@ -15,5 +15,8 @@
 // it serves a diagnostic or an authoring check rather than the boot: what a running node reads
 // stays a source carrying every resolved key, whether a section declares it or not.
 //
+// Resolve either answers for every declared key or returns an error naming what it could not
+// answer for. A caller is never handed a resolution with a hole in it.
+//
 // spec_test.go asserts each of these rules as its own test, named for the property it holds.
 package registry

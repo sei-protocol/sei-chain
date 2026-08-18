@@ -25,11 +25,9 @@ type Layer struct {
 // there is no point at which a value's source is recoverable, and that is why it can never tell an
 // operator which source won.
 type Resolution struct {
-	// Key is the dotted path.
-	Key string
 	// Value is what resolved.
 	Value any
-	// From is the Source of the layer that won, or "default" for a default.
+	// From is the Source of the layer that won, one of the names Precedence lists.
 	From string
 }
 
@@ -78,14 +76,22 @@ const defaultSource = "default"
 // Every declared key resolves, because the default is a layer like any other. A key no layer
 // mentions therefore carries its mode's default rather than being absent, which is what makes an
 // absent key track the binary's judgement instead of a zero value.
+//
+// That is a property of the whole answer, so a section whose default cannot supply it refuses the
+// resolution rather than returning one with a hole in it. A caller handed an error has no resolved
+// values; a caller handed a Resolved has one for every declared key.
 func Resolve(mode Mode, layers ...Layer) (Resolved, error) {
 	out := Resolved{Keys: map[string]Resolution{}}
 
-	defaults, err := defaultLayer(mode)
+	// One snapshot for both, because they have to describe the same registry. Rendering the defaults
+	// and then asking for the declared set separately leaves a window a concurrent registration fits
+	// through, and a key declared in that window resolves to nothing.
+	registered := Sections()
+	defaults, err := defaultLayer(mode, registered)
 	if err != nil {
 		return out, err
 	}
-	declared := declaredKeys()
+	declared := declaredKeys(registered)
 
 	// Ordered by Precedence rather than by argument order. An unknown Source is an error rather
 	// than a silently ignored layer, since a layer that never contributes is worse than one that
@@ -98,7 +104,7 @@ func Resolve(mode Mode, layers ...Layer) (Resolved, error) {
 		}
 		if !known(l.Source) {
 			return out, fmt.Errorf("layer %q is not in Precedence %v, so it has no defined priority and "+
-				"the resolver would have to invent one", l.Source, Precedence)
+				"the resolver would have to invent one", l.Source, precedence)
 		}
 		if _, dup := bySource[l.Source]; dup {
 			return out, fmt.Errorf("two layers name source %q; one of them would silently lose", l.Source)
@@ -107,7 +113,7 @@ func Resolve(mode Mode, layers ...Layer) (Resolved, error) {
 	}
 
 	unknown := map[string]bool{}
-	for _, source := range Precedence {
+	for _, source := range precedence {
 		l, ok := bySource[source]
 		if !ok {
 			continue
@@ -119,7 +125,7 @@ func Resolve(mode Mode, layers ...Layer) (Resolved, error) {
 				unknown[key] = true
 				continue
 			}
-			out.Keys[key] = Resolution{Key: key, Value: v, From: source}
+			out.Keys[key] = Resolution{Value: v, From: source}
 		}
 	}
 
@@ -132,7 +138,7 @@ func Resolve(mode Mode, layers ...Layer) (Resolved, error) {
 
 // known reports whether a source has a declared priority.
 func known(source string) bool {
-	for _, s := range Precedence {
+	for _, s := range precedence {
 		if s == source {
 			return true
 		}
@@ -140,27 +146,26 @@ func known(source string) bool {
 	return false
 }
 
-// declaredKeys is the set every layer's keys are checked against.
-func declaredKeys() map[string]bool {
-	keys := Keys()
-	out := make(map[string]bool, len(keys))
-	for _, k := range keys {
-		out[k] = true
+// declaredKeys is the set every layer's keys are checked against, taken from one snapshot.
+func declaredKeys(registered []Section) map[string]bool {
+	out := map[string]bool{}
+	for _, s := range registered {
+		for _, k := range s.Keys {
+			out[k] = true
+		}
 	}
 	return out
 }
 
 // defaultLayer renders every section's default for a mode into one layer.
 //
-// Derived from the same walk that derives the keys, so a default cannot carry a key the registry
-// does not know or miss one it does. Two walks would let a section's declared keys and its declared
-// defaults disagree, which is a shape of drift nothing downstream could see.
-func defaultLayer(mode Mode) (Layer, error) {
+// This is a second walk, not the one that derived the keys. The two share tagOf and isLeaf and
+// nothing else, so they can and did disagree: the type walk unwraps a pointer to derive a subtree's
+// keys and the value walk skips a nil one. matchesDeclaration is what holds them together, by
+// refusing a rendered default that does not state one value per declared key.
+func defaultLayer(mode Mode, registered []Section) (Layer, error) {
 	out := Layer{Source: defaultSource, Values: map[string]any{}}
-	for _, s := range Sections() {
-		if s.Defaults == nil {
-			return out, fmt.Errorf("section %q has no defaults function", s.Name)
-		}
+	for _, s := range registered {
 		values, err := sectionValues(s.Name, s.Defaults(mode))
 		if err != nil {
 			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
@@ -175,7 +180,7 @@ func defaultLayer(mode Mode) (Layer, error) {
 	return out, nil
 }
 
-// matchesDeclaration reports whether a rendered default states one value for each declared key.
+// matchesDeclaration refuses a rendered default that does not state one value for each declared key.
 //
 // A declared key its default omits cannot resolve, and neither way of filling the hole is honest. A
 // zero value claims a judgement the binary never made, and dropping the key from the declared set
@@ -217,8 +222,8 @@ func matchesDeclaration(declared []string, values map[string]any) error {
 
 // sectionValues walks a section's struct instance and returns its per-key values.
 //
-// The mirror of deriveKeys: same traversal, same tag rules, values instead of names. Sharing the
-// traversal is what guarantees the two agree.
+// deriveKeys walks a type and this walks a value, over the same tag rules. They are separate
+// recursions, so agreement is checked rather than structural; see matchesDeclaration.
 func sectionValues(section string, cfg any) (map[string]any, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("no value")
@@ -246,6 +251,12 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		if !f.IsExported() {
+			// The guard walk has on the type side, so a default's own struct cannot hide a tagged field
+			// the declaration would have refused.
+			if _, tagged := f.Tag.Lookup("mapstructure"); tagged {
+				return fmt.Errorf("%s.%s is unexported and carries a mapstructure tag; nothing can write "+
+					"to it, so the tag names a key that reaches no field", prefix, f.Name)
+			}
 			continue
 		}
 		tag, squash, err := tagOf(f, prefix)
@@ -300,6 +311,10 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 func EnvLayer(lookup func(string) (string, bool)) Layer {
 	out := Layer{Source: "env", Values: map[string]any{}}
 	for _, key := range Keys() {
+		// An empty value is treated as unset. A variable exported empty is far more often a shell
+		// artefact than a deliberate empty string, and the two are indistinguishable here. The cost is
+		// that clearing a key by exporting it empty reads as touching nothing, and Overrides will not
+		// mention it.
 		if v, ok := lookup(EnvName(key)); ok && v != "" {
 			out.Values[key] = v
 		}

@@ -3,6 +3,7 @@ package registry_test
 import (
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -382,7 +383,7 @@ func TestResolutionRunsInTheDeclaredOrder(t *testing.T) {
 			t.Errorf("passed in the order %v the key resolved to %#v from %q, want flag from flag. "+
 				"Precedence is %v, and a resolver whose answer depends on argument order has an "+
 				"emergent precedence rather than a declared one",
-				names, res.Value, res.From, registry.Precedence)
+				names, res.Value, res.From, registry.Precedence())
 		}
 	}
 }
@@ -419,7 +420,7 @@ func TestEachLayerWinsOverTheOneBelowIt(t *testing.T) {
 			res, _ := got.From(key)
 			if res.From != tc.want {
 				t.Errorf("%s resolved from %q, want %q. Precedence is %v",
-					tc.name, res.From, tc.want, registry.Precedence)
+					tc.name, res.From, tc.want, registry.Precedence())
 			}
 		})
 	}
@@ -560,11 +561,9 @@ func TestEnvLayerIsDrivenByTheDeclaredSet(t *testing.T) {
 
 // TestEveryDeclaredKeyResolves holds Resolve to the property its documentation states.
 //
-// A section whose default leaves an optional subtree nil declares keys the default states no value
-// for, because the type walk unwraps a pointer to derive its keys and the value walk skips a nil one.
-// Either every declared key resolves, or Resolve names the ones that cannot. A silent hole is the
-// worse of the two: Overrides never reports the key and From answers ok=false, so a diagnostic that
-// renders Keys and calls From prints nothing for it and looks correct.
+// Two halves, because the property has two: a section whose default states every declared key
+// resolves all of them, and a section whose default falls short is refused by name rather than
+// resolving with a hole. Only asserting the second would pass on a Resolve that refused everything.
 func TestEveryDeclaredKeyResolves(t *testing.T) {
 	type inner struct {
 		Cert string `mapstructure:"cert"`
@@ -574,26 +573,58 @@ func TestEveryDeclaredKeyResolves(t *testing.T) {
 		TLS  *inner `mapstructure:"tls"`
 	}
 
-	registry.Reset()
-	registry.RegisterSection("svc", &optional{}, func(registry.Mode) any {
-		return optional{Name: "n"} // TLS left nil, which is how a default arrives short
-	})
-	for _, d := range registry.Defects() {
-		t.Fatalf("registering the probe section produced a defect: %v", d.Err)
-	}
+	t.Run("a default stating every declared key", func(t *testing.T) {
+		registry.Reset()
+		registry.RegisterSection("svc", &optional{}, func(registry.Mode) any {
+			return optional{Name: "n", TLS: &inner{Cert: "c"}}
+		})
+		requireNoDefects(t)
 
-	for _, m := range registry.Modes() {
-		res, err := registry.Resolve(m)
-		if err != nil {
-			// A named refusal is an answer. A resolution missing a declared key is not.
-			continue
-		}
-		for _, key := range registry.Keys() {
-			if _, ok := res.From(key); !ok {
-				t.Errorf("mode %s: %q is declared and has no resolution, so a caller iterating Keys "+
-					"and calling From is handed an absence the documentation rules out", m, key)
+		for _, m := range registry.Modes() {
+			res, err := registry.Resolve(m)
+			if err != nil {
+				t.Fatalf("mode %s: %v", m, err)
+			}
+			declared := registry.Keys()
+			if len(declared) == 0 {
+				t.Fatalf("mode %s: the probe declared nothing, so this test asserts nothing", m)
+			}
+			for _, key := range declared {
+				if _, ok := res.From(key); !ok {
+					t.Errorf("mode %s: %q is declared and has no resolution, so a caller iterating Keys "+
+						"and calling From is handed an absence the documentation rules out", m, key)
+				}
 			}
 		}
+	})
+
+	t.Run("a default whose optional subtree is nil", func(t *testing.T) {
+		registry.Reset()
+		registry.RegisterSection("svc", &optional{}, func(registry.Mode) any {
+			return optional{Name: "n"} // TLS left nil, which is how a default arrives short
+		})
+		requireNoDefects(t)
+
+		// The type walk unwraps the pointer to derive svc.tls.cert and the value walk skips a nil one,
+		// so the default states one fewer key than the section declares.
+		_, err := registry.Resolve(registry.ModeFull)
+		if err == nil {
+			t.Fatal("a default that states no value for a declared key resolved, so a caller holds a " +
+				"resolution missing a key From answers ok=false for")
+		}
+		if !strings.Contains(err.Error(), "svc.tls.cert") {
+			t.Errorf("the refusal is %q, which does not name svc.tls.cert; a caller cannot fix a "+
+				"default from a message that does not say which key is missing", err)
+		}
+	})
+}
+
+// requireNoDefects fails when a test's own probe registration was refused, so a test cannot pass by
+// having registered nothing.
+func requireNoDefects(t *testing.T) {
+	t.Helper()
+	for _, d := range registry.Defects() {
+		t.Fatalf("registering the probe section produced a defect: %v", d.Err)
 	}
 }
 
@@ -674,7 +705,7 @@ func TestARealisticSectionShapeDerivesAndResolvesEveryKey(t *testing.T) {
 	}
 
 	// The squashed base adds no segment, the nested structs each add one, and neither duration
-	// becomes a group. A duration walked into would declare time.Duration's own fields instead.
+	// becomes a group, because a time.Duration is an int64 and takes the leaf path on its kind.
 	want := []string{
 		"shaped.cache.size", "shaped.cache.wait",
 		"shaped.enabled",
@@ -742,29 +773,68 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 	type noKeys struct {
 		unexported string //nolint:unused // the point is that nothing is declared
 	}
+	type cyclic struct {
+		Child *cyclic `mapstructure:"child"`
+		N     string  `mapstructure:"n"`
+	}
+	type Shared struct {
+		Laddr string `mapstructure:"laddr"`
+	}
+	type collide struct {
+		Shared `mapstructure:",squash"`
+		Laddr  string `mapstructure:"laddr"`
+	}
+	type hiddenSquash struct {
+		A      string `mapstructure:"a"`
+		shared Shared `mapstructure:",squash"` //nolint:unused // the point is that it is refused
+	}
+	type dottedName struct {
+		A string `mapstructure:"a.b"`
+	}
+	type spacedName struct {
+		A string `mapstructure:"a b"`
+	}
+	type hollow struct{}
+	type carriesHollow struct {
+		A string `mapstructure:"a"`
+		H hollow `mapstructure:"h"`
+	}
+	type stamp time.Time
+	type carriesStamp struct {
+		A string `mapstructure:"a"`
+		S stamp  `mapstructure:"s"`
+	}
 
 	for _, tc := range []struct {
-		name    string
-		section string
-		proto   any
-		base    func(registry.Mode) any
-		want    string
+		name     string
+		section  string
+		proto    any
+		defaults func(registry.Mode) any
+		want     string
 	}{
-		{"a squashed field that also names a segment", "s", &squashNamed{}, ok1, "one or the other"},
-		{"an empty mapstructure name", "s", &emptyName{}, ok1, "empty mapstructure name"},
-		{"a dash mapstructure name", "s", &dashName{}, ok1, "empty mapstructure name"},
-		{"an upper-case key", "s", &upperName{}, ok1, "not lower case"},
-		{"a squashed scalar", "s", &squashScalar{}, ok1, "not a struct"},
-		{"a struct declaring nothing", "s", &noKeys{}, ok1, "declares no keys"},
-		{"an empty section name", "", &Good{}, ok1, "section name is empty"},
-		{"an upper-case section name", "Sec", &Good{}, ok1, "not lower case"},
-		{"no struct at all", "s", nil, ok1, "no struct"},
-		{"a non-struct prototype", "s", "string", ok1, "not a struct"},
+		{"a squashed field that also names a segment", "s", &squashNamed{}, anyDefault, "one or the other"},
+		{"an empty mapstructure name", "s", &emptyName{}, anyDefault, "empty mapstructure name"},
+		{"a dash mapstructure name", "s", &dashName{}, anyDefault, "empty mapstructure name"},
+		{"an upper-case key", "s", &upperName{}, anyDefault, "not lower case"},
+		{"a squashed scalar", "s", &squashScalar{}, anyDefault, "not a struct"},
+		{"a struct declaring nothing", "s", &noKeys{}, anyDefault, "declares no keys"},
+		{"an empty section name", "", &Good{}, anyDefault, "section name is empty"},
+		{"an upper-case section name", "Sec", &Good{}, anyDefault, "not lower case"},
+		{"a dotted section name", "a.b", &Good{}, anyDefault, "carries a dot"},
+		{"a struct that contains itself", "s", &cyclic{}, anyDefault, "contains itself"},
+		{"two fields declaring one key", "s", &collide{}, anyDefault, "both declare \"s.laddr\""},
+		{"a dotted key name", "s", &dottedName{}, anyDefault, "carries a dot or a space"},
+		{"a spaced key name", "s", &spacedName{}, anyDefault, "carries a dot or a space"},
+		{"a subtree with no exported field", "s", &carriesHollow{}, anyDefault, "declares no key"},
+		{"a defined type over an opaque leaf", "s", &carriesStamp{}, anyDefault, "declares no key"},
+		{"an unexported field carrying a tag", "s", &hiddenSquash{}, anyDefault, "is unexported and carries"},
+		{"no struct at all", "s", nil, anyDefault, "no struct"},
+		{"a non-struct prototype", "s", "string", anyDefault, "not a struct"},
 		{"no defaults function", "s", &Good{}, nil, "no defaults function"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			registry.Reset()
-			registry.RegisterSection(tc.section, tc.proto, tc.base)
+			registry.RegisterSection(tc.section, tc.proto, tc.defaults)
 
 			if _, registered := registry.Lookup(tc.section); registered {
 				t.Errorf("the section registered despite %s, so its keys join the declared set", tc.name)
@@ -780,8 +850,185 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 	}
 }
 
-// ok1 is a default for the refusal table, where the default is not what is under test.
-func ok1(registry.Mode) any { return struct{}{} }
+// anyDefault stands in where the table's subject is the struct rather than the default. The
+// registration is refused before a default is ever asked for, so its shape cannot matter.
+func anyDefault(registry.Mode) any { return struct{}{} }
+
+// TestPrecedenceIsStatedAsData holds the declared layer order and its independence from a caller.
+//
+// The order is what a diagnostic reads to tell an operator that their environment variable beat their
+// file, so a caller has to be able to read it. Returning the package's own slice would let one
+// importer's convenience change every other importer's resolved values with nothing to point at.
+func TestPrecedenceIsStatedAsData(t *testing.T) {
+	want := []string{"default", "file", "env", "flag"}
+	if got := registry.Precedence(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Precedence is %v, want %v", got, want)
+	}
+
+	got := registry.Precedence()
+	got[0] = "clobbered"
+	if after := registry.Precedence(); !reflect.DeepEqual(after, want) {
+		t.Errorf("writing into the returned slice left Precedence %v, want %v", after, want)
+	}
+}
+
+// TestRegistrationAndResolutionAreConcurrencySafe drives registration against resolution.
+//
+// Registration runs at package initialisation, which is when a diagnostic or an authoring check may
+// already be resolving, so the two overlap in real use. Run under -race, which is what asserts the
+// shared state is actually guarded; the checks below hold the answer's shape.
+//
+// This does not discriminate the failure the single snapshot in Resolve prevents. A section that
+// arrives between Resolve's two reads is, from outside the package, indistinguishable from one that
+// arrives after the call returns, so the window has no external symptom to assert on. The correction
+// is that both derived sets now come from one variable.
+func TestRegistrationAndResolutionAreConcurrencySafe(t *testing.T) {
+	type one struct {
+		A string `mapstructure:"a"`
+	}
+	defaults := func(registry.Mode) any { return one{A: "v"} }
+
+	for round := 0; round < 20; round++ {
+		registry.Reset()
+		registry.RegisterSection("first", &one{}, defaults)
+
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			registry.RegisterSection("second", &one{}, defaults)
+		}()
+
+		res, err := registry.Resolve(registry.ModeFull)
+		wg.Wait()
+		if err != nil {
+			t.Fatalf("round %d: %v", round, err)
+		}
+		if _, ok := res.From("first.a"); !ok {
+			t.Fatalf("round %d: first.a was registered before the call and did not resolve", round)
+		}
+		if len(res.Unknown) != 0 {
+			t.Fatalf("round %d: no layer was passed and %v is reported unknown", round, res.Unknown)
+		}
+	}
+}
+
+// TestAKeySharingAnEnvironmentSpellingIsRefused holds EnvName's collision claim to a real check.
+//
+// A dot and a hyphen both become an underscore, so two keys differing only in that punctuation answer
+// to one variable. Without a refusal the second key is simply unsettable from the environment, and
+// nothing in the resolved output says so: EnvLayer asks for both spellings and gets one answer.
+func TestAKeySharingAnEnvironmentSpellingIsRefused(t *testing.T) {
+	type WithHyphen struct {
+		Under string `mapstructure:"a-b"`
+	}
+	type withDot struct {
+		Sub struct {
+			B string `mapstructure:"b"`
+		} `mapstructure:"a"`
+	}
+	type nested struct {
+		B struct {
+			Sub struct {
+				B string `mapstructure:"b"`
+			} `mapstructure:"a"`
+		} `mapstructure:"b"`
+	}
+
+	t.Run("within one section", func(t *testing.T) {
+		registry.Reset()
+		registry.RegisterSection("s", &struct {
+			WithHyphen `mapstructure:",squash"`
+			Sub        struct {
+				B string `mapstructure:"b"`
+			} `mapstructure:"a"`
+		}{}, anyDefault)
+		requireEnvCollisionRefused(t, "SEID_S_A_B")
+	})
+
+	// Two section names that differ only in punctuation. A section name cannot carry a dot, so this
+	// is the only shape the cross-section collision takes.
+	t.Run("across two sections", func(t *testing.T) {
+		registry.Reset()
+		registry.RegisterSection("a-b", &withDot{}, anyDefault)
+		if len(registry.Defects()) != 0 {
+			t.Fatalf("the first section was refused: %v", registry.Defects())
+		}
+		registry.RegisterSection("a", &nested{}, anyDefault)
+		defects := registry.Defects()
+		if len(defects) != 1 {
+			t.Fatalf("got %d defects, want exactly one; a-b.a.b and a.b.a.b both answer to "+
+				"SEID_A_B_A_B", len(defects))
+		}
+		if msg := defects[0].Err.Error(); !strings.Contains(msg, "SEID_A_B_A_B") {
+			t.Errorf("the refusal reads %q and does not name the shared spelling", msg)
+		}
+	})
+
+	t.Run("distinct spellings register", func(t *testing.T) {
+		registry.Reset()
+		registry.RegisterSection("a", &withDot{}, anyDefault)
+		registry.RegisterSection("b", &withDot{}, anyDefault)
+		if d := registry.Defects(); len(d) != 0 {
+			t.Fatalf("two sections whose keys have distinct spellings were refused: %v", d[0].Err)
+		}
+	})
+}
+
+func requireEnvCollisionRefused(t *testing.T, spelling string) {
+	t.Helper()
+	defects := registry.Defects()
+	if len(defects) != 1 {
+		t.Fatalf("got %d defects, want exactly one naming the shared spelling", len(defects))
+	}
+	if msg := defects[0].Err.Error(); !strings.Contains(msg, spelling) {
+		t.Errorf("the refusal reads %q and does not name %s, so a caller cannot tell which variable "+
+			"the two keys are fighting over", msg, spelling)
+	}
+	if len(registry.Keys()) != 0 {
+		t.Errorf("the section registered anyway, so one of its keys is unsettable from the environment " +
+			"with nothing reporting it")
+	}
+}
+
+// TestAReadKeySliceCannotReachTheRegistry holds Lookup and Sections to handing out copies.
+//
+// A caller that sorted, truncated or appended to the returned slice would be writing into the
+// registry's own storage from outside the mutex, so one caller's convenience would silently change
+// every other caller's declared set.
+func TestAReadKeySliceCannotReachTheRegistry(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("s", &struct {
+		B string `mapstructure:"b"`
+		A string `mapstructure:"a"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			B string `mapstructure:"b"`
+			A string `mapstructure:"a"`
+		}{}
+	})
+	requireNoDefects(t)
+
+	want := []string{"s.a", "s.b"}
+	for _, read := range []struct {
+		name string
+		keys func() []string
+	}{
+		{"Lookup", func() []string { s, _ := registry.Lookup("s"); return s.Keys }},
+		{"Sections", func() []string { return registry.Sections()[0].Keys }},
+	} {
+		t.Run(read.name, func(t *testing.T) {
+			got := read.keys()
+			for i := range got {
+				got[i] = "clobbered"
+			}
+			if after := read.keys(); !reflect.DeepEqual(after, want) {
+				t.Errorf("writing into the slice %s returned left the registry declaring %v, want %v",
+					read.name, after, want)
+			}
+		})
+	}
+}
 
 // TestASectionRegisteredTwiceIsRefused pins the one refusal a table cannot express, since it needs
 // two calls under one name.
@@ -822,7 +1069,7 @@ func TestTwoLayersNamingOneSourceIsAnError(t *testing.T) {
 	}{}, func(registry.Mode) any {
 		return struct {
 			A string `mapstructure:"a"`
-		}{A: "base"}
+		}{A: "from the default"}
 	})
 
 	_, err := registry.Resolve(registry.ModeFull,
@@ -841,9 +1088,8 @@ func TestTwoLayersNamingOneSourceIsAnError(t *testing.T) {
 // time.Time carries exported fields, so walking into it would declare keys for its internals that no
 // operator writes and no decoder fills. It has to arrive as one value under its own key.
 //
-// Only the struct-kinded entries in isLeaf are reachable. The walk asks isLeaf only after finding a
-// struct, and time.Duration is an int64, so it takes the leaf path on its kind alone and the
-// "time.Duration" entry in that list never matches.
+// The walk asks isLeaf only after finding a struct, which is why the list names only struct types. A
+// time.Duration is an int64 and never reaches it.
 func TestAStructThatIsAValueStaysOneKey(t *testing.T) {
 	type withTime struct {
 		At   time.Time `mapstructure:"at"`
@@ -885,17 +1131,40 @@ func TestADefaultThatIsNotAStructIsRefused(t *testing.T) {
 		A string `mapstructure:"a"`
 	}
 	for _, tc := range []struct {
-		name string
-		base func(registry.Mode) any
-		want string
+		name     string
+		defaults func(registry.Mode) any
+		want     string
 	}{
 		{"nil", func(registry.Mode) any { return nil }, "no value"},
 		{"a scalar", func(registry.Mode) any { return "string" }, "not a struct"},
 		{"a nil pointer", func(registry.Mode) any { return (*one)(nil) }, "nil *"},
+		{"an untagged field", func(registry.Mode) any {
+			return struct{ A string }{}
+		}, "has no mapstructure tag"},
+		{"an unexported field carrying a tag", func(registry.Mode) any {
+			return struct {
+				a string `mapstructure:"a"` //nolint:unused // the point is that it is refused
+			}{}
+		}, "is unexported and carries"},
+		{"a squashed scalar", func(registry.Mode) any {
+			return struct {
+				S string `mapstructure:",squash"`
+			}{}
+		}, "not a struct"},
+		{"a bad field inside a squashed struct", func(registry.Mode) any {
+			return struct {
+				Base struct{ A string } `mapstructure:",squash"`
+			}{}
+		}, "has no mapstructure tag"},
+		{"a bad field inside a named subtree", func(registry.Mode) any {
+			return struct {
+				Sub struct{ A string } `mapstructure:"sub"`
+			}{}
+		}, "has no mapstructure tag"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			registry.Reset()
-			registry.RegisterSection("probe", &one{}, tc.base)
+			registry.RegisterSection("probe", &one{}, tc.defaults)
 			for _, d := range registry.Defects() {
 				t.Fatalf("the prototype is valid and should register: %v", d.Err)
 			}
