@@ -25,9 +25,10 @@
 // the file back with it. Read anyway, the older binary would apply only the keys it still recognises.
 //
 // Editing preserves the document. An operator may hand-edit the file, and comments are how they
-// explain a choice to whoever reads it next, so set and unset change the one line they name and
-// leave the rest byte for byte. That is why this package edits a parsed document rather than
-// re-rendering a decoded map.
+// explain a choice to whoever reads it next, so set and unset change the one line they name and leave
+// every other line of content untouched. Vertical spacing is normalised once, on the first save of a
+// file nothing has saved before, and holds steady after that. This is why the package edits a parsed
+// document rather than re-rendering a decoded map, which would drop every comment in the file.
 //
 // Every write is atomic. A node cannot boot from a configuration file a crash truncated mid-write,
 // so a save lands in full or not at all.
@@ -50,7 +51,8 @@
 //     last
 //   - a key or heading segment that is not lower case, which is read under a name that is not the one
 //     written
-//   - a quoted key carrying a dot or a space, which no dotted spelling splits back into
+//   - a key outside a bare TOML key, meaning anything but lower-case letters, digits, underscores and
+//     hyphens, because a quoted key is spelled one way by the decoder and another by a lookup
 //   - a key written twice in one table, which an edit reaches only the first of
 //   - a date or a time, which nothing configures a node with, and which cannot be written back as the
 //     type it was read as

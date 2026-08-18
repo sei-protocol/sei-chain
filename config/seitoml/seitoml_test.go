@@ -408,12 +408,27 @@ func TestAShapeThisFileDoesNotCarryIsRefusedAtTheDoor(t *testing.T) {
 		{
 			"a quoted key carrying a dot",
 			"[probe]\n\"a.b\" = 1\n",
-			"carries a dot or a space",
+			"is not a bare key",
 		},
 		{
 			"a quoted key carrying a space",
 			"[probe]\n\"a b\" = 1\n",
-			"carries a dot or a space",
+			"is not a bare key",
+		},
+		{
+			"a quoted key carrying punctuation",
+			"[probe]\n\"a#b\" = 1\n",
+			"is not a bare key",
+		},
+		{
+			"a quoted key carrying a plus",
+			"[probe]\n\"a+b\" = 1\n",
+			"is not a bare key",
+		},
+		{
+			"an empty quoted key",
+			"\"\" = 1\n",
+			"empty segment",
 		},
 		{
 			"a date",
@@ -454,6 +469,9 @@ sc-async-commit-buffer = 100
 enable = true
 dir = "/data"
 
+[pruning]
+memiavl.snapshot-interval = 100
+
 [p2p]
 persistent-peers = ["a", "b"]
 `)
@@ -466,6 +484,9 @@ persistent-peers = ["a", "b"]
 		"state-commit.sc-async-commit-buffer": int64(100),
 		"state-commit.flatkv.enable":          true,
 		"state-commit.flatkv.dir":             "/data",
+		// A dotted key inside a table, which is a different shape from a nested heading and reads to the
+		// same flattened key.
+		"pruning.memiavl.snapshot-interval": int64(100),
 	} {
 		if values[key] != want {
 			t.Errorf("%s read back as %#v, want %#v", key, values[key], want)
@@ -1397,5 +1418,121 @@ func TestEveryVerbTakingAKeyAppliesOneRule(t *testing.T) {
 	}
 	if got, ok, err := f.Get("probe.enabled"); err != nil || !ok || got != true {
 		t.Errorf("the folded key reads back as (%#v, %v, %v), want true", got, ok, err)
+	}
+}
+
+// TestThePreambleIsReplacedAcrossASaveAndReload holds the property over the flow that actually runs.
+//
+// Regenerating is Load, SetPreamble, Save, and the same again on the next release, so the block this
+// method must recognise is one that has been through the parser rather than one it just inserted. Held
+// in memory only, the test cannot see a parser that reattaches a leading comment to whatever follows it,
+// and the header would grow on every run.
+func TestThePreambleIsReplacedAcrossASaveAndReload(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sei.toml")
+
+	f, err := seitoml.New("validator")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := f.Set("probe.n", 1); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	f.SetPreamble([]string{" written by run one"})
+	if err := f.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reread, err := seitoml.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	reread.SetPreamble([]string{" written by run two"})
+	if err := reread.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	raw, err := os.ReadFile(path) //nolint:gosec // a path this test created under t.TempDir
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(raw), "run one") {
+		t.Errorf("the first preamble survived the second, so a header grows on every regenerate:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "# written by run two") {
+		t.Errorf("the second preamble is not in the file:\n%s", raw)
+	}
+	// The values are untouched by either header, since a preamble is not configuration.
+	final, err := seitoml.Load(path)
+	if err != nil {
+		t.Fatalf("Load after two preambles: %v", err)
+	}
+	if got, ok, err := final.Get("probe.n"); err != nil || !ok || got != int64(1) {
+		t.Errorf("probe.n = (%#v, %v, %v) after two preambles, want 1", got, ok, err)
+	}
+}
+
+// TestAPreambleLeavesAnOperatorsOwnTopCommentAlone covers the comment this method must not claim.
+//
+// SetPreamble replaces the block it put there before, and an operator may have written their own
+// explanation at the top of the file. Removing that would be the comment loss this package exists to
+// prevent, so it has to survive a header being written above it.
+func TestAPreambleLeavesAnOperatorsOwnTopCommentAlone(t *testing.T) {
+	f := parse(t, "# I wrote this and it explains the file\n# do not delete it\nschema_version = 1\n"+
+		"node_mode = \"validator\"\n\n[probe]\nn = 1\n")
+
+	f.SetPreamble([]string{" generated header"})
+
+	out := render(t, f)
+	for _, want := range []string{"I wrote this", "do not delete it", "# generated header"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q is not in the file after a preamble was written:\n%s", want, out)
+		}
+	}
+}
+
+// TestAnUnsignedValueTooLargeToReadBackIsRefused holds the writer to what a reader can return.
+//
+// A TOML integer is signed and decodes into an int64, so a larger unsigned value renders as a line that
+// reads back as an error. Accepted, it would make every later read of the file fail, including the two
+// keys that describe the file itself.
+func TestAnUnsignedValueTooLargeToReadBackIsRefused(t *testing.T) {
+	f, err := seitoml.New("validator")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = f.Set("probe.n", uint64(math.MaxUint64))
+	if err == nil {
+		t.Fatal("a value past int64 was written; every later read of the file would then fail")
+	}
+	if !strings.Contains(err.Error(), "integers go") {
+		t.Errorf("the refusal reads %q and does not say what the limit is", err)
+	}
+
+	// The largest value that does read back is still accepted, so the bound is not off by one.
+	if err := f.Set("probe.big", uint64(math.MaxInt64)); err != nil {
+		t.Fatalf("the largest readable unsigned value was refused: %v", err)
+	}
+	reread := parse(t, render(t, f))
+	if got, ok, err := reread.Get("probe.big"); err != nil || !ok || got != int64(math.MaxInt64) {
+		t.Errorf("probe.big = (%#v, %v, %v), want %d", got, ok, err, int64(math.MaxInt64))
+	}
+}
+
+// TestASchemaVersionBelowTheFirstOneIsRefused closes the counter's lower end.
+//
+// Version documents that an absent or unreadable counter is an error rather than a zero, so an explicit
+// zero must not return the very value that sentence rules out. A caller cannot tell that zero from the
+// one it gets alongside an error.
+func TestASchemaVersionBelowTheFirstOneIsRefused(t *testing.T) {
+	for _, body := range []string{"schema_version = 0\n", "schema_version = -5\n"} {
+		got, err := parse(t, body).Version()
+		if err == nil {
+			t.Errorf("%q read as version %d; a counter below the first schema names no shape",
+				strings.TrimSpace(body), got)
+		} else if !strings.Contains(err.Error(), "first schema") {
+			t.Errorf("the refusal reads %q and does not say what the floor is", err)
+		}
 	}
 }

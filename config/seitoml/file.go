@@ -125,17 +125,39 @@ func (f *File) refuseUnsupportedShapes() error {
 // in the file, and a segment carrying a dot or a space cannot be split back into the segments it came
 // from.
 func keyIsAddressable(key parser.Key) error {
+	if len(key) == 0 {
+		return fmt.Errorf("a key names nothing")
+	}
 	for _, segment := range key {
+		if segment == "" {
+			return fmt.Errorf("%s has an empty segment, which names nothing", key)
+		}
 		if segment != strings.ToLower(segment) {
 			return fmt.Errorf("%q is not lower case, and this file's keys are read lower-cased, so it "+
 				"would be read under a name that is not the one written here", segment)
 		}
-		if strings.ContainsAny(segment, ". ") {
-			return fmt.Errorf("%q carries a dot or a space, so it cannot be addressed: a key is split "+
-				"on dots, and no spelling of this one splits back into it", segment)
+		if bad := strings.IndexFunc(segment, notBareKeyRune); bad >= 0 {
+			return fmt.Errorf("%q carries %q, so it is not a bare key. A bare key holds lower-case "+
+				"letters, digits, underscores and hyphens; anything else has to be quoted in the file "+
+				"and a dotted spelling of it does not split back into the segments it came from",
+				segment, segment[bad:bad+1])
 		}
 	}
 	return nil
+}
+
+// notBareKeyRune reports whether a character cannot appear in a bare TOML key.
+//
+// A key outside this set has to be quoted where it is written, and the two readers of this file spell a
+// quoted key differently: the decoder hands back the name itself, while looking one up rebuilds the
+// quoting. Values would then report a key Get answers absent for.
+func notBareKeyRune(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-':
+		return false
+	default:
+		return true
+	}
 }
 
 // valueIsAddressable rejects an inline table, at the top level of a value or inside an array.
@@ -234,6 +256,10 @@ func (f *File) Version() (int, error) {
 		return 0, fmt.Errorf("sei.toml has no %s. Its shape cannot be established, so no migration "+
 			"can safely run against it and no reader can know which keys it is expected to carry",
 			VersionKey)
+	}
+	if n < 1 {
+		return 0, fmt.Errorf("sei.toml is at %s %d, and the first schema this format had is 1. Its shape "+
+			"cannot be established, so no migration can safely run against it", VersionKey, n)
 	}
 	if int(n) > SchemaVersion {
 		// The rollback case, and the reason the counter exists. A release migrates the file forward on

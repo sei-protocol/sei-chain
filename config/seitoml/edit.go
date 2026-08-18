@@ -141,11 +141,11 @@ func tomlValue(v any) (parser.Value, error) {
 	case int64:
 		return parser.ParseValue(quoteInt(x))
 	case uint:
-		return parser.ParseValue(strconv.FormatUint(uint64(x), 10))
+		return unsignedValue(uint64(x))
 	case uint32:
-		return parser.ParseValue(strconv.FormatUint(uint64(x), 10))
+		return unsignedValue(uint64(x))
 	case uint64:
-		return parser.ParseValue(strconv.FormatUint(x, 10))
+		return unsignedValue(x)
 	case float64:
 		return floatValue(x)
 	case []string:
@@ -166,6 +166,19 @@ func tomlValue(v any) (parser.Value, error) {
 	default:
 		return parser.Value{}, fmt.Errorf("cannot write a %T to a configuration file", v)
 	}
+}
+
+// unsignedValue renders an unsigned integer, refusing one no reader can hand back.
+//
+// A TOML integer is signed and decodes into an int64, so a value above its maximum renders as a line
+// that reads back as an error rather than a number. Refused here for the same reason an infinity is:
+// this package does not write what it cannot read.
+func unsignedValue(x uint64) (parser.Value, error) {
+	if x > math.MaxInt64 {
+		return parser.Value{}, fmt.Errorf("%d is larger than a configuration file's integers go, which "+
+			"reach %d", x, int64(math.MaxInt64))
+	}
+	return parser.ParseValue(strconv.FormatUint(x, 10))
 }
 
 // floatValue renders a float as a TOML float, which the shortest form of an integral one is not.
