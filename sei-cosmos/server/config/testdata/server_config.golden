@@ -142,3 +142,5 @@ StateStore.EVMDBDirectory = string("")
 StateStore.SeparateEVMSubDBs = bool(false)
 Genesis.StreamImport = bool(false)
 Genesis.GenesisStreamFile = string("")
+Query.TrustedCIDRs = <nil-slice>
+Query.TrustedScanLimit = uint64(100000)

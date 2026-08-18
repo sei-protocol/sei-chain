@@ -5,8 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // FilteredPaginate does pagination of all the results in the PrefixStore based on the
@@ -18,11 +17,26 @@ import (
 // When accumulate is true, the current result should be appended to the result set returned
 // to the client.
 func FilteredPaginate(
+	ctx sdk.Context,
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
 	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
 ) (*PageResponse, error) {
-	return filteredPaginate(prefixStore, pageRequest, onResult, false)
+	return filteredPaginate(ctx, prefixStore, pageRequest, onResult, scanLimitParamsFromContext(ctx))
+}
+
+// FilteredPaginateForContext applies FilteredPaginate on the ABCI query path and
+// FilteredPaginateV66 during consensus execution.
+func FilteredPaginateForContext(
+	ctx sdk.Context,
+	prefixStore types.KVStore,
+	pageRequest *PageRequest,
+	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
+) (*PageResponse, error) {
+	if ctx.IsABCIQuery() {
+		return FilteredPaginate(ctx, prefixStore, pageRequest, onResult)
+	}
+	return FilteredPaginateV66(prefixStore, pageRequest, onResult)
 }
 
 // FilteredPaginateV66 preserves release/v6.6 behavior for EVM precompiles.
@@ -36,15 +50,17 @@ func FilteredPaginateV66(
 	pageRequest *PageRequest,
 	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
 ) (*PageResponse, error) {
-	return filteredPaginate(prefixStore, pageRequest, onResult, true)
+	return filteredPaginate(sdk.Context{}, prefixStore, pageRequest, onResult, scanLimitParams{enforce: true, limit: MaxScanLimit})
 }
 
 func filteredPaginate(
+	ctx sdk.Context,
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
 	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
-	enforceV66ScanLimit bool,
+	scanLimit scanLimitParams,
 ) (*PageResponse, error) {
+	_ = ctx
 	// if the PageRequest is nil, use default PageRequest
 	if pageRequest == nil {
 		pageRequest = &PageRequest{}
@@ -82,9 +98,8 @@ func filteredPaginate(
 				nextKey = iterator.Key()
 				break
 			}
-			if enforceV66ScanLimit && totalIter > MaxScanLimit {
-				return nil, status.Errorf(codes.InvalidArgument,
-					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
+			if err := scanLimit.checkKeyPath(totalIter); err != nil {
+				return nil, err
 			}
 
 			if iterator.Error() != nil {
@@ -119,16 +134,14 @@ func filteredPaginate(
 
 	for ; iterator.Valid(); iterator.Next() {
 		totalIter++
-		if enforceV66ScanLimit && numHits < end && totalIter > paginationEnd(offset, MaxScanLimit) {
-			return nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries without filling the page; use key-based pagination instead", MaxScanLimit)
+		if err := scanLimit.checkOffsetBeforePageFilled(numHits, end, offset, totalIter); err != nil {
+			return nil, err
 		}
-		if enforceV66ScanLimit && pageCompleteIter > MaxScanLimit {
+		if err := scanLimit.checkPostPage(pageCompleteIter, countTotal); err != nil {
 			if !countTotal {
 				break
 			}
-			return nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
+			return nil, err
 		}
 
 		if iterator.Error() != nil {
@@ -179,13 +192,14 @@ func filteredPaginate(
 // The resulting slice (of type F) can be of a different type than the one being iterated through
 // (type T), so it's possible to do any necessary transformation inside the onResult function.
 func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
+	ctx sdk.Context,
 	cdc codec.BinaryCodec,
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
 	onResult func(key []byte, value T) (F, error),
 	constructor func() T,
 ) ([]F, *PageResponse, error) {
-	return genericFilteredPaginate(cdc, prefixStore, pageRequest, onResult, constructor, false)
+	return genericFilteredPaginate(ctx, cdc, prefixStore, pageRequest, onResult, constructor, scanLimitParamsFromContext(ctx))
 }
 
 // GenericFilteredPaginateV66 preserves release/v6.6 behavior for EVM
@@ -197,17 +211,19 @@ func GenericFilteredPaginateV66[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	onResult func(key []byte, value T) (F, error),
 	constructor func() T,
 ) ([]F, *PageResponse, error) {
-	return genericFilteredPaginate(cdc, prefixStore, pageRequest, onResult, constructor, true)
+	return genericFilteredPaginate(sdk.Context{}, cdc, prefixStore, pageRequest, onResult, constructor, scanLimitParams{enforce: true, limit: MaxScanLimit})
 }
 
 func genericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
+	ctx sdk.Context,
 	cdc codec.BinaryCodec,
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
 	onResult func(key []byte, value T) (F, error),
 	constructor func() T,
-	enforceV66ScanLimit bool,
+	scanLimit scanLimitParams,
 ) ([]F, *PageResponse, error) {
+	_ = ctx
 	// if the PageRequest is nil, use default PageRequest
 	if pageRequest == nil {
 		pageRequest = &PageRequest{}
@@ -246,9 +262,8 @@ func genericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 				nextKey = iterator.Key()
 				break
 			}
-			if enforceV66ScanLimit && totalIter > MaxScanLimit {
-				return nil, nil, status.Errorf(codes.InvalidArgument,
-					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
+			if err := scanLimit.checkKeyPath(totalIter); err != nil {
+				return nil, nil, err
 			}
 
 			if iterator.Error() != nil {
@@ -291,16 +306,14 @@ func genericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 
 	for ; iterator.Valid(); iterator.Next() {
 		totalIter++
-		if enforceV66ScanLimit && numHits < end && totalIter > paginationEnd(offset, MaxScanLimit) {
-			return nil, nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries without filling the page; use key-based pagination instead", MaxScanLimit)
+		if err := scanLimit.checkOffsetBeforePageFilled(numHits, end, offset, totalIter); err != nil {
+			return nil, nil, err
 		}
-		if enforceV66ScanLimit && pageCompleteIter > MaxScanLimit {
+		if err := scanLimit.checkPostPage(pageCompleteIter, countTotal); err != nil {
 			if !countTotal {
 				break
 			}
-			return nil, nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
+			return nil, nil, err
 		}
 
 		if iterator.Error() != nil {

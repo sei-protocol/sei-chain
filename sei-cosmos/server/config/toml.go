@@ -241,6 +241,20 @@ enable-unsafe-cors = {{ .GRPCWeb.EnableUnsafeCORS }}
 max-open-connections = {{ .GRPCWeb.MaxOpenConnections }}
 
 ###############################################################################
+###                         Query Configuration                             ###
+###############################################################################
+
+[query]
+# trusted-cidrs is a CIDR allowlist for relaxed pagination scan limits.
+# Empty means every caller (including localhost) receives the 10k scan cap.
+# Never list public ingress, load balancers, or grpc-gateway relays here.
+trusted-cidrs = [{{- range $i, $c := .Query.TrustedCIDRs }}{{- if $i }}, {{ end }}"{{ $c }}"{{- end }}]
+
+# trusted-scan-limit is the max store entries a single paginator call may scan
+# for trusted origins. 0 means unlimited.
+trusted-scan-limit = {{ .Query.TrustedScanLimit }}
+
+###############################################################################
 ###                         Genesis Configuration (Auto-managed)            ###
 ###############################################################################
 

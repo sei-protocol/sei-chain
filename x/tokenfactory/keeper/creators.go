@@ -13,7 +13,7 @@ func (k Keeper) addDenomFromCreator(ctx sdk.Context, creator, denom string) {
 func (k Keeper) getDenomsFromCreator(ctx sdk.Context, creator string, pagination *query.PageRequest) ([]string, *query.PageResponse, error) {
 	store := k.GetCreatorPrefixStore(ctx, creator)
 	var denoms []string
-	pageRes, err := query.Paginate(store, pagination, func(key []byte, _ []byte) error {
+	pageRes, err := query.Paginate(ctx, store, pagination, func(key []byte, _ []byte) error {
 		denoms = append(denoms, string(key))
 		return nil
 	})

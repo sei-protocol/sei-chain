@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	db "github.com/tendermint/tm-db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -18,7 +19,8 @@ const DefaultLimit = 100
 // which equals the maximum value that can be stored in uint64
 const MaxLimit = uint64(math.MaxUint64)
 
-// MaxScanLimit is retained by the v6.6-compatible precompile paginators.
+// MaxScanLimit is the scan cap for untrusted ABCI query origins and the frozen
+// consensus-path limit used by the v6.6-compatible paginators.
 const MaxScanLimit = uint64(10_000)
 
 // ParsePagination validate PageRequest and returns page number & limit.
@@ -50,10 +52,12 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 // Paginate does pagination of all the results in the PrefixStore based on the
 // provided PageRequest. onResult should be used to do actual unmarshaling.
 func Paginate(
+	ctx sdk.Context,
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
 	onResult func(key []byte, value []byte) error,
 ) (*PageResponse, error) {
+	scanLimit := scanLimitParamsFromContext(ctx)
 
 	// if the PageRequest is nil, use default PageRequest
 	if pageRequest == nil {
@@ -111,11 +115,24 @@ func Paginate(
 
 	end := paginationEnd(offset, limit)
 
-	var count uint64
-	var nextKey []byte
+	var (
+		count            uint64
+		nextKey          []byte
+		pageCompleteIter uint64
+	)
 
 	for ; iterator.Valid(); iterator.Next() {
 		count++
+
+		if scanLimit.enforce && count <= offset && count > scanLimit.limit {
+			return nil, scanLimitError(scanLimit.limit, "use key-based pagination instead")
+		}
+		if count >= end {
+			pageCompleteIter++
+		}
+		if err := scanLimit.checkPostPage(pageCompleteIter, countTotal); err != nil {
+			return nil, err
+		}
 
 		if count <= offset {
 			continue

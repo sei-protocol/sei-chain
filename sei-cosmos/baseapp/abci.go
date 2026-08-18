@@ -462,7 +462,7 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 	// handle gRPC routes first rather than calling splitPath because '/' characters
 	// are used as part of gRPC paths
 	if grpcHandler := app.grpcQueryRouter.Route(req.Path); grpcHandler != nil {
-		resp := app.handleQueryGRPC(grpcHandler, *req)
+		resp := app.handleQueryGRPC(ctx, grpcHandler, *req)
 		return &resp, nil
 	}
 
@@ -623,15 +623,15 @@ func (app *BaseApp) ApplySnapshotChunk(context context.Context, req *abci.Reques
 	}
 }
 
-func (app *BaseApp) handleQueryGRPC(handler GRPCQueryHandler, req abci.RequestQuery) abci.ResponseQuery {
-	ctx, err := app.CreateQueryContext(req.Height, req.Prove)
+func (app *BaseApp) handleQueryGRPC(ctx context.Context, handler GRPCQueryHandler, req abci.RequestQuery) abci.ResponseQuery {
+	sdkCtx, err := app.CreateQueryContext(req.Height, req.Prove)
 	if err != nil {
 		return sdkerrors.QueryResultWithDebug(err, app.trace)
 	}
 
 	// Only Cosmos ABCI gRPC queries may use client-facing pagination semantics.
 	// Historical EVM RPC also calls CreateQueryContext and must remain unmarked.
-	res, err := handler(ctx.WithIsABCIQuery(true), req)
+	res, err := handler(app.enrichABCIQueryContext(ctx, sdkCtx), req)
 	if err != nil {
 		res = sdkerrors.QueryResultWithDebug(gRPCErrorToSDKError(err), app.trace)
 		res.Height = req.Height

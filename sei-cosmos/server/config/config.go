@@ -312,6 +312,7 @@ type Config struct {
 	StateCommit config.StateCommitConfig `mapstructure:"state-commit"`
 	StateStore  config.StateStoreConfig  `mapstructure:"state-store"`
 	Genesis     GenesisConfig            `mapstructure:"genesis"`
+	Query       QueryConfig              `mapstructure:"query"`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.
@@ -409,6 +410,7 @@ func DefaultConfig() *Config {
 			StreamImport:      false,
 			GenesisStreamFile: "",
 		},
+		Query: DefaultQueryConfig(),
 	}
 }
 
@@ -569,7 +571,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
 	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
 
-	return Config{
+	cfg := Config{
 		BaseConfig: BaseConfig{
 			MinGasPrices:       v.GetString("minimum-gas-prices"),
 			InterBlockCache:    v.GetBool("inter-block-cache"),
@@ -664,7 +666,15 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			StreamImport:      v.GetBool("genesis.stream-import"),
 			GenesisStreamFile: v.GetString("genesis.genesis-stream-file"),
 		},
-	}, nil
+	}
+
+	queryCfg, err := ParseQueryConfig(v)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Query = queryCfg
+
+	return cfg, nil
 }
 
 // ValidateBasic validates the server configuration.
