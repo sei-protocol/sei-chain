@@ -146,7 +146,7 @@ func SignedForTesting[T Msg](msg T, sig *Signature) *Signed[T] {
 
 // NewBlockForTesting builds a Block with an injected payload hash instead of computing
 // payload.Hash(). FOR TESTS/BENCHMARKS ONLY: the header's payloadHash need not match the
-// payload, so LaneProposal.VerifyPayload will fail. This skips a full marshal + SHA-256 of the payload.
+// payload, so LaneProposal.Verify will fail. This skips a full marshal + SHA-256 of the payload.
 func NewBlockForTesting(
 	lane LaneID,
 	blockNumber BlockNumber,

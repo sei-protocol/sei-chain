@@ -188,17 +188,9 @@ func (m *Signed[T]) Sig() *Signature { return m.sig }
 // Key returns the key whish signed the message.
 func (m *Signed[T]) Key() PublicKey { return m.sig.key }
 
-// VerifySignature verifies the cryptographic signature.
-func (m *Signed[T]) VerifySignature() error {
+// VerifySig verifies the cryptographic signature.
+func (m *Signed[T]) VerifySig() error {
 	return m.sig.key.key.VerifyWithTag(autobahnTag, m.hashed.hash[:], m.sig.sig)
-}
-
-// VerifySig verifies the signer is a committee replica and the signature.
-func (m *Signed[T]) VerifySig(c *Committee) error {
-	if !c.HasReplica(m.sig.key) {
-		return fmt.Errorf("%q is not a replica", m.sig.key)
-	}
-	return m.VerifySignature()
 }
 
 // verifyQC verifies a slice of signatures and checks if they form a quorum.
@@ -212,7 +204,10 @@ func (m *Hashed[T]) verifyQC(c *Committee, quorumWeight uint64, sigs []*Signatur
 		done[sig.key] = struct{}{}
 		weight += c.Weight(sig.key)
 		sm := &Signed[T]{hashed: m, sig: sig}
-		if err := sm.VerifySig(c); err != nil {
+		if !c.HasReplica(sm.Key()) {
+			return fmt.Errorf("%q is not a replica", sm.Key())
+		}
+		if err := sm.VerifySig(); err != nil {
 			return err
 		}
 	}
