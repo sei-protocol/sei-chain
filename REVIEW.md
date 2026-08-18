@@ -100,3 +100,32 @@ transaction to land for a sender that is already associated (or already voted)
 at the time of broadcast — then the fee path does apply and the transaction is
 rejected. When in doubt, check `IsTxGasless` for the authoritative set rather
 than reasoning from `minimum-gas-prices` alone.
+
+## 4. Genesis rewrites must preserve consensus parameters
+
+Any code that rewrites an existing genesis document must carry every consensus
+parameter deliberately customized earlier in the generation flow unless replacing
+those values is an explicit responsibility of the rewrite. Rebuilding only the
+chain ID, validators, application state, and genesis time silently restores omitted
+consensus parameters to their defaults.
+
+Review the complete genesis-generation flow rather than only the initial write.
+When a later step collects gentxs or normalizes genesis time, tests must read the
+final file after that step and verify that customized consensus parameter values
+remain intact.
+
+## 5. Deprecated configuration keys need an explicit policy
+
+The current Viper unmarshalling path ignores unknown TOML keys, so placeholder
+struct fields are not required merely to let an existing configuration file
+load. A placeholder has value only when a reachable warning, validation, or
+migration path consumes it.
+
+Do not request global unknown-field errors as a local deprecation fix. Changing
+the decoder to reject unknown keys alters compatibility for every configuration
+section and must be an intentional change at the shared decoding choke point,
+with dedicated startup or TOML-decoding tests that record the behavior.
+
+A deprecated field is a real finding when the code or documentation promises a
+warning or migration but no startup path consumes it, or when removing it changes
+documented compatibility without an explicit replacement policy.
