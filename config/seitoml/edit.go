@@ -9,6 +9,7 @@ import (
 
 	"github.com/creachadair/tomledit"
 	"github.com/creachadair/tomledit/parser"
+	"github.com/creachadair/tomledit/scanner"
 	"github.com/creachadair/tomledit/transform"
 )
 
@@ -31,7 +32,8 @@ func (f *File) Set(key string, v any) error {
 		e.Value = value
 		return nil
 	}
-	return f.insert(path, value)
+	f.insert(path, value)
+	return nil
 }
 
 // insert adds a key the document does not have yet.
@@ -39,37 +41,35 @@ func (f *File) Set(key string, v any) error {
 // A key with no dots belongs at the top level. Otherwise it goes in the table its prefix names,
 // which is created when it is absent so writing the first key of a section works without the
 // operator having to add the heading by hand.
-func (f *File) insert(path parser.Key, value parser.Value) error {
+func (f *File) insert(path parser.Key, value parser.Value) {
 	leaf := parser.Key{path[len(path)-1]}
 	kv := &parser.KeyValue{Name: leaf, Value: value}
 
 	if len(path) == 1 {
-		return f.insertGlobal(kv)
+		f.insertGlobal(kv)
+		return
 	}
 
 	table := path[:len(path)-1]
 	if e := transform.FindTable(f.doc, table...); e != nil {
-		if !transform.InsertMapping(e.Section, kv, true) {
-			return fmt.Errorf("could not write %s into the existing [%s] table", leaf, table.String())
-		}
-		return nil
+		transform.InsertMapping(e.Section, kv, true)
+		return
 	}
 	f.doc.Sections = append(f.doc.Sections, &tomledit.Section{
 		Heading: &parser.Heading{Name: table},
 		Items:   []parser.Item{kv},
 	})
-	return nil
 }
 
 // insertGlobal adds a top-level key, creating the global section when the document has none.
-func (f *File) insertGlobal(kv *parser.KeyValue) error {
+//
+// InsertMapping's result is not checked because it only reports a collision it was told not to
+// replace, and it is told to replace.
+func (f *File) insertGlobal(kv *parser.KeyValue) {
 	if f.doc.Global == nil {
 		f.doc.Global = &tomledit.Section{}
 	}
-	if !transform.InsertMapping(f.doc.Global, kv, true) {
-		return fmt.Errorf("could not write %s at the top level", kv.Name.String())
-	}
-	return nil
+	transform.InsertMapping(f.doc.Global, kv, true)
 }
 
 // SetPreamble puts a comment block at the top of the document, above everything else.
@@ -125,9 +125,9 @@ func tomlValue(v any) (parser.Value, error) {
 	case bool:
 		return parser.ParseValue(strconv.FormatBool(x))
 	case string:
-		return parser.ParseValue(strconv.Quote(x))
+		return parser.ParseValue(basicString(x))
 	case time.Duration:
-		return parser.ParseValue(strconv.Quote(x.String()))
+		return parser.ParseValue(basicString(x.String()))
 	case int:
 		return parser.ParseValue(quoteInt(int64(x)))
 	case int32:
@@ -146,8 +146,8 @@ func tomlValue(v any) (parser.Value, error) {
 		return parser.ParseValue("[" + strings.Join(quoteEach(x), ", ") + "]")
 	case []any:
 		// The shape reading an array back produces. Without this, anything that reads a list and writes
-		// it again fails on a value this package handed it. An element this cannot render still fails, so
-		// the asymmetry closes without the writer accepting more than the reader can produce.
+		// it again fails on a value this package handed it. Every element is a value the reader can
+		// produce, and every one of those has a case above, so the reader and the writer agree.
 		rendered := make([]string, 0, len(x))
 		for i, item := range x {
 			element, err := tomlValue(item)
@@ -183,11 +183,20 @@ func floatValue(x float64) (parser.Value, error) {
 	return parser.ParseValue(text)
 }
 
-// quoteEach quotes every element of a string list.
+// basicString renders a Go string as a quoted TOML basic string.
+//
+// The escaping is the scanner's own rather than Go's. Go's quoter writes a control character as \x07
+// or \a and TOML defines neither, so such a value was refused with a diagnostic naming an offset into
+// a string the operator never saw.
+func basicString(s string) string {
+	return `"` + string(scanner.Escape(s)) + `"`
+}
+
+// quoteEach renders every element of a string list.
 func quoteEach(ss []string) []string {
 	out := make([]string, len(ss))
 	for i, s := range ss {
-		out[i] = strconv.Quote(s)
+		out[i] = basicString(s)
 	}
 	return out
 }

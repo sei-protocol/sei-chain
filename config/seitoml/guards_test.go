@@ -47,6 +47,22 @@ func TestAValueShapeWithNoDecoderIsRefused(t *testing.T) {
 	}
 }
 
+// TestAnUndefinedEscapeIsRefusedRatherThanReplaced covers the scanner's substitution behaviour.
+//
+// The scanner writes a replacement rune for an escape TOML does not define rather than failing, so
+// without this check a typo such as \q would reach a node as U+FFFD inside a configuration value. The
+// parser rejects the escape before a file can carry one, which is why this drives the decoder directly.
+func TestAnUndefinedEscapeIsRefusedRatherThanReplaced(t *testing.T) {
+	if _, err := unescape(`"a\qc"`, `a\qc`); err == nil {
+		t.Error("an escape TOML does not define decoded without complaint")
+	}
+	// A replacement rune the operator actually wrote is theirs to keep.
+	got, err := unescape("\"a\ufffdc\"", "a\ufffdc")
+	if err != nil || got != "a\ufffdc" {
+		t.Errorf("a written replacement rune came back as (%q, %v), want it preserved", got, err)
+	}
+}
+
 // TestUnquoteRefusesAKindThatIsNotAString covers the string decoder's own guard.
 //
 // unquote picks the escaping rules from the token kind, so a kind it does not know has no rules to
@@ -54,17 +70,6 @@ func TestAValueShapeWithNoDecoderIsRefused(t *testing.T) {
 func TestUnquoteRefusesAKindThatIsNotAString(t *testing.T) {
 	if _, err := unquote(scanner.Integer, "3"); err == nil {
 		t.Error("unquote accepted a kind that is not a string")
-	}
-}
-
-// TestAnInlineTableSkipsAnEntryCarryingNothing covers the nil entry a malformed inline table produces.
-func TestAnInlineTableSkipsAnEntryCarryingNothing(t *testing.T) {
-	got, err := inlineValue(parser.Inline{nil})
-	if err != nil {
-		t.Fatalf("inlineValue: %v", err)
-	}
-	if len(got.(map[string]any)) != 0 {
-		t.Errorf("an inline table of one empty entry decoded to %#v, want nothing", got)
 	}
 }
 

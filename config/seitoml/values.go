@@ -1,10 +1,12 @@
 package seitoml
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/creachadair/tomledit"
 	"github.com/creachadair/tomledit/parser"
@@ -33,15 +35,6 @@ func (f *File) Values() (map[string]any, error) {
 			bad = fmt.Errorf("%s: %w", key, err)
 			return false
 		}
-		// An inline table is one written value holding several keys, so it flattens into the same
-		// dotted space as a table would. Left nested, its leaves would be invisible to any check
-		// that walks declared keys.
-		if inline, ok := v.(map[string]any); ok {
-			for sub, sv := range flatten(key, inline) {
-				out[sub] = sv
-			}
-			return true
-		}
 		out[key] = v
 		return true
 	})
@@ -68,36 +61,21 @@ func (f *File) Get(key string) (any, bool, error) {
 	return v, true, nil
 }
 
-// flatten expands an inline table into dotted keys under prefix.
-func flatten(prefix string, m map[string]any) map[string]any {
-	out := map[string]any{}
-	for k, v := range m {
-		key := prefix + "." + k
-		if nested, ok := v.(map[string]any); ok {
-			for sub, sv := range flatten(key, nested) {
-				out[sub] = sv
-			}
-			continue
-		}
-		out[key] = v
-	}
-	return out
-}
-
 // goValue converts a parsed value to the Go value a reader sees.
 //
 // Integers arrive as int64 and floats as float64, matching what a TOML decoder produces, so a
-// comparison against a baseline does not have to know which parser read the file. A date or time
-// comes back as its text: nothing configures a node with one, and the text keeps such a key visible
-// to a check rather than dropping it.
+// comparison against a default does not have to know which parser read the file. A date or time comes
+// back as its text: nothing configures a node with one, and the text keeps such a key visible to a
+// check rather than dropping it.
+//
+// There is no case for an inline table, because Parse refuses one. Every value a reader sees is
+// therefore one this package can also write back.
 func goValue(v parser.Value) (any, error) {
 	switch d := v.X.(type) {
 	case parser.Token:
 		return tokenValue(d)
 	case parser.Array:
 		return arrayValue(d)
-	case parser.Inline:
-		return inlineValue(d)
 	default:
 		return nil, fmt.Errorf("unsupported value %T", v.X)
 	}
@@ -143,38 +121,103 @@ func tokenValue(t parser.Token) (any, error) {
 	}
 }
 
-// unquote strips a string literal's quoting.
+// unquote strips a string literal's quoting and decodes its escapes.
 //
 // A basic string carries escapes and needs them decoded; a literal string reads exactly as written,
 // which is the whole reason TOML has both. Getting this backwards turns a Windows path's
 // backslashes into control characters.
+//
+// The decoding is the scanner's own rather than Go's. The two grammars differ in three places that
+// each reach an operator's file: TOML has no \x escape, Go has no line-ending continuation, and Go's
+// decoder rejects the literal newline that makes a multi-line string multi-line.
 func unquote(kind scanner.Token, text string) (string, error) {
 	switch kind {
 	case scanner.String:
-		s, err := strconv.Unquote(text)
-		if err != nil {
-			return "", fmt.Errorf("%s is not a well-formed string: %w", text, err)
-		}
-		return s, nil
+		return unescape(text, strings.TrimSuffix(strings.TrimPrefix(text, `"`), `"`))
 	case scanner.MString:
-		// Unquote reads Go's single-line syntax, so the literal newlines and tabs that make this form
-		// multi-line have to become escapes before it sees them. Left raw, Unquote rejects the whole
-		// string and a value an operator wrote is refused for having more than one line in it.
-		inner := strings.TrimPrefix(strings.TrimSuffix(strings.TrimPrefix(text, `"""`), `"""`), "\n")
-		escaped := strings.NewReplacer("\n", `\n`, "\r", `\r`, "\t", `\t`, `"`, `\"`).Replace(inner)
-		s, err := strconv.Unquote(`"` + escaped + `"`)
-		if err != nil {
-			return "", fmt.Errorf("%s is not a well-formed string: %w", text, err)
-		}
-		return s, nil
+		inner := unixNewlines(strings.TrimSuffix(strings.TrimPrefix(text, `"""`), `"""`))
+		return unescape(text, foldContinuations(trimOpeningNewline(inner)))
 	case scanner.LString:
 		return strings.TrimSuffix(strings.TrimPrefix(text, `'`), `'`), nil
 	case scanner.MLString:
-		inner := strings.TrimSuffix(strings.TrimPrefix(text, `'''`), `'''`)
-		return strings.TrimPrefix(inner, "\n"), nil
+		inner := unixNewlines(strings.TrimSuffix(strings.TrimPrefix(text, `'''`), `'''`))
+		return trimOpeningNewline(inner), nil
 	default:
 		return "", fmt.Errorf("%v is not a string", kind)
 	}
+}
+
+// unescape decodes a basic string's escapes, refusing one TOML does not define.
+//
+// The scanner substitutes a replacement rune for an undefined escape rather than failing, so a typo
+// such as \q would otherwise reach a node as U+FFFD inside its configuration. text is the literal as
+// written, so a refusal quotes what the operator typed rather than the decoded form.
+func unescape(text, inner string) (string, error) {
+	out, err := scanner.Unescape([]byte(inner))
+	if err != nil {
+		return "", fmt.Errorf("%s is not a well-formed string: %w", text, err)
+	}
+	if bytes.ContainsRune(out, utf8.RuneError) && !strings.ContainsRune(inner, utf8.RuneError) {
+		return "", fmt.Errorf("%s carries an escape TOML does not define", text)
+	}
+	return string(out), nil
+}
+
+// unixNewlines rewrites a carriage return and newline pair as a newline alone.
+//
+// The line ending an editor chose is not part of the value. A default in the binary carries a bare
+// newline, so a file saved on Windows would differ from a default it matches, on every line, and a diff
+// would report a change nobody can see. Rendering already writes bare newlines, so this is what makes
+// reading agree with writing.
+//
+// A carriage return the operator wrote as an escape is two characters here and survives, since escapes
+// are decoded after this runs.
+func unixNewlines(s string) string { return strings.ReplaceAll(s, "\r\n", "\n") }
+
+// trimOpeningNewline drops the newline TOML allows immediately after a multi-line delimiter, so the
+// value starts at the operator's first line of content.
+func trimOpeningNewline(s string) string { return strings.TrimPrefix(s, "\n") }
+
+// foldContinuations removes a backslash that ends a line together with the whitespace following it.
+//
+// This is how TOML lets one value span several lines without carrying the newlines into it. An escape
+// consumes the character after it, so a doubled backslash is written through rather than read as a
+// continuation; otherwise a value ending in a path separator would swallow the next line.
+func foldContinuations(s string) string {
+	var out strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] != '\\' {
+			out.WriteByte(s[i])
+			i++
+			continue
+		}
+		if end, folded := continuationEnd(s, i); folded {
+			i = end
+			continue
+		}
+		out.WriteByte(s[i])
+		i++
+		if i < len(s) {
+			out.WriteByte(s[i])
+			i++
+		}
+	}
+	return out.String()
+}
+
+// continuationEnd reports where a continuation starting at the backslash in s[i] ends, if it is one.
+func continuationEnd(s string, i int) (int, bool) {
+	j := i + 1
+	for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
+		j++
+	}
+	if j >= len(s) || (s[j] != '\n' && s[j] != '\r') {
+		return 0, false
+	}
+	for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\r' || s[j] == '\n') {
+		j++
+	}
+	return j, true
 }
 
 // arrayValue converts an array, skipping the comment lines written between its items.
@@ -190,22 +233,6 @@ func arrayValue(a parser.Array) (any, error) {
 			return nil, err
 		}
 		out = append(out, gv)
-	}
-	return out, nil
-}
-
-// inlineValue converts an inline table to a map its caller flattens.
-func inlineValue(in parser.Inline) (any, error) {
-	out := map[string]any{}
-	for _, kv := range in {
-		if kv == nil {
-			continue
-		}
-		v, err := goValue(kv.Value)
-		if err != nil {
-			return nil, err
-		}
-		out[strings.ToLower(kv.Name.String())] = v
 	}
 	return out, nil
 }

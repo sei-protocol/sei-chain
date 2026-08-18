@@ -1,6 +1,7 @@
 package seitoml_test
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -355,28 +356,108 @@ func TestSetCreatesTheTableWhenTheSectionIsNew(t *testing.T) {
 	}
 }
 
-// TestValuesFlattensAnInlineTable keeps an inline table's leaves visible.
+// TestAShapeThisFileDoesNotCarryIsRefusedAtTheDoor drives the shapes Parse rejects.
 //
-// An inline table is one written line holding several keys. Left nested, its leaves are invisible
-// to any check that walks declared keys, so an operator could write a setting nothing validates.
-func TestValuesFlattensAnInlineTable(t *testing.T) {
-	f := parse(t, "schema_version = 1\n[state-commit]\nflatkv = { enable = true, dir = \"/data\" }\n")
+// TOML permits more shapes than a node's configuration uses, and each of these was accepted and then
+// lost or corrupted further in. Refusing at Parse is what keeps one answer per key: every later verb
+// can then assume the document holds only shapes it can read and write back.
+//
+// Each case is a shape an operator could reasonably write, so each refusal has to name what is wrong
+// and what to write instead.
+func TestAShapeThisFileDoesNotCarryIsRefusedAtTheDoor(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			"an inline table",
+			"[state-commit]\nflatkv = { enable = true, dir = \"/data\" }\n",
+			"is an inline table",
+		},
+		{
+			"an inline table inside an array",
+			"[p]\npeers = [{ host = \"a\" }]\n",
+			"is an inline table",
+		},
+		{
+			"an array of tables",
+			"[[peer]]\nhost = \"a\"\n\n[[peer]]\nhost = \"b\"\n",
+			"is an array of tables",
+		},
+		{
+			"a repeated table heading",
+			"[probe]\nn = 1\n\n[probe]\nn = 2\n",
+			"appears more than once",
+		},
+		{
+			"an upper-case key",
+			"[probe]\nEnabled = true\n",
+			"is not lower case",
+		},
+		{
+			"an upper-case table heading",
+			"[Probe]\nenabled = true\n",
+			"is not lower case",
+		},
+		{
+			"a quoted key carrying a dot",
+			"[probe]\n\"a.b\" = 1\n",
+			"carries a dot or a space",
+		},
+		{
+			"a quoted key carrying a space",
+			"[probe]\n\"a b\" = 1\n",
+			"carries a dot or a space",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := seitoml.Parse(strings.NewReader(tc.body))
+			if err == nil {
+				t.Fatalf("%s parsed; every verb below Parse assumes it cannot appear", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("the refusal reads %q, which does not mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestTheShapesThisFileDoesCarryStillParse is the other half, so the refusals cannot pass by refusing
+// everything.
+//
+// A table, a dotted key inside one, a lower-case hyphenated name and an array of scalars are what a
+// node's configuration is written with, and each has to survive the check above.
+func TestTheShapesThisFileDoesCarryStillParse(t *testing.T) {
+	f := parse(t, `schema_version = 1
+node_mode = "validator"
+
+[state-commit]
+sc-async-commit-buffer = 100
+
+[state-commit.flatkv]
+enable = true
+dir = "/data"
+
+[p2p]
+persistent-peers = ["a", "b"]
+`)
 
 	values, err := f.Values()
 	if err != nil {
 		t.Fatalf("Values: %v", err)
 	}
-
-	if values["state-commit.flatkv.enable"] != true {
-		t.Errorf("the inline table's leaf is not reachable as a dotted key: %v.\n\nA key nothing can "+
-			"see is a setting nothing validates", values)
+	for key, want := range map[string]any{
+		"state-commit.sc-async-commit-buffer": int64(100),
+		"state-commit.flatkv.enable":          true,
+		"state-commit.flatkv.dir":             "/data",
+	} {
+		if values[key] != want {
+			t.Errorf("%s read back as %#v, want %#v", key, values[key], want)
+		}
 	}
-	if values["state-commit.flatkv.dir"] != "/data" {
-		t.Errorf("the second leaf read %#v, want /data", values["state-commit.flatkv.dir"])
-	}
-	if _, nested := values["state-commit.flatkv"]; nested {
-		t.Errorf("the table itself is also reported as a value, so a check would see a key whose "+
-			"value is a map: %v", values)
+	if got, ok := values["p2p.persistent-peers"].([]any); !ok || len(got) != 2 {
+		t.Errorf("the peer list read back as %#v, want two elements", values["p2p.persistent-peers"])
 	}
 }
 
@@ -403,41 +484,82 @@ func TestAnUnsupportedTypeIsRefused(t *testing.T) {
 	}
 }
 
-// TestSaveLandsInFullOrNotAtAll holds the atomicity the boot depends on.
+// TestAFailedSaveLeavesThePreviousFileExactlyAsItWas holds what a caller relies on after an error.
 //
 // A configuration file truncated by a crash mid-write is one the node cannot parse, so a save that
-// cannot complete must leave the previous file exactly as it was. Driven by making the install step
-// fail, which is the part that would otherwise have already replaced the file.
-func TestSaveLandsInFullOrNotAtAll(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sei.toml")
-	if err := os.WriteFile(path, []byte(commented), 0o600); err != nil {
-		t.Fatalf("seed the file: %v", err)
+// cannot complete must leave the previous file byte for byte. Two ways to fail are driven, because
+// they fail at different points and only one of them creates a temporary file to clean up.
+//
+// Neither reaches a rename that fails after the temporary file is written. That path needs the rename
+// itself to fail with the destination writable, which no input to this package produces, so what holds
+// it is the ordering in Save rather than a test.
+func TestAFailedSaveLeavesThePreviousFileExactlyAsItWas(t *testing.T) {
+	if os.Geteuid() == 0 {
+		// A mode of 0500 does not stop uid 0, so the save would succeed and the failure would look
+		// like a defect in Save rather than a test that cannot run as root.
+		t.Skip("this drives failure through directory permissions, which do not apply to uid 0")
 	}
 
-	f := parse(t, commented)
-	if err := f.Set("giga_executor.occ_enabled", true); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-	// A directory the process cannot write is how the temporary file, and therefore the install,
-	// is made to fail without the previous file being touched.
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatalf("chmod: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	for _, tc := range []struct {
+		name    string
+		arrange func(t *testing.T, dir, path string)
+	}{
+		{
+			"a directory the process cannot write",
+			func(t *testing.T, dir, _ string) {
+				if err := os.Chmod(dir, 0o500); err != nil {
+					t.Fatalf("chmod: %v", err)
+				}
+				t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+			},
+		},
+		{
+			"a destination that is a symbolic link",
+			func(t *testing.T, dir, path string) {
+				target := filepath.Join(dir, "managed.toml")
+				if err := os.WriteFile(target, []byte("schema_version = 1\n"), 0o600); err != nil {
+					t.Fatalf("seed the target: %v", err)
+				}
+				if err := os.Remove(path); err != nil {
+					t.Fatalf("clear the seeded file: %v", err)
+				}
+				if err := os.Symlink(target, path); err != nil {
+					t.Fatalf("link: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "sei.toml")
+			if err := os.WriteFile(path, []byte(commented), 0o600); err != nil {
+				t.Fatalf("seed the file: %v", err)
+			}
+			tc.arrange(t, dir, path)
+			// Read after arranging, so this is what is on disk immediately before the save rather than
+			// what the seed wrote. The symlink case deliberately points somewhere else.
+			before, err := os.ReadFile(path) //nolint:gosec // a path this test created under t.TempDir
+			if err != nil {
+				t.Fatalf("read what is on disk before the save: %v", err)
+			}
 
-	if err := f.Save(path); err == nil {
-		t.Fatal("Save reported success in a directory it cannot write, so a caller would believe " +
-			"the new configuration is on disk")
-	}
+			f := parse(t, commented)
+			if err := f.Set("giga_executor.occ_enabled", true); err != nil {
+				t.Fatalf("Set: %v", err)
+			}
+			if err := f.Save(path); err == nil {
+				t.Fatal("Save reported success, so a caller would believe the new configuration is on disk")
+			}
 
-	raw, err := os.ReadFile(path) //nolint:gosec // a path this test created under t.TempDir
-	if err != nil {
-		t.Fatalf("the previous file is unreadable after a failed save: %v", err)
-	}
-	if string(raw) != commented {
-		t.Errorf("a failed save changed the file on disk. It now reads:\n%s\n\nThe node would boot "+
-			"from something nobody wrote", raw)
+			raw, err := os.ReadFile(path) //nolint:gosec // a path this test created under t.TempDir
+			if err != nil {
+				t.Fatalf("the previous file is unreadable after a failed save: %v", err)
+			}
+			if string(raw) != string(before) {
+				t.Errorf("a failed save changed what is on disk. It now reads:\n%s\n\nThe node would "+
+					"boot from something nobody wrote", raw)
+			}
+		})
 	}
 }
 
@@ -467,36 +589,44 @@ func TestSaveLeavesNoTemporaryFileBehind(t *testing.T) {
 	}
 }
 
-// TestSaveKeepsAnExistingFilesPermissions holds that a save never widens access.
+// TestSaveKeepsAnExistingFilesPermissions holds that a save carries the mode it found.
 //
-// A configuration may name a private endpoint or carry a token. An operator who narrowed the file
-// deliberately would have that undone by a save, silently, and nothing about the change is visible
-// in the file's contents.
+// A configuration names the paths of a node's key files and its peers. An operator who narrowed the
+// file deliberately would have that undone by a save, silently, and nothing about the change is
+// visible in the file's contents. The reverse matters as much: a save is not the place to impose a
+// mode, so a file an operator or an init step left wider stays as they left it.
+//
+// Both directions are driven, because a mode equal to newFileMode proves nothing. Asserting only that
+// a 0600 file stays 0600 passes with the whole inheritance removed.
 func TestSaveKeepsAnExistingFilesPermissions(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sei.toml")
-	if err := os.WriteFile(path, []byte(commented), 0o640); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		t.Fatalf("chmod: %v", err)
-	}
+	for _, mode := range []os.FileMode{0o600, 0o640, 0o644} {
+		t.Run(fmt.Sprintf("%#o", mode), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "sei.toml")
+			if err := os.WriteFile(path, []byte(commented), mode); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatalf("chmod past the umask: %v", err)
+			}
 
-	f := parse(t, commented)
-	if err := f.Set("giga_executor.enabled", false); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-	if err := f.Save(path); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
+			f := parse(t, commented)
+			if err := f.Set("giga_executor.enabled", false); err != nil {
+				t.Fatalf("Set: %v", err)
+			}
+			if err := f.Save(path); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Errorf("the file's mode moved from 0600 to %#o. A save that widens access undoes a "+
-			"restriction an operator chose, and the file's contents do not show it", got)
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatalf("Stat: %v", err)
+			}
+			if got := info.Mode().Perm(); got != mode {
+				t.Errorf("the file's mode moved from %#o to %#o. A save that changes access either "+
+					"undoes a restriction an operator chose or imposes one they did not, and the "+
+					"file's contents do not show it", mode, got)
+			}
+		})
 	}
 }
 
@@ -784,6 +914,12 @@ first line
 second line"""
 verbatim = '''
 kept \as \written'''
+escaped = """say \"hi\" here"""
+folded_onto_one_line = """a\
+   b"""
+literal_backslash = """C:\\
+next"""
+coded = "a\u0062c"
 grouped = 1_000_000
 hex = 0x1f
 ratio = 2.5
@@ -794,8 +930,6 @@ commented = [
   "a",
   "b",
 ]
-inline = { host = "h", port = 26657 }
-nested = { outer = { inner = 3 } }
 `)
 
 	values, err := f.Values()
@@ -803,18 +937,21 @@ nested = { outer = { inner = 3 } }
 		t.Fatalf("Values: %v", err)
 	}
 	for key, want := range map[string]any{
-		"probe.flag":               true,
-		"probe.basic":              "a\ttab",
-		"probe.literal":            `C:\Users\node`,
-		"probe.folded":             "first line\nsecond line",
-		"probe.verbatim":           `kept \as \written`,
-		"probe.grouped":            int64(1000000),
-		"probe.hex":                int64(31),
-		"probe.ratio":              2.5,
-		"probe.stamped":            "2026-08-18",
-		"probe.inline.host":        "h",
-		"probe.inline.port":        int64(26657),
-		"probe.nested.outer.inner": int64(3),
+		"probe.flag":     true,
+		"probe.basic":    "a\ttab",
+		"probe.literal":  `C:\Users\node`,
+		"probe.folded":   "first line\nsecond line",
+		"probe.verbatim": `kept \as \written`,
+		"probe.grouped":  int64(1000000),
+		"probe.hex":      int64(31),
+		"probe.ratio":    2.5,
+		"probe.stamped":  "2026-08-18",
+		"probe.escaped":  `say "hi" here`,
+		"probe.coded":    "abc",
+		// A backslash ending a line folds the line break away; a doubled one is an escaped backslash
+		// and keeps the break, so the two cannot be handled by the same rule.
+		"probe.folded_onto_one_line": "ab",
+		"probe.literal_backslash":    "C:\\\nnext",
 	} {
 		got, ok := values[key]
 		if !ok {
@@ -844,14 +981,9 @@ nested = { outer = { inner = 3 } }
 
 	// Get answers for one key the same way Values does for all of them, since a caller reading a single
 	// key must not get a different decoding from one reading the file.
-	for _, key := range []string{"probe.literal", "probe.folded", "probe.hex", "probe.inline.port"} {
+	for _, key := range []string{"probe.literal", "probe.folded", "probe.verbatim", "probe.hex"} {
 		got, present, err := f.Get(key)
 		if err != nil || !present {
-			// An inline table's leaf is reachable through Values and not through Get, which walks the
-			// document rather than the flattened space.
-			if strings.Contains(key, "inline") {
-				continue
-			}
 			t.Errorf("Get(%q) = (%#v, %v, %v)", key, got, present, err)
 			continue
 		}
@@ -883,7 +1015,6 @@ func TestAValueTomlDoesNotRecognizeIsNamedNotGuessed(t *testing.T) {
 		{"a negative infinity", "[probe]\nn = -inf\n", "probe.n", "not a finite number"},
 		{"a NaN", "[probe]\nn = nan\n", "probe.n", "not a finite number"},
 		{"an infinity inside an array", "[probe]\nlist = [1.5, inf]\n", "probe.list", "not a finite number"},
-		{"an infinity inside an inline table", "[probe]\nt = { a = inf }\n", "probe.t", "not a finite number"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := parse(t, tc.body)
@@ -1221,5 +1352,109 @@ func TestAListCarryingAValueThatCannotBeWrittenNamesTheElement(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "element 1") {
 		t.Errorf("the refusal reads %q and does not say which element is at fault", err)
+	}
+}
+
+// TestAFileFromANewerReleaseIsRefused holds the guard the schema counter exists for.
+//
+// A release migrates the file forward on the node's own disk, so rolling the binary back does not roll
+// the file back with it. Read anyway, the older binary applies only the keys it still recognises and
+// boots on a configuration neither release produced, with nothing reporting it.
+func TestAFileFromANewerReleaseIsRefused(t *testing.T) {
+	ahead := fmt.Sprintf("schema_version = %d\nnode_mode = \"validator\"\n", seitoml.SchemaVersion+1)
+
+	_, err := parse(t, ahead).Version()
+	if err == nil {
+		t.Fatal("a file from a newer release was read, so this binary would apply only the keys it " +
+			"still recognises and boot on a configuration neither release produced")
+	}
+	for _, want := range []string{
+		fmt.Sprint(seitoml.SchemaVersion + 1),
+		fmt.Sprint(seitoml.SchemaVersion),
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal reads %q and does not mention %q; an operator cannot tell how far "+
+				"ahead the file is", err, want)
+		}
+	}
+
+	// The current version and every version behind it still read, so the guard cannot pass by refusing
+	// everything. Behind is what a migration exists to move forward.
+	for v := 1; v <= seitoml.SchemaVersion; v++ {
+		body := fmt.Sprintf("schema_version = %d\nnode_mode = \"validator\"\n", v)
+		if got, err := parse(t, body).Version(); err != nil || got != v {
+			t.Errorf("a file at version %d read as (%d, %v), want it accepted", v, got, err)
+		}
+	}
+}
+
+// TestAnUnflushedDirectoryEntryIsNotAFailedSave separates two outcomes a caller must not confuse.
+//
+// After the rename the new values are what the node reads. A directory entry that has not been flushed
+// only leaves their survival of a power loss unproven, so reporting it the same way as a failed write
+// tells an operator their change did not land when it did. The next thing they do is write it again or
+// open an incident.
+func TestAnUnflushedDirectoryEntryIsNotAFailedSave(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("this drives failure through directory permissions, which do not apply to uid 0")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sei.toml")
+	f, err := seitoml.New("validator", "")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := f.Set("probe.value", 7); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	// Write and traverse but not read, which is enough for the temporary file and the rename and not
+	// enough to open the directory afterwards.
+	if err := os.Chmod(dir, 0o300); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	saveErr := f.Save(path)
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	if saveErr != nil && !errors.Is(saveErr, seitoml.ErrNotDurable) {
+		t.Fatalf("Save reported %v, which a caller reads as the file not being written", saveErr)
+	}
+	reread, err := seitoml.Load(path)
+	if err != nil {
+		t.Fatalf("the file is not readable after the save: %v", err)
+	}
+	got, present, err := reread.Get("probe.value")
+	if err != nil || !present || got != int64(7) {
+		t.Errorf("the value on disk is (%#v, %v, %v), want 7. The rename completed, so the new "+
+			"configuration is what the node reads whatever the sync reported", got, present, err)
+	}
+}
+
+// TestAFileWrittenOnWindowsReadsTheSameValues covers the line ending an editor leaves behind.
+//
+// An operator editing on Windows produces a file whose lines end with a carriage return. A multi-line
+// string's value begins after the delimiter's own newline, and matching only the Unix form leaves the
+// carriage return inside the value, so it differs from the default it matches and a diff reports a
+// change nobody can see.
+func TestAFileWrittenOnWindowsReadsTheSameValues(t *testing.T) {
+	const unix = "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nfolded = \"\"\"\nfirst\nsecond\"\"\"\nflag = true\n"
+	windows := strings.ReplaceAll(unix, "\n", "\r\n")
+
+	want, err := parse(t, unix).Values()
+	if err != nil {
+		t.Fatalf("the Unix file: %v", err)
+	}
+	got, err := parse(t, windows).Values()
+	if err != nil {
+		t.Fatalf("the Windows file: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the same file read\n  %#v\nwith carriage returns and\n  %#v\nwithout. A value that "+
+			"differs by line ending differs from the default it matches", got, want)
 	}
 }

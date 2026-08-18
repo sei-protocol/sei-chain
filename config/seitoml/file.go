@@ -2,6 +2,7 @@ package seitoml
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -38,11 +39,13 @@ const ModeKey = "node_mode"
 // into a node that cannot read its own configuration.
 const GeneratedByKey = "generated_by"
 
-// newFileMode is the permission a file created here gets.
+// newFileMode is the permission a file created here gets, and only that.
 //
-// Narrow rather than the usual 0644, because a configuration may name a private endpoint or an
-// authentication token. An existing file keeps the mode it already has, since widening one an
-// operator deliberately narrowed is worse than a default nobody wanted.
+// A save onto an existing file inherits whatever mode that file already has, so this value describes
+// the first save and nothing after it. Narrow rather than the usual 0644 because a configuration names
+// the paths of a node's key files and its peers, and because it is the narrower of the two modes used
+// by the files it consolidates. Widening one an operator deliberately narrowed is worse than a default
+// nobody wanted, which is why the existing mode wins.
 const newFileMode os.FileMode = 0o600
 
 // File is a parsed sei.toml that survives editing with its comments and layout intact.
@@ -56,7 +59,99 @@ func Parse(r io.Reader) (*File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse sei.toml: %w", err)
 	}
-	return &File{doc: doc}, nil
+	f := &File{doc: doc}
+	if err := f.refuseUnsupportedShapes(); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+// refuseUnsupportedShapes rejects TOML this format does not carry.
+//
+// TOML permits more shapes than a node's configuration uses, and each of these was previously accepted
+// and then lost or corrupted somewhere downstream: a mixed-case key read back under a different name,
+// an inline table that Set split into a second definition of the same table, an array of tables whose
+// earlier entries vanished from Values. Refusing at the door is what keeps one answer per key, and it
+// is only free while no operator has written a file that uses them.
+func (f *File) refuseUnsupportedShapes() error {
+	headings := map[string]bool{}
+	// Every entry in Sections is a named table, so each carries a heading; the global section is a field
+	// of its own and is not in here.
+	for _, s := range f.doc.Sections {
+		if s.IsArray {
+			return fmt.Errorf("[[%s]] is an array of tables, which this file does not carry; every key "+
+				"holds one value, so a repeated section has no reading", s.Name)
+		}
+		if err := keyIsAddressable(s.Name); err != nil {
+			return fmt.Errorf("table [%s]: %w", s.Name, err)
+		}
+		name := s.Name.String()
+		if headings[name] {
+			return fmt.Errorf("[%s] appears more than once, and an edit reaches only the first, so a "+
+				"value written into this file would not be the one read back", name)
+		}
+		headings[name] = true
+	}
+
+	var bad error
+	f.doc.Scan(func(full parser.Key, e *tomledit.Entry) bool {
+		if e.KeyValue == nil {
+			return true
+		}
+		if err := keyIsAddressable(full); err != nil {
+			bad = err
+			return false
+		}
+		if err := valueIsAddressable(full, e.Value); err != nil {
+			bad = err
+			return false
+		}
+		return true
+	})
+	return bad
+}
+
+// keyIsAddressable reports whether every segment of a key can be read back as written.
+//
+// A source enumerates lower-cased, so an upper-case segment is read under a name that is not the one
+// in the file, and a segment carrying a dot or a space cannot be split back into the segments it came
+// from.
+func keyIsAddressable(key parser.Key) error {
+	for _, segment := range key {
+		if segment != strings.ToLower(segment) {
+			return fmt.Errorf("%q is not lower case, and this file's keys are read lower-cased, so it "+
+				"would be read under a name that is not the one written here", segment)
+		}
+		if strings.ContainsAny(segment, ". ") {
+			return fmt.Errorf("%q carries a dot or a space, so it cannot be addressed: a key is split "+
+				"on dots, and no spelling of this one splits back into it", segment)
+		}
+	}
+	return nil
+}
+
+// valueIsAddressable rejects an inline table, at the top level of a value or inside an array.
+//
+// An inline table holds several keys in one written value. Its leaves flatten into the same dotted
+// space a table's do, so a caller works in that space and an edit there defines the table a second
+// time, producing a file a conforming reader refuses to load.
+func valueIsAddressable(key parser.Key, v parser.Value) error {
+	switch x := v.X.(type) {
+	case parser.Inline:
+		return fmt.Errorf("%s is an inline table, which this file does not carry; write it as a [%s] "+
+			"table so each key it holds can be edited on its own line", key, key)
+	case parser.Array:
+		for _, item := range x {
+			element, ok := item.(parser.Value)
+			if !ok {
+				continue
+			}
+			if err := valueIsAddressable(key, element); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // Load reads the document at path.
@@ -87,7 +182,7 @@ func New(mode, generatedBy string) (*File, error) {
 			"a file that omits it cannot be compared against this binary's defaults")
 	}
 	f := &File{doc: &tomledit.Document{Global: &tomledit.Section{}}}
-	if err := f.setVersion(SchemaVersion); err != nil {
+	if err := f.Set(VersionKey, SchemaVersion); err != nil {
 		return nil, err
 	}
 	if err := f.Set(ModeKey, mode); err != nil {
@@ -169,12 +264,16 @@ func (f *File) Version() (int, error) {
 	if !ok {
 		return 0, fmt.Errorf("%s is %T (%v), want an integer", VersionKey, v, v)
 	}
+	if int(n) > SchemaVersion {
+		// The rollback case, and the reason the counter exists. A release migrates the file forward on
+		// the node's own disk, so rolling the binary back does not roll the file back with it. Read
+		// anyway, this binary would silently ignore every key the newer schema added or renamed and boot
+		// on a configuration neither release produced.
+		return 0, fmt.Errorf("sei.toml is at %s %d and this binary understands %d. It was written by a "+
+			"newer release, so reading it would apply only the keys this binary still recognises",
+			VersionKey, n, SchemaVersion)
+	}
 	return int(n), nil
-}
-
-// setVersion writes the schema version at the document's top level.
-func (f *File) setVersion(n int) error {
-	return f.Set(VersionKey, n)
 }
 
 // Bytes renders the document.
@@ -197,10 +296,9 @@ func (f *File) Save(path string) error {
 		return err
 	}
 
-	mode := newFileMode
-	if info, err := os.Stat(path); err == nil {
-		// An existing file keeps its own mode, so a save never widens what an operator narrowed.
-		mode = info.Mode().Perm()
+	mode, err := modeToWrite(path)
+	if err != nil {
+		return err
 	}
 
 	dir := filepath.Dir(path)
@@ -216,12 +314,48 @@ func (f *File) Save(path string) error {
 	}()
 
 	if err := writeAndSync(tmp, raw, mode); err != nil {
-		return fmt.Errorf("write %s: %w", tmpName, err)
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("install %s: %w", path, err)
 	}
-	return syncDir(dir)
+	// Past this point the new file is what the node will read, so a failure to flush the directory
+	// entry is not a failure of the save. Returning one would tell a caller their change did not land
+	// when it did, and the next thing they do is write it again or open an incident.
+	if err := syncDir(dir); err != nil {
+		return fmt.Errorf("%w: %w", ErrNotDurable, err)
+	}
+	return nil
+}
+
+// ErrNotDurable reports that a save installed the file and could not flush the directory entry.
+//
+// The values are in place and a reader sees them. Only their survival of a machine losing power before
+// the filesystem flushes on its own is unproven, so a caller that treats this as a failed write is
+// wrong about what happened.
+var ErrNotDurable = errors.New("the file is installed and its directory entry is not yet flushed")
+
+// modeToWrite returns the permission a save should use, and refuses a destination it must not replace.
+//
+// An existing file keeps its own mode, so a save never widens what an operator narrowed. A symbolic
+// link is refused: renaming onto one replaces the link with a regular file, leaving whatever it pointed
+// at holding the old values, and nothing about the result says the link is gone.
+func modeToWrite(path string) (os.FileMode, error) {
+	info, err := os.Lstat(path)
+	switch {
+	case err != nil:
+		return newFileMode, nil // no file there yet, which is the ordinary first save
+	case info.Mode()&os.ModeSymlink != 0:
+		target, err := os.Readlink(path)
+		if err != nil {
+			target = "somewhere this process cannot read"
+		}
+		return 0, fmt.Errorf("%s is a symbolic link to %s. Writing here would replace the link with a "+
+			"regular file and leave %s holding the old values; edit the target directly", path, target,
+			target)
+	default:
+		return info.Mode().Perm(), nil
+	}
 }
 
 // writeAndSync writes the whole payload, sets the mode, and flushes to the device.

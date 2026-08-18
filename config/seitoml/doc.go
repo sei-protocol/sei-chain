@@ -23,7 +23,9 @@
 // ordering steps by release would run them in an order nobody intended.
 //
 // Nothing here migrates a file. This package reads the counter and writes it; the chain that acts on it
-// arrives with the migrations themselves.
+// arrives with the migrations themselves. A file whose counter is ahead of this binary's is refused,
+// because a release migrates the file on the node's own disk and rolling the binary back does not roll
+// the file back with it. Read anyway, the older binary would apply only the keys it still recognises.
 //
 // generated_by is provenance. Nothing reads it to decide anything, which is what lets it be absent
 // without consequence: the release reaches the binary through a linker flag the release build sets,
@@ -45,4 +47,28 @@
 // and a key declared as a float would resolve as one type from a node's own files and another from its
 // sei.toml. Infinities and NaN have no form here at all, and are refused in both directions rather than
 // written as a line no reader can load.
+//
+// # Shapes This File Does Not Carry
+//
+// TOML permits more shapes than a node's configuration uses, and Parse refuses these rather than
+// reading them into something a later verb cannot write back:
+//
+//   - an inline table, whose keys flatten into the same space a table's do, so editing one of them
+//     defines the table a second time and produces a file a conforming reader will not load
+//   - an array of tables, where every entry but the last disappears from the flattened key space
+//   - a table heading that appears twice, where an edit reaches the first and a read answers from the
+//     last
+//   - a key or heading segment that is not lower case, which is read under a name that is not the one
+//     written
+//   - a quoted key carrying a dot or a space, which no dotted spelling splits back into
+//
+// Each was previously accepted and then lost or corrupted further in. Refusing at the door is what
+// lets every verb below assume the document holds only shapes it can read and write back, and it is
+// only free while no operator has written a file that uses them.
+//
+// Escapes are decoded with the scanner's own rules rather than Go's. The two grammars differ in three
+// places that each reach an operator's file: TOML has no \x escape, Go has no line-ending
+// continuation, and Go's decoder rejects the literal newline that makes a multi-line string
+// multi-line. A carriage return and newline pair inside a multi-line string reads as a newline, so a
+// file saved on Windows holds the same values as the same file saved anywhere else.
 package seitoml
