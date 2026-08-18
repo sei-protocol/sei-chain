@@ -193,15 +193,16 @@ func TestTheEnvironmentSpellingIsCanonicalAndPinned(t *testing.T) {
 
 // TestEnvSpellingCollisionsAreDetectable records the cost of the replacer.
 //
-// Dots and hyphens both become underscores, so two keys differing only in that punctuation
-// collapse onto one variable. The derivation cannot prevent it; a check over the registry can see
-// it, and this is what makes that check's input honest.
+// Dots and hyphens both become underscores, so two keys differing only in that punctuation collapse
+// onto one variable. The derivation cannot prevent it, which is why registration refuses the pair;
+// this holds the input that refusal reads. TestAKeySharingAnEnvironmentSpellingIsRefused holds the
+// refusal itself.
 func TestEnvSpellingCollisionsAreDetectable(t *testing.T) {
 	a := registry.EnvName("giga_executor.occ_enabled")
 	b := registry.EnvName("giga-executor.occ-enabled")
 	if a != b {
 		t.Fatalf("expected these to collide onto one variable, got %q and %q; if the replacer has "+
-			"changed then the collision check the registry owes is no longer needed", a, b)
+			"changed then the registration refusal is guarding a collision that no longer exists", a, b)
 	}
 }
 
@@ -806,11 +807,11 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name     string
-		section  string
-		proto    any
-		defaults func(registry.Mode) any
-		want     string
+		name      string
+		section   string
+		prototype any
+		defaults  func(registry.Mode) any
+		want      string
 	}{
 		{"a squashed field that also names a segment", "s", &squashNamed{}, anyDefault, "one or the other"},
 		{"an empty mapstructure name", "s", &emptyName{}, anyDefault, "empty mapstructure name"},
@@ -834,7 +835,7 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			registry.Reset()
-			registry.RegisterSection(tc.section, tc.proto, tc.defaults)
+			registry.RegisterSection(tc.section, tc.prototype, tc.defaults)
 
 			if _, registered := registry.Lookup(tc.section); registered {
 				t.Errorf("the section registered despite %s, so its keys join the declared set", tc.name)

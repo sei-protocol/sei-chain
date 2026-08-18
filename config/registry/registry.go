@@ -71,14 +71,18 @@ var (
 
 // RegisterSection records a section's struct and its per-mode default.
 //
+// prototype is read for its fields and their tags and never for its values, which is why it is the
+// reader's own struct rather than a copy: a second struct would be a second statement of the same
+// key set, and the two would disagree the first time somebody edited one.
+//
 // The dotted key for every field is derived from the section name and the field's mapstructure
 // tag. Nothing here reads a hand-typed key string, which is the property that makes template
 // and reader drift impossible rather than test-guarded.
 //
 // It never panics. A registration this package cannot use is recorded as a Defect and the
 // section is not registered.
-func RegisterSection(name string, proto any, defaults func(Mode) any) {
-	keys, err := deriveKeys(name, proto)
+func RegisterSection(name string, prototype any, defaults func(Mode) any) {
+	keys, err := deriveKeys(name, prototype)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -176,7 +180,7 @@ func Keys() []string {
 // operator-facing keys reach their field only through a spelling the tags do not produce, and a
 // silent fallback is what made that invisible. Refusing to guess is what keeps the tag
 // authoritative.
-func deriveKeys(section string, proto any) ([]string, error) {
+func deriveKeys(section string, prototype any) ([]string, error) {
 	if section == "" {
 		return nil, fmt.Errorf("section name is empty")
 	}
@@ -189,10 +193,10 @@ func deriveKeys(section string, proto any) ([]string, error) {
 			"name declares keys inside another section's subtree, where the two sections' defaults "+
 			"land in one map and whichever renders last silently wins", section)
 	}
-	if proto == nil {
+	if prototype == nil {
 		return nil, fmt.Errorf("no struct")
 	}
-	t := reflect.TypeOf(proto)
+	t := reflect.TypeOf(prototype)
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
