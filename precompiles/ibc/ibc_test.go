@@ -29,10 +29,6 @@ func (tk *MockTransferKeeper) Transfer(goCtx context.Context, msg *types.MsgTran
 	return nil, nil
 }
 
-func (tk *MockTransferKeeper) LegacyTransfer(goCtx context.Context, msg *types.MsgTransfer) (*types.MsgTransferResponse, error) {
-	return tk.Transfer(goCtx, msg)
-}
-
 func (tk *MockTransferKeeper) SendTransfer(
 	ctx sdk.Context,
 	sourcePort,
@@ -56,10 +52,6 @@ func (tk *MockMemoTransferKeeper) Transfer(goCtx context.Context, msg *types.Msg
 	return nil, nil
 }
 
-func (tk *MockMemoTransferKeeper) LegacyTransfer(goCtx context.Context, msg *types.MsgTransfer) (*types.MsgTransferResponse, error) {
-	return tk.Transfer(goCtx, msg)
-}
-
 func (tk *MockMemoTransferKeeper) SendTransfer(
 	ctx sdk.Context,
 	sourcePort,
@@ -77,10 +69,6 @@ type MockFailedTransferTransferKeeper struct{}
 
 func (tk *MockFailedTransferTransferKeeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.MsgTransferResponse, error) {
 	return nil, errors.New("failed to send transfer")
-}
-
-func (tk *MockFailedTransferTransferKeeper) LegacyTransfer(goCtx context.Context, msg *types.MsgTransfer) (*types.MsgTransferResponse, error) {
-	return tk.Transfer(goCtx, msg)
 }
 
 func (tk *MockFailedTransferTransferKeeper) SendTransfer(

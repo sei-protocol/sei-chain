@@ -234,7 +234,6 @@ type DistributionKeeper interface {
 
 type TransferKeeper interface {
 	Transfer(goCtx context.Context, msg *ibctypes.MsgTransfer) (*ibctypes.MsgTransferResponse, error)
-	LegacyTransfer(goCtx context.Context, msg *ibctypes.MsgTransfer) (*ibctypes.MsgTransferResponse, error)
 	SendTransfer(
 		ctx sdk.Context,
 		sourcePort,

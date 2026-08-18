@@ -10,7 +10,7 @@ import (
 )
 
 func TestDeprecatedMessages(t *testing.T) {
-	response, err := (Keeper{}).Transfer(context.Background(), &types.MsgTransfer{})
+	response, err := DeprecatedMsgServer{}.Transfer(context.Background(), &types.MsgTransfer{})
 
 	require.Nil(t, response)
 	require.ErrorIs(t, err, types.ErrTransferDeprecated)
