@@ -67,10 +67,13 @@
 // seid invocation including --help, and it would turn a mistake a test catches into a fleet-wide
 // incident.
 //
-// Unusable means anything that would leave a key an operator writes reaching nothing: a field with
-// no tag, a tag that is upper-case or carries a dot or a space, an unexported field carrying a tag,
-// two fields declaring one path, a struct that declares no key, a struct that contains itself, and
-// two keys that collapse onto one environment variable.
+// Unusable means anything that would leave a key an operator writes reaching nothing: a field with no
+// tag, an unexported field carrying a tag, two fields declaring one path, a struct that declares no
+// key, a struct that contains itself, and two keys that collapse onto one environment variable.
+//
+// A key segment is also refused if it is upper-case, or if it carries a dot or a space. That rule
+// holds for the section name and for a field's tag alike, since both become segments of the same
+// dotted key and answer to the same sources.
 //
 // # What This Package Is Not
 //

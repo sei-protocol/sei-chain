@@ -174,10 +174,11 @@ func deriveKeys(section string, prototype any) ([]string, error) {
 		return nil, fmt.Errorf("section name %q is not lower case; configuration sources "+
 			"enumerate lower-cased, so a key under it would never match a written one", section)
 	}
-	if strings.Contains(section, ".") {
-		return nil, fmt.Errorf("section name %q carries a dot, and a section is one segment. A dotted "+
-			"name declares keys inside another section's subtree, where the two sections' defaults "+
-			"land in one map and whichever renders last silently wins", section)
+	if bad, found := unaddressableChar(section); found {
+		return nil, fmt.Errorf("section name %q carries %q, and a section is one segment. A dotted name "+
+			"declares keys inside another section's subtree, where the two sections' defaults land in "+
+			"one map and whichever renders last silently wins; a space cannot be written in an "+
+			"environment variable name at all", section, bad)
 	}
 	if prototype == nil {
 		return nil, fmt.Errorf("no struct")
@@ -313,10 +314,10 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash bool, err 
 	if name == "" || name == "-" {
 		return "", false, fmt.Errorf("%s.%s has an empty mapstructure name", prefix, f.Name)
 	}
-	if strings.ContainsAny(name, ". ") {
-		return "", false, fmt.Errorf("%s.%s names %q, which carries a dot or a space. A dot makes the "+
-			"field claim a subtree the struct does not have, and neither survives a round trip through "+
-			"a configuration source", prefix, f.Name, name)
+	if bad, found := unaddressableChar(name); found {
+		return "", false, fmt.Errorf("%s.%s names %q, which carries %q. A dot makes the field claim a "+
+			"subtree the struct does not have, and neither a dot nor a space survives a round trip "+
+			"through a configuration source", prefix, f.Name, name, bad)
 	}
 	if name != strings.ToLower(name) {
 		return "", false, fmt.Errorf("%s.%s names %q, which is not lower case; a configuration "+
@@ -324,6 +325,22 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash bool, err 
 			prefix, f.Name, name)
 	}
 	return name, false, nil
+}
+
+// unaddressableChar returns the first character in a key segment that no configuration source can
+// carry, and whether there was one.
+//
+// A dot separates segments, so one inside a segment names a level that does not exist. A space
+// survives neither a file, an environment variable name, nor a flag.
+//
+// One function for both places a segment enters, a section name and a field tag, because the two
+// answer to the same sources. Stated separately they drifted, and a section name accepted a space the
+// field rule refused.
+func unaddressableChar(segment string) (string, bool) {
+	if i := strings.IndexAny(segment, ". "); i >= 0 {
+		return segment[i : i+1], true
+	}
+	return "", false
 }
 
 // isLeaf reports whether a struct type is a value rather than a group of keys.
