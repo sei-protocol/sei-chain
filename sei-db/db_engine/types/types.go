@@ -145,6 +145,26 @@ type PendingWriteWaiter interface {
 	WaitForPendingWrites()
 }
 
+// SnapshotWALPruner is an optional capability for engines that keep a changelog
+// WAL beside snapshotable state. It lets snapshot retention keep the WAL anchored
+// to the oldest retained snapshot instead of to a fixed count of recent entries.
+type SnapshotWALPruner interface {
+	PruneWALBeforeVersion(version int64) error
+}
+
+// Rollbackable is an optional offline capability for stores that can discard
+// versions above target and reopen at that target. Callers must quiesce the
+// store before invoking it.
+type Rollbackable interface {
+	Rollback(target int64) error
+}
+
+// RollbackValidator is an optional companion to Rollbackable. It checks whether
+// a rollback can be performed without changing store state.
+type RollbackValidator interface {
+	ValidateRollback(target int64) error
+}
+
 // The interfaces above are engine capabilities. Deciding when a checkpoint runs,
 // and what version it is labeled with, is coordination rather than engine
 // behavior and lives in sei-db/management: CheckpointScheduler,

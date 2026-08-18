@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,6 +40,66 @@ func TestFlatKVRollbackWithLatticeHash(t *testing.T) {
 		require.NotNil(t, findStoreInfo(rec.infos, "evm_lattice"))
 	}
 
+	require.NoError(t, store.Close())
+}
+
+func TestRollbackToVersionRollsBackStateStore(t *testing.T) {
+	dir := t.TempDir()
+	scCfg := dualWriteConfig()
+	ssCfg := seidbconfig.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	ssCfg.SnapshotEnable = true
+	ssCfg.AsyncWriteBuffer = 100
+	ssCfg.KeepRecent = 100000
+
+	store, storeKeys := newTestRootMultiWithSS(t, dir, scCfg, ssCfg)
+	evmData := newEVMTestData(0x19)
+	for block := 1; block <= 5; block++ {
+		simulateBlock(t, store, storeKeys, block, evmData)
+	}
+
+	require.NoError(t, store.RollbackToVersion(3))
+	require.Equal(t, int64(3), store.LastCommitID().Version)
+	require.NotNil(t, store.ssStore)
+	require.Equal(t, int64(3), store.ssStore.GetLatestVersion())
+
+	value, err := store.ssStore.Get("bank", 100, []byte("supply"))
+	require.NoError(t, err)
+	require.Equal(t, []byte{3, 3}, value)
+	require.NoError(t, store.Close())
+}
+
+// nonRollbackableStateStore is a state store with no rollback capability: the
+// embedded interface carries the read and write methods but not Rollback.
+type nonRollbackableStateStore struct {
+	seidbtypes.StateStore
+}
+
+// A state store that cannot roll back has to be refused before the commit store
+// moves, or the two layers end up on different heights.
+func TestRollbackToVersionRefusesStateStoreWithoutRollback(t *testing.T) {
+	dir := t.TempDir()
+	scCfg := dualWriteConfig()
+	ssCfg := seidbconfig.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	ssCfg.AsyncWriteBuffer = 100
+	ssCfg.KeepRecent = 100000
+
+	store, storeKeys := newTestRootMultiWithSS(t, dir, scCfg, ssCfg)
+	evmData := newEVMTestData(0x1a)
+	for block := 1; block <= 5; block++ {
+		simulateBlock(t, store, storeKeys, block, evmData)
+	}
+	rollbackable := store.ssStore
+	store.ssStore = nonRollbackableStateStore{rollbackable}
+
+	err := store.RollbackToVersion(3)
+	require.ErrorContains(t, err, "does not support rollback")
+	require.Equal(t, int64(5), store.LastCommitID().Version,
+		"the commit store must not move when the state store cannot follow")
+	require.Equal(t, int64(5), store.ssStore.GetLatestVersion())
+
+	store.ssStore = rollbackable
 	require.NoError(t, store.Close())
 }
 

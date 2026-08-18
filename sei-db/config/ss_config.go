@@ -82,7 +82,12 @@ type StateStoreConfig struct {
 	// snapshot — significant on a multi-TB state store. Managed snapshots are
 	// rollback restore points, not an archive format. They have no lease in this
 	// release, so node-external tools must not resolve a snapshot path and open it
-	// later without first adding a hold mechanism. Attempts, skips, outcomes,
+	// later without first adding a hold mechanism.
+	//
+	// The changelog grows with them. A rollback replays it forward from a
+	// snapshot, so retention holds every entry above the oldest retained one:
+	// roughly SnapshotInterval entries per retained snapshot, against a floor of
+	// 1000 entries when snapshots are off. Attempts, skips, outcomes,
 	// duration, in-flight state, per-store height, retained count, apparent bytes,
 	// and newest common height are exported as ss_snapshot_* metrics.
 	// defaults to false

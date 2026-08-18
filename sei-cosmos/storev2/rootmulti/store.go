@@ -850,9 +850,31 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	if target > math.MaxUint32 {
 		return fmt.Errorf("rollback height target %d exceeds max uint32", target)
 	}
+	// Both state store capabilities are settled before the commit store moves:
+	// once SC is rolled back, an SS that cannot follow leaves the two layers on
+	// different heights.
+	var ssRollback seidbtypes.Rollbackable
+	if rs.ssStore != nil {
+		var ok bool
+		ssRollback, ok = rs.ssStore.(seidbtypes.Rollbackable)
+		if !ok {
+			return fmt.Errorf("state store %T does not support rollback", rs.ssStore)
+		}
+		if validator, ok := rs.ssStore.(seidbtypes.RollbackValidator); ok {
+			if err := validator.ValidateRollback(target); err != nil {
+				return fmt.Errorf("state store cannot roll back to version %d: %w", target, err)
+			}
+		}
+	}
 	err := rs.scStore.Rollback(target)
 	if err != nil {
 		return err
+	}
+	if ssRollback != nil {
+		if err := ssRollback.Rollback(target); err != nil {
+			return fmt.Errorf("rollback state store to version %d: %w", target, err)
+		}
+		fmt.Printf("Rolled back SS to version %d\n", rs.ssStore.GetLatestVersion())
 	}
 	// We need to update the lastCommitInfo after rollback
 	if rs.scStore.Version() != 0 {

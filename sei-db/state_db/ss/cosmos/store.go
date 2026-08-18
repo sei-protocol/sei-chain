@@ -135,3 +135,10 @@ func (s *CosmosStateStore) WaitForPendingWrites() {
 		w.WaitForPendingWrites()
 	}
 }
+
+func (s *CosmosStateStore) PruneWALBeforeVersion(version int64) error {
+	if p, ok := s.db.(types.SnapshotWALPruner); ok {
+		return p.PruneWALBeforeVersion(version)
+	}
+	return nil
+}
