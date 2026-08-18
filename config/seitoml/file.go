@@ -25,8 +25,8 @@ const VersionKey = "schema_version"
 
 // ModeKey records which node mode the file's values resolve for.
 //
-// At the top level beside VersionKey, not inside a section, because the mode selects which baselines
-// apply and so cannot itself have a per-mode baseline. It is also the only durable record of an
+// At the top level beside VersionKey, not inside a section, because the mode selects which defaults
+// apply and so cannot itself have a per-mode default. It is also the only durable record of an
 // archive node: seid init writes config.toml's mode as "full" for one, since Tendermint has no
 // archive mode, so nothing else on disk distinguishes the two.
 const ModeKey = "node_mode"
@@ -223,7 +223,7 @@ func (f *File) GeneratedBy() (string, bool) {
 // Mode returns the node mode the file's values resolve for.
 //
 // An absent mode is an error rather than a guess. Guessing picks one binary's idea of a default and
-// silently compares an archive node's file against a validator's baselines, which is the mistake
+// silently compares an archive node's file against a validator's defaults, which is the mistake
 // this key exists to make impossible.
 func (f *File) Mode() (string, error) {
 	e := f.doc.First(ModeKey)

@@ -286,12 +286,12 @@ func TestALiteralStringIsTakenAsWritten(t *testing.T) {
 	}
 }
 
-// TestUnsetRemovesTheKeyRatherThanWritingItsBaseline holds what unset means.
+// TestUnsetRemovesTheKeyRatherThanWritingItsDefault holds what unset means.
 //
-// An absent key resolves to the running binary's baseline. Writing the baseline value instead
-// looks identical in the file but is a commitment that survives a release changing that baseline,
+// An absent key resolves to the running binary's default. Writing the default value instead
+// looks identical in the file but is a commitment that survives a release changing that default,
 // which is the opposite of what the operator asked for.
-func TestUnsetRemovesTheKeyRatherThanWritingItsBaseline(t *testing.T) {
+func TestUnsetRemovesTheKeyRatherThanWritingItsDefault(t *testing.T) {
 	f := parse(t, commented)
 
 	removed, err := f.Unset("giga_executor.occ_enabled")
@@ -307,7 +307,7 @@ func TestUnsetRemovesTheKeyRatherThanWritingItsBaseline(t *testing.T) {
 		t.Fatalf("Values: %v", err)
 	}
 	if _, present := values["giga_executor.occ_enabled"]; present {
-		t.Errorf("the key is still written after unset: %v. It would keep overriding the baseline the "+
+		t.Errorf("the key is still written after unset: %v. It would keep overriding the default the "+
 			"operator asked to fall back to", values)
 	}
 	if strings.Contains(render(t, f), "occ_enabled") {
@@ -699,7 +699,7 @@ func TestANewFileRecordsItsNodeMode(t *testing.T) {
 // TestAnAbsentOrUnreadableNodeModeIsAnError keeps a comparison from guessing.
 //
 // Guessing picks one binary's idea of a default and silently measures an archive node's file against
-// a validator's baselines, which is the mistake this key exists to make impossible.
+// a validator's defaults, which is the mistake this key exists to make impossible.
 func TestAnAbsentOrUnreadableNodeModeIsAnError(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
 		{"absent", "schema_version = 1\n"},

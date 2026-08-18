@@ -1,8 +1,8 @@
 // Package seitoml reads, edits and writes the node's sei.toml.
 //
 // The file holds only what an operator decided. A key present in it is authoritative; a key absent
-// from it resolves to the running binary's baseline for the node's mode. Nothing here writes a
-// baseline into the file, because a value the binary put there reads exactly like one an operator
+// from it resolves to the running binary's default for the node's mode. Nothing here writes a
+// default into the file, because a value the binary put there reads exactly like one an operator
 // chose.
 //
 // Three keys at the top level describe the file rather than configure the node, and Values leaves
@@ -10,7 +10,7 @@
 // keys no section owns.
 //
 //	schema_version   which migration the file has reached
-//	node_mode        which mode's baselines its values were chosen against
+//	node_mode        which mode's defaults its values were chosen against
 //	generated_by     which release last produced or transformed it
 //
 // The first two are machinery and the third is not, and the difference matters enough to state.

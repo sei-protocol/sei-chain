@@ -97,8 +97,8 @@ func (f *File) SetPreamble(lines []string) {
 // Unset removes a key and reports whether the file carried one.
 //
 // This removes the key rather than writing a zero, because an absent key resolves to the running
-// binary's baseline. A key set to its baseline value looks identical in the file but is a commitment
-// that survives a release changing that baseline, which is the opposite of what unset means.
+// binary's default. A key set to its default value looks identical in the file but is a commitment
+// that survives a release changing that default, which is the opposite of what unset means.
 func (f *File) Unset(key string) (bool, error) {
 	path, err := keyOf(key)
 	if err != nil {
@@ -162,7 +162,7 @@ func tomlValue(v any) (parser.Value, error) {
 	}
 }
 
-// floatValue renders a float as a TOML float, which an integral one is not by default.
+// floatValue renders a float as a TOML float, which the shortest form of an integral one is not.
 //
 // TOML tells a float from an integer by the fractional part or the exponent, and the shortest form of
 // 1.0 is "1", which reads back as an integer. A key declared as a float would then resolve as one type
