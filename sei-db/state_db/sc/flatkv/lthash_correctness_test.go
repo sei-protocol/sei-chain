@@ -1209,9 +1209,9 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Build state in a single block so that all rows share the same block
-	// height. The importer commits everything at a single version, so block
-	// heights must match for the LtHash round-trip to be identical.
+	// A single block keeps this fixture minimal; it is not a requirement of the round trip. Rows
+	// written at differing heights import to the same root, which lthash_agreement_test.go exercises
+	// by exporting and importing at every block of a multi-block run.
 	var evmPairs []*proto.KVPair
 	var miscCS []*proto.NamedChangeSet
 	for i := byte(1); i <= 5; i++ {

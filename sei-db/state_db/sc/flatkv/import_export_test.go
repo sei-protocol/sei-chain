@@ -761,68 +761,6 @@ func TestExporterAtHistoricalVersion(t *testing.T) {
 	require.Equal(t, padLeft32(0x11), sd.GetValue()[:], "historical export should have v1 value")
 }
 
-func TestExportImportLargerDataset(t *testing.T) {
-	cfg := config.DefaultTestConfig(t)
-	s := setupTestStoreWithConfig(t, cfg)
-	defer s.Close()
-
-	// Write multiple key types across multiple addresses in a single block
-	// so that all rows share the same block height. The importer commits
-	// everything at a single version, so block heights must match for the
-	// LtHash round-trip to be identical.
-	var allPairs []*proto.KVPair
-	for i := byte(1); i <= 10; i++ {
-		addr := addrN(i)
-		allPairs = append(allPairs,
-			noncePair(addr, uint64(i)),
-			&proto.KVPair{
-				Key:   keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(i))),
-				Value: padLeft32(i, i, i),
-			},
-		)
-		if i%3 == 0 {
-			allPairs = append(allPairs,
-				codeHashPair(addr, codeHashN(i)),
-				codePair(addr, []byte{0x60, i}),
-			)
-		}
-	}
-	cs := &proto.NamedChangeSet{
-		Name:      "evm",
-		Changeset: proto.ChangeSet{Pairs: allPairs},
-	}
-	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	commitAndCheck(t, s)
-	originalHash := rootHash(s)
-
-	// Export.
-	exp, err := s.Exporter(1)
-	require.NoError(t, err)
-	nodes := drainExporter(t, exp)
-	require.NoError(t, exp.Close())
-	require.Greater(t, len(nodes), 0)
-
-	// Import into a fresh store.
-	dir2 := t.TempDir()
-	cfg2 := config.DefaultTestConfig(t)
-	cfg2.DataDir = filepath.Join(dir2, flatkvRootDir)
-	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
-	require.NoError(t, err)
-	err = s2.LoadLatest()
-	require.NoError(t, err)
-
-	imp, err := s2.Importer(1)
-	require.NoError(t, err)
-	for _, n := range nodes {
-		imp.AddNode(n)
-	}
-	require.NoError(t, imp.Close())
-
-	require.Equal(t, int64(1), s2.Version())
-	require.Equal(t, originalHash, rootHash(s2), "imported store should have identical RootHash")
-	require.NoError(t, s2.Close())
-}
-
 // The exporter does not parse values, so a row it cannot interpret is exported byte-for-byte rather
 // than rejected or silently dropped.
 //
