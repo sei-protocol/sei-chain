@@ -278,5 +278,4 @@ enabled_legacy_sei_apis = [
   "sei_getCosmosTx",
   "sei_getEVMAddress",
   "sei_getSeiAddress",
-  "sei_getTransactionReceipt",
 ]
