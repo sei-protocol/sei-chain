@@ -70,9 +70,9 @@ For a fair comparison, both endpoints should serve the **same chain** (same gene
 
 | Kind      | Count | Description                                                                                                                              |
 | --------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **.io**   | 97    | Request/response fixtures; curated from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added.            |
-| **.iox**  | 63    | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request; includes `not-supported.iox`, `sei_legacy_deprecation/*.iox`. |
-| **Total** | 160   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
+| **.io**   | 96    | Request/response fixtures; curated from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added.            |
+| **.iox**  | 60    | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request; includes `not-supported.iox`, `sei_legacy_deprecation/*.iox`. |
+| **Total** | 156   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
 
 
 Fixtures live in `testdata/`; see `testdata/README.md` (do not overwrite with a raw copy from execution-apis).
@@ -88,7 +88,7 @@ The following fixtures were **removed** (no longer in the suite) because they de
 | `eth_estimateGas/estimate-call-abi-error.io` | Same fixed address, expects revert error | `eth_estimateGas/estimate-call-abi-error-sei.iox` (uses `__REVERTER__`) |
 | `eth_estimateGas/estimate-failed-call.io` | Fixed address `0x17e7ee...`, expects revert error | Revert (Error) and panic covered by `estimate-call-abi-error-sei.iox` and `estimate-call-abi-panic-sei.iox` (same `__REVERTER__`, input `0x01` / `0x02`) |
 
-The total count reflects the current `.io`/`.iox` set under `testdata/` (160 files: main baseline plus three sei deprecation `.iox`, including batch regression).
+The total count reflects the current `.io`/`.iox` set under `testdata/` (156 files: main baseline plus three sei deprecation `.iox`, including batch regression).
 
 ## What is checked
 
@@ -214,9 +214,7 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_getLogs                            | no-topics.io                                                   | Eth exec api |
 | eth_getLogs                            | topic-exact-match.io                                           | Eth exec api |
 | eth_getLogs                            | topic-wildcard.io                                              | Eth exec api |
-| eth_getProof                           | get-account-proof-blockhash.iox                                | Sei          |
-| eth_getProof                           | get-account-proof-latest.iox                                   | Sei          |
-| eth_getProof                           | get-account-proof-with-storage.iox                             | Sei          |
+| eth_getProof                           | not-supported.iox                                              | Sei          |
 | eth_getStorageAt                       | get-storage-invalid-key-too-large.io                           | Eth exec api |
 | eth_getStorageAt                       | get-storage-invalid-key.io                                     | Eth exec api |
 | eth_getStorageAt                       | get-storage-unknown-account.io                                 | Eth exec api |
