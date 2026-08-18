@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/BurntSushi/toml"
+	toml "github.com/pelletier/go-toml/v2"
 )
 
 // Values returns every key the file writes, as dotted paths to Go values.
@@ -38,11 +38,14 @@ func (f *File) Get(key string) (any, bool, error) {
 
 // decoded renders the document and reads it back as Go values, keyed by dotted path.
 //
-// The values come from a TOML decoder rather than from the editing parser's tokens. The editing parser
-// locates lines and preserves comments, which is why it is here, and it deliberately stops short of
-// interpreting a literal. Deciding what "1_000" or a multi-line string means is a second implementation
-// of the TOML specification, and the difference between Go's string grammar and TOML's is where a
-// hand-written one goes wrong.
+// The values come from the decoder a node reads its configuration with, which is what makes "this file
+// parses" and "this node can boot from it" the same statement. viper decodes TOML with
+// pelletier/go-toml/v2, so this does too, and a shape that library refuses is refused here rather than
+// discovered on a node.
+//
+// The editing parser locates lines and preserves comments, which is why it is also here, and it stops
+// short of interpreting a literal. Deciding what "1_000" or a multi-line string means is a second
+// implementation of the specification, and a hand-written one went wrong in four places.
 //
 // Rendering first rather than holding the source means an unsaved edit is read back through the same
 // path a later process would use, so a value this package cannot express fails here rather than on a
@@ -53,7 +56,7 @@ func (f *File) decoded() (map[string]any, error) {
 		return nil, err
 	}
 	var nested map[string]any
-	if _, err := toml.Decode(string(raw), &nested); err != nil {
+	if err := toml.Unmarshal(raw, &nested); err != nil {
 		return nil, fmt.Errorf("read sei.toml: %w", err)
 	}
 	out := make(map[string]any, len(nested))

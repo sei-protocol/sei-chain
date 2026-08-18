@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -116,7 +115,10 @@ func (f *File) refuseUnsupportedShapes() error {
 	if bad != nil {
 		return bad
 	}
-	return keysDoNotShadowEachOther(f.writtenPaths())
+	// One name used for both a value and a table, a table defined twice, a key written twice: all of it
+	// is the decoder's answer rather than a list kept here. A hand-written list missed an implicitly
+	// created table, an empty section, and any collision a hyphen sorted between.
+	return f.decodable()
 }
 
 // keyIsAddressable reports whether every segment of a key can be read back as written.
@@ -125,9 +127,6 @@ func (f *File) refuseUnsupportedShapes() error {
 // in the file, and a segment carrying a dot or a space cannot be split back into the segments it came
 // from.
 func keyIsAddressable(key parser.Key) error {
-	if len(key) == 0 {
-		return fmt.Errorf("a key names nothing")
-	}
 	for _, segment := range key {
 		if segment == "" {
 			return fmt.Errorf("%s has an empty segment, which names nothing", key)
@@ -411,38 +410,6 @@ func keyOf(key string) (parser.Key, error) {
 		return nil, fmt.Errorf("key %q: %w", key, err)
 	}
 	return out, nil
-}
-
-// keysDoNotShadowEachOther refuses a key whose path is a prefix of another key's.
-//
-// TOML gives a name to a value or to a table, never to both, so a scalar flatkv beside a
-// [state-commit.flatkv] heading defines one name twice. The editing parser accepts that and a
-// conforming decoder rejects it, so a file carrying one parses and then every read of it fails.
-//
-// Sorting puts a path immediately before anything nested under it, which is what makes one pass over
-// the neighbours enough.
-func keysDoNotShadowEachOther(paths []string) error {
-	sorted := append([]string(nil), paths...)
-	sort.Strings(sorted)
-	for i := 1; i < len(sorted); i++ {
-		if strings.HasPrefix(sorted[i], sorted[i-1]+".") {
-			return fmt.Errorf("%s is a value and %s is a table under the same name, so a reader cannot "+
-				"decide which one this file means", sorted[i-1], sorted[i])
-		}
-	}
-	return nil
-}
-
-// writtenPaths returns the dotted path of every value the document holds.
-func (f *File) writtenPaths() []string {
-	var out []string
-	f.doc.Scan(func(full parser.Key, e *tomledit.Entry) bool {
-		if e.KeyValue != nil {
-			out = append(out, full.String())
-		}
-		return true
-	})
-	return out
 }
 
 // quoteInt renders an integer the way TOML spells one.

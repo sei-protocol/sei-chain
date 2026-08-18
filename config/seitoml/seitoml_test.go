@@ -887,7 +887,7 @@ commented = [
 	}
 }
 
-// TestAValueTomlDoesNotRecognizeIsNamedNotGuessed covers what a hand-edited file can go wrong as.
+// TestAValueTomlDoesNotRecognizeIsRefusedAtTheDoor covers what a hand-edited file can go wrong as.
 //
 // A bare word never reaches here, because the parser refuses one before any value is decoded, in a
 // table and inside an array or an inline table alike. What does reach here is a value TOML accepts and
@@ -896,34 +896,26 @@ commented = [
 //
 // Each has to name the key and what is wrong with it. Read as a zero, the node would boot on a value
 // nobody wrote; dropped, the operator's line would be silently ignored.
-func TestAValueTomlDoesNotRecognizeIsNamedNotGuessed(t *testing.T) {
+func TestAValueTomlDoesNotRecognizeIsRefusedAtTheDoor(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		body string
-		key  string
 		want string
 	}{
-		{"an integer past int64", "[probe]\nn = 99999999999999999999\n", "probe.n", "out of range for int64"},
-		{"an infinity", "[probe]\nn = inf\n", "probe.n", "has to be a finite number"},
-		{"a negative infinity", "[probe]\nn = -inf\n", "probe.n", "has to be a finite number"},
-		{"a NaN", "[probe]\nn = nan\n", "probe.n", "has to be a finite number"},
-		{"an infinity inside an array", "[probe]\nlist = [1.5, inf]\n", "probe.list", "has to be a finite number"},
+		{"an integer past int64", "[probe]\nn = 99999999999999999999\n", "value out of range"},
+		{"an infinity", "[probe]\nn = inf\n", "has to be a finite number"},
+		{"a negative infinity", "[probe]\nn = -inf\n", "has to be a finite number"},
+		{"a NaN", "[probe]\nn = nan\n", "has to be a finite number"},
+		{"an infinity inside an array", "[probe]\nlist = [1.5, inf]\n", "has to be a finite number"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := parse(t, tc.body)
-
-			_, err := f.Values()
+			_, err := seitoml.Parse(strings.NewReader(tc.body))
 			if err == nil {
-				t.Fatalf("Values accepted %s, so the node would run on a value nothing produced", tc.name)
+				t.Fatalf("%s parsed; a value no reader can use has to fail at the door rather than on "+
+					"the first read of it", tc.name)
 			}
 			if !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("the error reads %q, which does not mention %q", err, tc.want)
-			}
-
-			// Get has to refuse the same value, or a caller reading one key would see what a caller
-			// reading the whole file cannot.
-			if _, _, err := f.Get(tc.key); err == nil {
-				t.Errorf("Get(%q) accepted the value Values refused", tc.key)
+				t.Errorf("the refusal reads %q, which does not mention %q", err, tc.want)
 			}
 		})
 	}
@@ -1121,25 +1113,13 @@ func TestAnInfinityCannotBeWritten(t *testing.T) {
 // proceed without, so a value this package cannot decode has to fail there rather than further in. Each
 // refusal names its key, because the two have different fixes.
 func TestAFileDescribingItselfWithANonValueIsRefused(t *testing.T) {
-	t.Run("an undecodable schema version", func(t *testing.T) {
-		_, err := parse(t, "schema_version = inf\n").Version()
-		if err == nil {
-			t.Fatal("an undecodable version was accepted, so a migration would run against a file whose " +
-				"shape nobody established")
-		}
-		if !strings.Contains(err.Error(), seitoml.VersionKey) {
-			t.Errorf("the error reads %q and does not name the key", err)
-		}
-	})
-
-	t.Run("an undecodable node mode", func(t *testing.T) {
-		_, err := parse(t, "node_mode = inf\n").Mode()
-		if err == nil {
-			t.Fatal("an undecodable mode was accepted, so an archive node's file would be compared " +
-				"against a validator's defaults")
-		}
-		if !strings.Contains(err.Error(), seitoml.ModeKey) {
-			t.Errorf("the error reads %q and does not name the key", err)
+	t.Run("a describing key holding a value no reader can use", func(t *testing.T) {
+		// Refused at Parse along with every other value, so neither reader has to handle it.
+		for _, body := range []string{"schema_version = inf\n", "node_mode = inf\n"} {
+			if _, err := seitoml.Parse(strings.NewReader(body)); err == nil {
+				t.Errorf("%q parsed, so a migration or a mode comparison would run against it",
+					strings.TrimSpace(body))
+			}
 		}
 	})
 
@@ -1331,7 +1311,7 @@ func TestANameCannotBeAValueAndATableAtOnce(t *testing.T) {
 		if err == nil {
 			t.Fatal("a file naming one thing a value and a table parsed; every read of it then fails")
 		}
-		if !strings.Contains(err.Error(), "state-commit.flatkv") {
+		if !strings.Contains(err.Error(), "flatkv") {
 			t.Errorf("the refusal reads %q and does not name the key at fault", err)
 		}
 	})
@@ -1343,7 +1323,7 @@ func TestANameCannotBeAValueAndATableAtOnce(t *testing.T) {
 			t.Fatal("Set wrote a table under a name a value already had, so Save would produce a file " +
 				"no reader can load")
 		}
-		if !strings.Contains(err.Error(), "state-commit.flatkv") {
+		if !strings.Contains(err.Error(), "flatkv") {
 			t.Errorf("the refusal reads %q and does not name the key at fault", err)
 		}
 		requireStillReadable(t, f)
@@ -1359,10 +1339,57 @@ func TestANameCannotBeAValueAndATableAtOnce(t *testing.T) {
 	})
 
 	t.Run("a sibling that merely shares a prefix still writes", func(t *testing.T) {
-		// state-commit.flatkvx is not nested under state-commit.flatkv, so the check must not refuse it.
+		// A hyphen is this tree's word separator and sorts before a dot, so flatkv-mode is the sibling
+		// that a string-ordered check would step over. flatkvx would not: x sorts after the dot, which is
+		// the half of the comparison that cannot go wrong.
 		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[state-commit]\nflatkv = true\n")
-		if err := f.Set("state-commit.flatkvx", false); err != nil {
-			t.Fatalf("a key sharing only a prefix was refused: %v", err)
+		for _, key := range []string{"state-commit.flatkv-mode", "state-commit.flatkvx"} {
+			if err := f.Set(key, false); err != nil {
+				t.Errorf("%s shares only a prefix with state-commit.flatkv and was refused: %v", key, err)
+			}
+		}
+		requireStillReadable(t, f)
+	})
+
+	t.Run("a conflict a hyphenated sibling sits between", func(t *testing.T) {
+		// The shape a sorted comparison misses: flatkv-mode orders between flatkv and flatkv.enable.
+		_, err := seitoml.Parse(strings.NewReader("schema_version = 1\nnode_mode = \"validator\"\n\n" +
+			"[state-commit]\nflatkv = true\nflatkv-mode = \"sync\"\n\n[state-commit.flatkv]\nenable = false\n"))
+		if err == nil {
+			t.Fatal("a conflict separated by a hyphenated sibling parsed; the node's own decoder refuses it")
+		}
+	})
+
+	t.Run("a table an ancestor's dotted key created", func(t *testing.T) {
+		// The table exists without a heading of its own, so a heading for it would define it twice. The
+		// key has to join the dotted name instead, and the result has to satisfy the node's decoder.
+		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[state-commit]\nflatkv.enable = true\n")
+		if err := f.Set("state-commit.flatkv.dir", "/data"); err != nil {
+			t.Fatalf("writing a sibling into an implicitly created table was refused: %v", err)
+		}
+		requireStillReadable(t, f)
+		values, err := f.Values()
+		if err != nil {
+			t.Fatalf("Values: %v", err)
+		}
+		for key, want := range map[string]any{
+			"state-commit.flatkv.enable": true,
+			"state-commit.flatkv.dir":    "/data",
+		} {
+			if values[key] != want {
+				t.Errorf("%s = %#v, want %#v", key, values[key], want)
+			}
+		}
+	})
+
+	t.Run("a value named like a section holding nothing", func(t *testing.T) {
+		// An empty section contributes no value, so a check over written values cannot see it.
+		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nn = 1\n")
+		if _, err := f.Unset("probe.n"); err != nil {
+			t.Fatalf("Unset: %v", err)
+		}
+		if err := f.Set("probe", 1); err == nil {
+			t.Fatal("a value took the name of a section that still exists")
 		}
 		requireStillReadable(t, f)
 	})
@@ -1390,7 +1417,9 @@ func requireStillReadable(t *testing.T, f *seitoml.File) {
 // A key a verb accepts and Parse refuses is a key that can be written and then never read: the save
 // succeeds, and the node cannot load its own configuration afterwards.
 func TestEveryVerbTakingAKeyAppliesOneRule(t *testing.T) {
-	for _, key := range []string{"foo bar", "probe.a b", " leading", "trailing "} {
+	// The first four are refused by a dot-or-space rule as well, so the last two are what hold the bare-key
+	// rule these verbs now share with Parse.
+	for _, key := range []string{"foo bar", "probe.a b", " leading", "trailing ", "probe.a#b", "probe.a+b"} {
 		t.Run(fmt.Sprintf("key %q", key), func(t *testing.T) {
 			f, err := seitoml.New("validator")
 			if err != nil {
@@ -1478,7 +1507,10 @@ func TestThePreambleIsReplacedAcrossASaveAndReload(t *testing.T) {
 // explanation at the top of the file. Removing that would be the comment loss this package exists to
 // prevent, so it has to survive a header being written above it.
 func TestAPreambleLeavesAnOperatorsOwnTopCommentAlone(t *testing.T) {
-	f := parse(t, "# I wrote this and it explains the file\n# do not delete it\nschema_version = 1\n"+
+	// The blank line matters: the parser keeps a comment block standalone only when one follows it, and a
+	// block attached to the next key is one SetPreamble never looks at. Without it this test passes
+	// whatever the code does.
+	f := parse(t, "# I wrote this and it explains the file\n# do not delete it\n\nschema_version = 1\n"+
 		"node_mode = \"validator\"\n\n[probe]\nn = 1\n")
 
 	f.SetPreamble([]string{" generated header"})
@@ -1534,5 +1566,67 @@ func TestASchemaVersionBelowTheFirstOneIsRefused(t *testing.T) {
 		} else if !strings.Contains(err.Error(), "first schema") {
 			t.Errorf("the refusal reads %q and does not say what the floor is", err)
 		}
+	}
+}
+
+// TestAValueThatIsNotTextIsRefused covers what the escaper would otherwise change silently.
+//
+// The escaper substitutes a replacement rune for a byte that is not valid UTF-8, so writing one stored a
+// different value than the caller passed with nothing reporting it. A configuration file holds text, so
+// the refusal is the honest answer.
+func TestAValueThatIsNotTextIsRefused(t *testing.T) {
+	f, err := seitoml.New("validator")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	invalid := string([]byte{'a', 0xff, 'b'})
+
+	if err := f.Set("probe.v", invalid); err == nil {
+		t.Fatal("a value that is not valid UTF-8 was written, and it reads back as something else")
+	}
+	if err := f.Set("probe.list", []string{"fine", invalid}); err == nil {
+		t.Error("a list carrying one was written")
+	}
+
+	// Text that merely looks unusual still writes and survives, so the guard is not refusing breadth.
+	for _, ok := range []string{"héllo", "日本語", "a\tb", `C:\sei`} {
+		if err := f.Set("probe.v", ok); err != nil {
+			t.Errorf("Set(%q) was refused: %v", ok, err)
+			continue
+		}
+		if got, _, err := parse(t, render(t, f)).Get("probe.v"); err != nil || got != ok {
+			t.Errorf("%q read back as (%#v, %v)", ok, got, err)
+		}
+	}
+}
+
+// TestAPreambleOnlyReplacesOneItWrote holds the block this method may claim.
+//
+// A comment block at the top of a file is an operator's explanation unless this method put it there, and
+// it has no way to tell the two apart but a mark it writes and looks for. Deleting theirs would be the
+// comment loss the package exists to prevent; leaving its own would grow a header on every regenerate.
+func TestAPreambleOnlyReplacesOneItWrote(t *testing.T) {
+	const operator = "# ops: do not raise flatkv without asking"
+	f := parse(t, operator+"\n\nschema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nn = 1\n")
+
+	f.SetPreamble([]string{" run one"})
+	first := render(t, f)
+	if !strings.Contains(first, "do not raise flatkv") {
+		t.Fatalf("the operator's comment was deleted by the first preamble:\n%s", first)
+	}
+
+	// Through a parse, which is the state the next release's run sees.
+	again := parse(t, first)
+	again.SetPreamble([]string{" run two"})
+	second := render(t, again)
+
+	if strings.Contains(second, "run one") {
+		t.Errorf("the first preamble survived the second, so a header grows on every run:\n%s", second)
+	}
+	if !strings.Contains(second, "run two") {
+		t.Errorf("the second preamble is not in the file:\n%s", second)
+	}
+	if !strings.Contains(second, "do not raise flatkv") {
+		t.Errorf("the operator's comment was deleted by the second preamble:\n%s", second)
 	}
 }

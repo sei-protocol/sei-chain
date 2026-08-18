@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/creachadair/tomledit"
 	"github.com/creachadair/tomledit/parser"
@@ -32,14 +33,27 @@ func (f *File) Set(key string, v any) error {
 		e.Value = value
 		return nil
 	}
-	// A key the document does not hold yet, so it may collide with one it does. Writing a value under a
-	// name that already names a table, or a table under one that already names a value, produces a file
-	// this package can save and no conforming reader can load.
-	if err := keysDoNotShadowEachOther(append(f.writtenPaths(), path.String())); err != nil {
+
+	// A key the document does not hold yet lands in a namespace that may already use its name for a
+	// table, or use a table's name for it. Rather than enumerate the shapes that collide, insert and then
+	// ask the decoder, which is the same one the node reads with: if the document no longer decodes, the
+	// insert is undone and the key is named. Enumerating them by hand missed three.
+	undo := f.insert(path, value)
+	if err := f.decodable(); err != nil {
+		undo()
 		return fmt.Errorf("%s: %w", key, err)
 	}
-	f.insert(path, value)
 	return nil
+}
+
+// decodable reports whether the document still renders to something the node's decoder can read.
+//
+// The one check every edit passes through, so a shape no caller anticipated is refused as surely as one
+// somebody did. Rendering is what a later process reads, so this asks the question in the form the
+// answer matters in.
+func (f *File) decodable() error {
+	_, err := f.decoded()
+	return err
 }
 
 // insert adds a key the document does not have yet.
@@ -47,49 +61,96 @@ func (f *File) Set(key string, v any) error {
 // A key with no dots belongs at the top level. Otherwise it goes in the table its prefix names,
 // which is created when it is absent so writing the first key of a section works without the
 // operator having to add the heading by hand.
-func (f *File) insert(path parser.Key, value parser.Value) {
+func (f *File) insert(path parser.Key, value parser.Value) func() {
 	leaf := parser.Key{path[len(path)-1]}
 	kv := &parser.KeyValue{Name: leaf, Value: value}
 
 	if len(path) == 1 {
-		f.insertGlobal(kv)
-		return
+		return f.insertGlobal(kv)
 	}
 
 	table := path[:len(path)-1]
 	if e := transform.FindTable(f.doc, table...); e != nil {
-		transform.InsertMapping(e.Section, kv, true)
-		return
+		return appendItem(e.Section, kv)
 	}
+	// No section carries this name. It may still be a table the document created by writing a dotted key
+	// inside its parent, and a heading for one of those defines it twice, so the leaf goes in as a dotted
+	// key under the nearest section instead. Where there is no such section either, the heading is new
+	// and correct.
+	if owner, rest := f.sectionOwning(table); owner != nil {
+		return appendItem(owner, &parser.KeyValue{Name: append(rest, leaf...), Value: value})
+	}
+	before := len(f.doc.Sections)
 	f.doc.Sections = append(f.doc.Sections, &tomledit.Section{
 		Heading: &parser.Heading{Name: table},
 		Items:   []parser.Item{kv},
 	})
+	return func() { f.doc.Sections = f.doc.Sections[:before] }
+}
+
+// sectionOwning returns the section whose heading is the longest prefix of table, and the rest of the
+// path below it.
+//
+// A table can exist without a heading of its own, written as a dotted key inside an ancestor. Adding a
+// key to one has to extend that dotted name rather than introduce a heading the decoder reads as a
+// second definition.
+func (f *File) sectionOwning(table parser.Key) (*tomledit.Section, parser.Key) {
+	var best *tomledit.Section
+	var rest parser.Key
+	for _, s := range f.doc.Sections {
+		if s.Heading == nil || !s.Name.IsPrefixOf(table) {
+			continue
+		}
+		if best == nil || len(s.Name) > len(best.Name) {
+			best, rest = s, table[len(s.Name):]
+		}
+	}
+	return best, rest
+}
+
+// appendItem adds an item to a section and reports how to remove it again.
+func appendItem(s *tomledit.Section, kv *parser.KeyValue) func() {
+	transform.InsertMapping(s, kv, true)
+	return func() {
+		for i, item := range s.Items {
+			if item == parser.Item(kv) {
+				s.Items = append(s.Items[:i], s.Items[i+1:]...)
+				return
+			}
+		}
+	}
 }
 
 // insertGlobal adds a top-level key, creating the global section when the document has none.
 //
 // InsertMapping's result is not checked because it only reports a collision it was told not to
 // replace, and it is told to replace.
-func (f *File) insertGlobal(kv *parser.KeyValue) {
+func (f *File) insertGlobal(kv *parser.KeyValue) func() {
 	if f.doc.Global == nil {
 		f.doc.Global = &tomledit.Section{}
 	}
-	transform.InsertMapping(f.doc.Global, kv, true)
+	return appendItem(f.doc.Global, kv)
 }
+
+// preambleMark is the last line of a block SetPreamble owns.
+//
+// A comment block at the top of a file may be one an operator wrote, and this method has to replace its
+// own without touching theirs. Nothing distinguishes the two but a mark it writes and recognises.
+const preambleMark = " -- above this line is generated; edit below --"
 
 // SetPreamble puts a comment block at the top of the document, above everything else.
 //
 // Comments rather than keys, so nothing a reader needs in order to understand the file becomes
-// configuration the node has to recognize. This replaces any block it put there before, so
-// regenerating does not stack one preamble on the last.
+// configuration the node has to recognize. This replaces a block it wrote before, so regenerating does
+// not stack one preamble on the last, and leaves any other leading comment alone: an operator's
+// explanation at the top of the file is exactly what this package exists to preserve.
 func (f *File) SetPreamble(lines []string) {
 	if f.doc.Global == nil {
 		f.doc.Global = &tomledit.Section{}
 	}
 	items := f.doc.Global.Items
 	if len(items) > 0 {
-		if _, leading := items[0].(parser.Comments); leading {
+		if block, leading := items[0].(parser.Comments); leading && ownedPreamble(block) {
 			items = items[1:]
 		}
 	}
@@ -97,7 +158,20 @@ func (f *File) SetPreamble(lines []string) {
 		f.doc.Global.Items = items
 		return
 	}
-	f.doc.Global.Items = append([]parser.Item{parser.Comments(lines)}, items...)
+	marked := append(append([]string(nil), lines...), preambleMark)
+	f.doc.Global.Items = append([]parser.Item{parser.Comments(marked)}, items...)
+}
+
+// ownedPreamble reports whether a leading comment block is one SetPreamble wrote.
+//
+// Compared on the line's content, because a block this method inserts holds the text alone while the
+// same block read back from a file carries the comment character the renderer added.
+func ownedPreamble(block parser.Comments) bool {
+	if len(block) == 0 {
+		return false
+	}
+	last := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(block[len(block)-1]), "#"))
+	return last == strings.TrimSpace(preambleMark)
 }
 
 // Unset removes a key and reports whether the file carried one.
@@ -131,9 +205,17 @@ func tomlValue(v any) (parser.Value, error) {
 	case bool:
 		return parser.ParseValue(strconv.FormatBool(x))
 	case string:
-		return parser.ParseValue(basicString(x))
+		text, err := basicString(x)
+		if err != nil {
+			return parser.Value{}, err
+		}
+		return parser.ParseValue(text)
 	case time.Duration:
-		return parser.ParseValue(basicString(x.String()))
+		text, err := basicString(x.String())
+		if err != nil {
+			return parser.Value{}, err
+		}
+		return parser.ParseValue(text)
 	case int:
 		return parser.ParseValue(quoteInt(int64(x)))
 	case int32:
@@ -149,7 +231,11 @@ func tomlValue(v any) (parser.Value, error) {
 	case float64:
 		return floatValue(x)
 	case []string:
-		return parser.ParseValue("[" + strings.Join(quoteEach(x), ", ") + "]")
+		quoted, err := quoteEach(x)
+		if err != nil {
+			return parser.Value{}, err
+		}
+		return parser.ParseValue("[" + strings.Join(quoted, ", ") + "]")
 	case []any:
 		// The shape reading an array back produces. Without this, anything that reads a list and writes
 		// it again fails on a value this package handed it. Every element is a value the reader can
@@ -207,15 +293,24 @@ func floatValue(x float64) (parser.Value, error) {
 // The escaping is the scanner's own rather than Go's. Go's quoter writes a control character as \x07
 // or \a and TOML defines neither, so such a value was refused with a diagnostic naming an offset into
 // a string the operator never saw.
-func basicString(s string) string {
-	return `"` + string(scanner.Escape(s)) + `"`
+func basicString(s string) (string, error) {
+	if !utf8.ValidString(s) {
+		// The escaper substitutes a replacement rune for a byte that is not valid UTF-8, so writing one
+		// would store a different value than the caller passed and no error would say so.
+		return "", fmt.Errorf("the value is not valid UTF-8, and a configuration file holds text")
+	}
+	return `"` + string(scanner.Escape(s)) + `"`, nil
 }
 
 // quoteEach renders every element of a string list.
-func quoteEach(ss []string) []string {
+func quoteEach(ss []string) ([]string, error) {
 	out := make([]string, len(ss))
 	for i, s := range ss {
-		out[i] = basicString(s)
+		text, err := basicString(s)
+		if err != nil {
+			return nil, fmt.Errorf("element %d: %w", i, err)
+		}
+		out[i] = text
 	}
-	return out
+	return out, nil
 }

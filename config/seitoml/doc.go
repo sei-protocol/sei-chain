@@ -39,40 +39,40 @@
 // sei.toml. Infinities and NaN have no form here at all, and are refused in both directions rather than
 // written as a line no reader can load.
 //
-// # Shapes This File Does Not Carry
+// # What This File May Hold
 //
-// TOML permits more shapes than a node's configuration uses, and Parse refuses these rather than
-// reading them into something a later verb cannot write back:
+// Values come from the decoder a node reads its configuration with. viper decodes TOML with
+// pelletier/go-toml/v2, so this package does too, which makes "this file parses here" and "the node can
+// boot from it" the same statement rather than two that can drift apart.
 //
-//   - an inline table, whose keys flatten into the same space a table's do, so editing one of them
-//     defines the table a second time and produces a file a conforming reader will not load
-//   - an array of tables, where every entry but the last disappears from the flattened key space
-//   - a table heading that appears twice, where an edit reaches the first and a read answers from the
-//     last
-//   - a key or heading segment that is not lower case, which is read under a name that is not the one
-//     written
-//   - a key outside a bare TOML key, meaning anything but lower-case letters, digits, underscores and
-//     hyphens, because a quoted key is spelled one way by the decoder and another by a lookup
-//   - a key written twice in one table, which an edit reaches only the first of
-//   - a date or a time, which nothing configures a node with, and which cannot be written back as the
+// That decoder is therefore the authority on shape, and Parse asks it rather than keeping a list. A
+// name used for both a value and a table, a table defined twice, a key written twice, a table given a
+// heading after an ancestor's dotted key already created it: all of it is one question with one answer.
+// A list kept here instead missed three of those, and every one of them produced a file this package
+// would save and no node could read.
+//
+// The editing parser is a second library and does a different job: it locates lines and preserves
+// comments, and stops short of interpreting a literal, because deciding what an underscore-separated
+// integer or a multi-line string means is a second implementation of the specification and a
+// hand-written one went wrong in four places.
+//
+// Every edit is asked the same question. Set writes the key, renders, and offers the result to the
+// decoder; if the document no longer reads, the write is undone and the key is named. So a shape nobody
+// anticipated is refused as surely as one somebody did, which is the property enumerating shapes by hand
+// could not give.
+//
+// Four things that decoder allows are refused anyway, because this package has to write back what it
+// reads:
+//
+//   - an infinity or a NaN, which have no form to write
+//   - a date or a time, which nothing configures a node with and which cannot be written back as the
 //     type it was read as
-//   - one name used for both a value and a table, which names the same thing twice
+//   - an inline table, whose keys flatten into the same space a table's do, so an edit to one of them
+//     has no line of its own to change
+//   - an array of tables, where every entry but the last disappears from the flattened key space
 //
-// Set, Unset and Get apply the same rule to the key a caller hands them, so a key one of them writes is
-// a key the file reads back. Set also refuses a key that would name a value where a table already is,
-// or the reverse, because the file that produces parses cleanly and can never be read.
-//
-// Each was previously accepted and then lost or corrupted further in. Refusing at the door is what
-// lets every verb below assume the document holds only shapes it can read and write back, and it is
-// only free while no operator has written a file that uses them.
-//
-// Reading and editing use different libraries, on purpose. The editing parser locates lines and
-// preserves comments, and stops short of interpreting a literal; deciding what an underscore-separated
-// integer or a multi-line string means is a second implementation of the specification. Values come
-// from a conforming decoder instead, so the shape of a literal is somebody else's problem and the file
-// reads the way every other TOML reader reads it.
-//
-// Two things that decoder allows are still refused here, because this package has to write back what it
-// reads: an infinity or a NaN, which have no form to write, and a date, which would come back as a time
-// this package cannot render.
+// A key is a bare TOML key: lower-case letters, digits, underscores and hyphens. Anything else has to be
+// quoted where it is written, and a quoted key is spelled one way by the decoder and another by a
+// lookup, so Values would report a key Get answers absent for. Set, Unset and Get apply that same rule
+// to the key a caller hands them, so a key one of them writes is a key the file reads back.
 package seitoml
