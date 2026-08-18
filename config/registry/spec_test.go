@@ -25,8 +25,8 @@ import (
 // declares it or not, so no appOpts.Get call site changes.
 //
 // Resolve therefore answers for declared keys and nothing more. It feeds a diagnostic or an
-// authoring check, and it reads its order from Precedence rather than from its caller's argument
-// order, so no caller can reorder its way to a different answer.
+// authoring check, and it reads its order from Source's declaration rather than from its caller's
+// argument order, so no caller can reorder its way to a different answer.
 
 // gigaSection mirrors what the giga executor's own package would register. The struct under test
 // is the real one, so the key comparison below measures the live reader rather than a copy of it.
@@ -353,16 +353,16 @@ func TestTheDeadFieldIsNotReachableUnderTheLiveKey(t *testing.T) {
 
 // TestResolutionRunsInTheDeclaredOrder shuffles the layers, which is what makes it falsifiable.
 //
-// If precedence comes from Precedence, the order layers are passed in cannot matter. If it comes
-// from argument order or from a merge where the last writer wins, this fails. The legacy path fails
+// If precedence comes from Source's declaration order, the order layers are passed in cannot matter.
+// If it comes from argument order or from a merge where the last writer wins, this fails. The legacy path fails
 // it by construction: its answer depends on which viper instance a caller asked, which is why two
 // different orders are observable across its key set.
 func TestResolutionRunsInTheDeclaredOrder(t *testing.T) {
 	registerGiga(t)
 
 	file := registry.FileLayer(map[string]any{"giga_executor.occ_enabled": "file"})
-	env := registry.Layer{Source: "env", Values: map[string]any{"giga_executor.occ_enabled": "env"}}
-	flag := registry.Layer{Source: "flag", Values: map[string]any{"giga_executor.occ_enabled": "flag"}}
+	env := registry.Layer{Source: registry.SourceEnv, Values: map[string]any{"giga_executor.occ_enabled": "env"}}
+	flag := registry.Layer{Source: registry.SourceFlag, Values: map[string]any{"giga_executor.occ_enabled": "flag"}}
 
 	// Every ordering of the same three layers.
 	for _, order := range [][]registry.Layer{
@@ -376,15 +376,15 @@ func TestResolutionRunsInTheDeclaredOrder(t *testing.T) {
 		if !ok {
 			t.Fatal("the key did not resolve at all")
 		}
-		if res.Value != "flag" || res.From != "flag" {
-			var names []string
+		if res.Value != "flag" || res.From != registry.SourceFlag {
+			var names []registry.Source
 			for _, l := range order {
 				names = append(names, l.Source)
 			}
-			t.Errorf("passed in the order %v the key resolved to %#v from %q, want flag from flag. "+
-				"Precedence is %v, and a resolver whose answer depends on argument order has an "+
+			t.Errorf("passed in the order %v the key resolved to %#v from %s, want flag from flag. "+
+				"The declared order is %v, and a resolver whose answer depends on argument order has an "+
 				"emergent precedence rather than a declared one",
-				names, res.Value, res.From, registry.Precedence())
+				names, res.Value, res.From, registry.Sources())
 		}
 	}
 }
@@ -399,17 +399,17 @@ func TestEachLayerWinsOverTheOneBelowIt(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		layers []registry.Layer
-		want   string
+		want   registry.Source
 	}{
-		{"default alone", nil, "default"},
+		{"default alone", nil, registry.SourceDefault},
 		{"file over default", []registry.Layer{
-			{Source: "file", Values: map[string]any{key: "file"}}}, "file"},
+			{Source: registry.SourceFile, Values: map[string]any{key: "file"}}}, registry.SourceFile},
 		{"env over file", []registry.Layer{
-			{Source: "file", Values: map[string]any{key: "file"}},
-			{Source: "env", Values: map[string]any{key: "env"}}}, "env"},
+			{Source: registry.SourceFile, Values: map[string]any{key: "file"}},
+			{Source: registry.SourceEnv, Values: map[string]any{key: "env"}}}, registry.SourceEnv},
 		{"flag over env", []registry.Layer{
-			{Source: "env", Values: map[string]any{key: "env"}},
-			{Source: "flag", Values: map[string]any{key: "flag"}}}, "flag"},
+			{Source: registry.SourceEnv, Values: map[string]any{key: "env"}},
+			{Source: registry.SourceFlag, Values: map[string]any{key: "flag"}}}, registry.SourceFlag},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			registerGiga(t)
@@ -420,8 +420,8 @@ func TestEachLayerWinsOverTheOneBelowIt(t *testing.T) {
 			}
 			res, _ := got.From(key)
 			if res.From != tc.want {
-				t.Errorf("%s resolved from %q, want %q. Precedence is %v",
-					tc.name, res.From, tc.want, registry.Precedence())
+				t.Errorf("%s resolved from %s, want %s. The declared order is %v",
+					tc.name, res.From, tc.want, registry.Sources())
 			}
 		})
 	}
@@ -446,7 +446,7 @@ func TestAnAbsentKeyTracksItsModeDefault(t *testing.T) {
 
 	a, _ := archive.From("giga_executor.occ_enabled")
 	v, _ := validator.From("giga_executor.occ_enabled")
-	if a.From != "default" || v.From != "default" {
+	if a.From != registry.SourceDefault || v.From != registry.SourceDefault {
 		t.Fatalf("an unmentioned key resolved from %q and %q, want default from both", a.From, v.From)
 	}
 	if a.Value == v.Value {
@@ -467,7 +467,7 @@ func TestProvenanceIsRecoverable(t *testing.T) {
 	registerGiga(t)
 
 	got, err := registry.Resolve(registry.ModeValidator,
-		registry.Layer{Source: "env", Values: map[string]any{"giga_executor.occ_enabled": "env"}})
+		registry.Layer{Source: registry.SourceEnv, Values: map[string]any{"giga_executor.occ_enabled": "env"}})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestProvenanceIsRecoverable(t *testing.T) {
 		t.Errorf("Overrides returned %v, want the one key a layer supplied. A resolver that cannot "+
 			"separate a written value from a default cannot tell an operator what they changed", overrides)
 	}
-	if res, _ := got.From("giga_executor.enabled"); res.From != "default" {
+	if res, _ := got.From("giga_executor.enabled"); res.From != registry.SourceDefault {
 		t.Errorf("the untouched key reports From=%q, so every key would render as an override", res.From)
 	}
 }
@@ -491,7 +491,7 @@ func TestAKeyNoSectionDeclaresIsReportedNotDropped(t *testing.T) {
 	registerGiga(t)
 
 	got, err := registry.Resolve(registry.ModeValidator,
-		registry.Layer{Source: "file", Values: map[string]any{
+		registry.Layer{Source: registry.SourceFile, Values: map[string]any{
 			"giga_executor.occ_enabled": true,
 			"giga_executor.typo":        1,
 		}})
@@ -510,20 +510,25 @@ func TestAKeyNoSectionDeclaresIsReportedNotDropped(t *testing.T) {
 
 // TestALayerWithNoDeclaredPriorityIsAnError refuses a layer whose priority is undefined.
 //
-// A layer whose source is absent from Precedence has no defined priority. Ignoring it silently is
-// worse than refusing: nothing downstream could tell the layer had contributed nothing.
+// Source is an int, so a caller can pass a value no constant names, and the reserved default is
+// derived rather than supplied. Ignoring either silently is worse than refusing: nothing downstream
+// could tell the layer had contributed nothing.
 func TestALayerWithNoDeclaredPriorityIsAnError(t *testing.T) {
 	registerGiga(t)
 
-	for _, tc := range []struct{ name, source string }{
-		{"unknown source", "cli-somewhere"},
-		{"the reserved default", "default"},
+	for _, tc := range []struct {
+		name   string
+		source registry.Source
+	}{
+		{"a source past the declared set", registry.Source(len(registry.Sources()))},
+		{"a negative source", registry.Source(-1)},
+		{"the reserved default", registry.SourceDefault},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := registry.Resolve(registry.ModeValidator,
 				registry.Layer{Source: tc.source, Values: map[string]any{"giga_executor.enabled": true}})
 			if err == nil {
-				t.Errorf("a layer named %q was accepted; it has no defined priority, so it would either "+
+				t.Errorf("a layer naming %s was accepted; it has no defined priority, so it would either "+
 					"be dropped silently or resolved at a priority the resolver invented", tc.source)
 			}
 		})
@@ -547,7 +552,7 @@ func TestEnvLayerIsDrivenByTheDeclaredSet(t *testing.T) {
 		return v, ok
 	})
 
-	if l.Source != "env" {
+	if l.Source != registry.SourceEnv {
 		t.Errorf("EnvLayer names source %q, want env", l.Source)
 	}
 	if len(l.Values) != 1 {
@@ -855,21 +860,25 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 // registration is refused before a default is ever asked for, so its shape cannot matter.
 func anyDefault(registry.Mode) any { return struct{}{} }
 
-// TestPrecedenceIsStatedAsData holds the declared layer order and its independence from a caller.
+// TestEveryDeclaredSourceHasAName holds Source's printed form against its declaration.
 //
-// The order is what a diagnostic reads to tell an operator that their environment variable beat their
-// file, so a caller has to be able to read it. Returning the package's own slice would let one
-// importer's convenience change every other importer's resolved values with nothing to point at.
-func TestPrecedenceIsStatedAsData(t *testing.T) {
+// Resolve records a Source per key and a diagnostic prints it, so a source with no name reaches an
+// operator as an integer. The bound is what makes an undeclared Source visible rather than silently
+// reading a neighbour's name.
+func TestEveryDeclaredSourceHasAName(t *testing.T) {
 	want := []string{"default", "file", "env", "flag"}
-	if got := registry.Precedence(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("Precedence is %v, want %v", got, want)
+	var got []string
+	for _, s := range registry.Sources() {
+		got = append(got, s.String())
 	}
-
-	got := registry.Precedence()
-	got[0] = "clobbered"
-	if after := registry.Precedence(); !reflect.DeepEqual(after, want) {
-		t.Errorf("writing into the returned slice left Precedence %v, want %v", after, want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("the declared sources print as %v, want %v", got, want)
+	}
+	for _, s := range []registry.Source{registry.Source(len(want)), registry.Source(-1)} {
+		if name := s.String(); !strings.HasPrefix(name, "Source(") {
+			t.Errorf("a source outside the declared set prints as %q; a name borrowed from a neighbour "+
+				"would tell an operator the wrong layer won", name)
+		}
 	}
 }
 

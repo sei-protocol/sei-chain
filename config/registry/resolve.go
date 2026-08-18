@@ -9,12 +9,11 @@ import (
 
 // Layer is one configuration source's contribution, before precedence is applied.
 //
-// Source names which layer this is, and must appear in Precedence. Values holds that source's own
-// keys and nothing else: a layer that folded in a second source would make provenance unrecoverable,
+// Source names which layer this is. Values holds that source's own keys and nothing else: a layer that folded in a second source would make provenance unrecoverable,
 // which is the property that lets a diagnostic tell a node operator their environment variable beat
 // their file.
 type Layer struct {
-	Source string
+	Source Source
 	Values map[string]any
 }
 
@@ -27,8 +26,8 @@ type Layer struct {
 type Resolution struct {
 	// Value is what resolved.
 	Value any
-	// From is the Source of the layer that won, one of the names Precedence lists.
-	From string
+	// From is the source of the layer that won.
+	From Source
 }
 
 // Resolved is every declared key's resolution, keyed by dotted path.
@@ -55,7 +54,7 @@ func (r Resolved) From(key string) (Resolution, bool) {
 func (r Resolved) Overrides() []string {
 	var out []string
 	for k, res := range r.Keys {
-		if res.From != defaultSource {
+		if res.From != SourceDefault {
 			out = append(out, k)
 		}
 	}
@@ -63,15 +62,12 @@ func (r Resolved) Overrides() []string {
 	return out
 }
 
-// defaultSource is the Source name of the implicit default layer, and the first entry in Precedence.
-const defaultSource = "default"
-
 // Resolve reduces layers to one value per declared key, in the declared order.
 //
-// The order comes from Precedence, not from the order layers are passed, so a caller cannot change
-// the outcome by reordering its arguments. That is the difference between a declared precedence and
-// an emergent one: the legacy path's answer depends on which viper instance a caller asked, which is
-// why two different orders are observable across its key set.
+// The order is Source's own declaration order, not the order layers are passed, so a caller cannot
+// change the outcome by reordering its arguments. That is the difference between a declared
+// precedence and an emergent one: the legacy path's answer depends on which viper instance a caller
+// asked, which is why two different orders are observable across its key set.
 //
 // Every declared key resolves, because the default is a layer like any other. A key no layer
 // mentions therefore carries its mode's default rather than being absent, which is what makes an
@@ -93,27 +89,27 @@ func Resolve(mode Mode, layers ...Layer) (Resolved, error) {
 	}
 	declared := declaredKeys(registered)
 
-	// Ordered by Precedence rather than by argument order. An unknown Source is an error rather
-	// than a silently ignored layer, since a layer that never contributes is worse than one that
-	// fails loudly: nothing downstream could tell it had been dropped.
-	bySource := map[string]Layer{defaultSource: defaults}
+	// A Source no constant names is an error rather than a silently ignored layer, since a layer that
+	// never contributes is worse than one that fails loudly: nothing downstream could tell it had been
+	// dropped.
+	bySource := map[Source]Layer{SourceDefault: defaults}
 	for _, l := range layers {
-		if l.Source == defaultSource {
-			return out, fmt.Errorf("a layer names the reserved source %q; the default is derived from "+
-				"the registry, not supplied", defaultSource)
+		if l.Source == SourceDefault {
+			return out, fmt.Errorf("a layer names the reserved source %s; the default is derived from "+
+				"the registry, not supplied", SourceDefault)
 		}
-		if !known(l.Source) {
-			return out, fmt.Errorf("layer %q is not in Precedence %v, so it has no defined priority and "+
-				"the resolver would have to invent one", l.Source, precedence)
+		if !l.Source.declared() {
+			return out, fmt.Errorf("layer %s names no declared source, so it has no defined priority and "+
+				"the resolver would have to invent one", l.Source)
 		}
 		if _, dup := bySource[l.Source]; dup {
-			return out, fmt.Errorf("two layers name source %q; one of them would silently lose", l.Source)
+			return out, fmt.Errorf("two layers name source %s; one of them would silently lose", l.Source)
 		}
 		bySource[l.Source] = l
 	}
 
 	unknown := map[string]bool{}
-	for _, source := range precedence {
+	for _, source := range Sources() {
 		l, ok := bySource[source]
 		if !ok {
 			continue
@@ -136,16 +132,6 @@ func Resolve(mode Mode, layers ...Layer) (Resolved, error) {
 	return out, nil
 }
 
-// known reports whether a source has a declared priority.
-func known(source string) bool {
-	for _, s := range precedence {
-		if s == source {
-			return true
-		}
-	}
-	return false
-}
-
 // declaredKeys is the set every layer's keys are checked against, taken from one snapshot.
 func declaredKeys(registered []Section) map[string]bool {
 	out := map[string]bool{}
@@ -164,7 +150,7 @@ func declaredKeys(registered []Section) map[string]bool {
 // keys and the value walk skips a nil one. matchesDeclaration is what holds them together, by
 // refusing a rendered default that does not state one value per declared key.
 func defaultLayer(mode Mode, registered []Section) (Layer, error) {
-	out := Layer{Source: defaultSource, Values: map[string]any{}}
+	out := Layer{Source: SourceDefault, Values: map[string]any{}}
 	for _, s := range registered {
 		values, err := sectionValues(s.Name, s.Defaults(mode))
 		if err != nil {
@@ -309,7 +295,7 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 // is also what makes this layer complete, since every declared key has exactly one canonical
 // spelling and this asks for all of them.
 func EnvLayer(lookup func(string) (string, bool)) Layer {
-	out := Layer{Source: "env", Values: map[string]any{}}
+	out := Layer{Source: SourceEnv, Values: map[string]any{}}
 	for _, key := range Keys() {
 		// An empty value is treated as unset. A variable exported empty is far more often a shell
 		// artefact than a deliberate empty string, and the two are indistinguishable here. The cost is
@@ -328,7 +314,7 @@ func EnvLayer(lookup func(string) (string, bool)) Layer {
 // and a key that differed only in case would resolve as unknown while the operator's value went
 // nowhere.
 func FileLayer(values map[string]any) Layer {
-	out := Layer{Source: "file", Values: make(map[string]any, len(values))}
+	out := Layer{Source: SourceFile, Values: make(map[string]any, len(values))}
 	for k, v := range values {
 		out.Values[strings.ToLower(k)] = v
 	}

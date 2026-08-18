@@ -26,19 +26,53 @@ const (
 // Modes returns every mode a default is asked for, in a fixed order.
 func Modes() []Mode { return []Mode{ModeValidator, ModeFull, ModeSeed, ModeArchive} }
 
-// precedence is the declared order in which layers win, lowest to highest.
+// Source is where a resolved value came from.
 //
-// The legacy path has no equivalent. Its order emerges from which viper instance a caller
-// asked, which is why two orders are observable across the key set. Stating it as data is what
-// lets a diagnostic tell a node operator that their environment variable beat their file.
-var precedence = []string{"default", "file", "env", "flag"}
+// The declaration order is the precedence, lowest to highest. Resolve applies the layers in that
+// order, so a source declared later here overwrites one declared earlier, and nothing a caller
+// passes can change it.
+//
+// The legacy path has no equivalent. Its order emerges from which viper instance a caller asked,
+// which is why two orders are observable across its key set.
+type Source int
 
-// Precedence returns the declared order in which layers win, lowest to highest.
-//
-// A copy, and a function rather than a variable, because an order any importer could assign to is
-// an order no caller can rely on: one package reordering it at init would change every other
-// package's resolved values with nothing to point at.
-func Precedence() []string { return append([]string(nil), precedence...) }
+// The layers a value can arrive from, lowest priority first.
+const (
+	SourceDefault Source = iota
+	SourceFile
+	SourceEnv
+	SourceFlag
+)
+
+// sourceNames names each source, keyed by the constant it belongs to. Sources and String both read
+// it, so the set and its names are stated once and cannot be paired wrongly.
+var sourceNames = [...]string{
+	SourceDefault: "default",
+	SourceFile:    "file",
+	SourceEnv:     "env",
+	SourceFlag:    "flag",
+}
+
+// Sources returns every layer a value can arrive from, lowest priority first.
+func Sources() []Source {
+	out := make([]Source, len(sourceNames))
+	for i := range out {
+		out[i] = Source(i)
+	}
+	return out
+}
+
+// String returns the source's name.
+func (s Source) String() string {
+	if !s.declared() {
+		return fmt.Sprintf("Source(%d)", int(s))
+	}
+	return sourceNames[s]
+}
+
+// declared reports whether a Source is one of the constants above. A Source is an int, so a caller
+// can hand over a value no constant names, and Resolve would otherwise skip that layer in silence.
+func (s Source) declared() bool { return int(s) >= 0 && int(s) < len(sourceNames) }
 
 // Section is one registered configuration section.
 type Section struct {

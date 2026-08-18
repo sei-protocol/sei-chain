@@ -48,10 +48,10 @@
 //
 // # Resolution
 //
-// Resolve reduces a set of named layers to one value per declared key, in the order Precedence
-// declares, and records which layer each value came from. The order comes from Precedence rather
-// than from the order layers are passed, so a caller cannot change the answer by reordering its
-// arguments.
+// Resolve reduces a set of named layers to one value per declared key, in the order Source declares,
+// and records which layer each value came from. The order is Source's own declaration order rather
+// than the order layers are passed, so a caller cannot change the answer by reordering its arguments
+// and no exported value states the order a second time.
 //
 // The provenance is why this exists rather than a map merge. Merging layers inside one source
 // produces the right value and loses where it came from, so an operator whose file says one thing
