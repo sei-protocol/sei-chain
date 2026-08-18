@@ -8,4 +8,6 @@ var (
 	// ErrInboundDisabled / ErrOutboundDisabled
 	ErrInboundDisabled  = sdkerrors.Register("ibc", 101, "ibc inbound disabled")
 	ErrOutboundDisabled = sdkerrors.Register("ibc", 102, "ibc outbound disabled")
+	// ErrIBCDeprecated is returned by every IBC query handler.
+	ErrIBCDeprecated = sdkerrors.Register("ibc", 103, "ibc module is deprecated")
 )
