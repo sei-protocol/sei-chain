@@ -48,15 +48,14 @@
 //
 // # Resolution
 //
-// Resolve reduces a set of named layers to one value per declared key, in the order Source declares,
-// and records which layer each value came from. The order is Source's own declaration order rather
-// than the order layers are passed, so a caller cannot change the answer by reordering its arguments
-// and no exported value states the order a second time.
+// Resolve reduces a node's configuration sources to one value per declared key: its defaults, then
+// its file, then the environment, then its flags. The precedence is stated once, inside Resolve, and
+// no exported value repeats it.
 //
-// The provenance is why this exists rather than a map merge. Merging layers inside one source
-// produces the right value and loses where it came from, so an operator whose file says one thing
-// and whose node does another has no way to find out why. Here the winning layer is recorded, so a
-// diagnostic can name it.
+// Alongside the values it reports which keys something other than the defaults supplied, and which
+// keys a source carried that no section declares. The first is what a diff renders, since a written
+// value and a default are otherwise indistinguishable once merged. The second is why a typo in an
+// operator's file is visible rather than silently dropped.
 //
 // Resolve either answers for every declared key or returns an error naming what it could not answer
 // for. A caller is never handed a resolution with a hole in it.

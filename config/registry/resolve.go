@@ -7,129 +7,101 @@ import (
 	"strings"
 )
 
-// Layer is one configuration source's contribution, before precedence is applied.
-//
-// Source names which layer this is. Values holds that source's own keys and nothing else: a layer that folded in a second source would make provenance unrecoverable,
-// which is the property that lets a diagnostic tell a node operator their environment variable beat
-// their file.
-type Layer struct {
-	Source Source
-	Values map[string]any
-}
-
-// Resolution is one key's resolved value and where it came from.
-//
-// From is the whole point of resolving through named layers rather than merging maps. The legacy
-// path cannot answer it: its layers are combined inside one viper before anything observes them, so
-// there is no point at which a value's source is recoverable, and that is why it can never tell an
-// operator which source won.
-type Resolution struct {
-	// Value is what resolved.
-	Value any
-	// From is the source of the layer that won.
-	From Source
-}
-
-// Resolved is every declared key's resolution, keyed by dotted path.
+// Resolved is every declared key's value, plus what a caller has to be told about how it got there.
 type Resolved struct {
-	// Keys carries one resolution per declared key.
-	Keys map[string]Resolution
-	// Unknown are keys a layer carried that no section declares, sorted.
+	// Values carries one value per declared key.
+	Values map[string]any
+	// Overrides are the declared keys something other than this node's defaults supplied, sorted.
+	//
+	// The keys an operator has taken responsibility for, as distinct from the ones tracking the
+	// binary's judgement. This is what a diff renders.
+	Overrides []string
+	// Unknown are keys a source carried that no section declares, sorted.
 	//
 	// Reported rather than an error, because what to do about one is the caller's decision: a
 	// generate path may want to refuse, while a boot on an operator's existing file must not.
 	Unknown []string
 }
 
-// From returns the resolution for a key.
-func (r Resolved) From(key string) (Resolution, bool) {
-	res, ok := r.Keys[key]
-	return res, ok
+// Sources are a node's configuration sources other than its defaults, which Resolve derives itself.
+//
+// A zero field contributes nothing, which is how a caller resolves deliberately without a source.
+//
+// Named fields rather than positional parameters, because File and Flags are the same type: passed
+// positionally, swapping the two compiles and silently inverts the precedence for every key both
+// supply. LookupEnv is a function rather than a map because an environment cannot be enumerated for a
+// prefix, since a variable is only findable if you already know its name.
+type Sources struct {
+	File      map[string]any
+	LookupEnv func(string) (string, bool)
+	Flags     map[string]any
 }
 
-// Overrides returns the keys whose value came from something other than a default, sorted.
+// Resolve reduces a node's configuration sources to one value per declared key.
 //
-// This is what a diff renders: the keys an operator has actually taken responsibility for, as
-// distinct from the ones tracking the binary's judgement.
-func (r Resolved) Overrides() []string {
-	var out []string
-	for k, res := range r.Keys {
-		if res.From != SourceDefault {
-			out = append(out, k)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// Resolve reduces layers to one value per declared key, in the declared order.
+// The precedence is stated once, in this function, and a caller cannot reorder its way to a different
+// answer. That is the difference between a declared precedence and an emergent one: the legacy path's
+// answer depends on which viper instance a caller asked, which is why two different orders are
+// observable across its key set.
 //
-// The order is Source's own declaration order, not the order layers are passed, so a caller cannot
-// change the outcome by reordering its arguments. That is the difference between a declared
-// precedence and an emergent one: the legacy path's answer depends on which viper instance a caller
-// asked, which is why two different orders are observable across its key set.
-//
-// Every declared key resolves, because the default is a layer like any other. A key no layer
+// Every declared key resolves, because the defaults are a source like any other. A key no source
 // mentions therefore carries its mode's default rather than being absent, which is what makes an
 // absent key track the binary's judgement instead of a zero value.
 //
-// That is a property of the whole answer, so a section whose default cannot supply it refuses the
+// That is a property of the whole answer, so a section whose defaults cannot supply it refuses the
 // resolution rather than returning one with a hole in it. A caller handed an error has no resolved
 // values; a caller handed a Resolved has one for every declared key.
-func Resolve(mode Mode, layers ...Layer) (Resolved, error) {
-	out := Resolved{Keys: map[string]Resolution{}}
+func Resolve(mode Mode, from Sources) (Resolved, error) {
+	var out Resolved
 
 	// One snapshot for both, because they have to describe the same registry. Rendering the defaults
 	// and then asking for the declared set separately leaves a window a concurrent registration fits
 	// through, and a key declared in that window resolves to nothing.
 	registered := Sections()
-	defaults, err := defaultLayer(mode, registered)
+	defaults, err := defaultValues(mode, registered)
 	if err != nil {
 		return out, err
 	}
 	declared := declaredKeys(registered)
 
-	// A Source no constant names is an error rather than a silently ignored layer, since a layer that
-	// never contributes is worse than one that fails loudly: nothing downstream could tell it had been
-	// dropped.
-	bySource := map[Source]Layer{SourceDefault: defaults}
-	for _, l := range layers {
-		if l.Source == SourceDefault {
-			return out, fmt.Errorf("a layer names the reserved source %s; the default is derived from "+
-				"the registry, not supplied", SourceDefault)
-		}
-		if !l.Source.declared() {
-			return out, fmt.Errorf("layer %s names no declared source, so it has no defined priority and "+
-				"the resolver would have to invent one", l.Source)
-		}
-		if _, dup := bySource[l.Source]; dup {
-			return out, fmt.Errorf("two layers name source %s; one of them would silently lose", l.Source)
-		}
-		bySource[l.Source] = l
+	out.Values = make(map[string]any, len(declared))
+	for key, v := range defaults {
+		out.Values[key] = v
 	}
 
+	overrides := map[string]bool{}
 	unknown := map[string]bool{}
-	for _, source := range Sources() {
-		l, ok := bySource[source]
-		if !ok {
-			continue
-		}
-		for key, v := range l.Values {
+	// Lowest precedence first, so a later source overwrites an earlier one. The one statement of the
+	// order, which is why nothing exports it.
+	for _, values := range []map[string]any{fileValues(from.File), envValues(from.LookupEnv), from.Flags} {
+		for key, v := range values {
 			if !declared[key] {
-				// A key nothing declares cannot be resolved into anything, and silently dropping it
-				// is how an operator's typo becomes invisible.
+				// A key nothing declares cannot be resolved into anything, and silently dropping it is
+				// how an operator's typo becomes invisible.
 				unknown[key] = true
 				continue
 			}
-			out.Keys[key] = Resolution{Value: v, From: source}
+			out.Values[key] = v
+			overrides[key] = true
 		}
 	}
 
-	for k := range unknown {
-		out.Unknown = append(out.Unknown, k)
-	}
-	sort.Strings(out.Unknown)
+	out.Overrides = sortedKeys(overrides)
+	out.Unknown = sortedKeys(unknown)
 	return out, nil
+}
+
+// sortedKeys returns a set's members in order.
+func sortedKeys(set map[string]bool) []string {
+	if len(set) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // declaredKeys is the set every layer's keys are checked against, taken from one snapshot.
@@ -143,14 +115,14 @@ func declaredKeys(registered []Section) map[string]bool {
 	return out
 }
 
-// defaultLayer renders every section's default for a mode into one layer.
+// defaultValues renders every section's defaults for a mode into one set of keys.
 //
 // This is a second walk, not the one that derived the keys. The two share tagOf and isLeaf and
 // nothing else, so they can and did disagree: the type walk unwraps a pointer to derive a subtree's
 // keys and the value walk skips a nil one. matchesDeclaration is what holds them together, by
 // refusing a rendered default that does not state one value per declared key.
-func defaultLayer(mode Mode, registered []Section) (Layer, error) {
-	out := Layer{Source: SourceDefault, Values: map[string]any{}}
+func defaultValues(mode Mode, registered []Section) (map[string]any, error) {
+	out := map[string]any{}
 	for _, s := range registered {
 		values, err := sectionValues(s.Name, s.Defaults(mode))
 		if err != nil {
@@ -160,7 +132,7 @@ func defaultLayer(mode Mode, registered []Section) (Layer, error) {
 			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
 		}
 		for k, v := range values {
-			out.Values[k] = v
+			out[k] = v
 		}
 	}
 	return out, nil
@@ -288,35 +260,38 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 	return nil
 }
 
-// EnvLayer reads the declared keys an environment supplies, as one layer.
+// envValues reads the declared keys an environment supplies.
 //
-// Driven by the declared set rather than by the environment, because the environment cannot be
-// enumerated for a prefix: a variable is only findable if you already know its name. That direction
-// is also what makes this layer complete, since every declared key has exactly one canonical
-// spelling and this asks for all of them.
-func EnvLayer(lookup func(string) (string, bool)) Layer {
-	out := Layer{Source: SourceEnv, Values: map[string]any{}}
+// Driven by the declared set rather than by the environment, which is also what makes it complete:
+// every declared key has exactly one canonical spelling and this asks for all of them.
+func envValues(lookup func(string) (string, bool)) map[string]any {
+	if lookup == nil {
+		return nil
+	}
+	out := map[string]any{}
 	for _, key := range Keys() {
 		// An empty value is treated as unset. A variable exported empty is far more often a shell
 		// artefact than a deliberate empty string, and the two are indistinguishable here. The cost is
 		// that clearing a key by exporting it empty reads as touching nothing, and Overrides will not
 		// mention it.
 		if v, ok := lookup(EnvName(key)); ok && v != "" {
-			out.Values[key] = v
+			out[key] = v
 		}
 	}
 	return out
 }
 
-// FileLayer takes the keys a configuration file supplied, normalised to lower case.
+// fileValues normalises a configuration file's keys to lower case.
 //
-// Normalised here because a source enumerates lower-cased while a file may not be written that way,
-// and a key that differed only in case would resolve as unknown while the operator's value went
-// nowhere.
-func FileLayer(values map[string]any) Layer {
-	out := Layer{Source: SourceFile, Values: make(map[string]any, len(values))}
+// A source enumerates lower-cased while a file may not be written that way, and a key that differed
+// only in case would resolve as unknown while the operator's value went nowhere.
+func fileValues(values map[string]any) map[string]any {
+	if values == nil {
+		return nil
+	}
+	out := make(map[string]any, len(values))
 	for k, v := range values {
-		out.Values[strings.ToLower(k)] = v
+		out[strings.ToLower(k)] = v
 	}
 	return out
 }

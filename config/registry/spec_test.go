@@ -2,6 +2,7 @@ package registry_test
 
 import (
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -348,80 +349,51 @@ func TestTheDeadFieldIsNotReachableUnderTheLiveKey(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Resolution: which layer's value wins, and where a resolved value came from.
+// Resolution: which source's value wins, and what a caller is told about how a key got its value.
 // ---------------------------------------------------------------------------------------
 
-// TestResolutionRunsInTheDeclaredOrder shuffles the layers, which is what makes it falsifiable.
+// TestEachSourceWinsOverTheOneBelowIt walks the precedence one step at a time.
 //
-// If precedence comes from Source's declaration order, the order layers are passed in cannot matter.
-// If it comes from argument order or from a merge where the last writer wins, this fails. The legacy path fails
-// it by construction: its answer depends on which viper instance a caller asked, which is why two
-// different orders are observable across its key set.
-func TestResolutionRunsInTheDeclaredOrder(t *testing.T) {
-	registerGiga(t)
-
-	file := registry.FileLayer(map[string]any{"giga_executor.occ_enabled": "file"})
-	env := registry.Layer{Source: registry.SourceEnv, Values: map[string]any{"giga_executor.occ_enabled": "env"}}
-	flag := registry.Layer{Source: registry.SourceFlag, Values: map[string]any{"giga_executor.occ_enabled": "flag"}}
-
-	// Every ordering of the same three layers.
-	for _, order := range [][]registry.Layer{
-		{file, env, flag}, {flag, env, file}, {env, flag, file}, {flag, file, env},
-	} {
-		got, err := registry.Resolve(registry.ModeValidator, order...)
-		if err != nil {
-			t.Fatalf("Resolve: %v", err)
-		}
-		res, ok := got.From("giga_executor.occ_enabled")
-		if !ok {
-			t.Fatal("the key did not resolve at all")
-		}
-		if res.Value != "flag" || res.From != registry.SourceFlag {
-			var names []registry.Source
-			for _, l := range order {
-				names = append(names, l.Source)
+// Each case adds the next source up and expects its value, so a resolver that happened to prefer the
+// top source for an unrelated reason still fails on the middle steps. The value each source supplies
+// is its own name, so which one won is readable from the resolved value alone.
+func TestEachSourceWinsOverTheOneBelowIt(t *testing.T) {
+	const key = "giga_executor.occ_enabled"
+	env := func(v string) func(string) (string, bool) {
+		return func(name string) (string, bool) {
+			if name == registry.EnvName(key) {
+				return v, true
 			}
-			t.Errorf("passed in the order %v the key resolved to %#v from %s, want flag from flag. "+
-				"The declared order is %v, and a resolver whose answer depends on argument order has an "+
-				"emergent precedence rather than a declared one",
-				names, res.Value, res.From, registry.Sources())
+			return "", false
 		}
 	}
-}
-
-// TestEachLayerWinsOverTheOneBelowIt walks the order one step at a time.
-//
-// The test above only proves the top layer wins. This proves the ordering is the declared one at
-// every step, so a resolver that happened to prefer "flag" for an unrelated reason would still fail.
-func TestEachLayerWinsOverTheOneBelowIt(t *testing.T) {
-	const key = "giga_executor.occ_enabled"
 
 	for _, tc := range []struct {
-		name   string
-		layers []registry.Layer
-		want   registry.Source
+		name string
+		from registry.Sources
+		want any
 	}{
-		{"default alone", nil, registry.SourceDefault},
-		{"file over default", []registry.Layer{
-			{Source: registry.SourceFile, Values: map[string]any{key: "file"}}}, registry.SourceFile},
-		{"env over file", []registry.Layer{
-			{Source: registry.SourceFile, Values: map[string]any{key: "file"}},
-			{Source: registry.SourceEnv, Values: map[string]any{key: "env"}}}, registry.SourceEnv},
-		{"flag over env", []registry.Layer{
-			{Source: registry.SourceEnv, Values: map[string]any{key: "env"}},
-			{Source: registry.SourceFlag, Values: map[string]any{key: "flag"}}}, registry.SourceFlag},
+		{"the default alone", registry.Sources{}, true},
+		{"the file over the default", registry.Sources{
+			File: map[string]any{key: "file"}}, "file"},
+		{"the environment over the file", registry.Sources{
+			File: map[string]any{key: "file"}, LookupEnv: env("env")}, "env"},
+		{"a flag over the environment", registry.Sources{
+			LookupEnv: env("env"), Flags: map[string]any{key: "flag"}}, "flag"},
+		{"a flag over every source below it", registry.Sources{
+			File: map[string]any{key: "file"}, LookupEnv: env("env"),
+			Flags: map[string]any{key: "flag"}}, "flag"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			registerGiga(t)
 
-			got, err := registry.Resolve(registry.ModeValidator, tc.layers...)
+			got, err := registry.Resolve(registry.ModeValidator, tc.from)
 			if err != nil {
 				t.Fatalf("Resolve: %v", err)
 			}
-			res, _ := got.From(key)
-			if res.From != tc.want {
-				t.Errorf("%s resolved from %s, want %s. The declared order is %v",
-					tc.name, res.From, tc.want, registry.Sources())
+			if got.Values[key] != tc.want {
+				t.Errorf("%s resolved to %#v, want %#v; a source lower in the precedence won",
+					tc.name, got.Values[key], tc.want)
 			}
 		})
 	}
@@ -435,50 +407,80 @@ func TestEachLayerWinsOverTheOneBelowIt(t *testing.T) {
 func TestAnAbsentKeyTracksItsModeDefault(t *testing.T) {
 	registerGiga(t)
 
-	archive, err := registry.Resolve(registry.ModeArchive)
+	archive, err := registry.Resolve(registry.ModeArchive, registry.Sources{})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	validator, err := registry.Resolve(registry.ModeValidator)
+	validator, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	a, _ := archive.From("giga_executor.occ_enabled")
-	v, _ := validator.From("giga_executor.occ_enabled")
-	if a.From != registry.SourceDefault || v.From != registry.SourceDefault {
-		t.Fatalf("an unmentioned key resolved from %q and %q, want default from both", a.From, v.From)
+	const key = "giga_executor.occ_enabled"
+	if len(archive.Overrides) != 0 || len(validator.Overrides) != 0 {
+		t.Fatalf("no source was passed and %v and %v are reported as overrides, so a key tracking the "+
+			"binary would render as one an operator chose", archive.Overrides, validator.Overrides)
 	}
-	if a.Value == v.Value {
+	a, v := archive.Values[key], validator.Values[key]
+	if a == v {
 		t.Errorf("both modes resolved the same value %#v for a key whose default varies by mode, so "+
-			"the mode is not reaching the default", a.Value)
+			"the mode is not reaching the default", a)
 	}
-	if a.Value != false || v.Value != true {
-		t.Errorf("archive=%#v validator=%#v, want false and true from this section's default", a.Value, v.Value)
+	if a != false || v != true {
+		t.Errorf("archive=%#v validator=%#v, want false and true from this section's default", a, v)
 	}
 }
 
-// TestProvenanceIsRecoverable is the property the legacy path cannot offer at all.
+// TestAWrittenValueIsSeparableFromADefault is the property the legacy path cannot offer at all.
 //
-// Its layers combine inside one viper before anything observes them, so no value's source is
-// recoverable and it can never tell an operator which one won. Overrides is what a diff renders: the
-// keys an operator has taken responsibility for, as distinct from those tracking the binary.
-func TestProvenanceIsRecoverable(t *testing.T) {
+// Its layers combine inside one viper before anything observes them, so a written value and a default
+// are indistinguishable afterwards. Overrides is what a diff renders: the keys an operator has taken
+// responsibility for, as distinct from those tracking the binary.
+func TestAWrittenValueIsSeparableFromADefault(t *testing.T) {
 	registerGiga(t)
 
-	got, err := registry.Resolve(registry.ModeValidator,
-		registry.Layer{Source: registry.SourceEnv, Values: map[string]any{"giga_executor.occ_enabled": "env"}})
+	const written = "giga_executor.occ_enabled"
+	got, err := registry.Resolve(registry.ModeValidator, registry.Sources{
+		File: map[string]any{written: false},
+	})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	overrides := got.Overrides()
-	if len(overrides) != 1 || overrides[0] != "giga_executor.occ_enabled" {
-		t.Errorf("Overrides returned %v, want the one key a layer supplied. A resolver that cannot "+
-			"separate a written value from a default cannot tell an operator what they changed", overrides)
+	if !reflect.DeepEqual(got.Overrides, []string{written}) {
+		t.Errorf("Overrides is %v, want the one key a source supplied. A resolver that cannot separate "+
+			"a written value from a default cannot tell an operator what they changed", got.Overrides)
 	}
-	if res, _ := got.From("giga_executor.enabled"); res.From != registry.SourceDefault {
-		t.Errorf("the untouched key reports From=%q, so every key would render as an override", res.From)
+	// Written and equal to the mode's own default, so a resolver comparing values rather than tracking
+	// which source supplied the key would leave this out.
+	if got.Values[written] != false {
+		t.Errorf("the written key resolved to %#v, want false", got.Values[written])
+	}
+	if _, declared := got.Values["giga_executor.enabled"]; !declared {
+		t.Error("the untouched key did not resolve, so an override was recorded by dropping the rest")
+	}
+}
+
+// TestAFileKeyIsMatchedRegardlessOfCase covers the normalisation a written file needs.
+//
+// A source enumerates lower-cased while an operator's file may not be written that way. Matched
+// as-written, a key differing only in case resolves as unknown while the operator's value goes
+// nowhere, which is the shape of failure where the file looks right and the node ignores it.
+func TestAFileKeyIsMatchedRegardlessOfCase(t *testing.T) {
+	registerGiga(t)
+
+	got, err := registry.Resolve(registry.ModeValidator, registry.Sources{
+		File: map[string]any{"GIGA_EXECUTOR.OCC_Enabled": "written"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(got.Unknown) != 0 {
+		t.Errorf("the file's key was reported unknown %v; an operator whose only mistake was case would "+
+			"be told their key does not exist", got.Unknown)
+	}
+	if got.Values["giga_executor.occ_enabled"] != "written" {
+		t.Errorf("the key resolved to %#v, want the file's value", got.Values["giga_executor.occ_enabled"])
 	}
 }
 
@@ -490,78 +492,68 @@ func TestProvenanceIsRecoverable(t *testing.T) {
 func TestAKeyNoSectionDeclaresIsReportedNotDropped(t *testing.T) {
 	registerGiga(t)
 
-	got, err := registry.Resolve(registry.ModeValidator,
-		registry.Layer{Source: registry.SourceFile, Values: map[string]any{
+	got, err := registry.Resolve(registry.ModeValidator, registry.Sources{
+		File: map[string]any{
 			"giga_executor.occ_enabled": true,
 			"giga_executor.typo":        1,
-		}})
+		},
+	})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	if len(got.Unknown) != 1 || got.Unknown[0] != "giga_executor.typo" {
-		t.Errorf("Unknown = %v, want the one undeclared key. Dropped silently, an operator's typo is "+
+	if !reflect.DeepEqual(got.Unknown, []string{"giga_executor.typo"}) {
+		t.Errorf("Unknown is %v, want the one undeclared key. Dropped silently, an operator's typo is "+
 			"invisible and their intended value never applies", got.Unknown)
 	}
-	if _, ok := got.From("giga_executor.typo"); ok {
+	if _, ok := got.Values["giga_executor.typo"]; ok {
 		t.Error("the undeclared key resolved anyway, so it would reach a consumer that cannot use it")
 	}
 }
 
-// TestALayerWithNoDeclaredPriorityIsAnError refuses a layer whose priority is undefined.
-//
-// Source is an int, so a caller can pass a value no constant names, and the reserved default is
-// derived rather than supplied. Ignoring either silently is worse than refusing: nothing downstream
-// could tell the layer had contributed nothing.
-func TestALayerWithNoDeclaredPriorityIsAnError(t *testing.T) {
-	registerGiga(t)
-
-	for _, tc := range []struct {
-		name   string
-		source registry.Source
-	}{
-		{"a source past the declared set", registry.Source(len(registry.Sources()))},
-		{"a negative source", registry.Source(-1)},
-		{"the reserved default", registry.SourceDefault},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := registry.Resolve(registry.ModeValidator,
-				registry.Layer{Source: tc.source, Values: map[string]any{"giga_executor.enabled": true}})
-			if err == nil {
-				t.Errorf("a layer naming %s was accepted; it has no defined priority, so it would either "+
-					"be dropped silently or resolved at a priority the resolver invented", tc.source)
-			}
-		})
-	}
-}
-
-// TestEnvLayerIsDrivenByTheDeclaredSet holds the direction that makes the layer complete.
+// TestTheEnvironmentIsReadByTheDeclaredSet holds the direction that makes the environment complete.
 //
 // An environment cannot be enumerated for a prefix: a variable is findable only if its name is
-// already known. Asking for every declared key's canonical spelling is therefore the only way to
-// build a complete env layer, and it is why the derivation lives beside the registry.
-func TestEnvLayerIsDrivenByTheDeclaredSet(t *testing.T) {
+// already known. Asking for every declared key's canonical spelling is therefore the only way to read
+// a complete one, and it is why the derivation lives beside the registry.
+func TestTheEnvironmentIsReadByTheDeclaredSet(t *testing.T) {
 	registerGiga(t)
 	set := map[string]string{
 		registry.EnvName("giga_executor.occ_enabled"): "false",
 		"SEID_SOMETHING_UNDECLARED":                   "1",
 	}
 
-	l := registry.EnvLayer(func(name string) (string, bool) {
-		v, ok := set[name]
-		return v, ok
+	var asked []string
+	got, err := registry.Resolve(registry.ModeValidator, registry.Sources{
+		LookupEnv: func(name string) (string, bool) {
+			asked = append(asked, name)
+			v, ok := set[name]
+			return v, ok
+		},
 	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
 
-	if l.Source != registry.SourceEnv {
-		t.Errorf("EnvLayer names source %q, want env", l.Source)
+	// Asked for exactly the declared spellings, so the undeclared variable is never seen rather than
+	// seen and discarded. Read the other way it would surface as an unknown key no operator wrote.
+	var want []string
+	for _, key := range registry.Keys() {
+		want = append(want, registry.EnvName(key))
 	}
-	if len(l.Values) != 1 {
-		t.Errorf("EnvLayer collected %v, want only the declared key. A layer built by scanning the "+
-			"environment would pick up the undeclared variable and report it as an unknown key that "+
-			"no operator wrote in a file", l.Values)
+	sort.Strings(asked)
+	sort.Strings(want)
+	if !reflect.DeepEqual(asked, want) {
+		t.Errorf("the environment was asked for %v, want the declared spellings %v", asked, want)
 	}
-	if l.Values["giga_executor.occ_enabled"] != "false" {
-		t.Errorf("the declared key resolved to %#v, want false", l.Values["giga_executor.occ_enabled"])
+	if len(got.Unknown) != 0 {
+		t.Errorf("the environment produced unknown keys %v", got.Unknown)
+	}
+	if !reflect.DeepEqual(got.Overrides, []string{"giga_executor.occ_enabled"}) {
+		t.Errorf("Overrides is %v, want the one declared key the environment supplied", got.Overrides)
+	}
+	if got.Values["giga_executor.occ_enabled"] != "false" {
+		t.Errorf("the declared key resolved to %#v, want false", got.Values["giga_executor.occ_enabled"])
 	}
 }
 
@@ -587,7 +579,7 @@ func TestEveryDeclaredKeyResolves(t *testing.T) {
 		requireNoDefects(t)
 
 		for _, m := range registry.Modes() {
-			res, err := registry.Resolve(m)
+			res, err := registry.Resolve(m, registry.Sources{})
 			if err != nil {
 				t.Fatalf("mode %s: %v", m, err)
 			}
@@ -596,7 +588,7 @@ func TestEveryDeclaredKeyResolves(t *testing.T) {
 				t.Fatalf("mode %s: the probe declared nothing, so this test asserts nothing", m)
 			}
 			for _, key := range declared {
-				if _, ok := res.From(key); !ok {
+				if _, ok := res.Values[key]; !ok {
 					t.Errorf("mode %s: %q is declared and has no resolution, so a caller iterating Keys "+
 						"and calling From is handed an absence the documentation rules out", m, key)
 				}
@@ -613,7 +605,7 @@ func TestEveryDeclaredKeyResolves(t *testing.T) {
 
 		// The type walk unwraps the pointer to derive svc.tls.cert and the value walk skips a nil one,
 		// so the default states one fewer key than the section declares.
-		_, err := registry.Resolve(registry.ModeFull)
+		_, err := registry.Resolve(registry.ModeFull, registry.Sources{})
 		if err == nil {
 			t.Fatal("a default that states no value for a declared key resolved, so a caller holds a " +
 				"resolution missing a key From answers ok=false for")
@@ -667,7 +659,7 @@ func TestADivergentDefaultIsRefusedRatherThanPanicking(t *testing.T) {
 			t.Fatalf("Resolve panicked on a divergent default: %v", r)
 		}
 	}()
-	if _, err := registry.Resolve(registry.ModeFull); err == nil {
+	if _, err := registry.Resolve(registry.ModeFull, registry.Sources{}); err == nil {
 		t.Error("a default whose type is not the registered struct's resolved without complaint, so " +
 			"every declared key silently carried no value")
 	}
@@ -723,7 +715,7 @@ func TestARealisticSectionShapeDerivesAndResolvesEveryKey(t *testing.T) {
 		t.Fatalf("declared keys are\n  %v\nwant\n  %v", got, want)
 	}
 
-	resolved, err := registry.Resolve(registry.ModeFull)
+	resolved, err := registry.Resolve(registry.ModeFull, registry.Sources{})
 	if err != nil {
 		t.Fatalf("resolving a realistic shape: %v", err)
 	}
@@ -736,13 +728,13 @@ func TestARealisticSectionShapeDerivesAndResolvesEveryKey(t *testing.T) {
 		"shaped.spill.size": 8,
 		"shaped.spill.wait": 2 * time.Second,
 	} {
-		res, ok := resolved.From(key)
+		got, ok := resolved.Values[key]
 		if !ok {
 			t.Errorf("%s declared and did not resolve", key)
 			continue
 		}
-		if res.Value != want {
-			t.Errorf("%s resolved to %#v, want %#v", key, res.Value, want)
+		if got != want {
+			t.Errorf("%s resolved to %#v, want %#v", key, got, want)
 		}
 	}
 }
@@ -860,28 +852,6 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 // registration is refused before a default is ever asked for, so its shape cannot matter.
 func anyDefault(registry.Mode) any { return struct{}{} }
 
-// TestEveryDeclaredSourceHasAName holds Source's printed form against its declaration.
-//
-// Resolve records a Source per key and a diagnostic prints it, so a source with no name reaches an
-// operator as an integer. The bound is what makes an undeclared Source visible rather than silently
-// reading a neighbour's name.
-func TestEveryDeclaredSourceHasAName(t *testing.T) {
-	want := []string{"default", "file", "env", "flag"}
-	var got []string
-	for _, s := range registry.Sources() {
-		got = append(got, s.String())
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("the declared sources print as %v, want %v", got, want)
-	}
-	for _, s := range []registry.Source{registry.Source(len(want)), registry.Source(-1)} {
-		if name := s.String(); !strings.HasPrefix(name, "Source(") {
-			t.Errorf("a source outside the declared set prints as %q; a name borrowed from a neighbour "+
-				"would tell an operator the wrong layer won", name)
-		}
-	}
-}
-
 // TestRegistrationAndResolutionAreConcurrencySafe drives registration against resolution.
 //
 // Registration runs at package initialisation, which is when a diagnostic or an authoring check may
@@ -909,12 +879,12 @@ func TestRegistrationAndResolutionAreConcurrencySafe(t *testing.T) {
 			registry.RegisterSection("second", &one{}, defaults)
 		}()
 
-		res, err := registry.Resolve(registry.ModeFull)
+		res, err := registry.Resolve(registry.ModeFull, registry.Sources{})
 		wg.Wait()
 		if err != nil {
 			t.Fatalf("round %d: %v", round, err)
 		}
-		if _, ok := res.From("first.a"); !ok {
+		if _, ok := res.Values["first.a"]; !ok {
 			t.Fatalf("round %d: first.a was registered before the call and did not resolve", round)
 		}
 		if len(res.Unknown) != 0 {
@@ -927,7 +897,7 @@ func TestRegistrationAndResolutionAreConcurrencySafe(t *testing.T) {
 //
 // A dot and a hyphen both become an underscore, so two keys differing only in that punctuation answer
 // to one variable. Without a refusal the second key is simply unsettable from the environment, and
-// nothing in the resolved output says so: EnvLayer asks for both spellings and gets one answer.
+// nothing in the resolved output says so: the environment is asked for both spellings and answers once.
 func TestAKeySharingAnEnvironmentSpellingIsRefused(t *testing.T) {
 	type WithHyphen struct {
 		Under string `mapstructure:"a-b"`
@@ -1068,31 +1038,6 @@ func TestASectionRegisteredTwiceIsRefused(t *testing.T) {
 	}
 }
 
-// TestTwoLayersNamingOneSourceIsAnError pins the last resolution refusal.
-//
-// Two layers under one source name have no order between them, so one would win by map iteration and
-// the other would vanish with nothing able to report it.
-func TestTwoLayersNamingOneSourceIsAnError(t *testing.T) {
-	registry.Reset()
-	registry.RegisterSection("probe", &struct {
-		A string `mapstructure:"a"`
-	}{}, func(registry.Mode) any {
-		return struct {
-			A string `mapstructure:"a"`
-		}{A: "from the default"}
-	})
-
-	_, err := registry.Resolve(registry.ModeFull,
-		registry.FileLayer(map[string]any{"probe.a": "one"}),
-		registry.FileLayer(map[string]any{"probe.a": "two"}))
-	if err == nil {
-		t.Fatal("two file layers resolved without complaint, so one of them lost silently")
-	}
-	if !strings.Contains(err.Error(), "silently lose") {
-		t.Errorf("the error reads %q, which does not say what the cost is", err)
-	}
-}
-
 // TestAStructThatIsAValueStaysOneKey pins the stop the walk needs at a decoded-whole type.
 //
 // time.Time carries exported fields, so walking into it would declare keys for its internals that no
@@ -1119,16 +1064,16 @@ func TestAStructThatIsAValueStaysOneKey(t *testing.T) {
 	if got := registry.Keys(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("declared keys are %v, want %v; a walked time.Time would add its own fields", got, want)
 	}
-	resolved, err := registry.Resolve(registry.ModeFull)
+	resolved, err := registry.Resolve(registry.ModeFull, registry.Sources{})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	res, ok := resolved.From("stamped.at")
+	got, ok := resolved.Values["stamped.at"]
 	if !ok {
 		t.Fatal("stamped.at declared and did not resolve")
 	}
-	if res.Value != stamp {
-		t.Errorf("stamped.at resolved to %#v, want the whole time %#v", res.Value, stamp)
+	if got != stamp {
+		t.Errorf("stamped.at resolved to %#v, want the whole time %#v", got, stamp)
 	}
 }
 
@@ -1178,7 +1123,7 @@ func TestADefaultThatIsNotAStructIsRefused(t *testing.T) {
 			for _, d := range registry.Defects() {
 				t.Fatalf("the prototype is valid and should register: %v", d.Err)
 			}
-			_, err := registry.Resolve(registry.ModeFull)
+			_, err := registry.Resolve(registry.ModeFull, registry.Sources{})
 			if err == nil {
 				t.Fatalf("a default returning %s resolved without complaint", tc.name)
 			}
@@ -1206,7 +1151,7 @@ func TestADefaultCarryingAnUndeclaredKeyIsRefused(t *testing.T) {
 	registry.RegisterSection("probe", &declared{}, func(registry.Mode) any {
 		return wider{A: "a", B: "b"}
 	})
-	_, err := registry.Resolve(registry.ModeFull)
+	_, err := registry.Resolve(registry.ModeFull, registry.Sources{})
 	if err == nil {
 		t.Fatal("a default stating an undeclared key resolved without complaint")
 	}
@@ -1279,12 +1224,12 @@ func TestSectionsAreSortedAndADefaultMayBeAPointer(t *testing.T) {
 		t.Errorf("Sections returned %v, want them sorted; registration order must not decide it", names)
 	}
 
-	resolved, err := registry.Resolve(registry.ModeFull)
+	resolved, err := registry.Resolve(registry.ModeFull, registry.Sources{})
 	if err != nil {
 		t.Fatalf("a pointer default was refused: %v", err)
 	}
-	if res, ok := resolved.From("alpha.shown"); !ok || res.Value != "a" {
-		t.Errorf("alpha.shown resolved to (%#v, %v) through a pointer default, want \"a\"", res.Value, ok)
+	if got, ok := resolved.Values["alpha.shown"]; !ok || got != "a" {
+		t.Errorf("alpha.shown resolved to (%#v, %v) through a pointer default, want \"a\"", got, ok)
 	}
 	if keys := registry.Keys(); !reflect.DeepEqual(keys, []string{"alpha.shown", "zulu.b"}) {
 		t.Errorf("declared keys are %v; the unexported field must not become one", keys)
@@ -1306,7 +1251,7 @@ func TestADefaultOfAWhollyDifferentTypeSaysSoOnce(t *testing.T) {
 	registry.Reset()
 	registry.RegisterSection("probe", &declared{}, func(registry.Mode) any { return unrelated{Z: "z"} })
 
-	_, err := registry.Resolve(registry.ModeFull)
+	_, err := registry.Resolve(registry.ModeFull, registry.Sources{})
 	if err == nil {
 		t.Fatal("a default of an unrelated type resolved without complaint")
 	}

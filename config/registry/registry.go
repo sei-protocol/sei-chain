@@ -26,54 +26,6 @@ const (
 // Modes returns every mode a default is asked for, in a fixed order.
 func Modes() []Mode { return []Mode{ModeValidator, ModeFull, ModeSeed, ModeArchive} }
 
-// Source is where a resolved value came from.
-//
-// The declaration order is the precedence, lowest to highest. Resolve applies the layers in that
-// order, so a source declared later here overwrites one declared earlier, and nothing a caller
-// passes can change it.
-//
-// The legacy path has no equivalent. Its order emerges from which viper instance a caller asked,
-// which is why two orders are observable across its key set.
-type Source int
-
-// The layers a value can arrive from, lowest priority first.
-const (
-	SourceDefault Source = iota
-	SourceFile
-	SourceEnv
-	SourceFlag
-)
-
-// sourceNames names each source, keyed by the constant it belongs to. Sources and String both read
-// it, so the set and its names are stated once and cannot be paired wrongly.
-var sourceNames = [...]string{
-	SourceDefault: "default",
-	SourceFile:    "file",
-	SourceEnv:     "env",
-	SourceFlag:    "flag",
-}
-
-// Sources returns every layer a value can arrive from, lowest priority first.
-func Sources() []Source {
-	out := make([]Source, len(sourceNames))
-	for i := range out {
-		out[i] = Source(i)
-	}
-	return out
-}
-
-// String returns the source's name.
-func (s Source) String() string {
-	if !s.declared() {
-		return fmt.Sprintf("Source(%d)", int(s))
-	}
-	return sourceNames[s]
-}
-
-// declared reports whether a Source is one of the constants above. A Source is an int, so a caller
-// can hand over a value no constant names, and Resolve would otherwise skip that layer in silence.
-func (s Source) declared() bool { return int(s) >= 0 && int(s) < len(sourceNames) }
-
 // Section is one registered configuration section.
 type Section struct {
 	// Name is the section's own segment, and the first segment of every key it declares.
