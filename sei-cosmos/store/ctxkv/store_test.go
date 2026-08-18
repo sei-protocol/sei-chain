@@ -39,16 +39,14 @@ func TestIteratorOnUsesContextIteratorOnlyWhenCancellable(t *testing.T) {
 	_ = types.IteratorOn(parent, context.Background(), nil, nil, true)
 	require.Nil(t, parent.gotCtx)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	_ = types.IteratorOn(parent, ctx, nil, nil, true)
 	require.Equal(t, ctx, parent.gotCtx)
 }
 
 func TestWrapForwardsDeadlineToContextIterator(t *testing.T) {
 	parent := &recordingStore{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	wrapped := ctxkv.Wrap(parent, ctx)
 	require.NotEqual(t, parent, wrapped)

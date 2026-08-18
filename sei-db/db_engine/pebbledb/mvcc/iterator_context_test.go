@@ -20,7 +20,7 @@ func TestIteratorWithCancelledContextAbortsSkip(t *testing.T) {
 		applyVersion(t, db, ctxIterStore, 1000, []byte(fmt.Sprintf("zzz%04d", i)), []byte("new"))
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	itr, err := db.IteratorWithContext(ctx, ctxIterStore, 10, nil, nil)
@@ -38,7 +38,7 @@ func TestIteratorNextPanicsAfterCancel(t *testing.T) {
 	applyVersion(t, db, ctxIterStore, 1, []byte("a"), []byte("va"))
 	applyVersion(t, db, ctxIterStore, 1, []byte("b"), []byte("vb"))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	itr, err := db.IteratorWithContext(ctx, ctxIterStore, 1, nil, nil)
 	require.NoError(t, err)
 	defer func() { _ = itr.Close() }()
@@ -56,7 +56,7 @@ func TestAscendingIteratorWithCancelledContextAbortsSkip(t *testing.T) {
 		applyVersion(t, db, ctxIterStore, 1000, []byte(fmt.Sprintf("zzz%04d", i)), []byte("new"))
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	itr, err := db.ReverseIteratorWithContext(ctx, ctxIterStore, 10, nil, nil)

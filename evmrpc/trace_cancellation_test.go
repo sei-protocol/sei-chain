@@ -9,8 +9,7 @@ import (
 )
 
 func TestResultUnlessExpiredReportsTheDeadline(t *testing.T) {
-	live, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	live := t.Context()
 
 	traced := map[string]string{"gas": "0x1"}
 	result, err := resultUnlessExpired(live, traced, nil)
@@ -22,7 +21,7 @@ func TestResultUnlessExpiredReportsTheDeadline(t *testing.T) {
 	require.ErrorIs(t, err, underlying)
 	require.Nil(t, result)
 
-	expired, cancelExpired := context.WithCancel(context.Background())
+	expired, cancelExpired := context.WithCancel(t.Context())
 	cancelExpired()
 	result, err = resultUnlessExpired(expired, map[string]string{"error": "store access cancelled"}, nil)
 	require.ErrorIs(t, err, context.Canceled)

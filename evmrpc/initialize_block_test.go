@@ -56,7 +56,7 @@ func TestInitializeBlockReleasesLeaseOnBeginBlockDeadline(t *testing.T) {
 
 	var released int
 	backend, block := newInitializeBlockTestBackend(t)
-	_, _, release, err := backend.initializeBlock(context.Background(), block, func(int64) (sdk.Context, func()) {
+	_, _, release, err := backend.initializeBlock(t.Context(), block, func(int64) (sdk.Context, func()) {
 		return sdk.Context{}, func() { released++ }
 	})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -75,7 +75,7 @@ func TestInitializeBlockReleasesLeaseOnUnrelatedBeginBlockPanic(t *testing.T) {
 	var released int
 	backend, block := newInitializeBlockTestBackend(t)
 	require.Panics(t, func() {
-		_, _, _, _ = backend.initializeBlock(context.Background(), block, func(int64) (sdk.Context, func()) {
+		_, _, _, _ = backend.initializeBlock(t.Context(), block, func(int64) (sdk.Context, func()) {
 			return sdk.Context{}, func() { released++ }
 		})
 	})
