@@ -34,4 +34,6 @@ var (
 	ErrInvalidSubstitute                      = sdkerrors.Register(SubModuleName, 27, "invalid client state substitute")
 	ErrInvalidUpgradeProposal                 = sdkerrors.Register(SubModuleName, 28, "invalid upgrade proposal")
 	ErrClientNotActive                        = sdkerrors.Register(SubModuleName, 29, "client is not active")
+	// ErrClientDeprecated is returned by IBC client proposal handlers.
+	ErrClientDeprecated = sdkerrors.Register(SubModuleName, 30, "ibc client module is deprecated")
 )
