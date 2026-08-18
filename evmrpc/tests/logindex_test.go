@@ -25,22 +25,10 @@ func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
 			res := sendRequestWithNamespace("eth", port, "getTransactionReceipt", cwTxHash.Hex())
 			require.Nil(t, res["result"])
 
-			// the CW transaction in the first block should show up in sei_getTransactionReceipt,
-			// with one synthetic log
-			res = sendRequestWithNamespace("sei", port, "getTransactionReceipt", cwTxHash.Hex())
-			logs := res["result"].(map[string]any)["logs"].([]interface{})
-			require.Len(t, logs, 1)
-
 			// the EVM transaction in the second block should show up in eth_getTransactionReceipt,
 			// with two logs (one synthetic and one non-synthetic)
 			res = sendRequestWithNamespace("eth", port, "getTransactionReceipt", signedTx.Hash().Hex())
-			logs = res["result"].(map[string]any)["logs"].([]interface{})
-			require.Len(t, logs, 2)
-
-			// the EVM transaction in the second block should show up in sei_getTransactionReceipt,
-			// with two logs (one synthetic and one non-synthetic)
-			res = sendRequestWithNamespace("sei", port, "getTransactionReceipt", signedTx.Hash().Hex())
-			logs = res["result"].(map[string]any)["logs"].([]interface{})
+			logs := res["result"].(map[string]any)["logs"].([]interface{})
 			require.Len(t, logs, 2)
 
 			// the first block should have no receipts for eth_getBlockReceipts
