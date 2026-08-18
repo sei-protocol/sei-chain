@@ -81,7 +81,7 @@ func loadInner(t *testing.T, dir string, registry *epoch.Registry, keys []types.
 			}
 		}
 	}
-	return newInner(persisted, av.SubscribeConsensusSpec().Load(), registry)
+	return newInner(persisted, av.SubscribeConsensusSpec().Load())
 }
 
 // alignAvailToTip pushes CommitQCs 0..tip.Index() through avail and waits until
@@ -132,7 +132,7 @@ func TestNewInnerEmpty(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
 	_, av := newTestAvail(t, registry, keys[0])
-	i, err := newInner(utils.None[*pb.PersistedInner](), av.SubscribeConsensusSpec().Load(), registry)
+	i, err := newInner(utils.None[*pb.PersistedInner](), av.SubscribeConsensusSpec().Load())
 	require.NoError(t, err)
 	require.False(t, i.PrepareVote.IsPresent(), "prepareVote should be None")
 	require.False(t, i.CommitVote.IsPresent(), "commitVote should be None")
@@ -159,7 +159,7 @@ func TestNewInner_RejectsWALAheadOfSpec(t *testing.T) {
 	qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
 	require.Equal(t, last, qcLast.Index())
 
-	// Spec still withheld (None): next-view epoch not applied after a floor.
+	// Spec tip still None (genesis-shaped stand-in for a withheld tip).
 	view := types.View{Index: last + 1, Number: 0, EpochIndex: 1}
 	proposal := types.GenProposalForEpoch(rng, ep1, view)
 	vote := types.Sign(keys[0], types.NewPrepareVote(proposal))
@@ -168,7 +168,8 @@ func TestNewInner_RejectsWALAheadOfSpec(t *testing.T) {
 		PrepareVote: utils.Some(vote),
 	}
 
-	_, err := newInner(utils.Some(innerProtoConv.Encode(&persisted)), utils.None[types.ConsensusSpec](), registry)
+	genesis := types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}
+	_, err := newInner(utils.Some(innerProtoConv.Encode(&persisted)), genesis)
 	require.ErrorIs(t, err, ErrAvailBehindConsensus)
 }
 
@@ -197,9 +198,9 @@ func TestNewInner_EqualTipKeepsVotes(t *testing.T) {
 		CommitQC:    utils.Some(qcLast),
 		PrepareVote: utils.Some(vote),
 	}
-	spec := types.ConsensusSpec{CommitQC: qcLast, Epoch: ep1}
+	spec := types.ConsensusSpec{CommitQC: utils.Some(qcLast), Epoch: ep1}
 
-	i, err := newInner(utils.Some(innerProtoConv.Encode(&persisted)), utils.Some(spec), registry)
+	i, err := newInner(utils.Some(innerProtoConv.Encode(&persisted)), spec)
 	require.NoError(t, err)
 	require.Equal(t, last+1, i.View().Index)
 	require.Equal(t, types.EpochIndex(1), i.epoch.EpochIndex())
@@ -240,33 +241,31 @@ func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 		}); err != nil {
 			return fmt.Errorf("wait durable tip: %w", err)
 		}
-		got, err := av.SubscribeConsensusSpec().Wait(ctx, func(o utils.Option[types.ConsensusSpec]) bool {
-			sp, ok := o.Get()
-			return ok && sp.CommitQC.Index() >= last && sp.Epoch.EpochIndex() >= 1
+		got, err := av.SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+			cqc, ok := sp.CommitQC.Get()
+			return ok && cqc.Index() >= last && sp.Epoch.EpochIndex() >= 1
 		})
 		if err != nil {
 			return fmt.Errorf("wait ConsensusSpec: %w", err)
 		}
-		sp, ok := got.Get()
-		if !ok {
-			return fmt.Errorf("ConsensusSpec missing after catch-up")
-		}
-		spec = sp
+		spec = got
 		return nil
 	}))
 
-	require.Equal(t, last, spec.CommitQC.Index(), "catch-up must republish the boundary tip, not withhold")
+	tip, ok := spec.CommitQC.Get()
+	require.True(t, ok)
+	require.Equal(t, last, tip.Index(), "catch-up must republish the boundary tip, not withhold")
 	require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
 
 	view := types.View{Index: last + 1, Number: 0, EpochIndex: 1}
 	proposal := types.GenProposalForEpoch(rng, spec.Epoch, view)
 	vote := types.Sign(keys[0], types.NewPrepareVote(proposal))
 	persisted := persistedInner{
-		CommitQC:    utils.Some(spec.CommitQC),
+		CommitQC:    spec.CommitQC,
 		PrepareVote: utils.Some(vote),
 	}
 
-	i, err := newInner(utils.Some(innerProtoConv.Encode(&persisted)), utils.Some(spec), registry)
+	i, err := newInner(utils.Some(innerProtoConv.Encode(&persisted)), spec)
 	require.NoError(t, err)
 	require.Equal(t, last+1, i.View().Index)
 	require.Equal(t, types.EpochIndex(1), i.epoch.EpochIndex())
@@ -1172,7 +1171,7 @@ func TestPushCommitQC_RotatesEpochAtBoundary(t *testing.T) {
 	// Avail resolves the next-view epoch; pushSpecFromAvail installs it verbatim.
 	ep1, err := registry.EpochAt(epoch.FirstRoad(1))
 	require.NoError(t, err)
-	require.NoError(t, s.pushSpecFromAvail(types.ConsensusSpec{CommitQC: qc, Epoch: ep1}))
+	require.NoError(t, s.pushSpecFromAvail(types.ConsensusSpec{CommitQC: utils.Some(qc), Epoch: ep1}))
 	got := s.innerRecv.Load()
 	require.Equal(t, types.EpochIndex(1), got.epoch.EpochIndex())
 	require.Equal(t, epoch.FirstRoad(1), got.View().Index)

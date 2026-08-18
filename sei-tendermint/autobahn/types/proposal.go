@@ -126,10 +126,11 @@ func (v View) Next() View {
 }
 
 // ConsensusSpec is the durable CommitQC tip paired with the epoch of the view
-// that follows it. Avail publishes Option[ConsensusSpec] (None until a tip
-// exists); consensus installs Some values verbatim.
+// that follows it. CommitQC is None before the first tip; until then Epoch is
+// genesis epoch 0 (and FirstBlock is the next global block). Consensus installs
+// a spec verbatim.
 type ConsensusSpec struct {
-	CommitQC *CommitQC
+	CommitQC utils.Option[*CommitQC]
 	Epoch    *Epoch
 }
 

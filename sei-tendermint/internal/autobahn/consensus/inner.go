@@ -81,7 +81,6 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/seilog"
@@ -105,13 +104,11 @@ func (i inner) View() types.View {
 
 // newInner restores consensus state from avail's ConsensusSpec. The tip CommitQC
 // and next-view epoch always come from the spec. The WAL is kept only for
-// same-view votes / TimeoutQC / PrepareQC when its tip matches the spec.
-// specOpt is None at genesis (no durable tip yet). Returns
+// same-view votes / TimeoutQC / PrepareQC when its tip matches the spec. Returns
 // ErrAvailBehindConsensus when the WAL tip is ahead of the spec.
 func newInner(
 	loaded utils.Option[*pb.PersistedInner],
-	specOpt utils.Option[types.ConsensusSpec],
-	registry *epoch.Registry,
+	spec types.ConsensusSpec,
 ) (inner, error) {
 	var persisted persistedInner
 	if p, ok := loaded.Get(); ok {
@@ -123,32 +120,16 @@ func newInner(
 	}
 
 	persistedViewIdx := types.NextIndexOpt(persisted.CommitQC)
-	spec, hasSpec := specOpt.Get()
-	specViewIdx := types.RoadIndex(0)
-	if hasSpec {
-		specViewIdx = spec.CommitQC.Index() + 1
-	}
+	specViewIdx := types.NextIndexOpt(spec.CommitQC)
 	if persistedViewIdx > specViewIdx {
 		return inner{}, fmt.Errorf("%w: persisted tip %d > ConsensusSpec tip %d",
 			ErrAvailBehindConsensus, persistedViewIdx, specViewIdx)
 	}
 
-	if !hasSpec { // genesis: no ConsensusSpec (and thus no WAL CommitQC)
-		ep, ok := registry.EpochByIndex(0)
-		if !ok {
-			panic("genesis epoch 0 not registered")
-		}
-		if err := persisted.validate(ep); err != nil {
-			return inner{}, err
-		}
-		logger.Info("restored consensus state", "state", innerProtoConv.Encode(&persisted))
-		return inner{persistedInner: persisted, epoch: ep}, nil
-	}
-
 	if specViewIdx == persistedViewIdx {
 		// Same tip: take CommitQC from the spec; keep WAL votes / view QCs.
 		out := persisted
-		out.CommitQC = utils.Some(spec.CommitQC)
+		out.CommitQC = spec.CommitQC
 		if err := out.validate(spec.Epoch); err != nil {
 			return inner{}, err
 		}
@@ -156,24 +137,26 @@ func newInner(
 		return inner{persistedInner: out, epoch: spec.Epoch}, nil
 	}
 
-	out := persistedInner{CommitQC: utils.Some(spec.CommitQC)}
+	out := persistedInner{CommitQC: spec.CommitQC}
 	logger.Info("restored consensus state from avail ConsensusSpec", "state", innerProtoConv.Encode(&out))
 	return inner{persistedInner: out, epoch: spec.Epoch}, nil
 }
 
 // pushSpecFromAvail installs avail's ConsensusSpec tip and clears per-view state.
+// Specs that do not advance the view are ignored, which covers the tipless spec
+// published before the first CommitQC.
 func (s *State) pushSpecFromAvail(spec types.ConsensusSpec) error {
-	qc := spec.CommitQC
-	if qc.Proposal().Index() < s.innerRecv.Load().View().Index {
+	specViewIdx := types.NextIndexOpt(spec.CommitQC)
+	if specViewIdx <= s.innerRecv.Load().View().Index {
 		return nil
 	}
 	for iSend := range s.inner.Lock() {
 		i := iSend.Load()
-		if qc.Proposal().Index() < i.View().Index {
+		if specViewIdx <= i.View().Index {
 			return nil
 		}
 		// CommitQC advances to new index; clear all state for new view.
-		iSend.Store(inner{persistedInner: persistedInner{CommitQC: utils.Some(spec.CommitQC)}, epoch: spec.Epoch})
+		iSend.Store(inner{persistedInner: persistedInner{CommitQC: spec.CommitQC}, epoch: spec.Epoch})
 	}
 	return nil
 }
