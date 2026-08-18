@@ -48,25 +48,9 @@ func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
 			receipts := res["result"].([]interface{})
 			require.Len(t, receipts, 0)
 
-			// the first block should have one receipt for sei_getBlockReceipts,
-			// with one synthetic log
-			res = sendRequestWithNamespace("sei", port, "getBlockReceipts", "0x2")
-			receipts = res["result"].([]interface{})
-			require.Len(t, receipts, 1)
-			logs = receipts[0].(map[string]any)["logs"].([]interface{})
-			require.Len(t, logs, 1)
-
 			// the second block should have one receipt for eth_getBlockReceipts,
 			// with two logs (one synthetic and one non-synthetic)
 			res = sendRequestWithNamespace("eth", port, "getBlockReceipts", "0x3")
-			receipts = res["result"].([]interface{})
-			require.Len(t, receipts, 1)
-			logs = receipts[0].(map[string]any)["logs"].([]interface{})
-			require.Len(t, logs, 2)
-
-			// the second block should have one receipt for sei_getBlockReceipts,
-			// with two logs (one synthetic and one non-synthetic)
-			res = sendRequestWithNamespace("sei", port, "getBlockReceipts", "0x3")
 			receipts = res["result"].([]interface{})
 			require.Len(t, receipts, 1)
 			logs = receipts[0].(map[string]any)["logs"].([]interface{})
@@ -87,23 +71,6 @@ func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
 			require.Equal(t, "0x1", logs[1].(map[string]any)["logIndex"])
 			require.Equal(t, "0x0", logs[1].(map[string]any)["transactionIndex"])
 
-			// sei_getLogs should return logs for both CW and EVM transaction. The CW
-			// tx has one and the EVM tx has two.
-			res = sendRequestWithNamespace("sei", port, "getLogs", map[string]any{
-				"fromBlock": "0x1",
-				"toBlock":   "latest",
-			})
-			logs = res["result"].([]interface{})
-			require.Len(t, logs, 3)
-			require.Equal(t, mixedLogTesterAddr, common.HexToAddress(logs[0].(map[string]any)["address"].(string)))
-			require.Equal(t, "0x0", logs[0].(map[string]any)["logIndex"])
-			require.Equal(t, "0x0", logs[0].(map[string]any)["transactionIndex"])
-			require.Equal(t, mixedLogTesterAddr, common.HexToAddress(logs[1].(map[string]any)["address"].(string)))
-			require.Equal(t, "0x0", logs[1].(map[string]any)["logIndex"])
-			require.Equal(t, "0x0", logs[1].(map[string]any)["transactionIndex"])
-			require.Equal(t, mixedLogTesterAddr, common.HexToAddress(logs[2].(map[string]any)["address"].(string)))
-			require.Equal(t, "0x1", logs[2].(map[string]any)["logIndex"])
-			require.Equal(t, "0x0", logs[2].(map[string]any)["transactionIndex"])
 		},
 	)
 }

@@ -4,8 +4,12 @@ import (
 	"context"
 	"sync"
 
+	gethcommon "github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/ethereum/go-ethereum/eth/tracers/tracersutils"
 	cosmoclient "github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -108,4 +112,30 @@ func (f *LogFetcher) TryFilterLogsRangeForTest(
 // MatchesCriteriaForTest re-exports log criteria matching for fake receipt stores in tests.
 func MatchesCriteriaForTest(log *ethtypes.Log, crit filters.FilterCriteria) bool {
 	return MatchesCriteria(log, crit)
+}
+
+func ProfiledTraceBlockParallelForTest(
+	api *DebugAPI,
+	ctx context.Context,
+	block *ethtypes.Block,
+	metadata []tracersutils.TraceBlockMetadata,
+	config *tracers.TraceConfig,
+	statedb vm.StateDB,
+	signer ethtypes.Signer,
+	blockHash gethcommon.Hash,
+	results []*tracers.TxTraceResult,
+	threads int,
+) ([]*tracers.TxTraceResult, error) {
+	return api.profiledTraceBlockParallel(ctx, block, metadata, config, statedb, signer, blockHash, results, threads)
+}
+
+func NewTraceBackendForTest(keeper *keeper.Keeper, ctxProvider func(int64) sdk.Context) *Backend {
+	return &Backend{
+		keeper:      keeper,
+		ctxProvider: ctxProvider,
+	}
+}
+
+func NewDebugAPIForTest(backend *Backend) *DebugAPI {
+	return &DebugAPI{backend: backend}
 }

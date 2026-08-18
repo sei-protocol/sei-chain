@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
@@ -14,6 +15,26 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/stretchr/testify/require"
 )
+
+func pushPeerLaneBlock(state *State, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+	lane := state.data.Registry().LatestEpoch().Committee().Lane(key.Public()).OrPanic("lane")
+	var b *types.Signed[*types.LaneProposal]
+	for inner, ctrl := range state.inner.Lock() {
+		q, ok := inner.blocks[lane]
+		if !ok {
+			return nil, ErrLaneClosed
+		}
+		n := q.next
+		var parent types.BlockHeaderHash
+		if q.first < q.next {
+			parent = q.q[q.next-1].Msg().Block().Header().Hash()
+		}
+		b = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, parent, payload)))
+		q.pushBack(b)
+		ctrl.Updated()
+	}
+	return b, nil
+}
 
 type byLane[T any] map[types.LaneID][]T
 
@@ -60,7 +81,113 @@ func TestStateWithPersistence(t *testing.T) {
 	}
 }
 
-// Test checking that State can correctly start collecting CommitQCs starting from arbitrary anchor.
+// TestPrune_AnchorEpochDropsClosedLane checks that prune drops closing-lane
+// maps when the Anchor epoch IsClosed them.
+func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 2)
+	a, b := keys[0], keys[1]
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+		ds := newTestDataState(&data.Config{Registry: registry})
+		sc.SpawnBgNamed("data.Run", func() error { return utils.IgnoreCancel(ds.Run(ctx)) })
+
+		ep0 := registry.LatestEpoch()
+		qc0, blocks0 := data.TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
+		if err := ds.PushQC(ctx, qc0, blocks0); err != nil {
+			return err
+		}
+		appHash0 := types.GenAppHash(rng)
+		if err := ds.PushAppHash(ctx, qc0.QC().GlobalRange().Next-1, appHash0); err != nil {
+			return err
+		}
+		if err := ds.PushAppQC(ctx, data.TestAppQC(keys, types.NewAppProposal(qc0.QC().Proposal(), appHash0))); err != nil {
+			return err
+		}
+		if _, err := ds.Anchor().Wait(ctx, func(anchor utils.Option[data.Anchor]) bool {
+			got, ok := anchor.Get()
+			return ok && got.CommitQC.Index() == qc0.QC().Index()
+		}); err != nil {
+			return err
+		}
+
+		state, err := NewState(a, ds, utils.None[string]())
+		if err != nil {
+			return fmt.Errorf("NewState: %w", err)
+		}
+		lane0 := state.LocalLane().OrPanic("genesis")
+		sub := state.SubscribeLaneProposals(lane0, 0)
+
+		ep1, err := registry.ActivateEpoch(
+			map[types.PublicKey]uint64{b.Public(): 1},
+			types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+		)
+		if err != nil {
+			return err
+		}
+		state.ApplyEpoch(ep1)
+
+		for inner := range state.inner.Lock() {
+			if _, ok := inner.blocks[lane0]; !ok {
+				return fmt.Errorf("ApplyEpoch must not drop closing-lane maps")
+			}
+		}
+
+		qc1, blocks1 := data.TestCommitQC(rng, ep1, []types.SecretKey{b}, utils.Some(qc0.QC()))
+		if err := ds.PushQC(ctx, qc1, blocks1); err != nil {
+			return err
+		}
+		appHash1 := types.GenAppHash(rng)
+		if err := ds.PushAppHash(ctx, qc1.QC().GlobalRange().Next-1, appHash1); err != nil {
+			return err
+		}
+		if err := ds.PushAppQC(ctx, data.TestAppQC([]types.SecretKey{b}, types.NewAppProposal(qc1.QC().Proposal(), appHash1))); err != nil {
+			return err
+		}
+		var anchor data.Anchor
+		if _, err := ds.Anchor().Wait(ctx, func(a utils.Option[data.Anchor]) bool {
+			got, ok := a.Get()
+			if ok && got.CommitQC.Index() == qc1.QC().Index() {
+				anchor = got
+				return true
+			}
+			return false
+		}); err != nil {
+			return err
+		}
+
+		for inner, ctrl := range state.inner.Lock() {
+			if inner.roads.first < inner.roads.next {
+				return fmt.Errorf("roads should be empty after tip prune")
+			}
+			if _, ok := inner.blocks[lane0]; !ok {
+				return fmt.Errorf("closing lane maps should still be present before anchor prune")
+			}
+			ep, err := anchorEpochOf(registry, anchor)
+			if err != nil {
+				return fmt.Errorf("anchorEpochOf: %w", err)
+			}
+			if ep.EpochIndex() != ep1.EpochIndex() {
+				return fmt.Errorf("anchorEpochOf: got epoch %d, want %d", ep.EpochIndex(), ep1.EpochIndex())
+			}
+			n := inner.prune(anchor, ep)
+			if n != 1 {
+				return fmt.Errorf("prune dropped %d lanes, want 1", n)
+			}
+			if _, ok := inner.blocks[lane0]; ok {
+				return fmt.Errorf("prune should have dropped closed lane0")
+			}
+			ctrl.Updated()
+		}
+		_, err = sub.Recv(ctx)
+		if !errors.Is(err, ErrLaneClosed) {
+			return fmt.Errorf("Subscribe Recv: got %v, want ErrLaneClosed", err)
+		}
+		return nil
+	}))
+}
+
 func TestAnchorResetsState(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -141,12 +268,12 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			want := byLane[types.PayloadHash]{}
 			for range 10 {
 				key := keys[rng.Intn(len(keys))]
-				lane := key.Public()
+				lane := committee.Lane(key.Public()).OrPanic("lane")
 				p := types.GenPayload(rng)
 				want[lane] = append(want[lane], p.Hash())
-				b, err := state.produceLocalBlock(state.NextBlock(lane), key, p)
+				b, err := pushPeerLaneBlock(state, key, p)
 				if err != nil {
-					return fmt.Errorf("state.produceLocalBlock(): %w", err)
+					return fmt.Errorf("pushPeerLaneBlock(): %w", err)
 				}
 				if err := utils.TestDiff(b.Msg().Block().Payload(), p); err != nil {
 					return fmt.Errorf("snapshot: %w", err)
@@ -276,8 +403,8 @@ func TestStateRestartFromPersisted(t *testing.T) {
 
 			for range 5 {
 				key := keys[rng.Intn(len(keys))]
-				if _, err := state.produceLocalBlock(state.NextBlock(key.Public()), key, types.GenPayload(rng)); err != nil {
-					return fmt.Errorf("produceLocalBlock: %w", err)
+				if _, err := pushPeerLaneBlock(state, key, types.GenPayload(rng)); err != nil {
+					return fmt.Errorf("pushPeerLaneBlock: %w", err)
 				}
 			}
 
@@ -360,12 +487,13 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	ds := newTestDataState(&data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(keys[0], ds, utils.Some(t.TempDir())))
 
+	committee := registry.LatestEpoch().Committee()
+	lane := committee.Lane(keys[0].Public()).OrPanic("lane")
 	// Produce a valid first block on our lane.
-	_, err := state.ProduceLocalBlock(state.NextBlock(keys[0].Public()), types.GenPayload(rng))
+	_, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
 	require.NoError(t, err)
 
 	// Create a second block with a fake parentHash.
-	lane := keys[0].Public()
 	fakeBlock := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	fakeProp := types.Sign(keys[0], types.NewLaneProposal(fakeBlock))
 
@@ -383,8 +511,8 @@ func TestPushBlockRejectsWrongSigner(t *testing.T) {
 	ds := newTestDataState(&data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(keys[0], ds, utils.Some(t.TempDir())))
 
+	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("lane")
 	// Create a block on keys[0]'s lane but sign it with keys[1].
-	lane := keys[0].Public()
 	block := types.NewBlock(lane, 0, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	prop := types.Sign(keys[1], types.NewLaneProposal(block))
 
@@ -409,7 +537,7 @@ func TestNewStateWithPersistence(t *testing.T) {
 	t.Run("loads persisted blocks", func(t *testing.T) {
 		dir := t.TempDir()
 		ds := newTestDataState(&data.Config{Registry: registry})
-		lane := keys[0].Public()
+		lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("lane")
 
 		// Persist blocks using BlockPersister.
 		bp, _, err := persist.NewBlockPersister(utils.Some(dir))
@@ -420,7 +548,11 @@ func TestNewStateWithPersistence(t *testing.T) {
 			block := types.NewBlock(lane, n, parent, types.GenPayload(rng))
 			signed := types.Sign(keys[0], types.NewLaneProposal(block))
 			parent = block.Header().Hash()
-			require.NoError(t, bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{signed}))
+			require.NoError(t, bp.PruneAndPersist(
+				lane,
+				0,
+				[]*types.Signed[*types.LaneProposal]{signed},
+			))
 		}
 
 		// Release the seeding persister's WAL locks before NewState opens the same directory.

@@ -12,7 +12,6 @@ func TestBucketRPCMethod_KnownNamespaces(t *testing.T) {
 	require.Equal(t, "eth", bucketRPCMethod("eth_getBalance"))
 	require.Equal(t, "debug", bucketRPCMethod("debug_traceTransaction"))
 	require.Equal(t, "web3", bucketRPCMethod("web3_clientVersion"))
-	require.Equal(t, "sei2", bucketRPCMethod("sei2_getBlock"))
 }
 
 func TestBucketRPCMethod_UnknownOrMalformed(t *testing.T) {

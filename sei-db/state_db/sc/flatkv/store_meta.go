@@ -1,19 +1,17 @@
 package flatkv
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 // versionToBytes encodes a non-negative version as 8-byte big-endian.
@@ -28,21 +26,33 @@ func versionToBytes(v int64) []byte {
 	return b
 }
 
-// loadLocalMeta loads per-DB metadata by reading separate keys.
+// loadLocalMeta loads per-DB metadata by reading separate keys. A DB missing its version record is
+// reported as one that has never been written, and rejected if it carries any other metadata.
 func loadLocalMeta(db types.KeyValueDB) (*ktype.LocalMeta, error) {
 	meta := &ktype.LocalMeta{}
 
 	versionData, err := db.Get(ktype.MetaVersionKey)
 	if err != nil {
 		if errorutils.IsNotFound(err) {
+			// Metadata is written as a set, so a DB missing its version must hold no metadata at
+			// all. Reporting one that holds some as never-written would hide a lost root behind a
+			// replay that cannot restore it: the hashes are maintained by unmixing the old value
+			// and mixing the new, so re-applying a block whose rows are already on disk cancels
+			// out and leaves those rows uncounted, silently changing the store root.
+			//
+			// Rebuilding the root here instead would mean a full scan of the DB, and unlike an
+			// import or an empty DB this path is not already making one.
+			if err := requireNoMetadata(db); err != nil {
+				return nil, err
+			}
 			return &ktype.LocalMeta{CommittedVersion: 0}, nil
 		}
 		return nil, fmt.Errorf("could not read meta version: %w", err)
 	}
-	if len(versionData) != 8 {
-		return nil, fmt.Errorf("invalid meta version length: got %d, want 8", len(versionData))
+	meta.CommittedVersion, err = decodeVersion(ktype.MetaVersionKey, versionData)
+	if err != nil {
+		return nil, err
 	}
-	meta.CommittedVersion = int64(binary.BigEndian.Uint64(versionData)) //nolint:gosec // version won't exceed int64 max
 
 	hashData, err := db.Get(ktype.MetaLtHashKey)
 	if err != nil && !errorutils.IsNotFound(err) {
@@ -71,9 +81,28 @@ func loadLocalMeta(db types.KeyValueDB) (*ktype.LocalMeta, error) {
 	return meta, nil
 }
 
+// requireNoMetadata returns an error if db holds any key in the _meta/ namespace.
+func requireNoMetadata(db types.KeyValueDB) error {
+	iter, err := db.NewIter(&types.IterOptions{
+		LowerBound: ktype.MetaKeyPrefixBytes,
+		UpperBound: ktype.PrefixEnd(ktype.MetaKeyPrefixBytes),
+	})
+	if err != nil {
+		return fmt.Errorf("open metadata iterator: %w", err)
+	}
+	defer func() { _ = iter.Close() }()
+
+	if iter.Valid() {
+		return fmt.Errorf("flatkv: %s is absent but %s is present; this DB lost its version record, "+
+			"and no replay can rebuild the root it should have",
+			ktype.MetaVersionKey, iter.Key())
+	}
+	return iter.Error()
+}
+
 // loadModuleLtHashes reads every per-module LtHash key ("_meta/x:<module>/hash")
 // from db and returns them keyed by module name. Returns an empty map when the
-// DB carries none (fresh store or a store written before per-module tracking).
+// DB carries none, meaning it has never been written or holds no module's keys.
 func loadModuleLtHashes(db types.KeyValueDB) (map[string]*lthash.LtHash, error) {
 	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: ktype.ModuleLtHashPrefixBytes,
@@ -104,8 +133,7 @@ func loadModuleLtHashes(db types.KeyValueDB) (map[string]*lthash.LtHash, error) 
 
 // loadModuleStats reads every per-module stats key ("_meta/x:<module>/stats")
 // from db and returns them keyed by module name. Returns an empty map when the
-// DB carries none (fresh store or a store written before per-module stats
-// tracking).
+// DB carries none, meaning it has never been written or holds no module's keys.
 func loadModuleStats(db types.KeyValueDB) (map[string]lthash.ModuleStats, error) {
 	iter, err := db.NewIter(&types.IterOptions{
 		LowerBound: ktype.ModuleLtHashPrefixBytes,
@@ -135,7 +163,8 @@ func loadModuleStats(db types.KeyValueDB) (map[string]lthash.ModuleStats, error)
 }
 
 // writeLocalMetaToBatch writes per-DB metadata (version + per-DB root LtHash +
-// per-module LtHashes + per-module stats) as separate keys.
+// per-module LtHashes + per-module stats) as separate keys. It rejects a nil
+// ltHash.
 func writeLocalMetaToBatch(
 	batch types.Batch,
 	version int64,
@@ -143,7 +172,11 @@ func writeLocalMetaToBatch(
 	moduleHashes map[string]*lthash.LtHash,
 	moduleStats map[string]lthash.ModuleStats,
 ) error {
-	for _, pair := range encodeLocalMeta(version, ltHash, moduleHashes, moduleStats) {
+	pairs, err := encodeLocalMeta(version, ltHash, moduleHashes, moduleStats)
+	if err != nil {
+		return err
+	}
+	for _, pair := range pairs {
 		if err := batch.Set(pair.Key, pair.Value); err != nil {
 			return fmt.Errorf("set %q: %w", pair.Key, err)
 		}
@@ -155,18 +188,23 @@ func writeLocalMetaToBatch(
 // caller to hand to Snapshot.Finalize so they land in the same atomic batch as that version's diff.
 //
 // The pairs are the committed version, the per-DB root LtHash, and a hash plus a stats entry per
-// module.
+// module. It rejects a nil ltHash.
 func encodeLocalMeta(
 	version int64,
 	ltHash *lthash.LtHash,
 	moduleHashes map[string]*lthash.LtHash,
 	moduleStats map[string]lthash.ModuleStats,
-) []*proto.KVPair {
+) ([]*proto.KVPair, error) {
+	if ltHash == nil {
+		// The version and the root must be co-present on disk. deriveGlobalState sums the persisted
+		// per-DB roots into the store root, and hydratePerDBState substitutes the identity for a DB
+		// that records none — so a DB carrying a version without a root would contribute nothing to
+		// the store root while holding data, silently omitting its keys from the AppHash.
+		return nil, fmt.Errorf("flatkv: refusing to write metadata for version %d with no root hash", version)
+	}
 	pairs := make([]*proto.KVPair, 0, 2+len(moduleHashes)+len(moduleStats))
 	pairs = append(pairs, &proto.KVPair{Key: ktype.MetaVersionKey, Value: versionToBytes(version)})
-	if ltHash != nil {
-		pairs = append(pairs, &proto.KVPair{Key: ktype.MetaLtHashKey, Value: ltHash.Marshal()})
-	}
+	pairs = append(pairs, &proto.KVPair{Key: ktype.MetaLtHashKey, Value: ltHash.Marshal()})
 	for module, h := range moduleHashes {
 		if h == nil {
 			continue
@@ -176,31 +214,7 @@ func encodeLocalMeta(
 	for module, st := range moduleStats {
 		pairs = append(pairs, &proto.KVPair{Key: ktype.ModuleStatsKey(module), Value: st.Marshal()})
 	}
-	return pairs
-}
-
-// encodeGlobalMetadata encodes the committed version and root LtHash as reserved-prefix pairs for the
-// metadata store's Finalize.
-func encodeGlobalMetadata(version int64, hash *lthash.LtHash) []*proto.KVPair {
-	pairs := []*proto.KVPair{
-		{Key: ktype.MetaVersionKey, Value: versionToBytes(version)},
-	}
-	if hash != nil {
-		pairs = append(pairs, &proto.KVPair{Key: ktype.MetaLtHashKey, Value: hash.Marshal()})
-	}
-	return pairs
-}
-
-// encodeSeedMetadata encodes what a seeded version records store-wide: the committed version, the root
-// LtHash, and the height this store's history begins at.
-//
-// It is separate from encodeGlobalMetadata because the earliest-version record is written once, when a store
-// is seeded, and never revised — where encodeGlobalMetadata runs on every block.
-func encodeSeedMetadata(seededVersion int64, hash *lthash.LtHash) []*proto.KVPair {
-	return append(
-		encodeGlobalMetadata(seededVersion, hash),
-		&proto.KVPair{Key: ktype.MetaEarliestVersionKey, Value: versionToBytes(seededVersion)},
-	)
+	return pairs, nil
 }
 
 // validatePerModuleMetadata enforces the load-time invariant that a persisted
@@ -269,75 +283,17 @@ func cloneModuleStats(src map[string]lthash.ModuleStats) map[string]lthash.Modul
 	return dst
 }
 
-// loadGlobalVersion reads the global committed version from metadata DB.
-// Returns 0 if not found (fresh start).
-func loadGlobalVersion(metaDB types.KeyValueDB) (int64, error) {
-	data, err := metaDB.Get(ktype.MetaVersionKey)
-	if errorutils.IsNotFound(err) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("failed to read global version: %w", err)
-	}
+// decodeVersion parses an 8-byte big-endian version record; key names it in
+// error messages.
+func decodeVersion(key []byte, data []byte) (int64, error) {
 	if len(data) != 8 {
-		return 0, fmt.Errorf("invalid global version length: got %d, want 8", len(data))
+		return 0, fmt.Errorf("invalid %s length: got %d, want 8", key, len(data))
 	}
 	v := binary.BigEndian.Uint64(data)
 	if v > math.MaxInt64 {
-		return 0, fmt.Errorf("global version overflow: %d exceeds max int64", v)
+		return 0, fmt.Errorf("%s overflow: %d exceeds max int64", key, v)
 	}
 	return int64(v), nil //nolint:gosec // overflow checked above
-}
-
-// loadGlobalEarliestVersion reads the earliest-history version recorded by
-// SetInitialVersion. Returns 0 if not found (genesis stores, or stores
-// created before this record existed).
-func loadGlobalEarliestVersion(metaDB types.KeyValueDB) (int64, error) {
-	data, err := metaDB.Get(ktype.MetaEarliestVersionKey)
-	if errorutils.IsNotFound(err) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("failed to read global earliest version: %w", err)
-	}
-	if len(data) != 8 {
-		return 0, fmt.Errorf("invalid global earliest version length: got %d, want 8", len(data))
-	}
-	v := binary.BigEndian.Uint64(data)
-	if v > math.MaxInt64 {
-		return 0, fmt.Errorf("global earliest version overflow: %d exceeds max int64", v)
-	}
-	return int64(v), nil //nolint:gosec // overflow checked above
-}
-
-// loadGlobalLtHash reads the global committed LtHash from metadata DB.
-// Returns nil if not found (fresh start).
-func loadGlobalLtHash(metaDB types.KeyValueDB) (*lthash.LtHash, error) {
-	data, err := metaDB.Get(ktype.MetaLtHashKey)
-	if errorutils.IsNotFound(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to read global lthash: %w", err)
-	}
-	return lthash.Unmarshal(data)
-}
-
-// commitGlobalMetadata atomically commits global version and global LtHash
-// to metadata DB. Per-DB LtHashes are stored in each DB's LocalMeta
-// (committed atomically with data in commitBatches).
-func (s *CommitStore) commitGlobalMetadata(version int64, hash *lthash.LtHash) error {
-	batch := s.rawDBFor(metadataDir).NewBatch()
-	defer func() { _ = batch.Close() }()
-
-	if err := batch.Set(ktype.MetaVersionKey, versionToBytes(version)); err != nil {
-		return fmt.Errorf("failed to set global version: %w", err)
-	}
-	if err := batch.Set(ktype.MetaLtHashKey, hash.Marshal()); err != nil {
-		return fmt.Errorf("failed to set global lthash: %w", err)
-	}
-
-	return batch.Commit(types.WriteOptions{Sync: s.config.Fsync})
 }
 
 // newPerDBLtHashMap returns a map with a fresh zero LtHash for each data DB.
@@ -374,14 +330,12 @@ func newPerDBModuleStatsMap() map[string]map[string]lthash.ModuleStats {
 // valid on a truly fresh store (committedVersion == 0 and no prior commits),
 // rejected on read-only stores, and persists durably across restart.
 //
-// It records initialVersion-1 as the height every database has reached and as the height this store's
-// history begins at, so Commit(initialVersion) is the next contiguous block. LtHashes stay at their zero
-// values: a freshly seeded store holds no data.
+// It records initialVersion-1 as the height every database has reached, so Commit(initialVersion) is
+// the next contiguous block. LtHashes stay at their zero values: a freshly seeded store holds no data.
 //
-// A partial-write crash recovers as a fresh store rather than as a half-seeded one. loadGlobalMetadata
-// lowers the store-wide version to the lowest any database reports, so a store-wide record that landed
-// without its per-database counterparts reads back as version 0 — which is what a retry with the same
-// initialVersion expects.
+// The per-database writes are atomic individually but not with one another, so a crash partway through
+// leaves a torn seed. The open path discards one, which makes a retry with any initialVersion valid and
+// not only the one that was interrupted.
 func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	if s.readOnly {
 		return errReadOnly
@@ -419,7 +373,6 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	}
 
 	s.committedVersion = seededVersion
-	s.earliestVersion = seededVersion
 
 	// The seal only stages the records; the engines flush asynchronously. Wait for them so the seed is
 	// durable across a restart, as this method promises. For a non-genesis seed the snapshot below supplies
@@ -437,82 +390,74 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	return nil
 }
 
-// GetLatestVersion returns the latest committed version persisted under
-// dir without holding an open *CommitStore. Mirrors memiavl.GetLatestVersion
-// in role: a side-channel for callers that need the on-disk watermark
-// before LoadLatest has run (e.g. the rootmulti sanity check at
-// process startup). Returns 0 when the store has never been opened or
-// has no commits yet.
+// GetLatestVersion returns the version a store opened on dir will report once LoadLatest has run.
+// A directory that has never been opened reads as 0.
 //
-// The truth source is MetaVersionKey in working/metadata. The working
-// dir survives across restarts and is updated on every Commit, so this
-// matches the precision of memiavl.GetLatestVersion (which reads the
-// WAL tail). It must not be called concurrently with a running
-// CommitStore on dir, because the underlying PebbleDB takes an
-// exclusive file lock.
+// It must not be called while a CommitStore holds dir's WAL open; such a caller should use
+// CommitStore.GetLatestVersion instead.
 func GetLatestVersion(dir string) (int64, error) {
-	return readVersionRecord(dir, ktype.MetaVersionKey)
+	return latestVersion(dir, nil)
 }
 
-// GetEarliestVersion returns the version the history of the store under dir
-// begins at, without holding an open *CommitStore. It is the on-disk twin of
-// CommitStore.EarliestVersion, and carries the same meaning: a non-zero result
-// means versions below it predate the store entirely, as opposed to pruned or
-// corrupt in-history versions. Returns 0 when the store was never seeded.
-//
-// The truth source is MetaEarliestVersionKey in working/metadata, written once
-// by SetInitialVersion. It never travels through the state WAL, so no replay
-// can change it and this answer does not depend on one. Like GetLatestVersion,
-// it must not be called concurrently with a running CommitStore on dir.
-func GetEarliestVersion(dir string) (int64, error) {
-	return readVersionRecord(dir, ktype.MetaEarliestVersionKey)
+// latestVersion resolves the version a store on dir will open at, reading the WAL range through wal
+// when that is non-nil and out-of-band otherwise.
+func latestVersion(dir string, wal statewal.StateWAL) (int64, error) {
+	// An open loads the working directory from the current snapshot and then replays the WAL forward
+	// over it, so the higher of those two is where it lands. A per-DB watermark would not do: those
+	// are written after the WAL record and trail it by a block whenever a commit is interrupted.
+	snapshotVersion, err := currentSnapshotVersion(dir)
+	if err != nil {
+		return 0, err
+	}
+	walVersion, err := walTailVersion(dir, wal)
+	if err != nil {
+		return 0, err
+	}
+	return max(snapshotVersion, walVersion), nil
 }
 
-// readVersionRecord reads one 8-byte big-endian version record out of the
-// working metadata DB under dir, opening and closing that single PebbleDB
-// around the read. An absent directory or key reads as 0.
-func readVersionRecord(dir string, key []byte) (int64, error) {
-	metaDir := filepath.Join(dir, workingDirName, metadataDir)
-	if _, err := os.Stat(metaDir); err != nil {
+// currentSnapshotVersion returns the version of the snapshot the current symlink names, or 0 when
+// there is none.
+func currentSnapshotVersion(dir string) (int64, error) {
+	_, version, err := currentSnapshotDir(dir)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil
 		}
-		return 0, fmt.Errorf("flatkv: stat working metadata dir %q: %w", metaDir, err)
+		return 0, fmt.Errorf("flatkv: resolve current snapshot under %q: %w", dir, err)
 	}
-
-	cfg := pebbledb.DefaultConfig()
-	cfg.DataDir = metaDir
-	cfg.EnableMetrics = false
-	db, err := pebbledb.Open(context.Background(), &cfg)
-	if err != nil {
-		return 0, fmt.Errorf("flatkv: open working metadata at %q: %w", cfg.DataDir, err)
-	}
-	defer func() { _ = db.Close() }()
-
-	data, err := db.Get(key)
-	if errorutils.IsNotFound(err) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("flatkv: read %s: %w", key, err)
-	}
-	if len(data) != 8 {
-		return 0, fmt.Errorf("flatkv: invalid %s length: got %d, want 8", key, len(data))
-	}
-	v := binary.BigEndian.Uint64(data)
-	if v > math.MaxInt64 {
-		return 0, fmt.Errorf("flatkv: %s overflow: %d exceeds max int64", key, v)
-	}
-	return int64(v), nil //nolint:gosec // overflow checked above
+	return version, nil
 }
 
-// GetLatestVersion returns the latest committed version. When the store
-// is open, the in-memory committed watermark is authoritative; before
-// LoadLatest has run, it falls back to the free-standing on-disk
-// helper. Either path returns 0 on a fresh store.
+// walTailVersion returns the last block the state WAL under dir holds, or 0 when it holds none. It
+// reads through wal when that is non-nil and out-of-band otherwise.
+func walTailVersion(dir string, wal statewal.StateWAL) (int64, error) {
+	readRange := func() (bool, uint64, uint64, error) {
+		if wal != nil {
+			return wal.GetStoredRange()
+		}
+		// Reading out-of-band takes the changelog's exclusive lock, so it fails against a store that
+		// holds the WAL — which is why a caller with a handle passes it rather than relying on dir.
+		return statewal.GetRange(stateWALConfig(dir))
+	}
+	stored, _, last, err := readRange()
+	if err != nil {
+		return 0, fmt.Errorf("flatkv: read state WAL range under %q: %w", dir, err)
+	}
+	if !stored {
+		return 0, nil
+	}
+	if last > math.MaxInt64 {
+		return 0, fmt.Errorf("flatkv: state WAL last block %d exceeds max int64", last)
+	}
+	return int64(last), nil //nolint:gosec // bounds checked above
+}
+
+// GetLatestVersion returns the version this store is at, or will be at once loaded. A fresh store
+// returns 0.
 func (s *CommitStore) GetLatestVersion() (int64, error) {
-	if s.rawDBFor(metadataDir) != nil {
+	if !s.isClosed() {
 		return s.committedVersion, nil
 	}
-	return GetLatestVersion(s.flatkvDir())
+	return latestVersion(s.flatkvDir(), s.wal)
 }

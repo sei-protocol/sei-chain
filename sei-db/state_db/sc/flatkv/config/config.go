@@ -19,10 +19,9 @@ type Config struct {
 	// Must be set before calling Validate().
 	DataDir string
 
-	// Fsync controls whether FlatKV's PebbleDB commits are fsync'd: the metadata database's
-	// writes and every snapshot engine's flush. It overwrites each store config's FlushSync,
-	// so the five databases are always synced alike. The state WAL is unaffected and always
-	// writes NoSync.
+	// Fsync controls whether every snapshot engine's flush is fsync'd. It overwrites each store
+	// config's FlushSync, so the four databases are always synced alike. The state WAL is
+	// unaffected and always writes NoSync.
 	// Default: false
 	Fsync bool `mapstructure:"fsync"`
 
@@ -92,13 +91,6 @@ type Config struct {
 	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
 	MiscStoreConfig snapshot.SnapshotEngineConfig
 
-	// MetadataDBConfig defines the PebbleDB configuration for the metadata database.
-	MetadataDBConfig pebbledb.PebbleDBConfig
-
-	// MetadataStoreConfig defines the snapshot engine configuration for the metadata database. The store
-	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
-	MetadataStoreConfig snapshot.SnapshotEngineConfig
-
 	// Controls the number of goroutines in the DB read pool. The number of threads in this pool is equal to
 	// ReaderThreadsPerCore * runtime.NumCPU() + ReaderConstantThreadCount.
 	ReaderThreadsPerCore float64
@@ -152,8 +144,6 @@ func DefaultConfig() *Config {
 		StorageStoreConfig:        defaultStoreConfig("storage"),
 		MiscDBConfig:              pebbledb.DefaultConfig(),
 		MiscStoreConfig:           defaultStoreConfig("misc"),
-		MetadataDBConfig:          pebbledb.DefaultConfig(),
-		MetadataStoreConfig:       defaultStoreConfig("metadata"),
 		ReaderThreadsPerCore:      2.0,
 		ReaderConstantThreadCount: 0,
 		ReaderPoolQueueSize:       1024,
@@ -189,9 +179,6 @@ func (c *Config) Validate() error {
 	if err := c.MiscStoreConfig.Validate(); err != nil {
 		return fmt.Errorf("misc store config is invalid: %w", err)
 	}
-	if err := c.MetadataStoreConfig.Validate(); err != nil {
-		return fmt.Errorf("metadata store config is invalid: %w", err)
-	}
 	if c.DataDir == "" {
 		return fmt.Errorf("data dir is required")
 	}
@@ -206,9 +193,6 @@ func (c *Config) Validate() error {
 	}
 	if err := c.MiscDBConfig.Validate(); err != nil {
 		return fmt.Errorf("misc db config is invalid: %w", err)
-	}
-	if err := c.MetadataDBConfig.Validate(); err != nil {
-		return fmt.Errorf("metadata db config is invalid: %w", err)
 	}
 
 	if c.ReaderThreadsPerCore <= 0 {

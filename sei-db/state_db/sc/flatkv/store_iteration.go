@@ -17,7 +17,7 @@ import (
 // RawGlobalIterator returns an iterator over all committed keys across the
 // data DBs (account, code, storage, misc), merged in global lexicographic
 // order. Within each DB, keys are in key order. Per-DB _meta/* keys are skipped by the stores
-// themselves. metadataDB is not included.
+// themselves.
 //
 // Requires that no block be staged: see the check below.
 //
@@ -43,10 +43,6 @@ func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 
 	children := make([]dbm.Iterator, 0, len(s.stores))
 	for _, store := range s.stores {
-		if store.Name() == metadataDir {
-			// Engine bookkeeping, not state.
-			continue
-		}
 		storeIter, err := store.Iterator(nil)
 		if err != nil {
 			closeIterators(children)

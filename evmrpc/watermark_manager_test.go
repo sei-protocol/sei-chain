@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -335,8 +334,8 @@ func (*fakeTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (*fakeTMClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	return utils.None[*url.URL]()
+func (*fakeTMClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	return utils.None[*rpc.Client]()
 }
 
 func (f *fakeTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {

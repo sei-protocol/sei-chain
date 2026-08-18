@@ -17,7 +17,10 @@ func newBlockVotes() blockVotes {
 }
 
 // Returns true iff a new QC has been constructed.
-// TODO: handle epoch transitions — weight must be counted per-epoch committee once multi-epoch is wired up.
+// Weight is counted under ep's committee (PushVote passes the applied epoch).
+// TODO: votes accepted only under the Anchor epoch can have Weight 0 under the
+// applied committee but are still appended into the LaneQC sig list; filter
+// those out when forming a LaneQC (leave-across-epochs).
 func (bv blockVotes) pushVote(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) (*types.LaneQC, bool) {
 	c := ep.Committee()
 	k := vote.Key()

@@ -953,7 +953,6 @@ func TestReadOnlyViewDisablesEngineMetrics(t *testing.T) {
 	cfg.CodeStoreConfig.MetricsEnabled = true
 	cfg.StorageStoreConfig.MetricsEnabled = true
 	cfg.MiscStoreConfig.MetricsEnabled = true
-	cfg.MetadataStoreConfig.MetricsEnabled = true
 
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
@@ -969,7 +968,6 @@ func TestReadOnlyViewDisablesEngineMetrics(t *testing.T) {
 	require.False(t, ro.config.CodeStoreConfig.MetricsEnabled)
 	require.False(t, ro.config.StorageStoreConfig.MetricsEnabled)
 	require.False(t, ro.config.MiscStoreConfig.MetricsEnabled)
-	require.False(t, ro.config.MetadataStoreConfig.MetricsEnabled)
 
 	// The store the view was cloned from keeps reporting.
 	require.True(t, s.config.AccountStoreConfig.MetricsEnabled)

@@ -677,7 +677,7 @@ func (s *stubSnapshot) AwaitFlush(ctx context.Context) error {
 // Every stub fails, so "all of them were attempted" holds whatever order the map is walked in — with a
 // single failing entry among healthy ones the check would only catch a short-circuit half the time.
 func TestReleaseLastSealedReportsFailureAndReleasesAll(t *testing.T) {
-	names := []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir, metadataDir}
+	names := []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir}
 
 	stubs := make(map[string]*stubSnapshot, len(names))
 	sealed := make(map[string]snapshot.Snapshot, len(names))

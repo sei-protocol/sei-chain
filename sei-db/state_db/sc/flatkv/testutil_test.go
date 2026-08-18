@@ -22,6 +22,76 @@ import (
 // Test Helpers
 // =============================================================================
 
+// namedDB pairs a data DB's directory name with the raw handle beneath its snapshot engine.
+type namedDB struct {
+	dir string
+	db  types.KeyValueDB
+}
+
+// rewindVersionRecords rewrites every data DB's version record, lowering the
+// store's watermark the way a torn commit does. Pass one dir to skew a single DB.
+func rewindVersionRecords(t *testing.T, s *CommitStore, version int64, dirs ...string) {
+	t.Helper()
+	for _, ndb := range selectDataDBs(t, s, dirs) {
+		require.NoError(t, ndb.db.Set(ktype.MetaVersionKey, versionToBytes(version),
+			types.WriteOptions{Sync: true}))
+	}
+}
+
+// stampSeedRecords writes the records SetInitialVersion would leave — a version
+// and the identity root — straight into the named data DBs. Stamping a subset
+// reproduces a seed that crashed partway through its four writes, a state the
+// public API cannot produce because a successful seed also writes a snapshot.
+func stampSeedRecords(t *testing.T, s *CommitStore, version int64, dirs ...string) {
+	t.Helper()
+	opts := types.WriteOptions{Sync: true}
+	for _, ndb := range selectDataDBs(t, s, dirs) {
+		require.NoError(t, ndb.db.Set(ktype.MetaVersionKey, versionToBytes(version), opts))
+		require.NoError(t, ndb.db.Set(ktype.MetaLtHashKey, lthash.New().Marshal(), opts))
+	}
+}
+
+// stripMetaRecords deletes the named data DBs' version and root records, leaving
+// them as DBs that never had metadata written. Their data, if any, survives.
+func stripMetaRecords(t *testing.T, s *CommitStore, dirs ...string) {
+	t.Helper()
+	opts := types.WriteOptions{Sync: true}
+	for _, ndb := range selectDataDBs(t, s, dirs) {
+		require.NoError(t, ndb.db.Delete(ktype.MetaVersionKey, opts))
+		require.NoError(t, ndb.db.Delete(ktype.MetaLtHashKey, opts))
+	}
+}
+
+// writeRawDataKey puts a key outside the _meta/ namespace straight into one data
+// DB, bypassing the commit path so the DB holds data no metadata accounts for.
+func writeRawDataKey(t *testing.T, s *CommitStore, dir string, key, value []byte) {
+	t.Helper()
+	for _, ndb := range selectDataDBs(t, s, []string{dir}) {
+		require.NoError(t, ndb.db.Set(key, value, types.WriteOptions{Sync: true}))
+	}
+}
+
+// selectDataDBs returns the raw databases named by dirs, or all four when dirs is empty.
+//
+// It waits for the engines to flush first, which is what makes a forgery written through the returned
+// handles stick: the engines write asynchronously, so a record already staged would otherwise land on
+// top of whatever the caller writes next.
+func selectDataDBs(t *testing.T, s *CommitStore, dirs []string) []namedDB {
+	t.Helper()
+	requireFlushedToDisk(t, s)
+
+	if len(dirs) == 0 {
+		dirs = dataDBDirs
+	}
+	selected := make([]namedDB, 0, len(dirs))
+	for _, dir := range dirs {
+		db := s.rawDBFor(dir)
+		require.NotNil(t, db, "no engine for %s", dir)
+		selected = append(selected, namedDB{dir: dir, db: db})
+	}
+	return selected
+}
+
 // evmStorageKey builds a prefix-encoded storage key for the external Get/Has API.
 func evmStorageKey(addr ktype.Address, slot ktype.Slot) []byte {
 	internal := ktype.StorageKey(addr, slot)

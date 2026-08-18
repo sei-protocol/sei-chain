@@ -33,8 +33,8 @@ func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChange
 // block; version must equal the height the pending writes were stamped with. Consecutive commits must also
 // be contiguous: the state WAL rejects a version that skips a height, though the first block written to an
 // empty WAL may be any height.
-// Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
-// On crash, catchup replays WAL to recover incomplete commits.
+// Protocol: WAL → seal on every store, each one's LocalMeta finalized into the same batch as its diff
+// → asynchronous flush. On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	start := time.Now()
 
@@ -244,15 +244,8 @@ func (s *CommitStore) hashSealedBlock(sealed map[string]snapshot.Snapshot) error
 // The stores are read concurrently on the misc pool; each one is an independent snapshot diff followed
 // by a batch read of the previous snapshot.
 //
-// Only the four data stores are read: the metadata store holds store bookkeeping rather than state, and
-// nothing it contains may reach a hash. That is load-bearing, not tidiness. The store-wide record is
-// written once per block during catch-up and is transiently inconsistent while the databases sit at
-// different heights (see loadGlobalMetadata); the whole reason that is harmless is that no hash reads
-// it. A change that folded the stored store-wide LtHash into a computation, or added the metadata
-// directory to dataDBDirs, would break that silently and make the inconsistency consensus-visible.
-//
-// The store-wide root is likewise rebuilt from scratch on every seal — HashCalculator.Compute sums the
-// four per-database roots and never mixes in the previous store-wide value.
+// The store-wide root is rebuilt from scratch on every seal — HashCalculator.Compute sums the four
+// per-database roots and never mixes in the previous store-wide value.
 func (s *CommitStore) changedValuesByStore(sealed map[string]snapshot.Snapshot) ([]lthash.DBPairs, error) {
 	changed := make([][]lthash.KVPairWithLastValue, len(dataDBDirs))
 	errs := make([]error, len(dataDBDirs))
@@ -364,8 +357,7 @@ func (s *CommitStore) flushLatestVersion() error {
 	return nil
 }
 
-// finalizeStore finalizes one store's sealed block, recording the metadata that describes it: a data
-// store records its LocalMeta, the metadata store records the committed version and root LtHash.
+// finalizeStore finalizes one store's sealed block, recording the LocalMeta that describes it.
 //
 // A store that already reached this height records nothing. Its writes were skipped, so its hash still
 // describes the later height it holds; writing this block's height alongside that hash would persist a
@@ -376,16 +368,14 @@ func (s *CommitStore) finalizeStore(snap snapshot.Snapshot, version int64, alrea
 		return snap.Finalize(nil)
 	}
 
-	var writes []*proto.KVPair
-	if snap.Name() == metadataDir {
-		writes = encodeGlobalMetadata(version, s.workingLtHash)
-	} else {
-		writes = encodeLocalMeta(
-			version,
-			s.perDBWorkingLtHash[snap.Name()],
-			s.perDBModuleWorkingLtHash[snap.Name()],
-			s.perDBModuleWorkingStats[snap.Name()],
-		)
+	writes, err := encodeLocalMeta(
+		version,
+		s.perDBWorkingLtHash[snap.Name()],
+		s.perDBModuleWorkingLtHash[snap.Name()],
+		s.perDBModuleWorkingStats[snap.Name()],
+	)
+	if err != nil {
+		return fmt.Errorf("encode %s local meta at version %d: %w", snap.Name(), version, err)
 	}
 	if err := snap.Finalize(writes); err != nil {
 		return fmt.Errorf("finalize snapshot at version %d: %w", version, err)
@@ -399,9 +389,10 @@ type rawKVPair struct {
 	Value []byte
 }
 
-// FinalizeImport persists per-DB metadata (version + LtHash) and global
-// metadata after all import data has been written. This must be called
-// exactly once at the end of an import to make the data durable across restarts.
+// FinalizeImport persists each data DB's metadata (version + LtHash) after all
+// import data has been written, and recomputes the store's global state from it.
+// This must be called exactly once at the end of an import to make the data
+// durable across restarts.
 func (s *CommitStore) FinalizeImport(version int64) error {
 	syncOpt := types.WriteOptions{Sync: true}
 	for _, dir := range dataDBDirs {
@@ -434,14 +425,11 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 	s.workingLtHash = globalHash
 	s.committedVersion = version
 	s.committedLtHash = s.workingLtHash.Clone()
-	if err := s.commitGlobalMetadata(version, s.committedLtHash); err != nil {
-		return fmt.Errorf("import global metadata: %w", err)
-	}
 	return nil
 }
 
-// sealSeededVersion seals a data-free version on every store, recording seededVersion as the height each one
-// has reached and as the height this store's history begins at.
+// sealSeededVersion seals a data-free version on every store, recording seededVersion as the height each
+// one has reached.
 //
 // It is how SetInitialVersion persists a seed. Every write goes through the engine that owns its database,
 // as a block's finalization writes do, so seeding needs no access to the databases themselves.
@@ -466,18 +454,7 @@ func (s *CommitStore) sealSeededVersion(seededVersion int64) (retErr error) {
 		}
 		snapshots[snap.Name()] = snap
 
-		var writes []*proto.KVPair
-		if snap.Name() == metadataDir {
-			writes = encodeSeedMetadata(seededVersion, s.committedLtHash)
-		} else {
-			writes = encodeLocalMeta(
-				seededVersion,
-				s.perDBWorkingLtHash[snap.Name()],
-				s.perDBModuleWorkingLtHash[snap.Name()],
-				s.perDBModuleWorkingStats[snap.Name()],
-			)
-		}
-		if err := snap.Finalize(writes); err != nil {
+		if err := s.finalizeStore(snap, seededVersion, nil); err != nil {
 			return fmt.Errorf("%s finalize seeded version: %w", store.Name(), err)
 		}
 	}

@@ -147,6 +147,10 @@ cat ~/.sei/config/genesis.json | jq '.app_state["distribution"]["params"]["commu
 cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas"]="100000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["min_txs_in_block"]="2"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["max_gas_wanted"]="150000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["timeout"]["vote"]="2000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["timeout"]["vote_delta"]="2000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["timeout"]["commit"]="2000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["timeout"]["bypass_commit_timeout"]=false' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["staking"]["params"]["max_voting_power_ratio"]="1.000000000000000000"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["bank"]["denom_metadata"]=[{"denom_units":[{"denom":"usei","exponent":0,"aliases":["USEI"]}],"base":"usei","display":"usei","name":"USEI","symbol":"USEI"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 
@@ -224,7 +228,6 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     sed -i 's/indexer = \["kv"\]/indexer = \["null"\]/g' "$CONFIG_PATH"
     echo "Indexer disabled"
   fi
-  sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' "$CONFIG_PATH"
   sed -i 's/pprof-laddr = ""/pprof-laddr = ":6060"/g' "$CONFIG_PATH"
   # Set the DB backend
   sed -i "s/db-backend = \"goleveldb\"/db-backend = \"$DB_BACKEND\"/g" "$CONFIG_PATH"
@@ -240,12 +243,7 @@ elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' "s/db-backend = \"goleveldb\"/db-backend = \"$DB_BACKEND\"/g" "$CONFIG_PATH"
   echo "DB backend set to: $DB_BACKEND"
 else
-  printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"
-  printf "###         Consensus Configuration Options         ###\n"
-  printf "\t timeout_prevote = \"2000ms\"\n"
-  printf "\t timeout_precommit = \"2000ms\"\n"
-  printf "\t timeout_commit = \"2000ms\"\n"
-  printf "\t skip_timeout_commit = false\n"
+  printf "Platform not supported, please configure config.toml manually.\n"
   exit 1
 fi
 

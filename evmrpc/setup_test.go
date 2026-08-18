@@ -12,7 +12,6 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -193,8 +193,8 @@ func (*MockClient) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
 	return tx, true
 }
 
-func (*MockClient) EvmProxy(common.Address) tmutils.Option[*url.URL] {
-	return tmutils.None[*url.URL]()
+func (*MockClient) EvmProxy(common.Address) tmutils.Option[*rpc.Client] {
+	return tmutils.None[*rpc.Client]()
 }
 
 func NewMockClientWithLatest(latest int64) *MockClient {
@@ -1250,11 +1250,6 @@ func sendRequestGood(t *testing.T, method string, params ...interface{}) map[str
 }
 
 //nolint:deadcode
-func sendSeiRequestGood(t *testing.T, method string, params ...interface{}) map[string]interface{} {
-	return sendSeiRequest(t, TestPort, method, params...)
-}
-
-//nolint:deadcode
 func sendRequestBad(t *testing.T, method string, params ...interface{}) map[string]interface{} {
 	return sendRequest(t, TestBadPort, method, params...)
 }
@@ -1276,10 +1271,6 @@ func sendRequestArchiveWithNamespace(t *testing.T, namespace, method string, par
 
 func sendRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
 	return sendRequestWithNamespace(t, "eth", port, method, params...)
-}
-
-func sendSeiRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
-	return sendRequestWithNamespace(t, "sei", port, method, params...)
 }
 
 func sendRequestWithNamespace(t *testing.T, namespace string, port int, method string, params ...interface{}) map[string]interface{} {

@@ -3,8 +3,11 @@ package cosmos
 import (
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/management"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 )
 
 // Compile-time check: CosmosStateStore implements db_engine.StateStore.
@@ -13,11 +16,13 @@ var _ types.StateStore = (*CosmosStateStore)(nil)
 // CosmosStateStore wraps a single StateStore (MVCC DB) and satisfies db_engine.StateStore.
 // It is the SS-layer adapter for the main Cosmos state (all non-EVM modules).
 type CosmosStateStore struct {
-	db types.StateStore
+	db              types.StateStore
+	snapshotMgr     *sssnapshot.Manager
+	externalPruning bool
 }
 
 // NewCosmosStateStore wraps an existing StateStore as a CosmosStateStore.
-func NewCosmosStateStore(db types.StateStore) types.StateStore {
+func NewCosmosStateStore(db types.StateStore) *CosmosStateStore {
 	return &CosmosStateStore{db: db}
 }
 
@@ -69,10 +74,64 @@ func (s *CosmosStateStore) Prune(version int64) error {
 	return s.db.Prune(version)
 }
 
+func (s *CosmosStateStore) ExternalPruning() bool {
+	return s.externalPruning
+}
+
+func (s *CosmosStateStore) SetExternalPruning(enabled bool) {
+	s.externalPruning = enabled
+}
+
 func (s *CosmosStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
 	return s.db.Import(version, ch)
 }
 
 func (s *CosmosStateStore) Close() error {
 	return s.db.Close()
+}
+
+func (s *CosmosStateStore) SupportsCheckpoint() bool {
+	return management.SupportsCheckpoint(s.db)
+}
+
+func (s *CosmosStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
+	management.ScheduleCheckpoint(s.db, destDir, shouldRun, done)
+}
+
+func (s *CosmosStateStore) SetCheckpointVersion(destDir string, version int64) error {
+	return management.SetCheckpointVersion(s.db, destDir, version)
+}
+
+func (s *CosmosStateStore) StartSnapshots(
+	root string,
+	sourceDirs []string,
+	ssConfig config.StateStoreConfig,
+	floor *sssnapshot.Floor,
+) error {
+	manager, err := sssnapshot.Open(sssnapshot.Config{
+		Name:            "cosmos",
+		Root:            root,
+		SourceDirs:      sourceDirs,
+		Backend:         ssConfig.Backend,
+		KeepRecent:      ssConfig.SnapshotKeepRecent,
+		ExternalPruning: ssConfig.ExternalPruning,
+		Scheduler:       s,
+		Floor:           floor,
+	})
+	if err != nil {
+		return err
+	}
+	s.snapshotMgr = manager
+	s.externalPruning = ssConfig.ExternalPruning
+	return nil
+}
+
+func (s *CosmosStateStore) Snapshots() *sssnapshot.Manager {
+	return s.snapshotMgr
+}
+
+func (s *CosmosStateStore) WaitForPendingWrites() {
+	if w, ok := s.db.(types.PendingWriteWaiter); ok {
+		w.WaitForPendingWrites()
+	}
 }

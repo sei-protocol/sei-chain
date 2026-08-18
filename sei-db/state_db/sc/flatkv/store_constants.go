@@ -13,7 +13,6 @@ const (
 	codeDBDir    = "code"
 	storageDBDir = "storage"
 	miscDBDir    = "misc"
-	metadataDir  = "metadata"
 
 	// Suffixes for atomic directory operations
 	tmpSuffix      = "-tmp"

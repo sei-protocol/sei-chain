@@ -2,12 +2,14 @@ package p2p
 
 import (
 	"context"
+	"net/url"
 	"testing"
 	"time"
 
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -17,15 +19,26 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator atypes.PublicKey, rpcURL *url.URL) *ethrpc.Client {
+	t.Helper()
+	client, err := ethrpc.DialContext(t.Context(), rpcURL.String())
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+	for proxies := range router.proxies.Lock() {
+		proxies[validator] = client
+	}
+	return client
+}
+
 type fixedHeightApp struct {
-	types.BaseApplication
+	abci.BaseApplication
 	height int64
 }
 
 func (a *fixedHeightApp) LastBlockHeight() int64 { return a.height }
 
-func (a *fixedHeightApp) Info() *types.ResponseInfo {
-	return &types.ResponseInfo{LastBlockHeight: a.height}
+func (a *fixedHeightApp) Info() *abci.ResponseInfo {
+	return &abci.ResponseInfo{LastBlockHeight: a.height}
 }
 
 // newSeededVault returns a durable Pebble vault rooted in a temp dir with hash committed at height.
@@ -74,6 +87,18 @@ func TestCommitHashToVault(t *testing.T) {
 		err := commitAppHashToVault(ctx, vault, height, h2)
 		require.Error(t, err)
 	})
+}
+
+func TestFinalizeBlockGasUsed(t *testing.T) {
+	resp := &abci.ResponseFinalizeBlock{
+		TxResults: []*abci.ExecTxResult{
+			{GasUsed: 10},
+			nil,
+			{GasUsed: -1},
+			{GasUsed: 20},
+		},
+	}
+	require.Equal(t, int64(30), finalizeBlockGasUsed(resp))
 }
 
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {

@@ -193,7 +193,7 @@ func (cs *CommitStore) LastCommitInfo() *proto.CommitInfo {
 
 func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
 	// The underlying DB is opened lazily via LoadVersion / Rollback. Reads can
-	// arrive before that happens (for example, the mempool reactor invokesgg
+	// arrive before that happens (for example, the mempool reactor invokes
 	// CheckTx during state-sync while the snapshot is still being applied),
 	// so a typed nil return must be safe.
 	if cs == nil || cs.db == nil {

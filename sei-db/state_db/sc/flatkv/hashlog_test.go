@@ -50,7 +50,7 @@ func TestFlatKVHashReporting(t *testing.T) {
 	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	// Categories: the global root plus one per data DB (metadata DB excluded).
+	// Categories: the global root plus one per data DB.
 	require.Equal(t, []string{
 		"flatKV/root",
 		"flatKV/db/account",

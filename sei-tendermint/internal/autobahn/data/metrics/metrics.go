@@ -11,29 +11,45 @@ const MetricsSubsystem = "internal_autobahn_data"
 type metrics struct {
 	// latency of resource processing up from production to the given stage
 	latency prometheus.HistogramVec `metrics_labels:"resource,stage" metrics_buckets:"exp(0.001, 1.5, 30)"`
+	// Next block to process in the given stage.
+	nextBlock prometheus.GaugeIntVec `metrics_labels:"stage"`
+	// gas used by executed blocks
+	gasUsed prometheus.CounterIntVec
+	// size of executed transactions in bytes
+	txSize prometheus.HistogramVec `metrics_buckets:"none"`
 }
 
-type resourceMetrics struct {
-	Receive *prometheus.Histogram
-	Execute *prometheus.Histogram
-	Certify *prometheus.Histogram
+type stageMetrics[T any] struct {
+	Receive T
+	Execute T
+	Certify T
+	Evict   T
+}
+
+func newStageMetrics[T any](gen func(stage string) T) stageMetrics[T] {
+	return stageMetrics[T]{
+		Receive: gen("receive"),
+		Execute: gen("execute"),
+		Certify: gen("certify"),
+		Evict:   gen("evict"),
+	}
 }
 
 type Metrics struct {
-	Blocks resourceMetrics
-	Txs    resourceMetrics
+	NextBlock    stageMetrics[*prometheus.GaugeInt]
+	BlockLatency stageMetrics[*prometheus.Histogram]
+	TxLatency    stageMetrics[*prometheus.Histogram]
+	GasUsed      *prometheus.CounterInt
+	// TxSize has no finite buckets; it exports count and sum only.
+	TxSize *prometheus.Histogram
 }
 
 func Get() *Metrics {
-	get := func(resource string) resourceMetrics {
-		return resourceMetrics{
-			Receive: Global.latencyAt(resource, "receive"),
-			Execute: Global.latencyAt(resource, "execute"),
-			Certify: Global.latencyAt(resource, "certify"),
-		}
-	}
 	return &Metrics{
-		Blocks: get("blocks"),
-		Txs:    get("txs"),
+		NextBlock:    newStageMetrics(Global.nextBlockAt),
+		BlockLatency: newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("blocks", stage) }),
+		TxLatency:    newStageMetrics(func(stage string) *prometheus.Histogram { return Global.latencyAt("txs", stage) }),
+		GasUsed:      Global.gasUsedAt(),
+		TxSize:       Global.txSizeAt(),
 	}
 }

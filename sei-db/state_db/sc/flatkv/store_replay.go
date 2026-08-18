@@ -13,12 +13,22 @@ import (
 // reached, a throwaway clone persists nothing. Everything under them is shared, ordered callers first.
 
 // replayIntoMutableStore brings this store up to targetVersion from its own WAL, or to the end of the WAL when
-// targetVersion <= 0, and then persists the result so a later open does not replay it again.
+// targetVersion <= 0, and rejects a store whose data DBs did not all reach that version.
 //
-// It runs at startup (open/openTo) and during Rollback, never concurrently with live commits, so it reads the
-// WAL unlocked. A nil WAL is legal only if this store already sits at targetVersion — the outer context owns
-// the WAL pipeline in that case.
-func (s *CommitStore) replayIntoMutableStore(targetVersion int64) (err error) {
+// It runs at startup (open/openTo) and during Rollback, never concurrently with live commits.
+func (s *CommitStore) replayIntoMutableStore(targetVersion int64) error {
+	if err := s.catchUpFromWAL(targetVersion); err != nil {
+		return err
+	}
+	return s.requireAlignedDataDBs()
+}
+
+// catchUpFromWAL replays this store's own WAL up to targetVersion, or to the end of the WAL when
+// targetVersion <= 0.
+//
+// It reads the WAL unlocked; callers must not run it concurrently with live commits. A nil WAL is legal only
+// if this store already sits at targetVersion — the outer context owns the WAL pipeline in that case.
+func (s *CommitStore) catchUpFromWAL(targetVersion int64) (err error) {
 	var replayed int
 	obs := s.observeOp("catchup", otelMetrics.CatchupLatency, "targetVersion", targetVersion)
 	// Replayed blocks are reported regardless of outcome. CurrentVersion is intentionally NOT recorded here —
@@ -38,13 +48,12 @@ func (s *CommitStore) replayIntoMutableStore(targetVersion int64) (err error) {
 		return nil
 	}
 
-	// Replay from the lowest height any store actually reached, not from the store-wide committed
-	// version: the stores flush independently, so that version can be ahead of some of them. Blocks
-	// between the lowest height and it are re-read from the WAL and applied only to the stores that are
-	// missing them.
-	alreadyHave, replayFrom := s.computeStoreHeights()
+	// The stores flush independently, so some may be ahead of the committed version — which is the
+	// lowest height any of them reached. Blocks between it and a store's own height are re-read from
+	// the WAL and applied only to the stores that are missing them.
+	alreadyHave := s.computeStoreHeights()
 
-	start, end, ok, err := resolveReplayRange(s.wal, replayFrom, targetVersion)
+	start, end, ok, err := resolveReplayRange(s.wal, s.committedVersion, targetVersion)
 	if err != nil {
 		return fmt.Errorf("catchup: %w", err)
 	}
@@ -70,13 +79,23 @@ func (s *CommitStore) replayIntoMutableStore(targetVersion int64) (err error) {
 }
 
 // replayIntoReadOnlyCopy advances a read-only clone from the snapshot boundary it opened at up to targetVersion,
-// or to this store's latest WAL block when targetVersion <= 0.
+// or to this store's latest WAL block when targetVersion <= 0, and rejects a clone whose data DBs did not all
+// reach that version.
 //
 // The clone has a nil WAL of its own — this store owns the WAL — so the blocks it needs have to be fed to it
 // from here. Nothing is persisted afterwards: the clone's databases live in a directory discarded on Close. A
 // gap between the clone's snapshot boundary and the start of the WAL fails only the export; this store's own
 // state is untouched.
 func (s *CommitStore) replayIntoReadOnlyCopy(clone *CommitStore, targetVersion int64) error {
+	if err := s.feedWALToReadOnlyCopy(clone, targetVersion); err != nil {
+		return err
+	}
+	return clone.requireAlignedDataDBs()
+}
+
+// feedWALToReadOnlyCopy replays this store's WAL into clone up to targetVersion, or to the latest WAL block
+// when targetVersion <= 0.
+func (s *CommitStore) feedWALToReadOnlyCopy(clone *CommitStore, targetVersion int64) error {
 	if s.wal == nil {
 		if targetVersion > 0 && clone.committedVersion != targetVersion {
 			return fmt.Errorf("readonly: nil WAL cannot replay to version %d (opened at %d)",
