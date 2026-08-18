@@ -1152,6 +1152,7 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"concurrency-workers", cfg.ConcurrencyWorkers, def.ConcurrencyWorkers, true},
 		{"occ-enabled", cfg.OccEnabled, def.OccEnabled, true},
 		{"halt-height", cfg.HaltHeight, def.HaltHeight, false},
+		{"freeze-height", cfg.FreezeHeight, def.FreezeHeight, false},
 		{"halt-time", cfg.HaltTime, def.HaltTime, false},
 		{"min-retain-blocks", cfg.MinRetainBlocks, def.MinRetainBlocks, false},
 		{"compaction-interval", cfg.CompactionInterval, def.CompactionInterval, false},
@@ -1232,8 +1233,8 @@ func requireEveryManifestRowIsAnchored(t *testing.T, covered map[string]bool) {
 	}
 }
 
-// baseConfigKeys covers the twelve keys GetConfig reads at the top level of app.toml, the ones
-// written without a section header (config.go:555-568). Every one is a bare viper getter.
+// baseConfigKeys covers the thirteen keys GetConfig reads at the top level of app.toml, the ones
+// written without a section header. FreezeHeight is checked; the other fields use bare viper getters.
 var baseConfigKeys = []configtest.KeySpec{
 	{
 		Key: "minimum-gas-prices", Path: "MinGasPrices", Cast: configtest.CastString,
@@ -1297,6 +1298,10 @@ var baseConfigKeys = []configtest.KeySpec{
 		Why: "the declared default is true and an absent key resolves false, so a node whose " +
 			"app.toml lacks the key executes without optimistic concurrency control",
 	},
+	{
+		Key: "freeze-height", Path: "FreezeHeight", Cast: configtest.CastUint64, Unguarded: true, Checked: true,
+		Why: "0 is both the declared default and the spelling for allowing consensus to advance",
+	},
 }
 
 func readBaseConfig(t testing.TB) func(configtest.AppOpts) (any, error) {
@@ -1320,6 +1325,8 @@ func FuzzBaseConfig(f *testing.F) {
 	seeds.AddRow(uint(9), fuzzing.KindInt64, "", int64(1000), false)
 	seeds.AddRow(uint(10), fuzzing.KindInt64, "", int64(7), false)
 	seeds.AddRow(uint(11), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(12), fuzzing.KindInt64, "", int64(9000000), false)
+	seeds.AddRow(uint(12), fuzzing.KindInt64, "", int64(-1), false)
 
 	configtest.CheckEveryRowHasADiscriminatingSeed(f, "base_config", readBaseConfig(f),
 		baseConfigKeys, seeds)
