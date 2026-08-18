@@ -101,37 +101,29 @@ at the time of broadcast — then the fee path does apply and the transaction is
 rejected. When in doubt, check `IsTxGasless` for the authoritative set rather
 than reasoning from `minimum-gas-prices` alone.
 
-## 4. Verify live consensus params before flagging timeout-override removal
+## 4. Genesis rewrites must preserve consensus parameters
 
-Legacy `unsafe-*-timeout-override` handling intentionally remained active while
-on-chain timeout parameters matched `types.DefaultTimeoutParams()`. Once governance
-changes the on-chain values, `ConsensusConfig.ResolveTimeouts` already ignores those
-overrides unless `unsafe-overrides-enabled` is explicitly set.
+Any code that rewrites an existing genesis document must carry its complete
+`ConsensusParams` into the replacement document. Rebuilding only the chain ID,
+validators, application state, and genesis time silently restores omitted
+consensus parameters to their defaults.
 
-Do not infer current network state from an old source comment or from the historical
-`badParams` value. Before reporting that removing override support will change
-validator timings on restart:
+Review the complete genesis-generation flow rather than only the initial write.
+When a later step collects gentxs or normalizes genesis time, tests must read the
+final file after that step and verify that customized consensus parameter values
+remain intact.
 
-- query `/consensus_params` on each affected live network,
-- compare the returned timeout object with `types.DefaultTimeoutParams()`, and
-- check whether the configuration explicitly enables unsafe overrides.
+## 5. Deprecated configuration keys need an explicit policy
 
-The removal is not an operational timing change when live params differ from
-`badParams` and unsafe overrides are disabled. It becomes a real finding when an
-affected live network still has default or unset timeout params, or explicitly
-enabled overrides would stop applying without an announced migration.
+The current Viper unmarshalling path ignores unknown TOML keys, so placeholder
+struct fields are not required merely to let an existing configuration file
+load. A placeholder has value only when a reachable warning, validation, or
+migration path consumes it.
 
-This does not excuse local harness regressions. Docker, scripts, and test networks
-that relied on overrides must move their intended values into genesis consensus
-params, and tests must inspect the final genesis after gentx collection because
-genesis export helpers may replace `ConsensusParams`.
+Do not request global unknown-field errors as a local deprecation fix. Changing
+the decoder to reject unknown keys alters compatibility for every configuration
+section and must be an intentional change at the shared decoding choke point,
+with the configuration characterization suite updated to record the behavior.
 
-## 5. Unknown legacy TOML keys do not require placeholder struct fields
-
-The current Viper unmarshalling path ignores unknown TOML keys. Do not claim that
-deprecated placeholder fields are required merely so an existing config file will
-load without error.
-
-Placeholder fields are useful only when their values are consumed, validated, or
-reported. Before requesting compatibility coverage, identify the strict decoder,
-validation call, or warning call site that would otherwise reject or report the key.
+A deprecated field is a real finding when the code or documentation promises a
+warning or migration but no startup path consumes it, or when removing it changes
