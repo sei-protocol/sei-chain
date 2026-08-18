@@ -31,14 +31,6 @@ const VersionKey = "schema_version"
 // archive mode, so nothing else on disk distinguishes the two.
 const ModeKey = "node_mode"
 
-// GeneratedByKey records the release that last produced or transformed the file.
-//
-// Provenance, never machinery. Nothing reads it to decide anything, which is what lets it be absent
-// without consequence: a binary built outside the release process carries no version, and a file
-// written by one simply omits the key. Anything branching on it would turn every development build
-// into a node that cannot read its own configuration.
-const GeneratedByKey = "generated_by"
-
 // newFileMode is the permission a file created here gets, and only that.
 //
 // A save onto an existing file inherits whatever mode that file already has, so this value describes
@@ -167,16 +159,12 @@ func Load(path string) (*File, error) {
 	return f, nil
 }
 
-// New returns an empty document carrying this binary's schema version, the given node mode, and the
-// release that produced it.
+// New returns an empty document carrying this binary's schema version and the given node mode.
 //
 // The mode is required rather than optional. Every value a caller goes on to write resolves for one
 // mode, and a file that does not say which cannot be compared against a binary's defaults or checked
 // against the mode the node actually runs.
-//
-// generatedBy is recorded when the caller has one and omitted when it is empty, because a binary built
-// outside the release process knows no version and an empty string says less than no key at all.
-func New(mode, generatedBy string) (*File, error) {
+func New(mode string) (*File, error) {
 	if mode == "" {
 		return nil, fmt.Errorf("a sei.toml needs a node mode: every value in it resolves for one, and " +
 			"a file that omits it cannot be compared against this binary's defaults")
@@ -188,36 +176,7 @@ func New(mode, generatedBy string) (*File, error) {
 	if err := f.Set(ModeKey, mode); err != nil {
 		return nil, err
 	}
-	if err := f.SetGeneratedBy(generatedBy); err != nil {
-		return nil, err
-	}
 	return f, nil
-}
-
-// SetGeneratedBy records the release producing the file, and removes the key when given nothing.
-func (f *File) SetGeneratedBy(release string) error {
-	if release == "" {
-		_, err := f.Unset(GeneratedByKey)
-		return err
-	}
-	return f.Set(GeneratedByKey, release)
-}
-
-// GeneratedBy returns the release the file records, and whether it records one at all.
-//
-// No error for an absent key. Absence is ordinary, and a caller forced to handle it as a failure
-// would be a caller whose behaviour depends on the field.
-func (f *File) GeneratedBy() (string, bool) {
-	e := f.doc.First(GeneratedByKey)
-	if e == nil || e.KeyValue == nil {
-		return "", false
-	}
-	v, err := goValue(e.Value)
-	if err != nil {
-		return "", false
-	}
-	release, ok := v.(string)
-	return release, ok && release != ""
 }
 
 // Mode returns the node mode the file's values resolve for.
