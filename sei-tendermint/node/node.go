@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
@@ -44,6 +45,69 @@ import (
 	_ "github.com/lib/pq" // provide the psql db driver
 )
 
+<<<<<<< HEAD
+=======
+type chainIDGatherer struct{ chainID string }
+
+func (g chainIDGatherer) Gather() ([]*dto.MetricFamily, error) {
+	metricFamilies, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		return nil, err
+	}
+	for _, metricFamily := range metricFamilies {
+		for _, metric := range metricFamily.Metric {
+			if hasMetricLabel(metric, "chain_id") {
+				continue
+			}
+			labels := slices.Clone(metric.Label)
+			labels = append(labels, &dto.LabelPair{
+				Name:  proto.String("chain_id"),
+				Value: proto.String(g.chainID),
+			})
+			slices.SortFunc(labels, func(a, b *dto.LabelPair) int {
+				return strings.Compare(a.GetName(), b.GetName())
+			})
+			metric.Label = labels
+		}
+	}
+	return metricFamilies, nil
+}
+
+func hasMetricLabel(metric *dto.Metric, name string) bool {
+	for _, label := range metric.GetLabel() {
+		if label.GetName() == name {
+			return true
+		}
+	}
+	return false
+}
+
+func validateFreezeHeight(freezeHeight uint64, initialHeight, stateHeight, blockStoreHeight, appHeight int64) error {
+	if freezeHeight == 0 {
+		return nil
+	}
+	if freezeHeight > math.MaxInt64 {
+		return fmt.Errorf("freeze height %d exceeds the maximum block height", freezeHeight)
+	}
+	if initialHeight > int64(freezeHeight) { //nolint:gosec // freezeHeight is bounded above.
+		return fmt.Errorf("freeze height %d is below initial height %d", freezeHeight, initialHeight)
+	}
+	for _, current := range []struct {
+		source string
+		height int64
+	}{
+		{source: "application", height: appHeight},
+		{source: "block store", height: blockStoreHeight},
+		{source: "state store", height: stateHeight},
+	} {
+		if current.height >= int64(freezeHeight) { //nolint:gosec // freezeHeight is bounded above.
+			return fmt.Errorf("%s height %d has already reached freeze height %d", current.source, current.height, freezeHeight)
+		}
+	}
+	return nil
+}
+
+>>>>>>> 20eb288 (Add freeze mode for historical EVM RPC (#3910))
 // nodeImpl is the highest level interface to a full Tendermint node.
 // It includes all configuration information and running services.
 type nodeImpl struct {
@@ -55,6 +119,7 @@ type nodeImpl struct {
 	privValidator   types.PrivValidator // local node's validator key
 	shouldHandshake bool                // set during makeNode
 	consensusPolicy types.ConsensusPolicy
+	freezeHeight    uint64
 
 	// network
 	router           *p2p.Router
@@ -90,8 +155,17 @@ func makeNode(
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 	consensusPolicy types.ConsensusPolicy,
+	nodeOptions ...Option,
 ) (_ local.NodeService, err error) {
+<<<<<<< HEAD
 	var cancel context.CancelFunc
+=======
+	opts := resolveOptions(nodeOptions...)
+	var (
+		cancel context.CancelFunc
+		node   *nodeImpl
+	)
+>>>>>>> 20eb288 (Add freeze mode for historical EVM RPC (#3910))
 	ctx, cancel = context.WithCancel(ctx)
 	closers := []closer{convertCancelCloser(cancel)}
 	defer func() {
@@ -119,6 +193,12 @@ func makeNode(
 	state, err := LoadStateFromDBOrGenesisDocProvider(stateStore, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("LoadStateFromDBOrGenesisDocProvider(): %w", err)
+	}
+	if err := validateFreezeHeight(opts.freezeHeight, genDoc.InitialHeight, state.LastBlockHeight, blockStore.Height(), proxyApp.Info().LastBlockHeight); err != nil {
+		return nil, err
+	}
+	if opts.freezeHeight > 0 && cfg.AutobahnConfigFile != "" {
+		return nil, errors.New("freeze height is not supported with Autobahn")
 	}
 
 	eventBus := eventbus.NewDefault()
@@ -168,6 +248,7 @@ func makeNode(
 		genesisDoc:      genDoc,
 		privValidator:   privValidator,
 		consensusPolicy: consensusPolicy,
+		freezeHeight:    opts.freezeHeight,
 
 		nodeKey: nodeKey,
 
@@ -260,6 +341,10 @@ func makeNode(
 
 		// Determine whether we should attempt state sync.
 		stateSync := cfg.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)
+		if stateSync && opts.freezeHeight > 0 {
+			logger.Info("Freeze mode disables state sync; falling back to block sync", "freeze_height", opts.freezeHeight)
+			stateSync = false
+		}
 		if stateSync && state.LastBlockHeight > 0 {
 			logger.Info("Found local state with non-zero height, skipping state sync")
 			stateSync = false
@@ -289,6 +374,7 @@ func makeNode(
 			tracerProviderOptions,
 			nodeMetrics.consensus,
 		)
+		csState.SetFreezeHeight(opts.freezeHeight)
 		node.rpcEnv.ConsensusState = utils.Some[rpccore.ConsensusState](csState)
 
 		csReactor, err := consensus.NewReactor(
@@ -320,6 +406,7 @@ func makeNode(
 				EventBus:              eventBus,
 				RestartEvent:          restartEvent,
 				SelfRemediationConfig: cfg.SelfRemediation,
+				FreezeHeight:          opts.freezeHeight,
 			}),
 		)
 		if err != nil {
@@ -414,7 +501,26 @@ func makeNode(
 }
 
 // OnStart starts the Node. It implements service.Service.
+<<<<<<< HEAD
 func (n *nodeImpl) OnStart(ctx context.Context) error {
+=======
+func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
+	// If Start fails before giga is spawned, BaseService does not call OnStop
+	// and never cancels SpawnCritical — so BlockDB would otherwise leak.
+	// When giga has already been spawned, its wrapper closes BlockDB after
+	// Run observes the service-context cancel issued once OnStart returns.
+	gigaSpawned := false
+	if n.freezeHeight > 0 {
+		logger.Info("Freeze mode enabled", "freeze_height", n.freezeHeight)
+	}
+	defer func() {
+		if err == nil || gigaSpawned {
+			return
+		}
+		_ = n.closeGigaBlockDB()
+	}()
+
+>>>>>>> 20eb288 (Add freeze mode for historical EVM RPC (#3910))
 	// EventBus and IndexerService must be started before the handshake because
 	// we might need to index the txs of the replayed block as this might not have happened
 	// when the node stopped last time (i.e. the node stopped or crashed after it saved the block
