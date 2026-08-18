@@ -2,7 +2,9 @@ package evm
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -11,8 +13,10 @@ import (
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/management"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
+	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 )
 
 var _ types.StateStore = (*EVMStateStore)(nil)
@@ -26,6 +30,9 @@ type EVMStateStore struct {
 	managedDBs  []types.StateStore
 	dir         string
 	separateDBs bool
+	snapshotMgr *sssnapshot.Manager
+
+	externalPruning bool
 }
 
 // NewEVMStateStore opens either a single unified MVCC DB for all EVM state
@@ -34,9 +41,10 @@ func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateSt
 	opener := backend.ResolveBackend(ssConfig.Backend)
 
 	store := &EVMStateStore{
-		subDBs:      make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes),
-		dir:         dir,
-		separateDBs: ssConfig.SeparateEVMSubDBs,
+		subDBs:          make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes),
+		dir:             dir,
+		separateDBs:     ssConfig.SeparateEVMSubDBs,
+		externalPruning: ssConfig.ExternalPruning,
 	}
 
 	if ssConfig.SeparateEVMSubDBs {
@@ -79,6 +87,10 @@ func (s *EVMStateStore) primaryDB() types.StateStore {
 		return nil
 	}
 	return s.managedDBs[0]
+}
+
+func (s *EVMStateStore) Dir() string {
+	return s.dir
 }
 
 func (s *EVMStateStore) routeKey(key []byte) types.StateStore {
@@ -176,16 +188,13 @@ func (s *EVMStateStore) SetLatestVersion(version int64) error {
 }
 
 func (s *EVMStateStore) GetEarliestVersion() int64 {
-	var minVersion int64 = -1
+	var maxVersion int64
 	for _, db := range s.managedDBs {
-		if v := db.GetEarliestVersion(); minVersion < 0 || v < minVersion {
-			minVersion = v
+		if v := db.GetEarliestVersion(); v > maxVersion {
+			maxVersion = v
 		}
 	}
-	if minVersion < 0 {
-		return 0
-	}
-	return minVersion
+	return maxVersion
 }
 
 func (s *EVMStateStore) SetEarliestVersion(version int64, ignoreVersion bool) error {
@@ -384,6 +393,28 @@ func (s *EVMStateStore) Prune(version int64) error {
 	return nil
 }
 
+func (s *EVMStateStore) ExternalPruning() bool {
+	return s.externalPruning
+}
+
+func (s *EVMStateStore) snapshotSourceDirs() []string {
+	if !s.separateDBs {
+		return []string{s.dir}
+	}
+	storeTypes := AllEVMStoreTypes()
+	dirs := make([]string, 0, len(storeTypes))
+	for _, storeType := range storeTypes {
+		dirs = append(dirs, subDBPath(s.dir, storeType))
+	}
+	return dirs
+}
+
+// subDBPath returns the directory a sub-DB occupies under base. The live database, a checkpoint, and a
+// snapshot source all use this layout.
+func subDBPath(base string, storeType EVMStoreType) string {
+	return filepath.Join(base, StoreTypeName(storeType))
+}
+
 func (s *EVMStateStore) Close() error {
 	var lastErr error
 	for _, db := range s.managedDBs {
@@ -392,6 +423,110 @@ func (s *EVMStateStore) Close() error {
 		}
 	}
 	return lastErr
+}
+
+func (s *EVMStateStore) SupportsCheckpoint() bool {
+	for _, db := range s.managedDBs {
+		if !management.SupportsCheckpoint(db) {
+			return false
+		}
+	}
+	return len(s.managedDBs) > 0
+}
+
+// ScheduleCheckpoint places one barrier on each managed apply queue.
+//
+// Every sub-DB checkpoints at the same block without the sub-DBs having to agree
+// on anything. The caller runs this after it has enqueued the target block on
+// every sub-DB and before it enqueues any later block, so each barrier lands at
+// the same point in its own queue: after that block and before the next one. A
+// sub-DB then checkpoints its own state as of that block. Wall-clock times
+// differ, and no lock is shared. A sub-DB that received no change at the target
+// block stays at its last version, which is that sub-DB's correct state for the
+// block. SetCheckpointVersion afterwards labels every sub-DB with the same
+// block, so a reopened snapshot reports one version rather than five.
+func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
+	if !s.separateDBs {
+		db := s.primaryDB()
+		if db == nil {
+			// Unreachable: NewEVMStateStore either opens a managed DB or fails.
+			// Reporting success would publish a snapshot with no evm tree in it,
+			// which is only discovered by whoever tries to restore from it.
+			done(errors.New("EVM state store has no managed DB to checkpoint"))
+			return
+		}
+		management.ScheduleCheckpoint(db, destDir, shouldRun, done)
+		return
+	}
+
+	if err := os.MkdirAll(destDir, 0o750); err != nil {
+		done(fmt.Errorf("create EVM checkpoint dir %q: %w", destDir, err))
+		return
+	}
+
+	storeTypes := AllEVMStoreTypes()
+	report := management.FanIn(len(storeTypes), done)
+	for _, storeType := range storeTypes {
+		name := StoreTypeName(storeType)
+		management.ScheduleCheckpoint(s.subDBs[storeType], subDBPath(destDir, storeType), shouldRun, func(err error) {
+			if err != nil {
+				err = fmt.Errorf("checkpoint EVM sub-DB %s: %w", name, err)
+			}
+			report(err)
+		})
+	}
+}
+
+func (s *EVMStateStore) SetCheckpointVersion(destDir string, version int64) error {
+	if !s.separateDBs {
+		db := s.primaryDB()
+		if db == nil {
+			return errors.New("EVM state store has no managed DB to stamp")
+		}
+		return management.SetCheckpointVersion(db, destDir, version)
+	}
+	for _, storeType := range AllEVMStoreTypes() {
+		name := StoreTypeName(storeType)
+		if err := management.SetCheckpointVersion(s.subDBs[storeType], subDBPath(destDir, storeType), version); err != nil {
+			return fmt.Errorf("set EVM sub-DB %s checkpoint version: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (s *EVMStateStore) StartSnapshots(
+	root string,
+	ssConfig config.StateStoreConfig,
+	floor *sssnapshot.Floor,
+) error {
+	manager, err := sssnapshot.Open(sssnapshot.Config{
+		Name:            "evm",
+		Root:            root,
+		SourceDirs:      s.snapshotSourceDirs(),
+		Backend:         ssConfig.Backend,
+		KeepRecent:      ssConfig.SnapshotKeepRecent,
+		ExternalPruning: ssConfig.ExternalPruning,
+		Scheduler:       s,
+		Floor:           floor,
+	})
+	if err != nil {
+		return err
+	}
+	s.snapshotMgr = manager
+	s.externalPruning = ssConfig.ExternalPruning
+	return nil
+}
+
+func (s *EVMStateStore) Snapshots() *sssnapshot.Manager {
+	return s.snapshotMgr
+}
+
+func (s *EVMStateStore) WaitForPendingWrites() {
+	for _, db := range s.managedDBs {
+		if w, ok := db.(types.PendingWriteWaiter); ok {
+			w.WaitForPendingWrites()
+		}
+	}
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {

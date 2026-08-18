@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
+	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/seilog"
 )
@@ -36,6 +37,7 @@ type CompositeStateStore struct {
 	cosmosStore    types.StateStore // CosmosStateStore wrapping MVCC DB
 	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
+	snapshotMgr    *snapshotCoordinator
 	config         config.StateStoreConfig
 	closeOnce      sync.Once
 	closeErr       error
@@ -57,6 +59,7 @@ func NewCompositeStateStore(
 		return nil, fmt.Errorf("failed to create cosmos MVCC DB: %w", err)
 	}
 	cosmosStore := cosmos.NewCosmosStateStore(mvccDB)
+	cosmosStore.SetExternalPruning(ssConfig.ExternalPruning)
 
 	cs := &CompositeStateStore{
 		cosmosStore: cosmosStore,
@@ -99,12 +102,42 @@ func NewCompositeStateStore(
 		return nil, fmt.Errorf("failed to recover state store: %w", err)
 	}
 
-	// Mismatched earliest versions = DBs from different snapshots; reads would diverge.
-	if err := cs.validateEVMSSPostRecovery(); err != nil {
-		_ = cs.Close()
-		return nil, err
-	}
+	cs.validateEVMSSPostRecovery()
 
+	if ssConfig.SnapshotInterval > 0 {
+		cosmosSnapshotRoot := utils.GetStateStoreSnapshotsPath(homeDir)
+		if ssConfig.DBDirectory != "" {
+			cosmosSnapshotRoot = utils.GetStateStoreSnapshotsSiblingPath(dbHome)
+		}
+		evmStore, hasEVM := cs.evmStore.(*evm.EVMStateStore)
+		var evmSnapshotRoot string
+		roots := []string{cosmosSnapshotRoot}
+		if hasEVM {
+			evmSnapshotRoot = utils.GetStateStoreSnapshotsSiblingPath(evmStore.Dir())
+			roots = append(roots, evmSnapshotRoot)
+		}
+		// Resolved before any member opens, because opening one runs its retention, and the height a
+		// restore would start from is the newest the members share rather than the newest either holds.
+		floor := sssnapshot.NewFloor(sssnapshot.NewestCommonVersion(roots))
+
+		members := make([]snapshotMember, 0, len(roots))
+		if err := cosmosStore.StartSnapshots(cosmosSnapshotRoot, []string{dbHome}, ssConfig, floor); err != nil {
+			_ = cs.Close()
+			return nil, fmt.Errorf("start Cosmos state store snapshot manager: %w", err)
+		}
+		members = append(members, snapshotMember{name: "cosmos", manager: cosmosStore.Snapshots()})
+		if hasEVM {
+			if err := evmStore.StartSnapshots(evmSnapshotRoot, ssConfig, floor); err != nil {
+				_ = cs.Close()
+				return nil, fmt.Errorf("start EVM state store snapshot manager: %w", err)
+			}
+			members = append(members, snapshotMember{name: "evm", manager: evmStore.Snapshots()})
+		}
+		if err := cs.startSnapshotManager(members, floor); err != nil {
+			_ = cs.Close()
+			return nil, fmt.Errorf("start state store snapshot manager: %w", err)
+		}
+	}
 	cs.StartPruning()
 
 	return cs, nil
@@ -152,23 +185,30 @@ func (s *CompositeStateStore) validateEVMSSPreRecovery() error {
 	return nil
 }
 
-// validateEVMSSPostRecovery rejects mismatched earliest versions between the two SS DBs.
-func (s *CompositeStateStore) validateEVMSSPostRecovery() error {
+// validateEVMSSPostRecovery reports mismatched earliest versions between SS DBs.
+// Divergence is safe because GetEarliestVersion reports the highest member
+// floor, which is the first version every routed store can serve.
+func (s *CompositeStateStore) validateEVMSSPostRecovery() {
 	if s.evmStore == nil {
-		return nil
+		return
 	}
 	cosmosEarliest := s.cosmosStore.GetEarliestVersion()
 	evmEarliest := s.evmStore.GetEarliestVersion()
 	if cosmosEarliest != evmEarliest && (cosmosEarliest > 0 || evmEarliest > 0) {
-		return fmt.Errorf(
-			"EVM SS earliest version %d does not match Cosmos SS earliest version %d: state sync the EVM SS DB, or set evm-ss-split=false",
-			evmEarliest, cosmosEarliest,
+		logger.Warn(
+			"EVM SS earliest version does not match Cosmos SS earliest version; serving the highest floor",
+			"evmEarliest", evmEarliest,
+			"cosmosEarliest", cosmosEarliest,
+			"reportedEarliest", max(cosmosEarliest, evmEarliest),
 		)
 	}
-	return nil
 }
 
 func (s *CompositeStateStore) StartPruning() {
+	if s.config.ExternalPruning {
+		logger.Info("state store internal pruning disabled by external pruning")
+		return
+	}
 	pm := pruning.NewPruningManager(s, int64(s.config.KeepRecent), int64(s.config.PruneIntervalSeconds))
 	pm.Start()
 	s.pruningManager = pm
@@ -180,6 +220,14 @@ func (s *CompositeStateStore) StartPruning() {
 func (s *CompositeStateStore) evmRouted(storeKey string) bool {
 	return s.evmStore != nil && storeKey == evm.EVMStoreKey
 }
+
+// The read methods below route by store key and do not re-check
+// GetEarliestVersion. The cosmos KVStore wrapper over a StateStore panics on any
+// read error, and pruning can raise the floor after a query store was built, so
+// an error here would crash the process for a request that must merely fail. The
+// floor is enforced where an error is representable: query-store construction
+// and VersionExists. Below the floor a pruned member reports the key as absent,
+// as its engine already does.
 
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
 	if s.evmRouted(storeKey) {
@@ -232,11 +280,18 @@ func (s *CompositeStateStore) GetLatestVersion() int64 {
 }
 
 func (s *CompositeStateStore) GetEarliestVersion() int64 {
-	return s.cosmosStore.GetEarliestVersion()
+	earliest := s.cosmosStore.GetEarliestVersion()
+	if s.evmStore != nil {
+		earliest = max(earliest, s.evmStore.GetEarliestVersion())
+	}
+	return earliest
 }
 
 func (s *CompositeStateStore) Close() error {
 	s.closeOnce.Do(func() {
+		if s.snapshotMgr != nil {
+			s.snapshotMgr.stop()
+		}
 		if s.pruningManager != nil {
 			s.pruningManager.Stop()
 		}
@@ -320,6 +375,19 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 		}
 	}
 	return nil
+}
+
+// ScheduleSnapshot asks the snapshot manager to capture version once the caller
+// has enqueued every state change for that version and nothing above it.
+//
+// This is deliberately not called from ApplyChangesetAsync. That method is part
+// of the general StateStore interface and has callers outside the commit path,
+// such as the benchmark wrappers, which would inherit a snapshot trigger they
+// never asked for. The rootmulti commit path is the single choke point that
+// sees both the populated and the empty block, so it owns the trigger. Direct
+// writes such as import, recovery, and prune must not use this hook.
+func (s *CompositeStateStore) ScheduleSnapshot(version int64) {
+	s.snapshotMgr.maybeSnapshot(version)
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {

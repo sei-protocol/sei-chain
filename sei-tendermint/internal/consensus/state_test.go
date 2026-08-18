@@ -272,6 +272,49 @@ func TestStateFullRound1(t *testing.T) {
 	cs.validateLastPrecommit(ctx, t, vss[0], propBlock.Hash)
 }
 
+func TestStateFreezesAfterTargetBlock(t *testing.T) {
+	config := configSetup(t)
+	ctx := t.Context()
+
+	cs, _ := makeState(ctx, t, makeStateArgs{config: config, validators: 1})
+	height, round := cs.roundState.Height(), cs.roundState.Round()
+	cs.SetFreezeHeight(uint64(height + 1)) //nolint:gosec // consensus heights are non-negative.
+	require.False(t, cs.frozen.Load())
+
+	voteCh := subscribe(ctx, t, cs.eventBus, types.EventQueryVote)
+	proposalCh := subscribe(ctx, t, cs.eventBus, types.EventQueryCompleteProposal)
+	newRoundCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewRound)
+	frozenHeightCh := make(chan *cstypes.RoundState, 1)
+	cs.eventNewRoundStep = func(rs *cstypes.RoundState) {
+		if rs.Height == height+1 {
+			frozenHeightCh <- rs
+		}
+	}
+
+	cs.startTestRound(ctx, height, round)
+	ensureNewRound(t, newRoundCh, height, round)
+	proposal := ensureNewProposal(t, proposalCh, height, round)
+	ensurePrevoteMatch(t, voteCh, height, round, proposal.Hash)
+	ensurePrecommit(t, voteCh, height, round)
+
+	frozenState := <-frozenHeightCh
+	require.True(t, cs.frozen.Load())
+	require.Equal(t, height+1, frozenState.Height)
+	require.Equal(t, cstypes.RoundStepNewHeight, frozenState.Step)
+	walHeight, walMessages, err := cs.wal.ReadLastHeightMsgs()
+	require.NoError(t, err)
+	require.Equal(t, height+1, walHeight)
+	require.Empty(t, walMessages)
+
+	cs.enterNewRound(ctx, height+1, 0, "test")
+	require.Equal(t, cstypes.RoundStepNewHeight, cs.GetRoundState().Step)
+	select {
+	case event := <-newRoundCh:
+		t.Fatalf("consensus entered a round above the freeze height: %v", event)
+	default:
+	}
+}
+
 // nil is proposed, so prevote and precommit nil
 func TestStateFullRoundNil(t *testing.T) {
 	config := configSetup(t)

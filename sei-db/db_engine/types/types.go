@@ -121,6 +121,36 @@ type Checkpointable interface {
 	Checkpoint(destDir string) error
 }
 
+// CheckpointVersionSetter writes the logical latest version into a completed
+// checkpoint without changing the live database.
+//
+// The latest marker has to be stamped because a checkpoint is a copy of a
+// database whose marker may already have moved on. The earliest marker is
+// inherited from the checkpoint; pruning advances it before deleting history, so
+// every checkpoint boundary either sees the old marker with old data or the new
+// marker with data that is at least as deep as advertised.
+type CheckpointVersionSetter interface {
+	SetCheckpointVersion(destDir string, version int64) error
+}
+
+// DrainBarrier is an optional capability for engines that apply changesets from
+// an async queue. It lets a caller place work at an exact point in the write
+// order without waiting for the queue to drain.
+type DrainBarrier interface {
+	ScheduleAtDrain(fn func())
+}
+
+// PendingWriteWaiter is an optional capability for engines that apply changesets
+// from an async queue. It blocks until the queue is empty.
+type PendingWriteWaiter interface {
+	WaitForPendingWrites()
+}
+
+// The interfaces above are engine capabilities. Deciding when a checkpoint runs,
+// and what version it is labeled with, is coordination rather than engine
+// behavior and lives in sei-db/management: CheckpointScheduler,
+// ScheduleCheckpoint, SetCheckpointVersion and ErrCheckpointCanceled.
+
 // ---------------------------------------------------------------------------
 // SS DB layer
 // ---------------------------------------------------------------------------
