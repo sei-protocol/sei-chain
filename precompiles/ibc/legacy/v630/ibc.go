@@ -166,7 +166,7 @@ func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, args [
 		return
 	}
 
-	_, err = p.transferKeeper.Transfer(sdk.WrapSDKContext(ctx), &msg)
+	_, err = p.transferKeeper.LegacyTransfer(sdk.WrapSDKContext(ctx), &msg)
 
 	if err != nil {
 		rerr = err
@@ -252,7 +252,7 @@ func (p PrecompileExecutor) transferWithDefaultTimeout(ctx sdk.Context, method *
 		return
 	}
 
-	_, err = p.transferKeeper.Transfer(sdk.WrapSDKContext(ctx), &msg)
+	_, err = p.transferKeeper.LegacyTransfer(sdk.WrapSDKContext(ctx), &msg)
 
 	if err != nil {
 		rerr = err
