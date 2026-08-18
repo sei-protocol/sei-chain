@@ -1,8 +1,6 @@
 package registry
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"reflect"
 	"sort"
@@ -127,27 +125,6 @@ func Keys() []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// Fingerprint hashes every registration, so a key added, renamed or retyped changes it.
-//
-// This is what makes forgetting a schema bump impossible: CI compares the fingerprint against a
-// recorded one and fails until the bump and its migration land in the same change. Experimental
-// keys are absent from it by construction, since they are not registered here.
-func Fingerprint() string {
-	h := sha256.New()
-	for _, s := range Sections() {
-		_, _ = fmt.Fprintf(h, "section:%s\n", s.Name)
-		for _, k := range s.Keys {
-			_, _ = fmt.Fprintf(h, "key:%s\n", k)
-		}
-		// The baseline is part of the shape: a changed default is a changed contract for every
-		// node that never wrote the key. Rendered per mode, since a baseline may vary by mode.
-		for _, m := range Modes() {
-			_, _ = fmt.Fprintf(h, "default:%s:%s:%#v\n", s.Name, m, s.Defaults(m))
-		}
-	}
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 // deriveKeys walks a section's struct and returns the dotted keys it declares.
@@ -278,7 +255,7 @@ func isLeaf(t reflect.Type) bool {
 }
 
 // Reset clears the registry. For tests only, so one test's registrations cannot leak into
-// another's fingerprint.
+// another's declared set.
 func Reset() {
 	mu.Lock()
 	defer mu.Unlock()
@@ -286,12 +263,12 @@ func Reset() {
 	defects = nil
 }
 
-// EnvPrefix is the environment namespace for every derived key.
+// envPrefix is the environment namespace for every derived key.
 //
 // A constant rather than path.Base(os.Executable()), which is what the legacy path uses. That
 // derivation means renaming the binary moves the entire environment namespace, and it is why
 // the legacy path answers to three environment universes at once.
-const EnvPrefix = "SEID"
+const envPrefix = "SEID"
 
 // EnvName returns the one environment variable that delivers a key.
 //
@@ -300,5 +277,5 @@ const EnvPrefix = "SEID"
 // replacer the boot installs, so two keys differing only in that punctuation collide; a check
 // over the registry is what catches that rather than a reader discovering it.
 func EnvName(key string) string {
-	return EnvPrefix + "_" + strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(key))
+	return envPrefix + "_" + strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(key))
 }

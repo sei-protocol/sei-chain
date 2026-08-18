@@ -21,9 +21,9 @@ leave the flag behind, and the result is a key an operator sets that reaches not
 such mismatches already exist and are pinned by the characterization suite in
 `testutil/configtest`, which is how they were found rather than reported.
 
-Registering a section states the key once. The dotted identity, the environment spelling, the
-schema fingerprint and the read site all come from the struct field and its `mapstructure` tag,
-so a rename moves all of them together or fails to compile.
+Registering a section states the key once. The dotted identity, the environment spelling and the
+read site all come from the struct field and its `mapstructure` tag, so a rename moves all of them
+together or fails to compile.
 
 ## Declaration
 

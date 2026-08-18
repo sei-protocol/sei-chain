@@ -12,8 +12,8 @@ import (
 // Registry behaviour: one declaration per section, and defaults that vary by node mode.
 //
 // One registration per section carries the struct and a baseline function of node mode. The
-// dotted key, the canonical environment spelling and the schema fingerprint all derive from that
-// one declaration, so nobody hand-writes a key string.
+// dotted key, the canonical environment spelling and the read site all derive from that one
+// declaration, so nobody hand-writes a key string.
 //
 // What this package is not. It is where a key is declared, validated and resolved for reporting,
 // not where a running node reads from. app.New must not be handed an in-memory struct: a struct
@@ -169,70 +169,6 @@ func TestModesMatchTheNodeModes(t *testing.T) {
 	}
 }
 
-// TestTheFingerprintMovesOnASchemaChangeAndOnlyThen is what makes forgetting a schema bump
-// impossible.
-//
-// Both directions, because either alone is useless. A key added, renamed or retyped moves it, so
-// CI can demand the bump and the migration in the same change. Registering the identical shape
-// twice does not, or it would fire on every unrelated commit.
-func TestTheFingerprintMovesOnASchemaChangeAndOnlyThen(t *testing.T) {
-	registerGiga(t)
-	base := registry.Fingerprint()
-
-	registerGiga(t)
-	if again := registry.Fingerprint(); again != base {
-		t.Errorf("the same registration produced two fingerprints, %s and %s. A check that fires "+
-			"on an unchanged shape is one a reviewer learns to ignore", base[:12], again[:12])
-	}
-
-	for _, tc := range []struct {
-		name  string
-		proto any
-	}{
-		{"a renamed key", &struct {
-			Enabled    bool `mapstructure:"enabled"`
-			OCCEnabled bool `mapstructure:"occ_workers"`
-		}{}},
-		{"an added key", &struct {
-			Enabled    bool `mapstructure:"enabled"`
-			OCCEnabled bool `mapstructure:"occ_enabled"`
-			Extra      bool `mapstructure:"extra"`
-		}{}},
-		{"a retyped key", &struct {
-			Enabled    bool `mapstructure:"enabled"`
-			OCCEnabled int  `mapstructure:"occ_enabled"`
-		}{}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			registry.Reset()
-			registry.RegisterSection(gigaSection, tc.proto, func(registry.Mode) any { return struct{}{} })
-			if got := registry.Fingerprint(); got == base {
-				t.Errorf("%s left the fingerprint unchanged, so CI cannot demand the schema bump "+
-					"and the migration that a shape change owes", tc.name)
-			}
-		})
-	}
-}
-
-// TestAChangedBaselineMovesTheFingerprint holds the half a key-only hash would miss.
-//
-// A default is the value every node that never wrote the key runs, so changing one changes what
-// the fleet does. That is a contract change even though no key moved.
-func TestAChangedBaselineMovesTheFingerprint(t *testing.T) {
-	registerGiga(t)
-	base := registry.Fingerprint()
-
-	registry.Reset()
-	registry.RegisterSection(gigaSection, &gigaconfig.Config{}, func(registry.Mode) any {
-		return gigaconfig.Config{Enabled: false, OCCEnabled: false} // both flipped
-	})
-
-	if got := registry.Fingerprint(); got == base {
-		t.Error("a changed baseline left the fingerprint unchanged. Every node that never wrote " +
-			"the key would silently run the new value with no schema bump to notice")
-	}
-}
-
 // TestTheEnvironmentSpellingIsCanonicalAndPinned closes a measured legacy defect.
 //
 // The legacy path answers to three environment universes, and derives its prefix from the running
@@ -247,8 +183,8 @@ func TestTheEnvironmentSpellingIsCanonicalAndPinned(t *testing.T) {
 			t.Errorf("EnvName(%q) = %q, want %q", tc.key, got, tc.want)
 		}
 	}
-	if !strings.HasPrefix(registry.EnvName("a.b"), registry.EnvPrefix+"_") {
-		t.Error("the prefix is not applied, so the namespace is not pinned")
+	if !strings.HasPrefix(registry.EnvName("a.b"), "SEID_") {
+		t.Error("the namespace is not applied, so a key could answer to a variable outside it")
 	}
 }
 
