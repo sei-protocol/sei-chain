@@ -1296,3 +1296,106 @@ func TestAnUnflushedDirectoryEntryIsNotAFailedSave(t *testing.T) {
 			"configuration is what the node reads whatever the sync reported", got, present, err)
 	}
 }
+
+// TestANameCannotBeAValueAndATableAtOnce covers the shape both entry points can produce.
+//
+// TOML gives a name to a value or to a table, never both. The editing parser accepts a file holding
+// each under one name and a conforming decoder rejects it, so such a file parses and then every read of
+// it fails. Set can produce it too, in both directions, and the file it writes re-parses cleanly, which
+// makes it the worse of the two: nothing on the way in or out reports the damage.
+func TestANameCannotBeAValueAndATableAtOnce(t *testing.T) {
+	t.Run("a file already carrying both", func(t *testing.T) {
+		_, err := seitoml.Parse(strings.NewReader(
+			"[state-commit]\nflatkv = true\n\n[state-commit.flatkv]\nenable = false\n"))
+		if err == nil {
+			t.Fatal("a file naming one thing a value and a table parsed; every read of it then fails")
+		}
+		if !strings.Contains(err.Error(), "state-commit.flatkv") {
+			t.Errorf("the refusal reads %q and does not name the key at fault", err)
+		}
+	})
+
+	t.Run("a table written under a name a value already has", func(t *testing.T) {
+		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[state-commit]\nflatkv = true\n")
+		err := f.Set("state-commit.flatkv.enable", false)
+		if err == nil {
+			t.Fatal("Set wrote a table under a name a value already had, so Save would produce a file " +
+				"no reader can load")
+		}
+		if !strings.Contains(err.Error(), "state-commit.flatkv") {
+			t.Errorf("the refusal reads %q and does not name the key at fault", err)
+		}
+		requireStillReadable(t, f)
+	})
+
+	t.Run("a value written under a name a table already has", func(t *testing.T) {
+		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[state-commit.flatkv]\nenable = false\n")
+		err := f.Set("state-commit.flatkv", true)
+		if err == nil {
+			t.Fatal("Set wrote a value under a name a table already had")
+		}
+		requireStillReadable(t, f)
+	})
+
+	t.Run("a sibling that merely shares a prefix still writes", func(t *testing.T) {
+		// state-commit.flatkvx is not nested under state-commit.flatkv, so the check must not refuse it.
+		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[state-commit]\nflatkv = true\n")
+		if err := f.Set("state-commit.flatkvx", false); err != nil {
+			t.Fatalf("a key sharing only a prefix was refused: %v", err)
+		}
+		requireStillReadable(t, f)
+	})
+}
+
+// requireStillReadable holds that a refused edit left the document readable.
+//
+// A refusal that half-applied would leave the file in the state the refusal exists to prevent.
+func requireStillReadable(t *testing.T, f *seitoml.File) {
+	t.Helper()
+	if _, err := f.Values(); err != nil {
+		t.Errorf("the document is unreadable after the edit: %v", err)
+	}
+	raw, err := f.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+	if _, err := seitoml.Parse(strings.NewReader(string(raw))); err != nil {
+		t.Errorf("what the document renders to no longer parses: %v", err)
+	}
+}
+
+// TestEveryVerbTakingAKeyAppliesOneRule holds Set, Unset and Get to the rule Parse applies.
+//
+// A key a verb accepts and Parse refuses is a key that can be written and then never read: the save
+// succeeds, and the node cannot load its own configuration afterwards.
+func TestEveryVerbTakingAKeyAppliesOneRule(t *testing.T) {
+	for _, key := range []string{"foo bar", "probe.a b", " leading", "trailing "} {
+		t.Run(fmt.Sprintf("key %q", key), func(t *testing.T) {
+			f, err := seitoml.New("validator")
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if err := f.Set(key, 1); err == nil {
+				t.Errorf("Set(%q) was accepted, so the file it saves cannot be parsed again", key)
+			}
+			if _, err := f.Unset(key); err == nil {
+				t.Errorf("Unset(%q) was accepted", key)
+			}
+			if _, _, err := f.Get(key); err == nil {
+				t.Errorf("Get(%q) was accepted", key)
+			}
+		})
+	}
+
+	// A caller's upper case is folded rather than refused, since a key read lower-cased is the same key.
+	f, err := seitoml.New("validator")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := f.Set("Probe.Enabled", true); err != nil {
+		t.Fatalf("an upper-case key was refused rather than folded: %v", err)
+	}
+	if got, ok, err := f.Get("probe.enabled"); err != nil || !ok || got != true {
+		t.Errorf("the folded key reads back as (%#v, %v, %v), want true", got, ok, err)
+	}
+}

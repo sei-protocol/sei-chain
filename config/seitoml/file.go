@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -112,7 +113,10 @@ func (f *File) refuseUnsupportedShapes() error {
 		written[key] = true
 		return true
 	})
-	return bad
+	if bad != nil {
+		return bad
+	}
+	return keysDoNotShadowEachOther(f.writtenPaths())
 }
 
 // keyIsAddressable reports whether every segment of a key can be read back as written.
@@ -374,7 +378,45 @@ func keyOf(key string) (parser.Key, error) {
 			return nil, fmt.Errorf("key %q has an empty segment", key)
 		}
 	}
-	return parser.Key(parts), nil
+	out := parser.Key(parts)
+	// The same rule Parse applies to a key it reads. Stated once, so a key a caller writes is a key
+	// the file reads back; checked only here, Set could write a key the next Parse refuses.
+	if err := keyIsAddressable(out); err != nil {
+		return nil, fmt.Errorf("key %q: %w", key, err)
+	}
+	return out, nil
+}
+
+// keysDoNotShadowEachOther refuses a key whose path is a prefix of another key's.
+//
+// TOML gives a name to a value or to a table, never to both, so a scalar flatkv beside a
+// [state-commit.flatkv] heading defines one name twice. The editing parser accepts that and a
+// conforming decoder rejects it, so a file carrying one parses and then every read of it fails.
+//
+// Sorting puts a path immediately before anything nested under it, which is what makes one pass over
+// the neighbours enough.
+func keysDoNotShadowEachOther(paths []string) error {
+	sorted := append([]string(nil), paths...)
+	sort.Strings(sorted)
+	for i := 1; i < len(sorted); i++ {
+		if strings.HasPrefix(sorted[i], sorted[i-1]+".") {
+			return fmt.Errorf("%s is a value and %s is a table under the same name, so a reader cannot "+
+				"decide which one this file means", sorted[i-1], sorted[i])
+		}
+	}
+	return nil
+}
+
+// writtenPaths returns the dotted path of every value the document holds.
+func (f *File) writtenPaths() []string {
+	var out []string
+	f.doc.Scan(func(full parser.Key, e *tomledit.Entry) bool {
+		if e.KeyValue != nil {
+			out = append(out, full.String())
+		}
+		return true
+	})
+	return out
 }
 
 // quoteInt renders an integer the way TOML spells one.

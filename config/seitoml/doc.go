@@ -54,6 +54,11 @@
 //   - a key written twice in one table, which an edit reaches only the first of
 //   - a date or a time, which nothing configures a node with, and which cannot be written back as the
 //     type it was read as
+//   - one name used for both a value and a table, which names the same thing twice
+//
+// Set, Unset and Get apply the same rule to the key a caller hands them, so a key one of them writes is
+// a key the file reads back. Set also refuses a key that would name a value where a table already is,
+// or the reverse, because the file that produces parses cleanly and can never be read.
 //
 // Each was previously accepted and then lost or corrupted further in. Refusing at the door is what
 // lets every verb below assume the document holds only shapes it can read and write back, and it is

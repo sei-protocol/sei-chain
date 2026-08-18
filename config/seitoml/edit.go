@@ -32,6 +32,12 @@ func (f *File) Set(key string, v any) error {
 		e.Value = value
 		return nil
 	}
+	// A key the document does not hold yet, so it may collide with one it does. Writing a value under a
+	// name that already names a table, or a table under one that already names a value, produces a file
+	// this package can save and no conforming reader can load.
+	if err := keysDoNotShadowEachOther(append(f.writtenPaths(), path.String())); err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
 	f.insert(path, value)
 	return nil
 }
