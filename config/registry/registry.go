@@ -160,12 +160,12 @@ func Keys() []string {
 // deriveKeys walks a section's struct and returns the dotted keys it declares.
 //
 // An untagged field is an error rather than a fallback to the field's name, and that is the one
-// decision in this file worth reading twice. The binder the node uses today does fall back, which
-// is why an embedded srvconfig.Config with no tag put whole cosmos sections under a type-name
-// prefix nothing writes, and why MemIAVLConfig's leaves sit outside state-commit.flatkv.*. Ninety-two
-// operator-facing keys reach their field only through a spelling the tags do not produce, and a
-// silent fallback is what made that invisible. Refusing to guess is what keeps the tag
-// authoritative.
+// decision in this file worth reading twice. mapstructure, which is what binds a value to a field on
+// the path this replaces, does fall back. That is why an embedded srvconfig.Config with no tag put
+// whole cosmos sections under a type-name prefix nothing writes, and why MemIAVLConfig's leaves sit
+// outside state-commit.flatkv.*. Ninety-two operator-facing keys reach their field only through a
+// spelling the tags do not produce, and a silent fallback is what made that invisible. Refusing to
+// guess is what keeps the tag authoritative.
 func deriveKeys(section string, prototype any) ([]string, error) {
 	if section == "" {
 		return nil, fmt.Errorf("section name is empty")
