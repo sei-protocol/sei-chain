@@ -32,7 +32,7 @@ func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChange
 // block; version must equal the height the pending writes were stamped with. Consecutive commits must also
 // be contiguous: the state WAL rejects a version that skips a height, though the first block written to an
 // empty WAL may be any height.
-// Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
+// Protocol: WAL → per-DB batch (with LocalMeta) → flush.
 // On crash, catchup replays WAL to recover incomplete commits.
 func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	start := time.Now()
@@ -98,25 +98,12 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 		return version, fmt.Errorf("db commit: %w", err)
 	}
 
-	// Step 3: Persist global metadata to metadata DB.
-	// This must succeed before we update in-memory state; otherwise a
-	// metadataDB write failure would leave committedVersion advanced while
-	// the caller sees an error, making the store's internal state
-	// inconsistent. Per-DB data is already committed (Step 2) and the WAL
-	// (Step 1) is the source of truth, so a restart will self-heal via
-	// catchup even if we fail here.
-	s.phaseTimer.SetPhase("commit_write_metadata")
-	committedLtHash := s.workingLtHash.Clone()
-	if err := s.commitGlobalMetadata(version, committedLtHash); err != nil {
-		return version, fmt.Errorf("metadata DB commit: %w", err)
-	}
-
-	// Step 4: Update in-memory committed state (only after metadata persisted)
+	// Step 3: Update in-memory committed state. Step 2 already made this commit durable.
 	s.phaseTimer.SetPhase("commit_update_lt_hash")
 	s.committedVersion = version
-	s.committedLtHash = committedLtHash
+	s.committedLtHash = s.workingLtHash.Clone()
 
-	// Step 5: Clear pending buffers
+	// Step 4: Clear pending buffers
 	s.phaseTimer.SetPhase("commit_clear_pending_writes")
 	s.clearPendingWrites()
 	recordPendingWrites(s.ctx, accountDBDir, 0)
@@ -408,9 +395,10 @@ type rawKVPair struct {
 	Value []byte
 }
 
-// FinalizeImport persists per-DB metadata (version + LtHash) and global
-// metadata after all import data has been written. This must be called
-// exactly once at the end of an import to make the data durable across restarts.
+// FinalizeImport persists each data DB's metadata (version + LtHash) after all
+// import data has been written, and recomputes the store's global state from it.
+// This must be called exactly once at the end of an import to make the data
+// durable across restarts.
 func (s *CommitStore) FinalizeImport(version int64) error {
 	syncOpt := types.WriteOptions{Sync: true}
 	for _, ndb := range s.namedDataDBs() {
@@ -441,8 +429,5 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 	s.workingLtHash = globalHash
 	s.committedVersion = version
 	s.committedLtHash = s.workingLtHash.Clone()
-	if err := s.commitGlobalMetadata(version, s.committedLtHash); err != nil {
-		return fmt.Errorf("import global metadata: %w", err)
-	}
 	return nil
 }

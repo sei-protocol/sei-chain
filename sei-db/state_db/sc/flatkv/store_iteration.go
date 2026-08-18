@@ -16,7 +16,7 @@ import (
 // RawGlobalIterator returns an iterator over all committed keys across the
 // data DBs (account, code, storage, misc), merged in global lexicographic
 // order. Within each DB, keys are in Pebble order. Per-DB _meta/* keys are
-// skipped. Pending writes are not visible. metadataDB is not included.
+// skipped. Pending writes are not visible.
 func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 	// Read lock for the construction span: the returned iterator pins a Pebble
 	// view and may then outlive a concurrent ApplyChangeSets/Commit.

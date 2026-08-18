@@ -291,7 +291,7 @@ func TestComposedStack_RateLimitDistinctFromSizeBudget(t *testing.T) {
 	const maxBody = 4096
 	reg := mustRateLimitRegistry(t, 0.001, 1)
 	gate := NewRateLimitGate(reg, 0, true, "evm")
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getBlockByHash"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getCosmosTx"})
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[]}`
 	base := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

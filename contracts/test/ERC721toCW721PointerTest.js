@@ -101,11 +101,7 @@ describe("ERC721 to CW721 Pointer", function () {
             const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
             expect(ethlogs.length).to.equal(1);
 
-            // send via sei_ endpoint - synthetic event shows up
-            const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
-            expect(seilogs.length).to.equal(1);
-
-            seilogs.forEach(async (log) => {
+            ethlogs.forEach(async (log) => {
                 expect(log["address"].toLowerCase()).to.equal((await pointer.getAddress()).toLowerCase());
                 expect(log["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
                 expect(log["topics"][1].substring(26)).to.equal(accounts[0].evmAddress.substring(2).toLowerCase());
@@ -132,9 +128,7 @@ describe("ERC721 to CW721 Pointer", function () {
             // send via eth_ endpoint
             const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
             expect(ethlogs.length).to.equal(1);
-            const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
-            expect(seilogs.length).to.equal(1);
-            seilogs.forEach(async (log) => {
+            ethlogs.forEach(async (log) => {
                 expect(log["address"].toLowerCase()).to.equal((await pointerAcc1.getAddress()).toLowerCase());
                 expect(log["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
                 expect(log["topics"][1].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());
@@ -149,7 +143,7 @@ describe("ERC721 to CW721 Pointer", function () {
             const ethBlockReceipts = await ethers.provider.send('eth_getBlockReceipts', ['0x' + receipt.blockNumber.toString(16)]);
             expect(ethBlockReceipts.length).to.equal(1);
 
-            const ethTx = await ethers.provider.send('sei_getTransactionReceipt', [receipt.hash]);
+            const ethTx = await ethers.provider.send('eth_getTransactionReceipt', [receipt.hash]);
             expect(ethTx.logs.length).to.equal(1);
             const ethTxByHash = await ethers.provider.send('eth_getTransactionByHash', [receipt.hash]);
             expect(ethTxByHash).to.not.be.null;
@@ -168,8 +162,8 @@ describe("ERC721 to CW721 Pointer", function () {
         it("set approval for all", async function () {
             const setApprovalForAllTxResp = await pointerAcc0.setApprovalForAll(accounts[1].evmAddress, true, { gasPrice: ethers.parseUnits('100', 'gwei') });
             const receipt = await setApprovalForAllTxResp.wait();
-            const seiReceipt = await ethers.provider.send('sei_getTransactionReceipt', [receipt.hash]);
-            expect(seiReceipt.logs.length).to.equal(1);
+            const ethReceipt = await ethers.provider.send('eth_getTransactionReceipt', [receipt.hash]);
+            expect(ethReceipt.logs.length).to.equal(1);
             const approved = await pointerAcc0.isApprovedForAll(accounts[0].evmAddress, accounts[1].evmAddress);
             expect(approved).to.equal(true);
 
