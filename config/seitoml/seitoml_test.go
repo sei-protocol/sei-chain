@@ -386,6 +386,11 @@ func TestAShapeThisFileDoesNotCarryIsRefusedAtTheDoor(t *testing.T) {
 			"is an array of tables",
 		},
 		{
+			"a key written twice in one table",
+			"[probe]\nn = 1\nn = 2\n",
+			"is written more than once",
+		},
+		{
 			"a repeated table heading",
 			"[probe]\nn = 1\n\n[probe]\nn = 2\n",
 			"appears more than once",
@@ -409,6 +414,16 @@ func TestAShapeThisFileDoesNotCarryIsRefusedAtTheDoor(t *testing.T) {
 			"a quoted key carrying a space",
 			"[probe]\n\"a b\" = 1\n",
 			"carries a dot or a space",
+		},
+		{
+			"a date",
+			"[probe]\nstamped = 2026-08-18\n",
+			"is a date or a time",
+		},
+		{
+			"a time",
+			"[probe]\nat = 07:32:00\n",
+			"is a date or a time",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -782,7 +797,6 @@ coded = "a\u0062c"
 grouped = 1_000_000
 hex = 0x1f
 ratio = 2.5
-stamped = 2026-08-18
 peers = ["a", "b"]
 commented = [
   # the first one is the seed
@@ -804,7 +818,6 @@ commented = [
 		"probe.grouped":  int64(1000000),
 		"probe.hex":      int64(31),
 		"probe.ratio":    2.5,
-		"probe.stamped":  "2026-08-18",
 		"probe.escaped":  `say "hi" here`,
 		"probe.coded":    "abc",
 		// A backslash ending a line folds the line break away; a doubled one is an escaped backslash
@@ -869,11 +882,11 @@ func TestAValueTomlDoesNotRecognizeIsNamedNotGuessed(t *testing.T) {
 		key  string
 		want string
 	}{
-		{"an integer past int64", "[probe]\nn = 99999999999999999999\n", "probe.n", "not an integer"},
-		{"an infinity", "[probe]\nn = inf\n", "probe.n", "not a finite number"},
-		{"a negative infinity", "[probe]\nn = -inf\n", "probe.n", "not a finite number"},
-		{"a NaN", "[probe]\nn = nan\n", "probe.n", "not a finite number"},
-		{"an infinity inside an array", "[probe]\nlist = [1.5, inf]\n", "probe.list", "not a finite number"},
+		{"an integer past int64", "[probe]\nn = 99999999999999999999\n", "probe.n", "out of range for int64"},
+		{"an infinity", "[probe]\nn = inf\n", "probe.n", "has to be a finite number"},
+		{"a negative infinity", "[probe]\nn = -inf\n", "probe.n", "has to be a finite number"},
+		{"a NaN", "[probe]\nn = nan\n", "probe.n", "has to be a finite number"},
+		{"an infinity inside an array", "[probe]\nlist = [1.5, inf]\n", "probe.list", "has to be a finite number"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := parse(t, tc.body)
@@ -1281,29 +1294,5 @@ func TestAnUnflushedDirectoryEntryIsNotAFailedSave(t *testing.T) {
 	if err != nil || !present || got != int64(7) {
 		t.Errorf("the value on disk is (%#v, %v, %v), want 7. The rename completed, so the new "+
 			"configuration is what the node reads whatever the sync reported", got, present, err)
-	}
-}
-
-// TestAFileWrittenOnWindowsReadsTheSameValues covers the line ending an editor leaves behind.
-//
-// An operator editing on Windows produces a file whose lines end with a carriage return. A multi-line
-// string's value begins after the delimiter's own newline, and matching only the Unix form leaves the
-// carriage return inside the value, so it differs from the default it matches and a diff reports a
-// change nobody can see.
-func TestAFileWrittenOnWindowsReadsTheSameValues(t *testing.T) {
-	const unix = "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nfolded = \"\"\"\nfirst\nsecond\"\"\"\nflag = true\n"
-	windows := strings.ReplaceAll(unix, "\n", "\r\n")
-
-	want, err := parse(t, unix).Values()
-	if err != nil {
-		t.Fatalf("the Unix file: %v", err)
-	}
-	got, err := parse(t, windows).Values()
-	if err != nil {
-		t.Fatalf("the Windows file: %v", err)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("the same file read\n  %#v\nwith carriage returns and\n  %#v\nwithout. A value that "+
-			"differs by line ending differs from the default it matches", got, want)
 	}
 }

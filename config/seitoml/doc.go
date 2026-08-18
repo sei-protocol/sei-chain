@@ -51,14 +51,21 @@
 //   - a key or heading segment that is not lower case, which is read under a name that is not the one
 //     written
 //   - a quoted key carrying a dot or a space, which no dotted spelling splits back into
+//   - a key written twice in one table, which an edit reaches only the first of
+//   - a date or a time, which nothing configures a node with, and which cannot be written back as the
+//     type it was read as
 //
 // Each was previously accepted and then lost or corrupted further in. Refusing at the door is what
 // lets every verb below assume the document holds only shapes it can read and write back, and it is
 // only free while no operator has written a file that uses them.
 //
-// Escapes are decoded with the scanner's own rules rather than Go's. The two grammars differ in three
-// places that each reach an operator's file: TOML has no \x escape, Go has no line-ending
-// continuation, and Go's decoder rejects the literal newline that makes a multi-line string
-// multi-line. A carriage return and newline pair inside a multi-line string reads as a newline, so a
-// file saved on Windows holds the same values as the same file saved anywhere else.
+// Reading and editing use different libraries, on purpose. The editing parser locates lines and
+// preserves comments, and stops short of interpreting a literal; deciding what an underscore-separated
+// integer or a multi-line string means is a second implementation of the specification. Values come
+// from a conforming decoder instead, so the shape of a literal is somebody else's problem and the file
+// reads the way every other TOML reader reads it.
+//
+// Two things that decoder allows are still refused here, because this package has to write back what it
+// reads: an infinity or a NaN, which have no form to write, and a date, which would come back as a time
+// this package cannot render.
 package seitoml

@@ -12,6 +12,7 @@ import (
 
 	"github.com/creachadair/tomledit"
 	"github.com/creachadair/tomledit/parser"
+	"github.com/creachadair/tomledit/scanner"
 )
 
 // SchemaVersion is the schema this binary writes and reads.
@@ -86,6 +87,7 @@ func (f *File) refuseUnsupportedShapes() error {
 	}
 
 	var bad error
+	written := map[string]bool{}
 	f.doc.Scan(func(full parser.Key, e *tomledit.Entry) bool {
 		if e.KeyValue == nil {
 			return true
@@ -98,6 +100,16 @@ func (f *File) refuseUnsupportedShapes() error {
 			bad = err
 			return false
 		}
+		// One value per key, checked here rather than left to the decoder. A duplicate is the one shape
+		// the editing parser accepts and a conforming decoder rejects, so without this the file parses
+		// and then every read of it fails.
+		key := full.String()
+		if written[key] {
+			bad = fmt.Errorf("%s is written more than once, and an edit reaches only the first, so a "+
+				"value written into this file would not be the one read back", key)
+			return false
+		}
+		written[key] = true
 		return true
 	})
 	return bad
@@ -129,6 +141,13 @@ func keyIsAddressable(key parser.Key) error {
 // time, producing a file a conforming reader refuses to load.
 func valueIsAddressable(key parser.Key, v parser.Value) error {
 	switch x := v.X.(type) {
+	case parser.Token:
+		switch x.Type {
+		case scanner.DateTime, scanner.LocalDate, scanner.LocalTime, scanner.LocalDateTime:
+			return fmt.Errorf("%s is a date or a time, which this file does not carry; nothing "+
+				"configures a node with one, and it cannot be written back as the type it was read as",
+				key)
+		}
 	case parser.Inline:
 		return fmt.Errorf("%s is an inline table, which this file does not carry; write it as a [%s] "+
 			"table so each key it holds can be edited on its own line", key, key)
@@ -185,20 +204,14 @@ func New(mode string) (*File, error) {
 // silently compares an archive node's file against a validator's defaults, which is the mistake
 // this key exists to make impossible.
 func (f *File) Mode() (string, error) {
-	e := f.doc.First(ModeKey)
-	if e == nil || e.KeyValue == nil {
+	mode, present, err := f.stringValue(ModeKey)
+	switch {
+	case err != nil:
+		return "", err
+	case !present:
 		return "", fmt.Errorf("sei.toml has no %s. Every value in it resolves for one node mode, so "+
 			"without it nothing can tell an archive node's file from a validator's", ModeKey)
-	}
-	v, err := goValue(e.Value)
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", ModeKey, err)
-	}
-	mode, ok := v.(string)
-	if !ok {
-		return "", fmt.Errorf("%s is %T (%v), want a mode name", ModeKey, v, v)
-	}
-	if mode == "" {
+	case mode == "":
 		return "", fmt.Errorf("%s is empty", ModeKey)
 	}
 	return mode, nil
@@ -209,19 +222,14 @@ func (f *File) Mode() (string, error) {
 // An absent or unparsable version is an error, never a zero. A migration chain reads this to decide
 // which steps to run, so guessing here transforms a file whose shape nobody established.
 func (f *File) Version() (int, error) {
-	e := f.doc.First(VersionKey)
-	if e == nil || e.KeyValue == nil {
+	n, present, err := f.intValue(VersionKey)
+	switch {
+	case err != nil:
+		return 0, err
+	case !present:
 		return 0, fmt.Errorf("sei.toml has no %s. Its shape cannot be established, so no migration "+
 			"can safely run against it and no reader can know which keys it is expected to carry",
 			VersionKey)
-	}
-	v, err := goValue(e.Value)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", VersionKey, err)
-	}
-	n, ok := v.(int64)
-	if !ok {
-		return 0, fmt.Errorf("%s is %T (%v), want an integer", VersionKey, v, v)
 	}
 	if int(n) > SchemaVersion {
 		// The rollback case, and the reason the counter exists. A release migrates the file forward on
