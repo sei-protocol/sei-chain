@@ -173,8 +173,9 @@ func (s *State) LastCommitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
 }
 
 // SubscribeConsensusSpec returns a receiver of the durable CommitQC tip paired
-// with the epoch governing the view that follows it. None until a tip exists.
-func (s *State) SubscribeConsensusSpec() utils.AtomicRecv[utils.Option[types.ConsensusSpec]] {
+// with the epoch governing the view that follows it. CommitQC is None before
+// the first tip; until then Epoch is genesis epoch 0.
+func (s *State) SubscribeConsensusSpec() utils.AtomicRecv[types.ConsensusSpec] {
 	for inner := range s.inner.Lock() {
 		return inner.consensusSpec.Subscribe()
 	}

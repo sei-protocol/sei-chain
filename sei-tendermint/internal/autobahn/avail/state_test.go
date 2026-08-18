@@ -976,14 +976,14 @@ func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceWaitsForRegistry(t
 		go func() { advanceErr = f.state.runEpochAdvance(ctx) }()
 		synctest.Wait()
 		require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex(), "parked on WaitForEpoch(M+1)")
-		got, ok := spec.Load().Get()
+		got, ok := spec.Load().CommitQC.Get()
 		require.True(t, ok)
-		require.Equal(t, qcA.Index(), got.CommitQC.Index())
+		require.Equal(t, qcA.Index(), got.Index())
 
 		f.state.markCommitQCsPersisted(qcB)
-		got, ok = spec.Load().Get()
+		got, ok = spec.Load().CommitQC.Get()
 		require.True(t, ok)
-		require.Equal(t, qcB.Index(), got.CommitQC.Index())
+		require.Equal(t, qcB.Index(), got.Index())
 		require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex(), "still waiting on registry")
 
 		cancel()

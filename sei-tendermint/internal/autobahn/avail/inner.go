@@ -13,7 +13,7 @@ import (
 // inner holds roads and per-LaneID block/vote maps.
 type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
-	consensusSpec     utils.AtomicSend[utils.Option[types.ConsensusSpec]]
+	consensusSpec     utils.AtomicSend[types.ConsensusSpec]
 	roads             *queue[types.RoadIndex, *road]
 
 	// epoch is the applied (next-CommitQC) epoch. installEpoch is the sole
@@ -52,9 +52,13 @@ type loadedState struct {
 
 func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	start := ds.Registry().LatestEpoch()
+	genesis, ok := ds.Registry().EpochByIndex(0)
+	if !ok {
+		return nil, fmt.Errorf("genesis epoch 0 not registered")
+	}
 	i := &inner{
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
-		consensusSpec:      utils.NewAtomicSend(utils.None[types.ConsensusSpec]()),
+		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: genesis}),
 		roads:              newQueue[types.RoadIndex, *road](),
 		epoch:              utils.NewAtomicSend(start),
 		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
@@ -134,12 +138,8 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	}
 	// Restart catch-up: install every epoch the durable leashes already allow.
 	// The live path (runEpochAdvance) installs one waited-for epoch at a time.
-	for {
-		next, ok := i.nextInstallableEpoch(ds).Get()
-		if !ok {
-			break
-		}
-		i.installEpoch(next)
+	if err := i.installReadyEpochs(ds); err != nil {
+		return nil, err
 	}
 	i.refreshConsensusSpec()
 	return i, nil
@@ -170,18 +170,19 @@ func (i *inner) leashesMet() bool {
 	return ok && ae.EpochIndex() >= ep.EpochIndex()
 }
 
-// nextInstallableEpoch returns the next registry epoch when the applied epoch
-// is sealed, its prune leash is met, and the execution leash is met (next epoch
-// registered).
-func (i *inner) nextInstallableEpoch(ds *data.State) utils.Option[*types.Epoch] {
-	if !i.leashesMet() {
-		return utils.None[*types.Epoch]()
+// installReadyEpochs installs every epoch whose seal and prune leashes are
+// already met. A missing next registry epoch in that state is an invariant
+// violation (execution leash should already have registered it).
+func (i *inner) installReadyEpochs(ds *data.State) error {
+	for i.leashesMet() {
+		nextIdx := i.epoch.Load().EpochIndex() + 1
+		next, ok := ds.Registry().EpochByIndex(nextIdx)
+		if !ok {
+			return fmt.Errorf("epoch %d not registered with seal+prune leashes met", nextIdx)
+		}
+		i.installEpoch(next)
 	}
-	next, ok := ds.Registry().EpochByIndex(i.epoch.Load().EpochIndex() + 1)
-	if !ok {
-		return utils.None[*types.Epoch]()
-	}
-	return utils.Some(next)
+	return nil
 }
 
 // refreshConsensusSpec publishes ConsensusSpec for the durable tip, paired with
@@ -194,7 +195,8 @@ func (i *inner) nextInstallableEpoch(ds *data.State) utils.Option[*types.Epoch] 
 // not be handed a predecessor of the tip it holds: installing it would roll the
 // view backwards and discard that view's votes.
 func (i *inner) refreshConsensusSpec() {
-	cqc, ok := i.persistedCommitQC.Load().Get()
+	tip := i.persistedCommitQC.Load()
+	cqc, ok := tip.Get()
 	if !ok {
 		return
 	}
@@ -206,7 +208,7 @@ func (i *inner) refreshConsensusSpec() {
 	if !ok {
 		return
 	}
-	i.consensusSpec.Store(utils.Some(types.ConsensusSpec{CommitQC: cqc, Epoch: ep}))
+	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: tip, Epoch: ep})
 }
 
 func (i *inner) epochForRoad(road types.RoadIndex) utils.Option[*types.Epoch] {

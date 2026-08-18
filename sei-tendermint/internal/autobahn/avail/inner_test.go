@@ -225,12 +225,12 @@ func TestAddLane_ReportsNewLaneForEachMembershipPeriod(t *testing.T) {
 	require.True(t, i.addLane(types.LaneID{Validator: a.Public(), Joined: 3}))
 }
 
-// TestNextInstallableEpoch_BoundaryTipUsesDataAppQC: tip at LastRoad(0) with
+// TestInstallReadyEpochs_BoundaryTipUsesDataAppQC: tip at LastRoad(0) with
 // applied floored to 0 (restart), data's Anchor already covers epoch 0, registry
 // has epoch 1 → install walks to 1 so ConsensusSpec republishes the tip.
 // This is the avail half of the blind-Spec restore invariant: consensus may
 // refuse to start if Spec stays behind a WAL tip at LastRoad(0) after catch-up.
-func TestNextInstallableEpoch_BoundaryTipUsesDataAppQC(t *testing.T) {
+func TestInstallReadyEpochs_BoundaryTipUsesDataAppQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
@@ -280,7 +280,7 @@ func TestNextInstallableEpoch_BoundaryTipUsesDataAppQC(t *testing.T) {
 
 	i := &inner{
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
-		consensusSpec:      utils.NewAtomicSend(utils.None[types.ConsensusSpec]()),
+		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}),
 		roads:              newQueue[types.RoadIndex, *road](),
 		epoch:              utils.NewAtomicSend(ep0),
 		anchorEpoch:        utils.Some(anchor.Epoch),
@@ -299,23 +299,52 @@ func TestNextInstallableEpoch_BoundaryTipUsesDataAppQC(t *testing.T) {
 
 	require.False(t, i.roads.q[last].appQC.IsPresent(), "road AppQC empty; prune leash is the Anchor")
 	require.True(t, i.leashesMet())
-	require.True(t, i.nextInstallableEpoch(ds).IsPresent())
-	require.Equal(t, types.EpochIndex(1), i.nextInstallableEpoch(ds).OrPanic("installable").EpochIndex())
-
-	for {
-		next, ok := i.nextInstallableEpoch(ds).Get()
-		if !ok {
-			break
-		}
-		i.installEpoch(next)
-	}
-	i.refreshConsensusSpec()
+	require.NoError(t, i.installReadyEpochs(ds))
 
 	require.Equal(t, ep1.EpochIndex(), i.epoch.Load().EpochIndex())
-	spec, ok := i.consensusSpec.Load().Get()
+	spec := i.consensusSpec.Load()
+	cqc, ok := spec.CommitQC.Get()
 	require.True(t, ok)
-	require.Equal(t, last, spec.CommitQC.Index(), "must not walk tip back to LastRoad(0)-1")
+	require.Equal(t, last, cqc.Index(), "must not walk tip back to LastRoad(0)-1")
 	require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
+}
+
+func TestInstallReadyEpochs_MissingNextEpochErrors(t *testing.T) {
+	rng := utils.TestRng()
+	// Fresh registry has epochs 0 and 1; seal epoch 1 so the next lookup is 2.
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep1, ok := registry.EpochByIndex(1)
+	require.True(t, ok)
+	_, err := registry.EpochAt(epoch.FirstRoad(2))
+	require.Error(t, err)
+
+	last := epoch.LastRoad(1)
+	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
+		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: last - 1, Number: 0}, ep1.FirstBlock()))),
+	})
+	qcLast := types.BuildCommitQC(ep1, keys, utils.Some(prev), nil)
+	require.Equal(t, last, qcLast.Index())
+
+	i := &inner{
+		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
+		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep1}),
+		roads:              newQueue[types.RoadIndex, *road](),
+		epoch:              utils.NewAtomicSend(ep1),
+		anchorEpoch:        utils.Some(ep1),
+		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
+		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
+		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
+	}
+	for lane := range ep1.Committee().Lanes().All() {
+		i.addLane(lane)
+	}
+	i.roads.first = last
+	i.roads.next = last
+	i.roads.pushBack(newRoad(qcLast, ep1))
+	i.persistedCommitQC.Store(utils.Some(qcLast))
+
+	require.True(t, i.leashesMet())
+	require.Error(t, i.installReadyEpochs(newTestDataState(&data.Config{Registry: registry})))
 }
 
 // TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied: the durable tip
@@ -340,7 +369,7 @@ func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 
 	i := &inner{
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
-		consensusSpec:      utils.NewAtomicSend(utils.None[types.ConsensusSpec]()),
+		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}),
 		roads:              newQueue[types.RoadIndex, *road](),
 		epoch:              utils.NewAtomicSend(ep0),
 		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
@@ -354,11 +383,12 @@ func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 	i.persistedCommitQC.Store(utils.Some(qcLast))
 
 	i.refreshConsensusSpec()
-	require.False(t, i.consensusSpec.Load().IsPresent(), "spec must be withheld, not published at the predecessor")
+	require.False(t, i.consensusSpec.Load().CommitQC.IsPresent(), "spec must be withheld, not published at the predecessor")
 
 	i.installEpoch(ep1)
-	spec, ok := i.consensusSpec.Load().Get()
+	spec := i.consensusSpec.Load()
+	cqc, ok := spec.CommitQC.Get()
 	require.True(t, ok)
-	require.Equal(t, last, spec.CommitQC.Index())
+	require.Equal(t, last, cqc.Index())
 	require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
 }
