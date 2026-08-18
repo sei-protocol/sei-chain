@@ -572,7 +572,7 @@ func simulateBlocks(
 
 		require.NoError(t, cs.ApplyChangeSets(cset), "ApplyChangeSets")
 		oracle.apply(cset)
-		version, err := cs.Commit()
+		version, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err, "Commit")
 		require.Equal(t, startVersion+1, version, "Commit must advance the version by exactly one")
 
@@ -1391,7 +1391,7 @@ func seedMigrationSentinels(t *testing.T, cs *CompositeCommitStore, oracle *stor
 	}
 	require.NoError(t, cs.ApplyChangeSets(cset), "ApplyChangeSets(sentinels)")
 	oracle.apply(cset)
-	version, err := cs.Commit()
+	version, err := cs.Commit(cs.Version() + 1)
 	require.NoError(t, err, "Commit(sentinels)")
 	require.Equal(t, startVersion+1, version)
 }

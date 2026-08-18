@@ -26,7 +26,7 @@ func (f *fakeCommitter) Close() error                             { atomic.Store
 func (f *fakeCommitter) IsClosed() bool                           { return atomic.LoadInt32(&f.closed) == 1 }
 func (f *fakeCommitter) Version() int64                           { return f.id }
 func (f *fakeCommitter) Initialize(_ []string) error              { panic("unused") }
-func (f *fakeCommitter) Commit() (int64, error)                   { panic("unused") }
+func (f *fakeCommitter) Commit(int64) (int64, error)              { panic("unused") }
 func (f *fakeCommitter) GetLatestVersion() (int64, error)         { panic("unused") }
 func (f *fakeCommitter) Get(string, []byte) ([]byte, bool, error) { panic("unused") }
 func (f *fakeCommitter) SetWriteMode(sctypes.WriteMode) error     { panic("unused") }

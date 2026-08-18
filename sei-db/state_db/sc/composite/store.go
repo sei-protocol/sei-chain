@@ -758,12 +758,22 @@ func (cs *CompositeCommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade)
 	return cs.memIAVL.ApplyUpgrades(upgrades)
 }
 
-// Commit commits the current state to all active backends
-func (cs *CompositeCommitStore) Commit() (int64, error) {
+// Commit commits the current state to all active backends at version, the height the caller is
+// building.
+//
+// The height comes from the caller rather than from a backend. Taking a block's hash seals it on
+// flatkv — see flatKVWorkingHash — so by the time this runs flatkv may already sit at version, and a
+// height derived from its own state would land on the next block and commit one that never existed.
+// Handing it the height the caller means lets flatkv recognise the block it already committed.
+func (cs *CompositeCommitStore) Commit(version int64) (int64, error) {
+	// Captured before committing: a store that has never committed may begin its history above height
+	// 1, in which case the height it lands on legitimately differs from the one the caller counted to.
+	neverCommitted := cs.Version() == 0
+
 	var cosmosVersion int64 = -1
 	if cs.memIAVL != nil {
 		var err error
-		cosmosVersion, err = cs.memIAVL.Commit()
+		cosmosVersion, err = cs.memIAVL.Commit(version)
 		if err != nil {
 			return 0, fmt.Errorf("failed to commit cosmos: %w", err)
 		}
@@ -771,13 +781,8 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 
 	var flatkvVersion int64 = -1
 	if cs.flatKV != nil {
-		targetVersion := cosmosVersion
-		if targetVersion < 0 {
-			// FlatKV-only mode: no cosmos height to follow.
-			targetVersion = cs.flatKV.Version() + 1
-		}
 		var err error
-		flatkvVersion, err = cs.flatKV.Commit(targetVersion)
+		flatkvVersion, err = cs.flatKV.Commit(version)
 		if err != nil {
 			return 0, fmt.Errorf("failed to commit flatkv: %w", err)
 		}
@@ -795,14 +800,29 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 			return 0, fmt.Errorf("cosmos and flatkv version mismatch after commit: cosmos=%d, flatkv=%d",
 				cosmosVersion, flatkvVersion)
 		}
-		return cosmosVersion, nil
+		return cosmosVersion, requireCommittedHeight(cosmosVersion, version, neverCommitted)
 	} else if cosmosVersion >= 0 {
-		return cosmosVersion, nil
+		return cosmosVersion, requireCommittedHeight(cosmosVersion, version, neverCommitted)
 	} else if flatkvVersion >= 0 {
-		return flatkvVersion, nil
+		return flatkvVersion, requireCommittedHeight(flatkvVersion, version, neverCommitted)
 	} else {
 		return 0, fmt.Errorf("no version committed")
 	}
+}
+
+// requireCommittedHeight rejects a commit that landed on a height other than the one asked for.
+//
+// A backend that advanced further than the caller intended has committed a block the chain never
+// agreed on, and because an empty block moves no hash the divergence is invisible until something
+// compares heights. This is the one place every commit passes through, so it is where that is caught.
+//
+// A store that had committed nothing is exempt, because one seeded to begin its history above height 1
+// lands where its seed says while the caller counts from the beginning, and neither is wrong.
+func requireCommittedHeight(committed int64, requested int64, neverCommitted bool) error {
+	if committed == requested || neverCommitted {
+		return nil
+	}
+	return fmt.Errorf("committed block %d but the caller is building block %d", committed, requested)
 }
 
 // reconcileVersions checks whether the cosmos and EVM backends are at the

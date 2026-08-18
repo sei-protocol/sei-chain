@@ -211,7 +211,7 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 		}
 	}
 	// Commit to SC Store
-	_, err := rs.scStore.Commit()
+	_, err := rs.scStore.Commit(rs.nextVersion())
 	if err != nil {
 		panic(err)
 	}
@@ -234,9 +234,17 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 }
 
 // Flush all the pending changesets to commit store.
+// nextVersion is the height the store is currently building: one past the last committed block.
+//
+// Three paths need this number — draining changesets, taking the working hash, and committing — and
+// they must agree. A backend left to derive its own is what let a height be committed twice.
+func (rs *Store) nextVersion() int64 {
+	return rs.lastCommitInfo.Version + 1
+}
+
 func (rs *Store) flush() error {
 	var changeSets []*proto.NamedChangeSet
-	currentVersion := rs.lastCommitInfo.Version + 1
+	currentVersion := rs.nextVersion()
 	for key := range rs.ckvStores {
 		// it'll unwrap the inter-block cache
 		store := rs.GetCommitKVStore(key)
@@ -751,7 +759,15 @@ func (rs *Store) SetInterBlockCache(_ types.MultiStorePersistentCache) {}
 // SetInitialVersion Implements interface CommitMultiStore
 // used by InitChain when the initial height is bigger than 1
 func (rs *Store) SetInitialVersion(version int64) error {
-	return rs.scStore.SetInitialVersion(version)
+	if err := rs.scStore.SetInitialVersion(version); err != nil {
+		return err
+	}
+	// A chain seeded to begin at this height has version-1 behind it, and nextVersion is what tells the
+	// commit store which block is being built. Leaving it at 0 would ask for block 1 on a chain whose
+	// first block is this one. The backends cannot supply this: flatkv reflects the seed immediately
+	// while memiavl does not apply it until its first commit, so they disagree until then.
+	rs.lastCommitInfo.Version = version - 1
+	return nil
 }
 
 // SetMigrationBatchSize forwards the governance-controlled number of keys
@@ -1095,7 +1111,7 @@ func (rs *Store) GetWorkingHash() ([]byte, error) {
 	if err := rs.flush(); err != nil {
 		return nil, err
 	}
-	commitInfo := convertCommitInfo(rs.scStore.WorkingCommitInfo(rs.lastCommitInfo.Version + 1))
+	commitInfo := convertCommitInfo(rs.scStore.WorkingCommitInfo(rs.nextVersion()))
 	// for sdk 0.46 and backward compatibility
 	commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	return commitInfo.Hash(), nil

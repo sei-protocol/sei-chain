@@ -24,10 +24,17 @@ type Committer interface {
 	// Rejects store names not in keys.MemIAVLStoreKeys.
 	Initialize(initialStores []string) error
 
-	// Commit persists the current working state and returns the version
-	// number assigned to the new commit. After a successful Commit the
-	// working state advances to the next height.
-	Commit() (int64, error)
+	// Commit persists the current working state and returns the version number assigned to the new
+	// commit. After a successful Commit the working state advances to the next height.
+	//
+	// version is the height being committed. A backend that would land on any other height is a panic,
+	// except on a store that has never committed: one seeded to start its history above height 1
+	// legitimately disagrees with a caller counting from the beginning.
+	//
+	// The height is passed rather than derived because a backend that seals a block in order to hash it
+	// has already advanced past the height the caller is building, so a self-derived "next" version
+	// lands one block too far.
+	Commit(version int64) (int64, error)
 
 	// Version returns the version of the currently loaded in-memory state,
 	// i.e. the height of the most recent successful Commit (or LoadVersion).

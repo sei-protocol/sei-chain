@@ -38,7 +38,7 @@ func TestAuto_TornFlatKVSeedRecoversAndReseeds(t *testing.T) {
 				{Key: []byte("k"), Value: []byte{byte(0x10 + i)}},
 			}}},
 		}))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.Equal(t, int64(3), cs.memIAVL.Version())
@@ -74,7 +74,7 @@ func TestAuto_TornFlatKVSeedRecoversAndReseeds(t *testing.T) {
 			{Key: []byte("k"), Value: []byte{0xFF}},
 		}}},
 	}))
-	_, err = reopened.Commit()
+	_, err = reopened.Commit(reopened.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(4), reopened.memIAVL.Version())
 	require.Equal(t, int64(4), reopened.flatKV.Version())

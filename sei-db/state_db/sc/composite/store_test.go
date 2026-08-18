@@ -115,7 +115,7 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 	err = cs.ApplyChangeSets(changesets)
 	require.NoError(t, err)
 
-	version, err := cs.Commit()
+	version, err := cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), version)
 	require.Equal(t, int64(1), cs.Version())
@@ -171,7 +171,7 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, cs.Close())
 
@@ -215,7 +215,7 @@ func TestWorkingAndLastCommitInfo(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	lastInfo := cs.LastCommitInfo()
@@ -316,7 +316,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				}
 
 				// --- Commit ---
-				_, err = cs.Commit()
+				_, err = cs.Commit(cs.Version() + 1)
 				require.NoError(t, err)
 
 				// --- Last commit info ---
@@ -434,7 +434,7 @@ func TestMemiavlOnlyToMigrateEVMPreservesLastCommitInfoBeforeFirstCommit(t *test
 				{Key: []byte(fmt.Sprintf("evm_%d", i)), Value: []byte{byte(i)}},
 			}}},
 		}))
-		_, err := cs1.Commit()
+		_, err := cs1.Commit(cs1.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -547,7 +547,7 @@ func TestMigrateEVMIncludesLatticeHashAfterFirstCommit(t *testing.T) {
 			{Key: []byte("k"), Value: []byte("v")},
 		}}},
 	}))
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	info := cs.LastCommitInfo()
@@ -594,7 +594,7 @@ func TestMigrateEVMLatticeRemainsAfterRestartPostMigrationCompletion(t *testing.
 			{Key: []byte("k"), Value: []byte("v")},
 		}}},
 	}))
-	_, err = cs1.Commit()
+	_, err = cs1.Commit(cs1.Version() + 1)
 	require.NoError(t, err)
 
 	// Confirm on-disk MigrationStore reflects a completed migration:
@@ -651,7 +651,7 @@ func TestRollback(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -687,7 +687,7 @@ func TestGetVersions(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.Close())
@@ -729,7 +729,7 @@ func TestGetLatestVersionMemiavlOnly(t *testing.T) {
 				{Key: []byte("k"), Value: []byte("v")},
 			}}},
 		}))
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -758,7 +758,7 @@ func TestGetLatestVersionFlatKVOnly(t *testing.T) {
 			{Key: []byte("k1"), Value: []byte("v1")},
 		}}},
 	}))
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	v, err := cs.GetLatestVersion()
@@ -796,7 +796,7 @@ func TestGetLatestVersionBothBackendsAligned(t *testing.T) {
 				{Key: []byte("k"), Value: []byte("v")},
 			}}},
 		}))
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -838,7 +838,7 @@ func TestReadOnlyLoadVersionFailsLoudWhenFlatKVUnavailable(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	// Inject a failing EVM committer. The read-only load must surface
@@ -874,7 +874,7 @@ func TestLoadVersionFlatKVOnlyReadWrite(t *testing.T) {
 			{Key: []byte("k1"), Value: []byte("v1")},
 		}}},
 	}))
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	got, ok, err := cs.Get(keys.EVMStoreKey, []byte("k1"))
@@ -902,7 +902,7 @@ func TestLoadVersionFlatKVOnlyReadOnly(t *testing.T) {
 			{Key: []byte("k1"), Value: []byte("v1")},
 		}}},
 	}))
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	ro, err := cs.LoadVersionReadOnly(0)
@@ -1087,7 +1087,7 @@ func TestExportImportEVMMigrated(t *testing.T) {
 		}}},
 	})
 	require.NoError(t, err)
-	_, err = src.Commit()
+	_, err = src.Commit(src.Version() + 1)
 	require.NoError(t, err)
 
 	// --- Export ---
@@ -1163,7 +1163,7 @@ func TestExportMemiavlOnlyHasNoFlatKVModule(t *testing.T) {
 		}}},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	exporter, err := cs.Exporter(1)
@@ -1202,7 +1202,7 @@ func TestExporterFailsLoudOnFlatKVLoadFailure(t *testing.T) {
 		}}},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	// Inject a flatkv whose load always fails; the failure must surface.
@@ -1305,7 +1305,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.Equal(t, int64(3), cs.memIAVL.Version())
@@ -1374,7 +1374,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 				{Key: storageKey, Value: padLeft32(i)},
 			}}},
 		}))
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.Close())
@@ -1413,7 +1413,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 				{Key: storageKey, Value: padLeft32(v)},
 			}}},
 		}))
-		ver, err := cs2.Commit()
+		ver, err := cs2.Commit(cs2.Version() + 1)
 		require.NoError(t, err)
 		require.Equal(t, int64(3+i), ver, "commit should produce sequential versions")
 		require.Equal(t, ver, cs2.memIAVL.Version())
@@ -1469,7 +1469,7 @@ func setupComposite(t *testing.T, writeMode types.WriteMode) *CompositeCommitSto
 		}}},
 	})
 	require.NoError(t, err)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	return cs
 }
@@ -1723,7 +1723,7 @@ func TestCompositeEVMMigratedEVMReadsAreVisible(t *testing.T) {
 			{Key: evmKey, Value: evmVal},
 		}}},
 	}))
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	// FlatKV holds the authoritative copy.
@@ -1808,7 +1808,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.Close())
@@ -1870,7 +1870,7 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 			}}},
 		})
 		require.NoError(t, err)
-		v, err := cs1.Commit()
+		v, err := cs1.Commit(cs1.Version() + 1)
 		require.NoError(t, err)
 		require.Equal(t, int64(i+1), v)
 	}
@@ -1910,7 +1910,7 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 			}}},
 		})
 		require.NoError(t, err)
-		v, err := cs2.Commit()
+		v, err := cs2.Commit(cs2.Version() + 1)
 		require.NoError(t, err)
 		require.Equal(t, int64(blockIdx+1), v)
 		require.Equal(t, cs2.memIAVL.Version(), cs2.flatKV.Version(),
@@ -1943,7 +1943,7 @@ func TestMigrateEVMReopenPreservesPreFlipLastCommitInfo(t *testing.T) {
 				{Key: evmKey, Value: padLeft32(i)},
 			}}},
 		}))
-		_, err = cs1.Commit()
+		_, err = cs1.Commit(cs1.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.Nil(t, cs1.flatKV, "MemiavlOnly must not allocate flatkv before the migration")
@@ -1987,7 +1987,7 @@ func TestMigrateEVMReopenPreservesPreFlipLastCommitInfo(t *testing.T) {
 	require.True(t, hasLattice(working),
 		"the next block after the migration should include the flatkv lattice hash")
 
-	_, err = cs2.Commit()
+	_, err = cs2.Commit(cs2.Version() + 1)
 	require.NoError(t, err)
 	last := cs2.LastCommitInfo()
 	require.True(t, hasLattice(last))
@@ -2012,7 +2012,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 				{Key: []byte("bal"), Value: []byte{byte(i)}},
 			}}},
 		}))
-		_, err := cs1.Commit()
+		_, err := cs1.Commit(cs1.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs1.Close())
@@ -2026,7 +2026,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 	err = cs2.LoadLatest()
 	require.NoError(t, err)
 	require.Equal(t, int64(5), cs2.flatKV.Version(), "flatkv seeded to memiavl version on first reopen")
-	_, err = cs2.Commit()
+	_, err = cs2.Commit(cs2.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(6), cs2.Version())
 	require.NoError(t, cs2.Close())
@@ -2078,7 +2078,7 @@ func TestSetInitialVersionMemiavlOnly(t *testing.T) {
 			{Key: []byte("alice"), Value: []byte("1")},
 		}}},
 	}))
-	v, err := cs.Commit()
+	v, err := cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), v, "first commit after SetInitialVersion(100) must be version 100")
 }
@@ -2109,7 +2109,10 @@ func TestSetInitialVersionDelegatesToBothBackends(t *testing.T) {
 			{Key: []byte("alice"), Value: []byte("1")},
 		}}},
 	}))
-	v, err := cs.Commit()
+	// The seeded height, named explicitly rather than derived: a store seeded to start at 50 builds
+	// block 50 first, and cs.Version() reports memiavl's 0 here because memiavl does not apply its seed
+	// until it commits.
+	v, err := cs.Commit(50)
 	require.NoError(t, err)
 	require.Equal(t, int64(50), v,
 		"first commit after composite.SetInitialVersion must produce the seeded version on both backends")
@@ -2192,7 +2195,7 @@ func TestInitializeAcceptsUnknownStoreNamesInMemiavlOnly(t *testing.T) {
 			{Key: []byte("k"), Value: []byte("v")},
 		}}},
 	}))
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	got, ok, err := cs.Get("icahost", []byte("k"))
@@ -2228,7 +2231,7 @@ func TestInitializeAcceptsUnknownStoreNamesInFlatKVOnly(t *testing.T) {
 			{Key: []byte("k"), Value: []byte("v")},
 		}}},
 	}))
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	got, ok, err := cs.Get("icahost", []byte("k"))
@@ -2276,7 +2279,7 @@ func TestCopyProducesUsableSnapshot(t *testing.T) {
 			{Key: []byte("k"), Value: []byte("v")},
 		}}},
 	}))
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	snap := cs.Copy()
@@ -2529,7 +2532,7 @@ func TestLoadVersionReadOnlyDuringMigrateEVMTransition(t *testing.T) {
 			{Key: []byte(evmKey), Value: []byte(evmVal)},
 		}}},
 	}))
-	_, err = cs1.Commit()
+	_, err = cs1.Commit(cs1.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, cs1.Close())
 

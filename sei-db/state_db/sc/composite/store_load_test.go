@@ -28,7 +28,7 @@ func TestCorruptFlatKVDirFailsOnLoad(t *testing.T) {
 	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(), 100)
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	require.NoError(t, cs.ApplyChangeSets(nil))
-	_, err := cs.Commit()
+	_, err := cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, cs.Close())
 
@@ -61,7 +61,7 @@ func TestDerivedStoreRefusesLoads(t *testing.T) {
 				{Key: []byte("k"), Value: []byte{byte(0x10 + i)}},
 			}}},
 		}))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.Nil(t, cs.flatKV, "fixture precondition: flatkv must not be materialized")
