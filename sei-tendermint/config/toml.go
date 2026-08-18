@@ -309,6 +309,12 @@ allow-duplicate-ip = {{ .P2P.AllowDuplicateIP }}
 handshake-timeout = "{{ .P2P.HandshakeTimeout }}"
 dial-timeout = "{{ .P2P.DialTimeout }}"
 
+# How often the node accepts a new inbound connection. A larger interval paces
+# the accept loop more slowly; if the kernel accept backlog outpaces it, arriving
+# peers wait past handshake-timeout and the node silently stops acquiring inbound
+# peers. A value of 0 disables the limiter.
+accept-interval = "{{ .P2P.AcceptInterval }}"
+
 # Time to wait before flushing messages out on the connection
 # TODO: Remove once MConnConnection is removed.
 flush-throttle-timeout = "{{ .P2P.FlushThrottleTimeout }}"

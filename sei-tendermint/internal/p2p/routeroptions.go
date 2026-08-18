@@ -64,7 +64,8 @@ type RouterOptions struct {
 	// MaxDialRate limits the rate at which router is dialing peers. Defaults to 0.1/s.
 	MaxDialRate utils.Option[rate.Limit]
 
-	// MaxAcceptRate limits the rate at which router is accepting TCP connections. Defaults to 1/s.
+	// MaxAcceptRate limits the sustained rate at which router is accepting TCP
+	// connections; the limiter's burst is MaxConcurrentAccepts. Defaults to 100/s.
 	MaxAcceptRate utils.Option[rate.Limit]
 
 	// ResolveTimeout is the timeout for resolving NodeAddress URLs.
@@ -161,7 +162,11 @@ func (o *RouterOptions) maxDialRate() rate.Limit {
 }
 
 func (o *RouterOptions) maxAcceptRate() rate.Limit {
-	return o.MaxAcceptRate.Or(rate.Every(time.Second))
+	// The fallback is load-bearing on this branch: unlike main, RouterOptions.Validate
+	// here has no "rate must be > 0" guard, so a construction site that leaves the
+	// field unset silently inherits this value rather than failing. 1/s was too low
+	// to drain the listen backlog, which is the defect #3899 fixes.
+	return o.MaxAcceptRate.Or(rate.Every(10 * time.Millisecond))
 }
 
 func (o *RouterOptions) incomingConnectionWindow() time.Duration {
