@@ -13,7 +13,7 @@ import (
 
 // Registry behaviour: one declaration per section, and defaults that vary by node mode.
 //
-// One registration per section carries the struct and a baseline function of node mode. The
+// One registration per section carries the struct and a default that varies by node mode. The
 // dotted key, the canonical environment spelling and the read site all derive from that one
 // declaration, so nobody hand-writes a key string.
 //
@@ -102,45 +102,45 @@ func TestAnUntaggedFieldIsADefectNotAFallback(t *testing.T) {
 	}
 }
 
-// TestABaselineVariesByModeAndAnAbsentKeyTracksIt holds that node mode reaches the baseline.
+// TestADefaultVariesByModeAndAnAbsentKeyTracksIt holds that node mode reaches the default.
 //
-// Held on a key whose baseline actually differs between two modes, since a key with one baseline
+// Held on a key whose default actually differs between two modes, since a key with one default
 // everywhere would pass against a registry that ignored mode entirely.
-func TestABaselineVariesByModeAndAnAbsentKeyTracksIt(t *testing.T) {
+func TestADefaultVariesByModeAndAnAbsentKeyTracksIt(t *testing.T) {
 	registerGiga(t)
 	s, _ := registry.Lookup(gigaSection)
 
 	archive, ok := s.Defaults(registry.ModeArchive).(gigaconfig.Config)
 	if !ok {
-		t.Fatalf("the baseline returned %T rather than the section's own type", s.Defaults(registry.ModeArchive))
+		t.Fatalf("the default returned %T rather than the section's own type", s.Defaults(registry.ModeArchive))
 	}
 	validator := s.Defaults(registry.ModeValidator).(gigaconfig.Config)
 
 	if archive.OCCEnabled {
-		t.Error("occ_enabled is true on an archive node; this section's baseline turns it off there")
+		t.Error("occ_enabled is true on an archive node; this section's default turns it off there")
 	}
 	if !validator.OCCEnabled {
-		t.Error("occ_enabled is false on a validator, so the baseline does not vary by mode and " +
+		t.Error("occ_enabled is false on a validator, so the default does not vary by mode and " +
 			"this test would hold for a registry that ignored mode")
 	}
 	// And a key that does not vary still resolves, or the assertion above would be the only shape
-	// a baseline could take.
+	// a default could take.
 	if !archive.Enabled || !validator.Enabled {
-		t.Error("enabled differs by mode; it is the same on both in this section's baseline")
+		t.Error("enabled differs by mode; it is the same on both in this section's default")
 	}
 }
 
-// TestEveryModeHasABaseline holds that no mode is unreachable.
+// TestEveryModeHasADefault holds that no mode is unreachable.
 //
-// A mode with no baseline would resolve an absent key to the type's zero rather than to what the
+// A mode with no default would resolve an absent key to the type's zero rather than to what the
 // binary intends, silently, on exactly the nodes running that mode.
-func TestEveryModeHasABaseline(t *testing.T) {
+func TestEveryModeHasADefault(t *testing.T) {
 	registerGiga(t)
 	s, _ := registry.Lookup(gigaSection)
 
 	for _, m := range registry.Modes() {
 		if s.Defaults(m) == nil {
-			t.Errorf("mode %q has no baseline, so an absent key on that node resolves to a zero "+
+			t.Errorf("mode %q has no default, so an absent key on that node resolves to a zero "+
 				"rather than to the binary's judgement", m)
 		}
 	}
@@ -150,7 +150,7 @@ func TestEveryModeHasABaseline(t *testing.T) {
 //
 // registry.Mode is declared locally so this package stays a leaf every feature can import. That
 // duplication is only safe while the two sets agree, and this is what makes a mode added to
-// app/params fail here rather than silently having no baseline anywhere.
+// app/params fail here rather than silently having no default anywhere.
 func TestModesMatchTheNodeModes(t *testing.T) {
 	node := map[string]bool{
 		string(params.NodeModeValidator): true,
@@ -160,14 +160,14 @@ func TestModesMatchTheNodeModes(t *testing.T) {
 	}
 	for _, m := range registry.Modes() {
 		if !node[string(m)] {
-			t.Errorf("registry declares mode %q, which app/params does not; a baseline for a mode "+
-				"no node runs is dead, and a mode with no baseline is worse", m)
+			t.Errorf("registry declares mode %q, which app/params does not; a default for a mode "+
+				"no node runs is dead, and a mode with no default is worse", m)
 		}
 		delete(node, string(m))
 	}
 	for left := range node {
-		t.Errorf("app/params declares mode %q and the registry has no baseline input for it, so a "+
-			"section cannot vary its baseline on the mode some nodes actually run", left)
+		t.Errorf("app/params declares mode %q and the registry has no default input for it, so a "+
+			"section cannot vary its default on the mode some nodes actually run", left)
 	}
 }
 
@@ -399,8 +399,8 @@ func TestEachLayerWinsOverTheOneBelowIt(t *testing.T) {
 		layers []registry.Layer
 		want   string
 	}{
-		{"baseline alone", nil, "default"},
-		{"file over baseline", []registry.Layer{
+		{"default alone", nil, "default"},
+		{"file over default", []registry.Layer{
 			{Source: "file", Values: map[string]any{key: "file"}}}, "file"},
 		{"env over file", []registry.Layer{
 			{Source: "file", Values: map[string]any{key: "file"}},
@@ -425,12 +425,12 @@ func TestEachLayerWinsOverTheOneBelowIt(t *testing.T) {
 	}
 }
 
-// TestAnAbsentKeyTracksItsModeBaseline is why the baseline is a layer rather than a fallback.
+// TestAnAbsentKeyTracksItsModeDefault is why the default is a layer rather than a fallback.
 //
-// A key no layer mentions still resolves, to the baseline for the running mode. That is what makes
+// A key no layer mentions still resolves, to the default for the running mode. That is what makes
 // an absent key track the binary's judgement rather than a zero value: a default lives in the
 // binary and is never written into an operator's file.
-func TestAnAbsentKeyTracksItsModeBaseline(t *testing.T) {
+func TestAnAbsentKeyTracksItsModeDefault(t *testing.T) {
 	registerGiga(t)
 
 	archive, err := registry.Resolve(registry.ModeArchive)
@@ -448,11 +448,11 @@ func TestAnAbsentKeyTracksItsModeBaseline(t *testing.T) {
 		t.Fatalf("an unmentioned key resolved from %q and %q, want default from both", a.From, v.From)
 	}
 	if a.Value == v.Value {
-		t.Errorf("both modes resolved the same value %#v for a key whose baseline varies by mode, so "+
-			"the mode is not reaching the baseline", a.Value)
+		t.Errorf("both modes resolved the same value %#v for a key whose default varies by mode, so "+
+			"the mode is not reaching the default", a.Value)
 	}
 	if a.Value != false || v.Value != true {
-		t.Errorf("archive=%#v validator=%#v, want false and true from this section's baseline", a.Value, v.Value)
+		t.Errorf("archive=%#v validator=%#v, want false and true from this section's default", a.Value, v.Value)
 	}
 }
 
@@ -473,7 +473,7 @@ func TestProvenanceIsRecoverable(t *testing.T) {
 	overrides := got.Overrides()
 	if len(overrides) != 1 || overrides[0] != "giga_executor.occ_enabled" {
 		t.Errorf("Overrides returned %v, want the one key a layer supplied. A resolver that cannot "+
-			"separate a written value from a baseline cannot tell an operator what they changed", overrides)
+			"separate a written value from a default cannot tell an operator what they changed", overrides)
 	}
 	if res, _ := got.From("giga_executor.enabled"); res.From != "default" {
 		t.Errorf("the untouched key reports From=%q, so every key would render as an override", res.From)
@@ -515,7 +515,7 @@ func TestALayerWithNoDeclaredPriorityIsAnError(t *testing.T) {
 
 	for _, tc := range []struct{ name, source string }{
 		{"unknown source", "cli-somewhere"},
-		{"the reserved baseline", "default"},
+		{"the reserved default", "default"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := registry.Resolve(registry.ModeValidator,
@@ -560,7 +560,7 @@ func TestEnvLayerIsDrivenByTheDeclaredSet(t *testing.T) {
 
 // TestEveryDeclaredKeyResolves holds Resolve to the property its documentation states.
 //
-// A section whose baseline leaves an optional subtree nil declares keys the baseline states no value
+// A section whose default leaves an optional subtree nil declares keys the default states no value
 // for, because the type walk unwraps a pointer to derive its keys and the value walk skips a nil one.
 // Either every declared key resolves, or Resolve names the ones that cannot. A silent hole is the
 // worse of the two: Overrides never reports the key and From answers ok=false, so a diagnostic that
@@ -576,7 +576,7 @@ func TestEveryDeclaredKeyResolves(t *testing.T) {
 
 	registry.Reset()
 	registry.RegisterSection("svc", &optional{}, func(registry.Mode) any {
-		return optional{Name: "n"} // TLS left nil, which is how a baseline arrives short
+		return optional{Name: "n"} // TLS left nil, which is how a default arrives short
 	})
 	for _, d := range registry.Defects() {
 		t.Fatalf("registering the probe section produced a defect: %v", d.Err)
@@ -597,13 +597,13 @@ func TestEveryDeclaredKeyResolves(t *testing.T) {
 	}
 }
 
-// TestADivergentBaselineIsRefusedRatherThanPanicking pins the other half of the same seam.
+// TestADivergentDefaultIsRefusedRatherThanPanicking pins the other half of the same seam.
 //
 // The two walks share tagOf and are meant to traverse the same type, and nothing held them to it: the
-// prototype's type derives the keys while whatever Defaults returns supplies the values. A baseline
+// prototype's type derives the keys while whatever Defaults returns supplies the values. A default
 // whose type squashes a non-struct reached reflect.NumField on a string, so Resolve panicked in a
 // package whose stated posture is that a bad registration never does.
-func TestADivergentBaselineIsRefusedRatherThanPanicking(t *testing.T) {
+func TestADivergentDefaultIsRefusedRatherThanPanicking(t *testing.T) {
 	// Both embedded types are exported on purpose. An unexported embed is skipped before its squash
 	// tag is read, so a probe using one would pass while exercising nothing.
 	type Good struct {
@@ -627,11 +627,11 @@ func TestADivergentBaselineIsRefusedRatherThanPanicking(t *testing.T) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("Resolve panicked on a divergent baseline: %v", r)
+			t.Fatalf("Resolve panicked on a divergent default: %v", r)
 		}
 	}()
 	if _, err := registry.Resolve(registry.ModeFull); err == nil {
-		t.Error("a baseline whose type is not the registered struct's resolved without complaint, so " +
+		t.Error("a default whose type is not the registered struct's resolved without complaint, so " +
 			"every declared key silently carried no value")
 	}
 }
@@ -760,7 +760,7 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 		{"an upper-case section name", "Sec", &Good{}, ok1, "not lower case"},
 		{"no struct at all", "s", nil, ok1, "no struct"},
 		{"a non-struct prototype", "s", "string", ok1, "not a struct"},
-		{"no baseline function", "s", &Good{}, nil, "no baseline function"},
+		{"no defaults function", "s", &Good{}, nil, "no defaults function"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			registry.Reset()
@@ -780,7 +780,7 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 	}
 }
 
-// ok1 is a baseline for the refusal table, where the baseline is not what is under test.
+// ok1 is a default for the refusal table, where the default is not what is under test.
 func ok1(registry.Mode) any { return struct{}{} }
 
 // TestASectionRegisteredTwiceIsRefused pins the one refusal a table cannot express, since it needs
@@ -876,11 +876,11 @@ func TestAStructThatIsAValueStaysOneKey(t *testing.T) {
 	}
 }
 
-// TestABaselineThatIsNotAStructIsRefused covers the guards on what Defaults hands back.
+// TestADefaultThatIsNotAStructIsRefused covers the guards on what Defaults hands back.
 //
-// A baseline is a func returning any, so nothing at the type level stops it returning nil or a
+// A default is a func returning any, so nothing at the type level stops it returning nil or a
 // scalar. Both would otherwise reach the value walk, which expects a struct.
-func TestABaselineThatIsNotAStructIsRefused(t *testing.T) {
+func TestADefaultThatIsNotAStructIsRefused(t *testing.T) {
 	type one struct {
 		A string `mapstructure:"a"`
 	}
@@ -901,7 +901,7 @@ func TestABaselineThatIsNotAStructIsRefused(t *testing.T) {
 			}
 			_, err := registry.Resolve(registry.ModeFull)
 			if err == nil {
-				t.Fatalf("a baseline returning %s resolved without complaint", tc.name)
+				t.Fatalf("a default returning %s resolved without complaint", tc.name)
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("the refusal reads %q, which does not mention %q", err, tc.want)
@@ -910,12 +910,12 @@ func TestABaselineThatIsNotAStructIsRefused(t *testing.T) {
 	}
 }
 
-// TestABaselineCarryingAnUndeclaredKeyIsRefused covers the other direction of matchesDeclaration.
+// TestADefaultCarryingAnUndeclaredKeyIsRefused covers the other direction of matchesDeclaration.
 //
-// A baseline whose type is not the prototype's can state keys the section never declared as well as
+// A default whose type is not the prototype's can state keys the section never declared as well as
 // omit ones it did. Reported as its own case, because the cause is the same and a reader chasing one
 // message should not have to guess that the other exists.
-func TestABaselineCarryingAnUndeclaredKeyIsRefused(t *testing.T) {
+func TestADefaultCarryingAnUndeclaredKeyIsRefused(t *testing.T) {
 	type declared struct {
 		A string `mapstructure:"a"`
 	}
@@ -929,10 +929,10 @@ func TestABaselineCarryingAnUndeclaredKeyIsRefused(t *testing.T) {
 	})
 	_, err := registry.Resolve(registry.ModeFull)
 	if err == nil {
-		t.Fatal("a baseline stating an undeclared key resolved without complaint")
+		t.Fatal("a default stating an undeclared key resolved without complaint")
 	}
 	if !strings.Contains(err.Error(), "does not declare") {
-		t.Errorf("the refusal reads %q, which does not say the baseline is the wrong type", err)
+		t.Errorf("the refusal reads %q, which does not say the default is the wrong type", err)
 	}
 }
 
@@ -968,12 +968,12 @@ func TestARefusalInsideANestedStructNamesItsPath(t *testing.T) {
 	}
 }
 
-// TestSectionsAreSortedAndABaselineMayBeAPointer covers the shapes a caller is free to choose.
+// TestSectionsAreSortedAndADefaultMayBeAPointer covers the shapes a caller is free to choose.
 //
 // Sections promises an order, and a caller reading two sections in registration order would see one
-// that depends on map iteration. A baseline may hand back a pointer, since a section holding a large
+// that depends on map iteration. A default may hand back a pointer, since a section holding a large
 // struct has no reason to copy it, and the value walk has to follow that.
-func TestSectionsAreSortedAndABaselineMayBeAPointer(t *testing.T) {
+func TestSectionsAreSortedAndADefaultMayBeAPointer(t *testing.T) {
 	type withHidden struct {
 		Shown  string `mapstructure:"shown"`
 		hidden string //nolint:unused // ordinary internal state, and not a declared key
@@ -1002,22 +1002,22 @@ func TestSectionsAreSortedAndABaselineMayBeAPointer(t *testing.T) {
 
 	resolved, err := registry.Resolve(registry.ModeFull)
 	if err != nil {
-		t.Fatalf("a pointer baseline was refused: %v", err)
+		t.Fatalf("a pointer default was refused: %v", err)
 	}
 	if res, ok := resolved.From("alpha.shown"); !ok || res.Value != "a" {
-		t.Errorf("alpha.shown resolved to (%#v, %v) through a pointer baseline, want \"a\"", res.Value, ok)
+		t.Errorf("alpha.shown resolved to (%#v, %v) through a pointer default, want \"a\"", res.Value, ok)
 	}
 	if keys := registry.Keys(); !reflect.DeepEqual(keys, []string{"alpha.shown", "zulu.b"}) {
 		t.Errorf("declared keys are %v; the unexported field must not become one", keys)
 	}
 }
 
-// TestABaselineOfAWhollyDifferentTypeSaysSoOnce covers the message for a baseline that both omits a
+// TestADefaultOfAWhollyDifferentTypeSaysSoOnce covers the message for a default that both omits a
 // declared key and states one that was never declared.
 //
 // Two separate errors would send a reader chasing the second after fixing the first, when the cause is
-// one thing: the baseline is not the registered struct's type.
-func TestABaselineOfAWhollyDifferentTypeSaysSoOnce(t *testing.T) {
+// one thing: the default is not the registered struct's type.
+func TestADefaultOfAWhollyDifferentTypeSaysSoOnce(t *testing.T) {
 	type declared struct {
 		A string `mapstructure:"a"`
 	}
@@ -1029,7 +1029,7 @@ func TestABaselineOfAWhollyDifferentTypeSaysSoOnce(t *testing.T) {
 
 	_, err := registry.Resolve(registry.ModeFull)
 	if err == nil {
-		t.Fatal("a baseline of an unrelated type resolved without complaint")
+		t.Fatal("a default of an unrelated type resolved without complaint")
 	}
 	msg := err.Error()
 	if !strings.Contains(msg, "not the registered struct's type") {

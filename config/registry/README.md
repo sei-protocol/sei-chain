@@ -35,7 +35,7 @@ A section registers the struct its reader already uses:
 
 ```go
 func init() {
-	registry.RegisterSection(SectionName, &Config{}, baseline)
+	registry.RegisterSection(SectionName, &Config{}, default)
 }
 ```
 
@@ -49,15 +49,15 @@ comment saying why the reader's own struct could not serve, because a purpose-wr
 the second statement this package exists to avoid and is only worth it when the first cannot be
 used.
 
-`baseline` answers per node mode, because a validator and a seed node do not default alike.
+`default` answers per node mode, because a validator and a seed node do not default alike.
 
-## Baselines
+## Defaults
 
-Baselines are not state. They live in the binary, may change between releases, and never mutate
+Defaults are not state. They live in the binary, may change between releases, and never mutate
 a configuration file or require a migration.
 
 The consequence worth stating plainly: a written value is a commitment the system never
-rewrites, and an absent key tracks whatever baseline the running binary carries. An operator who
+rewrites, and an absent key tracks whatever default the running binary carries. An operator who
 writes a value keeps it across an upgrade. An operator who writes nothing follows the binary.
 
 ## Resolution
@@ -95,7 +95,7 @@ compiler or a test can catch into a fleet-wide incident.
 ## Adding a Section
 
 1. Give the section a name, and use it as the first segment of every key it declares.
-2. Register the struct the reader already uses, with a per-mode baseline.
+2. Register the struct the reader already uses, with a per-mode default.
 3. Assert the registration produced no `Defect`.
 4. Hold the derived key names against the reader, so a key that reaches nothing fails.
 

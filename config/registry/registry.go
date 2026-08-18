@@ -8,14 +8,14 @@ import (
 	"sync"
 )
 
-// Mode is a node's declared role, and the input a section's baseline varies on.
+// Mode is a node's declared role, and the input a section's default varies on.
 //
 // Declared here rather than imported from app/params so this package stays a leaf that any
 // feature package can import. TestModesMatchTheNodeModes holds the two sets against each
-// other, so a mode added there fails here rather than silently having no baseline.
+// other, so a mode added there fails here rather than silently having no default.
 type Mode string
 
-// The modes a baseline may vary on.
+// The modes a default may vary on.
 const (
 	ModeValidator Mode = "validator"
 	ModeFull      Mode = "full"
@@ -23,7 +23,7 @@ const (
 	ModeArchive   Mode = "archive"
 )
 
-// Modes returns every mode a baseline is asked for, in a fixed order.
+// Modes returns every mode a default is asked for, in a fixed order.
 func Modes() []Mode { return []Mode{ModeValidator, ModeFull, ModeSeed, ModeArchive} }
 
 // Precedence is the declared order in which layers win, lowest to highest.
@@ -39,7 +39,7 @@ type Section struct {
 	Name string
 	// Keys are the dotted paths this section declares, sorted.
 	Keys []string
-	// Defaults returns the section's baseline for a mode.
+	// Defaults returns the section's default for a mode.
 	Defaults func(Mode) any
 }
 
@@ -62,7 +62,7 @@ var (
 	defects  []Defect
 )
 
-// RegisterSection records a section's struct and its per-mode baseline.
+// RegisterSection records a section's struct and its per-mode default.
 //
 // The dotted key for every field is derived from the section name and the field's mapstructure
 // tag. Nothing here reads a hand-typed key string, which is the property that makes template
@@ -79,7 +79,7 @@ func RegisterSection(name string, proto any, defaults func(Mode) any) {
 	case err != nil:
 		defects = append(defects, Defect{Section: name, Err: err})
 	case defaults == nil:
-		defects = append(defects, Defect{Section: name, Err: fmt.Errorf("no baseline function")})
+		defects = append(defects, Defect{Section: name, Err: fmt.Errorf("no defaults function")})
 	default:
 		if _, dup := sections[name]; dup {
 			defects = append(defects, Defect{Section: name, Err: fmt.Errorf("section registered twice")})

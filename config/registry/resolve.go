@@ -29,7 +29,7 @@ type Resolution struct {
 	Key string
 	// Value is what resolved.
 	Value any
-	// From is the Source of the layer that won, or "default" for a baseline.
+	// From is the Source of the layer that won, or "default" for a default.
 	From string
 }
 
@@ -50,14 +50,14 @@ func (r Resolved) From(key string) (Resolution, bool) {
 	return res, ok
 }
 
-// Overrides returns the keys whose value came from something other than a baseline, sorted.
+// Overrides returns the keys whose value came from something other than a default, sorted.
 //
 // This is what a diff renders: the keys an operator has actually taken responsibility for, as
 // distinct from the ones tracking the binary's judgement.
 func (r Resolved) Overrides() []string {
 	var out []string
 	for k, res := range r.Keys {
-		if res.From != defaultLayer {
+		if res.From != defaultSource {
 			out = append(out, k)
 		}
 	}
@@ -65,8 +65,8 @@ func (r Resolved) Overrides() []string {
 	return out
 }
 
-// defaultLayer is the Source name of the implicit baseline layer, and the first entry in Precedence.
-const defaultLayer = "default"
+// defaultSource is the Source name of the implicit default layer, and the first entry in Precedence.
+const defaultSource = "default"
 
 // Resolve reduces layers to one value per declared key, in the declared order.
 //
@@ -75,13 +75,13 @@ const defaultLayer = "default"
 // an emergent one: the legacy path's answer depends on which viper instance a caller asked, which is
 // why two different orders are observable across its key set.
 //
-// Every declared key resolves, because the baseline is a layer like any other. A key no layer
-// mentions therefore carries its mode's baseline rather than being absent, which is what makes an
+// Every declared key resolves, because the default is a layer like any other. A key no layer
+// mentions therefore carries its mode's default rather than being absent, which is what makes an
 // absent key track the binary's judgement instead of a zero value.
 func Resolve(mode Mode, layers ...Layer) (Resolved, error) {
 	out := Resolved{Keys: map[string]Resolution{}}
 
-	baseline, err := baselineLayer(mode)
+	defaults, err := defaultLayer(mode)
 	if err != nil {
 		return out, err
 	}
@@ -90,11 +90,11 @@ func Resolve(mode Mode, layers ...Layer) (Resolved, error) {
 	// Ordered by Precedence rather than by argument order. An unknown Source is an error rather
 	// than a silently ignored layer, since a layer that never contributes is worse than one that
 	// fails loudly: nothing downstream could tell it had been dropped.
-	bySource := map[string]Layer{defaultLayer: baseline}
+	bySource := map[string]Layer{defaultSource: defaults}
 	for _, l := range layers {
-		if l.Source == defaultLayer {
-			return out, fmt.Errorf("a layer names the reserved source %q; the baseline is derived from "+
-				"the registry, not supplied", defaultLayer)
+		if l.Source == defaultSource {
+			return out, fmt.Errorf("a layer names the reserved source %q; the default is derived from "+
+				"the registry, not supplied", defaultSource)
 		}
 		if !known(l.Source) {
 			return out, fmt.Errorf("layer %q is not in Precedence %v, so it has no defined priority and "+
@@ -150,23 +150,23 @@ func declaredKeys() map[string]bool {
 	return out
 }
 
-// baselineLayer renders every section's baseline for a mode into one layer.
+// defaultLayer renders every section's default for a mode into one layer.
 //
-// Derived from the same walk that derives the keys, so a baseline cannot carry a key the registry
+// Derived from the same walk that derives the keys, so a default cannot carry a key the registry
 // does not know or miss one it does. Two walks would let a section's declared keys and its declared
 // defaults disagree, which is a shape of drift nothing downstream could see.
-func baselineLayer(mode Mode) (Layer, error) {
-	out := Layer{Source: defaultLayer, Values: map[string]any{}}
+func defaultLayer(mode Mode) (Layer, error) {
+	out := Layer{Source: defaultSource, Values: map[string]any{}}
 	for _, s := range Sections() {
 		if s.Defaults == nil {
-			return out, fmt.Errorf("section %q has no baseline function", s.Name)
+			return out, fmt.Errorf("section %q has no defaults function", s.Name)
 		}
 		values, err := sectionValues(s.Name, s.Defaults(mode))
 		if err != nil {
-			return out, fmt.Errorf("section %q baseline for mode %q: %w", s.Name, mode, err)
+			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
 		}
 		if err := matchesDeclaration(s.Keys, values); err != nil {
-			return out, fmt.Errorf("section %q baseline for mode %q: %w", s.Name, mode, err)
+			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
 		}
 		for k, v := range values {
 			out.Values[k] = v
@@ -175,15 +175,15 @@ func baselineLayer(mode Mode) (Layer, error) {
 	return out, nil
 }
 
-// matchesDeclaration reports whether a rendered baseline states one value for each declared key.
+// matchesDeclaration reports whether a rendered default states one value for each declared key.
 //
-// A declared key its baseline omits cannot resolve, and neither way of filling the hole is honest. A
+// A declared key its default omits cannot resolve, and neither way of filling the hole is honest. A
 // zero value claims a judgement the binary never made, and dropping the key from the declared set
 // makes an operator's written value indistinguishable from a typo. An optional subtree left nil is
-// how a baseline arrives short, because the type walk unwraps a pointer to derive its keys and the
+// how a default arrives short, because the type walk unwraps a pointer to derive its keys and the
 // value walk skips a nil one rather than claiming defaults the section does not have.
 //
-// A baseline carrying a key the section does not declare means it is not the registered struct's
+// A default carrying a key the section does not declare means it is not the registered struct's
 // type, which is the general case the missing keys are one instance of.
 func matchesDeclaration(declared []string, values map[string]any) error {
 	stated := make(map[string]bool, len(declared))
@@ -203,13 +203,13 @@ func matchesDeclaration(declared []string, values map[string]any) error {
 	sort.Strings(extra)
 	switch {
 	case len(missing) > 0 && len(extra) > 0:
-		return fmt.Errorf("baseline states %v while the section declares %v, so the baseline is not "+
+		return fmt.Errorf("its default states %v while the section declares %v, so the default is not "+
 			"the registered struct's type", extra, missing)
 	case len(missing) > 0:
-		return fmt.Errorf("declares %v and its baseline states no value for them; a section states a "+
+		return fmt.Errorf("declares %v and its default states no value for them; a section states a "+
 			"value for every key it declares, or declares against a struct without the field", missing)
 	case len(extra) > 0:
-		return fmt.Errorf("baseline states %v, which the section does not declare, so the baseline "+
+		return fmt.Errorf("its default states %v, which the section does not declare, so the default "+
 			"carries fields the registered struct does not", extra)
 	}
 	return nil
@@ -268,7 +268,7 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 		}
 
 		if squash {
-			// The guard walk has on the type side. Without it a baseline whose type squashes a
+			// The guard walk has on the type side. Without it a default whose type squashes a
 			// non-struct reaches NumField on a string, and Resolve panics in a package whose whole
 			// posture is that a bad registration never does.
 			if fv.Kind() != reflect.Struct {
