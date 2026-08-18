@@ -73,39 +73,76 @@ func (f *File) insert(path parser.Key, value parser.Value) func() {
 	if e := transform.FindTable(f.doc, table...); e != nil {
 		return appendItem(e.Section, kv)
 	}
-	// No section carries this name. It may still be a table the document created by writing a dotted key
-	// inside its parent, and a heading for one of those defines it twice, so the leaf goes in as a dotted
-	// key under the nearest section instead. Where there is no such section either, the heading is new
-	// and correct.
-	if owner, rest := f.sectionOwning(table); owner != nil {
-		return appendItem(owner, &parser.KeyValue{Name: append(rest, leaf...), Value: value})
+	// No section carries this name. It may still be a table the document created by writing a dotted key,
+	// and a heading for one of those defines it twice, so the leaf joins that dotted name instead. Where
+	// nothing has created it, the heading is new and correct, which is the form an operator expects to
+	// read.
+	if owner, under := f.ancestorOf(table); owner != nil {
+		return appendItem(owner, &parser.KeyValue{Name: dottedName(under, leaf), Value: value})
 	}
 	before := len(f.doc.Sections)
 	f.doc.Sections = append(f.doc.Sections, &tomledit.Section{
-		Heading: &parser.Heading{Name: table},
+		Heading: &parser.Heading{Name: copyKey(table)},
 		Items:   []parser.Item{kv},
 	})
 	return func() { f.doc.Sections = f.doc.Sections[:before] }
 }
 
-// sectionOwning returns the section whose heading is the longest prefix of table, and the rest of the
-// path below it.
+// ancestorOf returns the section a table's keys belong in when the table has no heading of its own, and
+// the path from that section down to the table.
 //
-// A table can exist without a heading of its own, written as a dotted key inside an ancestor. Adding a
-// key to one has to extend that dotted name rather than introduce a heading the decoder reads as a
-// second definition.
-func (f *File) sectionOwning(table parser.Key) (*tomledit.Section, parser.Key) {
+// A section whose heading is a prefix of the table owns it, and the longest such heading is the nearest
+// ancestor. The global section owns it when a top-level dotted key has already created it: that section
+// has no heading, so no prefix can find it, and a heading written for the table would be the second
+// definition the decoder refuses.
+func (f *File) ancestorOf(table parser.Key) (*tomledit.Section, parser.Key) {
 	var best *tomledit.Section
-	var rest parser.Key
+	var under parser.Key
 	for _, s := range f.doc.Sections {
 		if s.Heading == nil || !s.Name.IsPrefixOf(table) {
 			continue
 		}
 		if best == nil || len(s.Name) > len(best.Name) {
-			best, rest = s, table[len(s.Name):]
+			best, under = s, copyKey(table[len(s.Name):])
 		}
 	}
-	return best, rest
+	if best == nil && f.globalCreated(table) {
+		return f.doc.Global, copyKey(table)
+	}
+	return best, under
+}
+
+// globalCreated reports whether a top-level dotted key has already created this table.
+//
+// Every proper prefix of a dotted key names a table, so a.b.c = 1 creates both a and a.b without either
+// carrying a heading.
+func (f *File) globalCreated(table parser.Key) bool {
+	if f.doc.Global == nil {
+		return false
+	}
+	for _, item := range f.doc.Global.Items {
+		kv, ok := item.(*parser.KeyValue)
+		if !ok {
+			continue
+		}
+		for i := 1; i < len(kv.Name); i++ {
+			if kv.Name[:i].Equals(table) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// copyKey returns a key that shares no storage with its argument.
+//
+// The paths here are slices of one another, so appending to a shorter one would write into the longer
+// one's storage.
+func copyKey(k parser.Key) parser.Key { return append(parser.Key(nil), k...) }
+
+// dottedName joins the path down to a table with the key inside it.
+func dottedName(under parser.Key, leaf parser.Key) parser.Key {
+	return append(copyKey(under), leaf...)
 }
 
 // appendItem adds an item to a section and reports how to remove it again.

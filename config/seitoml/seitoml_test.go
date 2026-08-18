@@ -1382,6 +1382,56 @@ func TestANameCannotBeAValueAndATableAtOnce(t *testing.T) {
 		}
 	})
 
+	t.Run("a table a top-level dotted key created", func(t *testing.T) {
+		// The same shape as the headed case below it, except the table's ancestor is the file itself. The
+		// global section carries no heading, so no prefix can find it, and a heading written for the table
+		// would be the second definition the decoder refuses.
+		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\ngiga.enabled = true\n")
+		if err := f.Set("giga.workers", 4); err != nil {
+			t.Fatalf("writing a sibling under a top-level dotted table was refused: %v", err)
+		}
+		requireStillReadable(t, f)
+		values, err := f.Values()
+		if err != nil {
+			t.Fatalf("Values: %v", err)
+		}
+		for key, want := range map[string]any{"giga.enabled": true, "giga.workers": int64(4)} {
+			if values[key] != want {
+				t.Errorf("%s = %#v, want %#v", key, values[key], want)
+			}
+		}
+	})
+
+	t.Run("a table two levels below a top-level dotted key", func(t *testing.T) {
+		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\na.b.c = 1\n")
+		for _, key := range []string{"a.b.d", "a.e"} {
+			if err := f.Set(key, 2); err != nil {
+				t.Errorf("Set(%q) was refused: %v", key, err)
+			}
+		}
+		requireStillReadable(t, f)
+	})
+
+	t.Run("a section nothing has created still gets a heading", func(t *testing.T) {
+		// The other half: a table no key has named is new, and a heading is the form an operator expects
+		// to read. Treating the global section as everything's ancestor would write dotted keys instead.
+		f, err := seitoml.New("validator")
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		for _, key := range []string{"state-commit.enable", "p2p.laddr"} {
+			if err := f.Set(key, "x"); err != nil {
+				t.Fatalf("Set(%q): %v", key, err)
+			}
+		}
+		out := render(t, f)
+		for _, heading := range []string{"[state-commit]", "[p2p]"} {
+			if !strings.Contains(out, heading) {
+				t.Errorf("a brand new section lost its %s heading:\n%s", heading, out)
+			}
+		}
+	})
+
 	t.Run("a value named like a section holding nothing", func(t *testing.T) {
 		// An empty section contributes no value, so a check over written values cannot see it.
 		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nn = 1\n")
