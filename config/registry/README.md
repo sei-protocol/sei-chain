@@ -22,8 +22,12 @@ such mismatches already exist and are pinned by the characterization suite in
 `testutil/configtest`, which is how they were found rather than reported.
 
 Registering a section states the key once. The dotted identity, the environment spelling and the
-read site all come from the struct field and its `mapstructure` tag, so a rename moves all of them
-together or fails to compile.
+read site all come from the struct field and its `mapstructure` tag, so editing the tag moves all
+three together and there is no second place to forget.
+
+Nothing here is enforced by the compiler. The tag is a string literal, so a rename is still a rename
+of text; what changes is that there is one occurrence of it instead of three. Step 4 of `Adding a
+Section` below is what turns that into a failure when the one occurrence and the reader disagree.
 
 ## Declaration
 

@@ -1,8 +1,10 @@
 package registry_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/config/registry"
@@ -631,5 +633,441 @@ func TestADivergentBaselineIsRefusedRatherThanPanicking(t *testing.T) {
 	if _, err := registry.Resolve(registry.ModeFull); err == nil {
 		t.Error("a baseline whose type is not the registered struct's resolved without complaint, so " +
 			"every declared key silently carried no value")
+	}
+}
+
+// TestARealisticSectionShapeDerivesAndResolvesEveryKey drives the shapes real sections have.
+//
+// The tests above register flat structs of scalars, which is the one shape no upstream configuration
+// struct actually is. A section carries a nested struct for a sub-table, an embedded base it squashes
+// so the base adds no segment, a duration that must stay a value rather than becoming a group of keys,
+// and sometimes a pointer that is set. Each of those takes a different branch of the walk, and both
+// walks have to agree on all of them or a key derives with no value behind it.
+func TestARealisticSectionShapeDerivesAndResolvesEveryKey(t *testing.T) {
+	type Base struct {
+		Laddr string `mapstructure:"laddr"`
+	}
+	type sub struct {
+		Size int           `mapstructure:"size"`
+		Wait time.Duration `mapstructure:"wait"`
+	}
+	type shaped struct {
+		Base    `mapstructure:",squash"`
+		Enabled bool          `mapstructure:"enabled"`
+		Timeout time.Duration `mapstructure:"timeout"`
+		Cache   sub           `mapstructure:"cache"`
+		Spill   *sub          `mapstructure:"spill"`
+	}
+
+	registry.Reset()
+	registry.RegisterSection("shaped", &shaped{}, func(registry.Mode) any {
+		return shaped{
+			Base:    Base{Laddr: "tcp://0.0.0.0:1"},
+			Enabled: true,
+			Timeout: 30 * time.Second,
+			Cache:   sub{Size: 64, Wait: time.Second},
+			Spill:   &sub{Size: 8, Wait: 2 * time.Second}, // set, so the pointer branch is taken
+		}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("registering a realistic shape produced a defect: %v", d.Err)
+	}
+
+	// The squashed base adds no segment, the nested structs each add one, and neither duration
+	// becomes a group. A duration walked into would declare time.Duration's own fields instead.
+	want := []string{
+		"shaped.cache.size", "shaped.cache.wait",
+		"shaped.enabled",
+		"shaped.laddr",
+		"shaped.spill.size", "shaped.spill.wait",
+		"shaped.timeout",
+	}
+	if got := registry.Keys(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("declared keys are\n  %v\nwant\n  %v", got, want)
+	}
+
+	resolved, err := registry.Resolve(registry.ModeFull)
+	if err != nil {
+		t.Fatalf("resolving a realistic shape: %v", err)
+	}
+	for key, want := range map[string]any{
+		"shaped.laddr":      "tcp://0.0.0.0:1",
+		"shaped.enabled":    true,
+		"shaped.timeout":    30 * time.Second,
+		"shaped.cache.size": 64,
+		"shaped.cache.wait": time.Second,
+		"shaped.spill.size": 8,
+		"shaped.spill.wait": 2 * time.Second,
+	} {
+		res, ok := resolved.From(key)
+		if !ok {
+			t.Errorf("%s declared and did not resolve", key)
+			continue
+		}
+		if res.Value != want {
+			t.Errorf("%s resolved to %#v, want %#v", key, res.Value, want)
+		}
+	}
+}
+
+// TestEveryRefusalIsReportedAsADefect drives the refusals this package's posture rests on.
+//
+// The doc says a registration it cannot use is recorded rather than panicked, and that refusing to
+// guess is what keeps the tag authoritative. Only the untagged field was covered. A refusal nothing
+// exercises is a refusal that can stop working, and each of these is the difference between a key an
+// operator writes reaching its field and reaching nothing.
+func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
+	// Exported on purpose. walk skips an unexported field before tagOf reads its tag, so an
+	// unexported embed would report "declares no keys" and this row would pass while proving nothing
+	// about the squash rule.
+	type Good struct {
+		N string `mapstructure:"n"`
+	}
+	type squashNamed struct {
+		Good `mapstructure:"base,squash"`
+	}
+	type emptyName struct {
+		N string `mapstructure:""`
+	}
+	type dashName struct {
+		N string `mapstructure:"-"`
+	}
+	type upperName struct {
+		N string `mapstructure:"N"`
+	}
+	type squashScalar struct {
+		Alias string `mapstructure:",squash"`
+		N     string `mapstructure:"n"`
+	}
+	type noKeys struct {
+		unexported string //nolint:unused // the point is that nothing is declared
+	}
+
+	for _, tc := range []struct {
+		name    string
+		section string
+		proto   any
+		base    func(registry.Mode) any
+		want    string
+	}{
+		{"a squashed field that also names a segment", "s", &squashNamed{}, ok1, "one or the other"},
+		{"an empty mapstructure name", "s", &emptyName{}, ok1, "empty mapstructure name"},
+		{"a dash mapstructure name", "s", &dashName{}, ok1, "empty mapstructure name"},
+		{"an upper-case key", "s", &upperName{}, ok1, "not lower case"},
+		{"a squashed scalar", "s", &squashScalar{}, ok1, "not a struct"},
+		{"a struct declaring nothing", "s", &noKeys{}, ok1, "declares no keys"},
+		{"an empty section name", "", &Good{}, ok1, "section name is empty"},
+		{"an upper-case section name", "Sec", &Good{}, ok1, "not lower case"},
+		{"no struct at all", "s", nil, ok1, "no struct"},
+		{"a non-struct prototype", "s", "string", ok1, "not a struct"},
+		{"no baseline function", "s", &Good{}, nil, "no baseline function"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry.Reset()
+			registry.RegisterSection(tc.section, tc.proto, tc.base)
+
+			if _, registered := registry.Lookup(tc.section); registered {
+				t.Errorf("the section registered despite %s, so its keys join the declared set", tc.name)
+			}
+			defects := registry.Defects()
+			if len(defects) != 1 {
+				t.Fatalf("got %d defects, want exactly one naming %s", len(defects), tc.name)
+			}
+			if msg := defects[0].Err.Error(); !strings.Contains(msg, tc.want) {
+				t.Errorf("the refusal reads %q, which does not mention %q", msg, tc.want)
+			}
+		})
+	}
+}
+
+// ok1 is a baseline for the refusal table, where the baseline is not what is under test.
+func ok1(registry.Mode) any { return struct{}{} }
+
+// TestASectionRegisteredTwiceIsRefused pins the one refusal a table cannot express, since it needs
+// two calls under one name.
+//
+// The second registration losing silently would leave whichever struct registered first deciding the
+// key space, and which one that is depends on package initialisation order.
+func TestASectionRegisteredTwiceIsRefused(t *testing.T) {
+	type first struct {
+		A string `mapstructure:"a"`
+	}
+	type second struct {
+		B string `mapstructure:"b"`
+	}
+	registry.Reset()
+	registry.RegisterSection("dup", &first{}, func(registry.Mode) any { return first{} })
+	registry.RegisterSection("dup", &second{}, func(registry.Mode) any { return second{} })
+
+	defects := registry.Defects()
+	if len(defects) != 1 {
+		t.Fatalf("got %d defects, want one naming the repeat", len(defects))
+	}
+	if msg := defects[0].Err.Error(); !strings.Contains(msg, "registered twice") {
+		t.Errorf("the refusal reads %q, which does not mention the repeat", msg)
+	}
+	if keys := registry.Keys(); !reflect.DeepEqual(keys, []string{"dup.a"}) {
+		t.Errorf("the declared set is %v; the first registration should stand alone", keys)
+	}
+}
+
+// TestTwoLayersNamingOneSourceIsAnError pins the last resolution refusal.
+//
+// Two layers under one source name have no order between them, so one would win by map iteration and
+// the other would vanish with nothing able to report it.
+func TestTwoLayersNamingOneSourceIsAnError(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("probe", &struct {
+		A string `mapstructure:"a"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			A string `mapstructure:"a"`
+		}{A: "base"}
+	})
+
+	_, err := registry.Resolve(registry.ModeFull,
+		registry.FileLayer(map[string]any{"probe.a": "one"}),
+		registry.FileLayer(map[string]any{"probe.a": "two"}))
+	if err == nil {
+		t.Fatal("two file layers resolved without complaint, so one of them lost silently")
+	}
+	if !strings.Contains(err.Error(), "silently lose") {
+		t.Errorf("the error reads %q, which does not say what the cost is", err)
+	}
+}
+
+// TestAStructThatIsAValueStaysOneKey pins the stop the walk needs at a decoded-whole type.
+//
+// time.Time carries exported fields, so walking into it would declare keys for its internals that no
+// operator writes and no decoder fills. It has to arrive as one value under its own key.
+//
+// Only the struct-kinded entries in isLeaf are reachable. The walk asks isLeaf only after finding a
+// struct, and time.Duration is an int64, so it takes the leaf path on its kind alone and the
+// "time.Duration" entry in that list never matches.
+func TestAStructThatIsAValueStaysOneKey(t *testing.T) {
+	type withTime struct {
+		At   time.Time `mapstructure:"at"`
+		Name string    `mapstructure:"name"`
+	}
+	stamp := time.Unix(0, 0).UTC()
+
+	registry.Reset()
+	registry.RegisterSection("stamped", &withTime{}, func(registry.Mode) any {
+		return withTime{At: stamp, Name: "n"}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("registering a section with a time.Time produced a defect: %v", d.Err)
+	}
+
+	want := []string{"stamped.at", "stamped.name"}
+	if got := registry.Keys(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("declared keys are %v, want %v; a walked time.Time would add its own fields", got, want)
+	}
+	resolved, err := registry.Resolve(registry.ModeFull)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	res, ok := resolved.From("stamped.at")
+	if !ok {
+		t.Fatal("stamped.at declared and did not resolve")
+	}
+	if res.Value != stamp {
+		t.Errorf("stamped.at resolved to %#v, want the whole time %#v", res.Value, stamp)
+	}
+}
+
+// TestABaselineThatIsNotAStructIsRefused covers the guards on what Defaults hands back.
+//
+// A baseline is a func returning any, so nothing at the type level stops it returning nil or a
+// scalar. Both would otherwise reach the value walk, which expects a struct.
+func TestABaselineThatIsNotAStructIsRefused(t *testing.T) {
+	type one struct {
+		A string `mapstructure:"a"`
+	}
+	for _, tc := range []struct {
+		name string
+		base func(registry.Mode) any
+		want string
+	}{
+		{"nil", func(registry.Mode) any { return nil }, "no value"},
+		{"a scalar", func(registry.Mode) any { return "string" }, "not a struct"},
+		{"a nil pointer", func(registry.Mode) any { return (*one)(nil) }, "nil *"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry.Reset()
+			registry.RegisterSection("probe", &one{}, tc.base)
+			for _, d := range registry.Defects() {
+				t.Fatalf("the prototype is valid and should register: %v", d.Err)
+			}
+			_, err := registry.Resolve(registry.ModeFull)
+			if err == nil {
+				t.Fatalf("a baseline returning %s resolved without complaint", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("the refusal reads %q, which does not mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestABaselineCarryingAnUndeclaredKeyIsRefused covers the other direction of matchesDeclaration.
+//
+// A baseline whose type is not the prototype's can state keys the section never declared as well as
+// omit ones it did. Reported as its own case, because the cause is the same and a reader chasing one
+// message should not have to guess that the other exists.
+func TestABaselineCarryingAnUndeclaredKeyIsRefused(t *testing.T) {
+	type declared struct {
+		A string `mapstructure:"a"`
+	}
+	type wider struct {
+		A string `mapstructure:"a"`
+		B string `mapstructure:"b"`
+	}
+	registry.Reset()
+	registry.RegisterSection("probe", &declared{}, func(registry.Mode) any {
+		return wider{A: "a", B: "b"}
+	})
+	_, err := registry.Resolve(registry.ModeFull)
+	if err == nil {
+		t.Fatal("a baseline stating an undeclared key resolved without complaint")
+	}
+	if !strings.Contains(err.Error(), "does not declare") {
+		t.Errorf("the refusal reads %q, which does not say the baseline is the wrong type", err)
+	}
+}
+
+// TestARefusalInsideANestedStructNamesItsPath pins that a refusal survives the recursion.
+//
+// Both walks recurse, so a bad tag can sit any depth down. If the refusal did not carry the prefix a
+// reader would be told a field name with no way to find which subtree it is in, and if it did not
+// propagate at all the section would register with the subtree missing.
+func TestARefusalInsideANestedStructNamesItsPath(t *testing.T) {
+	type deep struct {
+		Untagged string // no mapstructure tag, two levels down
+	}
+	type mid struct {
+		Deep deep `mapstructure:"deep"`
+	}
+	type outer struct {
+		Mid  mid    `mapstructure:"mid"`
+		Name string `mapstructure:"name"`
+	}
+
+	registry.Reset()
+	registry.RegisterSection("nest", &outer{}, func(registry.Mode) any { return outer{} })
+
+	if _, registered := registry.Lookup("nest"); registered {
+		t.Error("the section registered with an untagged field two levels down")
+	}
+	defects := registry.Defects()
+	if len(defects) != 1 {
+		t.Fatalf("got %d defects, want one naming the nested field", len(defects))
+	}
+	if msg := defects[0].Err.Error(); !strings.Contains(msg, "nest.mid.deep.Untagged") {
+		t.Errorf("the refusal reads %q; it should name the full path so a reader can find the field", msg)
+	}
+}
+
+// TestSectionsAreSortedAndABaselineMayBeAPointer covers the shapes a caller is free to choose.
+//
+// Sections promises an order, and a caller reading two sections in registration order would see one
+// that depends on map iteration. A baseline may hand back a pointer, since a section holding a large
+// struct has no reason to copy it, and the value walk has to follow that.
+func TestSectionsAreSortedAndABaselineMayBeAPointer(t *testing.T) {
+	type withHidden struct {
+		Shown  string `mapstructure:"shown"`
+		hidden string //nolint:unused // ordinary internal state, and not a declared key
+	}
+	type second struct {
+		B string `mapstructure:"b"`
+	}
+
+	registry.Reset()
+	// Registered out of order, so the sort is what puts them in order.
+	registry.RegisterSection("zulu", &second{}, func(registry.Mode) any { return second{B: "z"} })
+	registry.RegisterSection("alpha", &withHidden{}, func(registry.Mode) any {
+		return &withHidden{Shown: "a", hidden: "not a key"} // a pointer, and an unexported field
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("an unexported untagged field is ordinary state and must not be a defect: %v", d.Err)
+	}
+
+	var names []string
+	for _, s := range registry.Sections() {
+		names = append(names, s.Name)
+	}
+	if !reflect.DeepEqual(names, []string{"alpha", "zulu"}) {
+		t.Errorf("Sections returned %v, want them sorted; registration order must not decide it", names)
+	}
+
+	resolved, err := registry.Resolve(registry.ModeFull)
+	if err != nil {
+		t.Fatalf("a pointer baseline was refused: %v", err)
+	}
+	if res, ok := resolved.From("alpha.shown"); !ok || res.Value != "a" {
+		t.Errorf("alpha.shown resolved to (%#v, %v) through a pointer baseline, want \"a\"", res.Value, ok)
+	}
+	if keys := registry.Keys(); !reflect.DeepEqual(keys, []string{"alpha.shown", "zulu.b"}) {
+		t.Errorf("declared keys are %v; the unexported field must not become one", keys)
+	}
+}
+
+// TestABaselineOfAWhollyDifferentTypeSaysSoOnce covers the message for a baseline that both omits a
+// declared key and states one that was never declared.
+//
+// Two separate errors would send a reader chasing the second after fixing the first, when the cause is
+// one thing: the baseline is not the registered struct's type.
+func TestABaselineOfAWhollyDifferentTypeSaysSoOnce(t *testing.T) {
+	type declared struct {
+		A string `mapstructure:"a"`
+	}
+	type unrelated struct {
+		Z string `mapstructure:"z"`
+	}
+	registry.Reset()
+	registry.RegisterSection("probe", &declared{}, func(registry.Mode) any { return unrelated{Z: "z"} })
+
+	_, err := registry.Resolve(registry.ModeFull)
+	if err == nil {
+		t.Fatal("a baseline of an unrelated type resolved without complaint")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "not the registered struct's type") {
+		t.Errorf("the refusal reads %q; it should name the cause rather than the two symptoms", msg)
+	}
+	for _, want := range []string{"probe.a", "probe.z"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the refusal does not mention %q, so a reader cannot see both halves", want)
+		}
+	}
+}
+
+// TestARefusalInsideASquashedBaseIsReported is the squash arm of the nested case above.
+//
+// A squashed base promotes its fields to the section's own level, so a bad tag inside one is a bad key
+// at the top of the section rather than in a subtree. Squash and the named-subtree case recurse
+// through different branches, so covering one says nothing about the other.
+func TestARefusalInsideASquashedBaseIsReported(t *testing.T) {
+	type Base struct {
+		Untagged string // promoted to the section's own level, and unaddressable
+	}
+	type squashed struct {
+		Base `mapstructure:",squash"`
+		Name string `mapstructure:"name"`
+	}
+
+	registry.Reset()
+	registry.RegisterSection("sq", &squashed{}, func(registry.Mode) any { return squashed{} })
+
+	if _, registered := registry.Lookup("sq"); registered {
+		t.Error("the section registered with an untagged field in its squashed base")
+	}
+	defects := registry.Defects()
+	if len(defects) != 1 {
+		t.Fatalf("got %d defects, want one naming the promoted field", len(defects))
+	}
+	// The prefix is the section, not a subtree, because squash adds no segment.
+	if msg := defects[0].Err.Error(); !strings.Contains(msg, "sq.Untagged") {
+		t.Errorf("the refusal reads %q; a squashed field's path is the section's own", msg)
 	}
 }
