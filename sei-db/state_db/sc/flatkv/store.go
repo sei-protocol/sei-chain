@@ -200,12 +200,15 @@ type CommitStore struct {
 	ltCalc *lthash.HashCalculator
 }
 
-// routePhysicalKey maps a physical DB key to its target database.
+// routePhysicalKey names the database directory a physical DB key belongs to.
 // Non-EVM modules are routed to miscDB; EVM keys are routed by kind.
-func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueDB, error) {
+//
+// It answers with a directory name rather than a database handle so that deciding where a key goes stays
+// separate from holding the thing it goes into.
+func routePhysicalKey(physicalKey []byte) (string, error) {
 	moduleName, innerKey, err := ktype.StripModulePrefix(physicalKey)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if moduleName == "" {
 		// An empty module name would fold into moduleLtHash[""]/moduleStats[""]
@@ -214,21 +217,21 @@ func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueD
 		// bricking the store (root != sum(modules) forever). Reject it here,
 		// at the state-sync import dispatch boundary, mirroring the
 		// classifyAndPrefix guard on the live-commit path (store_apply.go).
-		return nil, fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
+		return "", fmt.Errorf("flatkv: empty module name in physical key %q", physicalKey)
 	}
 	if moduleName != keys.EVMStoreKey {
-		return s.rawDBFor(miscDBDir), nil
+		return miscDBDir, nil
 	}
 	kind, _ := keys.ParseEVMKey(innerKey)
 	switch kind {
 	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash:
-		return s.rawDBFor(accountDBDir), nil
+		return accountDBDir, nil
 	case keys.EVMKeyCode:
-		return s.rawDBFor(codeDBDir), nil
+		return codeDBDir, nil
 	case keys.EVMKeyStorage:
-		return s.rawDBFor(storageDBDir), nil
+		return storageDBDir, nil
 	default:
-		return s.rawDBFor(miscDBDir), nil
+		return miscDBDir, nil
 	}
 }
 
@@ -472,13 +475,17 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 		s.fileLock = nil
 	}
 
+	// Read-only from the moment it exists, so no window exists in which the view would accept a caller's
+	// write. Replay reaches the apply path below ApplyChangeSets, which is where the refusal lives, so
+	// marking it here does not block the catch-up that follows.
+	ro.readOnly = true
+
 	if err := ro.openReadOnly(targetVersion); err != nil {
 		return nil, fmt.Errorf("readonly open: %w", err)
 	}
 
 	// The clone is open at a snapshot boundary with a nil WAL. Replay this (primary) store's WAL into it up
-	// to targetVersion so it reflects the exact requested height. The clone is not yet marked read-only, so
-	// the replay's ApplyChangeSets calls are permitted; mark it read-only only once replay succeeds.
+	// to targetVersion so it reflects the exact requested height.
 	if err := s.replayIntoReadOnlyCopy(ro, targetVersion); err != nil {
 		return nil, err
 	}
@@ -487,8 +494,6 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 		return nil, fmt.Errorf("readonly version mismatch: requested %d, reached %d",
 			targetVersion, ro.committedVersion)
 	}
-
-	ro.readOnly = true
 
 	logger.Info("FlatKV readonly store opened", "version", ro.committedVersion, "dir", ro.readOnlyWorkDir)
 	return ro, nil
@@ -690,6 +695,23 @@ type rawDBs struct {
 	metadata seidbtypes.KeyValueDB
 }
 
+// forDir returns the handle for the named database directory, or nil when the name is not one of them.
+func (d rawDBs) forDir(name string) seidbtypes.KeyValueDB {
+	switch name {
+	case accountDBDir:
+		return d.account
+	case codeDBDir:
+		return d.code
+	case storageDBDir:
+		return d.storage
+	case miscDBDir:
+		return d.misc
+	case metadataDir:
+		return d.metadata
+	}
+	return nil
+}
+
 // close closes every handle, joining whatever errors come back.
 func (d rawDBs) close() error {
 	return errors.Join(
@@ -816,53 +838,52 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 		s.accountStore, s.codeStore, s.storageStore, s.miscStore, s.metadataStore,
 	}
 
-	if !s.readOnly {
-		if err := s.sealBaseline(); err != nil {
-			return err
-		}
+	// Every store gets a baseline seal, read-only views included. A view replays blocks to reach its target
+	// height, and each replayed block is hashed against the snapshot before it; without a baseline there is no
+	// "before", so every key in the first replayed block would be mixed in as new with nothing mixed out and
+	// the view would report a hash matching no real chain history.
+	if err := s.sealBaseline(); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-// rawDBFor returns the raw database behind the named store, bypassing every guarantee the store
-// provides. Apply intense scrutiny at every call site.
+// engineFor returns the snapshot engine mediating the named database, or nil before the engines exist.
 //
-// It exists for the operations that must address a database as a file rather than as a key-value store —
-// taking a Pebble checkpoint — and for the bootstrap writes that seed a fresh store's metadata before it
-// has committed anything. Reading data through it is a bug: it sees only what the flusher has written,
-// missing both staged and finalized-but-unflushed rows, silently. Use Get/BatchGet/Iterator instead.
-//
-// The handles live on CommitStore only until the stores exist: openStores gives each one to its store,
-// which owns and closes it from then on, and clears the field. A raw access after that is a nil
-// dereference rather than a silent read of a version nobody asked for, which is the point of routing
-// every such access through here.
-//
-// Returns nil before the stores exist; callers in that window hold the handles directly.
-func (s *CommitStore) rawDBFor(name string) seidbtypes.KeyValueDB {
+// It answers with the engine, not the database beneath it, so that every access through it is an access the
+// engine has sanctioned. The one operation that genuinely needs the database — taking a Pebble checkpoint,
+// which addresses it as a file rather than as a key-value store — reaches past the engine at its own call
+// site, where the reason is written down.
+func (s *CommitStore) engineFor(name string) snapshot.SnapshotEngine {
 	switch name {
 	case accountDBDir:
-		if s.accountStore != nil {
-			return s.accountStore.EscapeHatchUnderlyingDB()
-		}
+		return s.accountStore
 	case codeDBDir:
-		if s.codeStore != nil {
-			return s.codeStore.EscapeHatchUnderlyingDB()
-		}
+		return s.codeStore
 	case storageDBDir:
-		if s.storageStore != nil {
-			return s.storageStore.EscapeHatchUnderlyingDB()
-		}
+		return s.storageStore
 	case miscDBDir:
-		if s.miscStore != nil {
-			return s.miscStore.EscapeHatchUnderlyingDB()
-		}
+		return s.miscStore
 	case metadataDir:
-		if s.metadataStore != nil {
-			return s.metadataStore.EscapeHatchUnderlyingDB()
-		}
+		return s.metadataStore
 	}
 	return nil
+}
+
+// rawDBFor returns the raw database behind the named engine, bypassing every guarantee that engine
+// provides. Apply intense scrutiny at every call site.
+//
+// Reading data through it is a bug: it sees only what the flusher has written, missing both staged and
+// finalized-but-unflushed rows, silently. Use Get/BatchGet/Iterator instead.
+//
+// Returns nil before the engines exist; callers in that window hold the handles directly.
+func (s *CommitStore) rawDBFor(name string) seidbtypes.KeyValueDB {
+	engine := s.engineFor(name)
+	if engine == nil {
+		return nil
+	}
+	return engine.EscapeHatchUnderlyingDB()
 }
 
 // closeStores tears down whichever stores exist and clears them, so a store that is being reopened
@@ -1046,7 +1067,22 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	if err := s.resetForImport(); err != nil {
 		return nil, fmt.Errorf("reset store for import: %w", err)
 	}
-	return NewKVImporter(s, version), nil
+	return NewKVImporter(s, version, s.importDBs()), nil
+}
+
+// importDBs collects the raw databases an import writes into, taken from the snapshot engines that
+// currently own them.
+//
+// An import writes beneath the engines, so it needs the databases themselves. Gathering them in one place
+// keeps that need visible as a single act rather than as a handle fetched per key.
+func (s *CommitStore) importDBs() rawDBs {
+	return rawDBs{
+		account:  s.rawDBFor(accountDBDir),
+		code:     s.rawDBFor(codeDBDir),
+		storage:  s.rawDBFor(storageDBDir),
+		misc:     s.rawDBFor(miscDBDir),
+		metadata: s.rawDBFor(metadataDir),
+	}
 }
 
 // resetForImport purges all existing data so that a subsequent import

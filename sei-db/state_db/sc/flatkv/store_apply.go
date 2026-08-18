@@ -16,6 +16,13 @@ import (
 // working LtHash. Non-EVM modules go to miscDB under "<module>/". Each value records version as the
 // height it was last modified at; the same version must be passed to the subsequent Commit.
 func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedChangeSet) error {
+	// The read-only refusal belongs here rather than in applyChangeSets, which a read-only store reaches
+	// legitimately: building a view at a past height replays the primary's WAL through the same apply path.
+	// Commit and WriteSnapshot place their refusals at the same boundary, and readOnly is fixed for a store's
+	// lifetime, so reading it outside the lock is safe.
+	if s.readOnly {
+		return errReadOnly
+	}
 	return s.applyChangeSets(version, changeSets, nil)
 }
 
@@ -35,9 +42,6 @@ func (s *CommitStore) applyChangeSets(
 		"changesets", len(changeSets))
 	defer obs.done(&err, nil)
 
-	if s.readOnly {
-		return errReadOnly
-	}
 	// Blocks are contiguous and the first block is 1, so writes always land at committedVersion+1. See the
 	// Commit contract: a store whose history starts higher is seeded by SetInitialVersion.
 	// An empty batch for a block that is already committed is accepted and does nothing.

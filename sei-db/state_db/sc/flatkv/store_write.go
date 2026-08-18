@@ -440,6 +440,57 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 	return nil
 }
 
+// sealSeededVersion seals a data-free version on every store, recording seededVersion as the height each one
+// has reached and as the height this store's history begins at.
+//
+// It is how SetInitialVersion persists a seed. Every write goes through the engine that owns its database,
+// as a block's finalization writes do, so seeding needs no access to the databases themselves.
+//
+// The reservation hand-back matters as much as the writes: a snapshot must be released before the next one
+// can flush, so a seal that kept the baseline's reservation would stall every flush after it, and the
+// snapshot SetInitialVersion takes next would wait forever.
+func (s *CommitStore) sealSeededVersion(seededVersion int64) (retErr error) {
+	snapshots := make(map[string]snapshot.Snapshot, len(s.stores))
+	defer func() {
+		if retErr != nil {
+			for _, snap := range snapshots {
+				_ = snap.Release()
+			}
+		}
+	}()
+
+	for _, store := range s.stores {
+		snap, err := store.Commit()
+		if err != nil {
+			return fmt.Errorf("%s seal seeded version: %w", store.Name(), err)
+		}
+		snapshots[snap.Name()] = snap
+
+		var writes []*proto.KVPair
+		if snap.Name() == metadataDir {
+			writes = encodeSeedMetadata(seededVersion, s.committedLtHash)
+		} else {
+			writes = encodeLocalMeta(
+				seededVersion,
+				s.perDBWorkingLtHash[snap.Name()],
+				s.perDBModuleWorkingLtHash[snap.Name()],
+				s.perDBModuleWorkingStats[snap.Name()],
+			)
+		}
+		if err := snap.Finalize(writes); err != nil {
+			return fmt.Errorf("%s finalize seeded version: %w", store.Name(), err)
+		}
+	}
+
+	// The new snapshots are recorded even when the hand-back fails, so teardown can give them back.
+	err := s.releaseLastSealed()
+	s.lastSealed = snapshots
+	if err != nil {
+		return fmt.Errorf("release baseline reservations: %w", err)
+	}
+	return nil
+}
+
 // sealBaseline seals an empty version on every store. Called at startup so that we always have a snapshot
 // of the "previous" block (simplifies logic significantly).
 func (s *CommitStore) sealBaseline() (retErr error) {

@@ -170,8 +170,10 @@ type KVImporter struct {
 	version int64
 
 	ingestCh chan rawKVPair
-	workers  map[seidbtypes.KeyValueDB]*dbWorker
-	wg       sync.WaitGroup
+	// workers is keyed by database directory name, which is what routePhysicalKey answers with. Keying by
+	// handle instead would make the routing decision carry a raw database around.
+	workers map[string]*dbWorker
+	wg      sync.WaitGroup
 
 	// done is closed on the first pipeline error so that AddNode,
 	// the dispatcher, and all workers bail immediately.
@@ -182,27 +184,29 @@ type KVImporter struct {
 	finishErr  error
 }
 
-func NewKVImporter(store *CommitStore, version int64) types.Importer {
+// NewKVImporter builds the import pipeline over dbs, the raw databases the import writes into. The handles
+// are passed in rather than fetched off store, because an import writes beneath the snapshot engines and so
+// must be handed the databases explicitly by whoever opened them.
+func NewKVImporter(store *CommitStore, version int64, dbs rawDBs) types.Importer {
 	imp := &KVImporter{
 		store:    store,
 		version:  version,
 		ingestCh: make(chan rawKVPair, ingestChanSize),
-		workers:  make(map[seidbtypes.KeyValueDB]*dbWorker, 4),
+		workers:  make(map[string]*dbWorker, len(dataDBDirs)),
 		done:     make(chan struct{}),
 	}
 
 	for _, dir := range dataDBDirs {
-		db := store.rawDBFor(dir)
 		w := newDBWorker(
 			store.ctx,
 			dir,
-			db,
+			dbs.forDir(dir),
 			store.ltCalc,
 			store.perDBWorkingLtHash[dir],
 			cloneModuleHashes(store.perDBModuleWorkingLtHash[dir]),
 			cloneModuleStats(store.perDBModuleWorkingStats[dir]),
 		)
-		imp.workers[db] = w
+		imp.workers[dir] = w
 	}
 
 	for _, w := range imp.workers {
@@ -240,13 +244,13 @@ func (imp *KVImporter) dispatch() {
 			if !ok {
 				return
 			}
-			db, err := imp.store.routePhysicalKey(kv.Key)
+			dir, err := routePhysicalKey(kv.Key)
 			if err != nil {
 				imp.setErr(fmt.Errorf("route key: %w", err))
 				return
 			}
 			select {
-			case imp.workers[db].ch <- kv:
+			case imp.workers[dir].ch <- kv:
 			case <-imp.done:
 				return
 			}

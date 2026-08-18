@@ -479,8 +479,17 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		}
 	}()
 
+	// A checkpoint addresses a database as a file rather than as a key-value store, which is the one thing an
+	// engine cannot express — so this is the single place FlatKV reaches past one, and the engine's escape
+	// hatch names checkpointing as its only sanctioned use. What makes it safe is the flush awaited above
+	// plus the reservation still held on that block: together they pin the pebble instances at exactly the
+	// committed version for the duration.
 	for _, dir := range snapshotDBDirs {
-		cp, ok := s.rawDBFor(dir).(types.Checkpointable)
+		engine := s.engineFor(dir)
+		if engine == nil {
+			return fmt.Errorf("no engine for %s", dir)
+		}
+		cp, ok := engine.EscapeHatchUnderlyingDB().(types.Checkpointable)
 		if !ok {
 			return fmt.Errorf("db %s does not support Checkpoint", dir)
 		}
