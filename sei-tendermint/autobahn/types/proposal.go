@@ -420,7 +420,10 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			return fmt.Errorf("proposer %q, want %q", got, want)
 		}
 		// Verify the proposer's signature.
-		if err := m.proposal.VerifySig(c); err != nil {
+		if !c.HasReplica(m.proposal.Key()) {
+			return fmt.Errorf("%q is not a replica", m.proposal.Key())
+		}
+		if err := m.proposal.VerifySig(); err != nil {
 			return fmt.Errorf("proposal signature: %w", err)
 		}
 		// Do we have the required timeoutQC?

@@ -139,6 +139,14 @@ func (b *Block) Header() *BlockHeader { return b.header }
 // Payload .
 func (b *Block) Payload() *Payload { return b.payload }
 
+// Verify checks that the payload hashes to the header payload hash.
+func (b *Block) Verify() error {
+	if got, want := b.payload.Hash(), b.header.payloadHash; got != want {
+		return fmt.Errorf("payload.Hash() = %v, want %v", got, want)
+	}
+	return nil
+}
+
 // Hash of the BlockHeader.
 func (h *BlockHeader) Hash() BlockHeaderHash {
 	return BlockHeaderHash(hashable.ToHash(BlockHeaderConv.Encode(h)))

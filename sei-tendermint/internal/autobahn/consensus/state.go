@@ -185,7 +185,10 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 // PushPrepareVote processes an unverified Prepare vote message.
 func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 	committee := s.myView.Load().Epoch.Committee()
-	if err := vote.VerifySig(committee); err != nil {
+	if !committee.HasReplica(vote.Key()) {
+		return fmt.Errorf("%q is not a replica", vote.Key())
+	}
+	if err := vote.VerifySig(); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
 	for pv := range s.prepareVotes.Lock() {
@@ -197,7 +200,10 @@ func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 // PushCommitVote processes an unverified CommitVote message.
 func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
 	committee := s.myView.Load().Epoch.Committee()
-	if err := vote.VerifySig(committee); err != nil {
+	if !committee.HasReplica(vote.Key()) {
+		return fmt.Errorf("%q is not a replica", vote.Key())
+	}
+	if err := vote.VerifySig(); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
 	for cv := range s.commitVotes.Lock() {

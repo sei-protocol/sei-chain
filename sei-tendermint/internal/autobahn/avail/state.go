@@ -286,7 +286,11 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 	if err := v.Msg().Proposal().Verify(commitQC); err != nil {
 		return fmt.Errorf("invalid vote: %w", err)
 	}
-	if err := v.VerifySig(epoch.Committee()); err != nil {
+	c := epoch.Committee()
+	if !c.HasReplica(v.Key()) {
+		return fmt.Errorf("%q is not a replica", v.Key())
+	}
+	if err := v.VerifySig(); err != nil {
 		return fmt.Errorf("v.VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
@@ -346,13 +350,14 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 	}
 	lane := h.Lane()
 	n := h.BlockNumber()
-	if err := types.VerifyLaneProposalPayloadAndSignature(p); err != nil {
-		return err
+	if err := p.Msg().Verify(); err != nil {
+		return fmt.Errorf("Verify(): %w", err)
+	}
+	if err := p.VerifySig(); err != nil {
+		return fmt.Errorf("VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if !laneAcceptedUnder(inner, func(ep *types.Epoch) bool {
-			return p.Msg().VerifyCommitteeMembership(ep.Committee()) == nil
-		}) {
+		if !epochForLane(inner, lane).IsPresent() {
 			return nil
 		}
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -407,8 +412,8 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	h := vote.Msg().Header()
 	lane := h.Lane()
 	n := h.BlockNumber()
-	if err := vote.VerifySignature(); err != nil {
-		return fmt.Errorf("VerifySignature(): %w", err)
+	if err := vote.VerifySig(); err != nil {
+		return fmt.Errorf("VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -428,9 +433,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 			return nil
 		}
 		// TODO: accept future-epoch joiner votes.
-		if !laneAcceptedUnder(inner, func(ep *types.Epoch) bool {
-			return laneVoteCommitteeOK(ep, vote)
-		}) {
+		if !epochForVote(inner, vote).IsPresent() {
 			return nil
 		}
 		applied := inner.epoch.Load()
@@ -444,24 +447,37 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	return nil
 }
 
-// laneVoteCommitteeOK reports whether the vote's header lane and signer are in ep's committee.
-func laneVoteCommitteeOK(ep *types.Epoch, vote *types.Signed[*types.LaneVote]) bool {
-	c := ep.Committee()
-	return vote.Msg().Verify(c) == nil && c.HasReplica(vote.Key())
-}
-
-// laneAcceptedUnder reports whether accept holds for the applied epoch, or for
-// the Anchor epoch when present and a different EpochIndex.
-func laneAcceptedUnder(inner *inner, accept func(*types.Epoch) bool) bool {
+// epochForVote returns the applied or Anchor epoch under which vote's lane and
+// signer verify. Prefers applied; falls back to Anchor when that is a different
+// EpochIndex.
+func epochForVote(inner *inner, vote *types.Signed[*types.LaneVote]) utils.Option[*types.Epoch] {
+	match := func(ep *types.Epoch) bool {
+		c := ep.Committee()
+		return vote.Msg().Verify(c) == nil && c.HasReplica(vote.Key())
+	}
 	applied := inner.epoch.Load()
-	if accept(applied) {
-		return true
+	if match(applied) {
+		return utils.Some(applied)
 	}
 	ae, ok := inner.anchorEpoch.Get()
-	if !ok || ae.EpochIndex() == applied.EpochIndex() {
-		return false
+	if !ok || ae.EpochIndex() == applied.EpochIndex() || !match(ae) {
+		return utils.None[*types.Epoch]()
 	}
-	return accept(ae)
+	return utils.Some(ae)
+}
+
+// epochForLane returns the applied epoch if it has lane, otherwise the Anchor
+// epoch when that is a different EpochIndex and has lane.
+func epochForLane(inner *inner, lane types.LaneID) utils.Option[*types.Epoch] {
+	applied := inner.epoch.Load()
+	if applied.Committee().HasLane(lane) {
+		return utils.Some(applied)
+	}
+	ae, ok := inner.anchorEpoch.Get()
+	if !ok || ae.EpochIndex() == applied.EpochIndex() || !ae.Committee().HasLane(lane) {
+		return utils.None[*types.Epoch]()
+	}
+	return utils.Some(ae)
 }
 
 // headers collects headers for the given range under ep (the CommitQC's road epoch).

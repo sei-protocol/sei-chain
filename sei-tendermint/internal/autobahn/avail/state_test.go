@@ -690,10 +690,10 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 					return fmt.Errorf("anchor epoch = %d, want < %d", ae.EpochIndex(), epLeave.EpochIndex())
 				}
 			}
-			if laneVoteCommitteeOK(epLeave, leaverVote) {
+			if leaverVote.Msg().Verify(epLeave.Committee()) == nil && epLeave.Committee().HasReplica(leaverVote.Key()) {
 				return fmt.Errorf("leaver must fail under applied")
 			}
-			if !laneVoteCommitteeOK(ep0, leaverVote) {
+			if leaverVote.Msg().Verify(ep0.Committee()) != nil || !ep0.Committee().HasReplica(leaverVote.Key()) {
 				return fmt.Errorf("leaver must pass under anchor")
 			}
 

@@ -158,7 +158,8 @@ func (i *inner) insertAppProposal(appProposal *types.AppProposal) error {
 
 // insertBlock inserts a pre-verified block into the inner state.
 // Requires a QC to already be present for block n. Callers must verify
-// the block signature before calling (unlike insertQC, which verifies).
+// payload integrity before calling; insertBlock matches the header against
+// the stored FullCommitQC (unlike insertQC, which verifies the QC itself).
 //
 // insertBlock does NOT advance nextBlock — callers should call
 // updateNextBlock after inserting one or more blocks. This separation
@@ -288,14 +289,9 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		}
 	}
 	for _, b := range suffix.Blocks {
-		entry := inner.qcs[b.Number]
-		c := entry.epoch.Committee()
 		prop := types.NewLaneProposal(b.Block)
-		if err := prop.VerifyPayload(); err != nil {
-			return nil, fmt.Errorf("verify block %d payload from BlockStore: %w", b.Number, err)
-		}
-		if err := prop.VerifyCommitteeMembership(c); err != nil {
-			return nil, fmt.Errorf("verify block %d membership from BlockStore: %w", b.Number, err)
+		if err := prop.Verify(); err != nil {
+			return nil, fmt.Errorf("verify block %d from BlockStore: %w", b.Number, err)
 		}
 		if err := inner.insertBlock(b.Number, b.Block); err != nil {
 			return nil, fmt.Errorf("insert block %d from BlockStore: %w", b.Number, err)
@@ -375,15 +371,10 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 		}
 	}
 	byHash := map[types.BlockHeaderHash]*types.Block{}
-	committee := ep.Committee()
 	for _, b := range blocks {
 		byHash[b.Header().Hash()] = b
-		prop := types.NewLaneProposal(b)
-		if err := prop.VerifyPayload(); err != nil {
-			return fmt.Errorf("VerifyPayload(): %w", err)
-		}
-		if err := prop.VerifyCommitteeMembership(committee); err != nil {
-			return fmt.Errorf("VerifyCommitteeMembership(): %w", err)
+		if err := types.NewLaneProposal(b).Verify(); err != nil {
+			return fmt.Errorf("block.Verify(): %w", err)
 		}
 	}
 	// Atomically insert QC and blocks.
@@ -428,7 +419,6 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 // the height is already in the contiguous block prefix (n < nextBlock) — in
 // that case the block is dropped silently (already stored or executed/evicted).
 func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error {
-	var ep *types.Epoch
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextQC }); err != nil {
 			return err
@@ -438,16 +428,11 @@ func (s *State) PushBlock(ctx context.Context, n types.GlobalBlockNumber, block 
 		if n < inner.nextBlock {
 			return nil
 		}
-		// n in [nextBlock, nextQC): QC (and its verify-epoch) is contiguous.
-		ep = inner.qcs[n].epoch
 	}
-	// Verify outside the lock against the epoch stashed with the QC.
-	prop := types.NewLaneProposal(block)
-	if err := prop.VerifyPayload(); err != nil {
-		return fmt.Errorf("VerifyPayload(): %w", err)
-	}
-	if err := prop.VerifyCommitteeMembership(ep.Committee()); err != nil {
-		return fmt.Errorf("VerifyCommitteeMembership(): %w", err)
+	// Payload integrity outside the lock; insertBlock matches the header against
+	// the stored FullCommitQC (membership is implied by that QC).
+	if err := types.NewLaneProposal(block).Verify(); err != nil {
+		return fmt.Errorf("block.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
 		// insertBlock may no-op if n fell into the contiguous prefix (or was

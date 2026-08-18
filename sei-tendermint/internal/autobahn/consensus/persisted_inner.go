@@ -110,12 +110,12 @@ func (p *persistedInner) validate(ep *types.Epoch) error {
 		return fmt.Errorf("corrupt persisted state: CommitVote present without PrepareQC")
 	}
 	if v, ok := p.CommitVote.Get(); ok {
-		if err := checkViewAndSig("CommitVote", v.Msg().Proposal().View(), v.VerifySig(committee)); err != nil {
+		if err := checkViewAndSig("CommitVote", v.Msg().Proposal().View(), verifyReplicaSig(committee, v)); err != nil {
 			return err
 		}
 	}
 	if v, ok := p.PrepareVote.Get(); ok {
-		if err := checkViewAndSig("PrepareVote", v.Msg().Proposal().View(), v.VerifySig(committee)); err != nil {
+		if err := checkViewAndSig("PrepareVote", v.Msg().Proposal().View(), verifyReplicaSig(committee, v)); err != nil {
 			return err
 		}
 	}
@@ -125,6 +125,13 @@ func (p *persistedInner) validate(ep *types.Epoch) error {
 		}
 	}
 	return nil
+}
+
+func verifyReplicaSig[T types.Msg](c *types.Committee, v *types.Signed[T]) error {
+	if !c.HasReplica(v.Key()) {
+		return fmt.Errorf("%q is not a replica", v.Key())
+	}
+	return v.VerifySig()
 }
 
 // innerProtoConv is a protobuf converter for persistedInner.
