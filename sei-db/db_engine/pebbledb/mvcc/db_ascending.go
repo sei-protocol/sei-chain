@@ -98,6 +98,7 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 
 	startTime := time.Now()
 	defer func() {
+		db.endPrunePass(_err)
 		otelMetrics.pruneLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
@@ -108,6 +109,10 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 	}()
 
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
+	skipBelow, err := db.beginPrunePass(earliestVersion)
+	if err != nil {
+		return err
+	}
 
 	itr, err := db.storage.NewIter(nil)
 	if err != nil {
@@ -154,8 +159,8 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 			prevStore = storeKey
 			updated, ok := db.storeKeyDirty.Load(storeKey)
 			versionUpdated, typeOk := updated.(int64)
-			// Skip a store's keys if version it was last updated is less than last prune height
-			if !ok || (typeOk && versionUpdated < db.GetEarliestVersion()) {
+			// skipBelow is the marker as it stood before this pass raised it; see beginPrunePass.
+			if !ok || (typeOk && versionUpdated < skipBelow) {
 				itr.SeekGE(storePrefix(storeKey + "0"))
 				continue
 			}
@@ -224,9 +229,6 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 	}
 	db.operationMetrics.AddRead(scanReads)
 
-	if err := db.SetEarliestVersion(earliestVersion, false); err != nil {
-		return err
-	}
 	return db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
 }
 
