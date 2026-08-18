@@ -48,3 +48,35 @@ Legacy **`sei_*`** JSON-RPC (EVM HTTP only) are **gated** by the `[evm].enabled_
 
 ## Consistency
 RPC responses for historical heights should never change as the blockchain progresses, or as the blockchain code gets upgraded.
+
+## Exported receivers are RPC surface — treat every export as a new endpoint
+
+`go-ethereum`'s `rpc.Server` registers **every exported method** on a `Service`
+struct passed to `RegisterName` (see `evmrpc/server.go`) as a callable JSON-RPC
+method, named by lower-casing the method's first letter and prefixing with the
+service's namespace (e.g. `InfoAPI.GasPriceHelper` → `eth_gasPriceHelper`).
+This applies to `InfoAPI`, `FilterAPI`, `DebugAPI`, and every other struct
+registered as a `Service` in `server.go` — there is no separate allowlist step
+for "internal" helper methods.
+
+**Any exported method added to a registered API struct is automatically a
+live, unaudited RPC endpoint** — with no request validation, no rate-limit
+review, and no `sei_*`-style gating unless someone deliberately adds it.
+
+**When reviewing or writing code in `evmrpc/`:** if a change adds, renames, or
+un-exports a method on any struct registered via `RegisterName` in
+`server.go`, call this out loudly — do not treat it as a routine
+rename/refactor. Concretely:
+
+- A new exported method on a registered API struct that is not meant to be a
+  public RPC method is a bug, not a style nit. Keep helper/internal methods
+  lower-case.
+- If a helper genuinely needs to be called from tests outside the package
+  (`evmrpc_test`, `evmrpc/tests`), export it via a `*ForTest` wrapper in
+  `evmrpc/export_test.go` (see existing examples there) instead of exporting
+  the production method itself — `_test.go` files are excluded from
+  production builds, so this does not create a real endpoint.
+- When reviewing a diff, cross-check any newly-exported method against the
+  registered `Service` list in `server.go`; if the receiver type is on that
+  list, flag the export explicitly rather than letting it pass as normal Go
+  visibility hygiene.
