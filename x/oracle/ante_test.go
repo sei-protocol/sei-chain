@@ -46,7 +46,7 @@ func TestOracleVoteAloneAnteHandler(t *testing.T) {
 }
 
 func TestSpammingPreventionAnteHandler(t *testing.T) {
-	input, _ := setup(t)
+	input := setup(t)
 
 	exchangeRateStr := randomExchangeRate.String() + utils.MicroAtomDenom
 
