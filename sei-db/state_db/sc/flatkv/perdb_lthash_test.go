@@ -639,7 +639,8 @@ func TestPerDBLtHashLevelsUpStoresAtDifferentHeights(t *testing.T) {
 	// The working directory, not the snapshot — see TestPerDBLtHashSkewRecovery.
 	storageCfg := pebbledb.DefaultConfig()
 	storageCfg.DataDir = filepath.Join(dbDir, workingDirName, storageDBDir)
-	require.Equal(t, cfg.StorageDBConfig.DataDir, storageCfg.DataDir,
+	resolved := resolveConfig(cfg)
+	require.Equal(t, resolved.StorageDBConfig.DataDir, storageCfg.DataDir,
 		"the forged skew must target the directory the store opens, or this test proves nothing")
 	storageCfg.EnableMetrics = false
 	db, err := pebbledb.Open(t.Context(), &storageCfg)

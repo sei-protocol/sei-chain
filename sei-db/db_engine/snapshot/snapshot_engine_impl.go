@@ -25,7 +25,7 @@ type snapshotEngine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	config *SnapshotEngineConfig
+	config SnapshotEngineConfig
 
 	// A utility for assigning keys to shard indices.
 	shardManager *shardManager
@@ -182,7 +182,7 @@ func NewSnapshotEngine(
 	c := &snapshotEngine{
 		ctx:          childCtx,
 		cancel:       cancel,
-		config:       config,
+		config:       *config,
 		shardManager: shardManager,
 		readPool:     readPool,
 		miscPool:     miscPool,

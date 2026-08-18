@@ -48,7 +48,7 @@ func TestStoreOpenClose(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
-func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
+func TestResolveConfigPropagatesPebbleMetrics(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.DataDir = t.TempDir()
 	cfg.EnablePebbleMetrics = false
@@ -57,15 +57,15 @@ func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
 	cfg.StorageDBConfig.EnableMetrics = true
 	cfg.MiscDBConfig.EnableMetrics = true
 
-	initializeDataDirectories(cfg)
+	resolved := resolveConfig(cfg)
 
-	require.False(t, cfg.AccountDBConfig.EnableMetrics)
-	require.False(t, cfg.CodeDBConfig.EnableMetrics)
-	require.False(t, cfg.StorageDBConfig.EnableMetrics)
-	require.False(t, cfg.MiscDBConfig.EnableMetrics)
+	require.False(t, resolved.AccountDBConfig.EnableMetrics)
+	require.False(t, resolved.CodeDBConfig.EnableMetrics)
+	require.False(t, resolved.StorageDBConfig.EnableMetrics)
+	require.False(t, resolved.MiscDBConfig.EnableMetrics)
 }
 
-func TestInitializeDataDirectoriesPropagatesFsync(t *testing.T) {
+func TestResolveConfigPropagatesFsync(t *testing.T) {
 	for _, fsync := range []bool{true, false} {
 		cfg := config.DefaultConfig()
 		cfg.DataDir = t.TempDir()
@@ -76,12 +76,12 @@ func TestInitializeDataDirectoriesPropagatesFsync(t *testing.T) {
 		cfg.StorageStoreConfig.FlushSync = !fsync
 		cfg.MiscStoreConfig.FlushSync = !fsync
 
-		initializeDataDirectories(cfg)
+		resolved := resolveConfig(cfg)
 
-		require.Equal(t, fsync, cfg.AccountStoreConfig.FlushSync)
-		require.Equal(t, fsync, cfg.CodeStoreConfig.FlushSync)
-		require.Equal(t, fsync, cfg.StorageStoreConfig.FlushSync)
-		require.Equal(t, fsync, cfg.MiscStoreConfig.FlushSync)
+		require.Equal(t, fsync, resolved.AccountStoreConfig.FlushSync)
+		require.Equal(t, fsync, resolved.CodeStoreConfig.FlushSync)
+		require.Equal(t, fsync, resolved.StorageStoreConfig.FlushSync)
+		require.Equal(t, fsync, resolved.MiscStoreConfig.FlushSync)
 	}
 }
 
@@ -97,6 +97,25 @@ func TestStoreFsyncReachesEveryStoreConfig(t *testing.T) {
 	require.True(t, s.config.CodeStoreConfig.FlushSync)
 	require.True(t, s.config.StorageStoreConfig.FlushSync)
 	require.True(t, s.config.MiscStoreConfig.FlushSync)
+}
+
+// LoadVersionReadOnly passes NewCommitStore the config of a store that is still running on it.
+func TestNewCommitStoreLeavesCallerConfigUntouched(t *testing.T) {
+	// Seeded opposite to what the store writes, so the assertion cannot pass on the seeded value alone.
+	cfg := config.DefaultTestConfig(t)
+	cfg.Fsync = true
+	cfg.AccountDBConfig.EnableMetrics = true
+	cfg.CodeDBConfig.EnableMetrics = true
+	cfg.StorageDBConfig.EnableMetrics = true
+	cfg.MiscDBConfig.EnableMetrics = true
+
+	before := *cfg
+
+	s, err := NewCommitStore(t.Context(), cfg, nil)
+	require.NoError(t, err)
+	defer s.Close()
+
+	require.Equal(t, before, *cfg)
 }
 
 func TestStoreClose(t *testing.T) {
@@ -1558,8 +1577,11 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 	commitAndCheck(t, s)
 	require.NoError(t, s.Close())
 
-	// Corrupt the account value on disk with invalid-length data.
-	corrupt, err := pebbledb.Open(t.Context(), &cfg.AccountDBConfig)
+	// Corrupt the account value on disk with invalid-length data. The store resolves its data
+	// directories on its own copy of the config, so ask for the same resolution to reach the files it
+	// opened rather than reading a path back off cfg.
+	resolved := resolveConfig(cfg)
+	corrupt, err := pebbledb.Open(t.Context(), &resolved.AccountDBConfig)
 	require.NoError(t, err)
 	batch := corrupt.NewBatch()
 	require.NoError(t, batch.Set(accountPhysKey(addr), []byte{0xDE, 0xAD}))
@@ -1781,7 +1803,7 @@ func TestCrashRecoveryVersionRecordOverflow(t *testing.T) {
 	require.Contains(t, err.Error(), "overflow")
 }
 
-func TestInitializeDataDirectories(t *testing.T) {
+func TestResolveConfigFillsDataDirectories(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.DataDir = "/base/flatkv"
 	cfg.AccountDBConfig.DataDir = ""
@@ -1789,23 +1811,23 @@ func TestInitializeDataDirectories(t *testing.T) {
 	cfg.StorageDBConfig.DataDir = ""
 	cfg.MiscDBConfig.DataDir = ""
 
-	initializeDataDirectories(cfg)
+	resolved := resolveConfig(cfg)
 
-	require.Equal(t, "/base/flatkv/working/account", cfg.AccountDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/code", cfg.CodeDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/storage", cfg.StorageDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/misc", cfg.MiscDBConfig.DataDir)
+	require.Equal(t, "/base/flatkv/working/account", resolved.AccountDBConfig.DataDir)
+	require.Equal(t, "/base/flatkv/working/code", resolved.CodeDBConfig.DataDir)
+	require.Equal(t, "/base/flatkv/working/storage", resolved.StorageDBConfig.DataDir)
+	require.Equal(t, "/base/flatkv/working/misc", resolved.MiscDBConfig.DataDir)
 }
 
-func TestInitializeDataDirectoriesPreservesExisting(t *testing.T) {
+func TestResolveConfigPreservesExistingDataDirectories(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.DataDir = "/base/flatkv"
 	cfg.AccountDBConfig.DataDir = "/custom/account"
 
-	initializeDataDirectories(cfg)
+	resolved := resolveConfig(cfg)
 
-	require.Equal(t, "/custom/account", cfg.AccountDBConfig.DataDir,
+	require.Equal(t, "/custom/account", resolved.AccountDBConfig.DataDir,
 		"existing DataDir should not be overwritten")
-	require.Equal(t, "/base/flatkv/working/code", cfg.CodeDBConfig.DataDir,
+	require.Equal(t, "/base/flatkv/working/code", resolved.CodeDBConfig.DataDir,
 		"empty DataDir should be populated")
 }

@@ -238,7 +238,7 @@ func NewCommitStore(
 	stateWAL statewal.StateWAL,
 ) (*CommitStore, error) {
 
-	initializeDataDirectories(cfg)
+	cfg = resolveConfig(cfg)
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate config: %w", err)
@@ -278,25 +278,30 @@ func NewCommitStore(
 	}, nil
 }
 
-// initializeDataDirectories sets the DataDir for each nested PebbleDB config
-// that does not already have one, using DataDir as the base path. The DBs live
-// under the working directory: <DataDir>/working/<subdir>.
-func initializeDataDirectories(c *config.Config) {
-	workDir := filepath.Join(c.DataDir, workingDirName)
-	if c.AccountDBConfig.DataDir == "" {
-		c.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
+// resolveConfig returns cfg with every value a store derives for itself filled in: each database's
+// data directory, taken from DataDir where the caller left it empty, and the store-wide pebble
+// metrics and fsync settings fanned out to the per-database configs. The databases live under the
+// working directory, at <DataDir>/working/<subdir>. cfg itself is left untouched.
+func resolveConfig(cfg *config.Config) *config.Config {
+	resolved := cfg.Copy()
+
+	workDir := filepath.Join(resolved.DataDir, workingDirName)
+	if resolved.AccountDBConfig.DataDir == "" {
+		resolved.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
 	}
-	if c.CodeDBConfig.DataDir == "" {
-		c.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
+	if resolved.CodeDBConfig.DataDir == "" {
+		resolved.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
 	}
-	if c.StorageDBConfig.DataDir == "" {
-		c.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
+	if resolved.StorageDBConfig.DataDir == "" {
+		resolved.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
 	}
-	if c.MiscDBConfig.DataDir == "" {
-		c.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
+	if resolved.MiscDBConfig.DataDir == "" {
+		resolved.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
 	}
-	applyPebbleMetricsConfig(c)
-	applyFlushSyncConfig(c)
+
+	applyPebbleMetricsConfig(resolved)
+	applyFlushSyncConfig(resolved)
+	return resolved
 }
 
 func applyPebbleMetricsConfig(c *config.Config) {

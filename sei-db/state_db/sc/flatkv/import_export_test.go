@@ -785,8 +785,11 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 	commitAndCheck(t, s0)
 	require.NoError(t, s0.Close())
 
-	// Corrupt the account value on disk with invalid-length data.
-	corrupt, err := pebbledb.Open(t.Context(), &cfg.AccountDBConfig)
+	// Corrupt the account value on disk with invalid-length data. The store resolves its data
+	// directories on its own copy of the config, so ask for the same resolution to reach the files it
+	// opened rather than reading a path back off cfg.
+	resolved := resolveConfig(cfg)
+	corrupt, err := pebbledb.Open(t.Context(), &resolved.AccountDBConfig)
 	require.NoError(t, err)
 	batch := corrupt.NewBatch()
 	require.NoError(t, batch.Set(accountPhysKey(addr), []byte{0xDE, 0xAD}))
