@@ -459,3 +459,20 @@ func TestNewState_SetupInitialEpochsFromCommitQCSpan(t *testing.T) {
 		t.Fatal("epoch 2 should not be seeded from a single epoch-0 CommitQC")
 	}
 }
+
+func TestNewState_NextCommitEpochAtBoundaryTip(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep1, ok := registry.EpochByIndex(1)
+	require.True(t, ok)
+
+	qc, blocks := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), ep1.FirstBlock())
+	db := newTestBlockDB(t, t.TempDir())
+	writeToBlockDB(t, db, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
+	writeAppDataToBlockDB(t, rng, db, keys, qc)
+
+	state := newTestState(t, &Config{Registry: registry}, db)
+	ep2, err := registry.EpochAt(epoch.FirstRoad(2))
+	require.NoError(t, err)
+	require.Equal(t, ep2, state.NextCommitEpoch().Load())
+}

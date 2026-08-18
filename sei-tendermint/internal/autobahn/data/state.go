@@ -60,9 +60,31 @@ type inner struct {
 	// Anchor represents the highest fully processed row:
 	// CommitQC, Blocks, AppProposal, AppQC present and persisted.
 	anchor utils.AtomicSend[utils.Option[Anchor]]
-	// commitEpoch is the verify-epoch of the latest admitted CommitQC
-	// (genesis LatestEpoch when none yet). May lead AppQC/Anchor.
-	commitEpoch utils.AtomicSend[*types.Epoch]
+	// nextCommitRoad is one past the latest admitted CommitQC. None until one is admitted.
+	nextCommitRoad utils.Option[types.RoadIndex]
+	// nextCommitEpoch covers nextCommitRoad once that epoch is registered; otherwise
+	// the previous publish stands (genesis epoch 0 before any CommitQC).
+	nextCommitEpoch utils.AtomicSend[*types.Epoch]
+}
+
+func (i *inner) admitCommitRoad(registry *epoch.Registry, road types.RoadIndex) {
+	if cur, ok := i.nextCommitRoad.Get(); ok && road < cur {
+		return // a later QC already moved the cursor
+	}
+	i.nextCommitRoad = utils.Some(road + 1)
+	i.publishNextCommitEpoch(registry)
+}
+
+func (i *inner) publishNextCommitEpoch(registry *epoch.Registry) {
+	road, ok := i.nextCommitRoad.Get()
+	if !ok {
+		return
+	}
+	ep, err := registry.EpochAt(road)
+	if err != nil {
+		return
+	}
+	i.nextCommitEpoch.Store(ep)
 }
 
 // insertQC verifies and inserts a FullCommitQC into the inner state.
@@ -87,7 +109,7 @@ func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error
 		i.qcs[i.nextQC] = qcEntry{qc: qc, epoch: e}
 		i.nextQC++
 	}
-	i.commitEpoch.Store(e)
+	i.admitCommitRoad(registry, qc.QC().Proposal().Index())
 	return nil
 }
 
@@ -240,6 +262,11 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		NextAppQC:       firstBlock,
 		NextBlock:       firstBlock,
 	})
+	// Empty-chain default; loaded QCs overwrite via admitCommitRoad.
+	genesis, ok := cfg.Registry.EpochByIndex(0)
+	if !ok {
+		return nil, fmt.Errorf("missing genesis epoch")
+	}
 	inner := &inner{
 		qcs:             map[types.GlobalBlockNumber]qcEntry{},
 		blocks:          map[types.GlobalBlockNumber]*types.Block{},
@@ -253,7 +280,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		nextQC:          status.First,
 		persisted:       status,
 		anchor:          utils.NewAtomicSend(utils.None[Anchor]()),
-		commitEpoch:     utils.NewAtomicSend(cfg.Registry.LatestEpoch()),
+		nextCommitEpoch: utils.NewAtomicSend(genesis),
 	}
 	for _, qc := range suffix.CommitQCs {
 		if err := inner.insertQC(cfg.Registry, qc); err != nil {
@@ -281,6 +308,9 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		if err := inner.insertAppProposal(appProposal); err != nil {
 			return nil, fmt.Errorf("load AppProposal from BlockStore: %w", err)
 		}
+		// Match PushAppHash: do not rely only on SetupInitialEpochs for NextCommitEpoch.
+		cfg.Registry.AdvanceIfNeeded(appProposal.RoadIndex())
+		inner.publishNextCommitEpoch(cfg.Registry)
 	}
 	for _, appQC := range suffix.AppQCs {
 		if err := inner.insertAppQC(appQC); err != nil {
@@ -363,7 +393,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 				inner.qcs[inner.nextQC] = qcEntry{qc: qc, epoch: ep}
 				inner.nextQC += 1
 			}
-			inner.commitEpoch.Store(ep)
+			inner.admitCommitRoad(s.cfg.Registry, qc.QC().Proposal().Index())
 			ctrl.Updated()
 		}
 		if len(byHash) > 0 {
@@ -667,6 +697,8 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		// ConsensusSpec withholds the view after LastRoad(N+1) until this fires
 		// again.
 		s.cfg.Registry.AdvanceIfNeeded(p.Index())
+		// Idle boundary: no further CommitQC will republish after registration.
+		inner.publishNextCommitEpoch(s.cfg.Registry)
 		ctrl.Updated()
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
@@ -755,12 +787,12 @@ func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
 	panic("unreachable")
 }
 
-// CommitEpoch returns the verify-epoch of the latest admitted CommitQC, or the
-// genesis epoch when none has been admitted. It may lead AppQC/Anchor.
-// Used by giga EVM tx sharding (EvmProxy / EvmShard).
-func (s *State) CommitEpoch() utils.AtomicRecv[*types.Epoch] {
+// NextCommitEpoch returns the epoch covering the road after the latest admitted
+// CommitQC, or genesis epoch 0 when none has been admitted. If that epoch is not
+// registered yet, the previous value stands. Used by giga EVM tx sharding.
+func (s *State) NextCommitEpoch() utils.AtomicRecv[*types.Epoch] {
 	for inner := range s.inner.Lock() {
-		return inner.commitEpoch.Subscribe()
+		return inner.nextCommitEpoch.Subscribe()
 	}
 	panic("unreachable")
 }

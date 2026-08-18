@@ -273,7 +273,7 @@ func TestNextInstallableEpoch_BoundaryTipUsesDataAppQC(t *testing.T) {
 
 	last := epoch.LastRoad(0)
 	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}))),
+		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}, ep0.FirstBlock()))),
 	})
 	qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
 	require.Equal(t, last, qcLast.Index())
