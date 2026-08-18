@@ -70,7 +70,7 @@ func TestRecoveryChain(t *testing.T) {
 func TestContextCancelledRecoveryOnlyWhenContextExpired(t *testing.T) {
 	defaultMW := newDefaultRecoveryMiddleware()
 
-	live := sdk.Context{}.WithContext(context.Background())
+	live := sdk.Context{}.WithContext(t.Context())
 	liveMW := newContextCancelledRecoveryMiddleware(live, defaultMW)
 	err := processRecovery(context.Canceled, liveMW)
 	require.ErrorIs(t, err, sdkerrors.ErrPanic)
@@ -81,7 +81,7 @@ func TestContextCancelledRecoveryOnlyWhenContextExpired(t *testing.T) {
 	err = processRecovery(context.Canceled, zeroMW)
 	require.ErrorIs(t, err, sdkerrors.ErrPanic)
 
-	expired, cancel := context.WithCancel(context.Background())
+	expired, cancel := context.WithCancel(t.Context())
 	cancel()
 	expiredMW := newContextCancelledRecoveryMiddleware(sdk.Context{}.WithContext(expired), defaultMW)
 	err = processRecovery(context.Canceled, expiredMW)

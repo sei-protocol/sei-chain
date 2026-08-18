@@ -46,7 +46,7 @@ func TestTraceTransactionTimeoutReleasesSemaphore(t *testing.T) {
 
 	firstErr := make(chan error, 1)
 	go func() {
-		_, err := api.TraceTransaction(context.Background(), backend.tx.Hash(), nil)
+		_, err := api.TraceTransaction(t.Context(), backend.tx.Hash(), nil)
 		firstErr <- err
 	}()
 
@@ -56,7 +56,7 @@ func TestTraceTransactionTimeoutReleasesSemaphore(t *testing.T) {
 		t.Fatal("StateAtTransaction did not enter the skip loop")
 	}
 
-	_, busyErr := api.TraceTransaction(context.Background(), backend.tx.Hash(), nil)
+	_, busyErr := api.TraceTransaction(t.Context(), backend.tx.Hash(), nil)
 	require.ErrorIs(t, busyErr, errTraceConcurrencyLimit)
 
 	select {
@@ -73,7 +73,7 @@ func TestTraceTransactionTimeoutReleasesSemaphore(t *testing.T) {
 		t.Fatal("expected the timed-out trace to release the semaphore")
 	}
 
-	_, err := api.TraceTransaction(context.Background(), backend.tx.Hash(), nil)
+	_, err := api.TraceTransaction(t.Context(), backend.tx.Hash(), nil)
 	require.NotErrorIs(t, err, errTraceConcurrencyLimit)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
