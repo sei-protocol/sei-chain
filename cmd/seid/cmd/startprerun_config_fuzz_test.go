@@ -19,22 +19,144 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
-// start layers two more config behaviors on top of Apply, in its own PreRunE and at
-// the head of its RunE. Both are reachable without launching a node; everything after
-// them is not.
+// Tests for the two config behaviors start layers on top of Apply, in its own PreRunE and at the
+// head of its RunE. Both are reachable without launching a node; everything after them is not.
 //
-// PreRunE re-binds the command's flags into the viper Apply already populated, then
-// resolves pruning purely to fail fast — the returned options are discarded. So a bad
-// pruning strategy is refused before the node touches disk, and refused a second time
-// later by newApp, where the same helper panics instead of returning.
+// PreRunE re-binds the command's flags into the viper Apply already populated, then resolves
+// pruning purely to fail fast, discarding the options it returns. RunE re-reads client.toml,
+// compares its chain-id against --chain-id, and panics on a mismatch before any app is built.
 //
-// RunE then re-reads client.toml, compares its chain-id against --chain-id, and
-// panics on a mismatch before any app is constructed.
+// testutil/configtest/AGENTS.md holds which reads resolve where this suite can reach them and are
+// consumed where it cannot, and why the effects of those reads are deliberately left unpinned.
+
+// TestStartPreRunResolvesTheKeysOnlyStartInProcessReads pins what cpu-profile, trace-store and
+// grpc-only resolve to, which is the whole of the live-node domain that resolves at all.
 //
-// What is NOT reachable here, and is stated rather than silently skipped: cpu-profile,
-// trace-store, the second GetConfig, grpc-only forcing GRPC.Enable, and the
-// api/grpc-web gating all live inside unexported startInProcess, which opens listeners
-// and starts a node. Pinning those needs an integration harness.
+// These three are the only keys startInProcess reads that no other section pins. Everything else it
+// touches is a field of the struct GetConfig produces, and that reader has a manifest of its own.
+// Before this, cpu-profile and trace-store appeared in no test and no record anywhere in the tree,
+// so a rename of either flag moved the read site with nothing reporting it.
+//
+// Driven through PreRunE rather than a booted node because that is where the values arrive. start.go
+// registers all three as flags on the start command and PreRunE binds the flag set into the viper
+// Apply populated, so startInProcess later reads this same viper. What a node would add is the
+// effect, not the value.
+//
+// Both directions per key. An absent flag has to resolve to the zero the read site branches on,
+// since cpu-profile and trace-store are each compared against "" to decide whether to enable
+// profiling or tracing at all, and a set flag has to arrive intact. A test that only checked the set
+// case would hold for a read that ignored the key and returned the operator's value from somewhere
+// else.
+func TestStartPreRunResolvesTheKeysOnlyStartInProcessReads(t *testing.T) {
+	configtest.Isolate(t)
+
+	t.Run("absent", func(t *testing.T) {
+		home := configtest.NewHome(t)
+		cmd, serverCtx, _ := newStartCmd(t, home, map[string]string{
+			server.FlagPruning: "nothing",
+		})
+		if err := cmd.PreRunE(cmd, nil); err != nil {
+			t.Fatalf("PreRunE: %v", err)
+		}
+
+		// The empty string is what start.go compares against to decide whether to profile or trace,
+		// so this is the value that keeps both features off rather than an incidental zero.
+		if got := serverCtx.Viper.GetString("cpu-profile"); got != "" {
+			t.Errorf("an absent cpu-profile resolved to %q, want empty. start.go enables the profiler "+
+				"for any non-empty value, so a non-empty resolution here starts profiling and writes "+
+				"to that path on a node whose operator never asked for it", got)
+		}
+		if got := serverCtx.Viper.GetString("trace-store"); got != "" {
+			t.Errorf("an absent trace-store resolved to %q, want empty. start.go opens a KVStore trace "+
+				"writer for any non-empty value, so a non-empty resolution here writes a trace file on "+
+				"a node whose operator never asked for one", got)
+		}
+		if serverCtx.Viper.GetBool("grpc-only") {
+			t.Error("an absent grpc-only resolved true, which would start the node with Tendermint " +
+				"disabled and GRPC.Enable forced on")
+		}
+	})
+
+	t.Run("set", func(t *testing.T) {
+		home := configtest.NewHome(t)
+		cmd, serverCtx, _ := newStartCmd(t, home, map[string]string{
+			server.FlagPruning: "nothing",
+			"cpu-profile":      "/var/lib/sei/cpu.pprof",
+			"trace-store":      "/var/lib/sei/trace.log",
+			"grpc-only":        "true",
+		})
+		if err := cmd.PreRunE(cmd, nil); err != nil {
+			t.Fatalf("PreRunE: %v", err)
+		}
+
+		for _, c := range []struct{ key, want string }{
+			{"cpu-profile", "/var/lib/sei/cpu.pprof"},
+			{"trace-store", "/var/lib/sei/trace.log"},
+		} {
+			if got := serverCtx.Viper.GetString(c.key); got != c.want {
+				t.Errorf("%s resolved to %q, want %q. startInProcess reads this viper, so the path a "+
+					"node profiles or traces to is whatever arrives here", c.key, got, c.want)
+			}
+		}
+		if !serverCtx.Viper.GetBool("grpc-only") {
+			t.Error("grpc-only set to true resolved false, so a node asked to run in gRPC-only mode " +
+				"would start Tendermint anyway")
+		}
+	})
+}
+
+// startFlagKeysWithTargetsOfTheirOwn are the start command's own flags that startInProcess reads,
+// recorded for their operator-facing spelling.
+//
+// A KeyName rather than a KeySpec, because none of these resolves into a config struct a row could
+// name a Path in: startInProcess reads them straight off the viper and branches.
+//
+// The names are literals because server's flagCPUProfile, flagTraceStore and flagGRPCOnly are
+// unexported, so this package cannot spell them through the reader's own constant the way a KeyName
+// target normally does.
+//
+// Exporting them is a real option rather than an impossibility, and it was considered: sei-cosmos is
+// vendored here, so those are three lines in this repository and exporting them would let this record
+// spell the keys through the reader itself, closing the hazard below instead of describing it. It is
+// deferred because this branch is test-only and that is a change to shipped code, small as it is.
+// Whoever picks it up gets to delete the paragraph after this one.
+//
+// The literal spellings bound what the record catches, and the bound is worth stating. The record
+// holds the spelling this suite asserts against, so renaming a name here without renaming it in the
+// assertions fails. It does not catch a rename in production, because the record and the
+// assertions would then both still carry the old name. That case is caught one step over, where
+// setting the flag fails once the flag no longer answers to the name it is given, and again by
+// TestStartFlagNamesAreRegistered below, which says so in those terms rather than as a set failure.
+var startFlagKeysWithTargetsOfTheirOwn = []configtest.KeyName{
+	"cpu-profile", // TestStartPreRunResolvesTheKeysOnlyStartInProcessReads
+	"trace-store", // same
+	"grpc-only",   // same, plus TestStartPreRunRebindsFlagsIntoTheApplyViper
+}
+
+// TestStartFlagKeyNamesMatchTheRecordedNames pins the spelling of the three keys above.
+func TestStartFlagKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "start_flags", nil, startFlagKeysWithTargetsOfTheirOwn...)
+}
+
+// TestStartFlagNamesAreRegistered holds the three names against the command that has to answer to
+// them, which is what the record above cannot do.
+//
+// A production rename does already fail, where setFlags asks the command to set a flag it no longer
+// has. What it fails with is "set --cpu-profile: no such flag", which reads as a broken test rather
+// than as an operator-facing flag having moved. This says the latter, and it removes the record's
+// dependence on some other test happening to set all three.
+func TestStartFlagNamesAreRegistered(t *testing.T) {
+	cmd := shippedStartCmd(t)
+	for _, name := range startFlagKeysWithTargetsOfTheirOwn {
+		if cmd.Flags().Lookup(string(name)) == nil {
+			t.Errorf("start no longer registers a flag named %q, so an operator's --%s stops being "+
+				"accepted and startInProcess reads a key nothing populates. The three keys this file "+
+				"records are spelled here as literals because server's constants are unexported, so a "+
+				"rename there has to be carried into startFlagKeysWithTargetsOfTheirOwn and its "+
+				"record by hand", string(name), string(name))
+		}
+	}
+}
 
 // nodeEscapedMarker is a fixed token so CI triage can grep one string for this failure, and
 // nodeEscaped carries it from the row that detected it to TestMain.
@@ -77,14 +199,7 @@ func TestMain(m *testing.M) {
 func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]string) (*cobra.Command, *server.Context, context.CancelFunc) {
 	t.Helper()
 
-	root, _ := NewRootCmd()
-	root.SetOut(io.Discard)
-	root.SetErr(io.Discard)
-
-	cmd, _, err := root.Find([]string{"start"})
-	if err != nil {
-		t.Fatalf("find start: %v", err)
-	}
+	root, cmd := shippedRootAndStartCmd(t)
 	if err := cmd.Flags().Set("home", home.Root); err != nil {
 		t.Fatalf("set --home: %v", err)
 	}
@@ -101,6 +216,40 @@ func newStartCmd(t *testing.T, home *configtest.Home, flagValues map[string]stri
 		t.Fatalf("PersistentPreRunE: %v", err)
 	}
 	return cmd, serverCtx, cancel
+}
+
+// shippedRootAndStartCmd resolves the start command seid ships, and is the only place in this file
+// that does.
+//
+// It goes through the real root rather than calling server.StartCmd directly, because AddCommands
+// applies addStartFlags on top of StartCmd (sei-cosmos/server/util.go:365-366) and a second
+// construction would be a copy: identical today, since addModuleInitFlags is a no-op, and silently
+// divergent the moment a module registers or overrides a start flag.
+//
+// Both callers come through here rather than repeating it, for the same reason: two resolutions of the
+// command seid ships drift the same way, which is the argument above turned on this file instead of on
+// server.StartCmd. The root comes back with the command because newStartCmd drives the root's
+// PersistentPreRunE, and a caller that only reads flags takes shippedStartCmd below.
+func shippedRootAndStartCmd(t *testing.T) (root, start *cobra.Command) {
+	t.Helper()
+
+	root, _ = NewRootCmd()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+
+	start, _, err := root.Find([]string{"start"})
+	if err != nil {
+		t.Fatalf("find start: %v", err)
+	}
+	return root, start
+}
+
+// shippedStartCmd is shippedRootAndStartCmd for the tests that only read the flag set, where nothing
+// runs and the root is not needed.
+func shippedStartCmd(t *testing.T) *cobra.Command {
+	t.Helper()
+	_, start := shippedRootAndStartCmd(t)
+	return start
 }
 
 // FuzzStartPreRunPruningFailsFast pins the fail-fast: an unresolvable pruning
@@ -288,10 +437,10 @@ func TestStartAfterChainIDAgreementHitsTheGenesisNilDeref(t *testing.T) {
 // a request rather than a guarantee, which is why the second wait is bounded too and the
 // message distinguishes a node that stopped from one that ignored the cancel.
 //
-// The bounds are deliberately generous, because the terminal branch inverted the cost of
-// being wrong. A bound that is too short no longer just files an early report: it aborts the
-// whole package on a loaded -race shard, destroying results for every other test on nothing
-// more than wall-clock evidence. A bound that is too long costs only a delayed report on a
+// The bounds are deliberately generous, because the two ways of being wrong cost very
+// different amounts. A bound that is too short aborts the whole package on a loaded -race
+// shard, destroying results for every other test on nothing more than wall-clock evidence.
+// A bound that is too long costs only a delayed report on a
 // path where something is already broken, since the happy path returns as soon as the panic
 // fires, in well under a second, and never waits at all. So the timeout is sized to outlast
 // any plausible shard rather than to fail fast, and the terminal branch is reached only after

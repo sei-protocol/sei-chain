@@ -140,8 +140,10 @@ go test ./evmrpc/config/ -run TestKeyNames -update
 why a row that reaches its key through the reader's own flag constant needs it.
 
 Write one row per key, including when two keys land in the same struct field. The
-manifest is what the differential enumerates, so a key with no row is a key the
-comparison never makes.
+manifest is what the per-key checks iterate, so a key with no row is a key `CheckRow`,
+`CheckAbsent` and the seed check never look at. The differential is not a second net
+for that. It compares whole resolved vipers and reads no manifest, so it can report
+that two readers agree without either one being pinned to anything.
 
 `CheckManifestCoversEveryField` covers the weaker half of that automatically: every
 resolved field must be named by some row's `Path` or `AlsoWrites`, or exempted at the
@@ -176,6 +178,39 @@ can be pointed at `FlatKVConfig` alone inside `sei-cosmos/server/config` with th
 five flatkv keys as rows, and the 53 exemptions left would each say truthfully that the
 field carries no configuration key. Unbuilt. Meanwhile, wire the check where the section
 has one reader; a demotion is caught for every section by the record's marker regardless.
+
+`StateStoreConfig` is split the same way, with eleven keys of its own that both readers read.
+Each count is per struct, so the pair of them is twenty-two. Neither half can resolve to
+different values, and the reason is simpler here than in `[state-commit]`: neither reader guards
+these keys at all. `parseSSConfigs` assigns `cast.ToX(appOpts.Get(k))` unconditionally
+(`app/seidb.go:198-210`) and `GetConfig` uses plain typed getters with no `IsSet`
+(`config.go:629-641`), so both resolve an absent key to the Go zero rather than to the declared
+default. There is no guard to differ over. What the split costs is a second copy rather than a
+disagreement, and the reason is specific to which copy: nothing reads these fields **on the
+`Config` `GetConfig` returns**, so the store is built from `parseSCConfigs` and `parseSSConfigs`
+alone. The fields themselves are read elsewhere, and conflating the two is the mistake to avoid.
+`SetAppConfigByMode` writes `StateStore.Enable` and `StateStore.KeepRecent` per node mode
+(`app/params/config.go`), and `sei-db/config/toml.go` renders eleven of `StateStore`'s thirteen
+fields into the app.toml template.
+
+Those two remaining fields are worth knowing about because they are not the shape they look
+like. `keep-last-version` and `use-default-comparer` are read by neither `parseSSConfigs` nor
+`GetConfig`, so no operator key reaches them at all: they hold their in-code defaults on every
+node and are flipped only in code, by the receipt store and by the EVM state store. `app`'s
+manifest already exempts both by name for that reason, and two tests assert the template does
+not carry them. That is a different case from a key with a reader and no template line, which
+`state-commit`'s `sc-write-mode-enable-auto` and `flatkv.*` keys are: those an operator can set
+by hand, they are simply not rendered. A replacement manager needs both classes, because one is
+a field configuration cannot address and the other is a key the generated file never mentions.
+
+The three EVM fields are a third trap and the sharpest of them. Their `mapstructure` tags are
+`evm-split`, `evm-db-directory` and `evm-separate-dbs`, while the template and both readers use
+`evm-ss-split`, `evm-ss-db-directory` and `evm-ss-separate-dbs`. So a replacement that reads this
+struct the obvious way, by unmarshalling the `state-store` subtree onto it, binds three keys
+nothing has ever written and picks up the two fields the legacy node never reads.
+
+PLT-955 is what that distinction looks like when it goes wrong, an archive
+node pruning history because the mode's writes to those fields do not reach the store.
 
 ## Renaming a Key
 
@@ -439,6 +474,129 @@ process environment, `$HOME`, and the executable basename all feed the result.
 - A fuzzer-generated string is not always writable as TOML. `IsTOMLWritable` and
   `EnvValueIsSettable` decline the values with no faithful spelling, which keeps a
   parse failure from being attributed to the layer under test.
+
+## Reads Whose Call Site Cannot Be Pinned
+
+Four live reads resolve their value where this suite can reach it and consume it where it
+cannot. For each, a rename of the key fails somewhere, and a change to the read itself does not,
+so the tests would keep describing a reader that had moved.
+
+| Read | Pinned | Not pinned |
+|---|---|---|
+| `root.go:296`, `minimum-gas-prices` into `baseapp.SetMinGasPrices` | that the flag is registered, and what the expression resolves to | the call site, an inline argument to `newApp`'s `app.New` |
+| `root.go:297`, `min-retain-blocks` into `baseapp.SetMinRetainBlocks` | the recorded cast result | the same inline argument |
+| `startInProcess`'s `cpu-profile`, `trace-store` and `grpc-only` | what each resolves to in the viper `startInProcess` reads | the read sites, inside an unexported function needing a booted node |
+
+**Two of the three start keys would fail quietly.** `cpu-profile` and `trace-store` would accept
+an operator's value and write no profile and no trace file, with nothing to notice. `grpc-only`
+is visible instead: a node asked to serve gRPC only would start Tendermint anyway.
+
+**Effects are deliberately not pinned.** Whether the profiler starts, whether a trace file
+appears, and whether `grpc-only` changes which listeners bind all need a running node. The
+differential the PLT-775 cutover rests on compares the two resolved channels after `Apply`, so
+where resolution is identical `startInProcess` reads identical values and its effects follow.
+Pinning them with a booted node re-derives what channel equality already gives.
+
+The repo's `inprocess` package is not the tool for closing this. It calls `tmnode.New` directly
+and injects its own `AppOptions`, so it never executes `startInProcess` or the legacy resolver,
+and a green assertion through it would characterise that harness rather than seid. It is also
+capped at one node boot per test binary, because `app.New` wires process-global singletons that
+never re-initialise.
+
+## The minimum-gas-prices Separator
+
+One reader governs a node, and two artifacts document a syntax it rejects.
+
+`root.go:296` hands `cast.ToString` of the key to `baseapp.SetMinGasPrices`, which calls
+`sdk.ParseDecCoins` and panics on anything it cannot parse (`options.go:24-28`). That panic is
+the whole boot, and `ParseDecCoins` separates denominations with a comma.
+
+The start flag's own help text offers `0.01photino;0.0001stake` as its example
+(`start.go:208`), and `Config.GetMinGasPrices` splits on `";"` (`config.go:323`). The two
+syntaxes are disjoint rather than merely different: no multi-denomination value is accepted by
+both, and the spelling an operator is shown is the spelling that panics. Both agree on one
+denomination, which is the shape of the default and of nearly every deployment, and that is why
+this has never been reported. It surfaces the first time an operator prices a second fee token
+by following the example.
+
+`GetMinGasPrices` has no caller outside itself, so it documents an intent rather than being a
+second live resolution. There is one answer at runtime and two artifacts describing another.
+
+Recorded rather than repaired, and the halves of a repair carry different risk. Correcting the
+help text and the getter is prose and dead code, and what operators are told today is a value
+that takes the node down, so nothing is preserved by leaving it. Teaching `ParseDecCoins` the
+semicolon widens the fee-floor grammar for every node, and once operators write semicolons,
+narrowing back breaks them. Aligning the documentation down to the comma the parser already
+accepts is the cheaper direction and does not spend that door. PLT-976 item 1.
+
+## The min-retain-blocks Fan-Out
+
+`min-retain-blocks` is the only key in this tree that two live consumers read, and
+`app/receipt_store_config_test.go` holds it still. Every other twice-read key has a dead
+second reader: `sei-cosmos/server/config.GetConfig` parses `[state-commit]` and
+`[state-store]` into a `Config` nobody hands to the store, so a disagreement there cannot
+reach a node. Both of this key's readers run.
+
+| Reader | Cast | Becomes |
+|---|---|---|
+| `cmd/seid/cmd/root.go:297` | `cast.ToUint64` | the Tendermint block-retention height, through `baseapp.SetMinRetainBlocks` |
+| `app/receipt_store_config.go:27` | `cast.ToInt` | EVM receipt retention, through the receipt store's `KeepRecent` |
+
+So one number an operator sets for block retention silently also sets receipt retention, and
+the two go through different casts.
+
+**The two halves are not covered equally.** The receipt half is pinned against its reader,
+since the table drives `readReceiptStoreConfig` and changing that cast fails. The block half
+cannot be pinned from a test: `root.go` builds that argument inline inside `newApp`'s
+`app.New` call, so reaching it needs a booted node. The block column is a recorded literal,
+and nothing fails if `root.go:297` changes its cast.
+
+**Where the casts disagree, receipts survive by one of two mechanisms.** For every value an
+operator would sensibly write they agree, and the fan-out is then just a coupling.
+
+*The guard.* A `KeepRecent` at or below zero never arms a pruner on either backend. pebbledb
+returns before starting one (`sei-db/ledger_db/receipt/receipt_store.go:363`) and litt skips
+its TTL branch (`sei-db/ledger_db/receipt/litt_receipt_store.go:138`). Every disagreement
+reachable as a string takes this route, since a negative is kept by `ToInt` and floored by
+`ToUint64`, and a decimal past int64 is floored by `ToInt` and kept by `ToUint64`.
+
+*Saturation.* Reachable only where a value arrives as a `float64` at or above 2^63. There
+`cast.ToInt` saturates to `MaxInt64` rather than flooring, so `KeepRecent` is positive and the
+guard does not apply. Here the two backends diverge:
+
+- **pebbledb**, the shipped default, is safe by an ordinary bound. Its pruner computes
+  `pruneVersion := latestVersion - keepRecent` and prunes only where that is above zero
+  (`receipt_store.go:379-380`), so `MaxInt64` puts the target far below zero. No change to a
+  TTL multiplier can undo that.
+- **litt** is safe by accident. It multiplies `KeepRecent` by an unexported per-block TTL, and
+  `MaxInt64` times that multiplier overflows to a negative `Duration`, which
+  `sei-db/db_engine/litt/disktable/gc_manager.go:273` reads as no expiry. A different
+  multiplier could wrap the product to a small positive TTL that prunes on a schedule nobody
+  chose.
+
+The litt multiply is the third gap in the table below. Nodes on the shipped default are
+unaffected either way, which is what scopes that gap rather than closing it.
+
+Both readers are recorded rather than repaired. Making the two casts one would change what a
+node retains for any operator currently relying on the out-of-range behaviour, which is the
+kind of change this suite pins instead of making. PLT-976 tracks it.
+
+## Disclosed Gaps
+
+Separate from the classes below, which the suite cannot reach, these are gaps it could close
+and has not. Each is disclosed where it bites as well, so a reader meeting one in a test file
+is not relying on finding this list; the list exists because a reader deciding what to improve
+should not have to grep five files for it.
+
+Each entry names the production change that would close it. None is made here, because a
+characterization branch stays test-only, and each is small enough that the reason it is open is
+scope rather than difficulty.
+
+| Gap | What would close it |
+|---|---|
+| Nothing fails if `cmd/seid/cmd/root.go:296` or `:297` changes the cast or key it hands `baseapp`. Both are inline arguments inside `newApp`'s `app.New` call, so reaching them needs a booted node. | Extract each into a named constructor taking only `AppOpts`, which the suite can then drive. An AST assertion over the call site is not the answer, since it pins spelling rather than behaviour and would redden on a refactor that changed nothing. |
+| The `start_flags` record holds `cpu-profile`, `trace-store` and `grpc-only` as literals, because `sei-cosmos/server`'s constants for them are unexported. A rename in production is caught only where setting the flag fails, which reports as a missing flag rather than as an operator-facing key having moved. | Export those three constants, or accessors for them. `sei-cosmos` is vendored here, so this is three lines in this repository. |
+| Nothing pins the multiply that makes a saturated receipt `KeepRecent` harmless on the **litt** backend. It happens in `sei-db` against an unexported per-block TTL multiplier, so a change there that landed the product small and positive would prune receipts on a litt-backed arm64 node with this suite green. Nodes on the shipped default backend are bounded instead by `pruneVersion > 0` (`sei-db/ledger_db/receipt/receipt_store.go:379-380`), which no multiplier change can undo. | `sei-db` exports the multiplier, or better a helper returning the TTL for a given `KeepRecent`. Pinning a copy of the constant against another copy, which this suite did briefly, checks nothing. |
 
 ## Out of Scope
 

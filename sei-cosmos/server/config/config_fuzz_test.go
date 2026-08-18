@@ -31,17 +31,192 @@ import (
 // deliberately excludes flag binding and env resolution — those belong to Apply and
 // are pinned in cmd/seid/cmd. What is left is the parse itself.
 
-// newAppViper returns a viper holding the one key GetConfig unconditionally
-// requires, plus whatever the caller adds. telemetry.global-labels has no default
-// and no presence guard, so nothing can be parsed without it.
+// globalLabelsKey is the one key GetConfig unconditionally requires, and newAppViper supplies it when
+// the caller does not.
+const globalLabelsKey = "telemetry.global-labels"
+
+// newAppViper returns a viper holding the one key GetConfig unconditionally requires, plus whatever
+// the caller adds. telemetry.global-labels has no default and no presence guard, so nothing can be
+// parsed without it.
+//
+// The caller's spelling wins if it supplies the key itself, which is set before the loop rather than
+// inside it so that overriding the stub is a plain override rather than two writes racing.
 func newAppViper(t testing.TB, keys map[string]any) *viper.Viper {
 	t.Helper()
+	requireViperCanHoldEveryKey(t, keys)
 	v := viper.New()
-	v.Set("telemetry.global-labels", []any{})
+	if !callerSupplies(keys, globalLabelsKey) {
+		v.Set(globalLabelsKey, []any{})
+	}
 	for k, val := range keys {
 		v.Set(k, val)
 	}
 	return v
+}
+
+// callerSupplies reports whether the caller already passed a key, normalized the way viper normalizes
+// it. That is strings.ToLower and not EqualFold: EqualFold is Unicode case folding, which relates pairs
+// viper's lowercasing does not, and the two sibling scans in this file already use ToLower. Contrived
+// for ASCII configuration keys, but one relation modelled three ways is how the three drift apart.
+func callerSupplies(keys map[string]any, key string) bool {
+	normalized := strings.ToLower(key)
+	for k := range keys {
+		if strings.ToLower(k) == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+// requireViperCanHoldEveryKey refuses a key set viper cannot hold every value of.
+//
+// There are two ways a value goes missing and they are checked separately, because they fail for
+// different reasons and a reader chasing one should not be handed the other's message. Two keys can
+// normalize to the same key, where the later Set overwrites the earlier, or one key can nest inside
+// another, where the later Set re-nests around it.
+//
+// The two scans see different key sets, and the difference is the point. Only the caller's keys race:
+// they are Set inside a loop over a Go map, so their order is randomized per run. globalLabelsKey is
+// Set outside that loop and only when the caller did not supply it, so it can never be the party that
+// loses a race, and folding it into the normalization scan would reject a caller overriding the stub
+// deliberately. It stays in the nesting scan, where a caller passing telemetry or
+// telemetry.global-labels.x destroys the key GetConfig requires however the order falls.
+func requireViperCanHoldEveryKey(t testing.TB, keys map[string]any) {
+	t.Helper()
+	callerKeys := make([]string, 0, len(keys))
+	for k := range keys {
+		callerKeys = append(callerKeys, k)
+	}
+	// Sorted where the slice leaves map order, not inside either scan. Both scans report the first
+	// pair they find, so without this the failure names a different pair run to run and stops being
+	// the stable string CI triage greps for.
+	sort.Strings(callerKeys)
+
+	requireNoTwoKeysNormalizeAlike(t, callerKeys)
+	requireNoKeyNestsInsideAnother(t, append(callerKeys, globalLabelsKey))
+}
+
+// requireNoTwoKeysNormalizeAlike refuses two keys that are the same key once viper has seen them.
+//
+// Set lowercases before storing (viper.go:1503), so "Telemetry.Global-Labels" and
+// "telemetry.global-labels" are one key there while being two in a Go map. Whichever is Set second
+// wins and map order picks which, so the loss is the one nesting produces arriving by a different
+// route. nestsInside cannot catch it: normalizing makes the pair equal, and equal keys are
+// deliberately not a nesting relationship.
+//
+// Given caller keys only. A caller key that normalizes onto globalLabelsKey is an override rather
+// than a race, because newAppViper supplies that stub only when the caller did not.
+func requireNoTwoKeysNormalizeAlike(t testing.TB, callerKeys []string) {
+	t.Helper()
+	if first, second, found := firstNormalizationCollision(callerKeys); found {
+		t.Fatalf("%q and %q are two keys in this map and one key to viper, which lowercases before "+
+			"storing, so whichever this helper happens to Set second wins and Go map order picks "+
+			"which. Pass the key once, with the spelling the reader uses", first, second)
+	}
+}
+
+// firstNormalizationCollision returns the first two keys that are one key once lowercased, so the
+// scan is testable without driving a failure through testing.TB.
+func firstNormalizationCollision(all []string) (first, second string, found bool) {
+	seen := make(map[string]string, len(all))
+	for _, key := range all {
+		normalized := strings.ToLower(key)
+		if earlier, ok := seen[normalized]; ok {
+			return earlier, key, true
+		}
+		seen[normalized] = key
+	}
+	return "", "", false
+}
+
+// TestNormalizationCollisionIsCaseOnly holds the scan to the pairs it exists for, alongside the ones
+// it must leave alone.
+func TestNormalizationCollisionIsCaseOnly(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		keys []string
+		want bool
+	}{
+		{"the corpus as it stands", []string{globalLabelsKey, "pruning", "pruning-keep-every"}, false},
+		{"case variants of one key", []string{"Telemetry.Global-Labels", globalLabelsKey}, true},
+		{"a nesting pair is not this", []string{"telemetry", globalLabelsKey}, false},
+		{"distinct keys sharing a prefix", []string{"pruning", "pruning-keep-every"}, false},
+		{"the same key written once", []string{globalLabelsKey}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if _, _, got := firstNormalizationCollision(c.keys); got != c.want {
+				t.Errorf("firstNormalizationCollision(%q) found=%v, want %v", c.keys, got, c.want)
+			}
+		})
+	}
+}
+
+// requireNoKeyNestsInsideAnother refuses a key set viper.Set cannot hold both halves of.
+//
+// viper.Set re-nests around the dots. Setting a.b after a.b.c replaces the sub-tree, and setting
+// a.b.c after a.b replaces the scalar with a fresh map, so one of the two values is always destroyed.
+// Between two caller keys, which one survives is decided by the map order this helper ranges in and
+// so varies per run. Against globalLabelsKey the loss is not a race but is still a loss: the key
+// GetConfig requires goes away.
+//
+// The reason that is worth a guard rather than a comment is where the loss shows up. It is visible
+// through the per-key Get that GetConfig uses, not only through AllSettings, so a colliding pair
+// would not fail loudly here. It would resolve a wrong value on roughly half of all runs, and the
+// test would read as flaky rather than as wrong.
+//
+// Nesting is a dotted-segment relationship, never a textual one. pruning and pruning-keep-every are
+// separate keys that share a prefix, as are state-commit.sc-write-mode and its -enable-auto sibling,
+// and a plain HasPrefix would reject the corpus as it stands.
+func requireNoKeyNestsInsideAnother(t testing.TB, all []string) {
+	t.Helper()
+	for _, outer := range all {
+		for _, inner := range all {
+			if !nestsInside(outer, inner) {
+				continue
+			}
+			t.Fatalf("%q nests inside %q, so viper.Set can hold one of them but not both, and which "+
+				"one survives depends on Go map order. Set them on separate vipers, or give the outer "+
+				"key a leaf of its own, rather than passing both to newAppViper", inner, outer)
+		}
+	}
+}
+
+// nestsInside reports whether inner is a dotted child of outer, which is the only relationship
+// viper.Set collapses. A shared textual prefix is not one.
+//
+// The relationship is on viper's normalized key rather than the written one. Set lowercases before it
+// nests (viper.go:1503), so "Telemetry" and "telemetry.global-labels" collide there while comparing as
+// written would not, and a guard that missed the pair would let the map-order loss back in wearing the
+// hardest shape to diagnose.
+func nestsInside(outer, inner string) bool {
+	outer, inner = strings.ToLower(outer), strings.ToLower(inner)
+	return outer != inner && strings.HasPrefix(inner, outer+".")
+}
+
+// TestNestsInsideIsADottedSegmentRelationship holds the predicate to the boundary that matters,
+// using the pairs this file actually passes.
+func TestNestsInsideIsADottedSegmentRelationship(t *testing.T) {
+	for _, c := range []struct {
+		outer, inner string
+		want         bool
+	}{
+		{"pruning", "pruning-keep-every", false},
+		{"state-commit.sc-write-mode", "state-commit.sc-write-mode-enable-auto", false},
+		{"a.bc", "a.b.c", false},
+		{"a.b", "a.b", false}, // identical keys overwrite rather than nest
+		{"a.b", "a", false},   // the relationship has a direction
+		{"a", "a.b", true},
+		{"a.b", "a.b.c", true},
+		{globalLabelsKey, globalLabelsKey + ".x", true},
+		// viper lowercases before nesting, so case is not what separates two keys.
+		{"Telemetry", "telemetry.global-labels", true},
+		{"telemetry", "TELEMETRY.GLOBAL-LABELS", true},
+		{"Telemetry", "Telemetry", false},
+	} {
+		if got := nestsInside(c.outer, c.inner); got != c.want {
+			t.Errorf("nestsInside(%q, %q) = %v, want %v", c.outer, c.inner, got, c.want)
+		}
+	}
 }
 
 // FuzzGetConfigGlobalLabels pins the one key that can stop a node booting by being
@@ -82,23 +257,85 @@ func FuzzGetConfigGlobalLabels(f *testing.F) {
 		}
 
 		v := viper.New()
-		v.Set("telemetry.global-labels", labels)
+		v.Set(globalLabelsKey, labels)
 		cfg, err := GetConfig(v)
 		if err != nil {
 			t.Fatalf("a well-typed global-labels list must parse, got %v", err)
 		}
 
-		// Only two-element labels survive; the rest vanish without a diagnostic.
-		wantKept := 0
+		// Only two-element labels survive; the rest vanish without a diagnostic. Each survivor is
+		// held to its own key and value in the order written, because an arity comparison passes
+		// just as well with a pair reversed or with one label's key against another's value.
+		want := make([][]string, 0, labelCount)
 		if elemsPerLabel == 2 {
-			wantKept = labelCount
+			for i := range labelCount {
+				want = append(want, []string{
+					fmt.Sprintf("%s-%d-0", content, i),
+					fmt.Sprintf("%s-%d-1", content, i),
+				})
+			}
 		}
-		if len(cfg.Telemetry.GlobalLabels) != wantKept {
-			t.Fatalf("%d labels of %d elements resolved to %d kept, want %d "+
-				"(a label whose length is not exactly 2 is dropped silently)",
-				labelCount, elemsPerLabel, len(cfg.Telemetry.GlobalLabels), wantKept)
+		if !reflect.DeepEqual(cfg.Telemetry.GlobalLabels, want) {
+			t.Fatalf("%d labels of %d elements resolved to %v, want %v (a label whose length is not "+
+				"exactly 2 is dropped silently, and the survivors keep their written order)",
+				labelCount, elemsPerLabel, cfg.Telemetry.GlobalLabels, want)
 		}
 	})
+}
+
+// TestGetConfigPanicsOnANonStringGlobalLabel records the one malformed [telemetry] shape this reader
+// does not report.
+//
+// Every other bad shape returns an error naming what it could not parse: a global-labels value that
+// is not a list (config.go:421), and an entry within it that is not a list (config.go:429). A
+// two-element entry holding a non-string reaches an unchecked assertion instead (config.go:432), so
+// global-labels = [["chain", 42]] in app.toml takes the node down with an interface-conversion panic
+// rather than the diagnostic its siblings produce.
+//
+// Recorded rather than repaired, and owned by PLT-976 item 4 rather than left to whoever reads this
+// next. Converting it to an error is the change to make, and it belongs with
+// the reader that replaces this one, since an operator whose app.toml currently panics would start
+// booting into a node that logs a parse failure instead.
+func TestGetConfigPanicsOnANonStringGlobalLabel(t *testing.T) {
+	for _, label := range [][]any{
+		{"chain", 42}, // a non-string value
+		{7, "chain"},  // a non-string key
+		{1, 2},        // neither is a string
+	} {
+		t.Run(fmt.Sprintf("%v", label), func(t *testing.T) {
+			v := viper.New()
+			v.Set(globalLabelsKey, []any{label})
+
+			// Catching is kept apart from judging so exactly one message can reach the reader. A
+			// t.Fatalf in the body calls Goexit, a deferred recover sees nil during that unwind
+			// because Goexit is not a panic, and a second t.Fatalf in the defer would then report
+			// "no longer panics" as the last thing printed, which is an artifact of the unwind
+			// rather than the failure.
+			recovered, err := getConfigCatchingPanic(v)
+			switch {
+			case recovered == nil && err != nil:
+				t.Fatalf("global-labels %v returned %v instead of panicking, so the assertion at "+
+					"config.go:432 is now guarded and this recording is stale", label, err)
+			case recovered == nil:
+				t.Fatalf("global-labels %v no longer panics. If it now returns an error, that is "+
+					"the better behavior and it changes which app.toml files start a node, so "+
+					"replace this recording with the error the reader reports", label)
+			case !strings.Contains(fmt.Sprint(recovered), "interface conversion"):
+				t.Fatalf("global-labels %v panicked with %v rather than the unchecked assertion at "+
+					"config.go:432, so the failure moved and this recording no longer describes it",
+					label, recovered)
+			}
+		})
+	}
+}
+
+// getConfigCatchingPanic runs GetConfig and reports what it did rather than judging it. It touches no
+// testing.TB, which is the point: a t.Fatalf inside a deferred recover cannot then fire during the
+// Goexit that another t.Fatalf started.
+func getConfigCatchingPanic(v *viper.Viper) (recovered any, err error) {
+	defer func() { recovered = recover() }()
+	_, err = GetConfig(v)
+	return nil, err
 }
 
 // TestGetConfigRequiresGlobalLabels pins the absent-key failure on its own. This is
@@ -112,23 +349,6 @@ func TestGetConfigRequiresGlobalLabels(t *testing.T) {
 	if !strings.Contains(err.Error(), "global-labels") {
 		t.Fatalf("the failure must name the key, got %v", err)
 	}
-}
-
-// TestGetConfigPanicsOnNonStringLabel records that the inner element assertions are
-// unchecked. A label list of the right shape but the wrong element type takes the
-// node down with a raw interface-conversion panic rather than an error naming
-// telemetry.
-func TestGetConfigPanicsOnNonStringLabel(t *testing.T) {
-	v := viper.New()
-	v.Set("telemetry.global-labels", []any{[]any{1, 2}})
-
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("a non-string label must panic; if it is now an error, the diagnostic " +
-				"improved and this row should say so")
-		}
-	}()
-	_, _ = GetConfig(v)
 }
 
 // grpcClamp is a duration key GetConfig clamps rather than accepts verbatim.
@@ -690,14 +910,25 @@ func TestManifestNamesEveryField(t *testing.T) {
 	configtest.CheckManifestCoversEveryField(t, "state-sync", DefaultConfig().StateSync, stateSyncKeys)
 }
 
-// FuzzConfigValidateBasic pins the two conditions that reject an otherwise
-// parseable app.toml.
+// FuzzConfigValidateBasic pins the two conditions under which an otherwise parseable app.toml is
+// reported as invalid, and the two error strings that distinguish them.
 //
-// An empty minimum-gas-prices fails, because a validator accepting zero-fee
-// transactions is a misconfiguration rather than a choice. And pruning
-// "everything" with state-sync snapshots enabled fails, because a node cannot
-// serve a snapshot of state it has already pruned. Both are the rare case in this
-// surface where a bad combination is refused rather than absorbed.
+// An empty minimum-gas-prices fails, because a validator accepting zero-fee transactions is a
+// misconfiguration rather than a choice. And pruning "everything" with state-sync snapshots enabled
+// fails, because a node cannot serve a snapshot of state it has already pruned.
+//
+// Neither stops a node. start.go:308 is the only caller on the boot path, and it logs the error and
+// carries on to build the app, so both conditions are reported rather than refused. The one other
+// caller, sei-cosmos/testutil/network/util.go:31, does return it, but that is the in-process test
+// network and is never linked into seid.
+//
+// The message it logs is a fixed string naming an empty minimum-gas-prices, which is one of the two
+// causes: an operator whose pruning and snapshot settings conflict is told their fee floor is empty,
+// and then boots into a node that cannot serve the snapshots it advertises.
+//
+// So the distinctness of these two errors is load-bearing in a way the caller does not currently use,
+// and that is what the assertions below hold. Recorded rather than repaired, because deciding whether
+// this should abort a boot changes which existing configurations still start.
 func FuzzConfigValidateBasic(f *testing.F) {
 	f.Add("0.01usei", "default", uint64(0))
 	f.Add("", "default", uint64(0))
@@ -725,6 +956,27 @@ func FuzzConfigValidateBasic(f *testing.F) {
 		if !wantErr && got != nil {
 			t.Fatalf("min-gas-prices=%q pruning=%q snapshot-interval=%d must pass ValidateBasic, got %v",
 				minGasPrices, pruning, snapshotInterval, got)
+		}
+
+		// The pruning conflict has to identify itself, because its caller logs a fixed fee-floor
+		// message for either cause and this string is the only thing left that tells the two apart.
+		// Both directions are asserted: it must name the conflict, and it must not read as a fee-floor
+		// problem. Asserting only the second would pass for any error at all, including one that named
+		// neither cause.
+		if minGasPrices != "" && got != nil {
+			if !strings.Contains(got.Error(), "state sync snapshots") {
+				t.Fatalf("pruning=%q snapshot-interval=%d was rejected as %q, which no longer names the "+
+					"snapshot conflict. start.go:308-311 discards this error and logs a fixed fee-floor "+
+					"string for either cause, so nothing surfaces this text to an operator; it is the only "+
+					"thing in code that tells the two causes apart",
+					pruning, snapshotInterval, got)
+			}
+			if strings.Contains(got.Error(), "min gas price") {
+				t.Fatalf("pruning=%q snapshot-interval=%d was rejected as %q while minimum-gas-prices "+
+					"was set to %q. The two rejection causes now report the same way, so nothing in code "+
+					"tells them apart and the fixed string start.go logs names the wrong one",
+					pruning, snapshotInterval, got, minGasPrices)
+			}
 		}
 	})
 }
@@ -922,7 +1174,8 @@ var grpcWebKeys = []configtest.KeySpec{
 //
 // global-labels is not a row. It is read as a bare type assertion whose absence fails GetConfig
 // outright and whose shape rules are their own subject, so it has dedicated targets above
-// (FuzzGetConfigGlobalLabels, TestGetConfigRequiresGlobalLabels, TestGetConfigPanicsOnNonStringLabel)
+// (FuzzGetConfigGlobalLabels, TestGetConfigRequiresGlobalLabels,
+// TestGetConfigPanicsOnANonStringGlobalLabel)
 // and is recorded by name rather than driven as a row.
 var telemetryKeys = []configtest.KeySpec{
 	{
@@ -960,7 +1213,7 @@ var telemetryKeys = []configtest.KeySpec{
 
 // telemetryKeysWithTargetsOfTheirOwn is global-labels, recorded for its name because its behaviour
 // is driven by targets rather than by a row.
-var telemetryKeysWithTargetsOfTheirOwn = []configtest.KeyName{"telemetry.global-labels"}
+var telemetryKeysWithTargetsOfTheirOwn = []configtest.KeyName{globalLabelsKey}
 
 func readRosetta(t testing.TB) func(configtest.AppOpts) (any, error) {
 	return sectionOfGetConfig(t, func(c Config) any { return c.Rosetta })
@@ -1149,6 +1402,14 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"pruning", cfg.Pruning, def.Pruning, true},
 		{"pruning-keep-recent", cfg.PruningKeepRecent, def.PruningKeepRecent, true},
 		{"pruning-interval", cfg.PruningInterval, def.PruningInterval, true},
+		// Diverges here and is rescued twice downstream, and which rescue a booted node relies on is
+		// the distinction to carry off this row. concurrency-workers is a registered start flag
+		// defaulting to DefaultConcurrencyWorkers (start.go:224) and bound in PreRunE (start.go:117)
+		// ahead of both production calls (start.go:168 and :303), so there this same read takes the
+		// flag's default whenever app.toml is silent and never resolves 0. The 0 recorded here belongs
+		// to this file's flag-less viper. baseapp.New substituting DefaultConcurrencyWorkers for a
+		// resolved 0 (baseapp.go:316-320) is a second net behind that one, reached only when appOpts
+		// carries no flags or an operator writes 0 outright.
 		{"concurrency-workers", cfg.ConcurrencyWorkers, def.ConcurrencyWorkers, true},
 		{"occ-enabled", cfg.OccEnabled, def.OccEnabled, true},
 		{"halt-height", cfg.HaltHeight, def.HaltHeight, false},
@@ -1335,18 +1596,71 @@ func TestBaseConfigKeyNamesMatchTheRecordedNames(t *testing.T) {
 	configtest.CheckKeyNames(t, "base_config", baseConfigKeys)
 }
 
-// TestBaseConfigManifestNamesEveryField enforces the manifest's claim, and records the one field
-// that has no key.
+// TestBaseConfigManifestNamesEveryField enforces the manifest's claim, and records the one field this
+// reader leaves alone.
 //
 // PruningKeepEvery carries a mapstructure tag of pruning-keep-every and a declared default of "0",
-// and GetConfig never reads it. So no app.toml value reaches it through this reader, and the
-// exemption below is the record of that rather than a gap in the manifest. It is the shape of thing
-// a replacement manager would otherwise try to map a key onto.
+// and GetConfig never reads it, so the exemption below records that rather than a gap in the manifest.
+//
+// It is not an unreachable field, and the difference matters to anything reproducing this surface.
+// server/pruning.go reads pruning-keep-every through appOpts and feeds it to the custom pruning
+// strategy, pinned by pruning_test.go and pruning_fuzz_test.go. So the key has a reader and a
+// consumer; what it does not have is a path through this struct. A replacement manager has to carry
+// the key and must not expect this field to be where it lands.
 func TestBaseConfigManifestNamesEveryField(t *testing.T) {
 	configtest.CheckManifestCoversEveryField(t, "base_config", DefaultConfig().BaseConfig,
 		baseConfigKeys,
 		"PruningKeepEvery",
 	)
+}
+
+// TestGetConfigLeavesPruningKeepEveryEmpty holds the exemption in
+// TestBaseConfigManifestNamesEveryField to being true, and records what the field actually carries.
+//
+// The exemption says GetConfig does not read pruning-keep-every, which is what lets the manifest omit a
+// row. Nothing checked it, so GetConfig could start reading the key and the exemption would quietly
+// become a false claim about a field that now resolves.
+//
+// What the field carries is worth stating, because it is not the declared default. GetConfig builds
+// BaseConfig as a struct literal and never assigns PruningKeepEvery, so it stays Go's zero value, the
+// empty string, where DefaultConfig declares "0". So this is a divergence as well as an omission, and
+// an empty string is not a number the custom pruning strategy can use. It is excluded from the
+// divergence table only because it has no manifest row to anchor there.
+//
+// The other half of the split is pinned elsewhere: server/pruning.go reads the key through appOpts and
+// feeds the custom strategy, held by pruning_fuzz_test.go. Between them the two readers' disagreement
+// about one key is recorded from both sides.
+//
+// Asserted with the key set to a value nothing else produces, so a green run means the field is
+// genuinely untouched by this reader rather than coincidentally equal to something.
+func TestGetConfigLeavesPruningKeepEveryEmpty(t *testing.T) {
+	const nothingElseProduces = "4321"
+
+	cfg, err := GetConfig(newAppViper(t, configtest.AppOpts{
+		"pruning-keep-every": nothingElseProduces,
+	}))
+	if err != nil {
+		t.Fatalf("GetConfig: %v", err)
+	}
+
+	if cfg.PruningKeepEvery != "" {
+		t.Errorf("GetConfig resolved PruningKeepEvery to %q with pruning-keep-every set to %q, where it "+
+			"leaves the field empty today. This reader now reads the key, so the exemption in "+
+			"TestBaseConfigManifestNamesEveryField is false and the field needs a manifest row",
+			cfg.PruningKeepEvery, nothingElseProduces)
+	}
+	// The divergence half: the reader's empty string has to differ from what DefaultConfig declares.
+	// Compared against the declared default rather than against "" so it reads as the property, and
+	// carrying no interpolated value because both sides are the empty string whenever it fires. What
+	// the declared default actually is belongs to server_config.golden, which records it; asserting a
+	// particular value here would fire on a default moving to another non-empty string, where the
+	// divergence this test owns is still intact.
+	if cfg.PruningKeepEvery == DefaultConfig().PruningKeepEvery {
+		t.Error("GetConfig leaves PruningKeepEvery empty and DefaultConfig now declares it empty too, " +
+			"so the two agree and the divergence this row records is gone. This half exists only to " +
+			"catch that collapse; a default that changed to some other value lands in the " +
+			"server_config.golden diff instead")
+	}
 }
 
 // grpcKeys covers the three [grpc] keys read as plain casts.

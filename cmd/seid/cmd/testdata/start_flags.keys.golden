@@ -1,0 +1,4 @@
+# keys with a target of their own
+"cpu-profile"
+"trace-store"
+"grpc-only"
