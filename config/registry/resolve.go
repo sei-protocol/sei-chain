@@ -54,9 +54,9 @@ type Sources struct {
 func Resolve(mode Mode, from Sources) (Resolved, error) {
 	var out Resolved
 
-	// One snapshot for both, because they have to describe the same registry. Rendering the defaults
-	// and then asking for the declared set separately leaves a window a concurrent registration fits
-	// through, and a key declared in that window resolves to nothing.
+	// One snapshot, read once and passed everywhere below. Every part of the answer has to describe the
+	// same registry: asking again leaves a window a concurrent registration fits through, and a section
+	// arriving in that window is declared by one part of the answer and not by another.
 	registered := Sections()
 	defaults, err := defaultValues(mode, registered)
 	if err != nil {
@@ -73,7 +73,11 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 	unknown := map[string]bool{}
 	// Lowest precedence first, so a later source overwrites an earlier one. The one statement of the
 	// order, which is why nothing exports it.
-	for _, values := range []map[string]any{fileValues(from.File), envValues(from.LookupEnv), from.Flags} {
+	for _, values := range []map[string]any{
+		fileValues(from.File),
+		envValues(declared, from.LookupEnv),
+		from.Flags,
+	} {
 		for key, v := range values {
 			if !declared[key] {
 				// A key nothing declares cannot be resolved into anything, and silently dropping it is
@@ -260,16 +264,20 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 	return nil
 }
 
-// envValues reads the declared keys an environment supplies.
+// envValues reads the keys an environment supplies, from the caller's declared set.
 //
 // Driven by the declared set rather than by the environment, which is also what makes it complete:
 // every declared key has exactly one canonical spelling and this asks for all of them.
-func envValues(lookup func(string) (string, bool)) map[string]any {
+//
+// declared is passed in rather than read here, so this shares Resolve's snapshot. Reading the registry
+// again would ask for a key the caller's declared set does not hold, and the answer would come back
+// only to be reported as one no section declares.
+func envValues(declared map[string]bool, lookup func(string) (string, bool)) map[string]any {
 	if lookup == nil {
 		return nil
 	}
 	out := map[string]any{}
-	for _, key := range Keys() {
+	for key := range declared {
 		// An empty value is treated as unset. A variable exported empty is far more often a shell
 		// artefact than a deliberate empty string, and the two are indistinguishable here. The cost is
 		// that clearing a key by exporting it empty reads as touching nothing, and Overrides will not

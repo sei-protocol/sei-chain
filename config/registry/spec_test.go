@@ -858,10 +858,10 @@ func anyDefault(registry.Mode) any { return struct{}{} }
 // already be resolving, so the two overlap in real use. Run under -race, which is what asserts the
 // shared state is actually guarded; the checks below hold the answer's shape.
 //
-// This does not discriminate the failure the single snapshot in Resolve prevents. A section that
-// arrives between Resolve's two reads is, from outside the package, indistinguishable from one that
-// arrives after the call returns, so the window has no external symptom to assert on. The correction
-// is that both derived sets now come from one variable.
+// The part of the single-snapshot correction this cannot see is a section arriving between two reads
+// of the defaults. From outside the package that is indistinguishable from one arriving after the call
+// returns. The part it can see has its own test below, because reading the registry again to build the
+// environment leaves a symptom: a key reported as one no section declares, that a section declares.
 func TestRegistrationAndResolutionAreConcurrencySafe(t *testing.T) {
 	type one struct {
 		A string `mapstructure:"a"`
@@ -888,7 +888,64 @@ func TestRegistrationAndResolutionAreConcurrencySafe(t *testing.T) {
 			t.Fatalf("round %d: first.a was registered before the call and did not resolve", round)
 		}
 		if len(res.Unknown) != 0 {
-			t.Fatalf("round %d: no layer was passed and %v is reported unknown", round, res.Unknown)
+			t.Fatalf("round %d: no source was passed and %v is reported unknown", round, res.Unknown)
+		}
+	}
+}
+
+// TestNoUnknownKeyIsOneTheRegistryDeclares holds every source against one snapshot of the registry.
+//
+// Resolve derives the declared set once and checks every source against it. A source built from a
+// second read of the registry can carry a key the first read did not hold, and that key comes back
+// reported as one no section declares. An operator whose environment variable is real would be told it
+// matches nothing, and their value would be dropped.
+//
+// The trigger is a section registering while Resolve runs, which is deterministic here rather than
+// raced: Resolve calls each section's Defaults between reading the registry and reading the
+// environment, and Defaults is caller-supplied code. A goroutine cannot be relied on to land in that
+// window, so a concurrent version of this test passes whether the defect is present or not.
+func TestNoUnknownKeyIsOneTheRegistryDeclares(t *testing.T) {
+	type one struct {
+		A string `mapstructure:"a"`
+	}
+	late := func(registry.Mode) any { return one{A: "v"} }
+
+	registry.Reset()
+	registry.RegisterSection("first", &one{}, func(m registry.Mode) any {
+		// Lands after Resolve has taken its snapshot, so a source that reads the registry again sees a
+		// section the declared set does not hold.
+		if _, already := registry.Lookup("second"); !already {
+			registry.RegisterSection("second", &one{}, late)
+		}
+		return one{A: "v"}
+	})
+	requireNoDefects(t)
+
+	env := map[string]string{
+		registry.EnvName("first.a"):  "from the environment",
+		registry.EnvName("second.a"): "from the environment",
+	}
+	res, err := registry.Resolve(registry.ModeFull, registry.Sources{
+		LookupEnv: func(name string) (string, bool) {
+			v, ok := env[name]
+			return v, ok
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	declared := map[string]bool{}
+	for _, key := range registry.Keys() {
+		declared[key] = true
+	}
+	if !declared["second.a"] {
+		t.Fatal("the late section did not register, so this test cannot see the defect it exists for")
+	}
+	for _, key := range res.Unknown {
+		if declared[key] {
+			t.Errorf("%q is reported as a key no section declares, and the registry declares it. An "+
+				"operator setting it would be told it matches nothing and their value would be dropped", key)
 		}
 	}
 }
