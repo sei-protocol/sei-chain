@@ -101,11 +101,7 @@ describe("ERC721 to CW721 Pointer", function () {
             const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
             expect(ethlogs.length).to.equal(1);
 
-            // send via sei_ endpoint - synthetic event shows up
-            const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
-            expect(seilogs.length).to.equal(1);
-
-            seilogs.forEach(async (log) => {
+            ethlogs.forEach(async (log) => {
                 expect(log["address"].toLowerCase()).to.equal((await pointer.getAddress()).toLowerCase());
                 expect(log["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
                 expect(log["topics"][1].substring(26)).to.equal(accounts[0].evmAddress.substring(2).toLowerCase());
@@ -132,9 +128,7 @@ describe("ERC721 to CW721 Pointer", function () {
             // send via eth_ endpoint
             const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
             expect(ethlogs.length).to.equal(1);
-            const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
-            expect(seilogs.length).to.equal(1);
-            seilogs.forEach(async (log) => {
+            ethlogs.forEach(async (log) => {
                 expect(log["address"].toLowerCase()).to.equal((await pointerAcc1.getAddress()).toLowerCase());
                 expect(log["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
                 expect(log["topics"][1].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());

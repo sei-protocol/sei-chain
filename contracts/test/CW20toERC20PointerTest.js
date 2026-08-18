@@ -115,10 +115,6 @@ describe("CW20 to ERC20 Pointer", function () {
                     const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
                     expect(ethlogs.length).to.equal(0);
 
-                    // send via sei_ endpoint - synthetic event shows up
-                    const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
-                    expect(seilogs.length).to.equal(1);
-                    expect(seilogs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
                     const respAfter = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
                     const balanceAfter = respAfter.data.balance;
                     expect(balanceAfter).to.equal((parseInt(balanceBefore) + 100).toString());

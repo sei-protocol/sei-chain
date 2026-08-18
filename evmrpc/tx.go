@@ -30,8 +30,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-var ErrPanicTx = errors.New("transaction is panic tx")
-
 type TransactionAPI struct {
 	tmClient           client.LocalClient
 	keeper             *keeper.Keeper
@@ -47,8 +45,7 @@ type TransactionAPI struct {
 }
 
 type SeiTransactionAPI struct {
-	*TransactionAPI
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
+	transactionAPI *TransactionAPI
 }
 
 func NewTransactionAPI(
@@ -85,30 +82,27 @@ func NewSeiTransactionAPI(
 	homeDir string,
 	connectionType ConnectionType,
 	methodTimeout utils.Option[time.Duration],
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) *SeiTransactionAPI {
 	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, methodTimeout, watermarks, globalBlockCache, cacheCreationMutex)
 	baseAPI.includeSynthetic = true
-	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
+	return &SeiTransactionAPI{transactionAPI: baseAPI}
 }
 
-func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]any, returnErr error) {
-	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx, true)
+func (t *SeiTransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]any, returnErr error) {
+	return getTransactionReceipt(ctx, t.transactionAPI, hash, true)
 }
 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]any, returnErr error) {
-	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic)
+	return getTransactionReceipt(ctx, t, hash, t.includeSynthetic)
 }
 
 func getTransactionReceipt(
 	ctx context.Context,
 	t *TransactionAPI,
 	hash common.Hash,
-	excludePanicTxs bool,
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	includeSynthetic bool,
 ) (result map[string]any, returnErr error) {
 	startTime := time.Now()
@@ -116,16 +110,6 @@ func getTransactionReceipt(
 		recordMetricsWithError(ctx, "eth_getTransactionReceipt", t.connectionType, startTime, returnErr, recover())
 	}()
 	sdkctx := t.ctxProvider(LatestCtxHeight)
-
-	if excludePanicTxs {
-		isPanicTx, err := isPanicTx(ctx, hash)
-		if isPanicTx {
-			return nil, ErrPanicTx
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
-		}
-	}
 
 	receipt, err := t.keeper.GetReceipt(sdkctx, hash)
 	if err != nil {

@@ -74,8 +74,8 @@ func makeEchoResp(raw json.RawMessage) json.RawMessage {
 
 // allowAll is a permissive allowlist that lets every sei_* method through.
 var allowAll = map[string]struct{}{
-	"sei_getFilterLogs": {},
-	"sei_someMethod":    {},
+	"sei_getTransactionReceipt": {},
+	"sei_someMethod":            {},
 }
 
 // postJSON builds an *http.Request with the given JSON body and Accept-Encoding: gzip.
@@ -165,7 +165,7 @@ func TestHandleSingle_NonGatedMethod_GzipIntact(t *testing.T) {
 func TestHandleSingle_GatedMethod_DeprecationHeader(t *testing.T) {
 	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), allowAll, 0)
 
-	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getFilterLogs"}`
+	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getTransactionReceipt"}`
 	rec := httptest.NewRecorder()
 	gate.ServeHTTP(rec, postJSON(t, body))
 
@@ -185,7 +185,7 @@ func TestHandleBatch_GatedMethod_DeprecationHeader(t *testing.T) {
 	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), allowAll, 0)
 
 	body := `[
-		{"jsonrpc":"2.0","id":1,"method":"sei_getFilterLogs"},
+		{"jsonrpc":"2.0","id":1,"method":"sei_getTransactionReceipt"},
 		{"jsonrpc":"2.0","id":2,"method":"eth_blockNumber"}
 	]`
 	rec := httptest.NewRecorder()
@@ -207,7 +207,7 @@ func TestHandleSingle_BlockedMethod_ReturnsError(t *testing.T) {
 	// Empty allowlist → all sei_* methods are blocked.
 	gate := wrapSeiLegacyHTTP(gzipHandler(echoHandler), map[string]struct{}{}, 0)
 
-	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getFilterLogs"}`
+	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getTransactionReceipt"}`
 	rec := httptest.NewRecorder()
 	gate.ServeHTTP(rec, postJSON(t, body))
 

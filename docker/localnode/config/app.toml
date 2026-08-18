@@ -285,34 +285,13 @@ trace_allow_js_tracers = false
 # Legacy sei_* JSON-RPC (EVM HTTP only).
 # DEPRECATION: All sei_* methods are deprecated and scheduled for removal - no new integrations.
 # HTTP 200; gate errors: JSON-RPC error (data legacy_sei_deprecated). Success: unchanged body; optional header Sei-Legacy-RPC-Deprecation.
-# Docker localnet enables every gated method except sei_sign (integration tests assert the
-# disabled-method path; sei_sign is not in partner telemetry and has no rpc_io_test fixtures).
-# Production defaults from seid init remain the three-method sei_* allowlist - see evmrpc/config.
+# Docker localnet enables every remaining gated method. Production defaults from seid init
+# remain the three-method address/Cosmos allowlist - see evmrpc/config.
 enabled_legacy_sei_apis = [
-#  "sei_sign",
-  "sei_associate",
-  "sei_getBlockByHash",
-  "sei_getBlockByHashExcludeTraceFail",
-  "sei_getBlockTransactionCountByHash",
-  "sei_getBlockTransactionCountByNumber",
   "sei_getCosmosTx",
   "sei_getEVMAddress",
-  "sei_getEvmTx",
-  "sei_getFilterChanges",
-  "sei_getFilterLogs",
-  "sei_getLogs",
   "sei_getSeiAddress",
-  "sei_getTransactionByBlockHashAndIndex",
-  "sei_getTransactionByBlockNumberAndIndex",
-  "sei_getTransactionByHash",
-  "sei_getTransactionCount",
-  "sei_getTransactionErrorByHash",
   "sei_getTransactionReceipt",
-  "sei_getTransactionReceiptExcludeTraceFail",
-  "sei_getVMError",
-  "sei_newBlockFilter",
-  "sei_newFilter",
-  "sei_uninstallFilter",
 ]
 
 ###############################################################################
