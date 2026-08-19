@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -297,11 +298,8 @@ func (f *File) Bytes() ([]byte, error) {
 
 // Save writes the document to path, atomically.
 //
-// The document is offered to the decoder first, so no file reaches disk that a node cannot read.
-//
-// A non-nil error does not always mean the values are absent from disk: ErrNotDurable reports a file
-// that is installed with its directory entry not yet flushed. Call Landed on the error rather than
-// comparing it against nil, which reads that outcome as a failed write.
+// The document is offered to the decoder first, so no file reaches disk that a node cannot read. A
+// non-nil error means the values are not on disk.
 //
 // The rename makes it atomic, and the temporary file sits in the destination's own directory so the
 // rename stays within one filesystem. A crash at any point leaves either the previous file or the
@@ -340,40 +338,27 @@ func (f *File) Save(path string) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("install %s: %w", path, err)
 	}
-	// Past this point the new file is what the node will read, so a failure to flush the directory
-	// entry is not a failure of the save. Returning one would tell a caller their change did not land
-	// when it did, and the next thing they do is write it again or open an incident.
-	if err := syncDir(dir); err != nil {
-		return fmt.Errorf("%w: %w", ErrNotDurable, err)
-	}
+	syncDir(dir)
 	return nil
 }
 
-// ErrNotDurable reports that a save installed the file and could not flush the directory entry.
-//
-// The values are in place and a reader sees them. Only their survival of a machine losing power before
-// the filesystem flushes on its own is unproven, so a caller that treats this as a failed write is
-// wrong about what happened.
-var ErrNotDurable = errors.New("the file is installed and its directory entry is not yet flushed")
-
-// Landed reports whether a Save put the values on disk, which is what a caller acting on the outcome
-// wants to know.
-//
-// Save reports one outcome that is not a failure through the error it returns, so the plain err != nil
-// check reads a landed save as a failed one and tells an operator their change did not apply when it
-// did. This is that check written correctly, in one call, next to the sentinel it accounts for.
-func Landed(err error) bool { return err == nil || errors.Is(err, ErrNotDurable) }
-
 // modeToWrite returns the permission a save should use, and refuses a destination it must not replace.
 //
-// An existing file keeps its own mode, so a save never widens what an operator narrowed. A symbolic
-// link is refused: renaming onto one replaces the link with a regular file, leaving whatever it pointed
-// at holding the old values, and nothing about the result says the link is gone.
+// An existing file keeps its own mode, so a save never widens what an operator narrowed. Two
+// destinations are refused instead, because a rename replaces either one rather than writing through
+// it. A symbolic link would leave whatever it pointed at holding the old values, with nothing about the
+// result saying the link is gone. Anything else that is not a regular file is a device node, a socket
+// or a pipe, and replacing one destroys it and hands the configuration whatever permission it carried,
+// which for a device node is world-writable.
 func modeToWrite(path string) (os.FileMode, error) {
 	info, err := os.Lstat(path)
 	switch {
-	case err != nil:
+	case errors.Is(err, fs.ErrNotExist):
 		return newFileMode, nil // no file there yet, which is the ordinary first save
+	case err != nil:
+		// Separated from the absent case, which used to absorb it. A path this process cannot inspect
+		// is not a first save, and calling it one writes at the default mode on a guess.
+		return 0, fmt.Errorf("inspect %s: %w", path, err)
 	case info.Mode()&os.ModeSymlink != 0:
 		target, err := os.Readlink(path)
 		if err != nil {
@@ -382,6 +367,10 @@ func modeToWrite(path string) (os.FileMode, error) {
 		return 0, fmt.Errorf("%s is a symbolic link to %s. Writing here would replace the link with a "+
 			"regular file and leave %s holding the old values; edit the target directly", path, target,
 			target)
+	case !info.Mode().IsRegular():
+		return 0, fmt.Errorf("%s is a %s, not a regular file. A save renames over it, which would "+
+			"destroy it and write the configuration at its permission (%#o)", path,
+			info.Mode().Type(), info.Mode().Perm())
 	default:
 		return info.Mode().Perm(), nil
 	}
@@ -412,17 +401,21 @@ func writeAndSync(tmp *os.File, raw []byte, mode os.FileMode) error {
 	return tmp.Close()
 }
 
-// syncDir flushes the directory entry so the rename itself survives a crash.
-func syncDir(dir string) error {
+// syncDir asks the filesystem to flush dir's entries, so a rename into it survives a power loss.
+//
+// It reports nothing, because nothing a caller does with the answer is right. Past the rename the new
+// file is what a node reads, so a flush that did not complete is not a failed save. Retrying is worse
+// than doing nothing: Linux reports a writeback error once per descriptor and does not write the pages
+// again, so a second flush can succeed over data that never reached the device.
+func syncDir(dir string) {
 	d, err := os.Open(dir) //nolint:gosec // the destination's own directory
 	if err != nil {
-		return fmt.Errorf("open %s: %w", dir, err)
+		// A directory this process cannot open for reading is not a save that failed. The rename has
+		// already happened and a reader sees the new values.
+		return
 	}
-	defer func() { _ = d.Close() }()
-	if err := d.Sync(); err != nil {
-		return fmt.Errorf("sync %s: %w", dir, err)
-	}
-	return nil
+	_ = d.Sync()
+	_ = d.Close()
 }
 
 // keyOf splits a dotted key into its parser path.

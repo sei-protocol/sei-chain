@@ -1,7 +1,6 @@
 package seitoml_test
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -9,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1221,13 +1221,75 @@ func TestAFileFromANewerReleaseIsRefused(t *testing.T) {
 	}
 }
 
-// TestAnUnflushedDirectoryEntryIsNotAFailedSave separates two outcomes a caller must not confuse.
+// TestSaveNamesAPathItCannotInspect covers a destination that is neither present nor absent.
 //
-// After the rename the new values are what the node reads. A directory entry that has not been flushed
-// only leaves their survival of a power loss unproven, so reporting it the same way as a failed write
-// tells an operator their change did not land when it did. The next thing they do is write it again or
-// open an incident.
-func TestAnUnflushedDirectoryEntryIsNotAFailedSave(t *testing.T) {
+// A path whose parent is a file rather than a directory cannot be inspected at all, which is not the
+// same as nothing being there yet. Reading it as a first save picks the default mode on a guess and then
+// fails further down on the temporary file, naming that instead of the path the operator gave.
+func TestSaveNamesAPathItCannotInspect(t *testing.T) {
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(parent, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	path := filepath.Join(parent, "sei.toml")
+
+	f, err := seitoml.New("validator")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = f.Save(path)
+	if err == nil {
+		t.Fatal("a save under a path that is a file was accepted")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("Save refused with %q, which does not name the path the operator gave", err)
+	}
+}
+
+// TestSaveRefusesADestinationARenameWouldDestroy covers the destinations that are not files.
+//
+// A save installs by renaming over the path, and a rename replaces what is there rather than writing
+// through it. For a pipe, a socket or a device node that means the destination is gone, and the
+// configuration lands carrying whatever permission it had, which for a device node is world-writable on
+// a file naming key paths. Refused where the mode is decided, before anything is written.
+func TestSaveRefusesADestinationARenameWouldDestroy(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sei.toml")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Skipf("this platform will not make a pipe to save onto: %v", err)
+	}
+
+	f, err := seitoml.New("validator")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = f.Save(path)
+	if err == nil {
+		t.Fatal("saving onto a pipe was accepted, so the pipe is gone and the configuration carries " +
+			"whatever permission it had")
+	}
+	if !strings.Contains(err.Error(), "not a regular file") {
+		t.Errorf("Save refused with %q, which does not say what the destination is", err)
+	}
+
+	// Nothing was written, so the destination an operator pointed at is still there to look at.
+	info, statErr := os.Lstat(path)
+	if statErr != nil {
+		t.Fatalf("the refused save removed the destination: %v", statErr)
+	}
+	if info.Mode()&os.ModeNamedPipe == 0 {
+		t.Errorf("the destination is now %v, want the pipe it was", info.Mode())
+	}
+}
+
+// TestADirectoryThisProcessCannotReadDoesNotFailTheSave holds Save's error to one meaning.
+//
+// Flushing the directory entry needs the directory open for reading, and a save does not. After the
+// rename the new values are already what the node reads, so nothing about the flush changes whether the
+// save landed. Reporting it would tell an operator their change did not apply when it did, and the next
+// thing they do is write it again or open an incident.
+func TestADirectoryThisProcessCannotReadDoesNotFailTheSave(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("this drives failure through directory permissions, which do not apply to uid 0")
 	}
@@ -1254,7 +1316,7 @@ func TestAnUnflushedDirectoryEntryIsNotAFailedSave(t *testing.T) {
 		t.Fatalf("restore: %v", err)
 	}
 
-	if saveErr != nil && !errors.Is(saveErr, seitoml.ErrNotDurable) {
+	if saveErr != nil {
 		t.Fatalf("Save reported %v, which a caller reads as the file not being written", saveErr)
 	}
 	reread, err := seitoml.Load(path)
@@ -1264,7 +1326,7 @@ func TestAnUnflushedDirectoryEntryIsNotAFailedSave(t *testing.T) {
 	got, present, err := reread.Get("probe.value")
 	if err != nil || !present || got != int64(7) {
 		t.Errorf("the value on disk is (%#v, %v, %v), want 7. The rename completed, so the new "+
-			"configuration is what the node reads whatever the sync reported", got, present, err)
+			"configuration is what the node reads whether or not the directory was flushed", got, present, err)
 	}
 }
 
@@ -1578,27 +1640,6 @@ func TestATableKeepsOneSpellingWhateverOrderItsKeysWereWritten(t *testing.T) {
 		}
 		requireStillReadable(t, f)
 	})
-}
-
-// TestLandedSeparatesAnInstalledFileFromAFailedWrite gives the outcome check a correct spelling.
-//
-// Save reports one outcome through its error that is not a failure, so the plain err != nil check reads a
-// landed save as a failed one. Landed is that check written once, so a caller cannot get it wrong by
-// writing the idiom every other Go call wants.
-func TestLandedSeparatesAnInstalledFileFromAFailedWrite(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		err    error
-		landed bool
-	}{
-		{"a save that completed", nil, true},
-		{"a save whose directory entry is not flushed", fmt.Errorf("x: %w", seitoml.ErrNotDurable), true},
-		{"a save that could not write", errors.New("permission denied"), false},
-	} {
-		if got := seitoml.Landed(tc.err); got != tc.landed {
-			t.Errorf("%s: Landed = %v, want %v", tc.name, got, tc.landed)
-		}
-	}
 }
 
 // TestEveryEditIsVisibleToTheNextRead holds the values a read returns against the document.
