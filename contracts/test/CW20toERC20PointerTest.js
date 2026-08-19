@@ -100,15 +100,10 @@ describe("CW20 to ERC20 Pointer", function () {
                     const balanceBefore = respBefore.data.balance;
 
                     const res = await executeWasm(pointer,  { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
-                    const txHash = res["txhash"];
-                    const receipt = await ethers.provider.send('sei_getTransactionReceipt', [`0x${txHash}`]);
-                    expect(receipt).not.to.be.null;
-                    console.log("receipt[\"blockNumber\"]", receipt["blockNumber"]);
-                    const bn = receipt["blockNumber"];
+                    const bn = `0x${Number(res.height).toString(16)}`;
                     const filter = {
                         fromBlock: bn,
-                        toBlock: 'latest',
-                        address: receipt["to"],
+                        toBlock: bn,
                         topics: [ethers.id("Transfer(address,address,uint256)")]
                     };
                     // send via eth_ endpoint - synthetic event doesn't show up

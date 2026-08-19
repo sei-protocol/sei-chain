@@ -11,6 +11,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sei-protocol/sei-chain/app/genesis"
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/seeds"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
@@ -119,6 +120,8 @@ For validator or seed nodes, pass --mode validator or --mode seed so RPC and P2P
 				panic("chain-id is required, please set using --chain-id")
 			}
 
+			applyDefaultBootstrapPeers(tmConfig, chainID)
+
 			// Get bip39 mnemonic
 			var mnemonic string
 			recoverFlag, _ := cmd.Flags().GetBool(FlagRecover)
@@ -196,10 +199,20 @@ For validator or seed nodes, pass --mode validator or --mode seed so RPC and P2P
 	cmd.Flags().String(cli.HomeFlag, defaultNodeHome, "node's home directory")
 	cmd.Flags().BoolP(FlagOverwrite, "o", false, "overwrite the genesis.json and existing config files (config.toml, app.toml)")
 	cmd.Flags().Bool(FlagRecover, false, "provide seed phrase to recover existing key instead of creating")
-	cmd.Flags().String(flags.FlagChainID, "", "genesis file chain-id, if left blank will use sei")
+	cmd.Flags().String(flags.FlagChainID, "", "chain-id to initialise for (required), e.g. pacific-1 or atlantic-2")
 	cmd.Flags().String(FlagMode, "full", "node mode: validator, full, seed, or archive")
 
 	return cmd
+}
+
+// applyDefaultBootstrapPeers sets bootstrap-peers to the Sei Labs seeds for
+// chainID, leaving the field unchanged when it is already set or the chain
+// ships no seeds.
+func applyDefaultBootstrapPeers(cfg *tmcfg.Config, chainID string) {
+	if cfg.P2P.BootstrapPeers != "" {
+		return
+	}
+	cfg.P2P.BootstrapPeers = seeds.BootstrapPeers(chainID)
 }
 
 func checkConfigOverwrite(configPath string, overwrite bool) error {

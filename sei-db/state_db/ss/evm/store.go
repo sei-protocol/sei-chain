@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +20,7 @@ import (
 )
 
 var _ types.StateStore = (*EVMStateStore)(nil)
+var _ types.ContextIteratorStore = (*EVMStateStore)(nil)
 
 // EVMStateStore manages either a single MVCC DB for all EVM data or one DB per
 // EVM sub-type, depending on config. In both modes, the logical store key and
@@ -135,6 +137,28 @@ func (s *EVMStateStore) ReverseIterator(_ string, version int64, start, end []by
 		return nil, fmt.Errorf("EVMStateStore: cannot route reverse iteration for key")
 	}
 	return db.ReverseIterator(EVMStoreKey, version, start, end)
+}
+
+func (s *EVMStateStore) IteratorWithContext(ctx context.Context, _ string, version int64, start, end []byte) (dbm.Iterator, error) {
+	if !s.separateDBs {
+		return types.IterateWithContext(s.primaryDB(), ctx, EVMStoreKey, version, start, end, false)
+	}
+	db := s.routeKey(start)
+	if db == nil {
+		return nil, fmt.Errorf("EVMStateStore: cannot route iteration for key")
+	}
+	return types.IterateWithContext(db, ctx, EVMStoreKey, version, start, end, false)
+}
+
+func (s *EVMStateStore) ReverseIteratorWithContext(ctx context.Context, _ string, version int64, start, end []byte) (dbm.Iterator, error) {
+	if !s.separateDBs {
+		return types.IterateWithContext(s.primaryDB(), ctx, EVMStoreKey, version, start, end, true)
+	}
+	db := s.routeKey(start)
+	if db == nil {
+		return nil, fmt.Errorf("EVMStateStore: cannot route reverse iteration for key")
+	}
+	return types.IterateWithContext(db, ctx, EVMStoreKey, version, start, end, true)
 }
 
 func (s *EVMStateStore) RawIterate(_ string, _ func([]byte, []byte, int64) bool) (bool, error) {

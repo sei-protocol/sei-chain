@@ -41,10 +41,10 @@ func TestBuildSeiLegacyEnabledSet_InitDefaults(t *testing.T) {
 	}
 }
 
-func TestBuildSeiLegacyEnabledSet_Extra(t *testing.T) {
+func TestBuildSeiLegacyEnabledSet_RemovedReceiptIgnored(t *testing.T) {
 	s := BuildSeiLegacyEnabledSet([]string{"SEI_GETTRANSACTIONRECEIPT"})
-	if _, ok := s["sei_getTransactionReceipt"]; !ok {
-		t.Fatal("expected case-insensitive match")
+	if len(s) != 0 {
+		t.Fatalf("removed method should not be accepted, got %v", s)
 	}
 }
 
@@ -67,15 +67,15 @@ func TestSeiLegacyGateError_DisabledWhenEmptyAllowlist(t *testing.T) {
 }
 
 func TestSeiLegacyGateError_AllowedWhenListed(t *testing.T) {
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getTransactionReceipt"})
-	err := seiLegacyGateError("Sei_GetTransactionReceipt", enabled)
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getCosmosTx"})
+	err := seiLegacyGateError("Sei_GetCosmosTx", enabled)
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
 }
 
 func TestSeiLegacyGateError_UnknownSeiNamespaceFailsClosed(t *testing.T) {
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getTransactionReceipt"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getCosmosTx"})
 	err := seiLegacyGateError("sei_notARealRegisteredMethod", enabled)
 	if err == nil {
 		t.Fatal("expected error for unknown sei_* method when allowlist is active")
@@ -100,7 +100,7 @@ func TestWrapSeiLegacyHTTP_UnknownSeiMethodBlocked(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner should not run for unknown sei_* method")
 	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getTransactionReceipt"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getCosmosTx"})
 	h := wrapSeiLegacyHTTP(inner, enabled, 0)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"sei_futureHypotheticalMethod","params":[]}`))
@@ -161,12 +161,12 @@ func TestWrapSeiLegacyHTTP_RaisedBodyLimitNotTruncated(t *testing.T) {
 		gotLen = len(b)
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
 	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getTransactionReceipt"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getCosmosTx"})
 	h := wrapSeiLegacyHTTP(inner, enabled, maxBody)
 
 	// Allowed gated method with a padded param pushing the body well past 5MiB.
 	pad := strings.Repeat("a", 6*1024*1024)
-	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getTransactionReceipt","params":["` + pad + `"]}`
+	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getCosmosTx","params":["` + pad + `"]}`
 	if len(body) <= seiLegacyHTTPDefault5MiB {
 		t.Fatalf("test body %d must exceed 5MiB to exercise truncation", len(body))
 	}
@@ -186,13 +186,13 @@ func TestWrapSeiLegacyHTTP_OverLimitBodyRejectedNotTruncated(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		innerCalled = true
 	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getTransactionReceipt"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getCosmosTx"})
 	h := wrapSeiLegacyHTTP(inner, enabled, maxBody)
 
 	// Body exceeds maxBody. The gate must reject with 413 rather than silently
 	// truncating to maxBody and forwarding to the inner handler.
 	pad := strings.Repeat("a", maxBody)
-	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getTransactionReceipt","params":["` + pad + `"]}`
+	body := `{"jsonrpc":"2.0","id":1,"method":"sei_getCosmosTx","params":["` + pad + `"]}`
 	if int64(len(body)) <= maxBody {
 		t.Fatalf("test body %d must exceed maxBody %d", len(body), maxBody)
 	}
@@ -220,10 +220,10 @@ func TestWrapSeiLegacyHTTP_BodyExactlyAtLimitForwarded(t *testing.T) {
 		gotLen = len(b)
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
 	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getTransactionReceipt"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getCosmosTx"})
 	h := wrapSeiLegacyHTTP(inner, enabled, maxBody)
 
-	prefix := `{"jsonrpc":"2.0","id":1,"method":"sei_getTransactionReceipt","params":["`
+	prefix := `{"jsonrpc":"2.0","id":1,"method":"sei_getCosmosTx","params":["`
 	suffix := `"]}`
 	pad := strings.Repeat("a", maxBody-len(prefix)-len(suffix))
 	body := prefix + pad + suffix
@@ -250,9 +250,9 @@ func TestWrapSeiLegacyHTTP_BodyExactlyAtLimitForwarded(t *testing.T) {
 // be rejected with 413 without reaching the inner handler, and an at-limit body must pass.
 func TestComposedStack_OverLimitRejectedConsistently(t *testing.T) {
 	const maxBody = 1024
-	prefix := `{"jsonrpc":"2.0","id":1,"method":"sei_getTransactionReceipt","params":["`
+	prefix := `{"jsonrpc":"2.0","id":1,"method":"sei_getCosmosTx","params":["`
 	suffix := `"]}`
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getTransactionReceipt"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getCosmosTx"})
 
 	mkBody := func(total int) string {
 		return prefix + strings.Repeat("a", total-len(prefix)-len(suffix)) + suffix
@@ -305,10 +305,10 @@ func TestWrapSeiLegacyHTTP_AllowedMethodPassthroughAndDeprecationHeader(t *testi
 		called = true
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"number":"0x1"}}`))
 	})
-	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getTransactionReceipt"})
+	enabled := BuildSeiLegacyEnabledSet([]string{"sei_getCosmosTx"})
 	h := wrapSeiLegacyHTTP(inner, enabled, 0)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(
-		`{"jsonrpc":"2.0","id":1,"method":"sei_getTransactionReceipt","params":[]}`))
+		`{"jsonrpc":"2.0","id":1,"method":"sei_getCosmosTx","params":[]}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
