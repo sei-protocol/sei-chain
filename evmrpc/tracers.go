@@ -110,16 +110,36 @@ func resultUnlessExpired(ctx context.Context, result interface{}, err error) (in
 	return result, err
 }
 
-func (api *DebugAPI) guardTraceRequest(ctx context.Context, endpoint string, height int64) error {
-	if api.backend != nil && api.backend.watermarks != nil {
-		if err := api.backend.watermarks.EnsureTraceHeightAvailable(ctx, height); err != nil {
-			return err
-		}
+// ensureTraceHeightFunc applies the endpoint-specific retention check for a
+// resolved trace height. debug_trace* replay endpoints and debug_traceCall
+// read different data (see EnsureTraceHeightAvailable vs
+// EnsureTraceCallHeightAvailable) and so require different checks.
+type ensureTraceHeightFunc func(ctx context.Context, height int64) error
+
+func (api *DebugAPI) ensureTraceHeightAvailable(ctx context.Context, height int64) error {
+	if api.backend == nil || api.backend.watermarks == nil {
+		return nil
+	}
+	return api.backend.watermarks.EnsureTraceHeightAvailable(ctx, height)
+}
+
+func (api *DebugAPI) ensureTraceCallHeightAvailable(ctx context.Context, height int64) error {
+	if api.backend == nil || api.backend.watermarks == nil {
+		return nil
+	}
+	return api.backend.watermarks.EnsureTraceCallHeightAvailable(ctx, height)
+}
+
+// guardTrace validates retention and lookback limits for a resolved height,
+// applying ensure for the endpoint-specific retention check.
+func (api *DebugAPI) guardTrace(ctx context.Context, endpoint string, height int64, ensure ensureTraceHeightFunc) error {
+	if err := ensure(ctx, height); err != nil {
+		return err
 	}
 	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, height)
 }
 
-func (api *DebugAPI) guardTraceRequestByTxHash(ctx context.Context, endpoint string, hash common.Hash) error {
+func (api *DebugAPI) guardTraceByTxHash(ctx context.Context, endpoint string, hash common.Hash, ensure ensureTraceHeightFunc) error {
 	if api.keeper != nil {
 		rcpt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
 		if err != nil {
@@ -127,7 +147,7 @@ func (api *DebugAPI) guardTraceRequestByTxHash(ctx context.Context, endpoint str
 				return err
 			}
 		} else if rcpt != nil {
-			return api.guardTraceRequest(ctx, endpoint, int64(rcpt.BlockNumber)) //nolint:gosec
+			return api.guardTrace(ctx, endpoint, int64(rcpt.BlockNumber), ensure) //nolint:gosec
 		}
 	}
 	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, api.latestTraceHeight(ctx))
@@ -146,17 +166,17 @@ func (api *DebugAPI) latestTraceHeight(ctx context.Context) int64 {
 	return api.ctxProvider(LatestCtxHeight).BlockHeight()
 }
 
-func (api *DebugAPI) guardTraceRequestByNumber(ctx context.Context, endpoint string, number rpc.BlockNumber) error {
+func (api *DebugAPI) guardTraceByNumber(ctx context.Context, endpoint string, number rpc.BlockNumber, ensure ensureTraceHeightFunc) error {
 	height, err := api.resolveDebugTraceBlockNumber(ctx, number)
 	if err != nil {
 		return err
 	}
-	return api.guardTraceRequest(ctx, endpoint, height)
+	return api.guardTrace(ctx, endpoint, height, ensure)
 }
 
-func (api *DebugAPI) guardTraceRequestByHash(ctx context.Context, endpoint string, hash common.Hash) error {
+func (api *DebugAPI) guardTraceByHash(ctx context.Context, endpoint string, hash common.Hash, ensure ensureTraceHeightFunc) error {
 	if api.backend == nil || api.tmClient == nil {
-		return api.guardTraceRequest(ctx, endpoint, api.latestTraceHeight(ctx))
+		return api.guardTrace(ctx, endpoint, api.latestTraceHeight(ctx), ensure)
 	}
 	block, err := blockByHashRespectingWatermarks(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
 	if err != nil {
@@ -165,58 +185,17 @@ func (api *DebugAPI) guardTraceRequestByHash(ctx context.Context, endpoint strin
 	if block == nil || block.Block == nil {
 		return fmt.Errorf("block %s not found", hash.Hex())
 	}
-	return api.guardTraceRequest(ctx, endpoint, block.Block.Height)
+	return api.guardTrace(ctx, endpoint, block.Block.Height, ensure)
 }
 
-func (api *DebugAPI) guardTraceRequestByNumberOrHash(ctx context.Context, endpoint string, blockNrOrHash rpc.BlockNumberOrHash) error {
+func (api *DebugAPI) guardTraceByNumberOrHash(ctx context.Context, endpoint string, blockNrOrHash rpc.BlockNumberOrHash, ensure ensureTraceHeightFunc) error {
 	if number, ok := blockNrOrHash.Number(); ok {
-		return api.guardTraceRequestByNumber(ctx, endpoint, number)
+		return api.guardTraceByNumber(ctx, endpoint, number, ensure)
 	}
 	if hash, ok := blockNrOrHash.Hash(); ok {
-		return api.guardTraceRequestByHash(ctx, endpoint, hash)
+		return api.guardTraceByHash(ctx, endpoint, hash, ensure)
 	}
-	return api.guardTraceRequest(ctx, endpoint, api.latestTraceHeight(ctx))
-}
-
-func (api *DebugAPI) guardTraceCallRequest(ctx context.Context, endpoint string, height int64) error {
-	if api.backend != nil && api.backend.watermarks != nil {
-		if err := api.backend.watermarks.EnsureTraceCallHeightAvailable(ctx, height); err != nil {
-			return err
-		}
-	}
-	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, height)
-}
-
-func (api *DebugAPI) guardTraceCallRequestByNumber(ctx context.Context, endpoint string, number rpc.BlockNumber) error {
-	height, err := api.resolveDebugTraceBlockNumber(ctx, number)
-	if err != nil {
-		return err
-	}
-	return api.guardTraceCallRequest(ctx, endpoint, height)
-}
-
-func (api *DebugAPI) guardTraceCallRequestByHash(ctx context.Context, endpoint string, hash common.Hash) error {
-	if api.backend == nil || api.tmClient == nil {
-		return api.guardTraceCallRequest(ctx, endpoint, api.latestTraceHeight(ctx))
-	}
-	block, err := blockByHashRespectingWatermarks(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
-	if err != nil {
-		return err
-	}
-	if block == nil || block.Block == nil {
-		return fmt.Errorf("block %s not found", hash.Hex())
-	}
-	return api.guardTraceCallRequest(ctx, endpoint, block.Block.Height)
-}
-
-func (api *DebugAPI) guardTraceCallRequestByNumberOrHash(ctx context.Context, endpoint string, blockNrOrHash rpc.BlockNumberOrHash) error {
-	if number, ok := blockNrOrHash.Number(); ok {
-		return api.guardTraceCallRequestByNumber(ctx, endpoint, number)
-	}
-	if hash, ok := blockNrOrHash.Hash(); ok {
-		return api.guardTraceCallRequestByHash(ctx, endpoint, hash)
-	}
-	return api.guardTraceCallRequest(ctx, endpoint, api.latestTraceHeight(ctx))
+	return api.guardTrace(ctx, endpoint, api.latestTraceHeight(ctx), ensure)
 }
 
 func (api *DebugAPI) resolveDebugTraceBlockNumber(ctx context.Context, number rpc.BlockNumber) (int64, error) {
@@ -406,7 +385,7 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	if returnErr = api.validateTraceTracer(config); returnErr != nil {
 		return nil, returnErr
 	}
-	if returnErr = api.guardTraceRequestByTxHash(ctx, "debug_traceTransaction", hash); returnErr != nil {
+	if returnErr = api.guardTraceByTxHash(ctx, "debug_traceTransaction", hash, api.ensureTraceHeightAvailable); returnErr != nil {
 		return nil, returnErr
 	}
 
@@ -565,7 +544,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	if returnErr = api.validateTraceTracer(config); returnErr != nil {
 		return nil, returnErr
 	}
-	if returnErr = api.guardTraceRequestByNumber(ctx, "debug_traceBlockByNumber", number); returnErr != nil {
+	if returnErr = api.guardTraceByNumber(ctx, "debug_traceBlockByNumber", number, api.ensureTraceHeightAvailable); returnErr != nil {
 		return nil, returnErr
 	}
 
@@ -601,7 +580,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	if returnErr = api.validateTraceTracer(config); returnErr != nil {
 		return nil, returnErr
 	}
-	if returnErr = api.guardTraceRequestByHash(ctx, "debug_traceBlockByHash", hash); returnErr != nil {
+	if returnErr = api.guardTraceByHash(ctx, "debug_traceBlockByHash", hash, api.ensureTraceHeightAvailable); returnErr != nil {
 		return nil, returnErr
 	}
 
@@ -640,7 +619,7 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 	if returnErr = api.validateTraceTracer(&config.TraceConfig); returnErr != nil {
 		return nil, returnErr
 	}
-	if returnErr = api.guardTraceCallRequestByNumberOrHash(ctx, "debug_traceCall", blockNrOrHash); returnErr != nil {
+	if returnErr = api.guardTraceByNumberOrHash(ctx, "debug_traceCall", blockNrOrHash, api.ensureTraceCallHeightAvailable); returnErr != nil {
 		return nil, returnErr
 	}
 
@@ -705,7 +684,7 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 			returnErr = fmt.Errorf("panic occurred: %v, could not trace tx state: %s", r, hash.Hex())
 		}
 	}()
-	if returnErr = api.guardTraceRequestByTxHash(ctx, "debug_traceStateAccess", hash); returnErr != nil {
+	if returnErr = api.guardTraceByTxHash(ctx, "debug_traceStateAccess", hash, api.ensureTraceHeightAvailable); returnErr != nil {
 		return nil, returnErr
 	}
 

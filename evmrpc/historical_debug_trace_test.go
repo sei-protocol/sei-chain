@@ -115,11 +115,11 @@ func TestGuardTraceRequestByHashUsesTendermintHeight(t *testing.T) {
 		},
 	}
 
-	err := api.guardTraceRequestByHash(t.Context(), "debug_traceBlockByHash", common.HexToHash(highBlockHashHex))
+	err := api.guardTraceByHash(t.Context(), "debug_traceBlockByHash", common.HexToHash(highBlockHashHex), api.ensureTraceHeightAvailable)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "block number 8 is beyond max lookback of 1")
 
-	err = api.guardTraceCallRequestByHash(t.Context(), "debug_traceCall", common.HexToHash("0x1"))
+	err = api.guardTraceByHash(t.Context(), "debug_traceCall", common.HexToHash("0x1"), api.ensureTraceCallHeightAvailable)
 	require.NoError(t, err)
 }
 
@@ -288,7 +288,7 @@ func TestTraceLatestTagGuardMatchesBlockResolution(t *testing.T) {
 	require.Equal(t, guardHeight, tmBlock.Block.Height)
 
 	// Lookback must measure against the same safe latest, not the raw app tip.
-	err = api.guardTraceRequestByNumber(t.Context(), "debug_traceBlockByNumber", rpc.LatestBlockNumber)
+	err = api.guardTraceByNumber(t.Context(), "debug_traceBlockByNumber", rpc.LatestBlockNumber, api.ensureTraceHeightAvailable)
 	require.NoError(t, err)
 }
 
@@ -326,28 +326,28 @@ func TestGuardTraceRequestByTxHashReceiptLookupErrors(t *testing.T) {
 		t.Parallel()
 		prunedErr := fmt.Errorf("requested height 100 receipts have been pruned; earliest available is 150: %w", receipt.ErrReceiptPruned)
 		api := newAPI(&traceGuardReceiptStore{getReceiptErr: prunedErr})
-		err := api.guardTraceRequestByTxHash(t.Context(), "debug_traceTransaction", txHash)
+		err := api.guardTraceByTxHash(t.Context(), "debug_traceTransaction", txHash, api.ensureTraceHeightAvailable)
 		require.ErrorIs(t, err, receipt.ErrReceiptPruned)
 	})
 
 	t.Run("store error", func(t *testing.T) {
 		t.Parallel()
 		api := newAPI(&traceGuardReceiptStore{getReceiptErr: storeErr})
-		err := api.guardTraceRequestByTxHash(t.Context(), "debug_traceTransaction", txHash)
+		err := api.guardTraceByTxHash(t.Context(), "debug_traceTransaction", txHash, api.ensureTraceHeightAvailable)
 		require.ErrorIs(t, err, storeErr)
 	})
 
 	t.Run("ErrNotFound falls through to lookback", func(t *testing.T) {
 		t.Parallel()
 		api := newAPI(&traceGuardReceiptStore{getReceiptErr: receipt.ErrNotFound})
-		err := api.guardTraceRequestByTxHash(t.Context(), "debug_traceTransaction", txHash)
+		err := api.guardTraceByTxHash(t.Context(), "debug_traceTransaction", txHash, api.ensureTraceHeightAvailable)
 		require.NoError(t, err)
 	})
 
 	t.Run("ErrNotConfigured", func(t *testing.T) {
 		t.Parallel()
 		api := newAPI(&traceGuardReceiptStore{getReceiptErr: receipt.ErrNotConfigured})
-		err := api.guardTraceRequestByTxHash(t.Context(), "debug_traceTransaction", txHash)
+		err := api.guardTraceByTxHash(t.Context(), "debug_traceTransaction", txHash, api.ensureTraceHeightAvailable)
 		require.ErrorIs(t, err, receipt.ErrNotConfigured)
 	})
 }
