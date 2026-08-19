@@ -2,6 +2,7 @@ package composite
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -215,6 +216,51 @@ func TestValidateRollbackAgreesWithRollback(t *testing.T) {
 // of its steps and reopens. Whichever way recovery resolves it, the changelog
 // has to survive: it is the only copy of the versions above the snapshots, so
 // losing it costs the node every later rollback as well as this one.
+// TestValidateRollbackLeavesTheChangelogAlone pins that planning reads the
+// changelog through the handle the live store already holds. A second handle
+// over the same directory truncates a corrupt tail as it opens, which is a
+// repair, and RollbackValidator promises not to change store state.
+func TestValidateRollbackLeavesTheChangelogAlone(t *testing.T) {
+	store, home := setupRollbackStore(t, 2, 1)
+	for version := int64(1); version <= 6; version++ {
+		writeRollbackBlock(t, store, version)
+		settle(t, store)
+	}
+
+	changelogPath := utils.GetChangelogPath(utils.GetStateStorePath(home, config.PebbleDBBackend))
+	segment := lastChangelogSegment(t, changelogPath)
+	corrupted := append(readFileBytes(t, segment), []byte("corrupt tail")...)
+	require.NoError(t, os.WriteFile(segment, corrupted, 0o600))
+
+	require.NoError(t, store.ValidateRollback(5))
+
+	require.Equal(t, corrupted, readFileBytes(t, segment),
+		"validation rewrote the changelog segment")
+}
+
+func lastChangelogSegment(t *testing.T, changelogPath string) string {
+	t.Helper()
+	entries, err := os.ReadDir(changelogPath)
+	require.NoError(t, err)
+	var last string
+	for _, entry := range entries {
+		// Segments are 20-digit offsets, the same shape the WAL itself scans for.
+		if entry.IsDir() || len(entry.Name()) < 20 {
+			continue
+		}
+		last = entry.Name()
+	}
+	require.NotEmpty(t, last, "changelog %q holds no segment", changelogPath)
+	return filepath.Join(changelogPath, last)
+}
+
+func readFileBytes(t *testing.T, path string) []byte {
+	t.Helper()
+	bz, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return bz
+}
+
 func TestRollbackCrashRecoveryAtEverySwapStep(t *testing.T) {
 	const target = int64(7)
 	names := restoreStepNames()

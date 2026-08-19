@@ -10,6 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
@@ -84,15 +85,22 @@ func (s *CompositeStateStore) planRollback(target int64) (ssRollbackPlan, error)
 		return ssRollbackPlan{}, fmt.Errorf("cannot roll back state store to version %d: the store is at version %d", target, latest)
 	}
 
+	// Planning reads the changelog through the live store's own handle. The
+	// store is still open here — ValidateRollback never closes it — and a second
+	// handle over the same directory would repair a corrupt tail instead of
+	// reporting it, and would read segments the pruner can truncate underneath.
+	changelog, ok := s.cosmosStore.(types.SnapshotWALReader)
+	if !ok {
+		return ssRollbackPlan{}, fmt.Errorf("state store %T cannot report what its changelog covers", s.cosmosStore)
+	}
 	root := cosmosSnapshotRoot(s.homeDir, s.dbHome, s.config)
-	changelogPath := utils.GetChangelogPath(s.dbHome)
-	baseVersion, err := rollbackBaseVersion(root, changelogPath, target)
+	baseVersion, err := rollbackBaseVersion(root, changelog, target)
 	if err != nil {
 		return ssRollbackPlan{}, err
 	}
 	return ssRollbackPlan{
 		root:        root,
-		changelog:   changelogPath,
+		changelog:   utils.GetChangelogPath(s.dbHome),
 		baseVersion: baseVersion,
 		snapshotDir: filepath.Join(root, SnapshotDirName(baseVersion)),
 	}, nil
@@ -105,7 +113,7 @@ func cosmosSnapshotRoot(homeDir, dbHome string, cfg config.StateStoreConfig) str
 	return utils.GetStateStoreSnapshotsPath(homeDir)
 }
 
-func rollbackBaseVersion(root, changelogPath string, target int64) (int64, error) {
+func rollbackBaseVersion(root string, changelog types.SnapshotWALReader, target int64) (int64, error) {
 	versions, err := sssnapshot.ListSnapshotVersions(root)
 	if err != nil {
 		return 0, fmt.Errorf("list state store snapshots for rollback: %w", err)
@@ -126,41 +134,23 @@ func rollbackBaseVersion(root, changelogPath string, target int64) (int64, error
 		return base, nil
 	}
 
-	stream, err := wal.NewChangelogWAL(changelogPath, wal.Config{})
+	oldest, next, err := changelog.WALVersionsAfter(base)
 	if err != nil {
-		return 0, fmt.Errorf("open state store changelog: %w", err)
+		return 0, fmt.Errorf("read changelog coverage above snapshot %d: %w", base, err)
 	}
-	defer func() { _ = stream.Close() }()
-
-	firstOffset, err := stream.FirstOffset()
-	if err != nil {
-		return 0, fmt.Errorf("read changelog first offset: %w", err)
-	}
-	if firstOffset == 0 {
+	if oldest == 0 {
 		return 0, fmt.Errorf("cannot roll back state store to version %d: nearest snapshot is %d and the changelog is empty", target, base)
 	}
-	lastOffset, err := stream.LastOffset()
-	if err != nil {
-		return 0, fmt.Errorf("read changelog last offset: %w", err)
-	}
-	firstNeeded, err := wal.FindFirstOffsetAfterVersion(stream, firstOffset, lastOffset, base)
-	if err != nil {
-		return 0, fmt.Errorf("find changelog entry after snapshot %d: %w", base, err)
-	}
-	if firstNeeded > lastOffset {
+	if next == 0 {
 		return 0, fmt.Errorf("cannot roll back state store to version %d: nearest snapshot is %d and the changelog has no newer entries", target, base)
-	}
-	firstEntry, err := stream.ReadAt(firstNeeded)
-	if err != nil {
-		return 0, fmt.Errorf("read first replay entry at offset %d: %w", firstNeeded, err)
 	}
 	// A first entry above base+1 means the versions in between either wrote
 	// nothing, which a block with no changesets does, or were pruned away.
 	// Retention prunes a prefix only, so a retained entry below the first one to
 	// replay proves the gap was never pruned and is empty blocks. A changelog
 	// that starts at the gap proves nothing and is refused.
-	if firstNeeded == firstOffset && firstEntry.Version != base+1 {
-		return 0, fmt.Errorf("cannot roll back state store to version %d: the changelog starts at version %d, above snapshot %d, so the versions in between may have been pruned", target, firstEntry.Version, base)
+	if next == oldest && next != base+1 {
+		return 0, fmt.Errorf("cannot roll back state store to version %d: the changelog starts at version %d, above snapshot %d, so the versions in between may have been pruned", target, next, base)
 	}
 	return base, nil
 }

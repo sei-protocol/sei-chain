@@ -152,6 +152,18 @@ type SnapshotWALPruner interface {
 	PruneWALBeforeVersion(version int64) error
 }
 
+// SnapshotWALReader is the read side of SnapshotWALPruner. It answers what the
+// changelog still covers through the handle the engine already holds, so a
+// caller planning a replay does not open a second one over a live WAL
+// directory: a second open repairs a corrupt tail rather than reading past it,
+// and it races the pruner truncating the same segments.
+type SnapshotWALReader interface {
+	// WALVersionsAfter reports the oldest version the changelog still holds and
+	// the oldest one above version. Either is 0 when the changelog holds no such
+	// entry.
+	WALVersionsAfter(version int64) (oldest int64, next int64, err error)
+}
+
 // Rollbackable is an optional offline capability for stores that can discard
 // versions above target and reopen at that target. Callers must quiesce the
 // store before invoking it.

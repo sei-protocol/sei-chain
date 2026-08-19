@@ -306,6 +306,45 @@ func (db *Database) PruneWALBeforeVersion(version int64) error {
 	return db.streamHandler.TruncateBefore(firstNeeded)
 }
 
+// WALVersionsAfter reads the changelog through the handle this database already
+// holds. Reads are serialized against the truncations the pruner sends down the
+// same handle, which a second handle over the directory would not be.
+func (db *Database) WALVersionsAfter(version int64) (oldest int64, next int64, err error) {
+	if db.streamHandler == nil {
+		return 0, 0, nil
+	}
+	firstOffset, err := db.streamHandler.FirstOffset()
+	if err != nil {
+		return 0, 0, fmt.Errorf("read WAL first offset: %w", err)
+	}
+	if firstOffset == 0 {
+		return 0, 0, nil
+	}
+	lastOffset, err := db.streamHandler.LastOffset()
+	if err != nil {
+		return 0, 0, fmt.Errorf("read WAL last offset: %w", err)
+	}
+	if lastOffset == 0 || firstOffset > lastOffset {
+		return 0, 0, nil
+	}
+	oldestEntry, err := db.streamHandler.ReadAt(firstOffset)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read WAL at offset %d: %w", firstOffset, err)
+	}
+	nextOffset, err := wal.FindFirstOffsetAfterVersion(db.streamHandler, firstOffset, lastOffset, version)
+	if err != nil {
+		return 0, 0, fmt.Errorf("find WAL entry after version %d: %w", version, err)
+	}
+	if nextOffset > lastOffset {
+		return oldestEntry.Version, 0, nil
+	}
+	nextEntry, err := db.streamHandler.ReadAt(nextOffset)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read WAL at offset %d: %w", nextOffset, err)
+	}
+	return oldestEntry.Version, nextEntry.Version, nil
+}
+
 func (db *Database) Close() error {
 	// Stop background metrics collection
 	if db.metricsCancel != nil {
