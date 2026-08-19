@@ -51,10 +51,26 @@ func (f *File) Get(key string) (any, bool, error) {
 // path a later process would use, so a value this package cannot express fails here rather than on a
 // node.
 func (f *File) decoded() (map[string]any, error) {
+	if f.values != nil {
+		return f.values, nil
+	}
 	raw, err := f.Bytes()
 	if err != nil {
 		return nil, err
 	}
+	out, err := decodeBytes(raw)
+	if err != nil {
+		return nil, err
+	}
+	f.values = out
+	return out, nil
+}
+
+// decodeBytes reads a rendered document as dotted paths to Go values.
+//
+// Separate from decoded so that a caller holding the rendering already, such as Save, does not render it
+// a second time to check it.
+func decodeBytes(raw []byte) (map[string]any, error) {
 	var nested map[string]any
 	if err := toml.Unmarshal(raw, &nested); err != nil {
 		return nil, fmt.Errorf("read sei.toml: %w", err)

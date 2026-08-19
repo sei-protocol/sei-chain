@@ -44,7 +44,16 @@ const newFileMode os.FileMode = 0o600
 // File is a parsed sei.toml that survives editing with its comments and layout intact.
 type File struct {
 	doc *tomledit.Document
+	// values caches the last decode, and is nil whenever the document has changed since.
+	//
+	// Reading asks the decoder rather than the editing parser, which means rendering the document, so a
+	// caller walking every declared key would otherwise render and decode once per key. Building a file
+	// would be quadratic in its size for the same reason, since every edit checks the result.
+	values map[string]any
 }
+
+// changed drops the decode a read would otherwise reuse. Every edit calls it before mutating.
+func (f *File) changed() { f.values = nil }
 
 // Parse reads a document from r.
 func Parse(r io.Reader) (*File, error) {
@@ -80,6 +89,8 @@ func (f *File) refuseUnsupportedShapes() error {
 		}
 		name := s.Name.String()
 		if headings[name] {
+			// Also refused by the decoder, and kept for the same reason as a duplicate key: this says
+			// which heading and what an edit would reach.
 			return fmt.Errorf("[%s] appears more than once, and an edit reaches only the first, so a "+
 				"value written into this file would not be the one read back", name)
 		}
@@ -100,9 +111,9 @@ func (f *File) refuseUnsupportedShapes() error {
 			bad = err
 			return false
 		}
-		// One value per key, checked here rather than left to the decoder. A duplicate is the one shape
-		// the editing parser accepts and a conforming decoder rejects, so without this the file parses
-		// and then every read of it fails.
+		// The decoder below refuses this too. It stays because it names the key and says what an edit
+		// would do to it, where the decoder names a line, and a duplicate key is the mistake an operator
+		// is most likely to make by hand.
 		key := full.String()
 		if written[key] {
 			bad = fmt.Errorf("%s is written more than once, and an edit reaches only the first, so a "+
@@ -291,6 +302,11 @@ func (f *File) Save(path string) error {
 	if err != nil {
 		return err
 	}
+	// The one function every write to disk passes through, so the check belongs here rather than at each
+	// verb that edits. A verb added later cannot forget an invariant it does not have to remember.
+	if _, err := decodeBytes(raw); err != nil {
+		return err
+	}
 
 	mode, err := modeToWrite(path)
 	if err != nil {
@@ -330,6 +346,14 @@ func (f *File) Save(path string) error {
 // the filesystem flushes on its own is unproven, so a caller that treats this as a failed write is
 // wrong about what happened.
 var ErrNotDurable = errors.New("the file is installed and its directory entry is not yet flushed")
+
+// Landed reports whether a Save put the values on disk, which is what a caller acting on the outcome
+// wants to know.
+//
+// Save reports one outcome that is not a failure through the error it returns, so the plain err != nil
+// check reads a landed save as a failed one and tells an operator their change did not apply when it
+// did. This is that check written correctly, in one call, next to the sentinel it accounts for.
+func Landed(err error) bool { return err == nil || errors.Is(err, ErrNotDurable) }
 
 // modeToWrite returns the permission a save should use, and refuses a destination it must not replace.
 //
