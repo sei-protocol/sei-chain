@@ -285,7 +285,8 @@ func equal(a, b any) bool {
 // Decoding a literal string as though it had escapes turns a Windows path's separators into
 // control characters, and the value the node runs is not the one in the file.
 func TestALiteralStringIsTakenAsWritten(t *testing.T) {
-	f := parse(t, "schema_version = 1\n[probe]\nliteral = 'C:\\sei\\data'\nbasic = \"a\\tb\"\n")
+	f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\n"+
+		"literal = 'C:\\sei\\data'\nbasic = \"a\\tb\"\n")
 
 	values, err := f.Values()
 	if err != nil {
@@ -755,16 +756,16 @@ func TestANewFileRecordsItsNodeMode(t *testing.T) {
 //
 // Guessing picks one binary's idea of a default and silently measures an archive node's file against
 // a validator's defaults, which is the mistake this key exists to make impossible.
-func TestAnAbsentOrUnreadableNodeModeIsAnError(t *testing.T) {
+func TestAnAbsentOrUnreadableNodeModeIsRefusedAtTheDoor(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
 		{"absent", "schema_version = 1\n"},
 		{"not text", "schema_version = 1\nnode_mode = 3\n"},
 		{"empty", "schema_version = 1\nnode_mode = \"\"\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := parse(t, tc.body).Mode(); err == nil {
-				t.Errorf("a %s node mode was accepted, so a reader would compare the file against "+
-					"whichever defaults it happened to pick", tc.name)
+			if _, err := seitoml.Parse(strings.NewReader(tc.body)); err == nil {
+				t.Errorf("a %s node mode was accepted, so every verb below would answer for a file the "+
+					"reader compares against whichever defaults it happened to pick", tc.name)
 			}
 		})
 	}
@@ -1074,9 +1075,9 @@ func TestAFileDescribingItselfWithANonValueIsRefused(t *testing.T) {
 	})
 
 	t.Run("a node mode that is not a string", func(t *testing.T) {
-		_, err := parse(t, "schema_version = 1\nnode_mode = 3\n").Mode()
+		_, err := seitoml.Parse(strings.NewReader("schema_version = 1\nnode_mode = 3\n"))
 		if err == nil || !strings.Contains(err.Error(), "want a mode name") {
-			t.Errorf("Mode on a numeric mode returned %v, want a refusal naming what it wanted", err)
+			t.Errorf("Parse on a numeric mode returned %v, want a refusal naming what it wanted", err)
 		}
 	})
 
@@ -1090,8 +1091,10 @@ func TestAFileDescribingItselfWithANonValueIsRefused(t *testing.T) {
 
 // TestSaveRefusesADocumentParseWouldRefuse holds the writer to what the reader accepts.
 //
-// The describing keys are written through Set, which is how New puts them there, so a caller can also
-// change one to something Parse will not take. Nothing about TOML is wrong with the result, so a check
+// Both describing keys are written through Set, which is how New puts them there, so a caller can also
+// change either to something Parse will not take. The mode matters more than the counter: it is the only
+// durable record of an archive node, so a file that loses it is compared against a validator's defaults
+// and nothing says so. Nothing about TOML is wrong with the result, so a check
 // that only asked whether the bytes decode let it through, and the file on disk was one this package
 // could not load. The failure appears at the next boot rather than at the write that caused it.
 func TestSaveRefusesADocumentParseWouldRefuse(t *testing.T) {
@@ -1113,6 +1116,16 @@ func TestSaveRefusesADocumentParseWouldRefuse(t *testing.T) {
 			_, err := f.Unset(seitoml.VersionKey)
 			return err
 		}, "has no schema_version"},
+		{"a mode that is not text", func(f *seitoml.File) error {
+			return f.Set(seitoml.ModeKey, 5)
+		}, "want a mode name"},
+		{"an empty mode", func(f *seitoml.File) error {
+			return f.Set(seitoml.ModeKey, "")
+		}, "is empty"},
+		{"no mode at all", func(f *seitoml.File) error {
+			_, err := f.Unset(seitoml.ModeKey)
+			return err
+		}, "has no node_mode"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, err := seitoml.New("validator")

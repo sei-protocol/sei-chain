@@ -75,11 +75,15 @@ func Parse(r io.Reader) (*File, error) {
 	if err := f.refuseUnsupportedShapes(); err != nil {
 		return nil, err
 	}
-	// The counter is read here rather than left to whoever calls Version, so no verb can answer from a
-	// file whose schema this binary does not understand. Asked at the door, every read below is reading a
-	// file whose shape is established; asked only by Version, a caller that never calls it resolves
-	// values from a file a newer release wrote and boots on a configuration neither release produced.
+	// Both keys that describe the file are read here rather than left to whoever calls Version or Mode.
+	// Asked at the door, every verb below answers for a file whose schema and mode are established;
+	// asked only by the verb that returns one, a caller that never calls it resolves values from a file
+	// a newer release wrote, or against the wrong mode's defaults, and boots on a configuration nobody
+	// intended.
 	if _, err := f.Version(); err != nil {
+		return nil, err
+	}
+	if _, err := f.Mode(); err != nil {
 		return nil, err
 	}
 	return f, nil

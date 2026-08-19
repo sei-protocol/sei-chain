@@ -166,8 +166,8 @@ func flatten(prefix string, in, out map[string]any) {
 
 // stringValue reads one of the keys that describe the file.
 //
-// Both are read before anything else, and neither has a sensible reading when it is absent or holds
-// something other than a string, so each caller states its own consequence rather than sharing one.
+// Parse reads both before it returns a file, and neither has a sensible reading when it is absent or
+// holds something other than a string, so each caller states its own consequence rather than sharing one.
 func (f *File) stringValue(key string) (string, bool, error) {
 	all, err := f.decoded()
 	if err != nil {
