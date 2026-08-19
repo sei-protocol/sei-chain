@@ -433,7 +433,11 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 			return nil
 		}
 		// TODO: accept future-epoch joiner votes.
-		if !epochForVote(inner, vote).IsPresent() {
+		ep, ok := epochForVote(inner, vote).Get()
+		if !ok {
+			return nil
+		}
+		if err := vote.Msg().Verify(ep.Committee()); err != nil {
 			return nil
 		}
 		applied := inner.epoch.Load()
@@ -447,20 +451,22 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 	return nil
 }
 
-// epochForVote returns the applied or Anchor epoch under which vote's lane and
-// signer verify. Prefers applied; falls back to Anchor when that is a different
-// EpochIndex.
+// epochForVote returns the applied or Anchor epoch the vote belongs to
+// (lane + signer in that committee). Prefers applied; falls back to Anchor
+// when that is a different EpochIndex.
 func epochForVote(inner *inner, vote *types.Signed[*types.LaneVote]) utils.Option[*types.Epoch] {
-	match := func(ep *types.Epoch) bool {
+	lane := vote.Msg().Header().Lane()
+	key := vote.Key()
+	belongs := func(ep *types.Epoch) bool {
 		c := ep.Committee()
-		return vote.Msg().Verify(c) == nil && c.HasReplica(vote.Key())
+		return c.HasLane(lane) && c.HasReplica(key)
 	}
 	applied := inner.epoch.Load()
-	if match(applied) {
+	if belongs(applied) {
 		return utils.Some(applied)
 	}
 	ae, ok := inner.anchorEpoch.Get()
-	if !ok || ae.EpochIndex() == applied.EpochIndex() || !match(ae) {
+	if !ok || ae.EpochIndex() == applied.EpochIndex() || !belongs(ae) {
 		return utils.None[*types.Epoch]()
 	}
 	return utils.Some(ae)

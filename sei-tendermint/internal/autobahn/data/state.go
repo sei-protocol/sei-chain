@@ -178,13 +178,13 @@ func (i *inner) insertBlock(n types.GlobalBlockNumber, block *types.Block) error
 	// nextAppProposal <= nextBlock, so qcs[n] is always present.
 	qc := i.qcs[n].qc
 	storedGR := qc.QC().GlobalRange()
-	want := qc.Headers()[n-storedGR.First].Hash()
-	got := block.Header().Hash()
-	if want != got {
-		return fmt.Errorf("block %d header hash mismatch: want %v, got %v", n, want, got)
+	want := qc.Headers()[n-storedGR.First]
+	got := block.Header()
+	if *want != *got {
+		return fmt.Errorf("block %d header mismatch: want %v, got %v", n, want.Hash(), got.Hash())
 	}
 	i.blocks[n] = block
-	i.blockHashes[got] = n
+	i.blockHashes[got.Hash()] = n
 	return nil
 }
 
