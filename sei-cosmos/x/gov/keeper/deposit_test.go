@@ -1,9 +1,11 @@
 package keeper_test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -130,4 +132,38 @@ func TestDeposits(t *testing.T) {
 		deposits = app.GovKeeper.GetDeposits(ctx, proposalID)
 		require.Len(t, deposits, 0)
 	}
+}
+
+func TestRefundDepositsLeavesInvalidRecipientPending(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	validDepositor := seiapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(100))[0]
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+
+	evmAddr := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	castDepositor := sdk.AccAddress(evmAddr[:])
+	app.EvmKeeper.SetAddressMapping(ctx, castDepositor, evmAddr)
+	require.NoError(t, app.BankKeeper.AddCoins(ctx, castDepositor, sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 100)), true))
+
+	castDeposit := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 40))
+	validDeposit := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 30))
+	_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, castDepositor, castDeposit)
+	require.NoError(t, err)
+	_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, validDepositor, validDeposit)
+	require.NoError(t, err)
+
+	app.EvmKeeper.SetAddressMapping(ctx, sdk.AccAddress(bytes.Repeat([]byte{2}, common.AddressLength)), evmAddr)
+	require.False(t, app.BankKeeper.CanSendTo(ctx, castDepositor))
+
+	app.GovKeeper.RefundDeposits(ctx, proposal.ProposalId)
+
+	deposit, found := app.GovKeeper.GetDeposit(ctx, proposal.ProposalId, castDepositor)
+	require.True(t, found)
+	require.Equal(t, castDeposit, deposit.Amount)
+	_, found = app.GovKeeper.GetDeposit(ctx, proposal.ProposalId, validDepositor)
+	require.False(t, found)
+	require.Equal(t, sdk.NewInt(100), app.BankKeeper.GetBalance(ctx, validDepositor, sdk.DefaultBondDenom).Amount)
+	require.Equal(t, castDeposit, app.BankKeeper.GetAllBalances(ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName)))
 }
