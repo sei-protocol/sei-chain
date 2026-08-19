@@ -17,7 +17,8 @@ type inner struct {
 	roads             *queue[types.RoadIndex, *road]
 
 	// epoch is the applied (next-CommitQC) epoch. installEpoch is the sole
-	// writer after construction.
+	// writer after construction. Distinct from consensusSpec.Epoch, which is the
+	// next-view epoch paired with the publishable tip and may lag while withheld.
 	epoch utils.AtomicSend[*types.Epoch]
 	// anchorEpoch is the epoch of data's Anchor CommitQC when one exists.
 	// None until the first Anchor arrives (construction prune or runEvict).
@@ -151,8 +152,11 @@ func (i *inner) installEpoch(ep *types.Epoch) {
 	for lane := range ep.Committee().Lanes().All() {
 		i.addLane(lane)
 	}
-	i.reweightVotes(ep)
+	// Publish applied epoch before reweight so reweightVotes reads i.epoch.
+	// Callers hold the avail lock, so Epoch() waiters cannot observe votes
+	// between the Store and the reweight.
 	i.epoch.Store(ep)
+	i.reweightVotes()
 	i.refreshConsensusSpec()
 }
 
@@ -252,6 +256,8 @@ func (i *inner) dropLanes(lanes []types.LaneID) int {
 	return n
 }
 
+// laneQC returns the LaneQC for (lane, n) under the applied epoch's vote
+// weighting (i.epoch), if one has formed.
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*types.LaneQC] {
 	votes, ok := i.votes[lane]
 	if !ok {
@@ -264,7 +270,9 @@ func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*typ
 	return entry.qc
 }
 
-func (i *inner) reweightVotes(ep *types.Epoch) {
+// reweightVotes recounts retained block votes under the applied epoch (i.epoch).
+func (i *inner) reweightVotes() {
+	ep := i.epoch.Load()
 	for _, vq := range i.votes {
 		for n := vq.first; n < vq.next; n++ {
 			vq.q[n].reweight(ep)
