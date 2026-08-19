@@ -1,0 +1,49 @@
+name: Seed Reachability
+run-name: Seed Reachability / published seeds serve P2P
+
+# Dials the published Sei Labs seed endpoints and asserts each one actually
+# speaks P2P, rather than merely accepting the TCP connection.
+#
+# Deliberately manual. This is a verification tool, not a monitor:
+#
+#   - run it after the seeds are rolled onto a new build, to confirm they came
+#     back
+#   - run it before cutting a release that ships the seed defaults
+#   - run it when someone reports trouble bootstrapping
+#
+# Not a PR gate, because it talks to live external infrastructure and a seed
+# hiccup or CI egress trouble must not block unrelated work. Not scheduled
+# either: continuous detection of a seed going dark belongs in the monitoring
+# stack, which cannot see seeds today because seed mode starts no Prometheus
+# listener. A cron here would paper over that rather than fix it.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reachability:
+    name: Reachability
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Compile-checked as well as run: build-tagged files are skipped by the
+      # untagged vet and by golangci-lint, so without this the package can rot
+      # against an API change and stay green.
+      - name: Vet
+        run: go vet -tags=integration ./app/seeds/...
+
+      - name: Seed reachability
+        run: go test -tags=integration -v -count=1 -timeout=5m ./app/seeds/...
