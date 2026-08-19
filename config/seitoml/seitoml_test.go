@@ -1898,3 +1898,64 @@ func TestAnUnpairedDelimiterLeavesTheLinesAlone(t *testing.T) {
 		})
 	}
 }
+
+// TestReadingOneWayDoesNotChangeWhatAnotherAnswers holds the reads against each other.
+//
+// A read renders and decodes the document, and the result is cached so that walking every key does not
+// pay that per key. The cache is one map, so a read that filtered or handed it out would change what the
+// next read of any other kind answers: Values omits the two keys describing the file, and deleting them
+// from the shared map made Version, Mode and Get report a file that holds them as missing them.
+func TestReadingOneWayDoesNotChangeWhatAnotherAnswers(t *testing.T) {
+	f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nn = 1\n")
+
+	// Read every way, twice, in an order that would expose a read leaking into the cache.
+	for round := 1; round <= 2; round++ {
+		values, err := f.Values()
+		if err != nil {
+			t.Fatalf("round %d: Values: %v", round, err)
+		}
+		for _, describing := range []string{seitoml.VersionKey, seitoml.ModeKey} {
+			if _, present := values[describing]; present {
+				t.Errorf("round %d: Values reports %s, which describes the file rather than the node",
+					round, describing)
+			}
+		}
+		if values["probe.n"] != int64(1) {
+			t.Errorf("round %d: probe.n = %#v, want 1", round, values["probe.n"])
+		}
+
+		version, err := f.Version()
+		if err != nil || version != 1 {
+			t.Errorf("round %d: Version = (%d, %v) after Values, want 1", round, version, err)
+		}
+		mode, err := f.Mode()
+		if err != nil || mode != "validator" {
+			t.Errorf("round %d: Mode = (%q, %v) after Values, want validator", round, mode, err)
+		}
+		for _, key := range []string{seitoml.VersionKey, seitoml.ModeKey, "probe.n"} {
+			if _, present, err := f.Get(key); err != nil || !present {
+				t.Errorf("round %d: Get(%q) = (present %v, %v) after Values", round, key, present, err)
+			}
+		}
+	}
+
+	// What a caller does with the map they were handed cannot reach a later read either.
+	mine, err := f.Values()
+	if err != nil {
+		t.Fatalf("Values: %v", err)
+	}
+	mine["probe.n"] = "written by the caller"
+	delete(mine, "probe.n")
+	mine["invented"] = true
+
+	again, err := f.Values()
+	if err != nil {
+		t.Fatalf("Values: %v", err)
+	}
+	if again["probe.n"] != int64(1) {
+		t.Errorf("a caller's write reached the next read: probe.n = %#v, want 1", again["probe.n"])
+	}
+	if _, present := again["invented"]; present {
+		t.Error("a key the caller invented appeared in the next read")
+	}
+}

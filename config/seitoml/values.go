@@ -17,9 +17,17 @@ func (f *File) Values() (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	delete(all, VersionKey)
-	delete(all, ModeKey)
-	return all, nil
+	// Built rather than filtered in place, because decoded hands back the cache itself. Deleting the two
+	// describing keys from it made every later Version, Mode and Get read them as absent, and handing the
+	// cache to a caller let their own writes into it.
+	out := make(map[string]any, len(all))
+	for key, v := range all {
+		if key == VersionKey || key == ModeKey {
+			continue
+		}
+		out[key] = v
+	}
+	return out, nil
 }
 
 // Get returns one key's written value.
@@ -50,6 +58,9 @@ func (f *File) Get(key string) (any, bool, error) {
 // Rendering first rather than holding the source means an unsaved edit is read back through the same
 // path a later process would use, so a value this package cannot express fails here rather than on a
 // node.
+//
+// The map returned is the cache. Every caller here reads it, and one that needs to hand a map outward or
+// change it has to build its own; writing into this one would change what a later read answers.
 func (f *File) decoded() (map[string]any, error) {
 	if f.values != nil {
 		return f.values, nil
