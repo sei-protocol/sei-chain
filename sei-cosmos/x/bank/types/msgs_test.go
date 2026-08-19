@@ -223,6 +223,172 @@ func TestMsgMultiSendValidation(t *testing.T) {
 	}
 }
 
+func TestValidateInputsOutputsUniqueDenominations(t *testing.T) {
+	const denominationCount = 2_000
+
+	inputAddr := sdk.AccAddress([]byte("_______alice________"))
+	outputAddr := sdk.AccAddress([]byte("________bob_________"))
+
+	t.Run("many inputs and one output", func(t *testing.T) {
+		inputs := inputsWithUniqueDenominations(inputAddr, denominationCount)
+		outputs := []Output{NewOutput(outputAddr, uniqueDenominationCoins(denominationCount))}
+
+		require.NoError(t, ValidateInputsOutputs(inputs, outputs))
+	})
+
+	t.Run("one input and many outputs", func(t *testing.T) {
+		inputs := []Input{NewInput(inputAddr, uniqueDenominationCoins(denominationCount))}
+		outputs := outputsWithUniqueDenominations(outputAddr, denominationCount)
+
+		require.NoError(t, ValidateInputsOutputs(inputs, outputs))
+	})
+
+	for _, entryCount := range []int{1, 5, 50} {
+		t.Run(fmt.Sprintf("%d inputs and %d outputs", entryCount, entryCount), func(t *testing.T) {
+			inputs := inputsWithUniqueDenominations(inputAddr, entryCount)
+			outputs := outputsWithUniqueDenominations(outputAddr, entryCount)
+
+			require.Len(t, inputs, entryCount)
+			require.Len(t, outputs, entryCount)
+			require.NoError(t, ValidateInputsOutputs(inputs, outputs))
+		})
+	}
+
+	t.Run("missing output denomination", func(t *testing.T) {
+		inputs := inputsWithUniqueDenominations(inputAddr, denominationCount)
+		outputs := []Output{NewOutput(outputAddr, uniqueDenominationCoins(denominationCount-1))}
+
+		require.ErrorIs(t, ValidateInputsOutputs(inputs, outputs), ErrInputOutputMismatch)
+	})
+
+	t.Run("mismatched output amount", func(t *testing.T) {
+		inputs := inputsWithUniqueDenominations(inputAddr, denominationCount)
+		outputCoins := uniqueDenominationCoins(denominationCount)
+		outputCoins[denominationCount-1] = sdk.NewInt64Coin(
+			fmt.Sprintf("denom%05d", denominationCount-1),
+			denominationCount+1,
+		)
+		outputs := []Output{NewOutput(outputAddr, outputCoins)}
+
+		require.ErrorIs(t, ValidateInputsOutputs(inputs, outputs), ErrInputOutputMismatch)
+	})
+}
+
+func TestValidateInputsOutputsRepeatedDenomination(t *testing.T) {
+	inputAddr := sdk.AccAddress([]byte("_______alice________"))
+	outputAddr := sdk.AccAddress([]byte("________bob_________"))
+
+	for _, entryCount := range []int{10, 50} {
+		t.Run(fmt.Sprintf("%d inputs and %d outputs", entryCount, entryCount), func(t *testing.T) {
+			inputs := inputsWithRepeatedDenomination(inputAddr, entryCount)
+			outputs := outputsWithRepeatedDenomination(outputAddr, entryCount)
+
+			require.Len(t, inputs, entryCount)
+			require.Len(t, outputs, entryCount)
+			require.NoError(t, ValidateInputsOutputs(inputs, outputs))
+		})
+	}
+}
+
+func BenchmarkValidateInputsOutputsUniqueDenominations(b *testing.B) {
+	inputAddr := sdk.AccAddress([]byte("_______alice________"))
+	outputAddr := sdk.AccAddress([]byte("________bob_________"))
+
+	for _, denominationCount := range []int{100, 1_000, 10_000} {
+		b.Run(fmt.Sprintf("denominations-%d", denominationCount), func(b *testing.B) {
+			inputs := inputsWithUniqueDenominations(inputAddr, denominationCount)
+			outputs := []Output{NewOutput(outputAddr, uniqueDenominationCoins(denominationCount))}
+
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := ValidateInputsOutputs(inputs, outputs); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkValidateInputsOutputsBalanced(b *testing.B) {
+	inputAddr := sdk.AccAddress([]byte("_______alice________"))
+	outputAddr := sdk.AccAddress([]byte("________bob_________"))
+
+	for _, entryCount := range []int{1, 5, 50} {
+		b.Run(fmt.Sprintf("%d-inputs-%d-outputs", entryCount, entryCount), func(b *testing.B) {
+			inputs := inputsWithUniqueDenominations(inputAddr, entryCount)
+			outputs := outputsWithUniqueDenominations(outputAddr, entryCount)
+
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := ValidateInputsOutputs(inputs, outputs); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkValidateInputsOutputsRepeatedDenomination(b *testing.B) {
+	inputAddr := sdk.AccAddress([]byte("_______alice________"))
+	outputAddr := sdk.AccAddress([]byte("________bob_________"))
+
+	for _, entryCount := range []int{10, 50} {
+		b.Run(fmt.Sprintf("%d-inputs-%d-outputs", entryCount, entryCount), func(b *testing.B) {
+			inputs := inputsWithRepeatedDenomination(inputAddr, entryCount)
+			outputs := outputsWithRepeatedDenomination(outputAddr, entryCount)
+
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := ValidateInputsOutputs(inputs, outputs); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func uniqueDenominationCoins(count int) sdk.Coins {
+	coins := make(sdk.Coins, count)
+	for i := range count {
+		coins[i] = sdk.NewInt64Coin(fmt.Sprintf("denom%05d", i), int64(i+1))
+	}
+	return sdk.NewCoins(coins...)
+}
+
+func inputsWithUniqueDenominations(addr sdk.AccAddress, count int) []Input {
+	coins := uniqueDenominationCoins(count)
+	inputs := make([]Input, count)
+	for i, coin := range coins {
+		inputs[i] = NewInput(addr, sdk.NewCoins(coin))
+	}
+	return inputs
+}
+
+func outputsWithUniqueDenominations(addr sdk.AccAddress, count int) []Output {
+	coins := uniqueDenominationCoins(count)
+	outputs := make([]Output, count)
+	for i, coin := range coins {
+		outputs[i] = NewOutput(addr, sdk.NewCoins(coin))
+	}
+	return outputs
+}
+
+func inputsWithRepeatedDenomination(addr sdk.AccAddress, count int) []Input {
+	inputs := make([]Input, count)
+	for i := range count {
+		inputs[i] = NewInput(addr, sdk.NewCoins(sdk.NewInt64Coin("denom", 1)))
+	}
+	return inputs
+}
+
+func outputsWithRepeatedDenomination(addr sdk.AccAddress, count int) []Output {
+	outputs := make([]Output, count)
+	for i := range count {
+		outputs[i] = NewOutput(addr, sdk.NewCoins(sdk.NewInt64Coin("denom", 1)))
+	}
+	return outputs
+}
+
 func TestMsgMultiSendGetSignBytes(t *testing.T) {
 	addr1 := sdk.AccAddress([]byte("input"))
 	addr2 := sdk.AccAddress([]byte("output"))
