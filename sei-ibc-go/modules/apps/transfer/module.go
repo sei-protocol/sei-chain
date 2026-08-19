@@ -131,7 +131,9 @@ func (am AppModule) LegacyQuerierHandler(*codec.LegacyAmino) sdk.Querier {
 
 // RegisterServices registers module services.
 func (am AppModule) RegisterServices(cfg module.Configurator) {
-	types.RegisterMsgServer(cfg.MsgServer(), am.keeper)
+	// Transactions are rejected as deprecated; Keeper.Transfer stays executable
+	// for the versioned EVM precompiles that replay historical blocks.
+	types.RegisterMsgServer(cfg.MsgServer(), keeper.DeprecatedMsgServer{})
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	m := keeper.NewMigrator(am.keeper)
