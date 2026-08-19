@@ -190,7 +190,7 @@ func (r *Registry) ensureAround(s *registryState, road types.RoadIndex) {
 
 // AdvanceIfNeeded registers epoch M+1 when roadIndex is LastRoad(M).
 // M+2 is not seeded: tip may race to LastRoad(M+1) before AppQC, but
-// ConsensusSpec withholds that next view until M+1's AppQC boundary fires
+// ConsensusSpec withholds that next RoadIndex until M+1's AppQC boundary fires
 // AdvanceIfNeeded again.
 func (r *Registry) AdvanceIfNeeded(roadIndex types.RoadIndex) {
 	tipEpoch := IndexForRoad(roadIndex)
