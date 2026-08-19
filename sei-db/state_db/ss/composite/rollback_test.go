@@ -227,10 +227,6 @@ func TestValidateRollbackAgreesWithRollback(t *testing.T) {
 	}
 }
 
-// TestRollbackCrashRecoveryAtEverySwapStep stops the directory swap after each
-// of its steps and reopens. Whichever way recovery resolves it, the changelog
-// has to survive: it is the only copy of the versions above the snapshots, so
-// losing it costs the node every later rollback as well as this one.
 // TestValidateRollbackLeavesTheChangelogAlone pins that planning reads the
 // changelog through the handle the live store already holds. A second handle
 // over the same directory truncates a corrupt tail as it opens, which is a
@@ -276,12 +272,17 @@ func readFileBytes(t *testing.T, path string) []byte {
 	return bz
 }
 
-// TestRollbackCrashRecoveryAtEverySwapStep stops the swap after each step and
-// reopens. Both directory layouts are covered: the swap renames the live
-// directory away, and on the legacy layout that rename is what GetStateStorePath
-// reads to decide where the database lives, so a reopen in that window has to
-// resolve back to the directory the rollback moved rather than to an empty one.
-func TestRollbackCrashRecoveryAtEverySwapStep(t *testing.T) {
+// TestRollbackCrashRecoveryAtEveryStep stops the rollback after each of its
+// steps and reopens. Whichever way recovery resolves it, the changelog has to
+// survive — it is the only copy of the versions above the snapshots, so losing
+// it costs the node every later rollback as well as this one — and a store that
+// comes back on the target must not keep a snapshot of the fork it discarded.
+//
+// Both directory layouts are covered: the swap renames the live directory away,
+// and on the legacy layout that rename is what GetStateStorePath reads to decide
+// where the database lives, so a reopen in that window has to resolve back to
+// the directory the rollback moved rather than to an empty one.
+func TestRollbackCrashRecoveryAtEveryStep(t *testing.T) {
 	for _, layout := range []struct {
 		name string
 		home func(*testing.T) string
@@ -290,12 +291,12 @@ func TestRollbackCrashRecoveryAtEverySwapStep(t *testing.T) {
 		{"legacy layout", legacyLayoutHome},
 	} {
 		t.Run(layout.name, func(t *testing.T) {
-			runRollbackCrashRecoveryAtEverySwapStep(t, layout.home)
+			runRollbackCrashRecoveryAtEveryStep(t, layout.home)
 		})
 	}
 }
 
-func runRollbackCrashRecoveryAtEverySwapStep(t *testing.T, newHome func(*testing.T) string) {
+func runRollbackCrashRecoveryAtEveryStep(t *testing.T, newHome func(*testing.T) string) {
 	const target = int64(7)
 	names := rollbackStepNames()
 	// Recovery rolls forward from the step that moves the live database aside,
@@ -304,7 +305,7 @@ func runRollbackCrashRecoveryAtEverySwapStep(t *testing.T, newHome func(*testing
 
 	for stop := range names {
 		t.Run(fmt.Sprintf("after %s", names[stop]), func(t *testing.T) {
-			cfg, home, dbHome := stageRollbackSwap(t, newHome(t), target, stop+1)
+			cfg, home, dbHome := stageRollback(t, newHome(t), target, stop+1)
 
 			reopened, err := NewCompositeStateStore(cfg, home)
 			require.NoError(t, err)
@@ -375,13 +376,13 @@ func rollbackStepIndex(t *testing.T, name string) int {
 	return 0
 }
 
-// stageRollbackSwap runs the first stop steps of a rollback and returns the
+// stageRollback runs the first stop steps of a rollback and returns the
 // config, home, and database directory of the store it left behind.
 //
 // The fixture takes a snapshot every other block, and keeps them all, so a
 // rollback to version 7 has both a snapshot below the target to restore from
 // and a snapshot above it to discard.
-func stageRollbackSwap(t *testing.T, home string, target int64, stop int) (config.StateStoreConfig, string, string) {
+func stageRollback(t *testing.T, home string, target int64, stop int) (config.StateStoreConfig, string, string) {
 	t.Helper()
 	store, home := setupRollbackStoreAt(t, home, 2, 3)
 	for version := int64(1); version <= 8; version++ {
@@ -402,7 +403,7 @@ func stageRollbackSwap(t *testing.T, home string, target int64, stop int) (confi
 
 func TestRollbackCrashRecoveryCompletesPendingRestore(t *testing.T) {
 	t.Run("after restore before WAL cut", func(t *testing.T) {
-		cfg, home, _ := stageRollbackSwap(t, t.TempDir(), 7, rollbackStepIndex(t, "cut changelog to target"))
+		cfg, home, _ := stageRollback(t, t.TempDir(), 7, rollbackStepIndex(t, "cut changelog to target"))
 
 		reopened, err := NewCompositeStateStore(cfg, home)
 		require.NoError(t, err)
@@ -412,7 +413,7 @@ func TestRollbackCrashRecoveryCompletesPendingRestore(t *testing.T) {
 	})
 
 	t.Run("after WAL cut before reopen", func(t *testing.T) {
-		cfg, home, _ := stageRollbackSwap(t, t.TempDir(), 7, len(rollbackStepNames()))
+		cfg, home, _ := stageRollback(t, t.TempDir(), 7, len(rollbackStepNames()))
 
 		reopened, err := NewCompositeStateStore(cfg, home)
 		require.NoError(t, err)
