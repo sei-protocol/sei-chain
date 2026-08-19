@@ -128,7 +128,6 @@ func broadcastTx(ctx context.Context, clientCtx client.Context, txf Factory, msg
 		}
 	}
 
-	tx.SetFeeGranter(clientCtx.GetFeeGranterAddress())
 	err = Sign(txf, clientCtx.GetFromName(), tx, true)
 	if err != nil {
 		return err

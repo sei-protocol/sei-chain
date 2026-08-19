@@ -101,7 +101,7 @@ func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 
 	decorators := []sdk.AnteDecorator{
 		authante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(testApp.ParamsKeeper)),
-		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{authante.NewDeductFeeDecorator(testApp.AccountKeeper, testApp.BankKeeper, testApp.FeeGrantKeeper, testApp.ParamsKeeper, nil)}, testApp.OracleKeeper, &testApp.EvmKeeper),
+		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{authante.NewDeductFeeDecorator(testApp.AccountKeeper, testApp.BankKeeper, testApp.ParamsKeeper, nil)}, testApp.OracleKeeper, &testApp.EvmKeeper),
 		func() sdk.AnteDecorator {
 			var simLimit sdk.Gas = 1_000_000
 			return wasmkeeper.NewLimitSimulationGasDecorator(&simLimit, antedecorators.GetGasMeterSetter(testApp.ParamsKeeper))

@@ -10,6 +10,7 @@ import (
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
+		"v6.6":        check(NewPrecompile(keepers)),
 	}
 }
 

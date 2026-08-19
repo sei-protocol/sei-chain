@@ -19,7 +19,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
-	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
@@ -30,14 +29,13 @@ import (
 var defaultRecoveryMiddleware = newDefaultRecoveryMiddleware()
 
 type CheckTxKeepers struct {
-	AccountKeeper  authkeeper.AccountKeeper
-	BankKeeper     bankkeeper.Keeper
-	FeeGrantKeeper *feegrantkeeper.Keeper
-	IBCKeeper      *ibckeeper.Keeper
-	OracleKeeper   oraclekeeper.Keeper
-	EvmKeeper      *evmkeeper.Keeper
-	ParamsKeeper   paramskeeper.Keeper
-	UpgradeKeeper  *upgradekeeper.Keeper
+	AccountKeeper authkeeper.AccountKeeper
+	BankKeeper    bankkeeper.Keeper
+	IBCKeeper     *ibckeeper.Keeper
+	OracleKeeper  oraclekeeper.Keeper
+	EvmKeeper     *evmkeeper.Keeper
+	ParamsKeeper  paramskeeper.Keeper
+	UpgradeKeeper *upgradekeeper.Keeper
 }
 
 func CheckTx(
@@ -106,7 +104,7 @@ func CheckTx(
 	} else if isEVM {
 		newCtx, err = ante.EvmCheckTxAnte(anteCtx, tx, keepers.UpgradeKeeper, keepers.EvmKeeper)
 	} else {
-		newCtx, err = ante.CosmosCheckTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.OracleKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper, keepers.FeeGrantKeeper, keepers.IBCKeeper)
+		newCtx, err = ante.CosmosCheckTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.OracleKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper, keepers.IBCKeeper)
 	}
 	if !newCtx.IsZero() {
 		ctx = newCtx

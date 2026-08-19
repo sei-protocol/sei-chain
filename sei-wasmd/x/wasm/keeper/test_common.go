@@ -32,7 +32,6 @@ import (
 	distributiontypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence"
 	evidencetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
 	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
@@ -204,7 +203,7 @@ func createTestInput(
 		minttypes.StoreKey, distributiontypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey,
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey,
-		capabilitytypes.StoreKey, feegrant.StoreKey, authzkeeper.StoreKey,
+		capabilitytypes.StoreKey, authzkeeper.StoreKey,
 		types.StoreKey,
 	)
 	ms := store.NewCommitMultiStore(db)
