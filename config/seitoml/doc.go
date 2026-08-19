@@ -45,9 +45,16 @@
 //
 // So the question a shape has to answer is put to that decoder rather than to a list kept here. Parse
 // asks it, and Set renders the document and asks it again, undoing the write and naming the key when the
-// answer is no. Two of the decoder's answers are also checked here ahead of it, a repeated heading and a
-// repeated key, because those name the key and say what an edit would reach where the decoder names a
-// line.
+// answer is no. A shape nobody anticipated is refused as surely as one somebody did.
+//
+// Two shapes are checked here as well, and deliberately: a repeated key and a repeated heading. The
+// decoder refuses both, so nothing about whether the file loads rests on these; what they add is the
+// diagnosis. They name the dotted key an operator typed and say that an edit reaches only the first,
+// where the decoder names a line and reports that the name already exists. Both are the mistake
+// hand-editing produces most.
+//
+// The refusals in the next section are the other direction: shapes the decoder accepts and this file
+// does not carry.
 //
 // The editing parser is a second library doing a different job: it locates lines and preserves comments,
 // and stops short of interpreting a literal.
