@@ -320,7 +320,7 @@ func (s *State) Run(ctx context.Context) error {
 		scope.SpawnNamed("pushSpec", func() error {
 			// We pull the tip back from "avail" for dissemination. This ensures we
 			// only advance on CommitQCs that avail has verified, logged, and paired
-			// with the epoch of the next view — consensus resolves no epochs itself.
+			// with the epoch of the next RoadIndex — consensus resolves no epochs itself.
 			return s.avail.SubscribeConsensusSpec().Iter(ctx, func(ctx context.Context, spec types.ConsensusSpec) error {
 				return s.pushSpec(spec)
 			})

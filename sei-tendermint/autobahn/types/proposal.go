@@ -125,10 +125,10 @@ func (v View) Next() View {
 	return v
 }
 
-// ConsensusSpec is the durable CommitQC tip paired with the epoch of the view
-// that follows it. CommitQC is None before the first tip; until then Epoch is
-// genesis epoch 0 (and FirstBlock is the next global block). Consensus installs
-// a spec verbatim.
+// ConsensusSpec is the durable CommitQC tip paired with the epoch of the
+// RoadIndex that follows it. CommitQC is None before the first tip; until then
+// Epoch is genesis epoch 0 (and FirstBlock is the next global block). Consensus
+// installs a spec verbatim.
 type ConsensusSpec struct {
 	CommitQC utils.Option[*CommitQC]
 	Epoch    *Epoch

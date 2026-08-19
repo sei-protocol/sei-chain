@@ -679,7 +679,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		s.metrics.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
 		// Seed cursor: at LastRoad(N) register N+1 so runEpochAdvance can install
 		// it once seal and the prune/execution leashes are met. N+2 is not needed —
-		// ConsensusSpec withholds the view after LastRoad(N+1) until this fires
+		// ConsensusSpec withholds the RoadIndex after LastRoad(N+1) until this fires
 		// again.
 		s.cfg.Registry.AdvanceIfNeeded(p.Index())
 		// Idle boundary: no further CommitQC will republish after registration.
@@ -759,7 +759,7 @@ func (s *State) AppQC(ctx context.Context, n types.GlobalBlockNumber) (*types.Ap
 type Anchor struct {
 	CommitQC *types.CommitQC
 	AppQC    *types.AppQC
-	// Epoch is the verify-epoch of CommitQC, stashed at admit.
+	// Epoch of CommitQC, stashed at admit.
 	Epoch *types.Epoch
 }
 
