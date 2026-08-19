@@ -92,6 +92,16 @@ func (api *DebugAPI) prepareTraceContext(ctx context.Context) (context.Context, 
 	}, nil
 }
 
+// resultUnlessExpired reports the deadline instead of a synthesized error
+// trace. geth recovers a panic from a cancelled SS skip as a fake trace
+// result; that must not be returned or written to the trace cache.
+func resultUnlessExpired(ctx context.Context, result interface{}, err error) (interface{}, error) {
+	if expired := ctx.Err(); expired != nil {
+		return nil, expired
+	}
+	return result, err
+}
+
 func (api *DebugAPI) guardHistoricalDebugTraceByTxHash(ctx context.Context, endpoint string, hash common.Hash) error {
 	if api.keeper == nil {
 		return nil
@@ -227,7 +237,8 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
-	return api.tracersAPI.TraceTransaction(ctx, hash, config)
+	traced, err := api.tracersAPI.TraceTransaction(ctx, hash, config)
+	return resultUnlessExpired(ctx, traced, err)
 }
 
 func (api *DebugAPI) tryTraceCache(hash common.Hash, config *tracers.TraceConfig) (interface{}, bool) {
@@ -435,6 +446,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	} else {
 		result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	}
+	result, returnErr = resultUnlessExpired(ctx, result, returnErr)
 	return
 }
 
@@ -463,6 +475,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	} else {
 		result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	}
+	result, returnErr = resultUnlessExpired(ctx, result, returnErr)
 	return
 }
 
@@ -483,6 +496,7 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 	}
 
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
+	result, returnErr = resultUnlessExpired(ctx, result, returnErr)
 	return
 }
 
