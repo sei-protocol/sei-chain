@@ -256,15 +256,23 @@ device_attached() {
 	hdiutil info | awk '{print $1}' | grep -qxF "$DEV"
 }
 
-# Whether this worktree's scratch volume is present, in whatever sense its kind makes it
-# releasable. The /dev/shm kind is a directory inside a tmpfs the host already had mounted,
-# where a mount check can only ever answer false; a Darwin device outlives its mount.
+# Whether this worktree's scratch volume is present and usable for a run. The /dev/shm kind is a
+# directory inside a tmpfs the host already had mounted, where a mount check can only ever
+# answer false.
 volume_exists() {
 	case "$VOLUME_KIND" in
 	shm) [[ -d "$MNT" ]] ;;
-	darwin) is_mounted || device_attached ;;
 	*) is_mounted ;;
 	esac
+}
+
+# Whether anything is still held that teardown has to release. A Darwin device keeps its
+# reservation with no filesystem on it, which is what a failed format leaves behind: releasable
+# without being usable. Reuse asks volume_exists instead, because writing to a mount point whose
+# volume never mounted does not reach a RAM disk.
+volume_is_releasable() {
+	volume_exists && return 0
+	[[ "$VOLUME_KIND" == darwin ]] && device_attached
 }
 
 # Confirms a volume found without a state file is one of ours before any teardown path can act
@@ -290,7 +298,7 @@ adopt_volume() {
 # run and is simply cleared; a volume with no record is adopted once it is confirmed to be ours.
 reap_orphans() {
 	load_state
-	if volume_exists; then
+	if volume_is_releasable; then
 		[[ -f "$STATE_FILE" ]] || adopt_volume
 		return 0
 	fi
@@ -366,6 +374,14 @@ ensure_ramdisk() {
 			SIZE_GB="$RECORDED_SIZE_GB"
 		fi
 		return
+	fi
+
+	# A recorded volume that is held but not usable is the debris of a run whose format failed.
+	# It still holds its reservation, so it is released before a replacement is attached rather
+	# than being abandoned with its record about to be overwritten.
+	if volume_is_releasable; then
+		log "releasing an unusable volume left by an earlier run"
+		teardown_ramdisk || warn "could not release it; continuing with a new volume"
 	fi
 
 	if [[ "$OS" == Darwin ]]; then
@@ -480,6 +496,10 @@ stop_space_watchdog() {
 # go test flags that take their value as the following argument rather than after an "=". Their
 # values are ordinary words like "1" or "TestFoo", and counting one of those as a package is
 # what silently turns a whole-tree run into a root-package-only run that still exits 0.
+#
+# This list is the sole thing separating a flag's value from a package pattern, so a flag missing
+# from it hands its value to go as a package name. That fails loudly -- go rejects the unknown
+# flag or the unresolvable package -- which is the direction to be wrong in.
 VALUE_FLAGS="
 -run -bench -benchtime -fuzz -fuzztime -fuzzminimizetime -list -count -timeout -parallel -cpu
 -shuffle -tags -coverprofile -covermode -coverpkg -cpuprofile -memprofile -memprofilerate
@@ -489,16 +509,6 @@ VALUE_FLAGS="
 "
 
 takes_separate_value() { [[ " $(echo $VALUE_FLAGS) " == *" $1 "* ]]; }
-
-# Whether an argument names packages. go's patterns are import paths, so they are relative,
-# absolute, domain-qualified, or the reserved word "all" -- a shape no flag value shares.
-is_package_pattern() {
-	case "$1" in
-	all | . | ./* | ../* | /*) return 0 ;;
-	*.*/*) return 0 ;;
-	esac
-	return 1
-}
 
 build_go_test_cmd() {
 	GO_CMD=(go test)
@@ -518,7 +528,10 @@ build_go_test_cmd() {
 			takes_separate_value "$arg" && skip_next=true
 			continue
 		fi
-		is_package_pattern "$arg" && has_pkg=true
+		# Whatever is left is positional, and go reads its positional arguments as the package
+		# list. Judging the shape instead would reject the bare import paths go also accepts,
+		# and appending the default beside one of those runs the whole tree unasked.
+		has_pkg=true
 	done
 	$has_timeout || GO_CMD+=(-timeout=30m)
 
@@ -695,7 +708,7 @@ teardown_linux() {
 }
 
 teardown_ramdisk() {
-	volume_exists || { clear_state; return 0; }
+	volume_is_releasable || { clear_state; return 0; }
 	log "tearing down $MNT"
 	local rc=0
 	case "$VOLUME_KIND" in
