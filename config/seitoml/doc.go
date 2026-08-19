@@ -8,7 +8,8 @@
 // one an operator chose.
 //
 // Two keys at the top level describe the file rather than configure the node, and Values leaves both
-// out.
+// out. Values reports the keys the file writes and nothing about them: which section owns a key, and
+// whether any section does, is answered elsewhere.
 //
 //	schema_version   which migration the file has reached
 //	node_mode        which mode's defaults its values were chosen against
@@ -16,17 +17,8 @@
 // schema_version counts migrations, one per migration, and is deliberately not a release version. Parse
 // reads both keys before it returns a file, so every verb below answers for one whose schema and mode are
 // established. It refuses a counter that is absent, not a whole number, below the first schema, or ahead
-// of the one this binary understands, and a mode that is absent, not text, or empty.
-//
-// # What This Package Is Not
-//
-// Nothing here migrates a file. This package reads and writes the counter; whatever runs the steps
-// arrives with them, and no step exists here.
-//
-// Nothing here resolves a value or knows what keys exist. A key this file carries may be one no section
-// declares, and this package does not say so.
-//
-// Nothing here writes a default, and nothing here decides whether the values make a bootable node.
+// of the one this binary understands, and a mode that is absent, not text, or empty. This package reads
+// and writes the counter; what acts on it arrives with the migrations.
 //
 // # Editing Preserves the Document
 //
