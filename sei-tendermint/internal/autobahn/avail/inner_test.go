@@ -225,12 +225,12 @@ func TestAddLane_ReportsNewLaneForEachMembershipPeriod(t *testing.T) {
 	require.True(t, i.addLane(types.LaneID{Validator: a.Public(), Joined: 3}))
 }
 
-// TestInstallReadyEpochs_BoundaryTipUsesDataAppQC: tip at LastRoad(0) with
+// TestAdvanceReadyEpochs_BoundaryTipUsesDataAppQC: tip at LastRoad(0) with
 // applied floored to 0 (restart), data's Anchor already covers epoch 0, registry
-// has epoch 1 → install walks to 1 so ConsensusSpec republishes the tip.
+// has epoch 1 → advance walks to 1 so ConsensusSpec republishes the tip.
 // This is the avail half of the blind-Spec restore invariant: consensus may
 // refuse to start if Spec stays behind a WAL tip at LastRoad(0) after catch-up.
-func TestInstallReadyEpochs_BoundaryTipUsesDataAppQC(t *testing.T) {
+func TestAdvanceReadyEpochs_BoundaryTipUsesDataAppQC(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
@@ -298,8 +298,8 @@ func TestInstallReadyEpochs_BoundaryTipUsesDataAppQC(t *testing.T) {
 	i.epoch.Store(ep0)
 
 	require.False(t, i.roads.q[last].appQC.IsPresent(), "road AppQC empty; prune leash is the Anchor")
-	require.True(t, i.leashesMet())
-	require.NoError(t, i.installReadyEpochs(ds))
+	require.True(t, i.canAdvanceEpoch())
+	require.NoError(t, i.advanceReadyEpochs(ds))
 
 	require.Equal(t, ep1.EpochIndex(), i.epoch.Load().EpochIndex())
 	spec := i.consensusSpec.Load()
@@ -309,7 +309,7 @@ func TestInstallReadyEpochs_BoundaryTipUsesDataAppQC(t *testing.T) {
 	require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
 }
 
-func TestInstallReadyEpochs_MissingNextEpochErrors(t *testing.T) {
+func TestAdvanceReadyEpochs_MissingNextEpochErrors(t *testing.T) {
 	rng := utils.TestRng()
 	// Fresh registry has epochs 0 and 1; seal epoch 1 so the next lookup is 2.
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -343,8 +343,8 @@ func TestInstallReadyEpochs_MissingNextEpochErrors(t *testing.T) {
 	i.roads.pushBack(newRoad(qcLast, ep1))
 	i.persistedCommitQC.Store(utils.Some(qcLast))
 
-	require.True(t, i.leashesMet())
-	require.Error(t, i.installReadyEpochs(newTestDataState(&data.Config{Registry: registry})))
+	require.True(t, i.canAdvanceEpoch())
+	require.Error(t, i.advanceReadyEpochs(newTestDataState(&data.Config{Registry: registry})))
 }
 
 // TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied: the durable tip
@@ -385,7 +385,7 @@ func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 	i.refreshConsensusSpec()
 	require.False(t, i.consensusSpec.Load().CommitQC.IsPresent(), "spec must be withheld, not published at the predecessor")
 
-	i.installEpoch(ep1)
+	i.advanceEpoch(ep1)
 	spec := i.consensusSpec.Load()
 	cqc, ok := spec.CommitQC.Get()
 	require.True(t, ok)

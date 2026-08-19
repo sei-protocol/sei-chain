@@ -60,7 +60,7 @@
 //   - TimeoutQC at index > 0 without CommitQCIndex (how did we advance past index 0?)
 //   - TimeoutQC at index > CommitQCIndex + 1 (how did we skip intermediate commits?)
 //   - WAL tip ahead of ConsensusSpec: ErrAvailBehindConsensus
-//   - Spec ahead of WAL tip: install spec, discard per-view WAL state
+//   - Spec ahead of WAL tip: advance to spec, discard per-view WAL state
 //   - Equal tip: keep WAL votes/QCs if persistedInner.validate(spec) passes
 //     (e.g. reject future-view votes, TimeoutQC index ≠ NextIndexOpt(spec.CommitQC),
 //     bad signatures, CommitVote without PrepareQC)
@@ -150,9 +150,9 @@ func newInner(
 	return inner{persistedInner: out, spec: spec}, nil
 }
 
-// pushSpec installs avail's ConsensusSpec tip and clears per-view state.
-// Specs that do not advance the view are ignored, which covers the tipless spec
-// published before the first CommitQC.
+// pushSpec advances consensus to avail's ConsensusSpec tip and clears per-view
+// state. Specs that do not advance the view are ignored, which covers the
+// tipless spec published before the first CommitQC.
 func (s *State) pushSpec(spec types.ConsensusSpec) error {
 	specViewIdx := types.NextIndexOpt(spec.CommitQC)
 	if specViewIdx <= s.innerRecv.Load().View().Index {

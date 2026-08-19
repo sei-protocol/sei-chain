@@ -107,7 +107,7 @@ func tipLink(ep *types.Epoch, key types.SecretKey, idx types.RoadIndex) *types.C
 }
 
 // DriveAdvance seals each applied epoch through want-1 and waits for
-// runEpochAdvance to install want. The registry must already contain want;
+// runEpochAdvance to advance to want. The registry must already contain want;
 // runEpochAdvance must be running.
 // Intended for tests only.
 func DriveAdvance(ctx context.Context, state *State, keys []types.SecretKey, want types.EpochIndex) error {
