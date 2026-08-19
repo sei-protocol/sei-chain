@@ -210,31 +210,31 @@ func (i *inner) refreshConsensusSpec() {
 		return
 	}
 	next := cqc.Index() + 1
-	if epoch.IndexForRoad(next) > i.epoch.Load().EpochIndex() {
+	ep := i.epoch.Load()
+	if epoch.IndexForRoad(next) > ep.EpochIndex() {
 		return
 	}
-	ep, ok := i.epochForRoad(next).Get()
-	if !ok {
-		return
-	}
-	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: tip, Epoch: ep})
-}
-
-func (i *inner) epochForRoad(road types.RoadIndex) utils.Option[*types.Epoch] {
-	if ep := i.epoch.Load(); ep.RoadRange().Has(road) {
-		return utils.Some(ep)
-	}
-	if road >= i.roads.first && road < i.roads.next {
-		return utils.Some(i.roads.q[road].epoch)
-	}
-	// Persist may lag advanceEpoch: tip's next RoadIndex can sit in an earlier epoch
-	// still present on some admitted road.
-	for idx := i.roads.first; idx < i.roads.next; idx++ {
-		if ep := i.roads.q[idx].epoch; ep.RoadRange().Has(road) {
-			return utils.Some(ep)
+	if !ep.RoadRange().Has(next) {
+		// Persist may lag advanceEpoch: tip's next RoadIndex can sit in an
+		// earlier epoch still present on some admitted road.
+		found := false
+		if next >= i.roads.first && next < i.roads.next {
+			ep = i.roads.q[next].epoch
+			found = true
+		} else {
+			for idx := i.roads.first; idx < i.roads.next; idx++ {
+				if r := i.roads.q[idx].epoch; r.RoadRange().Has(next) {
+					ep = r
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			return
 		}
 	}
-	return utils.None[*types.Epoch]()
+	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: tip, Epoch: ep})
 }
 
 func (i *inner) addLane(lane types.LaneID) bool {

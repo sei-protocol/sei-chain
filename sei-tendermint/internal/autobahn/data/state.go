@@ -763,8 +763,10 @@ type Anchor struct {
 	Epoch *types.Epoch
 }
 
-// Anchor represents the AppQC/CommitQC covering inner.first.
-// It is used by avail.State.
+// Anchor is the AppQC/CommitQC covering inner.first.
+//
+// TODO: replace with AvailSpec = Option[Anchor] + nextEpoch (None + first
+// epoch initially) so avail does not consult the registry.
 func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
 	for inner := range s.inner.Lock() {
 		return inner.anchor.Subscribe()
