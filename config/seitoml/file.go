@@ -294,6 +294,8 @@ func (f *File) Bytes() ([]byte, error) {
 
 // Save writes the document to path, atomically.
 //
+// The document is offered to the decoder first, so no file reaches disk that a node cannot read.
+//
 // The rename makes it atomic, and the temporary file sits in the destination's own directory so the
 // rename stays within one filesystem. A crash at any point leaves either the previous file or the
 // new one, never a truncated file a node cannot parse.

@@ -196,7 +196,12 @@ func (f *File) Unset(key string) (bool, error) {
 		return false, nil
 	}
 	f.changed()
-	return e.Remove(), nil
+	if !e.Remove() {
+		// Reported rather than returned as an absent key, which is what the file carrying one and the
+		// removal doing nothing would otherwise look like to a caller.
+		return false, fmt.Errorf("%s: the file carries this key and it could not be removed", key)
+	}
+	return true, nil
 }
 
 // tomlValue renders a Go value as the TOML literal that parses back to it.

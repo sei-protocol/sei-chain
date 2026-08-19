@@ -18,14 +18,13 @@ func (f *File) Values() (map[string]any, error) {
 		return nil, err
 	}
 	// Built rather than filtered in place, because decoded hands back the cache itself. Deleting the two
-	// describing keys from it made every later Version, Mode and Get read them as absent, and handing the
-	// cache to a caller let their own writes into it.
+	// describing keys from it made every later Version, Mode and Get read them as absent.
 	out := make(map[string]any, len(all))
 	for key, v := range all {
 		if key == VersionKey || key == ModeKey {
 			continue
 		}
-		out[key] = v
+		out[key] = handedOut(v)
 	}
 	return out, nil
 }
@@ -41,7 +40,27 @@ func (f *File) Get(key string) (any, bool, error) {
 		return nil, false, err
 	}
 	v, ok := all[path.String()]
-	return v, ok, nil
+	return handedOut(v), ok, nil
+}
+
+// handedOut returns a value a caller can change without changing what a later read answers.
+//
+// A list decodes to a slice the cache holds, so returning that slice shares its backing array, and a
+// caller sorting or index-assigning what it was given rewrites the cache. Copied on the way out rather
+// than once at decode, because a caller changes what it holds at any point after it holds it.
+//
+// Only a list needs copying. A scalar is copied by the assignment, and a leaf is never a table: an
+// inline table is refused when the file is read and cannot be written, so nothing reaches here as a map.
+func handedOut(v any) any {
+	list, ok := v.([]any)
+	if !ok {
+		return v
+	}
+	out := make([]any, len(list))
+	for i, element := range list {
+		out[i] = handedOut(element)
+	}
+	return out
 }
 
 // decoded renders the document and reads it back as Go values, keyed by dotted path.
@@ -59,8 +78,9 @@ func (f *File) Get(key string) (any, bool, error) {
 // path a later process would use, so a value this package cannot express fails here rather than on a
 // node.
 //
-// The map returned is the cache. Every caller here reads it, and one that needs to hand a map outward or
-// change it has to build its own; writing into this one would change what a later read answers.
+// The map returned is the cache, and so is every list in it. Every caller here reads them, and one that
+// hands either outward passes it through handedOut; writing into this map or a list it holds would
+// change what a later read answers.
 func (f *File) decoded() (map[string]any, error) {
 	if f.values != nil {
 		return f.values, nil

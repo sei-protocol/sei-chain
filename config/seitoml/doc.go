@@ -56,10 +56,11 @@
 // integer or a multi-line string means is a second implementation of the specification and a
 // hand-written one went wrong in four places.
 //
-// Every edit is asked the same question. Set writes the key, renders, and offers the result to the
-// decoder; if the document no longer reads, the write is undone and the key is named. So a shape nobody
-// anticipated is refused as surely as one somebody did, which is the property enumerating shapes by hand
-// could not give.
+// A new key is asked the same question where it is written. Set writes the key, renders, and offers the
+// result to the decoder; if the document no longer reads, the write is undone and the key is named. Save
+// asks again over the whole rendering, which is what covers the verbs that change no namespace, so no
+// file reaches disk unread. Together that refuses a shape nobody anticipated as surely as one somebody
+// did, which is the property enumerating shapes by hand could not give.
 //
 // Four things that decoder allows are refused anyway, because this package has to write back what it
 // reads:

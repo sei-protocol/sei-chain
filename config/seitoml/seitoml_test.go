@@ -1390,7 +1390,8 @@ func TestANameCannotBeAValueAndATableAtOnce(t *testing.T) {
 
 	t.Run("a value named like a section holding nothing", func(t *testing.T) {
 		// An empty section contributes no value, so a check over written values cannot see it.
-		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nn = 1\n")
+		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nn = 1\n"+
+			"seeds = [\"first\", \"second\"]\npairs = [[\"inner\"]]\n")
 		if _, err := f.Unset("probe.n"); err != nil {
 			t.Fatalf("Unset: %v", err)
 		}
@@ -1592,7 +1593,8 @@ func TestLandedSeparatesAnInstalledFileFromAFailedWrite(t *testing.T) {
 // cache outlived would have a read answering for the document as it used to be. What is cached, and when
 // it is dropped, is driven in the package's own tests where the field is visible.
 func TestEveryEditIsVisibleToTheNextRead(t *testing.T) {
-	f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nn = 1\n")
+	f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nn = 1\n"+
+		"seeds = [\"first\", \"second\"]\npairs = [[\"inner\"]]\n")
 
 	if values, err := f.Values(); err != nil || values["probe.n"] != int64(1) {
 		t.Fatalf("probe.n = (%#v, %v), want 1", values["probe.n"], err)
@@ -1624,11 +1626,14 @@ func TestEveryEditIsVisibleToTheNextRead(t *testing.T) {
 // TestReadingOneWayDoesNotChangeWhatAnotherAnswers holds the reads against each other.
 //
 // A read renders and decodes the document, and the result is cached so that walking every key does not
-// pay that per key. The cache is one map, so a read that filtered or handed it out would change what the
-// next read of any other kind answers: Values omits the two keys describing the file, and deleting them
-// from the shared map made Version, Mode and Get report a file that holds them as missing them.
+// pay that per key. The cache is one map holding one slice per list, so a read that filtered it, or handed
+// out either, would change what the next read of any other kind answers: Values omits the two keys
+// describing the file, and deleting them from the shared map made Version, Mode and Get report a file that
+// holds them as missing them. A list reaches the same end through its elements, since a caller sorting the
+// slice they were handed sorts the cache.
 func TestReadingOneWayDoesNotChangeWhatAnotherAnswers(t *testing.T) {
-	f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nn = 1\n")
+	f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\nn = 1\n"+
+		"seeds = [\"first\", \"second\"]\npairs = [[\"inner\"]]\n")
 
 	// Read every way, twice, in an order that would expose a read leaking into the cache.
 	for round := 1; round <= 2; round++ {
@@ -1679,6 +1684,32 @@ func TestReadingOneWayDoesNotChangeWhatAnotherAnswers(t *testing.T) {
 	}
 	if _, present := again["invented"]; present {
 		t.Error("a key the caller invented appeared in the next read")
+	}
+
+	// A list the caller was handed is theirs to change, whichever read handed it over.
+	mine["probe.seeds"].([]any)[0] = "written by the caller"
+	mine["probe.pairs"].([]any)[0].([]any)[0] = "written by the caller"
+
+	got, _, err := f.Get("probe.seeds")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if first := got.([]any)[0]; first != "first" {
+		t.Errorf("a caller's write into a list reached the next read: probe.seeds[0] = %#v, want first", first)
+	}
+	got.([]any)[1] = "written by the caller"
+
+	last, err := f.Values()
+	if err != nil {
+		t.Fatalf("Values: %v", err)
+	}
+	if second := last["probe.seeds"].([]any)[1]; second != "second" {
+		t.Errorf("a caller's write into a list reached the next read: probe.seeds[1] = %#v, want second",
+			second)
+	}
+	if inner := last["probe.pairs"].([]any)[0].([]any)[0]; inner != "inner" {
+		t.Errorf("a caller's write into a nested list reached the next read: probe.pairs[0][0] = %#v, "+
+			"want inner", inner)
 	}
 }
 
