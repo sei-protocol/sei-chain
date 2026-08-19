@@ -37,6 +37,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
+	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -48,10 +49,24 @@ var (
 	_ types.Queryable        = (*Store)(nil)
 )
 
+// stateStoreSnapshotScheduler is the commit path's half of the SS snapshot
+// contract: flush tells the state store which version it has just finished
+// enqueueing, and the store decides whether that version is a boundary.
+type stateStoreSnapshotScheduler interface {
+	ScheduleSnapshot(version int64)
+}
+
+// ss.NewStateStore returns the interface, so the capability is resolved by type
+// assertion at startup. This pins the only implementation, so wrapping the state
+// store without carrying the method through fails the build here rather than
+// silently ending SS snapshots at runtime.
+var _ stateStoreSnapshotScheduler = (*sscomposite.CompositeStateStore)(nil)
+
 type Store struct {
 	mtx            sync.RWMutex
 	scStore        sctypes.Committer
 	ssStore        seidbtypes.StateStore
+	ssSnapshots    stateStoreSnapshotScheduler
 	lastCommitInfo *types.CommitInfo
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
@@ -136,6 +151,7 @@ func NewStore(
 		scDir:              scDir,
 	}
 	if ssConfig.Enable {
+		config.AlignSSSnapshotWithSC(scConfig, &ssConfig)
 		ssStore, err := ss.NewStateStore(homeDir, ssConfig)
 		if err != nil {
 			panic(err)
@@ -150,6 +166,16 @@ func NewStore(
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
 		store.ssStore = ssStore
+		scheduler, ok := ssStore.(stateStoreSnapshotScheduler)
+		if !ok {
+			// Unreachable while CompositeStateStore is the only implementation,
+			// which the assertion above pins. Log rather than drop silently, so
+			// a wrapper that loses the method is visible as a boot line instead
+			// of as snapshots that never appear.
+			logger.Error("state store does not schedule snapshots; SS snapshots are disabled",
+				"type", fmt.Sprintf("%T", ssStore))
+		}
+		store.ssSnapshots = scheduler
 	}
 	return store
 
@@ -255,6 +281,14 @@ func (rs *Store) flush() error {
 			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
 		}
 	}
+	// Both branches above have finished handing currentVersion to SS and have
+	// enqueued nothing above it, which is what makes an SS snapshot label exact.
+	// Triggering here rather than inside either branch keeps populated and empty
+	// blocks on one path. A repeat within the same block (flush runs twice, and
+	// the second pass sees an empty changeset) is ignored by the state store.
+	if rs.ssSnapshots != nil {
+		rs.ssSnapshots.ScheduleSnapshot(currentVersion)
+	}
 	return rs.scStore.ApplyChangeSets(changeSets)
 }
 
@@ -346,6 +380,9 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		if version <= 0 {
 			version = rs.ssStore.GetLatestVersion()
 		}
+		if err := rs.validateSSReadVersion(version); err != nil {
+			return nil, err
+		}
 		// add the transient/mem stores registered in current app.
 		for k, store := range rs.ckvStores {
 			if store.GetStoreType() != types.StoreTypeIAVL {
@@ -362,6 +399,16 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	}
 
 	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
+}
+
+// validateSSReadVersion rejects a historical query below the common SS floor
+// before constructing stores that would otherwise return partial state.
+func (rs *Store) validateSSReadVersion(version int64) error {
+	earliest := rs.ssStore.GetEarliestVersion()
+	if version < earliest {
+		return fmt.Errorf("state store version %d is below earliest available version %d", version, earliest)
+	}
+	return nil
 }
 
 func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
@@ -848,6 +895,9 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 
 	// Fast path: no proof + SS enabled
 	if !needProof && rs.ssStore != nil {
+		if err := rs.validateSSReadVersion(version); err != nil {
+			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, err.Error()))
+		}
 		store := types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
 		return store.Query(ctx, req)
 	}

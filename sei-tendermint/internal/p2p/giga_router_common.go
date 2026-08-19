@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"slices"
 	"sync/atomic"
 
-	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -40,6 +39,7 @@ type gigaRouterCommon struct {
 	service *giga.Service
 	poolIn  *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
+	proxies utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
 	app     *proxy.Proxy
 
 	// inboundFullnodeCount tracks live non-committee inbound block-sync
@@ -66,15 +66,6 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
 	}
-	lastExecutedHeight := cfg.App.Info().LastBlockHeight
-	lastExecutedBlock := utils.None[atypes.GlobalBlockNumber]()
-	if lastExecutedHeight != 0 {
-		n, ok := utils.SafeCast[atypes.GlobalBlockNumber](lastExecutedHeight)
-		if !ok {
-			return nil, fmt.Errorf("invalid App.Info().LastBlockHeight = %v", lastExecutedHeight)
-		}
-		lastExecutedBlock = utils.Some(n)
-	}
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for k := range cfg.ValidatorAddrs {
@@ -88,10 +79,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
-	ds, err := data.NewState(&data.Config{
-		Registry:          registry,
-		LastExecutedBlock: lastExecutedBlock,
-	}, blockDB)
+	ds, err := data.NewState(&data.Config{Registry: registry}, blockDB)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
@@ -259,7 +247,52 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
+	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
 	return commitResp, nil
+}
+
+// manages lifecycle of evmrpc connections to validators.
+func (r *gigaRouterCommon) runEvmProxies(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for validator, addr := range r.cfg.ValidatorAddrs {
+			s.SpawnNamed(addr.String(), func() error {
+				for {
+					client, err := ethrpc.DialContext(ctx, addr.EVMRPC.String())
+					if err != nil {
+						logger.Info("evm proxy dial failed", "url", addr.EVMRPC, "err", err)
+						if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
+							return err
+						}
+						continue
+					}
+
+					for proxies := range r.proxies.Lock() {
+						proxies[validator] = client
+					}
+					<-ctx.Done()
+					client.Close()
+					for proxies := range r.proxies.Lock() {
+						if proxies[validator] == client {
+							delete(proxies, validator)
+						}
+					}
+					return ctx.Err()
+				}
+			})
+		}
+		return nil
+	})
+}
+
+// gas used, as reported by finalizeBlock() call.
+func finalizeBlockGasUsed(resp *abci.ResponseFinalizeBlock) int64 {
+	var total int64
+	for _, result := range resp.TxResults {
+		if result != nil {
+			total += max(0, result.GasUsed)
+		}
+	}
+	return total
 }
 
 // buildHashVault constructs the app-hash equivocation guard runExecute owns. By default it
@@ -515,7 +548,7 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 			Global.gigaNewConnsAt("in").Add(1)
 			Global.gigaConnsAt("in").Add(1)
 			defer Global.gigaConnsAt("in").Add(-1)
-			if err := r.service.RunInbound(ctx, server, isCommittee); err != nil {
+			if err := r.service.RunServer(ctx, server, isCommittee); err != nil {
 				return fmt.Errorf("inbound from %v: %w", key, err)
 			}
 			return nil
@@ -523,10 +556,15 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	})
 }
 
-// EvmProxy returns the shard owner's EVMRPC URL for an EVM tx sender, or
+// EvmProxy returns the shard owner's EVMRPC client for an EVM tx sender, or
 // None if the caller should handle it locally. Overridden on
 // *gigaValidatorRouter to short-circuit self-shard sends.
-func (r *gigaRouterCommon) EvmProxy(sender common.Address) utils.Option[*url.URL] {
-	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
-	return utils.Some(r.cfg.ValidatorAddrs[shardValidator].EVMRPC)
+func (r *gigaRouterCommon) evmProxy(validator atypes.PublicKey) utils.Option[*ethrpc.Client] {
+	for proxies := range r.proxies.RLock() {
+		client, ok := proxies[validator]
+		if ok {
+			return utils.Some(client)
+		}
+	}
+	return utils.None[*ethrpc.Client]()
 }

@@ -200,53 +200,12 @@ func getCommonFilterLogTests() []GetFilterLogTests {
 
 func TestFilterGetLogs(t *testing.T) {
 	t.Skip()
-	testFilterGetLogs(t, "eth", getCommonFilterLogTests())
-}
-
-func TestFilterSeiGetLogs(t *testing.T) {
-	t.Skip()
-	// make sure we pass all the eth_ namespace tests
-	testFilterGetLogs(t, "sei", getCommonFilterLogTests())
-
-	// test where we get a synthetic log
-	testFilterGetLogs(t, "sei", []GetFilterLogTests{
-		{
-			name:      "filter by single synthetic address",
-			fromBlock: "0x64",
-			toBlock:   "0x64",
-			addrs:     []common.Address{common.HexToAddress("0x1111111111111111111111111111111111111116")},
-			wantErr:   false,
-			check: func(t *testing.T, log map[string]interface{}) {
-				require.Equal(t, "0x1111111111111111111111111111111111111116", log["address"].(string))
-			},
-			wantLen: 1,
-		},
-		{
-			name:      "filter by single topic, include synethetic logs",
-			topics:    [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")}},
-			wantErr:   false,
-			fromBlock: "0x64",
-			toBlock:   "0x64",
-			check: func(t *testing.T, log map[string]interface{}) {
-				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000234", log["topics"].([]interface{})[0].(string))
-			},
-			wantLen: 1,
-		},
-		{
-			name:    "filter by single topic with default range, include synethetic logs",
-			topics:  [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")}},
-			wantErr: false,
-			check: func(t *testing.T, log map[string]interface{}) {
-				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000234", log["topics"].([]interface{})[0].(string))
-			},
-			wantLen: 1,
-		},
-	})
+	testFilterGetLogs(t, getCommonFilterLogTests())
 }
 
 func TestFilterEthEndpointReturnsNormalEvmLogEvenIfSyntheticLogIsInSameBlock(t *testing.T) {
 	t.Skip()
-	testFilterGetLogs(t, "eth", []GetFilterLogTests{
+	testFilterGetLogs(t, []GetFilterLogTests{
 		{
 			name:      "normal evm log is returned even if synthetic log is in the same block",
 			fromBlock: "0x64", // 100
@@ -262,7 +221,7 @@ func TestFilterEthEndpointReturnsNormalEvmLogEvenIfSyntheticLogIsInSameBlock(t *
 	})
 }
 
-func testFilterGetLogs(t *testing.T, namespace string, tests []GetFilterLogTests) {
+func testFilterGetLogs(t *testing.T, tests []GetFilterLogTests) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			filterCriteria := map[string]interface{}{
@@ -276,14 +235,7 @@ func testFilterGetLogs(t *testing.T, namespace string, tests []GetFilterLogTests
 				filterCriteria["fromBlock"] = tt.fromBlock
 				filterCriteria["toBlock"] = tt.toBlock
 			}
-			var resObj map[string]interface{}
-			if namespace == "eth" {
-				resObj = sendRequestGood(t, "getLogs", filterCriteria)
-			} else if namespace == "sei" {
-				resObj = sendSeiRequestGood(t, "getLogs", filterCriteria)
-			} else {
-				panic("unknown namespace")
-			}
+			resObj := sendRequestGood(t, "getLogs", filterCriteria)
 			if tt.wantErr {
 				_, ok := resObj["error"]
 				require.True(t, ok)

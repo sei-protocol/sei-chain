@@ -45,7 +45,7 @@ type HTTPConfig struct {
 	Vhosts             []string
 	DenyList           []string
 	// SeiLegacyAllowlist is BuildSeiLegacyEnabledSet(app.toml enabled_legacy_sei_apis); nil skips the HTTP gate
-	// for gated sei_* and sei2_* methods.
+	// for gated sei_* methods.
 	SeiLegacyAllowlist map[string]struct{}
 	prefix             string // path prefix on which to mount http handler
 	RPCEndpointConfig

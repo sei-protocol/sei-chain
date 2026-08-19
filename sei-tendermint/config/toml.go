@@ -137,19 +137,25 @@ log-format = "{{ .BaseConfig.LogFormat }}"
 # Path to the JSON file containing the initial validator set and other meta data
 genesis-file = "{{ js .BaseConfig.Genesis }}"
 
-# Path to the JSON file containing the private key to use for node authentication in the p2p protocol
+# A JSON file containing the private key to use for p2p authenticated encryption
 node-key-file = "{{ js .BaseConfig.NodeKey }}"
+
+# FastCheckTx bypasses application CheckTx with a stateless EVM transaction parser.
+# TEST-ONLY
+fast-check-tx = {{ .BaseConfig.FastCheckTx }}
+
+# MockApp replaces the provided ABCI application with an in-memory EVM nonce app.
+# TEST-ONLY
+mock-app = {{ .BaseConfig.MockApp }}
 
 #######################################################################
 ###                   Autobahn Configuration                        ###
 #######################################################################
 
-# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
-# Leave empty to disable Autobahn. The autobahn role follows the top-level
-# "mode" field: mode = "validator" runs the validator path; any other mode
-# runs as a fullnode that loads the committee for routing only and
-# forwards eth_sendRawTransaction to the shard owner. A warning is logged
-# at startup if mode disagrees with committee membership.
+# AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
+# configuration.
+#
+# Empty disables Autobahn.
 #
 # Placed here (as a top-level key, before any [section] header) so the
 # TOML parser sees it at root scope where mapstructure expects it — viper
@@ -346,6 +352,12 @@ allow-duplicate-ip = {{ .P2P.AllowDuplicateIP }}
 handshake-timeout = "{{ .P2P.HandshakeTimeout }}"
 dial-timeout = "{{ .P2P.DialTimeout }}"
 
+# How often the node accepts a new inbound connection. A larger interval paces
+# the accept loop more slowly; if the kernel accept backlog outpaces it, arriving
+# peers wait past handshake-timeout and the node silently stops acquiring inbound
+# peers. A value of 0 disables the limiter.
+accept-interval = "{{ .P2P.AcceptInterval }}"
+
 # Time to wait before flushing messages out on the connection
 # TODO: Remove once MConnConnection is removed.
 flush-throttle-timeout = "{{ .P2P.FlushThrottleTimeout }}"
@@ -537,49 +549,6 @@ gossip-tx-key-only = "{{ .Consensus.GossipTransactionKeyOnly }}"
 peer-gossip-sleep-duration = "{{ .Consensus.PeerGossipSleepDuration }}"
 peer-query-maj23-sleep-duration = "{{ .Consensus.PeerQueryMaj23SleepDuration }}"
 
-### Unsafe Timeout Overrides ###
-
-# These fields provide temporary overrides for the Timeout consensus parameters.
-# Use of these parameters is strongly discouraged. Using these parameters may have serious
-# liveness implications for the validator and for the chain.
-#
-# These fields will be removed from the configuration file in the v0.37 release of Tendermint.
-# For additional information, see ADR-74:
-# https://github.com/tendermint/tendermint/blob/master/docs/architecture/adr-074-timeout-params.md
-
-# This field provides an unsafe override of the Propose timeout consensus parameter.
-# This field configures how long the consensus engine will wait for a proposal block before prevoting nil.
-# If this field is set to a value greater than 0, it will take effect.
-unsafe-propose-timeout-override = "{{ .Consensus.UnsafeProposeTimeoutOverride }}"
-
-# This field provides an unsafe override of the ProposeDelta timeout consensus parameter.
-# This field configures how much the propose timeout increases with each round.
-# If this field is set to a value greater than 0, it will take effect.
-unsafe-propose-timeout-delta-override = "{{ .Consensus.UnsafeProposeTimeoutDeltaOverride }}"
-
-# This field provides an unsafe override of the Vote timeout consensus parameter.
-# This field configures how long the consensus engine will wait after
-# receiving +2/3 votes in a round.
-# If this field is set to a value greater than 0, it will take effect.
-unsafe-vote-timeout-override = "{{ .Consensus.UnsafeVoteTimeoutOverride }}"
-
-# This field provides an unsafe override of the VoteDelta timeout consensus parameter.
-# This field configures how much the vote timeout increases with each round.
-# If this field is set to a value greater than 0, it will take effect.
-unsafe-vote-timeout-delta-override = "{{ .Consensus.UnsafeVoteTimeoutDeltaOverride }}"
-
-# This field provides an unsafe override of the Commit timeout consensus parameter.
-# This field configures how long the consensus engine will wait after receiving
-# +2/3 precommits before beginning the next height.
-# If this field is set to a value greater than 0, it will take effect.
-unsafe-commit-timeout-override = "{{ .Consensus.UnsafeCommitTimeoutOverride }}"
-
-# This field provides an unsafe override of the BypassCommitTimeout consensus parameter.
-# This field configures if the consensus engine will wait for the full Commit timeout
-# before proceeding to the next height.
-# If this field is set to true, the consensus engine will proceed to the next height
-# as soon as the node has gathered votes from all of the validators on the network.
-# unsafe-bypass-commit-timeout-override = {{ .Consensus.UnsafeBypassCommitTimeoutOverride }}
 `
 
 // autoManagedConfigTemplate contains configuration sections that are auto-managed

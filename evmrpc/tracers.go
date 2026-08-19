@@ -20,7 +20,6 @@ import (
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
@@ -31,9 +30,6 @@ import (
 )
 
 const (
-	IsPanicCacheSize = 5000
-	IsPanicCacheTTL  = 1 * time.Minute
-
 	callTracerName     = evmrpcconfig.TraceTracerCall
 	prestateTracerName = evmrpcconfig.TraceTracerPrestate
 	flatCallTracerName = evmrpcconfig.TraceTracerFlatCall
@@ -51,7 +47,6 @@ type DebugAPI struct {
 	ctxProvider        func(int64) sdk.Context
 	txConfigProvider   func(int64) client.TxConfig
 	connectionType     ConnectionType
-	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
 	backend            *Backend
 	traceCallSemaphore chan struct{} // Semaphore for limiting concurrent trace calls
 	maxBlockLookback   int64
@@ -192,8 +187,6 @@ func NewDebugAPI(
 ) *DebugAPI {
 	backend := NewBackend(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks)
 	tracersAPI := tracers.NewAPI(backend)
-	evictCallback := func(key common.Hash, value bool) {}
-	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
 
 	var sem chan struct{}
 	if debugCfg.MaxConcurrentTraceCalls > 0 {
@@ -207,7 +200,6 @@ func NewDebugAPI(
 		ctxProvider:        ctxProvider,
 		txConfigProvider:   txConfigProvider,
 		connectionType:     connectionType,
-		isPanicCache:       isPanicCache,
 		backend:            backend,
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
@@ -478,61 +470,6 @@ func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
 		}
 		return bz, true
 	}
-}
-
-// isPanicOrSyntheticTx returns true if the tx isn't traceable. Legacy sei
-// block and receipt *ExcludeTraceFail endpoints use it to filter out txs
-// whose trace would be empty or meaningless.
-//
-// Per evmrpc/README.md ("Tracing Failure Management Endpoints"), the target
-// is txs "included in blocks but not executed" — pre-state-check failures
-// (nonce mismatch, insufficient funds, etc.), chain-generated synthetic
-// txs, and state-transition failures that return before Create/Call (e.g.
-// EIP-7623 floor data gas). Reverts, OOG, and other in-VM failures all ran
-// and produced traces; they stay in.
-//
-// Discriminator: receipts are written in two paths. WriteReceipt
-// (x/evm/keeper/receipt.go) covers executed txs and sets EffectiveGasPrice
-// from msg.GasPrice (>0 on chains with positive min gas price) and GasUsed
-// > 0 (intrinsic gas at minimum). The ante-deferred stub path
-// (x/evm/keeper/abci.go) writes EffectiveGasPrice=0 and GasUsed=0 for any
-// nonce-bumping ante failure — regardless of which check failed (insufficient
-// funds, fee, mempool admission, etc.). Both fields zero is the signal that
-// the tx never reached the VM. WriteReceipt may also set PreExecutionFailure
-// when Execute returned before Create/Call with non-zero gas/price.
-//
-// (This does NOT use filterTransactions's isReceiptFromAnteError. That
-// helper's post-v5.8.0 branch is intentionally narrow — PR #2343's
-// TestAnteFailureOthers explicitly requires insufficient-funds receipts to
-// be *included* in regular eth_getBlockBy* responses. *ExcludeTraceFail has
-// the opposite semantic per the README, so it needs its own check.)
-//
-//   - GetReceipt error                          → no receipt yet           → exclude
-//   - TxType == ShellEVMTxType (math.MaxUint32) → chain-generated synthetic → exclude
-//   - EffectiveGasPrice==0 && GasUsed==0        → ante-deferred stub        → exclude
-//   - PreExecutionFailure                       → no Create/Call            → exclude
-//   - anything else (success / revert / OOG)    → executed, has a trace    → include
-func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
-	if api.isPanicCache != nil {
-		if cached, ok := api.isPanicCache.Get(hash); ok {
-			return cached, nil
-		}
-	}
-
-	sdkctx := api.ctxProvider(LatestCtxHeight)
-	receipt, rerr := api.keeper.GetReceipt(sdkctx, hash)
-	if rerr != nil {
-		// No receipt: treat as panic/synthetic. Not cached — the receipt
-		// store can lag the RPC for a freshly committed tx, so this answer
-		// may flip to "include" once the write lands.
-		return true, nil
-	}
-
-	exclude := isReceiptUntraceable(receipt)
-	if api.isPanicCache != nil {
-		api.isPanicCache.Add(hash, exclude)
-	}
-	return exclude, nil
 }
 
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {

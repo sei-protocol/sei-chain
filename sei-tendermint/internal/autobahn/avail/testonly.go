@@ -13,7 +13,11 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 		for _, from := range states {
 			for _, to := range states {
 				s.Spawn(func() error {
-					sub := from.SubscribeLaneProposals(0)
+					lane, ok := from.LocalLane().Get()
+					if !ok {
+						return errors.New("SubscribeLaneProposals: no local lane")
+					}
+					sub := from.SubscribeLaneProposals(lane, 0)
 					for {
 						p, err := sub.Recv(ctx)
 						if err != nil {
@@ -56,7 +60,7 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 						qc, err := from.CommitQC(ctx, next)
 						if err != nil {
 							if errors.Is(err, types.ErrPruned) {
-								next = from.FirstCommitQC()
+								next = from.First()
 								continue
 							}
 							return err
@@ -68,21 +72,6 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 					}
 				})
 			}
-			s.Spawn(func() error {
-				next := types.RoadIndex(0)
-				for {
-					appQC, commitQC, err := from.WaitForAppQC(ctx, next)
-					if err != nil {
-						return err
-					}
-					next = appQC.Next()
-					for _, to := range states {
-						if err := to.PushAppQC(appQC, commitQC); err != nil {
-							return err
-						}
-					}
-				}
-			})
 		}
 		return nil
 	})
