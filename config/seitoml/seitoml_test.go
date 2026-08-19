@@ -1088,6 +1088,58 @@ func TestAFileDescribingItselfWithANonValueIsRefused(t *testing.T) {
 	})
 }
 
+// TestSaveRefusesADocumentParseWouldRefuse holds the writer to what the reader accepts.
+//
+// The describing keys are written through Set, which is how New puts them there, so a caller can also
+// change one to something Parse will not take. Nothing about TOML is wrong with the result, so a check
+// that only asked whether the bytes decode let it through, and the file on disk was one this package
+// could not load. The failure appears at the next boot rather than at the write that caused it.
+func TestSaveRefusesADocumentParseWouldRefuse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		edit func(*seitoml.File) error
+		want string
+	}{
+		{"a version ahead of this binary", func(f *seitoml.File) error {
+			return f.Set(seitoml.VersionKey, seitoml.SchemaVersion+1)
+		}, "newer release"},
+		{"a version below the first schema", func(f *seitoml.File) error {
+			return f.Set(seitoml.VersionKey, 0)
+		}, "first schema"},
+		{"a version that is not an integer", func(f *seitoml.File) error {
+			return f.Set(seitoml.VersionKey, "one")
+		}, "want an integer"},
+		{"no version at all", func(f *seitoml.File) error {
+			_, err := f.Unset(seitoml.VersionKey)
+			return err
+		}, "has no schema_version"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := seitoml.New("validator")
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if err := tc.edit(f); err != nil {
+				t.Fatalf("the edit itself failed, so this case drives nothing: %v", err)
+			}
+
+			path := filepath.Join(t.TempDir(), "sei.toml")
+			saveErr := f.Save(path)
+			if saveErr == nil {
+				_, loadErr := seitoml.Load(path)
+				t.Fatalf("the save was accepted, and loading what it wrote reports %v. A node reads this "+
+					"file at boot, so the failure lands there rather than at the write", loadErr)
+			}
+			if !strings.Contains(saveErr.Error(), tc.want) {
+				t.Errorf("the refusal reads %q and does not mention %q", saveErr, tc.want)
+			}
+			if _, err := os.Lstat(path); !os.IsNotExist(err) {
+				t.Errorf("the refused save left something at %s", path)
+			}
+		})
+	}
+}
+
 // TestSaveNamesThePathWhenItCannotWriteThere holds the failure an operator is most likely to hit.
 //
 // A configured directory that does not exist is an ordinary mistake, and the error has to name the path

@@ -333,8 +333,10 @@ func (f *File) Save(path string) error {
 		return err
 	}
 	// The one function every write to disk passes through, so the check belongs here rather than at each
-	// verb that edits. A verb added later cannot forget an invariant it does not have to remember.
-	if _, err := decodeBytes(raw); err != nil {
+	// verb that edits. Asked as Parse rather than as a decode, because what has to hold of a file on disk
+	// is that this package can load it, and Parse is where that is decided. A refusal added there is then
+	// enforced on the way out too, without the verb that writes having to remember it.
+	if _, err := Parse(bytes.NewReader(raw)); err != nil {
 		return err
 	}
 
