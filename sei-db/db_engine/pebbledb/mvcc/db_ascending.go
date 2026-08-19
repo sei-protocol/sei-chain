@@ -243,11 +243,7 @@ func (db *Database) iteratorAscending(ctx context.Context, storeKey string, vers
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-<<<<<<< HEAD
-	return newAscendingIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey), nil
-=======
-	return finishMVCCIterator(newAscendingIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey, db.operationMetrics))
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
+	return finishMVCCIterator(newAscendingIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey))
 }
 
 func (db *Database) reverseIteratorAscending(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
@@ -273,11 +269,7 @@ func (db *Database) reverseIteratorAscending(ctx context.Context, storeKey strin
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-<<<<<<< HEAD
-	return newAscendingIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey), nil
-=======
-	return finishMVCCIterator(newAscendingIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey, db.operationMetrics))
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
+	return finishMVCCIterator(newAscendingIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey))
 }
 
 func getMVCCSliceAscending(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {

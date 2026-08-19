@@ -33,19 +33,12 @@ type iterator struct {
 	useDefaultComparer bool
 	iterationCount     int64
 	storeKey           string
-<<<<<<< HEAD
-=======
-	operationMetrics   *pebbledbmetrics.OperationMetrics
 	ctx                context.Context
 	err                error
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 
 	closeSync sync.Once
 }
 
-<<<<<<< HEAD
-func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, useDefaultComparer bool, storeKey string) *iterator {
-=======
 func abortIfCancelled(ctx context.Context) error {
 	if ctx == nil || ctx.Done() == nil {
 		return nil
@@ -64,8 +57,7 @@ func finishMVCCIterator(itr dbm.Iterator) (dbm.Iterator, error) {
 	return itr, nil
 }
 
-func newPebbleDBIterator(ctx context.Context, src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, useDefaultComparer bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics) *iterator {
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
+func newPebbleDBIterator(ctx context.Context, src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, useDefaultComparer bool, storeKey string) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
@@ -78,11 +70,7 @@ func newPebbleDBIterator(ctx context.Context, src *pebble.Iterator, prefix, mvcc
 			reverse:            reverse,
 			useDefaultComparer: useDefaultComparer,
 			storeKey:           storeKey,
-<<<<<<< HEAD
-=======
-			operationMetrics:   operationMetrics,
 			ctx:                ctx,
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 		}
 	}
 
@@ -104,11 +92,7 @@ func newPebbleDBIterator(ctx context.Context, src *pebble.Iterator, prefix, mvcc
 		reverse:            reverse,
 		useDefaultComparer: useDefaultComparer,
 		storeKey:           storeKey,
-<<<<<<< HEAD
-=======
-		operationMetrics:   operationMetrics,
 		ctx:                ctx,
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 	}
 
 	if valid {
@@ -329,15 +313,9 @@ func (itr *iterator) Next() {
 	} else {
 		itr.nextForward()
 	}
-<<<<<<< HEAD
-=======
 	if itr.err != nil {
 		panic(itr.err)
 	}
-	if itr.Valid() {
-		itr.readCount++
-	}
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 }
 
 func (itr *iterator) Valid() bool {

@@ -1,11 +1,7 @@
 package evm
 
 import (
-<<<<<<< HEAD
-=======
 	"context"
-	"errors"
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 	"fmt"
 	"path/filepath"
 	"sync"

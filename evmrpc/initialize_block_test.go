@@ -97,7 +97,7 @@ func newInitializeBlockTestBackend(t *testing.T) (*Backend, *ethtypes.Block) {
 	}
 	return &Backend{
 			tmClient:   tm,
-			watermarks: newTestWatermarkManager(tm, 10, nil, 10),
+			watermarks: NewWatermarkManager(tm, func(int64) sdk.Context { return sdk.Context{} }, nil, nil),
 		}, ethtypes.NewBlock(
 			&ethtypes.Header{Number: big.NewInt(8), Time: 1, Difficulty: big.NewInt(0)},
 			&ethtypes.Body{},

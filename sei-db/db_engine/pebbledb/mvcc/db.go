@@ -759,11 +759,7 @@ func (db *Database) iteratorDescending(ctx context.Context, storeKey string, ver
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-<<<<<<< HEAD
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, db.config.UseDefaultComparer, storeKey), nil
-=======
-	return finishMVCCIterator(newPebbleDBIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, db.config.UseDefaultComparer, storeKey, db.operationMetrics))
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
+	return finishMVCCIterator(newPebbleDBIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, db.config.UseDefaultComparer, storeKey))
 }
 
 func (db *Database) reverseIteratorDescending(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
@@ -789,11 +785,7 @@ func (db *Database) reverseIteratorDescending(ctx context.Context, storeKey stri
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-<<<<<<< HEAD
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, db.config.UseDefaultComparer, storeKey), nil
-=======
-	return finishMVCCIterator(newPebbleDBIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, db.config.UseDefaultComparer, storeKey, db.operationMetrics))
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
+	return finishMVCCIterator(newPebbleDBIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, db.config.UseDefaultComparer, storeKey))
 }
 
 func getMVCCSliceDescending(db *pebble.DB, storeKey string, key []byte, version int64) (_ []byte, err error) {

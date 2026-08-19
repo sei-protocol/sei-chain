@@ -173,20 +173,7 @@ func (store *Store) iterator(ctx context.Context, start, end []byte, ascending b
 
 	var parent, cache types.Iterator
 
-<<<<<<< HEAD
-	if ascending {
-		parent = store.parent.Iterator(start, end)
-	} else {
-		parent = store.parent.ReverseIterator(start, end)
-	}
-=======
-	// Iterate the nearest ancestor that can hold data, skipping any run of frozen
-	// empty layers. An empty layer has no sets and no deletes, so it contributes
-	// nothing to iteration; skipping it avoids building an O(depth) chain of
-	// cacheMergeIterators over a deep snapshot stack.
-	parentStore := store.readThroughParent()
-	parent = types.IteratorOn(parentStore, ctx, start, end, ascending)
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
+	parent = types.IteratorOn(store.parent, ctx, start, end, ascending)
 	defer func() {
 		if err := recover(); err != nil {
 			// close out parent iterator, then reraise panic

@@ -237,16 +237,8 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	}
 	defer done()
 
-<<<<<<< HEAD
-	return api.tracersAPI.TraceTransaction(ctx, hash, config)
-=======
-	if config == nil {
-		config = &tracers.TraceConfig{}
-	}
-	api.clampDefaultStructLogLimit(config)
 	traced, err := api.tracersAPI.TraceTransaction(ctx, hash, config)
 	return resultUnlessExpired(ctx, traced, err)
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 }
 
 func (api *DebugAPI) tryTraceCache(hash common.Hash, config *tracers.TraceConfig) (interface{}, bool) {

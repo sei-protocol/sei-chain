@@ -49,7 +49,7 @@ func TestIteratorNextPanicsAfterCancel(t *testing.T) {
 }
 
 func TestAscendingIteratorWithCancelledContextAbortsSkip(t *testing.T) {
-	db := newAscendingIterTestDB(t)
+	db := newAscendingTestDB(t)
 
 	applyVersion(t, db, ctxIterStore, 10, []byte("aaa"), []byte("visible"))
 	for i := 0; i < 1000; i++ {

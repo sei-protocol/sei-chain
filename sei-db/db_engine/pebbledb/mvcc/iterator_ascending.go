@@ -35,18 +35,13 @@ type ascendingIterator struct {
 	reverse            bool
 	iterationCount     int64
 	storeKey           string
-<<<<<<< HEAD
-=======
-	operationMetrics   *pebbledbmetrics.OperationMetrics
 	ctx                context.Context
 	err                error
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 
 	closeSync sync.Once
 }
 
-<<<<<<< HEAD
-func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string) *ascendingIterator {
+func newAscendingIterator(ctx context.Context, src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string) *ascendingIterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &ascendingIterator{
@@ -58,22 +53,7 @@ func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byt
 			valid:    false,
 			reverse:  reverse,
 			storeKey: storeKey,
-=======
-func newAscendingIterator(ctx context.Context, src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics) *ascendingIterator {
-	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
-	if version < earliestVersion {
-		return &ascendingIterator{
-			source:           src,
-			prefix:           prefix,
-			start:            mvccStart,
-			end:              mvccEnd,
-			version:          version,
-			valid:            false,
-			reverse:          reverse,
-			storeKey:         storeKey,
-			operationMetrics: operationMetrics,
-			ctx:              ctx,
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
+			ctx:      ctx,
 		}
 	}
 
@@ -86,7 +66,6 @@ func newAscendingIterator(ctx context.Context, src *pebble.Iterator, prefix, mvc
 	}
 
 	itr := &ascendingIterator{
-<<<<<<< HEAD
 		source:   src,
 		prefix:   prefix,
 		start:    mvccStart,
@@ -95,18 +74,7 @@ func newAscendingIterator(ctx context.Context, src *pebble.Iterator, prefix, mvc
 		valid:    valid,
 		reverse:  reverse,
 		storeKey: storeKey,
-=======
-		source:           src,
-		prefix:           prefix,
-		start:            mvccStart,
-		end:              mvccEnd,
-		version:          version,
-		valid:            valid,
-		reverse:          reverse,
-		storeKey:         storeKey,
-		operationMetrics: operationMetrics,
-		ctx:              ctx,
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
+		ctx:      ctx,
 	}
 
 	if valid {
@@ -331,15 +299,9 @@ func (itr *ascendingIterator) Next() {
 	} else {
 		itr.nextForward()
 	}
-<<<<<<< HEAD
-=======
 	if itr.err != nil {
 		panic(itr.err)
 	}
-	if itr.Valid() {
-		itr.readCount++
-	}
->>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 }
 
 func (itr *ascendingIterator) Valid() bool {
