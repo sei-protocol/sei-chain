@@ -47,14 +47,11 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Committing a block that is already committed does nothing and reports success.
+	// Committing a block that is already committed does nothing and reports success. Composite's
+	// flatKVWorkingHash seals the pending block in order to hash it, and rootmulti then commits that
+	// same block, so the second call has nothing left to do.
 	//
-	// This exists for Cosmos. RootHash commits the pending block so it has something to hash, and
-	// rootmulti then calls Commit for that same block a moment later — see commitPendingBlock. Rather
-	// than have the second call fail, it returns what the first one returned.
-	//
-	// Post-Cosmos this goes away: a single call will supply a block's writes and commit them, and there
-	// will be no second commit to absorb.
+	// Post-Cosmos this goes away: one call will supply a block's writes and commit them.
 	if !s.readOnly && version > 0 && version == s.committedVersion {
 		return version, nil
 	}
