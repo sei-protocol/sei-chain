@@ -42,6 +42,9 @@ const ModeKey = "node_mode"
 const newFileMode os.FileMode = 0o600
 
 // File is a parsed sei.toml that survives editing with its comments and layout intact.
+//
+// A File is for one goroutine at a time. Reading is not a pure operation: every read decodes the
+// document and holds the result, so two concurrent reads of a shared File race.
 type File struct {
 	doc *tomledit.Document
 	// values caches the last decode, and is nil whenever the document has changed since.
@@ -295,6 +298,10 @@ func (f *File) Bytes() ([]byte, error) {
 // Save writes the document to path, atomically.
 //
 // The document is offered to the decoder first, so no file reaches disk that a node cannot read.
+//
+// A non-nil error does not always mean the values are absent from disk: ErrNotDurable reports a file
+// that is installed with its directory entry not yet flushed. Call Landed on the error rather than
+// comparing it against nil, which reads that outcome as a failed write.
 //
 // The rename makes it atomic, and the temporary file sits in the destination's own directory so the
 // rename stays within one filesystem. A crash at any point leaves either the previous file or the

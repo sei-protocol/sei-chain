@@ -31,6 +31,9 @@ func (f *File) Set(key string, v any) error {
 
 	if e := f.doc.First(path...); e != nil && e.KeyValue != nil {
 		f.changed()
+		// The comment beside a value hangs off the value, so replacing the value drops it unless it is
+		// carried across. The block above the key hangs off the key instead and survives on its own.
+		value.Trailer = e.Value.Trailer
 		e.Value = value
 		return nil
 	}

@@ -15,14 +15,17 @@ import (
 	"github.com/sei-protocol/sei-chain/config/seitoml"
 )
 
-// commented is a file written the way an operator writes one: a heading comment, a reason beside a
-// value, and a blank line for legibility.
+// commented is a file written the way an operator writes one: a heading comment, a reason above a value,
+// a reason beside another, and a blank line for legibility.
+//
+// Both comment positions are here because they are preserved by different means. A block above the key
+// hangs off the key, and a comment beside the value hangs off the value an edit replaces.
 const commented = `schema_version = 1
 node_mode = "validator"
 
 # The giga executor. Turned on after the load test in March.
 [giga_executor]
-enabled = true
+enabled = true  # Left on through the upgrade; the load test covered this path.
 # Off deliberately: this node serves historical queries and OCC cost us more than it saved.
 occ_enabled = false
 `
@@ -50,11 +53,15 @@ func render(t *testing.T, f *seitoml.File) string {
 //
 // An operator's comments are how they explain a choice to whoever reads the file next. Rewriting
 // the file from a decoded map would drop all of them, and the operator would have no way to get
-// that reasoning back. Held by editing a value that has a comment explaining it.
+// that reasoning back. Held by editing both values that carry a comment explaining them, because a
+// comment above a key and a comment beside a value survive an edit by different means.
 func TestEditingPreservesAnOperatorsComments(t *testing.T) {
 	f := parse(t, commented)
 
 	if err := f.Set("giga_executor.occ_enabled", true); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := f.Set("giga_executor.enabled", false); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -62,6 +69,7 @@ func TestEditingPreservesAnOperatorsComments(t *testing.T) {
 	for _, comment := range []string{
 		"# The giga executor. Turned on after the load test in March.",
 		"# Off deliberately: this node serves historical queries and OCC cost us more than it saved.",
+		"# Left on through the upgrade; the load test covered this path.",
 	} {
 		if !strings.Contains(got, comment) {
 			t.Errorf("editing one value dropped a comment:\n  %s\n\nThe file now reads:\n%s\n\n"+
@@ -69,11 +77,17 @@ func TestEditingPreservesAnOperatorsComments(t *testing.T) {
 				comment, got)
 		}
 	}
-	if !strings.Contains(got, "occ_enabled = true") {
-		t.Errorf("the value was not written. The file reads:\n%s", got)
+	// Anchored to the start of a line: "enabled = " is a suffix of "occ_enabled = ", so an unanchored
+	// search for one key's value finds the other's and the assertion stops discriminating.
+	for _, written := range []string{"\nocc_enabled = true", "\nenabled = false"} {
+		if !strings.Contains(got, written) {
+			t.Errorf("%q was not written. The file reads:\n%s", written, got)
+		}
 	}
-	if strings.Contains(got, "occ_enabled = false") {
-		t.Errorf("the old value is still present, so the key is written twice:\n%s", got)
+	for _, stale := range []string{"\nocc_enabled = false", "\nenabled = true"} {
+		if strings.Contains(got, stale) {
+			t.Errorf("%q is still present, so the key is written twice:\n%s", stale, got)
+		}
 	}
 }
 
@@ -794,9 +808,9 @@ func TestAMigrationCarriesTheNodeModeForward(t *testing.T) {
 //
 // The file is hand-written, and TOML gives an operator more ways to write a value than a generated
 // file would ever use: two string quotings and their multi-line forms, an integer in hex or with
-// separators, a date, an array with a comment inside it, an inline table. Each has to come back as the
-// Go value a reader compares against a default, because a shape that decodes wrongly is a value an
-// operator wrote and the node silently disagrees about.
+// separators, a float, an array with a comment inside it. Each has to come back as the Go value a
+// reader compares against a default, because a shape that decodes wrongly is a value an operator
+// wrote and the node silently disagrees about.
 func TestEveryValueShapeTomlAllowsReadsBack(t *testing.T) {
 	f := parse(t, `schema_version = 1
 node_mode = "validator"
