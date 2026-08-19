@@ -13,6 +13,7 @@ import (
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 )
 
 func TestDeposits(t *testing.T) {
@@ -166,4 +167,36 @@ func TestRefundDepositsLeavesInvalidRecipientPending(t *testing.T) {
 	require.False(t, found)
 	require.Equal(t, sdk.NewInt(100), app.BankKeeper.GetBalance(ctx, validDepositor, sdk.DefaultBondDenom).Amount)
 	require.Equal(t, castDeposit, app.BankKeeper.GetAllBalances(ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName)))
+}
+
+func TestRefundDepositsLeavesBlockedRecipientPending(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+
+	blockedDepositor := sdk.AccAddress(append(append([]byte{}, bankkeeper.CoinbaseAddressPrefix...), make([]byte, 8)...))
+	require.True(t, app.BankKeeper.CanSendTo(ctx, blockedDepositor))
+	require.True(t, app.BankKeeper.BlockedAddr(blockedDepositor))
+
+	initialBalance := sdk.NewInt(100)
+	depositAmount := sdk.NewCoins(sdk.NewInt64Coin(sdk.DefaultBondDenom, 40))
+	require.NoError(t, app.BankKeeper.AddCoins(
+		ctx,
+		blockedDepositor,
+		sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, initialBalance)),
+		true,
+	))
+	_, err = app.GovKeeper.AddDeposit(ctx, proposal.ProposalId, blockedDepositor, depositAmount)
+	require.NoError(t, err)
+
+	app.GovKeeper.RefundDeposits(ctx, proposal.ProposalId)
+
+	deposit, found := app.GovKeeper.GetDeposit(ctx, proposal.ProposalId, blockedDepositor)
+	require.True(t, found)
+	require.Equal(t, depositAmount, deposit.Amount)
+	expectedBalance := initialBalance.Sub(depositAmount.AmountOf(sdk.DefaultBondDenom))
+	require.Equal(t, expectedBalance, app.BankKeeper.GetBalance(ctx, blockedDepositor, sdk.DefaultBondDenom).Amount)
+	require.Equal(t, depositAmount, app.BankKeeper.GetAllBalances(ctx, app.AccountKeeper.GetModuleAddress(types.ModuleName)))
 }
