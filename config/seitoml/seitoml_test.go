@@ -159,16 +159,16 @@ func TestFormattingNormalizesOnceAndThenHoldsSteady(t *testing.T) {
 // A migration chain reads the version to decide which steps to run. Defaulting an absent one to
 // zero would run every step in history against a file nobody established the shape of, and the
 // result would look like a successful upgrade.
-func TestAnAbsentSchemaVersionIsAnError(t *testing.T) {
+func TestAnAbsentSchemaVersionIsRefusedAtTheDoor(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
 		{"absent", "[giga_executor]\nenabled = true\n"},
 		{"not an integer", "schema_version = \"1\"\n"},
 		{"a float", "schema_version = 1.0\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := parse(t, tc.body).Version(); err == nil {
-				t.Errorf("a %s schema version was accepted. A migration would then run against a file "+
-					"whose shape nobody established, and report success", tc.name)
+			if _, err := seitoml.Parse(strings.NewReader(tc.body)); err == nil {
+				t.Errorf("a %s schema version was accepted. Every read below would then answer from a "+
+					"file whose shape nobody established, and a migration would report success", tc.name)
 			}
 		})
 	}
@@ -985,30 +985,6 @@ func TestSetWritesIntoATableTheFileAlreadyHas(t *testing.T) {
 	}
 }
 
-// TestSetWritesATopLevelKeyIntoAFileThatStartsWithATable covers a document with no global section.
-//
-// A file whose first line is a heading has nothing above it, so writing the schema version or the node
-// mode into one has to create that space rather than fail or land inside the first table. Landing
-// inside it would make the key read as section.schema_version, which no reader asks for.
-func TestSetWritesATopLevelKeyIntoAFileThatStartsWithATable(t *testing.T) {
-	f := parse(t, "[probe]\nfirst = 1\n")
-	if err := f.Set(seitoml.ModeKey, "archive"); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-
-	reread := parse(t, render(t, f))
-	mode, err := reread.Mode()
-	if err != nil {
-		t.Fatalf("Mode after writing it into a file that had no top level: %v\n%s", err, render(t, f))
-	}
-	if mode != "archive" {
-		t.Errorf("mode read back as %q, want archive", mode)
-	}
-	if _, ok, _ := reread.Get("probe." + seitoml.ModeKey); ok {
-		t.Error("the key landed inside the first table, so it reads as one that section owns")
-	}
-}
-
 // TestAMalformedKeyIsRefusedByEveryVerbThatTakesOne holds the four entry points to one answer.
 //
 // Set, Unset and Get each take a dotted key from a caller, and a key TOML cannot express has to be
@@ -1094,16 +1070,16 @@ func TestAFileDescribingItselfWithANonValueIsRefused(t *testing.T) {
 	})
 
 	t.Run("a node mode that is not a string", func(t *testing.T) {
-		_, err := parse(t, "node_mode = 3\n").Mode()
+		_, err := parse(t, "schema_version = 1\nnode_mode = 3\n").Mode()
 		if err == nil || !strings.Contains(err.Error(), "want a mode name") {
 			t.Errorf("Mode on a numeric mode returned %v, want a refusal naming what it wanted", err)
 		}
 	})
 
 	t.Run("a schema version that is not an integer", func(t *testing.T) {
-		_, err := parse(t, "schema_version = \"one\"\n").Version()
+		_, err := seitoml.Parse(strings.NewReader("schema_version = \"one\"\n"))
 		if err == nil || !strings.Contains(err.Error(), "want an integer") {
-			t.Errorf("Version on a string version returned %v, want a refusal naming what it wanted", err)
+			t.Errorf("Parse on a string version returned %v, want a refusal naming what it wanted", err)
 		}
 	})
 }
@@ -1196,9 +1172,9 @@ func TestAListCarryingAValueThatCannotBeWrittenNamesTheElement(t *testing.T) {
 func TestAFileFromANewerReleaseIsRefused(t *testing.T) {
 	ahead := fmt.Sprintf("schema_version = %d\nnode_mode = \"validator\"\n", seitoml.SchemaVersion+1)
 
-	_, err := parse(t, ahead).Version()
+	_, err := seitoml.Parse(strings.NewReader(ahead))
 	if err == nil {
-		t.Fatal("a file from a newer release was read, so this binary would apply only the keys it " +
+		t.Fatal("a file from a newer release was accepted, so this binary would apply only the keys it " +
 			"still recognises and boot on a configuration neither release produced")
 	}
 	for _, want := range []string{
@@ -1569,10 +1545,10 @@ func TestAnUnsignedValueTooLargeToReadBackIsRefused(t *testing.T) {
 // one it gets alongside an error.
 func TestASchemaVersionBelowTheFirstOneIsRefused(t *testing.T) {
 	for _, body := range []string{"schema_version = 0\n", "schema_version = -5\n"} {
-		got, err := parse(t, body).Version()
+		_, err := seitoml.Parse(strings.NewReader(body))
 		if err == nil {
-			t.Errorf("%q read as version %d; a counter below the first schema names no shape",
-				strings.TrimSpace(body), got)
+			t.Errorf("%q was accepted; a counter below the first schema names no shape",
+				strings.TrimSpace(body))
 		} else if !strings.Contains(err.Error(), "first schema") {
 			t.Errorf("the refusal reads %q and does not say what the floor is", err)
 		}

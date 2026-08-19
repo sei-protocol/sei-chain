@@ -49,8 +49,9 @@ func (f *File) Get(key string) (any, bool, error) {
 // caller sorting or index-assigning what it was given rewrites the cache. Copied on the way out rather
 // than once at decode, because a caller changes what it holds at any point after it holds it.
 //
-// Only a list needs copying. A scalar is copied by the assignment, and a leaf is never a table: an
-// inline table is refused when the file is read and cannot be written, so nothing reaches here as a map.
+// Only a list needs copying. A scalar is copied by the assignment, and a leaf is never a table: the two
+// shapes that would put one here, an inline table and an array of tables, are both refused when the file
+// is read and neither can be written, so nothing reaches here as a map.
 func handedOut(v any) any {
 	list, ok := v.([]any)
 	if !ok {

@@ -17,6 +17,12 @@ import (
 )
 
 // SchemaVersion is the schema this binary writes and reads.
+//
+// A counter rising by one per migration, and not a release version. Most releases change no schema, so a
+// release version could not answer whether the schema moved between two of them without a
+// release-to-schema table, which is this counter reintroduced as an indirection. Releases also do not
+// form the total order a chain needs: a hotfix can ship after a later minor, so ordering steps by
+// release would run them in an order nobody intended.
 const SchemaVersion = 1
 
 // VersionKey records which schema the file follows.
@@ -67,6 +73,13 @@ func Parse(r io.Reader) (*File, error) {
 	}
 	f := &File{doc: doc}
 	if err := f.refuseUnsupportedShapes(); err != nil {
+		return nil, err
+	}
+	// The counter is read here rather than left to whoever calls Version, so no verb can answer from a
+	// file whose schema this binary does not understand. Asked at the door, every read below is reading a
+	// file whose shape is established; asked only by Version, a caller that never calls it resolves
+	// values from a file a newer release wrote and boots on a configuration neither release produced.
+	if _, err := f.Version(); err != nil {
 		return nil, err
 	}
 	return f, nil
@@ -275,7 +288,7 @@ func (f *File) Version() (int, error) {
 		return 0, fmt.Errorf("sei.toml is at %s %d, and the first schema this format had is 1. Its shape "+
 			"cannot be established, so no migration can safely run against it", VersionKey, n)
 	}
-	if int(n) > SchemaVersion {
+	if n > int64(SchemaVersion) {
 		// The rollback case, and the reason the counter exists. A release migrates the file forward on
 		// the node's own disk, so rolling the binary back does not roll the file back with it. Read
 		// anyway, this binary would silently ignore every key the newer schema added or renamed and boot
@@ -284,6 +297,9 @@ func (f *File) Version() (int, error) {
 			"newer release, so reading it would apply only the keys this binary still recognises",
 			VersionKey, n, SchemaVersion)
 	}
+	// Narrowed only past both bounds, so the counter fits whatever width int has here. Comparing after
+	// the cast let a counter too wide for int wrap into the accepted range, and the file then read as a
+	// version it does not hold.
 	return int(n), nil
 }
 
@@ -430,8 +446,10 @@ func keyOf(key string) (parser.Key, error) {
 		}
 	}
 	out := parser.Key(parts)
-	// The same rule Parse applies to a key it reads. Stated once, so a key a caller writes is a key
-	// the file reads back; checked only here, Set could write a key the next Parse refuses.
+	// Folded to lower case above and then held to the rule Parse applies, which is not quite that rule:
+	// Parse refuses an upper-case segment because a file is read lower-cased and the written name would
+	// not be the one read, where a caller naming a key has no written spelling to disagree with. Held
+	// here rather than at each verb, so Set cannot write a key the next Parse refuses.
 	if err := keyIsAddressable(out); err != nil {
 		return nil, fmt.Errorf("key %q: %w", key, err)
 	}
