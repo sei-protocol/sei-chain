@@ -125,7 +125,7 @@ func newState(
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
 		commitVotes:  utils.NewMutex(newCommitVotes()),
 
-		myView:        utils.NewAtomicSend(types.ViewSpec{CommitQC: initialInner.CommitQC, TimeoutQC: initialInner.TimeoutQC, Epoch: initialInner.epoch}),
+		myView:        utils.NewAtomicSend(types.ViewSpec{CommitQC: initialInner.spec.CommitQC, TimeoutQC: initialInner.TimeoutQC, Epoch: initialInner.spec.Epoch}),
 		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
 		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
 		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
@@ -273,7 +273,7 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 // timers, neither of which constitutes a vote.
 func (s *State) runOutputs(ctx context.Context) error {
 	return s.innerRecv.Iter(ctx, func(ctx context.Context, i inner) error {
-		vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, Epoch: i.epoch}
+		vs := types.ViewSpec{CommitQC: i.spec.CommitQC, TimeoutQC: i.TimeoutQC, Epoch: i.spec.Epoch}
 		old := s.myView.Load()
 		if old.View().Less(vs.View()) {
 			s.myView.Store(vs)
@@ -317,12 +317,12 @@ func (s *State) Run(ctx context.Context) error {
 				return nil
 			})
 		})
-		scope.SpawnNamed("pushSpecFromAvail", func() error {
+		scope.SpawnNamed("pushSpec", func() error {
 			// We pull the tip back from "avail" for dissemination. This ensures we
 			// only advance on CommitQCs that avail has verified, logged, and paired
 			// with the epoch of the next view — consensus resolves no epochs itself.
 			return s.avail.SubscribeConsensusSpec().Iter(ctx, func(ctx context.Context, spec types.ConsensusSpec) error {
-				return s.pushSpecFromAvail(spec)
+				return s.pushSpec(spec)
 			})
 		})
 		scope.SpawnNamed("pushPrepareQC", func() error {

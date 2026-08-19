@@ -15,10 +15,12 @@ import (
 // # What We Persist
 //
 // All fields are persisted atomically in a single A/B file pair (inner_a.pb/inner_b.pb):
-//   - CommitQC: justified entering the current index
+//   - CommitQCIndex: tip road index used to validate the WAL against ConsensusSpec
 //   - PrepareQC: needed for timeoutVote on restart
 //   - TimeoutQC: justified entering the current view number
 //   - CommitVote, PrepareVote, TimeoutVote: this node's votes for the current view
+//
+// Runtime CommitQC + next-view epoch live on inner.spec (ConsensusSpec), not here.
 //
 // # Why We Persist
 //
@@ -56,36 +58,54 @@ import (
 //   - Votes (prepareVote, commitVote, timeoutVote): YES — rebroadcast via sendUpdates
 //   - TimeoutQC: YES — rebroadcast via myTimeoutQC watch
 //   - CommitQC: NO — used locally for view justification but not rebroadcast;
-//     CommitQCs are served via StreamCommitQCs from the data layer, not from
-//     the persisted viewSpec. TODO: consider rebroadcasting CommitQC on restart
-//     to help peers sync faster after cluster-wide outages.
+//     the runtime tip comes from ConsensusSpec, while the WAL stores only
+//     CommitQCIndex. CommitQCs are served via StreamCommitQCs from the data
+//     layer. TODO: consider rebroadcasting CommitQC on restart to help peers
+//     sync faster after cluster-wide outages.
 type persistedInner struct {
-	CommitQC  utils.Option[*types.CommitQC]
-	PrepareQC utils.Option[*types.PrepareQC]
-	TimeoutQC utils.Option[*types.TimeoutQC]
+	CommitQCIndex utils.Option[types.RoadIndex]
+	PrepareQC     utils.Option[*types.PrepareQC]
+	TimeoutQC     utils.Option[*types.TimeoutQC]
 
 	CommitVote  utils.Option[*types.Signed[*types.CommitVote]]
 	PrepareVote utils.Option[*types.Signed[*types.PrepareVote]]
 	TimeoutVote utils.Option[*types.FullTimeoutVote]
 }
 
+// commitQCIndex returns the tip road index carried by spec, if any.
+func commitQCIndex(spec types.ConsensusSpec) utils.Option[types.RoadIndex] {
+	if cqc, ok := spec.CommitQC.Get(); ok {
+		return utils.Some(cqc.Index())
+	}
+	return utils.None[types.RoadIndex]()
+}
+
+// nextIndexOpt returns Index+1 of idx, or 0 if absent (same as types.NextIndexOpt for a tip).
+func nextIndexOpt(idx utils.Option[types.RoadIndex]) types.RoadIndex {
+	if i, ok := idx.Get(); ok {
+		return i + 1
+	}
+	return 0
+}
+
 // validate checks internal consistency and cryptographic signatures of persisted state.
-// Returns error on corrupt state.
-func (p *persistedInner) validate(ep *types.Epoch) error {
+// Returns error on corrupt state. CommitQCIndex is checked against spec by newInner first.
+func (p *persistedInner) validate(spec types.ConsensusSpec) error {
+	ep := spec.Epoch
 	// TimeoutQC index must equal NextIndexOpt(CommitQC) (i.e., CommitQC.Index+1, or 0 if missing).
 	// Since we persist the entire inner state atomically, a mismatched index is always corrupt.
 	if tqc, ok := p.TimeoutQC.Get(); ok {
 		tqcIndex := tqc.View().Index
-		expectedIndex := types.NextIndexOpt(p.CommitQC)
+		expectedIndex := types.NextIndexOpt(spec.CommitQC)
 		if tqcIndex != expectedIndex {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC has index %d but expected %d", tqcIndex, expectedIndex)
 		}
-		if err := tqc.Verify(ep, p.CommitQC); err != nil {
+		if err := tqc.Verify(ep, spec.CommitQC); err != nil {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC failed verification: %w", err)
 		}
 	}
 
-	vs := types.ViewSpec{CommitQC: p.CommitQC, TimeoutQC: p.TimeoutQC, Epoch: ep}
+	vs := types.ViewSpec{CommitQC: spec.CommitQC, TimeoutQC: p.TimeoutQC, Epoch: ep}
 	currentView := vs.View()
 	committee := ep.Committee()
 
@@ -134,12 +154,21 @@ func verifyReplicaSig[T types.Msg](c *types.Committee, v *types.Signed[T]) error
 	return v.VerifySig()
 }
 
+// walTipIndex returns NextIndexOpt of the tip recorded in the WAL, if any.
+func walTipIndex(p *pb.PersistedInner) types.RoadIndex {
+	if p == nil || p.CommitQcIndex == nil {
+		return 0
+	}
+	return types.RoadIndex(*p.CommitQcIndex) + 1
+}
+
 // innerProtoConv is a protobuf converter for persistedInner.
 var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	Encode: func(m *persistedInner) *pb.PersistedInner {
 		p := &pb.PersistedInner{}
-		if v, ok := m.CommitQC.Get(); ok {
-			p.CommitQc = types.CommitQCConv.Encode(v)
+		if idx, ok := m.CommitQCIndex.Get(); ok {
+			v := uint64(idx)
+			p.CommitQcIndex = &v
 		}
 		if v, ok := m.PrepareQC.Get(); ok {
 			p.PrepareQc = types.PrepareQCConv.Encode(v)
@@ -160,12 +189,8 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	},
 	Decode: func(p *pb.PersistedInner) (*persistedInner, error) {
 		m := &persistedInner{}
-		if p.CommitQc != nil {
-			v, err := types.CommitQCConv.Decode(p.CommitQc)
-			if err != nil {
-				return nil, fmt.Errorf("commit_qc: %w", err)
-			}
-			m.CommitQC = utils.Some(v)
+		if p.CommitQcIndex != nil {
+			m.CommitQCIndex = utils.Some(types.RoadIndex(*p.CommitQcIndex))
 		}
 		if p.PrepareQc != nil {
 			v, err := types.PrepareQCConv.Decode(p.PrepareQc)

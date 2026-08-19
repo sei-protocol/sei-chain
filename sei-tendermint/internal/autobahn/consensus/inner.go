@@ -3,10 +3,12 @@
 // # What We Persist
 //
 // All consensus state is persisted atomically in a single A/B file pair (inner_a.pb/inner_b.pb):
-//   - CommitQC: justified entering the current index
+//   - CommitQCIndex: tip road index for ErrAvailBehindConsensus on restore
 //   - TimeoutQC: justified entering the current view number
 //   - PrepareQC: needed for timeoutVote on restart
 //   - PrepareVote, CommitVote, TimeoutVote: this node's votes for the current view
+//
+// Runtime CommitQC + next-view epoch come from avail's ConsensusSpec, not the WAL.
 //
 // # Why We Persist
 //
@@ -55,8 +57,13 @@
 //   - Inconsistent state: Returns error to caller with message indicating which field is corrupt
 //     Examples of inconsistent state:
 //   - Vote from a future view (how could we vote for a view we haven't reached?)
-//   - TimeoutQC at index > 0 without CommitQC (how did we advance past index 0?)
-//   - TimeoutQC at index > CommitQC.Index + 1 (how did we skip intermediate commits?)
+//   - TimeoutQC at index > 0 without CommitQCIndex (how did we advance past index 0?)
+//   - TimeoutQC at index > CommitQCIndex + 1 (how did we skip intermediate commits?)
+//   - WAL tip ahead of ConsensusSpec: ErrAvailBehindConsensus
+//   - Spec ahead of WAL tip: install spec, discard per-view WAL state
+//   - Equal tip: keep WAL votes/QCs if persistedInner.validate(spec) passes
+//     (e.g. reject future-view votes, TimeoutQC index ≠ NextIndexOpt(spec.CommitQC),
+//     bad signatures, CommitVote without PrepareQC)
 //
 // # Write Behavior
 //
@@ -71,9 +78,10 @@
 //   - Votes (prepareVote, commitVote, timeoutVote): YES - rebroadcast via sendUpdates
 //   - TimeoutQC: YES - rebroadcast via myTimeoutQC watch
 //   - CommitQC: NO - used locally for view justification but not rebroadcast;
-//     CommitQCs are served via StreamCommitQCs from the data layer, not from
-//     the persisted viewSpec. TODO: consider rebroadcasting CommitQC on restart
-//     to help peers sync faster after cluster-wide outages.
+//     the runtime tip comes from ConsensusSpec, while the WAL stores only
+//     CommitQCIndex. CommitQCs are served via StreamCommitQCs from the data
+//     layer. TODO: consider rebroadcasting CommitQC on restart to help peers
+//     sync faster after cluster-wide outages.
 package consensus
 
 import (
@@ -93,12 +101,12 @@ const innerFile = "inner"
 
 type inner struct {
 	persistedInner
-	epoch *types.Epoch
+	spec types.ConsensusSpec
 }
 
 // View returns the current view, embedding the epoch's index.
 func (i inner) View() types.View {
-	vs := types.ViewSpec{CommitQC: i.CommitQC, TimeoutQC: i.TimeoutQC, Epoch: i.epoch}
+	vs := types.ViewSpec{CommitQC: i.spec.CommitQC, TimeoutQC: i.TimeoutQC, Epoch: i.spec.Epoch}
 	return vs.View()
 }
 
@@ -111,15 +119,16 @@ func newInner(
 	spec types.ConsensusSpec,
 ) (inner, error) {
 	var persisted persistedInner
+	persistedViewIdx := types.RoadIndex(0)
 	if p, ok := loaded.Get(); ok {
 		decoded, err := innerProtoConv.Decode(p)
 		if err != nil {
 			return inner{}, fmt.Errorf("corrupt persisted state: %w", err)
 		}
 		persisted = *decoded
+		persistedViewIdx = nextIndexOpt(persisted.CommitQCIndex)
 	}
 
-	persistedViewIdx := types.NextIndexOpt(persisted.CommitQC)
 	specViewIdx := types.NextIndexOpt(spec.CommitQC)
 	if persistedViewIdx > specViewIdx {
 		return inner{}, fmt.Errorf("%w: persisted tip %d > ConsensusSpec tip %d",
@@ -127,25 +136,24 @@ func newInner(
 	}
 
 	if specViewIdx == persistedViewIdx {
-		// Same tip: take CommitQC from the spec; keep WAL votes / view QCs.
-		out := persisted
-		out.CommitQC = spec.CommitQC
-		if err := out.validate(spec.Epoch); err != nil {
+		// Same tip: keep WAL votes / view QCs; CommitQC+epoch from the spec.
+		if err := persisted.validate(spec); err != nil {
 			return inner{}, err
 		}
-		logger.Info("restored consensus state", "state", innerProtoConv.Encode(&out))
-		return inner{persistedInner: out, epoch: spec.Epoch}, nil
+		persisted.CommitQCIndex = commitQCIndex(spec)
+		logger.Info("restored consensus state", "state", innerProtoConv.Encode(&persisted))
+		return inner{persistedInner: persisted, spec: spec}, nil
 	}
 
-	out := persistedInner{CommitQC: spec.CommitQC}
+	out := persistedInner{CommitQCIndex: commitQCIndex(spec)}
 	logger.Info("restored consensus state from avail ConsensusSpec", "state", innerProtoConv.Encode(&out))
-	return inner{persistedInner: out, epoch: spec.Epoch}, nil
+	return inner{persistedInner: out, spec: spec}, nil
 }
 
-// pushSpecFromAvail installs avail's ConsensusSpec tip and clears per-view state.
+// pushSpec installs avail's ConsensusSpec tip and clears per-view state.
 // Specs that do not advance the view are ignored, which covers the tipless spec
 // published before the first CommitQC.
-func (s *State) pushSpecFromAvail(spec types.ConsensusSpec) error {
+func (s *State) pushSpec(spec types.ConsensusSpec) error {
 	specViewIdx := types.NextIndexOpt(spec.CommitQC)
 	if specViewIdx <= s.innerRecv.Load().View().Index {
 		return nil
@@ -156,7 +164,10 @@ func (s *State) pushSpecFromAvail(spec types.ConsensusSpec) error {
 			return nil
 		}
 		// CommitQC advances to new index; clear all state for new view.
-		iSend.Store(inner{persistedInner: persistedInner{CommitQC: spec.CommitQC}, epoch: spec.Epoch})
+		iSend.Store(inner{
+			persistedInner: persistedInner{CommitQCIndex: commitQCIndex(spec)},
+			spec:           spec,
+		})
 	}
 	return nil
 }
@@ -174,7 +185,7 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 		return nil
 	}
 	// Verify checks the invariant: TimeoutQC.View().Index == CommitQC.Index + 1
-	if err := qc.Verify(i.epoch, i.CommitQC); err != nil {
+	if err := qc.Verify(i.spec.Epoch, i.spec.CommitQC); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for isend := range s.inner.Lock() {
@@ -183,7 +194,10 @@ func (s *State) pushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 			return nil
 		}
 		// TimeoutQC advances view number; clear votes and prepareQC (stale view).
-		isend.Store(inner{persistedInner: persistedInner{CommitQC: i.CommitQC, TimeoutQC: utils.Some(qc)}, epoch: i.epoch})
+		isend.Store(inner{
+			persistedInner: persistedInner{CommitQCIndex: i.CommitQCIndex, TimeoutQC: utils.Some(qc)},
+			spec:           i.spec,
+		})
 	}
 	return nil
 }

@@ -5,13 +5,14 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 // genPersistedInner generates a random persistedInner with random optional fields.
 func genPersistedInner(rng utils.Rng) *persistedInner {
 	p := &persistedInner{}
 	if rng.Intn(2) == 1 {
-		p.CommitQC = utils.Some(types.GenCommitQC(rng))
+		p.CommitQCIndex = utils.Some(types.RoadIndex(rng.Uint64()))
 	}
 	if rng.Intn(2) == 1 {
 		p.PrepareQC = utils.Some(types.GenPrepareQC(rng))
@@ -44,4 +45,15 @@ func TestPersistedInnerConv(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+func TestInnerProtoConv_WalTipIndex(t *testing.T) {
+	none := innerProtoConv.Encode(&persistedInner{})
+	require.Nil(t, none.CommitQcIndex)
+	require.Equal(t, types.RoadIndex(0), walTipIndex(none))
+
+	withTip := innerProtoConv.Encode(&persistedInner{CommitQCIndex: utils.Some(types.RoadIndex(5))})
+	require.NotNil(t, withTip.CommitQcIndex)
+	require.Equal(t, uint64(5), *withTip.CommitQcIndex)
+	require.Equal(t, types.RoadIndex(6), walTipIndex(withTip))
 }
