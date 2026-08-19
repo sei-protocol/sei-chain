@@ -151,8 +151,14 @@ resources are unlikely to experience significant benefit from using a RAM disk.
 
 `scripts/ramtest.sh` runs `go test` with `GOTMPDIR` and `TMPDIR` on a RAM-backed
 filesystem. Arguments that are not its own flags pass through to `go test`, so
-package patterns, `-run`, `-count`, `-parallel` and `-v` work as usual. `--help`
-lists the flags. Works on macOS and Linux without sudo.
+package patterns, `-run`, `-count`, `-parallel` and `-v` work as usual, and relative
+patterns resolve from the directory you run it in. `--help` lists the flags. Works on
+macOS and Linux; on Linux it prefers `/dev/shm`, falls back to a sudo-mounted tmpfs
+where that is too small, and warns and runs unaccelerated when neither is available.
+
+`scripts/ramtest_test.sh` covers the script itself and needs no RAM disk. Run it after
+changing `ramtest.sh` — particularly anything touching the state file, which is the seam
+that has produced a bug in every review of this script so far.
 
 ```bash
 scripts/ramtest.sh ./sei-db/...
@@ -165,8 +171,9 @@ scripts/ramtest.sh --down                  # release the RAM disk, not needed fo
 **Memory.** A full `./sei-db/...` run needs ~9 GiB free: ~5.5 GiB of test data plus
 ~3 GiB of concurrent test binaries. Run subtrees on a smaller host. `--size N` (GiB)
 overrides the default `clamp(RAM/2, 4, 32)`, but it is a ceiling rather than a
-reservation, so raising it neither costs nor relieves memory. Size from the peak
-each run reports.
+reservation, so raising it neither costs nor relieves memory. On the Linux `/dev/shm`
+path the request is clamped down to what that tmpfs actually has free, with a warning.
+Size from the peak each run reports.
 
 - Exit 3 means the RAM disk filled, not a test failure. Retry with a larger `--size`.
 - Exit 4 means the volume could not be released and its memory is still reserved. The
@@ -179,7 +186,9 @@ each run reports.
   failure is a real bug, not a script problem.
 - Not CI parity: `-race` is off by default, and `--ci-tags` is needed for the ledger
   tests. A green run here is not a green CI run.
-- Each worktree gets its own volume, so parallel agents do not collide.
+- Each worktree gets its own volume, so parallel agents do not collide. Within one
+  worktree only one run at a time: a second is refused, because both would share the
+  volume and wipe each other's scratch directories.
 
 ## Benchmarking
 

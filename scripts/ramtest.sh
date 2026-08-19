@@ -116,6 +116,10 @@ VOLUME_KIND=""
 # run. An existing volume cannot be resized, so this is the figure that describes it.
 RECORDED_SIZE_GB=""
 
+# The tmpfs Linux already has mounted, and the preferred home for the scratch volume there.
+# Named rather than written inline so the test suite can point it at a directory it controls.
+SHM_ROOT="/dev/shm"
+
 # Identifies the owner of a /dev/shm directory. That tmpfs is shared with every other tenant
 # on the host, so a directory found there is only ours once this file says so.
 OWNER_MARKER=".ramtest-owner"
@@ -151,12 +155,15 @@ detect_platform() {
 # The state directory must live on the real filesystem: it holds the log and the peak
 # record, which have to survive the volume being filled and then unmounted.
 init_paths() {
+	# Deliberately no cd: go test inherits this working directory and GO_TEST_ARGS is passed
+	# through verbatim, so relative package patterns have to keep meaning what the caller meant.
+	# Every path built here is absolute for the same reason.
 	REPO_ROOT=$(git rev-parse --show-toplevel)
-	cd "$REPO_ROOT"
 	STATE_DIR="$REPO_ROOT/build/.ramtest"
 	STATE_FILE="$STATE_DIR/state"
 	PEAK_FILE="$STATE_DIR/peak"
 	EXHAUSTED_FILE="$STATE_DIR/exhausted"
+	LOCK_DIR="$STATE_DIR/lock"
 	LOG_FILE="$REPO_ROOT/build/ramtest.log"
 	mkdir -p "$STATE_DIR"
 	rm -f "$PEAK_FILE" "$EXHAUSTED_FILE"
@@ -169,14 +176,20 @@ init_paths() {
 	id=$(printf '%s' "$REPO_ROOT" | cksum | cut -d' ' -f1)
 	LABEL=$(printf 'sr-%08x' "$id")
 
-	# The defaults for a cold start. load_state overrides them whenever a previous run left a
-	# record, which is the only way the sudo-tmpfs location is ever found again.
+	set_default_volume
+}
+
+# The volume this worktree uses when no record says otherwise. load_state overrides these
+# whenever a previous run left a record -- the only way the sudo-tmpfs location is ever found
+# again -- and clear_state restores them when that record goes away.
+set_default_volume() {
+	DEV=""
 	if [[ "$OS" == Darwin ]]; then
 		VOLUME_KIND=darwin
 		MNT="/Volumes/$LABEL"
 	else
 		VOLUME_KIND=shm
-		MNT="/dev/shm/$LABEL"
+		MNT="$SHM_ROOT/$LABEL"
 	fi
 }
 
@@ -217,6 +230,38 @@ resolve_size() {
 	fi
 }
 
+LOCK_HELD=false
+
+# One run per worktree. Two would share the volume and the scratch directories inside it, and
+# prepare_dirs deletes those on entry -- so the second run silently destroys the first run's
+# data mid-flight. mkdir is the atomic primitive available on both platforms; flock is not on
+# macOS.
+acquire_lock() {
+	if mkdir "$LOCK_DIR" 2>/dev/null; then
+		printf '%s\n' "$$" > "$LOCK_DIR/pid"
+		LOCK_HELD=true
+		return 0
+	fi
+
+	# A lock whose owner is gone is debris from a killed run, not a live claim.
+	local owner
+	owner=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
+	if [[ -n "$owner" ]] && kill -0 "$owner" 2>/dev/null; then
+		die "another $PROG run (pid $owner) is active in this worktree"
+	fi
+	log "clearing a lock left by a run that is no longer active"
+	rm -rf "$LOCK_DIR"
+	mkdir "$LOCK_DIR" 2>/dev/null || die "could not take the lock at $LOCK_DIR"
+	printf '%s\n' "$$" > "$LOCK_DIR/pid"
+	LOCK_HELD=true
+}
+
+release_lock() {
+	$LOCK_HELD || return 0
+	rm -rf "$LOCK_DIR"
+	LOCK_HELD=false
+}
+
 save_state() {
 	printf 'DEV=%s\nMNT=%s\nSIZE_GB=%s\nVOLUME_KIND=%s\n' \
 		"${DEV:-}" "$MNT" "$SIZE_GB" "$VOLUME_KIND" > "$STATE_FILE"
@@ -245,7 +290,13 @@ load_state() {
 	return 0
 }
 
-clear_state() { rm -f "$STATE_FILE"; }
+# Discards the record and everything restored from it together. They cannot be separated: a
+# location remembered from a record that no longer exists is one nothing will consult again,
+# while the creators below silently fall back to the defaults it overwrote.
+clear_state() {
+	rm -f "$STATE_FILE"
+	set_default_volume
+}
 
 is_mounted() { mount | grep -q " on $MNT "; }
 
@@ -330,10 +381,20 @@ create_ramdisk_darwin() {
 
 create_ramdisk_linux() {
 	local avail_gb
-	if [[ -d /dev/shm && -w /dev/shm ]]; then
-		avail_gb=$(( $(df -Pk /dev/shm | awk 'NR==2 {print $4}') / 1024 / 1024 ))
+	if [[ -d "$SHM_ROOT" && -w "$SHM_ROOT" ]]; then
+		avail_gb=$(( $(df -Pk "$SHM_ROOT" | awk 'NR==2 {print $4}') / 1024 / 1024 ))
+		# Clamped down rather than refused. /dev/shm defaults to half of RAM and so does the
+		# default --size, so the two are nominally equal and any other tenant's usage puts this
+		# under; refusing tmpfs over that difference would run the suite on disk instead. A
+		# whole GiB is the smallest request worth serving here.
+		if (( avail_gb < SIZE_GB && avail_gb >= 1 )); then
+			warn "/dev/shm has ${avail_gb} GiB available, less than the $SIZE_GB GiB asked for;"
+			warn "  using ${avail_gb} GiB. The watchdog aborts at that ceiling."
+			SIZE_GB=$avail_gb
+		fi
 		if (( avail_gb >= SIZE_GB )); then
 			VOLUME_KIND=shm
+			MNT="$SHM_ROOT/$LABEL"
 			mkdir -p -m 700 "$MNT"
 			# Stamped at creation so teardown can tell this directory apart from any other
 			# tenant's in a /dev/shm that the whole host shares.
@@ -455,6 +516,15 @@ volume_used_kb() {
 
 WATCHDOG_PID=""
 
+# The go test and tee processes, while they are running. Cleared once run_tests has reaped them,
+# so cleanup never signals a pid the kernel has since handed to someone else.
+GO_PID=""
+TEE_PID=""
+
+# The named pipe carrying go test's output to tee. Removed by cleanup rather than by run_tests,
+# so that a signal arriving mid-run does not leave it behind.
+FIFO_PATH=""
+
 # Polls the volume rather than waiting for ENOSPC, because ENOSPC surfaces deep inside a
 # Pebble compaction as an error that looks nothing like "the disk you gave me filled up".
 #
@@ -491,6 +561,35 @@ start_space_watchdog() {
 stop_space_watchdog() {
 	[[ -n "$WATCHDOG_PID" ]] && kill "$WATCHDOG_PID" 2>/dev/null || true
 	WATCHDOG_PID=""
+}
+
+# Stops whatever is still writing to the volume, so teardown cannot pull the storage out from
+# under it. On a signal nothing else sequences the two: an external TERM reaches this script
+# alone, leaving go test running against a volume about to be unmounted.
+#
+# The wait is bounded and ends in SIGKILL, because a test binary that ignores TERM must not turn
+# cleanup into a hang -- that would leave the volume up, which is the outcome cleanup exists to
+# prevent.
+stop_test_processes() {
+	local pids=() pid waited=0 alive
+	if [[ -n "${GO_PID:-}" ]]; then pids+=("$GO_PID"); fi
+	if [[ -n "${TEE_PID:-}" ]]; then pids+=("$TEE_PID"); fi
+	(( ${#pids[@]} > 0 )) || return 0
+
+	for pid in "${pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
+	while (( waited < 50 )); do
+		alive=false
+		for pid in "${pids[@]}"; do
+			kill -0 "$pid" 2>/dev/null && alive=true
+		done
+		$alive || break
+		sleep 0.1
+		waited=$(( waited + 1 ))
+	done
+	for pid in "${pids[@]}"; do kill -KILL "$pid" 2>/dev/null || true; done
+
+	GO_PID=""
+	TEE_PID=""
 }
 
 # go test flags that take their value as the following argument rather than after an "=". Their
@@ -561,21 +660,22 @@ run_tests() {
 	# can be waited on. diagnose_failure greps the log for ENOSPC, and ENOSPC lands in the
 	# last few lines, which is exactly what is still in flight when go test exits. The FIFO
 	# lives on the real filesystem because the RAM disk may be torn down before this returns.
-	local fifo="$STATE_DIR/output.fifo"
-	rm -f "$fifo"
-	mkfifo "$fifo"
+	FIFO_PATH="$STATE_DIR/output.fifo"
+	rm -f "$FIFO_PATH"
+	mkfifo "$FIFO_PATH"
 
 	set +e
-	tee "$LOG_FILE" < "$fifo" &
+	tee "$LOG_FILE" < "$FIFO_PATH" &
 	TEE_PID=$!
-	"${GO_CMD[@]}" > "$fifo" 2>&1 &
+	"${GO_CMD[@]}" > "$FIFO_PATH" 2>&1 &
 	GO_PID=$!
 	$DEGRADED || start_space_watchdog "$GO_PID"
 	wait "$GO_PID"
 	TEST_STATUS=$?
+	GO_PID=""
 	wait "$TEE_PID"
+	TEE_PID=""
 	set -e
-	rm -f "$fifo"
 	stop_space_watchdog
 	ELAPSED=$(( SECONDS - start ))
 	SWAP_AFTER=$(swap_counter)
@@ -698,9 +798,10 @@ teardown_linux() {
 		return 0
 	fi
 	# /dev/shm is shared with the rest of the host, so this deletes a directory only after
-	# confirming it is the one this worktree stamped.
-	if [[ -f "$MNT/$OWNER_MARKER" ]] && ! grep -qxF "$REPO_ROOT" "$MNT/$OWNER_MARKER"; then
-		warn "$MNT belongs to another worktree; leaving it alone"
+	# confirming it is the one this worktree stamped. An unmarked directory is somebody else's
+	# until it proves otherwise, the same standard adopt_volume applies.
+	if [[ ! -f "$MNT/$OWNER_MARKER" ]] || ! grep -qxF "$REPO_ROOT" "$MNT/$OWNER_MARKER"; then
+		warn "$MNT is not marked as this worktree's; leaving it alone"
 		return 0
 	fi
 	rm -rf "$MNT"
@@ -724,6 +825,8 @@ teardown_ramdisk() {
 cleanup() {
 	local rc=$?
 	stop_space_watchdog
+	stop_test_processes
+	[[ -n "$FIFO_PATH" ]] && rm -f "$FIFO_PATH"
 	if [[ "${CREATED_HERE:-false}" == true ]] && ! $KEEP && ! $PRINT_ENV; then
 		# A leak that goes unreported reads as a clean run, so it becomes the exit status
 		# whenever the tests themselves had nothing to say.
@@ -731,6 +834,7 @@ cleanup() {
 			rc=$EX_LEAKED
 		fi
 	fi
+	release_lock
 	exit "$rc"
 }
 
@@ -738,6 +842,12 @@ main() {
 	parse_args "$@"
 	detect_platform
 	init_paths
+
+	# Armed before the lock is taken, so every exit path releases it, and before anything is
+	# created, so a failure between creating the volume and starting the tests still hands the
+	# memory back.
+	trap cleanup EXIT INT TERM
+	acquire_lock
 
 	if $DOWN_ONLY; then
 		reap_orphans
@@ -749,9 +859,6 @@ main() {
 	resolve_size
 	build_go_test_cmd
 
-	# Armed before anything is created, so a failure between creating the volume and starting
-	# the tests still hands the memory back.
-	trap cleanup EXIT INT TERM
 	reap_orphans
 	ensure_ramdisk
 
@@ -784,4 +891,8 @@ EOF
 	diagnose_failure
 }
 
-main "$@"
+# Sourcing with RAMTEST_SOURCE_ONLY=1 defines the functions without running anything, which is
+# how scripts/ramtest_test.sh drives them.
+if [[ "${RAMTEST_SOURCE_ONLY:-}" != 1 ]]; then
+	main "$@"
+fi
