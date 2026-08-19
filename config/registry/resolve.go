@@ -1,0 +1,305 @@
+package registry
+
+import (
+	"fmt"
+	"reflect"
+	"sort"
+	"strings"
+)
+
+// Resolved is every declared key's value, plus what a caller has to be told about how it got there.
+type Resolved struct {
+	// Values carries one value per declared key.
+	Values map[string]any
+	// Overrides are the declared keys something other than this node's defaults supplied, sorted.
+	//
+	// The keys an operator has taken responsibility for, as distinct from the ones tracking the
+	// binary's judgement. This is what a diff renders.
+	Overrides []string
+	// Unknown are keys a source carried that no section declares, sorted.
+	//
+	// Reported rather than an error, because what to do about one is the caller's decision: a
+	// generate path may want to refuse, while a boot on an operator's existing file must not.
+	Unknown []string
+}
+
+// Sources are a node's configuration sources other than its defaults, which Resolve derives itself.
+//
+// A zero field contributes nothing, which is how a caller resolves deliberately without a source.
+//
+// Named fields rather than positional parameters, because File and Flags are the same type: passed
+// positionally, swapping the two compiles and silently inverts the precedence for every key both
+// supply. LookupEnv is a function rather than a map because an environment cannot be enumerated for a
+// prefix, since a variable is only findable if you already know its name.
+type Sources struct {
+	File      map[string]any
+	LookupEnv func(string) (string, bool)
+	Flags     map[string]any
+}
+
+// Resolve reduces a node's configuration sources to one value per declared key.
+//
+// The precedence is stated once, in this function, and a caller cannot reorder its way to a different
+// answer. That is the difference between a declared precedence and an emergent one: the legacy path's
+// answer depends on which viper instance a caller asked, which is why two different orders are
+// observable across its key set.
+//
+// Every declared key resolves, because the defaults are a source like any other. A key no source
+// mentions therefore carries its mode's default rather than being absent, which is what makes an
+// absent key track the binary's judgement instead of a zero value.
+//
+// That is a property of the whole answer, so a section whose defaults cannot supply it refuses the
+// resolution rather than returning one with a hole in it. A caller handed an error has no resolved
+// values; a caller handed a Resolved has one for every declared key.
+func Resolve(mode Mode, from Sources) (Resolved, error) {
+	var out Resolved
+
+	// One snapshot, read once and passed everywhere below. Every part of the answer has to describe the
+	// same registry: asking again leaves a window a concurrent registration fits through, and a section
+	// arriving in that window is declared by one part of the answer and not by another.
+	registered := Sections()
+	defaults, err := defaultValues(mode, registered)
+	if err != nil {
+		return out, err
+	}
+	declared := declaredKeys(registered)
+
+	out.Values = make(map[string]any, len(declared))
+	for key, v := range defaults {
+		out.Values[key] = v
+	}
+
+	overrides := map[string]bool{}
+	unknown := map[string]bool{}
+	// Lowest precedence first, so a later source overwrites an earlier one. The one statement of the
+	// order, which is why nothing exports it.
+	for _, values := range []map[string]any{
+		fileValues(from.File),
+		envValues(declared, from.LookupEnv),
+		from.Flags,
+	} {
+		for key, v := range values {
+			if !declared[key] {
+				// A key nothing declares cannot be resolved into anything, and silently dropping it is
+				// how an operator's typo becomes invisible.
+				unknown[key] = true
+				continue
+			}
+			out.Values[key] = v
+			overrides[key] = true
+		}
+	}
+
+	out.Overrides = sortedKeys(overrides)
+	out.Unknown = sortedKeys(unknown)
+	return out, nil
+}
+
+// sortedKeys returns a set's members in order.
+func sortedKeys(set map[string]bool) []string {
+	if len(set) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// declaredKeys is the set every layer's keys are checked against, taken from one snapshot.
+func declaredKeys(registered []Section) map[string]bool {
+	out := map[string]bool{}
+	for _, s := range registered {
+		for _, k := range s.Keys {
+			out[k] = true
+		}
+	}
+	return out
+}
+
+// defaultValues renders every section's defaults for a mode into one set of keys.
+//
+// This is a second walk, not the one that derived the keys. The two share tagOf and isLeaf and
+// nothing else, so they can and did disagree: the type walk unwraps a pointer to derive a subtree's
+// keys and the value walk skips a nil one. matchesDeclaration is what holds them together, by
+// refusing a rendered default that does not state one value per declared key.
+func defaultValues(mode Mode, registered []Section) (map[string]any, error) {
+	out := map[string]any{}
+	for _, s := range registered {
+		values, err := sectionValues(s.Name, s.Defaults(mode))
+		if err != nil {
+			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
+		}
+		if err := matchesDeclaration(s.Keys, values); err != nil {
+			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
+		}
+		for k, v := range values {
+			out[k] = v
+		}
+	}
+	return out, nil
+}
+
+// matchesDeclaration refuses a rendered default that does not state one value for each declared key.
+//
+// A declared key its default omits cannot resolve, and neither way of filling the hole is honest. A
+// zero value claims a judgement the binary never made, and dropping the key from the declared set
+// makes an operator's written value indistinguishable from a typo. An optional subtree left nil is
+// how a default arrives short, because the type walk unwraps a pointer to derive its keys and the
+// value walk skips a nil one rather than claiming defaults the section does not have.
+//
+// A default carrying a key the section does not declare means it is not the registered struct's
+// type, which is the general case the missing keys are one instance of.
+func matchesDeclaration(declared []string, values map[string]any) error {
+	stated := make(map[string]bool, len(declared))
+	var missing, extra []string
+	for _, k := range declared {
+		stated[k] = true
+		if _, ok := values[k]; !ok {
+			missing = append(missing, k)
+		}
+	}
+	for k := range values {
+		if !stated[k] {
+			extra = append(extra, k)
+		}
+	}
+	sort.Strings(missing)
+	sort.Strings(extra)
+	switch {
+	case len(missing) > 0 && len(extra) > 0:
+		return fmt.Errorf("its default states %v while the section declares %v, so the default is not "+
+			"the registered struct's type", extra, missing)
+	case len(missing) > 0:
+		return fmt.Errorf("declares %v and its default states no value for them; a section states a "+
+			"value for every key it declares, or declares against a struct without the field", missing)
+	case len(extra) > 0:
+		return fmt.Errorf("its default states %v, which the section does not declare, so the default "+
+			"carries fields the registered struct does not", extra)
+	}
+	return nil
+}
+
+// sectionValues walks a section's struct instance and returns its per-key values.
+//
+// deriveKeys walks a type and this walks a value, over the same tag rules. They are separate
+// recursions, so agreement is checked rather than structural; see matchesDeclaration.
+func sectionValues(section string, cfg any) (map[string]any, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("no value")
+	}
+	v := reflect.ValueOf(cfg)
+	for v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil, fmt.Errorf("nil %s", v.Type())
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("%s is not a struct", v.Kind())
+	}
+	out := map[string]any{}
+	if err := walkValues(v, section, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// walkValues collects the values a struct declares under prefix.
+func walkValues(v reflect.Value, prefix string, out map[string]any) error {
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if !f.IsExported() {
+			// The guard walk has on the type side, so a default's own struct cannot hide a tagged field
+			// the declaration would have refused.
+			if _, tagged := f.Tag.Lookup("mapstructure"); tagged {
+				return fmt.Errorf("%s.%s is unexported and carries a mapstructure tag; nothing can write "+
+					"to it, so the tag names a key that reaches no field", prefix, f.Name)
+			}
+			continue
+		}
+		tag, squash, err := tagOf(f, prefix)
+		if err != nil {
+			return err
+		}
+
+		fv := v.Field(i)
+		for fv.Kind() == reflect.Ptr {
+			if fv.IsNil() {
+				// A nil pointer contributes nothing rather than a zero value, so a section with an
+				// unset optional subtree does not claim defaults it does not have.
+				fv = reflect.Value{}
+				break
+			}
+			fv = fv.Elem()
+		}
+		if !fv.IsValid() {
+			continue
+		}
+
+		if squash {
+			// The guard walk has on the type side. Without it a default whose type squashes a
+			// non-struct reaches NumField on a string, and Resolve panics in a package whose whole
+			// posture is that a bad registration never does.
+			if fv.Kind() != reflect.Struct {
+				return fmt.Errorf("%s.%s is squashed but is a %s, not a struct", prefix, f.Name, fv.Kind())
+			}
+			if err := walkValues(fv, prefix, out); err != nil {
+				return err
+			}
+			continue
+		}
+		path := prefix + "." + tag
+		if fv.Kind() == reflect.Struct && !isLeaf(fv.Type()) {
+			if err := walkValues(fv, path, out); err != nil {
+				return err
+			}
+			continue
+		}
+		out[path] = fv.Interface()
+	}
+	return nil
+}
+
+// envValues reads the keys an environment supplies, from the caller's declared set.
+//
+// Driven by the declared set rather than by the environment, which is also what makes it complete:
+// every declared key has exactly one canonical spelling and this asks for all of them.
+//
+// declared is passed in rather than read here, so this shares Resolve's snapshot. Reading the registry
+// again would ask for a key the caller's declared set does not hold, and the answer would come back
+// only to be reported as one no section declares.
+func envValues(declared map[string]bool, lookup func(string) (string, bool)) map[string]any {
+	if lookup == nil {
+		return nil
+	}
+	out := map[string]any{}
+	for key := range declared {
+		// An empty value is treated as unset. A variable exported empty is far more often a shell
+		// artefact than a deliberate empty string, and the two are indistinguishable here. The cost is
+		// that clearing a key by exporting it empty reads as touching nothing, and Overrides will not
+		// mention it.
+		if v, ok := lookup(EnvName(key)); ok && v != "" {
+			out[key] = v
+		}
+	}
+	return out
+}
+
+// fileValues normalises a configuration file's keys to lower case.
+//
+// A source enumerates lower-cased while a file may not be written that way, and a key that differed
+// only in case would resolve as unknown while the operator's value went nowhere.
+func fileValues(values map[string]any) map[string]any {
+	if values == nil {
+		return nil
+	}
+	out := make(map[string]any, len(values))
+	for k, v := range values {
+		out[strings.ToLower(k)] = v
+	}
+	return out
+}
