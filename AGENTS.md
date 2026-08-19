@@ -142,6 +142,42 @@ go test ./<pkg>/...     # run a single package
 CI mirrors these checks: `.github/workflows/golangci.yml` runs golangci-lint
 v2.8.0 and `.github/workflows/go-test.yml` runs `go test -race` on Go 1.25.6.
 
+### Running tests on a RAM disk
+
+If you are running tests that use on-disk resources, consider using a RAM disk to
+speed it up. Tests under sei-db/* are very likely to benefit from this. Other tests
+may or may not benefit depending on disk utilization. Tests that do not use on-disk
+resources are unlikely to experience significant benefit from using a RAM disk.
+
+`scripts/ramtest.sh` runs `go test` with `GOTMPDIR` and `TMPDIR` on a RAM-backed
+filesystem. Arguments that are not its own flags pass through to `go test`, so
+package patterns, `-run`, `-count`, `-parallel` and `-v` work as usual. `--help`
+lists the flags. Works on macOS and Linux without sudo.
+
+```bash
+scripts/ramtest.sh ./sei-db/...
+scripts/ramtest.sh ./sei-db/state_db/sc/flatkv/... -run TestSnapshot -v
+scripts/ramtest.sh                         # whole repo (./...)
+scripts/ramtest.sh --keep ./sei-db/...     # leave the volume up for the next run
+scripts/ramtest.sh --down                  # release the RAM disk, not needed for clean run
+```
+
+**Memory.** A full `./sei-db/...` run needs ~9 GiB free: ~5.5 GiB of test data plus
+~3 GiB of concurrent test binaries. Run subtrees on a smaller host. `--size N` (GiB)
+overrides the default `clamp(RAM/2, 4, 32)`, but it is a ceiling rather than a
+reservation, so raising it neither costs nor relieves memory. Size from the peak
+each run reports.
+
+- Exit 3 means the RAM disk filled, not a test failure. Retry with a larger `--size`.
+- `peak use: 0` means the redirect did not take effect; the run was not accelerated.
+- `--keep` is sticky: a run only tears down a volume it created, so once you keep one
+  you own the teardown.
+- macOS volumes are case-sensitive (HFSX) unlike the APFS root. A new path-case
+  failure is a real bug, not a script problem.
+- Not CI parity: `-race` is off by default, and `--ci-tags` is needed for the ledger
+  tests. A green run here is not a green CI run.
+- Each worktree gets its own volume, so parallel agents do not collide.
+
 ## Benchmarking
 
 See [`benchmark/CLAUDE.md`](benchmark/CLAUDE.md) for benchmark usage, environment
