@@ -10,7 +10,6 @@ import (
 	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )
 
 func CosmosDeliverTxAnte(
@@ -18,7 +17,6 @@ func CosmosDeliverTxAnte(
 	txConfig client.TxConfig,
 	tx sdk.Tx,
 	pk paramskeeper.Keeper,
-	oraclek oraclekeeper.Keeper,
 	ek *evmkeeper.Keeper,
 	accountKeeper authkeeper.AccountKeeper,
 	bankKeeper bankkeeper.Keeper,
@@ -39,7 +37,7 @@ func CosmosDeliverTxAnte(
 		}
 	}()
 	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
-	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oraclek, ek)
+	isGasless, err := antedecorators.IsTxGasless(tx, ctx, ek)
 	if err != nil {
 		return ctx, err
 	}

@@ -6,11 +6,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
-	oracletestutils "github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 )
@@ -74,9 +71,9 @@ func (t FakeTx) FeeGranter() sdk.AccAddress {
 	return nil
 }
 
-func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) error {
+func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, evmKeeper *evmkeeper.Keeper) error {
 	anteDecorators := []sdk.AnteDecorator{
-		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{FakeAnteDecoratorGasReqd{}}, oracleKeeper, evmKeeper),
+		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{FakeAnteDecoratorGasReqd{}}, evmKeeper),
 	}
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 	fakeTx := FakeTx{
@@ -91,52 +88,15 @@ func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper orac
 	return err
 }
 
-func TestOracleVoteGasless(t *testing.T) {
-	input := oracletestutils.CreateTestInput(t)
-
-	addr := oracletestutils.Addrs[0]
-	addr1 := oracletestutils.Addrs[1]
-	valAddr, val := oracletestutils.ValAddrs[0], oracletestutils.ValPubKeys[0]
-	valAddr1, val1 := oracletestutils.ValAddrs[1], oracletestutils.ValPubKeys[1]
-	amt := sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction)
-	sh := staking.NewHandler(input.StakingKeeper)
-	ctx := input.Ctx.WithIsCheckTx(true)
-
-	// Validator created
-	_, err := sh(ctx, oracletestutils.NewTestMsgCreateValidator(valAddr, val, amt))
-	require.NoError(t, err)
-	_, err = sh(ctx, oracletestutils.NewTestMsgCreateValidator(valAddr1, val1, amt))
-	require.NoError(t, err)
-	staking.EndBlocker(ctx, input.StakingKeeper)
-
-	input.OracleKeeper.SetAggregateExchangeRateVote(ctx, valAddr, oracletypes.AggregateExchangeRateVote{})
-
-	vote1 := oracletypes.MsgAggregateExchangeRateVote{
-		Feeder:    addr.String(),
-		Validator: valAddr.String(),
+func TestOracleMessagesAreNotGasless(t *testing.T) {
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false).WithIsCheckTx(true)
+	for _, msg := range []sdk.Msg{
+		&oracletypes.MsgAggregateExchangeRateVote{},
+		&oracletypes.MsgDelegateFeedConsent{},
+	} {
+		gasless = true
+		err := CallGaslessDecoratorWithMsg(ctx, msg, nil)
+		require.NoError(t, err)
+		require.False(t, gasless)
 	}
-
-	vote2 := oracletypes.MsgAggregateExchangeRateVote{
-		Feeder:    addr1.String(),
-		Validator: valAddr1.String(),
-	}
-
-	// reset gasless
-	err = CallGaslessDecoratorWithMsg(ctx, &vote1, input.OracleKeeper, nil)
-	require.Error(t, err)
-
-	// reset gasless
-	gasless = true
-	err = CallGaslessDecoratorWithMsg(ctx, &vote2, input.OracleKeeper, nil)
-	require.NoError(t, err)
-	require.True(t, gasless)
-}
-
-func TestNonGaslessMsg(t *testing.T) {
-	// this needs to be updated if its changed from constant true
-	// reset gasless
-	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false).WithIsCheckTx(true), &oracletypes.MsgDelegateFeedConsent{}, oraclekeeper.Keeper{}, nil)
-	require.NoError(t, err)
-	require.False(t, gasless)
 }

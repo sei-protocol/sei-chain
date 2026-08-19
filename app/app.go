@@ -922,7 +922,6 @@ func New(
 		BankKeeper:     app.BankKeeper,
 		FeeGrantKeeper: &app.FeeGrantKeeper,
 		IBCKeeper:      app.IBCKeeper,
-		OracleKeeper:   app.OracleKeeper,
 		EvmKeeper:      &app.EvmKeeper,
 		ParamsKeeper:   app.ParamsKeeper,
 		UpgradeKeeper:  &app.UpgradeKeeper,
@@ -931,7 +930,6 @@ func New(
 		AccountKeeper:  app.AccountKeeper,
 		BankKeeper:     app.BankKeeper,
 		FeeGrantKeeper: &app.FeeGrantKeeper,
-		OracleKeeper:   app.OracleKeeper,
 		EvmKeeper:      &app.EvmKeeper,
 		ParamsKeeper:   app.ParamsKeeper,
 		UpgradeKeeper:  &app.UpgradeKeeper,
@@ -1030,7 +1028,6 @@ func New(
 			TXCounterStoreKey: keys[wasm.StoreKey],
 			WasmConfig:        &wasmConfig,
 			WasmKeeper:        &app.WasmKeeper,
-			OracleKeeper:      &app.OracleKeeper,
 			EVMKeeper:         &app.EvmKeeper,
 			UpgradeKeeper:     &app.UpgradeKeeper,
 			TracingInfo:       app.GetBaseApp().TracingInfo,
@@ -1456,16 +1453,10 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 	var skipMetrics bool
 	if shouldCheckGasless {
 		// Only do expensive validation for potentially gasless transactions
-		isGasless, err := antedecorators.IsTxGasless(typedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
+		isGasless, err := antedecorators.IsTxGasless(typedTx, ctx, &app.EvmKeeper)
 		if err != nil {
-			if isExpectedGaslessMetricsError(err) {
-				// ErrAggregateVoteExist is expected when checking gasless status after tx processing
-				// since oracle votes will now exist in state. We know it was gasless, skip metrics.
-				skipMetrics = true
-			} else {
-				logger.Debug("error checking if tx is gasless for metrics", "err", err)
-				// If we can't determine if it's gasless, record metrics to maintain existing behavior
-			}
+			logger.Debug("error checking if tx is gasless for metrics", "err", err)
+			// If we can't determine if it's gasless, record metrics to maintain existing behavior
 		} else if isGasless {
 			skipMetrics = true // Skip metrics for confirmed gasless transactions
 		}
@@ -1731,16 +1722,10 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 			shouldCheckGasless := app.couldBeGaslessTransaction(typedTxs[i])
 			if shouldCheckGasless {
 				// Only do expensive validation for potentially gasless transactions
-				isGasless, err := antedecorators.IsTxGasless(typedTxs[i], ctx, app.OracleKeeper, &app.EvmKeeper)
+				isGasless, err := antedecorators.IsTxGasless(typedTxs[i], ctx, &app.EvmKeeper)
 				if err != nil {
-					if isExpectedGaslessMetricsError(err) {
-						// ErrAggregateVoteExist is expected when checking gasless status after tx processing
-						// since oracle votes will now exist in state. We know it was gasless, skip metrics.
-						recordGasMetrics = false
-					} else {
-						logger.Debug("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
-						// If we can't determine if it's gasless, record metrics to maintain existing behavior
-					}
+					logger.Debug("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
+					// If we can't determine if it's gasless, record metrics to maintain existing behavior
 				} else if isGasless {
 					recordGasMetrics = false
 				}
@@ -2794,12 +2779,12 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 
 		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
 
-		// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
+		// MsgEVMTransaction cannot be gasless under IsTxGasless (only MsgAssociate can).
 		// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
 		// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
 		skipGaslessCheck := evmErr == nil && isEVM
 		if !skipGaslessCheck && app.couldBeGaslessTransaction(decodedTx) {
-			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
+			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, &app.EvmKeeper)
 			if err != nil {
 				if strings.Contains(err.Error(), "panic in IsTxGasless") {
 					// Unexpected panic: reject the entire proposal.
@@ -2870,20 +2855,6 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 	return true
 }
 
-// isExpectedGaslessMetricsError reports whether err is the well-known oracle
-// duplicate-vote error that we deliberately tolerate when collecting
-// gasless-tx metrics. errors.Is handles properly-wrapped chains; the substring
-// fallback covers chains that lost sentinel identity via %s/%v wrapping.
-func isExpectedGaslessMetricsError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
-		return true
-	}
-	return strings.Contains(err.Error(), oracletypes.ErrAggregateVoteExist.Error())
-}
-
 // couldBeGaslessTransaction is a fast heuristic that returns true when tx
 // might be gasless and a full IsTxGasless keeper check is therefore worth
 // running. It MUST be a conservative over-approximation: returning false for
@@ -2896,7 +2867,7 @@ func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
 	}
 	for _, msg := range tx.GetMsgs() {
 		switch msg.(type) {
-		case *evmtypes.MsgAssociate, *oracletypes.MsgAggregateExchangeRateVote:
+		case *evmtypes.MsgAssociate:
 			return true
 		}
 	}

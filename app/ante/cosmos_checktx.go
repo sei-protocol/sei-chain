@@ -33,7 +33,6 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
@@ -70,7 +69,6 @@ func CosmosCheckTxAnte(
 	txConfig client.TxConfig,
 	tx sdk.Tx,
 	pk paramskeeper.Keeper,
-	oraclek oraclekeeper.Keeper,
 	ek *evmkeeper.Keeper,
 	accountKeeper authkeeper.AccountKeeper,
 	bankKeeper bankkeeper.Keeper,
@@ -93,7 +91,7 @@ func CosmosCheckTxAnte(
 		}
 	}()
 	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
-	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oraclek, ek)
+	isGasless, err := antedecorators.IsTxGasless(tx, ctx, ek)
 	if err != nil {
 		return ctx, err
 	}
@@ -126,7 +124,7 @@ func CosmosCheckTxAnte(
 	}
 	ctx = DecoratePriority(ctx, priority, oracleVote)
 
-	return ctx, CheckMessage(ctx, tx, ibcKeeper, oraclek)
+	return ctx, CheckMessage(ctx, tx, ibcKeeper)
 }
 
 func HandleOutofGas(recoveredErr any, gasLimit uint64, gasConsumed uint64) error {
@@ -165,22 +163,14 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 			return false, sdkerrors.ErrUnknownExtensionOptions
 		}
 	}
-	oracleVote := false
-	otherMsg := false
+	oracleVote := len(tx.GetMsgs()) > 0
 	for _, msg := range tx.GetMsgs() {
 		switch msg.(type) {
 		case *oracletypes.MsgAggregateExchangeRateVote:
-			oracleVote = true
 		case *oracletypes.MsgDelegateFeedConsent:
-			oracleVote = true
-
 		default:
-			otherMsg = true
+			oracleVote = false
 		}
-	}
-
-	if oracleVote && otherMsg {
-		return oracleVote, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "oracle votes cannot be in the same tx as other messages")
 	}
 	if err := tx.ValidateBasic(); err != nil {
 		return oracleVote, err
@@ -629,7 +619,7 @@ func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountK
 	return events, nil
 }
 
-func CheckMessage(ctx sdk.Context, tx sdk.Tx, ibcKeeper *ibckeeper.Keeper, oracleKeeper oraclekeeper.Keeper) error {
+func CheckMessage(ctx sdk.Context, tx sdk.Tx, ibcKeeper *ibckeeper.Keeper) error {
 	// keep track of total packet messages and number of redundancies across `RecvPacket`, `AcknowledgePacket`, and `TimeoutPacket/OnClose`
 	redundancies := 0
 	packetMsgs := 0
@@ -681,28 +671,6 @@ func CheckMessage(ctx sdk.Context, tx sdk.Tx, ibcKeeper *ibckeeper.Keeper, oracl
 				return err
 			}
 
-		case *oracletypes.MsgAggregateExchangeRateVote:
-			if ctx.IsReCheckTx() {
-				continue
-			}
-			feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
-			if err != nil {
-				return err
-			}
-
-			valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
-			if err != nil {
-				return err
-			}
-
-			err = oracleKeeper.ValidateFeeder(ctx, feederAddr, valAddr)
-			if err != nil {
-				return err
-			}
-
-			if err := oracleKeeper.CheckAndSetSpamPreventionCounter(ctx, valAddr); err != nil {
-				return err
-			}
 		}
 	}
 

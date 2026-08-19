@@ -5,24 +5,20 @@ import (
 
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/seilog"
 )
 
 var logger = seilog.NewLogger("app", "antedecorators")
 
 type GaslessDecorator struct {
-	wrapped      []sdk.AnteDecorator
-	oracleKeeper oraclekeeper.Keeper
-	evmKeeper    *evmkeeper.Keeper
+	wrapped   []sdk.AnteDecorator
+	evmKeeper *evmkeeper.Keeper
 }
 
-func NewGaslessDecorator(wrapped []sdk.AnteDecorator, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) GaslessDecorator {
-	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper, evmKeeper: evmKeeper}
+func NewGaslessDecorator(wrapped []sdk.AnteDecorator, evmKeeper *evmkeeper.Keeper) GaslessDecorator {
+	return GaslessDecorator{wrapped: wrapped, evmKeeper: evmKeeper}
 }
 
 func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
@@ -30,7 +26,7 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	// eagerly set infinite gas meter so that queries performed by IsTxGasless will not incur gas cost
 	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
 
-	isGasless, err := IsTxGasless(tx, ctx, gd.oracleKeeper, gd.evmKeeper)
+	isGasless, err := IsTxGasless(tx, ctx, gd.evmKeeper)
 	if err != nil {
 		return ctx, err
 	}
@@ -70,7 +66,7 @@ func (gd GaslessDecorator) handleWrapped(ctx sdk.Context, tx sdk.Tx, simulate bo
 	return next(ctx, tx, simulate)
 }
 
-func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (isGasless bool, err error) {
+func IsTxGasless(tx sdk.Tx, ctx sdk.Context, evmKeeper *evmkeeper.Keeper) (isGasless bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error("panic recovered in IsTxGasless", "err", r)
@@ -85,11 +81,6 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, e
 	}
 	for _, msg := range tx.GetMsgs() {
 		switch m := msg.(type) {
-		case *oracletypes.MsgAggregateExchangeRateVote:
-			isGasless, err := oracleVoteIsGasless(m, ctx, oracleKeeper)
-			if err != nil || !isGasless {
-				return false, err
-			}
 		case *evmtypes.MsgAssociate:
 			if !evmAssociateIsGasless(m, ctx, evmKeeper) {
 				return false, nil
@@ -100,34 +91,6 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, e
 			return false, nil
 		}
 	}
-	return true, nil
-}
-
-func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) (bool, error) {
-	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
-	if err != nil {
-		return false, err
-	}
-
-	valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
-	if err != nil {
-		return false, err
-	}
-
-	err = keeper.ValidateFeeder(ctx, feederAddr, valAddr)
-	if err != nil {
-		return false, err
-	}
-
-	// this returns an error IFF there is no vote present
-	// this also gets cleared out after every vote window, so if there is no vote present, we may want to allow gasless tx
-	_, err = keeper.GetAggregateExchangeRateVote(ctx, valAddr)
-	if err == nil {
-		// if there is no error that means there is a vote present, so we don't allow gasless tx
-		err = sdkerrors.Wrap(oracletypes.ErrAggregateVoteExist, valAddr.String())
-		return false, err
-	}
-	// otherwise we allow it
 	return true, nil
 }
 
