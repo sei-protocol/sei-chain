@@ -169,9 +169,12 @@ reservation, so raising it neither costs nor relieves memory. Size from the peak
 each run reports.
 
 - Exit 3 means the RAM disk filled, not a test failure. Retry with a larger `--size`.
-- `peak use: 0` means the redirect did not take effect; the run was not accelerated.
+- Exit 4 means the volume could not be released and its memory is still reserved. The
+  message names the command that frees it.
+- `peak use: 0` means nothing reached the RAM disk: either the run wrote nothing, or the
+  redirect did not take effect and the run was not accelerated.
 - `--keep` is sticky: a run only tears down a volume it created, so once you keep one
-  you own the teardown.
+  you own the teardown. `--down` releases it from any later shell.
 - macOS volumes are case-sensitive (HFSX) unlike the APFS root. A new path-case
   failure is a real bug, not a script problem.
 - Not CI parity: `-race` is off by default, and `--ci-tags` is needed for the ledger

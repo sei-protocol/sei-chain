@@ -104,6 +104,26 @@ GO_TEST_ARGS=()
 # is a run that should call go test directly.
 DEGRADED=false
 
+# Where this worktree's scratch volume lives and how it has to be released. The three kinds
+# are acquired and released three different ways, and they answer "does it exist?" three
+# different ways, so every such question dispatches on this rather than on the OS.
+#   darwin -- an hdiutil ram:// device, released by detaching the device
+#   shm    -- a directory inside the pre-existing /dev/shm tmpfs, released by removing it
+#   tmpfs  -- a tmpfs this script mounted with sudo, released by unmounting it
+VOLUME_KIND=""
+
+# The --size recorded when the volume was created, as distinct from the one resolved for this
+# run. An existing volume cannot be resized, so this is the figure that describes it.
+RECORDED_SIZE_GB=""
+
+# Identifies the owner of a /dev/shm directory. That tmpfs is shared with every other tenant
+# on the host, so a directory found there is only ours once this file says so.
+OWNER_MARKER=".ramtest-owner"
+
+# What the volume reported in use before this run started writing. Subtracted from every later
+# reading so the figures describe this run rather than the volume.
+BASELINE_KB=0
+
 parse_args() {
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
@@ -143,13 +163,19 @@ init_paths() {
 
 	# Names the volume after this worktree so sibling worktrees, which this repo uses for
 	# parallel agents, cannot tear down each other's mounts. cksum rather than shasum
-	# because shasum is not universally present on Linux.
+	# because shasum is not universally present on Linux, and all 32 bits of it because
+	# discarding any of them only makes two worktrees more likely to collide on one name.
 	local id
 	id=$(printf '%s' "$REPO_ROOT" | cksum | cut -d' ' -f1)
-	LABEL=$(printf 'sr-%06x' $((id % 0xffffff)))
+	LABEL=$(printf 'sr-%08x' "$id")
+
+	# The defaults for a cold start. load_state overrides them whenever a previous run left a
+	# record, which is the only way the sudo-tmpfs location is ever found again.
 	if [[ "$OS" == Darwin ]]; then
+		VOLUME_KIND=darwin
 		MNT="/Volumes/$LABEL"
 	else
+		VOLUME_KIND=shm
 		MNT="/dev/shm/$LABEL"
 	fi
 }
@@ -191,24 +217,82 @@ resolve_size() {
 	fi
 }
 
-save_state() { printf 'DEV=%s\nMNT=%s\nSIZE_GB=%s\n' "${DEV:-}" "$MNT" "$SIZE_GB" > "$STATE_FILE"; }
+save_state() {
+	printf 'DEV=%s\nMNT=%s\nSIZE_GB=%s\nVOLUME_KIND=%s\n' \
+		"${DEV:-}" "$MNT" "$SIZE_GB" "$VOLUME_KIND" > "$STATE_FILE"
+}
+
+# Restores the volume's identity from the record left by the run that created it. Creation and
+# teardown happen in different processes whenever --keep is used, so everything teardown needs
+# -- the device to detach, the mount point, the kind, and the size named in the leak warning --
+# has to survive that gap. Nothing outside this function reads the state file.
+#
+# SIZE_GB is restored only when this run has not resolved one of its own, so a --size flag
+# still wins for the run that is about to happen while a teardown-only run still learns the
+# size it is releasing.
+load_state() {
+	[[ -f "$STATE_FILE" ]] || return 0
+	local key value
+	while IFS='=' read -r key value; do
+		case "$key" in
+		DEV) DEV="$value" ;;
+		MNT) [[ -n "$value" ]] && MNT="$value" ;;
+		VOLUME_KIND) [[ -n "$value" ]] && VOLUME_KIND="$value" ;;
+		SIZE_GB) RECORDED_SIZE_GB="$value" ;;
+		esac
+	done < "$STATE_FILE"
+	[[ -z "$SIZE_GB" ]] && SIZE_GB="$RECORDED_SIZE_GB"
+	return 0
+}
+
 clear_state() { rm -f "$STATE_FILE"; }
 
 is_mounted() { mount | grep -q " on $MNT "; }
 
-# Reconciles the state file against reality. A state file with no mount is the residue of a
-# killed run and is simply cleared; a mount with no state file is only adopted once it is
-# confirmed to be our own RAM volume, because force-detaching an unidentified volume could
-# destroy a real one.
+# Whether this run's ram:// device is still attached, mounted or not. A format that failed
+# leaves exactly that state, and the device holds its full reservation either way.
+device_attached() {
+	[[ -n "${DEV:-}" ]] || return 1
+	hdiutil info | awk '{print $1}' | grep -qxF "$DEV"
+}
+
+# Whether this worktree's scratch volume is present, in whatever sense its kind makes it
+# releasable. The /dev/shm kind is a directory inside a tmpfs the host already had mounted,
+# where a mount check can only ever answer false; a Darwin device outlives its mount.
+volume_exists() {
+	case "$VOLUME_KIND" in
+	shm) [[ -d "$MNT" ]] ;;
+	darwin) is_mounted || device_attached ;;
+	*) is_mounted ;;
+	esac
+}
+
+# Confirms a volume found without a state file is one of ours before any teardown path can act
+# on it, because force-detaching or deleting an unidentified volume could destroy a real one.
+adopt_volume() {
+	case "$VOLUME_KIND" in
+	darwin)
+		diskutil info "$MNT" 2>/dev/null | grep -q 'Volume Name:.*'"$LABEL" ||
+			die "$MNT is mounted but is not a $PROG volume; refusing to touch it"
+		DEV=$(mount | awk -v m="$MNT" '$3 == m {print $1}')
+		;;
+	shm)
+		[[ -f "$MNT/$OWNER_MARKER" ]] && grep -qxF "$REPO_ROOT" "$MNT/$OWNER_MARKER" || {
+			warn "$MNT exists but carries no ownership marker for $REPO_ROOT."
+			die "refusing to touch it; remove it by hand if it is yours: rm -rf $MNT"
+		}
+		;;
+	esac
+	save_state
+}
+
+# Reconciles the state file against reality. A record with no volume is the residue of a killed
+# run and is simply cleared; a volume with no record is adopted once it is confirmed to be ours.
 reap_orphans() {
-	if is_mounted; then
-		if [[ ! -f "$STATE_FILE" ]] && [[ "$OS" == Darwin ]]; then
-			diskutil info "$MNT" 2>/dev/null | grep -q 'Volume Name:.*'"$LABEL" ||
-				die "$MNT is mounted but is not a $PROG volume; refusing to touch it"
-			DEV=$(mount | awk -v m="$MNT" '$3 == m {print $1}')
-			save_state
-		fi
-		return
+	load_state
+	if volume_exists; then
+		[[ -f "$STATE_FILE" ]] || adopt_volume
+		return 0
 	fi
 	[[ -f "$STATE_FILE" ]] && { log "clearing stale state from an interrupted run"; clear_state; }
 	return 0
@@ -220,6 +304,11 @@ create_ramdisk_darwin() {
 	DEV=$(hdiutil attach -nomount "ram://$sectors")
 	DEV="${DEV//[[:space:]]/}"
 	[[ -n "$DEV" ]] || die "hdiutil attach returned no device"
+	# Claimed the moment the device exists rather than once it is usable. It is already holding
+	# its reservation here, so a format that fails still has to leave the exit trap able to
+	# release it and a later --down able to find it.
+	CREATED_HERE=true
+	save_state
 	# HFSX is case-sensitive, unjournaled HFS+: the cheapest create/unlink path, which is
 	# what this workload is. Case sensitivity also matches Linux and CI, so a case-collision
 	# bug surfaces here rather than only in CI.
@@ -228,7 +317,6 @@ create_ramdisk_darwin() {
 	# Written before any test data lands, or fseventsd indexes a volume full of SST files.
 	: > "$MNT/.metadata_never_index" 2>/dev/null || true
 	mkdir -p "$MNT/.fseventsd" 2>/dev/null && : > "$MNT/.fseventsd/no_log" 2>/dev/null || true
-	CREATED_HERE=true
 	log "created $SIZE_GB GiB case-sensitive HFS+ RAM disk at $MNT ($DEV)"
 }
 
@@ -237,8 +325,13 @@ create_ramdisk_linux() {
 	if [[ -d /dev/shm && -w /dev/shm ]]; then
 		avail_gb=$(( $(df -Pk /dev/shm | awk 'NR==2 {print $4}') / 1024 / 1024 ))
 		if (( avail_gb >= SIZE_GB )); then
+			VOLUME_KIND=shm
 			mkdir -p -m 700 "$MNT"
+			# Stamped at creation so teardown can tell this directory apart from any other
+			# tenant's in a /dev/shm that the whole host shares.
+			printf '%s\n' "$REPO_ROOT" > "$MNT/$OWNER_MARKER"
 			CREATED_HERE=true
+			save_state
 			log "using /dev/shm (tmpfs, ${avail_gb} GiB available) at $MNT"
 			return
 		fi
@@ -246,14 +339,15 @@ create_ramdisk_linux() {
 	fi
 
 	if sudo -n true 2>/dev/null; then
+		VOLUME_KIND=tmpfs
 		MNT="/mnt/$LABEL"
 		sudo mkdir -p "$MNT"
 		# nr_inodes=0 lifts the inode cap; a full run creates tens of thousands of files.
 		sudo mount -t tmpfs -o "size=${SIZE_GB}G,mode=0700,noatime,nr_inodes=0" "$LABEL" "$MNT" ||
 			die "mounting tmpfs at $MNT failed"
 		sudo chown "$(id -u):$(id -g)" "$MNT"
-		TMPFS_MOUNTED=true
 		CREATED_HERE=true
+		save_state
 		log "mounted $SIZE_GB GiB tmpfs at $MNT"
 		return
 	fi
@@ -262,9 +356,15 @@ create_ramdisk_linux() {
 }
 
 ensure_ramdisk() {
-	if is_mounted; then
+	# A volume that was already here is reused rather than recreated, and deliberately not
+	# claimed with CREATED_HERE: whoever kept it owns its teardown.
+	if volume_exists; then
 		log "reusing the RAM disk already at $MNT"
-		[[ -f "$STATE_FILE" ]] && DEV=$(awk -F= '/^DEV=/ {print $2}' "$STATE_FILE")
+		if [[ -n "$RECORDED_SIZE_GB" && "$RECORDED_SIZE_GB" != "$SIZE_GB" ]]; then
+			warn "this volume was created at $RECORDED_SIZE_GB GiB and cannot be resized;"
+			warn "  the requested $SIZE_GB GiB does not apply. Run --down first to change it."
+			SIZE_GB="$RECORDED_SIZE_GB"
+		fi
 		return
 	fi
 
@@ -283,7 +383,6 @@ ensure_ramdisk() {
 			return
 		}
 	fi
-	save_state
 }
 
 # A reused volume carries the debris of whatever the last run left behind when it was
@@ -310,21 +409,53 @@ swap_counter() {
 	fi
 }
 
-mount_used_pct() { df -Pk "$MNT" | awk 'NR==2 {gsub(/%/, "", $5); print $5}'; }
-mount_used_kb()  { df -Pk "$MNT" | awk 'NR==2 {print $3}'; }
+# Kilobytes the volume reports in use, this run's and anything else's alike. On a volume of our
+# own the filesystem's own accounting is exact and costs nothing, but inside /dev/shm it would
+# count every other tenant on the host, so there the directory has to be walked instead.
+volume_used_raw_kb() {
+	case "$VOLUME_KIND" in
+	shm) du -sk "$MNT" 2>/dev/null | awk '{print $1}' ;;
+	*) df -Pk "$MNT" | awk 'NR==2 {print $3}' ;;
+	esac
+}
+
+# What the volume already reported before this run wrote anything. A freshly formatted HFS+
+# volume is tens of megabytes, not zero, and the /dev/shm directory carries its owner marker.
+record_baseline_usage() { BASELINE_KB=$(volume_used_raw_kb); }
+
+# Kilobytes this run has written. Everything downstream -- the watchdog's threshold, the peak
+# in the report, and the check that anything reached the RAM disk at all -- is about this run's
+# own consumption, so the volume's own overhead is not part of it.
+volume_used_kb() {
+	local raw
+	raw=$(volume_used_raw_kb) || return 1
+	[[ -n "$raw" ]] || return 1
+	if (( raw > BASELINE_KB )); then
+		printf '%s\n' $(( raw - BASELINE_KB ))
+	else
+		printf '0\n'
+	fi
+}
 
 WATCHDOG_PID=""
 
-# Polls the mount rather than waiting for ENOSPC, because ENOSPC surfaces deep inside a
+# Polls the volume rather than waiting for ENOSPC, because ENOSPC surfaces deep inside a
 # Pebble compaction as an error that looks nothing like "the disk you gave me filled up".
+#
+# Fullness is measured against --size, not against the filesystem's own capacity, so that this
+# watchdog, report and diagnose_failure all judge against one ceiling. Under /dev/shm the
+# filesystem's capacity is the whole host's, which would make --size no ceiling at all.
 start_space_watchdog() {
 	local target_pid=$1
 	(
-		local pct used
+		local pct used cap_kb
+		cap_kb=$(( SIZE_GB * 1024 * 1024 ))
 		printf '0\n' > "$PEAK_FILE"
 		while kill -0 "$target_pid" 2>/dev/null; do
-			pct=$(mount_used_pct 2>/dev/null || echo 0)
-			used=$(mount_used_kb 2>/dev/null || echo 0)
+			used=$(volume_used_kb 2>/dev/null || echo 0)
+			[[ -n "$used" ]] || used=0
+			pct=0
+			(( cap_kb > 0 )) && pct=$(( used * 100 / cap_kb ))
 			(( used > $(cat "$PEAK_FILE") )) && printf '%s\n' "$used" > "$PEAK_FILE"
 			if (( pct >= 98 )); then
 				: > "$EXHAUSTED_FILE"
@@ -346,19 +477,62 @@ stop_space_watchdog() {
 	WATCHDOG_PID=""
 }
 
+# go test flags that take their value as the following argument rather than after an "=". Their
+# values are ordinary words like "1" or "TestFoo", and counting one of those as a package is
+# what silently turns a whole-tree run into a root-package-only run that still exits 0.
+VALUE_FLAGS="
+-run -bench -benchtime -fuzz -fuzztime -fuzzminimizetime -list -count -timeout -parallel -cpu
+-shuffle -tags -coverprofile -covermode -coverpkg -cpuprofile -memprofile -memprofilerate
+-blockprofile -blockprofilerate -mutexprofile -mutexprofilefraction -trace -outputdir -exec
+-o -p -gcflags -ldflags -asmflags -gccgoflags -overlay -pkgdir -toolexec -mod -modfile
+-buildmode -compiler -installsuffix -testlogfile
+"
+
+takes_separate_value() { [[ " $(echo $VALUE_FLAGS) " == *" $1 "* ]]; }
+
+# Whether an argument names packages. go's patterns are import paths, so they are relative,
+# absolute, domain-qualified, or the reserved word "all" -- a shape no flag value shares.
+is_package_pattern() {
+	case "$1" in
+	all | . | ./* | ../* | /*) return 0 ;;
+	*.*/*) return 0 ;;
+	esac
+	return 1
+}
+
 build_go_test_cmd() {
 	GO_CMD=(go test)
 	$USE_RACE && GO_CMD+=(-race)
 	$USE_CI_TAGS && GO_CMD+=("-tags=$CI_TAGS")
 
-	local has_pkg=false has_timeout=false arg
+	local has_pkg=false has_timeout=false skip_next=false arg
 	for arg in ${GO_TEST_ARGS+"${GO_TEST_ARGS[@]}"}; do
-		[[ "$arg" == -* ]] || has_pkg=true
 		[[ "$arg" == -timeout* ]] && has_timeout=true
+		# Everything past -args belongs to the test binary, so it names nothing here.
+		[[ "$arg" == -args ]] && break
+		if $skip_next; then
+			skip_next=false
+			continue
+		fi
+		if [[ "$arg" == -* ]]; then
+			takes_separate_value "$arg" && skip_next=true
+			continue
+		fi
+		is_package_pattern "$arg" && has_pkg=true
 	done
 	$has_timeout || GO_CMD+=(-timeout=30m)
-	GO_CMD+=(${GO_TEST_ARGS+"${GO_TEST_ARGS[@]}"})
-	$has_pkg || GO_CMD+=(./...)
+
+	# The default package has to precede -args, because go hands everything after that to the
+	# test binary, where a package pattern would be read as one of its arguments.
+	local placed=$has_pkg
+	for arg in ${GO_TEST_ARGS+"${GO_TEST_ARGS[@]}"}; do
+		if ! $placed && [[ "$arg" == -args ]]; then
+			GO_CMD+=(./...)
+			placed=true
+		fi
+		GO_CMD+=("$arg")
+	done
+	$placed || GO_CMD+=(./...)
 }
 
 run_tests() {
@@ -369,13 +543,26 @@ run_tests() {
 
 	SWAP_BEFORE=$(swap_counter)
 	local start=$SECONDS
+
+	# An explicit FIFO rather than a process substitution, so that tee's pid is knowable and
+	# can be waited on. diagnose_failure greps the log for ENOSPC, and ENOSPC lands in the
+	# last few lines, which is exactly what is still in flight when go test exits. The FIFO
+	# lives on the real filesystem because the RAM disk may be torn down before this returns.
+	local fifo="$STATE_DIR/output.fifo"
+	rm -f "$fifo"
+	mkfifo "$fifo"
+
 	set +e
-	"${GO_CMD[@]}" > >(tee "$LOG_FILE") 2>&1 &
+	tee "$LOG_FILE" < "$fifo" &
+	TEE_PID=$!
+	"${GO_CMD[@]}" > "$fifo" 2>&1 &
 	GO_PID=$!
 	$DEGRADED || start_space_watchdog "$GO_PID"
 	wait "$GO_PID"
 	TEST_STATUS=$?
+	wait "$TEE_PID"
 	set -e
+	rm -f "$fifo"
 	stop_space_watchdog
 	ELAPSED=$(( SECONDS - start ))
 	SWAP_AFTER=$(swap_counter)
@@ -400,8 +587,8 @@ report() {
 		log "location: $MNT (${fstype:-unknown}, $SIZE_GB GiB)"
 		log "peak use: $(( peak_kb / 1024 )) MiB of $(( SIZE_GB * 1024 )) MiB"
 		if (( peak_kb == 0 )); then
-			warn "peak usage was zero -- nothing was written to the RAM disk, so TMPDIR did"
-			warn "  not take effect and this run was not accelerated."
+			warn "nothing was written to the RAM disk. Either this run had no test data to"
+			warn "  write, or TMPDIR did not take effect and it was not accelerated."
 		fi
 		du -sh "$MNT"/tmp "$MNT"/gotmp 2>/dev/null | sed "s/^/$PROG: usage  : /" || true
 	fi
@@ -468,38 +655,55 @@ diagnose_failure() {
 
 teardown_darwin() {
 	diskutil unmount "$MNT" >/dev/null 2>&1 || diskutil unmount force "$MNT" >/dev/null 2>&1 || true
-	# Unmounting alone does not hand the memory back; only detaching the device does.
-	if [[ -n "${DEV:-}" ]]; then
-		hdiutil detach "$DEV" >/dev/null 2>&1 || hdiutil detach -force "$DEV" >/dev/null 2>&1 || {
-			warn "could not detach $DEV; $SIZE_GB GiB of memory stays reserved until you run:"
-			warn "  hdiutil detach -force $DEV"
-			return $EX_LEAKED
-		}
+	# Unmounting alone does not hand the memory back; only detaching the device does. Every
+	# Darwin release passes through here, so not knowing the device is reported as the leak it
+	# is rather than being taken for a clean teardown.
+	if [[ -z "${DEV:-}" ]]; then
+		warn "no device recorded for $MNT, so it could not be detached and its memory stays"
+		warn "  reserved. Find it and release it with:"
+		warn "  hdiutil info | grep -B12 $LABEL"
+		return $EX_LEAKED
 	fi
+	hdiutil detach "$DEV" >/dev/null 2>&1 || hdiutil detach -force "$DEV" >/dev/null 2>&1 || {
+		warn "could not detach $DEV; ${SIZE_GB:-?} GiB of memory stays reserved until you run:"
+		warn "  hdiutil detach -force $DEV"
+		return $EX_LEAKED
+	}
 	return 0
 }
 
 teardown_linux() {
-	if [[ "${TMPFS_MOUNTED:-false}" == true ]]; then
+	if [[ "$VOLUME_KIND" == tmpfs ]]; then
+		# Unmounting is what returns the pages. Deleting through a live mount would empty it
+		# and leave the mount, which is worse than leaving it alone.
 		sudo umount "$MNT" 2>/dev/null || {
-			warn "could not unmount $MNT; run: sudo umount $MNT"
+			warn "could not unmount $MNT; $SIZE_GB GiB stays reserved until you run:"
+			warn "  sudo umount $MNT"
 			return $EX_LEAKED
 		}
-	else
-		rm -rf "$MNT"
+		sudo rmdir "$MNT" 2>/dev/null || true
+		return 0
 	fi
+	# /dev/shm is shared with the rest of the host, so this deletes a directory only after
+	# confirming it is the one this worktree stamped.
+	if [[ -f "$MNT/$OWNER_MARKER" ]] && ! grep -qxF "$REPO_ROOT" "$MNT/$OWNER_MARKER"; then
+		warn "$MNT belongs to another worktree; leaving it alone"
+		return 0
+	fi
+	rm -rf "$MNT"
 	return 0
 }
 
 teardown_ramdisk() {
-	is_mounted || [[ -d "$MNT" ]] || { clear_state; return 0; }
+	volume_exists || { clear_state; return 0; }
 	log "tearing down $MNT"
 	local rc=0
-	if [[ "$OS" == Darwin ]]; then
-		teardown_darwin || rc=$?
-	else
-		teardown_linux || rc=$?
-	fi
+	case "$VOLUME_KIND" in
+	darwin) teardown_darwin || rc=$? ;;
+	*) teardown_linux || rc=$? ;;
+	esac
+	# The record is the only way back to a volume that outlived its run, so it is dropped only
+	# once there is nothing left to find.
 	(( rc == 0 )) && clear_state
 	return $rc
 }
@@ -508,7 +712,11 @@ cleanup() {
 	local rc=$?
 	stop_space_watchdog
 	if [[ "${CREATED_HERE:-false}" == true ]] && ! $KEEP && ! $PRINT_ENV; then
-		teardown_ramdisk || true
+		# A leak that goes unreported reads as a clean run, so it becomes the exit status
+		# whenever the tests themselves had nothing to say.
+		if ! teardown_ramdisk && (( rc == 0 )); then
+			rc=$EX_LEAKED
+		fi
 	fi
 	exit "$rc"
 }
@@ -520,8 +728,9 @@ main() {
 
 	if $DOWN_ONLY; then
 		reap_orphans
-		teardown_ramdisk
-		exit 0
+		local rc=0
+		teardown_ramdisk || rc=$?
+		exit $rc
 	fi
 
 	resolve_size
@@ -536,6 +745,7 @@ main() {
 	if ! $DEGRADED; then
 		prepare_dirs
 		export_env
+		record_baseline_usage
 	fi
 
 	if $PRINT_ENV; then
