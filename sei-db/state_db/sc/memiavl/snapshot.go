@@ -515,7 +515,7 @@ func (t *Tree) WriteSnapshotWithRateLimit(ctx context.Context, snapshotDir strin
 			return 0, nil
 		}
 
-		if err := w.writeRecursive(t.root); err != nil {
+		if err := w.writePostOrder(t.root); err != nil {
 			return 0, err
 		}
 		return w.leafCounter, nil
@@ -991,44 +991,89 @@ func (w *snapshotWriter) writeBranchDirect(version, size uint32, height, preTree
 	return nil
 }
 
-// writeRecursive writes the node recursively in depth-first post-order
-func (w *snapshotWriter) writeRecursive(node Node) error {
-	select {
-	case <-w.ctx.Done():
-		return w.ctx.Err()
-	default:
+type snapshotWriteStage uint8
+
+const (
+	snapshotWriteEnter snapshotWriteStage = iota
+	snapshotWriteAfterLeft
+	snapshotWriteAfterRight
+)
+
+type snapshotWriteFrame struct {
+	node     Node
+	stage    snapshotWriteStage
+	preTrees uint8
+	keyLeaf  uint32
+}
+
+// writePostOrder writes the tree in depth-first post-order.
+func (w *snapshotWriter) writePostOrder(root Node) error {
+	// An explicit stack keeps allocations under a fixed call stack. Recursive
+	// traversal makes allocation profiles depend on every left/right tree path.
+	stack := make([]snapshotWriteFrame, 1, int(root.Height())+1)
+	stack[0].node = root
+
+	for len(stack) > 0 {
+		top := len(stack) - 1
+		frame := &stack[top]
+
+		switch frame.stage {
+		case snapshotWriteEnter:
+			select {
+			case <-w.ctx.Done():
+				return w.ctx.Err()
+			default:
+			}
+
+			node := frame.node
+			if node.IsLeaf() {
+				if err := w.writeLeaf(node.Version(), node.Key(), node.Value(), node.Hash()); err != nil {
+					return err
+				}
+				stack = stack[:top]
+				continue
+			}
+
+			if w.leafCounter < w.branchCounter {
+				return fmt.Errorf("leafCounter %d < branchCounter %d", w.leafCounter, w.branchCounter)
+			}
+			pt := w.leafCounter - w.branchCounter
+			if pt > math.MaxUint8 {
+				return fmt.Errorf("too many pending trees %d exceed %d", pt, math.MaxUint8)
+			}
+
+			// Record the number of pending subtrees before the current one.
+			frame.preTrees = uint8(pt)
+			frame.stage = snapshotWriteAfterLeft
+			stack = append(stack, snapshotWriteFrame{node: node.Left()})
+
+		case snapshotWriteAfterLeft:
+			right := frame.node.Right()
+			frame.keyLeaf = w.leafCounter
+			frame.stage = snapshotWriteAfterRight
+			stack = append(stack, snapshotWriteFrame{node: right})
+
+		case snapshotWriteAfterRight:
+			node := frame.node
+			size := node.Size()
+			if size < 0 || size > math.MaxUint32 {
+				return fmt.Errorf("node size %d out of range", size)
+			}
+			if err := w.writeBranch(
+				node.Version(),
+				uint32(size),
+				node.Height(),
+				frame.preTrees,
+				frame.keyLeaf,
+				node.Hash(),
+			); err != nil {
+				return err
+			}
+			stack = stack[:top]
+		}
 	}
 
-	if node.IsLeaf() {
-		return w.writeLeaf(node.Version(), node.Key(), node.Value(), node.Hash())
-	}
-
-	if w.leafCounter < w.branchCounter {
-		return fmt.Errorf("leafCounter %d < branchCounter %d", w.leafCounter, w.branchCounter)
-	}
-	pt := w.leafCounter - w.branchCounter
-	if pt > math.MaxUint8 {
-		return fmt.Errorf("too many pending trees %d exceed %d", pt, math.MaxUint8)
-	}
-
-	// record the number of pending subtrees before the current one,
-	// it's always positive and won't exceed the tree height, so we can use an uint8 to store it.
-	preTrees := uint8(pt)
-
-	if err := w.writeRecursive(node.Left()); err != nil {
-		return err
-	}
-	keyLeaf := w.leafCounter
-	if err := w.writeRecursive(node.Right()); err != nil {
-		return err
-	}
-
-	size := node.Size()
-	if size < 0 || size > math.MaxUint32 {
-		return fmt.Errorf("node size %d out of range", size)
-	}
-
-	return w.writeBranch(node.Version(), uint32(size), node.Height(), preTrees, keyLeaf, node.Hash())
+	return nil
 }
 
 func createFile(name string) (*os.File, error) {
