@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -281,11 +282,17 @@ func (s *shard) iteratorOpened() {
 	s.lock.Unlock()
 }
 
-// iteratorClosed records that an iterator reading this shard has been closed.
-func (s *shard) iteratorClosed() {
+// iteratorClosed records that an iterator reading this shard has been closed. Closing more than were
+// opened is refused rather than wrapping the count, which would make the leak report at Close useless.
+func (s *shard) iteratorClosed() error {
 	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if s.openIterators == 0 {
+		return errors.New("an iterator was closed on a shard that has none open")
+	}
 	s.openIterators--
-	s.lock.Unlock()
+	return nil
 }
 
 // Set sets the value for the given key at the current version.

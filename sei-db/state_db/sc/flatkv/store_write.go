@@ -437,15 +437,8 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 // The reservation hand-back matters as much as the writes: a snapshot must be released before the next one
 // can flush, so a seal that kept the baseline's reservation would stall every flush after it, and the
 // snapshot SetInitialVersion takes next would wait forever.
-func (s *CommitStore) sealSeededVersion(seededVersion int64) (retErr error) {
+func (s *CommitStore) sealSeededVersion(seededVersion int64) error {
 	snapshots := make(map[string]snapshot.Snapshot, len(s.stores))
-	defer func() {
-		if retErr != nil {
-			for _, snap := range snapshots {
-				_ = snap.Release()
-			}
-		}
-	}()
 
 	for _, store := range s.stores {
 		snap, err := store.Commit()
@@ -470,15 +463,8 @@ func (s *CommitStore) sealSeededVersion(seededVersion int64) (retErr error) {
 
 // sealBaseline seals an empty version on every store. Called at startup so that we always have a snapshot
 // of the "previous" block (simplifies logic significantly).
-func (s *CommitStore) sealBaseline() (retErr error) {
+func (s *CommitStore) sealBaseline() error {
 	snapshots := make(map[string]snapshot.Snapshot, len(s.stores))
-	defer func() {
-		if retErr != nil {
-			for _, snap := range snapshots {
-				_ = snap.Release()
-			}
-		}
-	}()
 
 	for _, store := range s.stores {
 		snap, err := store.Commit()

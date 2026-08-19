@@ -691,19 +691,21 @@ func (c *snapshotEngine) Iterator(opts *types.IterOptions) (dbm.Iterator, error)
 // still outstanding. Close is idempotent, and deregisters exactly once however often it is called.
 type trackedIterator struct {
 	dbm.Iterator
-	engine *snapshotEngine
-	closed bool
+	engine    *snapshotEngine
+	closeOnce sync.Once
 }
 
 func (w *trackedIterator) Close() error {
-	if w.closed {
-		return nil
-	}
-	w.closed = true
-	for _, s := range w.engine.shards {
-		s.iteratorClosed()
-	}
-	return w.Iterator.Close()
+	var err error
+	w.closeOnce.Do(func() {
+		errs := make([]error, 0, len(w.engine.shards)+1)
+		for _, s := range w.engine.shards {
+			errs = append(errs, s.iteratorClosed())
+		}
+		errs = append(errs, w.Iterator.Close())
+		err = errors.Join(errs...)
+	})
+	return err
 }
 
 // materializeCurrentOverrides gathers the in-memory overrides at the current version from every

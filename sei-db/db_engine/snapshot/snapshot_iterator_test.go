@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -164,6 +165,49 @@ func TestOpenIteratorCountIsTracked(t *testing.T) {
 
 	require.NoError(t, second.Close())
 	require.Equal(t, uint64(0), openIteratorCount(engine))
+}
+
+// Closing more iterators than were opened must be refused rather than wrapping the unsigned count.
+// The count's only consumer is the leak report at Close, which a wrapped value renders meaningless.
+func TestIteratorClosedRefusesUnderflow(t *testing.T) {
+	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 1<<20)
+	shard := engine.(*snapshotEngine).shards[0]
+
+	require.Equal(t, uint64(0), openIteratorCount(engine))
+	require.Error(t, shard.iteratorClosed(), "closing past zero must be refused")
+	require.Equal(t, uint64(0), openIteratorCount(engine), "a refused close must not wrap the count")
+}
+
+// Concurrent Close calls on one iterator must deregister once and close the underlying iterator once.
+// The type documents Close as idempotent however often it is called, and a non-atomic guard makes that
+// claim false the moment two goroutines reach it — pebble's Close is not idempotent.
+func TestIteratorCloseIsIdempotentUnderConcurrency(t *testing.T) {
+	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 1<<20)
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
+
+	it, err := engine.Iterator(nil)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), openIteratorCount(engine))
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make([]error, 4)
+	for i := range errs {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-start
+			errs[idx] = it.Close()
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for _, closeErr := range errs {
+		require.NoError(t, closeErr)
+	}
+	require.Equal(t, uint64(0), openIteratorCount(engine),
+		"four concurrent Close calls must decrement exactly once")
 }
 
 // A bricked engine must refuse to build iterators, for the same reason it refuses reads: it can no
