@@ -5,11 +5,10 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/stretchr/testify/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 func newTestDataState(cfg *data.Config) *data.State {
@@ -39,21 +38,21 @@ func TestNewInnerFreshStart(t *testing.T) {
 	}
 }
 
-func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
+func TestNewInnerRestoresBlocksContiguous(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 
 	var parent types.BlockHeaderHash
-	var bs []persist.LoadedBlock
+	var bs []*types.Signed[*types.LaneProposal]
 	for n := range types.BlockNumber(3) {
 		b := testSignedBlock(keys[0], lane, n, parent, rng)
 		parent = b.Msg().Block().Header().Hash()
-		bs = append(bs, persist.LoadedBlock{Number: n, Proposal: b})
+		bs = append(bs, b)
 	}
 
 	i, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
-		blocks: map[types.LaneID][]persist.LoadedBlock{lane: bs},
+		blocks: map[types.LaneID][]*types.Signed[*types.LaneProposal]{lane: bs},
 	})
 	require.NoError(t, err)
 
@@ -61,7 +60,7 @@ func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 	require.Equal(t, types.BlockNumber(0), q.first)
 	require.Equal(t, types.BlockNumber(3), q.next)
 	for j, b := range bs {
-		require.Equal(t, b.Proposal, q.q[types.BlockNumber(j)])
+		require.Equal(t, b, q.q[types.BlockNumber(j)])
 	}
 	require.Equal(t, types.BlockNumber(3), i.nextBlockToPersist[lane])
 	for other := range registry.LatestEpoch().Committee().Lanes().All() {
@@ -71,13 +70,13 @@ func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 	}
 }
 
-func TestNewInnerLoadedBlocksEmptySlice(t *testing.T) {
+func TestNewInnerRestoresBlocksEmptySlice(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 
 	i, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
-		blocks: map[types.LaneID][]persist.LoadedBlock{lane: {}},
+		blocks: map[types.LaneID][]*types.Signed[*types.LaneProposal]{lane: {}},
 	})
 	require.NoError(t, err)
 
@@ -86,7 +85,7 @@ func TestNewInnerLoadedBlocksEmptySlice(t *testing.T) {
 	require.Equal(t, types.BlockNumber(0), q.next)
 }
 
-func TestNewInnerLoadedBlocksUnknownLane(t *testing.T) {
+func TestNewInnerRestoresBlocksUnknownLane(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 
@@ -95,7 +94,7 @@ func TestNewInnerLoadedBlocksUnknownLane(t *testing.T) {
 	b := testSignedBlock(unknownKey, unknownLane, 0, types.BlockHeaderHash{}, rng)
 
 	i, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
-		blocks: map[types.LaneID][]persist.LoadedBlock{unknownLane: {{Number: 0, Proposal: b}}},
+		blocks: map[types.LaneID][]*types.Signed[*types.LaneProposal]{unknownLane: {b}},
 	})
 	require.NoError(t, err)
 
@@ -107,30 +106,30 @@ func TestNewInnerLoadedBlocksUnknownLane(t *testing.T) {
 	_ = keys
 }
 
-func TestNewInnerLoadedBlocksMultipleLanes(t *testing.T) {
+func TestNewInnerRestoresBlocksMultipleLanes(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 	lane0 := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 	lane1 := registry.LatestEpoch().Committee().Lane(keys[1].Public()).OrPanic("keys[1]")
 
 	var parent0 types.BlockHeaderHash
-	var bs0 []persist.LoadedBlock
+	var bs0 []*types.Signed[*types.LaneProposal]
 	for n := range types.BlockNumber(2) {
 		b := testSignedBlock(keys[0], lane0, n, parent0, rng)
 		parent0 = b.Msg().Block().Header().Hash()
-		bs0 = append(bs0, persist.LoadedBlock{Number: n, Proposal: b})
+		bs0 = append(bs0, b)
 	}
 
 	var parent1 types.BlockHeaderHash
-	var bs1 []persist.LoadedBlock
+	var bs1 []*types.Signed[*types.LaneProposal]
 	for n := range types.BlockNumber(3) {
 		b := testSignedBlock(keys[1], lane1, n, parent1, rng)
 		parent1 = b.Msg().Block().Header().Hash()
-		bs1 = append(bs1, persist.LoadedBlock{Number: n, Proposal: b})
+		bs1 = append(bs1, b)
 	}
 
 	i, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
-		blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs0, lane1: bs1},
+		blocks: map[types.LaneID][]*types.Signed[*types.LaneProposal]{lane0: bs0, lane1: bs1},
 	})
 	require.NoError(t, err)
 
@@ -188,24 +187,24 @@ func TestNewInnerLoadedCommitQCsEmpty(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestNewInnerLoadedBlocksGapReturnsError(t *testing.T) {
+func TestNewInnerRestoresBlocksGapReturnsError(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 
-	var bs []persist.LoadedBlock
+	var bs []*types.Signed[*types.LaneProposal]
 	for _, n := range []types.BlockNumber{3, 4, 6, 7} {
-		bs = append(bs, persist.LoadedBlock{Number: n, Proposal: testSignedBlock(keys[0], lane, n, types.BlockHeaderHash{}, rng)})
+		bs = append(bs, testSignedBlock(keys[0], lane, n, types.BlockHeaderHash{}, rng))
 	}
 
 	_, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
-		blocks: map[types.LaneID][]persist.LoadedBlock{lane: bs},
+		blocks: map[types.LaneID][]*types.Signed[*types.LaneProposal]{lane: bs},
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "non-contiguous")
 }
 
-func TestNewInnerLoadedBlocksParentHashMismatchReturnsError(t *testing.T) {
+func TestNewInnerRestoresBlocksParentHashMismatchReturnsError(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
@@ -217,32 +216,28 @@ func TestNewInnerLoadedBlocksParentHashMismatchReturnsError(t *testing.T) {
 	b2 := testSignedBlock(keys[0], lane, 2, types.GenBlockHeaderHash(rng), rng)
 
 	_, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
-		blocks: map[types.LaneID][]persist.LoadedBlock{lane: {
-			{Number: 0, Proposal: b0},
-			{Number: 1, Proposal: b1},
-			{Number: 2, Proposal: b2},
-		}},
+		blocks: map[types.LaneID][]*types.Signed[*types.LaneProposal]{lane: {b0, b1, b2}},
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "parent hash mismatch")
 }
 
-func TestNewInnerLoadedBlocksOverCapacityReturnsError(t *testing.T) {
+func TestNewInnerRestoresBlocksOverCapacityReturnsError(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 
 	count := BlocksPerLane + 5
 	var parent types.BlockHeaderHash
-	var bs []persist.LoadedBlock
+	var bs []*types.Signed[*types.LaneProposal]
 	for n := types.BlockNumber(0); n < types.BlockNumber(count); n++ {
 		b := testSignedBlock(keys[0], lane, n, parent, rng)
 		parent = b.Msg().Block().Header().Hash()
-		bs = append(bs, persist.LoadedBlock{Number: n, Proposal: b})
+		bs = append(bs, b)
 	}
 
 	_, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
-		blocks: map[types.LaneID][]persist.LoadedBlock{lane: bs},
+		blocks: map[types.LaneID][]*types.Signed[*types.LaneProposal]{lane: bs},
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exceeds capacity")

@@ -29,12 +29,6 @@ const blocksWALName = "autobahn_blocks"
 // blocksWALMetrics is whether lane WALs record metrics. See blocksWALName for why they cannot.
 const blocksWALMetrics = false
 
-// LoadedBlock is a block loaded from disk during state restoration.
-type LoadedBlock struct {
-	Number   types.BlockNumber
-	Proposal *types.Signed[*types.LaneProposal]
-}
-
 // laneWALState is the mutable state of a lane WAL, protected by laneWAL's
 // mutex. Each block is stored under its own block number, so no mapping
 // between block numbers and WAL indices is needed.
@@ -89,21 +83,22 @@ func (s *laneWALState) truncateForAnchor(lane types.LaneID, first types.BlockNum
 //
 // Blocks stranded below a lazy prune are discarded: a gap in the stored block numbers marks where
 // pruning has already logically removed everything before it.
-func (s *laneWALState) loadAll(lane types.LaneID) ([]LoadedBlock, error) {
+func (s *laneWALState) loadAll(lane types.LaneID) ([]*types.Signed[*types.LaneProposal], error) {
 	entries, err := readAll(s.wal)
 	if err != nil {
 		return nil, fmt.Errorf("read lane %s WAL: %w", lane, err)
 	}
 	live := contiguousSuffix(entries)
 
-	loaded := make([]LoadedBlock, 0, len(live))
+	loaded := make([]*types.Signed[*types.LaneProposal], 0, len(live))
 	for _, entry := range live {
 		h := entry.value.Msg().Block().Header()
 		s.nextBlockNum = h.BlockNumber() + 1
-		loaded = append(loaded, LoadedBlock{Number: h.BlockNumber(), Proposal: entry.value})
+		loaded = append(loaded, entry.value)
 	}
 	if len(loaded) > 0 {
-		first, last := loaded[0].Number, loaded[len(loaded)-1].Number
+		first := loaded[0].Msg().Block().Header().BlockNumber()
+		last := loaded[len(loaded)-1].Msg().Block().Header().BlockNumber()
 		logger.Debug("loaded persisted blocks", "lane", lane.String(),
 			"first", first, "last", last, "count", len(loaded), "discarded", len(entries)-len(live))
 	}
@@ -193,7 +188,7 @@ func newLaneWALState(dir string) (*laneWALState, error) {
 // caller, which is what holds the anchor.
 //
 // When stateDir is None, returns a no-op persister.
-func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[types.LaneID][]LoadedBlock, error) {
+func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[types.LaneID][]*types.Signed[*types.LaneProposal], error) {
 	sd, ok := stateDir.Get()
 	if !ok {
 		return &BlockPersister{lanes: utils.NewRWMutex(map[types.LaneID]*laneWAL{})}, nil, nil
@@ -211,7 +206,7 @@ func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[type
 		return nil, nil, fmt.Errorf("read blocks dir %s: %w", dir, err)
 	}
 
-	allBlocks := map[types.LaneID][]LoadedBlock{}
+	allBlocks := map[types.LaneID][]*types.Signed[*types.LaneProposal]{}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue

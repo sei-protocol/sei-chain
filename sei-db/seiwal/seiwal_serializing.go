@@ -4,23 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
-)
 
-var _ WAL[[]byte] = (*serializingWAL[[]byte])(nil)
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+)
 
 // serAppend carries a framed-payload producer to the serializer goroutine. The closure captures the typed
 // item so this message type stays non-generic — T never enters the channel's dynamic type, which keeps the
 // serializer loop's type switch free of type parameters.
 type serAppend struct {
 	index     uint64
-	serialize func() ([]byte, error)
+	data []byte	
 }
 
 // serFlush asks the serializer goroutine to flush the inner WAL, signaling done when durable.
 type serFlush struct {
-	done chan error
+	done chan struct{}
 }
 
 // serBounds asks the serializer goroutine to report the inner WAL's stored index range.
@@ -33,7 +33,6 @@ type serBoundsResult struct {
 	ok    bool
 	first uint64
 	last  uint64
-	err   error
 }
 
 // serPrune asks the serializer goroutine to prune the inner WAL below `through`.
@@ -61,11 +60,10 @@ type serClose struct {
 
 // serializingWAL is a WAL[T] that serializes each payload to []byte on a background goroutine.
 type serializingWAL[T any] struct {
-	// The inner byte-oriented WAL that framed records are delegated to.
-	inner WAL[[]byte]
-
+	config *Config
+	
 	// Serializes a payload to bytes; runs on the serializer goroutine.
-	serialize func(T) ([]byte, error)
+	serialize func(T) []byte
 	// Deserializes stored bytes back to a payload; runs inline in the iterator.
 	deserialize func([]byte) (T, error)
 
@@ -75,298 +73,137 @@ type serializingWAL[T any] struct {
 
 	// Caller entry points funnel through serializerChan as a single ordered stream to the serializer.
 	serializerChan chan any
-
-	// The hard-stop context the serializer watches. Cancelled by fail() with the fatal error as its cause,
-	// and by Close() (with a nil cause) once everything has drained. The cause carries the fatal error to
-	// callers, so no separate error field is needed.
-	ctx context.Context
-	// Cancels ctx, tearing down the serializer goroutine, recording the fatal error (or nil) as the cause.
-	cancel context.CancelCauseFunc
-
-	// A child of ctx that the serializerChan producers watch, cancelled once the serializer stops reading so
-	// an in-flight or future push aborts rather than deadlocking.
-	senderCtx context.Context
-	// Cancels senderCtx.
-	senderCancel context.CancelCauseFunc
-
-	// Tracks the serializer and queue-depth sampler goroutines so Close() can wait for them to exit.
-	wg sync.WaitGroup
-
-	// Closed by Close() to stop the queue-depth sampler goroutine.
-	samplerStop chan struct{}
-
-	// Guarantees the Close() shutdown sequence runs at most once.
-	closeOnce sync.Once
-
-	// Set by Close() so subsequent scheduling calls fail fast. Plain: calling any method after Close is a
-	// contract violation, so this need not be atomic.
-	closed bool
 }
 
 func newSerializingWAL[T any](
 	config *Config,
-	inner WAL[[]byte],
-	serialize func(T) ([]byte, error),
+	serialize func(T) []byte,
 	deserialize func([]byte) (T, error),
 ) *serializingWAL[T] {
-	ctx, cancel := context.WithCancelCause(context.Background())
-	senderCtx, senderCancel := context.WithCancelCause(ctx)
-
-	s := &serializingWAL[T]{
-		inner:          inner,
+	return &serializingWAL[T]{
 		serialize:      serialize,
 		deserialize:    deserialize,
 		metrics:        newWALMetrics(config, "serializer"),
 		serializerChan: make(chan any, config.SerializerBufferSize),
-		ctx:            ctx,
-		cancel:         cancel,
-		senderCtx:      senderCtx,
-		senderCancel:   senderCancel,
-		samplerStop:    make(chan struct{}),
 	}
+}
 
-	s.wg.Add(1)
-	go s.serializerLoop()
-
-	if !config.DisableMetrics && config.MetricsSampleInterval > 0 {
-		s.wg.Add(1)
-		go s.sampleQueueDepth(config.MetricsSampleInterval)
-	}
-
-	return s
+func (s *serializingWAL[T]) Run(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+		sc.Spawn(func() error { return s.sampleQueueDepth(ctx) })
+		return s.serializerLoop(ctx)
+	})
 }
 
 // sampleQueueDepth periodically records the serializer channel's buffered depth until Close stops it
 // (samplerStop) or a fatal shutdown cancels ctx.
-func (s *serializingWAL[T]) sampleQueueDepth(interval time.Duration) {
-	defer s.wg.Done()
-	ticker := time.NewTicker(interval)
+func (s *serializingWAL[T]) sampleQueueDepth(ctx context.Context) error {
+	if s.config.DisableMetrics || s.config.MetricsSampleInterval <= 0 {
+		return nil
+	}
+	ticker := time.NewTicker(s.config.MetricsSampleInterval)
 	defer ticker.Stop()
 	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-s.samplerStop:
-			return
-		case <-ticker.C:
-			s.metrics.recordQueueDepth(s.ctx, len(s.serializerChan))
+		if _,err := utils.Recv(ctx,ticker.C); err!=nil {
+			return err
 		}
+		s.metrics.recordQueueDepth(ctx, len(s.serializerChan))
 	}
 }
 
 // Append schedules a payload to be serialized and appended at the given index.
-func (s *serializingWAL[T]) Append(index uint64, data T) error {
-	if s.closed {
-		return fmt.Errorf("WAL is closed")
-	}
-	req := serAppend{
-		index:     index,
-		serialize: func() ([]byte, error) { return s.serialize(data) },
-	}
-	if err := s.submit(req); err != nil {
-		return fmt.Errorf("failed to schedule append for index %d: %w", index, err)
-	}
-	return nil
+func (s *serializingWAL[T]) Append(ctx context.Context, index uint64, data T) error {
+	return utils.Send(ctx, s.serializerChan, any(serAppend{index,s.serialize(data)}))
 }
 
 // Flush blocks until all previously scheduled appends are durable.
-func (s *serializingWAL[T]) Flush() error {
-	done := make(chan error, 1)
-	if err := s.submit(serFlush{done: done}); err != nil {
-		return fmt.Errorf("failed to schedule flush: %w", err)
+func (s *serializingWAL[T]) Flush(ctx context.Context) error {
+	done := make(chan struct{})
+	if err := utils.Send(ctx,s.serializerChan,any(serFlush{done: done})); err != nil {
+		return err 
 	}
-	select {
-	case err := <-done:
-		return err // already wrapped by the inner WAL, or nil on success
-	case <-s.ctx.Done():
-		if err := s.asyncError(); err != nil {
-			return fmt.Errorf("flush aborted: %w", err)
-		}
-		return fmt.Errorf("flush aborted: %w", s.ctx.Err())
-	}
+	_,_,err := utils.RecvOrClosed(ctx,done)
+	return err
 }
 
 // Bounds reports the range of record indices stored in the WAL.
-func (s *serializingWAL[T]) Bounds() (bool, uint64, uint64, error) {
+func (s *serializingWAL[T]) Bounds(ctx context.Context) (bool, uint64, uint64, error) {
 	reply := make(chan serBoundsResult, 1)
-	if err := s.submit(serBounds{reply: reply}); err != nil {
-		return false, 0, 0, fmt.Errorf("failed to schedule bounds query: %w", err)
+	if err := utils.Send(ctx,s.serializerChan,any(serBounds{reply: reply})); err != nil {
+		return false, 0, 0, err 
 	}
-	select {
-	case r := <-reply:
-		if r.err != nil {
-			return false, 0, 0, fmt.Errorf("bounds query failed: %w", r.err)
-		}
-		return r.ok, r.first, r.last, nil
-	case <-s.ctx.Done():
-		if err := s.asyncError(); err != nil {
-			return false, 0, 0, fmt.Errorf("bounds query aborted: %w", err)
-		}
-		return false, 0, 0, fmt.Errorf("bounds query aborted: %w", s.ctx.Err())
-	}
+	r,err := utils.Recv(ctx,reply)
+	if err!=nil { return false, 0, 0, err }
+	return r.ok, r.first, r.last, nil
 }
 
 // PruneBefore schedules removal of whole inner files below lowestIndexToKeep. It does not block on completion.
-func (s *serializingWAL[T]) PruneBefore(lowestIndexToKeep uint64) error {
-	if err := s.submit(serPrune{through: lowestIndexToKeep}); err != nil {
-		return fmt.Errorf("failed to schedule prune below index %d: %w", lowestIndexToKeep, err)
-	}
-	return nil
+func (s *serializingWAL[T]) PruneBefore(ctx context.Context, lowestIndexToKeep uint64) error {
+	return utils.Send(ctx, s.serializerChan, any(serPrune{through: lowestIndexToKeep}))
 }
 
 // Iterator returns an iterator over the inclusive index range [startIndex, endIndex]. Construction is ordered
 // on the serializer goroutine after every prior append, so the iterator observes all previously scheduled
 // appends.
-func (s *serializingWAL[T]) Iterator(startIndex uint64, endIndex uint64) (Iterator[T], error) {
+func (s *serializingWAL[T]) Iterator(ctx context.Context, startIndex uint64, endIndex uint64) (Iterator[T], error) {
 	reply := make(chan serIteratorResult, 1)
-	if err := s.submit(serIterator{startIndex: startIndex, endIndex: endIndex, reply: reply}); err != nil {
-		return nil, fmt.Errorf("failed to schedule iterator creation: %w", err)
+	if err := utils.Send(ctx, s.serializerChan, any(serIterator{startIndex: startIndex, endIndex: endIndex, reply: reply})); err != nil {
+		return nil, err 
 	}
-	select {
-	case r := <-reply:
-		if r.err != nil {
-			return nil, fmt.Errorf("failed to create iterator: %w", r.err)
-		}
-		return &serializingIterator[T]{inner: r.it, deserialize: s.deserialize}, nil
-	case <-s.ctx.Done():
-		if err := s.asyncError(); err != nil {
-			return nil, fmt.Errorf("iterator creation aborted: %w", err)
-		}
-		return nil, fmt.Errorf("iterator creation aborted: %w", s.ctx.Err())
-	}
-}
-
-// Close flushes pending appends, closes the inner WAL, and releases resources.
-func (s *serializingWAL[T]) Close() error {
-	var closeErr error
-	s.closeOnce.Do(func() {
-		s.closed = true
-		close(s.samplerStop) // stop the queue-depth sampler before waiting for goroutines
-		done := make(chan error, 1)
-		if err := s.submit(serClose{done: done}); err == nil {
-			select {
-			case closeErr = <-done:
-			case <-s.ctx.Done():
-			}
-		}
-		s.wg.Wait()
-		s.cancel(nil) // a clean close carries no fatal cause; a prior fail() already recorded one
-	})
-	if err := s.asyncError(); err != nil {
-		return fmt.Errorf("WAL closed with error: %w", err)
-	}
-	return closeErr // already wrapped by the inner WAL, or nil on a clean close
-}
-
-// submit enqueues a message onto the serializer's input channel, aborting if the WAL is shutting down or has
-// failed.
-func (s *serializingWAL[T]) submit(msg any) error {
-	// Prioritize shutdown: if the sender context is already done, never race the send case of the select
-	// below, which could otherwise enqueue onto a stopped serializer's buffer and silently drop the record.
-	select {
-	case <-s.senderCtx.Done():
-		return s.senderErr()
-	default:
-	}
-	select {
-	case s.serializerChan <- msg:
-		return nil
-	case <-s.senderCtx.Done():
-		return s.senderErr()
-	}
-}
-
-// senderErr reports why a submit was aborted: the fatal cause if the WAL bricked, or a plain closed error if
-// it was shut down normally.
-func (s *serializingWAL[T]) senderErr() error {
-	if cause := context.Cause(s.senderCtx); cause != nil && cause != context.Canceled {
-		return fmt.Errorf("WAL failed: %w", cause)
-	}
-	return fmt.Errorf("WAL is closed")
+	r,err := utils.Recv(ctx,reply)
+	if err != nil { return nil, err }
+	return &serializingIterator[T]{inner: r.it, deserialize: s.deserialize}, nil
 }
 
 // serializerLoop serializes each append's payload and delegates it to the inner WAL, handling control
 // messages (flush, bounds, prune, iterator, close) in FIFO order relative to appends so they observe a
 // consistent view. Runs on its own goroutine until close or a fatal error.
-func (s *serializingWAL[T]) serializerLoop() {
-	defer s.wg.Done()
+func (s *serializingWAL[T]) serializerLoop(ctx context.Context) error {
+	wal, err := newWAL(s.config)
+	if err != nil {
+		return fmt.Errorf("failed to open inner WAL: %w", err)
+	}
+	defer wal.Close()
 	for {
-		var msg any
-		select {
-		case <-s.ctx.Done():
-			return
-		case msg = <-s.serializerChan:
-		}
-
+		msg,err := utils.Recv(ctx,s.serializerChan)
+		if err!=nil { return err }
 		switch m := msg.(type) {
 		case serAppend:
 			start := time.Now()
-			data, err := m.serialize()
 			if err != nil {
-				s.metrics.recordSerializeError(s.ctx)
-				s.fail(fmt.Errorf("failed to serialize record for index %d: %w", m.index, err))
-				return
+				return fmt.Errorf("failed to serialize record for index %d: %w", m.index, err)
 			}
-			s.metrics.recordSerialized(s.ctx, time.Since(start), len(data))
-			if err := s.inner.Append(m.index, data); err != nil {
-				s.fail(fmt.Errorf("failed to append record for index %d: %w", m.index, err))
-				return
+			s.metrics.recordSerialized(ctx, time.Since(start), len(m.data))
+			if err := wal.Append(m.index, m.data); err != nil {
+				return fmt.Errorf("failed to append record for index %d: %w", m.index, err)
 			}
 		case serFlush:
-			err := s.inner.Flush()
-			m.done <- err
-			if err != nil {
-				s.fail(fmt.Errorf("failed to flush: %w", err))
-				return
+			if err := wal.Flush(); err != nil {
+				return fmt.Errorf("failed to flush: %w", err)
 			}
+			close(m.done)
 		case serBounds:
-			ok, first, last, err := s.inner.Bounds()
-			m.reply <- serBoundsResult{ok: ok, first: first, last: last, err: err}
+			ok, first, last, err := wal.Bounds()
 			if err != nil {
-				s.fail(fmt.Errorf("bounds query failed: %w", err))
-				return
+				return fmt.Errorf("bounds query failed: %w", err)
 			}
+			// NON-BLOCKING, capacity is 1, and this is the only writer.
+			m.reply <- serBoundsResult{ok: ok, first: first, last: last}
 		case serPrune:
-			if err := s.inner.PruneBefore(m.through); err != nil {
-				s.fail(fmt.Errorf("failed to prune below index %d: %w", m.through, err))
-				return
+			if err := wal.PruneBefore(m.through); err != nil {
+				return fmt.Errorf("failed to prune below index %d: %w", m.through, err)
 			}
 		case serIterator:
-			it, err := s.inner.Iterator(m.startIndex, m.endIndex)
-			m.reply <- serIteratorResult{it: it, err: err}
+			it, err := wal.Iterator(m.startIndex, m.endIndex)
 			// A rejected range leaves the inner WAL healthy, so mirror that here; only a genuine inner
 			// failure bricks the serializing layer.
 			if err != nil && !errors.Is(err, ErrIteratorRange) {
-				s.fail(fmt.Errorf("failed to create iterator: %w", err))
-				return
+				return fmt.Errorf("failed to create iterator: %w", err)
 			}
-		case serClose:
-			m.done <- s.inner.Close()
-			// FIFO guarantees every prior append has been delegated. Forbid further pushes so any
-			// racing/future schedule aborts instead of deadlocking against the now-exiting serializer.
-			s.senderCancel(nil) // normal shutdown, not a failure
-			return
+			// NON-BLOCKING, capacity is 1, and this is the only writer.
+			m.reply <- serIteratorResult{it: it, err: err}
 		}
 	}
-}
-
-// fail records the first fatal background error and triggers shutdown of the pipeline. The error is recorded
-// as the cancellation cause of ctx, so callers observe it via asyncError / context.Cause.
-func (s *serializingWAL[T]) fail(err error) {
-	s.senderCancel(err)
-	s.cancel(err) // the first cancel wins, so the first fatal error is the one retained
-	if cerr := s.inner.Close(); cerr != nil {
-		logger.Error("failed to close inner WAL after fatal error", "err", cerr)
-	}
-	logger.Error("serializing WAL encountered a fatal error", "err", err)
-}
-
-// asyncError returns the first fatal background error, or nil if the WAL is healthy or was closed normally.
-func (s *serializingWAL[T]) asyncError() error {
-	if cause := context.Cause(s.ctx); cause != nil && cause != context.Canceled {
-		return cause
-	}
-	return nil
 }
 
 var _ Iterator[[]byte] = (*serializingIterator[[]byte])(nil)
@@ -391,8 +228,7 @@ func (it *serializingIterator[T]) Next() (bool, error) {
 	index, data := it.inner.Entry()
 	value, err := it.deserialize(data)
 	if err != nil {
-		var zero T
-		it.entry = zero
+		it.entry = utils.Zero[T]() 
 		return false, fmt.Errorf("failed to deserialize record at index %d: %w", index, err)
 	}
 	it.index = index
