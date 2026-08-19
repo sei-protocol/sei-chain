@@ -274,6 +274,31 @@ func TestValidateInputsOutputsUniqueDenominations(t *testing.T) {
 	})
 }
 
+func TestValidateInputsOutputsMismatchedDenominationsPanics(t *testing.T) {
+	inputAddr := sdk.AccAddress([]byte("_______alice________"))
+	outputAddr := sdk.AccAddress([]byte("________bob_________"))
+
+	for _, tc := range []struct {
+		name        string
+		inputDenom  string
+		outputDenom string
+	}{
+		{name: "input denomination missing from outputs", inputDenom: "aaa", outputDenom: "bbb"},
+		{name: "output denomination missing from inputs", inputDenom: "bbb", outputDenom: "aaa"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inputs := []Input{NewInput(inputAddr, sdk.NewCoins(sdk.NewInt64Coin(tc.inputDenom, 1)))}
+			outputs := []Output{NewOutput(outputAddr, sdk.NewCoins(sdk.NewInt64Coin(tc.outputDenom, 1)))}
+
+			require.PanicsWithValue(
+				t,
+				fmt.Sprintf("invalid coin denominations; %s, %s", tc.inputDenom, tc.outputDenom),
+				func() { _ = ValidateInputsOutputs(inputs, outputs) },
+			)
+		})
+	}
+}
+
 func TestValidateInputsOutputsRepeatedDenomination(t *testing.T) {
 	inputAddr := sdk.AccAddress([]byte("_______alice________"))
 	outputAddr := sdk.AccAddress([]byte("________bob_________"))

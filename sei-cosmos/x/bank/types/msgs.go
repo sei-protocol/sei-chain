@@ -1,8 +1,6 @@
 package types
 
 import (
-	"maps"
-
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
@@ -185,20 +183,33 @@ func ValidateInputsOutputs(inputs []Input, outputs []Output) error {
 		addCoins(outCoinsMap, out.Coins)
 	}
 
-	// make sure inputs and outputs match
-	if !maps.EqualFunc(inCoinsMap, outCoinsMap, sdk.Int.Equal) {
+	totalIn := coinsFromTotals(inCoinsMap)
+	totalOut := coinsFromTotals(outCoinsMap)
+
+	// Preserve Coins.IsEqual's panic for equal-length sets with different denominations.
+	if !totalIn.IsEqual(totalOut) {
 		return ErrInputOutputMismatch
 	}
-
 	return nil
 }
 
+// coinsFromTotals returns a sorted coin set containing the aggregated totals.
+func coinsFromTotals(coinsMap map[string]sdk.Int) sdk.Coins {
+	result := make(sdk.Coins, 0, len(coinsMap))
+	for denom, amount := range coinsMap {
+		result = append(result, sdk.NewCoin(denom, amount))
+	}
+	return result.Sort()
+}
+
+// addCoins aggregates coins by denomination.
 func addCoins(totals map[string]sdk.Int, coins sdk.Coins) {
 	for _, coin := range coins {
 		amount, exists := totals[coin.Denom]
 		if exists {
 			totals[coin.Denom] = amount.Add(coin.Amount)
 		} else {
+			// A missing entry contains an sdk.Int with a nil big.Int, which cannot be added to.
 			totals[coin.Denom] = coin.Amount
 		}
 	}
