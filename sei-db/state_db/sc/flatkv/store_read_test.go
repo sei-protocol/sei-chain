@@ -647,6 +647,17 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 // RawGlobalIterator
 // =============================================================================
 
+// A closed store has no engines to merge, and a merge of nothing is a valid empty iterator — so
+// without a refusal the caller reads "this store holds no rows" instead of "this store is closed".
+func TestRawGlobalIterator_RefusesClosedStore(t *testing.T) {
+	s := setupTestStore(t)
+	require.NoError(t, s.Close())
+
+	iter, err := s.RawGlobalIterator()
+	require.Error(t, err)
+	require.Nil(t, iter)
+}
+
 func TestRawGlobalIterator_LexOrderAcrossDBs(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()

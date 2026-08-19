@@ -3,6 +3,7 @@ package flatkv
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
@@ -31,6 +32,10 @@ import (
 func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	if s.isClosed() {
+		return nil, errors.New("flatkv: RawGlobalIterator on a closed store")
+	}
 
 	// Refuse while a block is staged. A store iterator sees staged rows, and every caller here is
 	// exporting or auditing committed state — emitting a row from a block that has not committed would be
