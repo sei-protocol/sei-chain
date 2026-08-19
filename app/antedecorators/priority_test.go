@@ -56,14 +56,14 @@ func TestPriorityAnteDecoratorTooHighPriority(t *testing.T) {
 	require.Equal(t, int64(math.MaxInt64-1000), newCtx.Priority())
 }
 
-func TestPriorityAnteDecoratorOracleMsg(t *testing.T) {
+func TestPriorityAnteDecoratorOracleMsgUsesNormalPriority(t *testing.T) {
 	output = ""
 	anteDecorators := []sdk.AnteDecorator{
 		antedecorators.NewPriorityDecorator(),
 	}
 	ctx := sdk.NewContext(nil, tmproto.Header{}, false)
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
-	// test with zero priority, should be bumped up to oracle priority
+	// Oracle messages no longer receive a priority boost.
 	newCtx, err := chainedHandler(
 		ctx.WithPriority(0),
 		FakeTx{
@@ -74,7 +74,7 @@ func TestPriorityAnteDecoratorOracleMsg(t *testing.T) {
 		false,
 	)
 	require.NoError(t, err)
-	require.Equal(t, int64(math.MaxInt64-100), newCtx.Priority())
+	require.Equal(t, int64(0), newCtx.Priority())
 }
 
 // PriorityCaptureDecorator captures ctx.Priority seen by the next decorator in the chain

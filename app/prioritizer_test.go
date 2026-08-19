@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -66,7 +65,10 @@ func (s *PrioritizerTestSuite) TestGetTxPriority() {
 			}
 		}
 		oracleVoteTx = func(s *PrioritizerTestSuite) cosmostypes.Tx {
+			s.App.ParamsKeeper.SetFeesParams(s.Ctx, xparamtypes.FeesParams{AllowedFeeDenoms: []string{"fish"}})
 			return &mockFeeTx{
+				fees: cosmostypes.NewCoins(cosmostypes.NewInt64Coin("fish", 1_000)),
+				gas:  100,
 				msgs: []cosmostypes.Msg{&oracletypes.MsgAggregateExchangeRateVote{}},
 			}
 		}
@@ -94,9 +96,9 @@ func (s *PrioritizerTestSuite) TestGetTxPriority() {
 			wantPriority: 123,
 		},
 		{
-			name:         "oracle Tx type is oracle priority",
+			name:         "oracle Tx type uses fee priority",
 			givenTx:      oracleVoteTx,
-			wantPriority: antedecorators.OraclePriority,
+			wantPriority: 10,
 		},
 		{
 			name:         "zero gas FeeTx is zero priority",
