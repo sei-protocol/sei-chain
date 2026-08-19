@@ -4,10 +4,14 @@
       env: ADMIN_ADDR
     - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
       env: ADMIN_VAL_ADDR
-    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin oracle set-feeder $ADMIN_ADDR --fees 2000usei
-      env: SET_FEEDER_ERROR_CODE
-    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin oracle aggregate-vote 1.5ueth $ADMIN_VAL_ADDR --gas 0
-      env: VOTE_ERROR_CODE
+    - cmd: seid tx oracle set-feeder $ADMIN_ADDR --from $ADMIN_ADDR --chain-id sei --dry-run 2>&1
+      env: SET_FEEDER_ERROR
+    - cmd: seid tx oracle aggregate-vote 1.5ueth $ADMIN_VAL_ADDR --from $ADMIN_ADDR --chain-id sei --dry-run 2>&1
+      env: VOTE_ERROR
   verifiers:
-    - type: eval
-      expr: SET_FEEDER_ERROR_CODE == 25 and VOTE_ERROR_CODE == 25
+    - type: regex
+      expr: oracle module is deprecated
+      result: SET_FEEDER_ERROR
+    - type: regex
+      expr: oracle module is deprecated
+      result: VOTE_ERROR
