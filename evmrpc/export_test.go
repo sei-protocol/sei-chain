@@ -2,9 +2,11 @@ package evmrpc
 
 import (
 	"context"
+	"math/big"
 	"sync"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth/filters"
@@ -138,4 +140,14 @@ func NewTraceBackendForTest(keeper *keeper.Keeper, ctxProvider func(int64) sdk.C
 
 func NewDebugAPIForTest(backend *Backend) *DebugAPI {
 	return &DebugAPI{backend: backend}
+}
+
+// GasPriceHelperForTest exposes gasPriceHelper for integration tests in evmrpc_test.
+func (i *InfoAPI) GasPriceHelperForTest(ctx context.Context, baseFee *big.Int, totalGasUsedPrevBlock uint64, medianRewardPrevBlock *big.Int) (*hexutil.Big, error) {
+	return i.gasPriceHelper(ctx, baseFee, totalGasUsedPrevBlock, medianRewardPrevBlock)
+}
+
+// CalculateGasUsedRatioForTest exposes calculateGasUsedRatio for integration tests in evmrpc_test.
+func (i *InfoAPI) CalculateGasUsedRatioForTest(ctx context.Context, blockHeight int64) (float64, error) {
+	return i.calculateGasUsedRatio(ctx, blockHeight)
 }

@@ -15,7 +15,6 @@ func validBaseConfig() *Config {
 	cfg.CodeDBConfig.DataDir = "/tmp/test/code"
 	cfg.StorageDBConfig.DataDir = "/tmp/test/storage"
 	cfg.MiscDBConfig.DataDir = "/tmp/test/misc"
-	cfg.MetadataDBConfig.DataDir = "/tmp/test/metadata"
 	return cfg
 }
 
@@ -92,7 +91,6 @@ func TestDefaultConfigValidExceptDataDir(t *testing.T) {
 	cfg.CodeDBConfig.DataDir = "/tmp/test/code"
 	cfg.StorageDBConfig.DataDir = "/tmp/test/storage"
 	cfg.MiscDBConfig.DataDir = "/tmp/test/misc"
-	cfg.MetadataDBConfig.DataDir = "/tmp/test/metadata"
 	require.NoError(t, cfg.Validate())
 }
 

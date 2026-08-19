@@ -859,38 +859,12 @@ deny_list = {{ .EVM.DenyList }}
 # gate errors use standard JSON-RPC error encoding (see evmrpc/AGENTS.md). Successful allowlisted
 # responses are unchanged; nodes may set HTTP header Sei-Legacy-RPC-Deprecation (see AGENTS.md).
 #
-# Only methods listed in enabled_legacy_sei_apis are allowed. Init defaults enable the three
-# address/Cosmos helpers; uncomment optional lines below to enable more legacy methods.
+# Only methods listed in enabled_legacy_sei_apis are allowed. Init defaults enable all three
+# remaining address/Cosmos helpers.
 enabled_legacy_sei_apis = [
 {{- range .EVM.EnabledLegacySeiApis }}
   "{{ . }}",
 {{- end }}
-
-  # Optional legacy methods - uncomment to enable (same deprecation applies):
-  # "sei_associate",
-  # "sei_getBlockByHash",
-  # "sei_getBlockByHashExcludeTraceFail",
-  # "sei_getBlockByNumber",
-  # "sei_getBlockByNumberExcludeTraceFail",
-  # "sei_getBlockReceipts",
-  # "sei_getBlockTransactionCountByHash",
-  # "sei_getBlockTransactionCountByNumber",
-  # "sei_getEvmTx",
-  # "sei_getFilterChanges",
-  # "sei_getFilterLogs",
-  # "sei_getLogs",
-  # "sei_getTransactionByBlockHashAndIndex",
-  # "sei_getTransactionByBlockNumberAndIndex",
-  # "sei_getTransactionByHash",
-  # "sei_getTransactionCount",
-  # "sei_getTransactionErrorByHash",
-  # "sei_getTransactionReceipt",
-  # "sei_getTransactionReceiptExcludeTraceFail",
-  # "sei_getVMError",
-  # "sei_newBlockFilter",
-  # "sei_newFilter",
-  # "sei_sign",
-  # "sei_uninstallFilter",
 ]
 
 # max number of logs a single eth_getLogs query may match before it errors,

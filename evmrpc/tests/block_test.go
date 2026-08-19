@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"strings"
 	"testing"
@@ -21,19 +20,6 @@ func TestGetBlockByHash(t *testing.T) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
 			blockHash := res["result"].(map[string]interface{})["hash"]
 			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
-		},
-	)
-}
-
-func TestGetSeiBlockByHash(t *testing.T) {
-	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
-	tx1 := signAndEncodeTx(registerCW20Pointer(0, cw20), mnemonic1)
-	tx2 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 7, 0)
-	SetupTestServer(t, [][][]byte{{tx1}, {tx2}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
-		func(port int) {
-			res := sendRequestWithNamespace("sei", port, "getBlockByHash", common.HexToHash("0x9dd3e6c427b6936f973b240cd5780b8ee4bf8fab0c8d281afb28089db51bb4af").Hex(), true)
-			txs := res["result"].(map[string]interface{})["transactions"]
-			require.Len(t, txs.([]interface{}), 1)
 		},
 	)
 }
@@ -118,27 +104,6 @@ func TestAnteFailureOthers(t *testing.T) {
 	)
 }
 
-// Mirrors TestAnteFailureOthers but inverts the expectation: where the
-// regular eth_getBlockByHash includes insufficient-funds stub receipts
-// post-v5.8.0 (per PR #2343), the *ExcludeTraceFail variant must drop
-// them — the tx bumped its nonce in ante but never reached the VM.
-func TestGetBlockByHashExcludeTraceFail_AnteStub(t *testing.T) {
-	stubTxBz := signAndEncodeTx(sendInsufficientFunds(0), mnemonic1)
-	SetupTestServer(t, [][][]byte{{stubTxBz}}, mnemonicInitializer(mnemonic1)).Run(
-		func(port int) {
-			// Confirm the stub flows through the regular endpoint (PR #2343 baseline).
-			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
-			txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
-			require.Len(t, txs, 1, "regular eth_getBlockByHash should keep the insufficient-funds tx, got %v", txs)
-
-			// The *ExcludeTraceFail variant must drop it.
-			res = sendRequestWithNamespace("sei", port, "getBlockByHashExcludeTraceFail", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
-			txs = res["result"].(map[string]interface{})["transactions"].([]interface{})
-			require.Len(t, txs, 0, "sei_getBlockByHashExcludeTraceFail should drop the insufficient-funds stub, got %v", txs)
-		},
-	)
-}
-
 func TestGetBlockReceipts(t *testing.T) {
 	txBz1 := signAndEncodeTx(send(0), mnemonic1)
 	txBz2 := signAndEncodeTx(send(1), mnemonic1)
@@ -188,7 +153,8 @@ func TestBlockBloom(t *testing.T) {
 	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, erc20Initializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", false)
-			blockBloomString := res["result"].(map[string]interface{})["logsBloom"]
+			block := res["result"].(map[string]interface{})
+			blockBloomString := block["logsBloom"]
 			blockBloomBz, _ := hex.DecodeString(strings.TrimPrefix(blockBloomString.(string), "0x"))
 			blockBloom := ethtypes.Bloom{}
 			blockBloom.SetBytes(blockBloomBz)
@@ -207,23 +173,6 @@ func TestBlockBloom(t *testing.T) {
 
 			expected := make([]byte, ethtypes.BloomByteLength)
 			bitutil.ORBytes(expected, tx1Bloom[:], tx2Bloom[:])
-			require.Equal(t, expected, blockBloom[:])
-
-			res = sendRequestWithNamespace("sei", port, "getBlockByNumber", "0x2", false)
-			blockBloomString = res["result"].(map[string]interface{})["logsBloom"]
-			blockBloomBz, _ = hex.DecodeString(strings.TrimPrefix(blockBloomString.(string), "0x"))
-			blockBloom = ethtypes.Bloom{}
-			blockBloom.SetBytes(blockBloomBz)
-
-			tx3Sum := sha256.Sum256(tx3)
-			tx3Hash := common.BytesToHash(tx3Sum[:])
-			receipt3 := sendRequestWithNamespace("sei", port, "getTransactionReceipt", tx3Hash.Hex())
-			tx3BloomString := receipt3["result"].(map[string]interface{})["logsBloom"]
-			tx3BloomBz, _ := hex.DecodeString(strings.TrimPrefix(tx3BloomString.(string), "0x"))
-			tx3Bloom := ethtypes.Bloom{}
-			tx3Bloom.SetBytes(tx3BloomBz)
-
-			bitutil.ORBytes(expected, expected, tx3Bloom[:])
 			require.Equal(t, expected, blockBloom[:])
 		},
 	)

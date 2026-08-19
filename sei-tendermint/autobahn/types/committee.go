@@ -22,8 +22,11 @@ func (s ImSlice[T]) At(i int) T       { return s.s[i] }
 func (s ImSlice[T]) All() iter.Seq[T] { return slices.Values(s.s) }
 
 // Committee represents the consensus committee.
+// Lanes carry membership (validator + joined); weights are voting stake.
 type Committee struct {
-	replicas    ImSlice[PublicKey]
+	validators  ImSlice[PublicKey] // ordered list
+	laneIDs     ImSlice[LaneID]    // same order as validators
+	lanes       map[PublicKey]LaneID
 	weights     map[PublicKey]uint64
 	totalWeight uint64
 }
@@ -36,17 +39,24 @@ func (c *Committee) HasReplica(k PublicKey) bool {
 }
 
 func (c *Committee) HasLane(l LaneID) bool {
-	_, ok := c.weights[l]
-	return ok
+	got, ok := c.lanes[l.Validator]
+	return ok && got.Joined == l.Joined
 }
 
-// Lanes is the list of nodes which are eligible to produce blocks.
-func (c *Committee) Lanes() ImSlice[LaneID] { return c.replicas }
+func (c *Committee) Lane(v PublicKey) utils.Option[LaneID] {
+	lane, ok := c.lanes[v]
+	if !ok {
+		return utils.None[LaneID]()
+	}
+	return utils.Some(lane)
+}
 
-// Replicas is the list of nodes which are eligible to participate in the consensus.
-func (c *Committee) Replicas() ImSlice[PublicKey] { return c.replicas }
+func (c *Committee) Lanes() ImSlice[LaneID] {
+	return c.laneIDs
+}
 
 // Deterministic random oracle selecting a replica with probability proportional to the weight.
+// Walks validators membership order so seed → PublicKey is network-wide deterministic.
 func (c *Committee) randomReplica(seed []byte) PublicKey {
 	h := sha256.Sum256(seed[:])
 	var x, total uint256.Int
@@ -54,7 +64,7 @@ func (c *Committee) randomReplica(seed []byte) PublicKey {
 	total.SetUint64(c.totalWeight)
 	y := x.Mod(&x, &total).Uint64()
 	// TODO(gprusak): this can be optimized to O(1) lookup
-	for k := range c.replicas.All() {
+	for k := range c.validators.All() {
 		w := c.weights[k]
 		if y < w {
 			return k
@@ -116,12 +126,32 @@ func (c *Committee) LaneQuorum() uint64 {
 	return c.Faulty() + 1
 }
 
+// NewCommittee is genesis: Joined = 0 for every member.
 func NewCommittee(weights map[PublicKey]uint64) (*Committee, error) {
+	return newCommittee(nil, weights, 0)
+}
+
+// DeriveNext builds the committee for epoch e>0 from this committee:
+// validators that remain keep Joined; new members get Joined = e.
+func (c *Committee) DeriveNext(weights map[PublicKey]uint64, e EpochIndex) (*Committee, error) {
+	if e <= 0 {
+		return nil, errors.New("DeriveNext: epoch must be > 0")
+	}
+	return newCommittee(c.lanes, weights, e)
+}
+
+// newCommittee builds a committee from weights for epoch e.
+// prev is the prior epoch's lanes (nil for genesis).
+//
+// Weight handling: drop zero-weights, sum stake (error on overflow or empty total),
+// reject more than MaxValidators members.
+func newCommittee(prev map[PublicKey]LaneID, weights map[PublicKey]uint64, e EpochIndex) (*Committee, error) {
 	weights = maps.Clone(weights)
 	totalWeight := uint64(0)
 	for k, w := range weights {
 		if w == 0 {
 			delete(weights, k)
+			continue
 		}
 		if utils.Max[uint64]()-totalWeight < w {
 			return nil, fmt.Errorf("total weight overflow")
@@ -134,19 +164,26 @@ func NewCommittee(weights map[PublicKey]uint64) (*Committee, error) {
 	if len(weights) > MaxValidators {
 		return nil, fmt.Errorf("too many validators: got %d, want <= %d", len(weights), MaxValidators)
 	}
-	replicas := slices.SortedFunc(maps.Keys(weights), func(a, b PublicKey) int { return a.Compare(b) })
+
+	lanes := make(map[PublicKey]LaneID, len(weights))
+	for v := range weights {
+		if old, ok := prev[v]; ok {
+			lanes[v] = old
+		} else {
+			lanes[v] = LaneID{Validator: v, Joined: e}
+		}
+	}
+	validators := slices.Collect(maps.Keys(lanes))
+	slices.SortFunc(validators, PublicKey.Compare)
+	laneIDs := make([]LaneID, len(validators))
+	for i, v := range validators {
+		laneIDs[i] = lanes[v]
+	}
 	return &Committee{
-		replicas:    ImSlice[PublicKey]{replicas},
+		validators:  ImSlice[PublicKey]{validators},
+		laneIDs:     ImSlice[LaneID]{laneIDs},
+		lanes:       lanes,
 		weights:     weights,
 		totalWeight: totalWeight,
 	}, nil
-}
-
-// NewRoundRobinElection creates a Committee with equal weights for each replica.
-func NewRoundRobinElection(replicas []PublicKey) (*Committee, error) {
-	weights := map[PublicKey]uint64{}
-	for _, k := range replicas {
-		weights[k] = 1
-	}
-	return NewCommittee(weights)
 }

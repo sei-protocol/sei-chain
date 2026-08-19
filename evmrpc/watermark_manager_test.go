@@ -541,6 +541,10 @@ func (f *fakeTMClient) Genesis(context.Context) (*coretypes.ResultGenesis, error
 	return &coretypes.ResultGenesis{Genesis: &tmtypes.GenesisDoc{InitialHeight: 1}}, nil
 }
 
+func (f *fakeTMClient) Validators(context.Context, *int64, *int, *int) (*coretypes.ResultValidators, error) {
+	return &coretypes.ResultValidators{}, nil
+}
+
 type fakeStateStore struct {
 	latest   int64
 	earliest int64

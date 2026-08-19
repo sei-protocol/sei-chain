@@ -284,17 +284,6 @@ func TestGetBlockReceiptsGenesisByNumber(t *testing.T) {
 	require.Empty(t, receipts)
 }
 
-func TestGetBlockByNumberExcludeTraceFailGenesis(t *testing.T) {
-	t.Parallel()
-
-	client := newHeightTestClient(1, 1, 1)
-	api := NewSeiBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
-	block, err := api.GetBlockByNumberExcludeTraceFail(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.NotNil(t, block)
-	require.Equal(t, genesisBlockHashHex, block["hash"])
-}
-
 func TestGetBlockNumberByNrOrHashGenesis(t *testing.T) {
 	t.Parallel()
 
@@ -415,20 +404,4 @@ func TestGetBlockReceiptsReceiptsPruned(t *testing.T) {
 	_, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(100)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "receipts have been pruned")
-}
-
-func TestStateAPIGetProofUnavailableHeight(t *testing.T) {
-	t.Parallel()
-
-	earliest := int64(2)
-	latest := int64(80)
-	highHeight := latest + 4
-	client := newHeightTestClient(highHeight, earliest, latest)
-	watermarks := newHeightTestWatermarks(client, latest)
-	api := NewStateAPI(client, nil, testCtxProvider, ConnectionTypeHTTP, watermarks)
-
-	blockParam := rpc.BlockNumberOrHashWithHash(common.HexToHash(highBlockHashHex), true)
-	_, err := api.GetProof(context.Background(), common.Address{}, []string{}, blockParam)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "requested height")
 }

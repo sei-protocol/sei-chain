@@ -568,13 +568,17 @@ func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
 	requireOracleMatches(t, ro, workload.snapshotOracle())
 }
 
-// TestComposite_Auto_ReadOnlyPreFlatKVEraHeight pins the era-aware
-// read-only path: heights that predate flatkv's history (the chain ran
-// effectively memiavl-only) must remain queryable after the migration has
-// begun. The handle skips flatkv entirely — at such heights all consensus
-// data lives in memiavl — instead of failing the flatkv load. In-era
-// heights keep loading flatkv.
-func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
+// TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails records a guarantee that was deliberately
+// given up: heights predating flatkv's history used to be served memiavl-only, because flatkv kept a
+// persisted record of the height its history began at and the read path consulted it.
+//
+// That record is gone, so nothing distinguishes "this height predates flatkv" from "flatkv failed to
+// load at this height", and the read path can only take the safe branch — attempt the load and
+// surface the failure. Answering the other way would serve the height from a memiavl whose migrated
+// keys were deleted, fabricating a nonexistence answer, so failing here is the correct direction.
+//
+// In-era heights are unaffected. Delete this test only alongside a decision to restore pre-era reads.
+func TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails(t *testing.T) {
 	dir := t.TempDir()
 	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(), 100)
 	defer func() { _ = cs.Close() }()
@@ -599,26 +603,15 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
 		_, err := cs.Commit()
 		require.NoError(t, err)
 	}
-	require.Equal(t, int64(5), cs.flatKV.EarliestVersion(),
-		"flatkv history must begin at the seeded (transition) height")
 
-	// Pre-era height: served memiavl-only, with as-of-height values.
-	roCommitter, err := cs.LoadVersionReadOnly(3)
-	require.NoError(t, err, "pre-flatkv-era heights must remain queryable")
+	// Pre-era height: the load is attempted against a flatkv that has no such height, and fails.
+	_, err := cs.LoadVersionReadOnly(3)
+	require.Error(t, err, "a pre-flatkv-era height is no longer distinguishable from a load failure")
+
+	// In-era height: unchanged.
+	roCommitter, err := cs.LoadVersionReadOnly(7)
+	require.NoError(t, err)
 	ro, ok := roCommitter.(*CompositeCommitStore)
-	require.True(t, ok)
-	require.Equal(t, types.MemiavlOnly, ro.currentWriteMode)
-	require.Nil(t, ro.flatKV)
-	val, found, err := ro.Get(keys.BankStoreKey, []byte("k"))
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, valAt(3), val, "value as-of height 3")
-	require.NoError(t, ro.Close())
-
-	// In-era height: flatkv loads as before.
-	roCommitter, err = cs.LoadVersionReadOnly(7)
-	require.NoError(t, err)
-	ro, ok = roCommitter.(*CompositeCommitStore)
 	require.True(t, ok)
 	defer func() { _ = ro.Close() }()
 	require.NotNil(t, ro.flatKV, "in-era heights must keep loading flatkv")
