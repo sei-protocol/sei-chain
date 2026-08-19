@@ -40,10 +40,17 @@ func (f *File) Set(key string, v any) error {
 	// table, or use a table's name for it. Rather than enumerate the shapes that collide, insert and then
 	// ask the decoder, which is the same one the node reads with: if the document no longer decodes, the
 	// insert is undone and the key is named. Enumerating them by hand missed three.
-	undo := f.insert(path, value)
+	undo, inserted := f.insert(path, value)
+	if !inserted {
+		// Unreachable: the lookup above established the key is absent, and the dotted name insert builds
+		// addresses the same place. Reported rather than returned as success, because a caller told a
+		// write landed when nothing was written has no way to find out.
+		return fmt.Errorf("%s: the document already holds this key", key)
+	}
 	if err := f.decodable(); err != nil {
+		// Nothing to drop: the decode that just failed left no cache behind, which is why the undo needs
+		// no invalidation of its own.
 		undo()
-		f.changed()
 		return fmt.Errorf("%s: %w", key, err)
 	}
 	return nil
@@ -64,7 +71,7 @@ func (f *File) decodable() error {
 // A key with no dots belongs at the top level. Otherwise it goes in the table its prefix names,
 // which is created when it is absent so writing the first key of a section works without the
 // operator having to add the heading by hand.
-func (f *File) insert(path parser.Key, value parser.Value) func() {
+func (f *File) insert(path parser.Key, value parser.Value) (func(), bool) {
 	leaf := parser.Key{path[len(path)-1]}
 	kv := &parser.KeyValue{Name: leaf, Value: value}
 
@@ -88,7 +95,7 @@ func (f *File) insert(path parser.Key, value parser.Value) func() {
 		Heading: &parser.Heading{Name: copyKey(table)},
 		Items:   []parser.Item{kv},
 	})
-	return func() { f.doc.Sections = f.doc.Sections[:before] }
+	return func() { f.doc.Sections = f.doc.Sections[:before] }, true
 }
 
 // ancestorOf returns the section a table's keys belong in when the table has no heading of its own, and
@@ -99,22 +106,16 @@ func (f *File) insert(path parser.Key, value parser.Value) func() {
 // has no heading, so no prefix can find it, and a heading written for the table would be the second
 // definition the decoder refuses.
 func (f *File) ancestorOf(table parser.Key) (*tomledit.Section, parser.Key) {
-	var best *tomledit.Section
-	var under parser.Key
+	// At most one section can qualify, so the first match is the only match. Two would need a section
+	// [a] holding a dotted key beginning b. alongside a section [a.b], and that names the table b twice,
+	// which the decoder refuses at the door.
 	for _, s := range f.doc.Sections {
 		if s.Heading == nil || !s.Name.IsPrefixOf(table) {
 			continue
 		}
-		below := table[len(s.Name):]
-		if !createsTable(s, below) {
-			continue
+		if below := table[len(s.Name):]; createsTable(s, below) {
+			return s, copyKey(below)
 		}
-		if best == nil || len(s.Name) > len(best.Name) {
-			best, under = s, copyKey(below)
-		}
-	}
-	if best != nil {
-		return best, under
 	}
 	if f.doc.Global != nil && createsTable(f.doc.Global, table) {
 		return f.doc.Global, copyKey(table)
@@ -128,9 +129,6 @@ func (f *File) ancestorOf(table parser.Key) (*tomledit.Section, parser.Key) {
 // heading. Only such a table is joined by extending a dotted name; one nothing has created gets a
 // heading of its own, so a table is spelled the same way whatever order its keys were written in.
 func createsTable(s *tomledit.Section, table parser.Key) bool {
-	if len(table) == 0 {
-		return false
-	}
 	for _, item := range s.Items {
 		kv, ok := item.(*parser.KeyValue)
 		if !ok {
@@ -156,14 +154,14 @@ func dottedName(under parser.Key, leaf parser.Key) parser.Key {
 	return append(copyKey(under), leaf...)
 }
 
-// appendItem adds an item to a section and reports how to remove it again.
+// appendItem adds an item to a section, and reports how to remove it again and whether it went in.
 //
-// Told not to replace, so a key already present is reported rather than overwritten. Set rules that out
-// by looking the key up first, and the distinction matters for the undo: replacing would leave it
-// deleting an entry that was there before the edit.
-func appendItem(s *tomledit.Section, kv *parser.KeyValue) func() {
+// Told not to replace, so a key already present is reported rather than overwritten. The distinction
+// matters twice: replacing would leave the undo deleting an entry that predated the edit, and a caller
+// needs to know a write did not happen rather than being told it did.
+func appendItem(s *tomledit.Section, kv *parser.KeyValue) (func(), bool) {
 	if !transform.InsertMapping(s, kv, false) {
-		return func() {} // nothing was inserted, so nothing needs undoing
+		return nil, false
 	}
 	return func() {
 		for i, item := range s.Items {
@@ -172,142 +170,15 @@ func appendItem(s *tomledit.Section, kv *parser.KeyValue) func() {
 				return
 			}
 		}
-	}
+	}, true
 }
 
 // insertGlobal adds a top-level key, creating the global section when the document has none.
-func (f *File) insertGlobal(kv *parser.KeyValue) func() {
+func (f *File) insertGlobal(kv *parser.KeyValue) (func(), bool) {
 	if f.doc.Global == nil {
 		f.doc.Global = &tomledit.Section{}
 	}
 	return appendItem(f.doc.Global, kv)
-}
-
-// The lines delimiting the region SetPreamble owns.
-//
-// A comment at the top of a file may be one an operator wrote, and this method has to replace its own
-// without touching theirs. One mark cannot tell a line before the region from a line inside it, so the
-// region is delimited at both ends: everything between these two lines belongs to this method, and
-// everything outside them belongs to whoever wrote it.
-const (
-	preambleBegin = " ---- generated by seid ----"
-	preambleEnd   = " ---- end generated; your notes are safe below ----"
-)
-
-// SetPreamble puts a comment block at the top of the document, above everything else.
-//
-// Comments rather than keys, so nothing a reader needs in order to understand the file becomes
-// configuration the node has to recognize. This replaces a region it wrote before, so regenerating does
-// not stack one preamble on the last, and leaves every other comment alone: an operator's explanation at
-// the top of the file is exactly what this package exists to preserve.
-func (f *File) SetPreamble(lines []string) {
-	if f.doc.Global == nil {
-		f.doc.Global = &tomledit.Section{}
-	}
-	f.changed()
-
-	kept := withoutGeneratedLines(f.takeLeadingComments())
-	var leading []parser.Item
-	if len(lines) > 0 {
-		region := append([]string{preambleBegin}, lines...)
-		leading = append(leading, parser.Comments(append(region, preambleEnd)))
-	}
-	if len(kept) > 0 {
-		leading = append(leading, parser.Comments(kept))
-	}
-	f.doc.Global.Items = append(leading, f.doc.Global.Items...)
-}
-
-// takeLeadingComments removes and returns every comment line standing above the document's first value.
-//
-// A comment block is an item of its own when a blank line follows it, and part of the item below it
-// otherwise, and an operator decides which by how they type. Taking both means a region is found wherever
-// the parser put it, and returning what is kept as one block puts it somewhere a later run still looks.
-func (f *File) takeLeadingComments() []string {
-	var lines []string
-
-	cut := 0
-	for _, item := range f.doc.Global.Items {
-		block, comments := item.(parser.Comments)
-		if !comments {
-			break
-		}
-		lines = append(lines, block...)
-		cut++
-	}
-	f.doc.Global.Items = f.doc.Global.Items[cut:]
-
-	if attached := f.firstBlock(); attached != nil {
-		lines = append(lines, *attached...)
-		*attached = nil
-	}
-	return lines
-}
-
-// firstBlock returns the comment block carried by whatever the document holds first, or nil.
-func (f *File) firstBlock() *parser.Comments {
-	if len(f.doc.Global.Items) > 0 {
-		switch first := f.doc.Global.Items[0].(type) {
-		case *parser.KeyValue:
-			return &first.Block
-		case *parser.Heading:
-			return &first.Block
-		}
-		return nil
-	}
-	// Nothing at the top level, so the first thing in the file is a section heading.
-	for _, s := range f.doc.Sections {
-		if s.Heading != nil {
-			return &s.Block
-		}
-	}
-	return nil
-}
-
-// withoutGeneratedLines drops every generated region from a set of comment lines.
-//
-// Every region rather than the first, so the result does not depend on how many a previous run left
-// behind: dropping one and keeping another would leave a stale header in the file forever.
-func withoutGeneratedLines(lines []string) []string {
-	var out []string
-	for i := 0; i < len(lines); {
-		from, to := generatedRegion(lines[i:])
-		if from < 0 {
-			return append(out, lines[i:]...)
-		}
-		out = append(out, lines[i:i+from]...)
-		i += to + 1
-	}
-	return out
-}
-
-// generatedRegion returns the first and last line of the earliest generated region, or -1 for none.
-//
-// Both delimiters have to be present. A file holding only one of them was hand-edited into a shape this
-// cannot reason about, and leaving those lines alone keeps an operator's writing over its own tidiness.
-//
-// Compared on each line's content, because a block this package inserts holds the text alone while the
-// same block read back from a file carries the comment character the renderer added.
-func generatedRegion(lines []string) (int, int) {
-	from := -1
-	for i, line := range lines {
-		switch content(line) {
-		case content(preambleBegin):
-			if from < 0 {
-				from = i
-			}
-		case content(preambleEnd):
-			if from >= 0 {
-				return from, i
-			}
-		}
-	}
-	return -1, -1
-}
-
-// content is a comment line without its marker or surrounding space.
-func content(line string) string {
-	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "#"))
 }
 
 // Unset removes a key and reports whether the file carried one.

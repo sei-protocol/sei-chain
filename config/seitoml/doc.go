@@ -24,9 +24,9 @@
 // because a release migrates the file on the node's own disk and rolling the binary back does not roll
 // the file back with it. Read anyway, the older binary would apply only the keys it still recognises.
 //
-// Editing preserves the document. An operator may hand-edit the file, and comments are how they
-// explain a choice to whoever reads it next, so set and unset change the one line they name and leave
-// every other line of content untouched. Vertical spacing is normalised once, on the first save of a
+// Editing preserves the document. An operator may hand-edit the file, and comments are how they explain
+// a choice to whoever reads it next, so set and unset change the one line they name and leave every other
+// line of content untouched. Vertical spacing is normalised once, on the first save of a
 // file nothing has saved before, and holds steady after that. This is why the package edits a parsed
 // document rather than re-rendering a decoded map, which would drop every comment in the file.
 //
