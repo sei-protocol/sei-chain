@@ -228,6 +228,24 @@ func restoreSnapshotIntoLiveDB(snapshotDir, dbHome string, target int64) error {
 	return nil
 }
 
+// stateStoreHome resolves the live database directory, including the window a
+// rollback opens in it. GetStateStorePath answers by asking whether the legacy
+// directory exists, and the swap renames that directory away between two of its
+// steps; a node that crashes there would otherwise come back on the new layout,
+// open an empty database, and orphan the real one — changelog included — beside
+// the path it no longer looks at.
+func stateStoreHome(homeDir, backend string) string {
+	resolved := utils.GetStateStorePath(homeDir, backend)
+	legacy := utils.LegacyStateStorePath(homeDir, backend)
+	if resolved == legacy {
+		return resolved
+	}
+	if dirExists(rollbackTmpDir(legacy)) || dirExists(rollbackBackupDir(legacy)) {
+		return legacy
+	}
+	return resolved
+}
+
 // recoverRollbackDirSwap finishes or abandons the directory swap of a rollback
 // that died partway. It runs before the state store opens.
 //
@@ -320,8 +338,40 @@ func rollbackTargetPath(dbHome string) string {
 	return filepath.Join(dbHome, rollbackTargetFile)
 }
 
+// writeRollbackTarget persists the marker before the directory swap publishes
+// the snapshot it belongs to. A marker that is lost to a crash after that swap
+// is worse than no rollback at all: the next open finds a restored database, no
+// pending target, and replays the whole uncut changelog forward, so the store
+// silently returns to the height the rollback was undoing.
 func writeRollbackTarget(dbHome string, target int64) error {
-	return os.WriteFile(rollbackTargetPath(dbHome), []byte(strconv.FormatInt(target, 10)+"\n"), 0o600)
+	path := rollbackTargetPath(dbHome)
+	tmp := path + ".tmp"
+	if err := writeFileSynced(tmp, []byte(strconv.FormatInt(target, 10)+"\n")); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("publish rollback target marker: %w", err)
+	}
+	return utils.SyncDir(dbHome)
+}
+
+func writeFileSynced(path string, contents []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //nolint:gosec // internal marker path
+	if err != nil {
+		return fmt.Errorf("create %q: %w", path, err)
+	}
+	if _, err := f.Write(contents); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("write %q: %w", path, err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("sync %q: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close %q: %w", path, err)
+	}
+	return nil
 }
 
 func readRollbackTarget(dbHome string) (int64, bool, error) {
@@ -339,11 +389,17 @@ func readRollbackTarget(dbHome string) (int64, bool, error) {
 	return target, true, nil
 }
 
+// clearRollbackTarget persists the removal too. A marker that comes back after a
+// crash sends the next open through the cut again, against a changelog that has
+// grown blocks since the rollback finished, and those blocks would be discarded.
 func clearRollbackTarget(dbHome string) error {
-	if err := os.Remove(rollbackTargetPath(dbHome)); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(rollbackTargetPath(dbHome)); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
-	return nil
+	return utils.SyncDir(dbHome)
 }
 
 // truncateChangelogAfterVersion drops every changelog entry above target. It is

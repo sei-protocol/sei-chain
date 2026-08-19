@@ -67,7 +67,7 @@ func NewCompositeStateStore(
 	ssConfig config.StateStoreConfig,
 	homeDir string,
 ) (*CompositeStateStore, error) {
-	dbHome := utils.GetStateStorePath(homeDir, ssConfig.Backend)
+	dbHome := stateStoreHome(homeDir, ssConfig.Backend)
 	if ssConfig.DBDirectory != "" {
 		dbHome = ssConfig.DBDirectory
 	}

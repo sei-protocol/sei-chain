@@ -298,14 +298,19 @@ func (db *Database) PruneWALBeforeVersion(version int64) error {
 	if lastOffset == 0 || firstOffset > lastOffset {
 		return nil
 	}
-	firstNeeded, err := wal.FindFirstOffsetAfterVersion(db.streamHandler, firstOffset, lastOffset, version)
+	// The last entry at or below the snapshot is kept rather than cut. A rollback
+	// replays from the entry after the snapshot, so that entry is not needed to
+	// replay — it is needed to read the log: a first entry above the snapshot
+	// version can be a block that wrote nothing or a prefix that was pruned, and
+	// only a retained entry below it tells a reader which.
+	keepOffset, ok, err := wal.FindLastOffsetAtOrBeforeVersion(db.streamHandler, firstOffset, lastOffset, version)
 	if err != nil {
 		return fmt.Errorf("find WAL prune offset for version %d: %w", version, err)
 	}
-	if firstNeeded == 0 || firstNeeded <= firstOffset || firstNeeded > lastOffset {
+	if !ok || keepOffset <= firstOffset {
 		return nil
 	}
-	return db.streamHandler.TruncateBefore(firstNeeded)
+	return db.streamHandler.TruncateBefore(keepOffset)
 }
 
 // WALVersionsAfter reads the changelog through the handle this database already

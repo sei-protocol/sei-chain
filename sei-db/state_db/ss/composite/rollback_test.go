@@ -16,7 +16,20 @@ import (
 
 func setupRollbackStore(t *testing.T, interval int64, keepRecent int) (*CompositeStateStore, string) {
 	t.Helper()
+	return setupRollbackStoreAt(t, t.TempDir(), interval, keepRecent)
+}
+
+// legacyLayoutHome is a home directory that already holds the pre-state_store
+// database directory, which is what makes GetStateStorePath resolve to it.
+func legacyLayoutHome(t *testing.T) string {
+	t.Helper()
 	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(utils.LegacyStateStorePath(home, config.PebbleDBBackend), 0o750))
+	return home
+}
+
+func setupRollbackStoreAt(t *testing.T, home string, interval int64, keepRecent int) (*CompositeStateStore, string) {
+	t.Helper()
 	store, err := NewCompositeStateStore(config.StateStoreConfig{
 		Backend:            config.PebbleDBBackend,
 		AsyncWriteBuffer:   100,
@@ -79,8 +92,8 @@ func TestRollbackRestoresSnapshotAndReplaysWALToTarget(t *testing.T) {
 }
 
 // TestRollbackToOldestRetainedSnapshot covers the target that retention leaves
-// with no replayable changelog entry at or below it: the snapshot is the target
-// height, and every entry the WAL still holds is above it.
+// with nothing to replay: the snapshot is the target height, so every entry the
+// WAL holds above the oldest snapshot's own is dropped by the rollback.
 func TestRollbackToOldestRetainedSnapshot(t *testing.T) {
 	store, home := setupRollbackStore(t, 2, 1)
 	for version := int64(1); version <= 6; version++ {
@@ -90,7 +103,9 @@ func TestRollbackToOldestRetainedSnapshot(t *testing.T) {
 	require.Equal(t, []int64{4, 6}, snapshotVersions(t, store))
 	cfg := store.config
 	require.NoError(t, store.Close())
-	require.Equal(t, int64(5), firstChangelogVersion(t, home))
+	// Retention stops at the oldest snapshot's own entry rather than the one
+	// after it, so a reader can still tell a gap above it from a pruned prefix.
+	require.Equal(t, int64(4), firstChangelogVersion(t, home))
 
 	store, err := NewCompositeStateStore(cfg, home)
 	require.NoError(t, err)
@@ -261,7 +276,26 @@ func readFileBytes(t *testing.T, path string) []byte {
 	return bz
 }
 
+// TestRollbackCrashRecoveryAtEverySwapStep stops the swap after each step and
+// reopens. Both directory layouts are covered: the swap renames the live
+// directory away, and on the legacy layout that rename is what GetStateStorePath
+// reads to decide where the database lives, so a reopen in that window has to
+// resolve back to the directory the rollback moved rather than to an empty one.
 func TestRollbackCrashRecoveryAtEverySwapStep(t *testing.T) {
+	for _, layout := range []struct {
+		name string
+		home func(*testing.T) string
+	}{
+		{"state_store layout", func(t *testing.T) string { return t.TempDir() }},
+		{"legacy layout", legacyLayoutHome},
+	} {
+		t.Run(layout.name, func(t *testing.T) {
+			runRollbackCrashRecoveryAtEverySwapStep(t, layout.home)
+		})
+	}
+}
+
+func runRollbackCrashRecoveryAtEverySwapStep(t *testing.T, newHome func(*testing.T) string) {
 	const target = int64(7)
 	names := restoreStepNames()
 	// Recovery rolls forward from the step that moves the live database aside,
@@ -270,11 +304,13 @@ func TestRollbackCrashRecoveryAtEverySwapStep(t *testing.T) {
 
 	for stop := range names {
 		t.Run(fmt.Sprintf("after %s", names[stop]), func(t *testing.T) {
-			cfg, home, dbHome := stageRollbackSwap(t, target, stop+1)
+			cfg, home, dbHome := stageRollbackSwap(t, newHome(t), target, stop+1)
 
 			reopened, err := NewCompositeStateStore(cfg, home)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = reopened.Close() })
+			require.Equal(t, dbHome, reopened.dbHome,
+				"the reopened store must resolve to the database the rollback moved")
 			require.NoDirExists(t, rollbackTmpDir(dbHome))
 			require.NoDirExists(t, rollbackBackupDir(dbHome))
 			require.NoFileExists(t, rollbackTargetPath(dbHome))
@@ -301,6 +337,28 @@ func TestRollbackCrashRecoveryAtEverySwapStep(t *testing.T) {
 	}
 }
 
+// TestRollbackTargetMarkerIsPublishedAtomically pins the shape of the write: the
+// marker is staged under a temporary name and renamed into place, so a reader
+// sees all of it or none of it, and no staging file is left for the next open to
+// trip over. The fsyncs that make this survive a power loss cannot be observed
+// from a test; the atomic publish they protect can.
+func TestRollbackTargetMarkerIsPublishedAtomically(t *testing.T) {
+	dbHome := t.TempDir()
+
+	require.NoError(t, writeRollbackTarget(dbHome, 42))
+	require.NoFileExists(t, rollbackTargetPath(dbHome)+".tmp")
+	target, ok, err := readRollbackTarget(dbHome)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, int64(42), target)
+
+	require.NoError(t, clearRollbackTarget(dbHome))
+	_, ok, err = readRollbackTarget(dbHome)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.NoError(t, clearRollbackTarget(dbHome), "clearing a cleared marker is not an error")
+}
+
 func restoreStepIndex(t *testing.T, name string) int {
 	t.Helper()
 	for i, stepName := range restoreStepNames() {
@@ -314,9 +372,9 @@ func restoreStepIndex(t *testing.T, name string) int {
 
 // stageRollbackSwap runs the first stop steps of the directory swap and returns
 // the config, home, and database directory of the store it left behind.
-func stageRollbackSwap(t *testing.T, target int64, stop int) (config.StateStoreConfig, string, string) {
+func stageRollbackSwap(t *testing.T, home string, target int64, stop int) (config.StateStoreConfig, string, string) {
 	t.Helper()
-	store, home := setupRollbackStore(t, 5, 1)
+	store, home := setupRollbackStoreAt(t, home, 5, 1)
 	for version := int64(1); version <= 8; version++ {
 		writeRollbackBlock(t, store, version)
 	}
@@ -334,7 +392,7 @@ func stageRollbackSwap(t *testing.T, target int64, stop int) (config.StateStoreC
 
 func stageRollbackRestore(t *testing.T, target int64) (config.StateStoreConfig, string) {
 	t.Helper()
-	cfg, home, _ := stageRollbackSwap(t, target, len(restoreSteps("", "", target)))
+	cfg, home, _ := stageRollbackSwap(t, t.TempDir(), target, len(restoreStepNames()))
 	return cfg, home
 }
 
@@ -447,6 +505,10 @@ func TestRollbackRefusesEVMSplit(t *testing.T) {
 	require.ErrorContains(t, store.Rollback(5), "evm-ss-split")
 }
 
+// TestSnapshotRetentionPrunesWALToOldestSnapshot pins where retention stops:
+// at the oldest retained snapshot's own entry, not at the first one above it.
+// Keeping that entry is what lets a later rollback tell a gap left by an empty
+// block from a prefix that was pruned away.
 func TestSnapshotRetentionPrunesWALToOldestSnapshot(t *testing.T) {
 	store, home := setupRollbackStore(t, 2, 1)
 	for version := int64(1); version <= 6; version++ {
@@ -456,7 +518,40 @@ func TestSnapshotRetentionPrunesWALToOldestSnapshot(t *testing.T) {
 		}
 	}
 	settle(t, store)
+	require.Equal(t, []int64{4, 6}, snapshotVersions(t, store))
 	require.NoError(t, store.Close())
 
-	require.Equal(t, int64(5), firstChangelogVersion(t, home))
+	require.Equal(t, int64(4), firstChangelogVersion(t, home))
+}
+
+// TestRollbackAcrossAnEmptyBlockAfterTheOldestSnapshot is the case the retained
+// entry buys: the block right after the oldest retained snapshot wrote nothing,
+// so the first entry above that snapshot is two versions up. Without an entry at
+// or below the snapshot, that gap is indistinguishable from a pruned prefix and
+// the rollback would be refused.
+func TestRollbackAcrossAnEmptyBlockAfterTheOldestSnapshot(t *testing.T) {
+	store, home := setupRollbackStore(t, 3, 1)
+	for version := int64(1); version <= 9; version++ {
+		if version == 7 {
+			writeEmptyRollbackBlock(t, store, version)
+		} else {
+			writeRollbackBlock(t, store, version)
+		}
+		settle(t, store)
+	}
+	// Retention drops snapshot 3 and prunes the changelog to snapshot 6's own
+	// entry. Version 7 wrote nothing, so the first entry above it is version 8.
+	require.Equal(t, []int64{6, 9}, snapshotVersions(t, store))
+	require.Equal(t, int64(6), firstChangelogVersion(t, home))
+
+	require.NoError(t, store.ValidateRollback(8))
+	require.NoError(t, store.Rollback(8))
+	require.Equal(t, int64(8), store.GetLatestVersion())
+
+	value, err := store.Get("bank", 100, []byte("balance"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v8"), value)
+	has, err := store.Has("bank", 100, []byte("block-9"))
+	require.NoError(t, err)
+	require.False(t, has)
 }
