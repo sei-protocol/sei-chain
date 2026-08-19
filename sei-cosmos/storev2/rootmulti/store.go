@@ -879,6 +879,14 @@ func (rs *Store) RollbackToVersion(target int64) error {
 		return err
 	}
 	if ssRollback != nil {
+		// The commit store is already at the target here, and the caller rewinds
+		// Tendermint only after this returns, so a failure leaves three layers on
+		// two heights. It is recoverable rather than terminal: re-running the
+		// command takes the app-behind-Tendermint path and rewinds Tendermint,
+		// and the state store converges on its own if the failure landed after
+		// the directory swap, because the marker drives the next open. The
+		// pre-flight is what keeps this to an I/O failure rather than a plan the
+		// state store was never going to accept.
 		if err := ssRollback.Rollback(target); err != nil {
 			return fmt.Errorf("rollback state store to version %d: %w", target, err)
 		}

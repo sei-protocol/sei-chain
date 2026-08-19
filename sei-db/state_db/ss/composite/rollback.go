@@ -38,30 +38,20 @@ func (s *CompositeStateStore) Rollback(target int64) error {
 	if err := s.Close(); err != nil {
 		return fmt.Errorf("close state store before rollback: %w", err)
 	}
-	if err := restoreSnapshotIntoLiveDB(plan.snapshotDir, s.dbHome, target); err != nil {
-		return fmt.Errorf("restore state store snapshot %d: %w", plan.baseVersion, err)
-	}
-	if err := truncateChangelogAfterVersion(plan.changelog, target); err != nil {
-		return fmt.Errorf("truncate state store changelog to version %d: %w", target, err)
-	}
-	if err := removeSnapshotsAbove(plan.root, target); err != nil {
-		return fmt.Errorf("remove state store snapshots above %d: %w", target, err)
+	if err := runRollbackSteps(plan, s.dbHome, target); err != nil {
+		return fmt.Errorf("roll back state store to version %d from snapshot %d: %w", target, plan.baseVersion, err)
 	}
 
 	reopened, err := NewCompositeStateStore(s.config, s.homeDir)
 	if err != nil {
 		return fmt.Errorf("reopen state store after rollback: %w", err)
 	}
-	// The reopen already advances the watermark to the target through the
-	// rollback marker, including the case where the target height wrote no
-	// changelog entry of its own.
+	// The reopen is the same path a crashed rollback takes: it advances the
+	// watermark to the target through the marker, including the case where the
+	// target height wrote no changelog entry of its own, and clears the marker.
 	if got := reopened.GetLatestVersion(); got != target {
 		_ = reopened.Close()
 		return fmt.Errorf("state store rollback failed: wanted version %d but reached %d", target, got)
-	}
-	if err := clearRollbackTarget(s.dbHome); err != nil {
-		_ = reopened.Close()
-		return fmt.Errorf("clear state store rollback marker: %w", err)
 	}
 	s.adopt(reopened)
 	logger.Info("state store rollback complete", "target", target, "snapshot", plan.baseVersion)
@@ -155,34 +145,45 @@ func rollbackBaseVersion(root string, changelog types.SnapshotWALReader, target 
 	return base, nil
 }
 
-type restoreStep struct {
+type rollbackStep struct {
 	name string
 	run  func() error
 }
 
-// restoreSteps lists, in order, the steps that publish the snapshot at
-// snapshotDir as the live database at dbHome.
+// rollbackSteps lists, in order, every change a rollback makes on disk. One list
+// is the whole story: a step kept outside it is a step no crash test reaches and
+// no recovery path redoes.
 //
-// The order is what makes a crash survivable, so the steps are named and listed
-// rather than inlined: a crash test can stop after any one of them. The
-// changelog holds every version the snapshot does not and is the only copy, so
-// it stays inside the live directory until that directory has been moved aside
-// whole, and it is moved into the published directory before the moved-aside
-// one is deleted. Between any two steps the changelog is inside exactly one of
-// dbHome and the backup directory, and recoverRollbackDirSwap empties both into
-// dbHome before it deletes either.
-func restoreSteps(snapshotDir, dbHome string, target int64) []restoreStep {
+// The order is what makes a crash survivable. Two rules set it.
+//
+// The changelog holds every version the snapshot does not and is the only copy,
+// so it stays inside the live directory until that directory has been moved
+// aside whole, and it is moved into the published directory before the
+// moved-aside one is deleted. Between any two steps the changelog is inside
+// exactly one of dbHome and the backup directory, and recoverRollbackDirSwap
+// empties both into dbHome before it deletes either.
+//
+// The snapshots above the target go first, before anything is published. They
+// describe the fork this rollback discards, and only the changelog cut and the
+// version watermark are redone from the marker on the next open — so a snapshot
+// above the target that outlives the swap outlives the rollback, and a later
+// rollback would take it as its base and restore the discarded fork's writes.
+// Losing them to an abandoned rollback only narrows a future rollback window.
+func rollbackSteps(plan ssRollbackPlan, dbHome string, target int64) []rollbackStep {
 	tmpDir := rollbackTmpDir(dbHome)
 	backupDir := rollbackBackupDir(dbHome)
-	return []restoreStep{
+	return []rollbackStep{
 		{"remove stale rollback dirs", func() error {
 			if err := os.RemoveAll(tmpDir); err != nil {
 				return err
 			}
 			return os.RemoveAll(backupDir)
 		}},
+		{"discard snapshots above target", func() error {
+			return removeSnapshotsAbove(plan.root, target)
+		}},
 		{"clone snapshot", func() error {
-			return utils.ClonePebbleDir(snapshotDir, tmpDir)
+			return utils.ClonePebbleDir(plan.snapshotDir, tmpDir)
 		}},
 		{"mark rollback target", func() error {
 			return writeRollbackTarget(tmpDir, target)
@@ -205,13 +206,16 @@ func restoreSteps(snapshotDir, dbHome string, target int64) []restoreStep {
 		{"persist directory swap", func() error {
 			return utils.SyncDir(filepath.Dir(dbHome))
 		}},
+		{"cut changelog to target", func() error {
+			return truncateChangelogAfterVersion(plan.changelog, target)
+		}},
 	}
 }
 
-// restoreStepNames returns the step names in order, for a caller that needs the
+// rollbackStepNames returns the step names in order, for a caller that needs the
 // sequence without a database to run it against.
-func restoreStepNames() []string {
-	steps := restoreSteps("", "", 0)
+func rollbackStepNames() []string {
+	steps := rollbackSteps(ssRollbackPlan{}, "", 0)
 	names := make([]string, len(steps))
 	for i, step := range steps {
 		names[i] = step.name
@@ -219,8 +223,8 @@ func restoreStepNames() []string {
 	return names
 }
 
-func restoreSnapshotIntoLiveDB(snapshotDir, dbHome string, target int64) error {
-	for _, step := range restoreSteps(snapshotDir, dbHome, target) {
+func runRollbackSteps(plan ssRollbackPlan, dbHome string, target int64) error {
+	for _, step := range rollbackSteps(plan, dbHome, target) {
 		if err := step.run(); err != nil {
 			return fmt.Errorf("%s: %w", step.name, err)
 		}

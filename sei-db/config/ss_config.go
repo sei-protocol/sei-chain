@@ -87,7 +87,12 @@ type StateStoreConfig struct {
 	// The changelog grows with them. A rollback replays it forward from a
 	// snapshot, so retention holds every entry above the oldest retained one:
 	// roughly SnapshotInterval entries per retained snapshot, against a floor of
-	// 1000 entries when snapshots are off. Attempts, skips, outcomes,
+	// 1000 entries when snapshots are off. Size disk for the count-based ceiling
+	// rather than that steady state — 40,000 entries at the shipped cadence. Every
+	// snapshot-enabled node pays it whether or not it ever rolls back, and the
+	// snapshot-anchored prune that brings the log back below it is best-effort
+	// and only runs when a retention pass drops a snapshot, so a node can sit at
+	// the ceiling indefinitely with nothing else degraded. Attempts, skips, outcomes,
 	// duration, in-flight state, per-store height, retained count, apparent bytes,
 	// and newest common height are exported as ss_snapshot_* metrics.
 	// defaults to false

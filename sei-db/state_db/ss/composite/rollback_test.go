@@ -297,10 +297,10 @@ func TestRollbackCrashRecoveryAtEverySwapStep(t *testing.T) {
 
 func runRollbackCrashRecoveryAtEverySwapStep(t *testing.T, newHome func(*testing.T) string) {
 	const target = int64(7)
-	names := restoreStepNames()
+	names := rollbackStepNames()
 	// Recovery rolls forward from the step that moves the live database aside,
 	// because from there on the restored database is the one on disk.
-	rollsForwardFrom := restoreStepIndex(t, "move live database aside")
+	rollsForwardFrom := rollbackStepIndex(t, "move live database aside")
 
 	for stop := range names {
 		t.Run(fmt.Sprintf("after %s", names[stop]), func(t *testing.T) {
@@ -318,13 +318,17 @@ func runRollbackCrashRecoveryAtEverySwapStep(t *testing.T, newHome func(*testing
 			if stop >= rollsForwardFrom {
 				require.Equal(t, target, reopened.GetLatestVersion())
 				// v7 is only readable if the changelog survived the crash: the
-				// restored snapshot is version 5, and 6 and 7 are replayed.
+				// restored snapshot is version 6, and 7 is replayed.
 				value, err := reopened.Get("bank", 100, []byte("balance"))
 				require.NoError(t, err)
 				require.Equal(t, []byte("v7"), value)
 				has, err := reopened.Has("bank", 100, []byte("block-8"))
 				require.NoError(t, err)
 				require.False(t, has)
+				// A snapshot above the target describes the discarded fork. One
+				// left behind here would outlive the rollback, and the next one
+				// would take it as its base.
+				require.Equal(t, []int64{2, 4, 6}, snapshotVersions(t, reopened))
 				return
 			}
 
@@ -333,6 +337,7 @@ func runRollbackCrashRecoveryAtEverySwapStep(t *testing.T, newHome func(*testing
 			require.Equal(t, int64(8), reopened.GetLatestVersion())
 			require.NoError(t, reopened.Rollback(target))
 			require.Equal(t, target, reopened.GetLatestVersion())
+			require.Equal(t, []int64{2, 4, 6}, snapshotVersions(t, reopened))
 		})
 	}
 }
@@ -359,46 +364,45 @@ func TestRollbackTargetMarkerIsPublishedAtomically(t *testing.T) {
 	require.NoError(t, clearRollbackTarget(dbHome), "clearing a cleared marker is not an error")
 }
 
-func restoreStepIndex(t *testing.T, name string) int {
+func rollbackStepIndex(t *testing.T, name string) int {
 	t.Helper()
-	for i, stepName := range restoreStepNames() {
+	for i, stepName := range rollbackStepNames() {
 		if stepName == name {
 			return i
 		}
 	}
-	t.Fatalf("restore step %q not found", name)
+	t.Fatalf("rollback step %q not found", name)
 	return 0
 }
 
-// stageRollbackSwap runs the first stop steps of the directory swap and returns
-// the config, home, and database directory of the store it left behind.
+// stageRollbackSwap runs the first stop steps of a rollback and returns the
+// config, home, and database directory of the store it left behind.
+//
+// The fixture takes a snapshot every other block, and keeps them all, so a
+// rollback to version 7 has both a snapshot below the target to restore from
+// and a snapshot above it to discard.
 func stageRollbackSwap(t *testing.T, home string, target int64, stop int) (config.StateStoreConfig, string, string) {
 	t.Helper()
-	store, home := setupRollbackStoreAt(t, home, 5, 1)
+	store, home := setupRollbackStoreAt(t, home, 2, 3)
 	for version := int64(1); version <= 8; version++ {
 		writeRollbackBlock(t, store, version)
+		settle(t, store)
 	}
-	settle(t, store)
+	require.Equal(t, []int64{2, 4, 6, 8}, snapshotVersions(t, store))
 	plan, err := store.planRollback(target)
 	require.NoError(t, err)
 	cfg, dbHome := store.config, store.dbHome
 	require.NoError(t, store.Close())
 
-	for _, step := range restoreSteps(plan.snapshotDir, dbHome, target)[:stop] {
+	for _, step := range rollbackSteps(plan, dbHome, target)[:stop] {
 		require.NoError(t, step.run(), step.name)
 	}
 	return cfg, home, dbHome
 }
 
-func stageRollbackRestore(t *testing.T, target int64) (config.StateStoreConfig, string) {
-	t.Helper()
-	cfg, home, _ := stageRollbackSwap(t, t.TempDir(), target, len(restoreStepNames()))
-	return cfg, home
-}
-
 func TestRollbackCrashRecoveryCompletesPendingRestore(t *testing.T) {
 	t.Run("after restore before WAL cut", func(t *testing.T) {
-		cfg, home := stageRollbackRestore(t, 7)
+		cfg, home, _ := stageRollbackSwap(t, t.TempDir(), 7, rollbackStepIndex(t, "cut changelog to target"))
 
 		reopened, err := NewCompositeStateStore(cfg, home)
 		require.NoError(t, err)
@@ -408,9 +412,7 @@ func TestRollbackCrashRecoveryCompletesPendingRestore(t *testing.T) {
 	})
 
 	t.Run("after WAL cut before reopen", func(t *testing.T) {
-		cfg, home := stageRollbackRestore(t, 7)
-		changelogPath := utils.GetChangelogPath(utils.GetStateStorePath(home, config.PebbleDBBackend))
-		require.NoError(t, truncateChangelogAfterVersion(changelogPath, 7))
+		cfg, home, _ := stageRollbackSwap(t, t.TempDir(), 7, len(rollbackStepNames()))
 
 		reopened, err := NewCompositeStateStore(cfg, home)
 		require.NoError(t, err)

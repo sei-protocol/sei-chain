@@ -151,13 +151,12 @@ func NewCompositeStateStore(
 	cs.validateEVMSSPostRecovery()
 
 	if ssConfig.SnapshotInterval > 0 {
-		cosmosSnapshotRoot := utils.GetStateStoreSnapshotsPath(homeDir)
-		if ssConfig.DBDirectory != "" {
-			cosmosSnapshotRoot = utils.GetStateStoreSnapshotsSiblingPath(dbHome)
-		}
+		// Shared with the rollback, which has to resolve the same root to find
+		// the snapshots this manager writes.
+		cosmosRoot := cosmosSnapshotRoot(homeDir, dbHome, ssConfig)
 		evmStore, hasEVM := cs.evmStore.(*evm.EVMStateStore)
 		var evmSnapshotRoot string
-		roots := []string{cosmosSnapshotRoot}
+		roots := []string{cosmosRoot}
 		if hasEVM {
 			evmSnapshotRoot = utils.GetStateStoreSnapshotsSiblingPath(evmStore.Dir())
 			roots = append(roots, evmSnapshotRoot)
@@ -167,7 +166,7 @@ func NewCompositeStateStore(
 		floor := sssnapshot.NewFloor(sssnapshot.NewestCommonVersion(roots))
 
 		members := make([]snapshotMember, 0, len(roots))
-		if err := cosmosStore.StartSnapshots(cosmosSnapshotRoot, []string{dbHome}, ssConfig, floor); err != nil {
+		if err := cosmosStore.StartSnapshots(cosmosRoot, []string{dbHome}, ssConfig, floor); err != nil {
 			_ = cs.Close()
 			return nil, fmt.Errorf("start Cosmos state store snapshot manager: %w", err)
 		}
