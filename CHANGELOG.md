@@ -39,7 +39,16 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.6
 sei-chain
+* [#3957](https://github.com/sei-protocol/sei-chain/pull/3957) Backport `release/v6.6`: Add context cancellation to SS DB layer
+* [#3954](https://github.com/sei-protocol/sei-chain/pull/3954) Backport `release/v6.6`: feat(seeds): ship Sei Labs seeds as the default bootstrap-peers
+* [#3951](https://github.com/sei-protocol/sei-chain/pull/3951) Backport `release/v6.6`: Tolerate failed Codex review executions
+* [#3939](https://github.com/sei-protocol/sei-chain/pull/3939) Backport `release/v6.6`: fix(p2p): make the inbound accept rate configurable and raise its default
+* [#3880](https://github.com/sei-protocol/sei-chain/pull/3880) Backport `release/v6.6`: Update go-releaser heading with experimental notice
+* [#3878](https://github.com/sei-protocol/sei-chain/pull/3878) Bump version in prep to cut v6.6.1
+* [#3877](https://github.com/sei-protocol/sei-chain/pull/3877) Backport `release/v6.6`: Update v6.6 changelog in prep to cut patch release
+* [#3873](https://github.com/sei-protocol/sei-chain/pull/3873) Backport `release/v6.6`: Restore LCD pagination while preserving v6.6 precompile semantics
 * [#3857](https://github.com/sei-protocol/sei-chain/pull/3857) Backport `release/v6.6`: goreleaser: drop duplicate changelog + Full Changelog link from release notes
+* [#3848](https://github.com/sei-protocol/sei-chain/pull/3848) Backport `release/v6.6`: Remove redundant libstdc++6 installation
 * [#3821](https://github.com/sei-protocol/sei-chain/pull/3821) Fix PebbleDB iterator for stackoverflow
 * [#3802](https://github.com/sei-protocol/sei-chain/pull/3802) Backport `release/v6.6`: Fix static seid SIGSEGV (pin pre-gcc-12 libgcc unwinder), boot smoke gate, manual-tag binary builds (#3749)
 * [#3783](https://github.com/sei-protocol/sei-chain/pull/3783) Bump version file in prep to cut v6.6 RC5
