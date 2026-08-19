@@ -294,9 +294,9 @@ func recoverRollbackDirSwap(dbHome string) error {
 	return nil
 }
 
-// moveChangelog moves srcDir's changelog into dstDir when dstDir has none. A
-// changelog it cannot move is an error rather than a skip, because the caller
-// deletes srcDir next.
+// moveChangelog moves srcDir's changelog into dstDir when dstDir has none. It
+// makes the new destination entry durable before returning, because the caller
+// deletes srcDir next and that directory holds the only other copy.
 func moveChangelog(srcDir, dstDir string) error {
 	src := utils.GetChangelogPath(srcDir)
 	if !dirExists(src) {
@@ -311,7 +311,7 @@ func moveChangelog(srcDir, dstDir string) error {
 	if err := os.Rename(src, dst); err != nil {
 		return fmt.Errorf("move changelog %q to %q: %w", src, dst, err)
 	}
-	return nil
+	return utils.SyncDir(dstDir)
 }
 
 func dirExists(path string) bool {
