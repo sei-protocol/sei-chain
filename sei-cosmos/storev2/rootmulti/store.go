@@ -227,8 +227,7 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 		}
 	}
 
-	rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
-	rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
+	rs.adoptSCCommitInfo()
 	rs.recordBlockHashes(rs.lastCommitInfo.Version)
 	return rs.lastCommitInfo.CommitID()
 }
@@ -240,6 +239,17 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 // they must agree. A backend left to derive its own is what let a height be committed twice.
 func (rs *Store) nextVersion() int64 {
 	return rs.lastCommitInfo.Version + 1
+}
+
+// adoptSCCommitInfo takes the state-commit store's last commit info as this store's own.
+func (rs *Store) adoptSCCommitInfo() {
+	rs.lastCommitInfo = amendCommitInfo(convertCommitInfo(rs.scStore.LastCommitInfo()), rs.storesParams)
+	rs.discardBlockInProgress()
+}
+
+func (rs *Store) discardBlockInProgress() {
+	rs.flushedVersion = -1
+	rs.changesetCapturedVersion = 0
 }
 
 func (rs *Store) flush() error {
@@ -710,10 +720,10 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	rs.ckvStores = newStores
 	// to keep the root hash compatible with cosmos-sdk 0.46
 	if rs.scStore.Version() != 0 {
-		rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
-		rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
+		rs.adoptSCCommitInfo()
 	} else {
 		rs.lastCommitInfo = &types.CommitInfo{}
+		rs.discardBlockInProgress()
 	}
 	return nil
 }
@@ -767,6 +777,7 @@ func (rs *Store) SetInitialVersion(version int64) error {
 	// first block is this one. The backends cannot supply this: flatkv reflects the seed immediately
 	// while memiavl does not apply it until its first commit, so they disagree until then.
 	rs.lastCommitInfo.Version = version - 1
+	rs.discardBlockInProgress()
 	return nil
 }
 
@@ -894,8 +905,7 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	// We need to update the lastCommitInfo after rollback
 	if rs.scStore.Version() != 0 {
 		fmt.Printf("Rolled back CMS to version %d\n", rs.scStore.Version())
-		rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
-		rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
+		rs.adoptSCCommitInfo()
 	}
 	return nil
 }
