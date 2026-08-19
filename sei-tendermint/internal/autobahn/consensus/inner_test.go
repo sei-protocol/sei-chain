@@ -213,7 +213,7 @@ func TestNewInner_EqualTipKeepsVotes(t *testing.T) {
 }
 
 // TestRestore_BoundaryCatchUpSpecCoversWAL is the restart invariant blind-Spec
-// trust depends on. After avail catch-up installs epoch 1 at the LastRoad(0)
+// trust depends on. After avail catch-up advances epoch 1 at the LastRoad(0)
 // tip, ConsensusSpec must republish that tip so a WAL at the same tip restores
 // without ErrAvailBehindConsensus and keeps anti-equivocation votes.
 func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
@@ -1118,7 +1118,7 @@ func TestPushCommitQC_RotatesEpochAtBoundary(t *testing.T) {
 	qc := commitQCAtRoad(ep0, keys, epoch.LastRoad(0))
 	require.Equal(t, epoch.LastRoad(0), qc.Proposal().Index())
 
-	// Avail resolves the next-view epoch; pushSpec installs it verbatim.
+	// Avail resolves the next-view epoch; pushSpec advances to it verbatim.
 	ep1, err := registry.EpochAt(epoch.FirstRoad(1))
 	require.NoError(t, err)
 	require.NoError(t, s.pushSpec(types.ConsensusSpec{CommitQC: utils.Some(qc), Epoch: ep1}))

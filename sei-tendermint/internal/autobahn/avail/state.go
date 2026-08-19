@@ -220,9 +220,9 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 	return qc, err
 }
 
-// waitUntilApplied blocks until the applied (next-CommitQC) epoch equals i.
+// waitUntilAdvanced blocks until the applied (next-CommitQC) epoch equals i.
 // Returns ErrPruned if applied has already passed i (see types.ErrPruned).
-func (s *State) waitUntilApplied(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
+func (s *State) waitUntilAdvanced(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
 	epoch, err := s.epoch.Wait(ctx, func(epoch *types.Epoch) bool {
 		return i <= epoch.EpochIndex()
 	})
@@ -239,7 +239,7 @@ func (s *State) waitUntilApplied(ctx context.Context, i types.EpochIndex) (*type
 // Stale QCs are a no-op.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	idx := qc.Proposal().Index()
-	epoch, err := s.waitUntilApplied(ctx, qc.Proposal().EpochIndex())
+	epoch, err := s.waitUntilAdvanced(ctx, qc.Proposal().EpochIndex())
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
 			return nil
@@ -694,7 +694,7 @@ func (s *State) runEvict(ctx context.Context) error {
 
 // runEpochAdvance is the sole writer of inner.epoch after construction. It waits
 // for the execution leash on the registry, then seal and the prune leash on
-// avail's inner watch (leashesMet), and installs one epoch per wake.
+// avail's inner watch (canAdvanceEpoch), and advances one epoch per wake.
 func (s *State) runEpochAdvance(ctx context.Context) error {
 	for {
 		next := s.epoch.Load().EpochIndex() + 1
@@ -704,14 +704,14 @@ func (s *State) runEpochAdvance(ctx context.Context) error {
 		}
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return inner.leashesMet()
+				return inner.canAdvanceEpoch()
 			}); err != nil {
 				return err
 			}
 			if got := inner.epoch.Load().EpochIndex(); got+1 != next {
-				return fmt.Errorf("runEpochAdvance: applied %d, want %d before install", got, next-1)
+				return fmt.Errorf("runEpochAdvance: applied %d, want %d before advance", got, next-1)
 			}
-			inner.installEpoch(ep)
+			inner.advanceEpoch(ep)
 			ctrl.Updated()
 		}
 	}

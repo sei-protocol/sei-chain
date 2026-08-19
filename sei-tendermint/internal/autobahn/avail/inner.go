@@ -16,7 +16,7 @@ type inner struct {
 	consensusSpec     utils.AtomicSend[types.ConsensusSpec]
 	roads             *queue[types.RoadIndex, *road]
 
-	// epoch is the applied (next-CommitQC) epoch. installEpoch is the sole
+	// epoch is the applied (next-CommitQC) epoch. advanceEpoch is the sole
 	// writer after construction. Distinct from consensusSpec.Epoch, which is the
 	// epoch of the RoadIndex after the publishable tip and may lag while withheld.
 	// blockVotes are always weighted under this epoch.
@@ -24,9 +24,9 @@ type inner struct {
 	// anchorEpoch is the epoch of data's Anchor CommitQC when one exists.
 	// None until the first Anchor arrives (construction prune or runEvict).
 	// It may exceed the applied epoch while runEpochAdvance is parked on
-	// WaitForEpoch, or briefly between prune and the next install: admission
+	// WaitForEpoch, or briefly between prune and the next advance: admission
 	// falls back to the Anchor committee via epochForVote / epochForLane.
-	// prune never advances i.epoch — only installEpoch does.
+	// prune never advances i.epoch — only advanceEpoch does.
 	anchorEpoch utils.Option[*types.Epoch]
 	blocks      map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes       map[types.LaneID]*queue[types.BlockNumber, *blockVotes]
@@ -105,8 +105,8 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		last := i.roads.q[i.roads.next-1]
 		i.persistedCommitQC.Store(utils.Some(last.commitQC))
 		// Floor applied at the durable tip's epoch. Bare Store on
-		// purpose: this is a rewind from LatestEpoch, not an install.
-		// The install loop below re-drives it from the durable leashes.
+		// purpose: this is a rewind from LatestEpoch, not an advanceEpoch.
+		// The advance loop below re-drives it from the durable leashes.
 		i.epoch.Store(last.epoch)
 	}
 
@@ -142,18 +142,18 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		}
 		i.nextBlockToPersist[lane] = q.next
 	}
-	// Restart catch-up: install every epoch the durable leashes already allow.
-	// The live path (runEpochAdvance) installs one waited-for epoch at a time.
-	if err := i.installReadyEpochs(ds); err != nil {
+	// Restart catch-up: advance every epoch the durable leashes already allow.
+	// The live path (runEpochAdvance) advances one waited-for epoch at a time.
+	if err := i.advanceReadyEpochs(ds); err != nil {
 		return nil, err
 	}
 	i.refreshConsensusSpec()
 	return i, nil
 }
 
-// installEpoch makes ep the applied epoch: opens its lanes, reweights votes,
+// advanceEpoch makes ep the applied epoch: opens its lanes, reweights votes,
 // and republishes ConsensusSpec.
-func (i *inner) installEpoch(ep *types.Epoch) {
+func (i *inner) advanceEpoch(ep *types.Epoch) {
 	for lane := range ep.Committee().Lanes().All() {
 		i.addLane(lane)
 	}
@@ -165,12 +165,12 @@ func (i *inner) installEpoch(ep *types.Epoch) {
 	i.refreshConsensusSpec()
 }
 
-// leashesMet reports whether the applied epoch is sealed and its prune leash is
+// canAdvanceEpoch reports whether the applied epoch is sealed and its prune leash is
 // met. Sealed means roads hold the epoch's last CommitQC. The prune leash is met
 // when the Anchor epoch covers the applied epoch (an AppQC for that epoch
 // exists). The execution leash — registry contains the next epoch — is checked
 // separately so live waiters are not parked on avail's lock for a registry update.
-func (i *inner) leashesMet() bool {
+func (i *inner) canAdvanceEpoch() bool {
 	ep := i.epoch.Load()
 	if i.roads.next < ep.RoadRange().Next {
 		return false
@@ -179,17 +179,17 @@ func (i *inner) leashesMet() bool {
 	return ok && ae.EpochIndex() >= ep.EpochIndex()
 }
 
-// installReadyEpochs installs every epoch whose seal and prune leashes are
+// advanceReadyEpochs advances to every epoch whose seal and prune leashes are
 // already met. A missing next registry epoch in that state is an invariant
 // violation (execution leash should already have registered it).
-func (i *inner) installReadyEpochs(ds *data.State) error {
-	for i.leashesMet() {
+func (i *inner) advanceReadyEpochs(ds *data.State) error {
+	for i.canAdvanceEpoch() {
 		nextIdx := i.epoch.Load().EpochIndex() + 1
 		next, ok := ds.Registry().EpochByIndex(nextIdx)
 		if !ok {
 			return fmt.Errorf("epoch %d not registered with seal+prune leashes met", nextIdx)
 		}
-		i.installEpoch(next)
+		i.advanceEpoch(next)
 	}
 	return nil
 }
@@ -201,7 +201,7 @@ func (i *inner) installReadyEpochs(ds *data.State) error {
 // Withholding rather than publishing an earlier tip is what keeps the spec
 // monotonic. At an epoch boundary the durable tip sits on LastRoad(E) while
 // applied is still E, and a node that already entered E+1 before a restart must
-// not be handed a predecessor of the tip it holds: installing it would roll the
+// not be handed a predecessor of the tip it holds: advancing to it would roll the
 // tip backwards and discard that view's votes.
 func (i *inner) refreshConsensusSpec() {
 	tip := i.persistedCommitQC.Load()
@@ -227,7 +227,7 @@ func (i *inner) epochForRoad(road types.RoadIndex) utils.Option[*types.Epoch] {
 	if road >= i.roads.first && road < i.roads.next {
 		return utils.Some(i.roads.q[road].epoch)
 	}
-	// Persist may lag installEpoch: tip's next RoadIndex can sit in an earlier epoch
+	// Persist may lag advanceEpoch: tip's next RoadIndex can sit in an earlier epoch
 	// still present on some admitted road.
 	for idx := i.roads.first; idx < i.roads.next; idx++ {
 		if ep := i.roads.q[idx].epoch; ep.RoadRange().Has(road) {
@@ -287,7 +287,7 @@ func (i *inner) reweightVotes() {
 
 // prune advances the state up to the data Anchor and drops lanes closed as of
 // anchor.Epoch. It updates anchorEpoch only — applied epoch catch-up is left to
-// installReadyEpochs / runEpochAdvance. Returns the number of lanes dropped.
+// advanceReadyEpochs / runEpochAdvance. Returns the number of lanes dropped.
 func (i *inner) prune(anchor data.Anchor) int {
 	anchorEpoch := anchor.Epoch
 	idx := anchor.CommitQC.Index()

@@ -677,7 +677,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.nextAppProposal += 1
 		}
 		s.metrics.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
-		// Seed cursor: at LastRoad(N) register N+1 so runEpochAdvance can install
+		// Seed cursor: at LastRoad(N) register N+1 so runEpochAdvance can advance
 		// it once seal and the prune/execution leashes are met. N+2 is not needed —
 		// ConsensusSpec withholds the RoadIndex after LastRoad(N+1) until this fires
 		// again.
