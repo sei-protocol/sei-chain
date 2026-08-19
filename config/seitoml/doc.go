@@ -2,10 +2,10 @@
 //
 // A File is a mutable in-memory document for one goroutine at a time.
 //
-// The file holds only what an operator decided. A key present in it is authoritative; a key absent
-// from it resolves to the running binary's default for the node's mode. Nothing here writes a
-// default into the file, because a value the binary put there reads exactly like one an operator
-// chose.
+// Apart from the two keys below, the file holds only what an operator decided. A key present in it is
+// authoritative; a key absent from it resolves to the running binary's default for the node's mode.
+// Nothing here writes a default into the file, because a value the binary put there reads exactly like
+// one an operator chose.
 //
 // Two keys at the top level describe the file rather than configure the node, and Values leaves both
 // out.
@@ -14,20 +14,29 @@
 //	node_mode        which mode's defaults its values were chosen against
 //
 // schema_version counts migrations, one per migration, and is deliberately not a release version. Parse
-// refuses a file whose counter is absent, below the first schema, or ahead of the one this binary
-// understands, so every verb below answers from a file whose shape is established. Nothing here migrates
-// a file; this package reads and writes the counter, and the chain that acts on it arrives with the
-// migrations. Nothing here resolves a value or knows what keys exist.
+// reads both keys before it returns a file, so every verb below answers for one whose schema and mode are
+// established. It refuses a counter that is absent, not a whole number, below the first schema, or ahead
+// of the one this binary understands, and a mode that is absent, not text, or empty.
 //
-// # Editing Preserves The Document
+// # What This Package Is Not
 //
-// An operator hand-edits this file, and the comments in it are how they explain a choice to whoever
-// reads it next. So Set and Unset change the value they name and add no line the caller did not ask
-// for, leaving every other line of content as it was. A comment above a key and a comment beside a
-// value both survive an edit, and a key's own comment leaves with it when the key is unset.
+// Nothing here migrates a file. This package reads and writes the counter; whatever runs the steps
+// arrives with them, and no step exists here.
 //
-// A table is named one way, by a heading. So a new key either joins the section that already carries its
-// table or brings a heading with it, and there is no second spelling for an insert to choose between.
+// Nothing here resolves a value or knows what keys exist. A key this file carries may be one no section
+// declares, and this package does not say so.
+//
+// Nothing here writes a default, and nothing here decides whether the values make a bootable node.
+//
+// # Editing Preserves the Document
+//
+// An operator hand-edits this file, and the comments in it are how they explain a choice to whoever reads
+// it next. So Set and Unset write the key they name and, when its table is new, that table's heading.
+// They add nothing else, and every other line of content stays as it was. A comment above a key and a
+// comment beside a value both survive an edit, and a key's own comment leaves with it when the key is
+// unset.
+//
+// A table is named one way, by a heading, so there is no second spelling for an insert to choose between.
 //
 // Vertical spacing normalises once, on the first save of a file nothing has saved before, and holds
 // from then on.
@@ -40,12 +49,15 @@
 // # One Decoder Decides What Parses
 //
 // The decoder is the one a node reads its configuration with. viper decodes TOML with
-// pelletier/go-toml/v2, so this package decodes with it too, which makes "this file parses" and "this
-// node can boot from it" one statement.
+// pelletier/go-toml/v2, so this package decodes with it too, and a file this package accepts is a file
+// the node's own decoder accepts. Whether its values make a bootable node is answered elsewhere.
 //
-// So the question a shape has to answer is put to that decoder rather than to a list kept here. Parse
-// asks it, and Set renders the document and asks it again, undoing the write and naming the key when the
-// answer is no. A shape nobody anticipated is refused as surely as one somebody did.
+// So the question a shape has to answer is put to that decoder rather than to a list kept here. Parse asks
+// it. So does a Set that adds a key: it inserts, renders, asks again, and undoes the write and names the
+// key when the answer is no. A Set that replaces a value on an existing line changes no shape and does
+// not ask, nor does Unset, and Save asks once more over the whole document before anything reaches disk.
+// So a shape nobody anticipated is refused as surely as one somebody did, and nothing reaches a node's
+// disk unread.
 //
 // Two shapes are checked here as well, and deliberately: a repeated key and a repeated heading. The
 // decoder refuses both, so nothing about whether the file loads rests on these; what they add is the
@@ -74,7 +86,7 @@
 //   - an array of tables, which flattens to one key holding a list of tables, so no entry has a line of
 //     its own to edit
 //
-// A key is a lower-case bare TOML key: letters, digits, underscores and hyphens. Anything else has to be
+// Every segment of a key is a lower-case bare TOML key: letters, digits, underscores and hyphens. Anything else has to be
 // quoted where it is written, and a quoted key is spelled one way by the decoder and another by a
 // lookup, so Values would report a key Get answers absent for. Set, Unset and Get fold a caller's key to
 // lower case and then hold it to that rule, so a key one of them writes is a key the file reads back.

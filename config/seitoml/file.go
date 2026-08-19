@@ -230,6 +230,9 @@ func valueIsAddressable(key parser.Key, v parser.Value) error {
 }
 
 // Load reads the document at path.
+//
+// A path with no file there reports fs.ErrNotExist, which errors.Is matches. That is the one outcome a
+// caller acts on rather than reports, since a node with no sei.toml yet needs New instead.
 func Load(path string) (*File, error) {
 	raw, err := os.ReadFile(path) //nolint:gosec // the caller's configured path is the subject
 	if err != nil {

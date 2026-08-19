@@ -61,9 +61,10 @@ func (f *File) Set(key string, v any) error {
 
 // decodable reports whether the document still renders to something the node's decoder can read.
 //
-// The one check every edit passes through, so a shape no caller anticipated is refused as surely as one
-// somebody did. Rendering is what a later process reads, so this asks the question in the form the
-// answer matters in.
+// The check an insert passes through, because only an insert can name a place the document already uses.
+// Replacing a value on an existing line changes no shape, and neither does removing a name, so neither
+// asks; Save asks over the whole document instead, which is the gate every file reaching disk crosses.
+// Rendering is what a later process reads, so this asks the question in the form the answer matters in.
 func (f *File) decodable() error {
 	_, err := f.decoded()
 	return err

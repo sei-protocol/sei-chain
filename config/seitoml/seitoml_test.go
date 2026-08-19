@@ -1,7 +1,9 @@
 package seitoml_test
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -234,6 +236,10 @@ func TestSetRoundTripsEveryTypeItAccepts(t *testing.T) {
 		{"empty string", "", ""},
 		{"duration", 90 * time.Second, "1m30s"},
 		{"string list", []string{"a", "b"}, []any{"a", "b"}},
+		// A list of lists, which is the shape handedOut recurses for. The comparison here has to be
+		// reflect.DeepEqual for this row to exist: comparing elements with != panics on a list element,
+		// so a helper doing that could not fail this case, it could only abort it.
+		{"list of lists", []any{[]any{"a"}, []any{"b", "c"}}, []any{[]any{"a"}, []any{"b", "c"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, err := seitoml.New("validator")
@@ -252,31 +258,13 @@ func TestSetRoundTripsEveryTypeItAccepts(t *testing.T) {
 				t.Fatalf("Get after a round trip: (%#v, %v, %v)\nfile:\n%s", got, ok, err, render(t, f))
 			}
 
-			if !equal(got, tc.want) {
+			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("wrote %#v and read back %#v, want %#v.\nfile:\n%s\n\nA value that does not "+
 					"survive a round trip means the file looks correct while the node runs something "+
 					"else", tc.set, got, tc.want, render(t, f))
 			}
 		})
 	}
-}
-
-// equal compares two read values, including lists.
-func equal(a, b any) bool {
-	as, aok := a.([]any)
-	bs, bok := b.([]any)
-	if aok || bok {
-		if !aok || !bok || len(as) != len(bs) {
-			return false
-		}
-		for i := range as {
-			if as[i] != bs[i] {
-				return false
-			}
-		}
-		return true
-	}
-	return a == b
 }
 
 // TestALiteralStringIsTakenAsWritten holds the difference between TOML's two string forms.
@@ -949,8 +937,14 @@ func TestParseRefusesAFileTomlCannotRead(t *testing.T) {
 	if _, err := seitoml.Parse(strings.NewReader("[unterminated\nkey = 1\n")); err == nil {
 		t.Error("a malformed document parsed, and an empty one reads as a node that chose nothing")
 	}
-	if _, err := seitoml.Load(filepath.Join(t.TempDir(), "absent.toml")); err == nil {
+	// Classified, not merely non-nil: a caller chooses New over Load on this one outcome, so wrapping it
+	// into something errors.Is cannot match would break them with nothing here failing.
+	_, absent := seitoml.Load(filepath.Join(t.TempDir(), "absent.toml"))
+	if absent == nil {
 		t.Error("loading a file that does not exist succeeded")
+	} else if !errors.Is(absent, fs.ErrNotExist) {
+		t.Errorf("a missing file reports %v, which errors.Is(fs.ErrNotExist) does not match, so a caller "+
+			"cannot tell it from a file that is present and unreadable", absent)
 	}
 	bad := filepath.Join(t.TempDir(), "sei.toml")
 	if err := os.WriteFile(bad, []byte("[unterminated\n"), 0o600); err != nil {
