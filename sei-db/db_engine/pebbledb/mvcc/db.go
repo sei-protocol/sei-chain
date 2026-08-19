@@ -227,7 +227,7 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
-	walKeepRecent := uint64(math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1)))
+	walKeepRecent := changelogKeepRecent(config)
 	// Snapshot rollback replays the changelog forward from the oldest retained
 	// snapshot, so count-based pruning must not cut inside that span. The
 	// snapshot manager prunes this changelog by snapshot version after every
@@ -236,7 +236,6 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 	// pruning, and the stretch before enough snapshots exist to prune. Raising
 	// the ceiling is what a rollback window costs on disk: roughly one snapshot
 	// interval of changelog per retained snapshot.
-	walKeepRecent = max(walKeepRecent, snapshotWALKeepRecent(config.SnapshotInterval, config.SnapshotKeepRecent))
 	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
 		KeepRecent:    walKeepRecent,
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
@@ -254,6 +253,11 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 	go database.collectMetricsInBackground(metricsCtx)
 
 	return database, nil
+}
+
+func changelogKeepRecent(cfg config.StateStoreConfig) uint64 {
+	keepRecent := uint64(math.Max(MinWALEntriesToKeep, float64(cfg.AsyncWriteBuffer+1)))
+	return max(keepRecent, snapshotWALKeepRecent(cfg.SnapshotInterval, cfg.SnapshotKeepRecent))
 }
 
 // snapshotWALKeepRecent is the widest changelog span a rollback can ask for:
@@ -309,6 +313,17 @@ func (db *Database) PruneWALBeforeVersion(version int64) error {
 	}
 	if !ok || keepOffset <= firstOffset {
 		return nil
+	}
+	// Snapshot anchoring can only widen the recovery log. Count-based retention
+	// also protects Pebble writes that were not durable at a power loss, so a
+	// short snapshot cadence must not cut the changelog below that floor.
+	keepRecent := changelogKeepRecent(db.config)
+	retained := lastOffset - keepOffset + 1
+	if retained < keepRecent {
+		if available := lastOffset - firstOffset + 1; available <= keepRecent {
+			return nil
+		}
+		keepOffset = lastOffset - keepRecent + 1
 	}
 	return db.streamHandler.TruncateBefore(keepOffset)
 }

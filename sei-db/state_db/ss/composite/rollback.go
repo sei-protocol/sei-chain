@@ -200,11 +200,11 @@ func rollbackSteps(plan ssRollbackPlan, dbHome string, target int64) []rollbackS
 		{"move changelog into restored database", func() error {
 			return moveChangelog(backupDir, dbHome)
 		}},
-		{"remove old database backup", func() error {
-			return os.RemoveAll(backupDir)
-		}},
 		{"persist directory swap", func() error {
 			return utils.SyncDir(filepath.Dir(dbHome))
+		}},
+		{"remove old database backup", func() error {
+			return os.RemoveAll(backupDir)
 		}},
 		{"cut changelog to target", func() error {
 			return truncateChangelogAfterVersion(plan.changelog, target)
@@ -422,7 +422,10 @@ func truncateChangelogAfterVersion(changelogPath string, target int64) error {
 		return err
 	}
 	if !reset {
-		return nil
+		// TruncateAfter rewrites a segment and replaces it through a rename.
+		// The WAL handle fsyncs the rewritten file; this sync makes its directory
+		// entry durable before the marker that would redo the cut is cleared.
+		return utils.SyncDir(changelogPath)
 	}
 	if err := os.RemoveAll(changelogPath); err != nil {
 		return fmt.Errorf("reset changelog %q: %w", changelogPath, err)
@@ -434,7 +437,7 @@ func truncateChangelogAfterVersion(changelogPath string, target int64) error {
 // it has to be reset instead, which is the case when it holds no entry at or
 // below target.
 func cutChangelogAfterVersion(changelogPath string, target int64) (reset bool, err error) {
-	stream, err := wal.NewChangelogWAL(changelogPath, wal.Config{})
+	stream, err := wal.NewChangelogWAL(changelogPath, wal.Config{FsyncEnabled: true})
 	if err != nil {
 		return false, fmt.Errorf("open state store changelog: %w", err)
 	}
@@ -478,6 +481,9 @@ func removeSnapshotsAbove(root string, target int64) error {
 		if err := os.RemoveAll(dir); err != nil {
 			errs = append(errs, fmt.Errorf("remove snapshot %q: %w", dir, err))
 		}
+	}
+	if err := utils.SyncDir(root); err != nil {
+		errs = append(errs, fmt.Errorf("persist state store snapshot removals: %w", err))
 	}
 	return errors.Join(errs...)
 }

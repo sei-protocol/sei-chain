@@ -103,9 +103,9 @@ func TestRollbackToOldestRetainedSnapshot(t *testing.T) {
 	require.Equal(t, []int64{4, 6}, snapshotVersions(t, store))
 	cfg := store.config
 	require.NoError(t, store.Close())
-	// Retention stops at the oldest snapshot's own entry rather than the one
-	// after it, so a reader can still tell a gap above it from a pruned prefix.
-	require.Equal(t, int64(4), firstChangelogVersion(t, home))
+	// This short log stays above the count-based recovery floor. Snapshot
+	// retention can widen history, but it must not narrow that floor.
+	require.Equal(t, int64(1), firstChangelogVersion(t, home))
 
 	store, err := NewCompositeStateStore(cfg, home)
 	require.NoError(t, err)
@@ -508,11 +508,10 @@ func TestRollbackRefusesEVMSplit(t *testing.T) {
 	require.ErrorContains(t, store.Rollback(5), "evm-ss-split")
 }
 
-// TestSnapshotRetentionPrunesWALToOldestSnapshot pins where retention stops:
-// at the oldest retained snapshot's own entry, not at the first one above it.
-// Keeping that entry is what lets a later rollback tell a gap left by an empty
-// block from a prefix that was pruned away.
-func TestSnapshotRetentionPrunesWALToOldestSnapshot(t *testing.T) {
+// TestSnapshotRetentionKeepsWALRecoveryFloor pins that snapshot retention only
+// widens changelog history. This log is shorter than the count-based floor, so
+// dropping a snapshot must not prune any entry.
+func TestSnapshotRetentionKeepsWALRecoveryFloor(t *testing.T) {
 	store, home := setupRollbackStore(t, 2, 1)
 	for version := int64(1); version <= 6; version++ {
 		writeRollbackBlock(t, store, version)
@@ -524,7 +523,7 @@ func TestSnapshotRetentionPrunesWALToOldestSnapshot(t *testing.T) {
 	require.Equal(t, []int64{4, 6}, snapshotVersions(t, store))
 	require.NoError(t, store.Close())
 
-	require.Equal(t, int64(4), firstChangelogVersion(t, home))
+	require.Equal(t, int64(1), firstChangelogVersion(t, home))
 }
 
 // TestRollbackAcrossAnEmptyBlockAfterTheOldestSnapshot is the case the retained
@@ -542,10 +541,11 @@ func TestRollbackAcrossAnEmptyBlockAfterTheOldestSnapshot(t *testing.T) {
 		}
 		settle(t, store)
 	}
-	// Retention drops snapshot 3 and prunes the changelog to snapshot 6's own
-	// entry. Version 7 wrote nothing, so the first entry above it is version 8.
+	// Retention drops snapshot 3 but keeps this short changelog above its
+	// recovery floor. Version 7 wrote nothing, so the first entry after it is 8;
+	// a retained entry at or below snapshot 6 proves the gap was not pruned.
 	require.Equal(t, []int64{6, 9}, snapshotVersions(t, store))
-	require.Equal(t, int64(6), firstChangelogVersion(t, home))
+	require.Equal(t, int64(1), firstChangelogVersion(t, home))
 
 	require.NoError(t, store.ValidateRollback(8))
 	require.NoError(t, store.Rollback(8))
