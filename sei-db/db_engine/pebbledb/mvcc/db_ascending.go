@@ -222,7 +222,7 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 	return db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
 }
 
-func (db *Database) iteratorAscending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) iteratorAscending(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -243,10 +243,14 @@ func (db *Database) iteratorAscending(storeKey string, version int64, start, end
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
+<<<<<<< HEAD
 	return newAscendingIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey), nil
+=======
+	return finishMVCCIterator(newAscendingIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey, db.operationMetrics))
+>>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 }
 
-func (db *Database) reverseIteratorAscending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) reverseIteratorAscending(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -269,7 +273,11 @@ func (db *Database) reverseIteratorAscending(storeKey string, version int64, sta
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
+<<<<<<< HEAD
 	return newAscendingIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey), nil
+=======
+	return finishMVCCIterator(newAscendingIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey, db.operationMetrics))
+>>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 }
 
 func getMVCCSliceAscending(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {

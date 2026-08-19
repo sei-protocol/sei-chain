@@ -2,6 +2,7 @@ package cachekv
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"sort"
 	"sync"
@@ -12,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 	dbm "github.com/tendermint/tm-db"
 )
+
+var _ types.ContextIterator = (*Store)(nil)
 
 // Store wraps an in-memory cache around an underlying types.KVStore.
 type Store struct {
@@ -138,12 +141,22 @@ func (store *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc 
 
 // Iterator implements types.KVStore.
 func (store *Store) Iterator(start, end []byte) types.Iterator {
-	return store.iterator(start, end, true)
+	return store.iterator(context.Background(), start, end, true)
+}
+
+// IteratorWithContext implements types.ContextIterator.
+func (store *Store) IteratorWithContext(ctx context.Context, start, end []byte) types.Iterator {
+	return store.iterator(ctx, start, end, true)
 }
 
 // ReverseIterator implements types.KVStore.
 func (store *Store) ReverseIterator(start, end []byte) types.Iterator {
-	return store.iterator(start, end, false)
+	return store.iterator(context.Background(), start, end, false)
+}
+
+// ReverseIteratorWithContext implements types.ContextIterator.
+func (store *Store) ReverseIteratorWithContext(ctx context.Context, start, end []byte) types.Iterator {
+	return store.iterator(ctx, start, end, false)
 }
 
 func (store *Store) getOrInitSortedCache() *dbm.MemDB {
@@ -153,18 +166,27 @@ func (store *Store) getOrInitSortedCache() *dbm.MemDB {
 	return store.sortedCache
 }
 
-func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
+func (store *Store) iterator(ctx context.Context, start, end []byte, ascending bool) types.Iterator {
 	store.mtx.Lock()
 	defer store.mtx.Unlock()
 	// TODO: (occ) Note that for iterators, we'll need to have special handling (discussed in RFC) to ensure proper validation
 
 	var parent, cache types.Iterator
 
+<<<<<<< HEAD
 	if ascending {
 		parent = store.parent.Iterator(start, end)
 	} else {
 		parent = store.parent.ReverseIterator(start, end)
 	}
+=======
+	// Iterate the nearest ancestor that can hold data, skipping any run of frozen
+	// empty layers. An empty layer has no sets and no deletes, so it contributes
+	// nothing to iteration; skipping it avoids building an O(depth) chain of
+	// cacheMergeIterators over a deep snapshot stack.
+	parentStore := store.readThroughParent()
+	parent = types.IteratorOn(parentStore, ctx, start, end, ascending)
+>>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 	defer func() {
 		if err := recover(); err != nil {
 			// close out parent iterator, then reraise panic

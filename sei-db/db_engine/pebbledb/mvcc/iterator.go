@@ -3,6 +3,7 @@ package mvcc
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -32,11 +33,39 @@ type iterator struct {
 	useDefaultComparer bool
 	iterationCount     int64
 	storeKey           string
+<<<<<<< HEAD
+=======
+	operationMetrics   *pebbledbmetrics.OperationMetrics
+	ctx                context.Context
+	err                error
+>>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 
 	closeSync sync.Once
 }
 
+<<<<<<< HEAD
 func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, useDefaultComparer bool, storeKey string) *iterator {
+=======
+func abortIfCancelled(ctx context.Context) error {
+	if ctx == nil || ctx.Done() == nil {
+		return nil
+	}
+	return ctx.Err()
+}
+
+// finishMVCCIterator returns a construction-time cancel or deadline as an
+// error so the caller can abort. Other iterator errors stay on the iterator.
+func finishMVCCIterator(itr dbm.Iterator) (dbm.Iterator, error) {
+	err := itr.Error()
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		_ = itr.Close()
+		return nil, err
+	}
+	return itr, nil
+}
+
+func newPebbleDBIterator(ctx context.Context, src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, useDefaultComparer bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics) *iterator {
+>>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
@@ -49,6 +78,11 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 			reverse:            reverse,
 			useDefaultComparer: useDefaultComparer,
 			storeKey:           storeKey,
+<<<<<<< HEAD
+=======
+			operationMetrics:   operationMetrics,
+			ctx:                ctx,
+>>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 		}
 	}
 
@@ -70,6 +104,11 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 		reverse:            reverse,
 		useDefaultComparer: useDefaultComparer,
 		storeKey:           storeKey,
+<<<<<<< HEAD
+=======
+		operationMetrics:   operationMetrics,
+		ctx:                ctx,
+>>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 	}
 
 	if valid {
@@ -137,6 +176,11 @@ func (itr *iterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
 
 func (itr *iterator) nextLogicalKeyByScan(currKey []byte) ([]byte, bool) {
 	for valid := itr.source.Next(); valid; valid = itr.source.Next() {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return nil, false
+		}
 		nextKey, _, ok := SplitMVCCKey(itr.source.Key())
 		if !ok || !bytes.HasPrefix(nextKey, itr.prefix) {
 			return nil, false
@@ -164,6 +208,11 @@ func (itr *iterator) prevLogicalKey(currKey []byte) ([]byte, bool) {
 func (itr *iterator) positionAtOrAfterKey(startKey []byte) {
 	currentKey := startKey
 	for {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return
+		}
 		itr.valid = itr.seekVisibleVersionForKey(currentKey)
 		if itr.valid && !itr.cursorTombstoned() {
 			return
@@ -180,6 +229,11 @@ func (itr *iterator) positionAtOrAfterKey(startKey []byte) {
 func (itr *iterator) positionAtOrBeforeKey(startKey []byte) {
 	currentKey := startKey
 	for {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return
+		}
 		itr.valid = itr.seekVisibleVersionForKey(currentKey)
 		if itr.valid && !itr.cursorTombstoned() {
 			return
@@ -275,11 +329,24 @@ func (itr *iterator) Next() {
 	} else {
 		itr.nextForward()
 	}
+<<<<<<< HEAD
+=======
+	if itr.err != nil {
+		panic(itr.err)
+	}
+	if itr.Valid() {
+		itr.readCount++
+	}
+>>>>>>> 6debd90 (Add context cancellation to SS DB layer (#3940))
 }
 
 func (itr *iterator) Valid() bool {
+	if itr.err != nil {
+		itr.valid = false
+		return false
+	}
 	// once invalid, forever invalid
-	if !itr.valid || !itr.source.Valid() {
+	if !itr.valid || itr.source == nil || !itr.source.Valid() {
 		itr.valid = false
 		return itr.valid
 	}
@@ -302,6 +369,12 @@ func (itr *iterator) Valid() bool {
 }
 
 func (itr *iterator) Error() error {
+	if itr.err != nil {
+		return itr.err
+	}
+	if itr.source == nil {
+		return nil
+	}
 	return itr.source.Error()
 }
 
