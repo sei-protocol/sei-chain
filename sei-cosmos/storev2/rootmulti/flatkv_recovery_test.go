@@ -41,10 +41,7 @@ func TestFlatKVRollbackWithLatticeHash(t *testing.T) {
 	require.NoError(t, store.Close())
 }
 
-// A rollback of exactly one height puts the next block on the height the store has already flushed,
-// which is the one depth at which the discarded block's bookkeeping can still be mistaken for the
-// current one. Deeper rollbacks land below it and overwrite it on their first flush, so they never
-// expose this.
+// Rollback of exactly one height, so the next block lands on the height the store last flushed.
 func TestFlatKVRollbackOneBlockThenContinue(t *testing.T) {
 	store, storeKeys := newTestRootMulti(t, t.TempDir(), dualWriteConfig())
 	evmData := newEVMTestData(0x66)

@@ -273,19 +273,14 @@ func (rs *Store) flush() error {
 			return changeSets[i].Name < changeSets[j].Name
 		})
 	}
-	// A height is handed down once. baseapp requests the working hash in FinalizeBlock and again in
-	// Commit before committing, so flush runs three times per height, and PopChangeSet has already
-	// drained the block's writes by the second run. Handing an empty changeset down is not harmless:
-	// the commit store stamps it with a height it derives from its own last committed block, which the
-	// first working-hash request already advanced, so it would conclude the chain had moved to the next
-	// block and commit one that never existed. Draining above is what makes this emptiness check
-	// meaningful, and it also keeps a stray pair from being attributed to the following height.
-	if rs.flushedVersion == currentVersion {
-		if len(changeSets) > 0 {
-			return fmt.Errorf("rootmulti: %d changeset(s) arrived for height %d after its working hash "+
-				"was taken; the app hash already announced no longer describes the state being committed",
-				len(changeSets), currentVersion)
-		}
+	// baseapp requests the working hash in FinalizeBlock and again in Commit before committing, so flush
+	// runs three times per height and PopChangeSet has already drained the block's writes by the second
+	// run. Those later runs must not hand an empty changeset down: the commit store stamps it with a
+	// height it derives from its own last committed block, which the first working-hash request already
+	// advanced, so it would conclude the chain had moved to the next block and commit one that never
+	// existed. A later run that does carry writes is handed down instead of refused here — whether the
+	// block is still open to them is the commit store's to judge, and flatkv refuses a sealed one.
+	if len(changeSets) == 0 && rs.flushedVersion == currentVersion {
 		return nil
 	}
 	rs.flushedVersion = currentVersion
