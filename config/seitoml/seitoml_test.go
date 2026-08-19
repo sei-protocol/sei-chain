@@ -401,6 +401,16 @@ func TestAShapeThisFileDoesNotCarryIsRefusedAtTheDoor(t *testing.T) {
 			"is an array of tables",
 		},
 		{
+			"a dotted key inside a table",
+			"[state-commit]\nflatkv.enable = true\n",
+			"is written as a dotted key",
+		},
+		{
+			"a dotted key at the top level",
+			"giga.enabled = true\n",
+			"is written as a dotted key",
+		},
+		{
 			"a key written twice in one table",
 			"[probe]\nn = 1\nn = 2\n",
 			"is written more than once",
@@ -484,9 +494,6 @@ sc-async-commit-buffer = 100
 enable = true
 dir = "/data"
 
-[pruning]
-memiavl.snapshot-interval = 100
-
 [p2p]
 persistent-peers = ["a", "b"]
 `)
@@ -499,9 +506,6 @@ persistent-peers = ["a", "b"]
 		"state-commit.sc-async-commit-buffer": int64(100),
 		"state-commit.flatkv.enable":          true,
 		"state-commit.flatkv.dir":             "/data",
-		// A dotted key inside a table, which is a different shape from a nested heading and reads to the
-		// same flattened key.
-		"pruning.memiavl.snapshot-interval": int64(100),
 	} {
 		if values[key] != want {
 			t.Errorf("%s read back as %#v, want %#v", key, values[key], want)
@@ -1368,58 +1372,6 @@ func TestANameCannotBeAValueAndATableAtOnce(t *testing.T) {
 		}
 	})
 
-	t.Run("a table an ancestor's dotted key created", func(t *testing.T) {
-		// The table exists without a heading of its own, so a heading for it would define it twice. The
-		// key has to join the dotted name instead, and the result has to satisfy the node's decoder.
-		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[state-commit]\nflatkv.enable = true\n")
-		if err := f.Set("state-commit.flatkv.dir", "/data"); err != nil {
-			t.Fatalf("writing a sibling into an implicitly created table was refused: %v", err)
-		}
-		requireStillReadable(t, f)
-		values, err := f.Values()
-		if err != nil {
-			t.Fatalf("Values: %v", err)
-		}
-		for key, want := range map[string]any{
-			"state-commit.flatkv.enable": true,
-			"state-commit.flatkv.dir":    "/data",
-		} {
-			if values[key] != want {
-				t.Errorf("%s = %#v, want %#v", key, values[key], want)
-			}
-		}
-	})
-
-	t.Run("a table a top-level dotted key created", func(t *testing.T) {
-		// The same shape as the headed case below it, except the table's ancestor is the file itself. The
-		// global section carries no heading, so no prefix can find it, and a heading written for the table
-		// would be the second definition the decoder refuses.
-		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\ngiga.enabled = true\n")
-		if err := f.Set("giga.workers", 4); err != nil {
-			t.Fatalf("writing a sibling under a top-level dotted table was refused: %v", err)
-		}
-		requireStillReadable(t, f)
-		values, err := f.Values()
-		if err != nil {
-			t.Fatalf("Values: %v", err)
-		}
-		for key, want := range map[string]any{"giga.enabled": true, "giga.workers": int64(4)} {
-			if values[key] != want {
-				t.Errorf("%s = %#v, want %#v", key, values[key], want)
-			}
-		}
-	})
-
-	t.Run("a table two levels below a top-level dotted key", func(t *testing.T) {
-		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\na.b.c = 1\n")
-		for _, key := range []string{"a.b.d", "a.e"} {
-			if err := f.Set(key, 2); err != nil {
-				t.Errorf("Set(%q) was refused: %v", key, err)
-			}
-		}
-		requireStillReadable(t, f)
-	})
-
 	t.Run("a section nothing has created still gets a heading", func(t *testing.T) {
 		// The other half: a table no key has named is new, and a heading is the form an operator expects
 		// to read. Treating the global section as everything's ancestor would write dotted keys instead.
@@ -1605,17 +1557,6 @@ func TestATableKeepsOneSpellingWhateverOrderItsKeysWereWritten(t *testing.T) {
 		requireStillReadable(t, f)
 	})
 
-	t.Run("a table a dotted key created joins that name", func(t *testing.T) {
-		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[state-commit]\nflatkv.enable = true\n")
-		if err := f.Set("state-commit.flatkv.dir", "/data"); err != nil {
-			t.Fatalf("Set: %v", err)
-		}
-		out := render(t, f)
-		if strings.Contains(out, "[state-commit.flatkv]") {
-			t.Errorf("a table the document already created was given a second definition:\n%s", out)
-		}
-		requireStillReadable(t, f)
-	})
 }
 
 // TestEveryEditIsVisibleToTheNextRead holds the values a read returns against the document.

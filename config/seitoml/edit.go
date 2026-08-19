@@ -86,13 +86,8 @@ func (f *File) insert(path parser.Key, value parser.Value) (func(), bool) {
 	if e := transform.FindTable(f.doc, table...); e != nil {
 		return appendItem(e.Section, kv)
 	}
-	// No section carries this name. It may still be a table the document created by writing a dotted key,
-	// and a heading for one of those defines it twice, so the leaf joins that dotted name instead. Where
-	// nothing has created it, the heading is new and correct, which is the form an operator expects to
-	// read.
-	if owner, under := f.ancestorOf(table); owner != nil {
-		return appendItem(owner, &parser.KeyValue{Name: dottedName(under, leaf), Value: value})
-	}
+	// No section carries this name, so the table is new and gets a heading. There is no second spelling to
+	// choose between: a dotted key is the other way to name a table and the document cannot hold one.
 	before := len(f.doc.Sections)
 	f.doc.Sections = append(f.doc.Sections, &tomledit.Section{
 		Heading: &parser.Heading{Name: copyKey(table)},
@@ -101,61 +96,11 @@ func (f *File) insert(path parser.Key, value parser.Value) (func(), bool) {
 	return func() { f.doc.Sections = f.doc.Sections[:before] }, true
 }
 
-// ancestorOf returns the section a table's keys belong in when the table has no heading of its own, and
-// the path from that section down to the table.
-//
-// A section whose heading is a prefix of the table owns it, and the longest such heading is the nearest
-// ancestor. The global section owns it when a top-level dotted key has already created it: that section
-// has no heading, so no prefix can find it, and a heading written for the table would be the second
-// definition the decoder refuses.
-func (f *File) ancestorOf(table parser.Key) (*tomledit.Section, parser.Key) {
-	// At most one section can qualify, so the first match is the only match. Two would need a section
-	// [a] holding a dotted key beginning b. alongside a section [a.b], and that names the table b twice,
-	// which the decoder refuses at the door.
-	for _, s := range f.doc.Sections {
-		if s.Heading == nil || !s.Name.IsPrefixOf(table) {
-			continue
-		}
-		if below := table[len(s.Name):]; createsTable(s, below) {
-			return s, copyKey(below)
-		}
-	}
-	if f.doc.Global != nil && createsTable(f.doc.Global, table) {
-		return f.doc.Global, copyKey(table)
-	}
-	return nil, nil
-}
-
-// createsTable reports whether a dotted key in this section already names the given table.
-//
-// Every proper prefix of a dotted key names a table, so flatkv.enable creates flatkv without giving it a
-// heading. Only such a table is joined by extending a dotted name; one nothing has created gets a
-// heading of its own, so a table is spelled the same way whatever order its keys were written in.
-func createsTable(s *tomledit.Section, table parser.Key) bool {
-	for _, item := range s.Items {
-		kv, ok := item.(*parser.KeyValue)
-		if !ok {
-			continue
-		}
-		for i := 1; i < len(kv.Name); i++ {
-			if kv.Name[:i].Equals(table) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // copyKey returns a key that shares no storage with its argument.
 //
 // The paths here are slices of one another, so appending to a shorter one would write into the longer
 // one's storage.
 func copyKey(k parser.Key) parser.Key { return append(parser.Key(nil), k...) }
-
-// dottedName joins the path down to a table with the key inside it.
-func dottedName(under parser.Key, leaf parser.Key) parser.Key {
-	return append(copyKey(under), leaf...)
-}
 
 // appendItem adds an item to a section, and reports how to remove it again and whether it went in.
 //

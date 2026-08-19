@@ -26,6 +26,9 @@
 // for, leaving every other line of content as it was. A comment above a key and a comment beside a
 // value both survive an edit, and a key's own comment leaves with it when the key is unset.
 //
+// A table is named one way, by a heading. So a new key either joins the section that already carries its
+// table or brings a heading with it, and there is no second spelling for an insert to choose between.
+//
 // Vertical spacing normalises once, on the first save of a file nothing has saved before, and holds
 // from then on.
 //
@@ -59,6 +62,8 @@
 //     type it was read as
 //   - an inline table, whose keys flatten into the same space a table's do, so an edit to one of them
 //     has no line of its own to change
+//   - a dotted key, whose segments before the last name tables with no line of their own, so a key
+//     added to one of those tables has nowhere to go
 //   - an array of tables, which flattens to one key holding a list of tables, so no entry has a line of
 //     its own to edit
 //

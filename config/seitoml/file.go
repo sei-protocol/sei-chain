@@ -87,11 +87,11 @@ func Parse(r io.Reader) (*File, error) {
 
 // refuseUnsupportedShapes rejects TOML this format does not carry.
 //
-// TOML permits more shapes than a node's configuration uses, and each of these was previously accepted
-// and then lost or corrupted somewhere downstream: a mixed-case key read back under a different name,
-// an inline table that Set split into a second definition of the same table, an array of tables whose
-// earlier entries vanished from Values. Refusing at the door is what keeps one answer per key, and it
-// is only free while no operator has written a file that uses them.
+// TOML permits more shapes than a node's configuration uses, and each of these reaches an edit that has
+// nowhere to land: a mixed-case key is read back under a different name, an inline table and a dotted key
+// each name a table with no line of its own, and an array of tables gives no entry a line of its own.
+// Refusing at the door is what keeps one spelling per table and one answer per key, and it leaves every
+// verb below with a document it can round-trip.
 func (f *File) refuseUnsupportedShapes() error {
 	headings := map[string]bool{}
 	// Every entry in Sections is a named table, so each carries a heading; the global section is a field
@@ -126,6 +126,13 @@ func (f *File) refuseUnsupportedShapes() error {
 		}
 		if err := valueIsAddressable(full, e.Value); err != nil {
 			bad = err
+			return false
+		}
+		if len(e.Name) > 1 {
+			bad = fmt.Errorf("%s is written as a dotted key, which this file does not carry. Every "+
+				"segment before the last names a table with no line of its own, so a key added to one "+
+				"of those tables has nowhere to go; write [%s] as a section instead, and put %s in it",
+				full, full[:len(full)-1], full[len(full)-1])
 			return false
 		}
 		// The decoder below refuses this too. It stays because it names the key and says what an edit
