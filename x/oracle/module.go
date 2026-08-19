@@ -130,13 +130,11 @@ func (AppModule) Name() string { return types.ModuleName }
 // RegisterInvariants performs a no-op.
 func (AppModule) RegisterInvariants(_ sdk.InvariantRegistry) {}
 
-// Route returns the message routing key for the oracle module.
-func (am AppModule) Route() sdk.Route {
-	return sdk.NewRoute(types.RouterKey, NewHandler(am.keeper))
-}
+// Route returns an empty legacy message route.
+func (AppModule) Route() sdk.Route { return sdk.Route{} }
 
-// QuerierRoute returns the oracle module's querier route name.
-func (AppModule) QuerierRoute() string { return types.QuerierRoute }
+// QuerierRoute returns no legacy query route.
+func (AppModule) QuerierRoute() string { return "" }
 
 // LegacyQuerierHandler returns the oracle module sdk.Querier.
 func (am AppModule) LegacyQuerierHandler(_ *codec.LegacyAmino) sdk.Querier {
