@@ -334,6 +334,10 @@ func (f *File) Bytes() ([]byte, error) {
 // The rename makes it atomic, and the temporary file sits in the destination's own directory so the
 // rename stays within one filesystem. A crash at any point leaves either the previous file or the
 // new one, never a truncated file a node cannot parse.
+//
+// A destination that is a symbolic link, or that is not a regular file, is refused: a rename replaces
+// either one rather than writing through it. An existing file keeps its own permission, and a new one is
+// created readable and writable by its owner alone.
 func (f *File) Save(path string) error {
 	raw, err := f.Bytes()
 	if err != nil {
@@ -388,8 +392,8 @@ func modeToWrite(path string) (os.FileMode, error) {
 	case errors.Is(err, fs.ErrNotExist):
 		return newFileMode, nil // no file there yet, which is the ordinary first save
 	case err != nil:
-		// Separated from the absent case, which used to absorb it. A path this process cannot inspect
-		// is not a first save, and calling it one writes at the default mode on a guess.
+		// A path this process cannot inspect is not a first save, and calling it one writes at the
+		// default mode on a guess.
 		return 0, fmt.Errorf("inspect %s: %w", path, err)
 	case info.Mode()&os.ModeSymlink != 0:
 		target, err := os.Readlink(path)

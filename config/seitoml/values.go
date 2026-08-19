@@ -3,6 +3,7 @@ package seitoml
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	toml "github.com/pelletier/go-toml/v2"
 )
@@ -121,8 +122,16 @@ func decodeBytes(raw []byte) (map[string]any, error) {
 // cannot write one back, because rendering it produces a line no reader loads, so accepting one here
 // would mean any later edit of any other key failed on a value this package had handed out.
 func refuseNonFiniteNumbers(values map[string]any) error {
-	for key, v := range values {
-		if err := finite(key, v); err != nil {
+	// Sorted, because this returns the first refusal it finds and a map hands its keys back in a
+	// different order each time. Unsorted, a file holding two of these names one of them on one read and
+	// the other on the next, so an operator fixes what they were told and meets the same refusal again.
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if err := finite(key, values[key]); err != nil {
 			return err
 		}
 	}

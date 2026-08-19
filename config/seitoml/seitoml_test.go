@@ -156,7 +156,7 @@ func TestFormattingNormalizesOnceAndThenHoldsSteady(t *testing.T) {
 	}
 }
 
-// TestAnAbsentSchemaVersionIsAnError holds that the file's shape is never guessed.
+// TestAnAbsentSchemaVersionIsRefusedAtTheDoor holds that the file's shape is never guessed.
 //
 // A migration chain reads the version to decide which steps to run. Defaulting an absent one to
 // zero would run every step in history against a file nobody established the shape of, and the
@@ -1597,25 +1597,54 @@ func TestAValueThatIsNotTextIsRefused(t *testing.T) {
 	}
 }
 
-// TestATableKeepsOneSpellingWhateverOrderItsKeysWereWritten holds insert's choice between the two forms.
+// TestARefusalNamesTheSameKeyEveryTime holds the diagnosis steady across reads.
 //
-// A table nothing has created is new and gets a heading, which is the form an operator reads. A table an
-// ancestor's dotted key already created has no heading and cannot be given one, so its keys join that
-// dotted name. Deciding by whether an ancestor section merely exists would spell the same table either
-// way depending on which key was set first.
-func TestATableKeepsOneSpellingWhateverOrderItsKeysWereWritten(t *testing.T) {
-	t.Run("a new table under an existing section gets a heading", func(t *testing.T) {
-		f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[state-commit]\nbuffer = 100\n")
-		if err := f.Set("state-commit.flatkv.dir", "/data"); err != nil {
-			t.Fatalf("Set: %v", err)
-		}
-		out := render(t, f)
-		if !strings.Contains(out, "[state-commit.flatkv]") {
-			t.Errorf("a table nothing had created did not get a heading:\n%s", out)
-		}
-		requireStillReadable(t, f)
-	})
+// A file can hold more than one value this format cannot write, and the refusal names the first one
+// found. Found by walking a map, the first one differs between reads, so an operator fixes the key they
+// were told about and the next read names the other. Two of them here, so an unsorted walk reports both
+// spellings over enough reads and a sorted one reports the one that sorts first.
+func TestARefusalNamesTheSameKeyEveryTime(t *testing.T) {
+	body := "schema_version = 1\nnode_mode = \"validator\"\n\n[probe]\naaa = nan\nzzz = inf\n"
 
+	named := map[string]int{}
+	for i := 0; i < 50; i++ {
+		_, err := seitoml.Parse(strings.NewReader(body))
+		if err == nil {
+			t.Fatal("a file holding a NaN and an infinity parsed")
+		}
+		switch {
+		case strings.Contains(err.Error(), "probe.aaa"):
+			named["probe.aaa"]++
+		case strings.Contains(err.Error(), "probe.zzz"):
+			named["probe.zzz"]++
+		default:
+			t.Fatalf("the refusal names neither key: %v", err)
+		}
+	}
+	if len(named) != 1 {
+		t.Errorf("50 reads of one file named %v; an operator cannot fix a key that changes between "+
+			"reads, and a test asserting one of them would flake", named)
+	}
+	if named["probe.aaa"] == 0 {
+		t.Errorf("the refusal named %v rather than the key that sorts first", named)
+	}
+}
+
+// TestANewTableUnderAnExistingSectionGetsAHeading covers the form an operator reads.
+//
+// A key whose table nothing has created brings that table's heading with it, rather than joining the
+// section above it as a dotted name. Both spell the same key to a reader, and only one of them gives the
+// table a line an operator can edit and comment on.
+func TestANewTableUnderAnExistingSectionGetsAHeading(t *testing.T) {
+	f := parse(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[state-commit]\nbuffer = 100\n")
+	if err := f.Set("state-commit.flatkv.dir", "/data"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	out := render(t, f)
+	if !strings.Contains(out, "[state-commit.flatkv]") {
+		t.Errorf("a table nothing had created did not get a heading:\n%s", out)
+	}
+	requireStillReadable(t, f)
 }
 
 // TestEveryEditIsVisibleToTheNextRead holds the values a read returns against the document.
