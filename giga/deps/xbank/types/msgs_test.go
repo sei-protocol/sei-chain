@@ -1,7 +1,6 @@
 package types_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -38,7 +37,7 @@ func TestValidateInputsOutputs(t *testing.T) {
 	})
 }
 
-func TestValidateInputsOutputsMismatchedDenominationsPanics(t *testing.T) {
+func TestValidateInputsOutputsRejectsMismatchedDenominations(t *testing.T) {
 	inputAddr := sdk.AccAddress([]byte("_______alice________"))
 	outputAddr := sdk.AccAddress([]byte("________bob_________"))
 
@@ -58,11 +57,7 @@ func TestValidateInputsOutputsMismatchedDenominationsPanics(t *testing.T) {
 				bank.NewOutput(outputAddr, sdk.NewCoins(sdk.NewInt64Coin(tc.outputDenom, 1))),
 			}
 
-			require.PanicsWithValue(
-				t,
-				fmt.Sprintf("invalid coin denominations; %s, %s", tc.inputDenom, tc.outputDenom),
-				func() { _ = bank.ValidateInputsOutputs(inputs, outputs) },
-			)
+			require.ErrorIs(t, bank.ValidateInputsOutputs(inputs, outputs), bank.ErrInputOutputMismatch)
 		})
 	}
 }

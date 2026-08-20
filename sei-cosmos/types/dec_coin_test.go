@@ -82,6 +82,48 @@ func (s *decCoinTestSuite) TestDecCoinIsPositive() {
 	s.Require().False(dc.IsPositive())
 }
 
+func (s *decCoinTestSuite) TestDecCoinIsEqual() {
+	testCases := []struct {
+		inputOne sdk.DecCoin
+		inputTwo sdk.DecCoin
+		expected bool
+	}{
+		{sdk.NewInt64DecCoin(testDenom1, 1), sdk.NewInt64DecCoin(testDenom1, 1), true},
+		{sdk.NewInt64DecCoin(testDenom1, 1), sdk.NewInt64DecCoin(testDenom2, 1), false},
+		{sdk.NewInt64DecCoin(testDenom2, 1), sdk.NewInt64DecCoin(testDenom1, 1), false},
+		{sdk.NewInt64DecCoin(testDenom1, 1), sdk.NewInt64DecCoin(testDenom1, 2), false},
+	}
+
+	for i, tc := range testCases {
+		var equal bool
+		s.Require().NotPanics(func() { equal = tc.inputOne.IsEqual(tc.inputTwo) }, "decimal coin equality panicked, tc #%d", i)
+		s.Require().Equal(tc.expected, equal, "decimal coin equality is incorrect, tc #%d", i)
+	}
+}
+
+func (s *decCoinTestSuite) TestDecCoinsIsEqual() {
+	testCases := []struct {
+		inputOne sdk.DecCoins
+		inputTwo sdk.DecCoins
+		expected bool
+	}{
+		{sdk.DecCoins{}, sdk.DecCoins{}, true},
+		{sdk.DecCoins{sdk.NewInt64DecCoin(testDenom1, 1)}, sdk.DecCoins{sdk.NewInt64DecCoin(testDenom2, 1)}, false},
+		{sdk.DecCoins{sdk.NewInt64DecCoin(testDenom2, 1)}, sdk.DecCoins{sdk.NewInt64DecCoin(testDenom1, 1)}, false},
+		{
+			sdk.DecCoins{sdk.NewInt64DecCoin(testDenom1, 1), sdk.NewInt64DecCoin(testDenom2, 1)},
+			sdk.DecCoins{sdk.NewInt64DecCoin(testDenom1, 1), sdk.NewInt64DecCoin(testDenom3, 1)},
+			false,
+		},
+	}
+
+	for i, tc := range testCases {
+		var equal bool
+		s.Require().NotPanics(func() { equal = tc.inputOne.IsEqual(tc.inputTwo) }, "decimal coin set equality panicked, tc #%d", i)
+		s.Require().Equal(tc.expected, equal, "decimal coin set equality is incorrect, tc #%d", i)
+	}
+}
+
 func (s *decCoinTestSuite) TestAddDecCoin() {
 	decCoinA1 := sdk.NewDecCoinFromDec(testDenom1, sdk.NewDecWithPrec(11, 1))
 	decCoinA2 := sdk.NewDecCoinFromDec(testDenom1, sdk.NewDecWithPrec(22, 1))
