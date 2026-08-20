@@ -1108,16 +1108,19 @@ func TestASectionRegisteredTwiceIsRefused(t *testing.T) {
 //
 // The walk asks isLeaf only after finding a struct, which is why the list names only struct types. A
 // time.Duration is an int64 and never reaches it.
+//
+// Both types isLeaf knows are then refused when the section resolves, because a configuration file has no
+// form for either. So isLeaf decides how many keys a field declares, and the refusal decides whether the
+// value can be carried; without isLeaf the refusal would name a field of time.Time rather than the field
+// an author wrote.
 func TestAStructThatIsAValueStaysOneKey(t *testing.T) {
 	type withTime struct {
 		At   time.Time `mapstructure:"at"`
 		Name string    `mapstructure:"name"`
 	}
-	stamp := time.Unix(0, 0).UTC()
-
 	registry.Reset()
 	registry.RegisterSection("stamped", &withTime{}, func(registry.Mode) any {
-		return withTime{At: stamp, Name: "n"}
+		return withTime{At: time.Unix(0, 0).UTC(), Name: "n"}
 	})
 	for _, d := range registry.Defects() {
 		t.Fatalf("registering a section with a time.Time produced a defect: %v", d.Err)
@@ -1127,16 +1130,15 @@ func TestAStructThatIsAValueStaysOneKey(t *testing.T) {
 	if got := registry.Keys(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("declared keys are %v, want %v; a walked time.Time would add its own fields", got, want)
 	}
-	resolved, err := registry.Resolve(registry.ModeFull, registry.Sources{})
-	if err != nil {
-		t.Fatalf("resolve: %v", err)
+	_, err := registry.Resolve(registry.ModeFull, registry.Sources{})
+	if err == nil {
+		t.Fatal("a section declaring a time resolved, and no configuration file can carry the value")
 	}
-	got, ok := resolved.Values["stamped.at"]
-	if !ok {
-		t.Fatal("stamped.at declared and did not resolve")
-	}
-	if got != stamp {
-		t.Errorf("stamped.at resolved to %#v, want the whole time %#v", got, stamp)
+	for _, want := range []string{"stamped.at", "time.Time"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal reads %q and does not mention %q, so an author cannot tell which "+
+				"field made the key unwritable", err, want)
+		}
 	}
 }
 

@@ -278,10 +278,10 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 // operator wrote a value for it, and a caller that asserts the declared type works on one and panics on
 // the other.
 //
-// A type with no form a file can carry is returned unchanged rather than approximated, so it reads as
-// what it is to whatever checks the two spaces against each other. The exception is a value no file could
-// hold at all, which is refused here, because the registration that declares it is the last place the key
-// is still named.
+// A type with no form a configuration file carries is refused here rather than passed along, because the
+// registration that declares it is the last place the key is still named. Passed along, the same field
+// fails when an operator writes to it, naming a rendering rather than the struct field that made the key
+// unwritable.
 func wireValue(v any) (any, error) {
 	if d, ok := v.(time.Duration); ok {
 		// A duration is carried as the text a reader parses back, not as its nanosecond count.
@@ -315,7 +315,8 @@ func wireValue(v any) (any, error) {
 		}
 		return out, nil
 	default:
-		return v, nil
+		return nil, fmt.Errorf("its default is a %T, which a configuration file has no form for; a value "+
+			"is text, a whole number, a decimal, a truth value, or a list of those", v)
 	}
 }
 
