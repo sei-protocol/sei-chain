@@ -627,7 +627,7 @@ func requireNoDefects(t *testing.T) {
 	}
 }
 
-// TestADivergentDefaultIsRefusedRatherThanPanicking pins the other half of the same seam.
+// TestADivergentDefaultIsRefusedRatherThanPanicking pins the other half of the same check.
 //
 // The two walks share tagOf and are meant to traverse the same type, and nothing held them to it: the
 // prototype's type derives the keys while whatever Defaults returns supplies the values. A default

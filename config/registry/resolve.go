@@ -272,16 +272,14 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 
 // wireValue returns a value in the form a configuration file carries it.
 //
-// A default is read off a struct field, so it arrives as that field's own type: a named string, a sized
-// integer, a typed slice. A file carries the types its format has, and nothing writes a named type back.
-// Handed out as they arrive, one declared key answers as two different Go types depending on whether the
-// operator wrote a value for it, and a caller that asserts the declared type works on one and panics on
-// the other.
+// A default is read off a struct field and arrives as that field's own type: a named string, a sized
+// integer, a typed slice. A file carries the types its format has. Without this, one declared key answers
+// as two different Go types depending on whether the operator wrote a value for it, and a caller that
+// asserts the declared type works on a node running defaults and fails on the operator's node.
 //
-// A type with no form a configuration file carries is refused here rather than passed along, because the
-// registration that declares it is the last place the key is still named. Passed along, the same field
-// fails when an operator writes to it, naming a rendering rather than the struct field that made the key
-// unwritable.
+// A type with no form a file carries is refused rather than passed along, because the registration that
+// declares it is the last place the key is still named. Passed along, the failure waits for an operator to
+// write that key and then names a rendering instead of the field that made it unwritable.
 func wireValue(v any) (any, error) {
 	if d, ok := v.(time.Duration); ok {
 		// A duration is carried as the text a reader parses back, not as its nanosecond count.
@@ -305,15 +303,15 @@ func wireValue(v any) (any, error) {
 	case reflect.Float32, reflect.Float64:
 		return rv.Float(), nil
 	case reflect.Slice, reflect.Array:
-		out := make([]any, rv.Len())
-		for i := range out {
+		list := make([]any, rv.Len())
+		for i := range list {
 			element, err := wireValue(rv.Index(i).Interface())
 			if err != nil {
 				return nil, fmt.Errorf("element %d: %w", i, err)
 			}
-			out[i] = element
+			list[i] = element
 		}
-		return out, nil
+		return list, nil
 	default:
 		return nil, fmt.Errorf("its default is a %T, which a configuration file has no form for; a value "+
 			"is text, a whole number, a decimal, a truth value, or a list of those", v)
