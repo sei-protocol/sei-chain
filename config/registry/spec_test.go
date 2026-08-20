@@ -1352,16 +1352,15 @@ func TestARefusalInsideASquashedBaseIsReported(t *testing.T) {
 
 // TestAFieldExcludedFromConfigDeclaresNoKey covers the tag that means "not from configuration".
 //
-// mapstructure reads "-" as skip this field, and a config struct uses it for a field something else in
-// the program assigns: the receipt store's KeepRecent comes from the global min-retain-blocks flag at the
-// app layer, and its ExternalPruning from whatever constructs the collector.
+// mapstructure reads "-" as skip this field, and a configuration struct uses it for a field something else
+// in the program assigns.
 //
-// Such a field declares no key. Declaring one that resolved to the default would be worse than refusing
-// the section: a declared key is written at override precedence, so the default would land on top of the
-// value that code assigned, and a node with min-retain-blocks set would silently keep nothing.
+// Such a field declares no key. Declaring one that resolved to a default would put a key in the space that
+// reaches no field: an operator could write it and the assignment would discard whatever they wrote.
 //
-// An untagged field stays a defect. The two look alike and mean opposite things: one is a field the author
-// excluded, the other is a field configuration cannot reach because nothing names it.
+// An untagged field stays a defect. The two look alike in a diff and mean opposite things: one is a field
+// the author excluded from configuration, the other is a field configuration cannot reach because nothing
+// names it.
 func TestAFieldExcludedFromConfigDeclaresNoKey(t *testing.T) {
 	type excluded struct {
 		Kept     string `mapstructure:"kept"`

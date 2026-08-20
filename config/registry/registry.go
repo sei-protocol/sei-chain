@@ -315,12 +315,14 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash, skip bool
 		return "", true, false, nil
 	}
 	if name == "-" {
-		// The tag mapstructure honours for a field configuration does not reach. Something else in the
-		// program assigns it: the receipt store's KeepRecent comes from the global min-retain-blocks
-		// flag at the app layer, and its ExternalPruning from whatever constructs the collector.
+		// The tag that excludes a field from configuration. Something else in the program assigns the
+		// field, so no reader resolves a key for it.
 		//
-		// So it declares no key rather than declaring one that resolves to a default. A declared key is
-		// written at override precedence, which would put the default over the value that code assigned.
+		// It declares no key. Declaring one would put a key in the space that reaches no field, which an
+		// operator can write and nothing answers, and that is what every other refusal here exists to
+		// prevent. A field with no tag stays a defect for the same reason read from the other end: it
+		// would declare a key derived from a field name, which is a key no operator writes. The two look
+		// alike in a diff and mean opposite things.
 		return "", false, true, nil
 	}
 	if name == "" {

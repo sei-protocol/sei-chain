@@ -9,8 +9,8 @@ const SectionName = "admin_server"
 
 // Registration puts this section in the configuration registry.
 //
-// The keys derive from the mapstructure tags, so they are admin_server.admin_enabled and
-// admin_server.admin_address, which are the strings this package's reader already resolves.
+// The keys derive from the mapstructure tags, and the reader resolves the same strings through the
+// constants beside it, so a rename moves one occurrence and the test holds the two together.
 func init() {
 	registry.RegisterSection(SectionName, &Config{}, defaults)
 }

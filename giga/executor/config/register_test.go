@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
@@ -14,12 +15,18 @@ import (
 // Checked against the constants rather than against a written-out list, so a rename of either moves both
 // or fails here.
 func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
+	for _, defect := range registry.Defects() {
+		if defect.Section == SectionName {
+			t.Fatalf("%s was refused: %v", SectionName, defect.Err)
+		}
+	}
 	section, ok := registry.Lookup(SectionName)
 	if !ok {
 		t.Fatalf("%s is not registered, so nothing resolves its keys", SectionName)
 	}
 
 	want := []string{FlagEnabled, FlagOCCEnabled}
+	sort.Strings(want)
 	if got := section.Keys; !reflect.DeepEqual(got, want) {
 		t.Errorf("declared keys are %v, want the keys the reader asks for, %v", got, want)
 	}

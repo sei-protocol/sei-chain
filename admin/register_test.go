@@ -2,6 +2,7 @@ package admin
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
@@ -9,15 +10,21 @@ import (
 
 // TestTheDeclaredKeysAreTheKeysThisReaderResolves holds the declaration against the reader.
 //
-// This package names its keys only in its mapstructure tags, so the check is that the registry derives
-// exactly the two the reader resolves and no third.
+// The tags derive the keys and the constants below are what the reader passes to Get, so this compares
+// two statements that are edited for different reasons rather than one written out twice.
 func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
+	for _, defect := range registry.Defects() {
+		if defect.Section == SectionName {
+			t.Fatalf("%s was refused: %v", SectionName, defect.Err)
+		}
+	}
 	section, ok := registry.Lookup(SectionName)
 	if !ok {
 		t.Fatalf("%s is not registered, so nothing resolves its keys", SectionName)
 	}
 
-	want := []string{"admin_server.admin_address", "admin_server.admin_enabled"}
+	want := []string{flagAdminAddress, flagAdminEnabled}
+	sort.Strings(want)
 	if got := section.Keys; !reflect.DeepEqual(got, want) {
 		t.Errorf("declared keys are %v, want %v", got, want)
 	}
