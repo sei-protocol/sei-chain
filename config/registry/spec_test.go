@@ -758,9 +758,6 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 	type emptyName struct {
 		N string `mapstructure:""`
 	}
-	type dashName struct {
-		N string `mapstructure:"-"`
-	}
 	type upperName struct {
 		N string `mapstructure:"N"`
 	}
@@ -812,7 +809,6 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 	}{
 		{"a squashed field that also names a segment", "s", &squashNamed{}, anyDefault, "one or the other"},
 		{"an empty mapstructure name", "s", &emptyName{}, anyDefault, "empty mapstructure name"},
-		{"a dash mapstructure name", "s", &dashName{}, anyDefault, "empty mapstructure name"},
 		{"an upper-case key", "s", &upperName{}, anyDefault, "not lower case"},
 		{"a squashed scalar", "s", &squashScalar{}, anyDefault, "not a struct"},
 		{"a struct declaring nothing", "s", &noKeys{}, anyDefault, "declares no keys"},
@@ -1351,5 +1347,56 @@ func TestARefusalInsideASquashedBaseIsReported(t *testing.T) {
 	// The prefix is the section, not a subtree, because squash adds no segment.
 	if msg := defects[0].Err.Error(); !strings.Contains(msg, "sq.Untagged") {
 		t.Errorf("the refusal reads %q; a squashed field's path is the section's own", msg)
+	}
+}
+
+// TestAFieldExcludedFromConfigDeclaresNoKey covers the tag that means "not from configuration".
+//
+// mapstructure reads "-" as skip this field, and a config struct uses it for a field something else in
+// the program assigns: the receipt store's KeepRecent comes from the global min-retain-blocks flag at the
+// app layer, and its ExternalPruning from whatever constructs the collector.
+//
+// Such a field declares no key. Declaring one that resolved to the default would be worse than refusing
+// the section: a declared key is written at override precedence, so the default would land on top of the
+// value that code assigned, and a node with min-retain-blocks set would silently keep nothing.
+//
+// An untagged field stays a defect. The two look alike and mean opposite things: one is a field the author
+// excluded, the other is a field configuration cannot reach because nothing names it.
+func TestAFieldExcludedFromConfigDeclaresNoKey(t *testing.T) {
+	type excluded struct {
+		Kept     string `mapstructure:"kept"`
+		Assigned int    `mapstructure:"-"`
+	}
+
+	registry.Reset()
+	registry.RegisterSection("probe", &excluded{}, func(registry.Mode) any {
+		return &excluded{Kept: "x", Assigned: 42}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("a field excluded from configuration was reported as a defect: %v", d.Err)
+	}
+
+	if got, want := registry.Keys(), []string{"probe.kept"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("declared keys are %v, want %v. An excluded field declaring a key would have that key "+
+			"written at override precedence over whatever assigned the field", got, want)
+	}
+
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+	if err != nil {
+		t.Fatalf("resolving a section with an excluded field: %v", err)
+	}
+	if _, present := resolved.Values["probe.assigned"]; present {
+		t.Error("the excluded field resolved to a value, so installing it would overwrite what assigns it")
+	}
+
+	// An untagged field means the opposite and stays a defect.
+	type untagged struct {
+		Kept      string `mapstructure:"kept"`
+		Forgotten int
+	}
+	registry.Reset()
+	registry.RegisterSection("probe", &untagged{}, func(registry.Mode) any { return &untagged{} })
+	if len(registry.Defects()) == 0 {
+		t.Error("a field with no tag at all registered cleanly, so a key nothing names reaches no field")
 	}
 }
