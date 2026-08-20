@@ -261,6 +261,17 @@ func TestACollidingDeclaredPairIsRefused(t *testing.T) {
 			t.Errorf("the refusal does not name %q: %v", want, err)
 		}
 	}
+	// Two levels up, not one. Every path a key nests under has to be asked about, not only its parent:
+	// a.b.c nests under a as well as under a.b.
+	registry.Reset()
+	distant := registry.Resolved{Values: map[string]any{"a": 1, "a.b.c": 2}}
+	err = nil
+	if _, err = appopts.Install(bootLike(t, "TESTBOOT", nil), distant); err == nil {
+		t.Error("a and a.b.c were installed together, and a is two segments above a.b.c rather than one")
+	} else if !strings.Contains(err.Error(), `"a"`) {
+		t.Errorf("the refusal reads %q and does not name the outer key", err)
+	}
+
 	// Sharing a leading string is not a collision, or ordinary key spaces would fail.
 	fine := registry.Resolved{Values: map[string]any{"a.b": 1, "a.bc": 2, "a.b_c": 3}}
 	if _, err := appopts.Install(bootLike(t, "TESTBOOT", nil), fine); err != nil {

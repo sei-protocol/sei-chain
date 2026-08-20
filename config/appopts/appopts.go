@@ -49,10 +49,7 @@ func Install(target *viper.Viper, resolved registry.Resolved) (Report, error) {
 	// Enumerated once and handed to both the refusal and the report, so the two cannot disagree about
 	// what the source carries.
 	enumerated := enumerate(target)
-	if err := refuseColliding(resolved); err != nil {
-		return Report{}, err
-	}
-	if err := refuseShadowing(target, resolved, enumerated); err != nil {
+	if err := refuseUnwritable(target, resolved, enumerated); err != nil {
 		return Report{}, err
 	}
 
@@ -94,65 +91,49 @@ func dottedPrefixes(key string) []string {
 	return out
 }
 
-// refuseColliding rejects two declared keys where one names a path the other nests under.
+// refuseUnwritable rejects a key that cannot be written without making another key unreadable.
 //
-// A source holds a value at a path, so writing a.b turns a into a table and destroys whatever a held,
-// and writing a afterwards destroys the table. Neither order keeps both, and which one survives is
-// decided by map iteration order.
-func refuseColliding(resolved registry.Resolved) error {
-	var collisions []string
-	for key := range resolved.Values {
-		for _, under := range dottedPrefixes(key) {
-			if _, declared := resolved.Values[under]; declared {
-				collisions = append(collisions, under+" and "+key)
-			}
-		}
-	}
-	if len(collisions) == 0 {
-		return nil
-	}
-	sort.Strings(collisions)
-	return fmt.Errorf("these declared key pairs cannot both be installed, because one names a path the "+
-		"other nests under and whichever is written second destroys the first: %s",
-		strings.Join(collisions, ", "))
-}
-
-// refuseShadowing rejects a declared key that cannot be written without making another key unreadable.
+// The source holds one value per path, so two keys cannot both occupy one. Writing a.b turns a into a
+// table and destroys whatever a held; writing a afterwards destroys the table. Neither order keeps both,
+// and which one survives is decided by map iteration order.
 //
-// The source holds one value per path, so a declared key and a key nobody declared cannot both occupy
-// one. Installing anyway costs the undeclared value silently: the shorter path answers with a table
-// instead of what an operator wrote, or the longer one answers with nothing, and a reader of either gets
-// a zero rather than an error. That is the value this package exists to leave alone.
-//
-// Refused rather than skipped. Skipping the declared key leaves a section half migrated and a key whose
-// answer depends on which of two readers a caller asked, where refusing names the two keys and stops.
-func refuseShadowing(target *viper.Viper, resolved registry.Resolved, enumerated map[string]bool) error {
+// The cost falls on whichever key is not declared: the shorter path answers with a table instead of what
+// an operator wrote, or the longer one answers with nothing, and a reader of either gets a zero rather
+// than an error. That is the value this package exists to leave alone, so this refuses rather than
+// choosing. Skipping the declared key instead would leave a section half migrated and a key whose answer
+// depends on which of two readers a caller asked.
+func refuseUnwritable(target *viper.Viper, resolved registry.Resolved, enumerated map[string]bool) error {
 	var lost []string
-	note := func(declared, undeclared string) {
-		lost = append(lost, fmt.Sprintf("%q is declared and %q is not", declared, undeclared))
+	// Each pair says which of the two nobody declared, because that decides the remedy: an operator can
+	// rename their own key, and only a release can change what a section declares.
+	note := func(outer, inner string, bothDeclared bool) {
+		if bothDeclared {
+			lost = append(lost, fmt.Sprintf("%q and %q, both declared", outer, inner))
+			return
+		}
+		lost = append(lost, fmt.Sprintf("%q declared and %q not", outer, inner))
 	}
 
-	// A declared key under a path the source already answers with a value of its own. Writing it puts a
-	// table where that value was.
+	// A declared key nesting under a path something already occupies, whether that is another declared
+	// key or a value the source answers with.
 	for key := range resolved.Values {
 		for _, under := range dottedPrefixes(key) {
 			if _, declared := resolved.Values[under]; declared {
-				continue // refuseColliding names this pair
-			}
-			if holdsAValue(target, under) {
-				note(key, under)
+				note(under, key, true)
+			} else if holdsAValue(target, under) {
+				note(key, under, false)
 			}
 		}
 	}
-	// A key the source enumerates that nests under a declared key. The declared value shadows it, and a
-	// read of it stops before the source consults the layer it came from.
+	// A key the source enumerates nesting under a declared key. The declared value shadows it, and a read
+	// of it stops before the source consults the layer it came from.
 	for key := range enumerated {
 		if _, declared := resolved.Values[key]; declared {
 			continue
 		}
 		for _, under := range dottedPrefixes(key) {
 			if _, declared := resolved.Values[under]; declared {
-				note(under, key)
+				note(under, key, false)
 			}
 		}
 	}
@@ -160,10 +141,9 @@ func refuseShadowing(target *viper.Viper, resolved registry.Resolved, enumerated
 		return nil
 	}
 	sort.Strings(lost)
-	return fmt.Errorf("this configuration cannot be installed without losing a value nobody declared, "+
-		"and no order of writes keeps both: %s. A source holds one value per path, so the two keys "+
-		"cannot both occupy theirs. Either rename the undeclared key, or run a release whose sections "+
-		"do not declare over it", strings.Join(lost, "; "))
+	return fmt.Errorf("these key pairs cannot both be installed, because one names a path the other "+
+		"nests under and the source holds one value per path: %s. An undeclared key is an operator's to "+
+		"rename; a declared one changes only in a release", strings.Join(lost, ", "))
 }
 
 // holdsAValue reports whether target answers for key with something other than a table.
