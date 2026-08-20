@@ -13,9 +13,9 @@ import (
 type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
 	// consensusSpec.Epoch is the applied (next-CommitQC) epoch. advanceEpoch is
-	// the sole writer after construction. blockVotes are weighted under it.
-	// CommitQC may lag that epoch while withheld at LastRoad (durable tip is
-	// persistedCommitQC).
+	// the sole writer after construction. blockVotes are weighted under this
+	// epoch at all times. CommitQC may lag that epoch while withheld at LastRoad
+	// (durable tip is persistedCommitQC).
 	consensusSpec utils.AtomicSend[types.ConsensusSpec]
 	roads         *queue[types.RoadIndex, *road]
 
