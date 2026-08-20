@@ -63,6 +63,7 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 		return out, err
 	}
 	declared := declaredKeys(registered)
+	undeliverable := EnvCannotDeliver()
 
 	out.Values = make(map[string]any, len(declared))
 	for key, v := range defaults {
@@ -75,7 +76,7 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 	// order, which is why nothing exports it.
 	for _, values := range []map[string]any{
 		fileValues(from.File),
-		envValues(declared, from.LookupEnv),
+		envValues(declared, undeliverable, from.LookupEnv),
 		from.Flags,
 	} {
 		for key, v := range values {
@@ -128,7 +129,7 @@ func declaredKeys(registered []Section) map[string]bool {
 func defaultValues(mode Mode, registered []Section) (map[string]any, error) {
 	out := map[string]any{}
 	for _, s := range registered {
-		values, err := sectionValues(s.Name, s.Defaults(mode))
+		values, err := sectionValues(s.Prefix, s.Defaults(mode))
 		if err != nil {
 			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
 		}
@@ -252,7 +253,7 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 			}
 			continue
 		}
-		path := prefix + "." + tag
+		path := join(prefix, tag)
 		if fv.Kind() == reflect.Struct && !isLeaf(fv.Type()) {
 			if err := walkValues(fv, path, out); err != nil {
 				return err
@@ -272,12 +273,19 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 // declared is passed in rather than read here, so this shares Resolve's snapshot. Reading the registry
 // again would ask for a key the caller's declared set does not hold, and the answer would come back
 // only to be reported as one no section declares.
-func envValues(declared map[string]bool, lookup func(string) (string, bool)) map[string]any {
+func envValues(declared map[string]bool, undeliverable map[string]string,
+	lookup func(string) (string, bool)) map[string]any {
 	if lookup == nil {
 		return nil
 	}
 	out := map[string]any{}
 	for key := range declared {
+		// A key no variable can carry is left to the sources that can. Resolving it would put a string
+		// at the top of the order for a reader that takes the exact type, and installing that stops the
+		// node. What an operator loses is the channel; what they keep is a node that boots.
+		if _, refused := undeliverable[key]; refused {
+			continue
+		}
 		// An empty value is treated as unset. A variable exported empty is far more often a shell
 		// artefact than a deliberate empty string, and the two are indistinguishable here. The cost is
 		// that clearing a key by exporting it empty reads as touching nothing, and Overrides will not

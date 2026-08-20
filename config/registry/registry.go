@@ -28,8 +28,16 @@ func Modes() []Mode { return []Mode{ModeValidator, ModeFull, ModeSeed, ModeArchi
 
 // Section is one registered configuration section.
 type Section struct {
-	// Name is the section's own segment, and the first segment of every key it declares.
+	// Name identifies the section. A lookup, a report and a defect are keyed by it, and for most
+	// sections it is also the first segment of every key.
 	Name string
+	// Prefix is the first segment of every key this section declares, and is empty for a section whose
+	// keys sit at the root of the file with no section of their own.
+	//
+	// Separate from Name because the two do different jobs. A node-wide setting such as the pruning
+	// strategy is written at the top of app.toml and read as "pruning", so it has no segment to take a
+	// name from, and it still needs one to be looked up and reported under.
+	Prefix string
 	// Keys are the dotted paths this section declares, sorted.
 	Keys []string
 	// Defaults returns the section's default for a mode.
@@ -68,7 +76,23 @@ var (
 // It never panics. A registration this package cannot use is recorded as a Defect and the
 // section is not registered.
 func RegisterSection(name string, prototype any, defaults func(Mode) any) {
-	keys, err := deriveKeys(name, prototype)
+	record(name, name, prototype, defaults)
+}
+
+// RegisterRootKeys records a section whose keys sit at the root of the file, with no section of their own.
+//
+// name identifies the section for lookups and reports and is not part of any key. Everything else matches
+// RegisterSection: the keys come from the mapstructure tags, and the tags are the only spelling.
+//
+// Some settings are node-wide and are written at the top of a file rather than inside a table. Giving them
+// a section would rename them, and a renamed key is one an operator's existing file no longer reaches.
+func RegisterRootKeys(name string, prototype any, defaults func(Mode) any) {
+	record(name, "", prototype, defaults)
+}
+
+// record is the one path both registrations take.
+func record(name, prefix string, prototype any, defaults func(Mode) any) {
+	keys, err := deriveKeys(name, prefix, prototype)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -82,12 +106,71 @@ func RegisterSection(name string, prototype any, defaults func(Mode) any) {
 			defects = append(defects, Defect{Section: name, Err: fmt.Errorf("section registered twice")})
 			return
 		}
+		if err := refuseOverlap(name, prefix, keys); err != nil {
+			defects = append(defects, Defect{Section: name, Err: err})
+			return
+		}
 		if err := envNamesAreDistinct(keys); err != nil {
 			defects = append(defects, Defect{Section: name, Err: err})
 			return
 		}
-		sections[name] = Section{Name: name, Keys: keys, Defaults: defaults}
+		sections[name] = Section{Name: name, Prefix: prefix, Keys: keys, Defaults: defaults}
 	}
+}
+
+// refuseOverlap rejects a registration whose keys cannot coexist with what is already registered.
+// Callers hold mu.
+//
+// Two shapes of overlap, and neither could happen while every key carried its section's name. A key two
+// sections both declare has one default rendered over the other, and which one depends on the order the
+// sections are walked. And a root key that is also a section's name cannot be written at all: a file
+// holding both a value for that name and a table under it is not valid TOML, so one of the two is
+// unreachable and nothing says which.
+//
+// The first shape reaches the environment check below as well, which would refuse it for the wrong
+// reason: two spellings of one variable, when the keys are in fact the same key. This names it as itself.
+func refuseOverlap(name, prefix string, keys []string) error {
+	declaredBy := map[string]string{}
+	sectionNamed := map[string]string{}
+	for _, s := range sections {
+		for _, key := range s.Keys {
+			declaredBy[key] = s.Name
+		}
+		if s.Prefix != "" {
+			sectionNamed[s.Prefix] = s.Name
+		}
+	}
+
+	for _, key := range keys {
+		if owner, taken := declaredBy[key]; taken {
+			return fmt.Errorf("%s declares %q and so does %s; one default renders over the other and "+
+				"which one wins depends on the order the sections are walked", name, key, owner)
+		}
+		if prefix != "" {
+			continue
+		}
+		if owner, taken := sectionNamed[key]; taken {
+			return fmt.Errorf("%s declares %q at the root of the file and %s is a section of that name; "+
+				"a file cannot hold both a value for %q and a table under it, so one of them is "+
+				"unreachable", name, key, owner, key)
+		}
+	}
+
+	if prefix == "" {
+		return nil
+	}
+	for _, s := range sections {
+		if s.Prefix != "" {
+			continue
+		}
+		for _, key := range s.Keys {
+			if key == prefix {
+				return fmt.Errorf("%s is a section named %q and %s declares %q at the root of the file; "+
+					"a file cannot hold both a table and a value under that name", name, prefix, s.Name, key)
+			}
+		}
+	}
+	return nil
 }
 
 // envNamesAreDistinct refuses keys that share one environment spelling. Callers hold mu.
@@ -166,19 +249,19 @@ func Keys() []string {
 // outside state-commit.flatkv.*. Ninety-two operator-facing keys reach their field only through a
 // spelling the tags do not produce, and a silent fallback is what made that invisible. Refusing to
 // guess is what keeps the tag authoritative.
-func deriveKeys(section string, prototype any) ([]string, error) {
-	if section == "" {
+func deriveKeys(name, prefix string, prototype any) ([]string, error) {
+	if name == "" {
 		return nil, fmt.Errorf("section name is empty")
 	}
-	if section != strings.ToLower(section) {
+	if name != strings.ToLower(name) {
 		return nil, fmt.Errorf("section name %q is not lower case; configuration sources "+
-			"enumerate lower-cased, so a key under it would never match a written one", section)
+			"enumerate lower-cased, so a key under it would never match a written one", name)
 	}
-	if bad, found := unaddressableChar(section); found {
+	if bad, found := unaddressableChar(name); found {
 		return nil, fmt.Errorf("section name %q carries %q, and a section is one segment. A dotted name "+
 			"declares keys inside another section's subtree, where the two sections' defaults land in "+
 			"one map and whichever renders last silently wins; a space cannot be written in an "+
-			"environment variable name at all", section, bad)
+			"environment variable name at all", name, bad)
 	}
 	if prototype == nil {
 		return nil, fmt.Errorf("no struct")
@@ -192,7 +275,7 @@ func deriveKeys(section string, prototype any) ([]string, error) {
 	}
 
 	var keys []string
-	if err := walk(t, section, &keys, map[reflect.Type]bool{}); err != nil {
+	if err := walk(t, prefix, &keys, map[reflect.Type]bool{}); err != nil {
 		return nil, err
 	}
 	if len(keys) == 0 {
@@ -254,15 +337,15 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 			if ft.Kind() != reflect.Struct {
 				return fmt.Errorf("%s.%s is squashed but is a %s, not a struct", prefix, f.Name, ft.Kind())
 			}
-			if err := walkSubtree(ft, prefix, prefix+"."+f.Name, keys, open); err != nil {
+			if err := walkSubtree(ft, prefix, join(prefix, f.Name), keys, open); err != nil {
 				return err
 			}
 			continue
 		}
 
-		path := prefix + "." + tag
+		path := join(prefix, tag)
 		if ft.Kind() == reflect.Struct && !isLeaf(ft) {
-			if err := walkSubtree(ft, path, prefix+"."+f.Name, keys, open); err != nil {
+			if err := walkSubtree(ft, path, join(prefix, f.Name), keys, open); err != nil {
 				return err
 			}
 			continue
@@ -270,6 +353,14 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 		*keys = append(*keys, path)
 	}
 	return nil
+}
+
+// join appends a key segment to a prefix, and returns the segment alone when there is no prefix.
+func join(prefix, segment string) string {
+	if prefix == "" {
+		return segment
+	}
+	return prefix + "." + segment
 }
 
 // walkSubtree appends the keys a struct-typed field declares, and refuses one that declares none.
@@ -362,6 +453,7 @@ func Reset() {
 	defer mu.Unlock()
 	sections = map[string]Section{}
 	defects = nil
+	envCannotDeliver = map[string]string{}
 }
 
 // envPrefix is the environment namespace for every derived key.

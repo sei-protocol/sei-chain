@@ -1,0 +1,211 @@
+package registry_test
+
+import (
+	"reflect"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/sei-protocol/sei-chain/config/registry"
+)
+
+// nodeWide is a probe for the settings written at the top of a file rather than inside a table.
+type nodeWide struct {
+	Pruning     string `mapstructure:"pruning"`
+	HaltHeight  uint64 `mapstructure:"halt-height"`
+	Concurrency int    `mapstructure:"concurrency-workers"`
+}
+
+// TestARootSectionDeclaresKeysWithNoPrefix is the whole of what registering root keys adds.
+//
+// Some settings are node-wide and are written at the top of a file. Giving them a section would rename
+// them, and a renamed key is one an operator's existing file no longer reaches.
+func TestARootSectionDeclaresKeysWithNoPrefix(t *testing.T) {
+	registry.Reset()
+	registry.RegisterRootKeys("base", &nodeWide{}, func(registry.Mode) any {
+		return nodeWide{Pruning: "nothing", Concurrency: 4}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("registering root keys was refused: %v", d.Err)
+	}
+
+	section, ok := registry.Lookup("base")
+	if !ok {
+		t.Fatal("the section did not register under its name, so nothing can look it up or report on it")
+	}
+	if section.Prefix != "" {
+		t.Errorf("the section carries prefix %q, and one here renames every key it declares", section.Prefix)
+	}
+	if got := strings.Join(section.Keys, ","); got != "concurrency-workers,halt-height,pruning" {
+		t.Errorf("derived %q, want the three keys with no prefix. A leading segment is a key no operator "+
+			"writes", got)
+	}
+
+	// The default has to render under the same prefix-free names, or a declared key states no value and
+	// the resolution is refused rather than short.
+	resolved, err := registry.Resolve(registry.ModeFull, registry.Sources{})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got := resolved.Values["pruning"]; got != "nothing" {
+		t.Errorf("pruning resolved to %#v, want %q", got, "nothing")
+	}
+}
+
+// TestARootKeyAndASectionCannotShareAName holds a limit of the file format, not a matter of taste.
+//
+// TOML cannot express a value for pruning and a table under pruning in one file, so one of the two is
+// unwritable and which one an operator lost would depend on where in the file they wrote it. Registration
+// order is not something an operator can see, so the refusal cannot depend on it either.
+func TestARootKeyAndASectionCannotShareAName(t *testing.T) {
+	nested := func() (string, any, func(registry.Mode) any) {
+		return "pruning", &struct {
+				Mode string `mapstructure:"mode"`
+			}{}, func(registry.Mode) any {
+				return struct {
+					Mode string `mapstructure:"mode"`
+				}{Mode: "nothing"}
+			}
+	}
+	root := func() (string, any, func(registry.Mode) any) {
+		return "base", &struct {
+				Pruning string `mapstructure:"pruning"`
+			}{}, func(registry.Mode) any {
+				return struct {
+					Pruning string `mapstructure:"pruning"`
+				}{Pruning: "nothing"}
+			}
+	}
+
+	t.Run("the section registers first", func(t *testing.T) {
+		registry.Reset()
+		registry.RegisterSection(nested())
+		registry.RegisterRootKeys(root())
+		if _, ok := registry.Lookup("base"); ok {
+			t.Error("the root section registered a key that is also a section name. A file cannot hold " +
+				"both, so one of them is unreachable and nothing says which")
+		}
+		if len(registry.Defects()) != 1 {
+			t.Errorf("recorded %d defects, want one naming the collision", len(registry.Defects()))
+		}
+	})
+
+	t.Run("the root key registers first", func(t *testing.T) {
+		registry.Reset()
+		registry.RegisterRootKeys(root())
+		registry.RegisterSection(nested())
+		if _, ok := registry.Lookup("pruning"); ok {
+			t.Error("a section registered under a name a root key already holds")
+		}
+		if len(registry.Defects()) != 1 {
+			t.Errorf("recorded %d defects, want one naming the collision", len(registry.Defects()))
+		}
+	})
+}
+
+// TestTwoSectionsCannotDeclareTheSameKey was impossible while every key carried its section's name.
+//
+// Two prefixes cannot collide. Two root sections can, and the default rendered for such a key would be
+// whichever section the walk reached last.
+func TestTwoSectionsCannotDeclareTheSameKey(t *testing.T) {
+	registry.Reset()
+	same := func(name string) {
+		registry.RegisterRootKeys(name, &struct {
+			Pruning string `mapstructure:"pruning"`
+		}{}, func(registry.Mode) any {
+			return struct {
+				Pruning string `mapstructure:"pruning"`
+			}{Pruning: "nothing"}
+		})
+	}
+	same("base")
+	same("other")
+
+	if _, ok := registry.Lookup("other"); ok {
+		t.Fatal("both sections declared the same key. One default renders over the other and which one " +
+			"wins depends on the order the sections are walked, so the value a node runs is not decided " +
+			"by anything an operator or a reviewer can see")
+	}
+	defects := registry.Defects()
+	if len(defects) != 1 {
+		t.Fatalf("recorded %d defects, want one", len(defects))
+	}
+	// Named as one key two sections declare, rather than as two spellings of one variable, which is what
+	// the environment check would have called it.
+	if got := defects[0].Err.Error(); !strings.Contains(got, "and so does") {
+		t.Errorf("the refusal reads %q, and an identical key is not an environment spelling collision", got)
+	}
+}
+
+// TestAKeyTheEnvironmentCannotDeliverIsLeftToTheOtherSources is what refusing a channel buys.
+//
+// The environment carries one string per name. A reader taking its value's exact type cannot be handed
+// one, so resolving the variable installs a value that stops the node. Skipping it means the file's value
+// applies and the node runs.
+func TestAKeyTheEnvironmentCannotDeliverIsLeftToTheOtherSources(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("probe", &struct {
+		Rows  []any  `mapstructure:"rows"`
+		Plain string `mapstructure:"plain"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			Rows  []any  `mapstructure:"rows"`
+			Plain string `mapstructure:"plain"`
+		}{Rows: []any{}, Plain: "from the default"}
+	})
+	registry.RefuseFromEnvironment("probe.rows", "its reader takes the exact type rather than casting")
+	for _, d := range registry.Defects() {
+		t.Fatalf("the registration was refused: %v", d.Err)
+	}
+
+	// Both variables are set. Only the one the environment can carry is allowed to answer.
+	resolved, err := registry.Resolve(registry.ModeFull, registry.Sources{
+		LookupEnv: func(name string) (string, bool) {
+			switch name {
+			case "SEID_PROBE_ROWS":
+				return "chain_id=pacific-1", true
+			case "SEID_PROBE_PLAIN":
+				return "from the environment", true
+			}
+			return "", false
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if got := resolved.Values["probe.rows"]; !reflect.DeepEqual(got, []any{}) {
+		t.Errorf("probe.rows resolved to %#v (%T), want the default it was left to. Its reader takes a "+
+			"list of rows, so installing the environment's string stops the node", got, got)
+	}
+	if got := resolved.Values["probe.plain"]; got != "from the environment" {
+		t.Errorf("probe.plain resolved to %#v; refusing one key's channel closed another's", got)
+	}
+	sort.Strings(resolved.Overrides)
+	if got := strings.Join(resolved.Overrides, ","); got != "probe.plain" {
+		t.Errorf("overrides are %q, want only probe.plain. A key nothing supplied is not one an operator "+
+			"has taken responsibility for", got)
+	}
+}
+
+// TestRefusingAChannelWithoutAReasonIsItselfRefused keeps the exemption from being unexplainable.
+//
+// A key left out of the environment layer is one whose variable does nothing, and an operator told that
+// has to be told why. A refusal with no reason gives a diagnostic nothing to print.
+func TestRefusingAChannelWithoutAReasonIsItselfRefused(t *testing.T) {
+	registry.Reset()
+	registry.RefuseFromEnvironment("probe.rows", "")
+	if len(registry.Defects()) != 1 {
+		t.Fatalf("recorded %d defects, want one naming the key with no reason", len(registry.Defects()))
+	}
+	if _, refused := registry.EnvCannotDeliver()["probe.rows"]; refused {
+		t.Error("the key was refused from the environment anyway. Its variable would then be ignored " +
+			"with nothing able to say why, which is worse than either resolving it or not")
+	}
+
+	registry.Reset()
+	registry.RefuseFromEnvironment("probe.rows", "its reader takes the exact type")
+	if _, refused := registry.EnvCannotDeliver()["probe.rows"]; !refused {
+		t.Error("a refusal carrying a reason was not recorded")
+	}
+}
