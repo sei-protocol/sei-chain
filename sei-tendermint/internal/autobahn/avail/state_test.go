@@ -802,7 +802,7 @@ func newSealFixture(t *testing.T) *sealFixture {
 	return &sealFixture{registry: registry, keys: keys, state: state, ep: ep, m: m}
 }
 
-func TestWaitUntilApplied_ParksUntilEpochAdvance(t *testing.T) {
+func TestWaitForEpoch_ParksUntilEpochAdvance(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := t.Context()
 		rng := utils.TestRng()
@@ -821,12 +821,12 @@ func TestWaitUntilApplied_ParksUntilEpochAdvance(t *testing.T) {
 			var got *types.Epoch
 			var waitErr error
 			sc.Spawn(func() error {
-				got, waitErr = state.waitUntilAdvanced(ctx, 1)
+				got, waitErr = state.waitForEpoch(ctx, 1)
 				return nil
 			})
 			synctest.Wait()
 			if got != nil {
-				return fmt.Errorf("waitUntilAdvanced returned before epoch advance")
+				return fmt.Errorf("waitForEpoch returned before epoch advance")
 			}
 
 			if err := DriveAdvance(ctx, state, keys, ep1.EpochIndex()); err != nil {
@@ -837,7 +837,7 @@ func TestWaitUntilApplied_ParksUntilEpochAdvance(t *testing.T) {
 				return waitErr
 			}
 			if got.EpochIndex() != 1 {
-				return fmt.Errorf("waitUntilAdvanced epoch = %d, want 1", got.EpochIndex())
+				return fmt.Errorf("waitForEpoch epoch = %d, want 1", got.EpochIndex())
 			}
 			return nil
 		}))

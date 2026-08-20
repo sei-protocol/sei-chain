@@ -231,9 +231,9 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 	return qc, err
 }
 
-// waitUntilAdvanced blocks until the applied (next-CommitQC) epoch equals i.
+// waitForEpoch blocks until the applied (next-CommitQC) epoch equals i.
 // Returns ErrPruned if applied has already passed i (see types.ErrPruned).
-func (s *State) waitUntilAdvanced(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
+func (s *State) waitForEpoch(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
 	epoch, err := s.Epoch().Wait(ctx, func(epoch *types.Epoch) bool {
 		return i <= epoch.EpochIndex()
 	})
@@ -250,7 +250,7 @@ func (s *State) waitUntilAdvanced(ctx context.Context, i types.EpochIndex) (*typ
 // Stale QCs are a no-op.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	idx := qc.Proposal().Index()
-	epoch, err := s.waitUntilAdvanced(ctx, qc.Proposal().EpochIndex())
+	epoch, err := s.waitForEpoch(ctx, qc.Proposal().EpochIndex())
 	if err != nil {
 		if errors.Is(err, types.ErrPruned) {
 			return nil

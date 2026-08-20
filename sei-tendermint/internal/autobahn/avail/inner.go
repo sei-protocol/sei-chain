@@ -12,10 +12,10 @@ import (
 // inner holds roads and per-LaneID block/vote maps.
 type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
-	// consensusSpec.Epoch is the applied (next-CommitQC) epoch. advanceEpoch is
-	// the sole writer after construction. blockVotes are weighted under this
-	// epoch at all times. CommitQC may lag that epoch while withheld at LastRoad
-	// (durable tip is persistedCommitQC).
+	// consensusSpec is the applied (next-CommitQC) epoch paired with a persisted
+	// CommitQC tip (None before the first tip). CommitQC never exceeds
+	// persistedCommitQC. advanceEpoch is the sole writer of Epoch after
+	// construction. blockVotes are always weighted under this Epoch.
 	consensusSpec utils.AtomicSend[types.ConsensusSpec]
 	roads         *queue[types.RoadIndex, *road]
 
@@ -137,9 +137,9 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		}
 		i.nextBlockToPersist[lane] = q.next
 	}
-	// Restart catch-up: advance every epoch the durable leashes already allow.
-	// The live path (runEpochAdvance) advances one waited-for epoch at a time.
-	if err := i.advanceReadyEpochs(ds); err != nil {
+	// seedApplied jumped to the last restored QC's epoch (or the Anchor).
+	// One more step covers a LastRoad tip whose next epoch is already registered.
+	if err := i.tryAdvanceEpoch(ds); err != nil {
 		return nil, err
 	}
 	i.refreshConsensusSpec()
@@ -189,18 +189,19 @@ func (i *inner) canAdvanceEpoch() bool {
 	return ok && ae.EpochIndex() >= ep.EpochIndex()
 }
 
-// advanceReadyEpochs advances to every epoch whose seal and prune leashes are
-// already met. A missing next registry epoch in that state is an invariant
-// violation (execution leash should already have registered it).
-func (i *inner) advanceReadyEpochs(ds *data.State) error {
-	for i.canAdvanceEpoch() {
-		nextIdx := i.applied().EpochIndex() + 1
-		next, err := ds.Registry().EpochByIndex(nextIdx)
-		if err != nil {
-			return fmt.Errorf("epoch %d with seal+prune leashes met: %w", nextIdx, err)
-		}
-		i.advanceEpoch(next)
+// tryAdvanceEpoch advances applied by one epoch when the seal and prune
+// leashes are already met. A missing next registry epoch in that state is an
+// invariant violation (execution leash should already have registered it).
+func (i *inner) tryAdvanceEpoch(ds *data.State) error {
+	if !i.canAdvanceEpoch() {
+		return nil
 	}
+	nextIdx := i.applied().EpochIndex() + 1
+	next, err := ds.Registry().EpochByIndex(nextIdx)
+	if err != nil {
+		return fmt.Errorf("epoch %d with seal+prune leashes met: %w", nextIdx, err)
+	}
+	i.advanceEpoch(next)
 	return nil
 }
 
@@ -269,8 +270,8 @@ func (i *inner) reweightVotes() {
 }
 
 // prune advances the state up to the data Anchor and drops lanes closed as of
-// anchor.Epoch. It updates anchorEpoch only — applied epoch catch-up is left to
-// advanceReadyEpochs / runEpochAdvance. Returns the number of lanes dropped.
+// anchor.Epoch. It updates anchorEpoch only — applied is advanced by
+// runEpochAdvance. Returns the number of lanes dropped.
 func (i *inner) prune(anchor data.Anchor) int {
 	anchorEpoch := anchor.Epoch
 	idx := anchor.CommitQC.Index()
