@@ -1104,9 +1104,13 @@ func (cs *CompositeCommitStore) WorkingCommitInfo(version int64) *proto.CommitIn
 //
 // Cosmos asks for a block's hash before it calls Commit, and FlatKV has a hash only once the block is
 // sealed, so the seal happens here. The Commit that follows finds the block already committed and does
-// nothing. Sealing early is safe because every one of the block's writes has already arrived:
-// rootmulti's GetWorkingHash flushes every buffered changeset into the store before reading the hash,
-// and a changeset arriving afterwards is rejected rather than silently excluded.
+// nothing.
+//
+// Sealing early requires that every one of the block's writes has already arrived. rootmulti's
+// GetWorkingHash flushes every buffered changeset into the store before reading the hash, and nothing
+// writes to the multistore after that point. A changeset arriving later is not caught: the FlatKV
+// writer stamps it at the sealed height plus one, which is a valid stamp for the next block, so it
+// silently becomes part of that block instead.
 //
 // version is the height the caller is building. Sealing that height rather than one FlatKV derives for
 // itself is what keeps FlatKV in step: a block whose writes all miss FlatKV leaves it with nothing

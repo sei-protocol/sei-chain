@@ -150,10 +150,9 @@ type CommitStore struct {
 	// Changes to feed into the WAL at the next commit.
 	pendingChangeSets []*proto.NamedChangeSet
 
-	// pendingBlockHeight is the version stamped by the current buffered
-	// ApplyChangeSets. 0 means no pending apply. Further ApplyChangeSets
-	// calls and Commit both require version to match when this is non-zero:
-	// only one block may be buffered per commit.
+	// pendingBlockHeight is the version stamped by the current buffered ApplyChangeSets. 0 means no
+	// pending apply. It records the staged height; it does not constrain it — neither ApplyChangeSets
+	// nor Commit validates its version against this field.
 	pendingBlockHeight int64
 
 	lastSnapshotTime time.Time

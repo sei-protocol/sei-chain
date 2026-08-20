@@ -89,10 +89,10 @@ type Store struct {
 	// captured only once (with the real, non-empty changeset) per block.
 	blockChangeSets          []*proto.NamedChangeSet
 	changesetCapturedVersion int64
-	// flushedVersion is the height whose changesets have already been handed to the commit store. A
-	// height is handed over at most once: baseapp asks for the working hash twice per block and then
-	// commits, so flush runs three times per height, and only the first run carries the block's writes.
-	// Handing the later, empty runs down would tell the commit store it has moved on to another block.
+	// flushedVersion is the height whose changesets have already been handed to the commit store.
+	// baseapp asks for the working hash twice per block and then commits, so flush runs three times per
+	// height and only the first run carries the block's writes; this field lets the later, empty runs be
+	// dropped rather than handed down as if the store had moved on to another block.
 	flushedVersion int64
 	// nextBlockHash is the Tendermint block hash supplied by baseapp for the block being committed.
 	nextBlockHash []byte
@@ -274,15 +274,20 @@ func (rs *Store) flush() error {
 		})
 	}
 	// baseapp requests the working hash in FinalizeBlock and again in Commit before committing, so flush
-	// runs three times per height and PopChangeSet has already drained the block's writes by the second
-	// run. Those later runs must not hand an empty changeset down: the commit store stamps it with a
-	// height it derives from its own last committed block, which the first working-hash request already
-	// advanced, so it would conclude the chain had moved to the next block and commit one that never
-	// existed. A later run that does carry writes is handed down instead of refused here — whether the
-	// block is still open to them is the commit store's to judge, and flatkv refuses a sealed one.
+	// runs three times per height, and PopChangeSet has already drained the block's writes by the second
+	// run.
 	if len(changeSets) == 0 && rs.flushedVersion == currentVersion {
+		// An empty changeset must not be handed down: the commit store stamps it with a height it
+		// derives from its own last committed block, which the first working-hash request already
+		// advanced, so it would conclude the chain had moved to the next block and commit one that
+		// never existed.
 		return nil
 	}
+	// A later run that does carry writes falls through, and nothing detects it: flatkv is already sealed
+	// at currentVersion, so its writer stamps the batch currentVersion+1 and the writes silently land in
+	// the next block, while the state store and memIAVL still take them at currentVersion. That nothing
+	// writes to the multistore after the first working hash — notably in the preCommitHandler — is a
+	// convention, not an enforced invariant.
 	rs.flushedVersion = currentVersion
 
 	// Capture the (sorted) aggregate changeset for hash logging once per block. nil is normalized to an
