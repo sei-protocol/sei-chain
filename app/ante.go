@@ -71,7 +71,7 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteHandler, e
 
 	anteDecorators := []sdk.AnteDecorator{
 		ante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(options.ParamsKeeper.(paramskeeper.Keeper))), // outermost AnteDecorator. SetUpContext must be called first
-		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.ParamsKeeper.(paramskeeper.Keeper), options.TxFeeChecker)}, options.EVMKeeper),
+		ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.ParamsKeeper.(paramskeeper.Keeper), options.TxFeeChecker),
 		wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit, wasmkeeper.DefaultGasMeterSetter()), // after setup context to enforce limits early
 		ante.NewRejectExtensionOptionsDecorator(),
 		ante.NewValidateBasicDecorator(),

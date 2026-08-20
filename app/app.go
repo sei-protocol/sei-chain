@@ -106,7 +106,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	appante "github.com/sei-protocol/sei-chain/app/ante"
-	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
@@ -1446,31 +1445,12 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		Tx: tx,
 	}, typedTx, sha256.Sum256(tx))
 
-	// Check if transaction is gasless before recording metrics
-	// perf optimization: skip gasless check for obviously non-gasless transaction types
-	shouldCheckGasless := app.couldBeGaslessTransaction(typedTx)
-
-	var skipMetrics bool
-	if shouldCheckGasless {
-		// Only do expensive validation for potentially gasless transactions
-		isGasless, err := antedecorators.IsTxGasless(typedTx, ctx, &app.EvmKeeper)
-		if err != nil {
-			logger.Debug("error checking if tx is gasless for metrics", "err", err)
-			// If we can't determine if it's gasless, record metrics to maintain existing behavior
-		} else if isGasless {
-			skipMetrics = true // Skip metrics for confirmed gasless transactions
-		}
-	}
-
-	if !skipMetrics {
-		// Record metrics for non-gasless transactions
-		utilmetrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-		utilmetrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
-		appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasUsed,
-			otelmetric.WithAttributes(attribute.String("type", "gas_used")))
-		appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasWanted,
-			otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
-	}
+	utilmetrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
+	utilmetrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
+	appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasUsed,
+		otelmetric.WithAttributes(attribute.String("type", "gas_used")))
+	appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasWanted,
+		otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
 
 	return &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
@@ -1710,36 +1690,17 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
-	for i, r := range batchResult.Results {
+	for _, r := range batchResult.Results {
 		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.OccConcurrent) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OccConcurrent)))
 
-		// Check if transaction is gasless before recording gas metrics
-		var recordGasMetrics = true
-		if i < len(typedTxs) {
-			// perf optimization: skip gasless check for obviously non-gasless transaction types
-			shouldCheckGasless := app.couldBeGaslessTransaction(typedTxs[i])
-			if shouldCheckGasless {
-				// Only do expensive validation for potentially gasless transactions
-				isGasless, err := antedecorators.IsTxGasless(typedTxs[i], ctx, &app.EvmKeeper)
-				if err != nil {
-					logger.Debug("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
-					// If we can't determine if it's gasless, record metrics to maintain existing behavior
-				} else if isGasless {
-					recordGasMetrics = false
-				}
-			}
-		}
-
-		if recordGasMetrics {
-			utilmetrics.IncrGasCounter("gas_used", r.Response.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-			utilmetrics.IncrGasCounter("gas_wanted", r.Response.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
-			appMetrics.txGas.Add(ctx.Context(), r.Response.GasUsed,
-				otelmetric.WithAttributes(attribute.String("type", "gas_used")))
-			appMetrics.txGas.Add(ctx.Context(), r.Response.GasWanted,
-				otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
-		}
+		utilmetrics.IncrGasCounter("gas_used", r.Response.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
+		utilmetrics.IncrGasCounter("gas_wanted", r.Response.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
+		appMetrics.txGas.Add(ctx.Context(), r.Response.GasUsed,
+			otelmetric.WithAttributes(attribute.String("type", "gas_used")))
+		appMetrics.txGas.Add(ctx.Context(), r.Response.GasWanted,
+			otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
 
 		execResults = append(execResults, &abci.ExecTxResult{
 			Code:      r.Response.Code,
@@ -2779,26 +2740,6 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 
 		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
 
-		// MsgEVMTransaction cannot be gasless under IsTxGasless (only MsgAssociate can).
-		// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
-		// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
-		skipGaslessCheck := evmErr == nil && isEVM
-		if !skipGaslessCheck && app.couldBeGaslessTransaction(decodedTx) {
-			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, &app.EvmKeeper)
-			if err != nil {
-				if strings.Contains(err.Error(), "panic in IsTxGasless") {
-					// Unexpected panic: reject the entire proposal.
-					logger.Error("malicious transaction detected in gasless check", "err", err)
-					return false
-				}
-				// Business-logic errors (e.g. duplicate votes): keep going, tx is treated as non-gasless.
-				logger.Info("transaction failed gasless check but not malicious", "err", err)
-			}
-			if isGasless {
-				continue
-			}
-		}
-
 		// EVM classification failed (e.g. multi-msg containing an EVM message); such a tx won't be
 		// processed and so contributes no gas to the block.
 		if evmErr != nil {
@@ -2853,25 +2794,6 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 		appMetrics.blockGasWantedRatio.Record(ctx.Context(), float64(totalGasWanted)/float64(cp.Block.MaxGasWanted))
 	}
 	return true
-}
-
-// couldBeGaslessTransaction is a fast heuristic that returns true when tx
-// might be gasless and a full IsTxGasless keeper check is therefore worth
-// running. It MUST be a conservative over-approximation: returning false for
-// a tx that is actually gasless would cause its gas to be counted against
-// the block limit, producing incorrect gas accounting (and in the worst case
-// rejecting an otherwise-valid block).
-func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
-	if tx == nil {
-		return false
-	}
-	for _, msg := range tx.GetMsgs() {
-		switch msg.(type) {
-		case *evmtypes.MsgAssociate:
-			return true
-		}
-	}
-	return false
 }
 
 func (app *App) GetTxConfig() client.TxConfig {

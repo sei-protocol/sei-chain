@@ -88,14 +88,7 @@ func CosmosCheckTxAnte(
 			returnErr = HandleOutofGas(r, tx.(GasTx).GetGas(), ctx.GasMeter().GasConsumed())
 		}
 	}()
-	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
-	isGasless, err := antedecorators.IsTxGasless(tx, ctx, ek)
-	if err != nil {
-		return ctx, err
-	}
-	if !isGasless {
-		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
-	}
+	ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 
 	if err := CheckMemoLength(tx, authParams); err != nil {
 		return ctx, err
@@ -116,7 +109,7 @@ func CosmosCheckTxAnte(
 		return ctx, err
 	}
 
-	priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk, isGasless)
+	priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk)
 	if err != nil {
 		return ctx, err
 	}
@@ -320,10 +313,7 @@ func SetGasMeter(ctx sdk.Context, gasLimit uint64, paramsKeeper paramskeeper.Kee
 	return ctx.WithGasMeter(storetypes.NewMultiplierGasMeter(gasLimit, cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator))
 }
 
-func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper, isGasless bool) (priority int64, err error) {
-	if isGasless {
-		return 0, nil
-	}
+func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper) (priority int64, err error) {
 	feeTx := tx.(sdk.FeeTx)
 	feeCoins := feeTx.GetFee()
 	feeParams := paramsKeeper.GetFeesParams(ctx)
@@ -593,12 +583,6 @@ func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountK
 		if err := associationHelper.MigrateBalance(ctx, evmAddr, signer, false); err != nil {
 			logger.Error("failed to migrate EVM address balance", "address", evmAddr, "err", err)
 			return nil, err
-		}
-		if evmtypes.IsTxMsgAssociate(tx) {
-			// check if there is non-zero balance
-			if !evmKeeper.BankKeeper().GetBalance(ctx, signer, sdk.MustGetBaseDenom()).IsPositive() && !evmKeeper.BankKeeper().GetWeiBalance(ctx, signer).IsPositive() {
-				return nil, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
-			}
 		}
 	}
 	return events, nil

@@ -92,8 +92,8 @@ func buildSignedLegacyEVMTx(t *testing.T, a *App, nonce, gasWanted, gasEstimate 
 	return encodeDecodeTx(t, a, txb.GetTx())
 }
 
-// TestCheckTotalBlockGas_MultipleEVMUnderLimit covers the fast path where valid
-// single-message EVM txs skip IsTxGasless but still accumulate gas toward the block cap.
+// TestCheckTotalBlockGas_MultipleEVMUnderLimit verifies that multiple EVM transactions
+// accumulate gas toward the block cap.
 func TestCheckTotalBlockGas_MultipleEVMUnderLimit(t *testing.T) {
 	a := Setup(t, false, false, false)
 	ctx := newBlockGasCtx(t, a, 1_000_000, 1_000_000)
@@ -133,9 +133,8 @@ func TestCheckTotalBlockGas_GasEstimatePreferredOverGasWanted(t *testing.T) {
 	require.True(t, a.checkTotalBlockGas(ctx, txs))
 }
 
-// TestCheckTotalBlockGas_CosmosBankSendWithoutGaslessTypes exercises txs that are not
-// EVM or associate messages: couldBeGaslessTransaction is false so IsTxGasless is skipped.
-func TestCheckTotalBlockGas_CosmosBankSendWithoutGaslessTypes(t *testing.T) {
+// TestCheckTotalBlockGas_CosmosBankSend exercises Cosmos transaction gas accounting.
+func TestCheckTotalBlockGas_CosmosBankSend(t *testing.T) {
 	a := Setup(t, false, false, false)
 	ctx := newBlockGasCtx(t, a, 1_000_000, 1_000_000)
 
@@ -155,10 +154,9 @@ func TestCheckTotalBlockGas_NilDecodedTx(t *testing.T) {
 	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{nil, evmTx}))
 }
 
-// TestCheckTotalBlockGas_AssociateTxIsGasless verifies that a MsgAssociate from an
-// unassociated address is excluded from block gas accounting. MaxGas is set below the
-// tx's gas limit so the test fails iff the tx is incorrectly counted.
-func TestCheckTotalBlockGas_AssociateTxIsGasless(t *testing.T) {
+// TestCheckTotalBlockGas_AssociateTxCountsTowardLimit verifies that deprecated
+// MsgAssociate transactions are charged against the block gas limit.
+func TestCheckTotalBlockGas_AssociateTxCountsTowardLimit(t *testing.T) {
 	a := Setup(t, false, false, false)
 	ctx := newBlockGasCtx(t, a, 100, 1_000_000)
 
@@ -167,7 +165,7 @@ func TestCheckTotalBlockGas_AssociateTxIsGasless(t *testing.T) {
 		CustomMessage: "test",
 	}
 	tx := buildCosmosTx(t, a, msg, 1_000) // 1_000 > MaxGas=100 if counted
-	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
 }
 
 // TestCheckTotalBlockGas_OracleVoteCountsTowardLimit verifies that deprecated oracle
