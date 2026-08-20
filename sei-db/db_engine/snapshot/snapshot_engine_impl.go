@@ -456,18 +456,6 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 		return nil, fmt.Errorf("cannot create snapshot: %w", c.shutdownErrorLocked())
 	}
 
-	// Every shard must still be in service. A shard taken out of service (the engine was closed or
-	// bricked) has no lifecycle runner left to flush what a new version would stage, so sealing one
-	// would discard it silently.
-	for i, s := range c.shards {
-		s.lock.Lock()
-		err := s.cache.outOfServiceLocked()
-		s.lock.Unlock()
-		if err != nil {
-			return nil, fmt.Errorf("cannot create snapshot, shard %d: %w", i, err)
-		}
-	}
-
 	c.metrics.setSnapshotPhase("lifecycle_backpressure")
 
 	err := c.lifecycleBackpressureLocked()
