@@ -577,6 +577,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		}
 
 		epLeave, err := registry.ActivateEpoch(
+			0,
 			map[types.PublicKey]uint64{b.Public(): 1},
 			time.Time{}, registry.FirstBlock(),
 		)
@@ -605,6 +606,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		}
 
 		epJoin, err := registry.ActivateEpoch(
+			epLeave.EpochIndex(),
 			map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
 			time.Time{}, registry.FirstBlock(),
 		)
@@ -650,6 +652,7 @@ func TestInsertTx_WaitUnblocksOnLeave(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	epLeave, err := registry.ActivateEpoch(
+		0,
 		map[types.PublicKey]uint64{b.Public(): 1},
 		time.Time{}, registry.FirstBlock(),
 	)

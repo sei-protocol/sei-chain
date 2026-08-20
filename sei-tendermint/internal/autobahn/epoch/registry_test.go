@@ -1,6 +1,7 @@
 package epoch
 
 import (
+	"errors"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -28,16 +29,20 @@ func midRoad(idx types.EpochIndex) types.RoadIndex {
 
 func TestRegistry_EpochByIndex_UnknownReturnsNotFound(t *testing.T) {
 	r, _ := makeRegistry(t)
-	if _, ok := r.EpochByIndex(99); ok {
-		t.Fatal("EpochByIndex(99) returned ok, want not found")
+	_, err := r.EpochByIndex(99)
+	if err == nil {
+		t.Fatal("EpochByIndex(99) succeeded, want not found")
+	}
+	if errors.Is(err, types.ErrPruned) {
+		t.Fatal("EpochByIndex(99) returned ErrPruned, want not registered")
 	}
 }
 
 func TestRegistry_EpochByIndex_GenesisFound(t *testing.T) {
 	r, _ := makeRegistry(t)
-	ep, ok := r.EpochByIndex(0)
-	if !ok {
-		t.Fatal("EpochByIndex(0) not found")
+	ep, err := r.EpochByIndex(0)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if ep.EpochIndex() != 0 {
 		t.Fatalf("EpochIndex() = %d, want 0", ep.EpochIndex())
@@ -168,26 +173,23 @@ func TestSetupInitialEpochs_CommitSpanFromFirst(t *testing.T) {
 func TestActivateEpoch_SkipsExistingSeeds(t *testing.T) {
 	r, committee := makeRegistry(t)
 	r.SetupInitialEpochs(utils.None[types.RoadRange]())
-	require.Equal(t, types.EpochIndex(0), r.LatestEpoch().EpochIndex())
-	seeded, ok := r.EpochByIndex(1)
-	require.True(t, ok)
+	seeded := r.MustEpoch(1)
 	seededCommittee := seeded.Committee()
 
 	pk := committee.Lanes().At(0).Validator
 	ep, err := r.ActivateEpoch(
+		0,
 		map[types.PublicKey]uint64{pk: 1},
 		time.Time{},
 		r.FirstBlock(),
 	)
 	require.NoError(t, err)
 	require.Equal(t, types.EpochIndex(2), ep.EpochIndex())
-	require.Equal(t, types.EpochIndex(2), r.LatestEpoch().EpochIndex())
 	require.Equal(t, FirstRoad(2), ep.RoadRange().First)
 	require.Equal(t, FirstRoad(3), ep.RoadRange().Next)
-	got, ok := r.EpochByIndex(1)
-	require.True(t, ok)
+	got := r.MustEpoch(1)
 	require.Equal(t, seededCommittee, got.Committee())
-	_, ok = ep.Committee().Lane(pk).Get()
+	_, ok := ep.Committee().Lane(pk).Get()
 	require.True(t, ok)
 	require.Equal(t, 1, ep.Committee().Lanes().Len())
 }
@@ -203,6 +205,7 @@ func TestActivateEpoch_RejoinJoinedFromLatestNotPlaceholder(t *testing.T) {
 	r.SetupInitialEpochs(utils.None[types.RoadRange]())
 
 	epLeave, err := r.ActivateEpoch(
+		0,
 		map[types.PublicKey]uint64{b.Public(): 1},
 		time.Time{}, r.FirstBlock(),
 	)
@@ -210,14 +213,14 @@ func TestActivateEpoch_RejoinJoinedFromLatestNotPlaceholder(t *testing.T) {
 	require.Equal(t, types.EpochIndex(2), epLeave.EpochIndex())
 	require.False(t, epLeave.Committee().HasReplica(a.Public()))
 
-	// Seed a genesis-committee placeholder ahead of latest. Deriving from that
+	// Seed a genesis-committee placeholder ahead of the activated epoch. Deriving from that
 	// slot would treat A as still present and keep Joined=0.
 	r.AdvanceIfNeeded(LastRoad(2))
-	seeded, ok := r.EpochByIndex(3)
-	require.True(t, ok)
+	seeded := r.MustEpoch(3)
 	require.True(t, seeded.Committee().HasReplica(a.Public()))
 
 	epJoin, err := r.ActivateEpoch(
+		epLeave.EpochIndex(),
 		map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
 		time.Time{}, r.FirstBlock(),
 	)
@@ -254,4 +257,39 @@ func TestWaitForEpoch_FastPathAndWait(t *testing.T) {
 		require.NoError(t, waitErr)
 		require.Equal(t, types.EpochIndex(2), got.EpochIndex())
 	})
+}
+
+func TestPruneBefore_DropsIntermediateKeepsGenesis(t *testing.T) {
+	r, _ := makeRegistry(t)
+	r.AdvanceIfNeeded(LastRoad(0))
+	r.AdvanceIfNeeded(LastRoad(1))
+	_ = r.MustEpoch(1)
+	_ = r.MustEpoch(2)
+
+	r.PruneBefore(2)
+	_ = r.MustEpoch(0)
+	_, err := r.EpochByIndex(1)
+	require.ErrorIs(t, err, types.ErrPruned)
+	_ = r.MustEpoch(2)
+	require.Equal(t, types.GlobalBlockNumber(0), r.FirstBlock())
+
+	_, err = r.EpochAt(FirstRoad(1))
+	require.ErrorIs(t, err, types.ErrPruned)
+	_, err = r.WaitForEpoch(t.Context(), 1)
+	require.ErrorIs(t, err, types.ErrPruned)
+
+	r.PruneBefore(1) // no rewind
+	_ = r.MustEpoch(2)
+
+	pk := r.MustEpoch(0).Committee().Lanes().At(0).Validator
+	ep, err := r.ActivateEpoch(
+		0,
+		map[types.PublicKey]uint64{pk: 1},
+		time.Time{},
+		r.FirstBlock(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(3), ep.EpochIndex())
+	_, err = r.EpochByIndex(1)
+	require.ErrorIs(t, err, types.ErrPruned)
 }

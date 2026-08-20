@@ -98,9 +98,9 @@ func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error
 	if gr.First > i.nextQC {
 		return fmt.Errorf("QC gap: expected first<=%d, got %d", i.nextQC, gr.First)
 	}
-	e, ok := registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
-	if !ok {
-		return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
+	e, err := registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
+	if err != nil {
+		return err
 	}
 	if err := qc.Verify(e); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
@@ -264,9 +264,9 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		NextBlock:       firstBlock,
 	})
 	// Empty-chain default; loaded QCs overwrite via admitCommitRoad.
-	genesis, ok := cfg.Registry.EpochByIndex(0)
-	if !ok {
-		return nil, fmt.Errorf("missing genesis epoch")
+	genesis, err := cfg.Registry.EpochByIndex(0)
+	if err != nil {
+		return nil, fmt.Errorf("missing genesis epoch: %w", err)
 	}
 	inner := &inner{
 		qcs:             map[types.GlobalBlockNumber]qcEntry{},
@@ -344,10 +344,14 @@ func (s *State) insertBlocksByHash(inner *inner, gr types.GlobalRange, byHash ma
 // PushQC pushes FullCommitQC and a subset of blocks that were finalized by it.
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
+// A QC whose epoch has been pruned is a no-op.
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
-	ep, ok := s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
-	if !ok {
-		return fmt.Errorf("unknown epoch_index %d", qc.QC().Proposal().EpochIndex())
+	ep, err := s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
+	if err != nil {
+		if errors.Is(err, types.ErrPruned) {
+			return nil
+		}
+		return err
 	}
 	gr := qc.QC().GlobalRange()
 	needQC, err := func() (bool, error) {
@@ -906,6 +910,7 @@ func (s *State) runPersist(ctx context.Context) error {
 		for inner, ctrl := range s.inner.Lock() {
 			inner.persisted = status
 			t := time.Now()
+			from := inner.first
 			for inner.first < inner.persisted.First {
 				// Divergence detection
 				n := inner.first
@@ -925,6 +930,13 @@ func (s *State) runPersist(ctx context.Context) error {
 			}
 			s.metrics.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
 			inner.setAnchor()
+			if from < inner.first {
+				a, ok := inner.anchor.Load().Get()
+				if !ok {
+					return fmt.Errorf("evict advanced first but Anchor is None")
+				}
+				s.cfg.Registry.PruneBefore(a.Epoch.EpochIndex())
+			}
 			ctrl.Updated()
 		}
 	}

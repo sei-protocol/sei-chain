@@ -48,7 +48,7 @@ func TestNewInner_Empty(t *testing.T) {
 	_, ok := i.persistedCommitQC.Load().Get()
 	require.False(t, ok)
 	require.NotNil(t, i.nextBlockToPersist)
-	for lane := range registry.LatestEpoch().Committee().Lanes().All() {
+	for lane := range registry.MustEpoch(0).Committee().Lanes().All() {
 		require.Equal(t, types.BlockNumber(0), i.blocks[lane].first)
 		require.Equal(t, types.BlockNumber(0), i.blocks[lane].next)
 		require.Equal(t, types.BlockNumber(0), i.votes[lane].first)
@@ -60,7 +60,7 @@ func TestNewInner_LoadedBlocks(t *testing.T) {
 	t.Run("contiguous", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
-		lane0 := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
+		lane0 := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 		ds := newTestDataState(&data.Config{Registry: registry})
 		bs := contiguousBlocks(keys[0], lane0, 3, rng)
 		i, err := newInner(ds, &loadedState{blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs}})
@@ -72,7 +72,7 @@ func TestNewInner_LoadedBlocks(t *testing.T) {
 			require.Equal(t, b.Proposal, q.q[types.BlockNumber(j)])
 		}
 		require.Equal(t, types.BlockNumber(3), i.nextBlockToPersist[lane0])
-		for other := range registry.LatestEpoch().Committee().Lanes().All() {
+		for other := range registry.MustEpoch(0).Committee().Lanes().All() {
 			if other != lane0 {
 				require.Equal(t, types.BlockNumber(0), i.nextBlockToPersist[other])
 			}
@@ -82,7 +82,7 @@ func TestNewInner_LoadedBlocks(t *testing.T) {
 	t.Run("empty slice", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
-		lane0 := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
+		lane0 := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 		i, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: {}},
 		})
@@ -106,7 +106,7 @@ func TestNewInner_LoadedBlocks(t *testing.T) {
 		require.Equal(t, types.BlockNumber(0), q.first)
 		require.Equal(t, types.BlockNumber(1), q.next)
 		require.Equal(t, b, q.q[0])
-		for lane := range registry.LatestEpoch().Committee().Lanes().All() {
+		for lane := range registry.MustEpoch(0).Committee().Lanes().All() {
 			cq := i.blocks[lane]
 			require.Equal(t, types.BlockNumber(0), cq.first)
 			require.Equal(t, types.BlockNumber(0), cq.next)
@@ -116,8 +116,8 @@ func TestNewInner_LoadedBlocks(t *testing.T) {
 	t.Run("multiple lanes", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
-		lane0 := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
-		lane1 := registry.LatestEpoch().Committee().Lane(keys[1].Public()).OrPanic("keys[1]")
+		lane0 := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
+		lane1 := registry.MustEpoch(0).Committee().Lane(keys[1].Public()).OrPanic("keys[1]")
 		bs0 := contiguousBlocks(keys[0], lane0, 2, rng)
 		bs1 := contiguousBlocks(keys[1], lane1, 3, rng)
 		i, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
@@ -133,7 +133,7 @@ func TestNewInner_LoadedBlocks(t *testing.T) {
 	t.Run("gap", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
-		lane0 := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
+		lane0 := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 		var bs []persist.LoadedBlock
 		for _, n := range []types.BlockNumber{3, 4, 6, 7} {
 			bs = append(bs, persist.LoadedBlock{Number: n, Proposal: testSignedBlock(keys[0], lane0, n, types.BlockHeaderHash{}, rng)})
@@ -148,7 +148,7 @@ func TestNewInner_LoadedBlocks(t *testing.T) {
 	t.Run("parent hash mismatch", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
-		lane0 := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
+		lane0 := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 		var parent types.BlockHeaderHash
 		b0 := testSignedBlock(keys[0], lane0, 0, parent, rng)
 		parent = b0.Msg().Block().Header().Hash()
@@ -166,7 +166,7 @@ func TestNewInner_LoadedBlocks(t *testing.T) {
 	t.Run("over capacity", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
-		lane0 := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
+		lane0 := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 		bs := contiguousBlocks(keys[0], lane0, BlocksPerLane+5, rng)
 		_, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
 			blocks: map[types.LaneID][]persist.LoadedBlock{lane0: bs},
@@ -184,7 +184,7 @@ func TestNewInner_LoadedCommitQCs(t *testing.T) {
 		qcs := make([]*types.CommitQC, 3)
 		prev := utils.None[*types.CommitQC]()
 		for i := range qcs {
-			qcs[i] = types.BuildCommitQC(registry.LatestEpoch(), keys, prev, nil)
+			qcs[i] = types.BuildCommitQC(registry.MustEpoch(0), keys, prev, nil)
 			prev = utils.Some(qcs[i])
 		}
 		inner, err := newInner(ds, &loadedState{commitQCs: qcs})
@@ -201,9 +201,9 @@ func TestNewInner_LoadedCommitQCs(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
 		ds := newTestDataState(&data.Config{Registry: registry})
-		qc0 := types.BuildCommitQC(registry.LatestEpoch(), keys, utils.None[*types.CommitQC](), nil)
-		qc1 := types.BuildCommitQC(registry.LatestEpoch(), keys, utils.Some(qc0), nil)
-		qc2 := types.BuildCommitQC(registry.LatestEpoch(), keys, utils.Some(qc1), nil)
+		qc0 := types.BuildCommitQC(registry.MustEpoch(0), keys, utils.None[*types.CommitQC](), nil)
+		qc1 := types.BuildCommitQC(registry.MustEpoch(0), keys, utils.Some(qc0), nil)
+		qc2 := types.BuildCommitQC(registry.MustEpoch(0), keys, utils.Some(qc1), nil)
 		_, err := newInner(ds, &loadedState{commitQCs: []*types.CommitQC{qc0, qc2}})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "non-contiguous")
@@ -236,8 +236,7 @@ func TestAdvanceReadyEpochs_BoundaryTipUsesDataAppQC(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 4)
 	ds := newTestDataState(&data.Config{Registry: registry})
 
-	ep0, ok := registry.EpochByIndex(0)
-	require.True(t, ok)
+	ep0 := registry.MustEpoch(0)
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("data.Run", func() error {
@@ -268,8 +267,7 @@ func TestAdvanceReadyEpochs_BoundaryTipUsesDataAppQC(t *testing.T) {
 	require.Equal(t, types.EpochIndex(0), anchor.Epoch.EpochIndex())
 
 	registry.AdvanceIfNeeded(epoch.LastRoad(0))
-	ep1, ok := registry.EpochByIndex(1)
-	require.True(t, ok)
+	ep1 := registry.MustEpoch(1)
 
 	last := epoch.LastRoad(0)
 	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
@@ -313,8 +311,7 @@ func TestAdvanceReadyEpochs_MissingNextEpochErrors(t *testing.T) {
 	rng := utils.TestRng()
 	// Fresh registry has epochs 0 and 1; seal epoch 1 so the next lookup is 2.
 	registry, keys := epoch.GenRegistry(rng, 3)
-	ep1, ok := registry.EpochByIndex(1)
-	require.True(t, ok)
+	ep1 := registry.MustEpoch(1)
 	_, err := registry.EpochAt(epoch.FirstRoad(2))
 	require.Error(t, err)
 
@@ -356,10 +353,8 @@ func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 	registry, keys := epoch.GenRegistry(rng, 4)
 	registry.AdvanceIfNeeded(epoch.LastRoad(0))
 
-	ep0, ok := registry.EpochByIndex(0)
-	require.True(t, ok)
-	ep1, ok := registry.EpochByIndex(1)
-	require.True(t, ok)
+	ep0 := registry.MustEpoch(0)
+	ep1 := registry.MustEpoch(1)
 
 	last := epoch.LastRoad(0)
 	qcPrev := types.BuildCommitQC(ep0, keys, utils.Some(tipLink(ep0, keys[0], last-2)), nil)
