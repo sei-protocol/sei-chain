@@ -111,8 +111,6 @@ func NewEVMHTTPServer(
 	}
 	seiLegacyAllowlist := BuildSeiLegacyEnabledSet(config.EnabledLegacySeiApis)
 
-	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, methodTimeout, watermarks, globalBlockCache, cacheCreationMutex)
-
 	// DB semaphore aligned with worker count
 	dbReadSemaphore := make(chan struct{}, workerCount)
 	globalLogSlicePool := NewLogSlicePool()
@@ -128,10 +126,6 @@ func NewEVMHTTPServer(
 		{
 			Namespace: "eth",
 			Service:   txAPI,
-		},
-		{
-			Namespace: "sei",
-			Service:   seiTxAPI,
 		},
 		{
 			Namespace: "eth",

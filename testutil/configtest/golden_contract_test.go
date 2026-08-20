@@ -217,9 +217,9 @@ func TestRefusalSurvivesIsolate(t *testing.T) {
 // function's own failure message. A check that counts occurrences in text is satisfied by prose, which
 // is the defect one level up from the one being prevented. The AST sees calls only.
 func TestNoTestInThisPackageIsParallel(t *testing.T) {
-	// Read the directory and parse each file rather than using go/parser.ParseDir, for the reason
-	// wiringOf gives: the standard library deprecates ParseDir for ignoring build tags, and ignoring
-	// them is what this wants. A t.Parallel behind a build tag is still a t.Parallel.
+	// Read the directory and parse each file rather than using go/parser.ParseDir: the standard
+	// library deprecates ParseDir for ignoring build tags, and ignoring them is what this wants. A
+	// t.Parallel behind a build tag is still a t.Parallel.
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatalf("read package directory: %v", err)
@@ -328,4 +328,22 @@ func TestNoRecordedKeyIsNamedCI(t *testing.T) {
 			"something the config surface cannot name.", strings.Join(offenders, "\n  "))
 	}
 	t.Logf("checked %d key-name record(s)", records)
+}
+
+// repoRoot walks up from the working directory to the directory holding go.mod.
+func repoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", os.ErrNotExist
+		}
+		dir = parent
+	}
 }

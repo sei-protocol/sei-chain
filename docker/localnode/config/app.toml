@@ -285,13 +285,12 @@ trace_allow_js_tracers = false
 # Legacy sei_* JSON-RPC (EVM HTTP only).
 # DEPRECATION: All sei_* methods are deprecated and scheduled for removal - no new integrations.
 # HTTP 200; gate errors: JSON-RPC error (data legacy_sei_deprecated). Success: unchanged body; optional header Sei-Legacy-RPC-Deprecation.
-# Docker localnet enables every remaining gated method. Production defaults from seid init
-# remain the three-method address/Cosmos allowlist - see evmrpc/config.
+# Docker localnet enables every remaining gated method, matching the production defaults
+# from seid init - see evmrpc/config.
 enabled_legacy_sei_apis = [
   "sei_getCosmosTx",
   "sei_getEVMAddress",
   "sei_getSeiAddress",
-  "sei_getTransactionReceipt",
 ]
 
 ###############################################################################

@@ -17,14 +17,10 @@ The remaining `sei_*` methods are:
 - `sei_getSeiAddress`
 - `sei_getEVMAddress`
 - `sei_getCosmosTx`
-- `sei_getTransactionReceipt`
 
 These methods are available only on EVM HTTP and are gated by
 `[evm].enabled_legacy_sei_apis`. The address and Cosmos transaction helpers are
-enabled by default. The receipt method includes synthetic receipts and must be
-enabled explicitly.
+enabled by default.
 
-There is no remaining block- or filter-level JSON-RPC method for discovering
-synthetic logs from Cosmos-originated transactions. Clients that already know a
-synthetic transaction hash can enable and call `sei_getTransactionReceipt` to
-retrieve its logs.
+There is no remaining JSON-RPC method for discovering synthetic logs from
+Cosmos-originated transactions.

@@ -341,6 +341,17 @@ func finalizeAndRelease(t *testing.T, snap Snapshot) {
 	require.NoError(t, snap.Release())
 }
 
+// finalizeAwaitFlushAndRelease waits for the flush before releasing. A released version is retired out
+// of the version map as soon as it flushes, and a wait that arrives after that retirement fails, which
+// TestAwaitFlushAfterRetirementFails pins. Releasing first therefore makes the wait a race against the
+// lifecycle goroutine.
+func finalizeAwaitFlushAndRelease(t *testing.T, snap Snapshot) {
+	t.Helper()
+	require.NoError(t, snap.Finalize(hashWrites(testHash)))
+	awaitFlushed(t, snap, time.Second)
+	require.NoError(t, snap.Release())
+}
+
 func commitFinalizeRelease(t *testing.T, engine SnapshotEngine) {
 	t.Helper()
 	snap, err := engine.Commit()
