@@ -38,48 +38,28 @@ func TestRegistry_EpochByIndex_UnknownReturnsNotFound(t *testing.T) {
 	}
 }
 
-func TestRegistry_EpochByIndex_GenesisFound(t *testing.T) {
+func TestNewRegistry_Genesis(t *testing.T) {
 	r, _ := makeRegistry(t)
-	ep, err := r.EpochByIndex(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ep.EpochIndex() != 0 {
-		t.Fatalf("EpochIndex() = %d, want 0", ep.EpochIndex())
-	}
-}
+	ep0, err := r.EpochByIndex(0)
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(0), ep0.EpochIndex())
 
-func TestNewRegistry_GenesisEpochBoundedRange(t *testing.T) {
-	r, _ := makeRegistry(t)
-	ep0, err := r.EpochAt(0)
-	if err != nil {
-		t.Fatalf("EpochAt(0): %v", err)
-	}
-	rng0 := ep0.RoadRange()
+	epAt, err := r.EpochAt(LastRoad(0))
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(0), epAt.EpochIndex())
+	rng0 := epAt.RoadRange()
 	if rng0.First != 0 || rng0.Next != FirstRoad(1) {
 		t.Fatalf("epoch 0 RoadRange = {%d, %d}, want {0, %d}", rng0.First, rng0.Next, FirstRoad(1))
 	}
+
 	ep1, err := r.EpochAt(FirstRoad(1))
-	if err != nil {
-		t.Fatalf("EpochAt(FirstRoad(1)): %v", err)
-	}
+	require.NoError(t, err)
 	rng1 := ep1.RoadRange()
 	if rng1.First != FirstRoad(1) || rng1.Next != FirstRoad(2) {
 		t.Fatalf("epoch 1 RoadRange = {%d, %d}, want {%d, %d}", rng1.First, rng1.Next, FirstRoad(1), FirstRoad(2))
 	}
 	if ep1.Committee() != ep0.Committee() {
 		t.Fatal("epoch 1 must use the genesis committee")
-	}
-}
-
-func TestEpochAt_WithinGenesisEpoch(t *testing.T) {
-	r, _ := makeRegistry(t)
-	ep, err := r.EpochAt(LastRoad(0))
-	if err != nil {
-		t.Fatalf("EpochAt(LastRoad(0)) error: %v", err)
-	}
-	if ep.EpochIndex() != 0 {
-		t.Fatalf("EpochAt(LastRoad(0)).EpochIndex() = %d, want 0", ep.EpochIndex())
 	}
 }
 
@@ -113,60 +93,47 @@ func TestEpochAt_FoundAfterAdvanceIfNeeded(t *testing.T) {
 	}
 }
 
-func TestSetupInitialEpochs_EmptyNoneIsNoOp(t *testing.T) {
-	r, _ := makeRegistry(t)
-	r.SetupInitialEpochs(utils.None[types.RoadRange]())
-	for _, idx := range []types.EpochIndex{0, 1} {
-		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
-			t.Fatalf("EpochAt(epoch %d) after empty None: %v", idx, err)
-		}
-	}
-	if _, err := r.EpochAt(FirstRoad(2)); err == nil {
-		t.Fatal("EpochAt(epoch 2) should not be present from empty None")
-	}
-}
-
-func TestSetupInitialEpochs_CommitQCMidSeedsPlaceholderNext(t *testing.T) {
-	r, _ := makeRegistry(t)
-	tip := midRoad(5)
-	r.SetupInitialEpochs(utils.Some(types.RoadRange{First: tip, Next: tip + 1}))
-	for _, idx := range []types.EpochIndex{4, 5, 6} {
-		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
-			t.Fatalf("EpochAt(epoch %d) after CommitQC seeding: %v", idx, err)
-		}
-	}
-	if _, err := r.EpochAt(FirstRoad(7)); err == nil {
-		t.Fatal("EpochAt(epoch 7) should not be present from mid-epoch CommitQC")
-	}
-}
-
-func TestSetupInitialEpochs_CommitQCClosingSeedsNext(t *testing.T) {
-	r, _ := makeRegistry(t)
-	tip := LastRoad(5)
-	r.SetupInitialEpochs(utils.Some(types.RoadRange{First: tip, Next: tip + 1}))
-	for _, idx := range []types.EpochIndex{4, 5, 6} {
-		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
-			t.Fatalf("EpochAt(epoch %d) after closing CommitQC: %v", idx, err)
-		}
-	}
-	if _, err := r.EpochAt(FirstRoad(7)); err == nil {
-		t.Fatal("EpochAt(epoch 7) should not be present past windowLast+1")
-	}
-}
-
-func TestSetupInitialEpochs_CommitSpanFromFirst(t *testing.T) {
-	r, _ := makeRegistry(t)
-	r.SetupInitialEpochs(utils.Some(types.RoadRange{
-		First: midRoad(2),
-		Next:  midRoad(5) + 1,
-	}))
-	for _, idx := range []types.EpochIndex{1, 2, 3, 4, 5, 6} {
-		if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
-			t.Fatalf("EpochAt(epoch %d) after commit span seeding: %v", idx, err)
-		}
-	}
-	if _, err := r.EpochAt(FirstRoad(7)); err == nil {
-		t.Fatal("EpochAt(epoch 7) should not be present past placeholder windowLast+1")
+func TestSetupInitialEpochs(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		span   utils.Option[types.RoadRange]
+		want   []types.EpochIndex
+		absent types.EpochIndex
+	}{
+		{
+			name:   "empty None is no-op",
+			span:   utils.None[types.RoadRange](),
+			want:   []types.EpochIndex{0, 1},
+			absent: 2,
+		},
+		{
+			name:   "mid CommitQC seeds placeholder next",
+			span:   utils.Some(types.RoadRange{First: midRoad(5), Next: midRoad(5) + 1}),
+			want:   []types.EpochIndex{4, 5, 6},
+			absent: 7,
+		},
+		{
+			name: "commit span from first",
+			span: utils.Some(types.RoadRange{
+				First: midRoad(2),
+				Next:  midRoad(5) + 1,
+			}),
+			want:   []types.EpochIndex{1, 2, 3, 4, 5, 6},
+			absent: 7,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := makeRegistry(t)
+			r.SetupInitialEpochs(tc.span)
+			for _, idx := range tc.want {
+				if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
+					t.Fatalf("EpochAt(epoch %d): %v", idx, err)
+				}
+			}
+			if _, err := r.EpochAt(FirstRoad(tc.absent)); err == nil {
+				t.Fatalf("EpochAt(epoch %d) should not be present", tc.absent)
+			}
+		})
 	}
 }
 

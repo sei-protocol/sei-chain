@@ -746,44 +746,6 @@ func TestPushCommitQC_MidEpochNoWait(t *testing.T) {
 	require.Equal(t, epoch.FirstRoad(f.m)+1, nextRoad(f.state))
 }
 
-func TestPushCommitQC_FutureEpochParksUntilAdvance(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		rng := utils.TestRng()
-		f := newSealFixture(t)
-
-		prev := tipLink(f.ep, f.keys[0], epoch.LastRoad(f.m)-1)
-		qcLast := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
-		require.NoError(t, f.state.PushCommitQC(ctx, qcLast))
-		setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.Proposal(), types.GenAppHash(rng))))
-
-		f.registry.AdvanceIfNeeded(epoch.LastRoad(f.m))
-		ep2 := f.registry.MustEpoch(f.m + 1)
-		qcNext := types.BuildCommitQC(ep2, f.keys, utils.Some(qcLast), nil)
-		require.Equal(t, epoch.FirstRoad(f.m+1), qcNext.Proposal().Index())
-
-		var pushErr error
-		go func() { pushErr = f.state.PushCommitQC(ctx, qcNext) }()
-		synctest.Wait()
-		require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex())
-		require.Equal(t, epoch.LastRoad(f.m)+1, nextRoad(f.state), "future QC must stay parked")
-
-		var runErr error
-		go func() { runErr = f.state.runEpochAdvance(ctx) }()
-		_, err := f.state.epoch.Wait(t.Context(), func(ep *types.Epoch) bool {
-			return ep.EpochIndex() >= f.m+1
-		})
-		require.NoError(t, err)
-		synctest.Wait()
-		require.NoError(t, pushErr)
-		require.Equal(t, epoch.FirstRoad(f.m+1)+1, nextRoad(f.state))
-		cancel()
-		synctest.Wait()
-		require.ErrorIs(t, runErr, context.Canceled)
-	})
-}
-
 func TestPushCommitQC_StaleAfterAdvanceSoftDrops(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
@@ -880,64 +842,82 @@ func TestWaitUntilApplied_ParksUntilEpochAdvance(t *testing.T) {
 	})
 }
 
-func TestRunEpochAdvance_AdvancesWhenBothLeashesMet(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		rng := utils.TestRng()
-		f := newSealFixture(t)
-		f.registry.AdvanceIfNeeded(epoch.LastRoad(f.m))
+func TestRunEpochAdvance_Leashes(t *testing.T) {
+	type missing int
+	const (
+		none missing = iota
+		registry
+		appQC
+	)
+	for _, tc := range []struct {
+		name       string
+		missing    missing
+		parkNextQC bool
+	}{
+		{name: "both met parks future QC until advance", missing: none, parkNextQC: true},
+		{name: "waits for registry", missing: registry},
+		{name: "waits for AppQC", missing: appQC},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				rng := utils.TestRng()
+				f := newSealFixture(t)
+				if tc.missing != registry {
+					f.registry.AdvanceIfNeeded(epoch.LastRoad(f.m))
+				}
 
-		prev := tipLink(f.ep, f.keys[0], epoch.LastRoad(f.m)-1)
-		qcLast := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
-		require.Equal(t, epoch.LastRoad(f.m), qcLast.Proposal().Index())
-		require.NoError(t, f.state.PushCommitQC(ctx, qcLast))
-		setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.Proposal(), types.GenAppHash(rng))))
-		require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex())
+				prev := tipLink(f.ep, f.keys[0], epoch.LastRoad(f.m)-1)
+				qcLast := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
+				require.Equal(t, epoch.LastRoad(f.m), qcLast.Proposal().Index())
+				require.NoError(t, f.state.PushCommitQC(ctx, qcLast))
+				if tc.missing != appQC {
+					setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.Proposal(), types.GenAppHash(rng))))
+				}
+				require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex())
 
-		var runErr error
-		go func() { runErr = f.state.runEpochAdvance(ctx) }()
+				var pushErr error
+				if tc.parkNextQC {
+					ep2 := f.registry.MustEpoch(f.m + 1)
+					qcNext := types.BuildCommitQC(ep2, f.keys, utils.Some(qcLast), nil)
+					require.Equal(t, epoch.FirstRoad(f.m+1), qcNext.Proposal().Index())
+					go func() { pushErr = f.state.PushCommitQC(ctx, qcNext) }()
+					synctest.Wait()
+					require.Equal(t, epoch.LastRoad(f.m)+1, nextRoad(f.state), "future QC must stay parked")
+				}
 
-		ep, err := f.state.epoch.Wait(t.Context(), func(ep *types.Epoch) bool {
-			return ep.EpochIndex() >= f.m+1
+				var runErr error
+				go func() { runErr = f.state.runEpochAdvance(ctx) }()
+				if tc.missing != none {
+					synctest.Wait()
+					require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex())
+					switch tc.missing {
+					case registry:
+						f.registry.AdvanceIfNeeded(epoch.LastRoad(f.m))
+					case appQC:
+						setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.Proposal(), types.GenAppHash(rng))))
+					}
+				}
+
+				ep, err := f.state.epoch.Wait(t.Context(), func(ep *types.Epoch) bool {
+					return ep.EpochIndex() >= f.m+1
+				})
+				require.NoError(t, err)
+				require.Equal(t, f.m+1, ep.EpochIndex())
+				require.Equal(t, f.m+1, f.state.Epoch().Load().EpochIndex())
+				if tc.parkNextQC {
+					synctest.Wait()
+					require.NoError(t, pushErr)
+					require.Equal(t, epoch.FirstRoad(f.m+1)+1, nextRoad(f.state))
+				}
+
+				cancel()
+				synctest.Wait()
+				require.ErrorIs(t, runErr, context.Canceled)
+			})
 		})
-		require.NoError(t, err)
-		require.Equal(t, f.m+1, ep.EpochIndex())
-		require.Equal(t, f.m+1, f.state.Epoch().Load().EpochIndex())
-
-		cancel()
-		synctest.Wait()
-		require.ErrorIs(t, runErr, context.Canceled)
-	})
-}
-
-func TestRunEpochAdvance_WaitsForRegistry(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		rng := utils.TestRng()
-		f := newSealFixture(t)
-
-		prev := tipLink(f.ep, f.keys[0], epoch.LastRoad(f.m)-1)
-		qcLast := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
-		require.Equal(t, epoch.LastRoad(f.m), qcLast.Proposal().Index())
-		require.NoError(t, f.state.PushCommitQC(ctx, qcLast))
-		setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.Proposal(), types.GenAppHash(rng))))
-
-		var runErr error
-		go func() { runErr = f.state.runEpochAdvance(ctx) }()
-		synctest.Wait()
-		require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex(), "parked on WaitForEpoch(M+1)")
-
-		f.registry.AdvanceIfNeeded(epoch.LastRoad(f.m))
-		_, err := f.state.epoch.Wait(t.Context(), func(ep *types.Epoch) bool {
-			return ep.EpochIndex() >= f.m+1
-		})
-		require.NoError(t, err)
-		cancel()
-		synctest.Wait()
-		require.ErrorIs(t, runErr, context.Canceled)
-	})
+	}
 }
 
 // A durable-tip catch-up refreshes ConsensusSpec at the persist write site,
@@ -982,33 +962,5 @@ func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceWaitsForRegistry(t
 		cancel()
 		synctest.Wait()
 		require.ErrorIs(t, advanceErr, context.Canceled)
-	})
-}
-
-func TestRunEpochAdvance_WaitsForAppQC(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		rng := utils.TestRng()
-		f := newSealFixture(t)
-		f.registry.AdvanceIfNeeded(epoch.LastRoad(f.m))
-
-		prev := tipLink(f.ep, f.keys[0], epoch.LastRoad(f.m)-1)
-		qcLast := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
-		require.NoError(t, f.state.PushCommitQC(ctx, qcLast))
-
-		var runErr error
-		go func() { runErr = f.state.runEpochAdvance(ctx) }()
-		synctest.Wait()
-		require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex(), "parked without AppQC covering M")
-
-		setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.Proposal(), types.GenAppHash(rng))))
-		_, err := f.state.epoch.Wait(t.Context(), func(ep *types.Epoch) bool {
-			return ep.EpochIndex() >= f.m+1
-		})
-		require.NoError(t, err)
-		cancel()
-		synctest.Wait()
-		require.ErrorIs(t, runErr, context.Canceled)
 	})
 }

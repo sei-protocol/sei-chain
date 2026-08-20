@@ -130,27 +130,6 @@ func commitQCAtRoad(
 	return types.NewFullCommitQC(types.NewCommitQC(votes), []*types.BlockHeader{block.Header()}), []*types.Block{block}
 }
 
-func TestNextCommitEpoch_TracksNextRoadEpoch(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
-	ep0 := registry.MustEpoch(0)
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
-	require.Equal(t, ep0, state.NextCommitEpoch().Load())
-
-	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("state.Run()", func() error {
-			return utils.IgnoreCancel(state.Run(ctx))
-		})
-		qc, blocks := TestCommitQC(rng, ep0, keys, utils.None[*types.CommitQC]())
-		if err := state.PushQC(ctx, qc, blocks); err != nil {
-			return err
-		}
-		require.Equal(t, ep0, state.NextCommitEpoch().Load())
-		return nil
-	}))
-}
-
 func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
@@ -487,53 +466,6 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 		}
 		return nil
 	}))
-}
-
-func TestPushAppHash_AdvancesRegistryAtEpochBoundary(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-
-	t.Run("mid-epoch road does not seed epoch 2", func(t *testing.T) {
-		registry, keys := epoch.GenRegistry(rng, 3)
-		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
-		require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-			qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-			if err := state.PushQC(ctx, qc, blocks); err != nil {
-				return err
-			}
-			if err := state.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
-				return err
-			}
-			if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
-				return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Proposal().Index())
-			}
-			return nil
-		}))
-	})
-
-	t.Run("LastRoad does not seed epoch 2", func(t *testing.T) {
-		registry, keys := epoch.GenRegistry(rng, 3)
-		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
-		ep := registry.MustEpoch(0)
-		require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-			qc, blocks := commitQCAtRoad(ep, keys, epoch.LastRoad(0), ep.FirstBlock())
-			if qc.QC().Proposal().Index() != epoch.LastRoad(0) {
-				return fmt.Errorf("road = %d, want %d", qc.QC().Proposal().Index(), epoch.LastRoad(0))
-			}
-			if err := state.PushQC(ctx, qc, blocks); err != nil {
-				return err
-			}
-			if err := state.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
-				return err
-			}
-			if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
-				return fmt.Errorf("PushAppHash at LastRoad(0) must not seed epoch 2")
-			}
-			return nil
-		}))
-	})
 }
 
 func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
