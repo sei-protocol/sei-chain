@@ -3,6 +3,7 @@ package cryptosim
 import (
 	"iter"
 
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -28,6 +29,12 @@ type block struct {
 
 	// The next ERC20 contract ID to be used when creating a new ERC20 contract, as of the end of this block.
 	nextErc20ContractID int64
+
+	// The writes this block makes, in the form the DB accepts, so finalizing has nothing left to
+	// convert. Built by the block builder before the block is published and not modified after.
+	//
+	// Only the DB reads this. Executor reads go to the DB, never here — see Database.Get.
+	changeset []*proto.KVPair
 
 	metrics *CryptosimMetrics
 }
@@ -110,4 +117,22 @@ func (b *block) NextErc20ContractID() int64 {
 // Returns the number of transactions in the block.
 func (b *block) TransactionCount() int64 {
 	return int64(len(b.transactions))
+}
+
+// SetWrites records the writes this block makes, collapsing the builder's keyed map into the slice
+// the DB takes. Called by the block builder before the block is published, after which the changeset
+// must not be modified.
+func (b *block) SetWrites(writes map[string]*proto.KVPair) {
+	// Room for the three counter keys FinalizeBlock appends, so appending them does not have to copy
+	// the whole slice on the thread this design exists to keep idle.
+	b.changeset = make([]*proto.KVPair, 0, len(writes)+3)
+	for _, pair := range writes {
+		b.changeset = append(b.changeset, pair)
+	}
+}
+
+// Changeset returns the block's writes in the form the DB accepts, excluding the counter keys that
+// FinalizeBlock appends.
+func (b *block) Changeset() []*proto.KVPair {
+	return b.changeset
 }

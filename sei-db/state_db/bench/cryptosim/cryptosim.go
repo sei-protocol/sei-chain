@@ -199,7 +199,7 @@ func NewCryptoSim(
 		rateLimiter = rate.NewLimiter(rate.Limit(config.MaxTPS), config.TransactionsPerBlock)
 	}
 
-	blockBuilder := NewBlockBuilder(ctx, config, metrics, dataGenerator)
+	blockBuilder := NewBlockBuilder(ctx, config, metrics, dataGenerator, database)
 
 	c := &CryptoSim{
 		ctx:                               ctx,
@@ -437,6 +437,12 @@ func (c *CryptoSim) maybeThrottle() {
 // Execute and finalize the next block.
 func (c *CryptoSim) handleNextBlock(blk *block) {
 	c.mostRecentBlock = blk
+
+	// Published before any of this block's transactions is scheduled, which is what orders this write
+	// against the executors' reads of the block's writes: the channel send that hands over a
+	// transaction happens after this, and the flush that ends the block happens before the next one.
+	c.database.SetCurrentBlock(blk)
+
 	c.metrics.SetMainThreadPhase("send_to_executors")
 
 	for i := int64(0); i < blk.TransactionCount(); i++ {

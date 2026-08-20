@@ -155,46 +155,11 @@ func (txn *transaction) Execute(
 		}
 	}
 
-	phaseTimer.SetPhase("update_balances")
-	var err error
-
-	// Write the following:
-	// - the sender's native balance
-	// - the receiver's native balance
-	// - the sender's storage slot for the ERC20 contract
-	// - the receiver's storage slot for the ERC20 contract
-	// - the fee collection account's native balance
-
-	// Write the sender's account data.
-	err = database.Put(txn.srcAccount, txn.newSrcBalance)
-	if err != nil {
-		return fmt.Errorf("failed to put source account: %w", err)
-	}
-
-	// Write the receiver's account data.
-	err = database.Put(txn.dstAccount, txn.newDstBalance)
-	if err != nil {
-		return fmt.Errorf("failed to put destination account: %w", err)
-	}
-
-	// Write the sender's storage slot for the ERC20 contract.
-	err = database.Put(txn.srcAccountSlot, txn.newSrcAccountSlot)
-	if err != nil {
-		return fmt.Errorf("failed to put source account slot: %w", err)
-	}
-
-	// Write the receiver's storage slot for the ERC20 contract.
-	err = database.Put(txn.dstAccountSlot, txn.newDstAccountSlot)
-	if err != nil {
-		return fmt.Errorf("failed to put destination account slot: %w", err)
-	}
-
-	// Write the fee collection account's native balance.
-	err = database.Put(feeCollectionAddress, txn.newFeeBalance)
-	if err != nil {
-		return fmt.Errorf("failed to put fee collection account: %w", err)
-	}
-
+	// The five writes this transaction makes — both accounts' balances, both ERC20 storage slots, and
+	// the fee collection account — were recorded when the block was generated, so there is nothing to
+	// write here. See blockBuilder.writeTransaction: the values are pre-generated and depend on nothing
+	// that was just read, so issuing them on this thread only took time away from the reads, which are
+	// what this benchmark exists to measure.
 	phaseTimer.Reset()
 
 	return nil

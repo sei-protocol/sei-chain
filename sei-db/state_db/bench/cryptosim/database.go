@@ -25,13 +25,24 @@ type Database struct {
 	// The next block number to be persisted. Tracked internally and incremented after each finalized block.
 	nextBlockNumber uint64
 
-	// The current batch of key-value pairs waiting to be committed. Represents changes we are accumulating
-	// as part of a simulated "block". Stored as value []byte; converted to NamedChangeSet when applied to the DB.
-	batch *SyncMap[string, []byte]
+	// The writes accumulated for the block currently being assembled, keyed by string(key), already in
+	// the form the DB accepts so that finalizing has nothing left to convert.
+	//
+	// A plain map carrying no synchronization at all, which is sound only because it has one writer at
+	// a time and never a concurrent reader. Setup fills it from the main thread before the block
+	// builder is started; from then on the builder is the sole writer, harvesting it into each block it
+	// publishes. Executors never touch it — they read the frozen map on the block they were handed,
+	// which nothing mutates. Letting executors write here instead would put a lock back on the hot
+	// path, and that lock is the cost this arrangement exists to remove.
+	pendingWrites map[string]*proto.KVPair
 
-	// The number of pairs the previous block produced. The next block's pair slice is allocated at
-	// twice this, so a block that grows still lands in one allocation rather than a resize and copy.
-	previousBlockPairCount int
+	// The block being executed, or nil during setup. Executors read its frozen writes.
+	//
+	// Written by the main thread before any of that block's transactions are scheduled, and read by
+	// executors thereafter. The channel send that schedules a transaction and the flush handshake that
+	// ends the block are what order those accesses, so no lock is needed: the write and the reads never
+	// overlap.
+	currentBlock *block
 
 	// A method that flushes the executors.
 	flushFunc func()
@@ -50,30 +61,51 @@ func NewDatabase(
 	return &Database{
 		config:          config,
 		db:              db,
-		batch:           NewSyncMap[string, []byte](),
+		pendingWrites:   make(map[string]*proto.KVPair),
 		metrics:         metrics,
 		nextBlockNumber: initialNextBlockNumber,
 	}
 }
 
-// Insert a key-value pair into the database/cache.
+// Insert a key-value pair into the block currently being assembled.
 //
-// This method is safe to call concurrently with other calls to Put() and Get(). Is not thread
-// safe with FinalizeBlock(). It is not thread safe to modify the returned value (make a copy first).
+// Not safe to call concurrently, with itself or with HarvestWrites — see pendingWrites. Both callers
+// are single-threaded and do not overlap: setup on the main thread, and the block builder on its own
+// goroutine once setup is done.
+//
+// The key and value are retained rather than copied, so a caller must not reuse either buffer. Every
+// caller allocates both fresh per write.
 func (d *Database) Put(key []byte, value []byte) error {
-	d.batch.Put(string(key), value)
+	d.pendingWrites[string(key)] = &proto.KVPair{Key: key, Value: value}
 	return nil
 }
 
-// Retrieve a value from the database/cache.
+// HarvestWrites returns the writes accumulated since the last harvest and installs a fresh map for
+// the next block. The returned map must not be modified: the block it is handed to publishes it to
+// the executors, who read it without synchronization.
 //
-// This method is safe to call concurrently with other calls to Put() and Get(). Is not thread
-// safe with FinalizeBlock().
-func (d *Database) Get(key []byte) ([]byte, bool, error) {
-	if value, found := d.batch.Get(string(key)); found {
-		return value, true, nil
-	}
+// Called only by the block builder, on its own goroutine, between blocks.
+func (d *Database) HarvestWrites() map[string]*proto.KVPair {
+	harvested := d.pendingWrites
+	d.pendingWrites = make(map[string]*proto.KVPair, len(harvested))
+	return harvested
+}
 
+// SetCurrentBlock records the block whose transactions are about to be scheduled, so reads can see
+// the writes that block makes. Called by the main thread before any of that block's transactions is
+// handed to an executor.
+func (d *Database) SetCurrentBlock(blk *block) {
+	d.currentBlock = blk
+}
+
+// Retrieve a value from the database.
+//
+// Every read goes to the DB. There is deliberately no in-memory short-circuit in front of it: the
+// read throughput of the DB is the thing this benchmark exists to measure, so a read served from a
+// map is a read that did not get measured. An earlier version consulted the pending writes first,
+// which silently excluded most of a block's reads from the measurement, because a transaction reads
+// the same keys it writes.
+func (d *Database) Get(key []byte) ([]byte, bool, error) {
 	value, found, err := d.db.Read(key)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to read from database: %w", err)
@@ -141,11 +173,7 @@ func (d *Database) FinalizeBlock(
 	// one NamedChangeSet per module, so the evm module's whole block arrives as a single contiguous
 	// batch of pairs. Wrapping each pair in its own changeset instead would make the consuming store
 	// chase a separate allocation per pair, which is benchmark overhead rather than a real cost.
-	pairs := make([]*proto.KVPair, 0, 2*d.previousBlockPairCount+3)
-	for key, value := range d.batch.Iterator() {
-		pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: value})
-	}
-	d.batch.Clear()
+	pairs := d.blockPairs()
 
 	// Persist the account ID counter in every batch.
 	nonceValue := make([]byte, 8)
@@ -164,7 +192,6 @@ func (d *Database) FinalizeBlock(
 	binary.BigEndian.PutUint64(blockNumberValue, d.nextBlockNumber)
 	pairs = append(pairs, &proto.KVPair{Key: BlockNumberCounterKey(), Value: blockNumberValue})
 	d.nextBlockNumber++
-	d.previousBlockPairCount = len(pairs)
 
 	entry := &proto.ChangelogEntry{
 		Version: d.db.Version() + 1,
@@ -196,6 +223,27 @@ func (d *Database) FinalizeBlock(
 	d.metrics.SetMainThreadPhase("executing")
 
 	return nil
+}
+
+// blockPairs returns the block's writes in the form the DB accepts, without the counter keys, which
+// FinalizeBlock appends.
+//
+// There are two sources because there are two producers. A benchmark block arrives with its pairs
+// already built by the block builder, so this is a field read and the conversion cost has already
+// been paid off the critical path — the point of the whole arrangement. Setup has no block: it Puts
+// account and contract data straight into pendingWrites, and there is nowhere earlier to have done
+// the conversion, so it happens here. Setup runs once and is not what the benchmark reports.
+func (d *Database) blockPairs() []*proto.KVPair {
+	if d.currentBlock != nil {
+		return d.currentBlock.Changeset()
+	}
+
+	pairs := make([]*proto.KVPair, 0, len(d.pendingWrites)+3)
+	for _, pair := range d.pendingWrites {
+		pairs = append(pairs, pair)
+	}
+	d.pendingWrites = make(map[string]*proto.KVPair)
+	return pairs
 }
 
 // awaitLaggingHash waits for the hash of the block HashAsynchrony blocks behind the one just committed,
