@@ -377,10 +377,61 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 	}
 }
 
+// TestNextViewEpoch_BoundaryTipPairsNextEpoch: a LastRoad(0) tip is paired
+// with epoch 1 before newInner, so ConsensusSpec can publish that tip.
+func TestNextViewEpoch_BoundaryTipPairsNextEpoch(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 4)
+	registry.AdvanceIfNeeded(epoch.LastRoad(0))
+	ep0 := registry.MustEpoch(0)
+	ep1 := registry.MustEpoch(1)
+
+	last := epoch.LastRoad(0)
+	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
+		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}, ep0.FirstBlock()))),
+	})
+	qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
+	require.Equal(t, last, qcLast.Index())
+
+	applied, err := nextViewEpoch(registry, qcLast, ep0)
+	require.NoError(t, err)
+	require.Equal(t, ep1.EpochIndex(), applied.EpochIndex())
+
+	i := newInner(applied, last)
+	i.roads.pushBack(newRoad(qcLast, ep0))
+	i.persistedCommitQC.Store(utils.Some(qcLast))
+	i.refreshConsensusSpec()
+
+	spec := i.consensusSpec.Load()
+	cqc, ok := spec.CommitQC.Get()
+	require.True(t, ok)
+	require.Equal(t, last, cqc.Index(), "must not walk tip back to LastRoad(0)-1")
+	require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
+}
+
+func TestNextViewEpoch_MissingNextEpochErrors(t *testing.T) {
+	rng := utils.TestRng()
+	// Fresh registry has epochs 0 and 1; seal epoch 1 so the next lookup is 2.
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep1 := registry.MustEpoch(1)
+	_, err := registry.EpochAt(epoch.FirstRoad(2))
+	require.Error(t, err)
+
+	last := epoch.LastRoad(1)
+	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
+		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: last - 1, Number: 0}, ep1.FirstBlock()))),
+	})
+	qcLast := types.BuildCommitQC(ep1, keys, utils.Some(prev), nil)
+	require.Equal(t, last, qcLast.Index())
+
+	_, err = nextViewEpoch(registry, qcLast, ep1)
+	require.Error(t, err)
+}
+
 // TestStateRestartFromPersisted runs the state with persistence through 2
 // iterations (blocks → votes → commitQC → appQC each), stops, and restarts
 // from the same directory. This verifies that what the runtime persist
-// goroutine writes can be correctly loaded back by loadPersistedState/newInner.
+// goroutine writes can be correctly loaded back by loadPersistedState/restoreInner.
 //
 // The restarted state uses a fresh in-memory data.State, so this covers the
 // availability persisters themselves: CommitQCs and local blocks are loaded back
