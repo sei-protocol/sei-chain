@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
-	oracletestutils "github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 )
@@ -91,45 +93,28 @@ func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper orac
 	return err
 }
 
-func TestOracleVoteGasless(t *testing.T) {
-	input := oracletestutils.CreateTestInput(t)
+func TestOnlyUnassociatedAssociateIsGasless(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithIsCheckTx(true)
+	sender := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	tx := FakeTx{FakeMsgs: []sdk.Msg{evmtypes.NewMsgAssociate(sender, "test")}}
 
-	addr := oracletestutils.Addrs[0]
-	addr1 := oracletestutils.Addrs[1]
-	valAddr, val := oracletestutils.ValAddrs[0], oracletestutils.ValPubKeys[0]
-	valAddr1, val1 := oracletestutils.ValAddrs[1], oracletestutils.ValPubKeys[1]
-	amt := sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction)
-	sh := staking.NewHandler(input.StakingKeeper)
-	ctx := input.Ctx.WithIsCheckTx(true)
-
-	// Validator created
-	_, err := sh(ctx, oracletestutils.NewTestMsgCreateValidator(valAddr, val, amt))
+	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oraclekeeper.Keeper{}, k)
 	require.NoError(t, err)
-	_, err = sh(ctx, oracletestutils.NewTestMsgCreateValidator(valAddr1, val1, amt))
+	require.True(t, isGasless)
+
+	k.SetAddressMapping(ctx, sender, common.BytesToAddress(sender))
+	isGasless, err = antedecorators.IsTxGasless(tx, ctx, oraclekeeper.Keeper{}, k)
 	require.NoError(t, err)
-	staking.EndBlocker(ctx, input.StakingKeeper)
+	require.False(t, isGasless)
+}
 
-	input.OracleKeeper.SetAggregateExchangeRateVote(ctx, valAddr, oracletypes.AggregateExchangeRateVote{})
+func TestRetiredOracleVoteIsNotGasless(t *testing.T) {
+	tx := FakeTx{FakeMsgs: []sdk.Msg{&oracletypes.MsgAggregateExchangeRateVote{}}}
 
-	vote1 := oracletypes.MsgAggregateExchangeRateVote{
-		Feeder:    addr.String(),
-		Validator: valAddr.String(),
-	}
-
-	vote2 := oracletypes.MsgAggregateExchangeRateVote{
-		Feeder:    addr1.String(),
-		Validator: valAddr1.String(),
-	}
-
-	// reset gasless
-	err = CallGaslessDecoratorWithMsg(ctx, &vote1, input.OracleKeeper, nil)
-	require.Error(t, err)
-
-	// reset gasless
-	gasless = true
-	err = CallGaslessDecoratorWithMsg(ctx, &vote2, input.OracleKeeper, nil)
+	isGasless, err := antedecorators.IsTxGasless(tx, sdk.Context{}, oraclekeeper.Keeper{}, nil)
 	require.NoError(t, err)
-	require.True(t, gasless)
+	require.False(t, isGasless)
 }
 
 func TestNonGaslessMsg(t *testing.T) {

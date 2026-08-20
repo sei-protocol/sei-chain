@@ -5,11 +5,9 @@ import (
 
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/seilog"
 )
 
@@ -70,7 +68,7 @@ func (gd GaslessDecorator) handleWrapped(ctx sdk.Context, tx sdk.Tx, simulate bo
 	return next(ctx, tx, simulate)
 }
 
-func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (isGasless bool, err error) {
+func IsTxGasless(tx sdk.Tx, ctx sdk.Context, _ oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (isGasless bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error("panic recovered in IsTxGasless", "err", r)
@@ -79,55 +77,16 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, e
 		}
 	}()
 
-	if len(tx.GetMsgs()) == 0 {
-		// empty TX shouldn't be gasless
+	// MsgAggregateExchangeRateVote is intentionally not exempt. The legacy Oracle
+	// Price Feeder is retired (its default minimum-valid-vote threshold is already
+	// 0%) and its transactions are scheduled for deprecation, so native
+	// MsgAssociate is the only Cosmos fee-exempt transaction shape.
+	if !evmtypes.IsTxMsgAssociate(tx) {
 		return false, nil
 	}
-	for _, msg := range tx.GetMsgs() {
-		switch m := msg.(type) {
-		case *oracletypes.MsgAggregateExchangeRateVote:
-			isGasless, err := oracleVoteIsGasless(m, ctx, oracleKeeper)
-			if err != nil || !isGasless {
-				return false, err
-			}
-		case *evmtypes.MsgAssociate:
-			if !evmAssociateIsGasless(m, ctx, evmKeeper) {
-				return false, nil
-			}
-			// ddos prevention
-			return len(tx.GetMsgs()) == 1, nil
-		default:
-			return false, nil
-		}
+	if !evmAssociateIsGasless(tx.GetMsgs()[0].(*evmtypes.MsgAssociate), ctx, evmKeeper) {
+		return false, nil
 	}
-	return true, nil
-}
-
-func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) (bool, error) {
-	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
-	if err != nil {
-		return false, err
-	}
-
-	valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
-	if err != nil {
-		return false, err
-	}
-
-	err = keeper.ValidateFeeder(ctx, feederAddr, valAddr)
-	if err != nil {
-		return false, err
-	}
-
-	// this returns an error IFF there is no vote present
-	// this also gets cleared out after every vote window, so if there is no vote present, we may want to allow gasless tx
-	_, err = keeper.GetAggregateExchangeRateVote(ctx, valAddr)
-	if err == nil {
-		// if there is no error that means there is a vote present, so we don't allow gasless tx
-		err = sdkerrors.Wrap(oracletypes.ErrAggregateVoteExist, valAddr.String())
-		return false, err
-	}
-	// otherwise we allow it
 	return true, nil
 }
 
