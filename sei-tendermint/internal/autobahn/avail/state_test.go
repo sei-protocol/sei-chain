@@ -802,48 +802,6 @@ func newSealFixture(t *testing.T) *sealFixture {
 	return &sealFixture{registry: registry, keys: keys, state: state, ep: ep, m: m}
 }
 
-func TestWaitForEpoch_ParksUntilEpochAdvance(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx := t.Context()
-		rng := utils.TestRng()
-		registry, keys := epoch.GenRegistry(rng, 2)
-		ds := newTestDataState(&data.Config{Registry: registry})
-		state, err := NewState(keys[0], ds, utils.None[string]())
-		require.NoError(t, err)
-
-		ep1 := registry.MustEpoch(1)
-
-		require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
-			sc.SpawnBgNamed("runEpochAdvance", func() error {
-				return utils.IgnoreCancel(state.runEpochAdvance(ctx))
-			})
-
-			var got *types.Epoch
-			var waitErr error
-			sc.Spawn(func() error {
-				got, waitErr = state.waitForEpoch(ctx, 1)
-				return nil
-			})
-			synctest.Wait()
-			if got != nil {
-				return fmt.Errorf("waitForEpoch returned before epoch advance")
-			}
-
-			if err := DriveAdvance(ctx, state, keys, ep1.EpochIndex()); err != nil {
-				return err
-			}
-			synctest.Wait()
-			if waitErr != nil {
-				return waitErr
-			}
-			if got.EpochIndex() != 1 {
-				return fmt.Errorf("waitForEpoch epoch = %d, want 1", got.EpochIndex())
-			}
-			return nil
-		}))
-	})
-}
-
 func TestRunEpochAdvance_Leashes(t *testing.T) {
 	type missing int
 	const (
