@@ -763,7 +763,7 @@ func (s *State) AppQC(ctx context.Context, n types.GlobalBlockNumber) (*types.Ap
 type Anchor struct {
 	CommitQC *types.CommitQC
 	AppQC    *types.AppQC
-	// Epoch of CommitQC, stashed at admit.
+	// Epoch of CommitQC.
 	Epoch *types.Epoch
 }
 
