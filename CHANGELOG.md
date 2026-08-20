@@ -35,10 +35,20 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Upgrade guide
 * **WebSocket frame size default drops from 10 MiB to 5 MiB.** Before this release, :8546 used a hardcoded 10 MiB frame cap. Both HTTP and WebSocket now share `[evm].max_request_body_bytes`, whose default is 5 MiB (`5242880`). WS clients that send frames in the 5-10 MiB range (large `eth_sendRawTransaction` batches, wide filter payloads, etc.) will be disconnected after upgrade unless the limit is raised. **Operators who relied on the old 10 MiB WS cap should set `max_request_body_bytes = 10485760` in `app.toml` before upgrading.** This also raises the HTTP body limit to 10 MiB. The exported `DefaultWebsocketMaxMessageSize` constant was removed; use the config knob instead.
+* [#3927](https://github.com/sei-protocol/sei-chain/pull/3927) **Legacy Sei JSON-RPC and CLI removal.** Removes `sei_associate`, `sei_getBlockByHash`, `sei_getBlockByHashExcludeTraceFail`, `sei_getBlockTransactionCountByHash`, `sei_getBlockTransactionCountByNumber`, `sei_getEvmTx`, `sei_getFilterChanges`, `sei_getFilterLogs`, `sei_getLogs`, `sei_getTransactionByBlockHashAndIndex`, `sei_getTransactionByBlockNumberAndIndex`, `sei_getTransactionByHash`, `sei_getTransactionCount`, `sei_getTransactionErrorByHash`, `sei_getTransactionReceiptExcludeTraceFail`, `sei_getVMError`, `sei_newBlockFilter`, `sei_newFilter`, `sei_sign`, and `sei_uninstallFilter`. Use standard `eth_*` methods for EVM-originated data and `seid tx evm native-associate <custom-message> -y` for address association. There is no block- or filter-level replacement for discovering Cosmos-originated synthetic logs; clients that know the synthetic transaction hash can enable `sei_getTransactionReceipt`.
 
 ## v6.6
 sei-chain
+* [#3957](https://github.com/sei-protocol/sei-chain/pull/3957) Backport `release/v6.6`: Add context cancellation to SS DB layer
+* [#3954](https://github.com/sei-protocol/sei-chain/pull/3954) Backport `release/v6.6`: feat(seeds): ship Sei Labs seeds as the default bootstrap-peers
+* [#3951](https://github.com/sei-protocol/sei-chain/pull/3951) Backport `release/v6.6`: Tolerate failed Codex review executions
+* [#3939](https://github.com/sei-protocol/sei-chain/pull/3939) Backport `release/v6.6`: fix(p2p): make the inbound accept rate configurable and raise its default
+* [#3880](https://github.com/sei-protocol/sei-chain/pull/3880) Backport `release/v6.6`: Update go-releaser heading with experimental notice
+* [#3878](https://github.com/sei-protocol/sei-chain/pull/3878) Bump version in prep to cut v6.6.1
+* [#3877](https://github.com/sei-protocol/sei-chain/pull/3877) Backport `release/v6.6`: Update v6.6 changelog in prep to cut patch release
+* [#3873](https://github.com/sei-protocol/sei-chain/pull/3873) Backport `release/v6.6`: Restore LCD pagination while preserving v6.6 precompile semantics
 * [#3857](https://github.com/sei-protocol/sei-chain/pull/3857) Backport `release/v6.6`: goreleaser: drop duplicate changelog + Full Changelog link from release notes
+* [#3848](https://github.com/sei-protocol/sei-chain/pull/3848) Backport `release/v6.6`: Remove redundant libstdc++6 installation
 * [#3821](https://github.com/sei-protocol/sei-chain/pull/3821) Fix PebbleDB iterator for stackoverflow
 * [#3802](https://github.com/sei-protocol/sei-chain/pull/3802) Backport `release/v6.6`: Fix static seid SIGSEGV (pin pre-gcc-12 libgcc unwinder), boot smoke gate, manual-tag binary builds (#3749)
 * [#3783](https://github.com/sei-protocol/sei-chain/pull/3783) Bump version file in prep to cut v6.6 RC5

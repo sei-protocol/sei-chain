@@ -1,0 +1,177 @@
+{
+  "name": "SushiSwap V2 canonical production deployment",
+  "repository": "https://github.com/sushiswap/sushiswap",
+  "commit": "94ea7712daaa13155dfab9786aacf69e24390147",
+  "wethSource": {
+    "repository": "https://github.com/sushiswap/v2-core",
+    "commit": "a349882c918c752d0363e4c6e02dedcbc48b734e",
+    "path": "contracts/mocks/WETH9.sol",
+    "gitBlob": "3c36f7372692db6f6d943ad7afe8ef9281a5061b",
+    "sha256": "6994731714821f85188841c9f754e8ee2005c2d550902e0fa5fd568969d06f75"
+  },
+  "officialFactoryDeployment": "0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2Ac",
+  "officialRouterDeployment": "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F",
+  "verifiedPairDeployment": "0x397FF1542f962076d0BFE58eA045FfA2d347ACa0",
+  "artifactSources": {
+    "factory": {
+      "path": "deployments/mainnet/UniswapV2Factory.json",
+      "gitBlob": "205ca8f8cd4d5867c087b611d91db6d7196d95f1"
+    },
+    "router": {
+      "path": "deployments/mainnet/UniswapV2Router02.json",
+      "gitBlob": "bce1f90fadd9d96330429eb6506b1a7f889d02d5"
+    },
+    "pair": {
+      "chainId": 1,
+      "address": "0x397FF1542f962076d0BFE58eA045FfA2d347ACa0",
+      "verification": "https://sourcify.dev/server/v2/contract/1/0x397FF1542f962076d0BFE58eA045FfA2d347ACa0?fields=all"
+    }
+  },
+  "pairInitCodeHash": "0xe18a34eb0e04b04f7a0ac29a6e80748dca96319b42c54d679cb821dca90c6303",
+  "factoryCreationCodeHash": "0xb6cfa36fab05ca5b0f79d18c0e80ad4a0158030127c669efb506ba7dec6ad3ca",
+  "routerCreationCodeHash": "0x242b3e2b1fea435b76ad7353f445b0e570d3117d6876eaf4b141790b90c0cc1a",
+  "compiler": {
+    "version": "0.6.12+commit.27d51765",
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "evmVersion": "istanbul",
+    "metadata": {
+      "bytecodeHash": "ipfs"
+    }
+  },
+  "notes": [
+    "Factory and router bytecode are pinned from this commit's official deployments/mainnet artifacts.",
+    "Pair creation bytecode is pinned from the verified Ethereum production pair and equals the bytecode embedded by the official factory.",
+    "The modular source recompiles to the same metadata-stripped production pair bytecode; production metadata is preserved by pinning the official executable artifact."
+  ],
+  "files": [
+    {
+      "path": "contracts/uniswapv2/LICENSE",
+      "upstreamPath": "contracts/uniswapv2/LICENSE",
+      "gitBlob": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "path": "contracts/uniswapv2/README.md",
+      "upstreamPath": "contracts/uniswapv2/README.md",
+      "gitBlob": "ffa15f4b06cddf19e4049080897af91cde6c15b1",
+      "sha256": "0f4604e784cb338321143a9bc4dda22e80ba55772fb639be662143face92bc58"
+    },
+    {
+      "path": "contracts/uniswapv2/UniswapV2ERC20.sol",
+      "upstreamPath": "contracts/uniswapv2/UniswapV2ERC20.sol",
+      "gitBlob": "7ed393cd4205f45436a875050f47967125de4bc8",
+      "sha256": "7f0f894672dc6ecb077532aca6c684a58117633d8de88eeefd451ca48cd9df53"
+    },
+    {
+      "path": "contracts/uniswapv2/UniswapV2Factory.sol",
+      "upstreamPath": "contracts/uniswapv2/UniswapV2Factory.sol",
+      "gitBlob": "f0a56fc279b76fe7ba26b826e7d67fe80b04c378",
+      "sha256": "0b2af08ead9b2d24f68a497bc5fb5e3d791067e22339440f50fb17971e867162"
+    },
+    {
+      "path": "contracts/uniswapv2/UniswapV2Pair.sol",
+      "upstreamPath": "contracts/uniswapv2/UniswapV2Pair.sol",
+      "gitBlob": "408cde6cf9a3683ef2209d1cef0fb55963ae733c",
+      "sha256": "8f5b709c83874e10b84763436d831fa752e183cac8b89d0b4cbc872d1ae73dad"
+    },
+    {
+      "path": "contracts/uniswapv2/UniswapV2Router02.sol",
+      "upstreamPath": "contracts/uniswapv2/UniswapV2Router02.sol",
+      "gitBlob": "c873a09b80934e805bd80fd933ccaaab1b0e9f71",
+      "sha256": "8f101b9d76571ec3803af77b6696c61eedc9ff6ab8fdc55fd3dab3b2acf261f3"
+    },
+    {
+      "path": "contracts/uniswapv2/interfaces/IERC20.sol",
+      "upstreamPath": "contracts/uniswapv2/interfaces/IERC20.sol",
+      "gitBlob": "fd7b169f23fb4d818906e9a4104c396271851f0b",
+      "sha256": "c3d50355055c16ba9236c4bb7a3893fef807b9a73ce31713209174bd2f2c629f"
+    },
+    {
+      "path": "contracts/uniswapv2/interfaces/IUniswapV2Callee.sol",
+      "upstreamPath": "contracts/uniswapv2/interfaces/IUniswapV2Callee.sol",
+      "gitBlob": "a11b1c4b6916cae83f90444ef5367e53d3bbece5",
+      "sha256": "3042a4bd21a7bf99e75da23f568536cace02e2446f4d365a82b1ba148bd86c7a"
+    },
+    {
+      "path": "contracts/uniswapv2/interfaces/IUniswapV2ERC20.sol",
+      "upstreamPath": "contracts/uniswapv2/interfaces/IUniswapV2ERC20.sol",
+      "gitBlob": "41fb595b3b31d4d522c42daa640bbdfde4f4fd73",
+      "sha256": "8a6df5c860e74882e155a1dfa367886153592beb711bcf47b34e9070c745a893"
+    },
+    {
+      "path": "contracts/uniswapv2/interfaces/IUniswapV2Factory.sol",
+      "upstreamPath": "contracts/uniswapv2/interfaces/IUniswapV2Factory.sol",
+      "gitBlob": "aea4477135b6ae421817732df0a2f3261a1cb3ea",
+      "sha256": "1997e64aeecf4a3a2b459c9660eec502ec8fa79372c8264b737829a5d27e8239"
+    },
+    {
+      "path": "contracts/uniswapv2/interfaces/IUniswapV2Pair.sol",
+      "upstreamPath": "contracts/uniswapv2/interfaces/IUniswapV2Pair.sol",
+      "gitBlob": "9c69f709a7752e4a2a9ff9d177bce29ea8b501f4",
+      "sha256": "70cd07216707dec28d716228ed208a836fa5a9c3541644adff32c7510a44ef7a"
+    },
+    {
+      "path": "contracts/uniswapv2/interfaces/IUniswapV2Router01.sol",
+      "upstreamPath": "contracts/uniswapv2/interfaces/IUniswapV2Router01.sol",
+      "gitBlob": "095f89517aaacc33cc0761d4783c8d2292772470",
+      "sha256": "30186845a08e3f0ecf2b10a46ca932d6420b025f69de4450bac9d4ed21b3a3ec"
+    },
+    {
+      "path": "contracts/uniswapv2/interfaces/IUniswapV2Router02.sol",
+      "upstreamPath": "contracts/uniswapv2/interfaces/IUniswapV2Router02.sol",
+      "gitBlob": "4fca80db9743abe7fb187e802bb6abe49d3b67c3",
+      "sha256": "aa64ac9b33dff4ac7ad915def6033cdb6c559132e48770ae69f0e26b8c121fd0"
+    },
+    {
+      "path": "contracts/uniswapv2/interfaces/IWETH.sol",
+      "upstreamPath": "contracts/uniswapv2/interfaces/IWETH.sol",
+      "gitBlob": "775da06b7c16f9853920e995b630832d6332d6c0",
+      "sha256": "9788eeed3bcf478990de752d4b333c669453a05a74357282f83ac9214cc4d4e7"
+    },
+    {
+      "path": "contracts/uniswapv2/libraries/Math.sol",
+      "upstreamPath": "contracts/uniswapv2/libraries/Math.sol",
+      "gitBlob": "d183d80ba13a7f3c0e9327b8fb0a741ce0642421",
+      "sha256": "a553dd23aa798c18e1b2a19b2f64a2ba8144df56e212f20bab346be5c37287bb"
+    },
+    {
+      "path": "contracts/uniswapv2/libraries/SafeMath.sol",
+      "upstreamPath": "contracts/uniswapv2/libraries/SafeMath.sol",
+      "gitBlob": "1cc199b6fd6763f84b760697d5fd2298a9f7dc3d",
+      "sha256": "c3e07a9975e7c206617aba8fe8ba63059eaa2bdfa504a8cf1bd461527f5fb3f4"
+    },
+    {
+      "path": "contracts/uniswapv2/libraries/TransferHelper.sol",
+      "upstreamPath": "contracts/uniswapv2/libraries/TransferHelper.sol",
+      "gitBlob": "d179a67a9648c5245bbbdf33844f329bd54bd287",
+      "sha256": "28b7bb5e8ac8fb0a3ccdaf50b85d2dbc22804d5b64d08f13924e94206ef823e1"
+    },
+    {
+      "path": "contracts/uniswapv2/libraries/UQ112x112.sol",
+      "upstreamPath": "contracts/uniswapv2/libraries/UQ112x112.sol",
+      "gitBlob": "9af8f74975b3bf93fe2156f161efd8584d0a767a",
+      "sha256": "24283a562d299a5e4133d3f05304eec8e75a1b18c6907dd2a8f399eea0b16524"
+    },
+    {
+      "path": "contracts/uniswapv2/libraries/UniswapV2Library.sol",
+      "upstreamPath": "contracts/uniswapv2/libraries/UniswapV2Library.sol",
+      "gitBlob": "14cffb0583f6b2df2d11dd06bd0362aa68cc5e13",
+      "sha256": "2cfd54761e86011bf36fce1995a80fdb9273b3f27d11d57e82f22076e091fe35"
+    },
+    {
+      "path": "vendor/sushiswap-v2/artifacts/UniswapV2Factory.json",
+      "sha256": "e96e07dbe3adba45bd20d5be20e5ea7c329aa6c0fc39d2d7be1f06effc94795e"
+    },
+    {
+      "path": "vendor/sushiswap-v2/artifacts/UniswapV2Pair.json",
+      "sha256": "a25b5ada1df9718e7b38243e25e796434e666f17212c049fd4f608ec59b1cec0"
+    },
+    {
+      "path": "vendor/sushiswap-v2/artifacts/UniswapV2Router02.json",
+      "sha256": "69f3ed02eef7ef4a16f53fa361c9769395f83c16dba056db77d8d00abb0b1b88"
+    }
+  ]
+}

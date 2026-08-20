@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"bytes"
 	"path/filepath"
 	"testing"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,46 +32,48 @@ func TestCatchupNoOpWhenWALBehindCommittedVersion(t *testing.T) {
 	require.Equal(t, int64(3), s.committedVersion)
 }
 
-// TestCatchupRecoversGappedCommitBlockAfterMetadataLag simulates the crash
-// window after Commit Step 1 (WAL write) / Step 2 (per-DB commit) but before
-// Step 3 (global metadata): per-DB state and WAL are at a gapped height while
-// the in-memory/global watermark still lags. Catchup must apply the gapped
-// WAL entry instead of aborting with "WAL hole"/"WAL gap".
-func TestCatchupRecoversGappedCommitBlockAfterMetadataLag(t *testing.T) {
+// TestCatchupReplaysAlreadyAppliedBlockOnSeededStore pins replay over a store whose history begins
+// mid-chain. The WAL's first block is the seeded height, so replay must start there rather than treat
+// blocks 1..seed-1 as missing, and re-applying a block the DBs already hold must land on the same root
+// it had before.
+//
+// The lagging watermark is written to disk rather than poked into memory: the store derives its
+// version from the per-DB records, so an in-memory-only value is a state no crash can produce.
+func TestCatchupReplaysAlreadyAppliedBlockOnSeededStore(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
 
 	addr := ktype.Address{0xAB}
 	slot := ktype.Slot{0xCD}
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 
-	// Seed so history legally begins at 10, then commit it: the crash window this simulates is a lagging
-	// watermark, not a store that skipped blocks 1-9.
+	// History legally begins at 10, so this is a lagging watermark rather than a store that skipped
+	// blocks 1-9.
 	require.NoError(t, s.SetInitialVersion(10))
 	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
-	require.Equal(t, int64(10), s.Version())
 	hashAfterCommit := append([]byte(nil), s.RootHash()...)
 
-	// Rewind only the global watermark to mimic metadata lagging the WAL /
-	// per-DB commits. Catchup should replay the gapped WAL entry at v10.
-	s.committedVersion = 9
-	require.NoError(t, s.replayIntoMutableStore(0))
-	require.Equal(t, int64(10), s.committedVersion)
-	require.Equal(t, hashAfterCommit, s.RootHash())
+	rewindVersionRecords(t, s, 9)
+	require.NoError(t, s.Close())
 
-	height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)
+	reopened, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	defer reopened.Close()
+
+	require.NoError(t, reopened.LoadLatest())
+	require.Equal(t, int64(10), reopened.Version())
+	require.Equal(t, hashAfterCommit, reopened.RootHash())
+
+	height, found, err := reopened.GetBlockHeightModified(keys.EVMStoreKey, key)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, int64(10), height)
-
-	require.NoError(t, s.Close())
 }
 
 // gappedWALStore returns a store whose WAL holds exactly one block, at firstBlock, with nothing before it.
@@ -136,7 +138,7 @@ func TestLoadVersionSurfacesCatchupGap(t *testing.T) {
 	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
 
 	// Rewind the persisted watermark so the reopened store needs blocks 6-9, which this WAL never held.
-	require.NoError(t, s.commitGlobalMetadata(5, lthash.New()))
+	rewindVersionRecords(t, s, 5)
 	require.NoError(t, s.Close())
 
 	reopened, err := newCommitStoreWithWAL(t.Context(), cfg)
@@ -273,8 +275,8 @@ func TestResolveReplayRangeOnEmptyWAL(t *testing.T) {
 }
 
 // TestReplayBlocksReturnsAppliedCount pins the one value replayBlocks promises on success: how many blocks it
-// applied. replayIntoMutableStore uses it both to decide whether to persist the watermark and to report the
-// replayed-blocks metric, so an off-by-one here would either skip the watermark commit or misreport progress.
+// applied. Catchup reports it as the replayed-blocks metric and in its progress log, so an off-by-one here
+// misreports how much recovery a restart actually did.
 func TestReplayBlocksReturnsAppliedCount(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
@@ -327,4 +329,67 @@ func TestReplayIntoReadOnlyCopyDoesNotDisturbPrimary(t *testing.T) {
 	require.Equal(t, int64(2), ro.Version(), "the clone must land exactly on the requested version")
 	require.Equal(t, primaryVersion, s.committedVersion, "feeding a clone must not move the primary")
 	require.Equal(t, primaryHash, s.RootHash())
+}
+
+// TestReplayConvergesOnPartialAccountFieldWrites pins the one case where replaying
+// a block into a DB that already holds it is not obviously a no-op. An account row
+// is a merge, not an overwrite: deriveNewAccountValues folds a nonce-only or
+// codehash-only update onto whatever is currently on disk. Replaying a range where
+// different blocks touch different fields therefore rebuilds the row field by field
+// through intermediate values that were never on-chain. It converges because the
+// last block to write each field writes it last — and the LtHash must land on the
+// same value either way, since that value feeds the AppHash.
+func TestReplayConvergesOnPartialAccountFieldWrites(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+
+	addr := ktype.Address{0xAB}
+	// Block 1 sets the nonce, block 2 is unrelated, block 3 sets only the codehash.
+	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{{
+		Name:      keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 7)}},
+	}}))
+	require.NoError(t, s.CommitBlock(2, []*proto.NamedChangeSet{{
+		Name: keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, ktype.Slot{0x01})),
+				Value: padLeft32(0x22)},
+		}},
+	}}))
+	require.NoError(t, s.CommitBlock(3, []*proto.NamedChangeSet{{
+		Name:      keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{codePair(addr, []byte{0x60, 0x0A})}},
+	}}))
+
+	wantRoot := bytes.Clone(s.CommittedRootHash())
+	wantAccount, found := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+	require.True(t, found)
+	require.NoError(t, s.Close())
+
+	// Rewind accountDB alone to block 1, leaving its rows at block 3. Replay of
+	// blocks 2 and 3 now runs against an account row that already holds both fields.
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s2.LoadLatest())
+	rewindVersionRecords(t, s2, 1, accountDBDir)
+	require.NoError(t, s2.Close())
+
+	s3, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s3.LoadLatest())
+	defer s3.Close()
+
+	require.Equal(t, int64(3), s3.Version())
+	require.Equal(t, wantRoot, s3.CommittedRootHash(),
+		"rebuilding an account row through partial-field replays must land on the same root")
+	gotAccount, found := s3.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+	require.True(t, found)
+	require.Equal(t, wantAccount, gotAccount)
+	require.NoError(t, VerifyLtHash(s3))
 }

@@ -2,6 +2,7 @@ package node
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -119,7 +121,7 @@ func TestBuildGigaConfig_BlockDBOverrides(t *testing.T) {
 	littCfg, err := fc.BlockDB.LittBlockConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	require.NotNil(t, littCfg.Litt)
-	assert.Equal(t, 30*time.Second, littCfg.Retention)
+	assert.Equal(t, 30*time.Second, littCfg.RetentionTime)
 	assert.Equal(t, 5*time.Second, littCfg.Litt.GCPeriod)
 	assert.True(t, littCfg.Litt.Fsync)
 }
@@ -141,7 +143,7 @@ func TestBuildGigaConfig_BlockDBOmittedKeepsDefaults(t *testing.T) {
 	littCfg, err := config.AutobahnBlockDBConfig{}.LittBlockConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	require.NotNil(t, littCfg.Litt)
-	assert.Equal(t, 24*time.Hour, littCfg.Retention)
+	assert.Equal(t, time.Hour, littCfg.RetentionTime)
 	assert.True(t, littCfg.Litt.Fsync)
 }
 
@@ -344,4 +346,74 @@ func TestPreparePersistentStateDir_EmptyStringIsNone(t *testing.T) {
 	require.NoError(t, preparePersistentStateDir(t.TempDir(), cfg))
 	_, ok := cfg.PersistentStateDir.Get()
 	require.False(t, ok, "Some(\"\") must be cleared to None for in-memory mode")
+}
+
+// Every other RouterOptions construction site substitutes rate.Inf, so this
+// derivation is the only place the production accept rate is exercised.
+func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {
+	ep, err := p2p.ResolveEndpoint("tcp://0000000000000000000000000000000000000000@127.0.0.1:26656")
+	require.NoError(t, err)
+
+	t.Run("defaults reach the router", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		opts, err := p2pRouterOptions(cfg, ep, nil)
+		require.NoError(t, err)
+
+		require.Equal(t, rate.Every(cfg.P2P.AcceptInterval), opts.MaxAcceptRate)
+		require.Equal(t, rate.Every(cfg.P2P.DialInterval), opts.MaxDialRate)
+	})
+
+	// A negative value never reaches ValidateBasic on an already-deployed node, and
+	// rate.Every would read it as "disable". Refuse it rather than start unpaced.
+	for _, key := range []string{"accept-interval", "dial-interval"} {
+		t.Run("negative "+key+" refuses to build options", func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			switch key {
+			case "accept-interval":
+				cfg.P2P.AcceptInterval = -1 * time.Second
+			case "dial-interval":
+				cfg.P2P.DialInterval = -1 * time.Second
+			}
+			_, err := p2pRouterOptions(cfg, ep, nil)
+			require.Error(t, err)
+		})
+	}
+
+	t.Run("zero interval disables the limiter", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.P2P.AcceptInterval = 0
+		opts, err := p2pRouterOptions(cfg, ep, nil)
+		require.NoError(t, err)
+		require.Equal(t, rate.Inf, opts.MaxAcceptRate)
+	})
+
+	t.Run("operator value flows through", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.P2P.AcceptInterval = 250 * time.Millisecond
+		opts, err := p2pRouterOptions(cfg, ep, nil)
+		require.NoError(t, err)
+		require.Equal(t, rate.Every(250*time.Millisecond), opts.MaxAcceptRate)
+	})
+
+	// Non-default totals, so the assertions track the derivation rather than
+	// restating DefaultP2PConfig. 50 exercises the flat 20-outbound reservation;
+	// 30 exercises the min(20, (maxConns+1)/2) branch, which nothing else reaches.
+	for _, tc := range []struct {
+		maxConns, wantInbound, wantOutbound int
+	}{
+		{maxConns: 50, wantInbound: 30, wantOutbound: 20},
+		{maxConns: 30, wantInbound: 15, wantOutbound: 15},
+	} {
+		t.Run(fmt.Sprintf("budget derives from max-connections=%d", tc.maxConns), func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			cfg.P2P.MaxConnections = uint(tc.maxConns)
+			opts, err := p2pRouterOptions(cfg, ep, nil)
+			require.NoError(t, err)
+
+			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxInbound)
+			require.Equal(t, utils.Some(tc.wantOutbound), opts.MaxOutbound)
+			// MaxConcurrentAccepts tracks the inbound pool, not max-connections.
+			require.Equal(t, utils.Some(tc.wantInbound), opts.MaxConcurrentAccepts)
+		})
+	}
 }

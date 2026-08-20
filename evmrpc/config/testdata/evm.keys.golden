@@ -8,6 +8,7 @@
 "evm.idle_timeout"
 "evm.simulation_gas_limit"
 "evm.simulation_evm_timeout"
+"evm.enable_simulation"
 "evm.cors_origins"
 "evm.ws_origins"
 "evm.filter_timeout"
@@ -50,4 +51,5 @@
 "evm.max_request_body_bytes"
 "evm.max_concurrent_request_bytes"
 "evm.ws_admission_timeout"
+"evm.body_read_idle_timeout"
 # keys with a target of their own

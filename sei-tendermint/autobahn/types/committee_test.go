@@ -25,11 +25,11 @@ func TestNewCommittee_FiltersOutZeroWeightValidators(t *testing.T) {
 	if committee.HasReplica(zeroWeightKey) {
 		t.Fatal("HasReplica() = true for zero-weight validator, want false")
 	}
-	if got := committee.Replicas().Len(); got != 1 {
-		t.Fatalf("Replicas().Len() = %v, want 1", got)
+	if !committee.HasLane(committee.Lane(nonZeroWeightKey).OrPanic("member")) {
+		t.Fatal("HasLane(nonZero@e0) = false, want true")
 	}
-	if got := committee.Replicas().At(0); got != nonZeroWeightKey {
-		t.Fatalf("Replicas().At(0) = %v, want %v", got, nonZeroWeightKey)
+	if got := committee.Lanes().Len(); got != 1 {
+		t.Fatalf("Lanes().Len() = %v, want 1", got)
 	}
 	if got := committee.Weight(nonZeroWeightKey); got != 7 {
 		t.Fatalf("Weight() = %v, want 7", got)
@@ -91,7 +91,8 @@ func makeEpoch(rng utils.Rng) (*Epoch, []SecretKey) {
 func TestLaneQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewLaneVote(NewBlock(keys[0].Public(), 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
+	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
+	vote := NewLaneVote(NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng)).Header())
 
 	heavyOnly := NewLaneQC([]*Signed[*LaneVote]{
 		Sign(keys[0], vote),
@@ -129,10 +130,10 @@ func TestPrepareQCVerifyChecksEpochBinding(t *testing.T) {
 
 	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
 
-	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
+	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, ep.FirstBlock())
 	require.Error(t, sign(wrongEpoch).Verify(ep))
 
-	outOfRoads := newProposal(View{Index: ep.RoadRange().Last + 1, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
+	outOfRoads := newProposal(View{Index: ep.RoadRange().Next, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, ep.FirstBlock())
 	require.Error(t, sign(outOfRoads).Verify(ep))
 }
 
@@ -145,10 +146,10 @@ func TestCommitQCVerifyChecksEpochBinding(t *testing.T) {
 
 	require.NoError(t, sign(ProposalAt(ep, View{Index: ep.RoadRange().First})).Verify(ep))
 
-	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
+	wrongEpoch := newProposal(View{Index: ep.RoadRange().First, EpochIndex: ep.EpochIndex() + 1}, time.Time{}, nil, ep.FirstBlock())
 	require.Error(t, sign(wrongEpoch).Verify(ep))
 
-	outOfRoads := newProposal(View{Index: ep.RoadRange().Last + 1, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, utils.None[*AppProposal](), ep.FirstBlock())
+	outOfRoads := newProposal(View{Index: ep.RoadRange().Next, EpochIndex: ep.EpochIndex()}, time.Time{}, nil, ep.FirstBlock())
 	require.Error(t, sign(outOfRoads).Verify(ep))
 }
 
@@ -171,7 +172,7 @@ func TestCommitQCVerifyChecksWeight(t *testing.T) {
 func TestAppQCVerifyChecksWeight(t *testing.T) {
 	rng := utils.TestRng()
 	ep, keys := makeEpoch(rng)
-	vote := NewAppVote(NewAppProposal(0, 0, GenAppHash(rng), ep.EpochIndex()))
+	vote := NewAppVote(NewAppProposal(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}), GenAppHash(rng)))
 
 	heavyOnly := NewAppQC([]*Signed[*AppVote]{
 		Sign(keys[0], vote),
@@ -211,17 +212,13 @@ func TestTimeoutQCVerifyChecksWeight(t *testing.T) {
 	heavyOnly := NewTimeoutQC([]*FullTimeoutVote{
 		NewFullTimeoutVote(keys[0], view, utils.None[*PrepareQC]()),
 	})
-	if err := heavyOnly.Verify(ep, prev); err != nil {
-		t.Fatalf("heavyOnly.Verify(): %v", err)
-	}
+	require.NoError(t, heavyOnly.Verify(ep, prev))
 
 	lightMajority := NewTimeoutQC([]*FullTimeoutVote{
 		NewFullTimeoutVote(keys[1], view, utils.None[*PrepareQC]()),
 		NewFullTimeoutVote(keys[2], view, utils.None[*PrepareQC]()),
 	})
-	if err := lightMajority.Verify(ep, prev); err == nil {
-		t.Fatal("lightMajority.Verify() succeeded, want error")
-	}
+	require.Error(t, lightMajority.Verify(ep, prev))
 }
 
 func TestNewCommittee_RejectsEmptyWeights(t *testing.T) {
@@ -229,4 +226,68 @@ func TestNewCommittee_RejectsEmptyWeights(t *testing.T) {
 	if err == nil {
 		t.Fatal("NewCommittee() succeeded with empty weights, want error")
 	}
+}
+
+func TestDeriveNext_StayLeaveRejoin(t *testing.T) {
+	rng := utils.TestRng()
+	a := GenSecretKey(rng).Public()
+	b := GenSecretKey(rng).Public()
+	c := GenSecretKey(rng).Public()
+	d := GenSecretKey(rng).Public()
+
+	requireLanesSorted := func(t *testing.T, committee *Committee) {
+		t.Helper()
+		lanes := committee.Lanes()
+		for i := 1; i < lanes.Len(); i++ {
+			require.Less(t, lanes.At(i-1).Compare(lanes.At(i)), 0)
+		}
+	}
+
+	// Epoch 0: A,B,D join.
+	c0, err := NewCommittee(map[PublicKey]uint64{a: 1, b: 1, d: 1})
+	require.NoError(t, err)
+	require.Equal(t, LaneID{Validator: a, Joined: 0}, c0.Lane(a).OrPanic("a"))
+	require.Equal(t, LaneID{Validator: b, Joined: 0}, c0.Lane(b).OrPanic("b"))
+	require.Equal(t, LaneID{Validator: d, Joined: 0}, c0.Lane(d).OrPanic("d"))
+	require.Equal(t, uint64(1), c0.Weight(a))
+	require.Equal(t, uint64(1), c0.Weight(b))
+	require.Equal(t, uint64(1), c0.Weight(d))
+	require.False(t, c0.HasLane(LaneID{Validator: c, Joined: 0}))
+	requireLanesSorted(t, c0)
+
+	// Epoch 1: A, B, D remain (Joined stays 0); A and D weights increase.
+	c1, err := c0.DeriveNext(map[PublicKey]uint64{a: 2, b: 1, d: 3}, 1)
+	require.NoError(t, err)
+	require.Equal(t, LaneID{Validator: a, Joined: 0}, c1.Lane(a).OrPanic("a"))
+	require.Equal(t, LaneID{Validator: b, Joined: 0}, c1.Lane(b).OrPanic("b"))
+	require.Equal(t, LaneID{Validator: d, Joined: 0}, c1.Lane(d).OrPanic("d"))
+	require.Equal(t, uint64(2), c1.Weight(a))
+	require.Equal(t, uint64(1), c1.Weight(b))
+	require.Equal(t, uint64(3), c1.Weight(d))
+	requireLanesSorted(t, c1)
+
+	// Epoch 2: B and D leave; C joins with Joined=2; A remains with weight decreased.
+	c2, err := c1.DeriveNext(map[PublicKey]uint64{a: 1, c: 4}, 2)
+	require.NoError(t, err)
+	require.Equal(t, LaneID{Validator: a, Joined: 0}, c2.Lane(a).OrPanic("a"))
+	require.Equal(t, LaneID{Validator: c, Joined: 2}, c2.Lane(c).OrPanic("c"))
+	require.Equal(t, uint64(1), c2.Weight(a))
+	require.Equal(t, uint64(4), c2.Weight(c))
+	require.Equal(t, uint64(0), c2.Weight(b))
+	require.False(t, c2.HasLane(LaneID{Validator: b, Joined: 0}))
+	require.False(t, c2.HasLane(LaneID{Validator: d, Joined: 0}))
+	require.False(t, c2.HasReplica(b))
+	requireLanesSorted(t, c2)
+
+	// Epoch 3: D rejoins with Joined=3; C weight decreases; A weight increases.
+	c3, err := c2.DeriveNext(map[PublicKey]uint64{a: 5, c: 2, d: 1}, 3)
+	require.NoError(t, err)
+	require.Equal(t, LaneID{Validator: a, Joined: 0}, c3.Lane(a).OrPanic("a"))
+	require.Equal(t, LaneID{Validator: c, Joined: 2}, c3.Lane(c).OrPanic("c"))
+	require.Equal(t, LaneID{Validator: d, Joined: 3}, c3.Lane(d).OrPanic("d"))
+	require.Equal(t, uint64(5), c3.Weight(a))
+	require.Equal(t, uint64(2), c3.Weight(c))
+	require.Equal(t, uint64(1), c3.Weight(d))
+	require.False(t, c3.HasLane(LaneID{Validator: d, Joined: 0}))
+	requireLanesSorted(t, c3)
 }

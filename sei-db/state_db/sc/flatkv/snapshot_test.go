@@ -53,7 +53,7 @@ func TestSnapshotCreatesDir(t *testing.T) {
 
 	// Verify snapshot directory exists with all 4 DB subdirs
 	snapDir := filepath.Join(flatkvDir, snapshotName(1))
-	for _, sub := range snapshotDBDirs {
+	for _, sub := range dataDBDirs {
 		info, err := os.Stat(filepath.Join(snapDir, sub))
 		require.NoError(t, err, "subdir %s should exist", sub)
 		require.True(t, info.IsDir())
@@ -272,57 +272,6 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 	_ = s.Close()
 }
 
-func TestMigrationFromFlatLayout(t *testing.T) {
-	dir := t.TempDir()
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
-
-	// Simulate the old flat layout by creating DB dirs directly
-	for _, sub := range []string{accountDBDir, codeDBDir, storageDBDir, metadataDir, miscDBDir} {
-		dbPath := filepath.Join(flatkvDir, sub)
-		require.NoError(t, os.MkdirAll(dbPath, 0750))
-		// Create an actual PebbleDB so Open works
-		cfg := pebbledb.DefaultTestConfig(t)
-		cfg.DataDir = dbPath
-		db, err := pebbledb.Open(t.Context(), &cfg)
-		require.NoError(t, err)
-		require.NoError(t, db.Close())
-	}
-
-	// Ensure no current symlink exists
-	_, err := os.Lstat(currentPath(flatkvDir))
-	require.True(t, os.IsNotExist(err))
-
-	// Open the store - should trigger migration
-	cfg := config.DefaultTestConfig(t)
-	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
-	defer s.Close()
-
-	// current symlink should now exist
-	target, err := os.Readlink(currentPath(flatkvDir))
-	require.NoError(t, err)
-	require.Equal(t, snapshotName(0), target)
-
-	// The old flat dirs should be gone (moved into the snapshot)
-	for _, sub := range snapshotDBDirs {
-		_, err := os.Stat(filepath.Join(flatkvDir, sub))
-		require.True(t, os.IsNotExist(err), "flat dir %s should have been moved", sub)
-	}
-
-	// The snapshot dir should have the DB subdirs
-	snapDir := filepath.Join(flatkvDir, snapshotName(0))
-	for _, sub := range snapshotDBDirs {
-		info, err := os.Stat(filepath.Join(snapDir, sub))
-		require.NoError(t, err)
-		require.True(t, info.IsDir())
-	}
-
-	require.Equal(t, int64(0), s.Version())
-}
-
 func TestOpenVersionValidation(t *testing.T) {
 	dir := t.TempDir()
 
@@ -337,22 +286,13 @@ func TestOpenVersionValidation(t *testing.T) {
 	commitStorageEntry(t, s1, ktype.Address{0x60}, ktype.Slot{0x01}, []byte{0x11})
 	commitStorageEntry(t, s1, ktype.Address{0x60}, ktype.Slot{0x02}, []byte{0x22})
 	hashAtV2 := s1.RootHash()
+
+	// Phase 2: rewind one DB's version record to simulate an incomplete commit — accountDB reads as
+	// v1 while every other DB and the WAL are at v2. The rewind goes into the working dir, which is
+	// what the next open reads; tampering with the snapshot instead has no effect, because
+	// SNAPSHOT_BASE still matches and the working dir is reused rather than re-cloned.
+	rewindVersionRecords(t, s1, 1, accountDBDir)
 	require.NoError(t, s1.Close())
-
-	// Phase 2: tamper with one DB's local meta to simulate an incomplete commit
-	// (accountDB thinks it's at v1, but global says v2)
-	flatkvDir := filepath.Join(dir, flatkvRootDir)
-	snapDir, _, err := currentSnapshotDir(flatkvDir)
-	require.NoError(t, err)
-
-	accountDBPath := filepath.Join(snapDir, accountDBDir)
-	acctCfg := pebbledb.DefaultConfig()
-	acctCfg.DataDir = accountDBPath
-	acctCfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &acctCfg)
-	require.NoError(t, err)
-	require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
-	require.NoError(t, db.Close())
 
 	// Phase 3: reopen - should detect skew and catchup
 	cfg = config.DefaultTestConfig(t)
@@ -966,7 +906,7 @@ func TestCreateWorkingDirReusesExisting(t *testing.T) {
 	dir := t.TempDir()
 
 	snapDir := filepath.Join(dir, snapshotName(5))
-	for _, sub := range snapshotDBDirs {
+	for _, sub := range dataDBDirs {
 		require.NoError(t, os.MkdirAll(filepath.Join(snapDir, sub), 0750))
 	}
 
@@ -988,7 +928,7 @@ func TestCreateWorkingDirReclones(t *testing.T) {
 
 	snap5 := filepath.Join(dir, snapshotName(5))
 	snap10 := filepath.Join(dir, snapshotName(10))
-	for _, sub := range snapshotDBDirs {
+	for _, sub := range dataDBDirs {
 		require.NoError(t, os.MkdirAll(filepath.Join(snap5, sub), 0750))
 		require.NoError(t, os.MkdirAll(filepath.Join(snap10, sub), 0750))
 	}
@@ -1059,6 +999,35 @@ func TestPruneSnapshotsKeepAll(t *testing.T) {
 	require.Equal(t, 4, count, "all snapshots should be kept when KeepRecent is large")
 }
 
+func TestPruneSnapshotsIgnoresSnapshotsAboveCurrent(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+	cfg.SnapshotKeepRecent = 2
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	defer s.Close()
+
+	// snapshot-40 is what a rollback that could not finish leaves behind. Pruning runs against a directory of
+	// its own so that remnant is the only thing separating this layout from a healthy one.
+	dir := t.TempDir()
+	planted := []int64{10, 20, 30, 40}
+	for _, v := range planted {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+
+	require.Equal(t, 0, s.pruneSnapshotsByCount(dir, 30),
+		"only 10 and 20 sit below the current version, and KeepRecent=2 covers both")
+
+	var remaining []int64
+	require.NoError(t, traverseSnapshots(dir, true, func(v int64) (bool, error) {
+		remaining = append(remaining, v)
+		return false, nil
+	}))
+	require.Equal(t, planted, remaining,
+		"snapshot-40 must not take a keep slot and evict snapshot-10, which rollback still needs as a base")
+}
+
 // =============================================================================
 // Orphan snapshot recovery
 // =============================================================================
@@ -1068,7 +1037,7 @@ func TestOrphanSnapshotRecovery(t *testing.T) {
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 
 	snapDir := filepath.Join(flatkvDir, snapshotName(5))
-	for _, sub := range snapshotDBDirs {
+	for _, sub := range dataDBDirs {
 		require.NoError(t, os.MkdirAll(filepath.Join(snapDir, sub), 0750))
 	}
 
@@ -1183,6 +1152,87 @@ func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
 	require.Contains(t, afterRollback, int64(3))
 
 	require.NoError(t, s.Close())
+}
+
+func TestRemoveSnapshotsAboveKeepsTargetAndBelow(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []int64{3, 5, 7, 9} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+
+	require.NoError(t, removeSnapshotsAbove(dir, 5))
+
+	var remaining []int64
+	require.NoError(t, traverseSnapshots(dir, true, func(v int64) (bool, error) {
+		remaining = append(remaining, v)
+		return false, nil
+	}))
+	require.Equal(t, []int64{3, 5}, remaining, "the snapshot sitting on the target is kept")
+}
+
+func TestRemoveSnapshotsAboveReportsEveryFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, which is not stopped by the directory permissions this test relies on")
+	}
+
+	dir := t.TempDir()
+	for _, v := range []int64{3, 7, 9} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
+	}
+
+	// atomicRemoveDir renames the snapshot within this directory, so withholding write permission on it is
+	// what makes the removal fail. Restore it before t.TempDir's own cleanup, which runs after this one.
+	require.NoError(t, os.Chmod(dir, 0555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0750) })
+
+	err := removeSnapshotsAbove(dir, 5)
+	require.Error(t, err, "a snapshot above the target that survives must not be reported as a clean rollback")
+	require.Contains(t, err.Error(), "remove snapshot 7", "the first failure must be named")
+	require.Contains(t, err.Error(), "remove snapshot 9",
+		"failing on 7 must not hide 9: the caller reconciles from the whole list, not the first name")
+}
+
+// TestRollbackReportsUnremovableSnapshotWithoutRewinding pins the ordering that makes the error safe to act
+// on. Removing snapshots above the target runs before the WAL is pruned, so a failure there means the
+// rollback did not take effect and every caller that skips its post-rollback bookkeeping on error is right
+// to — `seid rollback` most of all, since it rewinds the app before Tendermint.
+func TestRollbackReportsUnremovableSnapshotWithoutRewinding(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, which is not stopped by the directory permissions this test relies on")
+	}
+
+	dir := t.TempDir()
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	defer func() { _ = s.Close() }()
+
+	for i := 0; i < 3; i++ {
+		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+	require.NoError(t, s.WriteSnapshot(""))
+	for i := 3; i < 6; i++ {
+		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
+	}
+	require.NoError(t, s.WriteSnapshot("")) // snapshot-6, above the rollback target below
+
+	// atomicRemoveDir renames snapshot-6 onto this trash name before unlinking it, so an undeletable
+	// directory already sitting there fails that rename. Restore permissions before t.TempDir's own cleanup,
+	// which runs after this one.
+	blocker := filepath.Join(cfg.DataDir, snapshotName(6)+removingSuffix)
+	require.NoError(t, os.MkdirAll(blocker, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(blocker, "occupied"), []byte("x"), 0600))
+	require.NoError(t, os.Chmod(blocker, 0555))
+	t.Cleanup(func() { _ = os.Chmod(blocker, 0750) })
+
+	err = s.Rollback(5)
+	require.Error(t, err, "Rollback must not report success while a snapshot above the target is still on disk")
+	require.Contains(t, err.Error(), "remove snapshot 6")
+
+	require.Contains(t, walBlockNumbers(t, s), uint64(6),
+		"the WAL must be untouched, so a restart can replay back to the old tail and the rollback be retried")
 }
 
 // =============================================================================
@@ -1611,51 +1661,6 @@ func TestSingleDBOpenFailure(t *testing.T) {
 }
 
 // =============================================================================
-// Global Metadata Corruption (W-P3-2)
-// =============================================================================
-
-func TestGlobalMetadataCorruption(t *testing.T) {
-	dir := t.TempDir()
-	dbDir := filepath.Join(dir, flatkvRootDir)
-
-	cfg := config.DefaultConfig()
-	cfg.DataDir = dbDir
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
-	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
-	require.NoError(t, s.WriteSnapshot(""))
-	require.NoError(t, s.Close())
-
-	workingMeta := filepath.Join(dbDir, "working", metadataDir)
-	metaCfg := pebbledb.DefaultConfig()
-	metaCfg.DataDir = workingMeta
-	metaCfg.EnableMetrics = false
-	db, err := pebbledb.Open(context.Background(), &metaCfg)
-	require.NoError(t, err)
-	require.NoError(t, db.Set(ktype.MetaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
-	require.NoError(t, db.Close())
-
-	snapMeta := filepath.Join(dbDir, snapshotName(1), metadataDir)
-	metaCfg2 := pebbledb.DefaultConfig()
-	metaCfg2.DataDir = snapMeta
-	metaCfg2.EnableMetrics = false
-	db2, err := pebbledb.Open(context.Background(), &metaCfg2)
-	require.NoError(t, err)
-	require.NoError(t, db2.Set(ktype.MetaVersionKey, []byte{0xFF, 0xFF, 0xFF}, types.WriteOptions{Sync: true}))
-	require.NoError(t, db2.Close())
-	_ = os.Remove(filepath.Join(dbDir, "working", snapshotBaseFile))
-
-	cfg2 := config.DefaultConfig()
-	cfg2.DataDir = dbDir
-	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
-	require.NoError(t, err)
-	err = s2.LoadLatest()
-	require.Error(t, err, "open should fail when global metadata is corrupted")
-}
-
-// =============================================================================
 // WAL Directory Deleted (W-P3-5)
 // =============================================================================
 
@@ -1740,7 +1745,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	require.NoError(t, err)
 	err = s2.LoadLatest()
 	require.Error(t, err, "open should fail when meta version is corrupted")
-	require.Contains(t, err.Error(), "invalid meta version length")
+	require.Contains(t, err.Error(), "invalid _meta/version length")
 }
 
 // TestWALSegmentCorruption simulates WAL data loss caused by segment corruption.
@@ -1762,11 +1767,11 @@ func TestWALSegmentCorruption(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB}) // v2
 	require.NoError(t, s.Close())
 
-	// Simulate crash between commitBatches (v2 written) and commitGlobalMetadata:
-	// rewind global version to v1 so catchup needs to replay v2 from WAL.
-	workingMeta := filepath.Join(dbDir, "working", metadataDir)
+	// Simulate a torn commit: rewind accountDB's version record to v1 so the
+	// store's watermark drops to v1 and catchup needs to replay v2 from the WAL.
+	workingAccount := filepath.Join(dbDir, "working", accountDBDir)
 	metaCfg := pebbledb.DefaultConfig()
-	metaCfg.DataDir = workingMeta
+	metaCfg.DataDir = workingAccount
 	metaCfg.EnableMetrics = false
 	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
 	require.NoError(t, err)
@@ -1792,7 +1797,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	}
 	require.Greater(t, corrupted, 0, "should have found at least one WAL segment to corrupt")
 
-	// Request version 2: global says v1, WAL auto-truncated (empty), can't catchup to v2.
+	// Request version 2: the watermark says v1, the WAL auto-truncated (empty), so v2 is unreachable.
 	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
 	s2, err := newCommitStoreWithWAL(context.Background(), cfg2)
@@ -1897,9 +1902,9 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	hashAtV2 := s.RootHash()
 	require.NoError(t, s.Close())
 
-	// Simulate crash: rewind global version to v1 so catchup must replay v2
+	// Simulate a torn commit: rewind accountDB's version record to v1 so catchup must replay v2
 	metaCfg := pebbledb.DefaultTestConfig(t)
-	metaCfg.DataDir = filepath.Join(dbDir, "working", metadataDir)
+	metaCfg.DataDir = filepath.Join(dbDir, "working", accountDBDir)
 	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
 	require.NoError(t, err)
 	versionBuf := make([]byte, 8)

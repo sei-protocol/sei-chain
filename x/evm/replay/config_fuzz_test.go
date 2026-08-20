@@ -55,6 +55,11 @@ func FuzzReadConfig(f *testing.F) {
 	seeds.AddRow(uint(3), fuzzing.KindBoolString, "", int64(0), true)
 	seeds.AddRow(uint(1), fuzzing.KindAnySlice, "", int64(0), false)
 	seeds.AddRow(uint(0), fuzzing.KindString, "enabled", int64(0), false)
+	// contract_state_checks is a bool cast, so a word reaches its error path.
+	seeds.AddRow(uint(3), fuzzing.KindString, "sometimes", int64(0), false)
+	// eth_data_dir is a string cast, and cast.ToStringE accepts every scalar, so only a non-scalar
+	// shape is malformed for it.
+	seeds.AddRow(uint(2), fuzzing.KindStringSlice, "", int64(0), false)
 	seeds.AddRow(uint(2), fuzzing.KindNil, "", int64(0), false)
 
 	configtest.CheckEveryRowHasADiscriminatingSeed(f, "eth_replay", readETHReplay, ethReplayKeys, seeds)

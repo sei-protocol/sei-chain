@@ -26,7 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -206,7 +205,6 @@ func filterTransactions(
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
 	includeSyntheticTxs bool,
-	includeBankTransfers bool,
 	cacheCreationMutex *sync.Mutex,
 	globalBlockCache BlockCache,
 ) []indexedMsg {
@@ -257,11 +255,6 @@ func filterTransactions(
 				th := sha256.Sum256(block.Block.Txs[i])
 				_, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
 				if !found {
-					continue
-				}
-				txs = append(txs, indexedMsg{index: i, msg: msg})
-			case *banktypes.MsgSend:
-				if !includeBankTransfers {
 					continue
 				}
 				txs = append(txs, indexedMsg{index: i, msg: msg})
@@ -334,7 +327,7 @@ func getTxHashesFromBlock(
 	globalBlockCache BlockCache,
 ) []typedTxHash {
 	txHashes := []typedTxHash{}
-	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false, cacheCreationMutex, globalBlockCache) {
+	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, cacheCreationMutex, globalBlockCache) {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
@@ -353,28 +346,6 @@ func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 	}
 	return receipt.EffectiveGasPrice == 0 && (strings.Contains(receipt.VmError, core.ErrNonceTooHigh.Error()) ||
 		strings.Contains(receipt.VmError, core.ErrNonceTooLow.Error()))
-}
-
-// isReceiptUntraceable returns true if the receipt represents a tx whose
-// trace would be empty or meaningless. Shared discriminator used by the
-// legacy sei tx and block *ExcludeTraceFail endpoints so they filter the same set.
-//
-//   - TxType == ShellEVMTxType: chain-generated synthetic, no real EVM
-//     execution. app/receipt.go writes these for wasm txs to surface CW20
-//     events on the EVM side; they have no trace.
-//   - EffectiveGasPrice == 0 && GasUsed == 0: ante-deferred stub receipt
-//     from x/evm/keeper/abci.go — the tx bumped its nonce in ante but
-//     never reached the VM. WriteReceipt for any executed tx sets both
-//     fields > 0 (intrinsic gas at minimum, msg.GasPrice for the fee on
-//     a chain with positive min fee), so reverts and OOG pass through.
-//
-// This is intentionally narrower than isReceiptFromAnteError's
-// post-v5.8.0 branch: that helper is tuned to keep insufficient-funds
-// receipts visible to the regular eth_getBlockBy* endpoints (per
-// PR #2343). *ExcludeTraceFail wants the opposite per evmrpc/README.md.
-func isReceiptUntraceable(receipt *types.Receipt) bool {
-	return receipt.TxType == types.ShellEVMTxType ||
-		(receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0)
 }
 
 type ParallelRunner struct {

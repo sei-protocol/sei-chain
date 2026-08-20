@@ -15,4 +15,6 @@ var (
 	ErrReceiveDisabled         = sdkerrors.Register(ModuleName, 8, "fungible token transfers to this chain are disabled")
 	ErrMaxTransferChannels     = sdkerrors.Register(ModuleName, 9, "max transfer channels")
 	ErrInvalidMemo             = sdkerrors.Register(ModuleName, 10, "invalid memo")
+	// ErrTransferDeprecated indicates that the transfer module is deprecated.
+	ErrTransferDeprecated = sdkerrors.Register(ModuleName, 11, "transfer module is deprecated")
 )

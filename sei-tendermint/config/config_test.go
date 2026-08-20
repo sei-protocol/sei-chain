@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -19,6 +19,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.NotNil(t, cfg.P2P)
 	assert.NotNil(t, cfg.Mempool)
 	assert.NotNil(t, cfg.Consensus)
+	assert.False(t, cfg.FastCheckTx)
 
 	// check the root dir stuff...
 	cfg.SetRoot("/foo")
@@ -33,9 +34,19 @@ func TestConfigValidateBasic(t *testing.T) {
 	cfg := DefaultConfig()
 	assert.NoError(t, cfg.ValidateBasic())
 
-	// tamper with unsafe-propose-timeout-override
-	cfg.Consensus.UnsafeProposeTimeoutOverride = -10 * time.Second
+	// tamper with create-empty-blocks-interval
+	cfg.Consensus.CreateEmptyBlocksInterval = -10 * time.Second
 	assert.Error(t, cfg.ValidateBasic())
+}
+
+// Asserts Config.ValidateBasic routes the [p2p] section, not merely that the
+// section's own checks work.
+func TestConfigValidateBasicRoutesP2P(t *testing.T) {
+	cfg := DefaultConfig()
+	require.NoError(t, cfg.ValidateBasic())
+
+	cfg.P2P.AcceptInterval = -1
+	require.Error(t, cfg.ValidateBasic())
 }
 
 func TestTLSConfiguration(t *testing.T) {
@@ -125,21 +136,11 @@ func TestConsensusConfig_ValidateBasic(t *testing.T) {
 		modify    func(*ConsensusConfig)
 		expectErr bool
 	}{
-		"UnsafeProposeTimeoutOverride":               {func(c *ConsensusConfig) { c.UnsafeProposeTimeoutOverride = time.Second }, false},
-		"UnsafeProposeTimeoutOverride negative":      {func(c *ConsensusConfig) { c.UnsafeProposeTimeoutOverride = -1 }, true},
-		"UnsafeProposeTimeoutDeltaOverride":          {func(c *ConsensusConfig) { c.UnsafeProposeTimeoutDeltaOverride = time.Second }, false},
-		"UnsafeProposeTimeoutDeltaOverride negative": {func(c *ConsensusConfig) { c.UnsafeProposeTimeoutDeltaOverride = -1 }, true},
-		"UnsafePrevoteTimeoutOverride":               {func(c *ConsensusConfig) { c.UnsafeVoteTimeoutOverride = time.Second }, false},
-		"UnsafePrevoteTimeoutOverride negative":      {func(c *ConsensusConfig) { c.UnsafeVoteTimeoutOverride = -1 }, true},
-		"UnsafePrevoteTimeoutDeltaOverride":          {func(c *ConsensusConfig) { c.UnsafeVoteTimeoutDeltaOverride = time.Second }, false},
-		"UnsafePrevoteTimeoutDeltaOverride negative": {func(c *ConsensusConfig) { c.UnsafeVoteTimeoutDeltaOverride = -1 }, true},
-		"UnsafeCommitTimeoutOverride":                {func(c *ConsensusConfig) { c.UnsafeCommitTimeoutOverride = time.Second }, false},
-		"UnsafeCommitTimeoutOverride negative":       {func(c *ConsensusConfig) { c.UnsafeCommitTimeoutOverride = -1 }, true},
-		"PeerGossipSleepDuration":                    {func(c *ConsensusConfig) { c.PeerGossipSleepDuration = time.Second }, false},
-		"PeerGossipSleepDuration negative":           {func(c *ConsensusConfig) { c.PeerGossipSleepDuration = -1 }, true},
-		"PeerQueryMaj23SleepDuration":                {func(c *ConsensusConfig) { c.PeerQueryMaj23SleepDuration = time.Second }, false},
-		"PeerQueryMaj23SleepDuration negative":       {func(c *ConsensusConfig) { c.PeerQueryMaj23SleepDuration = -1 }, true},
-		"DoubleSignCheckHeight negative":             {func(c *ConsensusConfig) { c.DoubleSignCheckHeight = -1 }, true},
+		"PeerGossipSleepDuration":              {func(c *ConsensusConfig) { c.PeerGossipSleepDuration = time.Second }, false},
+		"PeerGossipSleepDuration negative":     {func(c *ConsensusConfig) { c.PeerGossipSleepDuration = -1 }, true},
+		"PeerQueryMaj23SleepDuration":          {func(c *ConsensusConfig) { c.PeerQueryMaj23SleepDuration = time.Second }, false},
+		"PeerQueryMaj23SleepDuration negative": {func(c *ConsensusConfig) { c.PeerQueryMaj23SleepDuration = -1 }, true},
+		"DoubleSignCheckHeight negative":       {func(c *ConsensusConfig) { c.DoubleSignCheckHeight = -1 }, true},
 	}
 	for desc, tc := range testcases {
 		t.Run(desc, func(t *testing.T) {
@@ -157,18 +158,6 @@ func TestConsensusConfig_ValidateBasic(t *testing.T) {
 }
 
 func TestConsensusConfigResolveTimeouts(t *testing.T) {
-	overrides := func(enabled bool, bypass *bool) *ConsensusConfig {
-		cfg := DefaultConsensusConfig()
-		cfg.UnsafeOverridesEnabled = enabled
-		cfg.UnsafeProposeTimeoutOverride = 9 * time.Second
-		cfg.UnsafeProposeTimeoutDeltaOverride = 8 * time.Second
-		cfg.UnsafeVoteTimeoutOverride = 7 * time.Second
-		cfg.UnsafeVoteTimeoutDeltaOverride = 6 * time.Second
-		cfg.UnsafeCommitTimeoutOverride = 5 * time.Second
-		cfg.UnsafeBypassCommitTimeoutOverride = bypass
-		return cfg
-	}
-
 	onchain := func(bypass bool) types.TimeoutParams {
 		return types.TimeoutParams{
 			Propose:             2 * time.Second,
@@ -179,17 +168,6 @@ func TestConsensusConfigResolveTimeouts(t *testing.T) {
 			BypassCommitTimeout: bypass,
 		}
 	}
-	overridden := func(bypass bool) types.TimeoutParams {
-		return types.TimeoutParams{
-			Propose:             9 * time.Second,
-			ProposeDelta:        8 * time.Second,
-			Vote:                7 * time.Second,
-			VoteDelta:           6 * time.Second,
-			Commit:              5 * time.Second,
-			BypassCommitTimeout: bypass,
-		}
-	}
-
 	testCases := []struct {
 		name     string
 		cfg      *ConsensusConfig
@@ -197,12 +175,8 @@ func TestConsensusConfigResolveTimeouts(t *testing.T) {
 		expected types.TimeoutParams
 	}{
 		{"fills defaults", DefaultConsensusConfig(), types.TimeoutParams{}, types.DefaultTimeoutParams()},
-		{"disabled ignores overrides for non-legacy params", overrides(false, utils.Alloc(true)), onchain(false), onchain(false)},
-		{"disabled preserves legacy override behavior", overrides(false, utils.Alloc(true)), badParams, overridden(true)},
-		{"enabled applies overrides", overrides(true, utils.Alloc(false)), onchain(false), overridden(false)},
-		{"nil bypass override keeps resolved false", overrides(true, nil), onchain(false), overridden(false)},
-		{"nil bypass override keeps resolved true", overrides(true, nil), onchain(true), overridden(true)},
-		{"false bypass override clears true", overrides(true, utils.Alloc(false)), onchain(true), overridden(false)},
+		{"keeps chain params", DefaultConsensusConfig(), onchain(false), onchain(false)},
+		{"keeps chain bypass", DefaultConsensusConfig(), onchain(true), onchain(true)},
 	}
 
 	for _, tc := range testCases {
@@ -230,6 +204,8 @@ func TestP2PConfigValidateBasic(t *testing.T) {
 		"MaxPacketMsgPayloadSize",
 		"SendRate",
 		"RecvRate",
+		"DialInterval",
+		"AcceptInterval",
 	}
 
 	for _, fieldName := range fieldsToTest {
@@ -237,6 +213,21 @@ func TestP2PConfigValidateBasic(t *testing.T) {
 		assert.Error(t, cfg.ValidateBasic())
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(0)
 	}
+}
+
+// Pins the accept-interval default exactly, so changing it is deliberate and
+// visible in the diff.
+func TestP2PConfigAcceptInterval(t *testing.T) {
+	cfg := DefaultP2PConfig()
+	require.NoError(t, cfg.ValidateBasic())
+
+	require.Equal(t, 10*time.Millisecond, cfg.AcceptInterval)
+
+	// A zero interval is the documented escape hatch for disabling the limiter
+	// outright, and must stay valid rather than becoming a zero rate.
+	cfg.AcceptInterval = 0
+	require.NoError(t, cfg.ValidateBasic())
+	require.Equal(t, rate.Inf, rate.Every(cfg.AcceptInterval))
 }
 
 // --- WalFile legacy fallback tests ---

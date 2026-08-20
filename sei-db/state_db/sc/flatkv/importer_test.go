@@ -101,6 +101,36 @@ func TestKVImporter_EmptyModuleNameRejected(t *testing.T) {
 	require.Contains(t, err.Error(), "empty module name")
 }
 
+func TestKVImporter_EmptyPhysicalValueRejected(t *testing.T) {
+	tests := []struct {
+		name  string
+		value []byte
+	}{
+		{name: "nil", value: nil},
+		{name: "zero-length", value: []byte{}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, imp := newKVImporterForTest(t, 1)
+			defer func() { require.NoError(t, s.Close()) }()
+
+			imp.AddNode(&types.SnapshotNode{
+				Key:     ktype.ModulePhysicalKey("bank", []byte("empty-marker")),
+				Value:   tc.value,
+				Version: 1,
+			})
+
+			require.Error(t, imp.Err())
+			require.Contains(t, imp.Err().Error(), "empty physical value")
+
+			err := imp.Close()
+			require.ErrorIs(t, err, imp.Err())
+			require.Zero(t, s.Version(), "failed import must not advance the committed version")
+		})
+	}
+}
+
 // TestKVImporter_ErrLifecycle locks in the contract that Err() returns the
 // first pipeline error as soon as it propagates, before Close is invoked.
 // This is the path the seidb tool relies on to short-circuit a failing import

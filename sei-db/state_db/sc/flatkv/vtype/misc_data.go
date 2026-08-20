@@ -126,7 +126,8 @@ func (l *MiscData) SetValue(value []byte) *MiscData {
 	if l == nil {
 		l = NewMiscData()
 	}
-	l.value = append([]byte(nil), value...)
+	l.value = make([]byte, len(value))
+	copy(l.value, value)
 	l.isDelete = false
 	return l
 }

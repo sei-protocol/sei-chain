@@ -1,0 +1,10 @@
+node_modules/
+# Hardhat output only; vendored artifacts under vendor/ are tracked.
+/artifacts/
+/cache/
+typechain-types/
+.env
+runtime/replay/
+runtime/replay-deployments/
+runtime/replay-users/
+*.log
