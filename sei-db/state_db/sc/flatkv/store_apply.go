@@ -12,9 +12,9 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// ApplyChangeSets writes one block's changes into the four data stores and folds them into the
-// working LtHash. Non-EVM modules go to miscDB under "<module>/". Each value records version as the
-// height it was last modified at; the same version must be passed to the subsequent Commit.
+// ApplyChangeSets writes one block's changes into the four data stores. Non-EVM modules go to miscDB
+// under "<module>/". Each value records version as the height it was last modified at; the same version
+// must be passed to the subsequent Commit, which is what folds the block into the LtHash.
 func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedChangeSet) error {
 	// The read-only refusal belongs here rather than in applyChangeSets, which a read-only store reaches
 	// legitimately: building a view at a past height replays the primary's WAL through the same apply path.

@@ -84,13 +84,16 @@ type CommitStore struct {
 	// hash. It does not move until a Commit has succeeded on all four stores.
 	committedLtHash *lthash.LtHash
 
-	// The root LtHash including the block currently being applied. ApplyChangeSets folds each change
-	// into it as it goes, and Commit copies it into committedLtHash once the seal succeeds.
+	// The root LtHash including the most recently sealed block. Commit folds that block in and then copies
+	// the result into committedLtHash. Writes buffered by ApplyChangeSets are not reflected here until
+	// that seal, so a block still being applied has no hash.
 	//
 	// LtHash is homomorphic: a new value is mixed in and the value it replaced is mixed out, in any
-	// order. That is what lets this be maintained incrementally instead of recomputed per block, and it
-	// is the property that will eventually allow hashing to move off the execution thread — a Merkle
-	// root could not be deferred that way.
+	// order. That is what lets a block be folded in from its own changed values rather than by re-hashing
+	// all of state, and it is the property that will eventually allow hashing to move off the execution
+	// thread — a Merkle root could not be deferred that way. The seal is what supplies those changed
+	// values, as the diff of the block's snapshot against the previous one, which is why there is no hash
+	// before it.
 	workingLtHash *lthash.LtHash
 
 	// Per-DB working LTHash tracking. Authoritative copies live in each

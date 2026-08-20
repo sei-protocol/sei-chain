@@ -894,28 +894,6 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 		"post-flip memiavl evm tree must remain empty (EVM writes route to flatkv)")
 }
 
-// cloneCommitInfo deep-copies a *proto.CommitInfo so a captured snapshot
-// survives later commits / reopens that mutate the live store.
-func cloneCommitInfo(ci *proto.CommitInfo) *proto.CommitInfo {
-	if ci == nil {
-		return nil
-	}
-	out := &proto.CommitInfo{
-		Version:    ci.Version,
-		StoreInfos: make([]proto.StoreInfo, len(ci.StoreInfos)),
-	}
-	for i, si := range ci.StoreInfos {
-		out.StoreInfos[i] = proto.StoreInfo{
-			Name: si.Name,
-			CommitId: proto.CommitID{
-				Version: si.CommitId.Version,
-				Hash:    append([]byte(nil), si.CommitId.Hash...),
-			},
-		}
-	}
-	return out
-}
-
 // requireCommitInfoEqual asserts two commit infos carry the same version
 // and the same per-store hashes. It compares name->hex maps so a failure
 // names exactly which store (e.g. evm_lattice vs a memiavl module)

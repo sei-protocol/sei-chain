@@ -98,6 +98,15 @@ type CompositeCommitStore struct {
 	// shouldIncludeMemiavlInfos for the gating rules.
 	memiavlHashExcluded atomic.Bool
 
+	// lastCommitInfo is the commit info for the block the backends last committed, rebuilt by
+	// refreshLastCommitInfo at each point the committed height moves. Nil until the store is loaded.
+	//
+	// It is stored rather than derived per call because the backends are only on the same block at those
+	// moments: sealing a block on flatkv to hash it advances flatkv while memiavl stays behind until
+	// Commit, so combining their current metadata in that window describes half of one block and half of
+	// the next.
+	lastCommitInfo *proto.CommitInfo
+
 	// migrationBatchSize is the governance-controlled number of keys to
 	// migrate per block, pushed in via SetMigrationBatchSize (the app reads
 	// the NumKeysToMigratePerBlock gov param each BeginBlock and forwards it
@@ -304,6 +313,11 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 			return fmt.Errorf("flatkv SetInitialVersion: %w", err)
 		}
 	}
+	// Seeding moves the committed height, so it refreshes for the same reason every other height move
+	// does. No commit info observed here actually changes — memiavl reports its pre-commit version either
+	// way and a seeded flatkv still hashes to the identity — so this is the rule holding uniformly rather
+	// than a case with a test behind it.
+	cs.refreshLastCommitInfo()
 	return nil
 }
 
@@ -379,7 +393,13 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 	if err := cs.resolveCurrentWriteMode(true); err != nil {
 		return fmt.Errorf("failed to resolve write mode: %w", err)
 	}
-	return cs.buildRouter()
+	if err := cs.buildRouter(); err != nil {
+		return err
+	}
+	// After the router, because the gating this reads gets its answer from migration metadata through
+	// the backends the router was just built against.
+	cs.refreshLastCommitInfo()
+	return nil
 }
 
 // LoadVersionReadOnly returns an isolated read-only composite view at targetVersion (0 = latest). This store
@@ -448,6 +468,7 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 	if err := ro.buildRouter(); err != nil {
 		return nil, fmt.Errorf("failed to build router for read-only handle: %w", err)
 	}
+	ro.refreshLastCommitInfo()
 	return ro, nil
 }
 
@@ -795,19 +816,23 @@ func (cs *CompositeCommitStore) Commit(version int64) (int64, error) {
 	// this preserves.
 	cs.migrationAdvancedThisCommit = false
 
-	if cosmosVersion >= 0 && flatkvVersion >= 0 {
-		if cosmosVersion != flatkvVersion {
-			return 0, fmt.Errorf("cosmos and flatkv version mismatch after commit: cosmos=%d, flatkv=%d",
-				cosmosVersion, flatkvVersion)
-		}
-		return cosmosVersion, requireCommittedHeight(cosmosVersion, version, neverCommitted)
-	} else if cosmosVersion >= 0 {
-		return cosmosVersion, requireCommittedHeight(cosmosVersion, version, neverCommitted)
-	} else if flatkvVersion >= 0 {
-		return flatkvVersion, requireCommittedHeight(flatkvVersion, version, neverCommitted)
-	} else {
+	if cosmosVersion >= 0 && flatkvVersion >= 0 && cosmosVersion != flatkvVersion {
+		return 0, fmt.Errorf("cosmos and flatkv version mismatch after commit: cosmos=%d, flatkv=%d",
+			cosmosVersion, flatkvVersion)
+	}
+	if cosmosVersion < 0 && flatkvVersion < 0 {
 		return 0, fmt.Errorf("no version committed")
 	}
+
+	// Every active backend has committed this block and they agree on its height, which is the only
+	// moment their combined commit info describes one block.
+	cs.refreshLastCommitInfo()
+
+	committed := cosmosVersion
+	if committed < 0 {
+		committed = flatkvVersion
+	}
+	return committed, requireCommittedHeight(committed, version, neverCommitted)
 }
 
 // requireCommittedHeight rejects a commit that landed on a height other than the one asked for.
@@ -1135,8 +1160,18 @@ func (cs *CompositeCommitStore) flatKVWorkingHash(version int64) []byte {
 	return hash
 }
 
-// LastCommitInfo returns the last commit info
+// LastCommitInfo returns the commit info for the block the backends last committed, or nil before the
+// store is loaded. The result is a copy and may be retained and modified freely.
 func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
+	return cloneCommitInfo(cs.lastCommitInfo)
+}
+
+// refreshLastCommitInfo rebuilds the stored commit info from the backends' current metadata.
+//
+// Every point that moves the committed height must call this: Commit, the two load paths, Rollback and
+// SetInitialVersion. The stored value is the only thing LastCommitInfo reports, so a mutation that
+// skips the call serves a stale block until the next one that does not.
+func (cs *CompositeCommitStore) refreshLastCommitInfo() {
 	var ci *proto.CommitInfo
 	if cs.shouldIncludeMemiavlInfos() {
 		ci = cs.memIAVL.LastCommitInfo()
@@ -1148,9 +1183,34 @@ func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
 
 	if cs.shouldAppendLatticeHash() {
 		hash, _ := cs.flatKV.RootHash()
-		return cs.appendEvmLatticeHash(ci, hash)
+		ci = cs.appendEvmLatticeHash(ci, hash)
 	}
-	return ci
+	// Cloned because this is held until the next refresh, and memiavl's hashes point into a snapshot
+	// mapping it is free to drop before then.
+	cs.lastCommitInfo = cloneCommitInfo(ci)
+}
+
+// cloneCommitInfo deep-copies ci, hashes included, so the result survives a commit or a reopen of the
+// store it came from. The hashes are copied rather than aliased because memiavl's are mmap-backed and
+// the mapping goes away when it swaps snapshots. Returns nil for nil.
+func cloneCommitInfo(ci *proto.CommitInfo) *proto.CommitInfo {
+	if ci == nil {
+		return nil
+	}
+	storeInfos := make([]proto.StoreInfo, len(ci.StoreInfos))
+	for i, si := range ci.StoreInfos {
+		storeInfos[i] = proto.StoreInfo{
+			Name: si.Name,
+			CommitId: proto.CommitID{
+				Version: si.CommitId.Version,
+				Hash:    append([]byte(nil), si.CommitId.Hash...),
+			},
+		}
+	}
+	return &proto.CommitInfo{
+		Version:    ci.Version,
+		StoreInfos: storeInfos,
+	}
 }
 
 // GetChildStoreByName returns the underlying child store by module name.
@@ -1284,6 +1344,10 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 	// Rollback is offline (no commit cycle in flight); clear the per-block
 	// migration-advance gate defensively.
 	cs.migrationAdvancedThisCommit = false
+
+	// After the latch resets above, so the rebuilt info reflects the rolled-back metadata rather than
+	// the gating that was latched at the pre-rollback height.
+	cs.refreshLastCommitInfo()
 
 	return nil
 }
