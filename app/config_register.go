@@ -1,7 +1,9 @@
 package app
 
 import (
+	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/config/registry"
+	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
@@ -16,9 +18,8 @@ const (
 // Registration puts this package's configuration sections in the registry.
 //
 // The owning package registers its own sections, so the struct, the values and the keys come from one
-// place and cannot drift apart. Three of the four declare a schema rather than the type their reader
-// fills, and each says why on the schema itself; the keys still derive from mapstructure tags, so a
-// section's spelling and its reader's own constants stay the same strings.
+// place and cannot drift apart. The keys derive from mapstructure tags, so a section's spelling and its
+// reader's own constants stay the same strings.
 func init() {
 	registry.RegisterSection(LightInvarianceSectionName, &LightInvarianceConfig{}, lightInvarianceDefaults)
 	registry.RegisterSection(GenesisSectionName, &genesisSchema{}, genesisDefaults)
@@ -81,18 +82,18 @@ type stateStoreSchema struct {
 
 // stateStoreDefaults is what this section resolves to for a node that has written nothing.
 //
-// The declared defaults, which is what seid init renders into app.toml, so a generated file reproduces a
-// freshly initialised node.
+// Answered per mode, because two of these settings mean something different depending on what kind of node
+// asks. An archive node exists to keep history, so it keeps every version; a validator and a seed serve no
+// queries, so the store is off for them. Both come from the mode rules the binary already states rather
+// than being written again here, so a change to those rules moves this too.
 //
-// That is not what parseSSConfigs produces for a file missing these keys. It starts from the declared
-// defaults and then assigns eleven of its twelve fields straight from a lookup with no check that the key
-// was present, so an absent key casts to a zero and clobbers the default beside it: the store reads as
-// disabled, with no backend, keeping every version, and committing synchronously. Only ss-snapshot-enable
-// is guarded, and its own comment at the read says why. So a node whose app.toml predates one of the other
-// keys runs the clobbered value today and the declared default once something installs this section, and
-// guarding the remaining reads is what makes those the same thing.
-func stateStoreDefaults(registry.Mode) any {
-	live := config.DefaultStateStoreConfig()
+// This is the one section here whose declared values are not what its reader produces for a file missing
+// the keys, and the divergences are measured rather than described. A test names each one and what a node
+// runs today, so a read that gains a presence check has to account for it.
+func stateStoreDefaults(mode registry.Mode) any {
+	server := srvconfig.DefaultConfig()
+	params.SetAppConfigByMode(server, params.NodeMode(mode))
+	live := server.StateStore
 	return stateStoreSchema{
 		Enable:                 live.Enable,
 		DBDirectory:            live.DBDirectory,
@@ -109,11 +110,11 @@ func stateStoreDefaults(registry.Mode) any {
 	}
 }
 
-// stateCommitFlatKVSchema declares the one flat key-value setting that has a key of its own.
+// stateCommitFlatKVSchema declares the one flat key-value key this package's reader resolves.
 //
-// A nested segment, because the key is state-commit.flatkv.enable-read-write-metrics. The rest of the
-// flat key-value configuration has no keys: nothing reads them from configuration, so declaring them
-// would give an operator settings a written value could not change.
+// A nested segment, because the key is state-commit.flatkv.enable-read-write-metrics. Four further keys
+// under that name are read by the Cosmos server's own configuration reader and not by this one, so they
+// belong to whoever registers that reader's section rather than to this one.
 type stateCommitFlatKVSchema struct {
 	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
 }
@@ -153,14 +154,12 @@ type stateCommitSchema struct {
 
 // stateCommitDefaults is what this section resolves to for a node that has written nothing.
 //
-// The declared defaults, which is what seid init renders into app.toml. Eighteen of parseSCConfigs' twenty
-// reads already check that the key was present, so for those the declared default is also what an absent
-// key resolves to today. The two that do not are sc-enable and sc-directory, and sc-enable is the one that
-// matters: an absent key reads as false, and SetupSeiDB stops a node with state commitment off, so no
-// running node has that key missing. Resolving it to true is what every working node already has written.
+// The declared defaults. Two of them are not what this section's reader produces for a file missing the
+// key, and a test names which two and what a node runs instead.
 //
 // The same values for every mode. How often a node snapshots and how much proof history it serves are
-// decisions about disk and load that an operator writes down.
+// decisions about disk and load that an operator writes down, and nothing in the binary makes either
+// follow from what kind of node is asking.
 func stateCommitDefaults(registry.Mode) any {
 	live := config.DefaultStateCommitConfig()
 	return stateCommitSchema{

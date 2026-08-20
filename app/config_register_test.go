@@ -2,95 +2,135 @@ package app
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
-// requireSectionResolves holds one section's resolved keys and values against what its reader asks for.
+// manifestKeys returns the keys a section's read-site record names, plus any named here.
 //
-// Resolving is what to compare against rather than the registered struct, because the resolved map is
-// what a caller reads: it carries the key a tag produced and the value that tag's field held. A
-// comparison of struct to struct agrees with itself while two tags are on the wrong fields, since each
-// field still holds the value the test names for it. This one does not, because the swap moves the value
-// to the other key.
-//
-// The values come from the reader's own constants and its own defaults, so a renamed key or a changed
-// default fails here rather than being restated correctly in two places and wrongly in a third.
-func requireSectionResolves(t *testing.T, mode registry.Mode, section string, want map[string]any) {
+// The record is this package's own statement of which keys each reader looks up, kept for another purpose
+// and held against a golden file. Taking the key set from it means a section's declaration is compared
+// against something maintained under a different discipline, rather than against a list written beside it
+// by the same hand in the same commit.
+func manifestKeys(specs []configtest.KeySpec, also ...string) []string {
+	out := make([]string, 0, len(specs)+len(also))
+	for _, spec := range specs {
+		out = append(out, spec.Key)
+	}
+	out = append(out, also...)
+	sort.Strings(out)
+	return out
+}
+
+// requireDeclares holds a section's declared keys against the record of what its reader looks up.
+func requireDeclares(t *testing.T, section string, want []string) {
 	t.Helper()
+	for _, defect := range registry.Defects() {
+		if defect.Section == section {
+			t.Fatalf("%s was refused, so none of its keys is declared: %v", section, defect.Err)
+		}
+	}
 	registered, ok := registry.Lookup(section)
 	if !ok {
 		t.Fatalf("%s is not registered, so nothing resolves its keys", section)
 	}
+	if !reflect.DeepEqual(registered.Keys, want) {
+		t.Errorf("%s declares\n  %v\nand its read-site record names\n  %v\nA key on one side only is either "+
+			"a setting an operator writes that no reader fills, or one this package reads and nothing "+
+			"declares", section, registered.Keys, want)
+	}
+}
+
+// requireResolves holds a section's resolved values against what its reader's own defaults hold.
+//
+// Resolving is what to compare against rather than the registered struct, because the resolved map carries
+// the key a tag produced and the value that tag's field held. A comparison of struct to struct agrees with
+// itself while two tags sit on the wrong fields, since each field still holds the value the test names for
+// it. The swap moves the value to the other key, and this notices.
+func requireResolves(t *testing.T, mode registry.Mode, section string, want map[string]any) {
+	t.Helper()
 	resolved, err := registry.Resolve(mode, registry.Sources{})
 	if err != nil {
 		t.Fatalf("mode %q: %v", mode, err)
 	}
-
-	declared := make(map[string]bool, len(registered.Keys))
-	for _, key := range registered.Keys {
-		declared[key] = true
-		expected, named := want[key]
-		if !named {
-			t.Errorf("mode %q: %s declares %s and nothing here names a value for it, so either its reader "+
-				"resolves the key and this list is short, or no reader does and an operator has a setting "+
-				"that changes nothing", mode, section, key)
-			continue
-		}
+	for key, expected := range want {
 		if got := resolved.Values[key]; !reflect.DeepEqual(got, expected) {
-			t.Errorf("mode %q: %s resolves to %#v (%T), want %#v (%T)", mode, key, got, got, expected, expected)
-		}
-	}
-	for key := range want {
-		if !declared[key] {
-			t.Errorf("mode %q: %s does not declare %s, which its reader resolves, so that setting stays "+
-				"answered by whatever answers it today and nothing reports it", mode, section, key)
+			t.Errorf("mode %q: %s resolves to %#v (%T), want %#v (%T)",
+				mode, key, got, got, expected, expected)
 		}
 	}
 }
 
-// TestLightInvarianceResolves covers the one section registered as the type its reader fills.
-//
-// Every mode, because this section's defaults are the same for all of them: the check compares the bank
-// module's recorded total supply against what the store holds, which is a property of every node.
-func TestLightInvarianceResolves(t *testing.T) {
+// TestLightInvarianceDeclaresAndResolves covers the one section registered as the type its reader fills.
+func TestLightInvarianceDeclaresAndResolves(t *testing.T) {
+	requireDeclares(t, LightInvarianceSectionName, manifestKeys(lightInvarianceKeys))
 	for _, mode := range registry.Modes() {
-		requireSectionResolves(t, mode, LightInvarianceSectionName, map[string]any{
+		requireResolves(t, mode, LightInvarianceSectionName, map[string]any{
 			flagSupplyEnabled: DefaultLightInvarianceConfig.SupplyEnabled,
 		})
 	}
 }
 
-// TestGenesisResolves holds the genesis schema against the reader's own constants.
+// TestGenesisDeclaresAndResolves holds the genesis schema against the record and the reader's defaults.
 //
-// The two keys carry different types, which is what makes the pairing worth asserting: the schema states
-// the tags in one place and the reader looks them up in another, and nothing but this holds the two
-// together.
-func TestGenesisResolves(t *testing.T) {
+// The record names one of the two keys as a row and the other beside it, because that one is read as a type
+// assertion rather than a guarded cast and a row would predict the wrong resolution. Both are this
+// package's, so both are declared.
+func TestGenesisDeclaresAndResolves(t *testing.T) {
+	requireDeclares(t, GenesisSectionName, manifestKeys(genesisKeys, flagGenesisImportFile))
 	for _, mode := range registry.Modes() {
-		requireSectionResolves(t, mode, GenesisSectionName, map[string]any{
+		requireResolves(t, mode, GenesisSectionName, map[string]any{
 			flagGenesisStreamImport: DefaultGenesisConfig.StreamGenesisImport,
 			flagGenesisImportFile:   DefaultGenesisConfig.GenesisStreamFile,
 		})
 	}
 }
 
-// TestStateStoreResolves holds the state store schema against every key parseSSConfigs resolves.
+// TestStateStoreDeclaresEveryKeyItsReaderResolves holds the schema against the read-site record.
+func TestStateStoreDeclaresEveryKeyItsReaderResolves(t *testing.T) {
+	requireDeclares(t, StateStoreSectionName, manifestKeys(ssKeys))
+}
+
+// TestStateStoreResolvesWhatEachKindOfNodeNeeds is the mode-varying half of this section.
 //
-// Twelve keys, including ss-snapshot-enable, which is the one read that checks whether the key was
-// present. A schema short of a key its reader resolves leaves that setting undeclared, so it keeps
-// whatever answers it today and no diagnostic names it.
-func TestStateStoreResolves(t *testing.T) {
+// Two of these settings mean something different depending on what kind of node asks, and the values are
+// written out here rather than taken from the same rules the section reads. An archive node exists to keep
+// history, so a retention that pruned it would be the one declaration here that destroys data, and it
+// would do so with nothing to alert on, because pruning frees disk rather than filling it.
+func TestStateStoreResolvesWhatEachKindOfNodeNeeds(t *testing.T) {
+	byMode := map[registry.Mode]struct {
+		enable     bool
+		keepRecent int
+	}{
+		registry.ModeValidator: {enable: false, keepRecent: 100000},
+		registry.ModeSeed:      {enable: false, keepRecent: 100000},
+		registry.ModeFull:      {enable: true, keepRecent: 100000},
+		registry.ModeArchive:   {enable: true, keepRecent: 0},
+	}
+	for _, mode := range registry.Modes() {
+		want, named := byMode[mode]
+		if !named {
+			t.Fatalf("mode %q has no expectation here, so a mode was added and this was not revisited", mode)
+		}
+		requireResolves(t, mode, StateStoreSectionName, map[string]any{
+			FlagSSEnable:     want.enable,
+			FlagSSKeepRecent: want.keepRecent,
+		})
+	}
+}
+
+// TestStateStoreResolvesItsOtherValuesTheSameForEveryMode covers the ten settings a mode does not change.
+func TestStateStoreResolvesItsOtherValuesTheSameForEveryMode(t *testing.T) {
 	live := config.DefaultStateStoreConfig()
 	for _, mode := range registry.Modes() {
-		requireSectionResolves(t, mode, StateStoreSectionName, map[string]any{
-			FlagSSEnable:            live.Enable,
+		requireResolves(t, mode, StateStoreSectionName, map[string]any{
 			FlagSSDirectory:         live.DBDirectory,
 			FlagSSBackend:           live.Backend,
 			FlagSSAsyncWriterBuffer: live.AsyncWriteBuffer,
-			FlagSSKeepRecent:        live.KeepRecent,
 			FlagSSPruneInterval:     live.PruneIntervalSeconds,
 			FlagSSImportNumWorkers:  live.ImportNumWorkers,
 			FlagSSReadWriteMetrics:  live.EnableReadWriteMetrics,
@@ -102,16 +142,25 @@ func TestStateStoreResolves(t *testing.T) {
 	}
 }
 
-// TestStateCommitResolves holds the state commit schema against every key parseSCConfigs resolves.
+// TestStateCommitDeclaresEveryKeyItsReaderResolves holds the schema against the read-site record.
 //
-// Twenty keys, one of them a segment below the section, since the flat key-value read is
-// state-commit.flatkv.enable-read-write-metrics. The write mode is a plain string here because the
-// reader parses a written name into its own type, and comparing values is what holds it to that: the
-// named type carries the same text and is not the same value.
-func TestStateCommitResolves(t *testing.T) {
+// Twenty keys: the seventeen the record holds as rows, and three it names beside them because each has a
+// target of its own. The four keys under this section's flat key-value name that only the Cosmos server's
+// reader resolves are not among them, and are not this section's to declare.
+func TestStateCommitDeclaresEveryKeyItsReaderResolves(t *testing.T) {
+	requireDeclares(t, StateCommitSectionName, manifestKeys(scKeys,
+		FlagSCWriteMode, FlagSCWriteModeEnableAuto, FlagSCHashLoggerTargetFileSize))
+}
+
+// TestStateCommitResolvesTheModuleDeclaredValues covers the value side of the same registration.
+//
+// The write mode is a plain string here because the reader parses a written name into its own type, and
+// comparing values is what holds it to that: the named type carries the same text and is not the same
+// value.
+func TestStateCommitResolvesTheModuleDeclaredValues(t *testing.T) {
 	live := config.DefaultStateCommitConfig()
 	for _, mode := range registry.Modes() {
-		requireSectionResolves(t, mode, StateCommitSectionName, map[string]any{
+		requireResolves(t, mode, StateCommitSectionName, map[string]any{
 			FlagSCEnable:                     live.Enable,
 			FlagSCDirectory:                  live.Directory,
 			FlagSCAsyncCommitBuffer:          live.MemIAVLConfig.AsyncCommitBuffer,
@@ -138,9 +187,8 @@ func TestStateCommitResolves(t *testing.T) {
 
 // TestStateCommitWriteModeDefaultIsOneTheReaderAccepts covers the one declared value that is parsed text.
 //
-// Every other declared default is a value its reader uses as it stands. This one is a name the reader
-// turns into a mode, so a default nothing parses would put a value in a generated file that stops the
-// node it was generated for.
+// Every other declared value is used as it stands. This one is a name the reader turns into a mode, so a
+// default nothing parses would put a value in a generated file that stops the node it was generated for.
 func TestStateCommitWriteModeDefaultIsOneTheReaderAccepts(t *testing.T) {
 	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
 	if err != nil {
@@ -155,12 +203,20 @@ func TestStateCommitWriteModeDefaultIsOneTheReaderAccepts(t *testing.T) {
 	}
 }
 
-// TestEverySectionThisPackageRegistersIsWellFormed covers what the registry itself refuses.
+// TestTheSectionsThisPackageRegistersAreUsable covers what the registry refuses.
 //
-// A section with a tag the registry cannot read is reported rather than returned, so a defect here is a
-// section that registered and declares nothing a caller can resolve.
-func TestEverySectionThisPackageRegistersIsWellFormed(t *testing.T) {
+// Scoped to the four names this file registers. The whole-registry sweep belongs where every section is
+// linked, because a refusal that depends on what else registered is not this package's to answer for.
+func TestTheSectionsThisPackageRegistersAreUsable(t *testing.T) {
+	mine := map[string]bool{
+		LightInvarianceSectionName: true,
+		GenesisSectionName:         true,
+		StateStoreSectionName:      true,
+		StateCommitSectionName:     true,
+	}
 	for _, defect := range registry.Defects() {
-		t.Errorf("%s is registered and defective: %v", defect.Section, defect.Err)
+		if mine[defect.Section] {
+			t.Errorf("%s was refused, so none of its keys is declared: %v", defect.Section, defect.Err)
+		}
 	}
 }
