@@ -386,10 +386,6 @@ func chargeFees(ctx sdk.Context, tx sdk.Tx, feeCoins sdk.Coins, accountKeeper au
 
 	feeTx := tx.(sdk.FeeTx)
 	feePayer := feeTx.FeePayer()
-	feeGranter := feeTx.FeeGranter()
-	if feeGranter != nil && !feeGranter.Equals(feePayer) {
-		return nil, sdkerrors.ErrInvalidRequest.Wrap("fee grants are not enabled")
-	}
 
 	deductFeesFromAcc := accountKeeper.GetAccount(ctx, feePayer)
 	if deductFeesFromAcc == nil {

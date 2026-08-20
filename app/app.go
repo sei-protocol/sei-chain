@@ -300,7 +300,8 @@ var (
 )
 
 const (
-	MinGasEVMTx = 21000
+	MinGasEVMTx        = 21000
+	feegrantModuleName = "feegrant"
 
 	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
 	// notifier buffer. Capacity 1 pairs with the notifier's
@@ -1141,7 +1142,6 @@ func (app *App) SetStoreUpgradeHandlers() {
 	}
 
 	accesscontrolStoreKeyName := "aclaccesscontrol"
-	feegrantStoreKeyName := "feegrant"
 
 	if upgradeInfo.Name == "1.0.4beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
@@ -1216,7 +1216,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 
 	if upgradeInfo.Name == "v6.7" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
-			Deleted: []string{feegrantStoreKeyName},
+			Deleted: []string{feegrantModuleName},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades

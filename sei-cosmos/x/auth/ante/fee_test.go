@@ -133,12 +133,6 @@ func (suite *AnteTestSuite) TestRejectsDistinctFeeGranter() {
 
 	priv, _, payer := testdata.KeyTestPubAddr()
 	_, _, granter := testdata.KeyTestPubAddr()
-	suite.Require().NoError(apptesting.FundAccount(
-		suite.app.BankKeeper,
-		suite.ctx,
-		payer,
-		sdk.NewCoins(sdk.NewInt64Coin("usei", 1_000)),
-	))
 
 	suite.Require().NoError(suite.txBuilder.SetMsgs(testdata.NewTestMsg(payer)))
 	suite.txBuilder.SetFeeAmount(testdata.NewTestFeeAmount())
@@ -153,14 +147,17 @@ func (suite *AnteTestSuite) TestRejectsDistinctFeeGranter() {
 	)
 	suite.Require().NoError(err)
 
-	decorator := ante.NewDeductFeeDecorator(
-		suite.app.AccountKeeper,
-		suite.app.BankKeeper,
-		suite.app.ParamsKeeper,
-		nil,
+	suite.Require().ErrorContains(tx.ValidateBasic(), "fee grants are not enabled")
+
+	suite.txBuilder.SetFeeGranter(payer)
+	tx, err = suite.CreateTestTx(
+		[]cryptotypes.PrivKey{priv},
+		[]uint64{0},
+		[]uint64{0},
+		suite.ctx.ChainID(),
 	)
-	_, err = sdk.ChainAnteDecorators(decorator)(suite.ctx, tx, false)
-	suite.Require().ErrorContains(err, "fee grants are not enabled")
+	suite.Require().NoError(err)
+	suite.Require().NoError(tx.ValidateBasic())
 }
 
 func (suite *AnteTestSuite) TestLazySendToModuleAccount() {

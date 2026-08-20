@@ -67,10 +67,6 @@ func (dfd DeductFeeDecorator) checkDeductFee(ctx sdk.Context, sdkTx sdk.Tx, fee 
 	}
 
 	feePayer := feeTx.FeePayer()
-	feeGranter := feeTx.FeeGranter()
-	if feeGranter != nil && !feeGranter.Equals(feePayer) {
-		return sdkerrors.ErrInvalidRequest.Wrap("fee grants are not enabled")
-	}
 
 	deductFeesFromAcc := dfd.accountKeeper.GetAccount(ctx, feePayer)
 	if deductFeesFromAcc == nil {

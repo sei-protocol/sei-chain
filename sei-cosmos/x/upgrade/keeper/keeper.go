@@ -115,6 +115,13 @@ func (k Keeper) SetModuleVersionMap(ctx sdk.Context, vm module.VersionMap) {
 	}
 }
 
+// DeleteModuleVersion removes a module from the stored consensus version map.
+func (k Keeper) DeleteModuleVersion(ctx sdk.Context, moduleName string) {
+	store := ctx.KVStore(k.storeKey)
+	versionStore := prefix.NewStore(store, []byte{types.VersionMapByte})
+	versionStore.Delete([]byte(moduleName))
+}
+
 // GetModuleVersionMap returns a map of key module name and value module consensus version
 // as defined in ADR-041.
 func (k Keeper) GetModuleVersionMap(ctx sdk.Context) module.VersionMap {
