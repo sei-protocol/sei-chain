@@ -1,4 +1,4 @@
-// Package management holds the coordination layer above the DB engines: work
+// Package controller holds the coordination layer above the DB engines: work
 // that decides when an engine-level operation runs, rather than how the engine
 // performs it.
 package controller
