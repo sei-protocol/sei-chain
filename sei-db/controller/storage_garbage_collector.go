@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/sei-protocol/seilog"
+
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 var logger = seilog.NewLogger("db", "gc")
@@ -17,29 +19,29 @@ var logger = seilog.NewLogger("db", "gc")
 // StorageGarbageCollector periodically prunes a set of PrunableStores which prune
 // old snapshots/checkpoints and history data based on RollbackWindow and LookbackWindow setting.
 type StorageGarbageCollector struct {
-	config *StorageGarbageCollectorConfig
+	config *config.StorageGarbageCollectorConfig
 	stores []PrunableStore
 	ctx    context.Context
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 }
 
-// NewStorageGarbageCollector starts a collector that prunes stores every config.PruneInterval until
-// Close is called or ctx is cancelled. Both ctx and config are required.
+// NewStorageGarbageCollector starts a collector that prunes stores every cfg.PruneInterval until
+// Close is called or ctx is cancelled. Both ctx and cfg are required.
 func NewStorageGarbageCollector(
 	ctx context.Context,
-	config *StorageGarbageCollectorConfig,
+	cfg *config.StorageGarbageCollectorConfig,
 	stores []PrunableStore,
 ) (*StorageGarbageCollector, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("context is required")
 	}
-	if err := config.Validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid storage garbage collector config: %w", err)
 	}
 
 	s := &StorageGarbageCollector{
-		config: config,
+		config: cfg,
 		stores: stores,
 		ctx:    ctx,
 		stopCh: make(chan struct{}),
@@ -83,7 +85,7 @@ func (s *StorageGarbageCollector) run() {
 //  3. historyCutLine = snapshotCutLine - LookbackWindow, or 0 when LookbackWindow is -1
 //  4. every store reporting ExternalPruning gets PruneSnapshots(snapshotCutLine), then
 //     PruneHistory(historyCutLine)
-func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error {
+func prune(cfg *config.StorageGarbageCollectorConfig, stores []PrunableStore) error {
 	if len(stores) == 0 {
 		return nil
 	}
@@ -93,15 +95,15 @@ func prune(config *StorageGarbageCollectorConfig, stores []PrunableStore) error 
 	snapshotCutLine := uint64(math.MaxUint64)
 	for i, store := range stores {
 		decisions[i].externalPruning = store.ExternalPruning()
-		decisions[i].floor = store.GetRollbackFloor(config.RollbackWindow)
+		decisions[i].floor = store.GetRollbackFloor(cfg.RollbackWindow)
 		snapshotCutLine = min(snapshotCutLine, decisions[i].floor)
 	}
 
-	historyCutLine := getHistoryCutLine(snapshotCutLine, config.LookbackWindow)
+	historyCutLine := getHistoryCutLine(snapshotCutLine, cfg.LookbackWindow)
 
 	logger.Info("pruning stores",
-		"rollbackWindow", config.RollbackWindow,
-		"lookbackWindow", config.LookbackWindow,
+		"rollbackWindow", cfg.RollbackWindow,
+		"lookbackWindow", cfg.LookbackWindow,
 		"snapshotCutLine", snapshotCutLine,
 		"historyCutLine", historyCutLine,
 		"decisionByStore", describeDecisions(stores, decisions),

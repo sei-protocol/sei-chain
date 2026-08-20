@@ -5,18 +5,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
-
-// The assignment is the standing check that the collector can be handed a block
-// store directly. Only a test can make it: an import of sei-db/controller from
-// the store itself would be reversed by sei-db/config, which depends on a
-// backend, closing a cycle.
-var _ controller.PrunableStore = (*blockstore.Store)(nil)
 
 // collectorBuilder returns a store the collector's surface can be exercised on,
 // as the concrete type rather than types.BlockStore: the prune surface is the

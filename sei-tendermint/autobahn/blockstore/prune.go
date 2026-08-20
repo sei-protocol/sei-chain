@@ -3,6 +3,7 @@ package blockstore
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
@@ -12,6 +13,9 @@ import (
 // opaque bytes: where the QC covering a block begins, and how far the
 // application has committed. A database that had to answer either would have to
 // index the whole store and rebuild that index on every open.
+
+// A block store is what the storage garbage collector prunes.
+var _ controller.PrunableStore = (*Store)(nil)
 
 // Name identifies the store in the garbage collector's logs and errors.
 func (s *Store) Name() string {

@@ -21,7 +21,7 @@ type BlockDBConfig struct {
 	// watermark to advance past the record. Must be positive.
 	//
 	// It is an age floor, not a retention policy: how much history this store keeps
-	// is the RollbackWindow and LookbackWindow on gc.StorageGarbageCollectorConfig.
+	// is the RollbackWindow and LookbackWindow on config.StorageGarbageCollectorConfig.
 	//
 	// Default: 1h.
 	RetentionTime time.Duration

@@ -15,6 +15,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -74,9 +75,11 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
 			require.NoError(t, err, "littblock.DefaultConfig[%v]", i)
 			littCfg.Litt.Fsync = true
-			blockDB, err := littblock.NewBlockDB(littCfg)
+			db, err := littblock.NewBlockDB(littCfg)
 			require.NoError(t, err, "littblock.NewBlockDB[%v]", i)
-			t.Cleanup(func() { _ = blockDB.Close() })
+			blockStore, err := blockstore.New(db)
+			require.NoError(t, err, "blockstore.New[%v]", i)
+			t.Cleanup(func() { _ = blockStore.Close() })
 			commonCfg := GigaRouterCommonConfig{
 				// Aggressive dialing rate to speed up startup.
 				DialInterval:       100 * time.Millisecond,
@@ -86,7 +89,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
 			}
-			dataState, err := BuildDataState(&commonCfg, blockDB)
+			dataState, err := BuildDataState(&commonCfg, blockStore)
 			require.NoError(t, err, "BuildDataState[%v]", i)
 			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
 				GigaRouterCommonConfig: commonCfg,
@@ -244,9 +247,11 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	littCfg.Litt.Fsync = true
-	blockDB, err := littblock.NewBlockDB(littCfg)
+	db, err := littblock.NewBlockDB(littCfg)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = blockDB.Close() })
+	blockStore, err := blockstore.New(db)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blockStore.Close() })
 	commonCfg := GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
@@ -255,7 +260,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
-	dataState, err := BuildDataState(&commonCfg, blockDB)
+	dataState, err := BuildDataState(&commonCfg, blockStore)
 	require.NoError(t, err)
 
 	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{

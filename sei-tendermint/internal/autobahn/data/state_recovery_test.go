@@ -7,6 +7,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -30,7 +31,7 @@ func TestRecoveryEmpty(t *testing.T) {
 	}
 }
 
-// TestNewStateInMemoryMode verifies that NewState with memblock followed by Run
+// TestNewStateInMemoryMode verifies that NewState with an in-memory store followed by Run
 // works end-to-end: QCs and blocks are accessible without a durable BlockDB dir.
 func TestNewStateInMemoryMode(t *testing.T) {
 	ctx := t.Context()
@@ -38,7 +39,8 @@ func TestNewStateInMemoryMode(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 3)
 	qc1, blocks1 := TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*types.CommitQC]())
 
-	state := utils.OrPanic1(NewState(&Config{Registry: registry}, memblock.NewBlockDB()))
+	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+	state := utils.OrPanic1(NewState(&Config{Registry: registry}, store))
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
@@ -280,7 +282,7 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	// Write both QCs and all their blocks to the DB.
 	cfg1 := utils.OrPanic1(littblock.DefaultConfig(dir))
 	cfg1.RetentionTime = time.Nanosecond
-	db1 := utils.OrPanic1(littblock.NewBlockDB(cfg1))
+	db1 := utils.OrPanic1(blockstore.New(utils.OrPanic1(littblock.NewBlockDB(cfg1))))
 	writeToBlockDB(t, db1, []*types.FullCommitQC{qc1, qc2}, [][]*types.Block{blocks1, blocks2})
 
 	// Prune qc1's range. GC is NOT called — pruned entries remain on disk.
@@ -290,7 +292,7 @@ func TestRecoveryAfterPruneNoGC(t *testing.T) {
 	// Reopen the same dir without ForceGC — pruned entries may still be present.
 	cfg2 := utils.OrPanic1(littblock.DefaultConfig(dir))
 	cfg2.RetentionTime = time.Nanosecond
-	db2 := utils.OrPanic1(littblock.NewBlockDB(cfg2))
+	db2 := utils.OrPanic1(blockstore.New(utils.OrPanic1(littblock.NewBlockDB(cfg2))))
 	t.Cleanup(func() { _ = db2.Close() })
 
 	// NewState must succeed — below-watermark blocks never outlive their QCs

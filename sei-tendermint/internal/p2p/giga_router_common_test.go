@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -124,7 +125,8 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	require.Greater(t, gr.Len(), 2)
 	last := gr.First + atypes.GlobalBlockNumber(gr.Len()/2)
 
-	db := memblock.NewBlockDB()
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
 	require.NoError(t, db.WriteQC(qc))
 	for i, n := 0, gr.First; n < gr.Next; i, n = i+1, n+1 {
 		require.NoError(t, db.WriteBlock(n, blocks[i]))

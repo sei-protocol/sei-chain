@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 // mockStore is a PrunableStore with canned answers. Build via snapshotStore or contiguousStore.
@@ -119,9 +121,9 @@ func prunableStores(list ...*mockStore) []PrunableStore {
 	return result
 }
 
-func testConfig(t *testing.T, rollbackWindow uint64, lookbackWindow int64) *StorageGarbageCollectorConfig {
+func testConfig(t *testing.T, rollbackWindow uint64, lookbackWindow int64) *config.StorageGarbageCollectorConfig {
 	t.Helper()
-	config := &StorageGarbageCollectorConfig{
+	config := &config.StorageGarbageCollectorConfig{
 		RollbackWindow: rollbackWindow,
 		LookbackWindow: lookbackWindow,
 		PruneInterval:  time.Minute,
@@ -641,7 +643,7 @@ func TestPruneAsksEveryStoreOncePerCycle(t *testing.T) {
 }
 
 func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {
-	cfg := DefaultStorageGarbageCollectorConfig()
+	cfg := config.DefaultStorageGarbageCollectorConfig()
 	require.Equal(t, uint64(1_000), cfg.RollbackWindow)
 	require.Equal(t, int64(0), cfg.LookbackWindow)
 	require.Equal(t, 5*time.Minute, cfg.PruneInterval)
@@ -652,27 +654,27 @@ func TestDefaultStorageGarbageCollectorConfig(t *testing.T) {
 // -1 infinite-retention sentinel on the lookback window. The interval and a lookback below -1 are
 // the only rejections.
 func TestValidate(t *testing.T) {
-	require.ErrorContains(t, (*StorageGarbageCollectorConfig)(nil).Validate(), "config is required")
+	require.ErrorContains(t, (*config.StorageGarbageCollectorConfig)(nil).Validate(), "config is required")
 
 	for _, windows := range [][2]int64{{0, 0}, {1, 0}, {0, 1}, {1_000, 50_000}, {50_000, 1_000}, {1_000, -1}} {
-		require.NoError(t, (&StorageGarbageCollectorConfig{
+		require.NoError(t, (&config.StorageGarbageCollectorConfig{
 			RollbackWindow: uint64(windows[0]),
 			LookbackWindow: windows[1],
 			PruneInterval:  time.Minute,
 		}).Validate(), "windows %v", windows)
 	}
 
-	require.ErrorContains(t, (&StorageGarbageCollectorConfig{
+	require.ErrorContains(t, (&config.StorageGarbageCollectorConfig{
 		RollbackWindow: 1,
 		LookbackWindow: -2,
 		PruneInterval:  time.Minute,
 	}).Validate(), "lookback window")
 
-	require.ErrorContains(t, (&StorageGarbageCollectorConfig{
+	require.ErrorContains(t, (&config.StorageGarbageCollectorConfig{
 		RollbackWindow: 1,
 		PruneInterval:  0,
 	}).Validate(), "prune interval")
-	require.ErrorContains(t, (&StorageGarbageCollectorConfig{
+	require.ErrorContains(t, (&config.StorageGarbageCollectorConfig{
 		RollbackWindow: 1,
 		PruneInterval:  -time.Second,
 	}).Validate(), "prune interval")
@@ -681,7 +683,7 @@ func TestValidate(t *testing.T) {
 func TestNewStorageGarbageCollectorInvalidConfig(t *testing.T) {
 	sm, err := NewStorageGarbageCollector(
 		context.Background(),
-		&StorageGarbageCollectorConfig{PruneInterval: 0},
+		&config.StorageGarbageCollectorConfig{PruneInterval: 0},
 		prunableStores(snapshotStore("sc", 100)),
 	)
 	require.Error(t, err)
@@ -698,7 +700,7 @@ func TestNewStorageGarbageCollectorNilConfig(t *testing.T) {
 // panic is unrecoverable and takes the process down.
 func TestNewStorageGarbageCollectorNilContext(t *testing.T) {
 	//nolint:staticcheck // SA1012: passing a nil ctx is the case under test.
-	sm, err := NewStorageGarbageCollector(nil, DefaultStorageGarbageCollectorConfig(), nil)
+	sm, err := NewStorageGarbageCollector(nil, config.DefaultStorageGarbageCollectorConfig(), nil)
 	require.ErrorContains(t, err, "context is required")
 	require.Nil(t, sm)
 }
@@ -706,7 +708,7 @@ func TestNewStorageGarbageCollectorNilContext(t *testing.T) {
 func TestNewStorageGarbageCollectorConstructAndClose(t *testing.T) {
 	sm, err := NewStorageGarbageCollector(
 		context.Background(),
-		DefaultStorageGarbageCollectorConfig(),
+		config.DefaultStorageGarbageCollectorConfig(),
 		prunableStores(snapshotStore("sc", 100, 100), contiguousStore("stateWAL", 100)),
 	)
 	require.NoError(t, err)
@@ -717,7 +719,7 @@ func TestNewStorageGarbageCollectorConstructAndClose(t *testing.T) {
 
 func TestCloseAfterContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	sm, err := NewStorageGarbageCollector(ctx, DefaultStorageGarbageCollectorConfig(), nil)
+	sm, err := NewStorageGarbageCollector(ctx, config.DefaultStorageGarbageCollectorConfig(), nil)
 	require.NoError(t, err)
 
 	cancel()
@@ -728,7 +730,7 @@ func TestCloseAfterContextCancelled(t *testing.T) {
 func startCollector(t *testing.T, interval time.Duration, stores ...*mockStore) {
 	t.Helper()
 
-	config := &StorageGarbageCollectorConfig{RollbackWindow: 10_000, PruneInterval: interval}
+	config := &config.StorageGarbageCollectorConfig{RollbackWindow: 10_000, PruneInterval: interval}
 	require.NoError(t, config.Validate())
 
 	sm, err := NewStorageGarbageCollector(context.Background(), config, prunableStores(stores...))

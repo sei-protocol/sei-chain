@@ -11,6 +11,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -66,9 +67,11 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	littCfg, err := littblock.DefaultConfig(filepath.Join(dir, "blockdb"))
 	require.NoError(t, err)
 	littCfg.Litt.Fsync = true
-	blockDB, err := littblock.NewBlockDB(littCfg)
+	db, err := littblock.NewBlockDB(littCfg)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = blockDB.Close() })
+	blockStore, err := blockstore.New(db)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = blockStore.Close() })
 	cfg := &GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
@@ -77,7 +80,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
 	}
-	dataState, err := BuildDataState(cfg, blockDB)
+	dataState, err := BuildDataState(cfg, blockStore)
 	require.NoError(t, err)
 
 	// Fullnodes have no validator key and no Producer config.
