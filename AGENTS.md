@@ -44,12 +44,17 @@ goimports -w <file>...   # groups/orders imports; catches the goimports linter
 the stdlib import group from third-party imports, so a `gofmt`-clean file can
 still fail the `goimports` linter.
 
-Verify the whole tree (each prints nothing when everything is clean):
+Verify the whole tree with the check CI gates on, which prints nothing when
+everything is clean:
 
 ```bash
-gofmt -s -l .
-goimports -l .
+make fmtcheck   # golangci-lint fmt --diff
 ```
+
+Prefer it over a bare `goimports -l .`, which also reports generated files that
+the formatters are configured to skip. Note that `golangci-lint run` will **not**
+catch a misformatted test file: it honours `run.tests`, which is false, so its
+formatters never see one. `fmtcheck` is a separate invocation for that reason.
 
 ### Godoc
 
@@ -125,7 +130,8 @@ Linting and formatting are driven by the root `Makefile` and `.golangci.yml`
 `bodyclose`, and `dogsled`; generated `*.pb.go` files are excluded).
 
 ```bash
-make lint     # golangci-lint run + go fmt ./... + go vet ./... + go mod tidy + go mod verify
+make lint     # golangci-lint run + golangci-lint fmt + go vet ./... + go mod tidy + go mod verify
+make fmtcheck # report what the formatters would rewrite, without rewriting it (CI gates on this)
 make dblint   # same checks scoped to ./sei-db/... (faster when iterating there)
 make build    # build the seid binary into ./build/seid
 make install  # install seid into $GOBIN
@@ -140,7 +146,8 @@ go test ./<pkg>/...     # run a single package
 ```
 
 CI mirrors these checks: `.github/workflows/golangci.yml` runs golangci-lint
-v2.8.0 and `.github/workflows/go-test.yml` runs `go test -race` on Go 1.25.6.
+v2.8.0 followed by `golangci-lint fmt --diff`, and `.github/workflows/go-test.yml`
+runs `go test -race` on Go 1.25.6.
 
 ### Running tests on a RAM disk
 
