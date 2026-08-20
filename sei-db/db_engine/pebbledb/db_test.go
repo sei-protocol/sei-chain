@@ -6,35 +6,21 @@ import (
 	"github.com/stretchr/testify/require"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
-// forEachCacheMode runs fn once with a warm cache and once with caching disabled,
-// so cache-sensitive tests exercise both the cache and the raw storage layer.
-func forEachCacheMode(t *testing.T, fn func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig)) {
-	for _, mode := range []struct {
-		name      string
-		cacheSize uint64
-	}{
-		{"cached", 16 * unit.MB},
-		{"uncached", 0},
-	} {
-		t.Run(mode.name, func(t *testing.T) {
-			cfg := DefaultTestConfig(t)
-			cacheCfg := DefaultTestCacheConfig()
-			cacheCfg.MaxSize = mode.cacheSize
-			fn(t, cfg, cacheCfg)
-		})
-	}
+// withTestConfig runs fn against a fresh test config.
+//
+// It used to run fn twice — once with the read-through cache warm and once with it disabled — so that
+// cache-sensitive tests exercised both paths. That cache layer is gone: caching now lives above the
+// storage layer in the snapshot engine, so there is a single mode and this is a plain fixture.
+func withTestConfig(t *testing.T, fn func(t *testing.T, cfg PebbleDBConfig)) {
+	fn(t, DefaultTestConfig(t))
 }
 
-func openDB(t *testing.T, cfg *PebbleDBConfig, cacheCfg *dbcache.CacheConfig) types.KeyValueDB {
+func openDB(t *testing.T, cfg *PebbleDBConfig) types.KeyValueDB {
 	t.Helper()
-	db, err := OpenWithCache(t.Context(), cfg, cacheCfg,
-		threading.NewAdHocPool(), threading.NewAdHocPool())
+	db, err := Open(t.Context(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db
@@ -55,8 +41,8 @@ func openUncachedPebbleDB(t *testing.T, cfg *PebbleDBConfig) *pebbleDB {
 // ---------------------------------------------------------------------------
 
 func TestDBGetSetDelete(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig) {
-		db := openDB(t, &cfg, &cacheCfg)
+	withTestConfig(t, func(t *testing.T, cfg PebbleDBConfig) {
+		db := openDB(t, &cfg)
 
 		key := []byte("k1")
 		val := []byte("v1")
@@ -78,8 +64,8 @@ func TestDBGetSetDelete(t *testing.T) {
 }
 
 func TestBatchAtomicWrite(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig) {
-		db := openDB(t, &cfg, &cacheCfg)
+	withTestConfig(t, func(t *testing.T, cfg PebbleDBConfig) {
+		db := openDB(t, &cfg)
 
 		b := db.NewBatch()
 		t.Cleanup(func() { require.NoError(t, b.Close()) })
@@ -97,8 +83,8 @@ func TestBatchAtomicWrite(t *testing.T) {
 }
 
 func TestErrNotFoundConsistency(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig) {
-		db := openDB(t, &cfg, &cacheCfg)
+	withTestConfig(t, func(t *testing.T, cfg PebbleDBConfig) {
+		db := openDB(t, &cfg)
 
 		_, err := db.Get([]byte("missing-key"))
 		require.Error(t, err)
@@ -109,9 +95,7 @@ func TestErrNotFoundConsistency(t *testing.T) {
 
 func TestGetReturnsCopy(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	cacheCfg := DefaultTestCacheConfig()
-	cacheCfg.MaxSize = 0
-	db := openDB(t, &cfg, &cacheCfg)
+	db := openDB(t, &cfg)
 
 	require.NoError(t, db.Set([]byte("k"), []byte("v"), types.WriteOptions{Sync: false}))
 
@@ -125,8 +109,8 @@ func TestGetReturnsCopy(t *testing.T) {
 }
 
 func TestBatchLenResetDelete(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig) {
-		db := openDB(t, &cfg, &cacheCfg)
+	withTestConfig(t, func(t *testing.T, cfg PebbleDBConfig) {
+		db := openDB(t, &cfg)
 
 		require.NoError(t, db.Set([]byte("to-delete"), []byte("val"), types.WriteOptions{Sync: false}))
 
@@ -152,8 +136,8 @@ func TestBatchLenResetDelete(t *testing.T) {
 }
 
 func TestFlush(t *testing.T) {
-	forEachCacheMode(t, func(t *testing.T, cfg PebbleDBConfig, cacheCfg dbcache.CacheConfig) {
-		db := openDB(t, &cfg, &cacheCfg)
+	withTestConfig(t, func(t *testing.T, cfg PebbleDBConfig) {
+		db := openDB(t, &cfg)
 
 		require.NoError(t, db.Set([]byte("flush-test"), []byte("val"), types.WriteOptions{Sync: false}))
 		require.NoError(t, db.Flush())
@@ -170,8 +154,7 @@ func TestFlush(t *testing.T) {
 
 func TestIteratorBounds(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	cacheCfg := DefaultTestCacheConfig()
-	db := openDB(t, &cfg, &cacheCfg)
+	db := openDB(t, &cfg)
 
 	for _, k := range []string{"a", "b", "c"} {
 		require.NoError(t, db.Set([]byte(k), []byte("x"), types.WriteOptions{Sync: false}))
@@ -234,9 +217,7 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 
 func TestCloseIsIdempotent(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	cacheCfg := DefaultTestCacheConfig()
-	db, err := OpenWithCache(t.Context(), &cfg, &cacheCfg,
-		threading.NewAdHocPool(), threading.NewAdHocPool())
+	db, err := Open(t.Context(), &cfg)
 	require.NoError(t, err)
 
 	require.NoError(t, db.Close())

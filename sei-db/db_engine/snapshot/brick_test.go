@@ -23,18 +23,17 @@ func TestFlushFailureBricksEngineCleanly(t *testing.T) {
 	snap1, err := engine.Commit()
 	require.NoError(t, err)
 
-	// A second snapshot whose hash never arrives; its AwaitHash waiter must be released by the
-	// brick rather than hang.
+	// A second snapshot that is never finalized, so it can never flush; its AwaitFlush waiter must be
+	// released by the brick rather than hang.
 	snap2, err := engine.Commit()
 	require.NoError(t, err)
-	awaitHashErr := make(chan error, 1)
+	stalledFlushErr := make(chan error, 1)
 	go func() {
-		_, hashErr := snap2.AwaitHash(context.Background())
-		awaitHashErr <- hashErr
+		stalledFlushErr <- snap2.AwaitFlush(context.Background())
 	}()
 
 	// Make snap1 flush-eligible; the flush attempt fails and bricks the engine.
-	require.NoError(t, snap1.SetHash(testHash))
+	require.NoError(t, snap1.Finalize(hashWrites(testHash)))
 	require.NoError(t, snap1.Release())
 
 	select {
@@ -50,10 +49,10 @@ func TestFlushFailureBricksEngineCleanly(t *testing.T) {
 	require.ErrorContains(t, err, "disk full", "AwaitFlush must report the underlying flush error")
 
 	select {
-	case hashErr := <-awaitHashErr:
-		require.Error(t, hashErr, "AwaitHash must fail once the engine has shut down")
+	case flushErr := <-stalledFlushErr:
+		require.Error(t, flushErr, "an unfinalized snapshot's AwaitFlush must fail once the engine is down")
 	case <-time.After(2 * time.Second):
-		t.Fatal("AwaitHash waiter did not unblock after the brick")
+		t.Fatal("AwaitFlush waiter did not unblock after the brick")
 	}
 }
 
@@ -64,7 +63,7 @@ func TestCloseAfterBrickReportsFatalError(t *testing.T) {
 	e := engine.(*snapshotEngine)
 
 	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
-	commitAndHashRelease(t, engine)
+	commitFinalizeRelease(t, engine)
 
 	select {
 	case <-e.ctx.Done():
@@ -91,8 +90,8 @@ func TestBackpressureWaiterUnblocksOnBrick(t *testing.T) {
 	engine := newTestEngineWithConfig(t, cfg, db)
 
 	// First snapshot starts a flush that stalls in Commit; the second accumulates past the cap.
-	commitAndHashRelease(t, engine)
-	commitAndHashRelease(t, engine)
+	commitFinalizeRelease(t, engine)
+	commitFinalizeRelease(t, engine)
 
 	blockedErr := make(chan error, 1)
 	go func() {
@@ -121,11 +120,11 @@ func TestBackpressureWaiterUnblocksOnBrick(t *testing.T) {
 	}
 }
 
-// Releasing the final reservation without a hash is a contract violation the engine cannot recover
-// from: the snapshot can never be flushed (flush skips unhashed versions) and so never retired, and
-// the caller has spent its Release, so every later version would stall behind it forever with its
-// in-memory data accumulating. It must brick rather than return an error and wedge quietly.
-func TestFinalReleaseWithoutHashBricks(t *testing.T) {
+// Releasing the final reservation without finalizing is a contract violation the engine cannot
+// recover from: the snapshot can never be flushed (flush skips unfinalized versions) and so never
+// retired, and the caller has spent its Release, so every later version would stall behind it forever
+// with its in-memory data accumulating. It must brick rather than return an error and wedge quietly.
+func TestFinalReleaseWithoutFinalizeBricks(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
 	engine := newTestEngineWithDB(t, db, 1, 1<<20)
 	e := engine.(*snapshotEngine)
@@ -139,23 +138,23 @@ func TestFinalReleaseWithoutHashBricks(t *testing.T) {
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 
-	// Release the reservation Commit handed us, without ever setting a hash.
-	require.ErrorContains(t, snap.Release(), "without first being hashed")
+	// Release the reservation Commit handed us, without ever finalizing.
+	require.ErrorContains(t, snap.Release(), "without first being finalized")
 
 	// This brick is synchronous (DecrementReferenceCount already holds versionLock), so unlike a
 	// read failure there is nothing to wait for.
-	require.Error(t, e.ctx.Err(), "the unhashed release must cancel the engine context")
+	require.Error(t, e.ctx.Err(), "the unfinalized release must cancel the engine context")
 
 	_, err = engine.Commit()
-	require.ErrorContains(t, err, "without first being hashed", "Commit must report the latched cause")
+	require.ErrorContains(t, err, "without first being finalized", "Commit must report the latched cause")
 
 	_, _, err = engine.Get([]byte("k"), true)
-	require.ErrorContains(t, err, "without first being hashed", "reads must stop once the engine bricks")
+	require.ErrorContains(t, err, "without first being finalized", "reads must stop once the engine bricks")
 
 	_, err = engine.BatchGet([][]byte{[]byte("k")})
-	require.ErrorContains(t, err, "without first being hashed", "batch reads must stop too")
+	require.ErrorContains(t, err, "without first being finalized", "batch reads must stop too")
 
-	require.ErrorContains(t, engine.Close(), "without first being hashed")
+	require.ErrorContains(t, engine.Close(), "without first being finalized")
 }
 
 // The counterpart to the above: a reference-count call naming a bogus version leaves engine state
@@ -175,7 +174,7 @@ func TestBadVersionReferenceCountErrorsDoNotBrick(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, []byte("v"), v)
-	commitAndHashRelease(t, engine)
+	commitFinalizeRelease(t, engine)
 }
 
 // Close must tear down everything the engine owns, even when the caller's context stays live:

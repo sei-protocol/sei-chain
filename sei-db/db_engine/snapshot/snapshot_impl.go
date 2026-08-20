@@ -3,6 +3,8 @@ package snapshot
 import (
 	"context"
 	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 var _ Snapshot = (*snapshotImpl)(nil)
@@ -12,6 +14,10 @@ var _ Snapshot = (*snapshotImpl)(nil)
 type snapshotImpl struct {
 	version      uint64
 	parentEngine *snapshotEngine
+}
+
+func (s *snapshotImpl) Name() string {
+	return s.parentEngine.Name()
 }
 
 func (s *snapshotImpl) BatchGet(keys [][]byte) (map[string][]byte, error) {
@@ -54,12 +60,8 @@ func (s *snapshotImpl) Release() error {
 	return nil
 }
 
-func (s *snapshotImpl) SetHash(hash []byte) error {
-	return s.parentEngine.SetSnapshotHash(s.version, hash)
-}
-
-func (s *snapshotImpl) AwaitHash(ctx context.Context) ([]byte, error) {
-	return s.parentEngine.AwaitSnapshotHash(ctx, s.version)
+func (s *snapshotImpl) Finalize(writes []*proto.KVPair) error {
+	return s.parentEngine.FinalizeSnapshot(s.version, writes)
 }
 
 func (s *snapshotImpl) AwaitFlush(ctx context.Context) error {

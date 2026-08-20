@@ -41,6 +41,30 @@ func TestFlatKVRollbackWithLatticeHash(t *testing.T) {
 	require.NoError(t, store.Close())
 }
 
+// Rollback of exactly one height, so the next block lands on the height the store last flushed.
+func TestFlatKVRollbackOneBlockThenContinue(t *testing.T) {
+	store, storeKeys := newTestRootMulti(t, t.TempDir(), dualWriteConfig())
+	evmData := newEVMTestData(0x66)
+
+	var records []commitRecord
+	for block := 1; block <= 5; block++ {
+		records = append(records, simulateBlock(t, store, storeKeys, block, evmData))
+	}
+
+	require.NoError(t, store.RollbackToVersion(4))
+	require.Equal(t, int64(4), store.LastCommitID().Version)
+	require.Equal(t, records[3].hash, store.lastCommitInfo.Hash(),
+		"after rollback to v4, app hash must match original v4")
+
+	// The rebuilt block carries writes, which is the case the guard rejects outright rather than
+	// silently skipping.
+	rec := simulateBlock(t, store, storeKeys, 105, evmData)
+	require.Equal(t, int64(5), rec.version)
+	require.NotNil(t, findStoreInfo(rec.infos, "evm_lattice"))
+
+	require.NoError(t, store.Close())
+}
+
 // ---------------------------------------------------------------------------
 // Crash recovery — FlatKV behind cosmos, version reconciliation
 // ---------------------------------------------------------------------------

@@ -8,7 +8,8 @@ import (
 	"sort"
 	"sync"
 
-	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -24,7 +25,7 @@ type snapshotEngine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	config *SnapshotEngineConfig
+	config SnapshotEngineConfig
 
 	// A utility for assigning keys to shard indices.
 	shardManager *shardManager
@@ -40,10 +41,6 @@ type snapshotEngine struct {
 
 	// The underlying key-value database.
 	db types.KeyValueDB
-
-	// The most recently flushed hash, read from the DB (under config.HashKey) at open time. Nil if
-	// the DB had never been flushed. Exposed via InitialHash for restart continuity.
-	initialHash []byte
 
 	// Protects modification to version state.
 	versionLock *sync.Mutex
@@ -129,13 +126,14 @@ type snapshotReferenceCounter struct {
 	// the snapshot is eligible for retirement.
 	referenceCount uint64
 
-	// Opaque hash bytes for this snapshot. Nil until SetSnapshotHash is called. By contract, the
-	// hashing subsystem holds a reference count on the snapshot until it has set the hash, so this
-	// is guaranteed to be non-nil before referenceCount reaches 0. Enforced in DecrementReferenceCount.
-	hash []byte
+	// True once FinalizeSnapshot has run for this snapshot. Flushing is gated on it. By contract the
+	// finalizing consumer holds a reservation until it has finalized, so this is guaranteed to be
+	// true before referenceCount reaches 0. Enforced in DecrementReferenceCount.
+	finalized bool
 
-	// Closed by SetHash to wake AwaitHash waiters.
-	hashReady chan struct{}
+	// The metadata pairs supplied to FinalizeSnapshot, written to disk in the same atomic batch as
+	// this snapshot's diff. May be empty: a consumer with nothing to record still finalizes.
+	finalWrites []*proto.KVPair
 
 	// True if the snapshot has been flushed, otherwise false.
 	flushedToDisk bool
@@ -146,8 +144,12 @@ type snapshotReferenceCounter struct {
 	flushCompleted chan struct{}
 }
 
-// Creates a new SnapshotEngine. The database and pools are injected and remain owned by the
-// caller: the engine never closes them (see SnapshotEngine.Close for teardown ordering).
+// Creates a new SnapshotEngine.
+//
+// The engine takes ownership of db and closes it in Close. Nothing else may read or write that database
+// afterwards: doing so bypasses the engine's staging and cache and sees or corrupts a version nobody
+// asked for. The pools, by contrast, are shared and remain the caller's to close — after the engine,
+// since the engine's goroutines submit to them.
 func NewSnapshotEngine(
 	config *SnapshotEngineConfig,
 	// The underlying key-value database.
@@ -162,17 +164,6 @@ func NewSnapshotEngine(
 ) (SnapshotEngine, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid snapshot engine config: %w", err)
-	}
-
-	// Read the most recently flushed hash (written under config.HashKey by flushSnapshots), so a
-	// restart over an existing DB can observe the on-disk hash. A never-flushed DB has none.
-	var initialHash []byte
-	if h, err := db.Get([]byte(config.HashKey)); err != nil {
-		if !errors.Is(err, errorutils.ErrNotFound) {
-			return nil, fmt.Errorf("failed to read initial hash: %w", err)
-		}
-	} else {
-		initialHash = h
 	}
 
 	shardManager, err := newShardManager(config.ShardCount)
@@ -191,12 +182,11 @@ func NewSnapshotEngine(
 	c := &snapshotEngine{
 		ctx:          childCtx,
 		cancel:       cancel,
-		config:       config,
+		config:       *config,
 		shardManager: shardManager,
 		readPool:     readPool,
 		miscPool:     miscPool,
 		db:           db,
-		initialHash:  initialHash,
 		versionMap:   make(map[uint64]*snapshotReferenceCounter),
 		// Versions start at 1 (not 0) so a version-1 lookup never underflows.
 		currentVersion:            1,
@@ -224,7 +214,7 @@ func NewSnapshotEngine(
 
 	if config.MetricsEnabled {
 		metrics := newSnapshotEngineMetrics(
-			childCtx, config.MetricsName, config.MetricsScrapeInterval(), c.getCacheSizeInfo)
+			childCtx, config.Name, config.MetricsScrapeInterval(), c.getCacheSizeInfo)
 		for _, s := range c.shards {
 			s.metrics = metrics
 			s.cache.metrics = metrics
@@ -254,10 +244,10 @@ func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
 		shardMap[idx] = append(shardMap[idx], updates[i])
 	}
 
-	// Fan out to shards. A shard refusing the write (an iterator is open) fails the whole call; the
-	// shards that accepted it have already applied their entries, so the batch is not atomic across
-	// shards in that case. That is acceptable because it can only happen on caller misuse, and the
-	// engine contract makes any error fatal.
+	// Fan out to shards. A shard refusing the write — it is out of service, so the engine is closed or
+	// bricked — fails the whole call; the shards that accepted it have already applied their entries, so
+	// the batch is not atomic across shards in that case. That is acceptable because the engine contract
+	// makes any error fatal.
 	var wg sync.WaitGroup
 	shardIndices := make([]uint64, 0, len(shardMap))
 	for shardIndex := range shardMap {
@@ -375,11 +365,12 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 		return nil, fmt.Errorf("cannot create snapshot: %w", c.shutdownErrorLocked())
 	}
 
-	// Sealing the version under an open iterator is refused for the same reason writes are: the
-	// iterator's view must not shift beneath it.
+	// Every shard must still be in service. A shard taken out of service (the engine was closed or
+	// bricked) has no lifecycle runner left to flush what a new version would stage, so sealing one
+	// would discard it silently.
 	for i, s := range c.shards {
 		s.lock.Lock()
-		err := s.writableLocked()
+		err := s.cache.outOfServiceLocked()
 		s.lock.Unlock()
 		if err != nil {
 			return nil, fmt.Errorf("cannot create snapshot, shard %d: %w", i, err)
@@ -396,7 +387,6 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 	currentVersionRefCounter := &snapshotReferenceCounter{
 		version:        c.currentVersion,
 		referenceCount: 1,
-		hashReady:      make(chan struct{}),
 		flushCompleted: make(chan struct{}),
 	}
 
@@ -512,16 +502,17 @@ func (c *snapshotEngine) DecrementReferenceCount(version uint64) error {
 		return fmt.Errorf("version (%d) has already been dropped", version)
 	}
 
-	if counter.referenceCount == 1 && counter.hash == nil {
-		// Releasing the last reservation without a hash is fatal (see the hashing-duty contract on
-		// Snapshot). This snapshot can now never make progress: determineVersionsToFlushLocked skips
-		// unhashed versions, retirement requires a flush, and the hash will never arrive because the
-		// caller has spent its Release. Every later version stalls behind it with its in-memory data
-		// accumulating. Note the reference count is not what traps it — decrementing would not help.
+	if counter.referenceCount == 1 && !counter.finalized {
+		// Releasing the last reservation without finalizing is fatal (see the finalization-duty
+		// contract on Snapshot). This snapshot can now never make progress:
+		// determineVersionsToFlushLocked skips unfinalized versions, retirement requires a flush, and
+		// finalization will never arrive because the caller has spent its Release. Every later version
+		// stalls behind it with its in-memory data accumulating. Note the reference count is not what
+		// traps it — decrementing would not help.
 		//
 		// The sibling errors in this method deliberately do not brick: those reject a bogus version
 		// and leave engine state untouched, so that caller can retry with the right one.
-		err := fmt.Errorf("version (%d) was fully released without first being hashed", version)
+		err := fmt.Errorf("version (%d) was fully released without first being finalized", version)
 		c.brickLocked(err)
 		return err
 	}
@@ -555,8 +546,9 @@ func (c *snapshotEngine) scanForFlushEligibilityLocked() bool {
 	for version := start; version < c.currentVersion; version++ {
 		counter := c.versionMap[version]
 
-		if counter.hash == nil {
-			// We can only flush hashed snapshots. If we hit an unhashed one, no more flushing is possible.
+		if !counter.finalized {
+			// We can only flush finalized snapshots. If we hit an unfinalized one, no more flushing is
+			// possible.
 			break
 		}
 
@@ -616,12 +608,9 @@ func (c *snapshotEngine) maybeWakeLifecycleLocked() {
 	}
 }
 
-// SetSnapshotHash attaches a hash to the snapshot at the given version.
-func (c *snapshotEngine) SetSnapshotHash(version uint64, hash []byte) error {
-	if hash == nil {
-		return fmt.Errorf("hash cannot be nil")
-	}
-
+// FinalizeSnapshot attaches metadata writes to the snapshot at the given version and makes it
+// eligible to be flushed. An empty write set is legal.
+func (c *snapshotEngine) FinalizeSnapshot(version uint64, writes []*proto.KVPair) error {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
@@ -630,47 +619,16 @@ func (c *snapshotEngine) SetSnapshotHash(version uint64, hash []byte) error {
 		return fmt.Errorf("version (%d) not found", version)
 	}
 
-	if counter.hash != nil {
-		return fmt.Errorf("hash already set for version %d", version)
+	if counter.finalized {
+		return fmt.Errorf("version %d has already been finalized", version)
 	}
 
-	counter.hash = hash
-	close(counter.hashReady)
+	counter.finalized = true
+	counter.finalWrites = writes
 
 	c.maybeWakeLifecycleLocked()
 
 	return nil
-}
-
-// AwaitSnapshotHash blocks until the hash for the given version is available.
-func (c *snapshotEngine) AwaitSnapshotHash(ctx context.Context, version uint64) ([]byte, error) {
-	c.versionLock.Lock()
-	counter, ok := c.versionMap[version]
-	if !ok {
-		c.versionLock.Unlock()
-		return nil, fmt.Errorf("version (%d) not found", version)
-	}
-
-	if counter.hash != nil {
-		hash := counter.hash
-		c.versionLock.Unlock()
-		return hash, nil
-	}
-
-	hashReady := counter.hashReady
-	c.versionLock.Unlock()
-
-	select {
-	case <-hashReady:
-		// hashReady is closed when the hash is set, causing us to get a nil from <-hashReady.
-	case <-ctx.Done():
-		return nil, fmt.Errorf("failed to await hash: %w", ctx.Err())
-	case <-c.ctx.Done():
-		return nil, fmt.Errorf("snapshot engine shut down while awaiting hash for version (%d): %w",
-			version, c.shutdownError())
-	}
-
-	return counter.hash, nil
 }
 
 // Get the diff at a given version.
@@ -695,67 +653,87 @@ func (c *snapshotEngine) GetDiffAtVersion(version uint64) (map[string][]byte, er
 	return diff, nil
 }
 
-func (c *snapshotEngine) Iterator() (Iterator, error) {
+func (c *snapshotEngine) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 	// Overrides first, DB iterator second, and the order is load-bearing: a concurrent flush+retire
 	// that moved data out of versionedData and into the DB between the two steps would drop those
 	// keys entirely if the DB snapshot were taken first. In this order the same race can only yield a
 	// key twice, which the merge resolves in favor of the override.
-	overrides, err := c.materializeCurrentOverrides()
+	overrides, err := c.materializeCurrentOverrides(opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to materialize current overrides: %w", err)
 	}
 
-	dbIter, err := c.db.NewIter(nil)
+	dbIter, err := c.db.NewIter(opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db iterator: %w", err)
 	}
 
-	iter, err := newSnapshotIterator(overrides, dbIter, []byte(c.config.HashKey))
+	var lowerBound, upperBound []byte
+	reverse := false
+	if opts != nil {
+		lowerBound, upperBound, reverse = opts.LowerBound, opts.UpperBound, opts.Reverse
+	}
+	iter, err := newSnapshotIterator(
+		overrides, dbIter, []byte(c.config.ReservedPrefix), reverse, lowerBound, upperBound)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create snapshot iterator: %w", err)
 	}
 
-	// Block writes only now that construction has fully succeeded, so a failed construction cannot
-	// leave the engine permanently unwritable.
+	// Register the iterator only now that construction has fully succeeded, so a failed construction
+	// cannot leave a phantom entry behind.
 	for _, s := range c.shards {
 		s.iteratorOpened()
 	}
-	return &writeBlockingIterator{Iterator: iter, engine: c}, nil
+	return &trackedIterator{Iterator: iter, engine: c}, nil
 }
 
-// writeBlockingIterator releases the engine's write block when the underlying iterator is closed.
-// Close is idempotent, so the release happens exactly once no matter how often it is called.
-type writeBlockingIterator struct {
-	Iterator
-	engine *snapshotEngine
-	closed bool
+// trackedIterator deregisters itself from every shard when closed, so Close can report the iterators
+// still outstanding. Close is idempotent, and deregisters exactly once however often it is called.
+type trackedIterator struct {
+	dbm.Iterator
+	engine    *snapshotEngine
+	closeOnce sync.Once
 }
 
-func (w *writeBlockingIterator) Close() error {
-	if w.closed {
-		return nil
-	}
-	w.closed = true
-	for _, s := range w.engine.shards {
-		s.iteratorClosed()
-	}
-	return w.Iterator.Close()
+func (w *trackedIterator) Close() error {
+	var err error
+	w.closeOnce.Do(func() {
+		errs := make([]error, 0, len(w.engine.shards)+1)
+		for _, s := range w.engine.shards {
+			errs = append(errs, s.iteratorClosed())
+		}
+		errs = append(errs, w.Iterator.Close())
+		err = errors.Join(errs...)
+	})
+	return err
 }
 
 // materializeCurrentOverrides gathers the in-memory overrides at the current version from every
 // shard and returns them sorted ascending by key. Each shard is responsible for its own locking;
 // here we just stitch the results together, and the sort runs without any shard lock held.
-func (c *snapshotEngine) materializeCurrentOverrides() ([]kvPair, error) {
+// The overrides are sorted into iteration order — ascending, or descending when reverse is set — so
+// the merge in snapshotIterator can walk them and the DB iterator in lockstep.
+func (c *snapshotEngine) materializeCurrentOverrides(opts *types.IterOptions) ([]kvPair, error) {
+	var lowerBound, upperBound []byte
+	reverse := false
+	if opts != nil {
+		lowerBound, upperBound, reverse = opts.LowerBound, opts.UpperBound, opts.Reverse
+	}
+
 	var all []kvPair
 	for i, s := range c.shards {
-		shardOverrides, err := s.materializeCurrentOverrides()
+		shardOverrides, err := s.materializeCurrentOverrides(lowerBound, upperBound)
 		if err != nil {
 			return nil, fmt.Errorf("shard %d: %w", i, err)
 		}
 		all = append(all, shardOverrides...)
 	}
 	sort.Slice(all, func(i, j int) bool {
-		return bytes.Compare(all[i].key, all[j].key) < 0
+		cmp := bytes.Compare(all[i].key, all[j].key)
+		if reverse {
+			return cmp > 0
+		}
+		return cmp < 0
 	})
 	return all, nil
 }
@@ -841,7 +819,7 @@ func (c *snapshotEngine) doLifecycleWork() error {
 
 		c.versionLock.Lock()
 
-		firstFlushVersion, lastFlushVersion, versionHashes, err := c.determineVersionsToFlushLocked()
+		firstFlushVersion, lastFlushVersion, versionWrites, err := c.determineVersionsToFlushLocked()
 		if err != nil {
 			c.versionLock.Unlock()
 			return fmt.Errorf("unable to determine versions to flush: %w", err)
@@ -855,7 +833,7 @@ func (c *snapshotEngine) doLifecycleWork() error {
 
 		c.versionLock.Unlock()
 
-		err = c.flushSnapshots(firstFlushVersion, lastFlushVersion, versionHashes)
+		err = c.flushSnapshots(firstFlushVersion, lastFlushVersion, versionWrites)
 		if err != nil {
 			return fmt.Errorf("unable to flush snapshots: %w", err)
 		}
@@ -875,14 +853,14 @@ func (c *snapshotEngine) determineVersionsToFlushLocked() (
 	firstVersion uint64,
 	// The last version to be flushed, exclusive.
 	lastVersion uint64,
-	// The hashes of the versions to be flushed.
-	versionHashes map[uint64][]byte,
+	// The finalization writes of the versions to be flushed.
+	versionWrites map[uint64][]*proto.KVPair,
 	err error,
 ) {
 
 	firstVersion = c.oldestVersion
 	lastVersion = c.oldestVersion
-	versionHashes = make(map[uint64][]byte)
+	versionWrites = make(map[uint64][]*proto.KVPair)
 
 	if c.oldestVersion == c.currentVersion {
 		// The only version we are tracking is the mutable version, which is never flush eligible.
@@ -898,13 +876,13 @@ func (c *snapshotEngine) determineVersionsToFlushLocked() (
 	for targetVersion := firstVersion; targetVersion < c.currentVersion; targetVersion++ {
 		counter := c.versionMap[targetVersion]
 
-		if counter.hash == nil {
-			// Unhashed snapshots are not flush eligible.
+		if !counter.finalized {
+			// Unfinalized snapshots are not flush eligible.
 			break
 		}
 
 		// Mark the current snapshot as flush eligible.
-		versionHashes[targetVersion] = counter.hash
+		versionWrites[targetVersion] = counter.finalWrites
 		lastVersion++
 
 		if counter.referenceCount > 0 {
@@ -914,7 +892,7 @@ func (c *snapshotEngine) determineVersionsToFlushLocked() (
 		}
 	}
 
-	return firstVersion, lastVersion, versionHashes, nil
+	return firstVersion, lastVersion, versionWrites, nil
 }
 
 // Determine which versions need to be retired.
@@ -950,8 +928,8 @@ func (c *snapshotEngine) flushSnapshots(
 	firstVersion uint64,
 	// The last version to flush (exclusive).
 	lastVersion uint64,
-	// The hash of each version to flush.
-	versionHashes map[uint64][]byte,
+	// The finalization writes of each version to flush.
+	versionWrites map[uint64][]*proto.KVPair,
 ) error {
 
 	// Collect diffs from all shards.
@@ -973,10 +951,22 @@ func (c *snapshotEngine) flushSnapshots(
 		}
 	}
 
-	// For each version, append the metadata hash key so that it is written to the DB atomically with
-	// its block's diff.
+	// Fold each version's finalization writes into its diff, so that the caller's metadata is written
+	// to the DB atomically with its block's data. A nil value in the diff map is a tombstone, so a
+	// Delete pair maps to nil and a pair carrying an empty value is normalized to a non-nil empty
+	// slice to keep the two distinguishable.
 	for version := firstVersion; version < lastVersion; version++ {
-		diffsByVersion[version][c.config.HashKey] = versionHashes[version]
+		for _, pair := range versionWrites[version] {
+			if pair.Delete {
+				diffsByVersion[version][string(pair.Key)] = nil
+				continue
+			}
+			value := pair.Value
+			if value == nil {
+				value = []byte{}
+			}
+			diffsByVersion[version][string(pair.Key)] = value
+		}
 	}
 
 	// Write diffs to the DB in batches, oldest version first.
@@ -1105,15 +1095,24 @@ func (c *snapshotEngine) retireSnapshots(
 	return nil
 }
 
-// UnderlyingDB returns the raw backing database. Intended for test-only use
-// (e.g. iteration for ground-truth verification). Production code should use
-// the SnapshotEngine interface methods.
-func (c *snapshotEngine) UnderlyingDB() types.KeyValueDB {
+// EscapeHatchUnderlyingDB returns the raw backing database, bypassing every guarantee this engine
+// provides.
+//
+// The name is deliberately obstructive. Reading through it sees only what the flusher has written, so it
+// misses both the rows the current version has staged and the rows finalized but not yet flushed —
+// silently, with no error. Writing through it races the flusher, which will overwrite the same keys.
+// Neither failure is detectable from the returned value.
+//
+// The only sanctioned use is an operation that must address the database as a file rather than as a
+// key-value store, which in practice means taking a checkpoint. Every other use is a bug. If a caller
+// wants to read data, it wants Get, BatchGet or Iterator; if it wants to write data, it wants Set,
+// BatchSet or Finalize.
+func (c *snapshotEngine) EscapeHatchUnderlyingDB() types.KeyValueDB {
 	return c.db
 }
 
-func (c *snapshotEngine) InitialHash() []byte {
-	return c.initialHash
+func (c *snapshotEngine) Name() string {
+	return c.config.Name
 }
 
 // Close is idempotent: teardown runs exactly once and subsequent calls return the same result.
@@ -1131,7 +1130,7 @@ func (c *snapshotEngine) closeInternal() error {
 	c.lifecycleExit <- struct{}{}
 	<-c.lifecycleExited
 
-	// Release everyone blocked on the engine's future: AwaitHash, AwaitFlush, backpressured
+	// Release everyone blocked on the engine's future: AwaitFlush, backpressured
 	// Snapshot callers, and reads still awaiting results. The cancel happens under versionLock
 	// because backpressure waiters re-check the context under that lock before parking on the
 	// cond; a lockless cancel could slip between a waiter's check and its Wait, losing the
@@ -1151,10 +1150,40 @@ func (c *snapshotEngine) closeInternal() error {
 	// Wait for the metrics scrape loop (if any) to observe the cancellation and exit.
 	c.metrics.awaitStopped()
 
+	// Name any iterator still open, before the database it reads goes away. Best-effort: the report
+	// does not block, and the count may be stale. See the Close contract on SnapshotEngine.
+	leakedErr := c.assertNoLeakedIterators()
+
+	// The engine owns the database, so it closes it. This happens after the lifecycle runner has
+	// reported offline, so no flush can still be in flight against it.
+	dbErr := c.db.Close()
+
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 	if c.fatalErr != nil {
-		return fmt.Errorf("snapshot engine failed: %w", c.fatalErr)
+		return errors.Join(fmt.Errorf("snapshot engine failed: %w", c.fatalErr), leakedErr)
 	}
-	return nil
+	if dbErr != nil {
+		return errors.Join(fmt.Errorf("close underlying database: %w", dbErr), leakedErr)
+	}
+	return leakedErr
+}
+
+// assertNoLeakedIterators checks that every iterator handed out has been closed, returning an error
+// naming the count when any are still open. Returns an error rather than panicking: the caller folds
+// it into whatever else Close reports.
+//
+// Every iterator registers with every shard, so any one shard's count is the engine's count; shard 0
+// is read under its own lock. The engine always has at least one shard (the config requires it).
+func (c *snapshotEngine) assertNoLeakedIterators() error {
+	s := c.shards[0]
+	s.lock.Lock()
+	open := s.openIterators
+	s.lock.Unlock()
+
+	if open == 0 {
+		return nil
+	}
+	return fmt.Errorf("engine %q closed with %d iterator(s) still open; reading them is undefined "+
+		"behaviour, and this is a leak in the caller", c.config.Name, open)
 }
