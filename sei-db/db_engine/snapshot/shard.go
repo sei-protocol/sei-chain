@@ -27,7 +27,7 @@ type shard struct {
 	//
 	// TODO: this is a single exclusive lock. If it becomes a contention bottleneck, consider an RW
 	// lock — see the conversion strategy at the top of read_cache.go.
-	lock sync.Mutex
+	lock sync.RWMutex
 
 	// Data at various versions. This is for data that has not yet been flushed down into the DB.
 	versionedData map[string] /* key */ versionHistory /* values at various versions */
@@ -206,6 +206,15 @@ func (s *shard) Get(
 	// since it requires non-zero overhead to do so with little benefit.
 	updateLru bool,
 ) ([]byte, bool, error) {
+	if value, found, err, done := s.getShared(key, version, updateLru); done {
+		return value, found, err
+	}
+
+	// The read was not resolvable without mutating: classify it against the DB read-cache under the
+	// exclusive lock, then complete the read (which may schedule a DB read and block) outside it.
+	//
+	// The whole classification is redone rather than carried over from the shared attempt, because the
+	// lock was released in between and another reader may have scheduled or completed this key.
 	s.lock.Lock()
 
 	// Checked ahead of the versioned data so that a shard taken out of service refuses every read,
@@ -227,12 +236,48 @@ func (s *shard) Get(
 		return value, value != nil, nil
 	}
 
-	// Not in the versioned data map: classify against the DB read-cache under the same lock
-	// grab, then complete the read (which may schedule a DB read and block) outside the lock.
 	outcome := s.cache.lookupLocked(key, updateLru)
 	s.lock.Unlock()
 
 	return s.cache.resolve(key, outcome)
+}
+
+// getShared attempts a read while holding only the shared lock, reporting done when it succeeded.
+//
+// This is the path nearly every read takes, and it exists because a hit mutates nothing: the
+// out-of-service flag, the version bounds, the versioned data and the cache's entry map are all read,
+// and the recency stamp is atomic precisely so that recording it does not require exclusivity. A read
+// that misses does have to mutate — an entry is created and a DB read scheduled — and is left to the
+// caller to redo exclusively.
+func (s *shard) getShared(
+	key []byte,
+	version uint64,
+	updateLru bool,
+) (value []byte, found bool, err error, done bool) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+
+	if err := s.cache.outOfServiceLocked(); err != nil {
+		return nil, false, err, true
+	}
+	if err := s.validateVersionLocked(version); err != nil {
+		return nil, false, err, true
+	}
+
+	if value, found := s.lookupVersionedLocked(string(key), version); found {
+		s.metrics.reportCacheHits(1)
+		return value, value != nil, nil, true
+	}
+
+	outcome, ok := s.cache.lookupSharedLocked(key, updateLru)
+	if !ok {
+		return nil, false, nil, false
+	}
+
+	// Safe under the shared lock: an immediate outcome carries its value already, so resolve only
+	// reports the hit and returns without blocking or touching the cache again.
+	value, found, err = s.cache.resolve(key, outcome)
+	return value, found, err, true
 }
 
 // validateVersionLocked checks that the given version is within the valid range.
@@ -338,8 +383,8 @@ func (s *shard) batchGetInto(keys []string, indices []int, values [][]byte, vers
 
 // getSizeInfo returns the current cache size (bytes) and entry count under the shard lock.
 func (s *shard) getSizeInfo() (bytes uint64, entries uint64) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 	return s.cache.sizeInfoLocked()
 }
 
@@ -599,4 +644,16 @@ func (s *shard) DropVersions(
 	s.oldestVersion = lastVersion
 
 	return nil
+}
+
+// maintainCache advances the cache's epoch and brings it back within its size budget.
+//
+// Eviction is batched here rather than done by whichever read happened to miss, so that a block's
+// worth of it happens in one pass. Between passes the cache may exceed its budget by the slack
+// evictionSlackDivisor allows; insertions enforce a hard ceiling above that if a single block
+// overshoots.
+func (s *shard) maintainCache() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.cache.maintainLocked()
 }

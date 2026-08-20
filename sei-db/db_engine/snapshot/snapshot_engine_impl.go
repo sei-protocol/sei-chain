@@ -493,6 +493,14 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 		}
 	}
 
+	// Sealing a version is the once-per-block moment the read caches do their eviction, so that no
+	// read has to pay for it. Reads between here and the next seal may take the caches over their
+	// budget; the slack they are allowed is bounded, and insertions enforce a ceiling above it.
+	c.metrics.setSnapshotPhase("cache_maintenance")
+	for _, shard := range c.shards {
+		shard.maintainCache()
+	}
+
 	return snapshot, nil
 }
 

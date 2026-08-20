@@ -4,29 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
-
-/*
-This implementation currently uses a single exclusive lock, as opposed to a RW lock. This is a lot simpler than
-using a RW lock, but it comes at higher risk of contention under certain workloads. If this contention ever
-becomes a problem, we might consider switching to a RW lock. Below is a potential implementation strategy
-for converting to a RW lock:
-
-- Create a background goroutine that is responsible for LRU eviction and updating the LRU.
-- The eviction goroutine should periodically wake up, grab the lock, and do eviction.
-- When Get() is called, the calling goroutine should grab a read lock and attempt to read the value.
-    - If the value is present, send a message to the eviction goroutine over a channel (so it can update the LRU)
-	  and return the value. In this way, many readers can read from this shard concurrently.
-	- If the value is missing, drop the read lock and acquire a write lock. Then, handle the read
-	  like we currently handle in the current implementation.
-*/
 
 // readCache is a read-through cache over the backing DB. It knows nothing about versions or
 // snapshots; the shard resolves versioned data first and consults the cache only for keys with no
@@ -35,12 +21,17 @@ for converting to a RW lock:
 // A failed DB read is fatal: the cache bricks the engine, which takes every shard out of service so
 // no further reads are served (see outOfServiceErr).
 //
-// The cache is a passive component of its shard and shares the shard's mutex: it holds no lock
-// of its own. Methods with the Locked postfix require the shared lock to be held and never
-// block; resolve and resolveBatch run without the lock and may block on DB reads; the
-// background read-completion paths (injectValue, bulkInjectValues) acquire the lock themselves
-// for a single self-contained section each. Keeping one mutex preserves the engine's
-// single-lock-grab read path.
+// Recency is approximate, and that is what allows a read to hold only a shared lock. A true LRU has to
+// be reordered on every hit, which makes a read a write and forces every reader to exclude every
+// other; here a reader stamps the entry it read with the current epoch and eviction picks the oldest
+// of a small sample (see evictLocked). Nothing about the eviction choice affects correctness, since a
+// key evicted early is simply read from the backing DB again.
+//
+// The cache is a passive component of its shard and shares the shard's lock: it holds no lock of its
+// own. Methods with the Locked postfix require that lock held and never block; resolve and resolveBatch
+// run without it and may block on DB reads; the background read-completion paths (injectValue,
+// bulkInjectValues) take it themselves for a single self-contained section each. A read that hits needs
+// only shared access, while one that misses mutates the entry and needs it exclusively.
 type readCache struct {
 	// Cancelled when the engine shuts down; interrupts blocked waits on in-flight reads.
 	ctx context.Context
@@ -51,8 +42,8 @@ type readCache struct {
 	// A pool for asynchronous reads.
 	readPool threading.Pool
 
-	// The shard's mutex, shared with this cache (see the type doc).
-	lock *sync.Mutex
+	// The shard's lock, shared with this cache (see the type doc). A hit needs only its read side.
+	lock *sync.RWMutex
 
 	// Maps the context cancellation observed by a blocked read to the engine's shutdown error:
 	// the latched fatal error, or ErrEngineClosed on a clean close. Blocked reads select on ctx,
@@ -83,10 +74,19 @@ type readCache struct {
 	// The cached entries, keyed by string(key).
 	entries map[string]*cacheEntry
 
-	// Organizes entries for LRU eviction. Only entries in a terminal data state
-	// (available/deleted) are in the queue: scheduled entries have no value yet, and failed
-	// entries have no value to serve.
-	gcQueue *structures.LRUQueue
+	// The number of bytes and entries counted toward the size budget. Only entries in a terminal data
+	// state (available/deleted) are counted: scheduled entries have no value yet, and failed entries
+	// have no value to serve.
+	//
+	// Guarded by the shared lock.
+	trackedBytes uint64
+	trackedCount uint64
+
+	// Advanced once per maintenance pass, and stamped onto an entry by a reader that serves a value
+	// from it. Eviction prefers entries whose stamp is oldest, so an epoch is the unit of recency.
+	//
+	// Guarded by the shared lock, which readers hold while stamping.
+	epoch uint64
 }
 
 // The result of a read from the underlying database.
@@ -128,6 +128,17 @@ type cacheEntry struct {
 	// If the value is not available when we request it,
 	// it will be written to this channel when it is available.
 	valueChan chan readResult
+
+	// The epoch in which a reader last served a value from this entry. Atomic because readers stamp it
+	// while holding only a shared lock, so several may stamp the same entry at once. Eviction needs
+	// approximate recency only: a lost stamp costs one early eviction, never a wrong value.
+	lastRead atomic.Uint64
+
+	// This entry's contribution to trackedBytes, or zero while it holds no value. Held here so
+	// eviction can debit it without consulting a second structure.
+	//
+	// Guarded by the shared lock.
+	size uint64
 }
 
 // Tracks a key whose value is not yet available and must be waited on.
@@ -168,7 +179,7 @@ type lookupOutcome struct {
 	needsSchedule bool
 }
 
-// newReadCache creates a readCache sharing the given mutex (see the type doc for the locking
+// newReadCache creates a readCache sharing the given lock (see the type doc for the locking
 // contract).
 func newReadCache(
 	ctx context.Context,
@@ -176,8 +187,8 @@ func newReadCache(
 	db types.KeyValueDB,
 	// A work pool for asynchronous reads.
 	readPool threading.Pool,
-	// The shard's mutex, shared with this cache.
-	lock *sync.Mutex,
+	// The shard's lock, shared with this cache.
+	lock *sync.RWMutex,
 	// The maximum size of the cache, in bytes.
 	maxSize uint64,
 	// The estimated bookkeeping overhead per entry, in bytes.
@@ -197,7 +208,6 @@ func newReadCache(
 		overheadPerEntry:  overheadPerEntry,
 		maxSize:           maxSize,
 		entries:           make(map[string]*cacheEntry),
-		gcQueue:           structures.NewLRUQueue(),
 	}
 }
 
@@ -247,6 +257,37 @@ func (c *readCache) readFromDB(key []byte) (value []byte, found bool, err error)
 // scheduled by exactly one caller.
 //
 // The Locked postfix indicates that the caller must hold the shared lock.
+// lookupSharedLocked classifies a read that a caller wants to serve while holding only the shared
+// lock. It mutates nothing, so it can only report a hit; ok is false for every other state, and such a
+// caller must retry under the exclusive lock where classifying may create an entry and schedule a read.
+//
+// Deliberately narrower than lookupLocked, which also handles a read already in flight. Joining one
+// only reads the entry's channel and would be safe here, but keeping this to the two states that are
+// unambiguously terminal is what makes it obvious that no shared-lock caller can mutate.
+//
+// The Locked postfix indicates that the caller must hold at least the shared lock.
+func (c *readCache) lookupSharedLocked(key []byte, updateLru bool) (outcome lookupOutcome, ok bool) {
+	entry := c.entryLocked(key, false)
+	if entry == nil {
+		return lookupOutcome{}, false
+	}
+
+	switch entry.status {
+	case statusAvailable:
+		if updateLru {
+			c.stampLocked(entry)
+		}
+		return lookupOutcome{immediate: true, value: entry.value, found: true}, true
+	case statusDeleted:
+		if updateLru {
+			c.stampLocked(entry)
+		}
+		return lookupOutcome{immediate: true}, true
+	default:
+		return lookupOutcome{}, false
+	}
+}
+
 func (c *readCache) lookupLocked(
 	// The key to classify.
 	key []byte,
@@ -260,12 +301,12 @@ func (c *readCache) lookupLocked(
 	switch entry.status {
 	case statusAvailable:
 		if updateLru {
-			c.gcQueue.Touch(key)
+			c.stampLocked(entry)
 		}
 		return lookupOutcome{immediate: true, value: entry.value, found: true}
 	case statusDeleted:
 		if updateLru {
-			c.gcQueue.Touch(key)
+			c.stampLocked(entry)
 		}
 		return lookupOutcome{immediate: true}
 	case statusScheduled:
@@ -293,12 +334,12 @@ func (c *readCache) lookupStringLocked(key string, updateLru bool) lookupOutcome
 	switch entry.status {
 	case statusAvailable:
 		if updateLru {
-			c.gcQueue.TouchString(key)
+			c.stampLocked(entry)
 		}
 		return lookupOutcome{immediate: true, value: entry.value, found: true}
 	case statusDeleted:
 		if updateLru {
-			c.gcQueue.TouchString(key)
+			c.stampLocked(entry)
 		}
 		return lookupOutcome{immediate: true}
 	case statusScheduled:
@@ -422,15 +463,13 @@ func (e *cacheEntry) injectValue(key []byte, result readResult) {
 		} else if result.value == nil {
 			e.status = statusDeleted
 			e.value = nil
-			size := uint64(len(key)) + c.overheadPerEntry
-			c.gcQueue.Push(key, size)
-			c.evictLocked()
+			c.trackLocked(e, uint64(len(key))+c.overheadPerEntry)
+			c.evictLocked(c.hardCapLocked())
 		} else {
 			e.status = statusAvailable
 			e.value = result.value
-			size := uint64(len(key)) + uint64(len(result.value)) + c.overheadPerEntry
-			c.gcQueue.Push(key, size)
-			c.evictLocked()
+			c.trackLocked(e, uint64(len(key))+uint64(len(result.value))+c.overheadPerEntry)
+			c.evictLocked(c.hardCapLocked())
 		}
 	}
 
@@ -475,19 +514,17 @@ func (c *readCache) bulkInjectValues(reads []pendingRead) {
 		} else if result.value == nil {
 			entry.status = statusDeleted
 			entry.value = nil
-			size := uint64(len(reads[i].key)) + c.overheadPerEntry
-			c.gcQueue.PushString(reads[i].key, size)
+			c.trackLocked(entry, uint64(len(reads[i].key))+c.overheadPerEntry)
 		} else {
 			entry.status = statusAvailable
 			entry.value = result.value
-			size := uint64(len(reads[i].key)) + uint64(len(result.value)) + c.overheadPerEntry
-			c.gcQueue.PushString(reads[i].key, size)
+			c.trackLocked(entry, uint64(len(reads[i].key))+uint64(len(result.value))+c.overheadPerEntry)
 		}
 	}
 	if failure != nil {
 		c.takeOutOfServiceLocked(failure)
 	}
-	c.evictLocked()
+	c.evictLocked(c.hardCapLocked())
 	c.lock.Unlock()
 
 	// The waiters for this batch were already released by resolveBatch, so there is nobody blocked
@@ -555,7 +592,7 @@ func (c *readCache) putRetiredLocked(data map[string][]byte) {
 	// These insertions may have caused the cache to exceed its size budget, do necessary
 	// evictions. setRetiredLocked does not evict on its own, so this is the enforcement point
 	// for the bulk insert above.
-	c.evictLocked()
+	c.evictLocked(c.hardCapLocked())
 }
 
 // Set a retired value.
@@ -566,8 +603,7 @@ func (c *readCache) setRetiredLocked(key string, value []byte) {
 	entry.status = statusAvailable
 	entry.value = value
 
-	size := uint64(len(key)) + uint64(len(value)) + c.overheadPerEntry
-	c.gcQueue.PushString(key, size)
+	c.trackLocked(entry, uint64(len(key))+uint64(len(value))+c.overheadPerEntry)
 }
 
 // Delete a retired value.
@@ -582,17 +618,97 @@ func (c *readCache) deleteRetiredLocked(key string) {
 	entry.status = statusDeleted
 	entry.value = nil
 
-	size := uint64(len(key)) + c.overheadPerEntry
-	c.gcQueue.PushString(key, size)
+	c.trackLocked(entry, uint64(len(key))+c.overheadPerEntry)
 }
 
-// Evicts least recently used entries until the cache is within its size budget.
+// stampLocked records that a reader served a value from this entry in the current epoch.
+//
+// The load guards the store because the store is a locked instruction on amd64 while the load is a
+// plain one, and an entry read more than once in an epoch only has to be stamped the first time. In a
+// working set that fits, that makes a repeat read a plain load of a cache line the reader already
+// pulled in to reach the value.
+//
+// The Locked postfix indicates that the caller must hold the shared lock. The stamp itself is atomic
+// so that a shared lock suffices.
+func (c *readCache) stampLocked(entry *cacheEntry) {
+	if entry.lastRead.Load() != c.epoch {
+		entry.lastRead.Store(c.epoch)
+	}
+}
+
+// trackLocked records an entry's contribution to the size budget, replacing whatever it contributed
+// before. Called whenever an entry takes on a value, including when it replaces one, so that a value
+// changing size does not drift the total.
 //
 // The Locked postfix indicates that the caller must hold the shared lock.
-func (c *readCache) evictLocked() {
-	for c.gcQueue.GetTotalSize() > c.maxSize {
-		next := c.gcQueue.PopLeastRecentlyUsed()
-		delete(c.entries, next)
+func (c *readCache) trackLocked(entry *cacheEntry, size uint64) {
+	if entry.size == 0 {
+		c.trackedCount++
+	}
+	c.trackedBytes -= entry.size
+	c.trackedBytes += size
+	entry.size = size
+
+	// A newly tracked entry counts as read now. Without this an entry inserted just before a sweep
+	// looks infinitely old and is evicted immediately, which would throw away the read that fetched it.
+	entry.lastRead.Store(c.epoch)
+}
+
+// untrackLocked removes an entry from the size budget and from the cache.
+//
+// The Locked postfix indicates that the caller must hold the shared lock.
+func (c *readCache) untrackLocked(key string, entry *cacheEntry) {
+	c.trackedBytes -= entry.size
+	c.trackedCount--
+	entry.size = 0
+	delete(c.entries, key)
+}
+
+// evictSampleSize is the number of entries considered per eviction. Recency here is approximate by
+// design: the cost of evicting a slightly-wrong entry is one read of the backing DB, never a wrong
+// value, so sampling a few candidates buys most of the benefit of a true ordering for none of the
+// bookkeeping. Redis, which evicts the same way, defaults to five.
+const evictSampleSize = 8
+
+// evictLocked evicts entries until the cache is within the given budget, choosing each victim as the
+// oldest of a small sample.
+//
+// Sampling rather than an ordered structure is what keeps a read from having to write: maintaining a
+// true LRU means reordering on every hit, which is why this cache needed an exclusive lock. The cost
+// here is a function of the sample size and the number of evictions, and is independent of how large
+// the cache has grown.
+//
+// Only entries holding a value are eligible. A scheduled entry has readers waiting on it and no value
+// to reclaim, and a failed one belongs to a bricked engine.
+//
+// The Locked postfix indicates that the caller must hold the shared lock.
+func (c *readCache) evictLocked(budget uint64) {
+	for c.trackedBytes > budget {
+		var victimKey string
+		var victim *cacheEntry
+		oldest := uint64(math.MaxUint64)
+
+		sampled := 0
+		for key, entry := range c.entries {
+			if entry.size == 0 {
+				// Holds no value, so there is nothing to reclaim and no stamp to compare.
+				continue
+			}
+			if stamp := entry.lastRead.Load(); stamp <= oldest {
+				oldest, victimKey, victim = stamp, key, entry
+			}
+			if sampled++; sampled == evictSampleSize {
+				break
+			}
+		}
+
+		if victim == nil {
+			// Every tracked entry is gone but the budget is still exceeded, which means the accounting
+			// disagrees with the map. Stopping is the safe response: over-budget costs memory, whereas
+			// looping here would hang the caller holding the shard lock.
+			return
+		}
+		c.untrackLocked(victimKey, victim)
 	}
 }
 
@@ -600,5 +716,32 @@ func (c *readCache) evictLocked() {
 //
 // The Locked postfix indicates that the caller must hold the shared lock.
 func (c *readCache) sizeInfoLocked() (bytes uint64, entries uint64) {
-	return c.gcQueue.GetTotalSize(), c.gcQueue.GetCount()
+	return c.trackedBytes, c.trackedCount
+}
+
+// evictionSlackDivisor sets how far over its budget the cache may run between maintenance passes, as
+// a fraction of maxSize. A block's insertions are expected to fit inside the slack, so eviction
+// normally happens once per block rather than on the path of whatever read happened to miss.
+const evictionSlackDivisor = 16
+
+// hardCapLocked is the ceiling that insertions enforce inline. Reaching it means a single block
+// inserted more than the slack allows, so eviction happens on the insertion path as a backstop rather
+// than letting the cache grow without bound until the next maintenance pass.
+//
+// The Locked postfix indicates that the caller must hold the shared lock.
+func (c *readCache) hardCapLocked() uint64 {
+	return c.maxSize + c.maxSize/evictionSlackDivisor
+}
+
+// maintainLocked advances the epoch and brings the cache back within its size budget.
+//
+// Called once per block rather than on every insertion, so the eviction work of a whole block is done
+// in one pass while a lock is being taken anyway. Between passes the cache is allowed to run over its
+// budget; the overshoot is bounded by the number of distinct keys a block can miss on, which is
+// bounded by the reads in a block.
+//
+// The Locked postfix indicates that the caller must hold the shared lock.
+func (c *readCache) maintainLocked() {
+	c.epoch++
+	c.evictLocked(c.maxSize)
 }
