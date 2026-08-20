@@ -231,45 +231,28 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 	return qc, err
 }
 
-// waitForEpoch blocks until the applied (next-CommitQC) epoch equals i.
-// Returns ErrPruned if applied has already passed i (see types.ErrPruned).
-func (s *State) waitForEpoch(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
-	epoch, err := s.Epoch().Wait(ctx, func(epoch *types.Epoch) bool {
-		return i <= epoch.EpochIndex()
-	})
-	if err != nil {
-		return nil, err
-	}
-	if epoch.EpochIndex() != i {
-		return nil, types.ErrPruned
-	}
-	return epoch, nil
-}
-
-// PushCommitQC admits a CommitQC once its epoch is applied (ingress wait).
-// Stale QCs are a no-op.
+// PushCommitQC admits a CommitQC once its epoch is applied and it is the next
+// road. Stale QCs are a no-op.
 func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 	idx := qc.Proposal().Index()
-	epoch, err := s.waitForEpoch(ctx, qc.Proposal().EpochIndex())
-	if err != nil {
-		if errors.Is(err, types.ErrPruned) {
-			return nil
-		}
-		return err
-	}
+	want := qc.Proposal().EpochIndex()
+	var epoch *types.Epoch
 	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool { return idx <= inner.roads.next }); err != nil {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			return inner.applied().EpochIndex() >= want && idx <= inner.roads.next
+		}); err != nil {
 			return err
 		}
-		if inner.roads.next > idx {
+		if inner.applied().EpochIndex() != want || inner.roads.next > idx {
 			return nil
 		}
+		epoch = inner.applied()
 	}
 	if err := qc.Verify(epoch); err != nil {
 		return fmt.Errorf("qc.Verify(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if idx != inner.roads.next {
+		if idx != inner.roads.next || inner.applied().EpochIndex() != want {
 			return nil
 		}
 		inner.roads.pushBack(newRoad(qc, epoch))
@@ -353,7 +336,7 @@ func (s *State) Block(ctx context.Context, lane types.LaneID, n types.BlockNumbe
 // Waits until all previous blocks are available.
 // A missing map (closed lane, or a LaneID never admitted) is a silent no-op —
 // future lanes are not waited on.
-// Accepts a proposal valid under the applied or Anchor epoch.
+// The lane must be in the applied committee.
 func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LaneProposal]) error {
 	h := p.Msg().Block().Header()
 	if p.Key() != h.Lane().Validator {
@@ -368,10 +351,10 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		return fmt.Errorf("VerifySig(): %w", err)
 	}
 	for inner, ctrl := range s.inner.Lock() {
-		if !epochForLane(inner, lane).IsPresent() {
-			return nil
-		}
 		if err := ctrl.WaitUntil(ctx, func() bool {
+			if !inner.applied().Committee().HasLane(lane) {
+				return true
+			}
 			q, ok := inner.blocks[lane]
 			if !ok {
 				return true
@@ -379,6 +362,9 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 			return n <= min(q.next, q.first+BlocksPerLane-1)
 		}); err != nil {
 			return err
+		}
+		if !inner.applied().Committee().HasLane(lane) {
+			return nil
 		}
 		q, ok := inner.blocks[lane]
 		if !ok {
@@ -444,11 +430,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 			return nil
 		}
 		// TODO: accept future-epoch joiner votes.
-		ep, ok := epochForVote(inner, vote).Get()
-		if !ok {
-			return nil
-		}
-		if err := vote.Msg().Verify(ep.Committee()); err != nil {
+		if !inner.epochForVote(vote).IsPresent() {
 			return nil
 		}
 		applied := inner.applied()
@@ -460,41 +442,6 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		}
 	}
 	return nil
-}
-
-// epochForVote returns the applied or Anchor epoch the vote belongs to
-// (lane + signer in that committee). Prefers applied; falls back to Anchor
-// when that is a different EpochIndex.
-func epochForVote(inner *inner, vote *types.Signed[*types.LaneVote]) utils.Option[*types.Epoch] {
-	lane := vote.Msg().Header().Lane()
-	key := vote.Key()
-	belongs := func(ep *types.Epoch) bool {
-		c := ep.Committee()
-		return c.HasLane(lane) && c.HasReplica(key)
-	}
-	applied := inner.applied()
-	if belongs(applied) {
-		return utils.Some(applied)
-	}
-	ae, ok := inner.anchorEpoch.Get()
-	if !ok || ae.EpochIndex() == applied.EpochIndex() || !belongs(ae) {
-		return utils.None[*types.Epoch]()
-	}
-	return utils.Some(ae)
-}
-
-// epochForLane returns the applied epoch if it has lane, otherwise the Anchor
-// epoch when that is a different EpochIndex and has lane.
-func epochForLane(inner *inner, lane types.LaneID) utils.Option[*types.Epoch] {
-	applied := inner.applied()
-	if applied.Committee().HasLane(lane) {
-		return utils.Some(applied)
-	}
-	ae, ok := inner.anchorEpoch.Get()
-	if !ok || ae.EpochIndex() == applied.EpochIndex() || !ae.Committee().HasLane(lane) {
-		return utils.None[*types.Epoch]()
-	}
-	return utils.Some(ae)
 }
 
 // headers collects headers for the given range under ep (the CommitQC's road epoch).

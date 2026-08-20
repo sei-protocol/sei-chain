@@ -21,10 +21,8 @@ type inner struct {
 
 	// anchorEpoch is the epoch of data's Anchor CommitQC when one exists.
 	// None until the first Anchor arrives (construction prune or runEvict).
-	// It may exceed the applied epoch while runEpochAdvance is parked on
-	// WaitForEpoch, or briefly between prune and the next advance: admission
-	// falls back to the Anchor committee via epochForVote / epochForLane.
-	// prune never advances applied — only advanceEpoch does.
+	// When it lags applied, epochForVote falls back to this committee for
+	// departing-lane voters. prune never advances applied — only advanceEpoch does.
 	anchorEpoch utils.Option[*types.Epoch]
 	blocks      map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes       map[types.LaneID]*queue[types.BlockNumber, *blockVotes]
@@ -148,6 +146,27 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 
 func (i *inner) applied() *types.Epoch {
 	return i.consensusSpec.Load().Epoch
+}
+
+// epochForVote returns the applied or Anchor epoch the vote belongs to
+// (lane + signer in that committee). Prefers applied; falls back to Anchor
+// when that is a different EpochIndex.
+func (i *inner) epochForVote(vote *types.Signed[*types.LaneVote]) utils.Option[*types.Epoch] {
+	lane := vote.Msg().Header().Lane()
+	key := vote.Key()
+	belongs := func(ep *types.Epoch) bool {
+		c := ep.Committee()
+		return c.HasLane(lane) && c.HasReplica(key)
+	}
+	applied := i.applied()
+	if belongs(applied) {
+		return utils.Some(applied)
+	}
+	ae, ok := i.anchorEpoch.Get()
+	if !ok || ae.EpochIndex() == applied.EpochIndex() || !belongs(ae) {
+		return utils.None[*types.Epoch]()
+	}
+	return utils.Some(ae)
 }
 
 // seedApplied sets applied to ep and opens its lanes. Construction only;
