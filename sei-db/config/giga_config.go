@@ -3,9 +3,10 @@ package config
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
@@ -22,7 +23,7 @@ type GigaStorageConfig struct {
 	SSConfig        StateStoreConfig
 	ReceiptDBConfig ReceiptStoreConfig
 	BlockDBConfig   *littblock.BlockDBConfig
-	PruningConfig   *gc.StorageGarbageCollectorConfig
+	PruningConfig   *controller.StorageGarbageCollectorConfig
 }
 
 // DefaultGigaStorageConfig returns a GigaStorageConfig whose store directories match the
@@ -63,6 +64,6 @@ func DefaultGigaStorageConfig(homePath string) (GigaStorageConfig, error) {
 		SSConfig:        ssConfig,
 		ReceiptDBConfig: receiptConfig,
 		BlockDBConfig:   blockDBConfig,
-		PruningConfig:   gc.DefaultStorageGarbageCollectorConfig(),
+		PruningConfig:   controller.DefaultStorageGarbageCollectorConfig(),
 	}, nil
 }

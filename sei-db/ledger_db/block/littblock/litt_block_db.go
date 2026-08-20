@@ -4,18 +4,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
-	"sync"
 	"sync/atomic"
 
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	litttypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 )
 
-// tableName is the single table holding blocks and QCs both, despite the name.
+// tableName is the single table holding every record kind, despite the name.
 //
 // It is persisted layout rather than just an identifier: littdb stores a table's data at
 // <root>/<tableName>/segments, so changing it makes NewBlockDB open a fresh empty table and leaves
@@ -26,40 +23,26 @@ const tableName = "blocks"
 // only uses it to recognize a directory left behind by one of those versions.
 const legacyTableName = "ledger"
 
-var _ types.BlockDB = (*blockDB)(nil)
+var _ blocktypes.BlockDB = (*blockDB)(nil)
 
-// blockDB is a durable types.BlockDB backed by LittDB
+// blockDB is a durable blocktypes.BlockDB backed by LittDB.
 type blockDB struct {
 	db    littdb.DB
 	table littdb.Table
 
-	// watermark is a retention floor, always a QC boundary (a GlobalRange().First):
-	// PruneBefore rounds a requested prune point down to the start of the cohort
-	// containing it, and startup re-derives it as the lowest surviving FullCommitQC's First
-	// (see clampPruneBoundary and recoverWatermark). Keeping it on a cohort boundary
-	// is what makes a QC's blocks change readability atomically — the gate never
-	// splits a cohort.
-	//
-	// It serves two purposes: the GC filters treat keys strictly below it as
-	// eligible for reclamation, and reads and iterators refuse to serve any block
-	// strictly below it. The read gate is what upholds the "a served block is
-	// always covered by a served QC" invariant: asynchronous GC can strand a
-	// below-watermark block on disk (its covering QC reclaimed while the block's
-	// own segment lingers), but such a block is never served. Read from the GC
-	// goroutine, so accessed atomically.
+	// watermark is the reclamation floor. gcFilter and readers load it without
+	// holding any lock, so it is accessed atomically.
 	watermark atomic.Uint64
-
-	// status is the explicit write-order/recovery suffix cursor (see
-	// types.BlockDB contract). None means the DB is empty. Guarded by mu.
-	mu     sync.Mutex
-	status utils.Option[types.SuffixRange]
 }
 
-// NewBlockDB opens (or creates) a LittDB-backed types.BlockDB from config. The
+// NewBlockDB opens (or creates) a LittDB-backed blocktypes.BlockDB from config. The
 // underlying LittDB is built from config.Litt, and the table applies
 // config.RetentionTime as a TTL failsafe (pruning never reclaims data younger
 // than that even once the watermark has advanced past it).
-func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
+//
+// Opening a store that holds records but no QC fails: the store lost data out of
+// band and must not be served.
+func NewBlockDB(config *BlockDBConfig) (blocktypes.BlockDB, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid block db config: %w", err)
 	}
@@ -75,14 +58,13 @@ func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
 
 	s := &blockDB{db: db}
 
-	// Blocks and QCs live in one table with a single write shard. The block
-	// store relies on LittDB's single-shard in-write-order crash atomicity
-	// (after a crash the surviving writes form a contiguous prefix of the write
-	// order, never a gapped subset). Because the covering QC is always written
-	// before the block (WriteBlock rejects an uncovered block), that prefix
-	// guarantees a persisted block is always covered by a persisted QC. It also
-	// backs the write-order cursors and contiguous-QC recovery. ShardingFactor
-	// > 1, or splitting blocks and QCs across two tables, would void this.
+	// Every record kind lives in one table with a single write shard. The store
+	// relies on LittDB's single-shard in-write-order crash atomicity (after a
+	// crash the surviving writes form a contiguous prefix of the write order,
+	// never a gapped subset), which is the durability guarantee the
+	// blocktypes.BlockDB contract promises its caller. It also backs
+	// write-order recovery scans. ShardingFactor > 1, or splitting the kinds
+	// across several tables, would void this.
 	tableConfig := littdb.DefaultTableConfig(tableName)
 	tableConfig.TTL = config.RetentionTime
 	tableConfig.GCFilter = s.gcFilter
@@ -97,13 +79,63 @@ func NewBlockDB(config *BlockDBConfig) (types.BlockDB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to recover watermark: %w", err)
 	}
-	suffix, err := s.ReadSuffix()
-	if err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("ReadSuffix(): %w", err)
-	}
-	s.status = suffix.Status
 	return s, nil
+}
+
+// recoverWatermark re-derives the reclamation floor from the oldest surviving QC
+// record. The floor is in-memory only, so a restart forgets every
+// SetPruneWatermark; that costs nothing for reclamation, since nothing new is
+// released, but it must not leave blocks readable whose covering QC is already
+// gone.
+//
+// QC records are written before anything else covering the same number, so the
+// oldest one bounds what the store may serve, and the scan stops at it. A
+// non-empty store with no QC record has lost that bound and must not reopen.
+func (s *blockDB) recoverWatermark() error {
+	it, err := s.Scan(false)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = it.Close() }()
+	empty := true
+	for {
+		ok, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if !ok {
+			break
+		}
+		empty = false
+		if it.Kind() == blocktypes.KindQC {
+			s.watermark.Store(it.Number())
+			return nil
+		}
+	}
+	if !empty {
+		return fmt.Errorf("corrupt store: no QC in non-empty store")
+	}
+	return nil
+}
+
+// PruneWatermark returns the reclamation floor.
+func (s *blockDB) PruneWatermark() uint64 {
+	return s.watermark.Load()
+}
+
+// SetPruneWatermark raises the reclamation floor to n. Reclaiming the data
+// happens later, on LittDB's GC schedule and no earlier than
+// BlockDBConfig.RetentionTime.
+func (s *blockDB) SetPruneWatermark(n uint64) {
+	for {
+		current := s.watermark.Load()
+		if n <= current {
+			return
+		}
+		if s.watermark.CompareAndSwap(current, n) {
+			return
+		}
+	}
 }
 
 // refuseLegacyTable fails the open when any root path holds a table directory under legacyTableName,
@@ -129,250 +161,69 @@ func refuseLegacyTable(paths []string) error {
 	return nil
 }
 
-// recoverWatermark re-derives the read watermark on open from the oldest
-// surviving FullCommitQC. It is in-memory only, so a restart forgets every PruneBefore.
-// That is fine for reclamation (nothing new is deleted), but we must protect
-// against showing un-pruned blocks with pruned QCs.
-//
-// FullCommitQCs are written before any other data for the same index.
-// If no FullCommitQC survives but the table is non-empty, the store is corrupt and must not reopen.
-func (s *blockDB) recoverWatermark() error {
-	it, err := s.table.Iterator(false)
+func (s *blockDB) PutRecord(kind blocktypes.RecordKind, first, next uint64, value []byte) error {
+	prefix, err := kindPrefix(kind)
 	if err != nil {
-		return fmt.Errorf("failed to open read floor recovery iterator: %w", err)
+		return err
 	}
-	defer func() { _ = it.Close() }()
-	empty := true
-	for {
-		ok, err := it.Next()
-		if err != nil {
-			return fmt.Errorf("failed to advance read floor recovery iterator: %w", err)
-		}
-		if !ok {
-			break
-		}
-		empty = false
-		key, isPrimary, err := it.GetKey()
-		if err != nil {
-			return fmt.Errorf("failed to read read floor recovery key: %w", err)
-		}
-		if !isPrimary {
-			continue
-		}
-		if keyKind(key) != kindQC {
-			continue
-		}
-		s.watermark.Store(uint64(decodeNumberKey(key)))
-		return nil
+	var aliases []*litttypes.SecondaryKey
+	for m := first + 1; m < next; m++ {
+		aliases = append(aliases, &litttypes.SecondaryKey{
+			Key:    numberKey(prefix, m),
+			Offset: 0,
+			Length: uint32(len(value)), //nolint:gosec // value length fits u32 (litt value cap is 2^32)
+		})
 	}
-	// No FullCommitQC survives. Refuse to open rather than serve blocks we can no longer trust.
-	if !empty {
-		return fmt.Errorf("corrupt store: no QC in non-empty store")
+	if err := s.table.Put(numberKey(prefix, first), value, aliases...); err != nil {
+		return fmt.Errorf("failed to put %s [%d,%d): %w", kind, first, next, err)
 	}
 	return nil
 }
 
-func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status, ok := s.status.Get()
-	// A covering QC must already be written. Since QCs are contiguous and blocks
-	// strictly ascending, n is covered iff n < status.NextQC. This guard also fixes
-	// the QC-before-block write order: the covering QC's Put has already issued
-	// under this mutex, so on a crash a surviving block implies a surviving FullCommitQC.
-	if !ok || n >= status.NextQC {
-		return fmt.Errorf("block number %d not covered by any written QC: %w", n, types.ErrBlockMissingQC)
-	}
-	if n != status.NextBlock {
-		return fmt.Errorf("block number %d not contiguous with last written %d: %w",
-			n, status.NextBlock-1, types.ErrBlockOutOfOrder)
-	}
-
-	value := encodeBlock(n, blk)
-	hash := blk.Header().Hash()
+func (s *blockDB) PutBlock(n uint64, hash []byte, value []byte) error {
 	hashAlias := &litttypes.SecondaryKey{
 		Key:    blockHashKey(hash),
 		Offset: 0,
 		Length: uint32(len(value)), //nolint:gosec // value length fits u32 (litt value cap is 2^32)
 	}
-	if err := s.table.Put(blockKey(n), value, hashAlias); err != nil {
+	if err := s.table.Put(numberKey(kindBlock, n), value, hashAlias); err != nil {
 		return fmt.Errorf("failed to put block %d: %w", n, err)
 	}
-	status.NextBlock = n + 1
-	s.status = utils.Some(status)
 	return nil
 }
 
-func (s *blockDB) WriteQC(qc *types.FullCommitQC) error {
-	gr := qc.QC().GlobalRange()
-	if gr.Len() == 0 {
-		return fmt.Errorf("QC at %d covers no blocks: %w", gr.First, types.ErrQCNonContiguous)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status, ok := s.status.Get()
-	if ok && status.NextQC != gr.First {
-		return fmt.Errorf("QC starts at %d, expected %d: %w",
-			gr.First, status.NextQC, types.ErrQCNonContiguous)
-	}
-
-	value := encodeQC(qc)
-	var aliases []*litttypes.SecondaryKey
-	for m := gr.First + 1; m < gr.Next; m++ {
-		aliases = append(aliases, &litttypes.SecondaryKey{
-			Key:    qcKey(m),
-			Offset: 0,
-			Length: uint32(len(value)), //nolint:gosec // value length fits u32 (litt value cap is 2^32)
-		})
-	}
-	if err := s.table.Put(qcKey(gr.First), value, aliases...); err != nil {
-		return fmt.Errorf("failed to put QC [%d,%d): %w", gr.First, gr.Next, err)
-	}
-
-	if !ok {
-		// The first QC may start anywhere its caller allows, and nothing below it will ever
-		// be written. Record where coverage begins so Iterator can clamp to it without
-		// discovering it by scanning; a reopen re-derives the same value.
-		status = types.SuffixRange{
-			First:           gr.First,
-			NextAppQC:       gr.First,
-			NextAppProposal: gr.First,
-			NextBlock:       gr.First,
-			NextQC:          gr.Next,
-		}
-	} else {
-		status.NextQC = gr.Next
-	}
-	s.status = utils.Some(status)
-	return nil
-}
-
-func (s *blockDB) WriteAppQC(appQC *types.AppQC) error {
-	gr := appQC.Proposal().GlobalRange()
-	if gr.Len() == 0 {
-		return fmt.Errorf("AppQC at %d covers no blocks: %w", gr.First, types.ErrAppQCNonContiguous)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status, ok := s.status.Get()
-	if !ok {
-		return fmt.Errorf("AppQC [%d,%d) has no matching QC: %w", gr.First, gr.Next, types.ErrAppQCMissingQC)
-	}
-	if status.NextAppQC != gr.First {
-		return fmt.Errorf("AppQC starts at %d, expected %d: %w",
-			gr.First, status.NextAppQC, types.ErrAppQCNonContiguous)
-	}
-	if gr.Next > status.NextAppProposal {
-		return fmt.Errorf("AppQC [%d,%d) is not covered by written AppProposals: %w", gr.First, gr.Next, types.ErrAppQCMissingQC)
-	}
-
-	value := encodeAppQC(appQC)
-	var aliases []*litttypes.SecondaryKey
-	for m := gr.First + 1; m < gr.Next; m++ {
-		aliases = append(aliases, &litttypes.SecondaryKey{
-			Key:    appQCKey(m),
-			Offset: 0,
-			Length: uint32(len(value)), //nolint:gosec // value length fits u32 (litt value cap is 2^32)
-		})
-	}
-	if err := s.table.Put(appQCKey(gr.First), value, aliases...); err != nil {
-		return fmt.Errorf("failed to put AppQC [%d,%d): %w", gr.First, gr.Next, err)
-	}
-	status.NextAppQC = gr.Next
-	status.First = status.NextAppQC - 1
-	s.status = utils.Some(status)
-	return nil
-}
-
-func (s *blockDB) WriteAppProposal(appProposal *types.AppProposal) error {
-	gr := appProposal.GlobalRange()
-	if gr.Len() == 0 {
-		return fmt.Errorf("AppProposal at %d covers no blocks: %w", gr.First, types.ErrAppProposalNonContiguous)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status, ok := s.status.Get()
-	if !ok {
-		return fmt.Errorf("AppProposal [%d,%d) has no matching QC: %w", gr.First, gr.Next, types.ErrAppProposalMissingQC)
-	}
-	if status.NextAppProposal != gr.First {
-		return fmt.Errorf("AppProposal starts at %d, expected %d: %w",
-			gr.First, status.NextAppProposal, types.ErrAppProposalNonContiguous)
-	}
-	if gr.Next > status.NextBlock {
-		return fmt.Errorf("AppProposal [%d,%d) is not covered by written blocks: %w", gr.First, gr.Next, types.ErrAppProposalMissingQC)
-	}
-	value := encodeAppProposal(appProposal)
-	var aliases []*litttypes.SecondaryKey
-	for m := gr.First + 1; m < gr.Next; m++ {
-		aliases = append(aliases, &litttypes.SecondaryKey{
-			Key:    appProposalKey(m),
-			Offset: 0,
-			Length: uint32(len(value)), //nolint:gosec // value length fits u32 (litt value cap is 2^32)
-		})
-	}
-	if err := s.table.Put(appProposalKey(gr.First), value, aliases...); err != nil {
-		return fmt.Errorf("failed to put AppProposal [%d,%d): %w", gr.First, gr.Next, err)
-	}
-
-	status.NextAppProposal = gr.Next
-	s.status = utils.Some(status)
-	return nil
-}
-
-func (s *blockDB) PruneBefore(blockHeight types.GlobalBlockNumber) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	status, ok := s.status.Get()
-	if !ok {
-		// Ignore prune requests if we've not got any data yet. Simplifies several edge cases
-		// and is technically a legal implementation of the contract in the godocs.
-		return nil
-	}
-
-	// Round the watermark down to the start of a QC's range, to avoid pruning a QC before its blocks.
-	blockHeight, err := s.clampPruneBoundary(min(blockHeight, status.First))
+func (s *blockDB) GetRecord(kind blocktypes.RecordKind, n uint64) ([]byte, bool, error) {
+	prefix, err := kindPrefix(kind)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
-
-	// Advance the watermark monotonically. mu serializes writers and PruneBefore
-	// is the only one, so a plain load/store suffices; the field stays atomic
-	// only because the GC filter and readers load it without holding mu.
-	if uint64(blockHeight) > s.watermark.Load() {
-		s.watermark.Store(uint64(blockHeight))
+	value, exists, err := s.table.Get(numberKey(prefix, n))
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to read %s %d: %w", kind, n, err)
 	}
-	return nil
+	return value, exists, nil
 }
 
-func (s *blockDB) First() types.GlobalBlockNumber {
-	return types.GlobalBlockNumber(s.watermark.Load())
+func (s *blockDB) GetBlockByHash(hash []byte) ([]byte, bool, error) {
+	value, exists, err := s.table.Get(blockHashKey(hash))
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to read block by hash: %w", err)
+	}
+	return value, exists, nil
 }
 
-// clampPruneBoundary returns the start of the QC that covers n, or n if there is no QC covering N
-// (which can happen if you prune the same n twice).
-func (s *blockDB) clampPruneBoundary(blockHeight types.GlobalBlockNumber) (types.GlobalBlockNumber, error) {
-	value, exists, err := s.table.Get(qcKey(blockHeight))
+func (s *blockDB) Scan(newestFirst bool) (blocktypes.RecordIterator, error) {
+	it, err := s.table.Iterator(newestFirst)
 	if err != nil {
-		return 0, fmt.Errorf("failed to read covering QC for %d: %w", blockHeight, err)
+		return nil, fmt.Errorf("failed to open record iterator: %w", err)
 	}
-	if !exists {
-		return blockHeight, nil
-	}
-	qc, err := decodeQC(value)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode covering QC for %d: %w", blockHeight, err)
-	}
-	return qc.QC().GlobalRange().First, nil
+	return &recordIterator{it: it}, nil
 }
 
 // gcFilter marks a key in the shared ledger table as reclaimable, dispatching on
 // its kind prefix:
 //
-//   - block-number keys are reclaimable once the block number is strictly below
-//     the prune watermark;
-//   - QC, AppProposal, and AppQC keys (the primary First and every per-covered-number secondary) are
+//   - number-keyed records (the primary key and every per-covered-number secondary) are
 //     reclaimable once their number is below the watermark, so a QC's segment is
 //     reclaimable only once its highest covered number (Next-1) is below the
 //     watermark — i.e. once Next <= watermark; a QC/AppProposal/AppQC straddling the
@@ -382,7 +233,7 @@ func (s *blockDB) clampPruneBoundary(blockHeight types.GlobalBlockNumber) (types
 func (s *blockDB) gcFilter(key []byte, _ bool) (bool, error) {
 	switch keyKind(key) {
 	case kindBlock, kindQC, kindAppProp, kindAppQC:
-		return uint64(decodeNumberKey(key)) < s.watermark.Load(), nil
+		return decodeNumberKey(key) < s.PruneWatermark(), nil
 	case kindBlockHash:
 		return true, nil
 	default:
@@ -397,232 +248,6 @@ func (s *blockDB) Flush() error {
 	return nil
 }
 
-func (s *blockDB) Status() utils.Option[types.SuffixRange] {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.status
-}
-
-// ReadSuffix reads the materialized startup-recovery suffix.
-func (s *blockDB) ReadSuffix() (types.Suffix, error) {
-	// Suffix is computed under lock, so that GC cannot malform it:
-	// locked => no new data can be appended => watermark doesn't move => GC doesn't consume data of the suffix.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	it, err := s.table.Iterator(true)
-	if err != nil {
-		return types.Suffix{}, fmt.Errorf("failed to open suffix iterator: %w", err)
-	}
-	defer func() { _ = it.Close() }()
-	var suffix types.Suffix
-	var status types.SuffixRange
-	var oldestQC *types.FullCommitQC
-	var gotBlock, gotQC, gotAppProposal, gotAppQC bool
-	for !gotAppQC || !gotQC || status.NextAppQC <= oldestQC.QC().GlobalRange().Next {
-		ok, err := it.Next()
-		if err != nil {
-			return types.Suffix{}, fmt.Errorf("failed to advance suffix iterator: %w", err)
-		}
-		if !ok {
-			break
-		}
-		key, isPrimary, err := it.GetKey()
-		if err != nil {
-			return types.Suffix{}, fmt.Errorf("failed to read suffix key: %w", err)
-		}
-		if !isPrimary {
-			continue
-		}
-		value, err := it.GetValue()
-		if err != nil {
-			return types.Suffix{}, fmt.Errorf("failed to read suffix value: %w", err)
-		}
-		switch keyKind(key) {
-		case kindBlock:
-			n, block, err := decodeBlock(value)
-			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix block: %w", err)
-			}
-			if !gotBlock {
-				status.NextBlock = n + 1
-				gotBlock = true
-			}
-			suffix.Blocks = append(suffix.Blocks, types.SuffixBlock{Number: n, Block: block})
-		case kindAppQC:
-			appQC, err := decodeAppQC(value)
-			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix AppQC: %w", err)
-			}
-			gr := appQC.Proposal().GlobalRange()
-			if !gotAppQC {
-				status.NextAppQC = gr.Next
-				status.First = gr.Next - 1
-				gotAppQC = true
-			}
-			suffix.AppQCs = append(suffix.AppQCs, appQC)
-		case kindAppProp:
-			appProposal, err := decodeAppProposal(value)
-			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix AppProposal: %w", err)
-			}
-			gr := appProposal.GlobalRange()
-			if !gotAppProposal {
-				status.NextAppProposal = gr.Next
-				gotAppProposal = true
-			}
-			suffix.AppProposals = append(suffix.AppProposals, appProposal)
-		case kindQC:
-			qc, err := decodeQC(value)
-			if err != nil {
-				return types.Suffix{}, fmt.Errorf("failed to decode suffix CommitQC: %w", err)
-			}
-			gr := qc.QC().GlobalRange()
-			if !gotQC {
-				status.NextQC = gr.Next
-				gotQC = true
-			}
-			oldestQC = qc
-			suffix.CommitQCs = append(suffix.CommitQCs, qc)
-		}
-	}
-	if !gotQC {
-		// Empty db.
-		return types.Suffix{}, nil
-	}
-	// Set fields for missing resources.
-	first := oldestQC.QC().GlobalRange().First
-	status.NextQC = max(status.NextQC, first)
-	status.NextBlock = max(status.NextBlock, first)
-	status.NextAppProposal = max(status.NextAppProposal, first)
-	status.NextAppQC = max(status.NextAppQC, first)
-	status.First = max(status.First, first)
-	suffix.Status = utils.Some(status)
-
-	// Prune resources fully below status.First.
-	suffix.CommitQCs = slices.DeleteFunc(suffix.CommitQCs, func(qc *types.FullCommitQC) bool {
-		return qc.QC().GlobalRange().Next <= status.First
-	})
-	suffix.Blocks = slices.DeleteFunc(suffix.Blocks, func(block types.SuffixBlock) bool {
-		return block.Number < status.First
-	})
-	suffix.AppProposals = slices.DeleteFunc(suffix.AppProposals, func(appProposal *types.AppProposal) bool {
-		return appProposal.GlobalRange().Next <= status.First
-	})
-	suffix.AppQCs = slices.DeleteFunc(suffix.AppQCs, func(appQC *types.AppQC) bool {
-		return appQC.Proposal().GlobalRange().Next <= status.First
-	})
-	// Put resources in increasing order.
-	slices.Reverse(suffix.CommitQCs)
-	slices.Reverse(suffix.Blocks)
-	slices.Reverse(suffix.AppProposals)
-	slices.Reverse(suffix.AppQCs)
-	return suffix, nil
-}
-
-func (s *blockDB) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
-	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
-	if uint64(n) < s.watermark.Load() {
-		return utils.None[*types.Block](), types.ErrPruned
-	}
-	result, err := getBlock(s.table, blockKey(n))
-	if err != nil {
-		return utils.None[*types.Block](), err
-	}
-	if bwn, ok := result.Get(); ok {
-		return utils.Some(bwn.Block), nil
-	}
-	return utils.None[*types.Block](), nil
-}
-
-func (s *blockDB) ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[types.BlockWithNumber], error) {
-	result, err := getBlock(s.table, blockHashKey(hash))
-	if err != nil {
-		return utils.None[types.BlockWithNumber](), err
-	}
-	// The number is not known until the block is resolved;
-	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
-	if bwn, ok := result.Get(); ok && uint64(bwn.Number) < s.watermark.Load() {
-		return utils.None[types.BlockWithNumber](), nil
-	}
-	return result, nil
-}
-
-func getBlock(table littdb.Table, key []byte) (utils.Option[types.BlockWithNumber], error) {
-	value, exists, err := table.Get(key)
-	if err != nil {
-		return utils.None[types.BlockWithNumber](), fmt.Errorf("failed to read block: %w", err)
-	}
-	if !exists {
-		return utils.None[types.BlockWithNumber](), nil
-	}
-	n, blk, err := decodeBlock(value)
-	if err != nil {
-		return utils.None[types.BlockWithNumber](), fmt.Errorf("failed to unmarshal block: %w", err)
-	}
-	return utils.Some(types.BlockWithNumber{Block: blk, Number: n}), nil
-}
-
-func (s *blockDB) ReadQCByBlockNumber(
-	n types.GlobalBlockNumber,
-) (utils.Option[*types.FullCommitQC], error) {
-	// Below-watermark blocks are not served, so neither is their covering QC.
-	if uint64(n) < s.watermark.Load() {
-		return utils.None[*types.FullCommitQC](), types.ErrPruned
-	}
-	value, exists, err := s.table.Get(qcKey(n))
-	if err != nil {
-		return utils.None[*types.FullCommitQC](), fmt.Errorf("failed to read QC: %w", err)
-	}
-	if !exists {
-		return utils.None[*types.FullCommitQC](), nil
-	}
-	qc, err := decodeQC(value)
-	if err != nil {
-		return utils.None[*types.FullCommitQC](), fmt.Errorf("failed to unmarshal QC: %w", err)
-	}
-	return utils.Some(qc), nil
-}
-
-func (s *blockDB) ReadAppProposalByBlockNumber(
-	n types.GlobalBlockNumber,
-) (utils.Option[*types.AppProposal], error) {
-	if uint64(n) < s.watermark.Load() {
-		return utils.None[*types.AppProposal](), types.ErrPruned
-	}
-	value, exists, err := s.table.Get(appProposalKey(n))
-	if err != nil {
-		return utils.None[*types.AppProposal](), fmt.Errorf("failed to read AppProposal: %w", err)
-	}
-	if !exists {
-		return utils.None[*types.AppProposal](), nil
-	}
-	appProposal, err := decodeAppProposal(value)
-	if err != nil {
-		return utils.None[*types.AppProposal](), fmt.Errorf("failed to unmarshal AppProposal: %w", err)
-	}
-	return utils.Some(appProposal), nil
-}
-
-func (s *blockDB) ReadAppQCByBlockNumber(
-	n types.GlobalBlockNumber,
-) (utils.Option[*types.AppQC], error) {
-	if uint64(n) < s.watermark.Load() {
-		return utils.None[*types.AppQC](), types.ErrPruned
-	}
-	value, exists, err := s.table.Get(appQCKey(n))
-	if err != nil {
-		return utils.None[*types.AppQC](), fmt.Errorf("failed to read AppQC: %w", err)
-	}
-	if !exists {
-		return utils.None[*types.AppQC](), nil
-	}
-	appQC, err := decodeAppQC(value)
-	if err != nil {
-		return utils.None[*types.AppQC](), fmt.Errorf("failed to unmarshal AppQC: %w", err)
-	}
-	return utils.Some(appQC), nil
-}
-
 func (s *blockDB) Close() error {
 	if err := s.db.Close(); err != nil {
 		return fmt.Errorf("failed to close litt db: %w", err)
@@ -630,11 +255,68 @@ func (s *blockDB) Close() error {
 	return nil
 }
 
+// recordIterator adapts a littdb.Iterator to blocktypes.RecordIterator, presenting
+// only the primary number-keyed records and skipping the hash aliases.
+type recordIterator struct {
+	it     littdb.Iterator
+	kind   blocktypes.RecordKind
+	number uint64
+}
+
+func (r *recordIterator) Next() (bool, error) {
+	for {
+		ok, err := r.it.Next()
+		if err != nil {
+			return false, fmt.Errorf("failed to advance record iterator: %w", err)
+		}
+		if !ok {
+			return false, nil
+		}
+		key, isPrimary, err := r.it.GetKey()
+		if err != nil {
+			return false, fmt.Errorf("failed to read record key: %w", err)
+		}
+		if !isPrimary {
+			continue
+		}
+		kind, ok := recordKind(keyKind(key))
+		if !ok {
+			continue
+		}
+		r.kind = kind
+		r.number = decodeNumberKey(key)
+		return true, nil
+	}
+}
+
+func (r *recordIterator) Kind() blocktypes.RecordKind {
+	return r.kind
+}
+
+func (r *recordIterator) Number() uint64 {
+	return r.number
+}
+
+func (r *recordIterator) Value() ([]byte, error) {
+	value, err := r.it.GetValue()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read record value: %w", err)
+	}
+	return value, nil
+}
+
+func (r *recordIterator) Close() error {
+	if err := r.it.Close(); err != nil {
+		return fmt.Errorf("failed to close record iterator: %w", err)
+	}
+	return nil
+}
+
 // ForceGC runs a synchronous garbage-collection pass over the table backing db,
 // so any pending prune takes effect immediately rather than on the periodic GC
-// schedule. db must be a *blockDB returned by NewBlockDB. Intended for tests and
-// operational tooling.
-func ForceGC(db types.BlockDB) error {
+// schedule. db must be a blocktypes.BlockDB returned by NewBlockDB. Intended for
+// tests and operational tooling.
+func ForceGC(db blocktypes.BlockDB) error {
 	impl, ok := db.(*blockDB)
 	if !ok {
 		return fmt.Errorf("ForceGC: db is not a littblock block store (%T)", db)

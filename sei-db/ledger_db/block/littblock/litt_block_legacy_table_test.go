@@ -8,6 +8,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// openConfig builds a config for the open-path tests. None of them writes a record, so only the
+// settings that keep an open cheap matter.
+func openConfig(t *testing.T, dir string) *BlockDBConfig {
+	t.Helper()
+	cfg, err := DefaultConfig(dir)
+	require.NoError(t, err)
+	cfg.Litt.Fsync = false
+	return cfg
+}
+
 // A home written before the table rename must not open as an empty store. The data under the old
 // name is unreachable either way; the only question is whether the operator is told, and a healthy
 // empty store tells them nothing until the history they wanted is already gone.
@@ -15,7 +25,7 @@ func TestOpenRefusesAPreRenameTable(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, legacyTableName, "segments"), 0o700))
 
-	_, err := NewBlockDB(gcConfig(t, dir))
+	_, err := NewBlockDB(openConfig(t, dir))
 	require.ErrorContains(t, err, legacyTableName)
 	require.ErrorContains(t, err, "Delete or move the directory aside")
 }
@@ -27,7 +37,7 @@ func TestRefusedOpenLeavesTheDirectoryUntouched(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, legacyTableName, "segments"), 0o700))
 
-	_, err := NewBlockDB(gcConfig(t, dir))
+	_, err := NewBlockDB(openConfig(t, dir))
 	require.Error(t, err)
 
 	entries, err := os.ReadDir(dir)
@@ -41,13 +51,13 @@ func TestRefusedOpenLeavesTheDirectoryUntouched(t *testing.T) {
 func TestOpenAcceptsAHomeWithoutAPreRenameTable(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := NewBlockDB(gcConfig(t, dir))
+	db, err := NewBlockDB(openConfig(t, dir))
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
 	require.DirExists(t, filepath.Join(dir, tableName), "the store builds its table under the current name")
 
-	db2, err := NewBlockDB(gcConfig(t, dir))
+	db2, err := NewBlockDB(openConfig(t, dir))
 	require.NoError(t, err, "reopening a store it just wrote must not trip the guard")
 	require.NoError(t, db2.Close())
 }

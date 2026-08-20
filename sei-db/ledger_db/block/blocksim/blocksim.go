@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"golang.org/x/time/rate"
@@ -26,7 +27,7 @@ type BlockSim struct {
 
 	config *BlocksimConfig
 
-	db        types.BlockDB
+	db        types.BlockStore
 	generator *BlockGenerator
 	metrics   *BlocksimMetrics
 
@@ -174,7 +175,7 @@ func NewBlockSim(
 
 // countExistingState scans the ledger to count the persisted blocks and QCs,
 // exercising the replay path at startup.
-func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
+func countExistingState(db types.BlockStore) (blocks int, qcs int, err error) {
 	suffix, err := db.ReadSuffix()
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to read suffix ledger data: %w", err)
@@ -192,7 +193,7 @@ func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
 // cannot race pruning (the newest cohort is never pruned). An empty store yields
 // (None, None, nil), preserving genesis-start behavior.
 func recoverResumeState(
-	db types.BlockDB,
+	db types.BlockStore,
 ) (tmutils.Option[*types.CommitQC], tmutils.Option[uint64], error) {
 	prev := tmutils.None[*types.CommitQC]()
 	highest := tmutils.None[uint64]()
@@ -462,11 +463,15 @@ func (b *BlockSim) Resume() {
 	}
 }
 
-// openBlockDB creates a types.BlockDB for the configured backend.
-func openBlockDB(config *BlocksimConfig) (types.BlockDB, error) {
+// openBlockDB creates a types.BlockStore for the configured backend.
+func openBlockDB(config *BlocksimConfig) (types.BlockStore, error) {
 	switch config.Backend {
 	case "mem":
-		return memblock.NewBlockDB(), nil
+		store, err := blockstore.New(memblock.NewBlockDB())
+		if err != nil {
+			return nil, err
+		}
+		return store, nil
 	case "litt":
 		littConfig, err := littblock.DefaultConfig(config.DataDir)
 		if err != nil {
@@ -477,7 +482,16 @@ func openBlockDB(config *BlocksimConfig) (types.BlockDB, error) {
 		// main before the DB is opened). MetricsServeEndpoint stays false so LittDB does not stand up its
 		// own registry/server; the metrics surface on blocksim's single /metrics endpoint.
 		littConfig.Litt.MetricsEnabled = config.LittMetricsEnabled
-		return littblock.NewBlockDB(littConfig)
+		db, err := littblock.NewBlockDB(littConfig)
+		if err != nil {
+			return nil, err
+		}
+		store, err := blockstore.New(db)
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+		return store, nil
 	default:
 		return nil, fmt.Errorf("unknown block store backend: %q", config.Backend)
 	}
