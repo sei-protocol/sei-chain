@@ -27,7 +27,11 @@ type Database struct {
 
 	// The current batch of key-value pairs waiting to be committed. Represents changes we are accumulating
 	// as part of a simulated "block". Stored as value []byte; converted to NamedChangeSet when applied to the DB.
-	batch *blockBatch
+	batch *SyncMap[string, []byte]
+
+	// The number of pairs the previous block produced. The next block's pair slice is allocated at
+	// twice this, so a block that grows still lands in one allocation rather than a resize and copy.
+	previousBlockPairCount int
 
 	// A method that flushes the executors.
 	flushFunc func()
@@ -46,7 +50,7 @@ func NewDatabase(
 	return &Database{
 		config:          config,
 		db:              db,
-		batch:           newBlockBatch(),
+		batch:           NewSyncMap[string, []byte](),
 		metrics:         metrics,
 		nextBlockNumber: initialNextBlockNumber,
 	}
@@ -57,7 +61,7 @@ func NewDatabase(
 // This method is safe to call concurrently with other calls to Put() and Get(). Is not thread
 // safe with FinalizeBlock(). It is not thread safe to modify the returned value (make a copy first).
 func (d *Database) Put(key []byte, value []byte) error {
-	d.batch.Put(key, value)
+	d.batch.Put(string(key), value)
 	return nil
 }
 
@@ -66,7 +70,7 @@ func (d *Database) Put(key []byte, value []byte) error {
 // This method is safe to call concurrently with other calls to Put() and Get(). Is not thread
 // safe with FinalizeBlock().
 func (d *Database) Get(key []byte) ([]byte, bool, error) {
-	if value, found := d.batch.Get(key); found {
+	if value, found := d.batch.Get(string(key)); found {
 		return value, true, nil
 	}
 
@@ -137,20 +141,9 @@ func (d *Database) FinalizeBlock(
 	// one NamedChangeSet per module, so the evm module's whole block arrives as a single contiguous
 	// batch of pairs. Wrapping each pair in its own changeset instead would make the consuming store
 	// chase a separate allocation per pair, which is benchmark overhead rather than a real cost.
-	//
-	// The pairs are carved out of one backing array rather than allocated individually, which is the
-	// difference between one allocation per block and one per key. Indexing rather than appending to
-	// the backing array is load-bearing: a regrow would move the structs out from under the pointers
-	// already handed to pairs. The array is not reused across blocks, because ApplyChangeSets keeps
-	// the changesets until the WAL write during Commit.
-	count := d.batch.Len()
-	pairs := make([]*proto.KVPair, 0, count+3)
-	backing := make([]proto.KVPair, count)
-	next := 0
+	pairs := make([]*proto.KVPair, 0, 2*d.previousBlockPairCount+3)
 	for key, value := range d.batch.Iterator() {
-		backing[next] = proto.KVPair{Key: []byte(key), Value: value}
-		pairs = append(pairs, &backing[next])
-		next++
+		pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: value})
 	}
 	d.batch.Clear()
 
@@ -171,6 +164,7 @@ func (d *Database) FinalizeBlock(
 	binary.BigEndian.PutUint64(blockNumberValue, d.nextBlockNumber)
 	pairs = append(pairs, &proto.KVPair{Key: BlockNumberCounterKey(), Value: blockNumberValue})
 	d.nextBlockNumber++
+	d.previousBlockPairCount = len(pairs)
 
 	entry := &proto.ChangelogEntry{
 		Version: d.db.Version() + 1,
