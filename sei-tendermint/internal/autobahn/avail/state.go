@@ -704,6 +704,9 @@ func (s *State) runEvict(ctx context.Context) error {
 func (s *State) runEpochAdvance(ctx context.Context) error {
 	for {
 		next := s.epoch.Load().EpochIndex() + 1
+		// ErrPruned is not expected here: PushCommitQC withholds a CommitQC
+		// until its epoch is applied, so the Anchor never leads applied by more
+		// than one epoch and PruneBefore cannot drop next.
 		ep, err := s.data.Registry().WaitForEpoch(ctx, next)
 		if err != nil {
 			return err

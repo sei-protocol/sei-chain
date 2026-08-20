@@ -57,21 +57,20 @@ type loadedState struct {
 }
 
 func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
-	start := ds.Registry().LatestEpoch()
-	genesis, ok := ds.Registry().EpochByIndex(0)
-	if !ok {
-		return nil, fmt.Errorf("genesis epoch 0 not registered")
+	genesis, err := ds.Registry().EpochByIndex(0)
+	if err != nil {
+		return nil, fmt.Errorf("genesis epoch 0: %w", err)
 	}
 	i := &inner{
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: genesis}),
 		roads:              newQueue[types.RoadIndex, *road](),
-		epoch:              utils.NewAtomicSend(start),
+		epoch:              utils.NewAtomicSend(genesis),
 		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
 	}
-	for lane := range start.Committee().Lanes().All() {
+	for lane := range genesis.Committee().Lanes().All() {
 		i.addLane(lane)
 	}
 	for lane := range loaded.blocks {
@@ -92,22 +91,21 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		if qc.Index() != i.roads.next {
 			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", i.roads.next, qc.Index())
 		}
-		epoch, ok := ds.Registry().EpochByIndex(qc.Proposal().EpochIndex())
-		if !ok {
-			return nil, fmt.Errorf("epoch not found")
+		ep, err := ds.Registry().EpochByIndex(qc.Proposal().EpochIndex())
+		if err != nil {
+			return nil, fmt.Errorf("persisted commitQC %d epoch: %w", qc.Index(), err)
 		}
-		if err := qc.Verify(epoch); err != nil {
+		if err := qc.Verify(ep); err != nil {
 			return nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Index(), err)
 		}
-		i.roads.pushBack(newRoad(qc, epoch))
+		i.roads.pushBack(newRoad(qc, ep))
 	}
 	if i.roads.Len() > 0 {
 		last := i.roads.q[i.roads.next-1]
 		i.persistedCommitQC.Store(utils.Some(last.commitQC))
-		// Floor applied at the durable tip's epoch. Bare Store on
-		// purpose: this is a rewind from LatestEpoch, not an advanceEpoch.
-		// The advance loop below re-drives it from the durable leashes.
-		i.epoch.Store(last.epoch)
+		i.seedApplied(last.epoch)
+	} else if ae, ok := i.anchorEpoch.Get(); ok {
+		i.seedApplied(ae)
 	}
 
 	// Restore persisted blocks. Since the anchor is persisted first and
@@ -151,6 +149,15 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	return i, nil
 }
 
+// seedApplied sets applied to ep and opens its lanes. Construction only;
+// live advances go through advanceEpoch.
+func (i *inner) seedApplied(ep *types.Epoch) {
+	for lane := range ep.Committee().Lanes().All() {
+		i.addLane(lane)
+	}
+	i.epoch.Store(ep)
+}
+
 // advanceEpoch makes ep the applied epoch: opens its lanes, reweights votes,
 // and republishes ConsensusSpec.
 func (i *inner) advanceEpoch(ep *types.Epoch) {
@@ -185,9 +192,9 @@ func (i *inner) canAdvanceEpoch() bool {
 func (i *inner) advanceReadyEpochs(ds *data.State) error {
 	for i.canAdvanceEpoch() {
 		nextIdx := i.epoch.Load().EpochIndex() + 1
-		next, ok := ds.Registry().EpochByIndex(nextIdx)
-		if !ok {
-			return fmt.Errorf("epoch %d not registered with seal+prune leashes met", nextIdx)
+		next, err := ds.Registry().EpochByIndex(nextIdx)
+		if err != nil {
+			return fmt.Errorf("epoch %d with seal+prune leashes met: %w", nextIdx, err)
 		}
 		i.advanceEpoch(next)
 	}

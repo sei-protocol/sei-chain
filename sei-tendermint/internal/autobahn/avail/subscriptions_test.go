@@ -87,6 +87,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	// Leave: peer drops from committee at epoch 2 (first vacant after genesis seeds).
 	// Anchor-epoch prune drops closed lane maps (same path as runEvict) and ends the subscribe.
 	epLeave, err := registry.ActivateEpoch(
+		0,
 		map[types.PublicKey]uint64{b.Public(): 1},
 		time.Time{}, registry.FirstBlock(),
 	)
@@ -132,6 +133,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 			return nil
 		})
 		epJoin, err := registry.ActivateEpoch(
+			epLeave.EpochIndex(),
 			map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
 			time.Time{}, registry.FirstBlock(),
 		)
@@ -177,8 +179,8 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		stateB := utils.OrPanic1(NewState(b, ds, utils.None[string]()))
 		laneA := stateA.LocalLane().OrPanic("genesis")
 
-		activate := func(weights map[types.PublicKey]uint64) *types.Epoch {
-			ep, err := registry.ActivateEpoch(weights, time.Time{}, registry.FirstBlock())
+		activate := func(parent types.EpochIndex, weights map[types.PublicKey]uint64) *types.Epoch {
+			ep, err := registry.ActivateEpoch(parent, weights, time.Time{}, registry.FirstBlock())
 			require.NoError(t, err)
 			return ep
 		}
@@ -201,7 +203,7 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		onlyA := map[types.PublicKey]uint64{a.Public(): 1}
 
 		block0 := produce(0)
-		epJoin := activate(both)
+		epJoin := activate(0, both)
 		advance(epJoin.EpochIndex())
 		require.Equal(t, types.EpochIndex(2), stateB.LocalLane().OrPanic("joiner").Joined)
 
@@ -212,11 +214,11 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		require.Equal(t, block0.Msg().Block().Header().Hash(), batch[0].Msg().Header().Hash())
 		require.Equal(t, b.Public(), batch[0].Key())
 
-		epLeave := activate(onlyA)
+		epLeave := activate(epJoin.EpochIndex(), onlyA)
 		advance(epLeave.EpochIndex())
 		block1 := produce(1) // while out; skip RecvBatch so the cursor stays behind block1
 
-		epRejoin := activate(both)
+		epRejoin := activate(epLeave.EpochIndex(), both)
 		advance(epRejoin.EpochIndex())
 		require.Equal(t, types.EpochIndex(4), stateB.LocalLane().OrPanic("rejoiner").Joined)
 

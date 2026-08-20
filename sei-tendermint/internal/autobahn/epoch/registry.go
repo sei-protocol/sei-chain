@@ -29,8 +29,10 @@ func LastRoad(idx types.EpochIndex) types.RoadIndex {
 }
 
 type registryState struct {
-	m      map[types.EpochIndex]*types.Epoch
-	latest types.EpochIndex
+	m map[types.EpochIndex]*types.Epoch
+	// prunedTo is the exclusive floor of dropped indices. Epochs in (0, prunedTo)
+	// are gone; 0 is always retained for genesis metadata and placeholders.
+	prunedTo types.EpochIndex
 }
 
 // Registry stores activated epochs and placeholders.
@@ -48,8 +50,7 @@ func NewRegistry(
 	ep1 := types.NewEpoch(1, types.RoadRange{First: FirstRoad(1), Next: FirstRoad(2)}, genesisTimestamp, committee, firstBlock)
 	return &Registry{
 		state: utils.NewWatch(&registryState{
-			m:      map[types.EpochIndex]*types.Epoch{0: ep0, 1: ep1},
-			latest: 0,
+			m: map[types.EpochIndex]*types.Epoch{0: ep0, 1: ep1},
 		}),
 	}, nil
 }
@@ -92,11 +93,18 @@ func (r *Registry) GenesisTimestamp() time.Time {
 	panic("unreachable")
 }
 
-// EpochByIndex returns the registered epoch at idx, if any.
-func (r *Registry) EpochByIndex(idx types.EpochIndex) (*types.Epoch, bool) {
+// EpochByIndex returns the registered epoch at idx.
+// It returns ErrPruned if idx has been dropped by PruneBefore.
+func (r *Registry) EpochByIndex(idx types.EpochIndex) (*types.Epoch, error) {
 	for s := range r.state.Lock() {
+		if r.pruned(s, idx) {
+			return nil, fmt.Errorf("epoch %d: %w", idx, types.ErrPruned)
+		}
 		ep, ok := s.m[idx]
-		return ep, ok
+		if !ok {
+			return nil, fmt.Errorf("epoch %d not registered", idx)
+		}
+		return ep, nil
 	}
 	panic("unreachable")
 }
@@ -105,6 +113,9 @@ func (r *Registry) EpochByIndex(idx types.EpochIndex) (*types.Epoch, bool) {
 func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 	epochIdx := IndexForRoad(roadIndex)
 	for s := range r.state.Lock() {
+		if r.pruned(s, epochIdx) {
+			return nil, fmt.Errorf("epoch %d (road %d): %w", epochIdx, roadIndex, types.ErrPruned)
+		}
 		if ep, ok := s.m[epochIdx]; ok {
 			return ep, nil
 		}
@@ -113,32 +124,34 @@ func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 	panic("unreachable")
 }
 
-// LatestEpoch returns the ActivateEpoch tip.
-func (r *Registry) LatestEpoch() *types.Epoch {
-	for s := range r.state.Lock() {
-		return s.m[s.latest]
-	}
-	panic("unreachable")
-}
-
-// ActivateEpoch registers the next vacant epoch after LatestEpoch with the given
-// committee weights. Already-registered epochs are never modified. The first
-// activation lands at index ≥ 2 (epochs 0 and 1 are always present). The new
-// epoch's road range is FirstRoad(index)..FirstRoad(index+1).
+// ActivateEpoch registers the next vacant epoch after parent. parent is the
+// epoch at the execution tip; the new committee is derived from it. Already-
+// registered epochs are never modified. Pruned indices are skipped.
 func (r *Registry) ActivateEpoch(
+	parent types.EpochIndex,
 	weights map[types.PublicKey]uint64,
 	firstTimestamp time.Time,
 	firstBlock types.GlobalBlockNumber,
 ) (*types.Epoch, error) {
 	for s, ctrl := range r.state.Lock() {
-		next := s.latest + 1
+		if r.pruned(s, parent) {
+			return nil, fmt.Errorf("epoch %d: %w", parent, types.ErrPruned)
+		}
+		prev, ok := s.m[parent]
+		if !ok {
+			return nil, fmt.Errorf("epoch %d not registered", parent)
+		}
+		next := parent + 1
 		for {
+			if r.pruned(s, next) {
+				next++
+				continue
+			}
 			if _, ok := s.m[next]; !ok {
 				break
 			}
 			next++
 		}
-		prev := s.m[s.latest]
 		committee, err := prev.Committee().DeriveNext(weights, next)
 		if err != nil {
 			return nil, err
@@ -146,7 +159,6 @@ func (r *Registry) ActivateEpoch(
 		roads := types.RoadRange{First: FirstRoad(next), Next: FirstRoad(next + 1)}
 		ep := types.NewEpoch(next, roads, firstTimestamp, committee, firstBlock)
 		s.m[next] = ep
-		s.latest = next
 		ctrl.Updated()
 		return ep, nil
 	}
@@ -154,8 +166,7 @@ func (r *Registry) ActivateEpoch(
 }
 
 // makeEpoch inserts a genesis-committee placeholder at epochIdx.
-// Caller must hold r.state. Epochs 0 and 1 are always present (seeded at
-// construction with the genesis committee); further epochs copy from epoch 0.
+// Caller must hold r.state. Epoch 0 is always present; further epochs copy from it.
 func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) *types.Epoch {
 	ep0 := s.m[0]
 	firstRoad := FirstRoad(epochIdx)
@@ -171,8 +182,11 @@ func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) *types
 }
 
 // ensureLocked registers a genesis-committee placeholder for idx if missing.
-// Caller must hold r.state.
+// Caller must hold r.state. Pruned indices are not recreated.
 func (r *Registry) ensureLocked(s *registryState, idx types.EpochIndex) {
+	if r.pruned(s, idx) {
+		return
+	}
 	if _, ok := s.m[idx]; !ok {
 		r.makeEpoch(s, idx)
 	}
@@ -203,10 +217,32 @@ func (r *Registry) AdvanceIfNeeded(roadIndex types.RoadIndex) {
 	}
 }
 
+func (r *Registry) pruned(s *registryState, idx types.EpochIndex) bool {
+	return idx > 0 && idx < s.prunedTo
+}
+
+// PruneBefore drops registered epochs in (0, keep). Epoch 0 is kept for
+// genesis metadata. keep is an exclusive floor and only moves forward.
+func (r *Registry) PruneBefore(keep types.EpochIndex) {
+	for s, ctrl := range r.state.Lock() {
+		if keep <= s.prunedTo {
+			return
+		}
+		for idx := max(s.prunedTo, 1); idx < keep; idx++ {
+			delete(s.m, idx)
+		}
+		s.prunedTo = keep
+		ctrl.Updated()
+	}
+}
+
 // WaitForEpoch blocks until epoch i is registered.
 func (r *Registry) WaitForEpoch(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
 	for inner, ctrl := range r.state.Lock() {
 		for {
+			if r.pruned(inner, i) {
+				return nil, fmt.Errorf("epoch %d: %w", i, types.ErrPruned)
+			}
 			if ep, ok := inner.m[i]; ok {
 				return ep, nil
 			}
