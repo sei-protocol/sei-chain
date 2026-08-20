@@ -39,8 +39,7 @@ type State struct {
 	key   types.SecretKey
 	data  *data.State
 	inner utils.Watch[*inner]
-	// epoch is a Load-only view of inner.epoch (applied / next-CommitQC epoch).
-	epoch utils.AtomicRecv[*types.Epoch]
+	spec  utils.AtomicRecv[types.ConsensusSpec]
 
 	// persisters groups all disk persistence components.
 	// Always initialized: real when stateDir is set, no-op otherwise.
@@ -51,9 +50,24 @@ func (s *State) PublicKey() types.PublicKey {
 	return s.key.Public()
 }
 
+// appliedEpoch is Load/Wait over consensusSpec.Epoch.
+type appliedEpoch struct {
+	spec utils.AtomicRecv[types.ConsensusSpec]
+}
+
+func (e appliedEpoch) Load() *types.Epoch { return e.spec.Load().Epoch }
+
+func (e appliedEpoch) Wait(ctx context.Context, pred func(*types.Epoch) bool) (*types.Epoch, error) {
+	sp, err := e.spec.Wait(ctx, func(sp types.ConsensusSpec) bool { return pred(sp.Epoch) })
+	if err != nil {
+		return nil, err
+	}
+	return sp.Epoch, nil
+}
+
 // Epoch returns the applied (next-CommitQC) epoch. runEpochAdvance advances it.
-func (s *State) Epoch() utils.AtomicRecv[*types.Epoch] {
-	return s.epoch
+func (s *State) Epoch() appliedEpoch {
+	return appliedEpoch{s.spec}
 }
 
 func (s *State) LocalLane() utils.Option[types.LaneID] {
@@ -61,7 +75,7 @@ func (s *State) LocalLane() utils.Option[types.LaneID] {
 }
 
 func (s *State) Lane(pk types.PublicKey) utils.Option[types.LaneID] {
-	return s.epoch.Load().Committee().Lane(pk)
+	return s.Epoch().Load().Committee().Lane(pk)
 }
 
 func (s *State) WaitForLocalLane(ctx context.Context) (types.LaneID, error) {
@@ -69,7 +83,7 @@ func (s *State) WaitForLocalLane(ctx context.Context) (types.LaneID, error) {
 }
 
 func (s *State) WaitUntilClosed(ctx context.Context, lane types.LaneID) error {
-	_, err := s.epoch.Wait(ctx, func(ep *types.Epoch) bool {
+	_, err := s.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
 		return ep.IsClosed(lane)
 	})
 	return err
@@ -133,7 +147,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		key:        key,
 		data:       data,
 		inner:      utils.NewWatch(inner),
-		epoch:      inner.epoch.Subscribe(),
+		spec:       inner.consensusSpec.Subscribe(),
 		persisters: pers,
 	}, nil
 }
@@ -176,10 +190,7 @@ func (s *State) LastCommitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
 // with the epoch of the RoadIndex that follows it. CommitQC is None before
 // the first tip; until then Epoch is genesis epoch 0.
 func (s *State) SubscribeConsensusSpec() utils.AtomicRecv[types.ConsensusSpec] {
-	for inner := range s.inner.Lock() {
-		return inner.consensusSpec.Subscribe()
-	}
-	panic("unreachable")
+	return s.spec
 }
 
 func (s *State) appQC(ctx context.Context, idx types.RoadIndex) (*types.AppQC, error) {
@@ -223,7 +234,7 @@ func (s *State) CommitQC(ctx context.Context, idx types.RoadIndex) (*types.Commi
 // waitUntilAdvanced blocks until the applied (next-CommitQC) epoch equals i.
 // Returns ErrPruned if applied has already passed i (see types.ErrPruned).
 func (s *State) waitUntilAdvanced(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
-	epoch, err := s.epoch.Wait(ctx, func(epoch *types.Epoch) bool {
+	epoch, err := s.Epoch().Wait(ctx, func(epoch *types.Epoch) bool {
 		return i <= epoch.EpochIndex()
 	})
 	if err != nil {
@@ -440,7 +451,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 		if err := vote.Msg().Verify(ep.Committee()); err != nil {
 			return nil
 		}
-		applied := inner.epoch.Load()
+		applied := inner.applied()
 		for q.next <= n {
 			q.pushBack(newBlockVotes())
 		}
@@ -461,7 +472,7 @@ func epochForVote(inner *inner, vote *types.Signed[*types.LaneVote]) utils.Optio
 		c := ep.Committee()
 		return c.HasLane(lane) && c.HasReplica(key)
 	}
-	applied := inner.epoch.Load()
+	applied := inner.applied()
 	if belongs(applied) {
 		return utils.Some(applied)
 	}
@@ -475,7 +486,7 @@ func epochForVote(inner *inner, vote *types.Signed[*types.LaneVote]) utils.Optio
 // epochForLane returns the applied epoch if it has lane, otherwise the Anchor
 // epoch when that is a different EpochIndex and has lane.
 func epochForLane(inner *inner, lane types.LaneID) utils.Option[*types.Epoch] {
-	applied := inner.epoch.Load()
+	applied := inner.applied()
 	if applied.Committee().HasLane(lane) {
 		return utils.Some(applied)
 	}
@@ -698,12 +709,12 @@ func (s *State) runEvict(ctx context.Context) error {
 	})
 }
 
-// runEpochAdvance is the sole writer of inner.epoch after construction. It waits
+// runEpochAdvance is the sole writer of applied epoch (consensusSpec.Epoch) after construction. It waits
 // for the execution leash on the registry, then seal and the prune leash on
 // avail's inner watch (canAdvanceEpoch), and advances one epoch per wake.
 func (s *State) runEpochAdvance(ctx context.Context) error {
 	for {
-		next := s.epoch.Load().EpochIndex() + 1
+		next := s.Epoch().Load().EpochIndex() + 1
 		// ErrPruned is not expected here: PushCommitQC withholds a CommitQC
 		// until its epoch is applied, so the Anchor never leads applied by more
 		// than one epoch and PruneBefore cannot drop next.
@@ -717,7 +728,7 @@ func (s *State) runEpochAdvance(ctx context.Context) error {
 			}); err != nil {
 				return err
 			}
-			if got := inner.epoch.Load().EpochIndex(); got+1 != next {
+			if got := inner.applied().EpochIndex(); got+1 != next {
 				return fmt.Errorf("runEpochAdvance: applied %d, want %d before advance", got, next-1)
 			}
 			inner.advanceEpoch(ep)
@@ -815,9 +826,10 @@ func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber)
 // ConsensusSpec is refreshed here so tip catch-up stays visible even while
 // runEpochAdvance is parked on WaitForEpoch.
 func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
-	for inner := range s.inner.Lock() {
+	for inner, ctrl := range s.inner.Lock() {
 		inner.persistedCommitQC.Store(utils.Some(qc))
 		inner.refreshConsensusSpec()
+		ctrl.Updated()
 	}
 }
 

@@ -104,7 +104,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	for inner, ctrl := range state.inner.Lock() {
 		require.Greater(t, inner.roads.next, inner.roads.first)
 		tip := inner.roads.q[inner.roads.next-1].commitQC
-		ep := inner.epoch.Load()
+		ep := inner.applied()
 		require.Equal(t, epLeave.EpochIndex(), ep.EpochIndex())
 		require.True(t, ep.IsClosed(lane0))
 		n := inner.prune(data.Anchor{

@@ -144,6 +144,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 		// Anchor. Advance the seal cursor without admitting LastRoad tips — runEvict
 		// is not running, and the rest of this test expects empty roads.
 		seekRoads(state, epoch.FirstRoad(1))
+		persistEpochSeal(state, ep0, keys)
 		if _, err := state.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
 			return ep.EpochIndex() >= 1
 		}); err != nil {
@@ -155,6 +156,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			ctrl.Updated()
 		}
 		seekRoads(state, epoch.FirstRoad(2))
+		persistEpochSeal(state, ep1, keys)
 		if _, err := state.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
 			return ep.EpochIndex() >= epLeave.EpochIndex()
 		}); err != nil {
@@ -678,8 +680,8 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 			}
 
 			for inner := range state.inner.Lock() {
-				if inner.epoch.Load().EpochIndex() != epLeave.EpochIndex() {
-					return fmt.Errorf("applied epoch = %d, want %d", inner.epoch.Load().EpochIndex(), epLeave.EpochIndex())
+				if inner.applied().EpochIndex() != epLeave.EpochIndex() {
+					return fmt.Errorf("applied epoch = %d, want %d", inner.applied().EpochIndex(), epLeave.EpochIndex())
 				}
 				ae, ok := inner.anchorEpoch.Get()
 				if !ok {
@@ -872,6 +874,7 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 				qcLast := types.BuildCommitQC(f.ep, f.keys, utils.Some(prev), nil)
 				require.Equal(t, epoch.LastRoad(f.m), qcLast.Proposal().Index())
 				require.NoError(t, f.state.PushCommitQC(ctx, qcLast))
+				f.state.markCommitQCsPersisted(qcLast)
 				if tc.missing != appQC {
 					setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.Proposal(), types.GenAppHash(rng))))
 				}
@@ -900,7 +903,7 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 					}
 				}
 
-				ep, err := f.state.epoch.Wait(t.Context(), func(ep *types.Epoch) bool {
+				ep, err := f.state.Epoch().Wait(t.Context(), func(ep *types.Epoch) bool {
 					return ep.EpochIndex() >= f.m+1
 				})
 				require.NoError(t, err)
