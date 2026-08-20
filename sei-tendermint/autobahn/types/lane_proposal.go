@@ -22,8 +22,7 @@ func NewLaneProposal(block *Block) *LaneProposal {
 // Block .
 func (m *LaneProposal) Block() *Block { return m.block }
 
-// Verify checks the proposal's internal integrity (payload hash). Committee
-// membership is separate: a lane is not tied to a single committee/epoch.
+// Verify checks the proposal's internal integrity.
 func (m *LaneProposal) Verify() error {
 	return m.block.Verify()
 }
