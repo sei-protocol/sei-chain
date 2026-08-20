@@ -14,6 +14,7 @@ import (
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -141,6 +142,36 @@ func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 	if seenAfterPriority <= 0 {
 		t.Fatalf("expected PriorityDecorator to set correct priority for BankSend, got %d", seenAfterPriority)
 	}
+}
+
+func TestPriorityWithExactAnteChain_MsgAssociate(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{ChainID: "sei-test"}).WithBlockHeight(2).WithIsCheckTx(true)
+	testApp.ParamsKeeper.SetCosmosGasParams(ctx, *paramtypes.DefaultCosmosGasParams())
+	testApp.ParamsKeeper.SetFeesParams(ctx, paramtypes.DefaultGenesis().GetFeesParams())
+
+	decorators := []sdk.AnteDecorator{
+		authante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(testApp.ParamsKeeper)),
+		authante.NewDeductFeeDecorator(testApp.AccountKeeper, testApp.BankKeeper, testApp.FeeGrantKeeper, testApp.ParamsKeeper, nil),
+		antedecorators.NewPriorityDecorator(),
+	}
+	handler := sdk.ChainAnteDecorators(decorators...)
+
+	from, _ := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	fund := sdk.NewCoins(sdk.NewInt64Coin("usei", 1_000_000_000))
+	require.NoError(t, testApp.BankKeeper.MintCoins(ctx, minttypes.ModuleName, fund))
+	require.NoError(t, testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, from, fund))
+
+	const gasLimit = uint64(500_000)
+	fees := sdk.NewCoins(sdk.NewInt64Coin("usei", 100_000))
+	txb := testApp.GetTxConfig().NewTxBuilder()
+	require.NoError(t, txb.SetMsgs(evmtypes.NewMsgAssociate(from, "test")))
+	txb.SetGasLimit(gasLimit)
+	txb.SetFeeAmount(fees)
+
+	newCtx, err := handler(ctx, txb.GetTx(), false)
+	require.NoError(t, err)
+	require.Equal(t, authante.GetTxPriority(fees, int64(gasLimit)), newCtx.Priority())
 }
 
 // PriorityCaptureDecorator captures ctx.Priority seen by the next decorator in the chain
