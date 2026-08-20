@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -133,7 +134,7 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 	if err != nil {
 		return nil, err
 	}
-	inner, err := newInner(data, loaded)
+	inner, err := restoreInner(data, loaded)
 	if err != nil {
 		_ = pers.close()
 		return nil, err
@@ -150,6 +151,101 @@ func NewState(key types.SecretKey, data *data.State, stateDir utils.Option[strin
 		spec:       inner.consensusSpec.Subscribe(),
 		persisters: pers,
 	}, nil
+}
+
+// restoreInner constructs inner from persisted WAL records and data.State.
+func restoreInner(ds *data.State, loaded *loadedState) (*inner, error) {
+	applied, first, qcs, err := restorePlan(ds, loaded)
+	if err != nil {
+		return nil, err
+	}
+	i := newInner(applied, first)
+	for lane := range loaded.blocks {
+		i.addLane(lane)
+	}
+	if anchor, ok := ds.Anchor().Load().Get(); ok {
+		i.prune(anchor)
+	}
+	for _, r := range qcs {
+		i.roads.pushBack(newRoad(r.qc, r.ep))
+	}
+	if i.roads.Len() > 0 {
+		last := i.roads.q[i.roads.next-1]
+		i.persistedCommitQC.Store(utils.Some(last.commitQC))
+	}
+	if err := i.restoreBlocks(loaded.blocks); err != nil {
+		return nil, err
+	}
+	i.refreshConsensusSpec()
+	return i, nil
+}
+
+type restoredQC struct {
+	qc *types.CommitQC
+	ep *types.Epoch
+}
+
+// restorePlan is the applied epoch, first RoadIndex (0 or Anchor+1), and
+// verified CommitQCs for construction. The epoch is genesis when there is no
+// tip, otherwise nextViewEpoch of the persisted tip (last restored QC, or the
+// Anchor QC when the queue is empty).
+func restorePlan(ds *data.State, loaded *loadedState) (*types.Epoch, types.RoadIndex, []restoredQC, error) {
+	registry := ds.Registry()
+	genesis, err := registry.EpochByIndex(0)
+	if err != nil {
+		return nil, 0, nil, fmt.Errorf("genesis epoch 0: %w", err)
+	}
+	var first types.RoadIndex
+	var tip *types.CommitQC
+	var tipEpoch *types.Epoch
+	if anchor, ok := ds.Anchor().Load().Get(); ok {
+		first = anchor.CommitQC.Index() + 1
+		tip = anchor.CommitQC
+		tipEpoch = anchor.Epoch
+	}
+	var qcs []restoredQC
+	for _, qc := range loaded.commitQCs {
+		if qc.Index() < first {
+			continue
+		}
+		want := first + types.RoadIndex(len(qcs))
+		if qc.Index() != want {
+			return nil, 0, nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", want, qc.Index())
+		}
+		ep, err := registry.EpochByIndex(qc.Proposal().EpochIndex())
+		if err != nil {
+			return nil, 0, nil, fmt.Errorf("persisted commitQC %d epoch: %w", qc.Index(), err)
+		}
+		if err := qc.Verify(ep); err != nil {
+			return nil, 0, nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Index(), err)
+		}
+		qcs = append(qcs, restoredQC{qc: qc, ep: ep})
+		tip = qc
+		tipEpoch = ep
+	}
+	if tip == nil {
+		return genesis, first, qcs, nil
+	}
+	applied, err := nextViewEpoch(registry, tip, tipEpoch)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	return applied, first, qcs, nil
+}
+
+// nextViewEpoch is the epoch of the road after tip: tipEpoch, or the next
+// registry epoch when tip sits on tipEpoch's last road. Consensus reads
+// ConsensusSpec once at construction, so a boundary tip has to be paired
+// here rather than left to runEpochAdvance.
+func nextViewEpoch(registry *epoch.Registry, tip *types.CommitQC, tipEpoch *types.Epoch) (*types.Epoch, error) {
+	if tipEpoch.RoadRange().Has(tip.Index() + 1) {
+		return tipEpoch, nil
+	}
+	next, err := registry.EpochByIndex(tipEpoch.EpochIndex() + 1)
+	if err != nil {
+		return nil, fmt.Errorf("epoch %d after sealed tip %d: %w", tipEpoch.EpochIndex()+1, tip.Index(), err)
+	}
+	return next, nil
 }
 
 // Close releases the WALs this state owns, and with them the exclusive lock each holds on its
@@ -647,8 +743,6 @@ func (s *State) runEvict(ctx context.Context) error {
 		for inner, ctrl := range s.inner.Lock() {
 			if anchor.CommitQC.Index() >= inner.roads.first {
 				inner.prune(anchor)
-				// Mostly for catch-up: tip jumps to the Anchor when roads empty.
-				inner.refreshConsensusSpec()
 			}
 			ctrl.Updated()
 		}
