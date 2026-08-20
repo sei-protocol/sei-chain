@@ -201,19 +201,59 @@ func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) (re
 		}
 	}()
 
-	for _, store := range s.stores {
-		start := time.Now()
-		snap, err := store.Commit()
-		otelMetrics.CommitBatchLatency.Record(s.ctx, secondsSince(start),
-			metric.WithAttributes(dbAttr(store.Name()), successAttr(err)))
-		if err != nil {
-			return fmt.Errorf("%s seal: %w", store.Name(), err)
-		}
+	sealed, err := s.sealStores()
+	if err != nil {
+		return err
+	}
+	for _, snap := range sealed {
 		snapshots[snap.Name()] = snap
 	}
 
 	s.phaseTimer.SetPhase("commit_offer_hash")
 	return s.offerHash(version, snapshots, alreadyHave)
+}
+
+// sealStores seals every data store and returns their snapshots.
+//
+// One task per store. A store's seal contends only with its own engine's read cache, over locks no
+// other store touches, so overlapping the four adds no contention to any one of them — it just
+// hides the smaller seals behind the largest. That makes the largest store the floor: parallelism
+// here cannot beat it, only making its own seal cheaper can.
+//
+// Deliberately not fanned out per shard. Shards within one engine share that engine's read cache
+// and seal against the very locks its readers use, so sealing them all at once stalls every reader
+// of that store simultaneously rather than one at a time.
+//
+// Every task is awaited even once a failure is known: a task still running would otherwise hand
+// back a snapshot after the caller had stopped recording them, and that reservation would never be
+// released. A store whose seal fails therefore leaves the others sealed rather than untouched,
+// which is safe only because an error here is non-recoverable — the outer scope tears the engines
+// down, and that is what reclaims the reservations.
+func (s *CommitStore) sealStores() ([]snapshot.Snapshot, error) {
+	sealed := make([]snapshot.Snapshot, len(s.stores))
+	errs := make([]error, len(s.stores))
+	var wg sync.WaitGroup
+	for i, store := range s.stores {
+		wg.Add(1)
+		s.miscPool.Submit(func() {
+			defer wg.Done()
+			start := time.Now()
+			snap, err := store.Commit()
+			otelMetrics.CommitBatchLatency.Record(s.ctx, secondsSince(start),
+				metric.WithAttributes(dbAttr(store.Name()), successAttr(err)))
+			if err != nil {
+				errs[i] = fmt.Errorf("%s seal: %w", store.Name(), err)
+				return
+			}
+			sealed[i] = snap
+		})
+	}
+	wg.Wait()
+
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	return sealed, nil
 }
 
 // offerHash hands the sealed block to the hasher, which computes its lattice hash, records that hash on the

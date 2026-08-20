@@ -453,30 +453,17 @@ func (s *shard) Delete(key []byte) error {
 
 // Commit seals the current version; all future updates will be applied to the next version.
 // The value returned is the new version number (for sanity checking).
-//
-// The next version's map is allocated between two short critical sections rather than inside one,
-// because this lock is shared with the read cache. Allocating a map sized to a whole block means
-// allocating and zeroing its buckets, and a reader that wants this shard waits out all of it.
-// Engines seal their shards concurrently, so holding the lock across the allocation stalls readers
-// on every shard at once.
 func (s *shard) Commit() uint64 {
+	s.lock.Lock()
+
+	newVersion := s.currentVersion + 1
+
 	// Sized at twice the version just sealed. The map is created here but filled by the next
 	// version's writes, and growing it there means rehashing every key written so far, on the
 	// thread doing the writing and under this shard's lock.
-	s.lock.Lock()
-	sizeHint := 2 * len(s.versionDiffs[s.currentVersion])
-	s.lock.Unlock()
-
-	fresh := make(map[string][]byte, sizeHint)
-
-	// Only Commit advances currentVersion, and the engine holds its versionLock across every
-	// shard's Commit, so no other sealer can have moved it while the allocation ran. A writer that
-	// took the lock in the gap addressed the version being sealed, which is where it would have
-	// landed ahead of the bump when this was one critical section.
-	s.lock.Lock()
-	newVersion := s.currentVersion + 1
-	s.versionDiffs[newVersion] = fresh
+	s.versionDiffs[newVersion] = make(map[string][]byte, 2*len(s.versionDiffs[s.currentVersion]))
 	s.currentVersion = newVersion
+
 	s.lock.Unlock()
 
 	return newVersion
