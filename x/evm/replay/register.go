@@ -1,0 +1,26 @@
+package replay
+
+import "github.com/sei-protocol/sei-chain/config/registry"
+
+// SectionName is this section's name in the configuration key space.
+const SectionName = "eth_replay"
+
+// Registration puts this package's configuration section in the registry.
+//
+// The owning package registers its own section, so the struct, the values and the keys come from one
+// place. This section's mapstructure tags already spell the keys its reader resolves, so the registry
+// derives what a node reads rather than restating them.
+//
+// One of the four keys is written into app.toml under a name nothing reads. The template renders
+// eth_replay_contract_state_checks and the reader looks up contract_state_checks, so the declared key is
+// the one a value reaches a reader through.
+func init() {
+	registry.RegisterSection(SectionName, &Config{}, defaults)
+}
+
+// defaults is what this section resolves to for a node that has written nothing.
+//
+// The same values for every mode, and replay off. Turning it on makes application construction dial the
+// endpoint and fail when it cannot reach it, so a mode whose defaults turned it on would stop those nodes
+// booting. The endpoint itself is a fixed third-party address, which is another reason no mode implies it.
+func defaults(registry.Mode) any { return DefaultConfig }
