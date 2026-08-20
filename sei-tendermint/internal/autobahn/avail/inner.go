@@ -6,27 +6,25 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // inner holds roads and per-LaneID block/vote maps.
 type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
-	consensusSpec     utils.AtomicSend[types.ConsensusSpec]
-	roads             *queue[types.RoadIndex, *road]
+	// consensusSpec.Epoch is the applied (next-CommitQC) epoch. advanceEpoch is
+	// the sole writer after construction. blockVotes are weighted under it.
+	// CommitQC may lag that epoch while withheld at LastRoad (durable tip is
+	// persistedCommitQC).
+	consensusSpec utils.AtomicSend[types.ConsensusSpec]
+	roads         *queue[types.RoadIndex, *road]
 
-	// epoch is the applied (next-CommitQC) epoch. advanceEpoch is the sole
-	// writer after construction. Distinct from consensusSpec.Epoch, which is the
-	// epoch of the RoadIndex after the publishable tip and may lag while withheld.
-	// blockVotes are always weighted under this epoch.
-	epoch utils.AtomicSend[*types.Epoch]
 	// anchorEpoch is the epoch of data's Anchor CommitQC when one exists.
 	// None until the first Anchor arrives (construction prune or runEvict).
 	// It may exceed the applied epoch while runEpochAdvance is parked on
 	// WaitForEpoch, or briefly between prune and the next advance: admission
 	// falls back to the Anchor committee via epochForVote / epochForLane.
-	// prune never advances i.epoch — only advanceEpoch does.
+	// prune never advances applied — only advanceEpoch does.
 	anchorEpoch utils.Option[*types.Epoch]
 	blocks      map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes       map[types.LaneID]*queue[types.BlockNumber, *blockVotes]
@@ -65,7 +63,6 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: genesis}),
 		roads:              newQueue[types.RoadIndex, *road](),
-		epoch:              utils.NewAtomicSend(genesis),
 		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
@@ -149,37 +146,43 @@ func newInner(ds *data.State, loaded *loadedState) (*inner, error) {
 	return i, nil
 }
 
+func (i *inner) applied() *types.Epoch {
+	return i.consensusSpec.Load().Epoch
+}
+
 // seedApplied sets applied to ep and opens its lanes. Construction only;
 // live advances go through advanceEpoch.
 func (i *inner) seedApplied(ep *types.Epoch) {
 	for lane := range ep.Committee().Lanes().All() {
 		i.addLane(lane)
 	}
-	i.epoch.Store(ep)
+	spec := i.consensusSpec.Load()
+	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: spec.CommitQC, Epoch: ep})
 }
 
 // advanceEpoch makes ep the applied epoch: opens its lanes, reweights votes,
-// and republishes ConsensusSpec.
+// and publishes ConsensusSpec for the durable tip.
 func (i *inner) advanceEpoch(ep *types.Epoch) {
 	for lane := range ep.Committee().Lanes().All() {
 		i.addLane(lane)
 	}
-	// Publish applied epoch before reweight so reweightVotes reads i.epoch.
-	// Callers hold the avail lock, so Epoch() waiters cannot observe votes
-	// between the Store and the reweight.
-	i.epoch.Store(ep)
+	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: i.persistedCommitQC.Load(), Epoch: ep})
 	i.reweightVotes()
-	i.refreshConsensusSpec()
 }
 
 // canAdvanceEpoch reports whether the applied epoch is sealed and its prune leash is
-// met. Sealed means roads hold the epoch's last CommitQC. The prune leash is met
-// when the Anchor epoch covers the applied epoch (an AppQC for that epoch
-// exists). The execution leash — registry contains the next epoch — is checked
+// met. Sealed means roads and persistedCommitQC hold the epoch's last CommitQC.
+// Waiting on persist keeps applied in lockstep with consensusSpec.Epoch.
+// The prune leash is met when the Anchor epoch covers the applied epoch.
+// The execution leash — registry contains the next epoch — is checked
 // separately so live waiters are not parked on avail's lock for a registry update.
 func (i *inner) canAdvanceEpoch() bool {
-	ep := i.epoch.Load()
+	ep := i.applied()
 	if i.roads.next < ep.RoadRange().Next {
+		return false
+	}
+	tip, ok := i.persistedCommitQC.Load().Get()
+	if !ok || tip.Index()+1 < ep.RoadRange().Next {
 		return false
 	}
 	ae, ok := i.anchorEpoch.Get()
@@ -191,7 +194,7 @@ func (i *inner) canAdvanceEpoch() bool {
 // violation (execution leash should already have registered it).
 func (i *inner) advanceReadyEpochs(ds *data.State) error {
 	for i.canAdvanceEpoch() {
-		nextIdx := i.epoch.Load().EpochIndex() + 1
+		nextIdx := i.applied().EpochIndex() + 1
 		next, err := ds.Registry().EpochByIndex(nextIdx)
 		if err != nil {
 			return fmt.Errorf("epoch %d with seal+prune leashes met: %w", nextIdx, err)
@@ -201,15 +204,9 @@ func (i *inner) advanceReadyEpochs(ds *data.State) error {
 	return nil
 }
 
-// refreshConsensusSpec publishes ConsensusSpec for the durable tip, paired with
-// the epoch of the RoadIndex that follows it. The spec is withheld — the
-// previously published one stands — until that epoch is applied and resolvable.
-//
-// Withholding rather than publishing an earlier tip is what keeps the spec
-// monotonic. At an epoch boundary the durable tip sits on LastRoad(E) while
-// applied is still E, and a node that already entered E+1 before a restart must
-// not be handed a predecessor of the tip it holds: advancing to it would roll the
-// tip backwards and discard that view's votes.
+// refreshConsensusSpec publishes the durable tip when the following RoadIndex
+// sits in the applied epoch. Otherwise the previous spec stands (withhold at
+// LastRoad until advanceEpoch). It does not change Epoch; advanceEpoch does.
 func (i *inner) refreshConsensusSpec() {
 	tip := i.persistedCommitQC.Load()
 	cqc, ok := tip.Get()
@@ -217,29 +214,9 @@ func (i *inner) refreshConsensusSpec() {
 		return
 	}
 	next := cqc.Index() + 1
-	ep := i.epoch.Load()
-	if epoch.IndexForRoad(next) > ep.EpochIndex() {
-		return
-	}
+	ep := i.applied()
 	if !ep.RoadRange().Has(next) {
-		// Persist may lag advanceEpoch: tip's next RoadIndex can sit in an
-		// earlier epoch still present on some admitted road.
-		found := false
-		if next >= i.roads.first && next < i.roads.next {
-			ep = i.roads.q[next].epoch
-			found = true
-		} else {
-			for idx := i.roads.first; idx < i.roads.next; idx++ {
-				if r := i.roads.q[idx].epoch; r.RoadRange().Has(next) {
-					ep = r
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			return
-		}
+		return
 	}
 	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: tip, Epoch: ep})
 }
@@ -268,7 +245,7 @@ func (i *inner) dropLanes(lanes []types.LaneID) int {
 	return n
 }
 
-// laneQC returns the LaneQC for (lane, n) under i.epoch, if one has formed.
+// laneQC returns the LaneQC for (lane, n) under the applied epoch, if one has formed.
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*types.LaneQC] {
 	votes, ok := i.votes[lane]
 	if !ok {
@@ -281,9 +258,9 @@ func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*typ
 	return entry.qc
 }
 
-// reweightVotes recounts retained block votes under the applied epoch (i.epoch).
+// reweightVotes recounts retained block votes under the applied epoch.
 func (i *inner) reweightVotes() {
-	ep := i.epoch.Load()
+	ep := i.applied()
 	for _, vq := range i.votes {
 		for n := vq.first; n < vq.next; n++ {
 			vq.q[n].reweight(ep)

@@ -280,7 +280,6 @@ func TestAdvanceReadyEpochs_BoundaryTipUsesDataAppQC(t *testing.T) {
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}),
 		roads:              newQueue[types.RoadIndex, *road](),
-		epoch:              utils.NewAtomicSend(ep0),
 		anchorEpoch:        utils.Some(anchor.Epoch),
 		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
@@ -293,13 +292,12 @@ func TestAdvanceReadyEpochs_BoundaryTipUsesDataAppQC(t *testing.T) {
 	i.roads.next = last
 	i.roads.pushBack(newRoad(qcLast, ep0))
 	i.persistedCommitQC.Store(utils.Some(qcLast))
-	i.epoch.Store(ep0)
 
 	require.False(t, i.roads.q[last].appQC.IsPresent(), "road AppQC empty; prune leash is the Anchor")
 	require.True(t, i.canAdvanceEpoch())
 	require.NoError(t, i.advanceReadyEpochs(ds))
 
-	require.Equal(t, ep1.EpochIndex(), i.epoch.Load().EpochIndex())
+	require.Equal(t, ep1.EpochIndex(), i.applied().EpochIndex())
 	spec := i.consensusSpec.Load()
 	cqc, ok := spec.CommitQC.Get()
 	require.True(t, ok)
@@ -326,7 +324,6 @@ func TestAdvanceReadyEpochs_MissingNextEpochErrors(t *testing.T) {
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep1}),
 		roads:              newQueue[types.RoadIndex, *road](),
-		epoch:              utils.NewAtomicSend(ep1),
 		anchorEpoch:        utils.Some(ep1),
 		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
@@ -366,7 +363,6 @@ func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}),
 		roads:              newQueue[types.RoadIndex, *road](),
-		epoch:              utils.NewAtomicSend(ep0),
 		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},

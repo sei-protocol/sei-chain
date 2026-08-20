@@ -80,6 +80,23 @@ func RunTestNetwork(ctx context.Context, states []*State) error {
 	})
 }
 
+func persistEpochSeal(s *State, ep *types.Epoch, keys []types.SecretKey) {
+	last := ep.RoadRange().Next - 1
+	cks := make([]types.SecretKey, 0, len(keys))
+	for _, k := range keys {
+		if ep.Committee().HasReplica(k.Public()) {
+			cks = append(cks, k)
+		}
+	}
+	var qc *types.CommitQC
+	if last == 0 {
+		qc = types.BuildCommitQC(ep, cks, utils.None[*types.CommitQC](), nil)
+	} else {
+		qc = types.BuildCommitQC(ep, cks, utils.Some(tipLink(ep, cks[0], last-1)), nil)
+	}
+	s.markCommitQCsPersisted(qc)
+}
+
 func seekRoads(s *State, idx types.RoadIndex) {
 	for inner, ctrl := range s.inner.Lock() {
 		inner.roads.first = idx
@@ -139,6 +156,7 @@ func DriveAdvance(ctx context.Context, state *State, keys []types.SecretKey, wan
 		if err := state.PushCommitQC(ctx, qc); err != nil {
 			return err
 		}
+		state.markCommitQCsPersisted(qc)
 		setRoadAppQC(state, qc.Index(), data.TestAppQC(cks, types.NewAppProposal(qc.Proposal(), types.AppHash{})))
 		if _, err := state.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
 			return ep.EpochIndex() > cur.EpochIndex()
