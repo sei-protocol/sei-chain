@@ -1,6 +1,7 @@
 package registry_test
 
 import (
+	"math"
 	"reflect"
 	"sort"
 	"strings"
@@ -702,8 +703,9 @@ func TestARealisticSectionShapeDerivesAndResolvesEveryKey(t *testing.T) {
 		t.Fatalf("registering a realistic shape produced a defect: %v", d.Err)
 	}
 
-	// The squashed base adds no segment, the nested structs each add one, and neither duration
-	// becomes a group, because a time.Duration is an int64 and takes the leaf path on its kind.
+	// The squashed base adds no segment, the nested structs each add one, and neither duration becomes a
+	// group, because a time.Duration is an int64 and takes the leaf path on its kind. Its value is then
+	// carried as text, which is the one named type a file has a form for.
 	want := []string{
 		"shaped.cache.size", "shaped.cache.wait",
 		"shaped.enabled",
@@ -719,14 +721,17 @@ func TestARealisticSectionShapeDerivesAndResolvesEveryKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolving a realistic shape: %v", err)
 	}
+	// Wanted in the form a configuration file carries, not in the struct field's own type. A duration is
+	// the text a reader parses back, and a sized integer is the one width a file has. The alternative is
+	// a key that answers as one type from these defaults and another from an operator's file.
 	for key, want := range map[string]any{
 		"shaped.laddr":      "tcp://0.0.0.0:1",
 		"shaped.enabled":    true,
-		"shaped.timeout":    30 * time.Second,
-		"shaped.cache.size": 64,
-		"shaped.cache.wait": time.Second,
-		"shaped.spill.size": 8,
-		"shaped.spill.wait": 2 * time.Second,
+		"shaped.timeout":    "30s",
+		"shaped.cache.size": int64(64),
+		"shaped.cache.wait": "1s",
+		"shaped.spill.size": int64(8),
+		"shaped.spill.wait": "2s",
 	} {
 		got, ok := resolved.Values[key]
 		if !ok {
@@ -1351,5 +1356,163 @@ func TestARefusalInsideASquashedBaseIsReported(t *testing.T) {
 	// The prefix is the section, not a subtree, because squash adds no segment.
 	if msg := defects[0].Err.Error(); !strings.Contains(msg, "sq.Untagged") {
 		t.Errorf("the refusal reads %q; a squashed field's path is the section's own", msg)
+	}
+}
+
+// TestADeclaredKeyResolvesAsOneTypeWhateverSuppliedIt is the property the value space rests on.
+//
+// A default is read off a struct field and arrives as that field's own type. A file carries the types its
+// format has. Handed out as they arrive, one key answers as a named string from the defaults and a plain
+// string from the file, so a consumer that asserts the declared type works on a node running defaults and
+// panics on a node whose operator wrote that key.
+func TestADeclaredKeyResolvesAsOneTypeWhateverSuppliedIt(t *testing.T) {
+	type named string
+	type cfg struct {
+		Mode    named         `mapstructure:"mode"`
+		Workers int32         `mapstructure:"workers"`
+		Wait    time.Duration `mapstructure:"wait"`
+		Labels  [][]string    `mapstructure:"labels"`
+		Ratio   float32       `mapstructure:"ratio"`
+	}
+
+	registry.Reset()
+	registry.RegisterSection("probe", &cfg{}, func(registry.Mode) any {
+		return &cfg{Mode: "memiavl_only", Workers: 4, Wait: 90 * time.Second,
+			Labels: [][]string{{"a", "b"}}, Ratio: 1.5}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("registering a realistic shape produced a defect: %v", d.Err)
+	}
+
+	fromDefaults, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+	if err != nil {
+		t.Fatalf("resolving: %v", err)
+	}
+
+	// What a file would carry for the same keys, which is what a reader hands back.
+	fromFile, err := registry.Resolve(registry.ModeValidator, registry.Sources{File: map[string]any{
+		"probe.mode":    "memiavl_only",
+		"probe.workers": int64(4),
+		"probe.wait":    "1m30s",
+		"probe.labels":  []any{[]any{"a", "b"}},
+		"probe.ratio":   1.5,
+	}})
+	if err != nil {
+		t.Fatalf("resolving over a file: %v", err)
+	}
+
+	for _, key := range registry.Keys() {
+		d, f := fromDefaults.Values[key], fromFile.Values[key]
+		if reflect.TypeOf(d) != reflect.TypeOf(f) {
+			t.Errorf("%s is %T from the defaults and %T from the file. A caller cannot assert either, "+
+				"and one of the two panics whichever it asserts", key, d, f)
+		}
+		if !reflect.DeepEqual(d, f) {
+			t.Errorf("%s is %#v from the defaults and %#v from the file, so the same setting reads as "+
+				"two values", key, d, f)
+		}
+	}
+}
+
+// TestAValueNoFileCanHoldIsRefusedAtRegistration keeps the refusal where the key is still named.
+//
+// An unsigned default wider than the largest integer a file carries has no form to be written as. Left to
+// the write, the failure names a rendering rather than the field that declared it, and it arrives when an
+// operator runs a command rather than when the section is added.
+func TestAValueNoFileCanHoldIsRefusedAtRegistration(t *testing.T) {
+	type cfg struct {
+		Ceiling uint64 `mapstructure:"ceiling"`
+	}
+
+	registry.Reset()
+	registry.RegisterSection("probe", &cfg{}, func(registry.Mode) any {
+		return &cfg{Ceiling: math.MaxUint64}
+	})
+
+	_, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+	if err == nil {
+		t.Fatal("a default no file can hold resolved, so the failure lands on whoever tries to write it")
+	}
+	for _, want := range []string{"probe.ceiling", "widest integer"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal reads %q and does not mention %q", err, want)
+		}
+	}
+}
+
+// TestASegmentGetsTheSameAnswerWhicheverDoorItEnters holds the one rule against both places.
+//
+// A segment reaches this package as a section name or as a field tag, and both have to refuse the same
+// spellings for the same reason. Checked separately they drifted once already, and the two sites ran their
+// checks in different orders, so one input was diagnosed as the wrong problem depending on which door it
+// came through.
+//
+// The tag door needs a type built at run time, because a struct tag is written at compile time and this
+// drives a table.
+func TestASegmentGetsTheSameAnswerWhicheverDoorItEnters(t *testing.T) {
+	taggedStruct := func(tag string) any {
+		return reflect.New(reflect.StructOf([]reflect.StructField{{
+			Name: "V",
+			Type: reflect.TypeOf(false),
+			Tag:  reflect.StructTag(`mapstructure:"` + tag + `"`),
+		}})).Interface()
+	}
+
+	for _, tc := range []struct{ segment, want string }{
+		{"a#b", "carries"},
+		{"a/b", "carries"},
+		{"max+conns", "carries"},
+		{"a b", "carries"},
+		{"a.b", "carries"},
+		{"Foo", "not lower case"},
+		{"ångstrom", "carries"},
+	} {
+		t.Run(tc.segment, func(t *testing.T) {
+			ok := taggedStruct("ok")
+
+			registry.Reset()
+			registry.RegisterSection(tc.segment, ok, func(registry.Mode) any { return ok })
+			asSection := registry.Defects()
+
+			registry.Reset()
+			tagged := taggedStruct(tc.segment)
+			registry.RegisterSection("probe", tagged, func(registry.Mode) any { return tagged })
+			asTag := registry.Defects()
+
+			for door, defects := range map[string][]registry.Defect{
+				"a section name": asSection,
+				"a field tag":    asTag,
+			} {
+				if len(defects) != 1 {
+					t.Fatalf("%q as %s produced %d defects, want 1", tc.segment, door, len(defects))
+				}
+				if !strings.Contains(defects[0].Err.Error(), tc.want) {
+					t.Errorf("%q as %s reads %q, and does not mention %q, so the same segment is "+
+						"diagnosed as a different problem depending on how it arrived",
+						tc.segment, door, defects[0].Err, tc.want)
+				}
+			}
+		})
+	}
+}
+
+// TestAKeyRefusalNamesTheCharacterAnOperatorTyped keeps the diagnosis readable.
+//
+// A segment is bytes, and finding the first character outside the set by byte index then slicing one byte
+// out of it names a fragment of a multi-byte character, which appears nowhere in what was written.
+func TestAKeyRefusalNamesTheCharacterAnOperatorTyped(t *testing.T) {
+	type cfg struct {
+		V bool `mapstructure:"ångstrom"`
+	}
+
+	registry.Reset()
+	registry.RegisterSection("probe", &cfg{}, func(registry.Mode) any { return &cfg{} })
+	defects := registry.Defects()
+	if len(defects) != 1 {
+		t.Fatalf("got %d defects, want 1", len(defects))
+	}
+	got := defects[0].Err.Error()
+	if !strings.Contains(got, `"å"`) {
+		t.Errorf("the refusal reads %q and does not name the character that was written", got)
 	}
 }

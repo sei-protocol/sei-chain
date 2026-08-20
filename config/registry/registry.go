@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // Mode is a node's declared role, and the input a section's default varies on.
@@ -175,10 +176,11 @@ func deriveKeys(section string, prototype any) ([]string, error) {
 			"enumerate lower-cased, so a key under it would never match a written one", section)
 	}
 	if bad, found := unaddressableChar(section); found {
-		return nil, fmt.Errorf("section name %q carries %q, and a section is one segment. A dotted name "+
-			"declares keys inside another section's subtree, where the two sections' defaults land in "+
-			"one map and whichever renders last silently wins; a space cannot be written in an "+
-			"environment variable name at all", section, bad)
+		return nil, fmt.Errorf("section name %q carries %q, and a segment holds lower-case letters, "+
+			"digits, underscores and hyphens. A section is one segment, so a dotted name declares keys "+
+			"inside another section's subtree, where the two sections' defaults land in one map and "+
+			"whichever renders last silently wins; anything else has no form in a file, an environment "+
+			"variable name or a flag", section, bad)
 	}
 	if prototype == nil {
 		return nil, fmt.Errorf("no struct")
@@ -314,15 +316,16 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash bool, err 
 	if name == "" || name == "-" {
 		return "", false, fmt.Errorf("%s.%s has an empty mapstructure name", prefix, f.Name)
 	}
-	if bad, found := unaddressableChar(name); found {
-		return "", false, fmt.Errorf("%s.%s names %q, which carries %q. A dot makes the field claim a "+
-			"subtree the struct does not have, and neither a dot nor a space survives a round trip "+
-			"through a configuration source", prefix, f.Name, name, bad)
-	}
 	if name != strings.ToLower(name) {
 		return "", false, fmt.Errorf("%s.%s names %q, which is not lower case; a configuration "+
 			"source enumerates lower-cased, so this key would never match a written one",
 			prefix, f.Name, name)
+	}
+	if bad, found := unaddressableChar(name); found {
+		return "", false, fmt.Errorf("%s.%s names %q, which carries %q, and a segment holds lower-case "+
+			"letters, digits, underscores and hyphens. A dot makes the field claim a subtree the struct "+
+			"does not have, and nothing outside that set survives a round trip through a configuration "+
+			"source", prefix, f.Name, name, bad)
 	}
 	return name, false, nil
 }
@@ -330,17 +333,31 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash bool, err 
 // unaddressableChar returns the first character in a key segment that no configuration source can
 // carry, and whether there was one.
 //
-// A dot separates segments, so one inside a segment names a level that does not exist. A space
-// survives neither a file, an environment variable name, nor a flag.
+// A key reaches a node through a file, an environment variable and a flag, and a segment has to survive
+// all three. Lower-case letters, digits, underscores and hyphens do. A dot separates segments, so one
+// inside a segment names a level that does not exist. A space survives none of the three. Anything else
+// has to be quoted somewhere, and a quoted name is spelled one way by the reader that hands it back and
+// another by the reader that looks it up, so the value goes where no read finds it.
 //
-// One function for both places a segment enters, a section name and a field tag, because the two
-// answer to the same sources. Stated separately they drifted, and a section name accepted a space the
-// field rule refused.
+// One function for both places a segment enters, a section name and a field tag, because the two answer
+// to the same sources. Stated separately they drifted, and a section name accepted a space the field rule
+// refused.
 func unaddressableChar(segment string) (string, bool) {
-	if i := strings.IndexAny(segment, ". "); i >= 0 {
-		return segment[i : i+1], true
+	if i := strings.IndexFunc(segment, notKeyRune); i >= 0 {
+		_, width := utf8.DecodeRuneInString(segment[i:])
+		return segment[i : i+width], true
 	}
 	return "", false
+}
+
+// notKeyRune reports whether a character cannot appear in a key segment.
+func notKeyRune(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-':
+		return false
+	default:
+		return true
+	}
 }
 
 // isLeaf reports whether a struct type is a value rather than a group of keys.

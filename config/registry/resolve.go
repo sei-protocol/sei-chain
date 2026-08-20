@@ -2,9 +2,11 @@ package registry
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Resolved is every declared key's value, plus what a caller has to be told about how it got there.
@@ -259,9 +261,62 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 			}
 			continue
 		}
-		out[path] = fv.Interface()
+		wire, err := wireValue(fv.Interface())
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		out[path] = wire
 	}
 	return nil
+}
+
+// wireValue returns a value in the form a configuration file carries it.
+//
+// A default is read off a struct field, so it arrives as that field's own type: a named string, a sized
+// integer, a typed slice. A file carries the types its format has, and nothing writes a named type back.
+// Handed out as they arrive, one declared key answers as two different Go types depending on whether the
+// operator wrote a value for it, and a caller that asserts the declared type works on one and panics on
+// the other.
+//
+// A type with no form a file can carry is returned unchanged rather than approximated, so it reads as
+// what it is to whatever checks the two spaces against each other. The exception is a value no file could
+// hold at all, which is refused here, because the registration that declares it is the last place the key
+// is still named.
+func wireValue(v any) (any, error) {
+	if d, ok := v.(time.Duration); ok {
+		// A duration is carried as the text a reader parses back, not as its nanosecond count.
+		return d.String(), nil
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Bool:
+		return rv.Bool(), nil
+	case reflect.String:
+		return rv.String(), nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return rv.Int(), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		n := rv.Uint()
+		if n > math.MaxInt64 {
+			return nil, fmt.Errorf("its default is %d, which is larger than the widest integer a "+
+				"configuration file carries, so no file can hold this key's value", n)
+		}
+		return int64(n), nil
+	case reflect.Float32, reflect.Float64:
+		return rv.Float(), nil
+	case reflect.Slice, reflect.Array:
+		out := make([]any, rv.Len())
+		for i := range out {
+			element, err := wireValue(rv.Index(i).Interface())
+			if err != nil {
+				return nil, fmt.Errorf("element %d: %w", i, err)
+			}
+			out[i] = element
+		}
+		return out, nil
+	default:
+		return v, nil
+	}
 }
 
 // envValues reads the keys an environment supplies, from the caller's declared set.
