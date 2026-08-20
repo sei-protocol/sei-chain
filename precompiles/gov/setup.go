@@ -16,6 +16,7 @@ import (
 	govv630 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v630"
 	govv640 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v640"
 	govv65 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v65"
+	govv66 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v66"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -34,6 +35,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.3.0":      check(govv630.NewPrecompile(keepers)),
 		"v6.4.0":      check(govv640.NewPrecompile(keepers)),
 		"v6.5":        check(govv65.NewPrecompile(keepers)),
+		"v6.6":        check(govv66.NewPrecompile(keepers)),
 	}
 }
 
