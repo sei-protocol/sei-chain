@@ -41,11 +41,13 @@ type ascendingIterator struct {
 	readCount          int64
 	storeKey           string
 	operationMetrics   *pebbledbmetrics.OperationMetrics
+	ctx                context.Context
+	err                error
 
 	closeSync sync.Once
 }
 
-func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics) *ascendingIterator {
+func newAscendingIterator(ctx context.Context, src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics) *ascendingIterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &ascendingIterator{
@@ -58,6 +60,7 @@ func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byt
 			reverse:          reverse,
 			storeKey:         storeKey,
 			operationMetrics: operationMetrics,
+			ctx:              ctx,
 		}
 	}
 
@@ -79,6 +82,7 @@ func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byt
 		reverse:          reverse,
 		storeKey:         storeKey,
 		operationMetrics: operationMetrics,
+		ctx:              ctx,
 	}
 
 	if valid {
@@ -154,6 +158,11 @@ func (itr *ascendingIterator) seekVisibleVersionForKey(targetKey []byte) bool {
 func (itr *ascendingIterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
 	seekKey := MVCCEncodeAscending(currKey, math.MaxInt64)
 	for valid := itr.source.SeekGE(seekKey); valid; valid = itr.source.Next() {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return nil, false
+		}
 		nextKey, _, ok := SplitMVCCKey(itr.source.Key())
 		if !ok || !bytes.HasPrefix(nextKey, itr.prefix) {
 			return nil, false
@@ -186,6 +195,11 @@ func (itr *ascendingIterator) prevLogicalKey(currKey []byte) ([]byte, bool) {
 func (itr *ascendingIterator) positionAtOrAfterKey(startKey []byte) {
 	currentKey := startKey
 	for {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return
+		}
 		itr.valid = itr.seekVisibleVersionForKey(currentKey)
 		if itr.valid && !itr.cursorTombstoned() {
 			return
@@ -206,6 +220,11 @@ func (itr *ascendingIterator) positionAtOrAfterKey(startKey []byte) {
 func (itr *ascendingIterator) positionAtOrBeforeKey(startKey []byte) {
 	currentKey := startKey
 	for {
+		if err := abortIfCancelled(itr.ctx); err != nil {
+			itr.err = err
+			itr.valid = false
+			return
+		}
 		itr.valid = itr.seekVisibleVersionForKey(currentKey)
 		if itr.valid && !itr.cursorTombstoned() {
 			return
@@ -302,14 +321,21 @@ func (itr *ascendingIterator) Next() {
 	} else {
 		itr.nextForward()
 	}
+	if itr.err != nil {
+		panic(itr.err)
+	}
 	if itr.Valid() {
 		itr.readCount++
 	}
 }
 
 func (itr *ascendingIterator) Valid() bool {
+	if itr.err != nil {
+		itr.valid = false
+		return false
+	}
 	// once invalid, forever invalid
-	if !itr.valid || !itr.source.Valid() {
+	if !itr.valid || itr.source == nil || !itr.source.Valid() {
 		itr.valid = false
 		return itr.valid
 	}
@@ -332,6 +358,12 @@ func (itr *ascendingIterator) Valid() bool {
 }
 
 func (itr *ascendingIterator) Error() error {
+	if itr.err != nil {
+		return itr.err
+	}
+	if itr.source == nil {
+		return nil
+	}
 	return itr.source.Error()
 }
 

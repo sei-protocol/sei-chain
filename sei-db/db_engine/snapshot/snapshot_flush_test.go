@@ -35,14 +35,12 @@ func TestFlushLatestValueWinsAcrossVersions(t *testing.T) {
 	require.NoError(t, engine.Set([]byte("k"), []byte("v1")))
 	snap1, err := engine.Commit()
 	require.NoError(t, err)
-	hashAndRelease(t, snap1)
-	awaitFlushed(t, snap1, time.Second)
+	hashAwaitFlushAndRelease(t, snap1)
 
 	require.NoError(t, engine.Set([]byte("k"), []byte("v2")))
 	snap2, err := engine.Commit()
 	require.NoError(t, err)
-	hashAndRelease(t, snap2)
-	awaitFlushed(t, snap2, time.Second)
+	hashAwaitFlushAndRelease(t, snap2)
 
 	kv, ok := db.get("k")
 	require.True(t, ok)
