@@ -147,6 +147,15 @@ type Config struct {
 
 	// Controls the number of goroutines pre-allocated in the thread pool for miscellaneous operations.
 	// The number of threads in this pool is equal to MiscThreadsPerCore * runtime.NumCPU() + MiscConstantThreadCount.
+	//
+	// This is the term that covers the pool's nested fan-outs, whose width comes from the shape of the
+	// store rather than from the core count. A tree is one task per data database, each of which fans out
+	// again to one task per shard of that database's engine, so a tree is
+	// len(dataDBDirs) * (1 + SnapshotEngineConfig.ShardCount) tasks and the outer tasks are blocked while
+	// the inner ones run. Two trees are live at once: the commit thread sealing the block, and the hasher
+	// diffing the previous one. Sized below that total, the pool still completes the work — it is elastic
+	// and spawns a temporary goroutine rather than queueing — but it does so by churning goroutines on
+	// every block. Raise this alongside ShardCount.
 	MiscConstantThreadCount int
 
 	// Controls the number of workers in the dedicated lattice-hash pool used to
@@ -192,7 +201,7 @@ func DefaultConfig() *Config {
 		ReaderConstantThreadCount: 0,
 		ReaderPoolQueueSize:       1024,
 		MiscPoolThreadsPerCore:    4.0,
-		MiscConstantThreadCount:   0,
+		MiscConstantThreadCount:   80,
 		LtHashThreadsPerCore:      1.0,
 	}
 
