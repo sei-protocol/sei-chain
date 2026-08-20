@@ -49,6 +49,9 @@ func Install(target *viper.Viper, resolved registry.Resolved) (Report, error) {
 	// Enumerated once and handed to both the refusal and the report, so the two cannot disagree about
 	// what the source carries.
 	enumerated := enumerate(target)
+	if err := refuseNotLowerCase(resolved); err != nil {
+		return Report{}, err
+	}
 	if err := refuseUnwritable(target, resolved, enumerated); err != nil {
 		return Report{}, err
 	}
@@ -73,6 +76,33 @@ func enumerate(target *viper.Viper) map[string]bool {
 		out[key] = true
 	}
 	return out
+}
+
+// refuseNotLowerCase rejects a declared key the source would store under a different name.
+//
+// A source lower-cases a key on the way in, so a key that is not already lower case is written and read
+// under a name that is not the one declared. Two consequences, and the first is the reason this runs
+// before anything else here: a comparison against another key or against what the source enumerates
+// misses a match that the source itself would make, so the refusal below cannot see the collision and
+// both values land on one path. The second is that the report counts one key twice, once as installed
+// under the declared spelling and once as untouched under the stored one.
+//
+// Refused rather than folded, because folding accepts a key the registry refuses at both of its own
+// doors and then quietly writes a different one.
+func refuseNotLowerCase(resolved registry.Resolved) error {
+	var wrong []string
+	for key := range resolved.Values {
+		if key != strings.ToLower(key) {
+			wrong = append(wrong, key)
+		}
+	}
+	if len(wrong) == 0 {
+		return nil
+	}
+	sort.Strings(wrong)
+	return fmt.Errorf("these declared keys are not lower case, and a configuration source stores a key "+
+		"lower-cased, so each would be written and read under a name nothing declares: %s",
+		strings.Join(wrong, ", "))
 }
 
 // dottedPrefixes returns every path a key nests under, outermost first.

@@ -421,7 +421,7 @@ func TestAValueDeliveredOnlyByTheEnvironmentIsStillSeen(t *testing.T) {
 	t.Setenv("TESTBOOT_GIGA_EXECUTOR", "on")
 	target := bootLike(t, "TESTBOOT", nil)
 	if !target.IsSet("giga_executor") {
-		t.Skip("this source does not answer for the environment value, so there is nothing to shadow")
+		t.Fatal("the source does not answer for the environment value, so this test measures nothing")
 	}
 
 	_, err := appopts.Install(target, registry.Resolved{Values: map[string]any{"giga_executor.enabled": true}})
@@ -464,5 +464,35 @@ func TestAnUnsetBoundFlagAtAnAncestorIsNotACollision(t *testing.T) {
 	declared := registry.Resolved{Values: map[string]any{"state-commit.buffer": 100}}
 	if _, err := appopts.Install(target, declared); err != nil {
 		t.Fatalf("a declared key was refused over a flag default nobody set: %v", err)
+	}
+}
+
+// TestADeclaredKeyThatIsNotLowerCaseIsRefused covers the one input assumption taken on faith.
+//
+// A source stores a key lower-cased, so a declared key that is not already lower case is written and read
+// under a name nothing declares. That defeats the refusal below it rather than merely being untidy: a
+// comparison against another declared key or against what the source enumerates misses a match the source
+// itself would make, so both values land on one path and the survivor is whichever was written second.
+func TestADeclaredKeyThatIsNotLowerCaseIsRefused(t *testing.T) {
+	registry.Reset()
+
+	// The pair the collision refusal cannot see, because the two spellings differ only in case.
+	target := bootLike(t, "TESTBOOT", nil)
+	_, err := appopts.Install(target, registry.Resolved{Values: map[string]any{"A": 1, "a.b": 2}})
+	if err == nil {
+		t.Fatalf("A and a.b were installed together. The source stores both under a, so a reads %#v "+
+			"and the 1 is gone", target.Get("a"))
+	}
+	if !strings.Contains(err.Error(), "not lower case") {
+		t.Errorf("the refusal reads %q and does not say what is wrong with the key", err)
+	}
+
+	// And the report counted one key twice, once under each spelling.
+	registry.Reset()
+	_, err = appopts.Install(bootLike(t, "TESTBOOT", map[string]any{"probe.workers": 1}),
+		registry.Resolved{Values: map[string]any{"Probe.Workers": 4}})
+	if err == nil {
+		t.Error("a key differing from an enumerated one only in case was installed, so the report names " +
+			"it as installed and as untouched at the same time")
 	}
 }
