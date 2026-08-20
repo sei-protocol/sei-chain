@@ -201,54 +201,19 @@ func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) (re
 		}
 	}()
 
-	sealed, err := s.sealStores()
-	if err != nil {
-		return err
-	}
-	for _, snap := range sealed {
+	for _, store := range s.stores {
+		start := time.Now()
+		snap, err := store.Commit()
+		otelMetrics.CommitBatchLatency.Record(s.ctx, secondsSince(start),
+			metric.WithAttributes(dbAttr(store.Name()), successAttr(err)))
+		if err != nil {
+			return fmt.Errorf("%s seal: %w", store.Name(), err)
+		}
 		snapshots[snap.Name()] = snap
 	}
 
 	s.phaseTimer.SetPhase("commit_offer_hash")
 	return s.offerHash(version, snapshots, alreadyHave)
-}
-
-// sealStores seals every data store and returns their snapshots.
-//
-// One task per store, because the stores are independent — separate engines, separate locks,
-// separate pebble instances — and each one waits on its own shards' locks, which the read cache
-// holds too. Sealed one at a time those waits add up, so they are overlapped instead.
-//
-// Every task is awaited even once a failure is known: a task still running would otherwise hand
-// back a snapshot after the caller had stopped recording them, and that reservation would never be
-// released. A store whose seal fails therefore leaves the others sealed rather than untouched,
-// which is safe only because an error here is non-recoverable — the outer scope tears the engines
-// down, and that is what reclaims the reservations.
-func (s *CommitStore) sealStores() ([]snapshot.Snapshot, error) {
-	sealed := make([]snapshot.Snapshot, len(s.stores))
-	errs := make([]error, len(s.stores))
-	var wg sync.WaitGroup
-	for i, store := range s.stores {
-		wg.Add(1)
-		s.miscPool.Submit(func() {
-			defer wg.Done()
-			start := time.Now()
-			snap, err := store.Commit()
-			otelMetrics.CommitBatchLatency.Record(s.ctx, secondsSince(start),
-				metric.WithAttributes(dbAttr(store.Name()), successAttr(err)))
-			if err != nil {
-				errs[i] = fmt.Errorf("%s seal: %w", store.Name(), err)
-				return
-			}
-			sealed[i] = snap
-		})
-	}
-	wg.Wait()
-
-	if err := errors.Join(errs...); err != nil {
-		return nil, err
-	}
-	return sealed, nil
 }
 
 // offerHash hands the sealed block to the hasher, which computes its lattice hash, records that hash on the
