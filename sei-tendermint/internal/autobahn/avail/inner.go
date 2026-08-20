@@ -268,8 +268,7 @@ func (i *inner) dropLanes(lanes []types.LaneID) int {
 	return n
 }
 
-// laneQC returns the LaneQC for (lane, n) under the applied epoch's vote
-// weighting (i.epoch), if one has formed.
+// laneQC returns the LaneQC for (lane, n) under i.epoch, if one has formed.
 func (i *inner) laneQC(lane types.LaneID, n types.BlockNumber) utils.Option[*types.LaneQC] {
 	votes, ok := i.votes[lane]
 	if !ok {
