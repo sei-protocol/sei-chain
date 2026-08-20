@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+const StateStoreSnapshotsDirName = "snapshots"
+
 // DirExists returns true if path exists and is a directory.
 func DirExists(path string) bool {
 	info, err := os.Stat(path)
@@ -61,6 +63,18 @@ func GetEVMStateStorePath(homePath string, backend string) string {
 		return legacyPath
 	}
 	return filepath.Join(homePath, "data", "state_store", "evm", backend)
+}
+
+// GetStateStoreSnapshotsPath returns the path for online state-store snapshots.
+func GetStateStoreSnapshotsPath(homePath string) string {
+	return filepath.Join(homePath, "data", "state_store", StateStoreSnapshotsDirName)
+}
+
+// GetStateStoreSnapshotsSiblingPath returns the snapshot root beside an SS database directory, which is
+// where that member's snapshots live when its database sits outside the default home layout. Beside
+// rather than inside, because a checkpoint hardlinks into it and the two must share a filesystem.
+func GetStateStoreSnapshotsSiblingPath(dbDir string) string {
+	return filepath.Clean(dbDir) + "-" + StateStoreSnapshotsDirName
 }
 
 // GetReceiptStorePath returns the path for the receipt store.

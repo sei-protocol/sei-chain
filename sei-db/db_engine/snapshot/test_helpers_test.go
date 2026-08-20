@@ -319,6 +319,18 @@ func hashAndRelease(t *testing.T, snap Snapshot) {
 	require.NoError(t, snap.Release())
 }
 
+// hashAwaitFlushAndRelease waits for the flush before releasing. A released
+// version is retired out of the version map as soon as it flushes, and a wait
+// that arrives after that retirement fails, which
+// TestAwaitFlushAfterRetirementFails pins. Releasing first therefore makes the
+// wait a race against the lifecycle goroutine.
+func hashAwaitFlushAndRelease(t *testing.T, snap Snapshot) {
+	t.Helper()
+	require.NoError(t, snap.SetHash(testHash))
+	awaitFlushed(t, snap, time.Second)
+	require.NoError(t, snap.Release())
+}
+
 func commitAndHashRelease(t *testing.T, engine SnapshotEngine) {
 	t.Helper()
 	snap, err := engine.Commit()

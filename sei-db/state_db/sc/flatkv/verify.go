@@ -58,6 +58,9 @@ func verifyLtHashInternal(cs *CommitStore) error {
 		if err != nil {
 			return err
 		}
+		if err := cs.verifyPersistedDBMetadata(ndb.dir, ndb.db, dbRoot); err != nil {
+			return err
+		}
 		global.MixIn(dbRoot)
 	}
 
@@ -123,6 +126,39 @@ func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[st
 		hashes[module] = h
 	}
 	return hashes, stats, nil
+}
+
+// verifyPersistedDBMetadata reads one DB's LocalMeta off disk and checks its
+// version against the store's committed version and its root against scanRoot.
+func (cs *CommitStore) verifyPersistedDBMetadata(
+	dir string,
+	db seidbtypes.KeyValueDB,
+	scanRoot *lthash.LtHash,
+) error {
+	meta, err := loadLocalMeta(db)
+	if err != nil {
+		return fmt.Errorf("VerifyLtHash: read %s persisted metadata: %w", dir, err)
+	}
+	if meta.CommittedVersion != cs.committedVersion {
+		return fmt.Errorf(
+			"VerifyLtHash: %s is persisted at version %d but the store is at %d",
+			dir, meta.CommittedVersion, cs.committedVersion,
+		)
+	}
+	// A DB that has never been written records no root at all, which reads as
+	// the identity — the same value a scan of its empty keyspace produces.
+	persistedRoot := meta.LtHash
+	if persistedRoot == nil {
+		persistedRoot = lthash.New()
+	}
+	if !persistedRoot.Equal(scanRoot) {
+		return fmt.Errorf(
+			"VerifyLtHash: persisted per-DB root mismatch for %s at version %d"+
+				"\n  persisted: %x\n  full-scan: %x",
+			dir, cs.committedVersion, persistedRoot.Checksum(), scanRoot.Checksum(),
+		)
+	}
+	return nil
 }
 
 // verifyDBModuleMetadata checks the maintained per-module hashes and stats for

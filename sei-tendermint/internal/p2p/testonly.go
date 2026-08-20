@@ -293,8 +293,8 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 		Endpoint:                 endpoint,
 		Connection:               conn.DefaultMConnConfig(),
 		IncomingConnectionWindow: utils.Some[time.Duration](0),
-		MaxAcceptRate:            utils.Some(rate.Inf),
-		MaxDialRate:              utils.Some(rate.Limit(30.)),
+		MaxAcceptRate:            rate.Inf,
+		MaxDialRate:              rate.Limit(30.),
 		MaxInbound:               opts.MaxConnected,
 		MaxOutbound:              opts.MaxConnected,
 	}

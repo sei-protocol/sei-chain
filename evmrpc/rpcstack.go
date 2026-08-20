@@ -45,7 +45,7 @@ type HTTPConfig struct {
 	Vhosts             []string
 	DenyList           []string
 	// SeiLegacyAllowlist is BuildSeiLegacyEnabledSet(app.toml enabled_legacy_sei_apis); nil skips the HTTP gate
-	// for gated sei_* and sei2_* methods.
+	// for gated sei_* methods.
 	SeiLegacyAllowlist map[string]struct{}
 	prefix             string // path prefix on which to mount http handler
 	RPCEndpointConfig
@@ -71,6 +71,8 @@ type RPCEndpointConfig struct {
 	maxRequestBodyBytes int64
 	// maxConcurrentRequestBytes bounds total request bytes admitted concurrently; 0 disables.
 	maxConcurrentRequestBytes int64
+	// bodyReadIdleTimeout caps idle time between body chunks; 0 disables.
+	bodyReadIdleTimeout time.Duration
 }
 
 type rpcHandler struct {
@@ -347,21 +349,26 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 		srv.RegisterDenyList(method)
 	}
 	h.HTTPConfig = config
-	base := NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret)
+	// JWT runs before the byte limiter so unauthenticated clients get 401 without
+	// touching the global body budget. The inner stack omits JWT when configured here.
+	base := NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, nil)
 
 	// maxRequestBodyBytes feeds all three body-cap layers (requestSizeLimiter, the gate, and
 	// srv.SetHTTPBodyLimit above) so they agree; change the cap via the config value, not one layer.
-	// requestSizeLimiter is outermost so declared oversize bodies are rejected from Content-Length
-	// before the rate limiter reads the full body (bounded by max_request_body_bytes).
-	handler := newRateLimitMiddleware(
-		wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
-		config.rateLimitGate,
-	)
-	handler = newRequestSizeLimiter(
-		handler,
+	// requestSizeLimiter is outermost (after JWT) so declared oversize bodies are rejected from
+	// Content-Length before the rate limiter reads the full body (bounded by max_request_body_bytes).
+	handler := newRequestSizeLimiter(
+		newRateLimitMiddleware(
+			wrapSeiLegacyHTTP(base, config.SeiLegacyAllowlist, config.maxRequestBodyBytes),
+			config.rateLimitGate,
+		),
 		config.maxRequestBodyBytes,
 		config.maxConcurrentRequestBytes,
+		config.bodyReadIdleTimeout,
 	)
+	if len(config.JwtSecret) != 0 {
+		handler = newJWTHandler(config.JwtSecret, handler)
+	}
 	h.httpHandler.Store(&rpcHandler{
 		Handler: handler,
 		server:  srv,

@@ -128,10 +128,6 @@ async function getCosmosTx(provider, evmTxHash) {
     return await provider.send("sei_getCosmosTx", [evmTxHash])
 }
 
-async function getEvmTx(provider, cosmosTxHash) {
-    return await provider.send("sei_getEvmTx", [cosmosTxHash])
-}
-
 async function fundAddress(addr, amount="1000000000000000000000") {
     return await evmSend(addr, adminKeyName, amount)
 }
@@ -306,10 +302,7 @@ async function waitForProposalStatus(
 async function associateKey(keyName) {
     try {
         const seiAddress = await getKeySeiAddress(keyName)
-        // seid tx evm associate-address has a custom (non-cosmos-JSON) output
-        // format. The try/catch already tolerates failure here, and subsequent
-        // associate calls will succeed once the chain catches up.
-        await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
+        await execute(`seid tx evm native-associate integration-test --from ${keyName} -b sync -y`)
         await waitForCondition(
             async () => (await getEvmAddressAssociation(seiAddress)).associated === true,
             `${seiAddress} to have an associated EVM address`,
@@ -323,7 +316,7 @@ async function associateKey(keyName) {
 // Strict helper for tests that are explicitly asserting association behavior.
 async function associateKeyStrict(keyName) {
     const seiAddress = await getKeySeiAddress(keyName)
-    await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
+    await execute(`seid tx evm native-associate integration-test --from ${keyName} -b sync -y`)
     await waitForCondition(
         async () => (await getEvmAddressAssociation(seiAddress)).associated === true,
         `${seiAddress} to have an associated EVM address`,
@@ -1211,7 +1204,6 @@ module.exports = {
     evmSend,
     waitForReceipt,
     getCosmosTx,
-    getEvmTx,
     isDocker,
     testAPIEnabled,
     incrementPointerVersion,

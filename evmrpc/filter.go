@@ -729,8 +729,8 @@ func (a *FilterAPI) UninstallFilter(
 	}
 }
 
-// Cleanup method for graceful shutdown
-func (a *FilterAPI) Cleanup() {
+// shutdown method for graceful shutdown
+func (a *FilterAPI) shutdown() {
 	a.shutdownCancel()
 
 	// Cancel all remaining filters

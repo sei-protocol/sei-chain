@@ -126,9 +126,6 @@ import (
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	ibc "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core"
-	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
-	ibcclientclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/client"
-	ibcclienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	ibcporttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
 	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
@@ -193,8 +190,6 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 		distrclient.ProposalHandler,
 		upgradeclient.ProposalHandler,
 		upgradeclient.CancelProposalHandler,
-		ibcclientclient.UpdateClientProposalHandler,
-		ibcclientclient.UpgradeProposalHandler,
 		mintclient.UpdateMinterHandler,
 		// this line is used by starport scaffolding # stargate/app/govProposalHandler
 	)
@@ -847,7 +842,6 @@ func New(
 		AddRoute(paramproposal.RouterKey, params.NewParamChangeProposalHandler(app.ParamsKeeper)).
 		AddRoute(distrtypes.RouterKey, distr.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)).
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
-		AddRoute(ibcclienttypes.RouterKey, ibcclient.NewClientProposalHandler(app.IBCKeeper.ClientKeeper)).
 		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
 		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
 		AddRoute(evmtypes.RouterKey, evm.NewProposalHandler(app.EvmKeeper))
@@ -2113,9 +2107,11 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	if execErr != nil {
 		// EIP-7623's floor-data-gas check is the known natural failure here:
 		// other Execute() failure classes are pre-checked upstream. Canonical
-		// fee, nonce, receipt, and ABCI result behavior lives in v2. The
-		// stateDB has not been finalized, so Cleanup discards its
-		// transaction-local cache before the caller re-runs the tx through v2.
+		// fee, nonce, receipt, ABCI result, and PreExecutionFailure receipt
+		// flag behavior lives in v2 msg_server — keep this fallback so giga
+		// never writes those receipts itself. The stateDB has not been
+		// finalized, so Cleanup discards its transaction-local cache before
+		// the caller re-runs the tx through v2.
 		return nil, gigautils.ErrExecutionFailed
 	}
 
@@ -2157,7 +2153,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		Data:      ethTx.Data(),
 		From:      sender,
 	}
-	receipt, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
+	receipt, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError, false)
 	if rerr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,

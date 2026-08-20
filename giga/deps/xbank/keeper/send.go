@@ -7,7 +7,6 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/deps/xbank/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	cosmosbanktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -145,7 +144,9 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 		// such as delegated fee messages.
 		accExists := k.ak.HasAccount(ctx, outAddress)
 		if !accExists {
-			defer telemetry.IncrCounter(1, "new", "account")
+			defer func() {
+				recordNewAccounts(ctx.Context(), 1)
+			}()
 			k.ak.SetAccount(ctx, k.ak.NewAccountWithAddress(ctx, outAddress))
 		}
 	}
@@ -166,7 +167,9 @@ func (k BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAd
 	// such as delegated fee messages.
 	accExists := k.ak.HasAccount(ctx, toAddr)
 	if !accExists {
-		defer telemetry.IncrCounter(1, "new", "account")
+		defer func() {
+			recordNewAccounts(ctx.Context(), 1)
+		}()
 		k.ak.SetAccount(ctx, k.ak.NewAccountWithAddress(ctx, toAddr))
 	}
 

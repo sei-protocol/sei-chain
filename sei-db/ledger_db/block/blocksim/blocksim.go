@@ -87,10 +87,7 @@ func NewBlockSim(
 	fmt.Printf("Initializing random number generator.\n")
 	rng := tmutils.TestRngFromSeed(config.Seed)
 
-	committee, keys, err := buildCommittee(rng, int(config.CommitteeSize)) //nolint:gosec // CommitteeSize is a small config value
-	if err != nil {
-		return nil, err
-	}
+	committee, keys := types.GenCommittee(rng, int(config.CommitteeSize)) //nolint:gosec // CommitteeSize is a small config value
 
 	// Pre-generate a random buffer once; all block/QC data generation slices into it
 	// (zero-copy) so the generator never runs math/rand on the hot path.
@@ -178,29 +175,11 @@ func NewBlockSim(
 // countExistingState scans the ledger to count the persisted blocks and QCs,
 // exercising the replay path at startup.
 func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
-	it, err := db.Iterator(0)
+	suffix, err := db.ReadSuffix()
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to open ledger iterator: %w", err)
+		return 0, 0, fmt.Errorf("failed to read suffix ledger data: %w", err)
 	}
-	defer func() { _ = it.Close() }()
-	for {
-		pos, ok, err := it.Next()
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to advance ledger iterator: %w", err)
-		}
-		if !ok {
-			break
-		}
-		if pos.QC.QC().GlobalRange().First == pos.Number {
-			// The scan entered a new QC's range.
-			qcs++
-		}
-		// Presence comes off the position, so counting never reads a block value.
-		if pos.HasBlock {
-			blocks++
-		}
-	}
-	return blocks, qcs, nil
+	return len(suffix.Blocks), len(suffix.CommitQCs), nil
 }
 
 // recoverResumeState reads the persisted tail so the benchmark resumes appending
@@ -218,8 +197,11 @@ func recoverResumeState(
 	prev := tmutils.None[*types.CommitQC]()
 	highest := tmutils.None[uint64]()
 
-	status := db.Status()
-	if status.NextBlock > 0 {
+	status, ok := db.Status().Get()
+	if !ok {
+		return prev, highest, nil
+	}
+	if status.NextBlock > status.First {
 		highest = tmutils.Some(uint64(status.NextBlock - 1))
 	}
 	if status.NextQC > 0 {
@@ -236,22 +218,6 @@ func recoverResumeState(
 	}
 
 	return prev, highest, nil
-}
-
-// buildCommittee creates a round-robin committee of the given size along with
-// the secret keys that sign its QCs, with global numbering starting at 0.
-func buildCommittee(rng tmutils.Rng, size int) (*types.Committee, []types.SecretKey, error) {
-	keys := make([]types.SecretKey, size)
-	replicas := make([]types.PublicKey, size)
-	for i := range keys {
-		keys[i] = types.GenSecretKey(rng)
-		replicas[i] = keys[i].Public()
-	}
-	committee, err := types.NewRoundRobinElection(replicas)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to build committee: %w", err)
-	}
-	return committee, keys, nil
 }
 
 // backfillBlock builds a throwaway block for crash-recovery backfill using canned random
@@ -506,7 +472,7 @@ func openBlockDB(config *BlocksimConfig) (types.BlockDB, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to build litt block db config: %w", err)
 		}
-		littConfig.Retention = time.Duration(config.LittRetentionSeconds) * time.Second
+		littConfig.RetentionTime = time.Duration(config.LittRetentionSeconds) * time.Second
 		// Record litt_* metrics into blocksim's already-configured global OTel MeterProvider (set up in
 		// main before the DB is opened). MetricsServeEndpoint stays false so LittDB does not stand up its
 		// own registry/server; the metrics surface on blocksim's single /metrics endpoint.

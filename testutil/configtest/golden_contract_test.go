@@ -1,7 +1,15 @@
 package configtest
 
 import (
+	"flag"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
+	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -12,10 +20,10 @@ import (
 // Each suppression says the path it reads is testdata/<section><suffix> and nothing else, and
 // what makes that true is this function refusing everything else. Both halves are checked
 // because both are joined: a validated section name with an unvalidated suffix appended to it is
-// not a validated path, and `goldenFilePath(t, "app", "/../../../../../../etc/crontab")` used to
-// return a path outside the repository. No call site can reach that today — the suffix is a
-// constant at both of them — which is the reason to hold it here rather than in an argument about
-// reachability that the next call site invalidates.
+// not a validated path. `goldenFilePath(t, "app", "/../../../../../../etc/crontab")` composes a path
+// outside the repository unless the suffix is validated with the name. Every call site passes a constant
+// suffix, which is the reason to hold the property here rather than in an argument about reachability
+// that the next call site invalidates.
 func TestGoldenFilePathConfinesBothHalvesOfTheFileName(t *testing.T) {
 	for _, accepted := range []struct{ name, suffix string }{
 		{"app", ".golden"},
@@ -47,5 +55,295 @@ func TestGoldenFilePathConfinesBothHalvesOfTheFileName(t *testing.T) {
 			t.Errorf("%s: the rejection does not say where a golden file may live:\n%s",
 				rejected.what, msg)
 		}
+	}
+}
+
+// TestRecordWriteIsRefusedUnderCI pins the refusal that keeps -update from rewriting a checked-in
+// record where nobody reviews the diff.
+//
+// The three cases are the three records one process-global switch reaches. Two are
+// writers; the third is a comparison requireKeyNameRecord skips, which is why its absence reads as
+// a pass rather than a failure and why it needs its own case. A test covering only the writers
+// would pass while the cross-check went on quietly returning early.
+func TestRecordWriteIsRefusedUnderCI(t *testing.T) {
+	t.Setenv("CI", "true")
+
+	// Not withUpdateFlag: that helper sets allowRecordWriteUnderCI, which is exactly what this test
+	// needs left alone. The flag is set and restored the same way the helper does it.
+	f := flag.Lookup("update")
+	if f == nil {
+		t.Fatal("the -update flag is not registered, so the refusal cannot be exercised")
+	}
+	previous := f.Value.String()
+	if err := f.Value.Set("true"); err != nil {
+		t.Fatalf("set -update: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := f.Value.Set(previous); err != nil {
+			t.Errorf("restore -update to %q: %v", previous, err)
+		}
+	})
+
+	if !recordWriteRefused() {
+		t.Fatal("recordWriteRefused() is false under CI with -update and no in-process override, " +
+			"so the refusal would never fire and a CI run would rewrite every record it touched")
+	}
+
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("testdata", 0o750); err != nil {
+		t.Fatalf("create testdata: %v", err)
+	}
+
+	specs := []KeySpec{{Key: "refusal.enabled", Path: "Enabled", Cast: CastBool}}
+	recordPath := filepath.Join("testdata", "refusal"+keyNameRecordSuffix)
+
+	for _, c := range []struct {
+		what string
+		call func(testing.TB)
+	}{
+		{"CheckDefaults", func(tb testing.TB) {
+			CheckDefaults(tb, "refusal", struct{ Enabled bool }{Enabled: true})
+		}},
+		{"CheckKeyNames", func(tb testing.TB) { CheckKeyNames(tb, "refusal", specs) }},
+		{"requireKeyNameRecord", func(tb testing.TB) {
+			requireKeyNameRecord(tb, "refusal", recordPath, specs, nil)
+		}},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			got := capture(t, c.call)
+			reported := strings.Join(got.failures, "\n")
+
+			if len(got.failures) == 0 {
+				t.Fatalf("%s reported nothing under CI with -update, so the record was rewritten "+
+					"or the check was skipped where nobody reviews the diff", c.what)
+			}
+			if !strings.Contains(reported, "refusing to rewrite") {
+				t.Errorf("%s failed but not with the refusal: %q", c.what, reported)
+			}
+			// The message must name the record file, not just the flag: the reader's next question is
+			// which file was about to be overwritten.
+			//
+			// Asserted on a path token rather than on the section name. The section here is called
+			// "refusal", and refuseRecordWrite interpolates name before path, so a message that had
+			// dropped path entirely would still contain "refusal" — the assertion would have passed
+			// while proving nothing about the file being named. "testdata/" can only come from path.
+			if !strings.Contains(reported, "testdata/") {
+				t.Errorf("%s refused without naming the record file: %q", c.what, reported)
+			}
+		})
+	}
+
+	// Nothing was written. A refusal that failed the test but left a rewritten file behind would be
+	// half a guard, since the file is the thing that matters.
+	//
+	// What this does not cover is a package that writes a golden without routing through
+	// writeGolden. sei-tendermint/internal/p2p/conn declares its own -update flag and writes
+	// directly, so the refusal cannot see it. That is out of scope here rather than covered
+	// elsewhere, and worth knowing before anyone reads this as protecting every record in the tree.
+	entries, err := os.ReadDir("testdata")
+	if err != nil {
+		t.Fatalf("read testdata: %v", err)
+	}
+	if len(entries) != 0 {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("the refusal left files behind: %v", names)
+	}
+}
+
+// TestInProcessOverrideReEnablesTheWrite pins the one escape, and that it is the only one.
+//
+// The refusal has to be defeatable from inside the package, or this package's own contract tests
+// could not observe a writer writing. It must not be defeatable from anywhere else, which is why
+// the override is an unexported variable rather than an environment variable or a second flag: a CI
+// job that could set it would reinstate the hole the refusal closes.
+func TestInProcessOverrideReEnablesTheWrite(t *testing.T) {
+	t.Setenv("CI", "true")
+	withUpdateFlag(t)
+
+	if recordWriteRefused() {
+		t.Fatal("withUpdateFlag did not set the in-process override, so this package's own " +
+			"contract tests cannot observe a write and would fail under CI instead")
+	}
+
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("testdata", 0o750); err != nil {
+		t.Fatalf("create testdata: %v", err)
+	}
+
+	CheckKeyNames(t, "override", []KeySpec{{Key: "override.enabled", Path: "Enabled", Cast: CastBool}})
+
+	if _, err := os.Stat(filepath.Join("testdata", "override"+keyNameRecordSuffix)); err != nil {
+		t.Fatalf("the override did not re-enable the write: %v", err)
+	}
+}
+
+// TestRefusalSurvivesIsolate pins the one coupling that would make the refusal silently inert.
+//
+// recordWriteRefused reads the environment, and Isolate unsets everything outside envAllowlist. So a
+// check that isolated before writing would find CI unset, write the record, and report success —
+// which is the hole the refusal exists to close, reopened by the hermeticity helper rather than by
+// anything a reviewer would look at. CI is on the allowlist for this reason, and this test is what
+// keeps it there: dropping the entry makes this fail rather than making a future writer unguarded.
+func TestRefusalSurvivesIsolate(t *testing.T) {
+	t.Setenv("CI", "true")
+	if !runningUnderCI() {
+		t.Fatal("CI is set but runningUnderCI() is false")
+	}
+
+	Isolate(t)
+
+	if !runningUnderCI() {
+		t.Fatal("Isolate stripped CI, so the record refusal would silently no-op in every test that " +
+			"isolates before writing. Add CI back to envAllowlist in env.go with the reason.")
+	}
+	if !recordWriteRefused() {
+		t.Fatal("the refusal does not fire after Isolate, so an isolated writer would rewrite a " +
+			"checked-in record on CI")
+	}
+}
+
+// TestNoTestInThisPackageIsParallel enforces the invariant allowRecordWriteUnderCI depends on.
+//
+// That override is a mutable package variable, and withUpdateFlag turns it on for the duration of one
+// test. That is only safe while no test in this package runs concurrently with another: a parallel
+// test driving a writer under CI would observe the window in which the refusal is off. Nothing
+// enforced that until now — it was a convention in a comment, which is the shape this suite exists
+// to stop trusting.
+//
+// Parsed rather than grepped. A textual search for "t.Parallel()" matches the string literal in this
+// function's own failure message. A check that counts occurrences in text is satisfied by prose, which
+// is the defect one level up from the one being prevented. The AST sees calls only.
+func TestNoTestInThisPackageIsParallel(t *testing.T) {
+	// Read the directory and parse each file rather than using go/parser.ParseDir: the standard
+	// library deprecates ParseDir for ignoring build tags, and ignoring them is what this wants. A
+	// t.Parallel behind a build tag is still a t.Parallel.
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package directory: %v", err)
+	}
+
+	fset := token.NewFileSet()
+	scanned := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		name := entry.Name()
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		scanned++
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Parallel" {
+				return true
+			}
+			t.Errorf("%s calls %s.Parallel() at %s. allowRecordWriteUnderCI is a mutable package "+
+				"variable that withUpdateFlag turns on for one test at a time, so a concurrent test "+
+				"can observe the window in which the record refusal is off. Either drop the call or "+
+				"replace the override with something a concurrent test cannot see.",
+				name, types.ExprString(sel.X), fset.Position(call.Pos()))
+			return true
+		})
+	}
+
+	// A scan that parsed nothing would pass while checking nothing — the same defect this package
+	// exists to catch, one level up.
+	if scanned == 0 {
+		t.Fatal("parsed no _test.go files, so this check proved nothing about the package")
+	}
+}
+
+// TestNoRecordedKeyIsNamedCI closes the premise the CI allowlist entry rests on.
+//
+// env.go allows CI through Isolate so the record refusal can read it, and the cost of that entry is nil
+// only while no configuration key is named ci. This is what holds that premise. A key whose last path
+// segment is ci is resolvable from the empty-prefix viper, so one appearing would show up as a value
+// arriving from the environment with nothing pointing at why.
+//
+// Read from the key-name records across the tree rather than from a list here, so a key added later is
+// covered without anyone remembering this test.
+func TestNoRecordedKeyIsNamedCI(t *testing.T) {
+	root, err := repoRoot()
+	if err != nil {
+		t.Skipf("cannot locate the repository root, so the records cannot be read: %v", err)
+	}
+
+	var offenders []string
+	records := 0
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err //nolint:wrapcheck // returned to WalkDir, which reports it
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "vendor", ".git", "node_modules":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), keyNameRecordSuffix) {
+			return nil
+		}
+		records++
+		data, readErr := os.ReadFile(path) //nolint:gosec // a record found by walking the repo
+		if readErr != nil {
+			return readErr //nolint:wrapcheck // returned to WalkDir
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			key, unquoteErr := strconv.Unquote(strings.TrimSpace(line))
+			if unquoteErr != nil {
+				continue // a comment, a marker line, or the trailing blank
+			}
+			segments := strings.Split(key, ".")
+			if strings.EqualFold(segments[len(segments)-1], "ci") {
+				offenders = append(offenders, key)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk the tree for key-name records: %v", err)
+	}
+
+	// A walk that read nothing would pass while checking nothing, the same defect one level up.
+	if records == 0 {
+		t.Fatal("found no key-name records, so this check proved nothing about the allowlist premise")
+	}
+
+	if len(offenders) > 0 {
+		sort.Strings(offenders)
+		t.Errorf("these keys end in a segment named ci, which the CI entry in envAllowlist (env.go) "+
+			"assumes cannot exist:\n  %s\n"+
+			"Isolate lets CI through so the record refusal can read it, and the empty-prefix viper can "+
+			"resolve such a key from the environment. Either rename the key or key the refusal on "+
+			"something the config surface cannot name.", strings.Join(offenders, "\n  "))
+	}
+	t.Logf("checked %d key-name record(s)", records)
+}
+
+// repoRoot walks up from the working directory to the directory holding go.mod.
+func repoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", os.ErrNotExist
+		}
+		dir = parent
 	}
 }
