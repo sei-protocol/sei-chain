@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/sei-protocol/sei-chain/config/appopts"
@@ -322,3 +323,135 @@ func TestTheResultIsStillWhatAppNewTakes(t *testing.T) {
 // reflect.DeepEqual rather than a comparison written here, for the same reason: == panics on a slice
 // instead of returning false, so enumerating slice types by hand is wrong as soon as one is missed.
 func sameRead(a, b any) bool { return reflect.DeepEqual(a, b) }
+
+// TestAHyphenatedSiblingDoesNotHideACollision covers the shape a sorted scan misses.
+//
+// A collision was found by walking a sorted key list and stopping at the first key that was not a child.
+// A hyphen sorts before a dot, so a hyphenated sibling sits between a key and its children and ends the
+// walk early. This key space separates words with hyphens, and grpc-web.address already sits between grpc
+// and grpc.enable, so the shape is not hypothetical.
+func TestAHyphenatedSiblingDoesNotHideACollision(t *testing.T) {
+	// Every separator that sorts before a dot ends a sorted walk early; the ones after it do not, which is
+	// why a scan looked correct. The rule is stated by the class rather than by one member.
+	for _, sep := range []string{"-", "!", "+", "$", "_", "0", "/"} {
+		t.Run("sibling separated by "+sep, func(t *testing.T) {
+			registry.Reset()
+			colliding := registry.Resolved{Values: map[string]any{
+				"foo.bar": 1, "foo.bar" + sep + "x": 2, "foo.bar.baz": 3,
+			}}
+			_, err := appopts.Install(bootLike(t, "TESTBOOT", nil), colliding)
+			if err == nil {
+				t.Fatalf("foo.bar and foo.bar.baz were installed with a %q sibling between them. One of "+
+					"the two values is gone and which one depends on iteration order", sep)
+			}
+			for _, want := range []string{"foo.bar", "foo.bar.baz"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the refusal reads %q and does not name %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// TestADeclaredKeyIsRefusedRatherThanShadowingAnUndeclaredOne is the property the package exists for.
+//
+// A source holds one value per path. So a declared key and an undeclared key cannot both occupy one, and
+// installing anyway costs the undeclared value with nothing reported: the shorter path answers with a
+// table instead of what an operator wrote, or the longer one answers with nothing. Either way a reader
+// gets a zero and no error.
+func TestADeclaredKeyIsRefusedRatherThanShadowingAnUndeclaredOne(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		file     map[string]any
+		declared map[string]any
+		read     string
+	}{
+		{
+			"a declared key nests under an undeclared value",
+			map[string]any{"giga_executor": "on"},
+			map[string]any{"giga_executor.enabled": true},
+			"giga_executor",
+		},
+		{
+			"an undeclared key nests under a declared value",
+			map[string]any{"giga_executor.enabled": true},
+			map[string]any{"giga_executor": "on"},
+			"giga_executor.enabled",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry.Reset()
+			target := bootLike(t, "TESTBOOT", tc.file)
+			before := target.Get(tc.read)
+
+			_, err := appopts.Install(target, registry.Resolved{Values: tc.declared})
+			if err == nil {
+				t.Fatalf("the install was accepted and %s now reads %#v where it read %#v. Nothing "+
+					"reports the loss and a reader gets a zero", tc.read, target.Get(tc.read), before)
+			}
+			if got := target.Get(tc.read); !sameRead(got, before) {
+				t.Errorf("%s reads %#v after a refused install, want the %#v it read before",
+					tc.read, got, before)
+			}
+			if !strings.Contains(err.Error(), tc.read) {
+				t.Errorf("the refusal reads %q and does not name the key that would be lost, %q",
+					err, tc.read)
+			}
+		})
+	}
+}
+
+// TestAValueDeliveredOnlyByTheEnvironmentIsStillSeen covers the layer a key list cannot reach.
+//
+// A source answers for an environment value without listing it, so a check written against what the
+// source enumerates misses an undeclared value delivered that way. Asking the source itself does not.
+func TestAValueDeliveredOnlyByTheEnvironmentIsStillSeen(t *testing.T) {
+	registry.Reset()
+	t.Setenv("TESTBOOT_GIGA_EXECUTOR", "on")
+	target := bootLike(t, "TESTBOOT", nil)
+	if !target.IsSet("giga_executor") {
+		t.Skip("this source does not answer for the environment value, so there is nothing to shadow")
+	}
+
+	_, err := appopts.Install(target, registry.Resolved{Values: map[string]any{"giga_executor.enabled": true}})
+	if err == nil {
+		t.Fatal("a declared key was installed over a value the environment supplied. The source answers " +
+			"for it and does not list it, so nothing downstream reports the loss")
+	}
+}
+
+// TestATableAtAnAncestorIsNotACollision keeps the refusal from rejecting every nested section.
+//
+// A declared key nests under the table its own section makes. That is the ordinary shape of every section
+// in the tree, so a check that treated an ancestor holding a table as a conflict would refuse all of them.
+func TestATableAtAnAncestorIsNotACollision(t *testing.T) {
+	registry.Reset()
+	target := bootLike(t, "TESTBOOT", map[string]any{"state-commit.buffer": 100})
+
+	declared := registry.Resolved{Values: map[string]any{"state-commit.flatkv.enable": true}}
+	if _, err := appopts.Install(target, declared); err != nil {
+		t.Fatalf("a declared key under a section that already holds other keys was refused: %v", err)
+	}
+	if got := target.Get("state-commit.buffer"); !sameRead(got, 100) {
+		t.Errorf("state-commit.buffer reads %#v, want the 100 it read before", got)
+	}
+}
+
+// TestAnUnsetBoundFlagAtAnAncestorIsNotACollision keeps a default from reading as an operator's value.
+//
+// A bound flag nobody set still answers with its default, so a nil check on the read would treat every
+// such flag as a value to protect and refuse a boot over one.
+func TestAnUnsetBoundFlagAtAnAncestorIsNotACollision(t *testing.T) {
+	registry.Reset()
+	target := bootLike(t, "TESTBOOT", nil)
+	flags := pflag.NewFlagSet("probe", pflag.ContinueOnError)
+	flags.String("state-commit", "a default nobody set", "")
+	if err := target.BindPFlag("state-commit", flags.Lookup("state-commit")); err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+
+	declared := registry.Resolved{Values: map[string]any{"state-commit.buffer": 100}}
+	if _, err := appopts.Install(target, declared); err != nil {
+		t.Fatalf("a declared key was refused over a flag default nobody set: %v", err)
+	}
+}
