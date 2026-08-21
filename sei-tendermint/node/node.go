@@ -2,7 +2,9 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
@@ -13,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -44,6 +47,31 @@ import (
 	_ "github.com/lib/pq" // provide the psql db driver
 )
 
+func validateFreezeHeight(freezeHeight uint64, initialHeight, stateHeight, blockStoreHeight, appHeight int64) error {
+	if freezeHeight == 0 {
+		return nil
+	}
+	if freezeHeight > math.MaxInt64 {
+		return fmt.Errorf("freeze height %d exceeds the maximum block height", freezeHeight)
+	}
+	if initialHeight > int64(freezeHeight) { //nolint:gosec // freezeHeight is bounded above.
+		return fmt.Errorf("freeze height %d is below initial height %d", freezeHeight, initialHeight)
+	}
+	for _, current := range []struct {
+		source string
+		height int64
+	}{
+		{source: "application", height: appHeight},
+		{source: "block store", height: blockStoreHeight},
+		{source: "state store", height: stateHeight},
+	} {
+		if current.height >= int64(freezeHeight) { //nolint:gosec // freezeHeight is bounded above.
+			return fmt.Errorf("%s height %d has already reached freeze height %d", current.source, current.height, freezeHeight)
+		}
+	}
+	return nil
+}
+
 // nodeImpl is the highest level interface to a full Tendermint node.
 // It includes all configuration information and running services.
 type nodeImpl struct {
@@ -55,6 +83,7 @@ type nodeImpl struct {
 	privValidator   types.PrivValidator // local node's validator key
 	shouldHandshake bool                // set during makeNode
 	consensusPolicy types.ConsensusPolicy
+	freezeHeight    uint64
 
 	// network
 	router           *p2p.Router
@@ -90,7 +119,9 @@ func makeNode(
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 	consensusPolicy types.ConsensusPolicy,
+	nodeOptions ...Option,
 ) (_ local.NodeService, err error) {
+	opts := resolveOptions(nodeOptions...)
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	closers := []closer{convertCancelCloser(cancel)}
@@ -119,6 +150,18 @@ func makeNode(
 	state, err := LoadStateFromDBOrGenesisDocProvider(stateStore, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("LoadStateFromDBOrGenesisDocProvider(): %w", err)
+	}
+	if opts.freezeHeight > 0 {
+		info, err := proxyApp.Info(ctx, &abci.RequestInfo{})
+		if err != nil {
+			return nil, err
+		}
+		if err := validateFreezeHeight(opts.freezeHeight, genDoc.InitialHeight, state.LastBlockHeight, blockStore.Height(), info.LastBlockHeight); err != nil {
+			return nil, err
+		}
+		if cfg.AutobahnConfigFile != "" {
+			return nil, errors.New("freeze height is not supported with Autobahn")
+		}
 	}
 
 	eventBus := eventbus.NewDefault()
@@ -168,6 +211,7 @@ func makeNode(
 		genesisDoc:      genDoc,
 		privValidator:   privValidator,
 		consensusPolicy: consensusPolicy,
+		freezeHeight:    opts.freezeHeight,
 
 		nodeKey: nodeKey,
 
@@ -260,6 +304,10 @@ func makeNode(
 
 		// Determine whether we should attempt state sync.
 		stateSync := cfg.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)
+		if stateSync && opts.freezeHeight > 0 {
+			logger.Info("Freeze mode disables state sync; falling back to block sync", "freeze_height", opts.freezeHeight)
+			stateSync = false
+		}
 		if stateSync && state.LastBlockHeight > 0 {
 			logger.Info("Found local state with non-zero height, skipping state sync")
 			stateSync = false
@@ -289,6 +337,7 @@ func makeNode(
 			tracerProviderOptions,
 			nodeMetrics.consensus,
 		)
+		csState.SetFreezeHeight(opts.freezeHeight)
 		node.rpcEnv.ConsensusState = utils.Some[rpccore.ConsensusState](csState)
 
 		csReactor, err := consensus.NewReactor(
@@ -320,6 +369,7 @@ func makeNode(
 				EventBus:              eventBus,
 				RestartEvent:          restartEvent,
 				SelfRemediationConfig: cfg.SelfRemediation,
+				FreezeHeight:          opts.freezeHeight,
 			}),
 		)
 		if err != nil {
@@ -415,6 +465,9 @@ func makeNode(
 
 // OnStart starts the Node. It implements service.Service.
 func (n *nodeImpl) OnStart(ctx context.Context) error {
+	if n.freezeHeight > 0 {
+		logger.Info("Freeze mode enabled", "freeze_height", n.freezeHeight)
+	}
 	// EventBus and IndexerService must be started before the handshake because
 	// we might need to index the txs of the replayed block as this might not have happened
 	// when the node stopped last time (i.e. the node stopped or crashed after it saved the block
