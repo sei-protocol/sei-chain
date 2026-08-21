@@ -49,9 +49,9 @@ func TestPersistedInnerConv(t *testing.T) {
 
 func TestInnerProtoConv_Index(t *testing.T) {
 	none := innerProtoConv.Encode(&persistedInner{})
-	require.Nil(t, none.CommitQcIndex)
+	require.Nil(t, none.Index)
 
 	withTip := innerProtoConv.Encode(&persistedInner{Index: 5})
-	require.NotNil(t, withTip.CommitQcIndex)
-	require.Equal(t, uint64(5), *withTip.CommitQcIndex)
+	require.NotNil(t, withTip.Index)
+	require.Equal(t, uint64(5), *withTip.Index)
 }

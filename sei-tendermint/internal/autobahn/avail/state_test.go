@@ -931,20 +931,35 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 	}
 }
 
-func pruneToLastRoad2(t *testing.T, registry *epoch.Registry, keys []types.SecretKey, state *State) *types.CommitQC {
+// anchorWalk is the Anchor sequence data publishes as it certifies the last
+// road of epochs 0 through 2. Build it before the registry drops those epochs.
+func anchorWalk(t *testing.T, registry *epoch.Registry, keys []types.SecretKey) []data.Anchor {
 	t.Helper()
-	ep2 := registry.MustEpoch(2)
-	qc := types.BuildCommitQC(ep2, keys, utils.Some(tipLink(ep2, keys[0], epoch.LastRoad(2)-1)), nil)
-	require.Equal(t, epoch.LastRoad(2), qc.Index())
-	for inner, ctrl := range state.inner.Lock() {
-		inner.prune(data.Anchor{
+	var anchors []data.Anchor
+	for m := types.EpochIndex(0); m <= 2; m++ {
+		ep := registry.MustEpoch(m)
+		last := epoch.LastRoad(m)
+		qc := types.BuildCommitQC(ep, keys, utils.Some(tipLink(ep, keys[0], last-1)), nil)
+		require.Equal(t, last, qc.Index())
+		anchors = append(anchors, data.Anchor{
 			CommitQC: qc,
 			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
-			Epoch:    ep2,
+			Epoch:    ep,
 		})
-		ctrl.Updated()
 	}
-	return qc
+	return anchors
+}
+
+// pruneToAnchors replays anchors through inner.prune the way runEvict does, and
+// returns the last CommitQC. Epoch advance may be starved for any or all of it.
+func pruneToAnchors(state *State, anchors []data.Anchor) *types.CommitQC {
+	for _, a := range anchors {
+		for inner, ctrl := range state.inner.Lock() {
+			inner.prune(a)
+			ctrl.Updated()
+		}
+	}
+	return anchors[len(anchors)-1].CommitQC
 }
 
 func requireSpec(t *testing.T, state *State, qc *types.CommitQC, idx types.EpochIndex) {
@@ -955,7 +970,7 @@ func requireSpec(t *testing.T, state *State, qc *types.CommitQC, idx types.Epoch
 }
 
 func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
-	t.Run("ErrPruned jumps to durable tip next epoch", func(t *testing.T) {
+	t.Run("tip already past applied jumps to the tip's epoch", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -968,9 +983,8 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 
 			registry.AdvanceIfNeeded(epoch.LastRoad(1))
 			registry.AdvanceIfNeeded(epoch.LastRoad(2))
-			qc := pruneToLastRoad2(t, registry, keys, state)
+			qc := pruneToAnchors(state, anchorWalk(t, registry, keys))
 			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
-			registry.PruneBefore(2)
 
 			var runErr error
 			go func() { runErr = state.runEpochAdvance(ctx) }()
@@ -982,11 +996,10 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			cancel()
 			synctest.Wait()
 			require.ErrorIs(t, runErr, context.Canceled)
-			require.False(t, errors.Is(runErr, types.ErrPruned))
 		})
 	})
 
-	t.Run("ErrPruned waits until prune moves a stale tip", func(t *testing.T) {
+	t.Run("unsealed tip parks until the Anchor moves it", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -998,6 +1011,7 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 
 			registry.AdvanceIfNeeded(epoch.LastRoad(1))
 			registry.AdvanceIfNeeded(epoch.LastRoad(2))
+			anchors := anchorWalk(t, registry, keys)
 			ep0 := registry.MustEpoch(0)
 			qc0 := types.BuildCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil)
 			require.Equal(t, types.RoadIndex(0), qc0.Index())
@@ -1005,7 +1019,6 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 				inner.persistedCommitQC.Store(utils.Some(qc0))
 				ctrl.Updated()
 			}
-			registry.PruneBefore(2)
 
 			var runErr error
 			go func() { runErr = state.runEpochAdvance(ctx) }()
@@ -1013,7 +1026,7 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			require.Nil(t, runErr)
 			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
 
-			qc := pruneToLastRoad2(t, registry, keys, state)
+			qc := pruneToAnchors(state, anchors)
 			synctest.Wait()
 			require.Nil(t, runErr)
 			require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
@@ -1025,7 +1038,9 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 		})
 	})
 
-	t.Run("prune unblocks epoch owner during seal wait", func(t *testing.T) {
+	// The registry follows data's Anchor, so it can drop applied+1 before avail
+	// observes the Anchor that moves its own tip past that epoch.
+	t.Run("pruned target retries once the tip names another epoch", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -1037,12 +1052,18 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			state, err := NewState(keys[0], ds, utils.None[string]())
 			require.NoError(t, err)
 
+			anchors := anchorWalk(t, registry, keys)
+			pruneToAnchors(state, anchors[:1])
+			registry.PruneBefore(2)
+
 			var runErr error
 			go func() { runErr = state.runEpochAdvance(ctx) }()
 			synctest.Wait()
-			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
+			require.Nil(t, runErr)
+			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex(),
+				"epoch 1 is pruned: park instead of dying")
 
-			qc := pruneToLastRoad2(t, registry, keys, state)
+			qc := pruneToAnchors(state, anchors[1:])
 			synctest.Wait()
 			require.Nil(t, runErr)
 			require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
@@ -1056,8 +1077,8 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 }
 
 // A durable-tip catch-up refreshes ConsensusSpec at the persist write site,
-// even while epoch advance is parked on WaitForEpoch.
-func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceWaitsForRegistry(t *testing.T) {
+// even while epoch advance is parked.
+func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceParked(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
@@ -1083,7 +1104,7 @@ func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceWaitsForRegistry(t
 		var advanceErr error
 		go func() { advanceErr = f.state.runEpochAdvance(ctx) }()
 		synctest.Wait()
-		require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex(), "parked on WaitForEpoch(M+1)")
+		require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex(), "parked: the tip does not seal epoch M")
 		got, ok := spec.Load().CommitQC.Get()
 		require.True(t, ok)
 		require.Equal(t, qcA.Index(), got.Index())
@@ -1092,7 +1113,7 @@ func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceWaitsForRegistry(t
 		got, ok = spec.Load().CommitQC.Get()
 		require.True(t, ok)
 		require.Equal(t, qcB.Index(), got.Index())
-		require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex(), "still waiting on registry")
+		require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex(), "still parked: the tip still does not seal epoch M")
 
 		cancel()
 		synctest.Wait()

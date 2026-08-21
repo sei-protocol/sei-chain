@@ -742,72 +742,45 @@ func (s *State) runEvict(ctx context.Context) error {
 	})
 }
 
-// runEpochAdvance advances applied one epoch when the registry, seal, and prune
-// leashes are met. If next is pruned or the durable tip's following road is
-// already past next, it jumps to that following epoch instead.
+// runEpochAdvance is the sole writer of the applied epoch after construction.
 func (s *State) runEpochAdvance(ctx context.Context) error {
 	for {
-		next := s.Epoch().Load().EpochIndex() + 1
-		ep, err := s.data.Registry().WaitForEpoch(ctx, next)
-		pruned := errors.Is(err, types.ErrPruned)
-		if err != nil && !pruned {
-			return err
-		}
-		var floor types.EpochIndex
-		if pruned {
-			floor = s.data.Registry().Live().First
-		}
-
-		var follow types.EpochIndex
-		jump := false
+		var next types.EpochIndex
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				idx := inner.followingEpochIndex()
-				if pruned {
-					return idx >= floor && idx > inner.applied().EpochIndex()
-				}
-				return idx > next || inner.canAdvanceEpoch()
+				next = inner.advanceTarget()
+				return next > inner.applied().EpochIndex()+1 || inner.canAdvanceEpoch()
 			}); err != nil {
 				return err
 			}
-			idx := inner.followingEpochIndex()
-			if pruned || idx > next {
-				follow = idx
-				jump = true
-				break
+		}
+		ep, err := s.data.Registry().WaitForEpoch(ctx, next)
+		if err != nil {
+			if !errors.Is(err, types.ErrPruned) {
+				return err
 			}
-			got := inner.applied().EpochIndex()
-			if got+1 != next {
-				return fmt.Errorf("runEpochAdvance: applied %d, want %d before advance", got, next-1)
+			// Data never re-registers a pruned epoch, so wait until the tip
+			// names a different one.
+			for inner, ctrl := range s.inner.Lock() {
+				if err := ctrl.WaitUntil(ctx, func() bool {
+					return inner.advanceTarget() != next
+				}); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		for inner, ctrl := range s.inner.Lock() {
+			// The tip may have moved while WaitForEpoch was parked. Installing
+			// next now would pair it with a tip whose next road is in a later
+			// epoch, so recompute instead.
+			if inner.advanceTarget() != next {
+				break
 			}
 			inner.advanceEpoch(ep)
 			ctrl.Updated()
 		}
-		if jump {
-			ep, err = s.data.Registry().WaitForEpoch(ctx, follow)
-			if errors.Is(err, types.ErrPruned) {
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			for inner, ctrl := range s.inner.Lock() {
-				if inner.followingEpochIndex() != follow {
-					break
-				}
-				inner.advanceEpoch(ep)
-				ctrl.Updated()
-			}
-		}
 	}
-}
-
-func (i *inner) followingEpochIndex() types.EpochIndex {
-	tip, ok := i.persistedCommitQC.Load().Get()
-	if !ok {
-		return 0
-	}
-	return epoch.IndexForRoad(tip.Index() + 1)
 }
 
 // Run runs the background tasks of the state.
@@ -897,7 +870,7 @@ func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber)
 // markCommitQCsPersisted publishes the latest persisted CommitQC,
 // gating consensus from advancing until the QC is durable.
 // ConsensusSpec is refreshed here so tip catch-up stays visible even while
-// runEpochAdvance is parked on WaitForEpoch.
+// runEpochAdvance is parked.
 func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 	for inner, ctrl := range s.inner.Lock() {
 		inner.persistedCommitQC.Store(utils.Some(qc))
