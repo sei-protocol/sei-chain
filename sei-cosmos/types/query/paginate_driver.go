@@ -56,6 +56,17 @@ func normalizePageRequest(pageRequest *PageRequest) (pageRequestNorm, error) {
 	}, nil
 }
 
+func preparePageRequest(pageRequest *PageRequest, scanLimit scanLimitParams) (pageRequestNorm, error) {
+	req, err := normalizePageRequest(pageRequest)
+	if err != nil {
+		return pageRequestNorm{}, err
+	}
+	if err := scanLimit.checkRequest(req); err != nil {
+		return pageRequestNorm{}, err
+	}
+	return req, nil
+}
+
 func paginationEnd(offset, limit uint64) uint64 {
 	if limit > math.MaxUint64-offset {
 		return math.MaxUint64

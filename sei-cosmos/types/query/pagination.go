@@ -55,12 +55,11 @@ func Paginate(
 	pageRequest *PageRequest,
 	onResult func(key []byte, value []byte) error,
 ) (*PageResponse, error) {
-	req, err := normalizePageRequest(pageRequest)
+	scanLimit := scanLimitParamsFromContext(ctx)
+	req, err := preparePageRequest(pageRequest, scanLimit)
 	if err != nil {
 		return nil, err
 	}
-
-	scanLimit := scanLimitParamsFromContext(ctx)
 
 	if req.useKey {
 		return runKeyPath(prefixStore, req, scanLimit, func(key, value []byte) (bool, error) {

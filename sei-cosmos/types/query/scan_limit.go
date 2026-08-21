@@ -10,6 +10,9 @@ import (
 type scanLimitParams struct {
 	enforce bool
 	limit   uint64
+	// boundRequest rejects PageRequest limit and offset above `limit` before
+	// any store iteration.
+	boundRequest bool
 }
 
 func v66ScanLimitParams() scanLimitParams {
@@ -18,12 +21,30 @@ func v66ScanLimitParams() scanLimitParams {
 
 func scanLimitParamsFromContext(ctx sdk.Context) scanLimitParams {
 	if !ctx.IsABCIQuery() {
-		return scanLimitParams{enforce: false, limit: 0}
+		return scanLimitParams{}
 	}
 	if !ctx.EnforceQueryScanLimit() {
-		return scanLimitParams{enforce: false, limit: 0}
+		return scanLimitParams{}
 	}
-	return scanLimitParams{enforce: true, limit: ctx.QueryScanLimit()}
+	return scanLimitParams{enforce: true, limit: ctx.QueryScanLimit(), boundRequest: true}
+}
+
+// checkRequest rejects limit and offset that cannot be served within `limit`.
+func (p scanLimitParams) checkRequest(req pageRequestNorm) error {
+	if !p.boundRequest || p.limit == 0 {
+		return nil
+	}
+	if req.limit > p.limit {
+		return status.Errorf(codes.InvalidArgument,
+			"limit %d exceeds the maximum of %d; use key-based pagination instead",
+			req.limit, p.limit)
+	}
+	if req.offset > p.limit {
+		return status.Errorf(codes.InvalidArgument,
+			"offset %d exceeds the maximum of %d; use key-based pagination instead",
+			req.offset, p.limit)
+	}
+	return nil
 }
 
 func (p scanLimitParams) checkKeyPath(totalIter uint64) error {

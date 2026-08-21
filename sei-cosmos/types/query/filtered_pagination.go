@@ -57,7 +57,7 @@ func filteredPaginate(
 	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
 	scanLimit scanLimitParams,
 ) (*PageResponse, error) {
-	req, err := normalizePageRequest(pageRequest)
+	req, err := preparePageRequest(pageRequest, scanLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func genericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	constructor func() T,
 	scanLimit scanLimitParams,
 ) ([]F, *PageResponse, error) {
-	req, err := normalizePageRequest(pageRequest)
+	req, err := preparePageRequest(pageRequest, scanLimit)
 	if err != nil {
 		return nil, nil, err
 	}
