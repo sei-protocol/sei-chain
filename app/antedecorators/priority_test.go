@@ -152,7 +152,7 @@ func TestPriorityWithExactAnteChain_MsgAssociate(t *testing.T) {
 
 	decorators := []sdk.AnteDecorator{
 		authante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(testApp.ParamsKeeper)),
-		authante.NewDeductFeeDecorator(testApp.AccountKeeper, testApp.BankKeeper, testApp.FeeGrantKeeper, testApp.ParamsKeeper, nil),
+		authante.NewDeductFeeDecorator(testApp.AccountKeeper, testApp.BankKeeper, testApp.ParamsKeeper, nil),
 		antedecorators.NewPriorityDecorator(),
 	}
 	handler := sdk.ChainAnteDecorators(decorators...)

@@ -263,7 +263,7 @@ var (
 	kvStoreKeyNames = []string{
 		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrantModuleName,
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
@@ -911,19 +911,19 @@ func New(
 		EvmKeeper:     &app.EvmKeeper,
 	}
 	app.CheckTxKeepers = legacyabci.CheckTxKeepers{
-		AccountKeeper:  app.AccountKeeper,
-		BankKeeper:     app.BankKeeper,
-		IBCKeeper:      app.IBCKeeper,
-		EvmKeeper:      &app.EvmKeeper,
-		ParamsKeeper:   app.ParamsKeeper,
-		UpgradeKeeper:  &app.UpgradeKeeper,
+		AccountKeeper: app.AccountKeeper,
+		BankKeeper:    app.BankKeeper,
+		IBCKeeper:     app.IBCKeeper,
+		EvmKeeper:     &app.EvmKeeper,
+		ParamsKeeper:  app.ParamsKeeper,
+		UpgradeKeeper: &app.UpgradeKeeper,
 	}
 	app.DeliverTxKeepers = legacyabci.DeliverTxKeepers{
-		AccountKeeper:  app.AccountKeeper,
-		BankKeeper:     app.BankKeeper,
-		EvmKeeper:      &app.EvmKeeper,
-		ParamsKeeper:   app.ParamsKeeper,
-		UpgradeKeeper:  &app.UpgradeKeeper,
+		AccountKeeper: app.AccountKeeper,
+		BankKeeper:    app.BankKeeper,
+		EvmKeeper:     &app.EvmKeeper,
+		ParamsKeeper:  app.ParamsKeeper,
+		UpgradeKeeper: &app.UpgradeKeeper,
 	}
 
 	app.mm.SetOrderMidBlockers(
@@ -1204,15 +1204,6 @@ func (app *App) SetStoreUpgradeHandlers() {
 	if (upgradeInfo.Name == "v6.3.0") && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
 			Deleted: []string{accesscontrolStoreKeyName},
-		}
-
-		// configure store loader that checks if version == upgradeHeight and applies store upgrades
-		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
-	}
-
-	if upgradeInfo.Name == "v6.7" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
-		storeUpgrades := storetypes.StoreUpgrades{
-			Deleted: []string{feegrantModuleName},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades

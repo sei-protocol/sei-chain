@@ -32,7 +32,6 @@ func TestCheckAndChargeFeesRejectsFeeFreeAssociate(t *testing.T) {
 		txBuilder.GetTx(),
 		testApp.AccountKeeper,
 		testApp.BankKeeper,
-		&testApp.FeeGrantKeeper,
 		testApp.ParamsKeeper,
 	)
 	require.ErrorIs(t, err, sdkerrors.ErrInsufficientFee)
@@ -60,7 +59,6 @@ func TestCheckAndChargeFeesUsesFeePriorityForAssociate(t *testing.T) {
 		txBuilder.GetTx(),
 		testApp.AccountKeeper,
 		testApp.BankKeeper,
-		&testApp.FeeGrantKeeper,
 		testApp.ParamsKeeper,
 	)
 	require.NoError(t, err)

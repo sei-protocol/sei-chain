@@ -98,7 +98,10 @@ import (
 	_ "github.com/sei-protocol/sei-chain/sei-cosmos/client/docs/statik"
 )
 
-const appName = "WasmApp"
+const (
+	appName              = "WasmApp"
+	feegrantStoreKeyName = "feegrant"
+)
 
 // We pull these out so we can set them with LDFLAGS in the Makefile
 var (
@@ -272,7 +275,7 @@ func NewWasmApp(
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey,
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey,
-		authzkeeper.StoreKey, wasm.StoreKey,
+		feegrantStoreKeyName, authzkeeper.StoreKey, wasm.StoreKey,
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey)

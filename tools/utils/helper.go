@@ -25,10 +25,12 @@ import (
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
+const feegrantStoreKeyName = "feegrant"
+
 var ModuleKeys = sdk.NewKVStoreKeys(
 	authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-	govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey,
+	govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrantStoreKeyName,
 	evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
 	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
 )
@@ -42,6 +44,7 @@ var Modules = []string{
 	"epoch",
 	"evidence",
 	"evm",
+	feegrantStoreKeyName,
 	"gov",
 	"ibc",
 	"mint",
