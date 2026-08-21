@@ -3,7 +3,12 @@ package types
 import (
 	"fmt"
 	"strings"
+
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
+
+// ErrAssociateDeprecated is returned by the MsgAssociate handler.
+var ErrAssociateDeprecated = sdkerrors.Register(ModuleName, 2, "MsgAssociate is deprecated")
 
 type AssociationMissingErr struct {
 	Address string

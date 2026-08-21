@@ -33,8 +33,6 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 const (
@@ -70,7 +68,6 @@ func CosmosCheckTxAnte(
 	txConfig client.TxConfig,
 	tx sdk.Tx,
 	pk paramskeeper.Keeper,
-	oraclek oraclekeeper.Keeper,
 	ek *evmkeeper.Keeper,
 	accountKeeper authkeeper.AccountKeeper,
 	bankKeeper bankkeeper.Keeper,
@@ -82,8 +79,7 @@ func CosmosCheckTxAnte(
 	// charge the incoming caller/block meter.
 	authParams := accountKeeper.GetParams(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()))
 
-	oracleVote, err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams(), authParams)
-	if err != nil {
+	if err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams(), authParams); err != nil {
 		return SetGasMeter(ctx, 0, pk), err
 	}
 
@@ -92,14 +88,7 @@ func CosmosCheckTxAnte(
 			returnErr = HandleOutofGas(r, tx.(GasTx).GetGas(), ctx.GasMeter().GasConsumed())
 		}
 	}()
-	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
-	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oraclek, ek)
-	if err != nil {
-		return ctx, err
-	}
-	if !isGasless {
-		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
-	}
+	ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 
 	if err := CheckMemoLength(tx, authParams); err != nil {
 		return ctx, err
@@ -120,13 +109,13 @@ func CosmosCheckTxAnte(
 		return ctx, err
 	}
 
-	priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk, isGasless)
+	priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk)
 	if err != nil {
 		return ctx, err
 	}
-	ctx = DecoratePriority(ctx, priority, oracleVote)
+	ctx = DecoratePriority(ctx, priority)
 
-	return ctx, CheckMessage(ctx, tx, ibcKeeper, oraclek)
+	return ctx, CheckMessage(ctx, tx, ibcKeeper)
 }
 
 func HandleOutofGas(recoveredErr any, gasLimit uint64, gasConsumed uint64) error {
@@ -142,80 +131,61 @@ func HandleOutofGas(recoveredErr any, gasLimit uint64, gasConsumed uint64) error
 	}
 }
 
-func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.ConsensusParams, authParams authtypes.Params) (
-	isOracleVote bool, err error,
-) {
+func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.ConsensusParams, authParams authtypes.Params) error {
 	gasTx, ok := tx.(GasTx)
 	if !ok {
-		return false, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be GasTx")
+		return sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be GasTx")
 	}
 	if cp := consensusParams; cp != nil && cp.Block != nil {
 		// If there exists a maximum block gas limit, we must ensure that the tx
 		// does not exceed it.
 		if cp.Block.MaxGas > 0 && gasTx.GetGas() > uint64(cp.Block.MaxGas) { //nolint:gosec
-			return false, sdkerrors.Wrapf(sdkerrors.ErrOutOfGas, "tx gas wanted %d exceeds block max gas limit %d", gasTx.GetGas(), cp.Block.MaxGas)
+			return sdkerrors.Wrapf(sdkerrors.ErrOutOfGas, "tx gas wanted %d exceeds block max gas limit %d", gasTx.GetGas(), cp.Block.MaxGas)
 		}
 	}
 	_, ok = tx.(sdk.FeeTx)
 	if !ok {
-		return false, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
+		return sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
 	}
 	if hasExtOptsTx, ok := tx.(HasExtensionOptionsTx); ok {
 		if len(hasExtOptsTx.GetExtensionOptions()) != 0 {
-			return false, sdkerrors.ErrUnknownExtensionOptions
+			return sdkerrors.ErrUnknownExtensionOptions
 		}
-	}
-	oracleVote := false
-	otherMsg := false
-	for _, msg := range tx.GetMsgs() {
-		switch msg.(type) {
-		case *oracletypes.MsgAggregateExchangeRateVote:
-			oracleVote = true
-		case *oracletypes.MsgDelegateFeedConsent:
-			oracleVote = true
-
-		default:
-			otherMsg = true
-		}
-	}
-
-	if oracleVote && otherMsg {
-		return oracleVote, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "oracle votes cannot be in the same tx as other messages")
 	}
 	if err := tx.ValidateBasic(); err != nil {
-		return oracleVote, err
+		return err
 	}
 	if len(tx.GetMsgs()) == 0 {
-		return oracleVote, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "must contain at least one message")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "must contain at least one message")
 	}
 	for _, msg := range tx.GetMsgs() {
 		err := msg.ValidateBasic()
 		if err != nil {
-			return oracleVote, err
+			return err
 		}
 	}
 	timeoutTx, ok := tx.(TxWithTimeoutHeight)
 	if !ok {
-		return oracleVote, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "expected tx to implement TxWithTimeoutHeight")
+		return sdkerrors.Wrap(sdkerrors.ErrTxDecode, "expected tx to implement TxWithTimeoutHeight")
 	}
 
 	timeoutHeight := timeoutTx.GetTimeoutHeight()
 	if timeoutHeight > 0 && uint64(height) > timeoutHeight { //nolint:gosec
-		return oracleVote, sdkerrors.Wrapf(
+		return sdkerrors.Wrapf(
 			sdkerrors.ErrTxTimeoutHeight, "block height: %d, timeout height: %d", height, timeoutHeight,
 		)
 	}
 	_, ok = tx.(sdk.TxWithMemo)
 	if !ok {
-		return oracleVote, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "invalid transaction type")
+		return sdkerrors.Wrap(sdkerrors.ErrTxDecode, "invalid transaction type")
 	}
 	sigTx, ok := tx.(authsigning.SigVerifiableTx)
 	if !ok {
-		return oracleVote, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "invalid tx type")
+		return sdkerrors.Wrap(sdkerrors.ErrTxDecode, "invalid tx type")
 	}
 	pubkeys, err := sigTx.GetPubKeys()
 	if err != nil {
-		return oracleVote, err
+		return err
 	}
 	// Validate all provided public keys before deriving addresses from them below.
 	// Keep the recursive work budget local to each pubkey: this bounds a single
@@ -228,7 +198,7 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 		}
 		remainingSigCount := authParams.TxSigLimit
 		if err := validatePubKey(pk, &remainingSigCount, 0); err != nil {
-			return oracleVote, err
+			return err
 		}
 	}
 
@@ -239,7 +209,7 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 			continue
 		}
 		if !bytes.Equal(pk.Address(), signers[i]) {
-			return oracleVote, sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey,
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey,
 				"pubKey does not match signer address %s with signer index: %d", signers[i], i)
 		}
 	}
@@ -250,16 +220,16 @@ func CosmosStatelessChecks(tx sdk.Tx, height int64, consensusParams *tmproto.Con
 			// find nested evm messages
 			containsEvm, err := CheckAuthzContainsEvm(m, 0)
 			if err != nil {
-				return oracleVote, err
+				return err
 			}
 			if containsEvm {
-				return oracleVote, errors.New("permission denied, authz tx contains evm message")
+				return errors.New("permission denied, authz tx contains evm message")
 			}
 		default:
 			continue
 		}
 	}
-	return oracleVote, nil
+	return nil
 }
 
 func validatePubKey(pubKey cryptotypes.PubKey, remainingSigCount *uint64, depth int) (err error) {
@@ -343,10 +313,7 @@ func SetGasMeter(ctx sdk.Context, gasLimit uint64, paramsKeeper paramskeeper.Kee
 	return ctx.WithGasMeter(storetypes.NewMultiplierGasMeter(gasLimit, cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator))
 }
 
-func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper, isGasless bool) (priority int64, err error) {
-	if isGasless {
-		return 0, nil
-	}
+func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper) (priority int64, err error) {
 	feeTx := tx.(sdk.FeeTx)
 	feeCoins := feeTx.GetFee()
 	feeParams := paramsKeeper.GetFeesParams(ctx)
@@ -426,10 +393,8 @@ func chargeFees(ctx sdk.Context, tx sdk.Tx, feeCoins sdk.Coins, accountKeeper au
 	return deductFeesFrom, nil
 }
 
-func DecoratePriority(ctx sdk.Context, priority int64, oracleVote bool) sdk.Context {
-	if oracleVote {
-		return ctx.WithPriority(antedecorators.OraclePriority)
-	} else if priority > antedecorators.MaxPriority {
+func DecoratePriority(ctx sdk.Context, priority int64) sdk.Context {
+	if priority > antedecorators.MaxPriority {
 		return ctx.WithPriority(antedecorators.MaxPriority)
 	}
 	return ctx.WithPriority(priority)
@@ -619,17 +584,11 @@ func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountK
 			logger.Error("failed to migrate EVM address balance", "address", evmAddr, "err", err)
 			return nil, err
 		}
-		if evmtypes.IsTxMsgAssociate(tx) {
-			// check if there is non-zero balance
-			if !evmKeeper.BankKeeper().GetBalance(ctx, signer, sdk.MustGetBaseDenom()).IsPositive() && !evmKeeper.BankKeeper().GetWeiBalance(ctx, signer).IsPositive() {
-				return nil, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
-			}
-		}
 	}
 	return events, nil
 }
 
-func CheckMessage(ctx sdk.Context, tx sdk.Tx, ibcKeeper *ibckeeper.Keeper, oracleKeeper oraclekeeper.Keeper) error {
+func CheckMessage(ctx sdk.Context, tx sdk.Tx, ibcKeeper *ibckeeper.Keeper) error {
 	// keep track of total packet messages and number of redundancies across `RecvPacket`, `AcknowledgePacket`, and `TimeoutPacket/OnClose`
 	redundancies := 0
 	packetMsgs := 0
@@ -681,28 +640,6 @@ func CheckMessage(ctx sdk.Context, tx sdk.Tx, ibcKeeper *ibckeeper.Keeper, oracl
 				return err
 			}
 
-		case *oracletypes.MsgAggregateExchangeRateVote:
-			if ctx.IsReCheckTx() {
-				continue
-			}
-			feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
-			if err != nil {
-				return err
-			}
-
-			valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
-			if err != nil {
-				return err
-			}
-
-			err = oracleKeeper.ValidateFeeder(ctx, feederAddr, valAddr)
-			if err != nil {
-				return err
-			}
-
-			if err := oracleKeeper.CheckAndSetSpamPreventionCounter(ctx, valAddr); err != nil {
-				return err
-			}
 		}
 	}
 

@@ -313,16 +313,6 @@ async function associateKey(keyName) {
     }
 }
 
-// Strict helper for tests that are explicitly asserting association behavior.
-async function associateKeyStrict(keyName) {
-    const seiAddress = await getKeySeiAddress(keyName)
-    await execute(`seid tx evm native-associate integration-test --from ${keyName} -b sync -y`)
-    await waitForCondition(
-        async () => (await getEvmAddressAssociation(seiAddress)).associated === true,
-        `${seiAddress} to have an associated EVM address`,
-    )
-}
-
 function getEventAttribute(response, type, attribute) {
     if(!response.logs || response.logs.length === 0) {
         throw new Error("logs not returned")
@@ -1198,7 +1188,6 @@ module.exports = {
     importKey,
     getNativeAccount,
     associateKey,
-    associateKeyStrict,
     delay,
     bankSend,
     evmSend,
