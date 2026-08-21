@@ -29,18 +29,15 @@ func init() {
 
 // lightInvarianceDefaults is what this section resolves to for a node that has written nothing.
 //
-// The same value for every mode, and on. The check compares the bank module's recorded total supply
-// against what the store holds, which is a correctness property of every node rather than of one kind,
-// so a mode-varying default would stop some nodes noticing that they had diverged.
+// The same value for every mode, and on. What the check compares is a property of every node rather than
+// of one kind, so a mode that resolved it off would stop those nodes noticing they had diverged.
 func lightInvarianceDefaults(registry.Mode) any { return DefaultLightInvarianceConfig }
 
 // genesisSchema declares the keys the genesis import reader resolves.
 //
 // A schema and not a transport: nothing decodes into it. The type the reader fills is
 // genesistypes.GenesisImportConfig, which carries no mapstructure tags at all, so no key can be derived
-// from it. Declaring the spelling here is what lets the registry name the keys the reader looks up, and
-// the test holds these tags against the reader's own constants because nothing keeps them together by
-// construction.
+// from it. Declaring the spelling here is what lets the registry name the keys the reader looks up.
 type genesisSchema struct {
 	StreamImport bool   `mapstructure:"stream-import"`
 	ImportFile   string `mapstructure:"import-file"`

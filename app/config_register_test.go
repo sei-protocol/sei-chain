@@ -47,6 +47,10 @@ func requireDeclares(t *testing.T, section string, want []string) {
 
 // requireResolves holds a section's resolved values against what its reader's own defaults hold.
 //
+// Resolving renders every registered section, so a section elsewhere whose defaults cannot state a value
+// for a key it declares fails here too. The registry names that section in the error, so the message
+// points at the real one rather than at whichever test asked.
+//
 // Resolving is what to compare against rather than the registered struct, because the resolved map carries
 // the key a tag produced and the value that tag's field held. A comparison of struct to struct agrees with
 // itself while two tags sit on the wrong fields, since each field still holds the value the test names for
@@ -190,16 +194,20 @@ func TestStateCommitResolvesTheModuleDeclaredValues(t *testing.T) {
 // Every other declared value is used as it stands. This one is a name the reader turns into a mode, so a
 // default nothing parses would put a value in a generated file that stops the node it was generated for.
 func TestStateCommitWriteModeDefaultIsOneTheReaderAccepts(t *testing.T) {
-	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	declared, ok := resolved.Values[FlagSCWriteMode].(string)
-	if !ok {
-		t.Fatalf("%s resolves to %T, and the reader parses text", FlagSCWriteMode, resolved.Values[FlagSCWriteMode])
-	}
-	if _, err := config.ParseSCWriteMode(declared); err != nil {
-		t.Errorf("%s resolves to %q, which this binary's own reader refuses: %v", FlagSCWriteMode, declared, err)
+	for _, mode := range registry.Modes() {
+		resolved, err := registry.Resolve(mode, registry.Sources{})
+		if err != nil {
+			t.Fatalf("mode %q: %v", mode, err)
+		}
+		declared, ok := resolved.Values[FlagSCWriteMode].(string)
+		if !ok {
+			t.Fatalf("mode %q: %s resolves to %T, and the reader parses text",
+				mode, FlagSCWriteMode, resolved.Values[FlagSCWriteMode])
+		}
+		if _, err := config.ParseSCWriteMode(declared); err != nil {
+			t.Errorf("mode %q: %s resolves to %q, which this binary's own reader refuses: %v",
+				mode, FlagSCWriteMode, declared, err)
+		}
 	}
 }
 
