@@ -90,6 +90,22 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	return genericFilteredPaginate(cdc, prefixStore, pageRequest, onResult, constructor, scanLimitParamsFromContext(ctx))
 }
 
+// GenericFilteredPaginateForContext applies GenericFilteredPaginate on the ABCI
+// query path and GenericFilteredPaginateV66 during consensus execution.
+func GenericFilteredPaginateForContext[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
+	ctx sdk.Context,
+	cdc codec.BinaryCodec,
+	prefixStore types.KVStore,
+	pageRequest *PageRequest,
+	onResult func(key []byte, value T) (F, error),
+	constructor func() T,
+) ([]F, *PageResponse, error) {
+	if ctx.IsABCIQuery() {
+		return GenericFilteredPaginate(ctx, cdc, prefixStore, pageRequest, onResult, constructor)
+	}
+	return GenericFilteredPaginateV66(cdc, prefixStore, pageRequest, onResult, constructor)
+}
+
 // GenericFilteredPaginateV66 preserves release/v6.6 behavior for EVM
 // precompiles. Node-local LCD/gRPC queries must use GenericFilteredPaginate.
 func GenericFilteredPaginateV66[T codec.ProtoMarshaler, F codec.ProtoMarshaler](

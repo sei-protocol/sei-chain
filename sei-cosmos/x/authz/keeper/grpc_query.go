@@ -70,13 +70,9 @@ func (k Keeper) Grants(c context.Context, req *authz.QueryGrantsRequest) (*authz
 	}
 	constructor := func() *authz.Grant { return &authz.Grant{} }
 
-	var authorizations []*authz.Grant
-	var pageRes *query.PageResponse
-	if ctx.IsABCIQuery() {
-		authorizations, pageRes, err = query.GenericFilteredPaginate(ctx, k.cdc, grantsStore, req.Pagination, onResult, constructor)
-	} else {
-		authorizations, pageRes, err = query.GenericFilteredPaginateV66(k.cdc, grantsStore, req.Pagination, onResult, constructor)
-	}
+	authorizations, pageRes, err := query.GenericFilteredPaginateForContext(
+		ctx, k.cdc, grantsStore, req.Pagination, onResult, constructor,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -123,13 +119,9 @@ func (k Keeper) GranterGrants(c context.Context, req *authz.QueryGranterGrantsRe
 	}
 	constructor := func() *authz.Grant { return &authz.Grant{} }
 
-	var grants []*authz.GrantAuthorization
-	var pageRes *query.PageResponse
-	if ctx.IsABCIQuery() {
-		grants, pageRes, err = query.GenericFilteredPaginate(ctx, k.cdc, authzStore, req.Pagination, onResult, constructor)
-	} else {
-		grants, pageRes, err = query.GenericFilteredPaginateV66(k.cdc, authzStore, req.Pagination, onResult, constructor)
-	}
+	grants, pageRes, err := query.GenericFilteredPaginateForContext(
+		ctx, k.cdc, authzStore, req.Pagination, onResult, constructor,
+	)
 
 	if err != nil {
 		return nil, err
@@ -180,13 +172,9 @@ func (k Keeper) GranteeGrants(c context.Context, req *authz.QueryGranteeGrantsRe
 	}
 	constructor := func() *authz.Grant { return &authz.Grant{} }
 
-	var authorizations []*authz.GrantAuthorization
-	var pageRes *query.PageResponse
-	if ctx.IsABCIQuery() {
-		authorizations, pageRes, err = query.GenericFilteredPaginate(ctx, k.cdc, store, req.Pagination, onResult, constructor)
-	} else {
-		authorizations, pageRes, err = query.GenericFilteredPaginateV66(k.cdc, store, req.Pagination, onResult, constructor)
-	}
+	authorizations, pageRes, err := query.GenericFilteredPaginateForContext(
+		ctx, k.cdc, store, req.Pagination, onResult, constructor,
+	)
 	if err != nil {
 		return nil, err
 	}
