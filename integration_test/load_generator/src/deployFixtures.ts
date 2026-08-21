@@ -1,17 +1,16 @@
 /**
  * Deploy the allowlisted contracts used by Pacific semantic replay.
  *
- *   TARGET_NETWORK=arctic-1 EXECUTE=1 npm run replay:deploy
- *   TARGET_NETWORK=atlantic-2 EXECUTE=1 npm run replay:deploy
+ *   TARGET_NETWORK=<target> EXECUTE=1 npm run replay:deploy
  */
 import fs from 'fs/promises';
 import path from 'path';
 import { ethers } from 'ethers';
-import { loadDeployConfig, loadTargetConfig, verifyTargetRpc } from './config';
+import { loadDeployConfig, loadTargetConfig, TargetConfig, verifyTargetRpc } from './config';
 import { minBigInt } from './numeric';
 import {
     REPLAY_DEPLOYMENT_SCHEMA_VERSION,
-    REPLAY_V4_CONTRACT_KEYS,
+    REPLAY_CONTRACT_KEYS,
     ReplayDeploymentManifest,
 } from './replay/replayTypes';
 import { writeJsonAtomic } from './io';
@@ -28,7 +27,7 @@ interface Artifact {
 const deployConfig = loadDeployConfig();
 const { execute: EXECUTE, forceDeploy: FORCE_DEPLOY } = deployConfig;
 
-async function main(): Promise<void> {
+export async function deployFixturesMain(): Promise<void> {
     const target = loadTargetConfig();
     console.log(`Replay fixtures: ${target.network} (${target.evmChainId})`);
     console.log(`Manifest: ${target.deploymentPath}`);
@@ -42,6 +41,17 @@ async function main(): Promise<void> {
 
     const provider = new ethers.JsonRpcProvider(target.evmRpcUrl);
     provider.pollingInterval = 200;
+    try {
+        await deployFixtures(target, provider);
+    } finally {
+        provider.destroy();
+    }
+}
+
+async function deployFixtures(
+    target: TargetConfig,
+    provider: ethers.JsonRpcProvider,
+): Promise<void> {
     await verifyTargetRpc(target, provider);
     const artifacts = await loadArtifacts();
     validateSushiArtifacts(artifacts);
@@ -94,6 +104,7 @@ async function main(): Promise<void> {
         [adminAddress],
     );
     const nft = await deploy('ReplayNFT', admin, artifacts.nft, takeNonce(), [adminAddress]);
+    const erc1155 = await deploy('ReplayERC1155', admin, artifacts.erc1155, takeNonce());
     const profileHarness = await deploy(
         'ProfileLoadHarness',
         admin,
@@ -461,6 +472,7 @@ async function main(): Promise<void> {
         tokenB: await tokenB.getAddress(),
         pair,
         nft: await nft.getAddress(),
+        erc1155: await erc1155.getAddress(),
         profileHarness: await profileHarness.getAddress(),
         callGraphHarness: await callGraphHarness.getAddress(),
         callGraphNode,
@@ -518,6 +530,7 @@ async function loadArtifacts(): Promise<Record<string, Artifact>> {
         weth: 'artifacts/contracts/mocks/WETH9.sol/WETH9.json',
         token: 'artifacts/contracts/TestERC20.sol/TestERC20.json',
         nft: 'artifacts/contracts/TestNFT.sol/TestNFT.json',
+        erc1155: 'artifacts/contracts/TestERC1155.sol/TestERC1155.json',
         harness: 'artifacts/contracts/ProfileLoadHarness.sol/ProfileLoadHarness.json',
         callGraph: 'artifacts/contracts/CallGraphHarness.sol/CallGraphHarness.json',
         syntheticCreation:
@@ -753,7 +766,7 @@ async function verifyExisting(
         );
     }
     validateSushiV2Provenance(manifest);
-    for (const name of REPLAY_V4_CONTRACT_KEYS) {
+    for (const name of REPLAY_CONTRACT_KEYS) {
         if (!manifest.contracts[name]) throw new Error(`Existing deployment is missing ${name}`);
     }
     if (manifest.network !== network || BigInt(manifest.chainId) !== chainId) {
@@ -773,7 +786,9 @@ async function verifyExisting(
     await verifyWiring(manifest.contracts as Record<string, string>, artifacts, provider);
 }
 
-main().catch(error => {
-    console.error('Fatal:', error instanceof Error ? error.message : error);
-    process.exit(1);
-});
+if (require.main === module) {
+    deployFixturesMain().catch(error => {
+        console.error('Fatal:', error instanceof Error ? error.message : error);
+        process.exitCode = 1;
+    });
+}

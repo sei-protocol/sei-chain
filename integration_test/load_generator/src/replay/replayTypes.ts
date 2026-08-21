@@ -2,8 +2,8 @@ export const REPLAY_SCHEMA_VERSION = 1;
 export const PACIFIC_EVM_CHAIN_ID = 1329;
 export const PACIFIC_COSMOS_CHAIN_ID = 'pacific-1';
 export const EVM_MESSAGE_TYPE = '/seiprotocol.seichain.evm.MsgEVMTransaction';
-export const REPLAY_DEPLOYMENT_SCHEMA_VERSION = 4 as const;
-export const REPLAY_V4_CONTRACT_KEYS = [
+export const REPLAY_DEPLOYMENT_SCHEMA_VERSION = 5 as const;
+export const REPLAY_CONTRACT_KEYS = [
     'weth',
     'factory',
     'router',
@@ -11,6 +11,7 @@ export const REPLAY_V4_CONTRACT_KEYS = [
     'tokenB',
     'pair',
     'nft',
+    'erc1155',
     'profileHarness',
     'callGraphHarness',
     'callGraphNode',
@@ -37,7 +38,7 @@ export const REPLAY_V4_CONTRACT_KEYS = [
     'strategyVaultProxy',
 ] as const;
 
-export type ReplayTargetNetwork = 'arctic-1' | 'atlantic-2';
+export type ReplayTargetNetwork = string;
 export type ReplayTransactionKind = 'transfer' | 'contractCall' | 'contractCreation';
 
 export interface ReplayCallFrame {
@@ -255,6 +256,7 @@ export interface ReplayDeploymentManifest {
         tokenB?: string;
         pair?: string;
         nft?: string;
+        erc1155?: string;
         profileHarness?: string;
         callGraphHarness?: string;
         callGraphNode?: string;

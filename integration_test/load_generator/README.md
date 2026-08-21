@@ -1,6 +1,6 @@
-# Pacific replay load generator
+# Sei multi-mode load generator
 
-Standalone TypeScript package for capturing canonical Pacific-1 blocks and replaying equivalent, newly signed traffic on Arctic-1 or Atlantic-2. It never rebroadcasts Pacific signatures or assumes Pacific addresses and state exist on the target.
+Standalone TypeScript package for generated DeFi, token, and chain-native load, plus capture and replay of canonical Pacific-1 traffic on configurable Sei networks. It never rebroadcasts Pacific signatures or assumes Pacific addresses and state exist on the target.
 
 ## Safety
 
@@ -10,35 +10,170 @@ Standalone TypeScript package for capturing canonical Pacific-1 blocks and repla
 - Wrapped EVM transactions are correlated by reconstructing their signed hash from `MsgEVMTransaction`; Cosmos and EVM indexes are never assumed to align.
 - Privileged module traffic becomes labelled bank-shaped load by default (`PRIVILEGED_REPLAY_MODE=skip` omits it).
 - Successful unknown contract creations use `SyntheticCreationHarness` for bounded safe CREATE/CREATE2 load. Unknown traced calls use the allowlisted `CallGraphHarness`; untraced calls use `ProfileLoadHarness`. None executes source-selected target addresses or untrusted Pacific initcode.
-- Mnemonics come only from `TARGET_MNEMONIC` or `SEI_ADMIN_MNEMONIC` and are never persisted.
+- Mnemonics come only from `TARGET_MNEMONIC` or `SEI_ADMIN_MNEMONIC` and are not included in generated manifests. `load:prepare-account` writes only to the explicitly selected mode-`0600` mnemonic file.
 
-## Setup
+## Local quick start
 
 ```bash
 cd integration_test/load_generator
 npm install
 npm run compile
-```
-
-All configuration is parsed in `src/config.ts`. Copy the tracked template to the ignored `.env` file and set target endpoints and the mnemonic there:
-
-```bash
 cp .env.example .env
-$EDITOR .env
 ```
 
-Every command loads `.env` automatically. To use a different file, set `DOTENV_CONFIG_PATH`, for example `DOTENV_CONFIG_PATH=.env.arctic npm run replay:deploy`. `.env` is gitignored; never put a real mnemonic in `.env.example` or another tracked file. Explicit shell environment variables override values loaded from the file.
-
-At minimum, confirm these values before an executed run:
+Edit `.env` and set `TARGET_NETWORK`, both target RPC URLs, and a funded
+`TARGET_MNEMONIC`. The mnemonic's account 0 pays for deployments and worker funding;
+workers are derived from accounts 1 through `USER_COUNT`.
 
 ```bash
 TARGET_NETWORK=arctic-1
-TARGET_MNEMONIC="<funded admin mnemonic>"
-EXECUTE=1
-RUN_DURATION_HOURS=2
-BUFFER_START_MODE=latest
-LOAD_DEPLOYMENT=runtime/replay-deployments/arctic-1-v4.json
+TARGET_EVM_CHAIN_ID=713715
+TARGET_COSMOS_CHAIN_ID=arctic-1
+TARGET_EVM_RPC=https://...
+TARGET_COSMOS_RPC=https://...
+TARGET_MNEMONIC="<funded mnemonic>"
+LOAD_DEPLOYMENT=runtime/replay-deployments/arctic-1-v5.json
 ```
+
+Then deploy the shared fixtures and provision the workers. Both commands are idempotent:
+
+```bash
+EXECUTE=1 npm run load:setup
+EXECUTE=1 TXS_PER_SECOND=20 USERS_PER_TPS=2 FUND_SEI=1000 npm run load:provision
+EXECUTE=1 RUN_ID=defi-local npm run load -- run --type defi --tps 20 --duration 600
+```
+
+`--duration` is seconds; omit it to run until SIGINT/SIGTERM. `--tps` is the offered
+rate for this process. If the target cannot keep up, excess operations are marked
+`skipped` instead of building an unbounded queue.
+
+Every command loads `.env` automatically. Use another file with
+`DOTENV_CONFIG_PATH=.env.arctic`. Explicit shell variables override `.env`. Never put a
+real mnemonic in `.env.example` or another tracked file.
+
+Every target is explicit and supports any path-safe network name:
+
+```bash
+TARGET_NETWORK=devnet-7
+TARGET_EVM_CHAIN_ID=7007
+TARGET_COSMOS_CHAIN_ID=devnet-7
+TARGET_EVM_RPC=https://evm.devnet.example
+TARGET_COSMOS_RPC=https://rpc.devnet.example
+```
+
+Chain IDs remain mandatory so the generator can refuse a misconfigured RPC before
+submitting transactions. Network-specific values belong in the deployment repository
+or an untracked local env file, not application code.
+
+## Load modes
+
+The unified entry point is `npm run load -- run --type <mode> --tps <rate>`.
+`LOAD_TYPE`, `TXS_PER_SECOND`, and `RUN_DURATION_SECONDS` are equivalent environment
+variables. Generated workloads reject rates above the per-process
+`MAX_SYNTHETIC_TPS` safety ceiling (default `100`); raise both values explicitly for
+intentional higher-rate tests. Worker count defaults to
+`ceil(TXS_PER_SECOND * USERS_PER_TPS)` with `USERS_PER_TPS=2`; `WORKER_COUNT` is an
+explicit override. Aggregate TPS across processes is the sum of their configured rates.
+
+Concurrent processes can share one pre-provisioned user pool without sharing accounts.
+Each process reserves `USERS_PER_PARTITION` users beginning at
+`PARTITION_INDEX * USERS_PER_PARTITION`, then activates the first `WORKER_COUNT` users in
+that range; `WORKER_INDEX_OFFSET` overrides the calculated offset. Keeping the reserved
+range fixed prevents rate changes from moving accounts between processes. Provision the
+full pool separately, for example:
+
+```bash
+EXECUTE=1 USER_COUNT=2000 FUND_SEI=1000 npm run load:provision
+```
+
+For a 2,000-user pool and `USERS_PER_PARTITION=200`, partition indexes 0–9 receive stable,
+non-overlapping ranges. `WORKER_COUNT` may vary from 1 to 200 without changing ownership.
+Scaling beyond the prepared pool or activating more than the reserved range fails before
+load starts.
+
+- `defi`: bidirectional swaps, farming, lending/borrowing, liquid staking, and vault operations against the shared fixture state.
+- `tokenops`: ERC20, ERC1155, and ERC721 mint/transfer traffic, including repeatable
+  cross-worker ERC721 round trips. Set `CW1155_CONTRACT` only for an existing CW1155
+  contract whose worker token IDs are already funded.
+- `nativetransfers`: native EVM transfers, Cosmos bank sends, and EVM bank-precompile
+  sends between workers.
+- `simulate`: existing Pacific capture/replay. `SIMULATE_MODE=buffered` is the default; use `corpus` for an already captured finite corpus.
+
+Examples:
+
+```bash
+EXECUTE=1 RUN_ID=defi-20 npm run load -- run --type defi --tps 20
+EXECUTE=1 RUN_ID=tokens-50 npm run load -- run --type tokenops --tps 50
+EXECUTE=1 RUN_ID=native-10 LOAD_MIX=cosmos_bank_send:1 \
+  npm run load -- run --type nativetransfers --tps 10 --duration 3600
+```
+
+Generated runs require a unique `RUN_ID` when `EXECUTE=1`. `LOAD_MIX` enables only the listed
+operations and sets their relative weights, for example
+`LOAD_MIX=swap_a_to_b:40,swap_b_to_a:40,lend_supply:20`.
+
+### Funding long runs
+
+`FUND_SEI` is the target balance for each worker, not the total funding budget.
+Provisioning tops up existing users and accepts large exact decimal values without
+JavaScript number rounding:
+
+```bash
+EXECUTE=1 TXS_PER_SECOND=20 USERS_PER_TPS=2 FUND_SEI=1000000 npm run load:provision
+```
+
+This example derives 40 workers. Account 0 must hold at least
+`workerCount * FUND_SEI` plus deployment, association, and funding fees. Re-run
+`load:provision` with the same TPS and worker settings to top workers up before another
+run. Size the target from measured cost:
+
+```text
+SEI per worker ~= duration_seconds * tps * average_fee_SEI / worker_count
+```
+
+Add headroom for uneven operation weights and fee spikes. Synthetic audit files rotate
+at 100 MiB and retain five old files by default; tune `LOAD_AUDIT_MAX_BYTES` and
+`LOAD_AUDIT_RETAIN_FILES` for longer runs.
+
+## Docker
+
+Build one image for fixture deployment, pool provisioning, and runners:
+
+```bash
+docker build -t sei-load-generator:local .
+docker run --rm --env-file .env -v "$PWD/runtime:/runtime" \
+  -e EXECUTE=1 \
+  -e LOAD_DEPLOYMENT=/runtime/deployment.json \
+  sei-load-generator:local setup
+docker run --rm --env-file .env -v "$PWD/runtime:/runtime" \
+  -e EXECUTE=1 -e LOAD_USERS=/runtime/users.json \
+  sei-load-generator:local provision
+docker run --rm --env-file .env -p 9465:9465 \
+  -e EXECUTE=1 -e RUN_ID=defi-docker \
+  -e LOAD_DEPLOYMENT=/runtime/deployment.json -e LOAD_USERS=/runtime/users.json \
+  -v "$PWD/runtime:/runtime" \
+  sei-load-generator:local run --type defi --tps 10
+```
+
+For isolated runner stacks, prepare account 0 from a separate treasury before using
+that runner mnemonic for fixture deployment and user provisioning:
+
+```bash
+TARGET_MNEMONIC="$TREASURY_MNEMONIC" \
+RUNNER_MNEMONIC_PATH=runtime/runner.mnemonic \
+RUNNER_ACCOUNT_FUND_SEI=2000001000 \
+EXECUTE=1 npm run load:prepare-account
+```
+
+The command creates the mnemonic file with mode `0600`, tops the account up to the
+requested balance, and verifies its EVM association. It has no Kubernetes or secret
+store dependency.
+
+Kubernetes manifests, SOPS Secrets, fixture and user-pool ConfigMaps, replica counts,
+cluster RPC endpoints, resource limits, and PodMonitor configuration are owned by the
+`sei-protocol/platform` repository. Platform maps StatefulSet ordinals to the generic
+partition variables above. This package intentionally contains no Helm chart or direct
+cluster orchestration.
 
 ## Single-command run
 
@@ -48,7 +183,7 @@ After configuring `.env`, the recommended one-command continuous run is:
 npm run replay:start:buffered
 ```
 
-This command compiles contracts, verifies or deploys schema-v4 fixtures, idempotently associates and funds users, captures the latest safe Pacific window, starts the replay follower, continuously appends new blocks, emits metrics/audits, and cleans consumed segment files. It runs for `RUN_DURATION_HOURS` from `.env` and mutates the target only when `EXECUTE=1`.
+This command compiles contracts, verifies or deploys schema-v5 fixtures, idempotently associates and funds users, captures the latest safe Pacific window, starts the replay follower, continuously appends new blocks, emits metrics/audits, and cleans consumed segment files. It runs for `RUN_DURATION_HOURS` from `.env` and mutates the target only when `EXECUTE=1`.
 
 For a finite capture followed by one bounded replay instead:
 
@@ -56,7 +191,7 @@ For a finite capture followed by one bounded replay instead:
 npm run replay:start
 ```
 
-A valid schema-v4 deployment is reused after its chain ID, bytecode hashes, SushiSwap provenance, creation harness, and protocol wiring are checked. Only `FORCE_DEPLOY=1` replaces it. Existing users are only topped up to `FUND_SEI`. Buffered mode starts from a fresh latest window by default; use `BUFFER_START_MODE=resume` only when intentionally continuing a live, non-pruned corpus.
+A valid schema-v5 deployment is reused after its chain ID, bytecode hashes, SushiSwap provenance, creation harness, and protocol wiring are checked. Only `FORCE_DEPLOY=1` replaces it. Existing users are only topped up to `FUND_SEI`. Buffered mode starts from a fresh latest window by default; use `BUFFER_START_MODE=resume` only when intentionally continuing a live, non-pruned corpus.
 
 ## Capture and validate
 
@@ -89,7 +224,7 @@ The package deploys canonical production SushiSwap V2 factory/router bytecode, W
 TARGET_NETWORK=arctic-1 EXECUTE=1 npm run replay:deploy
 ```
 
-Existing schema-v4 manifests are verified and reused. Set `FORCE_DEPLOY=1` to replace one. Defaults are `runtime/replay-deployments/<network>-v4.json`; older manifests are intentionally not reused. Canonical source, artifact checksums, compiler settings, and deployment provenance are recorded in `vendor/sushiswap-v2/PROVENANCE.json`.
+Existing schema-v5 manifests are verified and reused. Set `FORCE_DEPLOY=1` to replace one. Defaults are `runtime/replay-deployments/<network>-v5.json`; older manifests are intentionally not reused. Canonical source, artifact checksums, compiler settings, and deployment provenance are recorded in `vendor/sushiswap-v2/PROVENANCE.json`.
 
 The vendored SushiSwap Solidity source and executable artifacts are GPL-3.0-covered third-party material. See `THIRD_PARTY_NOTICES.md` and the retained `contracts/uniswapv2/LICENSE`; the surrounding deterministic fixture implementations remain separate.
 
@@ -159,7 +294,7 @@ The production-shaped fixtures reproduce corresponding protocol operations and n
 
 ## Buffered continuous mode
 
-If schema-v4 fixtures and funded users already exist, start replay without deployment or provisioning:
+If schema-v5 fixtures and funded users already exist, start replay without deployment or provisioning:
 
 ```bash
 TARGET_NETWORK=arctic-1 RUN_DURATION_HOURS=2 EXECUTE=1 npm run replay:buffered
@@ -191,7 +326,13 @@ Executed replay exposes Prometheus metrics on `127.0.0.1:9465/metrics` and `/hea
 GRAFANA_ADMIN_PASSWORD='<choose-a-password>' npm run dashboard:up
 ```
 
-Grafana is at `http://localhost:3000/d/pacific-replay`; Prometheus is at `http://localhost:9090`. Both ports bind to localhost. Prometheus scrapes the host runner at `host.docker.internal:9465`, so keep `METRICS_HOST=0.0.0.0` and `METRICS_PORT=9465` when using the bundled stack. The dashboard shows scrape/process health, throughput, successful and failed inclusion, latency, pending work, adapter/fidelity mix, source-vs-target bytes and gas, calldata-size fidelity, trace availability and operation pressure, skips, and source cursors. The Grafana user defaults to `admin`; `GRAFANA_ADMIN_PASSWORD` is required. Stop the stack with `npm run dashboard:down`.
+The local replay dashboard is at `http://localhost:3000/d/pacific-replay`; Prometheus is
+at `http://localhost:9090`. Both ports bind to localhost. Prometheus scrapes the host
+runner at `host.docker.internal:9465`, so keep `METRICS_HOST=0.0.0.0` and
+`METRICS_PORT=9465` when using the bundled stack. The Grafana user is `admin`;
+`GRAFANA_ADMIN_PASSWORD` is required. Production generated-load dashboards and aggregate
+reports are owned by `sei-protocol/platform`. Stop the local stack with
+`npm run dashboard:down`.
 
 Each executed run writes:
 
@@ -200,6 +341,20 @@ Each executed run writes:
 - `replay-report-<target>-<run>.json`: aggregate adapter, fidelity, byte, inclusion, error, and skip metrics.
 
 Override paths with `BUCKET_AUDIT_PATH`, `UNBUCKETED_AUDIT_PATH`, and `REPLAY_REPORT`.
+
+Each executed `defi`, `tokenops`, or `nativetransfers` run writes into
+`runtime/load-runs/<RUN_ID>/`, or `LOAD_RUNTIME_DIR` when set:
+
+- `run.json`: the configuration the process started with, including its worker partition.
+- `transactions.jsonl`: one line per transaction with operation, lane, outcome, hash, and error.
+- `summary.json`: the aggregate report, also printed to stdout when the run ends.
+
+The summary covers one process. It reports offered, submitted, and included counts, the
+success rate over transactions that reached the chain, achieved against target TPS, and
+p50/p90/p95/p99 inclusion latency interpolated from the metric histogram, so its resolution is
+bounded by the histogram bucket edges. `stopReason` distinguishes a run that finished from one
+cut short by a signal or an error. To aggregate across a multi-pod deployment, use the
+Prometheus report in `sei-protocol/platform`.
 
 ## Verification
 
