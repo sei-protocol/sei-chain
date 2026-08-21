@@ -12,7 +12,7 @@ import (
 func genPersistedInner(rng utils.Rng) *persistedInner {
 	p := &persistedInner{}
 	if rng.Intn(2) == 1 {
-		p.CommitQCIndex = utils.Some(types.RoadIndex(rng.Uint64()))
+		p.Index = types.RoadIndex(rng.Uint64())
 	}
 	if rng.Intn(2) == 1 {
 		p.PrepareQC = utils.Some(types.GenPrepareQC(rng))
@@ -47,13 +47,11 @@ func TestPersistedInnerConv(t *testing.T) {
 	}
 }
 
-func TestInnerProtoConv_WalTipIndex(t *testing.T) {
+func TestInnerProtoConv_Index(t *testing.T) {
 	none := innerProtoConv.Encode(&persistedInner{})
 	require.Nil(t, none.CommitQcIndex)
-	require.Equal(t, types.RoadIndex(0), walTipIndex(none))
 
-	withTip := innerProtoConv.Encode(&persistedInner{CommitQCIndex: utils.Some(types.RoadIndex(5))})
+	withTip := innerProtoConv.Encode(&persistedInner{Index: 5})
 	require.NotNil(t, withTip.CommitQcIndex)
 	require.Equal(t, uint64(5), *withTip.CommitQcIndex)
-	require.Equal(t, types.RoadIndex(6), walTipIndex(withTip))
 }

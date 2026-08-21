@@ -45,8 +45,8 @@ func newTestAvail(t *testing.T, registry *epoch.Registry, key types.SecretKey) (
 	return ds, av
 }
 
-// seedPersistedInner persists view-local WAL state. tip is recorded as CommitQCIndex
-// for ErrAvailBehindConsensus comparison on restore; runtime CommitQC comes from avail.
+// seedPersistedInner persists view-local WAL state. The WAL records the current
+// view Index (NextIndexOpt of tip) for ErrAvailBehindConsensus on restore.
 func seedPersistedInner(dir string, tip utils.Option[*types.CommitQC], state *persistedInner) {
 	p, _, err := persist.NewPersister[*pb.PersistedInner](utils.Some(dir), innerFile)
 	if err != nil {
@@ -59,11 +59,7 @@ func seedPersistedInner(dir string, tip utils.Option[*types.CommitQC], state *pe
 
 func encodeWal(tip utils.Option[*types.CommitQC], state *persistedInner) *pb.PersistedInner {
 	s := *state
-	if cqc, ok := tip.Get(); ok {
-		s.CommitQCIndex = utils.Some(cqc.Index())
-	} else {
-		s.CommitQCIndex = utils.None[types.RoadIndex]()
-	}
+	s.Index = types.NextIndexOpt(tip)
 	return innerProtoConv.Encode(&s)
 }
 
@@ -82,18 +78,18 @@ func loadInner(t *testing.T, dir string, registry *epoch.Registry, keys []types.
 	go func() { _ = utils.IgnoreCancel(av.Run(ctx)) }()
 
 	if p, ok := persisted.Get(); ok {
-		if tipIdx := walTipIndex(p); tipIdx > 0 {
-			if err := alignAvailToTip(ctx, t, av, registry, keys, tipIdx-1); err != nil {
+		if idx := types.RoadIndex(p.GetCommitQcIndex()); idx > 0 {
+			if err := alignAvailToTip(ctx, t, av, registry, keys, idx-1); err != nil {
 				return inner{}, err
 			}
 		}
 	}
-	return newInner(persisted, av.SubscribeConsensusSpec().Load())
+	return newInner(persisted, av.SubscribeConsensusSpec().Load(), keys[0].Public())
 }
 
 // alignAvailToTip pushes CommitQCs 0..tipIndex through avail and waits until
-// that tip is durable. The QCs are freshly built for the registry — the tip
-// CommitQC used at restore comes from ConsensusSpec, not the WAL.
+// ConsensusSpec covers that tip. The QCs are freshly built for the registry —
+// the tip CommitQC used at restore comes from ConsensusSpec, not the WAL.
 // Callers must keep tipIndex small — EpochLength boundaries are not replayed
 // in unit tests.
 func alignAvailToTip(
@@ -119,9 +115,10 @@ func alignAvailToTip(
 		}
 		prev = utils.Some(qc)
 	}
-	_, err := av.LastCommitQC().Wait(ctx, func(o utils.Option[*types.CommitQC]) bool {
-		c, ok := o.Get()
-		return ok && c.Index() >= tipIndex
+	// Wait on ConsensusSpec, not LastCommitQC: markCommitQCsPersisted stores the
+	// durable tip then refreshes spec, so LastCommitQC can become visible first.
+	_, err := av.SubscribeConsensusSpec().Wait(ctx, func(sp types.ConsensusSpec) bool {
+		return sp.Index() > tipIndex
 	})
 	return err
 }
@@ -139,7 +136,7 @@ func TestNewInnerEmpty(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 1)
 	_, av := newTestAvail(t, registry, keys[0])
-	i, err := newInner(utils.None[*pb.PersistedInner](), av.SubscribeConsensusSpec().Load())
+	i, err := newInner(utils.None[*pb.PersistedInner](), av.SubscribeConsensusSpec().Load(), keys[0].Public())
 	require.NoError(t, err)
 	require.False(t, i.PrepareVote.IsPresent(), "prepareVote should be None")
 	require.False(t, i.CommitVote.IsPresent(), "commitVote should be None")
@@ -148,7 +145,7 @@ func TestNewInnerEmpty(t *testing.T) {
 }
 
 // TestNewInner_RejectsWALAheadOfSpec: after avail catch-up, ConsensusSpec must
-// cover the WAL tip. A WAL tip ahead of the spec is a failed catch-up.
+// cover the WAL. A WAL Index ahead of the spec is a failed catch-up.
 func TestNewInner_RejectsWALAheadOfSpec(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
@@ -172,7 +169,7 @@ func TestNewInner_RejectsWALAheadOfSpec(t *testing.T) {
 	persisted := persistedInner{PrepareVote: utils.Some(vote)}
 
 	genesis := types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}
-	_, err := newInner(utils.Some(encodeWal(persistedTip, &persisted)), genesis)
+	_, err := newInner(utils.Some(encodeWal(persistedTip, &persisted)), genesis, keys[0].Public())
 	require.ErrorIs(t, err, ErrAvailBehindConsensus)
 }
 
@@ -199,7 +196,7 @@ func TestNewInner_EqualTipKeepsVotes(t *testing.T) {
 	persisted := persistedInner{PrepareVote: utils.Some(vote)}
 	spec := types.ConsensusSpec{CommitQC: utils.Some(qcLast), Epoch: ep1}
 
-	i, err := newInner(utils.Some(encodeWal(persistedTip, &persisted)), spec)
+	i, err := newInner(utils.Some(encodeWal(persistedTip, &persisted)), spec, keys[0].Public())
 	require.NoError(t, err)
 	require.Equal(t, last+1, i.View().Index)
 	require.Equal(t, types.EpochIndex(1), i.spec.Epoch.EpochIndex())
@@ -262,7 +259,7 @@ func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 	persistedTip := spec.CommitQC
 	persisted := persistedInner{PrepareVote: utils.Some(vote)}
 
-	i, err := newInner(utils.Some(encodeWal(persistedTip, &persisted)), spec)
+	i, err := newInner(utils.Some(encodeWal(persistedTip, &persisted)), spec, keys[0].Public())
 	require.NoError(t, err)
 	require.Equal(t, last+1, i.View().Index)
 	require.Equal(t, types.EpochIndex(1), i.spec.Epoch.EpochIndex())
@@ -771,6 +768,47 @@ func TestNewInnerCurrentViewVoteInvalidSignatureError(t *testing.T) {
 	require.Contains(t, err.Error(), "corrupt persisted state")
 }
 
+func TestNewInnerVoteFromOtherReplicaError(t *testing.T) {
+	rng := utils.TestRng()
+	dir := t.TempDir()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: 5, Number: 0})
+	qcVote := types.NewCommitVote(qcProposal)
+	var qcVotes []*types.Signed[*types.CommitVote]
+	for _, k := range keys {
+		qcVotes = append(qcVotes, types.Sign(k, qcVote))
+	}
+	commitQC := types.NewCommitQC(qcVotes)
+
+	currentProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: 6, Number: 0})
+	otherReplica := types.Sign(keys[1], types.NewPrepareVote(currentProposal))
+	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{PrepareVote: utils.Some(otherReplica)})
+
+	_, err := loadInner(t, dir, registry, keys)
+	require.Error(t, err)
+}
+
+func TestNewInnerTimeoutVoteFromOtherReplicaError(t *testing.T) {
+	rng := utils.TestRng()
+	dir := t.TempDir()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	qcProposal := types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: 5, Number: 0})
+	qcVote := types.NewCommitVote(qcProposal)
+	var qcVotes []*types.Signed[*types.CommitVote]
+	for _, k := range keys {
+		qcVotes = append(qcVotes, types.Sign(k, qcVote))
+	}
+	commitQC := types.NewCommitQC(qcVotes)
+
+	otherReplica := types.NewFullTimeoutVote(keys[1], types.View{Index: 6, Number: 0}, utils.None[*types.PrepareQC]())
+	seedPersistedInner(dir, utils.Some(commitQC), &persistedInner{TimeoutVote: utils.Some(otherReplica)})
+
+	_, err := loadInner(t, dir, registry, keys)
+	require.Error(t, err)
+}
+
 func TestNewInnerStaleVoteInvalidSignatureError(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
@@ -1034,7 +1072,7 @@ func TestPushTimeoutQCClearsStaleState(t *testing.T) {
 
 	// Simulate pushTimeoutQC's Update callback
 	newInner := inner{
-		persistedInner: persistedInner{CommitQCIndex: i.CommitQCIndex, TimeoutQC: utils.Some(timeoutQC)},
+		persistedInner: persistedInner{Index: i.Index, TimeoutQC: utils.Some(timeoutQC)},
 		spec:           i.spec,
 	}
 
