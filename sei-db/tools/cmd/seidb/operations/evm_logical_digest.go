@@ -81,12 +81,14 @@ const (
 //     that exact height (or --height 0 for the current symlink). This is the
 //     preferred mode whenever the target height lines up with an existing
 //     snapshot boundary.
-//   - replay (SLOW): opens a read-only DB, replays the changelog up to
-//     --height, then walks the in-memory/mmap tree. Roughly an order of
-//     magnitude slower than snapshot (changelog replay + per-leaf tree walk
-//     instead of a sequential file read). Use it only when no snapshot exists
-//     at the target height — e.g. nodes whose snapshot rewrite lags the tip, so
-//     an arbitrary comparison height has no snapshot-<height> on disk.
+//   - replay (SLOW): opens a non-mutating read-only WAL view, replays the
+//     changelog up to --height, then walks the in-memory/mmap tree. Roughly an
+//     order of magnitude slower than snapshot (changelog replay + per-leaf tree
+//     walk instead of a sequential file read). If a live writer leaves a torn
+//     tail in view, replay fails and asks the operator to rerun instead of
+//     repairing the source WAL. Use it only when no snapshot exists at the
+//     target height — e.g. nodes whose snapshot rewrite lags the tip, so an
+//     arbitrary comparison height has no snapshot-<height> on disk.
 //
 // The flatkv side is always a pebble WAL-replay-to-height and is fast
 // regardless. So when comparing across nodes, pick a height that is an existing
@@ -1111,7 +1113,25 @@ func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) 
 		ZeroCopy: true,
 	})
 	if err != nil {
+		if errors.Is(err, memiavl.ErrReadOnlyWALCorrupt) {
+			return nil, fmt.Errorf("memiavl changelog tail is incomplete, corrupt, or changing; "+
+				"live WAL was not modified; rerun the command, and if the error persists after stopping seid, "+
+				"repair the WAL offline: %w", err)
+		}
+		if errors.Is(err, memiavl.ErrReadOnlyWALUnavailable) {
+			return nil, fmt.Errorf("the immutable memiavl changelog view could not reach height %d; "+
+				"live WAL was not modified; rerun the command: %w", height, err)
+		}
 		return nil, fmt.Errorf("open memiavl read-only replay: %w", err)
+	}
+	if height > 0 && db.Version() != height {
+		versionErr := fmt.Errorf("memiavl replay version mismatch: requested %d, reached %d; "+
+			"the live changelog did not provide a complete path to the target; rerun the command",
+			height, db.Version())
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, errors.Join(versionErr, fmt.Errorf("close memiavl read-only replay: %w", closeErr))
+		}
+		return nil, versionErr
 	}
 	return db, nil
 }

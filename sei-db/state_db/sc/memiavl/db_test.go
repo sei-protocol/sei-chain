@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -1115,4 +1116,133 @@ func TestUpdateCurrentSymlinkClearsStaleTmp(t *testing.T) {
 	target, err := os.Readlink(currentPath(dir))
 	require.NoError(t, err)
 	require.Equal(t, "snapshot-1", target)
+}
+
+func TestReadOnlyOpenRejectsTornWALWithoutRepair(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	for i := 0; i < 3; i++ {
+		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+			Name:      "test",
+			Changeset: ChangeSets[i],
+		}}))
+		_, err := db.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.Close())
+
+	segment := lastMemiAVLWALSegment(t, dir)
+	file, err := os.OpenFile(filepath.Clean(segment), os.O_WRONLY|os.O_APPEND, 0)
+	require.NoError(t, err)
+	_, err = file.Write([]byte{0x10})
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+	before, err := os.ReadFile(filepath.Clean(segment))
+	require.NoError(t, err)
+
+	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true})
+	require.ErrorIs(t, err, ErrReadOnlyWALCorrupt)
+	after, readErr := os.ReadFile(filepath.Clean(segment))
+	require.NoError(t, readErr)
+	require.Equal(t, before, after, "read-only open must leave a torn live tail untouched")
+
+	repaired, err := OpenDB(0, Options{Dir: dir})
+	require.NoError(t, err, "the writable owner must retain the existing tail-repair behavior")
+	require.Equal(t, int64(3), repaired.Version())
+	require.NoError(t, repaired.Close())
+}
+
+func TestReadOnlyOpenRejectsWALGap(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	for i := 0; i < 3; i++ {
+		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+			Name:      "test",
+			Changeset: ChangeSets[i],
+		}}))
+		_, err := db.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.GetWAL().TruncateBefore(2))
+	require.NoError(t, db.Close())
+
+	_, err = OpenDB(3, Options{Dir: dir, ReadOnly: true})
+	require.ErrorIs(t, err, ErrReadOnlyWALUnavailable)
+	require.Contains(t, err.Error(), "needs changelog version 1")
+	require.Contains(t, err.Error(), "starts at version 2")
+}
+
+func TestReadOnlyOpenRejectsShortWAL(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	for i := 0; i < 3; i++ {
+		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+			Name:      "test",
+			Changeset: ChangeSets[i],
+		}}))
+		_, err := db.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.GetWAL().TruncateAfter(2))
+	require.NoError(t, db.Close())
+
+	_, err = OpenDB(3, Options{Dir: dir, ReadOnly: true})
+	require.ErrorIs(t, err, ErrReadOnlyWALUnavailable)
+	require.Contains(t, err.Error(), "requested 3, reached 2")
+}
+
+func TestOpenDBFailureReleasesFileLock(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name:      "test",
+		Changeset: ChangeSets[0],
+	}}))
+	_, err = db.Commit()
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	require.NoError(t, os.Remove(currentPath(dir)))
+	_, err = OpenDB(1, Options{Dir: dir, LoadForOverwriting: true})
+	require.ErrorContains(t, err, "fail to read current version")
+
+	lock, err := LockFile(filepath.Join(dir, LockFileName))
+	require.NoError(t, err, "failed OpenDB must release its exclusive lock")
+	require.NoError(t, lock.Unlock())
+	require.NoError(t, lock.Destroy())
+}
+
+func lastMemiAVLWALSegment(t *testing.T, dir string) string {
+	t.Helper()
+	entries, err := os.ReadDir(utils.GetChangelogPath(dir))
+	require.NoError(t, err)
+	var names []string
+	for _, entry := range entries {
+		if !entry.IsDir() && len(entry.Name()) == 20 {
+			names = append(names, entry.Name())
+		}
+	}
+	require.NotEmpty(t, names)
+	sort.Strings(names)
+	return filepath.Join(utils.GetChangelogPath(dir), names[len(names)-1])
 }
