@@ -73,6 +73,10 @@ func openReadOnlyWAL[T any](dir string, unmarshal UnmarshalFn[T]) (*readOnlyWAL[
 		path := filepath.Join(dir, segment.name)
 		file, err := os.Open(filepath.Clean(path))
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return cleanup(fmt.Errorf("%w: WAL segment %s disappeared while opening: %w",
+					ErrCorrupt, path, err))
+			}
 			return cleanup(fmt.Errorf("open WAL segment %s: %w", path, err))
 		}
 		log.files = append(log.files, file)

@@ -126,6 +126,16 @@ func TestOpenReadOnlyChangelogWALDoesNotCreateMissingDirectory(t *testing.T) {
 	require.NoDirExists(t, dir)
 }
 
+func TestOpenReadOnlyChangelogWALClassifiesVanishedSegmentAsCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	segment := filepath.Join(dir, "00000000000000000001")
+	require.NoError(t, os.Symlink(filepath.Join(dir, "vanished"), segment))
+
+	_, err := OpenReadOnlyChangelogWAL(dir)
+	require.ErrorIs(t, err, ErrCorrupt)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
 func TestOpenReadOnlyChangelogWALConcurrentWriter(t *testing.T) {
 	dir := t.TempDir()
 	writable, err := NewChangelogWAL(dir, Config{})
