@@ -1124,15 +1124,6 @@ func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) 
 		}
 		return nil, fmt.Errorf("open memiavl read-only replay: %w", err)
 	}
-	if height > 0 && db.Version() != height {
-		versionErr := fmt.Errorf("memiavl replay version mismatch: requested %d, reached %d; "+
-			"the live changelog did not provide a complete path to the target; rerun the command",
-			height, db.Version())
-		if closeErr := db.Close(); closeErr != nil {
-			return nil, errors.Join(versionErr, fmt.Errorf("close memiavl read-only replay: %w", closeErr))
-		}
-		return nil, versionErr
-	}
 	return db, nil
 }
 

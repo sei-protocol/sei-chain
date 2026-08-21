@@ -44,7 +44,7 @@ func TestOpenReadOnlyChangelogWALReplaysWithoutMutation(t *testing.T) {
 	require.NoError(t, readOnly.Close())
 }
 
-func TestOpenReadOnlyChangelogWALRejectsTornTailWithoutRepair(t *testing.T) {
+func TestOpenReadOnlyChangelogWALUsesCompleteTailPrefixWithoutRepair(t *testing.T) {
 	dir := t.TempDir()
 	writable, err := NewChangelogWAL(dir, Config{})
 	require.NoError(t, err)
@@ -59,9 +59,26 @@ func TestOpenReadOnlyChangelogWALRejectsTornTailWithoutRepair(t *testing.T) {
 	require.NoError(t, file.Close())
 	before := snapshotWALFiles(t, dir)
 
-	_, err = OpenReadOnlyChangelogWAL(dir)
-	require.ErrorIs(t, err, ErrCorrupt)
+	readOnly, err := OpenReadOnlyChangelogWAL(dir)
+	require.NoError(t, err)
+	last, err := readOnly.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), last)
+	require.NoError(t, readOnly.Close())
 	require.Equal(t, before, snapshotWALFiles(t, dir), "read-only open must not repair the source tail")
+}
+
+func TestOpenReadOnlyChangelogWALRejectsMalformedTail(t *testing.T) {
+	dir := t.TempDir()
+	segment := filepath.Join(dir, "00000000000000000001")
+	require.NoError(t, os.WriteFile(segment, []byte{
+		0xff, 0xff, 0xff, 0xff, 0xff,
+		0xff, 0xff, 0xff, 0xff, 0xff,
+		0xff,
+	}, 0o600))
+
+	_, err := OpenReadOnlyChangelogWAL(dir)
+	require.ErrorIs(t, err, ErrCorrupt)
 }
 
 func TestOpenReadOnlyChangelogWALKeepsPointInTimeView(t *testing.T) {
@@ -121,8 +138,15 @@ func TestOpenReadOnlyChangelogWALEmptyDirectory(t *testing.T) {
 func TestOpenReadOnlyChangelogWALDoesNotCreateMissingDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "missing")
 
-	_, err := OpenReadOnlyChangelogWAL(dir)
-	require.Error(t, err)
+	readOnly, err := OpenReadOnlyChangelogWAL(dir)
+	require.NoError(t, err)
+	first, err := readOnly.FirstOffset()
+	require.NoError(t, err)
+	require.Zero(t, first)
+	last, err := readOnly.LastOffset()
+	require.NoError(t, err)
+	require.Zero(t, last)
+	require.NoError(t, readOnly.Close())
 	require.NoDirExists(t, dir)
 }
 
@@ -134,6 +158,37 @@ func TestOpenReadOnlyChangelogWALClassifiesVanishedSegmentAsCorrupt(t *testing.T
 	_, err := OpenReadOnlyChangelogWAL(dir)
 	require.ErrorIs(t, err, ErrCorrupt)
 	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestReadOnlyChangelogWALClassifiesEntryReadFailuresAsCorrupt(t *testing.T) {
+	t.Run("short read", func(t *testing.T) {
+		dir := t.TempDir()
+		writable, err := NewChangelogWAL(dir, Config{})
+		require.NoError(t, err)
+		require.NoError(t, writable.Write(proto.ChangelogEntry{Version: 1}))
+		require.NoError(t, writable.Close())
+
+		readOnly, err := OpenReadOnlyChangelogWAL(dir)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, readOnly.Close()) })
+		require.NoError(t, os.Truncate(lastPlainWALSegment(t, dir), 0))
+
+		_, err = readOnly.ReadAt(1)
+		require.ErrorIs(t, err, ErrCorrupt)
+	})
+
+	t.Run("unparseable entry", func(t *testing.T) {
+		dir := t.TempDir()
+		segment := filepath.Join(dir, "00000000000000000001")
+		require.NoError(t, os.WriteFile(segment, []byte{0x01, 0xff}, 0o600))
+
+		readOnly, err := OpenReadOnlyChangelogWAL(dir)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, readOnly.Close()) })
+
+		_, err = readOnly.ReadAt(1)
+		require.ErrorIs(t, err, ErrCorrupt)
+	})
 }
 
 func TestOpenReadOnlyChangelogWALConcurrentWriter(t *testing.T) {

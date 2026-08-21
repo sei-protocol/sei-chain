@@ -236,6 +236,12 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 	// callers still need replay to reconstruct non-snapshot versions, but they
 	// must not use the writable opener: it repairs a torn tail by truncating it
 	// and completes interrupted WAL truncations by renaming or removing files.
+	classifyReadOnlyWALError := func(err error) error {
+		if opts.ReadOnly && errors.Is(err, wal.ErrCorrupt) {
+			return fmt.Errorf("%w; source WAL was not modified: %w", ErrReadOnlyWALCorrupt, err)
+		}
+		return err
+	}
 	if opts.ReadOnly {
 		streamHandler, err = wal.OpenReadOnlyChangelogWAL(utils.GetChangelogPath(opts.Dir))
 	} else {
@@ -244,8 +250,9 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 		})
 	}
 	if err != nil {
-		if opts.ReadOnly && errors.Is(err, wal.ErrCorrupt) {
-			return nil, fmt.Errorf("%w; source WAL was not modified: %w", ErrReadOnlyWALCorrupt, err)
+		err = classifyReadOnlyWALError(err)
+		if errors.Is(err, ErrReadOnlyWALCorrupt) {
+			return nil, err
 		}
 		return nil, fmt.Errorf("failed to open changelog WAL: %w", err)
 	}
@@ -255,6 +262,7 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 	var walHasEntries bool
 	walIndexDelta, walHasEntries, err = computeWALIndexDelta(streamHandler)
 	if err != nil {
+		err = classifyReadOnlyWALError(err)
 		return nil, fmt.Errorf("failed to compute WAL index delta: %w", err)
 	}
 	// If WAL is empty, set delta so first WAL entry aligns with NextVersion().
@@ -283,7 +291,7 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 	if walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
 		logger.Info("Start catching up and replaying the MemIAVL changelog file")
 		if err := mtree.Catchup(context.Background(), streamHandler, walIndexDelta, targetVersion); err != nil {
-			return nil, err
+			return nil, classifyReadOnlyWALError(err)
 		}
 		logger.Info("finished replay and caught up to target version", "version", targetVersion)
 	}

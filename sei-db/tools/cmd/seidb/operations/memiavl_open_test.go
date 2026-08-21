@@ -26,11 +26,7 @@ func TestOpenMemiAVLReplayReadOnlyReportsRetryWithoutRepair(t *testing.T) {
 
 	dbDir := utils.GetCosmosSCStorePath(homeDir)
 	segment := lastOperationsMemiAVLWALSegment(t, dbDir)
-	file, err := os.OpenFile(filepath.Clean(segment), os.O_WRONLY|os.O_APPEND, 0)
-	require.NoError(t, err)
-	_, err = file.Write([]byte{0x10})
-	require.NoError(t, err)
-	require.NoError(t, file.Close())
+	require.NoError(t, os.WriteFile(filepath.Clean(segment), []byte{0x01, 0xff}, 0o600))
 	before, err := os.ReadFile(filepath.Clean(segment))
 	require.NoError(t, err)
 
