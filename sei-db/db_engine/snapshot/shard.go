@@ -25,8 +25,9 @@ import (
 type shard struct {
 	// A lock to protect the shard's data. Shared with the read cache (see the cache field).
 	//
-	// TODO: this is a single exclusive lock. If it becomes a contention bottleneck, consider an RW
-	// lock — see the conversion strategy at the top of read_cache.go.
+	// A read that resolves from versioned data or from a cached entry needs only the read side, which
+	// is why recency is recorded atomically rather than by reordering a queue. A read that misses has
+	// to create an entry and schedule a DB read, so it takes the write side.
 	lock sync.RWMutex
 
 	// Data at various versions. This is for data that has not yet been flushed down into the DB.
@@ -230,7 +231,7 @@ func (s *shard) Get(
 	}
 
 	// First, check to see if we have this value in the versioned data map.
-	if value, found := s.lookupVersionedLocked(string(key), version); found {
+	if value, found := s.lookupVersionedBytesLocked(key, version); found {
 		s.lock.Unlock()
 		s.metrics.reportCacheHits(1)
 		return value, value != nil, nil
@@ -264,7 +265,7 @@ func (s *shard) getShared(
 		return nil, false, err, true
 	}
 
-	if value, found := s.lookupVersionedLocked(string(key), version); found {
+	if value, found := s.lookupVersionedBytesLocked(key, version); found {
 		s.metrics.reportCacheHits(1)
 		return value, value != nil, nil, true
 	}
@@ -293,6 +294,21 @@ func (s *shard) validateVersionLocked(version uint64) error {
 	return nil
 }
 
+// lookupVersionedBytesLocked is lookupVersionedLocked for a caller holding the key as bytes.
+//
+// The conversion is written inside the index expression because the compiler elides it there, which it
+// cannot do for a string passed to a function. Since this is the first lookup every single-key read
+// performs, taking the string by parameter instead costs an allocation and a key copy per read.
+//
+// The Locked postfix indicates that the caller must hold the shard lock.
+func (s *shard) lookupVersionedBytesLocked(key []byte, version uint64) ([]byte, bool) {
+	history, ok := s.versionedData[string(key)]
+	if !ok {
+		return nil, false
+	}
+	return s.valueAtVersionLocked(history, version)
+}
+
 // lookupVersionedLocked checks versioned data for a key at the given version.
 // Returns (value, true) if found in versioned data, (nil, false) if the read cache should be
 // consulted.
@@ -303,6 +319,14 @@ func (s *shard) lookupVersionedLocked(key string, version uint64) ([]byte, bool)
 	if !ok {
 		return nil, false
 	}
+	return s.valueAtVersionLocked(history, version)
+}
+
+// valueAtVersionLocked returns the value a key held at the given version, or reports that the key had
+// none and the read cache should be consulted.
+//
+// The Locked postfix indicates that the caller must hold the shard lock.
+func (s *shard) valueAtVersionLocked(history versionHistory, version uint64) ([]byte, bool) {
 	if version == s.oldestVersion {
 		next := history.oldest()
 		if next.version == version {
