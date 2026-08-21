@@ -66,7 +66,7 @@ func (e appliedEpoch) Wait(ctx context.Context, pred func(*types.Epoch) bool) (*
 	return sp.Epoch, nil
 }
 
-// Epoch returns the applied (next-CommitQC) epoch. runEpochAdvance advances it.
+// Epoch returns the applied (next-CommitQC) epoch. runEpochAdvance and catch-up prune advance it.
 func (s *State) Epoch() appliedEpoch {
 	return appliedEpoch{s.spec}
 }
@@ -750,16 +750,32 @@ func (s *State) runEvict(ctx context.Context) error {
 	})
 }
 
-// runEpochAdvance is the sole writer of applied epoch (consensusSpec.Epoch) after construction. It waits
-// for the execution leash on the registry, then seal and the prune leash on
-// avail's inner watch (canAdvanceEpoch), and advances one epoch per wake.
+// runEpochAdvance advances applied one epoch per wake after the registry,
+// seal, and prune leashes. Catch-up that skips epochs is handled by prune
+// (Anchor jumped) and by jumping to Live().First when WaitForEpoch returns ErrPruned.
 func (s *State) runEpochAdvance(ctx context.Context) error {
 	for {
 		next := s.Epoch().Load().EpochIndex() + 1
-		// ErrPruned is not expected here: PushCommitQC withholds a CommitQC
-		// until its epoch is applied, so the Anchor never leads applied by more
-		// than one epoch and PruneBefore cannot drop next.
 		ep, err := s.data.Registry().WaitForEpoch(ctx, next)
+		if errors.Is(err, types.ErrPruned) {
+			// data.PushQC catch-up can prune past applied. Jump to the live
+			// floor; intermediate epochs are gone so their seal wait cannot complete.
+			floor := s.data.Registry().Live().First
+			ep, err = s.data.Registry().WaitForEpoch(ctx, floor)
+			if errors.Is(err, types.ErrPruned) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			for inner, ctrl := range s.inner.Lock() {
+				if inner.applied().EpochIndex() < ep.EpochIndex() {
+					inner.advanceEpoch(ep)
+					ctrl.Updated()
+				}
+			}
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -769,7 +785,11 @@ func (s *State) runEpochAdvance(ctx context.Context) error {
 			}); err != nil {
 				return err
 			}
-			if got := inner.applied().EpochIndex(); got+1 != next {
+			got := inner.applied().EpochIndex()
+			if got >= next {
+				continue // prune already jumped past this step
+			}
+			if got+1 != next {
 				return fmt.Errorf("runEpochAdvance: applied %d, want %d before advance", got, next-1)
 			}
 			inner.advanceEpoch(ep)

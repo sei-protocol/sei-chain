@@ -249,6 +249,14 @@ func (r *Registry) PruneBefore(keep types.EpochIndex) {
 	}
 }
 
+// Live returns the supported non-zero epoch window [First, Next).
+func (r *Registry) Live() types.EpochRange {
+	for s := range r.state.Lock() {
+		return s.live
+	}
+	panic("unreachable")
+}
+
 // WaitForEpoch blocks until epoch i is registered.
 func (r *Registry) WaitForEpoch(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
 	for inner, ctrl := range r.state.Lock() {

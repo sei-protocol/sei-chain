@@ -270,3 +270,29 @@ func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 	require.Equal(t, last, cqc.Index())
 	require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
 }
+
+func TestPrune_AdvancesAppliedWhenAnchorAhead(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 4)
+	registry.AdvanceIfNeeded(epoch.LastRoad(1))
+	registry.AdvanceIfNeeded(epoch.LastRoad(2))
+	ep0 := registry.MustEpoch(0)
+	ep1 := registry.MustEpoch(1)
+	ep2 := registry.MustEpoch(2)
+	i := newInner(ep0, 0)
+	require.Equal(t, types.EpochIndex(0), i.applied().EpochIndex())
+
+	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
+		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: epoch.LastRoad(1), Number: 0}, ep1.FirstBlock()))),
+	})
+	qc := types.BuildCommitQC(ep2, keys, utils.Some(prev), nil)
+	i.prune(data.Anchor{
+		CommitQC: qc,
+		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
+		Epoch:    ep2,
+	})
+	require.Equal(t, types.EpochIndex(2), i.applied().EpochIndex())
+	ae, ok := i.anchorEpoch.Get()
+	require.True(t, ok)
+	require.Equal(t, types.EpochIndex(2), ae.EpochIndex())
+}
