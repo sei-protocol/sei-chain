@@ -201,13 +201,10 @@ func (c *offsetScanCursor) checkPostPageBudget() (stop bool, err error) {
 }
 
 // pageEndReached reports whether the current entry should count toward the
-// post-page scan budget. Filtered scans use hit count; unfiltered scans use
-// raw iterator position, where the last in-page entry is still collect phase.
+// post-page scan budget. Filtered scans use hit count; unfiltered scans enter
+// post-page only after the in-page window is complete.
 func (c *offsetScanCursor) pageEndReached() bool {
-	if c.filtered {
-		return c.phase() == scanPhasePostPage
-	}
-	return c.phase() == scanPhasePostPage || c.scanned == c.req.end
+	return c.phase() == scanPhasePostPage
 }
 
 func (c *offsetScanCursor) accumulate() bool {
@@ -228,7 +225,6 @@ func (c *offsetScanCursor) recordFilteredHit(key []byte, matched bool) (stop boo
 }
 
 func (c *offsetScanCursor) recordUnfilteredHit(key []byte) (stop bool) {
-	c.hits = c.scanned
 	if c.scanned == c.req.end+1 {
 		c.nextKey = key
 		return !c.req.countTotal
@@ -254,7 +250,8 @@ func runOffsetPathUnfiltered(
 
 	cursor := newOffsetScanCursor(req, scanLimit, false)
 
-	for stop := false; iterator.Valid() && !stop; iterator.Next() {
+loop:
+	for ; iterator.Valid(); iterator.Next() {
 		if err := cursor.beginIteration(); err != nil {
 			return nil, err
 		}
@@ -272,7 +269,9 @@ func runOffsetPathUnfiltered(
 				return nil, err
 			}
 		case scanPhasePostPage:
-			stop = cursor.recordUnfilteredHit(iterator.Key())
+			if cursor.recordUnfilteredHit(iterator.Key()) {
+				break loop
+			}
 		}
 
 		if iterator.Error() != nil {
