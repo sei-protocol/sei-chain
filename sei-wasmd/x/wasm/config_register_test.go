@@ -42,9 +42,15 @@ func TestTheDeclaredKeysAreTheFlagsThisModuleReads(t *testing.T) {
 // is not the place that reconciles them.
 func TestTheDefaultsAreTheModuleDeclaredOnes(t *testing.T) {
 	live := types.DefaultWasmConfig()
-	got, ok := defaults(registry.ModeValidator).(wasmSchema)
+	for _, mode := range registry.Modes() {
+		if got := sectionDefaults(mode); !reflect.DeepEqual(got, sectionDefaults(registry.ModeValidator)) {
+			t.Errorf("mode %q resolves differently from the others, and nothing in the module makes "+
+				"either setting follow from what kind of node is asking", mode)
+		}
+	}
+	got, ok := sectionDefaults(registry.ModeValidator).(wasmSchema)
 	if !ok {
-		t.Fatalf("defaults returned %T, want wasmSchema", defaults(registry.ModeValidator))
+		t.Fatalf("defaults returned %T, want wasmSchema", sectionDefaults(registry.ModeValidator))
 	}
 
 	if got.MemoryCacheSize != live.MemoryCacheSize {

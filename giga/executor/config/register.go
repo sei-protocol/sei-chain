@@ -21,7 +21,7 @@ func init() {
 
 // defaults is what this section resolves to for a node that has written nothing.
 //
-// The same values for every mode, because that is what a node runs today. A mode-varying default would
-// change what an archive node does, which is a decision about how the executor should behave rather than
-// a consequence of describing it here.
+// The same values for every mode. Nothing in the binary makes either setting follow from what kind of
+// node is asking, so a default that varied here would be this section inventing a rule rather than
+// stating one.
 func defaults(registry.Mode) any { return DefaultConfig }

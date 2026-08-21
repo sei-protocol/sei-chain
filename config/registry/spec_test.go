@@ -29,8 +29,9 @@ import (
 // authoring check, and it reads its order from Source's declaration rather than from its caller's
 // argument order, so no caller can reorder its way to a different answer.
 
-// gigaSection mirrors what the giga executor's own package would register. The struct under test
-// is the real one, so the key comparison below measures the live reader rather than a copy of it.
+// gigaSection re-registers the giga executor's section with a default that varies by mode, so the
+// mode property below has something to measure. The struct is the real one, so the key comparison
+// measures the live reader rather than a copy of it.
 const gigaSection = "giga_executor"
 
 func registerGiga(t *testing.T) {
@@ -1376,8 +1377,8 @@ func TestAFieldExcludedFromConfigDeclaresNoKey(t *testing.T) {
 	}
 
 	if got, want := registry.Keys(), []string{"probe.kept"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("declared keys are %v, want %v. An excluded field declaring a key would have that key "+
-			"written at override precedence over whatever assigned the field", got, want)
+		t.Fatalf("declared keys are %v, want %v. A key for an excluded field is one an operator can write "+
+			"that whatever assigns the field then discards", got, want)
 	}
 
 	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
@@ -1385,7 +1386,8 @@ func TestAFieldExcludedFromConfigDeclaresNoKey(t *testing.T) {
 		t.Fatalf("resolving a section with an excluded field: %v", err)
 	}
 	if _, present := resolved.Values["probe.assigned"]; present {
-		t.Error("the excluded field resolved to a value, so installing it would overwrite what assigns it")
+		t.Error("the excluded field resolved to a value, so an operator could write a key that reaches no " +
+			"field")
 	}
 
 	// An untagged field means the opposite and stays a defect.
@@ -1395,7 +1397,12 @@ func TestAFieldExcludedFromConfigDeclaresNoKey(t *testing.T) {
 	}
 	registry.Reset()
 	registry.RegisterSection("probe", &untagged{}, func(registry.Mode) any { return &untagged{} })
-	if len(registry.Defects()) == 0 {
-		t.Error("a field with no tag at all registered cleanly, so a key nothing names reaches no field")
+	defects := registry.Defects()
+	if len(defects) == 0 {
+		t.Fatal("a field with no tag at all registered cleanly, so a key nothing names reaches no field")
+	}
+	// Named, so this cannot pass on a refusal raised for some other reason.
+	if got := defects[0].Err.Error(); !strings.Contains(got, "Forgotten") {
+		t.Errorf("the refusal reads %q and does not name the untagged field", got)
 	}
 }

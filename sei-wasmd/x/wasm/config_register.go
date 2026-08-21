@@ -34,10 +34,10 @@ type wasmSchema struct {
 // configuration the module ends up with. The cache size written as lru_size is put into app.toml by the
 // template and read by nothing, so declaring it would offer a key that reaches no field.
 func init() {
-	registry.RegisterSection(SectionName, &wasmSchema{}, defaults)
+	registry.RegisterSection(SectionName, &wasmSchema{}, sectionDefaults)
 }
 
-// defaults is what this section resolves to for a node that has written nothing.
+// sectionDefaults is what this section resolves to for a node that has written nothing.
 //
 // The query gas limit is the one value here that the binary states twice. This is what a file with no
 // wasm section resolves to, and the template writes a tenth of it into every file it generates, so a node
@@ -45,7 +45,7 @@ func init() {
 // one. Whoever renders declared values into a file has to decide which of the two survives, and the
 // decision is not this section's to make: the limit bounds the work one smart query can ask of a node
 // that serves queries to anyone.
-func defaults(registry.Mode) any {
+func sectionDefaults(registry.Mode) any {
 	live := types.DefaultWasmConfig()
 	schema := wasmSchema{
 		MemoryCacheSize: live.MemoryCacheSize,
