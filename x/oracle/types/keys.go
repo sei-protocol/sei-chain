@@ -17,9 +17,6 @@ const (
 	// StoreKey is the string store representation
 	MemStoreKey = "oracle_mem"
 
-	// RouterKey is the msg router key for the oracle module
-	RouterKey = ModuleName
-
 	// QuerierRoute is the query router key for the oracle module
 	QuerierRoute = ModuleName
 )

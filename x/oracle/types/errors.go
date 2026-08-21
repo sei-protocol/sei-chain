@@ -29,3 +29,6 @@ var (
 	ErrUnknownSeiOracleQuery = sdkerrors.Register(ModuleName, 23, "Error unknown sei oracle query")
 	ErrAggregateVoteExist    = sdkerrors.Register(ModuleName, 24, "aggregate vote still present in current voting window")
 )
+
+// ErrOracleDeprecated is returned by every oracle message and query handler.
+var ErrOracleDeprecated = sdkerrors.Register(ModuleName, 25, "oracle module is deprecated")

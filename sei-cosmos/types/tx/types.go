@@ -57,6 +57,15 @@ func (t *Tx) ValidateBasic() error {
 		return fmt.Errorf("missing fee")
 	}
 
+	var feeGranter sdk.AccAddress
+	if fee.Granter != "" {
+		var err error
+		feeGranter, err = sdk.AccAddressFromBech32(fee.Granter)
+		if err != nil {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid fee granter address (%s)", err)
+		}
+	}
+
 	if fee.GasLimit > MaxGasWanted {
 		return sdkerrors.Wrapf(
 			sdkerrors.ErrInvalidRequest,
@@ -91,11 +100,16 @@ func (t *Tx) ValidateBasic() error {
 		return sdkerrors.ErrNoSignatures
 	}
 
-	if len(sigs) != len(t.GetSigners()) {
+	signers := t.GetSigners()
+	if len(sigs) != len(signers) {
 		return sdkerrors.Wrapf(
 			sdkerrors.ErrUnauthorized,
-			"wrong number of signers; expected %d, got %d", len(t.GetSigners()), len(sigs),
+			"wrong number of signers; expected %d, got %d", len(signers), len(sigs),
 		)
+	}
+
+	if feeGranter != nil && !feeGranter.Equals(t.FeePayer()) {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee grants are not enabled")
 	}
 
 	return nil

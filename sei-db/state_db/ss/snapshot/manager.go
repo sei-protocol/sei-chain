@@ -123,6 +123,10 @@ type Manager struct {
 	lastPublished int64
 }
 
+type snapshotWALPruner interface {
+	PruneWALBeforeVersion(version int64) error
+}
+
 // Staged names a checkpoint that has been written to a staging directory but
 // has not yet been published.
 type Staged struct {
@@ -386,7 +390,11 @@ func (m *Manager) PruneSnapshots(cutLine int64) error {
 			candidates = append(candidates, v)
 		}
 	}
-	return m.removeSnapshots(candidates)
+	if err := m.removeSnapshots(candidates); err != nil {
+		return err
+	}
+	m.pruneWALToOldestSnapshot()
+	return nil
 }
 
 // removeSnapshots deletes each candidate except the current snapshot and the shared floor. Every
@@ -470,6 +478,29 @@ func (m *Manager) prune() {
 	}
 	if err := m.removeSnapshots(versions[:len(versions)-keep]); err != nil {
 		logger.Error("failed to prune state store snapshots", "store", m.name, "error", err)
+		return
+	}
+	m.pruneWALToOldestSnapshot()
+}
+
+func (m *Manager) pruneWALToOldestSnapshot() {
+	pruner, ok := m.scheduler.(snapshotWALPruner)
+	if !ok {
+		return
+	}
+	versions, err := m.Versions()
+	if err != nil {
+		logger.Error("failed to list state store snapshots for WAL pruning",
+			"store", m.name, "error", err)
+		return
+	}
+	if len(versions) == 0 {
+		return
+	}
+	oldest := versions[0]
+	if err := pruner.PruneWALBeforeVersion(oldest); err != nil {
+		logger.Error("failed to prune state store changelog WAL",
+			"store", m.name, "version", oldest, "error", err)
 	}
 }
 

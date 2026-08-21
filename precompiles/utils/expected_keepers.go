@@ -18,7 +18,6 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	evidencetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	paramsproposal "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
@@ -51,7 +50,6 @@ type Keepers interface {
 	DistributionK() DistributionKeeper
 	DistributionQ() DistributionQuerier
 	EvidenceQ() EvidenceQuerier
-	FeegrantQ() FeegrantQuerier
 	MintQ() MintQuerier
 	ParamsQ() ParamsQuerier
 	SlashingMS() SlashingMsgServer
@@ -88,7 +86,6 @@ func (ek *EmptyKeepers) DistributionQ() DistributionQuerier {
 	return nil
 }
 func (ek *EmptyKeepers) EvidenceQ() EvidenceQuerier    { return nil }
-func (ek *EmptyKeepers) FeegrantQ() FeegrantQuerier    { return nil }
 func (ek *EmptyKeepers) MintQ() MintQuerier            { return nil }
 func (ek *EmptyKeepers) ParamsQ() ParamsQuerier        { return nil }
 func (ek *EmptyKeepers) SlashingMS() SlashingMsgServer { return nil }
@@ -305,12 +302,6 @@ type DistributionQuerier interface {
 type EvidenceQuerier interface {
 	Evidence(c context.Context, req *evidencetypes.QueryEvidenceRequest) (*evidencetypes.QueryEvidenceResponse, error)
 	AllEvidence(c context.Context, req *evidencetypes.QueryAllEvidenceRequest) (*evidencetypes.QueryAllEvidenceResponse, error)
-}
-
-type FeegrantQuerier interface {
-	Allowance(c context.Context, req *feegrant.QueryAllowanceRequest) (*feegrant.QueryAllowanceResponse, error)
-	Allowances(c context.Context, req *feegrant.QueryAllowancesRequest) (*feegrant.QueryAllowancesResponse, error)
-	AllowancesByGranter(c context.Context, req *feegrant.QueryAllowancesByGranterRequest) (*feegrant.QueryAllowancesByGranterResponse, error)
 }
 
 type MintQuerier interface {
