@@ -15,12 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 )
 
-type discardStateWriter struct{}
-
-var _ evmonly.StateWriter = (*discardStateWriter)(nil)
-
-func (*discardStateWriter) ApplyChangeSet(evmonly.StateChangeSet) {}
-
 type resultSinks struct {
 	sink    evmonly.ResultSink
 	close   func() error
@@ -33,7 +27,7 @@ func newResultSinks(cfg config, metrics *loadMetrics) (*resultSinks, error) {
 	switch cfg.resultSink {
 	case resultSinkDiscard:
 		return &resultSinks{
-			sink: discardResultSink{writer: &discardStateWriter{}},
+			sink: discardResultSink{},
 		}, nil
 	case resultSinkFile:
 		return newFileResultSinks(cfg, metrics)
@@ -63,13 +57,10 @@ func (s *resultSinks) Cleanup() error {
 	return s.cleanup()
 }
 
-type discardResultSink struct {
-	writer evmonly.StateWriter
-}
+type discardResultSink struct{}
 
-func (s discardResultSink) StoreBlockResult(_ context.Context, _ uint64, result *evmonly.BlockResult, release func()) error {
+func (discardResultSink) StoreBlockResult(_ context.Context, _ uint64, _ *evmonly.BlockResult, release func()) error {
 	defer release()
-	s.writer.ApplyChangeSet(result.ChangeSet)
 	return nil
 }
 

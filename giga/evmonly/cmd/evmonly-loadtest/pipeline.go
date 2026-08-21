@@ -121,7 +121,12 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 
 	startedAt := time.Now()
 	group, groupCtx := errgroup.WithContext(ctx)
-	executor := evmonly.NewExecutor(executorConfig(cfg), evmonly.WithState(state), evmonly.WithResultSink(sinks))
+	store := evmonly.NewMemoryStore(state)
+	executor := evmonly.NewExecutor(
+		executorConfig(cfg),
+		evmonly.WithStore(store, store.EncodeChangeSet),
+		evmonly.WithResultSink(sinks),
+	)
 	defer executor.Close()
 	metrics.recordResultPoolStats(executor.ResultPoolStats())
 	group.Go(func() error {
