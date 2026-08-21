@@ -5,9 +5,9 @@
     "MinimumNumberOfColdAccounts": 1000000,
     "MinimumNumberOfDormantAccounts": 100000000,
     "FlatKVConfig": {
-        "AccountStoreConfig": { "MaxSize": 1073741824, "ShardCount": 16 },
-        "CodeStoreConfig": { "MaxSize": 1073741824, "ShardCount": 16 },
-        "StorageStoreConfig": { "MaxSize": 4294967296, "ShardCount": 16 }
+        "AccountStoreConfig": { "MaxSize": 1073741824, "ShardCount": 32 },
+        "CodeStoreConfig": { "MaxSize": 1073741824, "ShardCount": 32 },
+        "StorageStoreConfig": { "MaxSize": 4294967296, "ShardCount": 32 }
     },
     "MutexProfileFraction": 100,
     "BlockProfileRate": 10000

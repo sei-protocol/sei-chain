@@ -480,17 +480,8 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 
 	c.metrics.setSnapshotPhase("shards_snapshot")
 
-	for _, shard := range c.shards {
-		shardVersion := shard.Commit()
-		if shardVersion != c.currentVersion {
-			// Should be impossible. The engine is now inconsistent (some shards committed, some
-			// not), so brick it: the failure must be latched and every subsequent call must fail,
-			// rather than leaving the engine callable after a fatal error.
-			err := fmt.Errorf("shard (%d) has a different version than the engine (%d)",
-				shardVersion, c.currentVersion)
-			c.brickLocked(err)
-			return nil, err
-		}
+	if err := c.commitShardsLocked(); err != nil {
+		return nil, err
 	}
 
 	// Sealing a version is the once-per-block moment the read caches do their eviction, so that no
@@ -502,6 +493,42 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 	}
 
 	return snapshot, nil
+}
+
+// commitShardsLocked seals the current version on every shard. The caller must hold the versionLock.
+//
+// One task per shard, because sealing a shard is almost entirely the wait to acquire that shard's
+// lock away from the readers holding it, and those waits are independent. Sealed one at a time they
+// sum; overlapped they cost roughly one wait. Lock ordering is unchanged: this holds the versionLock
+// while the tasks take only shard locks, and no shard lock holder ever reaches back for the
+// versionLock.
+//
+// Every shard is awaited before the versions are checked, so a mismatch is diagnosed against a
+// settled set rather than racing the shards still sealing.
+func (c *snapshotEngine) commitShardsLocked() error {
+	versions := make([]uint64, len(c.shards))
+	var wg sync.WaitGroup
+	for i, shard := range c.shards {
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			versions[i] = shard.Commit()
+		})
+	}
+	wg.Wait()
+
+	for i, shardVersion := range versions {
+		if shardVersion != c.currentVersion {
+			// Should be impossible. The engine is now inconsistent (some shards committed, some
+			// not), so brick it: the failure must be latched and every subsequent call must fail,
+			// rather than leaving the engine callable after a fatal error.
+			err := fmt.Errorf("shard %d (%d) has a different version than the engine (%d)",
+				i, shardVersion, c.currentVersion)
+			c.brickLocked(err)
+			return err
+		}
+	}
+	return nil
 }
 
 // This method blocks if the lifecycle runner is not keeping up. It is assumed that the caller already holds the
