@@ -584,3 +584,57 @@ func panicsNot(t *testing.T, fn func()) (ok bool) {
 	fn()
 	return true
 }
+
+// queryKeys covers the [query] keys readQueryConfig reads during BaseApp construction.
+//
+// Spelled as literals rather than through FlagQueryTrustedCIDRs so a constant rename fails
+// CheckKeyNames rather than moving the row with the reader. Both reads are guarded and checked,
+// matching ParseQueryConfig in sei-cosmos/server/config, but this manifest describes this reader.
+var queryKeys = []configtest.KeySpec{
+	{
+		Key: "query.trusted-cidrs", Path: "TrustedCIDRs", Cast: configtest.CastStringSlice, Checked: true,
+		Why: "CIDR allowlist for relaxed query scan limits; empty means fail closed",
+	},
+	{
+		Key: "query.trusted-scan-limit", Path: "TrustedScanLimit", Cast: configtest.CastUint64, Checked: true,
+		Why: "max store entries a trusted-origin paginator may scan",
+	},
+}
+
+func readBaseAppQuery(opts configtest.AppOpts) (any, error) {
+	return readQueryConfig(opts)
+}
+
+func FuzzBaseAppQueryConfig(f *testing.F) {
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	for i := range len(queryKeys) {
+		seeds.AddRow(uint(i), fuzzing.KindNil, "", int64(0), false)
+		seeds.AddRow(uint(i), fuzzing.KindString, "not-a-value", int64(0), false)
+		seeds.AddRow(uint(i), fuzzing.KindMap, "", int64(0), false)
+	}
+	seeds.AddRow(uint(0), fuzzing.KindStringSlice, "127.0.0.1/32", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindInt64, "", int64(250_000), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "query", readBaseAppQuery, queryKeys, seeds)
+
+	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
+		spec := configtest.Pick(queryKeys, keyIdx)
+		configtest.CheckRow(t, "query", readBaseAppQuery, spec, fuzzing.ConfigValue(kind, s, n, b))
+	})
+}
+
+func TestBaseAppQueryAbsentKeysKeepDefaults(t *testing.T) {
+	configtest.CheckAbsent(t, "query", readBaseAppQuery, config.DefaultQueryConfig())
+}
+
+func TestBaseAppQueryDefaultsMatchTheRecordedValues(t *testing.T) {
+	configtest.CheckDefaults(t, "query", config.DefaultQueryConfig())
+}
+
+func TestBaseAppQueryKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "query", queryKeys)
+}
+
+func TestBaseAppQueryManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "query", config.DefaultQueryConfig(), queryKeys)
+}

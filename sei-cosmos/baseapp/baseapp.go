@@ -184,6 +184,9 @@ type BaseApp struct {
 	concurrencyWorkers int
 	occEnabled         bool
 
+	queryConfig          config.QueryConfig
+	trustedOriginMatcher *trustedCIDRMatcher
+
 	deliverTxHooks []DeliverTxHook
 
 	execProcessProposalMs int64
@@ -319,6 +322,15 @@ func NewBaseApp(
 	if app.concurrencyWorkers == 0 {
 		app.concurrencyWorkers = config.DefaultConcurrencyWorkers
 	}
+
+	queryCfg, err := readQueryConfig(appOpts)
+	if err != nil {
+		panic(err)
+	}
+	warnQueryConfig(queryCfg)
+	matcher := newTrustedCIDRMatcher(queryCfg.TrustedCIDRs)
+	app.queryConfig = queryCfg
+	app.trustedOriginMatcher = matcher
 
 	return app
 }

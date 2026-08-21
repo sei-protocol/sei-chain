@@ -743,6 +743,7 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	// lines here instead of finding them among two hundred. Regenerating one of the two records without
 	// the other leaves that other one red.
 	configtest.CheckDefaults(t, "state-sync", DefaultConfig().StateSync)
+	configtest.CheckDefaults(t, "query", DefaultQueryConfig())
 
 	configtest.CheckDefaults(t, "server_config", DefaultConfig(),
 		configtest.DerivedDefault{
@@ -961,6 +962,21 @@ var telemetryKeys = []configtest.KeySpec{
 // is driven by targets rather than by a row.
 var telemetryKeysWithTargetsOfTheirOwn = []configtest.KeyName{"telemetry.global-labels"}
 
+// queryKeys covers the [query] keys ParseQueryConfig reads through GetConfig.
+//
+// Both reads are guarded (v.IsSet) and checked (cast.ToXE), so an absent key keeps the in-code
+// default and a malformed value fails boot with the key named.
+var queryKeys = []configtest.KeySpec{
+	{
+		Key: "query.trusted-cidrs", Path: "TrustedCIDRs", Cast: configtest.CastStringSlice, Checked: true,
+		Why: "CIDR allowlist for relaxed query scan limits; empty means fail closed",
+	},
+	{
+		Key: "query.trusted-scan-limit", Path: "TrustedScanLimit", Cast: configtest.CastUint64, Checked: true,
+		Why: "max store entries a trusted-origin paginator may scan",
+	},
+}
+
 func readRosetta(t testing.TB) func(configtest.AppOpts) (any, error) {
 	return sectionOfGetConfig(t, func(c Config) any { return c.Rosetta })
 }
@@ -971,6 +987,10 @@ func readGRPCWeb(t testing.TB) func(configtest.AppOpts) (any, error) {
 
 func readTelemetry(t testing.TB) func(configtest.AppOpts) (any, error) {
 	return sectionOfGetConfig(t, func(c Config) any { return c.Telemetry })
+}
+
+func readQuery(t testing.TB) func(configtest.AppOpts) (any, error) {
+	return sectionOfGetConfig(t, func(c Config) any { return c.Query })
 }
 
 // sectionOfGetConfig adapts GetConfig to the reader shape the checks take, for one section.
@@ -1053,6 +1073,24 @@ func FuzzTelemetryConfig(f *testing.F) {
 	})
 }
 
+func FuzzQueryConfig(f *testing.F) {
+	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
+	for i := range len(queryKeys) {
+		seeds.AddRow(uint(i), fuzzing.KindNil, "", int64(0), false)
+		seeds.AddRow(uint(i), fuzzing.KindString, "not-a-value", int64(0), false)
+		seeds.AddRow(uint(i), fuzzing.KindMap, "", int64(0), false)
+	}
+	seeds.AddRow(uint(0), fuzzing.KindStringSlice, "127.0.0.1/32", int64(0), false)
+	seeds.AddRow(uint(1), fuzzing.KindInt64, "", int64(250_000), false)
+
+	configtest.CheckEveryRowHasADiscriminatingSeed(f, "query", readQuery(f), queryKeys, seeds)
+
+	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
+		spec := configtest.Pick(queryKeys, keyIdx)
+		configtest.CheckRow(t, "query", readQuery(t), spec, fuzzing.ConfigValue(kind, s, n, b))
+	})
+}
+
 func TestRosettaKeyNamesMatchTheRecordedNames(t *testing.T) {
 	configtest.CheckKeyNames(t, "rosetta", rosettaKeys)
 }
@@ -1063,6 +1101,10 @@ func TestGRPCWebKeyNamesMatchTheRecordedNames(t *testing.T) {
 
 func TestTelemetryKeyNamesMatchTheRecordedNames(t *testing.T) {
 	configtest.CheckKeyNames(t, "telemetry", telemetryKeys, telemetryKeysWithTargetsOfTheirOwn...)
+}
+
+func TestQueryKeyNamesMatchTheRecordedNames(t *testing.T) {
+	configtest.CheckKeyNames(t, "query", queryKeys)
 }
 
 func TestRosettaManifestNamesEveryField(t *testing.T) {
@@ -1078,6 +1120,15 @@ func TestTelemetryManifestNamesEveryField(t *testing.T) {
 		// FuzzGetConfigGlobalLabels drives this field; it is not a plain guarded cast.
 		"GlobalLabels",
 	)
+}
+
+func TestQueryManifestNamesEveryField(t *testing.T) {
+	configtest.CheckManifestCoversEveryField(t, "query", DefaultQueryConfig(), queryKeys)
+}
+
+// TestQueryAbsentKeysKeepDefaults pins the [query] section baseline.
+func TestQueryAbsentKeysKeepDefaults(t *testing.T) {
+	configtest.CheckAbsent(t, "query", readQuery(t), DefaultQueryConfig())
 }
 
 // TestGetConfigAbsentSectionDivergences records every field these sections resolve away from its

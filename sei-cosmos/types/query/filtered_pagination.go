@@ -1,12 +1,9 @@
 package query
 
 import (
-	"fmt"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 // FilteredPaginate does pagination of all the results in the PrefixStore based on the
@@ -18,11 +15,26 @@ import (
 // When accumulate is true, the current result should be appended to the result set returned
 // to the client.
 func FilteredPaginate(
+	ctx sdk.Context,
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
 	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
 ) (*PageResponse, error) {
-	return filteredPaginate(prefixStore, pageRequest, onResult, false)
+	return filteredPaginate(prefixStore, pageRequest, onResult, scanLimitParamsFromContext(ctx))
+}
+
+// FilteredPaginateForContext applies FilteredPaginate on the ABCI query path and
+// FilteredPaginateV66 during consensus execution.
+func FilteredPaginateForContext(
+	ctx sdk.Context,
+	prefixStore types.KVStore,
+	pageRequest *PageRequest,
+	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
+) (*PageResponse, error) {
+	if ctx.IsABCIQuery() {
+		return FilteredPaginate(ctx, prefixStore, pageRequest, onResult)
+	}
+	return FilteredPaginateV66(prefixStore, pageRequest, onResult)
 }
 
 // FilteredPaginateV66 preserves release/v6.6 behavior for EVM precompiles.
@@ -36,138 +48,27 @@ func FilteredPaginateV66(
 	pageRequest *PageRequest,
 	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
 ) (*PageResponse, error) {
-	return filteredPaginate(prefixStore, pageRequest, onResult, true)
+	return filteredPaginate(prefixStore, pageRequest, onResult, v66ScanLimitParams())
 }
 
 func filteredPaginate(
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
 	onResult func(key []byte, value []byte, accumulate bool) (bool, error),
-	enforceV66ScanLimit bool,
+	scanLimit scanLimitParams,
 ) (*PageResponse, error) {
-	// if the PageRequest is nil, use default PageRequest
-	if pageRequest == nil {
-		pageRequest = &PageRequest{}
+	req, err := preparePageRequest(pageRequest, scanLimit)
+	if err != nil {
+		return nil, err
 	}
 
-	offset := pageRequest.Offset
-	key := pageRequest.Key
-	limit := pageRequest.Limit
-	countTotal := pageRequest.CountTotal
-	reverse := pageRequest.Reverse
-
-	if offset > 0 && key != nil {
-		return nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
+	if req.useKey {
+		return runKeyPath(prefixStore, req, scanLimit, func(key, value []byte) (bool, error) {
+			return onResult(key, value, true)
+		})
 	}
 
-	// Note: unlike upstream cosmos-sdk, limit == 0 must NOT implicitly enable
-	// countTotal; see the note in Paginate.
-	if limit == 0 {
-		limit = DefaultLimit
-	}
-
-	if len(key) != 0 {
-		iterator := getIterator(prefixStore, key, reverse)
-		defer func() { _ = iterator.Close() }()
-
-		var (
-			numHits   uint64
-			nextKey   []byte
-			totalIter uint64
-		)
-
-		for ; iterator.Valid(); iterator.Next() {
-			totalIter++
-			if numHits == limit {
-				nextKey = iterator.Key()
-				break
-			}
-			if enforceV66ScanLimit && totalIter > MaxScanLimit {
-				return nil, status.Errorf(codes.InvalidArgument,
-					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
-			}
-
-			if iterator.Error() != nil {
-				return nil, iterator.Error()
-			}
-
-			hit, err := onResult(iterator.Key(), iterator.Value(), true)
-			if err != nil {
-				return nil, err
-			}
-
-			if hit {
-				numHits++
-			}
-		}
-
-		return &PageResponse{
-			NextKey: nextKey,
-		}, nil
-	}
-
-	iterator := getIterator(prefixStore, nil, reverse)
-	defer func() { _ = iterator.Close() }()
-
-	end := paginationEnd(offset, limit)
-	var (
-		numHits          uint64
-		nextKey          []byte
-		totalIter        uint64
-		pageCompleteIter uint64
-	)
-
-	for ; iterator.Valid(); iterator.Next() {
-		totalIter++
-		if enforceV66ScanLimit && numHits < end && totalIter > paginationEnd(offset, MaxScanLimit) {
-			return nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries without filling the page; use key-based pagination instead", MaxScanLimit)
-		}
-		if enforceV66ScanLimit && pageCompleteIter > MaxScanLimit {
-			if !countTotal {
-				break
-			}
-			return nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
-		}
-
-		if iterator.Error() != nil {
-			return nil, iterator.Error()
-		}
-
-		accumulate := numHits >= offset && numHits < end
-		hit, err := onResult(iterator.Key(), iterator.Value(), accumulate)
-		if err != nil {
-			return nil, err
-		}
-
-		if hit {
-			numHits++
-		}
-
-		if numHits >= end {
-			pageCompleteIter++
-		}
-
-		if numHits > end {
-			// Only the first entry past the end of the page is the next key;
-			// do not overwrite it while scanning the remainder for countTotal.
-			if nextKey == nil {
-				nextKey = iterator.Key()
-			}
-
-			if !countTotal {
-				break
-			}
-		}
-	}
-
-	res := &PageResponse{NextKey: nextKey}
-	if countTotal {
-		res.Total = numHits
-	}
-
-	return res, nil
+	return runOffsetPathFiltered(prefixStore, req, scanLimit, onResult)
 }
 
 // GenericFilteredPaginate does pagination of all the results in the PrefixStore based on the
@@ -179,13 +80,30 @@ func filteredPaginate(
 // The resulting slice (of type F) can be of a different type than the one being iterated through
 // (type T), so it's possible to do any necessary transformation inside the onResult function.
 func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
+	ctx sdk.Context,
 	cdc codec.BinaryCodec,
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
 	onResult func(key []byte, value T) (F, error),
 	constructor func() T,
 ) ([]F, *PageResponse, error) {
-	return genericFilteredPaginate(cdc, prefixStore, pageRequest, onResult, constructor, false)
+	return genericFilteredPaginate(cdc, prefixStore, pageRequest, onResult, constructor, scanLimitParamsFromContext(ctx))
+}
+
+// GenericFilteredPaginateForContext applies GenericFilteredPaginate on the ABCI
+// query path and GenericFilteredPaginateV66 during consensus execution.
+func GenericFilteredPaginateForContext[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
+	ctx sdk.Context,
+	cdc codec.BinaryCodec,
+	prefixStore types.KVStore,
+	pageRequest *PageRequest,
+	onResult func(key []byte, value T) (F, error),
+	constructor func() T,
+) ([]F, *PageResponse, error) {
+	if ctx.IsABCIQuery() {
+		return GenericFilteredPaginate(ctx, cdc, prefixStore, pageRequest, onResult, constructor)
+	}
+	return GenericFilteredPaginateV66(cdc, prefixStore, pageRequest, onResult, constructor)
 }
 
 // GenericFilteredPaginateV66 preserves release/v6.6 behavior for EVM
@@ -197,7 +115,7 @@ func GenericFilteredPaginateV66[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	onResult func(key []byte, value T) (F, error),
 	constructor func() T,
 ) ([]F, *PageResponse, error) {
-	return genericFilteredPaginate(cdc, prefixStore, pageRequest, onResult, constructor, true)
+	return genericFilteredPaginate(cdc, prefixStore, pageRequest, onResult, constructor, v66ScanLimitParams())
 }
 
 func genericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
@@ -206,148 +124,44 @@ func genericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	pageRequest *PageRequest,
 	onResult func(key []byte, value T) (F, error),
 	constructor func() T,
-	enforceV66ScanLimit bool,
+	scanLimit scanLimitParams,
 ) ([]F, *PageResponse, error) {
-	// if the PageRequest is nil, use default PageRequest
-	if pageRequest == nil {
-		pageRequest = &PageRequest{}
+	req, err := preparePageRequest(pageRequest, scanLimit)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	offset := pageRequest.Offset
-	key := pageRequest.Key
-	limit := pageRequest.Limit
-	countTotal := pageRequest.CountTotal
-	reverse := pageRequest.Reverse
 	var results []F
 
-	if offset > 0 && key != nil {
-		return results, nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
-	}
-
-	// Note: unlike upstream cosmos-sdk, limit == 0 must NOT implicitly enable
-	// countTotal; see the note in Paginate.
-	if limit == 0 {
-		limit = DefaultLimit
-	}
-
-	if len(key) != 0 {
-		iterator := getIterator(prefixStore, key, reverse)
-		defer func() { _ = iterator.Close() }()
-
-		var (
-			numHits   uint64
-			nextKey   []byte
-			totalIter uint64
-		)
-
-		for ; iterator.Valid(); iterator.Next() {
-			totalIter++
-			if numHits == limit {
-				nextKey = iterator.Key()
-				break
-			}
-			if enforceV66ScanLimit && totalIter > MaxScanLimit {
-				return nil, nil, status.Errorf(codes.InvalidArgument,
-					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
-			}
-
-			if iterator.Error() != nil {
-				return nil, nil, iterator.Error()
-			}
-
-			protoMsg := constructor()
-
-			err := cdc.Unmarshal(iterator.Value(), protoMsg)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			val, err := onResult(iterator.Key(), protoMsg)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			if val.Size() != 0 {
-				results = append(results, val)
-				numHits++
-			}
-		}
-
-		return results, &PageResponse{
-			NextKey: nextKey,
-		}, nil
-	}
-
-	iterator := getIterator(prefixStore, nil, reverse)
-	defer func() { _ = iterator.Close() }()
-
-	end := paginationEnd(offset, limit)
-	var (
-		numHits          uint64
-		nextKey          []byte
-		totalIter        uint64
-		pageCompleteIter uint64
-	)
-
-	for ; iterator.Valid(); iterator.Next() {
-		totalIter++
-		if enforceV66ScanLimit && numHits < end && totalIter > paginationEnd(offset, MaxScanLimit) {
-			return nil, nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries without filling the page; use key-based pagination instead", MaxScanLimit)
-		}
-		if enforceV66ScanLimit && pageCompleteIter > MaxScanLimit {
-			if !countTotal {
-				break
-			}
-			return nil, nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
-		}
-
-		if iterator.Error() != nil {
-			return nil, nil, iterator.Error()
-		}
-
+	appendResult := func(key []byte, value []byte, accumulate bool) (bool, error) {
 		protoMsg := constructor()
+		if err := cdc.Unmarshal(value, protoMsg); err != nil {
+			return false, err
+		}
 
-		err := cdc.Unmarshal(iterator.Value(), protoMsg)
+		val, err := onResult(key, protoMsg)
 		if err != nil {
-			return nil, nil, err
+			return false, err
 		}
 
-		val, err := onResult(iterator.Key(), protoMsg)
-		if err != nil {
-			return nil, nil, err
+		if val.Size() == 0 {
+			return false, nil
 		}
 
-		if val.Size() != 0 {
-			// Previously this was the "accumulate" flag
-			if numHits >= offset && numHits < end {
-				results = append(results, val)
-			}
-			numHits++
+		if accumulate {
+			results = append(results, val)
 		}
-
-		if numHits >= end {
-			pageCompleteIter++
-		}
-
-		if numHits > end {
-			// Only the first entry past the end of the page is the next key;
-			// do not overwrite it while scanning the remainder for countTotal.
-			if nextKey == nil {
-				nextKey = iterator.Key()
-			}
-
-			if !countTotal {
-				break
-			}
-		}
+		return true, nil
 	}
 
-	res := &PageResponse{NextKey: nextKey}
-	if countTotal {
-		res.Total = numHits
+	if req.useKey {
+		pageRes, err := runKeyPath(prefixStore, req, scanLimit, func(key, value []byte) (bool, error) {
+			hit, err := appendResult(key, value, true)
+			return hit, err
+		})
+		return results, pageRes, err
 	}
 
-	return results, res, nil
+	pageRes, err := runOffsetPathFiltered(prefixStore, req, scanLimit, appendResult)
+	return results, pageRes, err
 }
