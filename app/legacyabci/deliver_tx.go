@@ -19,7 +19,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -29,7 +28,6 @@ type DeliverTxKeepers struct {
 	AccountKeeper  authkeeper.AccountKeeper
 	BankKeeper     bankkeeper.Keeper
 	FeeGrantKeeper *feegrantkeeper.Keeper
-	OracleKeeper   oraclekeeper.Keeper
 	EvmKeeper      *evmkeeper.Keeper
 	ParamsKeeper   paramskeeper.Keeper
 	UpgradeKeeper  *upgradekeeper.Keeper
@@ -108,7 +106,7 @@ func DeliverTx(
 			}
 		}()
 	} else {
-		newCtx, err = ante.CosmosDeliverTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.OracleKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper, keepers.FeeGrantKeeper)
+		newCtx, err = ante.CosmosDeliverTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper, keepers.FeeGrantKeeper)
 	}
 	if !newCtx.IsZero() {
 		ctx = newCtx.WithMultiStore(ms)

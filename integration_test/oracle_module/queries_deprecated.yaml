@@ -1,0 +1,13 @@
+- name: Test oracle queries are deprecated
+  inputs:
+    - cmd: seid q oracle params --output json 2>&1
+      env: PARAMS_QUERY_ERROR
+    - cmd: seid q oracle twaps 3600 --output json 2>&1
+      env: TWAPS_QUERY_ERROR
+  verifiers:
+    - type: regex
+      expr: oracle module is deprecated
+      result: PARAMS_QUERY_ERROR
+    - type: regex
+      expr: oracle module is deprecated
+      result: TWAPS_QUERY_ERROR

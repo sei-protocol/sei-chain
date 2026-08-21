@@ -23,7 +23,6 @@ import (
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
@@ -34,7 +33,6 @@ type CheckTxKeepers struct {
 	BankKeeper     bankkeeper.Keeper
 	FeeGrantKeeper *feegrantkeeper.Keeper
 	IBCKeeper      *ibckeeper.Keeper
-	OracleKeeper   oraclekeeper.Keeper
 	EvmKeeper      *evmkeeper.Keeper
 	ParamsKeeper   paramskeeper.Keeper
 	UpgradeKeeper  *upgradekeeper.Keeper
@@ -106,7 +104,7 @@ func CheckTx(
 	} else if isEVM {
 		newCtx, err = ante.EvmCheckTxAnte(anteCtx, tx, keepers.UpgradeKeeper, keepers.EvmKeeper)
 	} else {
-		newCtx, err = ante.CosmosCheckTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.OracleKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper, keepers.FeeGrantKeeper, keepers.IBCKeeper)
+		newCtx, err = ante.CosmosCheckTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper, keepers.FeeGrantKeeper, keepers.IBCKeeper)
 	}
 	if !newCtx.IsZero() {
 		ctx = newCtx
