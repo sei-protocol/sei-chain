@@ -196,12 +196,10 @@ func restorePlan(ds *data.State, loaded *loadedState) (*types.Epoch, types.RoadI
 		return nil, 0, nil, fmt.Errorf("genesis epoch 0: %w", err)
 	}
 	var first types.RoadIndex
-	var tip *types.CommitQC
-	var tipEpoch *types.Epoch
+	tip := utils.None[restoredQC]()
 	if anchor, ok := ds.Anchor().Load().Get(); ok {
 		first = anchor.CommitQC.Index() + 1
-		tip = anchor.CommitQC
-		tipEpoch = anchor.Epoch
+		tip = utils.Some(restoredQC{qc: anchor.CommitQC, ep: anchor.Epoch})
 	}
 	var qcs []restoredQC
 	for _, qc := range loaded.commitQCs {
@@ -219,31 +217,27 @@ func restorePlan(ds *data.State, loaded *loadedState) (*types.Epoch, types.RoadI
 		if err := qc.Verify(ep); err != nil {
 			return nil, 0, nil, fmt.Errorf("persisted commitQC %d verify: %w", qc.Index(), err)
 		}
-		qcs = append(qcs, restoredQC{qc: qc, ep: ep})
-		tip = qc
-		tipEpoch = ep
+		r := restoredQC{qc: qc, ep: ep}
+		qcs = append(qcs, r)
+		tip = utils.Some(r)
 	}
-	if tip == nil {
-		return genesis, first, qcs, nil
+	if tip, ok := tip.Get(); ok {
+		applied, err := nextViewEpoch(registry, tip.qc)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		return applied, first, qcs, nil
 	}
-	applied, err := nextViewEpoch(registry, tip, tipEpoch)
-	if err != nil {
-		return nil, 0, nil, err
-	}
-	return applied, first, qcs, nil
+	return genesis, first, qcs, nil
 }
 
-// nextViewEpoch is the epoch of the road after tip: tipEpoch, or the next
-// registry epoch when tip sits on tipEpoch's last road.
-func nextViewEpoch(registry *epoch.Registry, tip *types.CommitQC, tipEpoch *types.Epoch) (*types.Epoch, error) {
-	if tipEpoch.RoadRange().Has(tip.Index() + 1) {
-		return tipEpoch, nil
-	}
-	next, err := registry.EpochByIndex(tipEpoch.EpochIndex() + 1)
+// nextViewEpoch is the registered epoch of the road after tip.
+func nextViewEpoch(registry *epoch.Registry, tip *types.CommitQC) (*types.Epoch, error) {
+	ep, err := registry.EpochAt(tip.Index() + 1)
 	if err != nil {
-		return nil, fmt.Errorf("epoch %d after sealed tip %d: %w", tipEpoch.EpochIndex()+1, tip.Index(), err)
+		return nil, fmt.Errorf("epoch after tip %d: %w", tip.Index(), err)
 	}
-	return next, nil
+	return ep, nil
 }
 
 // Close releases the WALs this state owns, and with them the exclusive lock each holds on its
