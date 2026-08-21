@@ -71,7 +71,7 @@ func NewPrecompileKeepers(a *App) *PrecompileKeepers {
 		SlashingMsgServer:   slashingkeeper.NewMsgServerImpl(a.SlashingKeeper),
 		SlashingQuerier:     a.SlashingKeeper,
 		UpgradeQuerier:      a.UpgradeKeeper,
-		TransferKeeper:      a.TransferKeeper,
+		TransferKeeper:      a.HistoricalTransferKeeper,
 		ClientKeeper:        a.IBCKeeper.ClientKeeper,
 		ConnectionKeeper:    a.IBCKeeper.ConnectionKeeper,
 		ChannelKeeper:       a.IBCKeeper.ChannelKeeper,

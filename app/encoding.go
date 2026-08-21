@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/std"
+	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 )
 
 // MakeEncodingConfig creates an EncodingConfig for testing.
@@ -12,6 +13,7 @@ func MakeEncodingConfig() params.EncodingConfig {
 	std.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	ModuleBasics.RegisterLegacyAminoCodec(encodingConfig.Amino)
 	ModuleBasics.RegisterInterfaces(encodingConfig.InterfaceRegistry)
+	registerRetiredModuleCodecs(encodingConfig)
 	return encodingConfig
 }
 
@@ -22,5 +24,13 @@ func MakeLegacyEncodingConfig() params.EncodingConfig {
 	std.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	ModuleBasics.RegisterLegacyAminoCodec(encodingConfig.Amino)
 	ModuleBasics.RegisterInterfaces(encodingConfig.InterfaceRegistry)
+	registerRetiredModuleCodecs(encodingConfig)
 	return encodingConfig
+}
+
+// registerRetiredModuleCodecs keeps historical transactions decodable without
+// registering the retired modules' commands, services, or genesis state.
+func registerRetiredModuleCodecs(encodingConfig params.EncodingConfig) {
+	ibctransfertypes.RegisterLegacyAminoCodec(encodingConfig.Amino)
+	ibctransfertypes.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 }

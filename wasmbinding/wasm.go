@@ -27,7 +27,6 @@ func RegisterCustomPlugins(
 	capabilityKeeper wasmtypes.CapabilityKeeper,
 	bankKeeper wasmtypes.Burner,
 	unpacker codectypes.AnyUnpacker,
-	portSource wasmtypes.ICS20TransferPortSource,
 	evmKeeper *evmkeeper.Keeper,
 	stakingKeeper stakingkeeper.Keeper,
 ) []wasmkeeper.Option {
@@ -41,7 +40,7 @@ func RegisterCustomPlugins(
 		Custom: CustomQuerier(wasmQueryPlugin),
 	})
 	messengerHandlerOpt := wasmkeeper.WithMessageHandler(
-		CustomMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, evmKeeper, unpacker, portSource),
+		CustomMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, evmKeeper, unpacker),
 	)
 
 	return []wasm.Option{

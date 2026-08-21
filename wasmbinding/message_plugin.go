@@ -39,9 +39,8 @@ func CustomMessageHandler(
 	bankKeeper wasmtypes.Burner,
 	evmKeeper *evmkeeper.Keeper,
 	unpacker codectypes.AnyUnpacker,
-	portSource wasmtypes.ICS20TransferPortSource,
 ) wasmkeeper.Messenger {
-	encoders := wasmkeeper.DefaultEncoders(unpacker, portSource)
+	encoders := wasmkeeper.DefaultEncoders(unpacker)
 	encoders = encoders.Merge(
 		&wasmkeeper.MessageEncoders{
 			Custom: CustomEncoder,
