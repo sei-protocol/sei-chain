@@ -106,7 +106,7 @@ func newState(
 		return nil, fmt.Errorf("avail.NewState: %w", err)
 	}
 
-	initialInner, err := newInner(persistedData, availState.SubscribeConsensusSpec().Load())
+	initialInner, err := newInner(persistedData, availState.SubscribeConsensusSpec().Load(), cfg.Key.Public())
 	if err != nil {
 		_ = availState.Close()
 		return nil, fmt.Errorf("newInner: %w", err)
@@ -125,7 +125,7 @@ func newState(
 		prepareVotes: utils.NewMutex(newPrepareVotes()),
 		commitVotes:  utils.NewMutex(newCommitVotes()),
 
-		myView:        utils.NewAtomicSend(types.ViewSpec{CommitQC: initialInner.spec.CommitQC, TimeoutQC: initialInner.TimeoutQC, Epoch: initialInner.spec.Epoch}),
+		myView:        utils.NewAtomicSend(types.ViewSpec{ConsensusSpec: initialInner.spec, TimeoutQC: initialInner.TimeoutQC}),
 		myProposal:    utils.NewAtomicSend(utils.None[*types.FullProposal]()),
 		myPrepareVote: utils.NewAtomicSend(utils.None[*types.ConsensusReqPrepareVote]()),
 		myCommitVote:  utils.NewAtomicSend(utils.None[*types.ConsensusReqCommitVote]()),
@@ -135,8 +135,8 @@ func newState(
 	return s, nil
 }
 
-// ErrAvailBehindConsensus means the consensus WAL tip is ahead of ConsensusSpec.
-var ErrAvailBehindConsensus = errors.New("consensus WAL tip ahead of ConsensusSpec")
+// ErrAvailBehindConsensus means the consensus WAL view is ahead of ConsensusSpec.
+var ErrAvailBehindConsensus = errors.New("consensus WAL view ahead of ConsensusSpec")
 
 // Close releases the availability state's WALs, and with them the exclusive lock each holds on its
 // directory.
@@ -181,6 +181,8 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 
 // TODO: scope prepareVotes, commitVotes, and timeoutVotes to a single epoch
 // so stale votes from a previous epoch are automatically dropped on transition.
+// TODO: PushPrepareVote, PushCommitVote, and PushTimeoutVote should wait for the
+// vote's epoch when it is ahead of myView (ahead-within-epoch ingest is fine).
 
 // PushPrepareVote processes an unverified Prepare vote message.
 func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
@@ -273,7 +275,7 @@ func updateOutput[T types.ConsensusReq](w *utils.AtomicSend[utils.Option[T]], v 
 // timers, neither of which constitutes a vote.
 func (s *State) runOutputs(ctx context.Context) error {
 	return s.innerRecv.Iter(ctx, func(ctx context.Context, i inner) error {
-		vs := types.ViewSpec{CommitQC: i.spec.CommitQC, TimeoutQC: i.TimeoutQC, Epoch: i.spec.Epoch}
+		vs := types.ViewSpec{ConsensusSpec: i.spec, TimeoutQC: i.TimeoutQC}
 		old := s.myView.Load()
 		if old.View().Less(vs.View()) {
 			s.myView.Store(vs)
@@ -319,7 +321,7 @@ func (s *State) Run(ctx context.Context) error {
 		})
 		scope.SpawnNamed("pushSpec", func() error {
 			// We pull the tip back from "avail" for dissemination. This ensures we
-			// only advance on CommitQCs that avail has verified, logged, and paired
+			// only advance on CommitQCs that avail has verified, persisted, and paired
 			// with the epoch of the next RoadIndex — consensus resolves no epochs itself.
 			return s.avail.SubscribeConsensusSpec().Iter(ctx, func(ctx context.Context, spec types.ConsensusSpec) error {
 				return s.pushSpec(spec)

@@ -205,8 +205,7 @@ message FullTimeoutVote {
 message PersistedInner {
   reserved "commit_vote", "prepare_vote", "commit_qc";
   reserved 4, 5, 1;
-  // Tip CommitQC road index for ErrAvailBehindConsensus on restore.
-  // Absent means no tip yet (genesis view 0). Runtime tip comes from ConsensusSpec.
+  // Index is the current view RoadIndex (ConsensusSpec.Index; 0 at genesis).
   optional uint64 commit_qc_index = 9;
   optional PrepareQC prepare_qc = 2;
   optional TimeoutQC timeout_qc = 3;

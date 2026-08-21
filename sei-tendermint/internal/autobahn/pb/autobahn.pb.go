@@ -1357,8 +1357,7 @@ func (x *FullTimeoutVote) GetLatestPrepareQc() *PrepareQC {
 // Derived fields are implementation-dependent and should be recomputed on load.
 type PersistedInner struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Tip CommitQC road index for ErrAvailBehindConsensus on restore.
-	// Absent means no tip yet (genesis view 0). Runtime tip comes from ConsensusSpec.
+	// Current view RoadIndex (0 at genesis). Compared to ConsensusSpec.Index on restore.
 	CommitQcIndex *uint64          `protobuf:"varint,9,opt,name=commit_qc_index,json=commitQcIndex,proto3,oneof" json:"commit_qc_index,omitempty"`
 	PrepareQc     *PrepareQC       `protobuf:"bytes,2,opt,name=prepare_qc,json=prepareQc,proto3,oneof" json:"prepare_qc,omitempty"`
 	TimeoutQc     *TimeoutQC       `protobuf:"bytes,3,opt,name=timeout_qc,json=timeoutQc,proto3,oneof" json:"timeout_qc,omitempty"`

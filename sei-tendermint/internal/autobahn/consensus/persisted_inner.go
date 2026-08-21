@@ -15,7 +15,7 @@ import (
 // # What We Persist
 //
 // All fields are persisted atomically in a single A/B file pair (inner_a.pb/inner_b.pb):
-//   - CommitQCIndex: tip road index used to validate the WAL against ConsensusSpec
+//   - Index: current view RoadIndex used to validate the WAL against ConsensusSpec
 //   - PrepareQC: needed for timeoutVote on restart
 //   - TimeoutQC: justified entering the current view number
 //   - CommitVote, PrepareVote, TimeoutVote: this node's votes for the current view
@@ -59,44 +59,30 @@ import (
 //   - TimeoutQC: YES — rebroadcast via myTimeoutQC watch
 //   - CommitQC: NO — used locally for view justification but not rebroadcast;
 //     the runtime tip comes from ConsensusSpec, while the WAL stores only
-//     CommitQCIndex. CommitQCs are served via StreamCommitQCs from the data
+//     Index. CommitQCs are served via StreamCommitQCs from the data
 //     layer. TODO: consider rebroadcasting CommitQC on restart to help peers
 //     sync faster after cluster-wide outages.
 type persistedInner struct {
-	CommitQCIndex utils.Option[types.RoadIndex]
-	PrepareQC     utils.Option[*types.PrepareQC]
-	TimeoutQC     utils.Option[*types.TimeoutQC]
+	Index     types.RoadIndex
+	PrepareQC utils.Option[*types.PrepareQC]
+	TimeoutQC utils.Option[*types.TimeoutQC]
 
 	CommitVote  utils.Option[*types.Signed[*types.CommitVote]]
 	PrepareVote utils.Option[*types.Signed[*types.PrepareVote]]
 	TimeoutVote utils.Option[*types.FullTimeoutVote]
 }
 
-// commitQCIndex returns the tip road index carried by spec, if any.
-func commitQCIndex(spec types.ConsensusSpec) utils.Option[types.RoadIndex] {
-	if cqc, ok := spec.CommitQC.Get(); ok {
-		return utils.Some(cqc.Index())
-	}
-	return utils.None[types.RoadIndex]()
-}
-
-// nextIndexOpt returns Index+1 of idx, or 0 if absent (same as types.NextIndexOpt for a tip).
-func nextIndexOpt(idx utils.Option[types.RoadIndex]) types.RoadIndex {
-	if i, ok := idx.Get(); ok {
-		return i + 1
-	}
-	return 0
-}
-
-// validate checks internal consistency and cryptographic signatures of persisted state.
-// Returns error on corrupt state. CommitQCIndex is checked against spec by newInner first.
-func (p *persistedInner) validate(spec types.ConsensusSpec) error {
+// Verify checks internal consistency and cryptographic signatures of persisted state.
+// Returns error on corrupt state. Index is checked against spec by newInner first.
+// PrepareQC and TimeoutQC may be assembled from any committee replicas; CommitVote,
+// PrepareVote, and TimeoutVote must be this node's.
+func (p *persistedInner) Verify(spec types.ConsensusSpec, self types.PublicKey) error {
 	ep := spec.Epoch
 	// TimeoutQC index must equal NextIndexOpt(CommitQC) (i.e., CommitQC.Index+1, or 0 if missing).
 	// Since we persist the entire inner state atomically, a mismatched index is always corrupt.
 	if tqc, ok := p.TimeoutQC.Get(); ok {
 		tqcIndex := tqc.View().Index
-		expectedIndex := types.NextIndexOpt(spec.CommitQC)
+		expectedIndex := spec.Index()
 		if tqcIndex != expectedIndex {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC has index %d but expected %d", tqcIndex, expectedIndex)
 		}
@@ -105,9 +91,8 @@ func (p *persistedInner) validate(spec types.ConsensusSpec) error {
 		}
 	}
 
-	vs := types.ViewSpec{CommitQC: spec.CommitQC, TimeoutQC: p.TimeoutQC, Epoch: ep}
+	vs := types.ViewSpec{ConsensusSpec: spec, TimeoutQC: p.TimeoutQC}
 	currentView := vs.View()
-	committee := ep.Committee()
 
 	// checkViewAndSig validates that a persisted field has the current view and a valid signature.
 	// Since inner is persisted atomically, any view mismatch indicates corrupt state.
@@ -130,44 +115,43 @@ func (p *persistedInner) validate(spec types.ConsensusSpec) error {
 		return fmt.Errorf("corrupt persisted state: CommitVote present without PrepareQC")
 	}
 	if v, ok := p.CommitVote.Get(); ok {
-		if err := checkViewAndSig("CommitVote", v.Msg().Proposal().View(), verifyReplicaSig(committee, v)); err != nil {
+		if err := checkViewAndSig("CommitVote", v.Msg().Proposal().View(), verifyLocalSig(self, v)); err != nil {
 			return err
 		}
 	}
 	if v, ok := p.PrepareVote.Get(); ok {
-		if err := checkViewAndSig("PrepareVote", v.Msg().Proposal().View(), verifyReplicaSig(committee, v)); err != nil {
+		if err := checkViewAndSig("PrepareVote", v.Msg().Proposal().View(), verifyLocalSig(self, v)); err != nil {
 			return err
 		}
 	}
 	if v, ok := p.TimeoutVote.Get(); ok {
-		if err := checkViewAndSig("TimeoutVote", v.View(), v.Verify(ep)); err != nil {
+		if err := checkViewAndSig("TimeoutVote", v.View(), verifyLocalTimeoutVote(self, v, ep)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func verifyReplicaSig[T types.Msg](c *types.Committee, v *types.Signed[T]) error {
-	if !c.HasReplica(v.Key()) {
-		return fmt.Errorf("%q is not a replica", v.Key())
+func verifyLocalSig[T types.Msg](self types.PublicKey, v *types.Signed[T]) error {
+	if v.Key() != self {
+		return fmt.Errorf("signed by %q, not this node", v.Key())
 	}
 	return v.VerifySig()
 }
 
-// walTipIndex returns NextIndexOpt of the tip recorded in the WAL, if any.
-func walTipIndex(p *pb.PersistedInner) types.RoadIndex {
-	if p == nil || p.CommitQcIndex == nil {
-		return 0
+func verifyLocalTimeoutVote(self types.PublicKey, v *types.FullTimeoutVote, ep *types.Epoch) error {
+	if v.Vote().Key() != self {
+		return fmt.Errorf("signed by %q, not this node", v.Vote().Key())
 	}
-	return types.RoadIndex(*p.CommitQcIndex) + 1
+	return v.Verify(ep)
 }
 
 // innerProtoConv is a protobuf converter for persistedInner.
 var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	Encode: func(m *persistedInner) *pb.PersistedInner {
 		p := &pb.PersistedInner{}
-		if idx, ok := m.CommitQCIndex.Get(); ok {
-			v := uint64(idx)
+		if m.Index != 0 {
+			v := uint64(m.Index)
 			p.CommitQcIndex = &v
 		}
 		if v, ok := m.PrepareQC.Get(); ok {
@@ -190,7 +174,7 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	Decode: func(p *pb.PersistedInner) (*persistedInner, error) {
 		m := &persistedInner{}
 		if p.CommitQcIndex != nil {
-			m.CommitQCIndex = utils.Some(types.RoadIndex(*p.CommitQcIndex))
+			m.Index = types.RoadIndex(*p.CommitQcIndex)
 		}
 		if p.PrepareQc != nil {
 			v, err := types.PrepareQCConv.Decode(p.PrepareQc)
