@@ -410,26 +410,12 @@ func (b *Backend) ChainDb() ethdb.Database {
 	panic("implement me")
 }
 
-func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
-	blockNum := bn.Int64()
-	switch blockNum {
-	case rpc.SafeBlockNumber.Int64(), rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64():
-		blockNum = b.ctxProvider(LatestCtxHeight).BlockHeight()
-	case rpc.EarliestBlockNumber.Int64():
-		genesisRes, err := b.tmClient.Genesis(context.Background())
-		if err != nil {
-			panic("could not get genesis info from tendermint")
-		}
-		blockNum = genesisRes.Genesis.InitialHeight
-	case rpc.PendingBlockNumber.Int64():
-		panic("tracing on pending block is not supported")
-	}
-	return blockNum
-}
-
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
-	blockNum := b.ConvertBlockNumber(bn)
-	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNum, 1)
+	blockNumberPtr, err := getBlockNumber(ctx, b.tmClient, bn)
+	if err != nil {
+		return nil, nil, err
+	}
+	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, blockNumberPtr, 1)
 	if err != nil {
 		return nil, nil, err
 	}

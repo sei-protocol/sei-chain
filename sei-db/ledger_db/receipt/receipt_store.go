@@ -28,6 +28,7 @@ var logger = seilog.NewLogger("db", "ledger-db", "receipt")
 // Sentinel errors for consistent error checking.
 var (
 	ErrNotFound               = errors.New("receipt not found")
+	ErrReceiptPruned          = fmt.Errorf("receipt pruned: %w", ErrNotFound)
 	ErrNotConfigured          = errors.New("receipt store not configured")
 	ErrRangeQueryNotSupported = errors.New("range query not supported by this backend")
 	// ErrTooManyLogs is returned by FilterLogs when a query matches more logs

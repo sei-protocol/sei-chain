@@ -332,7 +332,7 @@ func TestLittIdxPrune(t *testing.T) {
 	// Pruned blocks are invisible (tag entries deleted, read floor enforced).
 	for block := uint64(1); block <= 5; block++ {
 		_, err := store.GetReceiptFromStore(ctx, litTxHash(block, 0))
-		require.ErrorIs(t, err, receipt.ErrNotFound, "block %d should be pruned", block)
+		require.ErrorIs(t, err, receipt.ErrReceiptPruned, "block %d should be pruned", block)
 	}
 	logs, err := store.FilterLogs(ctx, 1, 5, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 	require.NoError(t, err)

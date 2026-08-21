@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"strings"
 	"sync"
 	"time"
 
@@ -86,7 +85,7 @@ func getTransactionReceipt(
 
 	receipt, err := t.keeper.GetReceipt(sdkctx, hash)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, receiptpkg.ErrNotFound) {
 			// When the transaction doesn't exist, the RPC method should return JSON null
 			// as per specification.
 			return nil, nil
@@ -247,7 +246,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	// then try get from committed
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, receiptpkg.ErrNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -282,7 +281,7 @@ func (t *TransactionAPI) GetTransactionErrorByHash(ctx context.Context, hash com
 	}()
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, receiptpkg.ErrNotFound) {
 			return "", nil
 		}
 		return "", err

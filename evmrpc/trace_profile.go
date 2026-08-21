@@ -51,7 +51,7 @@ func (api *DebugAPI) TraceTransactionProfile(ctx context.Context, hash common.Ha
 	if returnErr = api.validateTraceTracer(config); returnErr != nil {
 		return nil, returnErr
 	}
-	if returnErr = api.guardHistoricalDebugTraceByTxHash(ctx, "debug_traceTransactionProfile", hash); returnErr != nil {
+	if returnErr = api.guardTraceByTxHash(ctx, "debug_traceTransactionProfile", hash, api.ensureTraceHeightAvailable); returnErr != nil {
 		return nil, returnErr
 	}
 

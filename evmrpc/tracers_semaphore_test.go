@@ -9,8 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,21 +87,69 @@ func TestAcquireTraceSemaphoreCanceledContextDoesNotConsumeSlot(t *testing.T) {
 	}
 }
 
-type panicHashLookupClient struct {
-	*heightTestClient
-}
+func TestTraceBlockByNumberRejectsConcurrencyLimitAfterGuard(t *testing.T) {
+	t.Parallel()
 
-func (c *panicHashLookupClient) BlockByHash(context.Context, tmbytes.HexBytes) (*coretypes.ResultBlock, error) {
-	panic("hash lookup should not happen before trace context setup")
-}
-
-func TestHashBasedTraceEndpointsAcquireSemaphoreBeforeHashLookup(t *testing.T) {
 	latestHeight := int64(10)
 	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
-	tmClient := &panicHashLookupClient{
-		heightTestClient: newHeightTestClient(8, 1, latestHeight),
-	}
+	tmClient := newHeightTestClient(8, 1, latestHeight)
 	watermarks := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, &fakeReceiptStore{latest: latestHeight})
+	api := &DebugAPI{
+		tmClient:           tmClient,
+		ctxProvider:        func(int64) sdk.Context { return latestCtx },
+		connectionType:     ConnectionTypeHTTP,
+		traceCallSemaphore: make(chan struct{}, 1),
+		traceTimeout:       time.Second,
+		backend: &Backend{
+			tmClient:   tmClient,
+			watermarks: watermarks,
+		},
+	}
+
+	api.traceCallSemaphore <- struct{}{}
+	defer func() { <-api.traceCallSemaphore }()
+
+	_, err := api.TraceBlockByNumber(context.Background(), rpc.LatestBlockNumber, nil)
+	require.ErrorIs(t, err, errTraceConcurrencyLimit)
+}
+
+func TestTraceCallRejectsConcurrencyLimitAfterGuard(t *testing.T) {
+	t.Parallel()
+
+	latestHeight := int64(10)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	tmClient := newHeightTestClient(8, 1, latestHeight)
+	stateStore := &fakeStateStore{latest: latestHeight, earliest: 1}
+	watermarks := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, stateStore, &fakeReceiptStore{latest: latestHeight})
+	api := &DebugAPI{
+		tmClient:           tmClient,
+		ctxProvider:        func(int64) sdk.Context { return latestCtx },
+		connectionType:     ConnectionTypeHTTP,
+		traceCallSemaphore: make(chan struct{}, 1),
+		traceTimeout:       time.Second,
+		backend: &Backend{
+			tmClient:   tmClient,
+			watermarks: watermarks,
+		},
+	}
+
+	api.traceCallSemaphore <- struct{}{}
+	defer func() { <-api.traceCallSemaphore }()
+
+	blockNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+	_, err := api.TraceCall(context.Background(), export.TransactionArgs{}, blockNrOrHash, nil)
+	require.ErrorIs(t, err, errTraceConcurrencyLimit)
+}
+
+func TestTraceBlockByHashChecksAvailabilityBeforeSemaphore(t *testing.T) {
+	t.Parallel()
+
+	prunedHeight := int64(100)
+	latestHeight := int64(200)
+	latestCtx := sdk.Context{}.WithBlockHeight(latestHeight)
+	tmClient := newHeightTestClient(prunedHeight, 1, latestHeight)
+	rs := &fakeReceiptStore{latest: latestHeight, earliest: 150}
+	watermarks := NewWatermarkManager(tmClient, func(int64) sdk.Context { return latestCtx }, nil, rs)
 	api := &DebugAPI{
 		tmClient:           tmClient,
 		ctxProvider:        func(int64) sdk.Context { return latestCtx },
@@ -121,9 +167,7 @@ func TestHashBasedTraceEndpointsAcquireSemaphoreBeforeHashLookup(t *testing.T) {
 
 	hash := common.HexToHash(highBlockHashHex)
 	_, err := api.TraceBlockByHash(context.Background(), hash, nil)
-	require.ErrorIs(t, err, errTraceConcurrencyLimit)
-
-	blockNrOrHash := rpc.BlockNumberOrHashWithHash(hash, false)
-	_, err = api.TraceCall(context.Background(), export.TransactionArgs{}, blockNrOrHash, nil)
-	require.ErrorIs(t, err, errTraceConcurrencyLimit)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "receipts have been pruned")
+	require.NotErrorIs(t, err, errTraceConcurrencyLimit)
 }

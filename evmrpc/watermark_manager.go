@@ -179,9 +179,71 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 func (m *WatermarkManager) EnsureReceiptHeightAvailable(height int64) error {
 	earliest := m.receiptStore.EarliestVersion()
 	if height < earliest {
-		return fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d", height, earliest)
+		return fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d: %w",
+			height, earliest, receipt.ErrReceiptPruned)
 	}
 	return nil
+}
+
+// EnsureStateHeightAvailable verifies that historical state for the given block
+// height has not been pruned from the state store.
+func (m *WatermarkManager) EnsureStateHeightAvailable(ctx context.Context, height int64) error {
+	_, stateEarliest, latest, err := m.Watermarks(ctx)
+	if err != nil {
+		return err
+	}
+	return ensureWithinWatermarks(height, stateEarliest, latest)
+}
+
+// EnsureTraceCallHeightAvailable verifies block and state availability for
+// debug_traceCall. TraceCall loads state at the requested height via
+// StateAndHeaderByNumberOrHash and never reads receipts.
+func (m *WatermarkManager) EnsureTraceCallHeightAvailable(ctx context.Context, height int64) error {
+	blockEarliest, stateEarliest, latest, err := m.Watermarks(ctx)
+	if err != nil {
+		return err
+	}
+	if err := ensureWithinWatermarks(height, blockEarliest, latest); err != nil {
+		return err
+	}
+	if m.stateStore == nil {
+		// SS disabled: trace replay uses SC via ctxProvider, not SS retention.
+		return nil
+	}
+	return ensureWithinWatermarks(height, stateEarliest, latest)
+}
+
+// EnsureTraceHeightAvailable verifies block, receipt, and state availability
+// for debug_trace* replay endpoints (transaction/block). Replay loads parent
+// block validators and parent state (height-1) and reads receipts at the
+// requested height.
+func (m *WatermarkManager) EnsureTraceHeightAvailable(ctx context.Context, height int64) error {
+	blockEarliest, stateEarliest, latest, err := m.Watermarks(ctx)
+	if err != nil {
+		return err
+	}
+	if err := ensureWithinWatermarks(height, blockEarliest, latest); err != nil {
+		return err
+	}
+	if err := m.ensureReplayParentBlockAvailable(height, blockEarliest, latest); err != nil {
+		return err
+	}
+	if err := m.EnsureReceiptHeightAvailable(height); err != nil {
+		return err
+	}
+	if m.stateStore == nil {
+		// SS disabled: trace replay uses SC via ctxProvider, not SS retention.
+		return nil
+	}
+	stateHeight := max(height-1, m.genesisInitialHeight())
+	return ensureWithinWatermarks(stateHeight, stateEarliest, latest)
+}
+
+// ensureReplayParentBlockAvailable verifies the parent block height replay
+// tracing loads for validator set lookup in initializeBlock.
+func (m *WatermarkManager) ensureReplayParentBlockAvailable(height, blockEarliest, latest int64) error {
+	parentBlockHeight := max(height-1, m.genesisInitialHeight())
+	return ensureWithinWatermarks(parentBlockHeight, blockEarliest, latest)
 }
 
 func ensureWithinWatermarks(height, earliest, latest int64) error {
