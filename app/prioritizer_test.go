@@ -18,7 +18,6 @@ import (
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 type PrioritizerTestSuite struct {
@@ -97,14 +96,6 @@ func (s *PrioritizerTestSuite) TestGetTxPriority() {
 				gas: 0,
 			}
 		}
-		oracleVoteTx = func(s *PrioritizerTestSuite) cosmostypes.Tx {
-			s.App.ParamsKeeper.SetFeesParams(s.Ctx, xparamtypes.FeesParams{AllowedFeeDenoms: []string{"fish"}})
-			return &mockFeeTx{
-				fees: cosmostypes.NewCoins(cosmostypes.NewInt64Coin("fish", 1_000)),
-				gas:  100,
-				msgs: []cosmostypes.Msg{&oracletypes.MsgAggregateExchangeRateVote{}},
-			}
-		}
 		associateMsgTx = func(s *PrioritizerTestSuite) cosmostypes.Tx {
 			s.App.ParamsKeeper.SetFeesParams(s.Ctx, xparamtypes.FeesParams{AllowedFeeDenoms: []string{"fish"}})
 			return &mockFeeTx{
@@ -140,11 +131,6 @@ func (s *PrioritizerTestSuite) TestGetTxPriority() {
 				return ctx.WithPriority(123)
 			},
 			wantPriority: 123,
-		},
-		{
-			name:         "oracle Tx type uses fee priority",
-			givenTx:      oracleVoteTx,
-			wantPriority: 10,
 		},
 		{
 			name:         "deprecated MsgAssociate uses fee priority",

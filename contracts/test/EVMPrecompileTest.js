@@ -308,14 +308,14 @@ describe("EVM Precompile Tester", function () {
             oracle = new ethers.Contract(OraclePrecompileContract, contractABI, accounts[0].signer);
         });
 
-        it("Oracle CLI TWAP query should fail when the oracle module is deprecated", async function () {
+        it("Oracle CLI TWAP query should fail because the oracle module is deprecated", async function () {
             let error;
             try {
                 await execute("seid q oracle twaps 3600 -o json");
             } catch (e) {
                 error = e;
             }
-            expect(error, "twaps query should fail when the oracle module is deprecated").to.exist;
+            expect(error, "twaps query should fail because the oracle module is deprecated").to.exist;
             expect(error.message).to.include("oracle module is deprecated");
         });
 
