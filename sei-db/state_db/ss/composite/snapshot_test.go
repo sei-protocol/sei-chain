@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/management"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
@@ -31,7 +31,7 @@ func (s *controlledSnapshotScheduler) ScheduleCheckpoint(
 ) {
 	s.pending <- func() {
 		if !shouldRun() {
-			done(management.ErrCheckpointCanceled)
+			done(controller.ErrCheckpointCanceled)
 			return
 		}
 		if s.fail {

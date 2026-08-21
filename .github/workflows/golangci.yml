@@ -32,3 +32,8 @@ jobs:
         with:
           version: v2.8.0
           args: --timeout 10m0s
+      # Separate from the step above because that one honours run.tests, which is false,
+      # so its gofmt/goimports formatters never see a _test.go file. `fmt` ignores
+      # run.tests and so covers them. Keep the version in step with the Makefile.
+      - name: gofmt/goimports (including tests)
+        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 fmt --diff

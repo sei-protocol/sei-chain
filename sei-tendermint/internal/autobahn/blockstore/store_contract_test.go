@@ -1,4 +1,4 @@
-package block
+package blockstore_test
 
 import (
 	"fmt"
@@ -10,24 +10,61 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// open opens a handle to a types.BlockDB. Calling it more than once reopens a
+// open opens a handle to a types.BlockStore. Calling it more than once reopens a
 // handle to the SAME backing store, simulating a process restart (in-memory
 // impls return the same instance; durable impls reopen their files). The caller
 // must Close the previous handle before reopening.
-type open func() (types.BlockDB, error)
+type open func() (types.BlockStore, error)
 
 // builder returns an open bound to a fresh, empty backing store, for one subtest.
 type builder func(t *testing.T) open
 
-// TestBlockDB exercises the types.BlockDB contract against every implementation,
-// building each via its public constructor. Reclamation-below-watermark is
-// impl-specific (see TestLittblockReclaimsAcrossRestart and
-// TestMemblockPruneRemovesBelowWatermark); these tests only assert the portable
-// safety guarantee (nothing at/above the watermark is removed).
-func TestBlockDB(t *testing.T) {
+// littConfig builds a littblock config rooted at dir with a tiny retention so
+// the prune watermark is the sole observable reclamation gate in tests.
+func littConfig(t *testing.T, dir string) *littblock.BlockDBConfig {
+	cfg, err := littblock.DefaultConfig(dir)
+	require.NoError(t, err)
+	cfg.RetentionTime = time.Nanosecond
+	return cfg
+}
+
+// openLitt builds a block store over a LittDB-backed database at cfg's paths,
+// closing the database if the store fails to build.
+func openLitt(cfg *littblock.BlockDBConfig) (types.BlockStore, error) {
+	db, err := littblock.NewBlockDB(cfg)
+	if err != nil {
+		return nil, err
+	}
+	store, err := blockstore.New(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+// newMemoryStore builds a block store over a fresh in-memory database.
+func newMemoryStore(t *testing.T) types.BlockStore {
+	t.Helper()
+	store, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	return store
+}
+
+// TestBlockStore exercises the types.BlockStore contract against every storage
+// backend, building each via its public constructor. The suite lives here rather
+// than beside the backends because the contract is the consensus layer's, not
+// storage's: a backend owes only what blocktypes.BlockDB promises, and the
+// behavior asserted below is what this package builds on top of that.
+//
+// Reclamation below the watermark is a backend's own business, so the suite
+// asserts only the portable safety guarantee — nothing at or above the watermark
+// is removed. Each backend covers its own reclamation in its own package.
+func TestBlockStore(t *testing.T) {
 	impls := []struct {
 		name  string
 		build builder
@@ -35,65 +72,56 @@ func TestBlockDB(t *testing.T) {
 		{"memblock", func(t *testing.T) open {
 			// One shared instance: reopening returns it, so an in-memory
 			// "restart" preserves data exactly as a durable reopen would.
-			db := memblock.NewBlockDB()
-			return func() (types.BlockDB, error) { return db, nil }
+			db := newMemoryStore(t)
+			return func() (types.BlockStore, error) { return db, nil }
 		}},
 		{"littblock", func(t *testing.T) open {
 			// One backing directory: each open reopens a fresh DB over the same
 			// files, so a "restart" actually reloads persisted state from disk.
 			dir := t.TempDir()
-			return func() (types.BlockDB, error) {
-				return littblock.NewBlockDB(littConfig(t, dir))
+			return func() (types.BlockStore, error) {
+				return openLitt(littConfig(t, dir))
 			}
 		}},
 	}
 
 	for _, impl := range impls {
-		t.Run(impl.name, func(t *testing.T) {
-			t.Run("EmptyDB", func(t *testing.T) { testEmptyDB(t, impl.build) })
-			t.Run("ReadRoundTrip", func(t *testing.T) { testReadRoundTrip(t, impl.build) })
-			t.Run("QCByBlockNumber", func(t *testing.T) { testQCByBlockNumber(t, impl.build) })
-			t.Run("AppProposalByBlockNumber", func(t *testing.T) { testAppProposalByBlockNumber(t, impl.build) })
-			t.Run("AppQCByBlockNumber", func(t *testing.T) { testAppQCByBlockNumber(t, impl.build) })
-			t.Run("ReadSuffix", func(t *testing.T) { testReadSuffix(t, impl.build) })
-			t.Run("RestartPersistsData", func(t *testing.T) { testRestartPersistsData(t, impl.build) })
-			t.Run("PruneRetainsAtOrAbove", func(t *testing.T) { testPruneRetainsAtOrAbove(t, impl.build) })
-			t.Run("PruneStraddleRetainsQC", func(t *testing.T) { testPruneStraddleRetainsQC(t, impl.build) })
-			t.Run("PruneRefusesBelowWatermark", func(t *testing.T) { testPruneRefusesBelowWatermark(t, impl.build) })
-			t.Run("PrunedDistinctFromNotFound", func(t *testing.T) { testPrunedDistinctFromNotFound(t, impl.build) })
-			t.Run("PruneIdempotentMonotonic", func(t *testing.T) { testPruneIdempotentMonotonic(t, impl.build) })
-			t.Run("PruneNeverEmpties", func(t *testing.T) { testPruneNeverEmpties(t, impl.build) })
-			t.Run("PruneEmptyStoreThenWriteBelow", func(t *testing.T) {
-				testPruneEmptyStoreThenWriteBelow(t, impl.build)
-			})
-			t.Run("PruneQCAheadOfBlocks", func(t *testing.T) { testPruneQCAheadOfBlocks(t, impl.build) })
-			t.Run("PruneQCOnlyThenWriteBlock", func(t *testing.T) {
-				testPruneQCOnlyThenWriteBlock(t, impl.build)
-			})
-			t.Run("Status", func(t *testing.T) { testStatus(t, impl.build) })
-			t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, impl.build) })
-			t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) {
-				testWriteOrderRejectedAfterRestart(t, impl.build)
-			})
-			t.Run("WriteBlockGapRejected", func(t *testing.T) { testWriteBlockGapRejected(t, impl.build) })
-			t.Run("WriteQCCoversNoBlocksRejected", func(t *testing.T) {
-				testWriteQCCoversNoBlocksRejected(t, impl.build)
-			})
-			t.Run("WriteAppDataOrderRejected", func(t *testing.T) {
-				testWriteAppDataOrderRejected(t, impl.build)
-			})
-			t.Run("PruneWithAppQCNeverEmpties", func(t *testing.T) {
-				testPruneWithAppQCNeverEmpties(t, impl.build)
-			})
-			t.Run("WriteBlockRequiresQC", func(t *testing.T) { testWriteBlockRequiresQC(t, impl.build) })
-			t.Run("ResumeAfterRestart", func(t *testing.T) { testResumeAfterRestart(t, impl.build) })
-		})
+		t.Run(impl.name, func(t *testing.T) { runContract(t, impl.build) })
 	}
+}
+
+func runContract(t *testing.T, build builder) {
+	t.Run("EmptyDB", func(t *testing.T) { testEmptyDB(t, build) })
+	t.Run("ReadRoundTrip", func(t *testing.T) { testReadRoundTrip(t, build) })
+	t.Run("QCByBlockNumber", func(t *testing.T) { testQCByBlockNumber(t, build) })
+	t.Run("AppProposalByBlockNumber", func(t *testing.T) { testAppProposalByBlockNumber(t, build) })
+	t.Run("AppQCByBlockNumber", func(t *testing.T) { testAppQCByBlockNumber(t, build) })
+	t.Run("ReadSuffix", func(t *testing.T) { testReadSuffix(t, build) })
+	t.Run("RestartPersistsData", func(t *testing.T) { testRestartPersistsData(t, build) })
+	t.Run("PruneRetainsAtOrAbove", func(t *testing.T) { testPruneRetainsAtOrAbove(t, build) })
+	t.Run("PruneStraddleRetainsQC", func(t *testing.T) { testPruneStraddleRetainsQC(t, build) })
+	t.Run("PruneRefusesBelowWatermark", func(t *testing.T) { testPruneRefusesBelowWatermark(t, build) })
+	t.Run("PrunedDistinctFromNotFound", func(t *testing.T) { testPrunedDistinctFromNotFound(t, build) })
+	t.Run("PruneIdempotentMonotonic", func(t *testing.T) { testPruneIdempotentMonotonic(t, build) })
+	t.Run("PruneNeverEmpties", func(t *testing.T) { testPruneNeverEmpties(t, build) })
+	t.Run("PruneEmptyStoreThenWriteBelow", func(t *testing.T) { testPruneEmptyStoreThenWriteBelow(t, build) })
+	t.Run("PruneQCAheadOfBlocks", func(t *testing.T) { testPruneQCAheadOfBlocks(t, build) })
+	t.Run("PruneQCOnlyThenWriteBlock", func(t *testing.T) { testPruneQCOnlyThenWriteBlock(t, build) })
+	t.Run("Status", func(t *testing.T) { testStatus(t, build) })
+	t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, build) })
+	t.Run("WriteOrderRejectedAfterRestart", func(t *testing.T) { testWriteOrderRejectedAfterRestart(t, build) })
+	t.Run("WriteBlockGapRejected", func(t *testing.T) { testWriteBlockGapRejected(t, build) })
+	t.Run("WriteQCCoversNoBlocksRejected", func(t *testing.T) { testWriteQCCoversNoBlocksRejected(t, build) })
+	t.Run("WriteAppDataOrderRejected", func(t *testing.T) { testWriteAppDataOrderRejected(t, build) })
+	t.Run("PruneWithAppQCNeverEmpties", func(t *testing.T) { testPruneWithAppQCNeverEmpties(t, build) })
+	t.Run("PruneAfterRestart", func(t *testing.T) { testPruneAfterRestart(t, build) })
+	t.Run("WriteBlockRequiresQC", func(t *testing.T) { testWriteBlockRequiresQC(t, build) })
+	t.Run("ResumeAfterRestart", func(t *testing.T) { testResumeAfterRestart(t, build) })
 }
 
 // openFresh opens a handle to a new, empty backing store and returns it along
 // with the open that can reopen the same store (for restart).
-func openFresh(t *testing.T, build builder) (types.BlockDB, open) {
+func openFresh(t *testing.T, build builder) (types.BlockStore, open) {
 	o := build(t)
 	db, err := o()
 	require.NoError(t, err)
@@ -102,7 +130,7 @@ func openFresh(t *testing.T, build builder) (types.BlockDB, open) {
 
 // restart flushes and closes db, then reopens a handle to the same backing
 // store. The returned handle must be closed by the caller.
-func restart(t *testing.T, o open, db types.BlockDB) types.BlockDB {
+func restart(t *testing.T, o open, db types.BlockStore) types.BlockStore {
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 	reopened, err := o()
@@ -110,7 +138,7 @@ func restart(t *testing.T, o open, db types.BlockDB) types.BlockDB {
 	return reopened
 }
 
-func status(t *testing.T, db types.BlockDB) types.SuffixRange {
+func status(t *testing.T, db types.BlockStore) types.SuffixRange {
 	t.Helper()
 	return db.Status().OrPanic("non-empty BlockDB status")
 }
@@ -163,7 +191,7 @@ type iterEntry struct {
 }
 
 // drainSuffix reads the recovery-visible suffix batch.
-func drainSuffix(t *testing.T, db types.BlockDB) []iterEntry {
+func drainSuffix(t *testing.T, db types.BlockStore) []iterEntry {
 	t.Helper()
 	suffix, err := db.ReadSuffix()
 	require.NoError(t, err)
@@ -281,7 +309,7 @@ func testStatus(t *testing.T, build builder) {
 
 // assertTipsMatchPresent checks Status against point reads for the records the
 // public read API still serves.
-func assertTipsMatchPresent(t *testing.T, db types.BlockDB) {
+func assertTipsMatchPresent(t *testing.T, db types.BlockStore) {
 	t.Helper()
 	tips := status(t, db)
 
@@ -870,6 +898,48 @@ func testPruneWithAppQCNeverEmpties(t *testing.T, build builder) {
 	require.Equal(t, latestApp.qc.QC().GlobalRange(), gotProposal.GlobalRange())
 }
 
+// testPruneAfterRestart pins the one prune input that comes from recovery. The
+// cohort a prune rounds down to is re-read from the covering QC at prune time, so
+// a restart cannot get it wrong, but the ceiling — how far the application has
+// committed — is recovered with the rest of the write cursors. A recovery that
+// lost it would not fail loudly: the ceiling would fall back to the oldest cohort
+// and pruning would silently stop reclaiming.
+//
+// App data covers only the first three cohorts, so the ceiling is well below the
+// CommitQC tip and the two cannot be confused. The floor a prune-to-empty settles
+// on must be the newest committed cohort's first, exactly as it is for a store
+// that never restarted.
+func testPruneAfterRestart(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	require.GreaterOrEqual(t, len(batches), 4, "need AppQC prefix to lag CommitQC tip")
+	db, o := openFresh(t, build)
+	writeAll(t, db, batches)
+
+	rng := utils.TestRngFromSeed(testSeed + 400)
+	for _, b := range batches[:3] {
+		appQC := appQCForBatch(rng, keys, b)
+		require.NoError(t, db.WriteAppProposal(appQC.Proposal()))
+		require.NoError(t, db.WriteAppQC(appQC))
+	}
+
+	db = restart(t, o, db)
+	defer func() { _ = db.Close() }()
+
+	latestApp := batches[2]
+	require.NoError(t, db.PruneBefore(batches[len(batches)-1].next+1000))
+	require.Equal(t, latestApp.first, db.First(),
+		"the recovered ceiling must cap the prune at the newest committed cohort")
+
+	// The floor is where it claims to be, in both directions.
+	blk, err := db.ReadBlockByNumber(batches[1].first)
+	require.ErrorIs(t, err, types.ErrPruned)
+	require.False(t, blk.IsPresent())
+	blk, err = db.ReadBlockByNumber(latestApp.first)
+	require.NoError(t, err)
+	require.True(t, blk.IsPresent(), "newest committed cohort must survive the capped prune")
+}
+
 // testPruneQCAheadOfBlocks pins the min() guard in the prune clamp. QCs are
 // written before the blocks they cover, so between writing a QC and its first
 // block — and after a crash that persisted a QC but not its blocks — the newest
@@ -1190,7 +1260,7 @@ func testResumeAfterRestart(t *testing.T, build builder) {
 // recoverHighestBlock returns the highest persisted block number via a full
 // iterator scan (false if the store has no blocks). Test-side independent
 // verification; production resume uses Status (see blocksim.recoverResumeState).
-func recoverHighestBlock(t *testing.T, db types.BlockDB) (types.GlobalBlockNumber, bool) {
+func recoverHighestBlock(t *testing.T, db types.BlockStore) (types.GlobalBlockNumber, bool) {
 	t.Helper()
 	present := presentBlockNumbers(drainSuffix(t, db))
 	if len(present) == 0 {
@@ -1202,7 +1272,7 @@ func recoverHighestBlock(t *testing.T, db types.BlockDB) (types.GlobalBlockNumbe
 // recoverLastQC returns the most recently persisted QC's *CommitQC via a full
 // iterator scan (false if the store has no QCs). Test-side independent
 // verification; production resume uses Status (see blocksim.recoverResumeState).
-func recoverLastQC(t *testing.T, db types.BlockDB) (*types.CommitQC, bool) {
+func recoverLastQC(t *testing.T, db types.BlockStore) (*types.CommitQC, bool) {
 	t.Helper()
 	entries := drainSuffix(t, db)
 	if len(entries) == 0 {
@@ -1213,7 +1283,7 @@ func recoverLastQC(t *testing.T, db types.BlockDB) (*types.CommitQC, bool) {
 
 // recoverLastAppQC returns the most recently persisted AppQC via a full
 // iterator scan (false if the store has no AppQCs).
-func recoverLastAppQC(t *testing.T, db types.BlockDB) (*types.AppQC, bool) {
+func recoverLastAppQC(t *testing.T, db types.BlockStore) (*types.AppQC, bool) {
 	t.Helper()
 	entries := drainSuffix(t, db)
 	for i := len(entries) - 1; i >= 0; i-- {
@@ -1299,21 +1369,22 @@ func testWriteBlockGapRejected(t *testing.T, build builder) {
 	require.NoError(t, db.WriteBlock(b.first+2, b.blocks[2]))
 }
 
-// TestMemblockPruneRemovesBelowWatermark verifies the in-memory store's
-// synchronous, exact pruning: everything below the watermark is gone
-// immediately. Impl-specific (durable stores prune asynchronously) but uses only
-// the public API.
-func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
+// TestMemblockPruneHidesEverythingBelowWatermark pins what a prune looks like
+// over a backend that reclaims nothing. memblock keeps every record it is given,
+// so a below-watermark read is refused by this package's gate rather than by a
+// missing record — which makes it the sharpest test that the gate, not the
+// backend, is what stops a pruned read.
+func TestMemblockPruneHidesEverythingBelowWatermark(t *testing.T) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
-	db := memblock.NewBlockDB()
+	db := newMemoryStore(t)
 	writeAll(t, db, batches)
 	writeAppData(t, db, utils.TestRngFromSeed(testSeed+503), keys, batches)
 
 	watermark := batches[1].first
 	require.NoError(t, db.PruneBefore(watermark))
 
-	// First batch (below watermark) is gone.
+	// The first batch is below the watermark and must read as pruned.
 	for i := range batches[0].blocks {
 		n := batches[0].first + gbn(i)
 		opt, err := db.ReadBlockByNumber(n)
@@ -1329,24 +1400,18 @@ func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, opt.IsPresent())
 
-	// The iterator must skip the pruned records entirely.
-	for _, e := range drainSuffix(t, db) {
-		require.GreaterOrEqual(t, e.n, watermark, "iterator must not surface pruned positions")
-		require.GreaterOrEqual(t, e.qc.QC().GlobalRange().First, watermark,
-			"iterator must not surface pruned QCs")
-	}
+	assertSuffixAbove(t, db, watermark)
 }
 
-// TestMemblockPruneIntoCohortRoundsDown verifies memblock's in-memory behavior
-// when a prune point lands strictly inside a QC's range: the watermark rounds
-// down to that cohort's start, so the cohort's blocks change readability
-// atomically — the whole straddled cohort stays served (never split), the
-// straddling QC is retained, and the fully-below cohort is pruned. Matches
-// littblock.
+// TestMemblockPruneIntoCohortRoundsDown pins the cohort rounding as it is
+// observed through this package: a prune landing strictly inside a QC's range
+// rounds down to that cohort's start, so the cohort's blocks change readability
+// together. The whole straddled cohort stays served, its QC is retained, and only
+// the fully-below cohort is pruned.
 func TestMemblockPruneIntoCohortRoundsDown(t *testing.T) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
-	db := memblock.NewBlockDB()
+	db := newMemoryStore(t)
 	writeAll(t, db, batches)
 	writeAppData(t, db, utils.TestRngFromSeed(testSeed+504), keys, batches)
 
@@ -1381,23 +1446,20 @@ func TestMemblockPruneIntoCohortRoundsDown(t *testing.T) {
 	}
 }
 
-// The durable reclamation path (data pruned past after a restart is physically
-// collected by GC) is covered by TestLittblockReclaimsAcrossRestart in package
-// littblock, which inspects the raw table directly — public reads can no longer
-// distinguish "reclaimed" from "refused by the read watermark".
-
-// littConfig builds a littblock config rooted at dir with a tiny retention so
-// the prune watermark is the sole observable reclamation gate in tests.
-func littConfig(t *testing.T, dir string) *littblock.BlockDBConfig {
-	cfg, err := littblock.DefaultConfig(dir)
-	require.NoError(t, err)
-	cfg.RetentionTime = time.Nanosecond
-	return cfg
+// assertSuffixAbove fails when the recovery suffix surfaces a position, or a
+// covering QC, below floor.
+func assertSuffixAbove(t *testing.T, db types.BlockStore, floor types.GlobalBlockNumber) {
+	t.Helper()
+	for _, e := range drainSuffix(t, db) {
+		require.GreaterOrEqual(t, e.n, floor, "iterator must not surface pruned positions")
+		require.GreaterOrEqual(t, e.qc.QC().GlobalRange().First, floor,
+			"iterator must not surface pruned QCs")
+	}
 }
 
 // --- shared assertions ---
 
-func assertBlocksReadable(t *testing.T, db types.BlockDB, batches []batch) {
+func assertBlocksReadable(t *testing.T, db types.BlockStore, batches []batch) {
 	for _, b := range batches {
 		for i, blk := range b.blocks {
 			n := b.first + gbn(i)
@@ -1418,7 +1480,7 @@ func assertBlocksReadable(t *testing.T, db types.BlockDB, batches []batch) {
 	}
 }
 
-func assertQCsReadable(t *testing.T, db types.BlockDB, committee *types.Committee, batches []batch) {
+func assertQCsReadable(t *testing.T, db types.BlockStore, committee *types.Committee, batches []batch) {
 	for _, b := range batches {
 		r := b.qc.QC().GlobalRange()
 		for n := r.First; n < r.Next; n++ {
@@ -1437,7 +1499,7 @@ func assertQCsReadable(t *testing.T, db types.BlockDB, committee *types.Committe
 	}
 }
 
-func assertIterators(t *testing.T, db types.BlockDB, committee *types.Committee, batches []batch) {
+func assertIterators(t *testing.T, db types.BlockStore, committee *types.Committee, batches []batch) {
 	totalBlocks := 0
 	for _, b := range batches {
 		totalBlocks += len(b.blocks)
@@ -1463,17 +1525,20 @@ func assertIterators(t *testing.T, db types.BlockDB, committee *types.Committee,
 // --- block/QC generation (mirrors data.TestCommitQC, which is not importable
 // from sei-db because it lives in an internal package) ---
 
+// testSeed is the base seed every fixture derives from. A backend offsets it to
+// draw data that is independent of another test's yet still deterministic.
+const testSeed = 20260615
+
 const (
 	committeeSize = 4
 	blocksPerQC   = 5
 	numBatches    = 4
-	testSeed      = 20260615
 )
 
 var genesisTime = time.Unix(1_700_000_000, 0)
 
-// batch is a contiguous run of blocks at global numbers [first, next) together
-// with the QC that finalizes them. next == first+len(blocks).
+// batch is a contiguous run of blocks at global numbers [First, Next) together
+// with the QC that finalizes them. Next == First+len(Blocks).
 type batch struct {
 	first  types.GlobalBlockNumber
 	next   types.GlobalBlockNumber
@@ -1481,14 +1546,14 @@ type batch struct {
 	qc     *types.FullCommitQC
 }
 
-// gbn converts a non-negative slice index to a GlobalBlockNumber offset.
+// GBN converts a non-negative slice index to a GlobalBlockNumber offset.
 func gbn(i int) types.GlobalBlockNumber {
 	return types.GlobalBlockNumber(i) //nolint:gosec // i is a non-negative slice index
 }
 
-// writeAll writes every batch's QC followed by its blocks (at first+i). The QC
+// WriteAll writes every batch's QC followed by its blocks (at First+i). The QC
 // is written first because WriteBlock rejects a block with no covering QC.
-func writeAll(t *testing.T, db types.BlockDB, batches []batch) {
+func writeAll(t *testing.T, db types.BlockStore, batches []batch) {
 	for _, b := range batches {
 		require.NoError(t, db.WriteQC(b.qc))
 		for i, blk := range b.blocks {
@@ -1497,7 +1562,8 @@ func writeAll(t *testing.T, db types.BlockDB, batches []batch) {
 	}
 }
 
-func writeAppData(t *testing.T, db types.BlockDB, rng utils.Rng, keys []types.SecretKey, batches []batch) {
+// WriteAppData writes an AppProposal and its AppQC for every batch.
+func writeAppData(t *testing.T, db types.BlockStore, rng utils.Rng, keys []types.SecretKey, batches []batch) {
 	t.Helper()
 	for _, b := range batches {
 		appQC := appQCForBatch(rng, keys, b)
@@ -1506,13 +1572,13 @@ func writeAppData(t *testing.T, db types.BlockDB, rng utils.Rng, keys []types.Se
 	}
 }
 
-// buildCommittee returns a deterministic committee (via GenCommittee with a
+// BuildCommittee returns a deterministic committee (via GenCommittee with a
 // fixed seed) and the secret keys that sign its QCs.
 func buildCommittee() (*types.Committee, []types.SecretKey) {
 	return types.GenCommittee(utils.TestRngFromSeed(testSeed), committeeSize)
 }
 
-// generateBatches builds a deterministic sequence of contiguous finalized
+// GenerateBatches builds a deterministic sequence of contiguous finalized
 // batches for the given committee/keys.
 func generateBatches(committee *types.Committee, keys []types.SecretKey) []batch {
 	rng := utils.TestRngFromSeed(testSeed + 1)

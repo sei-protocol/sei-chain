@@ -1,4 +1,4 @@
-package littblock
+package blockstore
 
 import (
 	"encoding/binary"
@@ -8,78 +8,7 @@ import (
 )
 
 // This file is the single home for translating between the in-memory consensus
-// types and the byte representations LittDB stores (both keys and values).
-
-// Blocks and QCs share one LittDB table. Each key carries a 1-byte kind prefix
-// so the block-number key space and the QC-number key space never collide:
-//
-//   - kindBlock     'b' + 8-byte big-endian GlobalBlockNumber (block primary key)
-//   - kindBlockHash 'h' + 32-byte header hash               (block hash alias)
-//   - kindQC        'q' + 8-byte big-endian GlobalBlockNumber (QC primary + covered aliases)
-//   - kindAppQC     'a' + 8-byte big-endian GlobalBlockNumber (AppQC primary + covered aliases)
-//   - kindAppProp   'p' + 8-byte big-endian GlobalBlockNumber (AppProposal primary + covered aliases)
-const (
-	kindAppQC     byte = 'a'
-	kindBlock     byte = 'b'
-	kindBlockHash byte = 'h'
-	kindAppProp   byte = 'p'
-	kindQC        byte = 'q'
-)
-
-// encodeKey encodes a GlobalBlockNumber as an 8-byte big-endian value. Big-endian
-// is deliberate: it makes lexicographic byte order match numeric order. This is
-// the inner codec shared by the prefixed key builders below.
-func encodeKey(n types.GlobalBlockNumber) []byte {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, uint64(n))
-	return b
-}
-
-// decodeKey decodes an 8-byte value produced by encodeKey.
-func decodeKey(b [8]byte) types.GlobalBlockNumber {
-	return types.GlobalBlockNumber(binary.BigEndian.Uint64(b[:]))
-}
-
-// blockKey returns the primary key under which a block at number n is stored.
-func blockKey(n types.GlobalBlockNumber) []byte {
-	return append([]byte{kindBlock}, encodeKey(n)...)
-}
-
-// blockHashKey returns the secondary (alias) key under which a block is reachable
-// by its header hash.
-func blockHashKey(hash types.BlockHeaderHash) []byte {
-	return append([]byte{kindBlockHash}, hash.Bytes()...)
-}
-
-// qcKey returns the key for QC number n — used both for a QC's primary key (its
-// lowerBound) and for each covered-number alias.
-func qcKey(n types.GlobalBlockNumber) []byte {
-	return append([]byte{kindQC}, encodeKey(n)...)
-}
-
-// appQCKey returns the key for AppQC number n — used both for an AppQC's
-// primary key and for each covered-number alias.
-func appQCKey(n types.GlobalBlockNumber) []byte {
-	return append([]byte{kindAppQC}, encodeKey(n)...)
-}
-
-// appProposalKey returns the key for AppProposal number n — used both for an
-// AppProposal's primary key and for each covered-number alias.
-func appProposalKey(n types.GlobalBlockNumber) []byte {
-	return append([]byte{kindAppProp}, encodeKey(n)...)
-}
-
-// keyKind returns the kind prefix byte of a stored key.
-func keyKind(key []byte) byte {
-	return key[0]
-}
-
-// decodeNumberKey decodes the GlobalBlockNumber from a kindBlock, kindQC, or
-// kindAppQC key (i.e. a key whose prefix is followed by an 8-byte big-endian
-// number). Panics if key is not 9 bytes (1B kind + 8B GlobalBlockNumber).
-func decodeNumberKey(key []byte) types.GlobalBlockNumber {
-	return decodeKey([8]byte(key[1:]))
-}
+// types and the opaque byte values the underlying BlockDB stores.
 
 // Serialization version for blocks.
 const blockSerializationVersion byte = 1
@@ -97,10 +26,10 @@ const appProposalSerializationVersion byte = 1
 // version byte followed by the 8-byte big-endian GlobalBlockNumber.
 const blockValuePrefixLen = 1 + 8
 
-// encodeBlock marshals a block to the bytes stored as its table value. The value
+// encodeBlock marshals a block to the bytes stored as its record value. The value
 // is framed as [version:1][GlobalBlockNumber:8 big-endian][proto(Block)]. The
 // number is embedded so a by-hash lookup — which reaches this same shared value
-// through a secondary key that carries only the hash — can still recover it.
+// through an alias that carries only the hash — can still recover it.
 func encodeBlock(n types.GlobalBlockNumber, blk *types.Block) []byte {
 	proto := types.BlockConv.Marshal(blk)
 	value := make([]byte, 0, blockValuePrefixLen+len(proto))
@@ -127,7 +56,7 @@ func decodeBlock(value []byte) (types.GlobalBlockNumber, *types.Block, error) {
 	return n, blk, nil
 }
 
-// encodeQC marshals a FullCommitQC to the bytes stored as its table value,
+// encodeQC marshals a FullCommitQC to the bytes stored as its record value,
 // framed as [version:1][proto(FullCommitQC)].
 func encodeQC(qc *types.FullCommitQC) []byte {
 	proto := types.FullCommitQCConv.Marshal(qc)
@@ -138,14 +67,14 @@ func encodeQC(qc *types.FullCommitQC) []byte {
 }
 
 // coveredRange returns the half-open global block number range the QC covers,
-// as specified by types.BlockDB.WriteQC: [First, First+len(Headers())).
+// as specified by types.BlockStore.WriteQC: [First, First+len(Headers())).
 //
 // The upper bound is derived from the header count rather than read from
 // GlobalRange().Next — the two are equal by FullCommitQC's own invariant, but
 // First and Headers are the only two fields the wire format carries explicitly.
 // GlobalRange().Next is recomputed from the proposal's lane ranges on decode,
 // so deriving from the encoded fields is what makes a QC's range identical
-// before and after a round trip through the table.
+// before and after a round trip through the store.
 func coveredRange(qc *types.FullCommitQC) (types.GlobalBlockNumber, types.GlobalBlockNumber) {
 	gr := qc.QC().GlobalRange()
 	return gr.First, gr.Next
@@ -166,7 +95,7 @@ func decodeQC(value []byte) (*types.FullCommitQC, error) {
 	return qc, nil
 }
 
-// encodeAppProposal marshals an AppProposal to the bytes stored as its table
+// encodeAppProposal marshals an AppProposal to the bytes stored as its record
 // value, framed as [version:1][proto(AppProposal)].
 func encodeAppProposal(appProposal *types.AppProposal) []byte {
 	proto := types.AppProposalConv.Marshal(appProposal)
@@ -192,7 +121,7 @@ func decodeAppProposal(value []byte) (*types.AppProposal, error) {
 	return appProposal, nil
 }
 
-// encodeAppQC marshals an AppQC to the bytes stored as its table value,
+// encodeAppQC marshals an AppQC to the bytes stored as its record value,
 // framed as [version:1][proto(AppQC)].
 func encodeAppQC(appQC *types.AppQC) []byte {
 	proto := types.AppQCConv.Marshal(appQC)

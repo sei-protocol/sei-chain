@@ -4,7 +4,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// BlockDB is the durable backing store for data.State. It persists the
+// BlockStore is the durable backing store for data.State. It persists the
 // finalized records the consensus state machine produces — finalized blocks
 // (indexed by GlobalBlockNumber and by header hash), FullCommitQCs (each
 // covering a contiguous range of GlobalBlockNumbers), AppProposals and AppQCs
@@ -48,10 +48,10 @@ import (
 //   - Block X
 //   - AppProposal covering X
 //   - AppQC covering X
-//   - Call to PruneBefore(X) makes data before X inaccessible, however it still might be accessible after BlockDB is
+//   - Call to PruneBefore(X) makes data before X inaccessible, however it still might be accessible after BlockStore is
 //     reopened, as the pruning may happen asynchronously.
-//     Only full rows (X such that FullCommitQC, Block, AppProposal and AppQC are in BlockDB) are eligible for pruning,
-//     and at least 1 full row (once written) needs to stay in BlockDB at all times.
+//     Only full rows (X such that FullCommitQC, Block, AppProposal and AppQC are in BlockStore) are eligible for pruning,
+//     and at least 1 full row (once written) needs to stay in BlockStore at all times.
 //     In particular:
 //   - PruneBefore is a noop until the first AppQC is written
 //   - If PruneBefore(X) called and the highest full row is Y, then only data in rows <min(X,Y) will become inaccessible.
@@ -66,7 +66,7 @@ import (
 //
 // Pruning never leaves a block readable without its covering FullCommitQC also being readable. And if a block becomes
 // crash recoverable, its QC is guaranteed to also be crash recoverable.
-type BlockDB interface {
+type BlockStore interface {
 	// WriteBlock persists a finalized block at GlobalBlockNumber n. A
 	// block for height n may only be written after a QC covering n has
 	// also been written, or else this method returns an error.
@@ -80,7 +80,7 @@ type BlockDB interface {
 	// May return before the block is on disk. Callers that need crash
 	// durability before some external observable action (e.g.
 	// runPersist advancing nextBlockToPersist, which gates the
-	// AppVote runExecute issues) must call Flush. See the BlockDB type
+	// AppVote runExecute issues) must call Flush. See the BlockStore type
 	// doc for the two-phase write/flush contract.
 	//
 	// Writes are made crash durable in write order (both blocks and QCs),
@@ -103,7 +103,7 @@ type BlockDB interface {
 	// persists nothing. Writes are NOT idempotent — re-writing a QC is
 	// rejected rather than treated as a no-op.
 	//
-	// May return before the QC is on disk. See the BlockDB type doc for
+	// May return before the QC is on disk. See the BlockStore type doc for
 	// the two-phase write/flush contract and WriteBlock for the
 	// rationale.
 	//
@@ -120,7 +120,7 @@ type BlockDB interface {
 	// each subsequent AppProposal's First must equal the previous AppProposal's Next.
 	// Re-writing, gaps, overlaps are rejected.
 	//
-	// May return before the AppProposal is on disk. See the BlockDB type doc for
+	// May return before the AppProposal is on disk. See the BlockStore type doc for
 	// the two-phase write/flush contract.
 	WriteAppProposal(appProposal *AppProposal) error
 
@@ -131,7 +131,7 @@ type BlockDB interface {
 	// First must equal the previous AppQC's Next. Re-writing, gaps, overlaps
 	// are rejected.
 	//
-	// May return before the AppQC is on disk. See the BlockDB type doc for the
+	// May return before the AppQC is on disk. See the BlockStore type doc for the
 	// two-phase write/flush contract.
 	WriteAppQC(appQC *AppQC) error
 
@@ -278,18 +278,18 @@ type BlockDB interface {
 	ReadAppQCByBlockNumber(n GlobalBlockNumber) (utils.Option[*AppQC], error)
 
 	// Close releases resources held by the store. After Close returns,
-	// no other method may be called on the BlockDB; doing so is
+	// no other method may be called on the BlockStore; doing so is
 	// undefined.
 	Close() error
 }
 
-// SuffixRange represents the suffix of BlockDB data that data.State can append to/would load on recovery.
+// SuffixRange represents the suffix of BlockStore data that data.State can append to/would load on recovery.
 // Elements since the last anchor (last full row which contains AppQC,AppProposal,Block,QC) to
 // the tips persisted in the DB. These are the elements that would be loaded by data.State on restart
-// via BlockDB.ReadSuffix.
+// via BlockStore.ReadSuffix.
 // First <= NextAppQC <= NextAppProposal <= NextBlock <= NextQC
 type SuffixRange struct {
-	// First is either NextAppQC, or NextAppQC-1, depending on whether there is at least 1 AppQC in the BlockDB.
+	// First is either NextAppQC, or NextAppQC-1, depending on whether there is at least 1 AppQC in the BlockStore.
 	First GlobalBlockNumber
 	// NextAppQC is one past the highest GlobalBlockNumber covered by the last
 	// AppQC accepted by WriteAppQC. Zero if no AppQC has been written.
@@ -307,7 +307,7 @@ type SuffixRange struct {
 	NextQC GlobalBlockNumber
 }
 
-// SuffixBlock is one block returned by BlockDB.ReadSuffix.
+// SuffixBlock is one block returned by BlockStore.ReadSuffix.
 type SuffixBlock struct {
 	Number GlobalBlockNumber
 	Block  *Block
@@ -316,7 +316,7 @@ type SuffixBlock struct {
 // Suffix is the materialized suffix used by data.State startup recovery.
 type Suffix struct {
 	// Ranges of elements in the suffix.
-	// None if the BlockDB is empty.
+	// None if the BlockStore is empty.
 	Status utils.Option[SuffixRange]
 	// Elements which constitute the suffix.
 	CommitQCs    []*FullCommitQC

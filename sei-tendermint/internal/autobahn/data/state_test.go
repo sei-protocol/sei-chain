@@ -11,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -46,18 +47,18 @@ func snapshot(s *State) Snapshot {
 // newTestBlockDB opens (or creates) a LittDB-backed BlockDB at dir.
 // Retention is set to 1ns so ForceGC reclaims pruned data immediately in tests.
 // Errors panic so the helper is safe to call from non-main test goroutines.
-func newTestBlockDB(t *testing.T, dir string) types.BlockDB {
+func newTestBlockDB(t *testing.T, dir string) types.BlockStore {
 	t.Helper()
 	cfg := utils.OrPanic1(littblock.DefaultConfig(dir))
 	cfg.RetentionTime = time.Nanosecond
-	db := utils.OrPanic1(littblock.NewBlockDB(cfg))
+	db := utils.OrPanic1(blockstore.New(utils.OrPanic1(littblock.NewBlockDB(cfg))))
 	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
 // newTestState constructs a State, replays db, and returns it ready to Run.
 // Errors panic so the helper is safe to call from non-main test goroutines.
-func newTestState(t testing.TB, cfg *Config, db types.BlockDB) *State {
+func newTestState(t testing.TB, cfg *Config, db types.BlockStore) *State {
 	t.Helper()
 	return utils.OrPanic1(NewState(cfg, db))
 }
@@ -65,7 +66,7 @@ func newTestState(t testing.TB, cfg *Config, db types.BlockDB) *State {
 // writeToBlockDB writes QC+block pairs sequentially to db and flushes once.
 // qcs[i] and blockss[i] must correspond; QCs must be in ascending order.
 // Errors panic so the helper is safe to call from non-main test goroutines.
-func writeToBlockDB(t *testing.T, db types.BlockDB, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
+func writeToBlockDB(t *testing.T, db types.BlockStore, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
 	t.Helper()
 	for i, qc := range qcs {
 		gr := qc.QC().GlobalRange()
@@ -78,7 +79,7 @@ func writeToBlockDB(t *testing.T, db types.BlockDB, qcs []*types.FullCommitQC, b
 	utils.OrPanic(db.Flush())
 }
 
-func writeAppDataToBlockDB(t testing.TB, rng utils.Rng, db types.BlockDB, keys []types.SecretKey, qcs ...*types.FullCommitQC) {
+func writeAppDataToBlockDB(t testing.TB, rng utils.Rng, db types.BlockStore, keys []types.SecretKey, qcs ...*types.FullCommitQC) {
 	t.Helper()
 	for _, qc := range qcs {
 		appProposal := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
