@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
@@ -134,6 +133,27 @@ type CryptoSimConfig struct {
 
 	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). If empty, metrics are disabled.
 	MetricsAddr string
+
+	// Address for the pprof HTTP server (e.g. ":6060"). If empty, no pprof server is started.
+	//
+	// Serving it costs nothing while nothing is scraping it, so the CPU, heap and goroutine profiles
+	// are available in any run. The mutex and block profiles additionally need the two sample rates
+	// below.
+	PprofAddr string
+
+	// The sampling rate of the mutex profile: 1 records every contention event, N records on average
+	// one in N, and 0 leaves the profile off.
+	//
+	// Recording costs time inside the lock handoff it measures, so a run with this on is a diagnostic
+	// run and its throughput is not comparable to a run without it.
+	MutexProfileFraction int
+
+	// The sampling rate of the block profile, in nanoseconds of blocked time per sample: 1 records
+	// every blocking event, and 0 leaves the profile off.
+	//
+	// This carries the same caveat as MutexProfileFraction: it charges the events it samples, so it
+	// buys attribution at the cost of the number being measured.
+	BlockProfileRate int
 
 	// The probability of capturing detailed metrics about a transaction. Should be a value between 0.0 and 1.0.
 	TransactionMetricsSampleRate float64
@@ -272,6 +292,9 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ExecutorQueueSize:                 1024,
 		MaxRuntimeSeconds:                 0,
 		MetricsAddr:                       ":9090",
+		PprofAddr:                         ":6060",
+		MutexProfileFraction:              0,
+		BlockProfileRate:                  0,
 		TransactionMetricsSampleRate:      0.001,
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
@@ -300,34 +323,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		LogLevel:                          "info",
 	}
 
-	disableSnapshotEngineMetrics(cfg.FlatKVConfig)
-
 	return cfg
-}
-
-// disableSnapshotEngineMetrics turns off the snapshot engines' own metrics for every flatKV store.
-//
-// Those metrics are recorded per read — a counter for hits, another for misses, a histogram for miss
-// latency — and every executor thread reports into the same instrument. At the read rates this
-// benchmark drives, what the benchmark measures starts to include the cost of measuring it. Turning
-// them off leaves the reporters as nil checks, since the engine only constructs them when enabled.
-//
-// The cost is visibility: cache hit rate and cache size are reported by these same instruments, so a
-// run configured this way cannot show them. Turn them back on for any run whose question is about
-// cache behaviour rather than throughput.
-func disableSnapshotEngineMetrics(cfg *flatkvConfig.Config) {
-	if cfg == nil {
-		return
-	}
-	for _, storeConfig := range []*snapshot.SnapshotEngineConfig{
-		&cfg.AccountStoreConfig,
-		&cfg.StorageStoreConfig,
-		&cfg.CodeStoreConfig,
-		&cfg.MiscStoreConfig,
-		&cfg.MetadataStoreConfig,
-	} {
-		storeConfig.MetricsEnabled = false
-	}
 }
 
 // StringifiedConfig returns the config as human-readable, multi-line JSON.
@@ -356,6 +352,18 @@ func (c *CryptoSimConfig) Validate() error {
 		// the block it is waiting for, and neither side ever moves again.
 		return fmt.Errorf("HashAsynchrony (%d) must be less than FlatKVConfig.HashChanSize (%d)",
 			c.HashAsynchrony, c.FlatKVConfig.HashChanSize)
+	}
+	if c.MutexProfileFraction < 0 {
+		return fmt.Errorf("MutexProfileFraction must not be negative (got %d)", c.MutexProfileFraction)
+	}
+	if c.BlockProfileRate < 0 {
+		return fmt.Errorf("BlockProfileRate must not be negative (got %d)", c.BlockProfileRate)
+	}
+	if c.PprofAddr == "" && (c.MutexProfileFraction > 0 || c.BlockProfileRate > 0) {
+		// Both profiles accumulate in memory and are only readable over the pprof endpoint, so enabling
+		// one without a server pays their cost and discards the result.
+		return fmt.Errorf("MutexProfileFraction (%d) and BlockProfileRate (%d) require PprofAddr to be set",
+			c.MutexProfileFraction, c.BlockProfileRate)
 	}
 	if c.PaddedAccountSize < minPaddedAccountSize {
 		return fmt.Errorf("PaddedAccountSize must be at least %d (got %d)", minPaddedAccountSize, c.PaddedAccountSize)

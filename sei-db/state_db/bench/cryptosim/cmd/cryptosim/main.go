@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"net/http/pprof" //nolint:gosec // the profiling endpoint is the point; it is opt-in via PprofAddr
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -65,6 +68,56 @@ func startMetricsServer(ctx context.Context, gatherer prometheus.Gatherer, addr 
 	}()
 }
 
+// startPprofServer serves the pprof endpoints and enables the mutex and block profiles at the
+// configured sample rates. It returns the address it bound, or "" when PprofAddr is empty. Shuts
+// down when ctx is cancelled.
+//
+// Binding happens before this returns, so a port already in use is an error here rather than silence
+// at the far end of an ssh tunnel.
+//
+// The server has no write timeout: a CPU or trace profile holds its response open for the length of
+// the collection, which a timeout would truncate.
+func startPprofServer(ctx context.Context, config *cryptosim.CryptoSimConfig) (string, error) {
+	if config.PprofAddr == "" {
+		return "", nil
+	}
+
+	// Off unless asked for, because sampling either one charges the events it samples.
+	if config.MutexProfileFraction > 0 {
+		runtime.SetMutexProfileFraction(config.MutexProfileFraction)
+	}
+	if config.BlockProfileRate > 0 {
+		runtime.SetBlockProfileRate(config.BlockProfileRate)
+	}
+
+	listener, err := net.Listen("tcp", config.PprofAddr)
+	if err != nil {
+		return "", fmt.Errorf("listen on pprof address %q: %w", config.PprofAddr, err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		_ = srv.Serve(listener)
+	}()
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+
+	return listener.Addr().String(), nil
+}
+
 // Run the cryptosim benchmark.
 func main() {
 	err := run()
@@ -107,6 +160,15 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+
+	// Before setup rather than after, so that setup is profilable too.
+	pprofAddr, err := startPprofServer(ctx, config)
+	if err != nil {
+		return fmt.Errorf("start pprof server: %w", err)
+	}
+	if pprofAddr != "" {
+		fmt.Printf("pprof listening on %s\n", pprofAddr)
+	}
 
 	// Configure OTel to export to Prometheus before creating cryptosim (metrics use global provider).
 	reg, shutdown, err := setupOtelPrometheus()
