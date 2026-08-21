@@ -7,6 +7,7 @@
 package cosmosbase
 
 import (
+	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/config/registry"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 )
@@ -44,6 +45,21 @@ func init() {
 			"in the configuration file instead")
 }
 
+// forMode is the server configuration a node of this kind is meant to run.
+//
+// The upstream defaults with the binary's own mode rules applied. Every section here answers through this,
+// so a section states what a kind of node is meant to run rather than what the type holds before any mode
+// is considered, and a rule added to those rules later moves these sections with nothing here changing.
+//
+// Three settings differ by mode today and each of them matters in a different direction. A node that
+// serves queries needs the interfaces that serve them; a validator is meant to expose as little as it can;
+// and how many blocks a node retains is a decision about its disk.
+func forMode(mode registry.Mode) *srvconfig.Config {
+	out := srvconfig.DefaultConfig()
+	params.SetAppConfigByMode(out, params.NodeMode(mode))
+	return out
+}
+
 // baseDefaults is what the node-wide settings resolve to for a node that has written nothing.
 //
 // The upstream defaults, unchanged by mode. Every one of these keys is read with a casting getter and no
@@ -61,30 +77,31 @@ func init() {
 // started with no pruning key written prunes on the standard schedule and this states that it would keep
 // everything. Whoever resolves for a running node has to supply the flag values to get the answer that
 // node uses.
-func baseDefaults(registry.Mode) any { return srvconfig.DefaultConfig().BaseConfig }
+func baseDefaults(mode registry.Mode) any { return forMode(mode).BaseConfig }
 
 // apiDefaults is what the REST interface settings resolve to for a node that has written nothing.
 //
-// The interface is off, for every mode. seid init turns it on for a full node and an archive node, so
-// those carry it written, and a node whose file lacks the key does not serve REST whatever kind it is.
-func apiDefaults(registry.Mode) any { return srvconfig.DefaultConfig().API }
+// On for a full node and an archive node, off for a validator and a seed. Serving queries is what the
+// first two are for, and the second two are meant to expose as little as they can.
+func apiDefaults(mode registry.Mode) any { return forMode(mode).API }
 
 // grpcDefaults is what the gRPC settings resolve to for a node that has written nothing.
 //
-// The interface is on, which is the upstream default, and seid init writes it off for a validator and a
-// seed. Six of these eleven keys are read only when the key is present, so for those the declared default
-// is also what an absent key resolves to today.
+// On for a full node and an archive node, off for a validator and a seed, which is the same rule the REST
+// interface follows and for the same reason. The upstream default is on for every kind, so declaring that
+// would state an open interface on the nodes meant to expose the least.
 //
-// The six durations are declared as durations and written into a file as text, which is the shape the
-// reader parses back.
-func grpcDefaults(registry.Mode) any { return srvconfig.DefaultConfig().GRPC }
+// Six of these eleven keys are read only when the key is present, so for those the declared value is also
+// what an absent key resolves to today. The six durations are declared as durations and written into a
+// file as text, which is the shape the reader parses back.
+func grpcDefaults(mode registry.Mode) any { return forMode(mode).GRPC }
 
 // stateSyncDefaults is what the snapshot settings resolve to for a node that has written nothing.
 //
 // All three keys are read with a casting getter and no presence check, and the retention is the one that
 // inverts: it is declared as keeping two snapshots and an absent key casts to zero, which the file format
 // documents as keeping every snapshot.
-func stateSyncDefaults(registry.Mode) any { return srvconfig.DefaultConfig().StateSync }
+func stateSyncDefaults(mode registry.Mode) any { return forMode(mode).StateSync }
 
 // telemetrySchema declares the keys the metric settings reader resolves.
 //
@@ -115,8 +132,8 @@ type telemetrySchema struct {
 // The label set is empty, which is what the upstream default holds, so there is nothing to convert into
 // the untyped rows the reader takes. A test holds that emptiness, because a default that gained rows would
 // need converting and would otherwise reach the reader as the shape it refuses.
-func telemetryDefaults(registry.Mode) any {
-	live := srvconfig.DefaultConfig().Telemetry
+func telemetryDefaults(mode registry.Mode) any {
+	live := forMode(mode).Telemetry
 	return telemetrySchema{
 		ServiceName:             live.ServiceName,
 		Enabled:                 live.Enabled,

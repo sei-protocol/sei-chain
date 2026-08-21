@@ -5,6 +5,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
@@ -181,14 +182,54 @@ func TestTheLabelSetIsRefusedFromTheEnvironment(t *testing.T) {
 	}
 }
 
-// TestDefaultsAreTheUpstreamOnesForEveryMode covers the value side of all five registrations.
+// TestEachKindOfNodeResolvesTheInterfacesItIsFor is the mode-varying part of these sections.
 //
-// Unchanged by mode, which is the decision worth pinning. seid init writes three of these keys per mode,
-// so a node it provisioned carries them as written values; these are what a node with nothing written
-// runs.
-func TestDefaultsAreTheUpstreamOnesForEveryMode(t *testing.T) {
+// Three settings differ by kind of node, and the values are written out here rather than taken from the
+// same rules the sections read, so a change to those rules fails this and gets looked at. Each matters in a
+// different direction. A node that serves queries needs the two interfaces that serve them, and declaring
+// them closed would take a service away from one. A validator is meant to expose as little as it can, and
+// declaring gRPC open would state the opposite of that on every validator. And how many blocks a node
+// keeps is a decision about its disk.
+func TestEachKindOfNodeResolvesTheInterfacesItIsFor(t *testing.T) {
+	byMode := map[registry.Mode]struct {
+		api, grpc bool
+		retain    uint64
+	}{
+		registry.ModeValidator: {api: false, grpc: false, retain: 0},
+		registry.ModeSeed:      {api: false, grpc: false, retain: 0},
+		registry.ModeFull:      {api: true, grpc: true, retain: 100000},
+		registry.ModeArchive:   {api: true, grpc: true, retain: 0},
+	}
+	for _, mode := range registry.Modes() {
+		want, named := byMode[mode]
+		if !named {
+			t.Fatalf("mode %q has no expectation here, so a mode was added and this was not revisited", mode)
+		}
+		resolved, err := registry.Resolve(mode, registry.Sources{})
+		if err != nil {
+			t.Fatalf("mode %q: %v", mode, err)
+		}
+		for key, expected := range map[string]any{
+			"api.enable":        want.api,
+			"grpc.enable":       want.grpc,
+			"min-retain-blocks": want.retain,
+		} {
+			if got := resolved.Values[key]; !reflect.DeepEqual(got, expected) {
+				t.Errorf("mode %q: %s resolves to %#v, want %#v", mode, key, got, expected)
+			}
+		}
+	}
+}
+
+// TestDefaultsAreTheUpstreamOnesApartFromTheModeRules covers everything a mode does not change.
+//
+// Compared against the upstream defaults with the same mode rules applied, so this holds the sections to
+// carrying the whole of that configuration rather than a subset of it, and the three settings the rules
+// touch are pinned by name above.
+func TestDefaultsAreTheUpstreamOnesApartFromTheModeRules(t *testing.T) {
 	for _, mode := range registry.Modes() {
 		live := srvconfig.DefaultConfig()
+		params.SetAppConfigByMode(live, params.NodeMode(mode))
 		for _, c := range []struct {
 			section string
 			got     any
@@ -200,7 +241,8 @@ func TestDefaultsAreTheUpstreamOnesForEveryMode(t *testing.T) {
 			{StateSyncSectionName, stateSyncDefaults(mode), live.StateSync},
 		} {
 			if !reflect.DeepEqual(c.got, c.want) {
-				t.Errorf("mode %q: %s resolves to something other than the upstream default", mode, c.section)
+				t.Errorf("mode %q: %s resolves to something other than that mode's upstream configuration",
+					mode, c.section)
 			}
 		}
 
