@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"unsafe"
 
 	"github.com/tidwall/gjson"
@@ -30,6 +32,62 @@ func GetLastIndex(dir string) (index uint64, err error) {
 	}
 	defer func() { _ = rlog.Close() }()
 	return rlog.LastIndex()
+}
+
+// ErrCorrupt reports a log that cannot be read without repair.
+var ErrCorrupt = wal.ErrCorrupt
+
+// segmentNameLen is the length of a log segment file name.
+const segmentNameLen = 20
+
+// VerifyIntact reports whether the binary log in dir can be opened without
+// repair. It returns ErrCorrupt when the tail segment ends mid-record or an
+// interrupted truncation is still in progress, and never modifies dir.
+//
+// A reader on a live node calls this before it opens the log, because open
+// repairs what it finds: truncateCorruptedTail cuts a torn tail, and tidwall
+// completes an interrupted truncation by renaming or removing segments. On a
+// live node a torn tail is usually a write in progress rather than lasting
+// damage, so the caller reruns instead of repairing.
+func VerifyIntact(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read wal dir %s: %w", dir, err)
+	}
+
+	// os.ReadDir sorts by name, and segment names are zero-padded, so the last
+	// match is the tail segment open would truncate.
+	var tail string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || len(name) < segmentNameLen {
+			continue
+		}
+		if strings.HasSuffix(name, ".START") || strings.HasSuffix(name, ".END") {
+			return fmt.Errorf("%w: truncation marker %s is present in %s", ErrCorrupt, name, dir)
+		}
+		tail = name
+	}
+	if tail == "" {
+		return nil
+	}
+
+	path := filepath.Join(dir, tail)
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("read wal segment %s: %w", path, err)
+	}
+	for pos := 0; pos < len(data); {
+		n, err := loadNextBinaryEntry(data[pos:])
+		if err != nil {
+			return fmt.Errorf("%w: segment %s ends mid-record at offset %d", ErrCorrupt, path, pos)
+		}
+		pos += n
+	}
+	return nil
 }
 
 // truncateCorruptedTail truncates the corrupted tail
