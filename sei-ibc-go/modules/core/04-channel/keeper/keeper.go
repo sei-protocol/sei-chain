@@ -7,8 +7,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	db "github.com/tendermint/tm-db"
 
@@ -32,15 +30,12 @@ type Keeper struct {
 	paramSpace       paramtypes.Subspace
 	clientKeeper     types.ClientKeeper
 	connectionKeeper types.ConnectionKeeper
-	portKeeper       types.PortKeeper
-	scopedKeeper     capabilitykeeper.ScopedKeeper
 }
 
 // NewKeeper creates a new IBC channel Keeper instance
 func NewKeeper(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
 	clientKeeper types.ClientKeeper, connectionKeeper types.ConnectionKeeper,
-	portKeeper types.PortKeeper, scopedKeeper capabilitykeeper.ScopedKeeper,
 ) Keeper {
 	return Keeper{
 		storeKey:         key,
@@ -48,8 +43,6 @@ func NewKeeper(
 		paramSpace:       paramSpace,
 		clientKeeper:     clientKeeper,
 		connectionKeeper: connectionKeeper,
-		portKeeper:       portKeeper,
-		scopedKeeper:     scopedKeeper,
 	}
 }
 
@@ -445,16 +438,6 @@ func (k Keeper) GetChannelConnection(ctx sdk.Context, portID, channelID string) 
 	}
 
 	return connectionID, connection, nil
-}
-
-// LookupModuleByChannel will return the IBCModule along with the capability associated with a given channel defined by its portID and channelID
-func (k Keeper) LookupModuleByChannel(ctx sdk.Context, portID, channelID string) (string, *capabilitytypes.Capability, error) {
-	modules, cap, err := k.scopedKeeper.LookupModules(ctx, host.ChannelCapabilityPath(portID, channelID))
-	if err != nil {
-		return "", nil, err
-	}
-
-	return porttypes.GetModuleOwner(modules), cap, nil
 }
 
 // common functionality for IteratePacketCommitment and IteratePacketAcknowledgement
