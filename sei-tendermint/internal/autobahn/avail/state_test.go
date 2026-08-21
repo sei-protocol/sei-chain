@@ -377,55 +377,54 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 	}
 }
 
-// TestNextViewEpoch_BoundaryTipPairsNextEpoch: a LastRoad(0) tip is paired
-// with epoch 1 before newInner, so ConsensusSpec can publish that tip.
-func TestNextViewEpoch_BoundaryTipPairsNextEpoch(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 4)
-	registry.AdvanceIfNeeded(epoch.LastRoad(0))
-	ep0 := registry.MustEpoch(0)
-	ep1 := registry.MustEpoch(1)
+func TestNextViewEpoch(t *testing.T) {
+	t.Run("LastRoad tip pairs next epoch", func(t *testing.T) {
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 4)
+		registry.AdvanceIfNeeded(epoch.LastRoad(0))
+		ep0 := registry.MustEpoch(0)
+		ep1 := registry.MustEpoch(1)
 
-	last := epoch.LastRoad(0)
-	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}, ep0.FirstBlock()))),
+		last := epoch.LastRoad(0)
+		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
+			types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep0, types.View{Index: last - 1, Number: 0}, ep0.FirstBlock()))),
+		})
+		qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
+		require.Equal(t, last, qcLast.Index())
+
+		applied, err := nextViewEpoch(registry, qcLast, ep0)
+		require.NoError(t, err)
+		require.Equal(t, ep1.EpochIndex(), applied.EpochIndex())
+
+		i := newInner(applied, last)
+		i.roads.pushBack(newRoad(qcLast, ep0))
+		i.persistedCommitQC.Store(utils.Some(qcLast))
+		i.refreshConsensusSpec()
+
+		spec := i.consensusSpec.Load()
+		cqc, ok := spec.CommitQC.Get()
+		require.True(t, ok)
+		require.Equal(t, last, cqc.Index(), "must not walk tip back to LastRoad(0)-1")
+		require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
 	})
-	qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
-	require.Equal(t, last, qcLast.Index())
 
-	applied, err := nextViewEpoch(registry, qcLast, ep0)
-	require.NoError(t, err)
-	require.Equal(t, ep1.EpochIndex(), applied.EpochIndex())
+	t.Run("missing next epoch errors", func(t *testing.T) {
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 3)
+		ep1 := registry.MustEpoch(1)
+		_, err := registry.EpochAt(epoch.FirstRoad(2))
+		require.Error(t, err)
 
-	i := newInner(applied, last)
-	i.roads.pushBack(newRoad(qcLast, ep0))
-	i.persistedCommitQC.Store(utils.Some(qcLast))
-	i.refreshConsensusSpec()
+		last := epoch.LastRoad(1)
+		prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
+			types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: last - 1, Number: 0}, ep1.FirstBlock()))),
+		})
+		qcLast := types.BuildCommitQC(ep1, keys, utils.Some(prev), nil)
+		require.Equal(t, last, qcLast.Index())
 
-	spec := i.consensusSpec.Load()
-	cqc, ok := spec.CommitQC.Get()
-	require.True(t, ok)
-	require.Equal(t, last, cqc.Index(), "must not walk tip back to LastRoad(0)-1")
-	require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
-}
-
-func TestNextViewEpoch_MissingNextEpochErrors(t *testing.T) {
-	rng := utils.TestRng()
-	// Fresh registry has epochs 0 and 1; seal epoch 1 so the next lookup is 2.
-	registry, keys := epoch.GenRegistry(rng, 3)
-	ep1 := registry.MustEpoch(1)
-	_, err := registry.EpochAt(epoch.FirstRoad(2))
-	require.Error(t, err)
-
-	last := epoch.LastRoad(1)
-	prev := types.NewCommitQC([]*types.Signed[*types.CommitVote]{
-		types.Sign(keys[0], types.NewCommitVote(types.ProposalAt(ep1, types.View{Index: last - 1, Number: 0}, ep1.FirstBlock()))),
+		_, err = nextViewEpoch(registry, qcLast, ep1)
+		require.Error(t, err)
 	})
-	qcLast := types.BuildCommitQC(ep1, keys, utils.Some(prev), nil)
-	require.Equal(t, last, qcLast.Index())
-
-	_, err = nextViewEpoch(registry, qcLast, ep1)
-	require.Error(t, err)
 }
 
 // TestStateRestartFromPersisted runs the state with persistence through 2
@@ -932,69 +931,71 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 	}
 }
 
-func TestRunEpochAdvance_PrunedNextContinues(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		rng := utils.TestRng()
-		registry, keys := epoch.GenRegistry(rng, 2)
-		ds := newTestDataState(&data.Config{Registry: registry})
-		state, err := NewState(keys[0], ds, utils.None[string]())
-		require.NoError(t, err)
-		require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
+func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
+	t.Run("ErrPruned jumps to live floor", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			rng := utils.TestRng()
+			registry, keys := epoch.GenRegistry(rng, 2)
+			ds := newTestDataState(&data.Config{Registry: registry})
+			state, err := NewState(keys[0], ds, utils.None[string]())
+			require.NoError(t, err)
+			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
 
-		registry.AdvanceIfNeeded(epoch.LastRoad(1))
-		registry.AdvanceIfNeeded(epoch.LastRoad(2))
-		registry.PruneBefore(3)
+			registry.AdvanceIfNeeded(epoch.LastRoad(1))
+			registry.AdvanceIfNeeded(epoch.LastRoad(2))
+			registry.PruneBefore(3)
 
-		var runErr error
-		go func() { runErr = state.runEpochAdvance(ctx) }()
-		synctest.Wait()
-		require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
-		require.Nil(t, runErr)
+			var runErr error
+			go func() { runErr = state.runEpochAdvance(ctx) }()
+			synctest.Wait()
+			require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
+			require.Nil(t, runErr)
 
-		cancel()
-		synctest.Wait()
-		require.ErrorIs(t, runErr, context.Canceled)
-		require.False(t, errors.Is(runErr, types.ErrPruned))
+			cancel()
+			synctest.Wait()
+			require.ErrorIs(t, runErr, context.Canceled)
+			require.False(t, errors.Is(runErr, types.ErrPruned))
+		})
 	})
-}
 
-func TestRunEpochAdvance_PruneJumpDuringWaitDoesNotKill(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		rng := utils.TestRng()
-		registry, keys := epoch.GenRegistry(rng, 4)
-		registry.AdvanceIfNeeded(epoch.LastRoad(1))
-		registry.AdvanceIfNeeded(epoch.LastRoad(2))
-		ds := newTestDataState(&data.Config{Registry: registry})
-		state, err := NewState(keys[0], ds, utils.None[string]())
-		require.NoError(t, err)
+	t.Run("prune jump during seal wait", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			rng := utils.TestRng()
+			registry, keys := epoch.GenRegistry(rng, 4)
+			registry.AdvanceIfNeeded(epoch.LastRoad(1))
+			registry.AdvanceIfNeeded(epoch.LastRoad(2))
+			ds := newTestDataState(&data.Config{Registry: registry})
+			state, err := NewState(keys[0], ds, utils.None[string]())
+			require.NoError(t, err)
 
-		var runErr error
-		go func() { runErr = state.runEpochAdvance(ctx) }()
-		synctest.Wait()
-		require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
+			var runErr error
+			go func() { runErr = state.runEpochAdvance(ctx) }()
+			synctest.Wait()
+			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
 
-		ep2 := registry.MustEpoch(2)
-		qc := types.BuildCommitQC(ep2, keys, utils.Some(tipLink(ep2, keys[0], epoch.LastRoad(2)-1)), nil)
-		require.Equal(t, epoch.LastRoad(2), qc.Index())
-		for inner, ctrl := range state.inner.Lock() {
-			inner.prune(data.Anchor{
-				CommitQC: qc,
-				AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
-				Epoch:    ep2,
-			})
-			ctrl.Updated()
-		}
-		synctest.Wait()
-		require.Nil(t, runErr)
-		require.GreaterOrEqual(t, state.Epoch().Load().EpochIndex(), types.EpochIndex(2))
+			ep2 := registry.MustEpoch(2)
+			qc := types.BuildCommitQC(ep2, keys, utils.Some(tipLink(ep2, keys[0], epoch.LastRoad(2)-1)), nil)
+			require.Equal(t, epoch.LastRoad(2), qc.Index())
+			for inner, ctrl := range state.inner.Lock() {
+				inner.prune(data.Anchor{
+					CommitQC: qc,
+					AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
+					Epoch:    ep2,
+				})
+				ctrl.Updated()
+			}
+			synctest.Wait()
+			require.Nil(t, runErr)
+			require.GreaterOrEqual(t, state.Epoch().Load().EpochIndex(), types.EpochIndex(2))
 
-		cancel()
-		synctest.Wait()
-		require.ErrorIs(t, runErr, context.Canceled)
+			cancel()
+			synctest.Wait()
+			require.ErrorIs(t, runErr, context.Canceled)
+		})
 	})
 }
 
