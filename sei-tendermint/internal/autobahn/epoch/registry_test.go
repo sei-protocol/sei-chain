@@ -234,6 +234,7 @@ func TestPruneBefore_DropsIntermediateKeepsGenesis(t *testing.T) {
 	_ = r.MustEpoch(2)
 
 	r.PruneBefore(2)
+	require.Equal(t, types.EpochRange{First: 2, Next: 3}, r.Live())
 	_ = r.MustEpoch(0)
 	_, err := r.EpochByIndex(1)
 	require.ErrorIs(t, err, types.ErrPruned)

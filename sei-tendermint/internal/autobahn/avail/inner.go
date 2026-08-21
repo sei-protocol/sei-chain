@@ -14,15 +14,16 @@ type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
 	// consensusSpec is the applied (next-CommitQC) epoch paired with a persisted
 	// CommitQC tip (None before the first tip). CommitQC never exceeds
-	// persistedCommitQC. advanceEpoch is the sole writer of Epoch after
-	// construction. blockVotes are always weighted under this Epoch.
+	// persistedCommitQC. advanceEpoch installs Epoch; runEpochAdvance is the live
+	// writer, and prune jumps applied when the Anchor has skipped ahead.
+	// blockVotes are always weighted under this Epoch.
 	consensusSpec utils.AtomicSend[types.ConsensusSpec]
 	roads         *queue[types.RoadIndex, *road]
 
 	// anchorEpoch is the epoch of data's Anchor CommitQC when one exists.
 	// None until the first Anchor arrives (construction prune or runEvict).
 	// When it lags applied, epochForVote falls back to this committee for
-	// departing-lane voters. prune never advances applied — only advanceEpoch does.
+	// departing-lane voters. When it leads, prune jumps applied to it.
 	anchorEpoch utils.Option[*types.Epoch]
 	blocks      map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes       map[types.LaneID]*queue[types.BlockNumber, *blockVotes]
@@ -226,7 +227,8 @@ func (i *inner) reweightVotes() {
 
 // prune advances the state up to the data Anchor and drops lanes closed as of
 // anchor.Epoch. It updates anchorEpoch and refreshes ConsensusSpec's tip.
-// Construction sets Epoch via newInner; live rotation uses runEpochAdvance.
+// Construction sets Epoch via newInner; live rotation uses runEpochAdvance;
+// catch-up (Anchor skipped ahead of applied) jumps here.
 // Returns the number of lanes dropped.
 func (i *inner) prune(anchor data.Anchor) int {
 	anchorEpoch := anchor.Epoch
@@ -252,6 +254,9 @@ func (i *inner) prune(anchor data.Anchor) int {
 		}
 	}
 	n := i.dropLanes(closed)
+	if i.applied().EpochIndex() < anchorEpoch.EpochIndex() {
+		i.advanceEpoch(anchorEpoch)
+	}
 	i.refreshConsensusSpec()
 	return n
 }
