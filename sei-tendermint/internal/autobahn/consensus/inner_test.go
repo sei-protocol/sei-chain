@@ -23,12 +23,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
-func newTestBlockDB(t *testing.T, dir string) types.BlockStore {
+func newTestBlockStore(t *testing.T, dir string) types.BlockStore {
 	t.Helper()
 	cfg := utils.OrPanic1(littblock.DefaultConfig(dir))
-	db := utils.OrPanic1(blockstore.New(utils.OrPanic1(littblock.NewBlockDB(cfg))))
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	store := utils.OrPanic1(blockstore.New(utils.OrPanic1(littblock.NewBlockDB(cfg))))
+	t.Cleanup(func() { _ = store.Close() })
+	return store
 }
 
 func newTestDataState(registry *epoch.Registry) *data.State {
@@ -1062,8 +1062,8 @@ func TestRunOutputsPersistErrorPropagates(t *testing.T) {
 	dir := t.TempDir()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	db := newTestBlockDB(t, filepath.Join(dir, "blockdb"))
-	ds, err := data.NewState(&data.Config{Registry: registry}, db)
+	store := newTestBlockStore(t, filepath.Join(dir, "blockdb"))
+	ds, err := data.NewState(&data.Config{Registry: registry}, store)
 	if err != nil {
 		t.Fatalf("data.NewState: %v", err)
 	}
