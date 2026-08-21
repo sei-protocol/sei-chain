@@ -76,7 +76,6 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   suite.App.AccountKeeper,
 				BankKeeper:      suite.App.BankKeeper,
-				FeegrantKeeper:  suite.App.FeeGrantKeeper,
 				ParamsKeeper:    suite.App.ParamsKeeper,
 				SignModeHandler: suite.clientCtx.TxConfig.SignModeHandler(),
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,

@@ -24,7 +24,6 @@ import (
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
-	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
@@ -71,7 +70,6 @@ func CosmosCheckTxAnte(
 	ek *evmkeeper.Keeper,
 	accountKeeper authkeeper.AccountKeeper,
 	bankKeeper bankkeeper.Keeper,
-	feegrantKeeper *feegrantkeeper.Keeper,
 	ibcKeeper *ibckeeper.Keeper,
 ) (returnCtx sdk.Context, returnErr error) {
 	// Auth params are needed for stateless checks before SetGasMeter installs the
@@ -109,7 +107,7 @@ func CosmosCheckTxAnte(
 		return ctx, err
 	}
 
-	priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, feegrantKeeper, pk)
+	priority, err := CheckAndChargeFees(ctx, tx, accountKeeper, bankKeeper, pk)
 	if err != nil {
 		return ctx, err
 	}
@@ -313,7 +311,7 @@ func SetGasMeter(ctx sdk.Context, gasLimit uint64, paramsKeeper paramskeeper.Kee
 	return ctx.WithGasMeter(storetypes.NewMultiplierGasMeter(gasLimit, cosmosGasParams.CosmosGasMultiplierNumerator, cosmosGasParams.CosmosGasMultiplierDenominator))
 }
 
-func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper) (priority int64, err error) {
+func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, paramsKeeper paramskeeper.Keeper) (priority int64, err error) {
 	feeTx := tx.(sdk.FeeTx)
 	feeCoins := feeTx.GetFee()
 	feeParams := paramsKeeper.GetFeesParams(ctx)
@@ -342,40 +340,23 @@ func CheckAndChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.Acc
 		return priority, fmt.Errorf("fee collector module account (%s) has not been set", authtypes.FeeCollectorName)
 	}
 
-	if _, err := chargeFees(ctx, tx, feeCoins, accountKeeper, bankKeeper, feegrantKeeper); err != nil {
+	if _, err := chargeFees(ctx, tx, feeCoins, accountKeeper, bankKeeper); err != nil {
 		return priority, err
 	}
 	return priority, nil
 }
 
-func chargeFees(ctx sdk.Context, tx sdk.Tx, feeCoins sdk.Coins, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper) (sdk.AccAddress, error) {
+func chargeFees(ctx sdk.Context, tx sdk.Tx, feeCoins sdk.Coins, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper) (sdk.AccAddress, error) {
 	if addr := accountKeeper.GetModuleAddress(authtypes.FeeCollectorName); addr == nil {
 		return nil, fmt.Errorf("fee collector module account (%s) has not been set", authtypes.FeeCollectorName)
 	}
 
 	feeTx := tx.(sdk.FeeTx)
 	feePayer := feeTx.FeePayer()
-	feeGranter := feeTx.FeeGranter()
-	deductFeesFrom := feePayer
 
-	// if feegranter set deduct fee from feegranter account.
-	// this works with only when feegrant enabled.
-	if feeGranter != nil {
-		if feegrantKeeper == nil {
-			return nil, sdkerrors.ErrInvalidRequest.Wrap("fee grants are not enabled")
-		} else if !feeGranter.Equals(feePayer) {
-			err := feegrantKeeper.UseGrantedFees(ctx, feeGranter, feePayer, feeCoins, tx.GetMsgs())
-			if err != nil {
-				return nil, sdkerrors.Wrapf(err, "%s does not not allow to pay fees for %s", feeGranter, feePayer)
-			}
-		}
-
-		deductFeesFrom = feeGranter
-	}
-
-	deductFeesFromAcc := accountKeeper.GetAccount(ctx, deductFeesFrom)
+	deductFeesFromAcc := accountKeeper.GetAccount(ctx, feePayer)
 	if deductFeesFromAcc == nil {
-		return nil, sdkerrors.ErrUnknownAddress.Wrapf("fee payer address: %s does not exist", deductFeesFrom)
+		return nil, sdkerrors.ErrUnknownAddress.Wrapf("fee payer address: %s does not exist", feePayer)
 	}
 
 	// deduct the fees
@@ -390,7 +371,7 @@ func chargeFees(ctx sdk.Context, tx sdk.Tx, feeCoins sdk.Coins, accountKeeper au
 		}
 	}
 
-	return deductFeesFrom, nil
+	return feePayer, nil
 }
 
 func DecoratePriority(ctx sdk.Context, priority int64) sdk.Context {

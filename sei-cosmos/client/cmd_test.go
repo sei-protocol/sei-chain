@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func TestValidateCmd(t *testing.T) {
@@ -109,4 +110,23 @@ func TestSetCmdClientContextHandler(t *testing.T) {
 			require.Equal(t, tc.expectedContext, clientCtx)
 		})
 	}
+}
+
+func TestGetClientTxContextFeeAccount(t *testing.T) {
+	feeGranter := sdk.AccAddress([]byte("12345678901234567890"))
+	newCmd := func(value string) *cobra.Command {
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.WithValue(context.Background(), client.ClientContextKey, &client.Context{}))
+		flags.AddTxFlagsToCmd(cmd)
+		require.NoError(t, cmd.Flags().Set(flags.FlagFeeAccount, value))
+		require.NoError(t, client.SetCmdClientContext(cmd, client.Context{}.WithFrom("sender")))
+		return cmd
+	}
+
+	clientCtx, err := client.GetClientTxContext(newCmd(feeGranter.String()))
+	require.NoError(t, err)
+	require.Equal(t, feeGranter, clientCtx.GetFeeGranterAddress())
+
+	_, err = client.GetClientTxContext(newCmd("invalid"))
+	require.Error(t, err)
 }

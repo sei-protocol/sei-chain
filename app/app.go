@@ -73,9 +73,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence"
 	evidencekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/keeper"
 	evidencetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
-	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
-	feegrantmodule "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/module"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
 	genutiltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
@@ -224,7 +221,6 @@ var (
 		gov.NewAppModuleBasic(getGovProposalHandlers()...),
 		params.AppModuleBasic{},
 		slashing.AppModuleBasic{},
-		feegrantmodule.AppModuleBasic{},
 		ibc.AppModuleBasic{},
 		upgrade.AppModuleBasic{},
 		evidence.AppModuleBasic{},
@@ -267,7 +263,7 @@ var (
 	kvStoreKeyNames = []string{
 		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrantModuleName,
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
@@ -303,7 +299,8 @@ var (
 )
 
 const (
-	MinGasEVMTx = 21000
+	MinGasEVMTx        = 21000
+	feegrantModuleName = "feegrant"
 
 	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
 	// notifier buffer. Capacity 1 pairs with the notifier's
@@ -403,7 +400,6 @@ type App struct {
 	IBCKeeper        *ibckeeper.Keeper // IBC Keeper must be a pointer in the app, so we can SetRouter on it correctly
 	EvidenceKeeper   evidencekeeper.Keeper
 	TransferKeeper   ibctransferkeeper.Keeper
-	FeeGrantKeeper   feegrantkeeper.Keeper
 	WasmKeeper       wasm.Keeper
 	OracleKeeper     oraclekeeper.Keeper
 	EvmKeeper        evmkeeper.Keeper
@@ -598,7 +594,6 @@ func New(
 		appCodec, keys[slashingtypes.StoreKey], &stakingKeeper, app.GetSubspace(slashingtypes.ModuleName),
 	)
 
-	app.FeeGrantKeeper = feegrantkeeper.NewKeeper(appCodec, keys[feegrant.StoreKey], app.AccountKeeper)
 	app.UpgradeKeeper = upgradekeeper.NewKeeper(skipUpgradeHeights, keys[upgradetypes.StoreKey], appCodec, homePath, app.BaseApp)
 
 	// register the staking hooks
@@ -879,7 +874,6 @@ func New(
 		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper, app.UpgradeKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
-		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
 		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
@@ -917,21 +911,19 @@ func New(
 		EvmKeeper:     &app.EvmKeeper,
 	}
 	app.CheckTxKeepers = legacyabci.CheckTxKeepers{
-		AccountKeeper:  app.AccountKeeper,
-		BankKeeper:     app.BankKeeper,
-		FeeGrantKeeper: &app.FeeGrantKeeper,
-		IBCKeeper:      app.IBCKeeper,
-		EvmKeeper:      &app.EvmKeeper,
-		ParamsKeeper:   app.ParamsKeeper,
-		UpgradeKeeper:  &app.UpgradeKeeper,
+		AccountKeeper: app.AccountKeeper,
+		BankKeeper:    app.BankKeeper,
+		IBCKeeper:     app.IBCKeeper,
+		EvmKeeper:     &app.EvmKeeper,
+		ParamsKeeper:  app.ParamsKeeper,
+		UpgradeKeeper: &app.UpgradeKeeper,
 	}
 	app.DeliverTxKeepers = legacyabci.DeliverTxKeepers{
-		AccountKeeper:  app.AccountKeeper,
-		BankKeeper:     app.BankKeeper,
-		FeeGrantKeeper: &app.FeeGrantKeeper,
-		EvmKeeper:      &app.EvmKeeper,
-		ParamsKeeper:   app.ParamsKeeper,
-		UpgradeKeeper:  &app.UpgradeKeeper,
+		AccountKeeper: app.AccountKeeper,
+		BankKeeper:    app.BankKeeper,
+		EvmKeeper:     &app.EvmKeeper,
+		ParamsKeeper:  app.ParamsKeeper,
+		UpgradeKeeper: &app.UpgradeKeeper,
 	}
 
 	app.mm.SetOrderMidBlockers(
@@ -960,7 +952,6 @@ func New(
 		evidencetypes.ModuleName,
 		ibctransfertypes.ModuleName,
 		authz.ModuleName,
-		feegrant.ModuleName,
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
@@ -978,7 +969,6 @@ func New(
 		auth.NewAppModule(appCodec, app.AccountKeeper, authsims.RandomGenesisAccounts),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
-		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
 		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
@@ -1017,7 +1007,6 @@ func New(
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   app.AccountKeeper,
 				BankKeeper:      app.BankKeeper,
-				FeegrantKeeper:  app.FeeGrantKeeper,
 				ParamsKeeper:    app.ParamsKeeper,
 				SignModeHandler: signModeHandler,
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,

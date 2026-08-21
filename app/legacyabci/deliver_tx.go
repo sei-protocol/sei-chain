@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
-	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -25,12 +24,11 @@ import (
 )
 
 type DeliverTxKeepers struct {
-	AccountKeeper  authkeeper.AccountKeeper
-	BankKeeper     bankkeeper.Keeper
-	FeeGrantKeeper *feegrantkeeper.Keeper
-	EvmKeeper      *evmkeeper.Keeper
-	ParamsKeeper   paramskeeper.Keeper
-	UpgradeKeeper  *upgradekeeper.Keeper
+	AccountKeeper authkeeper.AccountKeeper
+	BankKeeper    bankkeeper.Keeper
+	EvmKeeper     *evmkeeper.Keeper
+	ParamsKeeper  paramskeeper.Keeper
+	UpgradeKeeper *upgradekeeper.Keeper
 }
 
 func DeliverTx(
@@ -106,7 +104,7 @@ func DeliverTx(
 			}
 		}()
 	} else {
-		newCtx, err = ante.CosmosDeliverTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper, keepers.FeeGrantKeeper)
+		newCtx, err = ante.CosmosDeliverTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper)
 	}
 	if !newCtx.IsZero() {
 		ctx = newCtx.WithMultiStore(ms)
