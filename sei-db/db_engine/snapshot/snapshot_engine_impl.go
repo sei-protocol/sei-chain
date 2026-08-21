@@ -484,15 +484,31 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 		return nil, err
 	}
 
-	// Sealing a version is the once-per-block moment the read caches do their eviction, so that no
-	// read has to pay for it. Reads between here and the next seal may take the caches over their
-	// budget; the slack they are allowed is bounded, and insertions enforce a ceiling above it.
 	c.metrics.setSnapshotPhase("cache_maintenance")
-	for _, shard := range c.shards {
-		shard.maintainCache()
-	}
+	c.maintainCachesLocked()
 
 	return snapshot, nil
+}
+
+// maintainCachesLocked runs each shard's once-per-block cache maintenance. The caller must hold the
+// versionLock.
+//
+// Sealing a version is the once-per-block moment the read caches do their eviction, so that no read
+// has to pay for it. Reads between here and the next seal may take the caches over their budget; the
+// slack they are allowed is bounded, and insertions enforce a ceiling above it.
+//
+// One task per shard, for the same reason as commitShardsLocked: maintaining a shard is mostly the
+// wait to take its lock from the readers holding it, and those waits are independent.
+func (c *snapshotEngine) maintainCachesLocked() {
+	var wg sync.WaitGroup
+	for _, shard := range c.shards {
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			shard.maintainCache()
+		})
+	}
+	wg.Wait()
 }
 
 // commitShardsLocked seals the current version on every shard. The caller must hold the versionLock.
