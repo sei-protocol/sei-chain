@@ -328,22 +328,54 @@ func (s *shard) lookupVersionedLocked(key string, version uint64) ([]byte, bool)
 // shard is a function of the key, so no two shards share an index.
 //
 // Any read error fails the call, and the elements it did not reach keep whatever they held.
+//
+// A batch is classified in two passes so that a large one does not hold the shard exclusively for its
+// whole length. That matters more here than for a single read: batches arrive from the hasher while
+// execution is running, and Go's RWMutex queues arriving readers behind a waiting writer, so one long
+// exclusive hold stalls every read on this shard and convoys those that follow it. The first pass takes
+// the shared lock and resolves everything already present; only keys it could not resolve reach the
+// second, which needs the exclusive lock to create entries and schedule DB reads.
 func (s *shard) batchGetInto(keys []string, indices []int, values [][]byte, version uint64) error {
-	pending := make([]pendingRead, 0, len(indices))
-	var hits int64
+	unresolved, hits, err := s.batchGetSharedInto(keys, indices, values, version)
+	if err != nil {
+		return err
+	}
 
-	s.lock.Lock()
+	var pending []pendingRead
+	if len(unresolved) > 0 {
+		pending, err = s.batchGetExclusiveInto(keys, unresolved, values, version, &hits)
+		if err != nil {
+			return err
+		}
+	}
+
+	if hits > 0 {
+		s.metrics.reportCacheHits(hits)
+	}
+
+	// DB errors are fatal; they fail the whole batch.
+	return s.cache.resolveBatch(pending, values)
+}
+
+// batchGetSharedInto resolves the keys it can under the shared lock, returning the indices of those it
+// could not.
+func (s *shard) batchGetSharedInto(
+	keys []string,
+	indices []int,
+	values [][]byte,
+	version uint64,
+) (unresolved []int, hits int64, err error) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 
 	// Checked ahead of the versioned data so that a shard taken out of service refuses every read,
 	// not just those that would have reached the DB.
 	if err := s.cache.outOfServiceLocked(); err != nil {
-		s.lock.Unlock()
-		return err
+		return nil, 0, err
 	}
 
 	if err := s.validateVersionLocked(version); err != nil {
-		s.lock.Unlock()
-		return err
+		return nil, 0, err
 	}
 
 	for _, index := range indices {
@@ -355,12 +387,56 @@ func (s *shard) batchGetInto(keys []string, indices []int, values [][]byte, vers
 			continue
 		}
 
-		// The batch path never touches the LRU queue on hits, hence updateLru=false.
-		outcome := s.cache.lookupStringLocked(key, false)
-		if outcome.immediate {
+		// The batch path never records recency on hits, hence updateLru=false.
+		outcome, ok := s.cache.lookupSharedStringLocked(key, false)
+		if ok {
 			// Resolved from cache. A deleted key carries a nil value, as above.
 			values[index] = outcome.value
 			hits++
+			continue
+		}
+		unresolved = append(unresolved, index)
+	}
+	return unresolved, hits, nil
+}
+
+// batchGetExclusiveInto classifies the keys the shared pass could not, creating entries and scheduling
+// DB reads as needed.
+//
+// The whole classification is redone for these keys rather than carried over, because the lock was
+// released in between and another reader may have scheduled or completed any of them.
+func (s *shard) batchGetExclusiveInto(
+	keys []string,
+	indices []int,
+	values [][]byte,
+	version uint64,
+	hits *int64,
+) ([]pendingRead, error) {
+	pending := make([]pendingRead, 0, len(indices))
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if err := s.cache.outOfServiceLocked(); err != nil {
+		return nil, err
+	}
+
+	if err := s.validateVersionLocked(version); err != nil {
+		return nil, err
+	}
+
+	for _, index := range indices {
+		key := keys[index]
+		if value, found := s.lookupVersionedLocked(key, version); found {
+			values[index] = value
+			*hits++
+			continue
+		}
+
+		outcome := s.cache.lookupStringLocked(key, false)
+		if outcome.immediate {
+			values[index] = outcome.value
+			*hits++
 			continue
 		}
 		pending = append(pending, pendingRead{
@@ -371,14 +447,7 @@ func (s *shard) batchGetInto(keys []string, indices []int, values [][]byte, vers
 			needsSchedule: outcome.needsSchedule,
 		})
 	}
-	s.lock.Unlock()
-
-	if hits > 0 {
-		s.metrics.reportCacheHits(hits)
-	}
-
-	// DB errors are fatal; they fail the whole batch.
-	return s.cache.resolveBatch(pending, values)
+	return pending, nil
 }
 
 // getSizeInfo returns the current cache size (bytes) and entry count under the shard lock.

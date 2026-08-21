@@ -288,6 +288,31 @@ func (c *readCache) lookupSharedLocked(key []byte, updateLru bool) (outcome look
 	}
 }
 
+// lookupSharedStringLocked is lookupSharedLocked for a caller that already holds the key as a string.
+//
+// The Locked postfix indicates that the caller must hold at least the shared lock.
+func (c *readCache) lookupSharedStringLocked(key string, updateLru bool) (outcome lookupOutcome, ok bool) {
+	entry := c.entryLockedString(key, false)
+	if entry == nil {
+		return lookupOutcome{}, false
+	}
+
+	switch entry.status {
+	case statusAvailable:
+		if updateLru {
+			c.stampLocked(entry)
+		}
+		return lookupOutcome{immediate: true, value: entry.value, found: true}, true
+	case statusDeleted:
+		if updateLru {
+			c.stampLocked(entry)
+		}
+		return lookupOutcome{immediate: true}, true
+	default:
+		return lookupOutcome{}, false
+	}
+}
+
 func (c *readCache) lookupLocked(
 	// The key to classify.
 	key []byte,
