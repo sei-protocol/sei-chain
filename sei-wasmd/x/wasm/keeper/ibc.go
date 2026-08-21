@@ -9,10 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
-func (k Keeper) ensureIbcPort(_ sdk.Context, contractAddr sdk.AccAddress) (string, error) {
-	return PortIDForContract(contractAddr), nil
-}
-
 const portIDPrefix = "wasm."
 
 func PortIDForContract(addr sdk.AccAddress) string {

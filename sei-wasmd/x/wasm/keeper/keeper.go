@@ -362,12 +362,7 @@ func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.A
 		return nil, nil, sdkerrors.Wrap(types.ErrInstantiateFailed, err.Error())
 	}
 	if report.HasIBCEntryPoints {
-		// register IBC port
-		ibcPort, err := k.ensureIbcPort(ctx, contractAddress)
-		if err != nil {
-			return nil, nil, err
-		}
-		contractInfo.IBCPortID = ibcPort
+		contractInfo.IBCPortID = PortIDForContract(contractAddress)
 	}
 
 	// store contract before dispatch so that contract could be called back
@@ -462,12 +457,7 @@ func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 		// prevent update to non ibc contract
 		return nil, sdkerrors.Wrap(types.ErrMigrationFailed, "requires ibc callbacks")
 	case report.HasIBCEntryPoints && contractInfo.IBCPortID == "":
-		// add ibc port
-		ibcPort, err := k.ensureIbcPort(ctx, contractAddress)
-		if err != nil {
-			return nil, err
-		}
-		contractInfo.IBCPortID = ibcPort
+		contractInfo.IBCPortID = PortIDForContract(contractAddress)
 	}
 
 	env := types.NewEnv(ctx, contractAddress)
