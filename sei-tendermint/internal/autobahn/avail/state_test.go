@@ -931,8 +931,31 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 	}
 }
 
+func pruneToLastRoad2(t *testing.T, registry *epoch.Registry, keys []types.SecretKey, state *State) *types.CommitQC {
+	t.Helper()
+	ep2 := registry.MustEpoch(2)
+	qc := types.BuildCommitQC(ep2, keys, utils.Some(tipLink(ep2, keys[0], epoch.LastRoad(2)-1)), nil)
+	require.Equal(t, epoch.LastRoad(2), qc.Index())
+	for inner, ctrl := range state.inner.Lock() {
+		inner.prune(data.Anchor{
+			CommitQC: qc,
+			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
+			Epoch:    ep2,
+		})
+		ctrl.Updated()
+	}
+	return qc
+}
+
+func requireSpec(t *testing.T, state *State, qc *types.CommitQC, idx types.EpochIndex) {
+	t.Helper()
+	spec := state.SubscribeConsensusSpec().Load()
+	require.Equal(t, qc.Index(), spec.CommitQC.OrPanic("CommitQC").Index())
+	require.Equal(t, idx, spec.Epoch.EpochIndex())
+}
+
 func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
-	t.Run("ErrPruned jumps to live floor", func(t *testing.T) {
+	t.Run("ErrPruned jumps to durable tip next epoch", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -945,13 +968,16 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 
 			registry.AdvanceIfNeeded(epoch.LastRoad(1))
 			registry.AdvanceIfNeeded(epoch.LastRoad(2))
-			registry.PruneBefore(3)
+			qc := pruneToLastRoad2(t, registry, keys, state)
+			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
+			registry.PruneBefore(2)
 
 			var runErr error
 			go func() { runErr = state.runEpochAdvance(ctx) }()
 			synctest.Wait()
 			require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
 			require.Nil(t, runErr)
+			requireSpec(t, state, qc, 3)
 
 			cancel()
 			synctest.Wait()
@@ -960,7 +986,46 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 		})
 	})
 
-	t.Run("prune jump during seal wait", func(t *testing.T) {
+	t.Run("ErrPruned waits until prune moves a stale tip", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			rng := utils.TestRng()
+			registry, keys := epoch.GenRegistry(rng, 2)
+			ds := newTestDataState(&data.Config{Registry: registry})
+			state, err := NewState(keys[0], ds, utils.None[string]())
+			require.NoError(t, err)
+
+			registry.AdvanceIfNeeded(epoch.LastRoad(1))
+			registry.AdvanceIfNeeded(epoch.LastRoad(2))
+			ep0 := registry.MustEpoch(0)
+			qc0 := types.BuildCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil)
+			require.Equal(t, types.RoadIndex(0), qc0.Index())
+			for inner, ctrl := range state.inner.Lock() {
+				inner.persistedCommitQC.Store(utils.Some(qc0))
+				ctrl.Updated()
+			}
+			registry.PruneBefore(2)
+
+			var runErr error
+			go func() { runErr = state.runEpochAdvance(ctx) }()
+			synctest.Wait()
+			require.Nil(t, runErr)
+			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
+
+			qc := pruneToLastRoad2(t, registry, keys, state)
+			synctest.Wait()
+			require.Nil(t, runErr)
+			require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
+			requireSpec(t, state, qc, 3)
+
+			cancel()
+			synctest.Wait()
+			require.ErrorIs(t, runErr, context.Canceled)
+		})
+	})
+
+	t.Run("prune unblocks epoch owner during seal wait", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -977,20 +1042,11 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			synctest.Wait()
 			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
 
-			ep2 := registry.MustEpoch(2)
-			qc := types.BuildCommitQC(ep2, keys, utils.Some(tipLink(ep2, keys[0], epoch.LastRoad(2)-1)), nil)
-			require.Equal(t, epoch.LastRoad(2), qc.Index())
-			for inner, ctrl := range state.inner.Lock() {
-				inner.prune(data.Anchor{
-					CommitQC: qc,
-					AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
-					Epoch:    ep2,
-				})
-				ctrl.Updated()
-			}
+			qc := pruneToLastRoad2(t, registry, keys, state)
 			synctest.Wait()
 			require.Nil(t, runErr)
-			require.GreaterOrEqual(t, state.Epoch().Load().EpochIndex(), types.EpochIndex(2))
+			require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
+			requireSpec(t, state, qc, 3)
 
 			cancel()
 			synctest.Wait()

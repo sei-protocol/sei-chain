@@ -14,16 +14,15 @@ type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
 	// consensusSpec is the applied (next-CommitQC) epoch paired with a persisted
 	// CommitQC tip (None before the first tip). CommitQC never exceeds
-	// persistedCommitQC. advanceEpoch installs Epoch; runEpochAdvance is the live
-	// writer, and prune jumps applied when the Anchor has skipped ahead.
-	// blockVotes are always weighted under this Epoch.
+	// persistedCommitQC. advanceEpoch installs Epoch; construction and
+	// runEpochAdvance are the writers. blockVotes are always weighted under this Epoch.
 	consensusSpec utils.AtomicSend[types.ConsensusSpec]
 	roads         *queue[types.RoadIndex, *road]
 
 	// anchorEpoch is the epoch of data's Anchor CommitQC when one exists.
 	// None until the first Anchor arrives (construction prune or runEvict).
 	// When it lags applied, epochForVote falls back to this committee for
-	// departing-lane voters. When it leads, prune jumps applied to it.
+	// departing-lane voters.
 	anchorEpoch utils.Option[*types.Epoch]
 	blocks      map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	votes       map[types.LaneID]*queue[types.BlockNumber, *blockVotes]
@@ -143,11 +142,9 @@ func (i *inner) advanceEpoch(ep *types.Epoch) {
 }
 
 // canAdvanceEpoch reports whether the applied epoch is sealed and its prune leash is
-// met. Sealed means roads and persistedCommitQC hold the epoch's last CommitQC.
-// Waiting on persist keeps applied in lockstep with consensusSpec.Epoch.
-// The prune leash is met when the Anchor epoch covers the applied epoch.
-// The execution leash — registry contains the next epoch — is checked
-// separately so live waiters are not parked on avail's lock for a registry update.
+// met for a one-step advance to applied+1. Sealed means roads and persistedCommitQC
+// hold the epoch's last CommitQC. The prune leash is met when the Anchor epoch
+// covers the applied epoch. The execution leash is checked separately.
 func (i *inner) canAdvanceEpoch() bool {
 	ep := i.applied()
 	if i.roads.next < ep.RoadRange().Next {
@@ -227,8 +224,7 @@ func (i *inner) reweightVotes() {
 
 // prune advances the state up to the data Anchor and drops lanes closed as of
 // anchor.Epoch. It updates anchorEpoch and refreshes ConsensusSpec's tip.
-// Construction sets Epoch via newInner; live rotation uses runEpochAdvance;
-// catch-up (Anchor skipped ahead of applied) jumps here.
+// Applied epoch changes belong to construction and runEpochAdvance.
 // Returns the number of lanes dropped.
 func (i *inner) prune(anchor data.Anchor) int {
 	anchorEpoch := anchor.Epoch
@@ -254,9 +250,6 @@ func (i *inner) prune(anchor data.Anchor) int {
 		}
 	}
 	n := i.dropLanes(closed)
-	if i.applied().EpochIndex() < anchorEpoch.EpochIndex() {
-		i.advanceEpoch(anchorEpoch)
-	}
 	i.refreshConsensusSpec()
 	return n
 }
