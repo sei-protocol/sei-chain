@@ -24,3 +24,19 @@ func NewChangelogWAL(dir string, config Config) (ChangelogWAL, error) {
 		config,
 	)
 }
+
+// OpenReadOnlyChangelogWAL opens an immutable point-in-time view of the
+// changelog segment files. It never creates, truncates, removes, or renames WAL
+// files. A torn tail or an in-progress tidwall recovery marker returns
+// tidwall/wal.ErrCorrupt so callers can fail and retry after the writer moves
+// on.
+func OpenReadOnlyChangelogWAL(dir string) (ChangelogWAL, error) {
+	return openReadOnlyWAL(
+		dir,
+		func(data []byte) (proto.ChangelogEntry, error) {
+			var entry proto.ChangelogEntry
+			err := entry.Unmarshal(data)
+			return entry, err
+		},
+	)
+}

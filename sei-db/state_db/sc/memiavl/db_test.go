@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -1117,37 +1118,105 @@ func TestUpdateCurrentSymlinkClearsStaleTmp(t *testing.T) {
 	require.Equal(t, "snapshot-1", target)
 }
 
-// TestSeekSnapshotName pins the exported snapshot-resolution contract that
-// external readers (seidb tooling) rely on: the returned name is relative to
-// root, targetVersion 0 resolves through the current link, a positive target
-// selects the newest snapshot at or below it, and a target older than the
-// earliest snapshot reports pruning instead of guessing.
-func TestSeekSnapshotName(t *testing.T) {
-	root := t.TempDir()
-	for _, v := range []int64{5, 10} {
-		require.NoError(t, os.Mkdir(filepath.Join(root, snapshotName(v)), 0o750))
+func TestReadOnlyOpenRejectsTornWALWithoutRepair(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	for i := 0; i < 3; i++ {
+		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+			Name:      "test",
+			Changeset: ChangeSets[i],
+		}}))
+		_, err := db.Commit()
+		require.NoError(t, err)
 	}
-	require.NoError(t, os.Symlink(snapshotName(10), currentPath(root)))
+	require.NoError(t, db.Close())
 
-	name, version, err := SeekSnapshotName(root, 0)
+	segment := lastMemiAVLWALSegment(t, dir)
+	file, err := os.OpenFile(filepath.Clean(segment), os.O_WRONLY|os.O_APPEND, 0)
 	require.NoError(t, err)
-	require.Equal(t, snapshotName(10), name)
-	require.Equal(t, int64(10), version)
-
-	name, version, err = SeekSnapshotName(root, 7)
+	_, err = file.Write([]byte{0x10})
 	require.NoError(t, err)
-	require.Equal(t, snapshotName(5), name)
-	require.Equal(t, int64(5), version)
-
-	name, version, err = SeekSnapshotName(root, 10)
+	require.NoError(t, file.Close())
+	before, err := os.ReadFile(filepath.Clean(segment))
 	require.NoError(t, err)
-	require.Equal(t, snapshotName(10), name)
-	require.Equal(t, int64(10), version)
 
-	_, _, err = SeekSnapshotName(root, 3)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "target version is pruned")
+	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true})
+	require.ErrorIs(t, err, ErrReadOnlyWALCorrupt)
+	after, readErr := os.ReadFile(filepath.Clean(segment))
+	require.NoError(t, readErr)
+	require.Equal(t, before, after, "read-only open must leave a torn live tail untouched")
 
-	_, _, err = SeekSnapshotName(filepath.Join(root, "does-not-exist"), 0)
-	require.Error(t, err)
+	repaired, err := OpenDB(0, Options{Dir: dir})
+	require.NoError(t, err, "the writable owner must retain the existing tail-repair behavior")
+	require.Equal(t, int64(3), repaired.Version())
+	require.NoError(t, repaired.Close())
+}
+
+func TestReadOnlyOpenRejectsWALGap(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	for i := 0; i < 3; i++ {
+		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+			Name:      "test",
+			Changeset: ChangeSets[i],
+		}}))
+		_, err := db.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.GetWAL().TruncateBefore(2))
+	require.NoError(t, db.Close())
+
+	_, err = OpenDB(3, Options{Dir: dir, ReadOnly: true})
+	require.ErrorIs(t, err, ErrReadOnlyWALUnavailable)
+	require.Contains(t, err.Error(), "needs changelog version 1")
+	require.Contains(t, err.Error(), "starts at version 2")
+}
+
+func TestReadOnlyOpenRejectsShortWAL(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	for i := 0; i < 3; i++ {
+		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+			Name:      "test",
+			Changeset: ChangeSets[i],
+		}}))
+		_, err := db.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.GetWAL().TruncateAfter(2))
+	require.NoError(t, db.Close())
+
+	_, err = OpenDB(3, Options{Dir: dir, ReadOnly: true})
+	require.ErrorIs(t, err, ErrReadOnlyWALUnavailable)
+	require.Contains(t, err.Error(), "requested 3, reached 2")
+}
+
+func lastMemiAVLWALSegment(t *testing.T, dir string) string {
+	t.Helper()
+	entries, err := os.ReadDir(utils.GetChangelogPath(dir))
+	require.NoError(t, err)
+	var names []string
+	for _, entry := range entries {
+		if !entry.IsDir() && len(entry.Name()) == 20 {
+			names = append(names, entry.Name())
+		}
+	}
+	require.NotEmpty(t, names)
+	sort.Strings(names)
+	return filepath.Join(utils.GetChangelogPath(dir), names[len(names)-1])
 }

@@ -27,7 +27,21 @@ import (
 
 const LockFileName = "LOCK"
 
-var errReadOnly = errors.New("db is read-only")
+var (
+	errReadOnly = errors.New("db is read-only")
+
+	// ErrReadOnlyWALCorrupt means a read-only open observed an incomplete,
+	// corrupt, or concurrently recovering changelog. The source WAL is left
+	// untouched; callers can retry after the writer finishes its current WAL
+	// operation.
+	ErrReadOnlyWALCorrupt = errors.New("read-only changelog is incomplete or corrupt")
+
+	// ErrReadOnlyWALUnavailable means the immutable WAL view cannot replay
+	// every version from the selected snapshot through the requested target.
+	// The live writer may have pruned or advanced the changelog while the
+	// reader opened it; callers can retry against a new point-in-time view.
+	ErrReadOnlyWALUnavailable = errors.New("read-only changelog cannot reach the requested version")
+)
 
 // DB implements DB-like functionalities on top of MultiTree:
 // - async snapshot rewriting
@@ -201,12 +215,23 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 
 	// Snapshot mmap files are loaded with MADV_RANDOM in OpenSnapshot().
 
-	// MemIAVL owns changelog lifecycle: always open the WAL here.
-	// Even in read-only mode we may need WAL replay to reconstruct non-snapshot versions.
-	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(opts.Dir), wal.Config{
-		WriteBufferSize: opts.AsyncCommitBuffer,
-	})
+	// MemIAVL owns changelog lifecycle: always open the WAL here. Read-only
+	// callers still need replay to reconstruct non-snapshot versions, but they
+	// must not use the writable opener: it repairs a torn tail by truncating it
+	// and completes interrupted WAL truncations by renaming or removing files.
+	var streamHandler wal.ChangelogWAL
+	if opts.ReadOnly {
+		streamHandler, err = wal.OpenReadOnlyChangelogWAL(utils.GetChangelogPath(opts.Dir))
+	} else {
+		streamHandler, err = wal.NewChangelogWAL(utils.GetChangelogPath(opts.Dir), wal.Config{
+			WriteBufferSize: opts.AsyncCommitBuffer,
+		})
+	}
 	if err != nil {
+		_ = mtree.Close()
+		if opts.ReadOnly && errors.Is(err, wal.ErrCorrupt) {
+			return nil, fmt.Errorf("%w; source WAL was not modified: %w", ErrReadOnlyWALCorrupt, err)
+		}
 		return nil, fmt.Errorf("failed to open changelog WAL: %w", err)
 	}
 
@@ -215,20 +240,54 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 	var walHasEntries bool
 	walIndexDelta, walHasEntries, err = computeWALIndexDelta(streamHandler)
 	if err != nil {
+		_ = streamHandler.Close()
+		_ = mtree.Close()
 		return nil, fmt.Errorf("failed to compute WAL index delta: %w", err)
 	}
 	// If WAL is empty, set delta so first WAL entry aligns with NextVersion().
 	if !walHasEntries {
 		walIndexDelta = mtree.WorkingCommitInfo().Version - 1
 	}
+	if opts.ReadOnly && walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
+		firstIndex, firstErr := streamHandler.FirstOffset()
+		if firstErr != nil {
+			_ = streamHandler.Close()
+			_ = mtree.Close()
+			return nil, fmt.Errorf("read read-only changelog first offset: %w", firstErr)
+		}
+		if firstIndex > math.MaxInt64 {
+			_ = streamHandler.Close()
+			_ = mtree.Close()
+			return nil, fmt.Errorf("%w: first WAL offset %d overflows int64", ErrReadOnlyWALUnavailable, firstIndex)
+		}
+		firstVersion := int64(firstIndex) + walIndexDelta
+		firstNeeded := utils.NextVersion(mtree.Version(), mtree.initialVersion.Load())
+		if firstVersion > firstNeeded {
+			snapshotVersion := mtree.Version()
+			_ = streamHandler.Close()
+			_ = mtree.Close()
+			return nil, fmt.Errorf("%w: selected snapshot version %d needs changelog version %d, "+
+				"but the immutable WAL view starts at version %d",
+				ErrReadOnlyWALUnavailable, snapshotVersion, firstNeeded, firstVersion)
+		}
+	}
 
 	// Replay WAL to catch up to target version (if WAL has entries)
 	if walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
 		logger.Info("Start catching up and replaying the MemIAVL changelog file")
 		if err := mtree.Catchup(context.Background(), streamHandler, walIndexDelta, targetVersion); err != nil {
+			_ = streamHandler.Close()
+			_ = mtree.Close()
 			return nil, err
 		}
 		logger.Info("finished replay and caught up to target version", "version", targetVersion)
+	}
+	if opts.ReadOnly && targetVersion > 0 && mtree.Version() != targetVersion {
+		reached := mtree.Version()
+		_ = streamHandler.Close()
+		_ = mtree.Close()
+		return nil, fmt.Errorf("%w: requested %d, reached %d",
+			ErrReadOnlyWALUnavailable, targetVersion, reached)
 	}
 
 	if opts.LoadForOverwriting && targetVersion > 0 {
@@ -1205,29 +1264,6 @@ func seekSnapshot(root string, targetVersion int64) (int64, error) {
 	return snapshotVersion, nil
 }
 
-// SeekSnapshotName returns the directory name (relative to root — callers
-// join it themselves) and version of the snapshot that OpenDB would start
-// from for targetVersion: the "current" link when targetVersion is 0,
-// otherwise the newest snapshot at or below it.
-//
-// Exported for readers that need to resolve a snapshot without opening the DB,
-// so they inherit this package's layout rules instead of restating them.
-func SeekSnapshotName(root string, targetVersion int64) (string, int64, error) {
-	if targetVersion == 0 {
-		version, err := currentVersion(root)
-		if err != nil {
-			return "", 0, fmt.Errorf("read current snapshot: %w", err)
-		}
-		return snapshotName(version), version, nil
-	}
-
-	version, err := seekSnapshot(root, targetVersion)
-	if err != nil {
-		return "", 0, err
-	}
-	return snapshotName(version), version, nil
-}
-
 // GetEarliestVersion returns the earliest snapshot name in the db
 func GetEarliestVersion(root string) (int64, error) {
 	var found int64
@@ -1350,7 +1386,7 @@ func isSnapshotName(name string) bool {
 // it's needed for upgrade module to check store upgrades,
 // it returns 0 if db doesn't exist or is empty.
 func GetLatestVersion(dir string) (int64, error) {
-	metadata, err := ReadMetadata(currentPath(dir))
+	metadata, err := readMetadata(currentPath(dir))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil

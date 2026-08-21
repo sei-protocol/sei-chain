@@ -76,7 +76,7 @@ func NewEmptyMultiTree(initialVersion uint32) *MultiTree {
 
 func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, error) {
 	startTime := time.Now()
-	metadata, err := ReadMetadata(dir)
+	metadata, err := readMetadata(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -600,13 +600,7 @@ func (t *MultiTree) ReplaceWith(other *MultiTree) error {
 	return errors.Join(errs...)
 }
 
-// ReadMetadata loads a snapshot directory's MultiTreeMetadata (commit info +
-// initial version). Exported for readers that need snapshot metadata without
-// opening the DB — e.g. seidb tooling, whose changelog-coverage check must
-// know the initial version because a DB bootstrapped with initial version N
-// keeps its first snapshot named snapshot-0 while the first changelog entry
-// is version N, not 1.
-func ReadMetadata(dir string) (*proto.MultiTreeMetadata, error) {
+func readMetadata(dir string) (*proto.MultiTreeMetadata, error) {
 	// load commit info
 	bz, err := os.ReadFile(filepath.Join(filepath.Clean(dir), MetadataFileName))
 	if err != nil {
