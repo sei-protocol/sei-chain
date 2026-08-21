@@ -16,6 +16,12 @@ type Resolved struct {
 	// The keys an operator has taken responsibility for, as distinct from the ones tracking the
 	// binary's judgement. This is what a diff renders.
 	Overrides []string
+	// Ignored are declared keys an environment variable was set for and could not supply, sorted.
+	//
+	// Separate from Unknown because the two are different mistakes. An unknown key is one nothing reads.
+	// An ignored one is read, and the operator reached for the one channel that cannot carry it, so the
+	// value they wrote elsewhere is what applies. EnvCannotDeliver says why, per key.
+	Ignored []string
 	// Unknown are keys a source carried that no section declares, sorted.
 	//
 	// Reported rather than an error, because what to do about one is the caller's decision: a
@@ -37,6 +43,16 @@ type Sources struct {
 	Flags     map[string]any
 }
 
+// known reports whether this package declares defaults for a mode.
+func known(mode Mode) bool {
+	for _, m := range Modes() {
+		if m == mode {
+			return true
+		}
+	}
+	return false
+}
+
 // Resolve reduces a node's configuration sources to one value per declared key.
 //
 // The precedence is stated once, in this function, and a caller cannot reorder its way to a different
@@ -54,6 +70,16 @@ type Sources struct {
 func Resolve(mode Mode, from Sources) (Resolved, error) {
 	var out Resolved
 
+	// Refused before anything is resolved, because a section's defaults answer per mode and a mode this
+	// package does not know reaches whatever each section does with an argument it cannot match. What that
+	// is varies by section and none of them is a decision anyone made: the upstream mode rules answer for
+	// an unrecognised mode as though it were a full node, so an empty string, a capitalised name or one
+	// with a trailing space resolves the interfaces a full node serves onto whatever asked.
+	if !known(mode) {
+		return out, fmt.Errorf("%q is not a mode this binary declares defaults for; the modes are %v",
+			mode, Modes())
+	}
+
 	// One snapshot, read once and passed everywhere below. Every part of the answer has to describe the
 	// same registry: asking again leaves a window a concurrent registration fits through, and a section
 	// arriving in that window is declared by one part of the answer and not by another.
@@ -64,6 +90,16 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 	}
 	declared := declaredKeys(registered)
 	undeliverable := EnvCannotDeliver()
+	// A refusal is recorded by a key, and a key that no section declares is one the environment layer
+	// would never have offered anyway, so the refusal protects nothing and reads as though it did. Held
+	// here because a refusal may be recorded before the section that declares its key registers, so this
+	// is the first point both sets exist.
+	for key := range undeliverable {
+		if !declared[key] {
+			return out, fmt.Errorf("%q is refused from the environment and no section declares it, so the "+
+				"refusal covers nothing", key)
+		}
+	}
 
 	out.Values = make(map[string]any, len(declared))
 	for key, v := range defaults {
@@ -74,9 +110,11 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 	unknown := map[string]bool{}
 	// Lowest precedence first, so a later source overwrites an earlier one. The one statement of the
 	// order, which is why nothing exports it.
+	fromEnv, ignored := envValues(declared, undeliverable, from.LookupEnv)
+	out.Ignored = ignored
 	for _, values := range []map[string]any{
 		fileValues(from.File),
-		envValues(declared, undeliverable, from.LookupEnv),
+		fromEnv,
 		from.Flags,
 	} {
 		for key, v := range values {
@@ -274,16 +312,24 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 // again would ask for a key the caller's declared set does not hold, and the answer would come back
 // only to be reported as one no section declares.
 func envValues(declared map[string]bool, undeliverable map[string]string,
-	lookup func(string) (string, bool)) map[string]any {
+	lookup func(string) (string, bool)) (map[string]any, []string) {
 	if lookup == nil {
-		return nil
+		return nil, nil
 	}
 	out := map[string]any{}
+	var ignored []string
 	for key := range declared {
 		// A key no variable can carry is left to the sources that can. Resolving it would put a string
 		// at the top of the order for a reader that takes the exact type, and installing that stops the
 		// node. What an operator loses is the channel; what they keep is a node that boots.
+		//
+		// The variable is still read, and the value still discarded. Asking is what turns this from a
+		// silent skip into something a caller can report: a reason nothing can attach to an operator's
+		// own action is a reason nobody is ever told.
 		if _, refused := undeliverable[key]; refused {
+			if v, set := lookup(EnvName(key)); set && v != "" {
+				ignored = append(ignored, key)
+			}
 			continue
 		}
 		// An empty value is treated as unset. A variable exported empty is far more often a shell
@@ -294,7 +340,8 @@ func envValues(declared map[string]bool, undeliverable map[string]string,
 			out[key] = v
 		}
 	}
-	return out
+	sort.Strings(ignored)
+	return out, ignored
 }
 
 // fileValues normalises a configuration file's keys to lower case.

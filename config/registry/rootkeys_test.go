@@ -153,7 +153,7 @@ func TestAKeyTheEnvironmentCannotDeliverIsLeftToTheOtherSources(t *testing.T) {
 			Plain string `mapstructure:"plain"`
 		}{Rows: []any{}, Plain: "from the default"}
 	})
-	registry.RefuseFromEnvironment("probe.rows", "its reader takes the exact type rather than casting")
+	registry.RefuseFromEnvironment("probe", "probe.rows", "its reader takes the exact type rather than casting")
 	for _, d := range registry.Defects() {
 		t.Fatalf("the registration was refused: %v", d.Err)
 	}
@@ -194,7 +194,7 @@ func TestAKeyTheEnvironmentCannotDeliverIsLeftToTheOtherSources(t *testing.T) {
 // has to be told why. A refusal with no reason gives a diagnostic nothing to print.
 func TestRefusingAChannelWithoutAReasonIsItselfRefused(t *testing.T) {
 	registry.Reset()
-	registry.RefuseFromEnvironment("probe.rows", "")
+	registry.RefuseFromEnvironment("probe", "probe.rows", "")
 	if len(registry.Defects()) != 1 {
 		t.Fatalf("recorded %d defects, want one naming the key with no reason", len(registry.Defects()))
 	}
@@ -204,8 +204,122 @@ func TestRefusingAChannelWithoutAReasonIsItselfRefused(t *testing.T) {
 	}
 
 	registry.Reset()
-	registry.RefuseFromEnvironment("probe.rows", "its reader takes the exact type")
+	registry.RefuseFromEnvironment("probe", "probe.rows", "its reader takes the exact type")
 	if _, refused := registry.EnvCannotDeliver()["probe.rows"]; !refused {
 		t.Error("a refusal carrying a reason was not recorded")
+	}
+}
+
+// TestAModeThisBinaryDoesNotDeclareIsRefused closes a resolution that answered for anything.
+//
+// A section's defaults answer per mode, and a mode this package does not know reaches whatever each
+// section does with an argument it cannot match. Nothing about that is a decision anyone made: the mode
+// rules these sections read answer for an unrecognised mode as though it were a full node, so an empty
+// string, a capitalised name or one with a trailing space resolved the interfaces a full node serves onto
+// whichever node asked.
+func TestAModeThisBinaryDoesNotDeclareIsRefused(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("probe", &struct {
+		Serves bool `mapstructure:"serves"`
+	}{}, func(mode registry.Mode) any {
+		return struct {
+			Serves bool `mapstructure:"serves"`
+		}{Serves: mode == registry.ModeFull || mode == registry.ModeArchive}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("the probe was refused: %v", d.Err)
+	}
+
+	for _, mode := range registry.Modes() {
+		if _, err := registry.Resolve(mode, registry.Sources{}); err != nil {
+			t.Errorf("mode %q is declared and did not resolve: %v", mode, err)
+		}
+	}
+	for _, mode := range []registry.Mode{"", "Validator", "validator ", "VALIDATOR", "sentry"} {
+		resolved, err := registry.Resolve(mode, registry.Sources{})
+		if err == nil {
+			t.Errorf("mode %q resolved, to serves=%v. A mode nothing declares has no answer, and the one "+
+				"it reached is whatever the rules do with an argument they cannot match",
+				mode, resolved.Values["probe.serves"])
+		}
+	}
+}
+
+// TestARefusalNamingAKeyNothingDeclaresIsRefused keeps a refusal from covering nothing.
+//
+// A refusal is recorded by a key, so a slip in the spelling names a key no section declares. The
+// environment layer would never have offered that key, so the refusal protects nothing while reading as
+// though it did, and the key it was meant to cover resolves from the environment as before.
+//
+// Answered when something resolves rather than when the refusal is recorded, because a refusal may be
+// recorded before the section declaring its key registers. Resolving is the first point both sets exist.
+func TestARefusalNamingAKeyNothingDeclaresIsRefused(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("probe", &struct {
+		Rows []any `mapstructure:"rows"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			Rows []any `mapstructure:"rows"`
+		}{Rows: []any{}}
+	})
+	registry.RefuseFromEnvironment("probe", "probe.rowz", "a slip in the spelling")
+
+	if _, err := registry.Resolve(registry.ModeFull, registry.Sources{}); err == nil {
+		t.Error("a refusal naming a key nothing declares was accepted, so it covers nothing and the key " +
+			"it was written for still resolves from the environment")
+	}
+}
+
+// TestAVariableSetForARefusedKeyIsReported is what makes the required reason worth requiring.
+//
+// The channel is skipped and the value discarded, which is the point. But an operator who set the variable
+// believes otherwise, and a reason nothing can attach to their own action is a reason nobody is told. So
+// the variable is still read, and the key comes back named.
+func TestAVariableSetForARefusedKeyIsReported(t *testing.T) {
+	registry.Reset()
+	registry.RegisterSection("probe", &struct {
+		Rows  []any  `mapstructure:"rows"`
+		Plain string `mapstructure:"plain"`
+	}{}, func(registry.Mode) any {
+		return struct {
+			Rows  []any  `mapstructure:"rows"`
+			Plain string `mapstructure:"plain"`
+		}{Rows: []any{}, Plain: "from the default"}
+	})
+	registry.RefuseFromEnvironment("probe", "probe.rows", "its reader takes the exact type")
+	for _, d := range registry.Defects() {
+		t.Fatalf("the probe was refused: %v", d.Err)
+	}
+
+	resolved, err := registry.Resolve(registry.ModeFull, registry.Sources{
+		LookupEnv: func(name string) (string, bool) {
+			if name == registry.EnvName("probe.rows") {
+				return "chain_id=pacific-1", true
+			}
+			return "", false
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if got := strings.Join(resolved.Ignored, ","); got != "probe.rows" {
+		t.Errorf("the ignored variables are %q, want probe.rows. An operator set it and nothing here can "+
+			"tell them it did nothing", got)
+	}
+	if !reflect.DeepEqual(resolved.Values["probe.rows"], []any{}) {
+		t.Errorf("probe.rows resolved to %#v, and the channel was supposed to be skipped",
+			resolved.Values["probe.rows"])
+	}
+
+	// A refused key nobody set is not news, so it is not reported.
+	quiet, err := registry.Resolve(registry.ModeFull, registry.Sources{
+		LookupEnv: func(string) (string, bool) { return "", false },
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(quiet.Ignored) != 0 {
+		t.Errorf("a refused key nobody set is reported as ignored: %v", quiet.Ignored)
 	}
 }

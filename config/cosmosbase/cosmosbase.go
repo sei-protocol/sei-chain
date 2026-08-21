@@ -1,9 +1,12 @@
 // Package cosmosbase registers the configuration sections whose keys belong to the Cosmos server.
 //
-// These sections have no owning package inside this repository. Their structs and their readers live in
-// sei-cosmos, which this repository vendors rather than authors, so there is nowhere upstream to put a
-// registration that this repository's registry would see. A section belongs here only when its keys are
-// upstream's; a section this repository owns registers in the package that owns its struct.
+// These five register here rather than beside the structs they describe, and the reason is an import edge.
+// The mode rules their defaults answer through live in app/params, which imports the upstream server
+// configuration, so that package cannot ask for them without a cycle. A vendored tree is not itself the
+// obstacle: other sections do register inside one.
+//
+// A section belongs here only when its keys are upstream's and that edge is in the way. Everything else
+// registers in the package that owns its struct, so the struct, the values and the keys stay together.
 package cosmosbase
 
 import (
@@ -24,14 +27,13 @@ const (
 	StateSyncSectionName = "state-sync"
 )
 
-// GlobalLabelsKey is the metric label set, which is the one key here no environment variable can supply.
-const GlobalLabelsKey = TelemetrySectionName + ".global-labels"
+// globalLabelsKey is the metric label set, which is the one key here no environment variable can supply.
+const globalLabelsKey = TelemetrySectionName + ".global-labels"
 
 // Registration puts the upstream server's configuration sections in the registry.
 //
 // Four of the five register the upstream struct directly, because their mapstructure tags already name the
-// keys their reader resolves. That is worth stating rather than assuming: the two SeiDB sections needed a
-// schema precisely because their tags name something else.
+// keys their reader resolves.
 func init() {
 	registry.RegisterRootKeys(BaseSectionName, &srvconfig.BaseConfig{}, baseDefaults)
 	registry.RegisterSection(APISectionName, &srvconfig.APIConfig{}, apiDefaults)
@@ -39,7 +41,7 @@ func init() {
 	registry.RegisterSection(TelemetrySectionName, &telemetrySchema{}, telemetryDefaults)
 	registry.RegisterSection(StateSyncSectionName, &srvconfig.StateSyncConfig{}, stateSyncDefaults)
 
-	registry.RefuseFromEnvironment(GlobalLabelsKey,
+	registry.RefuseFromEnvironment(TelemetrySectionName, globalLabelsKey,
 		"the metric label set is a list of name and value rows, and its reader takes that exact shape "+
 			"rather than casting what it finds, so no single environment string can supply it. Write it "+
 			"in the configuration file instead")
@@ -60,23 +62,24 @@ func forMode(mode registry.Mode) *srvconfig.Config {
 	return out
 }
 
-// baseDefaults is what the node-wide settings resolve to for a node that has written nothing.
+// baseDefaults is what the node-wide settings resolve to for a node of this kind.
 //
-// The upstream defaults, unchanged by mode. Every one of these keys is read with a casting getter and no
-// check that the key was present, so an absent key casts to a zero and clobbers the default beside it.
-// Five of the fourteen have a non-zero default, and the pruning strategy is the one that matters, because
-// an empty strategy is not a strategy.
+// One of these keys answers per mode: how many blocks a node retains, which is a hundred thousand for a
+// full node and everything for the rest. The other two mode-varying keys in this package are the interface
+// toggles, which belong to the sections that own them.
 //
-// Three keys elsewhere in this package vary by node mode, and none of them varies here. seid init writes
-// the interface toggles and the block retention per mode, so a node it provisioned carries those as
-// written values, and a written value is what resolves. These are what a node with nothing written runs.
+// Every one of these keys is read with a casting getter and no check that the key was present, so an
+// absent key casts to a zero and clobbers the default beside it. Which keys those are, and what a node
+// resolves for each instead, belongs in a measurement rather than in a count here.
 //
-// One value here is not what a running node uses today, and it is worth knowing which. The pruning
-// strategy is declared as keeping everything, while the command line registers a flag of the same name
-// defaulting to the standard strategy, and a bound flag is a source of its own below the file. So a node
-// started with no pruning key written prunes on the standard schedule and this states that it would keep
-// everything. Whoever resolves for a running node has to supply the flag values to get the answer that
-// node uses.
+// Several of these are not what a running node resolves today, and the causes differ: a bound command flag
+// of the same name carries its own default below the file, and the command that assembles the server
+// configuration overrides some of them before a node starts. The pruning strategy is the one worth naming,
+// because the flag defaults it to the standard schedule while this declares it keeps everything.
+//
+// A caller resolving for a running node therefore has to supply that node's flag values, and only the ones
+// an operator actually set. A flag nobody typed still reports a default, and this resolution ranks flags
+// above the file, so passing defaults would put every one of them over an operator's own value.
 func baseDefaults(mode registry.Mode) any { return forMode(mode).BaseConfig }
 
 // apiDefaults is what the REST interface settings resolve to for a node that has written nothing.
@@ -91,9 +94,10 @@ func apiDefaults(mode registry.Mode) any { return forMode(mode).API }
 // interface follows and for the same reason. The upstream default is on for every kind, so declaring that
 // would state an open interface on the nodes meant to expose the least.
 //
-// Six of these eleven keys are read only when the key is present, so for those the declared value is also
-// what an absent key resolves to today. The six durations are declared as durations and written into a
-// file as text, which is the shape the reader parses back.
+// Six of these eleven keys are read only when the key is present. Two more are durations read through a
+// clamp that rescues a negative value and does nothing for an absent one, so those two are unguarded and
+// their clobber leaves no trace. The durations are declared as durations and written into a file as text,
+// which is the shape the reader parses back.
 func grpcDefaults(mode registry.Mode) any { return forMode(mode).GRPC }
 
 // stateSyncDefaults is what the snapshot settings resolve to for a node that has written nothing.

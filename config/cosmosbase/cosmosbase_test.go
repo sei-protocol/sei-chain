@@ -86,7 +86,7 @@ func TestTheMetricKeysAreTheOnesItsReaderResolves(t *testing.T) {
 	requireDeclares(t, TelemetrySectionName, []string{
 		"telemetry.service-name", "telemetry.enabled", "telemetry.enable-hostname",
 		"telemetry.enable-hostname-label", "telemetry.enable-service-label",
-		"telemetry.prometheus-retention-time", GlobalLabelsKey,
+		"telemetry.prometheus-retention-time", globalLabelsKey,
 	})
 }
 
@@ -150,10 +150,10 @@ func TestTheUpstreamDefaultCarriesNoLabels(t *testing.T) {
 // variable installs a value the reader refuses, and it refuses in the first statement of the whole server
 // configuration. The node stops. Leaving the channel out means the file's value applies and the node runs.
 func TestTheLabelSetIsRefusedFromTheEnvironment(t *testing.T) {
-	reason, refused := registry.EnvCannotDeliver()[GlobalLabelsKey]
+	reason, refused := registry.EnvCannotDeliver()[globalLabelsKey]
 	if !refused {
 		t.Fatalf("%s is not refused from the environment, so a variable naming it resolves to a string "+
-			"and installing that stops the node", GlobalLabelsKey)
+			"and installing that stops the node", globalLabelsKey)
 	}
 	if reason == "" {
 		t.Error("the refusal carries no reason, so an operator whose variable is ignored cannot be told why")
@@ -161,7 +161,7 @@ func TestTheLabelSetIsRefusedFromTheEnvironment(t *testing.T) {
 
 	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{
 		LookupEnv: func(name string) (string, bool) {
-			if name == registry.EnvName(GlobalLabelsKey) {
+			if name == registry.EnvName(globalLabelsKey) {
 				return "chain_id=pacific-1", true
 			}
 			return "", false
@@ -170,14 +170,14 @@ func TestTheLabelSetIsRefusedFromTheEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if got := resolved.Values[GlobalLabelsKey]; !reflect.DeepEqual(got, []any{}) {
+	if got := resolved.Values[globalLabelsKey]; !reflect.DeepEqual(got, []any{}) {
 		t.Errorf("%s resolved to %#v (%T), want the declared default it was left to",
-			GlobalLabelsKey, got, got)
+			globalLabelsKey, got, got)
 	}
 	for _, key := range resolved.Overrides {
-		if key == GlobalLabelsKey {
+		if key == globalLabelsKey {
 			t.Errorf("%s is reported as a value an operator supplied, and the variable did nothing",
-				GlobalLabelsKey)
+				globalLabelsKey)
 		}
 	}
 }
@@ -246,21 +246,51 @@ func TestDefaultsAreTheUpstreamOnesApartFromTheModeRules(t *testing.T) {
 			}
 		}
 
-		metrics, ok := telemetryDefaults(mode).(telemetrySchema)
-		if !ok {
+		if _, ok := telemetryDefaults(mode).(telemetrySchema); !ok {
 			t.Fatalf("mode %q: the metric defaults returned %T, want the schema", mode, telemetryDefaults(mode))
 		}
-		if metrics.Enabled != live.Telemetry.Enabled ||
-			metrics.PrometheusRetentionTime != live.Telemetry.PrometheusRetentionTime ||
-			metrics.ServiceName != live.Telemetry.ServiceName {
-			t.Errorf("mode %q: the metric defaults are not the upstream ones: %+v", mode, metrics)
+		// Every field the schema copies by hand, held against the upstream value, and held as the
+		// resolved key rather than as a struct field. The section that has to restate its values is the
+		// one where a field can be assigned from the wrong neighbour, and a struct comparison would not
+		// see it: each field still holds a value, and the count still matches.
+		requireResolvesTelemetry(t, mode, live.Telemetry)
+	}
+}
+
+// requireResolvesTelemetry holds every key the metric schema declares against the upstream value.
+func requireResolvesTelemetry(t *testing.T, mode registry.Mode, live telemetry.Config) {
+	t.Helper()
+	resolved, err := registry.Resolve(mode, registry.Sources{})
+	if err != nil {
+		t.Fatalf("mode %q: %v", mode, err)
+	}
+	for key, want := range map[string]any{
+		"telemetry.service-name":              live.ServiceName,
+		"telemetry.enabled":                   live.Enabled,
+		"telemetry.enable-hostname":           live.EnableHostname,
+		"telemetry.enable-hostname-label":     live.EnableHostnameLabel,
+		"telemetry.enable-service-label":      live.EnableServiceLabel,
+		"telemetry.prometheus-retention-time": live.PrometheusRetentionTime,
+		globalLabelsKey:                       []any{},
+	} {
+		if got := resolved.Values[key]; !reflect.DeepEqual(got, want) {
+			t.Errorf("mode %q: %s resolves to %#v (%T), want %#v (%T)", mode, key, got, got, want, want)
 		}
 	}
 }
 
-// TestEverySectionHereRegistersCleanly covers what the registry itself refuses.
-func TestEverySectionHereRegistersCleanly(t *testing.T) {
+// TestTheSectionsThisPackageRegistersAreUsable covers what the registry refuses.
+//
+// Scoped to the five names this file registers. A refusal that depends on what else has registered is
+// not this package's to answer for, and the sweep that covers it belongs where every section is linked.
+func TestTheSectionsThisPackageRegistersAreUsable(t *testing.T) {
+	mine := map[string]bool{
+		BaseSectionName: true, APISectionName: true, GRPCSectionName: true,
+		TelemetrySectionName: true, StateSyncSectionName: true,
+	}
 	for _, defect := range registry.Defects() {
-		t.Errorf("%s is registered and defective: %v", defect.Section, defect.Err)
+		if mine[defect.Section] {
+			t.Errorf("%s was refused, so none of its keys is declared: %v", defect.Section, defect.Err)
+		}
 	}
 }

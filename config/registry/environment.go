@@ -17,12 +17,16 @@ var envCannotDeliver = map[string]string{}
 // start, so the difference is recorded rather than assumed. A value silently doing nothing is the failure
 // this whole surface exists to remove, which is why the reason is required and not optional.
 //
+// section is the section that declares the key, so a refused key is attributable to a registration the
+// way every other defect is. Whether the key is one that section declares is answered when something
+// resolves, because a refusal may be recorded before the registration it belongs to.
+//
 // Called from the owning package, beside its registration, so the reason sits with the code that knows it.
-func RefuseFromEnvironment(key, reason string) {
+func RefuseFromEnvironment(section, key, reason string) {
 	mu.Lock()
 	defer mu.Unlock()
 	if reason == "" {
-		defects = append(defects, Defect{Section: key, Err: fmt.Errorf(
+		defects = append(defects, Defect{Section: section, Err: fmt.Errorf(
 			"refusing %q from the environment with no reason; an operator whose variable is ignored has "+
 				"to be told why", key)})
 		return
