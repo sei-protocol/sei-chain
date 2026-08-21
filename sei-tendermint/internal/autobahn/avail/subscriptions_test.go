@@ -172,7 +172,7 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		b := types.GenSecretKey(rng)
 		allKeys := append(keys, b)
 
-		db := memblock.NewBlockDB()
+		db := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
 		t.Cleanup(func() { require.NoError(t, db.Close()) })
 		ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, db))
 		stateA := utils.OrPanic1(NewState(a, ds, utils.None[string]()))

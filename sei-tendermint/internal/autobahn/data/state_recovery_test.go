@@ -438,7 +438,7 @@ func TestNewState_SetupInitialEpochsFromCommitQCSpan(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 4)
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 
-	db := memblock.NewBlockDB()
+	db := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	writeToBlockDB(t, db, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
 
