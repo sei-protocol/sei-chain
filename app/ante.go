@@ -15,8 +15,6 @@ import (
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/oracle"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )
 
 // HandlerOptions extend the SDK's AnteHandler options by requiring the IBC
@@ -27,7 +25,6 @@ type HandlerOptions struct {
 	IBCKeeper         *ibckeeper.Keeper
 	WasmConfig        *wasmtypes.WasmConfig
 	WasmKeeper        *wasm.Keeper
-	OracleKeeper      *oraclekeeper.Keeper
 	EVMKeeper         *evmkeeper.Keeper
 	UpgradeKeeper     *upgradekeeper.Keeper
 	TXCounterStoreKey sdk.StoreKey
@@ -52,9 +49,6 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteHandler, e
 	if options.WasmKeeper == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "wasm keeper is required for ante builder")
 	}
-	if options.OracleKeeper == nil {
-		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "oracle keeper is required for ante builder")
-	}
 	if options.ParamsKeeper == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "params keeper is required for ante builder")
 	}
@@ -77,11 +71,9 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteHandler, e
 
 	anteDecorators := []sdk.AnteDecorator{
 		ante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(options.ParamsKeeper.(paramskeeper.Keeper))), // outermost AnteDecorator. SetUpContext must be called first
-		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.ParamsKeeper.(paramskeeper.Keeper), options.TxFeeChecker)}, *options.OracleKeeper, options.EVMKeeper),
+		ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.ParamsKeeper.(paramskeeper.Keeper), options.TxFeeChecker),
 		wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit, wasmkeeper.DefaultGasMeterSetter()), // after setup context to enforce limits early
 		ante.NewRejectExtensionOptionsDecorator(),
-		oracle.NewSpammingPreventionDecorator(*options.OracleKeeper),
-		oracle.NewOracleVoteAloneDecorator(),
 		ante.NewValidateBasicDecorator(),
 		ante.NewTxTimeoutHeightDecorator(),
 		ante.NewValidateMemoDecorator(options.AccountKeeper),

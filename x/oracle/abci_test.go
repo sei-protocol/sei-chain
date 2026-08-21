@@ -12,44 +12,39 @@ import (
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 
 	"github.com/sei-protocol/sei-chain/x/oracle"
-	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 )
 
 func TestOracleThreshold(t *testing.T) {
-	input, h := setup(t)
+	input := setup(t)
 	exchangeRateStr := randomExchangeRate.String() + utils.MicroAtomDenom
 
 	// Case 1.
 	// Less than the threshold signs, exchange rate consensus fails
 	voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[0], testutils.ValAddrs[0])
 
-	_, err := h(input.Ctx.WithBlockHeight(1), voteMsg)
-	require.NoError(t, err)
+	storeAggregateVote(t, input, voteMsg)
 
 	oracle.MidBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 
-	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
+	_, _, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	// Case 2.
 	// More than the threshold signs, exchange rate consensus succeeds
 	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[0], testutils.ValAddrs[0])
 
-	_, err = h(input.Ctx.WithBlockHeight(1), voteMsg)
-	require.NoError(t, err)
+	storeAggregateVote(t, input, voteMsg)
 
 	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[1], testutils.ValAddrs[1])
 
-	_, err = h(input.Ctx.WithBlockHeight(1), voteMsg)
-	require.NoError(t, err)
+	storeAggregateVote(t, input, voteMsg)
 
 	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[2], testutils.ValAddrs[2])
-	_, err = h(input.Ctx.WithBlockHeight(1), voteMsg)
-	require.NoError(t, err)
+	storeAggregateVote(t, input, voteMsg)
 
 	oracle.MidBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
@@ -65,12 +60,10 @@ func TestOracleThreshold(t *testing.T) {
 	input.StakingKeeper.Delegate(input.Ctx.WithBlockHeight(0), testutils.Addrs[2], stakingAmt.MulRaw(3), stakingtypes.Unbonded, val, false)
 
 	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[0], testutils.ValAddrs[0])
-	_, err = h(input.Ctx.WithBlockHeight(1), voteMsg)
-	require.NoError(t, err)
+	storeAggregateVote(t, input, voteMsg)
 
 	voteMsg = types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[1], testutils.ValAddrs[1])
-	_, err = h(input.Ctx.WithBlockHeight(3), voteMsg)
-	require.NoError(t, err)
+	storeAggregateVote(t, input, voteMsg)
 
 	oracle.MidBlocker(input.Ctx.WithBlockHeight(3), input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx.WithBlockHeight(3), input.OracleKeeper)
@@ -83,12 +76,12 @@ func TestOracleThreshold(t *testing.T) {
 }
 
 func TestOracleDrop(t *testing.T) {
-	input, h := setup(t)
+	input := setup(t)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, randomExchangeRate)
 
 	// Account 1, KRW
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
 
 	// Immediately swap halt after an illiquid oracle vote
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
@@ -102,12 +95,11 @@ func TestOracleDrop(t *testing.T) {
 }
 
 func TestOracleTally(t *testing.T) {
-	input, _ := setup(t)
+	input := setup(t)
 
 	ballot := types.ExchangeRateBallot{}
 	rates, valAddrs, stakingKeeper := types.GenerateRandomTestCase()
 	input.OracleKeeper.StakingKeeper = stakingKeeper
-	h := oracle.NewHandler(input.OracleKeeper)
 	for i, rate := range rates {
 
 		decExchangeRate := sdk.NewDecWithPrec(int64(rate*math.Pow10(testutils.OracleDecPrecision)), int64(testutils.OracleDecPrecision))
@@ -115,8 +107,7 @@ func TestOracleTally(t *testing.T) {
 
 		voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, sdk.AccAddress(valAddrs[i]), valAddrs[i])
 
-		_, err := h(input.Ctx.WithBlockHeight(1), voteMsg)
-		require.NoError(t, err)
+		storeAggregateVote(t, input, voteMsg)
 
 		power := stakingAmt.QuoRaw(utils.MicroUnit).Int64()
 		if decExchangeRate.IsZero() {
@@ -181,7 +172,7 @@ func TestOracleTally(t *testing.T) {
 }
 
 func TestOracleUpdateDidVote(t *testing.T) {
-	input, _ := setup(t)
+	input := setup(t)
 
 	// set up a ballot where only one of 3 validators voted, and the other two didn't make any votes
 
@@ -224,11 +215,11 @@ func TestOracleUpdateDidVote(t *testing.T) {
 }
 
 func TestOracleTallyTiming(t *testing.T) {
-	input, h := setup(t)
+	input := setup(t)
 
 	// all the testutils.Addrs vote for the block ... not last period block yet, so tally fails
 	for i := range testutils.Addrs[:2] {
-		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, i)
+		makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, i)
 	}
 
 	params := input.OracleKeeper.GetParams(input.Ctx)
@@ -250,7 +241,7 @@ func TestOracleTallyTiming(t *testing.T) {
 }
 
 func TestInvalidVotesSlashing(t *testing.T) {
-	input, h := setup(t)
+	input := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
 	params.MinValidPerWindow = sdk.NewDecWithPrec(5, 2)
@@ -265,13 +256,13 @@ func TestInvalidVotesSlashing(t *testing.T) {
 		input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
 		// Account 1, KRW
-		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+		makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
 
 		// Account 2, KRW, miss vote
-		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate.Add(sdk.NewDec(100000000000000))}}, 1)
+		makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate.Add(sdk.NewDec(100000000000000))}}, 1)
 
 		// Account 3, KRW
-		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
+		makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 		oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -284,13 +275,13 @@ func TestInvalidVotesSlashing(t *testing.T) {
 
 	// one more miss vote will inccur testutils.ValAddrs[1] slashing
 	// Account 1, KRW
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
 
 	// Account 2, KRW, miss vote
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate.Add(sdk.NewDec(100000000000000))}}, 1)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate.Add(sdk.NewDec(100000000000000))}}, 1)
 
 	// Account 3, KRW
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
@@ -300,7 +291,7 @@ func TestInvalidVotesSlashing(t *testing.T) {
 }
 
 func TestWhitelistSlashing(t *testing.T) {
-	input, h := setup(t)
+	input := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.MinValidPerWindow = sdk.NewDecWithPrec(5, 2)
 	input.OracleKeeper.SetParams(input.Ctx, params)
@@ -312,9 +303,9 @@ func TestWhitelistSlashing(t *testing.T) {
 		input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
 		// Account 2, KRW
-		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
+		makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
 		// Account 3, KRW
-		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
+		makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 		oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -328,9 +319,9 @@ func TestWhitelistSlashing(t *testing.T) {
 	// one more miss vote will incur in slashing because of abstaining
 
 	// Account 2, KRW
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
 	// Account 3, KRW
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
@@ -342,7 +333,7 @@ func TestWhitelistSlashing(t *testing.T) {
 }
 
 func TestNotPassedBallotSlashing(t *testing.T) {
-	input, h := setup(t)
+	input := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
 	input.OracleKeeper.SetParams(input.Ctx, params)
@@ -353,7 +344,7 @@ func TestNotPassedBallotSlashing(t *testing.T) {
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
 	// Account 1, KRW
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -367,7 +358,7 @@ func TestNotPassedBallotSlashing(t *testing.T) {
 }
 
 func TestNotPassedBallotSlashingInvalidVotes(t *testing.T) {
-	input, h := setupN(t, 7)
+	input := setupN(t, 7)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
 	input.OracleKeeper.SetParams(input.Ctx, params)
@@ -378,11 +369,11 @@ func TestNotPassedBallotSlashingInvalidVotes(t *testing.T) {
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
 	// Account 1
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
 	// Account 2
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
 	// Account 3
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate.Add(sdk.NewDec(100000000000000))}}, 2)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate.Add(sdk.NewDec(100000000000000))}}, 2)
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -406,7 +397,7 @@ func TestNotPassedBallotSlashingInvalidVotes(t *testing.T) {
 }
 
 func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
-	input, h := setupN(t, 7)
+	input := setupN(t, 7)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}, {Name: utils.MicroEthDenom}}
 	input.OracleKeeper.SetParams(input.Ctx, params)
@@ -418,17 +409,17 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
 	// Account 1
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: randomExchangeRate}}, 0)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: randomExchangeRate}}, 0)
 	// Account 2
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: randomExchangeRate}}, 1)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: randomExchangeRate}}, 1)
 	// Account 3
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: randomExchangeRate}}, 2)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: randomExchangeRate}}, 2)
 
 	// rest of accounts
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: randomExchangeRate}}, 3)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: randomExchangeRate}}, 4)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 5)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 6)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: randomExchangeRate}}, 3)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: randomExchangeRate}}, 4)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 5)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 6)
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -458,17 +449,17 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
 	// Account 1
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: anotherRandomExchangeRate}}, 0)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: anotherRandomExchangeRate}}, 0)
 	// Account 2
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: anotherRandomExchangeRate}}, 1)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: anotherRandomExchangeRate}}, 1)
 	// Account 3
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: anotherRandomExchangeRate.Add(sdk.NewDec(100000000000000))}}, 2)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}, {Denom: utils.MicroEthDenom, Amount: anotherRandomExchangeRate.Add(sdk.NewDec(100000000000000))}}, 2)
 
 	// rest of accounts meet threshold only for one asset
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}}, 3)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}}, 4)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}}, 5)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}}, 6)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}}, 3)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}}, 4)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}}, 5)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}}, 6)
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -499,7 +490,7 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 }
 
 func TestAbstainSlashing(t *testing.T) {
-	input, h := setup(t)
+	input := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
 	params.MinValidPerWindow = sdk.NewDecWithPrec(5, 2)
@@ -517,13 +508,13 @@ func TestAbstainSlashing(t *testing.T) {
 		input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
 		// Account 1, KRW
-		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+		makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
 
 		// Account 2, KRW, abstain vote - should count as miss
-		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.ZeroDec()}}, 1)
+		makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.ZeroDec()}}, 1)
 
 		// Account 3, KRW
-		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
+		makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 		oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -541,7 +532,7 @@ func TestAbstainSlashing(t *testing.T) {
 }
 
 func TestVoteTargets(t *testing.T) {
-	input, h := setup(t)
+	input := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}, {Name: utils.MicroAtomDenom}}
 	input.OracleKeeper.SetParams(input.Ctx, params)
@@ -550,9 +541,9 @@ func TestVoteTargets(t *testing.T) {
 	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 
 	// KRW
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -573,9 +564,9 @@ func TestVoteTargets(t *testing.T) {
 	input.OracleKeeper.SetParams(input.Ctx, params)
 
 	// KRW, missing
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -594,9 +585,9 @@ func TestVoteTargets(t *testing.T) {
 	input.OracleKeeper.SetParams(input.Ctx, params)
 
 	// KRW, no missing
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -610,11 +601,11 @@ func TestVoteTargets(t *testing.T) {
 }
 
 func TestAbstainWithSmallStakingPower(t *testing.T) {
-	input, h := setupWithSmallVotingPower(t)
+	input := setupWithSmallVotingPower(t)
 
 	input.OracleKeeper.ClearVoteTargets(input.Ctx)
 	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.ZeroDec()}}, 0)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.ZeroDec()}}, 0)
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -623,7 +614,7 @@ func TestAbstainWithSmallStakingPower(t *testing.T) {
 }
 
 func TestOraclePriceSnapshotNotCreatedFromStaleRates(t *testing.T) {
-	input, h := setup(t)
+	input := setup(t)
 
 	require.Equal(t, types.PriceSnapshot{}, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 123))
 
@@ -631,9 +622,9 @@ func TestOraclePriceSnapshotNotCreatedFromStaleRates(t *testing.T) {
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, randomExchangeRate)
 
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
-	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
+	makeAggregateVote(t, input, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
@@ -653,14 +644,21 @@ func TestOraclePriceSnapshotNotCreatedFromStaleRates(t *testing.T) {
 	require.Equal(t, types.PriceSnapshot{}, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 200))
 }
 
-func makeAggregateVote(t *testing.T, input testutils.TestInput, h sdk.Handler, height int64, rates sdk.DecCoins, idx int) {
+func makeAggregateVote(t *testing.T, input testutils.TestInput, rates sdk.DecCoins, idx int) {
 	voteMsg := types.NewMsgAggregateExchangeRateVote(rates.String(), testutils.Addrs[idx], testutils.ValAddrs[idx])
-	_, err := h(input.Ctx.WithBlockHeight(height), voteMsg)
+	storeAggregateVote(t, input, voteMsg)
+}
+
+func storeAggregateVote(t *testing.T, input testutils.TestInput, msg *types.MsgAggregateExchangeRateVote) {
+	exchangeRates, err := types.ParseExchangeRateTuples(msg.ExchangeRates)
 	require.NoError(t, err)
+	validator, err := sdk.ValAddressFromBech32(msg.Validator)
+	require.NoError(t, err)
+	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, validator, types.NewAggregateExchangeRateVote(exchangeRates, validator))
 }
 
 func TestEndWindowClearExcessFeeds(t *testing.T) {
-	input, _ := setup(t)
+	input := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
 	input.OracleKeeper.SetParams(input.Ctx, params)
@@ -671,12 +669,7 @@ func TestEndWindowClearExcessFeeds(t *testing.T) {
 	input.OracleKeeper.ClearVoteTargets(input.Ctx)
 	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 
-	earlyCtx := sdk.WrapSDKContext(input.Ctx)
-	earlyQuerier := keeper.NewQuerier(input.OracleKeeper)
-
-	response, err := earlyQuerier.Actives(earlyCtx, &types.QueryActivesRequest{})
-	require.NoError(t, err)
-	require.Equal(t, 2, len(response.Actives))
+	require.Equal(t, 2, activeExchangeRateCount(input))
 
 	votePeriodsPerWindow := sdk.NewDec(int64(input.OracleKeeper.SlashWindow(input.Ctx))).QuoInt64(int64(input.OracleKeeper.VotePeriod(input.Ctx))).TruncateInt64()
 
@@ -684,16 +677,20 @@ func TestEndWindowClearExcessFeeds(t *testing.T) {
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
-	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := keeper.NewQuerier(input.OracleKeeper)
+	require.Equal(t, 1, activeExchangeRateCount(input))
+}
 
-	response2, err := querier.Actives(ctx, &types.QueryActivesRequest{})
-	require.NoError(t, err)
-	require.Equal(t, 1, len(response2.Actives))
+func activeExchangeRateCount(input testutils.TestInput) int {
+	count := 0
+	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, func(string, types.OracleExchangeRate) bool {
+		count++
+		return false
+	})
+	return count
 }
 
 func TestOverflowAndDivByZero(t *testing.T) {
-	input, h := setup(t)
+	input := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.Whitelist = types.DenomList{
 		{Name: utils.MicroAtomDenom},
@@ -713,9 +710,9 @@ func TestOverflowAndDivByZero(t *testing.T) {
 		sdk.NewDecCoinFromDec(utils.MicroAtomDenom, overflowRate),
 		sdk.NewDecCoinFromDec(utils.MicroEthDenom, smallRate),
 	}
-	makeAggregateVote(t, input, h, 0, overflowVote, 0)
-	makeAggregateVote(t, input, h, 0, overflowVote, 1)
-	makeAggregateVote(t, input, h, 0, overflowVote, 2)
+	makeAggregateVote(t, input, overflowVote, 0)
+	makeAggregateVote(t, input, overflowVote, 1)
+	makeAggregateVote(t, input, overflowVote, 2)
 
 	// This should not panic
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
@@ -735,9 +732,9 @@ func TestOverflowAndDivByZero(t *testing.T) {
 		sdk.NewDecCoinFromDec(utils.MicroAtomDenom, smallRate),
 		sdk.NewDecCoinFromDec(utils.MicroEthDenom, overflowRate),
 	}
-	makeAggregateVote(t, input, h, 1, zeroVote, 0)
-	makeAggregateVote(t, input, h, 1, zeroVote, 1)
-	makeAggregateVote(t, input, h, 1, zeroVote, 2)
+	makeAggregateVote(t, input, zeroVote, 0)
+	makeAggregateVote(t, input, zeroVote, 1)
+	makeAggregateVote(t, input, zeroVote, 2)
 
 	// This should not panic
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
@@ -753,7 +750,7 @@ func TestOverflowAndDivByZero(t *testing.T) {
 }
 
 func TestTallyOverflow(t *testing.T) {
-	input, h := setup(t)
+	input := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.Whitelist = types.DenomList{
 		{Name: utils.MicroAtomDenom},
@@ -769,7 +766,7 @@ func TestTallyOverflow(t *testing.T) {
 	overflowVote := sdk.DecCoins{
 		sdk.NewDecCoinFromDec(utils.MicroAtomDenom, overflowRate),
 	}
-	makeAggregateVote(t, input, h, 0, overflowVote, 0)
+	makeAggregateVote(t, input, overflowVote, 0)
 
 	// This should not panic
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)

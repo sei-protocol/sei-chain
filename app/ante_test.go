@@ -84,7 +84,6 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 			IBCKeeper:       suite.App.IBCKeeper,
 			WasmConfig:      &wasmConfig,
 			WasmKeeper:      &suite.App.WasmKeeper,
-			OracleKeeper:    &suite.App.OracleKeeper,
 			TracingInfo:     tracingInfo,
 			EVMKeeper:       &suite.App.EvmKeeper,
 			LatestCtxGetter: func() sdk.Context { return suite.Ctx },

@@ -308,15 +308,15 @@ describe("EVM Precompile Tester", function () {
             oracle = new ethers.Contract(OraclePrecompileContract, contractABI, accounts[0].signer);
         });
 
-        it("Oracle CLI TWAP query should fail without feeder data", async function () {
+        it("Oracle CLI TWAP query should fail because the oracle module is deprecated", async function () {
             let error;
             try {
                 await execute("seid q oracle twaps 3600 -o json");
             } catch (e) {
                 error = e;
             }
-            expect(error, "twaps query should fail when no feeder is running").to.exist;
-            expect(error.message).to.include("No data for the twap calculation");
+            expect(error, "twaps query should fail because the oracle module is deprecated").to.exist;
+            expect(error.message).to.include("oracle module is deprecated");
         });
 
         it("Oracle precompile TWAP query should hard-fail without feeder data", async function () {

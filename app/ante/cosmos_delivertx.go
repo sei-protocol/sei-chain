@@ -1,7 +1,6 @@
 package ante
 
 import (
-	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -9,7 +8,6 @@ import (
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )
 
 func CosmosDeliverTxAnte(
@@ -17,7 +15,6 @@ func CosmosDeliverTxAnte(
 	txConfig client.TxConfig,
 	tx sdk.Tx,
 	pk paramskeeper.Keeper,
-	oraclek oraclekeeper.Keeper,
 	ek *evmkeeper.Keeper,
 	accountKeeper authkeeper.AccountKeeper,
 	bankKeeper bankkeeper.Keeper,
@@ -27,7 +24,7 @@ func CosmosDeliverTxAnte(
 	// charge the incoming caller/block meter.
 	authParams := accountKeeper.GetParams(ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter()))
 
-	if _, err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams(), authParams); err != nil {
+	if err := CosmosStatelessChecks(tx, ctx.BlockHeight(), ctx.ConsensusParams(), authParams); err != nil {
 		return SetGasMeter(ctx, 0, pk), err
 	}
 
@@ -36,14 +33,7 @@ func CosmosDeliverTxAnte(
 			returnErr = HandleOutofGas(r, tx.(GasTx).GetGas(), ctx.GasMeter().GasConsumed())
 		}
 	}()
-	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
-	isGasless, err := antedecorators.IsTxGasless(tx, ctx, oraclek, ek)
-	if err != nil {
-		return ctx, err
-	}
-	if !isGasless {
-		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
-	}
+	ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 
 	if err := CheckMemoLength(tx, authParams); err != nil {
 		return ctx, err
