@@ -271,7 +271,7 @@ func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 	require.Equal(t, types.EpochIndex(1), spec.Epoch.EpochIndex())
 }
 
-func TestPrune_AdvancesAppliedWhenAnchorAhead(t *testing.T) {
+func TestPrune_LeavesAppliedToEpochAdvance(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 	registry.AdvanceIfNeeded(epoch.LastRoad(1))
@@ -291,7 +291,7 @@ func TestPrune_AdvancesAppliedWhenAnchorAhead(t *testing.T) {
 		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
 		Epoch:    ep2,
 	})
-	require.Equal(t, types.EpochIndex(2), i.applied().EpochIndex())
+	require.Equal(t, types.EpochIndex(0), i.applied().EpochIndex())
 	ae, ok := i.anchorEpoch.Get()
 	require.True(t, ok)
 	require.Equal(t, types.EpochIndex(2), ae.EpochIndex())
