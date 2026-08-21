@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -112,7 +111,7 @@ func benchClassified(b *testing.B, accounts int, storage int, code int, misc int
 		})
 	}
 
-	classified, err := classifyAndPrefix(fatChangeSets(pairs), [keys.EVMKeyKindCount]int{}, nil)
+	classified, err := classifyAndPrefix(fatChangeSets(pairs), [keys.EVMKeyKindCount]int{})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -126,10 +125,8 @@ func benchReadAccounts(b *testing.B, classified classifiedChanges) map[string]*v
 	b.Helper()
 	accounts := touchedAccounts(classified)
 	nonceFor := make(map[string]uint64, len(accounts))
-	i := 0
-	for change := range classified.changes(keys.EVMKeyCodeHash) {
+	for i, change := range classified[keys.EVMKeyCodeHash] {
 		nonceFor[change.key] = uint64(i)
-		i++
 	}
 	physKeys := make([]string, 0, len(accounts))
 	stored := make([][]byte, 0, len(accounts))
@@ -150,7 +147,12 @@ func benchPrepare(classified classifiedChanges, accounts map[string]*vtype.Accou
 	if err != nil {
 		return preparedWrites{}, err
 	}
-	if err := mergeAccountValues(accounts, &classified); err != nil {
+	if err := mergeAccountValues(
+		accounts,
+		classified[keys.EVMKeyNonce],
+		classified[keys.EVMKeyCodeHash],
+		nil,
+	); err != nil {
 		return preparedWrites{}, err
 	}
 	out.accounts = accounts
@@ -214,7 +216,7 @@ func BenchmarkReadAccountsToMerge(b *testing.B) {
 		b.Run(fmt.Sprintf("accounts=%d", accounts), func(b *testing.B) {
 			pairs := benchAccountPairs(accounts)
 			s := benchWarmStore(b, pairs)
-			classified, err := classifyAndPrefix(fatChangeSets(pairs), [keys.EVMKeyKindCount]int{}, nil)
+			classified, err := classifyAndPrefix(fatChangeSets(pairs), [keys.EVMKeyKindCount]int{})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -324,38 +326,21 @@ func BenchmarkClassifyAndPrefix(b *testing.B) {
 		{"fat_changeset", fatChangeSets},
 		{"single_pair_changesets", singlePairChangeSets},
 	}
-
-	pool := threading.NewElasticPool("bench-classify", classifyPartitions)
-	defer pool.Close()
-
-	// Serial and partitioned are both measured, since the whole point of partitioning is that this
-	// walks memory the producing thread has just written, and how much that is worth is the number
-	// this benchmark exists to report.
-	pools := []struct {
-		name string
-		pool threading.Pool
-	}{
-		{"serial", nil},
-		{"partitioned", pool},
-	}
-
-	for _, size := range []int{1000, 3000, 5000, 20000} {
+	for _, size := range []int{1000, 3000, 5000} {
 		for _, shape := range shapes {
 			changeSets := shape.build(benchPairs(size))
-			for _, p := range pools {
-				b.Run(fmt.Sprintf("%s/%s/pairs=%d", p.name, shape.name, size), func(b *testing.B) {
-					b.ReportAllocs()
-					// Carried across iterations exactly as the store carries it across blocks.
-					var sizeHints [keys.EVMKeyKindCount]int
-					for b.Loop() {
-						classified, err := classifyAndPrefix(changeSets, sizeHints, p.pool)
-						if err != nil {
-							b.Fatal(err)
-						}
-						sizeHints = classified.bucketSizes()
+			b.Run(fmt.Sprintf("%s/pairs=%d", shape.name, size), func(b *testing.B) {
+				b.ReportAllocs()
+				// Carried across iterations exactly as the store carries it across blocks.
+				var sizeHints [keys.EVMKeyKindCount]int
+				for b.Loop() {
+					classified, err := classifyAndPrefix(changeSets, sizeHints)
+					if err != nil {
+						b.Fatal(err)
 					}
-				})
-			}
+					sizeHints = classified.bucketSizes()
+				}
+			})
 		}
 	}
 }

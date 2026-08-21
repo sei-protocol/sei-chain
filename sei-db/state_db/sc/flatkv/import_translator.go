@@ -91,7 +91,7 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 		Changeset: proto.ChangeSet{Pairs: filteredPairs},
 	}
 
-	changesByType, err := classifyAndPrefix([]*proto.NamedChangeSet{filteredCS}, t.classifyBucketSizes, nil)
+	changesByType, err := classifyAndPrefix([]*proto.NamedChangeSet{filteredCS}, t.classifyBucketSizes)
 	if err != nil {
 		return nil, err
 	}
@@ -99,22 +99,19 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 
 	out := make([]PhysicalKVPair, 0, len(filteredPairs))
 
-	storageChanges, err := toStorageValues(changesByType.changes(keys.EVMKeyStorage),
-		changesByType.count(keys.EVMKeyStorage), t.blockHeight)
+	storageChanges, err := toStorageValues(changesByType[keys.EVMKeyStorage], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process storage changes: %w", err)
 	}
 	out = appendNonDeletes(out, storageChanges)
 
-	codeChanges, err := toCodeValues(changesByType.changes(keys.EVMKeyCode),
-		changesByType.count(keys.EVMKeyCode), t.blockHeight)
+	codeChanges, err := toCodeValues(changesByType[keys.EVMKeyCode], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process code changes: %w", err)
 	}
 	out = appendNonDeletes(out, codeChanges)
 
-	miscChanges, err := toMiscValues(changesByType.changes(keys.EVMKeyMisc),
-		changesByType.count(keys.EVMKeyMisc), t.blockHeight)
+	miscChanges, err := toMiscValues(changesByType[keys.EVMKeyMisc], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process misc changes: %w", err)
 	}
@@ -125,7 +122,11 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	// naturally fold updates for the same address together: the SetXxx
 	// methods on PendingAccountWrite mutate the pointer in place when the
 	// receiver is non-nil.
-	batchAccts, err := mergeAccountUpdates(&changesByType)
+	batchAccts, err := mergeAccountUpdates(
+		changesByType[keys.EVMKeyNonce],
+		changesByType[keys.EVMKeyCodeHash],
+		nil, // TODO: balance, when balance key kind is introduced
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to merge account changes: %w", err)
 	}
