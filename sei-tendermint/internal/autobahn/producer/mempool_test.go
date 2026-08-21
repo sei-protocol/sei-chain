@@ -584,7 +584,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := avail.DriveAdvance(ctx, availState, keys, epLeave.EpochIndex()); err != nil {
+		if err := avail.TestDriveAdvance(ctx, availState, keys, epLeave.EpochIndex()); err != nil {
 			return err
 		}
 		if err := availState.WaitUntilClosed(ctx, lane0); err != nil {
@@ -613,7 +613,7 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := avail.DriveAdvance(ctx, availState, keys, epJoin.EpochIndex()); err != nil {
+		if err := avail.TestDriveAdvance(ctx, availState, keys, epJoin.EpochIndex()); err != nil {
 			return err
 		}
 		got, err := availState.WaitForNextLane(ctx, a.Public(), utils.Some(lane0))
@@ -661,7 +661,7 @@ func TestInsertTx_WaitUnblocksOnLeave(t *testing.T) {
 		sc.SpawnBgNamed("avail", func() error {
 			return utils.IgnoreCancel(availState.Run(ctx))
 		})
-		return avail.DriveAdvance(ctx, availState, keys, epLeave.EpochIndex())
+		return avail.TestDriveAdvance(ctx, availState, keys, epLeave.EpochIndex())
 	}))
 	env.state.clearMempool()
 

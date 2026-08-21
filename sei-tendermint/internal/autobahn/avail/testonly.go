@@ -123,16 +123,15 @@ func tipLink(ep *types.Epoch, key types.SecretKey, idx types.RoadIndex) *types.C
 	})
 }
 
-// DriveAdvance seals each applied epoch through want-1 and waits for
+// TestDriveAdvance seals each applied epoch through want-1 and waits for
 // runEpochAdvance to advance to want. The registry must already contain want;
 // runEpochAdvance must be running.
-// Intended for tests only.
-func DriveAdvance(ctx context.Context, state *State, keys []types.SecretKey, want types.EpochIndex) error {
+func TestDriveAdvance(ctx context.Context, state *State, keys []types.SecretKey, want types.EpochIndex) error {
 	for state.Epoch().Load().EpochIndex() < want {
 		cur := state.Epoch().Load()
 		last := cur.RoadRange().Next - 1
 		if cur.RoadRange().Next == utils.Max[types.RoadIndex]() {
-			return fmt.Errorf("DriveAdvance: cannot seal open road range at epoch %d", cur.EpochIndex())
+			return fmt.Errorf("TestDriveAdvance: cannot seal open road range at epoch %d", cur.EpochIndex())
 		}
 		cks := make([]types.SecretKey, 0, len(keys))
 		for _, k := range keys {
@@ -141,7 +140,7 @@ func DriveAdvance(ctx context.Context, state *State, keys []types.SecretKey, wan
 			}
 		}
 		if len(cks) == 0 {
-			return fmt.Errorf("DriveAdvance: no committee keys for epoch %d", cur.EpochIndex())
+			return fmt.Errorf("TestDriveAdvance: no committee keys for epoch %d", cur.EpochIndex())
 		}
 		seekRoads(state, last)
 		var qc *types.CommitQC
@@ -151,7 +150,7 @@ func DriveAdvance(ctx context.Context, state *State, keys []types.SecretKey, wan
 			qc = types.BuildCommitQC(cur, cks, utils.Some(tipLink(cur, cks[0], last-1)), nil)
 		}
 		if qc.Index() != last {
-			return fmt.Errorf("DriveAdvance: qc index %d != last %d", qc.Index(), last)
+			return fmt.Errorf("TestDriveAdvance: qc index %d != last %d", qc.Index(), last)
 		}
 		if err := state.PushCommitQC(ctx, qc); err != nil {
 			return err
@@ -165,7 +164,7 @@ func DriveAdvance(ctx context.Context, state *State, keys []types.SecretKey, wan
 		}
 	}
 	if got := state.Epoch().Load().EpochIndex(); got < want {
-		return fmt.Errorf("DriveAdvance: epoch %d < want %d", got, want)
+		return fmt.Errorf("TestDriveAdvance: epoch %d < want %d", got, want)
 	}
 	return nil
 }

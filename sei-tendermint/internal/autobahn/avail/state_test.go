@@ -726,7 +726,7 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 				return err
 			}
 			keys := []types.SecretKey{stay, leaver, a, b}
-			if err := DriveAdvance(ctx, state, keys, epLeave.EpochIndex()); err != nil {
+			if err := TestDriveAdvance(ctx, state, keys, epLeave.EpochIndex()); err != nil {
 				return err
 			}
 
@@ -811,7 +811,7 @@ func TestPushCommitQC_StaleAfterAdvanceSoftDrops(t *testing.T) {
 		sc.SpawnBgNamed("runEpochAdvance", func() error {
 			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
 		})
-		return DriveAdvance(ctx, state, keys, ep1.EpochIndex())
+		return TestDriveAdvance(ctx, state, keys, ep1.EpochIndex())
 	}))
 
 	ep0 := registry.MustEpoch(0)
@@ -847,7 +847,7 @@ func newSealFixture(t *testing.T) *sealFixture {
 		sc.SpawnBgNamed("runEpochAdvance", func() error {
 			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
 		})
-		return DriveAdvance(ctx, state, keys, m)
+		return TestDriveAdvance(ctx, state, keys, m)
 	}))
 	seekRoads(state, epoch.LastRoad(m))
 	return &sealFixture{registry: registry, keys: keys, state: state, ep: ep, m: m}
