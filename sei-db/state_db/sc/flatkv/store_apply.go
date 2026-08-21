@@ -3,10 +3,12 @@ package flatkv
 import (
 	"errors"
 	"fmt"
+	"iter"
 	"sync"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -66,7 +68,7 @@ func (s *CommitStore) applyChangeSets(
 	// stamped at, so same-height repeats are accepted and no other height can reach here.
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	changesByType, err := classifyAndPrefix(changeSets, s.classifyBucketSizes)
+	changesByType, err := classifyAndPrefix(changeSets, s.classifyBucketSizes, s.miscPool)
 	if err != nil {
 		return fmt.Errorf("classify changesets: %w", err)
 	}
@@ -135,12 +137,7 @@ func (s *CommitStore) prepareWrites(
 		return preparedWrites{}, gatherErr
 	}
 
-	if err := mergeAccountValues(
-		accounts,
-		changesByType[keys.EVMKeyNonce],
-		changesByType[keys.EVMKeyCodeHash],
-		nil, // TODO: update this when we add a balance key!
-	); err != nil {
+	if err := mergeAccountValues(accounts, &changesByType); err != nil {
 		return preparedWrites{}, fmt.Errorf("failed to gather account updates: %w", err)
 	}
 	out.accounts = accounts
@@ -155,17 +152,20 @@ func gatherNonAccountValues(
 ) (preparedWrites, error) {
 	var out preparedWrites
 
-	storageWrites, err := toStorageValues(changesByType[keys.EVMKeyStorage], blockHeight)
+	storageWrites, err := toStorageValues(changesByType.changes(keys.EVMKeyStorage),
+		changesByType.count(keys.EVMKeyStorage), blockHeight)
 	if err != nil {
 		return preparedWrites{}, fmt.Errorf("failed to parse storage changes: %w", err)
 	}
 
-	codeWrites, err := toCodeValues(changesByType[keys.EVMKeyCode], blockHeight)
+	codeWrites, err := toCodeValues(changesByType.changes(keys.EVMKeyCode),
+		changesByType.count(keys.EVMKeyCode), blockHeight)
 	if err != nil {
 		return preparedWrites{}, fmt.Errorf("failed to parse code changes: %w", err)
 	}
 
-	miscWrites, err := toMiscValues(changesByType[keys.EVMKeyMisc], blockHeight)
+	miscWrites, err := toMiscValues(changesByType.changes(keys.EVMKeyMisc),
+		changesByType.count(keys.EVMKeyMisc), blockHeight)
 	if err != nil {
 		return preparedWrites{}, fmt.Errorf("failed to parse misc changes: %w", err)
 	}
@@ -214,9 +214,9 @@ func (s *CommitStore) readAccountsToMerge(
 // are hashed once rather than once per structure they pass through.
 func touchedAccounts(changesByType classifiedChanges) map[string]*vtype.AccountData {
 	accounts := make(map[string]*vtype.AccountData,
-		len(changesByType[keys.EVMKeyNonce])+len(changesByType[keys.EVMKeyCodeHash]))
+		changesByType.count(keys.EVMKeyNonce)+changesByType.count(keys.EVMKeyCodeHash))
 	for _, kind := range []keys.EVMKeyKind{keys.EVMKeyNonce, keys.EVMKeyCodeHash} {
-		for _, change := range changesByType[kind] {
+		for change := range changesByType.changes(kind) {
 			accounts[change.key] = nil
 		}
 	}
@@ -367,81 +367,249 @@ type classifiedChange struct {
 // Pairs sit in the order they arrived and duplicate keys are kept, because the per-kind maps built
 // in prepareWrites already apply last-write-wins; deduplicating here as well would hash every key a
 // second time to reach the same answer.
-type classifiedChanges [keys.EVMKeyKindCount][]classifiedChange
+//
+// A kind's pairs are spread across one bucket set per partition rather than gathered into one slice.
+// Classification runs in parallel over contiguous partitions of the block, and each fills only its
+// own set, so gathering them would mean allocating a second copy of every bucket. Walking the
+// partitions in index order recovers the block's order, which is what the last-write-wins above
+// depends on.
+type classifiedChanges struct {
+	// buckets[partition][kind] holds the changes of that kind the partition saw, in the order it saw
+	// them. Partitions are indexed as the block is ordered.
+	buckets [][keys.EVMKeyKindCount][]classifiedChange
+}
+
+// changes returns every change of the given kind, in the order the block presented them.
+func (c *classifiedChanges) changes(kind keys.EVMKeyKind) iter.Seq[classifiedChange] {
+	return func(yield func(classifiedChange) bool) {
+		for i := range c.buckets {
+			for _, change := range c.buckets[i][kind] {
+				if !yield(change) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// count returns how many changes of the given kind there are, for sizing a map that will hold them.
+func (c *classifiedChanges) count(kind keys.EVMKeyKind) int {
+	total := 0
+	for i := range c.buckets {
+		total += len(c.buckets[i][kind])
+	}
+	return total
+}
 
 // bucketSizes returns the number of pairs in each kind's bucket, for sizing a later block's.
-func (c classifiedChanges) bucketSizes() [keys.EVMKeyKindCount]int {
+func (c *classifiedChanges) bucketSizes() [keys.EVMKeyKindCount]int {
 	var sizes [keys.EVMKeyKindCount]int
-	for kind, bucket := range c {
-		sizes[kind] = len(bucket)
+	for kind := range sizes {
+		sizes[kind] = c.count(keys.EVMKeyKind(kind))
 	}
 	return sizes
+}
+
+// classifyPartitions is the number of contiguous runs a block is split into for classification.
+//
+// Classification is dominated by walking pairs the producing thread has just written, so the work is
+// waiting on memory rather than computing; splitting it lets several cores carry misses at once. The
+// useful width is therefore bounded by how many outstanding misses a core sustains rather than by
+// core count, which is why this is a modest number and not the size of the pool.
+const classifyPartitions = 8
+
+// classifyPartition names a contiguous run of a block's pairs: where the run starts, and how many
+// pairs it covers.
+//
+// A run may cross changesets. Keeping runs contiguous rather than striding is what lets the buckets
+// stay unmerged: partition order is block order, so a duplicated key still resolves to its last
+// write. Allowing them to cross means a block splits into the same number of partitions however its
+// pairs are distributed, which the ModuleRouter case above makes worth having.
+type classifyPartition struct {
+	changeSet int
+	pair      int
+	count     int
+}
+
+// planClassifyPartitions divides the block's pairs into at most parts contiguous runs.
+//
+// Empty and nil changesets are skipped here and skipped identically while walking, so a run's count
+// always names the same pairs the planner counted.
+func planClassifyPartitions(changeSets []*proto.NamedChangeSet, parts int) ([]classifyPartition, int) {
+	total := 0
+	for _, cs := range changeSets {
+		if cs == nil {
+			continue
+		}
+		total += len(cs.Changeset.Pairs)
+	}
+	if total == 0 {
+		return nil, 0
+	}
+
+	per := (total + parts - 1) / parts
+	plan := make([]classifyPartition, 0, parts)
+
+	changeSet, pair, assigned := 0, 0, 0
+	for assigned < total {
+		count := min(per, total-assigned)
+
+		// Advance past changesets already consumed, so the run starts at a real pair.
+		for changeSet < len(changeSets) {
+			cs := changeSets[changeSet]
+			if cs != nil && pair < len(cs.Changeset.Pairs) {
+				break
+			}
+			changeSet++
+			pair = 0
+		}
+
+		plan = append(plan, classifyPartition{changeSet: changeSet, pair: pair, count: count})
+		assigned += count
+
+		// Walk the cursor forward by count pairs, which may cross changesets.
+		remaining := count
+		for remaining > 0 {
+			cs := changeSets[changeSet]
+			if cs == nil || pair >= len(cs.Changeset.Pairs) {
+				changeSet++
+				pair = 0
+				continue
+			}
+			step := min(remaining, len(cs.Changeset.Pairs)-pair)
+			pair += step
+			remaining -= step
+		}
+	}
+	return plan, total
 }
 
 // classifyAndPrefix splits changeSets into per-EVMKeyKind buckets whose keys are already in
 // physical format ("module/" + prefix_encoded_key). Non-EVM modules are merged into the
 // EVMKeyMisc bucket with a "<module>/" prefix.
 //
-// sizeHints gives each bucket's length in the previous block. Buckets are allocated at twice that,
-// since a block that grows a little then still lands in a single allocation rather than a resize
-// and copy; a bucket with no hint grows on demand.
+// sizeHints gives each bucket's length in the previous block. Buckets are allocated at twice that
+// share of a partition, since a block that grows a little then still lands in a single allocation
+// rather than a resize and copy; a bucket with no hint grows on demand.
+//
+// The block is split into contiguous partitions classified in parallel on pool, because this walks
+// every pair of a changeset the producing thread has just written and so spends most of its time
+// waiting on memory rather than computing. A nil pool, or a block small enough that dispatch would
+// cost more than the work, is classified on the calling goroutine.
 func classifyAndPrefix(
 	changeSets []*proto.NamedChangeSet,
 	sizeHints [keys.EVMKeyKindCount]int,
+	pool threading.Pool,
 ) (classifiedChanges, error) {
-	var result classifiedChanges
+	plan, total := planClassifyPartitions(changeSets, classifyPartitions)
+	if total == 0 {
+		return classifiedChanges{}, nil
+	}
+	if pool == nil {
+		// Callers without a pool classify on their own goroutine, as one partition.
+		plan = []classifyPartition{{changeSet: 0, pair: 0, count: total}}
+	}
+
+	result := classifiedChanges{buckets: make([][keys.EVMKeyKindCount][]classifiedChange, len(plan))}
+	errs := make([]error, len(plan))
+
+	if len(plan) == 1 {
+		result.buckets[0], errs[0] = classifyPartitionBuckets(changeSets, plan[0], sizeHints, 1)
+		return result, errs[0]
+	}
+
+	var wg sync.WaitGroup
+	for i, part := range plan {
+		wg.Add(1)
+		pool.Submit(func() {
+			defer wg.Done()
+			result.buckets[i], errs[i] = classifyPartitionBuckets(changeSets, part, sizeHints, len(plan))
+		})
+	}
+	wg.Wait()
+
+	if err := errors.Join(errs...); err != nil {
+		return classifiedChanges{}, err
+	}
+	return result, nil
+}
+
+// classifyPartitionBuckets classifies one partition's pairs into its own bucket set.
+//
+// parts is how many partitions the block was split into, used only to size the buckets: each holds
+// roughly its share of what the same bucket held last block.
+func classifyPartitionBuckets(
+	changeSets []*proto.NamedChangeSet,
+	part classifyPartition,
+	sizeHints [keys.EVMKeyKindCount]int,
+	parts int,
+) ([keys.EVMKeyKindCount][]classifiedChange, error) {
+	var buckets [keys.EVMKeyKindCount][]classifiedChange
 	for kind, hint := range sizeHints {
 		if hint > 0 {
-			result[kind] = make([]classifiedChange, 0, 2*hint)
+			buckets[kind] = make([]classifiedChange, 0, 2*hint/parts+1)
 		}
 	}
 
-	// One buffer for the whole block. The string conversion copies each physical key out of it, so
-	// it can be rewound and reused for every pair, leaving one allocation per key rather than one
-	// for the key bytes and a second for the string.
+	// One buffer for the whole partition, held on this goroutine's stack so partitions share nothing.
+	// The string conversion copies each physical key out of it, so it can be rewound and reused for
+	// every pair, leaving one allocation per key rather than one for the key bytes and a second for
+	// the string.
 	var scratchArray [ktype.MaxEVMPhysicalKeyLen]byte
 	scratch := scratchArray[:0]
 
-	for _, cs := range changeSets {
-		if cs == nil || len(cs.Changeset.Pairs) == 0 {
+	changeSet, pair, remaining := part.changeSet, part.pair, part.count
+	for remaining > 0 {
+		cs := changeSets[changeSet]
+		if cs == nil || pair >= len(cs.Changeset.Pairs) {
+			// Skipped exactly as the planner skipped it, so remaining still names real pairs.
+			changeSet++
+			pair = 0
 			continue
 		}
 
+		// The run may end inside this changeset, or carry on into the next one.
+		end := min(len(cs.Changeset.Pairs), pair+remaining)
+		pairs := cs.Changeset.Pairs[pair:end]
+
 		if cs.Name == keys.EVMStoreKey {
-			for _, pair := range cs.Changeset.Pairs {
-				kind, keyBytes := keys.ParseEVMKey(pair.Key)
+			for _, p := range pairs {
+				kind, keyBytes := keys.ParseEVMKey(p.Key)
 				if kind == keys.EVMKeyEmpty {
-					return classifiedChanges{}, fmt.Errorf("flatkv: empty key in changeset")
+					return buckets, fmt.Errorf("flatkv: empty key in changeset")
 				}
 
 				if kind == keys.EVMKeyMisc {
-					scratch = ktype.AppendModulePhysicalKey(scratch[:0], keys.EVMStoreKey, pair.Key)
+					scratch = ktype.AppendModulePhysicalKey(scratch[:0], keys.EVMStoreKey, p.Key)
 				} else {
 					scratch = ktype.AppendEVMPhysicalKey(scratch[:0], kind, keyBytes)
 				}
-				result[kind] = append(result[kind], newClassifiedChange(string(scratch), pair))
+				buckets[kind] = append(buckets[kind], newClassifiedChange(string(scratch), p))
 			}
-			continue
+		} else {
+			// An empty module name would fold into "/"+key here and later
+			// persist as the per-module meta key "_meta/x:/hash", which
+			// ParseModuleLtHashKey rejects on reload — a store that ever
+			// commits one becomes permanently unopenable (sum-to-root check
+			// fails forever). Reject it up front instead; module names are
+			// never empty in normal operation (Cosmos SDK's NewKVStoreKey
+			// panics on an empty name), so this only guards malformed input.
+			if cs.Name == "" {
+				return buckets, fmt.Errorf("flatkv: empty module name in changeset")
+			}
+			miscBucket := &buckets[keys.EVMKeyMisc]
+			for _, p := range pairs {
+				scratch = ktype.AppendModulePhysicalKey(scratch[:0], cs.Name, p.Key)
+				*miscBucket = append(*miscBucket, newClassifiedChange(string(scratch), p))
+			}
 		}
 
-		// An empty module name would fold into "/"+key here and later
-		// persist as the per-module meta key "_meta/x:/hash", which
-		// ParseModuleLtHashKey rejects on reload — a store that ever
-		// commits one becomes permanently unopenable (sum-to-root check
-		// fails forever). Reject it up front instead; module names are
-		// never empty in normal operation (Cosmos SDK's NewKVStoreKey
-		// panics on an empty name), so this only guards malformed input.
-		if cs.Name == "" {
-			return classifiedChanges{}, fmt.Errorf("flatkv: empty module name in changeset")
-		}
-		miscBucket := &result[keys.EVMKeyMisc]
-		for _, pair := range cs.Changeset.Pairs {
-			scratch = ktype.AppendModulePhysicalKey(scratch[:0], cs.Name, pair.Key)
-			*miscBucket = append(*miscBucket, newClassifiedChange(string(scratch), pair))
-		}
+		remaining -= len(pairs)
+		changeSet++
+		pair = 0
 	}
 
-	return result, nil
+	return buckets, nil
 }
 
 // newClassifiedChange pairs a physical key with a changeset pair's new value, recording a deleted
@@ -476,12 +644,13 @@ func nonNilValue(v []byte) []byte {
 // toStorageValues turns raw storage changes into StorageData stamped with blockHeight. A nil change is
 // a deletion, which for storage means the zero value. Both maps are keyed by physical key.
 func toStorageValues(
-	rawChanges []classifiedChange,
+	rawChanges iter.Seq[classifiedChange],
+	count int,
 	blockHeight int64,
 ) (map[string]*vtype.StorageData, error) {
-	result := make(map[string]*vtype.StorageData, len(rawChanges))
+	result := make(map[string]*vtype.StorageData, count)
 
-	for _, change := range rawChanges {
+	for change := range rawChanges {
 		if change.value == nil {
 			// Deletion is equivalent to setting the storage value to a zero value
 			result[change.key] = vtype.NewStorageData().SetBlockHeight(blockHeight)
@@ -500,12 +669,13 @@ func toStorageValues(
 // toCodeValues turns raw code changes into CodeData stamped with blockHeight. A nil change is a
 // deletion, which for code means empty bytecode. Both maps are keyed by physical key.
 func toCodeValues(
-	rawChanges []classifiedChange,
+	rawChanges iter.Seq[classifiedChange],
+	count int,
 	blockHeight int64,
 ) (map[string]*vtype.CodeData, error) {
-	result := make(map[string]*vtype.CodeData, len(rawChanges))
+	result := make(map[string]*vtype.CodeData, count)
 
-	for _, change := range rawChanges {
+	for change := range rawChanges {
 		// A nil change is a deletion, which for code means empty bytecode.
 		result[change.key] = vtype.NewCodeDataFrom(blockHeight, change.value)
 	}
@@ -515,12 +685,13 @@ func toCodeValues(
 // toMiscValues turns raw misc changes into MiscData stamped with blockHeight. A nil change is a
 // deletion, which for misc means an empty value. Both maps are keyed by physical key.
 func toMiscValues(
-	rawChanges []classifiedChange,
+	rawChanges iter.Seq[classifiedChange],
+	count int,
 	blockHeight int64,
 ) (map[string]*vtype.MiscData, error) {
-	result := make(map[string]*vtype.MiscData, len(rawChanges))
+	result := make(map[string]*vtype.MiscData, count)
 
-	for _, change := range rawChanges {
+	for change := range rawChanges {
 		if change.value == nil {
 			result[change.key] = vtype.NewDeletedMiscData(blockHeight)
 			continue
@@ -532,14 +703,13 @@ func toMiscValues(
 
 // Merge account updates down into a single update per account.
 func mergeAccountUpdates(
-	nonceChanges []classifiedChange,
-	codeHashChanges []classifiedChange,
-	balanceChanges []classifiedChange,
+	changes *classifiedChanges,
 ) (map[string]*vtype.PendingAccountWrite, error) {
 
-	updates := make(map[string]*vtype.PendingAccountWrite, len(nonceChanges)+len(codeHashChanges))
+	updates := make(map[string]*vtype.PendingAccountWrite,
+		changes.count(keys.EVMKeyNonce)+changes.count(keys.EVMKeyCodeHash))
 
-	for _, change := range nonceChanges {
+	for change := range changes.changes(keys.EVMKeyNonce) {
 		if change.value == nil {
 			// Deletion is equivalent to setting the nonce to 0
 			updates[change.key] = updates[change.key].SetNonce(0)
@@ -552,7 +722,7 @@ func mergeAccountUpdates(
 		}
 	}
 
-	for _, change := range codeHashChanges {
+	for change := range changes.changes(keys.EVMKeyCodeHash) {
 		if change.value == nil {
 			// Deletion is equivalent to setting the code hash to a zero hash
 			var zero vtype.CodeHash
@@ -566,19 +736,8 @@ func mergeAccountUpdates(
 		}
 	}
 
-	for _, change := range balanceChanges {
-		if change.value == nil {
-			// Deletion is equivalent to setting the balance to a zero balance
-			var zero vtype.Balance
-			updates[change.key] = updates[change.key].SetBalance(&zero)
-		} else {
-			balance, err := vtype.ParseBalance(change.value)
-			if err != nil {
-				return nil, fmt.Errorf("invalid balance value: %w", err)
-			}
-			updates[change.key] = updates[change.key].SetBalance(balance)
-		}
-	}
+	// Balances are not folded in: there is no balance key kind yet, so no change can carry one. When
+	// one is introduced, mirror the codehash loop above.
 	return updates, nil
 }
 
@@ -592,11 +751,9 @@ func mergeAccountUpdates(
 // actually changed.
 func mergeAccountValues(
 	accounts map[string]*vtype.AccountData,
-	nonceChanges []classifiedChange,
-	codeHashChanges []classifiedChange,
-	balanceChanges []classifiedChange,
+	changes *classifiedChanges,
 ) error {
-	for _, change := range nonceChanges {
+	for change := range changes.changes(keys.EVMKeyNonce) {
 		account, err := accountFor(accounts, change.key)
 		if err != nil {
 			return err
@@ -613,7 +770,7 @@ func mergeAccountValues(
 		account.SetNonce(nonce)
 	}
 
-	for _, change := range codeHashChanges {
+	for change := range changes.changes(keys.EVMKeyCodeHash) {
 		account, err := accountFor(accounts, change.key)
 		if err != nil {
 			return err
@@ -629,24 +786,8 @@ func mergeAccountValues(
 		}
 	}
 
-	for _, change := range balanceChanges {
-		account, err := accountFor(accounts, change.key)
-		if err != nil {
-			return err
-		}
-		if change.value == nil {
-			// Deletion is equivalent to setting the balance to a zero balance
-			var zero vtype.Balance
-			account.SetBalance(&zero)
-			continue
-		}
-		balance, err := vtype.ParseBalance(change.value)
-		if err != nil {
-			return fmt.Errorf("invalid balance value: %w", err)
-		}
-		account.SetBalance(balance)
-	}
-
+	// Balances are not folded in: there is no balance key kind yet, so no change can carry one. When
+	// one is introduced, mirror the codehash loop above.
 	return nil
 }
 

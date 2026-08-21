@@ -10,19 +10,26 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
+// accountChanges wraps per-kind slices as a classifiedChanges holding a single partition, which is
+// how these tests express the changes a block makes.
+func accountChanges(nonceChanges, codeHashChanges []classifiedChange) classifiedChanges {
+	return classifiedChanges{buckets: [][keys.EVMKeyKindCount][]classifiedChange{{
+		keys.EVMKeyNonce:    nonceChanges,
+		keys.EVMKeyCodeHash: codeHashChanges,
+	}}}
+}
+
 // mergeAccountValuesReference is the implementation mergeAccountValues replaced: build a
 // PendingAccountWrite per account, then merge each one onto the account's prior value. Kept here as
 // the reference the differential test below compares against.
 func mergeAccountValuesReference(
 	t *testing.T,
-	nonceChanges []classifiedChange,
-	codeHashChanges []classifiedChange,
-	balanceChanges []classifiedChange,
+	changes classifiedChanges,
 	oldValues map[string]*vtype.AccountData,
 	blockHeight int64,
 ) map[string]*vtype.AccountData {
 	t.Helper()
-	pendingWrites, err := mergeAccountUpdates(nonceChanges, codeHashChanges, balanceChanges)
+	pendingWrites, err := mergeAccountUpdates(&changes)
 	require.NoError(t, err)
 
 	result := make(map[string]*vtype.AccountData, len(pendingWrites))
@@ -37,17 +44,11 @@ func mergeAccountValuesReference(
 // store, holding the accounts that already exist.
 func mergeOnto(
 	t *testing.T,
-	nonceChanges []classifiedChange,
-	codeHashChanges []classifiedChange,
-	balanceChanges []classifiedChange,
+	changesByType classifiedChanges,
 	oldValues map[string]*vtype.AccountData,
 	blockHeight int64,
 ) (map[string]*vtype.AccountData, error) {
 	t.Helper()
-	var changesByType classifiedChanges
-	changesByType[keys.EVMKeyNonce] = nonceChanges
-	changesByType[keys.EVMKeyCodeHash] = codeHashChanges
-
 	accounts := touchedAccounts(changesByType)
 	physKeys := make([]string, 0, len(accounts))
 	stored := make([][]byte, 0, len(accounts))
@@ -61,7 +62,7 @@ func mergeOnto(
 	}
 	require.NoError(t, populateAccounts(accounts, physKeys, stored, blockHeight))
 
-	if err := mergeAccountValues(accounts, nonceChanges, codeHashChanges, balanceChanges); err != nil {
+	if err := mergeAccountValues(accounts, &changesByType); err != nil {
 		return nil, err
 	}
 	return accounts, nil
@@ -131,8 +132,9 @@ func TestMergeAccountValuesMatchesReference(t *testing.T) {
 		})
 
 		blockHeight := int64(100 + round)
-		want := mergeAccountValuesReference(t, nonceChanges, codeHashChanges, nil, oldValues, blockHeight)
-		got, err := mergeOnto(t, nonceChanges, codeHashChanges, nil, oldValues, blockHeight)
+		changes := accountChanges(nonceChanges, codeHashChanges)
+		want := mergeAccountValuesReference(t, changes, oldValues, blockHeight)
+		got, err := mergeOnto(t, changes, oldValues, blockHeight)
 		require.NoError(t, err, "round %d", round)
 		requireSameAccounts(t, want, got)
 	}
@@ -148,9 +150,9 @@ func TestMergeAccountValuesDoesNotMutateOldValues(t *testing.T) {
 
 	newCodeHash := codeHashN(0x99)
 	_, err := mergeOnto(t,
-		[]classifiedChange{{key: key, value: nonceBytes(42)}},
-		[]classifiedChange{{key: key, value: newCodeHash[:]}},
-		nil,
+		accountChanges(
+			[]classifiedChange{{key: key, value: nonceBytes(42)}},
+			[]classifiedChange{{key: key, value: newCodeHash[:]}}),
 		map[string]*vtype.AccountData{key: old},
 		99,
 	)
@@ -170,7 +172,7 @@ func TestMergeAccountValuesRejectsMalformedValues(t *testing.T) {
 		"short codehash": {codeHash: []classifiedChange{{key: key, value: []byte{0x01}}}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := mergeOnto(t, changes.nonce, changes.codeHash, nil, nil, 1)
+			_, err := mergeOnto(t, accountChanges(changes.nonce, changes.codeHash), nil, 1)
 			require.Error(t, err)
 		})
 	}
@@ -183,9 +185,9 @@ func TestMergeAccountValuesCombinesKindsIntoOneAccount(t *testing.T) {
 	codeHash := codeHashN(0x55)
 
 	got, err := mergeOnto(t,
-		[]classifiedChange{{key: key, value: nonceBytes(9)}},
-		[]classifiedChange{{key: key, value: codeHash[:]}},
-		nil,
+		accountChanges(
+			[]classifiedChange{{key: key, value: nonceBytes(9)}},
+			[]classifiedChange{{key: key, value: codeHash[:]}}),
 		nil,
 		123,
 	)
