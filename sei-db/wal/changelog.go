@@ -26,25 +26,6 @@ func NewChangelogWAL(dir string, config Config) (ChangelogWAL, error) {
 	)
 }
 
-// OpenReadOnlyChangelogWAL opens an immutable point-in-time view of the
-// changelog segment files. It never creates, truncates, removes, or renames WAL
-// files. An incomplete tail, malformed record, or recovery marker returns
-// ErrCorrupt.
-func OpenReadOnlyChangelogWAL(dir string) (ChangelogWAL, error) {
-	readOnly, err := openReadOnlyWAL(
-		dir,
-		func(data []byte) (proto.ChangelogEntry, error) {
-			var entry proto.ChangelogEntry
-			err := entry.Unmarshal(data)
-			return entry, err
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-	return readOnly, nil
-}
-
 // FindFirstOffsetAfterVersion returns the first WAL offset whose entry version is
 // strictly greater than targetVersion. If no such entry exists, it returns
 // lastOffset+1. Changelog versions are monotonic, but empty blocks can advance

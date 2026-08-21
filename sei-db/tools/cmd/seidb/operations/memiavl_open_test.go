@@ -13,7 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-func TestOpenMemiAVLReplayReadOnlyReportsRetryWithoutRepair(t *testing.T) {
+func TestOpenMemiAVLReplayReadOnlyRefusesATornChangelogWithoutRepair(t *testing.T) {
 	homeDir := t.TempDir()
 	store := newTestMemiavlStore(t, homeDir)
 	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
@@ -26,9 +26,11 @@ func TestOpenMemiAVLReplayReadOnlyReportsRetryWithoutRepair(t *testing.T) {
 
 	dbDir := utils.GetCosmosSCStorePath(homeDir)
 	segment := lastOperationsMemiAVLWALSegment(t, dbDir)
-	require.NoError(t, os.WriteFile(filepath.Clean(segment), []byte{0x01, 0xff}, 0o600))
-	before, err := os.ReadFile(filepath.Clean(segment))
+	committed, err := os.ReadFile(filepath.Clean(segment))
 	require.NoError(t, err)
+	require.NotEmpty(t, committed)
+	before := committed[:len(committed)-1]
+	require.NoError(t, os.WriteFile(filepath.Clean(segment), before, 0o600))
 
 	_, err = openMemiAVLReplayReadOnly(dbDir, 0)
 	require.Error(t, err)

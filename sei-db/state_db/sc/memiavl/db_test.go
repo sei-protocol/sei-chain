@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -758,9 +757,6 @@ func TestInvalidOptions(t *testing.T) {
 	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true, CreateIfMissing: true})
 	require.Error(t, err)
 
-	_, err = OpenDB(0, Options{Dir: dir, FailOnWALRepair: true})
-	require.ErrorContains(t, err, "can't disable WAL repair in writable mode")
-
 	db, err := OpenDB(0, Options{Dir: dir, CreateIfMissing: true})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
@@ -1119,107 +1115,4 @@ func TestUpdateCurrentSymlinkClearsStaleTmp(t *testing.T) {
 	target, err := os.Readlink(currentPath(dir))
 	require.NoError(t, err)
 	require.Equal(t, "snapshot-1", target)
-}
-
-func TestFailOnWALRepairRejectsTornWALWithoutRepair(t *testing.T) {
-	dir := t.TempDir()
-	db, err := OpenDB(0, Options{
-		Dir:             dir,
-		CreateIfMissing: true,
-		InitialStores:   []string{"test"},
-	})
-	require.NoError(t, err)
-	for i := 0; i < 3; i++ {
-		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
-			Name:      "test",
-			Changeset: ChangeSets[i],
-		}}))
-		_, err := db.Commit()
-		require.NoError(t, err)
-	}
-	require.NoError(t, db.Close())
-
-	segment := lastMemiAVLWALSegment(t, dir)
-	file, err := os.OpenFile(filepath.Clean(segment), os.O_WRONLY|os.O_APPEND, 0)
-	require.NoError(t, err)
-	_, err = file.Write([]byte{0x10})
-	require.NoError(t, err)
-	require.NoError(t, file.Close())
-	before, err := os.ReadFile(filepath.Clean(segment))
-	require.NoError(t, err)
-
-	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true, FailOnWALRepair: true})
-	require.ErrorIs(t, err, ErrReadOnlyWALCorrupt)
-	after, readErr := os.ReadFile(filepath.Clean(segment))
-	require.NoError(t, readErr)
-	require.Equal(t, before, after, "fail-loud open must leave a torn live tail untouched")
-
-	repaired, err := OpenDB(0, Options{Dir: dir, ReadOnly: true})
-	require.NoError(t, err, "ordinary read-only callers must retain the existing WAL behavior")
-	require.Equal(t, int64(3), repaired.Version())
-	require.NoError(t, repaired.Close())
-}
-
-func TestFailOnWALRepairRejectsWALGap(t *testing.T) {
-	dir := t.TempDir()
-	db, err := OpenDB(0, Options{
-		Dir:             dir,
-		CreateIfMissing: true,
-		InitialStores:   []string{"test"},
-	})
-	require.NoError(t, err)
-	for i := 0; i < 3; i++ {
-		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
-			Name:      "test",
-			Changeset: ChangeSets[i],
-		}}))
-		_, err := db.Commit()
-		require.NoError(t, err)
-	}
-	require.NoError(t, db.GetWAL().TruncateBefore(2))
-	require.NoError(t, db.Close())
-
-	_, err = OpenDB(3, Options{Dir: dir, ReadOnly: true, FailOnWALRepair: true})
-	require.ErrorIs(t, err, ErrReadOnlyWALUnavailable)
-	require.Contains(t, err.Error(), "needs changelog version 1")
-	require.Contains(t, err.Error(), "starts at version 2")
-}
-
-func TestFailOnWALRepairRejectsShortWAL(t *testing.T) {
-	dir := t.TempDir()
-	db, err := OpenDB(0, Options{
-		Dir:             dir,
-		CreateIfMissing: true,
-		InitialStores:   []string{"test"},
-	})
-	require.NoError(t, err)
-	for i := 0; i < 3; i++ {
-		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
-			Name:      "test",
-			Changeset: ChangeSets[i],
-		}}))
-		_, err := db.Commit()
-		require.NoError(t, err)
-	}
-	require.NoError(t, db.GetWAL().TruncateAfter(2))
-	require.NoError(t, db.Close())
-
-	_, err = OpenDB(3, Options{Dir: dir, ReadOnly: true, FailOnWALRepair: true})
-	require.ErrorIs(t, err, ErrReadOnlyWALUnavailable)
-	require.Contains(t, err.Error(), "requested 3, reached 2")
-}
-
-func lastMemiAVLWALSegment(t *testing.T, dir string) string {
-	t.Helper()
-	entries, err := os.ReadDir(utils.GetChangelogPath(dir))
-	require.NoError(t, err)
-	var names []string
-	for _, entry := range entries {
-		if !entry.IsDir() && len(entry.Name()) == 20 {
-			names = append(names, entry.Name())
-		}
-	}
-	require.NotEmpty(t, names)
-	sort.Strings(names)
-	return filepath.Join(utils.GetChangelogPath(dir), names[len(names)-1])
 }

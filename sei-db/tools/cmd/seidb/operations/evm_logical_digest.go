@@ -14,12 +14,14 @@ import (
 	"sort"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/spf13/cobra"
 )
 
@@ -81,14 +83,15 @@ const (
 //     that exact height (or --height 0 for the current symlink). This is the
 //     preferred mode whenever the target height lines up with an existing
 //     snapshot boundary.
-//   - replay (SLOW): opens a non-mutating read-only WAL view, replays the
-//     changelog up to --height, then walks the in-memory/mmap tree. Roughly an
-//     order of magnitude slower than snapshot (changelog replay + per-leaf tree
-//     walk instead of a sequential file read). If a live writer leaves a torn
-//     tail in view, replay fails and asks the operator to rerun instead of
-//     repairing the source WAL. Use it only when no snapshot exists at the
-//     target height — e.g. nodes whose snapshot rewrite lags the tip, so an
-//     arbitrary comparison height has no snapshot-<height> on disk.
+//   - replay (SLOW): opens a read-only DB, replays the changelog up to
+//     --height, then walks the in-memory/mmap tree. Roughly an order of
+//     magnitude slower than snapshot (changelog replay + per-leaf tree walk
+//     instead of a sequential file read). It refuses to run on a changelog whose
+//     tail a live writer is still filling, and asks the operator to rerun,
+//     because opening such a changelog would truncate that tail. Use it only
+//     when no snapshot exists at the target height — e.g. nodes whose snapshot
+//     rewrite lags the tip, so an arbitrary comparison height has no
+//     snapshot-<height> on disk.
 //
 // The flatkv side is always a pebble WAL-replay-to-height and is fast
 // regardless. So when comparing across nodes, pick a height that is an existing
@@ -1107,23 +1110,30 @@ func digestMemIAVL(dbDir string, height int64, findTarget []byte, normalization 
 }
 
 func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) {
+	// memiavl.OpenDB repairs a torn changelog tail by truncating it, even under
+	// ReadOnly. On a live node that tail is usually a write in progress, so
+	// refuse the run instead of letting the open damage the source.
+	if err := wal.VerifyIntact(utils.GetChangelogPath(dbDir)); err != nil {
+		if errors.Is(err, wal.ErrCorrupt) {
+			return nil, fmt.Errorf("memiavl changelog tail is incomplete or changing; live WAL was not "+
+				"modified; rerun the command, and if the error persists after stopping seid, repair the "+
+				"WAL offline: %w", err)
+		}
+		return nil, fmt.Errorf("verify memiavl changelog: %w", err)
+	}
 	db, err := memiavl.OpenDB(height, memiavl.Options{
-		Dir:             dbDir,
-		ReadOnly:        true,
-		FailOnWALRepair: true,
-		ZeroCopy:        true,
+		Dir:      dbDir,
+		ReadOnly: true,
+		ZeroCopy: true,
 	})
 	if err != nil {
-		if errors.Is(err, memiavl.ErrReadOnlyWALCorrupt) {
-			return nil, fmt.Errorf("memiavl changelog tail is incomplete, corrupt, or changing; "+
-				"live WAL was not modified; rerun the command, and if the error persists after stopping seid, "+
-				"repair the WAL offline: %w", err)
-		}
-		if errors.Is(err, memiavl.ErrReadOnlyWALUnavailable) {
-			return nil, fmt.Errorf("the immutable memiavl changelog view could not reach height %d; "+
-				"live WAL was not modified; rerun the command: %w", height, err)
-		}
 		return nil, fmt.Errorf("open memiavl read-only replay: %w", err)
+	}
+	if height > 0 && db.Version() != height {
+		reached := db.Version()
+		_ = db.Close()
+		return nil, fmt.Errorf("memiavl replay reached version %d, not the requested height %d; "+
+			"the changelog does not cover that height", reached, height)
 	}
 	return db, nil
 }

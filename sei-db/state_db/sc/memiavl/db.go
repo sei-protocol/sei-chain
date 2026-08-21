@@ -27,18 +27,7 @@ import (
 
 const LockFileName = "LOCK"
 
-var (
-	errReadOnly = errors.New("db is read-only")
-
-	// ErrReadOnlyWALCorrupt means a FailOnWALRepair open observed an incomplete,
-	// corrupt, or concurrently recovering changelog. The source WAL is left
-	// untouched.
-	ErrReadOnlyWALCorrupt = errors.New("read-only changelog is incomplete or corrupt")
-
-	// ErrReadOnlyWALUnavailable means a FailOnWALRepair open cannot replay every
-	// version from the selected snapshot through the requested target.
-	ErrReadOnlyWALUnavailable = errors.New("read-only changelog cannot reach the requested version")
-)
+var errReadOnly = errors.New("db is read-only")
 
 // DB implements DB-like functionalities on top of MultiTree:
 // - async snapshot rewriting
@@ -169,22 +158,9 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 		)
 	}()
 	var (
-		err           error
-		fileLock      FileLock
-		mtree         *MultiTree
-		streamHandler wal.ChangelogWAL
+		err      error
+		fileLock FileLock
 	)
-	defer func() {
-		if _err == nil || !opts.FailOnWALRepair {
-			return
-		}
-		if streamHandler != nil {
-			_ = streamHandler.Close()
-		}
-		if mtree != nil {
-			_ = mtree.Close()
-		}
-	}()
 	if err := opts.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid commit store options: %w", err)
 	}
@@ -218,7 +194,7 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 	}
 
 	path := filepath.Join(opts.Dir, snapshot)
-	mtree, err = LoadMultiTree(context.Background(), path, opts)
+	mtree, err := LoadMultiTree(context.Background(), path, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -226,25 +202,11 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 	// Snapshot mmap files are loaded with MADV_RANDOM in OpenSnapshot().
 
 	// MemIAVL owns changelog lifecycle: always open the WAL here.
-	// Digest tooling can explicitly disable repair when it reads a live WAL.
-	classifyFailOnWALRepairError := func(err error) error {
-		if opts.FailOnWALRepair && errors.Is(err, wal.ErrCorrupt) {
-			return fmt.Errorf("%w; source WAL was not modified: %w", ErrReadOnlyWALCorrupt, err)
-		}
-		return err
-	}
-	if opts.FailOnWALRepair {
-		streamHandler, err = wal.OpenReadOnlyChangelogWAL(utils.GetChangelogPath(opts.Dir))
-	} else {
-		streamHandler, err = wal.NewChangelogWAL(utils.GetChangelogPath(opts.Dir), wal.Config{
-			WriteBufferSize: opts.AsyncCommitBuffer,
-		})
-	}
+	// Even in read-only mode we may need WAL replay to reconstruct non-snapshot versions.
+	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(opts.Dir), wal.Config{
+		WriteBufferSize: opts.AsyncCommitBuffer,
+	})
 	if err != nil {
-		err = classifyFailOnWALRepairError(err)
-		if errors.Is(err, ErrReadOnlyWALCorrupt) {
-			return nil, err
-		}
 		return nil, fmt.Errorf("failed to open changelog WAL: %w", err)
 	}
 
@@ -253,48 +215,20 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 	var walHasEntries bool
 	walIndexDelta, walHasEntries, err = computeWALIndexDelta(streamHandler)
 	if err != nil {
-		if opts.FailOnWALRepair {
-			err = classifyFailOnWALRepairError(err)
-		}
 		return nil, fmt.Errorf("failed to compute WAL index delta: %w", err)
 	}
 	// If WAL is empty, set delta so first WAL entry aligns with NextVersion().
 	if !walHasEntries {
 		walIndexDelta = mtree.WorkingCommitInfo().Version - 1
 	}
-	if opts.FailOnWALRepair && walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
-		firstIndex, firstErr := streamHandler.FirstOffset()
-		if firstErr != nil {
-			return nil, fmt.Errorf("read changelog first offset: %w", firstErr)
-		}
-		if firstIndex > math.MaxInt64 {
-			return nil, fmt.Errorf("%w: first WAL offset %d overflows int64", ErrReadOnlyWALUnavailable, firstIndex)
-		}
-		firstVersion := int64(firstIndex) + walIndexDelta
-		firstNeeded := utils.NextVersion(mtree.Version(), mtree.initialVersion.Load())
-		if firstVersion > firstNeeded {
-			snapshotVersion := mtree.Version()
-			return nil, fmt.Errorf("%w: selected snapshot version %d needs changelog version %d, "+
-				"but the immutable WAL view starts at version %d",
-				ErrReadOnlyWALUnavailable, snapshotVersion, firstNeeded, firstVersion)
-		}
-	}
 
 	// Replay WAL to catch up to target version (if WAL has entries)
 	if walHasEntries && (targetVersion == 0 || targetVersion > mtree.Version()) {
 		logger.Info("Start catching up and replaying the MemIAVL changelog file")
 		if err := mtree.Catchup(context.Background(), streamHandler, walIndexDelta, targetVersion); err != nil {
-			if opts.FailOnWALRepair {
-				err = classifyFailOnWALRepairError(err)
-			}
 			return nil, err
 		}
 		logger.Info("finished replay and caught up to target version", "version", targetVersion)
-	}
-	if opts.FailOnWALRepair && targetVersion > 0 && mtree.Version() != targetVersion {
-		reached := mtree.Version()
-		return nil, fmt.Errorf("%w: requested %d, reached %d",
-			ErrReadOnlyWALUnavailable, targetVersion, reached)
 	}
 
 	if opts.LoadForOverwriting && targetVersion > 0 {
