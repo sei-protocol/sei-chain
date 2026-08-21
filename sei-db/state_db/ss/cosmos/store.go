@@ -2,6 +2,7 @@ package cosmos
 
 import (
 	"context"
+	"fmt"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -145,4 +146,22 @@ func (s *CosmosStateStore) WaitForPendingWrites() {
 	if w, ok := s.db.(types.PendingWriteWaiter); ok {
 		w.WaitForPendingWrites()
 	}
+}
+
+func (s *CosmosStateStore) PruneWALBeforeVersion(version int64) error {
+	if p, ok := s.db.(types.SnapshotWALPruner); ok {
+		return p.PruneWALBeforeVersion(version)
+	}
+	return nil
+}
+
+// WALVersionsAfter fails rather than reporting an empty changelog when the
+// engine keeps none: a caller asking what the changelog covers cannot act on
+// "nothing" and "no such thing" as the same answer.
+func (s *CosmosStateStore) WALVersionsAfter(version int64) (oldest int64, next int64, err error) {
+	r, ok := s.db.(types.SnapshotWALReader)
+	if !ok {
+		return 0, 0, fmt.Errorf("%T does not keep a changelog WAL", s.db)
+	}
+	return r.WALVersionsAfter(version)
 }
