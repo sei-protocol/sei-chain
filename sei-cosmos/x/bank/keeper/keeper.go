@@ -270,6 +270,9 @@ func (k BaseKeeper) UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAdd
 	if !amt.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amt.String())
 	}
+	if !k.CanSendTo(ctx, delegatorAddr) {
+		return sdkerrors.ErrInvalidRecipient
+	}
 
 	err := k.SubUnlockedCoins(ctx, moduleAccAddr, amt, true)
 	if err != nil {

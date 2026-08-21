@@ -61,6 +61,10 @@ The tool compares **committed tree hashes**, not the working tree:
 
 > **Important:** Commit your precompile changes before running `go generate`. Uncommitted changes are not detected by the diff.
 
+Modules added since the previous upgrade begin their version history at the
+new upgrade. Any placeholder version in their `versions` file is replaced so
+the generated setup does not reference a legacy package that never existed.
+
 If `common/` changed, all modules are archived (they depend on it).
 
 ## Idempotency
@@ -106,7 +110,8 @@ Git failures cause the tool to **exit with an error** rather than silently proce
 
 - `precompiles/<module>/legacy/<folder>/*.go` — archived code with package/import rewrites
 - `precompiles/<module>/legacy/<folder>/abi.json` — archived ABI
-- `precompiles/common/legacy/<folder>/*.go` — archived common utilities
+- `precompiles/common/legacy/<folder>/*.go` — all non-test top-level common
+  utilities
 - `precompiles/<module>/setup.go` — regenerated from `versions` file
 - `precompiles/<module>/versions` — appended with new version (changed modules only)
 - `app/tags` — normalized if input had a patch

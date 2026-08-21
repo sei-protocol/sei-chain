@@ -142,6 +142,50 @@ go test ./<pkg>/...     # run a single package
 CI mirrors these checks: `.github/workflows/golangci.yml` runs golangci-lint
 v2.8.0 and `.github/workflows/go-test.yml` runs `go test -race` on Go 1.25.6.
 
+### Running tests on a RAM disk
+
+If you are running tests that use on-disk resources, consider using a RAM disk to
+speed it up. Tests under sei-db/* are very likely to benefit from this. Other tests
+may or may not benefit depending on disk utilization. Tests that do not use on-disk
+resources are unlikely to experience significant benefit from using a RAM disk.
+
+`scripts/ramtest.sh` runs `go test` with `GOTMPDIR` and `TMPDIR` on a RAM-backed
+filesystem. Arguments that are not its own flags pass through to `go test`, so
+package patterns, `-run`, `-count`, `-parallel` and `-v` work as usual, and relative
+patterns resolve from the directory you run it in. `--help` lists the flags. Works on
+macOS and Linux; on Linux it prefers `/dev/shm`, falls back to a sudo-mounted tmpfs
+where that is too small, and warns and runs unaccelerated when neither is available.
+
+```bash
+scripts/ramtest.sh ./sei-db/...
+scripts/ramtest.sh ./sei-db/state_db/sc/flatkv/... -run TestSnapshot -v
+scripts/ramtest.sh                         # whole repo (./...)
+scripts/ramtest.sh --keep ./sei-db/...     # leave the volume up for the next run
+scripts/ramtest.sh --down                  # release the RAM disk, not needed for clean run
+```
+
+**Memory.** A full `./sei-db/...` run needs ~9 GiB free: ~5.5 GiB of test data plus
+~3 GiB of concurrent test binaries. Run subtrees on a smaller host. `--size N` (GiB)
+overrides the default `clamp(RAM/2, 4, 32)`, but it is a ceiling rather than a
+reservation, so raising it neither costs nor relieves memory. On the Linux `/dev/shm`
+path the request is clamped down to what that tmpfs actually has free, with a warning.
+Size from the peak each run reports.
+
+- Exit 3 means the RAM disk filled, not a test failure. Retry with a larger `--size`.
+- Exit 4 means the volume could not be released and its memory is still reserved. The
+  message names the command that frees it.
+- `peak use: 0` means nothing reached the RAM disk: either the run wrote nothing, or the
+  redirect did not take effect and the run was not accelerated.
+- `--keep` is sticky: a run only tears down a volume it created, so once you keep one
+  you own the teardown. `--down` releases it from any later shell.
+- macOS volumes are case-sensitive (HFSX) unlike the APFS root. A new path-case
+  failure is a real bug, not a script problem.
+- Not CI parity: `-race` is off by default, and `--ci-tags` is needed for the ledger
+  tests. A green run here is not a green CI run.
+- Each worktree gets its own volume, so parallel agents do not collide. Within one
+  worktree only one run at a time: a second is refused, because both would share the
+  volume and wipe each other's scratch directories.
+
 ## Benchmarking
 
 See [`benchmark/CLAUDE.md`](benchmark/CLAUDE.md) for benchmark usage, environment
