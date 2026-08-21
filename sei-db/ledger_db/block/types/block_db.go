@@ -59,7 +59,7 @@ func (k RecordKind) String() string {
 // own granularity, so an eligible record may stay readable for some time, and a
 // record may be reclaimed while another record below the floor survives. Reads
 // are never gated on the floor: a caller that must not serve reclaimable
-// records checks PruneWatermark itself.
+// records checks GetPruneWatermark itself.
 //
 // Where the floor may go is not a BlockDB's decision. It moves the floor
 // wherever it is told, because the boundaries at which a range of records
@@ -97,9 +97,9 @@ type BlockDB interface {
 	// the records present when Scan is called, and must be closed.
 	Scan(newestFirst bool) (RecordIterator, error)
 
-	// PruneWatermark returns the number below which records are eligible for
+	// GetPruneWatermark returns the number below which records are eligible for
 	// reclamation, which is 0 until the first SetPruneWatermark advances it.
-	PruneWatermark() uint64
+	GetPruneWatermark() uint64
 
 	// SetPruneWatermark moves the reclamation floor to n verbatim, and does
 	// nothing when n is at or below the current floor. The floor only rises, so

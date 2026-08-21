@@ -32,7 +32,7 @@ type Builder func(t *testing.T) Open
 //
 // Where the watermark is allowed to go is absent, because a BlockDB does not
 // decide that: it moves the floor where it is told. So is physical reclamation —
-// the contract makes eligibility observable through PruneWatermark but leaves the
+// the contract makes eligibility observable through GetPruneWatermark but leaves the
 // timing and granularity of the reclaim to the backend, so what a backend
 // actually drops, and when, is covered in that backend's own package.
 func RunContract(t *testing.T, build Builder) {
@@ -90,7 +90,7 @@ func testEmptyStore(t *testing.T, build Builder) {
 
 	require.Empty(t, drain(t, db, false), "an empty store scans to nothing")
 
-	require.Equal(t, uint64(0), db.PruneWatermark(), "nothing is eligible for reclamation yet")
+	require.Equal(t, uint64(0), db.GetPruneWatermark(), "nothing is eligible for reclamation yet")
 }
 
 func testRecordRoundTrip(t *testing.T, build Builder) {
@@ -227,18 +227,18 @@ func testWatermarkIsMonotonic(t *testing.T, build Builder) {
 	WriteCohorts(t, db, 4, 5)
 
 	db.SetPruneWatermark(10)
-	require.Equal(t, uint64(10), db.PruneWatermark(), "the floor moves where it is told")
+	require.Equal(t, uint64(10), db.GetPruneWatermark(), "the floor moves where it is told")
 
 	db.SetPruneWatermark(3)
-	require.Equal(t, uint64(10), db.PruneWatermark(), "the floor must never move backwards")
+	require.Equal(t, uint64(10), db.GetPruneWatermark(), "the floor must never move backwards")
 
 	db.SetPruneWatermark(10)
-	require.Equal(t, uint64(10), db.PruneWatermark(), "repeating a request changes nothing")
+	require.Equal(t, uint64(10), db.GetPruneWatermark(), "repeating a request changes nothing")
 
 	// A floor above everything held is legal: the layer above is the one that caps
 	// the request, and refusing it here would hide that it stopped doing so.
 	db.SetPruneWatermark(1_000)
-	require.Equal(t, uint64(1_000), db.PruneWatermark())
+	require.Equal(t, uint64(1_000), db.GetPruneWatermark())
 }
 
 // --- scanning ---

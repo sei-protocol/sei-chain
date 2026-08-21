@@ -94,8 +94,8 @@ func (s *blockDB) Scan(newestFirst bool) (blocktypes.RecordIterator, error) {
 	return &recordIterator{records: s.log[:len(s.log):len(s.log)], newestFirst: newestFirst, pos: -1}, nil
 }
 
-// PruneWatermark returns the reclamation floor.
-func (s *blockDB) PruneWatermark() uint64 {
+// GetPruneWatermark returns the reclamation floor.
+func (s *blockDB) GetPruneWatermark() uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.watermark

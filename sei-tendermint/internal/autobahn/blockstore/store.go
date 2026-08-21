@@ -181,7 +181,7 @@ func (s *Store) PruneBefore(blockHeight types.GlobalBlockNumber) error {
 }
 
 func (s *Store) First() types.GlobalBlockNumber {
-	return types.GlobalBlockNumber(s.db.PruneWatermark())
+	return types.GlobalBlockNumber(s.db.GetPruneWatermark())
 }
 
 func (s *Store) Flush() error {
@@ -308,7 +308,7 @@ func (s *Store) ReadSuffix() (types.Suffix, error) {
 
 func (s *Store) ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error) {
 	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
-	if uint64(n) < s.db.PruneWatermark() {
+	if uint64(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.Block](), types.ErrPruned
 	}
 	value, exists, err := s.db.GetRecord(blocktypes.KindBlock, uint64(n))
@@ -339,7 +339,7 @@ func (s *Store) ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[types.
 	}
 	// The number is not known until the block is resolved;
 	// Data below watermark should not be visible to the caller, even though it is pruned asynchronously.
-	if uint64(n) < s.db.PruneWatermark() {
+	if uint64(n) < s.db.GetPruneWatermark() {
 		return utils.None[types.BlockWithNumber](), nil
 	}
 	return utils.Some(types.BlockWithNumber{Block: blk, Number: n}), nil
@@ -349,7 +349,7 @@ func (s *Store) ReadQCByBlockNumber(
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.FullCommitQC], error) {
 	// Below-watermark blocks are not served, so neither is their covering QC.
-	if uint64(n) < s.db.PruneWatermark() {
+	if uint64(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.FullCommitQC](), types.ErrPruned
 	}
 	value, exists, err := s.db.GetRecord(blocktypes.KindQC, uint64(n))
@@ -369,7 +369,7 @@ func (s *Store) ReadQCByBlockNumber(
 func (s *Store) ReadAppProposalByBlockNumber(
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.AppProposal], error) {
-	if uint64(n) < s.db.PruneWatermark() {
+	if uint64(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.AppProposal](), types.ErrPruned
 	}
 	value, exists, err := s.db.GetRecord(blocktypes.KindAppProposal, uint64(n))
@@ -389,7 +389,7 @@ func (s *Store) ReadAppProposalByBlockNumber(
 func (s *Store) ReadAppQCByBlockNumber(
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.AppQC], error) {
-	if uint64(n) < s.db.PruneWatermark() {
+	if uint64(n) < s.db.GetPruneWatermark() {
 		return utils.None[*types.AppQC](), types.ErrPruned
 	}
 	value, exists, err := s.db.GetRecord(blocktypes.KindAppQC, uint64(n))

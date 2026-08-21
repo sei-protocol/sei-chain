@@ -1,6 +1,7 @@
 package littblock_test
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -28,6 +29,20 @@ func openLitt(t *testing.T, cfg *littblock.BlockDBConfig) blocktypes.BlockDB {
 	db, err := littblock.NewBlockDB(cfg)
 	require.NoError(t, err)
 	return db
+}
+
+// TestTableDirectoryName pins the on-disk directory the store keeps its data in.
+// The name is persisted layout, not an identifier: renaming it makes a reopen
+// build a fresh empty table and leaves the data under the old name unreachable,
+// which reads as a healthy empty store. The name is spelled out here rather than
+// taken from the constant, so that renaming the constant fails this test.
+func TestTableDirectoryName(t *testing.T) {
+	dir := t.TempDir()
+
+	db := openLitt(t, littConfig(t, dir))
+	require.NoError(t, db.Close())
+
+	require.DirExists(t, filepath.Join(dir, "blocks"))
 }
 
 // TestBlockDBContract runs the shared storage contract against littblock. One

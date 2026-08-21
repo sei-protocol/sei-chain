@@ -2,8 +2,6 @@ package littblock
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync/atomic"
 
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
@@ -18,10 +16,6 @@ import (
 // <root>/<tableName>/segments, so changing it makes NewBlockDB open a fresh empty table and leaves
 // data under the old name unreachable.
 const tableName = "blocks"
-
-// legacyTableName is the name tableName had in earlier versions. Nothing opens it; refuseLegacyTable
-// only uses it to recognize a directory left behind by one of those versions.
-const legacyTableName = "ledger"
 
 var _ blocktypes.BlockDB = (*blockDB)(nil)
 
@@ -45,11 +39,6 @@ type blockDB struct {
 func NewBlockDB(config *BlockDBConfig) (blocktypes.BlockDB, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid block db config: %w", err)
-	}
-	// Before littbuilder.NewDB, so a refused open leaves the directory exactly as it found it
-	// rather than adding an empty table beside the one it is complaining about.
-	if err := refuseLegacyTable(config.Litt.Paths); err != nil {
-		return nil, err
 	}
 	db, err := littbuilder.NewDB(config.Litt)
 	if err != nil {
@@ -118,8 +107,8 @@ func (s *blockDB) recoverWatermark() error {
 	return nil
 }
 
-// PruneWatermark returns the reclamation floor.
-func (s *blockDB) PruneWatermark() uint64 {
+// GetPruneWatermark returns the reclamation floor.
+func (s *blockDB) GetPruneWatermark() uint64 {
 	return s.watermark.Load()
 }
 
@@ -136,29 +125,6 @@ func (s *blockDB) SetPruneWatermark(n uint64) {
 			return
 		}
 	}
-}
-
-// refuseLegacyTable fails the open when any root path holds a table directory under legacyTableName,
-// which this process cannot reach and would otherwise leave the store looking healthy and empty. The
-// operator action is to delete the directory or move it aside.
-//
-// A root that cannot be stat'd is also refused, since it cannot rule out such a directory.
-func refuseLegacyTable(paths []string) error {
-	for _, root := range paths {
-		legacy := filepath.Join(root, legacyTableName)
-		switch _, err := os.Stat(legacy); {
-		case err == nil:
-			return fmt.Errorf(
-				"block db: found a pre-rename %q table at %s; the table is now named %q, so those "+
-					"blocks and QCs would be neither served nor reclaimed. Delete or move the "+
-					"directory aside to start from an empty store",
-				legacyTableName, legacy, tableName)
-		case !os.IsNotExist(err):
-			return fmt.Errorf("block db: check for a pre-rename %q table at %s: %w",
-				legacyTableName, legacy, err)
-		}
-	}
-	return nil
 }
 
 func (s *blockDB) PutRecord(kind blocktypes.RecordKind, first, next uint64, value []byte) error {
@@ -233,7 +199,7 @@ func (s *blockDB) Scan(newestFirst bool) (blocktypes.RecordIterator, error) {
 func (s *blockDB) gcFilter(key []byte, _ bool) (bool, error) {
 	switch keyKind(key) {
 	case kindBlock, kindQC, kindAppProp, kindAppQC:
-		return decodeNumberKey(key) < s.PruneWatermark(), nil
+		return decodeNumberKey(key) < s.GetPruneWatermark(), nil
 	case kindBlockHash:
 		return true, nil
 	default:

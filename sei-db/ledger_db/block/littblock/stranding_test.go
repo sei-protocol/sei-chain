@@ -85,7 +85,7 @@ func TestRecoveredWatermarkExcludesStrandedBlocks(t *testing.T) {
 	// The watermark is re-derived as the lowest surviving QC's first number, which
 	// puts every stranded block below the floor. Refusing to serve what sits below
 	// it is the layer above's job, and is covered by its own contract suite.
-	require.Equal(t, uint64(5), db3.PruneWatermark(), "recovered watermark must be the lowest surviving QC's first")
+	require.Equal(t, uint64(5), db3.GetPruneWatermark(), "recovered watermark must be the lowest surviving QC's first")
 
 	// Everything the surviving QCs cover is still on disk.
 	for n := uint64(5); n < 20; n++ {
