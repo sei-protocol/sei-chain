@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -145,19 +144,18 @@ func listReadOnlySegments(dir string) ([]readOnlySegment, error) {
 func indexReadOnlySegment(file *os.File, data []byte) ([]readOnlyEntry, error) {
 	entries := make([]readOnlyEntry, 0)
 	for pos := 0; pos < len(data); {
+		recordLen, err := loadNextBinaryEntry(data[pos:])
+		if err != nil {
+			return nil, err
+		}
 		size, prefixLen := binary.Uvarint(data[pos:])
-		if prefixLen <= 0 || size > math.MaxInt32 {
-			return nil, tidwallwal.ErrCorrupt
-		}
-		if len(data)-pos-prefixLen < int(size) {
-			return nil, tidwallwal.ErrCorrupt
-		}
+		entrySize := int(size) //nolint:gosec // loadNextBinaryEntry rejects sizes above math.MaxInt32.
 		entries = append(entries, readOnlyEntry{
 			file:       file,
 			dataOffset: int64(pos + prefixLen),
-			size:       int(size),
+			size:       entrySize,
 		})
-		pos += prefixLen + int(size)
+		pos += recordLen
 	}
 	return entries, nil
 }

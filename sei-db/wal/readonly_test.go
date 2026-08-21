@@ -86,13 +86,37 @@ func TestOpenReadOnlyChangelogWALKeepsPointInTimeView(t *testing.T) {
 }
 
 func TestOpenReadOnlyChangelogWALRejectsRecoveryMarkers(t *testing.T) {
-	dir := t.TempDir()
-	marker := filepath.Join(dir, "00000000000000000001.START")
-	require.NoError(t, os.WriteFile(marker, nil, 0o600))
+	for _, suffix := range []string{".START", ".END"} {
+		t.Run(suffix, func(t *testing.T) {
+			dir := t.TempDir()
+			marker := filepath.Join(dir, "00000000000000000001"+suffix)
+			require.NoError(t, os.WriteFile(marker, nil, 0o600))
+			before := snapshotWALFiles(t, dir)
 
-	_, err := OpenReadOnlyChangelogWAL(dir)
-	require.ErrorIs(t, err, tidwallwal.ErrCorrupt)
-	require.FileExists(t, marker, "read-only open must not complete writable WAL recovery")
+			_, err := OpenReadOnlyChangelogWAL(dir)
+			require.ErrorIs(t, err, tidwallwal.ErrCorrupt)
+			require.Equal(t, before, snapshotWALFiles(t, dir),
+				"read-only open must not complete writable WAL recovery")
+		})
+	}
+}
+
+func TestOpenReadOnlyChangelogWALEmptyDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	readOnly, err := OpenReadOnlyChangelogWAL(dir)
+	require.NoError(t, err)
+	first, err := readOnly.FirstOffset()
+	require.NoError(t, err)
+	require.Zero(t, first)
+	last, err := readOnly.LastOffset()
+	require.NoError(t, err)
+	require.Zero(t, last)
+	require.NoError(t, readOnly.Close())
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "read-only open must not create an initial segment")
 }
 
 func TestOpenReadOnlyChangelogWALDoesNotCreateMissingDirectory(t *testing.T) {
@@ -101,6 +125,75 @@ func TestOpenReadOnlyChangelogWALDoesNotCreateMissingDirectory(t *testing.T) {
 	_, err := OpenReadOnlyChangelogWAL(dir)
 	require.Error(t, err)
 	require.NoDirExists(t, dir)
+}
+
+func TestOpenReadOnlyChangelogWALConcurrentWriter(t *testing.T) {
+	dir := t.TempDir()
+	writable, err := NewChangelogWAL(dir, Config{})
+	require.NoError(t, err)
+
+	const versions = 500
+	done := make(chan struct{})
+	writerErr := make(chan error, 1)
+	go func() {
+		var runErr error
+		for version := 1; version <= versions && runErr == nil; version++ {
+			runErr = writable.Write(proto.ChangelogEntry{Version: int64(version)})
+			if runErr != nil || version <= 20 || version%10 != 0 {
+				continue
+			}
+			first, err := writable.FirstOffset()
+			if err != nil {
+				runErr = err
+				break
+			}
+			keepFrom := uint64(version - 20)
+			if keepFrom > first {
+				runErr = writable.TruncateBefore(keepFrom)
+			}
+		}
+		if closeErr := writable.Close(); runErr == nil {
+			runErr = closeErr
+		}
+		writerErr <- runErr
+		close(done)
+	}()
+
+reading:
+	for {
+		select {
+		case <-done:
+			break reading
+		default:
+		}
+
+		readOnly, err := OpenReadOnlyChangelogWAL(dir)
+		if err != nil {
+			continue // source changed while opening; fail-closed and retry is valid
+		}
+		first, err := readOnly.FirstOffset()
+		require.NoError(t, err)
+		last, err := readOnly.LastOffset()
+		require.NoError(t, err)
+		if first > 0 {
+			require.GreaterOrEqual(t, last, first)
+			entry, err := readOnly.ReadAt(last)
+			require.NoError(t, err)
+			require.Equal(t, int64(last), entry.Version)
+		}
+		require.NoError(t, readOnly.Close())
+	}
+	require.NoError(t, <-writerErr)
+
+	readOnly, err := OpenReadOnlyChangelogWAL(dir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, readOnly.Close()) }()
+	last, err := readOnly.LastOffset()
+	require.NoError(t, err)
+	require.Equal(t, uint64(versions), last)
+	entry, err := readOnly.ReadAt(last)
+	require.NoError(t, err)
+	require.Equal(t, int64(versions), entry.Version)
 }
 
 func lastPlainWALSegment(t *testing.T, dir string) string {
