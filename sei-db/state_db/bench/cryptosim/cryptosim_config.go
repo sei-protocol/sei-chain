@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
@@ -299,7 +300,34 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		LogLevel:                          "info",
 	}
 
+	disableSnapshotEngineMetrics(cfg.FlatKVConfig)
+
 	return cfg
+}
+
+// disableSnapshotEngineMetrics turns off the snapshot engines' own metrics for every flatKV store.
+//
+// Those metrics are recorded per read — a counter for hits, another for misses, a histogram for miss
+// latency — and every executor thread reports into the same instrument. At the read rates this
+// benchmark drives, what the benchmark measures starts to include the cost of measuring it. Turning
+// them off leaves the reporters as nil checks, since the engine only constructs them when enabled.
+//
+// The cost is visibility: cache hit rate and cache size are reported by these same instruments, so a
+// run configured this way cannot show them. Turn them back on for any run whose question is about
+// cache behaviour rather than throughput.
+func disableSnapshotEngineMetrics(cfg *flatkvConfig.Config) {
+	if cfg == nil {
+		return
+	}
+	for _, storeConfig := range []*snapshot.SnapshotEngineConfig{
+		&cfg.AccountStoreConfig,
+		&cfg.StorageStoreConfig,
+		&cfg.CodeStoreConfig,
+		&cfg.MiscStoreConfig,
+		&cfg.MetadataStoreConfig,
+	} {
+		storeConfig.MetricsEnabled = false
+	}
 }
 
 // StringifiedConfig returns the config as human-readable, multi-line JSON.
