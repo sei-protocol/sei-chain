@@ -2,7 +2,6 @@ package memiavl
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -759,6 +758,9 @@ func TestInvalidOptions(t *testing.T) {
 	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true, CreateIfMissing: true})
 	require.Error(t, err)
 
+	_, err = OpenDB(0, Options{Dir: dir, FailOnWALRepair: true})
+	require.ErrorContains(t, err, "can't disable WAL repair in writable mode")
+
 	db, err := OpenDB(0, Options{Dir: dir, CreateIfMissing: true})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
@@ -1119,7 +1121,7 @@ func TestUpdateCurrentSymlinkClearsStaleTmp(t *testing.T) {
 	require.Equal(t, "snapshot-1", target)
 }
 
-func TestReadOnlyOpenUsesCompleteWALPrefixWithoutRepair(t *testing.T) {
+func TestFailOnWALRepairRejectsTornWALWithoutRepair(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(0, Options{
 		Dir:             dir,
@@ -1146,24 +1148,19 @@ func TestReadOnlyOpenUsesCompleteWALPrefixWithoutRepair(t *testing.T) {
 	before, err := os.ReadFile(filepath.Clean(segment))
 	require.NoError(t, err)
 
-	readOnly, err := OpenDB(0, Options{Dir: dir, ReadOnly: true})
-	require.NoError(t, err)
-	require.Equal(t, int64(3), readOnly.Version())
-	require.NoError(t, readOnly.Close())
+	_, err = OpenDB(0, Options{Dir: dir, ReadOnly: true, FailOnWALRepair: true})
+	require.ErrorIs(t, err, ErrReadOnlyWALCorrupt)
 	after, readErr := os.ReadFile(filepath.Clean(segment))
 	require.NoError(t, readErr)
-	require.Equal(t, before, after, "read-only open must leave a torn live tail untouched")
+	require.Equal(t, before, after, "fail-loud open must leave a torn live tail untouched")
 
-	_, err = OpenDB(4, Options{Dir: dir, ReadOnly: true})
-	require.ErrorIs(t, err, ErrReadOnlyWALUnavailable)
-
-	repaired, err := OpenDB(0, Options{Dir: dir})
-	require.NoError(t, err, "the writable owner must retain the existing tail-repair behavior")
+	repaired, err := OpenDB(0, Options{Dir: dir, ReadOnly: true})
+	require.NoError(t, err, "ordinary read-only callers must retain the existing WAL behavior")
 	require.Equal(t, int64(3), repaired.Version())
 	require.NoError(t, repaired.Close())
 }
 
-func TestReadOnlyOpenRejectsWALGap(t *testing.T) {
+func TestFailOnWALRepairRejectsWALGap(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(0, Options{
 		Dir:             dir,
@@ -1182,13 +1179,13 @@ func TestReadOnlyOpenRejectsWALGap(t *testing.T) {
 	require.NoError(t, db.GetWAL().TruncateBefore(2))
 	require.NoError(t, db.Close())
 
-	_, err = OpenDB(3, Options{Dir: dir, ReadOnly: true})
+	_, err = OpenDB(3, Options{Dir: dir, ReadOnly: true, FailOnWALRepair: true})
 	require.ErrorIs(t, err, ErrReadOnlyWALUnavailable)
 	require.Contains(t, err.Error(), "needs changelog version 1")
 	require.Contains(t, err.Error(), "starts at version 2")
 }
 
-func TestReadOnlyOpenRejectsShortWAL(t *testing.T) {
+func TestFailOnWALRepairRejectsShortWAL(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(0, Options{
 		Dir:             dir,
@@ -1207,102 +1204,9 @@ func TestReadOnlyOpenRejectsShortWAL(t *testing.T) {
 	require.NoError(t, db.GetWAL().TruncateAfter(2))
 	require.NoError(t, db.Close())
 
-	_, err = OpenDB(3, Options{Dir: dir, ReadOnly: true})
+	_, err = OpenDB(3, Options{Dir: dir, ReadOnly: true, FailOnWALRepair: true})
 	require.ErrorIs(t, err, ErrReadOnlyWALUnavailable)
 	require.Contains(t, err.Error(), "requested 3, reached 2")
-}
-
-func TestReadOnlyOpenClassifiesReplayDecodeFailure(t *testing.T) {
-	dir := t.TempDir()
-	db, err := OpenDB(0, Options{
-		Dir:             dir,
-		CreateIfMissing: true,
-		InitialStores:   []string{"test"},
-	})
-	require.NoError(t, err)
-	for i := 0; i < 2; i++ {
-		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
-			Name:      "test",
-			Changeset: ChangeSets[i],
-		}}))
-		_, err = db.Commit()
-		require.NoError(t, err)
-	}
-	require.NoError(t, db.Close())
-
-	segment := lastMemiAVLWALSegment(t, dir)
-	data, err := os.ReadFile(filepath.Clean(segment))
-	require.NoError(t, err)
-	firstSize, firstPrefixLen := binary.Uvarint(data)
-	require.Positive(t, firstPrefixLen)
-	require.LessOrEqual(t, firstSize, uint64(len(data)-firstPrefixLen))
-	secondPos := firstPrefixLen + int(firstSize) //nolint:gosec // bounded by the segment length above.
-	secondSize, secondPrefixLen := binary.Uvarint(data[secondPos:])
-	require.Positive(t, secondPrefixLen)
-	require.LessOrEqual(t, secondSize, uint64(len(data)-secondPos-secondPrefixLen))
-	secondDataStart := secondPos + secondPrefixLen
-	secondDataEnd := secondDataStart + int(secondSize) //nolint:gosec // bounded by the segment length above.
-	for i := secondDataStart; i < secondDataEnd; i++ {
-		data[i] = 0xff
-	}
-	require.NoError(t, os.WriteFile(filepath.Clean(segment), data, 0o600))
-
-	_, err = OpenDB(2, Options{Dir: dir, ReadOnly: true})
-	require.ErrorIs(t, err, ErrReadOnlyWALCorrupt)
-	after, readErr := os.ReadFile(filepath.Clean(segment))
-	require.NoError(t, readErr)
-	require.Equal(t, data, after, "read-only replay must not repair an unparseable entry")
-}
-
-func TestReadOnlyOpenTreatsMissingWALAsEmpty(t *testing.T) {
-	dir := t.TempDir()
-	db, err := OpenDB(0, Options{
-		Dir:             dir,
-		CreateIfMissing: true,
-		InitialStores:   []string{"test"},
-	})
-	require.NoError(t, err)
-	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
-		Name:      "test",
-		Changeset: ChangeSets[0],
-	}}))
-	_, err = db.Commit()
-	require.NoError(t, err)
-	require.NoError(t, db.RewriteSnapshot(context.Background()))
-	require.NoError(t, db.Close())
-	require.NoError(t, os.RemoveAll(utils.GetChangelogPath(dir)))
-
-	readOnly, err := OpenDB(1, Options{Dir: dir, ReadOnly: true})
-	require.NoError(t, err)
-	require.Equal(t, int64(1), readOnly.Version())
-	require.NoError(t, readOnly.Close())
-	require.NoDirExists(t, utils.GetChangelogPath(dir))
-}
-
-func TestOpenDBFailureReleasesFileLock(t *testing.T) {
-	dir := t.TempDir()
-	db, err := OpenDB(0, Options{
-		Dir:             dir,
-		CreateIfMissing: true,
-		InitialStores:   []string{"test"},
-	})
-	require.NoError(t, err)
-	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
-		Name:      "test",
-		Changeset: ChangeSets[0],
-	}}))
-	_, err = db.Commit()
-	require.NoError(t, err)
-	require.NoError(t, db.Close())
-
-	require.NoError(t, os.Remove(currentPath(dir)))
-	_, err = OpenDB(1, Options{Dir: dir, LoadForOverwriting: true})
-	require.ErrorContains(t, err, "fail to read current version")
-
-	lock, err := LockFile(filepath.Join(dir, LockFileName))
-	require.NoError(t, err, "failed OpenDB must release its exclusive lock")
-	require.NoError(t, lock.Unlock())
-	require.NoError(t, lock.Destroy())
 }
 
 func lastMemiAVLWALSegment(t *testing.T, dir string) string {

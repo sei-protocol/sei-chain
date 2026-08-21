@@ -28,8 +28,8 @@ func NewChangelogWAL(dir string, config Config) (ChangelogWAL, error) {
 
 // OpenReadOnlyChangelogWAL opens an immutable point-in-time view of the
 // changelog segment files. It never creates, truncates, removes, or renames WAL
-// files. A missing directory is an empty view, and an incomplete final record
-// is excluded. Malformed records and recovery markers return ErrCorrupt.
+// files. An incomplete tail, malformed record, or recovery marker returns
+// ErrCorrupt.
 func OpenReadOnlyChangelogWAL(dir string) (ChangelogWAL, error) {
 	readOnly, err := openReadOnlyWAL(
 		dir,

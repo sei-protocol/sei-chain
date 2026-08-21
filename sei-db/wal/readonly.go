@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -55,9 +54,6 @@ type readOnlyWAL[T any] struct {
 func openReadOnlyWAL[T any](dir string, unmarshal UnmarshalFn[T]) (*readOnlyWAL[T], error) {
 	segments, err := listReadOnlySegments(dir)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return &readOnlyWAL[T]{unmarshal: unmarshal}, nil
-		}
 		return nil, err
 	}
 
@@ -102,7 +98,7 @@ func openReadOnlyWAL[T any](dir string, unmarshal UnmarshalFn[T]) (*readOnlyWAL[
 				ErrCorrupt, path))
 		}
 
-		entries, err := indexReadOnlySegment(file, data, i == len(segments)-1)
+		entries, err := indexReadOnlySegment(file, data)
 		if err != nil {
 			return cleanup(fmt.Errorf("index WAL segment %s: %w", path, err))
 		}
@@ -149,14 +145,11 @@ func listReadOnlySegments(dir string) ([]readOnlySegment, error) {
 	return segments, nil
 }
 
-func indexReadOnlySegment(file *os.File, data []byte, tail bool) ([]readOnlyEntry, error) {
+func indexReadOnlySegment(file *os.File, data []byte) ([]readOnlyEntry, error) {
 	entries := make([]readOnlyEntry, 0)
 	for pos := 0; pos < len(data); {
 		recordLen, err := loadNextBinaryEntry(data[pos:])
 		if err != nil {
-			if tail && isIncompleteBinaryEntry(data[pos:]) {
-				break
-			}
 			return nil, err
 		}
 		size, prefixLen := binary.Uvarint(data[pos:])
@@ -169,18 +162,6 @@ func indexReadOnlySegment(file *os.File, data []byte, tail bool) ([]readOnlyEntr
 		pos += recordLen
 	}
 	return entries, nil
-}
-
-func isIncompleteBinaryEntry(data []byte) bool {
-	size, prefixLen := binary.Uvarint(data)
-	if prefixLen == 0 {
-		return true
-	}
-	if prefixLen < 0 || size > math.MaxInt32 {
-		return false
-	}
-	entrySize := int(size) //nolint:gosec // size is at most math.MaxInt32.
-	return entrySize > len(data)-prefixLen
 }
 
 func (log *readOnlyWAL[T]) Write(T) error {

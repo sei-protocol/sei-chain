@@ -18,6 +18,9 @@ type Options struct {
 	InitialVersion uint32
 	// ReadOnly opens the database in read-only mode
 	ReadOnly bool
+	// FailOnWALRepair opens an immutable changelog view and returns an error
+	// instead of repairing the WAL. It requires ReadOnly.
+	FailOnWALRepair bool
 	// InitialStores are the initial store names when initializing an empty instance
 	InitialStores []string
 	// ZeroCopy if true, get and iterator methods return slices pointing to mmaped blob files
@@ -45,6 +48,10 @@ func (opts Options) Validate() error {
 
 	if opts.ReadOnly && opts.LoadForOverwriting {
 		return errors.New("can't rollback db in read-only mode")
+	}
+
+	if opts.FailOnWALRepair && !opts.ReadOnly {
+		return errors.New("can't disable WAL repair in writable mode")
 	}
 
 	return nil

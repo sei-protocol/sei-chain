@@ -1108,9 +1108,10 @@ func digestMemIAVL(dbDir string, height int64, findTarget []byte, normalization 
 
 func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) {
 	db, err := memiavl.OpenDB(height, memiavl.Options{
-		Dir:      dbDir,
-		ReadOnly: true,
-		ZeroCopy: true,
+		Dir:             dbDir,
+		ReadOnly:        true,
+		FailOnWALRepair: true,
+		ZeroCopy:        true,
 	})
 	if err != nil {
 		if errors.Is(err, memiavl.ErrReadOnlyWALCorrupt) {

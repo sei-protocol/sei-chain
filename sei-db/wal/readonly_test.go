@@ -44,7 +44,7 @@ func TestOpenReadOnlyChangelogWALReplaysWithoutMutation(t *testing.T) {
 	require.NoError(t, readOnly.Close())
 }
 
-func TestOpenReadOnlyChangelogWALUsesCompleteTailPrefixWithoutRepair(t *testing.T) {
+func TestOpenReadOnlyChangelogWALRejectsTornTailWithoutRepair(t *testing.T) {
 	dir := t.TempDir()
 	writable, err := NewChangelogWAL(dir, Config{})
 	require.NoError(t, err)
@@ -59,12 +59,8 @@ func TestOpenReadOnlyChangelogWALUsesCompleteTailPrefixWithoutRepair(t *testing.
 	require.NoError(t, file.Close())
 	before := snapshotWALFiles(t, dir)
 
-	readOnly, err := OpenReadOnlyChangelogWAL(dir)
-	require.NoError(t, err)
-	last, err := readOnly.LastOffset()
-	require.NoError(t, err)
-	require.Equal(t, uint64(3), last)
-	require.NoError(t, readOnly.Close())
+	_, err = OpenReadOnlyChangelogWAL(dir)
+	require.ErrorIs(t, err, ErrCorrupt)
 	require.Equal(t, before, snapshotWALFiles(t, dir), "read-only open must not repair the source tail")
 }
 
@@ -138,15 +134,8 @@ func TestOpenReadOnlyChangelogWALEmptyDirectory(t *testing.T) {
 func TestOpenReadOnlyChangelogWALDoesNotCreateMissingDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "missing")
 
-	readOnly, err := OpenReadOnlyChangelogWAL(dir)
-	require.NoError(t, err)
-	first, err := readOnly.FirstOffset()
-	require.NoError(t, err)
-	require.Zero(t, first)
-	last, err := readOnly.LastOffset()
-	require.NoError(t, err)
-	require.Zero(t, last)
-	require.NoError(t, readOnly.Close())
+	_, err := OpenReadOnlyChangelogWAL(dir)
+	require.Error(t, err)
 	require.NoDirExists(t, dir)
 }
 
