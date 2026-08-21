@@ -1,2 +1,0 @@
-TrustedCIDRs = <nil-slice>
-TrustedScanLimit = uint64(100000)
