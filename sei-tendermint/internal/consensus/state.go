@@ -1516,7 +1516,10 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.roundState.ProposalBlock().Hash(), cs.roundState.ProposalBlockParts().Header())
 			return
 		}
-		if cs.roundState.ProposalBlock().HashesTo(cs.roundState.LockedBlock().Hash()) {
+		if proposalMatchesLocked(
+			cs.roundState.ProposalBlock(), cs.roundState.LockedBlock(),
+			cs.roundState.ProposalBlockParts(), cs.roundState.LockedBlockParts(),
+		) {
 			logger.Info("prevote step: ProposalBlock is valid and matches our locked block; prevoting the proposal")
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.roundState.ProposalBlock().Hash(), cs.roundState.ProposalBlockParts().Header())
 			return
@@ -1541,14 +1544,18 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 		missed the proposal in round 'v_r'.
 	*/
 	blockID, ok := cs.roundState.Votes().Prevotes(cs.roundState.Proposal().POLRound).TwoThirdsMajority()
-	if ok && cs.roundState.ProposalBlock().HashesTo(blockID.Hash) && cs.roundState.Proposal().POLRound >= 0 && cs.roundState.Proposal().POLRound < cs.roundState.Round() {
+	if ok && blockIDMatches(cs.roundState.ProposalBlock(), cs.roundState.ProposalBlockParts(), blockID) &&
+		cs.roundState.Proposal().POLRound >= 0 && cs.roundState.Proposal().POLRound < cs.roundState.Round() {
 		if cs.roundState.LockedRound() <= cs.roundState.Proposal().POLRound {
 			logger.Info("prevote step: ProposalBlock is valid and received a 2/3" +
 				"majority in a round later than the locked round; prevoting the proposal")
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.roundState.ProposalBlock().Hash(), cs.roundState.ProposalBlockParts().Header())
 			return
 		}
-		if cs.roundState.ProposalBlock().HashesTo(cs.roundState.LockedBlock().Hash()) {
+		if proposalMatchesLocked(
+			cs.roundState.ProposalBlock(), cs.roundState.LockedBlock(),
+			cs.roundState.ProposalBlockParts(), cs.roundState.LockedBlockParts(),
+		) {
 			logger.Info("prevote step: ProposalBlock is valid and matches our locked block; prevoting the proposal")
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.roundState.ProposalBlock().Hash(), cs.roundState.ProposalBlockParts().Header())
 			return
@@ -1672,8 +1679,9 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32, 
 		return
 	}
 
-	// If we're already locked on that block, precommit it, and update the LockedRound
-	if cs.roundState.LockedBlock().HashesTo(blockID.Hash) {
+	// If we're already locked on that block, precommit it, and update the LockedRound.
+	// Match full BlockID (hash + PartSetHeader), not header hash alone.
+	if blockIDMatches(cs.roundState.LockedBlock(), cs.roundState.LockedBlockParts(), blockID) {
 		logger.Info("precommit step: +2/3 prevoted locked block; relocking")
 		cs.roundState.SetLockedRound(round)
 
@@ -1688,7 +1696,7 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32, 
 	// If greater than 2/3 of the voting power on the network prevoted for
 	// the proposed block, update our locked block to this block and issue a
 	// precommit vote for it.
-	if cs.roundState.ProposalBlock().HashesTo(blockID.Hash) {
+	if blockIDMatches(cs.roundState.ProposalBlock(), cs.roundState.ProposalBlockParts(), blockID) {
 		logger.Info("precommit step: +2/3 prevoted proposal block; locking", "hash", blockID.Hash)
 
 		// Validate the block.
@@ -1794,9 +1802,9 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 	}
 
 	// The Locked* fields no longer matter.
-	// Move them over to ProposalBlock if they match the commit hash,
-	// otherwise they'll be cleared in updateToState.
-	if cs.roundState.LockedBlock().HashesTo(blockID.Hash) {
+	// Move them over to ProposalBlock if they match the commit BlockID
+	// (hash + PartSetHeader), otherwise they'll be cleared in updateToState.
+	if blockIDMatches(cs.roundState.LockedBlock(), cs.roundState.LockedBlockParts(), blockID) {
 		logger.Info("commit is for a locked block; set ProposalBlock=LockedBlock", "block_hash", blockID.Hash)
 		cs.roundState.SetProposalBlockParts(cs.roundState.LockedBlockParts())
 		cs.roundState.SetProposalBlock(cs.roundState.LockedBlock())
@@ -1840,7 +1848,7 @@ func (cs *State) tryFinalizeCommit(ctx context.Context, height int64) {
 		return
 	}
 
-	if !cs.roundState.ProposalBlock().HashesTo(blockID.Hash) {
+	if !blockIDMatches(cs.roundState.ProposalBlock(), cs.roundState.ProposalBlockParts(), blockID) {
 		// TODO: this happens every time if we're not a validator (ugly logs)
 		// TODO: ^^ wait, why does it matter that we're a validator?
 		logger.Info(
@@ -1878,11 +1886,11 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 	if !ok {
 		panic("cannot finalize commit; commit does not have 2/3 majority")
 	}
-	if !blockParts.HasHeader(blockID.PartSetHeader) {
-		panic("expected ProposalBlockParts header to be commit header")
-	}
-	if !block.HashesTo(blockID.Hash) {
-		panic("cannot finalize commit; proposal block does not hash to commit hash")
+	if !blockIDMatches(block, blockParts, blockID) {
+		panic(fmt.Sprintf(
+			"cannot finalize commit; proposal block/parts do not match commit BlockID: block=%X parts=%v commit=%v",
+			block.Hash(), blockParts.Header(), blockID,
+		))
 	}
 
 	if err := cs.blockExec.ValidateBlock(ctx, cs.state, block); err != nil {
@@ -2221,6 +2229,17 @@ func (cs *State) addProposalBlockPart(
 			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
 			return false, err
 		}
+		if err := cs.verifyCanonicalProposalParts(block); err != nil {
+			Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
+			logger.Error(
+				"rejecting non-canonical proposal block parts",
+				"err", err,
+				"height", height,
+				"round", round,
+				"step", cs.roundState.Step().String(),
+			)
+			return false, err
+		}
 
 		cs.roundState.SetProposalBlock(block)
 		// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
@@ -2283,6 +2302,17 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
 			return false
 		}
+		if err := cs.verifyCanonicalProposalParts(block); err != nil {
+			Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
+			logger.Error(
+				"rejecting non-canonical proposal block parts",
+				"err", err,
+				"height", cs.roundState.Height(),
+				"round", cs.roundState.Round(),
+				"step", cs.roundState.Step().String(),
+			)
+			return false
+		}
 		cs.roundState.SetProposalBlock(block)
 		return true
 	}
@@ -2326,7 +2356,9 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 		return false
 	}
 
-	// Now check if parts were actually expected.
+	// Now check if parts were actually expected. newParts comes from MakePartSet,
+	// so matching headers already implies the canonical PartSetHeader; a further
+	// verifyCanonicalProposalParts call would be a tautology.
 	if !parts.Header().Equals(newParts.Header()) {
 		return false
 	}
@@ -2359,7 +2391,7 @@ func (cs *State) handleCompleteProposal(ctx context.Context, height int64, handl
 	prevotes := cs.roundState.Votes().Prevotes(cs.roundState.Round())
 	blockID, hasTwoThirds := prevotes.TwoThirdsMajority()
 	if hasTwoThirds && !blockID.IsNil() && (cs.roundState.ValidRound() < cs.roundState.Round()) {
-		if cs.roundState.ProposalBlock().HashesTo(blockID.Hash) {
+		if blockIDMatches(cs.roundState.ProposalBlock(), cs.roundState.ProposalBlockParts(), blockID) {
 			logger.Debug(
 				"updating valid block to new proposal block",
 				"valid_round", cs.roundState.Round(),
@@ -2530,7 +2562,7 @@ func (cs *State) addVote(
 
 			// Update Valid* if we can.
 			if cs.roundState.ValidRound() < vote.Round && vote.Round == cs.roundState.Round() {
-				if cs.roundState.ProposalBlock().HashesTo(blockID.Hash) {
+				if blockIDMatches(cs.roundState.ProposalBlock(), cs.roundState.ProposalBlockParts(), blockID) {
 					logger.Debug("updating valid block because of POL", "valid_round", cs.roundState.ValidRound(), "pol_round", vote.Round)
 					cs.roundState.SetValidRound(vote.Round)
 					cs.roundState.SetValidBlock(cs.roundState.ProposalBlock())
