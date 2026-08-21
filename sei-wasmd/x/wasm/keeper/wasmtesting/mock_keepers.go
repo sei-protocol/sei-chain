@@ -2,7 +2,6 @@ package wasmtesting
 
 import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	ibcexported "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 
@@ -12,8 +11,8 @@ import (
 type MockChannelKeeper struct {
 	GetChannelFn          func(ctx sdk.Context, srcPort, srcChan string) (channel channeltypes.Channel, found bool)
 	GetNextSequenceSendFn func(ctx sdk.Context, portID, channelID string) (uint64, bool)
-	SendPacketFn          func(ctx sdk.Context, channelCap *capabilitytypes.Capability, packet ibcexported.PacketI) error
-	ChanCloseInitFn       func(ctx sdk.Context, portID, channelID string, chanCap *capabilitytypes.Capability) error
+	SendPacketFn          func(ctx sdk.Context, packet ibcexported.PacketI) error
+	ChanCloseInitFn       func(ctx sdk.Context, portID, channelID string) error
 	GetAllChannelsFn      func(ctx sdk.Context) []channeltypes.IdentifiedChannel
 	IterateChannelsFn     func(ctx sdk.Context, cb func(channeltypes.IdentifiedChannel) bool)
 	SetChannelFn          func(ctx sdk.Context, portID, channelID string, channel channeltypes.Channel)
@@ -40,18 +39,18 @@ func (m *MockChannelKeeper) GetNextSequenceSend(ctx sdk.Context, portID, channel
 	return m.GetNextSequenceSendFn(ctx, portID, channelID)
 }
 
-func (m *MockChannelKeeper) SendPacket(ctx sdk.Context, channelCap *capabilitytypes.Capability, packet ibcexported.PacketI) error {
+func (m *MockChannelKeeper) SendPacket(ctx sdk.Context, packet ibcexported.PacketI) error {
 	if m.SendPacketFn == nil {
 		panic("not supposed to be called!")
 	}
-	return m.SendPacketFn(ctx, channelCap, packet)
+	return m.SendPacketFn(ctx, packet)
 }
 
-func (m *MockChannelKeeper) ChanCloseInit(ctx sdk.Context, portID, channelID string, chanCap *capabilitytypes.Capability) error {
+func (m *MockChannelKeeper) ChanCloseInit(ctx sdk.Context, portID, channelID string) error {
 	if m.ChanCloseInitFn == nil {
 		panic("not supposed to be called!")
 	}
-	return m.ChanCloseInitFn(ctx, portID, channelID, chanCap)
+	return m.ChanCloseInitFn(ctx, portID, channelID)
 }
 
 func (m *MockChannelKeeper) IterateChannels(ctx sdk.Context, cb func(channeltypes.IdentifiedChannel) bool) {
@@ -77,33 +76,6 @@ func MockChannelKeeperIterator(s []channeltypes.IdentifiedChannel) func(ctx sdk.
 			}
 		}
 	}
-}
-
-type MockCapabilityKeeper struct {
-	GetCapabilityFn          func(ctx sdk.Context, name string) (*capabilitytypes.Capability, bool)
-	ClaimCapabilityFn        func(ctx sdk.Context, cap *capabilitytypes.Capability, name string) error
-	AuthenticateCapabilityFn func(ctx sdk.Context, capability *capabilitytypes.Capability, name string) bool
-}
-
-func (m MockCapabilityKeeper) GetCapability(ctx sdk.Context, name string) (*capabilitytypes.Capability, bool) {
-	if m.GetCapabilityFn == nil {
-		panic("not supposed to be called!")
-	}
-	return m.GetCapabilityFn(ctx, name)
-}
-
-func (m MockCapabilityKeeper) ClaimCapability(ctx sdk.Context, cap *capabilitytypes.Capability, name string) error {
-	if m.ClaimCapabilityFn == nil {
-		panic("not supposed to be called!")
-	}
-	return m.ClaimCapabilityFn(ctx, cap, name)
-}
-
-func (m MockCapabilityKeeper) AuthenticateCapability(ctx sdk.Context, capability *capabilitytypes.Capability, name string) bool {
-	if m.AuthenticateCapabilityFn == nil {
-		panic("not supposed to be called!")
-	}
-	return m.AuthenticateCapabilityFn(ctx, capability, name)
 }
 
 var _ types.ICS20TransferPortSource = &MockIBCTransferKeeper{}

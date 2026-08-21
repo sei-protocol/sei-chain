@@ -76,8 +76,6 @@ type Keeper struct {
 	cdc                   codec.Codec
 	accountKeeper         types.AccountKeeper
 	bank                  CoinTransferrer
-	portKeeper            types.PortKeeper
-	capabilityKeeper      types.CapabilityKeeper
 	paramsKeeper          types.ParamsKeeper
 	upgradeKeeper         types.UpgradeKeeper
 	wasmVM                types.WasmerEngine
@@ -108,8 +106,6 @@ func NewKeeper(
 	stakingKeeper types.StakingKeeper,
 	distKeeper types.DistributionKeeper,
 	channelKeeper types.ChannelKeeper,
-	portKeeper types.PortKeeper,
-	capabilityKeeper types.CapabilityKeeper,
 	upgradeKeeper types.UpgradeKeeper,
 	portSource types.ICS20TransferPortSource,
 	router MessageRouter,
@@ -155,10 +151,8 @@ func NewKeeper(
 		rpcWasmVM155:      NewVMWrapper(rpcWasmer155),
 		accountKeeper:     accountKeeper,
 		bank:              NewBankCoinTransferrer(bankKeeper),
-		portKeeper:        portKeeper,
-		capabilityKeeper:  capabilityKeeper,
 		upgradeKeeper:     upgradeKeeper,
-		messenger:         NewDefaultMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, cdc, portSource),
+		messenger:         NewDefaultMessageHandler(router, channelKeeper, bankKeeper, cdc, portSource),
 		queryGasLimit:     wasmConfig.SmartQueryGasLimit,
 		paramSpace:        paramSpace,
 		gasRegister:       NewDefaultWasmGasRegister(),
