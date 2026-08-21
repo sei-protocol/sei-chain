@@ -392,7 +392,7 @@ func TestNextViewEpoch(t *testing.T) {
 		qcLast := types.BuildCommitQC(ep0, keys, utils.Some(prev), nil)
 		require.Equal(t, last, qcLast.Index())
 
-		applied, err := nextViewEpoch(registry, qcLast, ep0)
+		applied, err := nextViewEpoch(registry, qcLast)
 		require.NoError(t, err)
 		require.Equal(t, ep1.EpochIndex(), applied.EpochIndex())
 
@@ -422,7 +422,7 @@ func TestNextViewEpoch(t *testing.T) {
 		qcLast := types.BuildCommitQC(ep1, keys, utils.Some(prev), nil)
 		require.Equal(t, last, qcLast.Index())
 
-		_, err = nextViewEpoch(registry, qcLast, ep1)
+		_, err = nextViewEpoch(registry, qcLast)
 		require.Error(t, err)
 	})
 }

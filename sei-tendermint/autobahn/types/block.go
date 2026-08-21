@@ -139,7 +139,7 @@ func (b *Block) Header() *BlockHeader { return b.header }
 // Payload .
 func (b *Block) Payload() *Payload { return b.payload }
 
-// Verify checks that the payload hashes to the header payload hash.
+// Verify checks the block's internal integrity.
 func (b *Block) Verify() error {
 	if got, want := b.payload.Hash(), b.header.payloadHash; got != want {
 		return fmt.Errorf("payload.Hash() = %v, want %v", got, want)
