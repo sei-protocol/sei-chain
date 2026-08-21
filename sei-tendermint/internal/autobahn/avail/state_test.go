@@ -1120,3 +1120,30 @@ func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceParked(t *testing.
 		require.ErrorIs(t, advanceErr, context.Canceled)
 	})
 }
+
+func TestMarkCommitQCsPersisted_DoesNotRewindPruneTip(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 2)
+	registry.AdvanceIfNeeded(epoch.LastRoad(1))
+	registry.AdvanceIfNeeded(epoch.LastRoad(2))
+	ds := newTestDataState(&data.Config{Registry: registry})
+	state, err := NewState(keys[0], ds, utils.None[string]())
+	require.NoError(t, err)
+
+	qc0 := types.BuildCommitQC(registry.MustEpoch(0), keys, utils.None[*types.CommitQC](), nil)
+	state.markCommitQCsPersisted(qc0)
+
+	qc := pruneToAnchors(state, anchorWalk(t, registry, keys))
+	for inner := range state.inner.Lock() {
+		got, ok := inner.persistedCommitQC.Load().Get()
+		require.True(t, ok)
+		require.Equal(t, qc.Index(), got.Index())
+	}
+
+	state.markCommitQCsPersisted(qc0)
+	for inner := range state.inner.Lock() {
+		got, ok := inner.persistedCommitQC.Load().Get()
+		require.True(t, ok)
+		require.Equal(t, qc.Index(), got.Index())
+	}
+}
