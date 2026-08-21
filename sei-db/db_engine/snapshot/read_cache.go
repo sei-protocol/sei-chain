@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -576,19 +577,23 @@ func (c *readCache) entryLocked(key []byte, createIfMissing bool) *cacheEntry {
 	return entry
 }
 
-// entryLockedString is entryLocked for a caller that already holds the key as a string, which is
-// then retained rather than copied.
+// entryLockedString is entryLocked for a caller that already holds the key as a string.
 //
 // The Locked postfix indicates that the caller must hold the shared lock.
 func (c *readCache) entryLockedString(key string, createIfMissing bool) *cacheEntry {
 	if entry, ok := c.entries[key]; ok {
+		// The existing key stays, so the caller's string is not retained.
 		return entry
 	}
 	if !createIfMissing {
 		return nil
 	}
 	entry := newCacheEntry(c)
-	c.entries[key] = entry
+	// Cloned, because an entry here lives until it is evicted, which for a key the workload keeps
+	// reading is indefinitely. Retired keys reach this from the shard's version diffs, and those may
+	// be carved from a shared buffer, which keeping the string would pin for the entry's whole life.
+	// The copy is per key new to the cache, not per retirement.
+	c.entries[strings.Clone(key)] = entry
 	return entry
 }
 

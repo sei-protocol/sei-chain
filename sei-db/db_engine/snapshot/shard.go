@@ -3,6 +3,7 @@ package snapshot
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
@@ -495,11 +496,12 @@ func (s *shard) setLocked(key []byte, value []byte) {
 	s.setLockedString(string(key), value)
 }
 
-// setLockedString is setLocked for a key already held as a string, which is then stored directly
-// rather than copied.
+// setLockedString is setLocked for a key already held as a string.
 //
 // The Locked postfix indicates that the caller must hold the shard lock.
 func (s *shard) setLockedString(key string, value []byte) {
+	// versionDiffs holds the key only until this version retires, when the whole map is dropped, so
+	// the caller's string can be stored as it stands.
 	s.versionDiffs[s.currentVersion][key] = value
 
 	written := versionedValue{version: s.currentVersion, value: value}
@@ -508,9 +510,15 @@ func (s *shard) setLockedString(key string, value []byte) {
 	// nil value at version 0, which set would preserve as a real earlier value.
 	history, ok := s.versionedData[key]
 	if !ok {
-		s.versionedData[key] = versionHistory{newest: written}
+		// Cloned, unlike above, because this entry outlives the version that created it: a key that
+		// keeps being written is never dropped, and Go leaves a map's original key in place on
+		// reassignment, so this exact string is what the entry holds from here on. Callers may hand in
+		// a string carved from a shared buffer, in which case keeping it would pin that whole buffer
+		// for the life of the entry. The copy is per key new to this shard, not per write.
+		s.versionedData[strings.Clone(key)] = versionHistory{newest: written}
 		return
 	}
+	// The entry already exists, so this assignment does not retain a new key.
 	s.versionedData[key] = history.set(written)
 }
 

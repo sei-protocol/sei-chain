@@ -396,11 +396,16 @@ func classifyAndPrefix(
 		}
 	}
 
-	// One buffer for the whole block. The string conversion copies each physical key out of it, so
-	// it can be rewound and reused for every pair, leaving one allocation per key rather than one
-	// for the key bytes and a second for the string.
+	// One buffer for the whole block, rewound per pair, so building a physical key costs nothing.
 	var scratchArray [ktype.MaxEVMPhysicalKeyLen]byte
 	scratch := scratchArray[:0]
+
+	// Each key still has to be retained as its own string, since the buckets outlive the scratch
+	// buffer. Carving them from an arena makes that tens of allocations for a block rather than one
+	// per key, which measured at roughly 47% of this loop. The strings alias the arena's chunks, so
+	// anything that keeps one past its block's retirement has to copy it — see the clones in the
+	// snapshot engine.
+	var arena keyArena
 
 	for _, cs := range changeSets {
 		if cs == nil || len(cs.Changeset.Pairs) == 0 {
@@ -419,7 +424,7 @@ func classifyAndPrefix(
 				} else {
 					scratch = ktype.AppendEVMPhysicalKey(scratch[:0], kind, keyBytes)
 				}
-				result[kind] = append(result[kind], newClassifiedChange(string(scratch), pair))
+				result[kind] = append(result[kind], newClassifiedChange(arena.intern(scratch), pair))
 			}
 			continue
 		}
@@ -437,7 +442,7 @@ func classifyAndPrefix(
 		miscBucket := &result[keys.EVMKeyMisc]
 		for _, pair := range cs.Changeset.Pairs {
 			scratch = ktype.AppendModulePhysicalKey(scratch[:0], cs.Name, pair.Key)
-			*miscBucket = append(*miscBucket, newClassifiedChange(string(scratch), pair))
+			*miscBucket = append(*miscBucket, newClassifiedChange(arena.intern(scratch), pair))
 		}
 	}
 
