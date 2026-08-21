@@ -63,7 +63,7 @@ func Paginate(
 	scanLimit := scanLimitParamsFromContext(ctx)
 
 	if req.useKey {
-		return runKeyPath(prefixStore, req, scanLimitParams{enforce: false}, func(key, value []byte) (bool, error) {
+		return runKeyPath(prefixStore, req, scanLimit, func(key, value []byte) (bool, error) {
 			if err := onResult(key, value); err != nil {
 				return false, err
 			}

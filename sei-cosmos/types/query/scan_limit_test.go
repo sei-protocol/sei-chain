@@ -24,15 +24,35 @@ func newTestKVStore(t *testing.T) sdk.KVStore {
 	return prefix.NewStore(ms.GetKVStore(key), []byte("scanlimit/"))
 }
 
-func TestPaginateEnforcesUntrustedScanLimit(t *testing.T) {
+func enforcingABCIContext(t *testing.T) sdk.Context {
+	t.Helper()
+	return sdk.Context{}.WithIsABCIQuery(true).WithQueryScanLimit(true, MaxScanLimit)
+}
+
+func TestPaginateEnforcesUntrustedScanLimitOnOffsetPath(t *testing.T) {
 	kvStore := newTestKVStore(t)
-	ctx := sdk.Context{}.WithIsABCIQuery(true).WithQueryScanLimit(true, MaxScanLimit)
+	ctx := enforcingABCIContext(t)
 
 	for i := 0; i < int(MaxScanLimit+50); i++ {
 		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("v"))
 	}
 
-	_, err := Paginate(ctx, kvStore, &PageRequest{Offset: MaxScanLimit + 1, Limit: 10}, func(_, _ []byte) error {
+	_, err := Paginate(ctx, kvStore, &PageRequest{Limit: MaxLimit}, func(_, _ []byte) error {
+		return nil
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "scanned more than 10000 entries")
+}
+
+func TestPaginateEnforcesUntrustedScanLimitOnKeyPath(t *testing.T) {
+	kvStore := newTestKVStore(t)
+	ctx := enforcingABCIContext(t)
+
+	for i := 0; i < int(MaxScanLimit+50); i++ {
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("v"))
+	}
+
+	_, err := Paginate(ctx, kvStore, &PageRequest{Key: []byte("00000000"), Limit: MaxLimit}, func(_, _ []byte) error {
 		return nil
 	})
 	require.Error(t, err)
@@ -40,29 +60,68 @@ func TestPaginateEnforcesUntrustedScanLimit(t *testing.T) {
 }
 
 func TestPaginateTrustedOriginUsesHigherLimit(t *testing.T) {
+	const (
+		storeSize = 25_000
+		pageLimit = 20_000
+	)
+	trustedLimit := uint64(storeSize)
+
 	kvStore := newTestKVStore(t)
-	trustedLimit := uint64(500)
-	ctx := sdk.Context{}.
+	for i := 0; i < storeSize; i++ {
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("v"))
+	}
+
+	pageReq := &PageRequest{Limit: pageLimit, CountTotal: false}
+
+	_, err := Paginate(enforcingABCIContext(t), kvStore, pageReq, func(_, _ []byte) error {
+		return nil
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "scanned more than 10000 entries")
+
+	trustedCtx := sdk.Context{}.
 		WithIsABCIQuery(true).
 		WithIsTrustedQueryOrigin(true).
 		WithQueryScanLimit(true, trustedLimit)
 
-	for i := 0; i < 600; i++ {
-		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("v"))
-	}
-
 	var count int
-	_, err := Paginate(ctx, kvStore, &PageRequest{Offset: 450, Limit: 10}, func(_, _ []byte) error {
+	_, err = Paginate(trustedCtx, kvStore, pageReq, func(_, _ []byte) error {
 		count++
 		return nil
 	})
 	require.NoError(t, err)
-	require.Equal(t, 10, count)
+	require.Equal(t, pageLimit, count)
+}
+
+func TestPaginateTrustedOriginUnlimitedScan(t *testing.T) {
+	const (
+		storeSize = int(MaxScanLimit) + 50
+		pageLimit = uint64(storeSize)
+	)
+
+	kvStore := newTestKVStore(t)
+	for i := 0; i < storeSize; i++ {
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("v"))
+	}
+
+	pageReq := &PageRequest{Limit: pageLimit, CountTotal: false}
+	unlimitedCtx := sdk.Context{}.
+		WithIsABCIQuery(true).
+		WithIsTrustedQueryOrigin(true).
+		WithQueryScanLimit(false, 0)
+
+	var count int
+	_, err := Paginate(unlimitedCtx, kvStore, pageReq, func(_, _ []byte) error {
+		count++
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, storeSize, count)
 }
 
 func TestFilteredPaginateEnforcesUntrustedScanLimit(t *testing.T) {
 	kvStore := newTestKVStore(t)
-	ctx := sdk.Context{}.WithIsABCIQuery(true).WithQueryScanLimit(true, MaxScanLimit)
+	ctx := enforcingABCIContext(t)
 
 	for i := 0; i < 20_000; i++ {
 		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("miss"))
@@ -73,4 +132,41 @@ func TestFilteredPaginateEnforcesUntrustedScanLimit(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "scanned more than 10000 entries")
+}
+
+func TestFilteredPaginateStopsPostPageScanWhenCountTotalFalse(t *testing.T) {
+	kvStore := newTestKVStore(t)
+	ctx := enforcingABCIContext(t)
+
+	for i := 0; i < 20_000; i++ {
+		value := []byte("miss")
+		if i < 5 {
+			value = []byte("hit")
+		}
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), value)
+	}
+
+	res, err := FilteredPaginate(ctx, kvStore, &PageRequest{Limit: 5, CountTotal: false}, func(_ []byte, value []byte, _ bool) (bool, error) {
+		return string(value) == "hit", nil
+	})
+	require.NoError(t, err)
+	require.Nil(t, res.NextKey)
+}
+
+func TestFilteredPaginateV66StopsPostPageScanWhenCountTotalFalse(t *testing.T) {
+	kvStore := newTestKVStore(t)
+
+	for i := 0; i < 20_000; i++ {
+		value := []byte("miss")
+		if i < 5 {
+			value = []byte("hit")
+		}
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), value)
+	}
+
+	res, err := FilteredPaginateV66(kvStore, &PageRequest{Limit: 5, CountTotal: false}, func(_ []byte, value []byte, _ bool) (bool, error) {
+		return string(value) == "hit", nil
+	})
+	require.NoError(t, err)
+	require.Nil(t, res.NextKey)
 }

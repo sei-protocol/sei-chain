@@ -33,14 +33,14 @@ func (p scanLimitParams) checkKeyPath(totalIter uint64) error {
 	return nil
 }
 
-func (p scanLimitParams) checkPostPage(pageCompleteIter uint64, countTotal bool) error {
+func (p scanLimitParams) checkPostPage(pageCompleteIter uint64, countTotal bool) (stop bool, err error) {
 	if p.enforce && pageCompleteIter > p.limit {
-		if !countTotal {
-			return nil
+		if countTotal {
+			return false, scanLimitError(p.limit, "use key-based pagination instead")
 		}
-		return scanLimitError(p.limit, "use key-based pagination instead")
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
 func scanLimitError(limit uint64, hint string) error {

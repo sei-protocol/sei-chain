@@ -169,16 +169,12 @@ func (c *offsetScanCursor) phase() scanPhase {
 
 func (c *offsetScanCursor) beginIteration() error {
 	c.scanned++
-	if c.filtered {
-		return c.checkOffsetBeforePageFilled()
-	}
-	if c.scanLimit.enforce && c.phase() == scanPhaseSkip && c.scanned > c.scanLimit.limit {
-		return scanLimitError(c.scanLimit.limit, "use key-based pagination instead")
-	}
-	return nil
+	return c.checkScanBudgetBeforePageFilled()
 }
 
-func (c *offsetScanCursor) checkOffsetBeforePageFilled() error {
+// checkScanBudgetBeforePageFilled caps raw KV scans while the page is still
+// being filled. Filtered and unfiltered offset paths share this guard.
+func (c *offsetScanCursor) checkScanBudgetBeforePageFilled() error {
 	if c.scanLimit.enforce && c.phase() != scanPhasePostPage &&
 		c.scanned > paginationEnd(c.req.offset, c.scanLimit.limit) {
 		return scanLimitError(c.scanLimit.limit, "use key-based pagination instead")
@@ -186,7 +182,7 @@ func (c *offsetScanCursor) checkOffsetBeforePageFilled() error {
 	return nil
 }
 
-func (c *offsetScanCursor) checkPostPageBudget() error {
+func (c *offsetScanCursor) checkPostPageBudget() (stop bool, err error) {
 	if c.pageEndReached() {
 		c.pageCompleteIter++
 	}
@@ -251,8 +247,10 @@ func runOffsetPathUnfiltered(
 		if err := cursor.beginIteration(); err != nil {
 			return nil, err
 		}
-		if err := cursor.checkPostPageBudget(); err != nil {
+		if stop, err := cursor.checkPostPageBudget(); err != nil {
 			return nil, err
+		} else if stop {
+			break
 		}
 
 		switch cursor.phase() {
@@ -293,11 +291,10 @@ func runOffsetPathFiltered(
 		if err := cursor.beginIteration(); err != nil {
 			return nil, err
 		}
-		if err := cursor.checkPostPageBudget(); err != nil {
-			if !req.countTotal {
-				break
-			}
+		if stop, err := cursor.checkPostPageBudget(); err != nil {
 			return nil, err
+		} else if stop {
+			break
 		}
 
 		if iterator.Error() != nil {

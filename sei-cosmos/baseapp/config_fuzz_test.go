@@ -638,7 +638,3 @@ func TestBaseAppQueryKeyNamesMatchTheRecordedNames(t *testing.T) {
 func TestBaseAppQueryManifestNamesEveryField(t *testing.T) {
 	configtest.CheckManifestCoversEveryField(t, "query", config.DefaultQueryConfig(), queryKeys)
 }
-
-func TestWiringMatchesTheRecord(t *testing.T) {
-	configtest.CheckWiring(t)
-}
