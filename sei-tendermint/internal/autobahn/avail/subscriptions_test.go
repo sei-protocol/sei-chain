@@ -7,9 +7,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -21,9 +19,7 @@ func TestSubscribeLaneProposals_WrongValidatorPanics(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
 	a, b := keys[0], keys[1]
-	db := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, db))
+	ds := newTestDataState(&data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	defer func() {
@@ -40,9 +36,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 2)
 	a, b := keys[0], keys[1]
 	peer := a.Public()
-	db := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, db))
+	ds := newTestDataState(&data.Config{Registry: registry})
 	state := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 
 	lane0 := state.LocalLane().OrPanic("genesis")
@@ -172,9 +166,7 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		b := types.GenSecretKey(rng)
 		allKeys := append(keys, b)
 
-		db := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
-		t.Cleanup(func() { require.NoError(t, db.Close()) })
-		ds := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, db))
+		ds := newTestDataState(&data.Config{Registry: registry})
 		stateA := utils.OrPanic1(NewState(a, ds, utils.None[string]()))
 		stateB := utils.OrPanic1(NewState(b, ds, utils.None[string]()))
 		laneA := stateA.LocalLane().OrPanic("genesis")

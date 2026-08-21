@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -47,49 +48,56 @@ func snapshot(s *State) Snapshot {
 	panic("unreachable")
 }
 
-// newTestBlockDB opens (or creates) a LittDB-backed BlockDB at dir.
+// newTestBlockStore opens (or creates) a LittDB-backed BlockStore at dir.
 // Retention is set to 1ns so ForceGC reclaims pruned data immediately in tests.
 // Errors panic so the helper is safe to call from non-main test goroutines.
-func newTestBlockDB(t *testing.T, dir string) types.BlockStore {
+func newTestBlockStore(t *testing.T, dir string) types.BlockStore {
 	t.Helper()
 	cfg := utils.OrPanic1(littblock.DefaultConfig(dir))
 	cfg.RetentionTime = time.Nanosecond
-	db := utils.OrPanic1(blockstore.New(utils.OrPanic1(littblock.NewBlockDB(cfg))))
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	store := utils.OrPanic1(blockstore.New(utils.OrPanic1(littblock.NewBlockDB(cfg))))
+	t.Cleanup(func() { _ = store.Close() })
+	return store
 }
 
-// newTestState constructs a State, replays db, and returns it ready to Run.
-// Errors panic so the helper is safe to call from non-main test goroutines.
-func newTestState(t testing.TB, cfg *Config, db types.BlockStore) *State {
+func newMemoryBlockStore(t testing.TB) types.BlockStore {
 	t.Helper()
-	return utils.OrPanic1(NewState(cfg, db))
+	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+	t.Cleanup(func() { _ = store.Close() })
+	return store
 }
 
-// writeToBlockDB writes QC+block pairs sequentially to db and flushes once.
+// newTestState constructs a State, replays store, and returns it ready to Run.
+// Errors panic so the helper is safe to call from non-main test goroutines.
+func newTestState(t testing.TB, cfg *Config, store types.BlockStore) *State {
+	t.Helper()
+	return utils.OrPanic1(NewState(cfg, store))
+}
+
+// writeToBlockStore writes QC+block pairs sequentially to store and flushes once.
 // qcs[i] and blockss[i] must correspond; QCs must be in ascending order.
 // Errors panic so the helper is safe to call from non-main test goroutines.
-func writeToBlockDB(t *testing.T, db types.BlockStore, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
+func writeToBlockStore(t *testing.T, store types.BlockStore, qcs []*types.FullCommitQC, blockss [][]*types.Block) {
 	t.Helper()
 	for i, qc := range qcs {
 		gr := qc.QC().GlobalRange()
-		utils.OrPanic(db.WriteQC(qc))
+		utils.OrPanic(store.WriteQC(qc))
 		for j, n := 0, gr.First; n < gr.Next; n++ {
-			utils.OrPanic(db.WriteBlock(n, blockss[i][j]))
+			utils.OrPanic(store.WriteBlock(n, blockss[i][j]))
 			j++
 		}
 	}
-	utils.OrPanic(db.Flush())
+	utils.OrPanic(store.Flush())
 }
 
-func writeAppDataToBlockDB(t testing.TB, rng utils.Rng, db types.BlockStore, keys []types.SecretKey, qcs ...*types.FullCommitQC) {
+func writeAppDataToBlockStore(t testing.TB, rng utils.Rng, store types.BlockStore, keys []types.SecretKey, qcs ...*types.FullCommitQC) {
 	t.Helper()
 	for _, qc := range qcs {
 		appProposal := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
-		utils.OrPanic(db.WriteAppProposal(appProposal))
-		utils.OrPanic(db.WriteAppQC(TestAppQC(keys, appProposal)))
+		utils.OrPanic(store.WriteAppProposal(appProposal))
+		utils.OrPanic(store.WriteAppQC(TestAppQC(keys, appProposal)))
 	}
-	utils.OrPanic(db.Flush())
+	utils.OrPanic(store.Flush())
 }
 
 // pushAppHashesRunning runs state.Run under scope.Run long enough to accept
@@ -135,7 +143,7 @@ func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	ep1 := registry.MustEpoch(1)
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 
 	qcMid, blocksMid := commitQCAtRoad(ep1, keys, epoch.FirstRoad(1), ep1.FirstBlock())
 	require.NoError(t, state.PushQC(ctx, qcMid, blocksMid))
@@ -162,7 +170,7 @@ func TestState(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -233,7 +241,7 @@ func TestPushConflictingBadCommitQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	committee := registry.MustEpoch(0).Committee()
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 
 	// Push a valid QC to advance inner.nextQC.
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
@@ -339,7 +347,7 @@ func TestPushQCIgnoresBlocksMatchingUnverifiedHeaders(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 
 	// Push qc1 with NO blocks — only the QC is stored.
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
@@ -383,7 +391,7 @@ func TestExecution(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run()", func() error {
 			return utils.IgnoreCancel(state.Run(ctx))
 		})
@@ -422,7 +430,7 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		epoch := registry.MustEpoch(0)
@@ -473,7 +481,7 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 
 	// Push QC without blocks.
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
@@ -492,7 +500,7 @@ func TestGlobalBlockByHash(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	require.NoError(t, state.PushQC(ctx, qc, blocks))
@@ -525,10 +533,10 @@ func TestGlobalBlockByHash(t *testing.T) {
 	require.False(t, ok, "GlobalBlockByHash(random) returned Some")
 }
 
-// TestPushQCBeforeRunPersistsToBlockDB seeds in-memory QCs/blocks before Run
+// TestPushQCBeforeRunPersistsToBlockStore seeds in-memory QCs/blocks before Run
 // (mirroring inbound PushQC after transport start) and asserts runPersist still
 // writes them — Status seeding, not inner.nextQC/nextBlock.
-func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
+func TestPushQCBeforeRunPersistsToBlockStore(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -537,7 +545,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
-	db := newTestBlockDB(t, dir)
+	db := newTestBlockStore(t, dir)
 	state := newTestState(t, &Config{Registry: registry}, db)
 
 	// Transport-race window: PushQC before data.Run / runPersist starts.
@@ -560,7 +568,7 @@ func TestPushQCBeforeRunPersistsToBlockDB(t *testing.T) {
 	require.Equal(t, gr1.Next, tips.NextQC)
 
 	require.NoError(t, db.Close())
-	db2 := newTestBlockDB(t, dir)
+	db2 := newTestBlockStore(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 	require.Equal(t, gr1.Next, state2.NextBlock())
 	for n := gr1.First; n < gr1.Next; n++ {
@@ -583,7 +591,7 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
 	gr2 := qc2.QC().GlobalRange()
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
@@ -672,7 +680,7 @@ func TestEvictionWaitsForPersistedAppQC(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, gr1.First, gr1.Next))
 	require.NoError(t, pushAppQCForBlock(ctx, state, keys, gr1.First))
@@ -695,7 +703,7 @@ func TestPushAppHashBelowAnchorSucceeds(t *testing.T) {
 	epoch := registry.MustEpoch(0)
 
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
 		prev := utils.None[*types.CommitQC]()
@@ -743,7 +751,7 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 	gr1 := qc1.QC().GlobalRange()
 	qc2, blocks2 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.Some(qc1.QC()))
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 
@@ -826,7 +834,7 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
-	db1 := newTestBlockDB(t, dir)
+	db1 := newTestBlockStore(t, dir)
 	state1 := newTestState(t, &Config{Registry: registry}, db1)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state1.Run(ctx)) })
@@ -861,7 +869,7 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 	require.True(t, stored.IsPresent(), "PushAppQC must persist the AppQC")
 	require.NoError(t, db1.Close())
 
-	db2 := newTestBlockDB(t, dir)
+	db2 := newTestBlockStore(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 	for inner := range state2.inner.Lock() {
 		require.Equal(t, gr1.Next, inner.nextAppProposal)
@@ -887,7 +895,7 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 	qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
 	gr1 := qc1.QC().GlobalRange()
 
-	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
 	require.NoError(t, pushAppHashesRunning(ctx, state1, rng, gr1.First, gr1.Next))
 
@@ -901,11 +909,11 @@ func TestPruningKeepsLastQCRange(t *testing.T) {
 
 	// Consistent post-GC shape: full QC range of blocks. Restart recovers at QC start.
 	dir := t.TempDir()
-	db := newTestBlockDB(t, dir)
-	writeToBlockDB(t, db, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
+	db := newTestBlockStore(t, dir)
+	writeToBlockStore(t, db, []*types.FullCommitQC{qc1}, [][]*types.Block{blocks1})
 	require.NoError(t, db.Close())
 
-	db2 := newTestBlockDB(t, dir)
+	db2 := newTestBlockStore(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 	require.Equal(t, gr1.Next, state2.NextBlock())
 	for n := gr1.First; n < gr1.Next; n++ {
@@ -933,7 +941,7 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 	gr1 := qc1.QC().GlobalRange()
 	gr2 := qc2.QC().GlobalRange()
 
-	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state1 := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, state1.PushQC(ctx, qc1, blocks1))
 	require.NoError(t, state1.PushQC(ctx, qc2, blocks2))
 
@@ -995,11 +1003,11 @@ func TestPruningWithPartialQCRange(t *testing.T) {
 
 	// Consistent retained range: full qc2.
 	dir := t.TempDir()
-	db := newTestBlockDB(t, dir)
-	writeToBlockDB(t, db, []*types.FullCommitQC{qc2}, [][]*types.Block{blocks2})
+	db := newTestBlockStore(t, dir)
+	writeToBlockStore(t, db, []*types.FullCommitQC{qc2}, [][]*types.Block{blocks2})
 	require.NoError(t, db.Close())
 
-	db2 := newTestBlockDB(t, dir)
+	db2 := newTestBlockStore(t, dir)
 	state2 := newTestState(t, &Config{Registry: registry}, db2)
 	require.Equal(t, gr2.Next, state2.NextBlock())
 	for n := gr2.First; n < gr2.Next; n++ {
@@ -1015,7 +1023,7 @@ func TestPushBlockWaitsForQC(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 3)
 
-		state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+		state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 
 		// Push first QC covering [0, N).
 		qc1, blocks1 := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
@@ -1071,7 +1079,7 @@ func TestTryBlockHidesGapFills(t *testing.T) {
 	gr2 := qc2.QC().GlobalRange()
 	require.GreaterOrEqual(t, gr2.Len(), 2)
 
-	state := newTestState(t, &Config{Registry: registry}, newTestBlockDB(t, t.TempDir()))
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 	require.NoError(t, state.PushQC(ctx, qc1, blocks1))
 	require.NoError(t, state.PushQC(ctx, qc2, nil))
 	require.Equal(t, gr1.Next, state.NextBlock())
