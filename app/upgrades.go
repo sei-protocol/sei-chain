@@ -98,6 +98,7 @@ func (app *App) RegisterUpgradeHandlers() {
 					return nil, err
 				}
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, transferModuleName)
 				return newVM, nil
 			}
 

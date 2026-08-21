@@ -49,7 +49,6 @@ import (
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -63,7 +62,6 @@ import (
 
 	wasmappparams "github.com/sei-protocol/sei-chain/sei-wasmd/app/params"
 
-	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper/wasmtesting"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
@@ -202,8 +200,7 @@ func createTestInput(
 		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distributiontypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey,
-		evidencetypes.StoreKey, ibctransfertypes.StoreKey,
-		capabilitytypes.StoreKey, authzkeeper.StoreKey,
+		evidencetypes.StoreKey, capabilitytypes.StoreKey, authzkeeper.StoreKey,
 		types.StoreKey,
 	)
 	ms := store.NewCommitMultiStore(db)
@@ -244,7 +241,6 @@ func createTestInput(
 		minttypes.ModuleName,
 		distributiontypes.ModuleName,
 		slashingtypes.ModuleName,
-		ibctransfertypes.ModuleName,
 		capabilitytypes.ModuleName,
 		ibchost.ModuleName,
 		govtypes.ModuleName,
@@ -264,7 +260,6 @@ func createTestInput(
 		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
 		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		govtypes.ModuleName:            {authtypes.Burner},
-		ibctransfertypes.ModuleName:    {authtypes.Minter, authtypes.Burner},
 		types.ModuleName:               {authtypes.Burner},
 	}
 	accountKeeper := authkeeper.NewAccountKeeper(
@@ -375,7 +370,6 @@ func createTestInput(
 		&ibcKeeper.PortKeeper,
 		scopedWasmKeeper,
 		upgradekeeper.Keeper{},
-		wasmtesting.MockIBCTransferKeeper{},
 		msgRouter,
 		querier,
 		tempDir,
