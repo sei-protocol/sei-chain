@@ -39,6 +39,7 @@ var (
 	DelegationKey                    = []byte{0x31} // key for a delegation
 	UnbondingDelegationKey           = []byte{0x32} // key for an unbonding-delegation
 	UnbondingDelegationByValIndexKey = []byte{0x33} // prefix for each key for an unbonding-delegation, by validator operator
+	DelegationByValIndexKey          = []byte{0x37} // prefix for each key for a delegation, by validator operator
 	RedelegationKey                  = []byte{0x34} // key for a redelegation
 	RedelegationByValSrcIndexKey     = []byte{0x35} // prefix for each key for an redelegation, by source validator operator
 	RedelegationByValDstIndexKey     = []byte{0x36} // prefix for each key for an redelegation, by destination validator operator
@@ -196,6 +197,31 @@ func GetDelegationKey(delAddr sdk.AccAddress, valAddr sdk.ValAddress) []byte {
 // GetDelegationsKey creates the prefix for a delegator for all validators
 func GetDelegationsKey(delAddr sdk.AccAddress) []byte {
 	return append(DelegationKey, address.MustLengthPrefix(delAddr)...)
+}
+
+// GetDelegationByValIndexKey creates the index-key for a delegation, stored by validator-index.
+// VALUE: none (key rearrangement used)
+func GetDelegationByValIndexKey(delAddr sdk.AccAddress, valAddr sdk.ValAddress) []byte {
+	return append(GetDelegationsByValIndexKey(valAddr), address.MustLengthPrefix(delAddr)...)
+}
+
+// GetDelegationKeyFromValIndexKey rearranges the ValIndexKey to get the DelegationKey.
+func GetDelegationKeyFromValIndexKey(indexKey []byte) []byte {
+	kv.AssertKeyAtLeastLength(indexKey, 2)
+	addrs := indexKey[1:] // remove prefix bytes
+
+	valAddrLen := addrs[0]
+	kv.AssertKeyAtLeastLength(addrs, 2+int(valAddrLen))
+	valAddr := addrs[1 : 1+valAddrLen]
+	kv.AssertKeyAtLeastLength(addrs, 3+int(valAddrLen))
+	delAddr := addrs[valAddrLen+2:]
+
+	return GetDelegationKey(delAddr, valAddr)
+}
+
+// GetDelegationsByValIndexKey creates the prefix keyspace for delegation indexes by validator.
+func GetDelegationsByValIndexKey(valAddr sdk.ValAddress) []byte {
+	return append(DelegationByValIndexKey, address.MustLengthPrefix(valAddr)...)
 }
 
 // GetUBDKey creates the key for an unbonding delegation by delegator and validator addr
