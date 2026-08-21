@@ -462,7 +462,6 @@ func TestAutoRestartIfBehind(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 func makeValidationFailurePair(
 	ctx context.Context,
 	t *testing.T,
@@ -619,7 +618,8 @@ func TestPoolRoutine_RetriesAfterValidationFailure(t *testing.T) {
 			}
 		}
 	}
-=======
+}
+
 func TestAutoRestartStopsAtFreezeBoundary(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const freezeHeight = uint64(101)
@@ -642,7 +642,6 @@ func TestAutoRestartStopsAtFreezeBoundary(t *testing.T) {
 		syncer.autoRestartIfBehind(t.Context(), blockPool)
 		utilsrequire.False(t, restart.Load())
 	})
->>>>>>> 20eb288 (Add freeze mode for historical EVM RPC (#3910))
 }
 
 func TestQueryResponder_ServesBlockRequestsWhenBlockSyncDisabled(t *testing.T) {

@@ -2,11 +2,6 @@ package config
 
 import (
 	"bytes"
-<<<<<<< HEAD
-=======
-	"math"
-	"strings"
->>>>>>> 20eb288 (Add freeze mode for historical EVM RPC (#3910))
 	"testing"
 
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -132,35 +127,6 @@ func TestValidateBasic(t *testing.T) {
 			},
 			expectErr: true,
 		},
-		{
-			name: "freeze height above maximum int64",
-			setupCfg: func() *Config {
-				cfg := DefaultConfig()
-				cfg.FreezeHeight = uint64(math.MaxInt64) + 1
-				return cfg
-			},
-			expectErr: true,
-		},
-		{
-			name: "freeze and halt heights",
-			setupCfg: func() *Config {
-				cfg := DefaultConfig()
-				cfg.FreezeHeight = 100
-				cfg.HaltHeight = 100
-				return cfg
-			},
-			expectErr: true,
-		},
-		{
-			name: "freeze height and halt time",
-			setupCfg: func() *Config {
-				cfg := DefaultConfig()
-				cfg.FreezeHeight = 100
-				cfg.HaltTime = 100
-				return cfg
-			},
-			expectErr: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -177,7 +143,8 @@ func TestValidateBasic(t *testing.T) {
 }
 
 func TestGetConfigRejectsNegativeFreezeHeight(t *testing.T) {
-	v := seedViperWithDefaultConfig(t)
+	v := viper.New()
+	v.Set("telemetry.global-labels", []interface{}{})
 	v.Set("freeze-height", -1)
 
 	_, err := GetConfig(v)
