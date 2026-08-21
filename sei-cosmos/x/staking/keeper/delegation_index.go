@@ -1,0 +1,49 @@
+package keeper
+
+import (
+	"time"
+
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+)
+
+// BackfillDelegationByValIndexResult reports the outcome of a delegation index backfill.
+type BackfillDelegationByValIndexResult struct {
+	TotalDelegations int
+	IndexWritten     int
+	AlreadyIndexed   int
+	DryRun           bool
+	Elapsed          time.Duration
+}
+
+// BackfillDelegationByValIndex writes validator-indexed delegation keys for existing
+// delegations. When dryRun is true, delegations are counted but no store writes occur.
+func (k Keeper) BackfillDelegationByValIndex(ctx sdk.Context, dryRun bool) BackfillDelegationByValIndexResult {
+	start := time.Now()
+	result := BackfillDelegationByValIndexResult{DryRun: dryRun}
+
+	store := ctx.KVStore(k.storeKey)
+	iterator := sdk.KVStorePrefixIterator(store, types.DelegationKey)
+	defer func() { _ = iterator.Close() }()
+
+	for ; iterator.Valid(); iterator.Next() {
+		delegation := types.MustUnmarshalDelegation(k.cdc, iterator.Value())
+		result.TotalDelegations++
+
+		delegatorAddress := sdk.MustAccAddressFromBech32(delegation.DelegatorAddress)
+		valAddr := delegation.GetValidatorAddr()
+		indexKey := types.GetDelegationByValIndexKey(delegatorAddress, valAddr)
+		if store.Has(indexKey) {
+			result.AlreadyIndexed++
+			continue
+		}
+
+		if !dryRun {
+			store.Set(indexKey, []byte{})
+		}
+		result.IndexWritten++
+	}
+
+	result.Elapsed = time.Since(start)
+	return result
+}
