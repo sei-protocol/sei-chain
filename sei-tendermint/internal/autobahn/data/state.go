@@ -31,8 +31,8 @@ type blockEntry struct {
 	block *types.Block
 }
 
-// qcEntry is an admitted FullCommitQC with the epoch used to verify it.
-// The epoch is resolved once at admit (or load); later PushBlock / AppQC
+// qcEntry is a FullCommitQC stored in qcs, with the epoch used to verify it.
+// The epoch is resolved once at insertQC (or load); later PushBlock / AppQC
 // paths use this pointer instead of querying the registry again.
 type qcEntry struct {
 	qc    *types.FullCommitQC
@@ -60,14 +60,15 @@ type inner struct {
 	// Anchor represents the highest fully processed row:
 	// CommitQC, Blocks, AppProposal, AppQC present and persisted.
 	anchor utils.AtomicSend[utils.Option[Anchor]]
-	// nextCommitRoad is one past the latest admitted CommitQC. None until one is admitted.
+	// nextCommitRoad is the RoadIndex after the latest CommitQC in qcs.
+	// None before the first CommitQC. Distinct from nextQC (a GlobalBlockNumber).
 	nextCommitRoad utils.Option[types.RoadIndex]
 	// nextCommitEpoch covers nextCommitRoad once that epoch is registered; otherwise
 	// the previous publish stands (genesis epoch 0 before any CommitQC).
 	nextCommitEpoch utils.AtomicSend[*types.Epoch]
 }
 
-func (i *inner) admitCommitRoad(registry *epoch.Registry, road types.RoadIndex) {
+func (i *inner) advanceCommitRoad(registry *epoch.Registry, road types.RoadIndex) {
 	if cur, ok := i.nextCommitRoad.Get(); ok && road < cur {
 		return // a later QC already moved the cursor
 	}
@@ -109,7 +110,7 @@ func (i *inner) insertQC(registry *epoch.Registry, qc *types.FullCommitQC) error
 		i.qcs[i.nextQC] = qcEntry{qc: qc, epoch: e}
 		i.nextQC++
 	}
-	i.admitCommitRoad(registry, qc.QC().Proposal().Index())
+	i.advanceCommitRoad(registry, qc.QC().Proposal().Index())
 	return nil
 }
 
@@ -178,13 +179,13 @@ func (i *inner) insertBlock(n types.GlobalBlockNumber, block *types.Block) error
 	// nextAppProposal <= nextBlock, so qcs[n] is always present.
 	qc := i.qcs[n].qc
 	storedGR := qc.QC().GlobalRange()
-	want := qc.Headers()[n-storedGR.First]
-	got := block.Header()
-	if *want != *got {
-		return fmt.Errorf("block %d header mismatch: want %v, got %v", n, want.Hash(), got.Hash())
+	want := qc.Headers()[n-storedGR.First].Hash()
+	got := block.Header().Hash()
+	if want != got {
+		return fmt.Errorf("block %d header hash mismatch: want %v, got %v", n, want, got)
 	}
 	i.blocks[n] = block
-	i.blockHashes[got.Hash()] = n
+	i.blockHashes[got] = n
 	return nil
 }
 
@@ -245,14 +246,10 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 	}
 	var commitSpan utils.Option[types.RoadRange]
 	if qcs := suffix.CommitQCs; len(qcs) > 0 {
-		first := qcs[0].Index()
-		next := qcs[0].Index() + 1
-		for _, qc := range qcs[1:] {
-			idx := qc.Index()
-			first = min(first, idx)
-			next = max(next, idx+1)
-		}
-		commitSpan = utils.Some(types.RoadRange{First: first, Next: next})
+		commitSpan = utils.Some(types.RoadRange{
+			First: qcs[0].Index(),
+			Next:  qcs[len(qcs)-1].Index() + 1,
+		})
 	}
 	cfg.Registry.SetupInitialEpochs(commitSpan)
 	firstBlock := cfg.Registry.FirstBlock()
@@ -263,7 +260,7 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		NextAppQC:       firstBlock,
 		NextBlock:       firstBlock,
 	})
-	// Empty-chain default; loaded QCs overwrite via admitCommitRoad.
+	// Empty-chain default; loaded QCs overwrite via advanceCommitRoad.
 	genesis, err := cfg.Registry.EpochByIndex(0)
 	if err != nil {
 		return nil, fmt.Errorf("missing genesis epoch: %w", err)
@@ -344,15 +341,7 @@ func (s *State) insertBlocksByHash(inner *inner, gr types.GlobalRange, byHash ma
 // PushQC pushes FullCommitQC and a subset of blocks that were finalized by it.
 // Pushing the qc and blocks is atomic, so that no unnecessary GetBlock RPCs are issued.
 // Even if the qc was already pushed earlier, the blocks are pushed anyway.
-// A QC whose epoch has been pruned is a no-op.
 func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*types.Block) error {
-	ep, err := s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
-	if err != nil {
-		if errors.Is(err, types.ErrPruned) {
-			return nil
-		}
-		return err
-	}
 	gr := qc.QC().GlobalRange()
 	needQC, err := func() (bool, error) {
 		for inner, ctrl := range s.inner.Lock() {
@@ -368,8 +357,12 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 	if err != nil {
 		return err
 	}
-	// Verify data.
+	var ep *types.Epoch
 	if needQC {
+		ep, err = s.cfg.Registry.EpochByIndex(qc.QC().Proposal().EpochIndex())
+		if err != nil {
+			return err
+		}
 		if err := qc.Verify(ep); err != nil {
 			return fmt.Errorf("qc.Verify(): %w", err)
 		}
@@ -388,7 +381,7 @@ func (s *State) PushQC(ctx context.Context, qc *types.FullCommitQC, blocks []*ty
 				inner.qcs[inner.nextQC] = qcEntry{qc: qc, epoch: ep}
 				inner.nextQC += 1
 			}
-			inner.admitCommitRoad(s.cfg.Registry, qc.QC().Proposal().Index())
+			inner.advanceCommitRoad(s.cfg.Registry, qc.QC().Proposal().Index())
 			ctrl.Updated()
 		}
 		if len(byHash) > 0 {
@@ -778,9 +771,9 @@ func (s *State) Anchor() utils.AtomicRecv[utils.Option[Anchor]] {
 	panic("unreachable")
 }
 
-// NextCommitEpoch returns the epoch covering the road after the latest admitted
-// CommitQC, or genesis epoch 0 when none has been admitted. If that epoch is not
-// registered yet, the previous value stands. Used by giga EVM tx sharding.
+// NextCommitEpoch returns the epoch covering the road after the latest CommitQC
+// in qcs, or genesis epoch 0 when qcs is empty. If that epoch is not registered
+// yet, the previous value stands. Used by giga EVM tx sharding.
 func (s *State) NextCommitEpoch() utils.AtomicRecv[*types.Epoch] {
 	for inner := range s.inner.Lock() {
 		return inner.nextCommitEpoch.Subscribe()

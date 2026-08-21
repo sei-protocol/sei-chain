@@ -69,7 +69,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 			got1, err = sub.Recv(ctx)
 			return err
 		})
-		if err := DriveAdvance(ctx, state, keys, 1); err != nil {
+		if err := TestDriveAdvance(ctx, state, keys, 1); err != nil {
 			return err
 		}
 		if cur := state.LocalLane().OrPanic("stay"); cur != lane0 {
@@ -97,7 +97,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 		sc.SpawnBgNamed("runEpochAdvance", func() error {
 			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
 		})
-		return DriveAdvance(ctx, state, keys, epLeave.EpochIndex())
+		return TestDriveAdvance(ctx, state, keys, epLeave.EpochIndex())
 	}))
 	require.False(t, state.LocalLane().IsPresent())
 
@@ -140,7 +140,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		return DriveAdvance(ctx, state, keys, epJoin.EpochIndex())
+		return TestDriveAdvance(ctx, state, keys, epJoin.EpochIndex())
 	}))
 	lane1 := state.LocalLane().OrPanic("rejoin")
 	require.NotEqual(t, lane0, lane1)
@@ -189,7 +189,7 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 				sc.SpawnBgNamed("runEpochAdvance", func() error {
 					return utils.IgnoreCancel(stateB.runEpochAdvance(ctx))
 				})
-				return DriveAdvance(ctx, stateB, allKeys, want)
+				return TestDriveAdvance(ctx, stateB, allKeys, want)
 			}))
 		}
 		produce := func(n types.BlockNumber) *types.Signed[*types.LaneProposal] {

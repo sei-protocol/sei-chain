@@ -15,10 +15,18 @@ type RoadRange struct {
 	Next  RoadIndex
 }
 
+// EpochRange is a half-open epoch-index range [First, Next).
+type EpochRange struct {
+	First EpochIndex
+	Next  EpochIndex
+}
+
 // OpenRoadRange returns a RoadRange covering all road indices from 0.
 func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[RoadIndex]()} }
 
 func (r RoadRange) Has(idx RoadIndex) bool { return r.First <= idx && idx < r.Next }
+
+func (r EpochRange) Has(idx EpochIndex) bool { return r.First <= idx && idx < r.Next }
 
 // Epoch holds the complete context for a single epoch.
 // Retrieved from the local Registry; never transmitted on the wire.
