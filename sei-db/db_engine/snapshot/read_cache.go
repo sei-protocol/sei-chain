@@ -704,7 +704,9 @@ const evictSampleSize = 8
 // the cache has grown.
 //
 // Only entries holding a value are eligible. A scheduled entry has readers waiting on it and no value
-// to reclaim, and a failed one belongs to a bricked engine.
+// to reclaim, and a failed one belongs to a bricked engine. Such entries still count against the walk
+// below, so that a cache holding many of them cannot turn each eviction into a scan of the whole map
+// while the shard lock is held.
 //
 // The Locked postfix indicates that the caller must hold the shared lock.
 func (c *readCache) evictLocked(budget uint64) {
@@ -713,24 +715,26 @@ func (c *readCache) evictLocked(budget uint64) {
 		var victim *cacheEntry
 		oldest := uint64(math.MaxUint64)
 
-		sampled := 0
+		visited := 0
 		for key, entry := range c.entries {
-			if entry.size == 0 {
-				// Holds no value, so there is nothing to reclaim and no stamp to compare.
-				continue
+			visited++
+			// An entry holding no value has nothing to reclaim and no stamp worth comparing, but it has
+			// still consumed a step of the walk.
+			if entry.size > 0 {
+				if stamp := entry.lastRead.Load(); stamp <= oldest {
+					oldest, victimKey, victim = stamp, key, entry
+				}
 			}
-			if stamp := entry.lastRead.Load(); stamp <= oldest {
-				oldest, victimKey, victim = stamp, key, entry
-			}
-			if sampled++; sampled == evictSampleSize {
+			if visited == evictSampleSize {
 				break
 			}
 		}
 
 		if victim == nil {
-			// Every tracked entry is gone but the budget is still exceeded, which means the accounting
-			// disagrees with the map. Stopping is the safe response: over-budget costs memory, whereas
-			// looping here would hang the caller holding the shard lock.
+			// The walk found nothing to evict, either because the sample happened to hold no values or
+			// because the accounting disagrees with the map. Stopping is the safe response either way:
+			// running over budget costs memory, whereas looping here would spin while holding the shard
+			// lock. The next maintenance pass samples a different part of the map and makes progress.
 			return
 		}
 		c.untrackLocked(victimKey, victim)
