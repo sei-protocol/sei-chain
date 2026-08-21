@@ -867,12 +867,15 @@ func (s *State) setNextBlockToPersist(lane types.LaneID, next types.BlockNumber)
 	}
 }
 
-// markCommitQCsPersisted publishes the latest persisted CommitQC,
-// gating consensus from advancing until the QC is durable.
-// ConsensusSpec is refreshed here so tip catch-up stays visible even while
-// runEpochAdvance is parked.
+// markCommitQCsPersisted publishes qc as the durable tip when it is not behind
+// the current tip, then refreshes ConsensusSpec.
 func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 	for inner, ctrl := range s.inner.Lock() {
+		if cur, ok := inner.persistedCommitQC.Load().Get(); ok && qc.Index() < cur.Index() {
+			// prune may have jumped the empty-queue tip to the Anchor while this
+			// persist batch was still on disk.
+			return
+		}
 		inner.persistedCommitQC.Store(utils.Some(qc))
 		inner.refreshConsensusSpec()
 		ctrl.Updated()
@@ -883,12 +886,8 @@ func (s *State) markCommitQCsPersisted(qc *types.CommitQC) {
 // collects a persist batch.
 func (s *State) collectPersistBatch(ctx context.Context) (*persistBatch, error) {
 	for inner, ctrl := range s.inner.Lock() {
-		// Derive the CommitQC persist cursor from persistedCommitQC. This is
-		// safe because persistedCommitQC is only advanced by markCommitQCsPersisted
-		// (after disk write) and on startup (from disk). prune() does NOT
-		// update persistedCommitQC, so this always reflects persistence state.
-		// The max clamp with roads.first handles the case where prune()
-		// fast-forwarded the queue past the cursor.
+		// Start after the durable tip, clamped to roads.first after prune has
+		// dropped the prefix (and possibly jumped the empty-queue tip to the Anchor).
 		next := types.NextIndexOpt(inner.persistedCommitQC.Load())
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			for lane, q := range inner.blocks {
