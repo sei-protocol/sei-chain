@@ -66,7 +66,7 @@ func (e appliedEpoch) Wait(ctx context.Context, pred func(*types.Epoch) bool) (*
 	return sp.Epoch, nil
 }
 
-// Epoch returns the applied (next-CommitQC) epoch. runEpochAdvance and catch-up prune advance it.
+// Epoch returns the applied (next-CommitQC) epoch.
 func (s *State) Epoch() appliedEpoch {
 	return appliedEpoch{s.spec}
 }
@@ -749,35 +749,37 @@ func (s *State) runEvict(ctx context.Context) error {
 }
 
 // runEpochAdvance advances applied one epoch when the registry, seal, and prune
-// leashes are met. If the durable tip's following road is already past next, it
-// jumps to that epoch instead of installing next.
+// leashes are met. If next is pruned or the durable tip's following road is
+// already past next, it jumps to that following epoch instead.
 func (s *State) runEpochAdvance(ctx context.Context) error {
 	for {
 		next := s.Epoch().Load().EpochIndex() + 1
 		ep, err := s.data.Registry().WaitForEpoch(ctx, next)
-		if errors.Is(err, types.ErrPruned) {
-			if err := s.catchUpToFollowing(ctx, s.data.Registry().Live().First); err != nil {
-				if errors.Is(err, types.ErrPruned) {
-					continue
-				}
-				return err
-			}
-			continue
-		}
-		if err != nil {
+		pruned := errors.Is(err, types.ErrPruned)
+		if err != nil && !pruned {
 			return err
 		}
-		var skip types.EpochIndex
-		jumped := false
+		var floor types.EpochIndex
+		if pruned {
+			floor = s.data.Registry().Live().First
+		}
+
+		var follow types.EpochIndex
+		jump := false
 		for inner, ctrl := range s.inner.Lock() {
 			if err := ctrl.WaitUntil(ctx, func() bool {
-				return inner.followingEpochIndex() > next || inner.canAdvanceEpoch()
+				idx := inner.followingEpochIndex()
+				if pruned {
+					return idx >= floor && idx > inner.applied().EpochIndex()
+				}
+				return idx > next || inner.canAdvanceEpoch()
 			}); err != nil {
 				return err
 			}
-			if idx := inner.followingEpochIndex(); idx > next {
-				skip = idx
-				jumped = true
+			idx := inner.followingEpochIndex()
+			if pruned || idx > next {
+				follow = idx
+				jump = true
 				break
 			}
 			got := inner.applied().EpochIndex()
@@ -787,12 +789,20 @@ func (s *State) runEpochAdvance(ctx context.Context) error {
 			inner.advanceEpoch(ep)
 			ctrl.Updated()
 		}
-		if jumped {
-			if err := s.advanceFollowing(ctx, skip); err != nil {
-				if errors.Is(err, types.ErrPruned) {
-					continue
-				}
+		if jump {
+			ep, err = s.data.Registry().WaitForEpoch(ctx, follow)
+			if errors.Is(err, types.ErrPruned) {
+				continue
+			}
+			if err != nil {
 				return err
+			}
+			for inner, ctrl := range s.inner.Lock() {
+				if inner.followingEpochIndex() != follow {
+					break
+				}
+				inner.advanceEpoch(ep)
+				ctrl.Updated()
 			}
 		}
 	}
@@ -804,35 +814,6 @@ func (i *inner) followingEpochIndex() types.EpochIndex {
 		return 0
 	}
 	return epoch.IndexForRoad(tip.Index() + 1)
-}
-
-func (s *State) catchUpToFollowing(ctx context.Context, min types.EpochIndex) error {
-	var follow types.EpochIndex
-	for inner, ctrl := range s.inner.Lock() {
-		if err := ctrl.WaitUntil(ctx, func() bool {
-			idx := inner.followingEpochIndex()
-			return idx >= min && idx > inner.applied().EpochIndex()
-		}); err != nil {
-			return err
-		}
-		follow = inner.followingEpochIndex()
-	}
-	return s.advanceFollowing(ctx, follow)
-}
-
-func (s *State) advanceFollowing(ctx context.Context, follow types.EpochIndex) error {
-	ep, err := s.data.Registry().WaitForEpoch(ctx, follow)
-	if err != nil {
-		return err
-	}
-	for inner, ctrl := range s.inner.Lock() {
-		if inner.followingEpochIndex() != follow {
-			return nil
-		}
-		inner.advanceEpoch(ep)
-		ctrl.Updated()
-	}
-	return nil
 }
 
 // Run runs the background tasks of the state.
