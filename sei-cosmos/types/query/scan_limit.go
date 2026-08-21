@@ -12,6 +12,10 @@ type scanLimitParams struct {
 	limit   uint64
 }
 
+func v66ScanLimitParams() scanLimitParams {
+	return scanLimitParams{enforce: true, limit: MaxScanLimit}
+}
+
 func scanLimitParamsFromContext(ctx sdk.Context) scanLimitParams {
 	if !ctx.IsABCIQuery() {
 		return scanLimitParams{enforce: false, limit: 0}
@@ -25,13 +29,6 @@ func scanLimitParamsFromContext(ctx sdk.Context) scanLimitParams {
 func (p scanLimitParams) checkKeyPath(totalIter uint64) error {
 	if p.enforce && totalIter > p.limit {
 		return scanLimitError(p.limit, "use a more specific key prefix or reduce limit")
-	}
-	return nil
-}
-
-func (p scanLimitParams) checkOffsetBeforePageFilled(numHits, end, offset, totalIter uint64) error {
-	if p.enforce && numHits < end && totalIter > paginationEnd(offset, p.limit) {
-		return scanLimitError(p.limit, "use key-based pagination instead")
 	}
 	return nil
 }

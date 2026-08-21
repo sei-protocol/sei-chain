@@ -65,13 +65,6 @@ func ValidateQueryConfig(cfg QueryConfig) []string {
 			warnings = append(warnings, fmt.Sprintf("query.trusted-cidrs contains invalid CIDR %q: %v", cidr, err))
 			continue
 		}
-		if cidr == "0.0.0.0/0" || cidr == "::/0" {
-			warnings = append(warnings, fmt.Sprintf(
-				"query.trusted-cidrs contains overly broad entry %q; public RPC callers will receive relaxed scan limits",
-				cidr,
-			))
-			continue
-		}
 		if ones, _ := network.Mask.Size(); ones == 0 {
 			warnings = append(warnings, fmt.Sprintf(
 				"query.trusted-cidrs contains overly broad entry %q; public RPC callers will receive relaxed scan limits",

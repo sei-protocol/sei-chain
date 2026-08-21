@@ -24,16 +24,18 @@ type trustedCIDRMatcher struct {
 	networks []*net.IPNet
 }
 
-func newTrustedCIDRMatcher(cidrs []string) (*trustedCIDRMatcher, error) {
+// newTrustedCIDRMatcher returns a matcher for parseable entries in cidrs, skipping the rest.
+// warnQueryConfig should run before this so skipped entries are logged.
+func newTrustedCIDRMatcher(cidrs []string) *trustedCIDRMatcher {
 	networks := make([]*net.IPNet, 0, len(cidrs))
 	for _, cidr := range cidrs {
 		_, network, err := net.ParseCIDR(cidr)
 		if err != nil {
-			return nil, fmt.Errorf("invalid query.trusted-cidrs entry %q: %w", cidr, err)
+			continue
 		}
 		networks = append(networks, network)
 	}
-	return &trustedCIDRMatcher{networks: networks}, nil
+	return &trustedCIDRMatcher{networks: networks}
 }
 
 func (m *trustedCIDRMatcher) contains(ipStr string) bool {
@@ -52,26 +54,21 @@ func (m *trustedCIDRMatcher) contains(ipStr string) bool {
 	return false
 }
 
-func readQueryConfig(appOpts servertypes.AppOptions) (srvconfig.QueryConfig, *trustedCIDRMatcher, error) {
+func readQueryConfig(appOpts servertypes.AppOptions) (srvconfig.QueryConfig, error) {
 	cfg := srvconfig.DefaultQueryConfig()
 	var err error
 
 	if v := appOpts.Get(FlagQueryTrustedCIDRs); v != nil {
 		if cfg.TrustedCIDRs, err = cast.ToStringSliceE(v); err != nil {
-			return cfg, nil, fmt.Errorf("invalid %s: %w", FlagQueryTrustedCIDRs, err)
+			return cfg, fmt.Errorf("invalid %s: %w", FlagQueryTrustedCIDRs, err)
 		}
 	}
 	if v := appOpts.Get(FlagQueryTrustedScanLimit); v != nil {
 		if cfg.TrustedScanLimit, err = cast.ToUint64E(v); err != nil {
-			return cfg, nil, fmt.Errorf("invalid %s: %w", FlagQueryTrustedScanLimit, err)
+			return cfg, fmt.Errorf("invalid %s: %w", FlagQueryTrustedScanLimit, err)
 		}
 	}
-
-	matcher, err := newTrustedCIDRMatcher(cfg.TrustedCIDRs)
-	if err != nil {
-		return cfg, nil, err
-	}
-	return cfg, matcher, nil
+	return cfg, nil
 }
 
 func warnQueryConfig(cfg srvconfig.QueryConfig) {

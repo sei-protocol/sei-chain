@@ -85,6 +85,20 @@ snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
 # snapshot-directory sets the directory for where state sync snapshots are persisted.
 # default is empty which will then store under the app home directory same as before.
 snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
+
+###############################################################################
+###                         Query Configuration                             ###
+###############################################################################
+
+[query]
+# trusted-cidrs is a CIDR allowlist for relaxed pagination scan limits.
+# Empty means every caller (including localhost) receives the 10k scan cap.
+# Never list public ingress, load balancers, or grpc-gateway relays here.
+trusted-cidrs = [{{- range $i, $c := .Query.TrustedCIDRs }}{{- if $i }}, {{ end }}"{{ $c }}"{{- end }}]
+
+# trusted-scan-limit is the max store entries a single paginator call may scan
+# for trusted origins. 0 means unlimited.
+trusted-scan-limit = {{ .Query.TrustedScanLimit }}
 `
 
 // AutoManagedConfigTemplate contains configuration sections that are auto-managed
@@ -239,20 +253,6 @@ enable-unsafe-cors = {{ .GRPCWeb.EnableUnsafeCORS }}
 
 # MaxOpenConnections defines the number of maximum open connections. 0 means unlimited.
 max-open-connections = {{ .GRPCWeb.MaxOpenConnections }}
-
-###############################################################################
-###                         Query Configuration                             ###
-###############################################################################
-
-[query]
-# trusted-cidrs is a CIDR allowlist for relaxed pagination scan limits.
-# Empty means every caller (including localhost) receives the 10k scan cap.
-# Never list public ingress, load balancers, or grpc-gateway relays here.
-trusted-cidrs = [{{- range $i, $c := .Query.TrustedCIDRs }}{{- if $i }}, {{ end }}"{{ $c }}"{{- end }}]
-
-# trusted-scan-limit is the max store entries a single paginator call may scan
-# for trusted origins. 0 means unlimited.
-trusted-scan-limit = {{ .Query.TrustedScanLimit }}
 
 ###############################################################################
 ###                         Genesis Configuration (Auto-managed)            ###

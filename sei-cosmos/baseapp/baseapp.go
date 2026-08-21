@@ -323,13 +323,14 @@ func NewBaseApp(
 		app.concurrencyWorkers = config.DefaultConcurrencyWorkers
 	}
 
-	queryCfg, matcher, err := readQueryConfig(appOpts)
+	queryCfg, err := readQueryConfig(appOpts)
 	if err != nil {
 		panic(err)
 	}
+	warnQueryConfig(queryCfg)
+	matcher := newTrustedCIDRMatcher(queryCfg.TrustedCIDRs)
 	app.queryConfig = queryCfg
 	app.trustedOriginMatcher = matcher
-	warnQueryConfig(queryCfg)
 
 	return app
 }

@@ -1,7 +1,6 @@
 package baseapp
 
 import (
-	"context"
 	"net"
 	"testing"
 
@@ -11,18 +10,22 @@ import (
 )
 
 func TestTrustedCIDRMatcher(t *testing.T) {
-	matcher, err := newTrustedCIDRMatcher([]string{"127.0.0.1/32", "10.0.0.0/8"})
-	require.NoError(t, err)
-
+	matcher := newTrustedCIDRMatcher([]string{"127.0.0.1/32", "10.0.0.0/8"})
 	require.True(t, matcher.contains("127.0.0.1:54321"))
 	require.True(t, matcher.contains("10.1.2.3"))
+	require.False(t, matcher.contains("203.0.113.1"))
+}
+
+func TestTrustedCIDRMatcherSkipsInvalidEntries(t *testing.T) {
+	matcher := newTrustedCIDRMatcher([]string{"not-a-cidr", "127.0.0.1/32"})
+	require.True(t, matcher.contains("127.0.0.1"))
 	require.False(t, matcher.contains("203.0.113.1"))
 }
 
 func TestQueryOriginIPFromGRPCPeer(t *testing.T) {
 	addr, err := net.ResolveTCPAddr("tcp", "192.0.2.1:9090")
 	require.NoError(t, err)
-	ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: addr})
+	ctx := peer.NewContext(t.Context(), &peer.Peer{Addr: addr})
 	require.Equal(t, "192.0.2.1:9090", queryOriginIP(ctx))
 }
 
