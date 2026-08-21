@@ -6,6 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -139,6 +140,18 @@ func (i *inner) advanceEpoch(ep *types.Epoch) {
 	}
 	i.consensusSpec.Store(types.ConsensusSpec{CommitQC: i.persistedCommitQC.Load(), Epoch: ep})
 	i.reweightVotes()
+}
+
+// advanceTarget is the epoch to install next: the epoch of the road following
+// the durable tip, or applied+1 while that road is still inside the applied
+// epoch.
+func (i *inner) advanceTarget() types.EpochIndex {
+	next := i.applied().EpochIndex() + 1
+	tip, ok := i.persistedCommitQC.Load().Get()
+	if !ok {
+		return next
+	}
+	return max(next, epoch.IndexForRoad(tip.Index()+1))
 }
 
 // canAdvanceEpoch reports whether the applied epoch is sealed and its prune leash is

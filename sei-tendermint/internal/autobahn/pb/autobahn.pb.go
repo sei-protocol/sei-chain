@@ -1358,7 +1358,7 @@ func (x *FullTimeoutVote) GetLatestPrepareQc() *PrepareQC {
 type PersistedInner struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Index is the current view RoadIndex (ConsensusSpec.Index; 0 at genesis).
-	CommitQcIndex *uint64          `protobuf:"varint,9,opt,name=commit_qc_index,json=commitQcIndex,proto3,oneof" json:"commit_qc_index,omitempty"`
+	Index         *uint64          `protobuf:"varint,9,opt,name=index,proto3,oneof" json:"index,omitempty"`
 	PrepareQc     *PrepareQC       `protobuf:"bytes,2,opt,name=prepare_qc,json=prepareQc,proto3,oneof" json:"prepare_qc,omitempty"`
 	TimeoutQc     *TimeoutQC       `protobuf:"bytes,3,opt,name=timeout_qc,json=timeoutQc,proto3,oneof" json:"timeout_qc,omitempty"`
 	CommitVoteV2  *SignedProposal  `protobuf:"bytes,7,opt,name=commit_vote_v2,json=commitVoteV2,proto3,oneof" json:"commit_vote_v2,omitempty"`
@@ -1398,9 +1398,9 @@ func (*PersistedInner) Descriptor() ([]byte, []int) {
 	return file_autobahn_autobahn_proto_rawDescGZIP(), []int{23}
 }
 
-func (x *PersistedInner) GetCommitQcIndex() uint64 {
-	if x != nil && x.CommitQcIndex != nil {
-		return *x.CommitQcIndex
+func (x *PersistedInner) GetIndex() uint64 {
+	if x != nil && x.Index != nil {
+		return *x.Index
 	}
 	return 0
 }
@@ -2386,17 +2386,17 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x0fFullTimeoutVote\x124\n" +
 	"\avote_v2\x18\x03 \x01(\v2\x1b.autobahn.SignedTimeoutVoteR\x06voteV2\x12D\n" +
 	"\x11latest_prepare_qc\x18\x02 \x01(\v2\x13.autobahn.PrepareQCH\x00R\x0flatestPrepareQc\x88\x01\x01:\x06\xe8\x88\xe2\xab\f\x01B\x14\n" +
-	"\x12_latest_prepare_qcJ\x04\b\x01\x10\x02R\x04vote\"\xa0\x04\n" +
-	"\x0ePersistedInner\x12+\n" +
-	"\x0fcommit_qc_index\x18\t \x01(\x04H\x00R\rcommitQcIndex\x88\x01\x01\x127\n" +
+	"\x12_latest_prepare_qcJ\x04\b\x01\x10\x02R\x04vote\"\x84\x04\n" +
+	"\x0ePersistedInner\x12\x19\n" +
+	"\x05index\x18\t \x01(\x04H\x00R\x05index\x88\x01\x01\x127\n" +
 	"\n" +
 	"prepare_qc\x18\x02 \x01(\v2\x13.autobahn.PrepareQCH\x01R\tprepareQc\x88\x01\x01\x127\n" +
 	"\n" +
 	"timeout_qc\x18\x03 \x01(\v2\x13.autobahn.TimeoutQCH\x02R\ttimeoutQc\x88\x01\x01\x12C\n" +
 	"\x0ecommit_vote_v2\x18\a \x01(\v2\x18.autobahn.SignedProposalH\x03R\fcommitVoteV2\x88\x01\x01\x12E\n" +
 	"\x0fprepare_vote_v2\x18\b \x01(\v2\x18.autobahn.SignedProposalH\x04R\rprepareVoteV2\x88\x01\x01\x12A\n" +
-	"\ftimeout_vote\x18\x06 \x01(\v2\x19.autobahn.FullTimeoutVoteH\x05R\vtimeoutVote\x88\x01\x01B\x12\n" +
-	"\x10_commit_qc_indexB\r\n" +
+	"\ftimeout_vote\x18\x06 \x01(\v2\x19.autobahn.FullTimeoutVoteH\x05R\vtimeoutVote\x88\x01\x01B\b\n" +
+	"\x06_indexB\r\n" +
 	"\v_prepare_qcB\r\n" +
 	"\v_timeout_qcB\x11\n" +
 	"\x0f_commit_vote_v2B\x12\n" +

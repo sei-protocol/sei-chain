@@ -152,7 +152,7 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 		p := &pb.PersistedInner{}
 		if m.Index != 0 {
 			v := uint64(m.Index)
-			p.CommitQcIndex = &v
+			p.Index = &v
 		}
 		if v, ok := m.PrepareQC.Get(); ok {
 			p.PrepareQc = types.PrepareQCConv.Encode(v)
@@ -173,8 +173,8 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	},
 	Decode: func(p *pb.PersistedInner) (*persistedInner, error) {
 		m := &persistedInner{}
-		if p.CommitQcIndex != nil {
-			m.Index = types.RoadIndex(*p.CommitQcIndex)
+		if p.Index != nil {
+			m.Index = types.RoadIndex(*p.Index)
 		}
 		if p.PrepareQc != nil {
 			v, err := types.PrepareQCConv.Decode(p.PrepareQc)

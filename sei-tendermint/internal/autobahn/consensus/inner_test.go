@@ -78,7 +78,7 @@ func loadInner(t *testing.T, dir string, registry *epoch.Registry, keys []types.
 	go func() { _ = utils.IgnoreCancel(av.Run(ctx)) }()
 
 	if p, ok := persisted.Get(); ok {
-		if idx := types.RoadIndex(p.GetCommitQcIndex()); idx > 0 {
+		if idx := types.RoadIndex(p.GetIndex()); idx > 0 {
 			if err := alignAvailToTip(ctx, t, av, registry, keys, idx-1); err != nil {
 				return inner{}, err
 			}

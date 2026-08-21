@@ -155,12 +155,12 @@ func newInner(
 // tipless spec published before the first CommitQC.
 func (s *State) pushSpec(spec types.ConsensusSpec) error {
 	specViewIdx := spec.Index()
-	if specViewIdx <= s.innerRecv.Load().View().Index {
+	if specViewIdx <= s.innerRecv.Load().spec.Index() {
 		return nil
 	}
 	for iSend := range s.inner.Lock() {
 		i := iSend.Load()
-		if specViewIdx <= i.View().Index {
+		if specViewIdx <= i.spec.Index() {
 			return nil
 		}
 		// CommitQC advances to new index; clear all state for new view.
