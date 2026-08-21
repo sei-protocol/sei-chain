@@ -26,6 +26,17 @@ const (
 // Modes returns every mode a default is asked for, in a fixed order.
 func Modes() []Mode { return []Mode{ModeValidator, ModeFull, ModeSeed, ModeArchive} }
 
+// IsFullnodeMode reports whether a node of this kind serves queries to callers other than itself.
+//
+// Stated here because more than one package needs it and they sit on opposite sides of an import edge.
+// The package that owns the node a binary was started as also owns the type that describes it, and a
+// section's own package needs the same fact to state a default that varies on it while being imported by
+// that package rather than importing it.
+//
+// An archive node counts. It serves queries, which is the property this names, and it is the mode most
+// easily forgotten when the rule is written out by hand.
+func IsFullnodeMode(mode Mode) bool { return mode == ModeFull || mode == ModeArchive }
+
 // Section is one registered configuration section.
 type Section struct {
 	// Name is the section's own segment, and the first segment of every key it declares.

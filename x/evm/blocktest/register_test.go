@@ -11,37 +11,50 @@ import (
 // TestDeclaredKeysAreTheOnesItsReaderResolves holds the derived keys against the reader's own constants.
 //
 // The section registers the struct its reader fills, so a mapstructure tag is the only spelling of these
-// keys and there is no second list to fall behind. What remains is the constants ReadConfig looks up,
-// which state the same keys again a few lines away, and a rename that moves one and not the other
-// compiles.
+// keys. What remains is the constants ReadConfig passes to Get, which state the same keys again in the same
+// file, and a rename that moves one and not the other compiles.
+//
+// The section name is passed to the registry rather than derived, which is what keeps this section reachable
+// at all: the struct that carries it in the generated file is tagged with a different spelling, and a
+// registry that took the section name from a tag would declare a section no operator writes.
 func TestDeclaredKeysAreTheOnesItsReaderResolves(t *testing.T) {
-	want := []string{flagEnabled, flagTestDataPath}
-	sort.Strings(want)
-
+	for _, defect := range registry.Defects() {
+		if defect.Section == SectionName {
+			t.Fatalf("%s was refused, so none of its keys is declared: %v", SectionName, defect.Err)
+		}
+	}
 	section, ok := registry.Lookup(SectionName)
 	if !ok {
 		t.Fatalf("%s is not registered, so nothing resolves its keys", SectionName)
 	}
+	want := []string{flagEnabled, flagTestDataPath}
+	sort.Strings(want)
 	if !reflect.DeepEqual(section.Keys, want) {
 		t.Errorf("%s declares\n  %v\nand its reader resolves\n  %v", SectionName, section.Keys, want)
 	}
 }
 
-// TestDefaultsAreTheReaderOwnForEveryMode covers the value side of the same registration.
+// TestEachKeyResolvesToTheValueItsFieldHolds covers the binding a key set cannot show.
 //
-// Off for every mode, which is the value worth pinning: a mode that resolved this on would have those
-// nodes replay recorded data instead of serving the chain.
-func TestDefaultsAreTheReaderOwnForEveryMode(t *testing.T) {
+// These two fields carry different types, so a tag on the wrong field changes what a key resolves to
+// without changing the key set at all.
+func TestEachKeyResolvesToTheValueItsFieldHolds(t *testing.T) {
 	for _, mode := range registry.Modes() {
-		got, ok := defaults(mode).(Config)
-		if !ok {
-			t.Fatalf("mode %q: defaults returned %T, want the type its reader fills", mode, defaults(mode))
+		resolved, err := registry.Resolve(mode, registry.Sources{})
+		if err != nil {
+			t.Fatalf("mode %q: %v", mode, err)
 		}
-		if got != DefaultConfig {
-			t.Errorf("mode %q resolves to %+v, want the reader's own default %+v", mode, got, DefaultConfig)
+		for key, want := range map[string]any{
+			flagEnabled:      DefaultConfig.Enabled,
+			flagTestDataPath: DefaultConfig.TestDataPath,
+		} {
+			if got := resolved.Values[key]; !reflect.DeepEqual(got, want) {
+				t.Errorf("mode %q: %s resolves to %#v (%T), want %#v (%T)", mode, key, got, got, want, want)
+			}
 		}
-		if got.Enabled {
-			t.Errorf("mode %q resolves the block-test harness on", mode)
+		if resolved.Values[flagEnabled] == true {
+			t.Errorf("mode %q resolves the block-test harness on, which replays recorded data instead of "+
+				"following the chain", mode)
 		}
 	}
 }

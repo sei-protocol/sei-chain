@@ -20,7 +20,8 @@ func init() {
 
 // defaults is what this section resolves to for a node that has written nothing.
 //
-// The same values for every mode, and replay off. Turning it on makes application construction dial the
-// endpoint and fail when it cannot reach it, so a mode whose defaults turned it on would stop those nodes
-// booting. The endpoint itself is a fixed third-party address, which is another reason no mode implies it.
+// The same values for every mode, and replay off. Turning it on makes a node replay recorded chain data
+// from an endpoint instead of following the chain, and the endpoint is a fixed third-party address, so no
+// kind of node implies it. Construction opens a client for that address without reaching it, which is why
+// an unreachable endpoint surfaces during replay rather than at startup.
 func defaults(registry.Mode) any { return DefaultConfig }

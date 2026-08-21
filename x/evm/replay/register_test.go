@@ -10,57 +10,49 @@ import (
 
 // TestDeclaredKeysAreTheOnesItsReaderResolves holds the derived keys against the reader's own constants.
 //
-// The section registers the struct its reader fills, so a mapstructure tag is the only spelling of these
-// keys and there is no second list to fall behind. What remains is the constants ReadConfig looks up,
-// which state the same keys again a few lines away, and a rename that moves one and not the other
-// compiles.
+// Three of the four keys carry the name the template writes and one does not: the template renders
+// eth_replay_contract_state_checks and the reader looks up contract_state_checks. The declared key is the
+// one a value reaches a reader through, and the exact comparison below is what keeps the other out.
 func TestDeclaredKeysAreTheOnesItsReaderResolves(t *testing.T) {
-	want := []string{flagEnabled, flagEthRPC, flagEthDataDir, flagContractStateChecks}
-	sort.Strings(want)
-
+	for _, defect := range registry.Defects() {
+		if defect.Section == SectionName {
+			t.Fatalf("%s was refused, so none of its keys is declared: %v", SectionName, defect.Err)
+		}
+	}
 	section, ok := registry.Lookup(SectionName)
 	if !ok {
 		t.Fatalf("%s is not registered, so nothing resolves its keys", SectionName)
 	}
+	want := []string{flagEnabled, flagEthRPC, flagEthDataDir, flagContractStateChecks}
+	sort.Strings(want)
 	if !reflect.DeepEqual(section.Keys, want) {
 		t.Errorf("%s declares\n  %v\nand its reader resolves\n  %v", SectionName, section.Keys, want)
 	}
 }
 
-// TestTheWrittenSpellingOfTheStateCheckIsNotDeclared covers a name that is written and never read.
+// TestEachKeyResolvesToTheValueItsFieldHolds covers the binding a key set cannot show.
 //
-// The app.toml template renders eth_replay_contract_state_checks and the reader looks up
-// contract_state_checks, so every generated file carries a name nothing resolves. Declaring that name
-// would add a key an operator can set and no reader answers, which is the one outcome worse than the
-// mismatch itself: a value that looks as though it applied.
-func TestTheWrittenSpellingOfTheStateCheckIsNotDeclared(t *testing.T) {
-	section, ok := registry.Lookup(SectionName)
-	if !ok {
-		t.Fatalf("%s is not registered, so nothing resolves its keys", SectionName)
-	}
-	for _, key := range section.Keys {
-		if key == SectionName+".eth_replay_contract_state_checks" {
-			t.Errorf("%s is declared and no reader looks it up", key)
-		}
-	}
-}
-
-// TestDefaultsAreTheReaderOwnForEveryMode covers the value side of the same registration.
-//
-// Off for every mode, which is the value worth pinning: turning replay on makes application construction
-// dial the endpoint, so a mode that resolved it on would stop those nodes booting.
-func TestDefaultsAreTheReaderOwnForEveryMode(t *testing.T) {
+// Two of these fields are strings holding an endpoint and a directory. A tag on the wrong field leaves the
+// key set identical and resolves a filesystem path where a reader expects a URL.
+func TestEachKeyResolvesToTheValueItsFieldHolds(t *testing.T) {
 	for _, mode := range registry.Modes() {
-		got, ok := defaults(mode).(Config)
-		if !ok {
-			t.Fatalf("mode %q: defaults returned %T, want the type its reader fills", mode, defaults(mode))
+		resolved, err := registry.Resolve(mode, registry.Sources{})
+		if err != nil {
+			t.Fatalf("mode %q: %v", mode, err)
 		}
-		if got != DefaultConfig {
-			t.Errorf("mode %q resolves to %+v, want the reader's own default %+v", mode, got, DefaultConfig)
+		for key, want := range map[string]any{
+			flagEnabled:             DefaultConfig.Enabled,
+			flagEthRPC:              DefaultConfig.EthRPC,
+			flagEthDataDir:          DefaultConfig.EthDataDir,
+			flagContractStateChecks: DefaultConfig.ContractStateChecks,
+		} {
+			if got := resolved.Values[key]; !reflect.DeepEqual(got, want) {
+				t.Errorf("mode %q: %s resolves to %#v (%T), want %#v (%T)", mode, key, got, got, want, want)
+			}
 		}
-		if got.Enabled {
-			t.Errorf("mode %q resolves replay on, which makes those nodes dial %q at construction",
-				mode, got.EthRPC)
+		if resolved.Values[flagEnabled] == true {
+			t.Errorf("mode %q resolves replay on, so those nodes would replay recorded data from %v instead "+
+				"of following the chain", mode, resolved.Values[flagEthRPC])
 		}
 	}
 }
