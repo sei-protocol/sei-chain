@@ -67,7 +67,7 @@ func openReadOnlyWAL[T any](dir string, unmarshal UnmarshalFn[T]) (*readOnlyWAL[
 	for i, segment := range segments {
 		if i > 0 && segment.index != nextIndex {
 			return cleanup(fmt.Errorf("%w: segment %s starts at index %d, expected %d",
-				tidwallwal.ErrCorrupt, segment.name, segment.index, nextIndex))
+				ErrCorrupt, segment.name, segment.index, nextIndex))
 		}
 
 		path := filepath.Join(dir, segment.name)
@@ -82,7 +82,7 @@ func openReadOnlyWAL[T any](dir string, unmarshal UnmarshalFn[T]) (*readOnlyWAL[
 			return cleanup(fmt.Errorf("stat WAL segment %s: %w", path, err))
 		}
 		if !info.Mode().IsRegular() {
-			return cleanup(fmt.Errorf("%w: WAL segment %s is not a regular file", tidwallwal.ErrCorrupt, path))
+			return cleanup(fmt.Errorf("%w: WAL segment %s is not a regular file", ErrCorrupt, path))
 		}
 
 		data, err := io.ReadAll(io.NewSectionReader(file, 0, info.Size()))
@@ -91,7 +91,7 @@ func openReadOnlyWAL[T any](dir string, unmarshal UnmarshalFn[T]) (*readOnlyWAL[
 		}
 		if int64(len(data)) != info.Size() {
 			return cleanup(fmt.Errorf("%w: WAL segment %s changed while it was read",
-				tidwallwal.ErrCorrupt, path))
+				ErrCorrupt, path))
 		}
 
 		entries, err := indexReadOnlySegment(file, data)
@@ -99,7 +99,7 @@ func openReadOnlyWAL[T any](dir string, unmarshal UnmarshalFn[T]) (*readOnlyWAL[
 			return cleanup(fmt.Errorf("index WAL segment %s: %w", path, err))
 		}
 		if len(entries) == 0 && i != len(segments)-1 {
-			return cleanup(fmt.Errorf("%w: non-tail WAL segment %s is empty", tidwallwal.ErrCorrupt, path))
+			return cleanup(fmt.Errorf("%w: non-tail WAL segment %s is empty", ErrCorrupt, path))
 		}
 		if len(log.entries) == 0 && len(entries) > 0 {
 			log.firstOffset = segment.index
@@ -124,7 +124,7 @@ func listReadOnlySegments(dir string) ([]readOnlySegment, error) {
 		name := entry.Name()
 		if strings.HasSuffix(name, ".START") || strings.HasSuffix(name, ".END") {
 			return nil, fmt.Errorf("%w: WAL recovery marker %s is present; retry after the writer finishes",
-				tidwallwal.ErrCorrupt, name)
+				ErrCorrupt, name)
 		}
 		if len(name) != 20 {
 			continue

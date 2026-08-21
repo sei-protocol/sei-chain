@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	tidwallwal "github.com/tidwall/wal"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -61,7 +60,7 @@ func TestOpenReadOnlyChangelogWALRejectsTornTailWithoutRepair(t *testing.T) {
 	before := snapshotWALFiles(t, dir)
 
 	_, err = OpenReadOnlyChangelogWAL(dir)
-	require.ErrorIs(t, err, tidwallwal.ErrCorrupt)
+	require.ErrorIs(t, err, ErrCorrupt)
 	require.Equal(t, before, snapshotWALFiles(t, dir), "read-only open must not repair the source tail")
 }
 
@@ -94,7 +93,7 @@ func TestOpenReadOnlyChangelogWALRejectsRecoveryMarkers(t *testing.T) {
 			before := snapshotWALFiles(t, dir)
 
 			_, err := OpenReadOnlyChangelogWAL(dir)
-			require.ErrorIs(t, err, tidwallwal.ErrCorrupt)
+			require.ErrorIs(t, err, ErrCorrupt)
 			require.Equal(t, before, snapshotWALFiles(t, dir),
 				"read-only open must not complete writable WAL recovery")
 		})

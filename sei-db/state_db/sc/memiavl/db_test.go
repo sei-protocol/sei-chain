@@ -1206,6 +1206,32 @@ func TestReadOnlyOpenRejectsShortWAL(t *testing.T) {
 	require.Contains(t, err.Error(), "requested 3, reached 2")
 }
 
+func TestOpenDBFailureReleasesFileLock(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name:      "test",
+		Changeset: ChangeSets[0],
+	}}))
+	_, err = db.Commit()
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	require.NoError(t, os.Remove(currentPath(dir)))
+	_, err = OpenDB(1, Options{Dir: dir, LoadForOverwriting: true})
+	require.ErrorContains(t, err, "fail to read current version")
+
+	lock, err := LockFile(filepath.Join(dir, LockFileName))
+	require.NoError(t, err, "failed OpenDB must release its exclusive lock")
+	require.NoError(t, lock.Unlock())
+	require.NoError(t, lock.Destroy())
+}
+
 func lastMemiAVLWALSegment(t *testing.T, dir string) string {
 	t.Helper()
 	entries, err := os.ReadDir(utils.GetChangelogPath(dir))
