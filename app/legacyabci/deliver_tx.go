@@ -24,11 +24,11 @@ import (
 )
 
 type DeliverTxKeepers struct {
-	AccountKeeper  authkeeper.AccountKeeper
-	BankKeeper     bankkeeper.Keeper
-	EvmKeeper      *evmkeeper.Keeper
-	ParamsKeeper   paramskeeper.Keeper
-	UpgradeKeeper  *upgradekeeper.Keeper
+	AccountKeeper authkeeper.AccountKeeper
+	BankKeeper    bankkeeper.Keeper
+	EvmKeeper     *evmkeeper.Keeper
+	ParamsKeeper  paramskeeper.Keeper
+	UpgradeKeeper *upgradekeeper.Keeper
 }
 
 func DeliverTx(

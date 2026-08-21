@@ -28,12 +28,12 @@ import (
 var defaultRecoveryMiddleware = newDefaultRecoveryMiddleware()
 
 type CheckTxKeepers struct {
-	AccountKeeper  authkeeper.AccountKeeper
-	BankKeeper     bankkeeper.Keeper
-	IBCKeeper      *ibckeeper.Keeper
-	EvmKeeper      *evmkeeper.Keeper
-	ParamsKeeper   paramskeeper.Keeper
-	UpgradeKeeper  *upgradekeeper.Keeper
+	AccountKeeper authkeeper.AccountKeeper
+	BankKeeper    bankkeeper.Keeper
+	IBCKeeper     *ibckeeper.Keeper
+	EvmKeeper     *evmkeeper.Keeper
+	ParamsKeeper  paramskeeper.Keeper
+	UpgradeKeeper *upgradekeeper.Keeper
 }
 
 func CheckTx(
