@@ -61,12 +61,7 @@ func TestNewRegistry_Genesis(t *testing.T) {
 	if ep1.Committee() != ep0.Committee() {
 		t.Fatal("epoch 1 must use the genesis committee")
 	}
-}
-
-func TestEpochAt_ErrorIfNotRegistered(t *testing.T) {
-	r, _ := makeRegistry(t)
-	_, err := r.EpochAt(FirstRoad(2))
-	if err == nil {
+	if _, err := r.EpochAt(FirstRoad(2)); err == nil {
 		t.Fatal("EpochAt(FirstRoad(2)) expected error for unregistered epoch, got nil")
 	}
 }
