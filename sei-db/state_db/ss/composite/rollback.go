@@ -132,6 +132,13 @@ func rollbackBaseVersion(root string, changelog types.SnapshotWALReader, target 
 		return 0, fmt.Errorf("cannot roll back state store to version %d: nearest snapshot is %d and the changelog is empty", target, base)
 	}
 	if next == 0 {
+		// A retained prefix proves that a gap between two retained entries came
+		// from empty blocks, because retention only removes a prefix. It does
+		// not prove that a missing suffix was empty: rollback truncates the WAL
+		// tail, and opening the WAL can repair a corrupt tail. If the live
+		// database is still above that cut, restoring base and advancing only
+		// its watermark to target would silently lose the missing writes.
+		// base == target is different and returns above: no suffix is needed.
 		return 0, fmt.Errorf("cannot roll back state store to version %d: nearest snapshot is %d and the changelog has no newer entries", target, base)
 	}
 	// A first entry above base+1 means the versions in between either wrote

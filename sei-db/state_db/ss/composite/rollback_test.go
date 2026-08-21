@@ -435,7 +435,7 @@ func TestRollbackRejectsUnreachableTargets(t *testing.T) {
 		require.ErrorContains(t, err, "no snapshot at or below target")
 	})
 
-	t.Run("changelog cut below target", func(t *testing.T) {
+	t.Run("changelog tail cut below target", func(t *testing.T) {
 		store, home := setupRollbackStore(t, 5, 1)
 		for version := int64(1); version <= 8; version++ {
 			writeRollbackBlock(t, store, version)
@@ -451,6 +451,9 @@ func TestRollbackRejectsUnreachableTargets(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = reopened.Close() })
 
+		// Versions 6-8 wrote data, but the artificial tail cut leaves only
+		// entries at or below snapshot 5. Treating versions 6-7 as empty would
+		// restore snapshot 5, label it version 7, and silently lose their writes.
 		require.ErrorContains(t, reopened.Rollback(7), "changelog has no newer entries")
 	})
 
