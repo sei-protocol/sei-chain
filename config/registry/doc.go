@@ -36,7 +36,13 @@
 // serve.
 //
 // The third argument answers per node mode, because a validator and a seed node do not default
-// alike.
+// alike. A mode this package does not declare is refused rather than answered for: what a section
+// does with an argument it cannot match is not a decision anybody made.
+//
+// Some settings are node-wide and are written at the top of a file rather than inside a table.
+// RegisterRootKeys declares those: the name it takes is what a lookup and a report are keyed by and is
+// not part of any key, so the keys are the tags alone. Giving such a section a segment would rename
+// every key it declares, and a renamed key is one an operator's existing file no longer reaches.
 //
 // # Defaults
 //
@@ -56,6 +62,14 @@
 // value and a default are otherwise indistinguishable once merged. The second is why a typo in an
 // operator's file is visible rather than silently dropped.
 //
+// One channel has a per-key hole. A reader that takes its value's exact type cannot be handed the one
+// string an environment carries, so a section may refuse that channel for such a key, and the file's
+// value applies instead of a value that would stop the node. The variable is still read and its value
+// still discarded, and the key is reported as ignored, because a channel that quietly does nothing is
+// the failure this package exists to remove. A refusal carries the reason an operator is owed, and one
+// naming a key no section declares is refused in turn: it would cover nothing while reading as though
+// it covered something.
+//
 // Resolve either answers for every declared key or returns an error naming what it could not answer
 // for. A caller is never handed a resolution with a hole in it.
 //
@@ -71,6 +85,18 @@
 // tag, an unexported field carrying a tag, two fields declaring one path, a struct that declares no
 // key, a struct that contains itself, and two keys that collapse onto one environment variable.
 //
+// Two more become possible once a key can sit at the top of a file, and neither could happen while
+// every key carried its section's name. Two sections declaring one key have one default rendered over
+// the other, and which one depends on the order the sections are walked. And a key at the top of the
+// file that is also a section's name cannot be written at all, because a file holding both a value for
+// that name and a table under it is not valid TOML, so one of the two is unreachable and nothing says
+// which. Both are refused in either registration order, since registration order is not something an
+// operator can see.
+//
+// Refusing the environment for a key is itself refused when it carries no reason. An operator told
+// their variable does nothing has to be told why, and a refusal with nothing to print is worse than
+// resolving the variable or leaving it alone.
+//
 // A key segment is also refused if it is upper-case, or if it carries a dot or a space. That rule
 // holds for the section name and for a field's tag alike, since both become segments of the same
 // dotted key and answer to the same sources.
@@ -85,7 +111,9 @@
 //
 // # Adding a Section
 //
-//  1. Give the section a name, and use it as the first segment of every key it declares.
+//  1. Give the section a name, and use it as the first segment of every key it declares. A section
+//     whose settings sit at the top of the file instead declares root keys, and its name is then a
+//     handle for lookups and reports rather than part of any key.
 //  2. Register the struct the reader already uses, with a per-mode default.
 //  3. Assert the registration produced no Defect.
 //  4. Hold the derived key names against the reader, so a key that reaches nothing fails.
