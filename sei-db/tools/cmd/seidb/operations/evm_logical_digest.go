@@ -14,12 +14,14 @@ import (
 	"sort"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/spf13/cobra"
 )
 
@@ -84,9 +86,12 @@ const (
 //   - replay (SLOW): opens a read-only DB, replays the changelog up to
 //     --height, then walks the in-memory/mmap tree. Roughly an order of
 //     magnitude slower than snapshot (changelog replay + per-leaf tree walk
-//     instead of a sequential file read). Use it only when no snapshot exists
-//     at the target height — e.g. nodes whose snapshot rewrite lags the tip, so
-//     an arbitrary comparison height has no snapshot-<height> on disk.
+//     instead of a sequential file read). It refuses to run on a changelog whose
+//     tail a live writer is still filling, and asks the operator to rerun,
+//     because opening such a changelog would truncate that tail. Use it only
+//     when no snapshot exists at the target height — e.g. nodes whose snapshot
+//     rewrite lags the tip, so an arbitrary comparison height has no
+//     snapshot-<height> on disk.
 //
 // The flatkv side is always a pebble WAL-replay-to-height and is fast
 // regardless. So when comparing across nodes, pick a height that is an existing
@@ -1105,6 +1110,17 @@ func digestMemIAVL(dbDir string, height int64, findTarget []byte, normalization 
 }
 
 func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) {
+	// memiavl.OpenDB repairs a torn changelog tail by truncating it, even under
+	// ReadOnly. On a live node that tail is usually a write in progress, so
+	// refuse the run instead of letting the open damage the source.
+	if err := wal.VerifyIntact(utils.GetChangelogPath(dbDir)); err != nil {
+		if errors.Is(err, wal.ErrCorrupt) {
+			return nil, fmt.Errorf("memiavl changelog tail is incomplete or changing; live WAL was not "+
+				"modified; rerun the command, and if the error persists after stopping seid, repair the "+
+				"WAL offline: %w", err)
+		}
+		return nil, fmt.Errorf("verify memiavl changelog: %w", err)
+	}
 	db, err := memiavl.OpenDB(height, memiavl.Options{
 		Dir:      dbDir,
 		ReadOnly: true,
@@ -1113,7 +1129,45 @@ func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) 
 	if err != nil {
 		return nil, fmt.Errorf("open memiavl read-only replay: %w", err)
 	}
+	if err := verifyReplayCoverage(db, height); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return db, nil
+}
+
+// verifyReplayCoverage reports whether the opened DB replayed every version
+// between its snapshot and height.
+//
+// The final version alone does not prove coverage. Catchup starts at the
+// changelog's first offset whenever the snapshot ends before it, so a changelog
+// pruned past the snapshot replays a contiguous suffix, reaches the requested
+// height, and silently omits the versions in between.
+func verifyReplayCoverage(db *memiavl.DB, height int64) error {
+	if height > 0 && db.Version() != height {
+		return fmt.Errorf("memiavl replay reached version %d, not the requested height %d; "+
+			"the changelog does not cover that height", db.Version(), height)
+	}
+	snapshotVersion := db.SnapshotVersion()
+	if db.Version() <= snapshotVersion {
+		return nil
+	}
+	firstOffset, err := db.GetWAL().FirstOffset()
+	if err != nil {
+		return fmt.Errorf("read memiavl changelog first offset: %w", err)
+	}
+	if firstOffset == 0 {
+		return nil
+	}
+	// #nosec G115 -- WAL offsets are far below MaxInt64 in practice.
+	firstVersion := int64(firstOffset) + db.GetWALIndexDelta()
+	if firstVersion > snapshotVersion+1 {
+		return fmt.Errorf("the memiavl changelog starts at version %d but the snapshot ends at version "+
+			"%d, so versions %d-%d would be missing from the replay; digest a height at or below %d, "+
+			"or use --memiavl-open-mode snapshot",
+			firstVersion, snapshotVersion, snapshotVersion+1, firstVersion-1, snapshotVersion)
+	}
+	return nil
 }
 
 func digestMemIAVLReplay(dbDir string, height int64, findTarget []byte, normalization string) error {
