@@ -1129,13 +1129,45 @@ func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) 
 	if err != nil {
 		return nil, fmt.Errorf("open memiavl read-only replay: %w", err)
 	}
-	if height > 0 && db.Version() != height {
-		reached := db.Version()
+	if err := verifyReplayCoverage(db, height); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("memiavl replay reached version %d, not the requested height %d; "+
-			"the changelog does not cover that height", reached, height)
+		return nil, err
 	}
 	return db, nil
+}
+
+// verifyReplayCoverage reports whether the opened DB replayed every version
+// between its snapshot and height.
+//
+// The final version alone does not prove coverage. Catchup starts at the
+// changelog's first offset whenever the snapshot ends before it, so a changelog
+// pruned past the snapshot replays a contiguous suffix, reaches the requested
+// height, and silently omits the versions in between.
+func verifyReplayCoverage(db *memiavl.DB, height int64) error {
+	if height > 0 && db.Version() != height {
+		return fmt.Errorf("memiavl replay reached version %d, not the requested height %d; "+
+			"the changelog does not cover that height", db.Version(), height)
+	}
+	snapshotVersion := db.SnapshotVersion()
+	if db.Version() <= snapshotVersion {
+		return nil
+	}
+	firstOffset, err := db.GetWAL().FirstOffset()
+	if err != nil {
+		return fmt.Errorf("read memiavl changelog first offset: %w", err)
+	}
+	if firstOffset == 0 {
+		return nil
+	}
+	// #nosec G115 -- WAL offsets are far below MaxInt64 in practice.
+	firstVersion := int64(firstOffset) + db.GetWALIndexDelta()
+	if firstVersion > snapshotVersion+1 {
+		return fmt.Errorf("the memiavl changelog starts at version %d but the snapshot ends at version "+
+			"%d, so versions %d-%d would be missing from the replay; digest a height at or below %d, "+
+			"or use --memiavl-open-mode snapshot",
+			firstVersion, snapshotVersion, snapshotVersion+1, firstVersion-1, snapshotVersion)
+	}
+	return nil
 }
 
 func digestMemIAVLReplay(dbDir string, height int64, findTarget []byte, normalization string) error {
