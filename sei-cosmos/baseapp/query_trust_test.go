@@ -1,7 +1,6 @@
 package baseapp
 
 import (
-	"context"
 	"net"
 	"testing"
 
@@ -30,7 +29,7 @@ func TestEnrichABCIQueryContextUntrusted(t *testing.T) {
 		trustedOriginMatcher: newTrustedCIDRMatcher(nil),
 	}
 
-	ctx := app.enrichABCIQueryContext(context.Background(), sdk.Context{})
+	ctx := app.enrichABCIQueryContext(t.Context(), sdk.Context{})
 	require.True(t, ctx.IsABCIQuery())
 	require.False(t, ctx.IsTrustedQueryOrigin())
 	require.True(t, ctx.PaginationLimits().Enforce)
@@ -43,7 +42,7 @@ func TestEnrichABCIQueryContextTrusted(t *testing.T) {
 		trustedOriginMatcher: newTrustedCIDRMatcher([]string{"127.0.0.0/8"}),
 	}
 
-	pctx := peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9090}})
+	pctx := peer.NewContext(t.Context(), &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9090}})
 	ctx := app.enrichABCIQueryContext(pctx, sdk.Context{})
 	require.True(t, ctx.IsTrustedQueryOrigin())
 	require.False(t, ctx.PaginationLimits().Enforce)
@@ -57,7 +56,7 @@ func TestEnrichABCIQueryContextKillSwitch(t *testing.T) {
 		trustedOriginMatcher: newTrustedCIDRMatcher(nil),
 	}
 
-	ctx := app.enrichABCIQueryContext(context.Background(), sdk.Context{})
+	ctx := app.enrichABCIQueryContext(t.Context(), sdk.Context{})
 	require.False(t, ctx.PaginationLimits().Enforce)
 }
 
