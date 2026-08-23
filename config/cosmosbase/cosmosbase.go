@@ -47,11 +47,17 @@ func init() {
 			"in the configuration file instead")
 }
 
-// forMode is the server configuration a node of this kind is meant to run.
+// forMode is the server configuration seid init writes for a node of this kind.
 //
-// The upstream defaults with the binary's own mode rules applied. Every section here answers through this,
-// so a section states what a kind of node is meant to run rather than what the type holds before any mode
-// is considered, and a rule added to those rules later moves these sections with nothing here changing.
+// The upstream defaults with the binary's own mode rules applied, which is exactly the pipeline that
+// produces a generated app.toml: seid init builds this and renders it through the template. So a declared
+// value here is what that file would have held, and a caller writing a configuration file writes what the
+// binary would have written.
+//
+// That is what a declared value states, and it is deliberately not what a node with nothing written
+// resolves. Those differ for a good number of these keys, because most are read with no check that the key
+// was present and several are bound to a command flag carrying its own default below the file. The set is
+// measured rather than counted, in the agreement test beside this one.
 //
 // Three settings differ by mode today and each of them matters in a different direction. A node that
 // serves queries needs the interfaces that serve them; a validator is meant to expose as little as it can;
@@ -72,23 +78,18 @@ func forMode(mode registry.Mode) *srvconfig.Config {
 // absent key casts to a zero and clobbers the default beside it. Which keys those are, and what a node
 // resolves for each instead, belongs in a measurement rather than in a count here.
 //
-// Several of these are not what a running node resolves today, and the causes differ: a bound command flag
-// of the same name carries its own default below the file, and the command that assembles the server
-// configuration overrides some of them before a node starts. The pruning strategy is the one worth naming,
-// because the flag defaults it to the standard schedule while this declares it keeps everything.
-//
-// A caller resolving for a running node therefore has to supply that node's flag values, and only the ones
-// an operator actually set. A flag nobody typed still reports a default, and this resolution ranks flags
-// above the file, so passing defaults would put every one of them over an operator's own value.
+// A caller resolving for a running node has to supply that node's flag values, and only the ones an
+// operator actually set. A flag nobody typed still reports a default, and this resolution ranks flags above
+// the file, so passing defaults would put every one of them over an operator's own value.
 func baseDefaults(mode registry.Mode) any { return forMode(mode).BaseConfig }
 
-// apiDefaults is what the REST interface settings resolve to for a node that has written nothing.
+// apiDefaults is what the REST interface settings resolve to for a node of this kind.
 //
 // On for a full node and an archive node, off for a validator and a seed. Serving queries is what the
 // first two are for, and the second two are meant to expose as little as they can.
 func apiDefaults(mode registry.Mode) any { return forMode(mode).API }
 
-// grpcDefaults is what the gRPC settings resolve to for a node that has written nothing.
+// grpcDefaults is what the gRPC settings resolve to for a node of this kind.
 //
 // On for a full node and an archive node, off for a validator and a seed, which is the same rule the REST
 // interface follows and for the same reason. The upstream default is on for every kind, so declaring that
@@ -100,7 +101,7 @@ func apiDefaults(mode registry.Mode) any { return forMode(mode).API }
 // which is the shape the reader parses back.
 func grpcDefaults(mode registry.Mode) any { return forMode(mode).GRPC }
 
-// stateSyncDefaults is what the snapshot settings resolve to for a node that has written nothing.
+// stateSyncDefaults is what the snapshot settings resolve to for a node of this kind.
 //
 // All three keys are read with a casting getter and no presence check, and the retention is the one that
 // inverts: it is declared as keeping two snapshots and an absent key casts to zero, which the file format
@@ -128,7 +129,7 @@ type telemetrySchema struct {
 	GlobalLabels            []any  `mapstructure:"global-labels"`
 }
 
-// telemetryDefaults is what the metric settings resolve to for a node that has written nothing.
+// telemetryDefaults is what the metric settings resolve to for a node of this kind.
 //
 // Read out of the upstream defaults rather than written again here, so a changed default moves both at
 // once and this states only which key carries which setting.
