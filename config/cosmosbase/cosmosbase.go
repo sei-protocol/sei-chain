@@ -47,12 +47,18 @@ func init() {
 			"in the configuration file instead")
 }
 
-// forMode is the server configuration seid init writes for a node of this kind.
+// forMode is the server configuration the seid init command writes for a node of this kind.
 //
-// The upstream defaults with the binary's own mode rules applied, which is exactly the pipeline that
-// produces a generated app.toml: seid init builds this and renders it through the template. So a declared
-// value here is what that file would have held, and a caller writing a configuration file writes what the
-// binary would have written.
+// The upstream defaults with the binary's own mode rules applied, which is the pipeline that command
+// builds and renders through the template. So a declared value here is what that file would have held, and
+// a caller writing a configuration file writes what that command would have written.
+//
+// Named by the command, because this binary generates a file two ways and they do not agree. A node
+// starting without one gets a file from a second pipeline that applies no mode rules at all and carries
+// overrides of its own, so it writes the standard pruning strategy where this writes keeping everything,
+// a metric retention of sixty where this writes seven thousand two hundred, the REST interface on for a
+// validator where this writes it off, and a pruning interval drawn at random each time it runs. This
+// follows the command an operator runs to provision a node, not the file a node writes for itself.
 //
 // That is what a declared value states, and it is deliberately not what a node with nothing written
 // resolves. Those differ for a good number of these keys, because most are read with no check that the key
