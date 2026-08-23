@@ -95,8 +95,8 @@ func TestUntrustedQueryCountTotalPreservesPageNextKeyOnBudgetExhaust(t *testing.
 	require.Equal(t, uint64(0), res.Total)
 }
 
-func TestTrustedQueryOriginBypassesLimits(t *testing.T) {
-	ctx := sdk.Context{}.WithIsABCIQuery(true).WithIsTrustedQueryOrigin(true).WithPaginationLimits(sdk.NoPaginationLimits())
+func TestNoPaginationLimitsBypassesLimits(t *testing.T) {
+	ctx := sdk.Context{}.WithIsABCIQuery(true).WithPaginationLimits(sdk.NoPaginationLimits())
 	store := newTestKVStore(t)
 
 	for i := 0; i < 20; i++ {

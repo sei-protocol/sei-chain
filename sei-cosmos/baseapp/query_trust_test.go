@@ -31,7 +31,6 @@ func TestEnrichABCIQueryContextUntrusted(t *testing.T) {
 
 	ctx := app.enrichABCIQueryContext(t.Context(), sdk.Context{})
 	require.True(t, ctx.IsABCIQuery())
-	require.False(t, ctx.IsTrustedQueryOrigin())
 	require.True(t, ctx.PaginationLimits().Enforce)
 	require.Equal(t, uint64(1000), ctx.PaginationLimits().MaxLimit)
 }
@@ -44,7 +43,6 @@ func TestEnrichABCIQueryContextTrusted(t *testing.T) {
 
 	pctx := peer.NewContext(t.Context(), &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9090}})
 	ctx := app.enrichABCIQueryContext(pctx, sdk.Context{})
-	require.True(t, ctx.IsTrustedQueryOrigin())
 	require.False(t, ctx.PaginationLimits().Enforce)
 }
 

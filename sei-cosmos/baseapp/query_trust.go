@@ -101,7 +101,6 @@ func (app *BaseApp) enrichABCIQueryContext(ctx context.Context, sdkCtx sdk.Conte
 
 	originIP := queryOriginIP(ctx)
 	trusted := app.trustedOriginMatcher != nil && app.trustedOriginMatcher.contains(originIP)
-	sdkCtx = sdkCtx.WithIsTrustedQueryOrigin(trusted)
 	if trusted {
 		logger.Debug("query pagination limits disabled for trusted origin", "origin", originIP)
 		return sdkCtx.WithPaginationLimits(sdk.NoPaginationLimits())
