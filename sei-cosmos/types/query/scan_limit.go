@@ -8,16 +8,14 @@ import (
 )
 
 type scanLimitParams struct {
-	enforce          bool
-	maxLimit         uint64
-	maxOffset        uint64
-	maxIterations    uint64
-	boundRequest     bool
-	partialOnExhaust bool
+	enforce       bool
+	maxLimit      uint64
+	maxOffset     uint64
+	maxIterations uint64
 }
 
 func (p scanLimitParams) checkRequest(req pageRequestNorm) error {
-	if !p.boundRequest {
+	if !p.enforce {
 		return nil
 	}
 	if req.limit > p.maxLimit {
@@ -42,12 +40,10 @@ func scanLimitParamsFromContext(ctx sdk.Context) scanLimitParams {
 		return scanLimitParams{}
 	}
 	return scanLimitParams{
-		enforce:          true,
-		maxLimit:         limits.MaxLimit,
-		maxOffset:        limits.MaxOffset,
-		maxIterations:    limits.MaxIterations,
-		boundRequest:     true,
-		partialOnExhaust: true,
+		enforce:       true,
+		maxLimit:      limits.MaxLimit,
+		maxOffset:     limits.MaxOffset,
+		maxIterations: limits.MaxIterations,
 	}
 }
 
