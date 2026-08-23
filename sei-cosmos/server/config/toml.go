@@ -102,7 +102,7 @@ disable-limits = {{ .Query.DisableLimits }}
 
 # TrustedCIDRs lists caller CIDRs that bypass pagination limits. Typical entries are
 # internal indexer subnets or loopback for local services.
-trusted-cidrs = {{ .Query.TrustedCIDRs }}
+trusted-cidrs = [{{ range $i, $cidr := .Query.TrustedCIDRs }}{{if $i}}, {{end}}"{{ $cidr }}"{{ end }}]
 
 # MaxLimit is the maximum page size for untrusted query origins.
 max-limit = {{ .Query.MaxLimit }}

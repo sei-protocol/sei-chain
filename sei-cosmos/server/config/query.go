@@ -11,7 +11,7 @@ import (
 const (
 	DefaultQueryMaxLimit      = uint64(1_000)
 	DefaultQueryMaxOffset     = uint64(10_000)
-	DefaultQueryMaxIterations = uint64(10_000)
+	DefaultQueryMaxIterations = DefaultQueryMaxOffset + DefaultQueryMaxLimit
 )
 
 // QueryConfig holds node-local ABCI/gRPC pagination limits.
