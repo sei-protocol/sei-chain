@@ -160,7 +160,9 @@ func (c *offsetScanCursor) phase() scanPhase {
 
 func (c *offsetScanCursor) beginIteration(key []byte) (stop bool) {
 	if resumeKey, exhausted := c.budget.begin(key); exhausted {
-		c.nextKey = resumeKey
+		if c.nextKey == nil {
+			c.nextKey = resumeKey
+		}
 		return true
 	}
 	c.scanned++

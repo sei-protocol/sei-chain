@@ -71,6 +71,30 @@ func TestUntrustedQueryFlatIterationExactBudget(t *testing.T) {
 	require.NotNil(t, res.NextKey)
 }
 
+func TestUntrustedQueryCountTotalPreservesPageNextKeyOnBudgetExhaust(t *testing.T) {
+	const (
+		maxIterations = 50
+		pageLimit     = 10
+		storeSize     = 1000
+	)
+	ctx := sdk.Context{}.WithIsABCIQuery(true).WithPaginationLimits(sdk.UntrustedPaginationLimits(1000, 10_000, maxIterations))
+	store := newTestKVStore(t)
+
+	for i := 0; i < storeSize; i++ {
+		store.Set([]byte(fmt.Sprintf("%05d", i)), []byte("v"))
+	}
+
+	var count int
+	res, err := query.Paginate(ctx, store, &query.PageRequest{Limit: pageLimit, CountTotal: true}, func(_, _ []byte) error {
+		count++
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, pageLimit, count)
+	require.Equal(t, []byte("00010"), res.NextKey)
+	require.Equal(t, uint64(0), res.Total)
+}
+
 func TestTrustedQueryOriginBypassesLimits(t *testing.T) {
 	ctx := sdk.Context{}.WithIsABCIQuery(true).WithIsTrustedQueryOrigin(true).WithPaginationLimits(sdk.NoPaginationLimits())
 	store := newTestKVStore(t)
