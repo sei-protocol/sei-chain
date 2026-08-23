@@ -241,6 +241,27 @@ enable-unsafe-cors = {{ .GRPCWeb.EnableUnsafeCORS }}
 max-open-connections = {{ .GRPCWeb.MaxOpenConnections }}
 
 ###############################################################################
+###                         Query Configuration (Auto-managed)              ###
+###############################################################################
+
+[query]
+
+# DisableLimits turns off pagination limits on the ABCI/gRPC query path.
+disable-limits = {{ .Query.DisableLimits }}
+
+# TrustedCIDRs lists caller CIDRs that bypass pagination limits (for indexers and internal services).
+trusted-cidrs = {{ .Query.TrustedCIDRs }}
+
+# MaxLimit is the maximum page size for untrusted query origins.
+max-limit = {{ .Query.MaxLimit }}
+
+# MaxOffset is the maximum offset for untrusted query origins.
+max-offset = {{ .Query.MaxOffset }}
+
+# MaxIterations is the maximum store entries a single untrusted query may scan.
+max-iterations = {{ .Query.MaxIterations }}
+
+###############################################################################
 ###                         Genesis Configuration (Auto-managed)            ###
 ###############################################################################
 

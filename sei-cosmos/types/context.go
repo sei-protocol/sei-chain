@@ -26,32 +26,34 @@ but please do not over-use it. We try to keep all data structured
 and standard additions here would be better just to add to the Context struct
 */
 type Context struct {
-	ctx                context.Context
-	ms                 MultiStore
-	nextMs             MultiStore          // ms of the next height; only used in tracing
-	nextStoreKeys      map[string]struct{} // store key names that should use nextMs
-	header             tmproto.Header
-	headerHash         tmbytes.HexBytes
-	chainID            string
-	txBytes            []byte
-	txSum              [32]byte
-	voteInfo           []abci.VoteInfo
-	gasMeter           GasMeter
-	gasEstimate        uint64
-	occEnabled         bool
-	blockGasMeter      GasMeter
-	checkTx            bool
-	recheckTx          bool // if recheckTx == true, then checkTx must also be true
-	abciQuery          bool // true only for BaseApp.Query; never transaction/block execution
-	isGenesis          bool
-	minGasPrice        DecCoins
-	consParams         *tmproto.ConsensusParams
-	eventManager       *EventManager
-	evmEventManager    *EVMEventManager
-	priority           int64         // The tx priority, only relevant in CheckTx
-	hasPriority        bool          // Whether the tx has a priority set
-	deliverTxCallback  func(Context) // callback to make at the end of DeliverTx.
-	evmRequiredBalance *big.Int      // Required sender balance for this EVM tx, only relevant in CheckTx.
+	ctx                  context.Context
+	ms                   MultiStore
+	nextMs               MultiStore          // ms of the next height; only used in tracing
+	nextStoreKeys        map[string]struct{} // store key names that should use nextMs
+	header               tmproto.Header
+	headerHash           tmbytes.HexBytes
+	chainID              string
+	txBytes              []byte
+	txSum                [32]byte
+	voteInfo             []abci.VoteInfo
+	gasMeter             GasMeter
+	gasEstimate          uint64
+	occEnabled           bool
+	blockGasMeter        GasMeter
+	checkTx              bool
+	recheckTx            bool // if recheckTx == true, then checkTx must also be true
+	abciQuery            bool // true only for BaseApp.Query; never transaction/block execution
+	isTrustedQueryOrigin bool
+	paginationLimits     PaginationLimits
+	isGenesis            bool
+	minGasPrice          DecCoins
+	consParams           *tmproto.ConsensusParams
+	eventManager         *EventManager
+	evmEventManager      *EVMEventManager
+	priority             int64         // The tx priority, only relevant in CheckTx
+	hasPriority          bool          // Whether the tx has a priority set
+	deliverTxCallback    func(Context) // callback to make at the end of DeliverTx.
+	evmRequiredBalance   *big.Int      // Required sender balance for this EVM tx, only relevant in CheckTx.
 
 	// EVM properties
 	evm                                 bool   // EVM transaction flag
@@ -137,6 +139,14 @@ func (c Context) IsReCheckTx() bool {
 
 func (c Context) IsABCIQuery() bool {
 	return c.abciQuery
+}
+
+func (c Context) IsTrustedQueryOrigin() bool {
+	return c.isTrustedQueryOrigin
+}
+
+func (c Context) PaginationLimits() PaginationLimits {
+	return c.paginationLimits
 }
 
 func (c Context) IsGenesis() bool {
@@ -392,6 +402,16 @@ func (c Context) WithIsReCheckTx(isRecheckTx bool) Context {
 
 func (c Context) WithIsABCIQuery(isABCIQuery bool) Context {
 	c.abciQuery = isABCIQuery
+	return c
+}
+
+func (c Context) WithIsTrustedQueryOrigin(isTrustedQueryOrigin bool) Context {
+	c.isTrustedQueryOrigin = isTrustedQueryOrigin
+	return c
+}
+
+func (c Context) WithPaginationLimits(limits PaginationLimits) Context {
+	c.paginationLimits = limits
 	return c
 }
 

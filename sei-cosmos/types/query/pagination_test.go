@@ -314,13 +314,13 @@ func (s *paginationTestSuite) TestPaginateCountTotalLargeStore() {
 	}
 
 	s.T().Log("count_total scans the whole store and returns an accurate total")
-	res, err := query.Paginate(kvStore, &query.PageRequest{Limit: 1, CountTotal: true}, func(_, _ []byte) error { return nil })
+	res, err := query.Paginate(ctx, kvStore, &query.PageRequest{Limit: 1, CountTotal: true}, func(_, _ []byte) error { return nil })
 	s.Require().NoError(err)
 	s.Require().Equal(uint64(numItems), res.Total)
 
 	s.T().Log("a large offset skips entries instead of being rejected")
 	var count int
-	res, err = query.Paginate(kvStore, &query.PageRequest{Offset: 10_001, Limit: 5}, func(_, _ []byte) error {
+	res, err = query.Paginate(ctx, kvStore, &query.PageRequest{Offset: 10_001, Limit: 5}, func(_, _ []byte) error {
 		count++
 		return nil
 	})
@@ -330,7 +330,7 @@ func (s *paginationTestSuite) TestPaginateCountTotalLargeStore() {
 
 	s.T().Log("a maximum uint64 limit returns everything without overflowing")
 	count = 0
-	res, err = query.Paginate(kvStore, &query.PageRequest{Offset: 1, Limit: query.MaxLimit}, func(_, _ []byte) error {
+	res, err = query.Paginate(ctx, kvStore, &query.PageRequest{Offset: 1, Limit: query.MaxLimit}, func(_, _ []byte) error {
 		count++
 		return nil
 	})
