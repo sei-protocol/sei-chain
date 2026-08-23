@@ -3,9 +3,6 @@ package config
 import (
 	"fmt"
 	"net"
-
-	"github.com/spf13/cast"
-	"github.com/spf13/viper"
 )
 
 const (
@@ -14,7 +11,9 @@ const (
 	DefaultQueryMaxIterations = DefaultQueryMaxOffset + DefaultQueryMaxLimit
 )
 
-// QueryConfig holds node-local ABCI/gRPC pagination limits.
+// QueryConfig holds node-local ABCI/gRPC pagination limits. Runtime reads go
+// through baseapp.readQueryConfig; this type supplies template defaults and the
+// GetConfig absent-key baseline only.
 type QueryConfig struct {
 	// DisableLimits turns off all pagination limits on the query path.
 	DisableLimits bool `mapstructure:"disable-limits"`
@@ -39,52 +38,6 @@ func DefaultQueryConfig() QueryConfig {
 		MaxOffset:     DefaultQueryMaxOffset,
 		MaxIterations: DefaultQueryMaxIterations,
 	}
-}
-
-// ParseQueryConfig reads the [query] section from v.
-func ParseQueryConfig(v *viper.Viper) (QueryConfig, error) {
-	cfg := DefaultQueryConfig()
-	if v == nil {
-		return cfg, nil
-	}
-
-	if v.IsSet("query.disable-limits") {
-		cfg.DisableLimits = v.GetBool("query.disable-limits")
-	}
-
-	if v.IsSet("query.trusted-cidrs") {
-		cidrs, err := cast.ToStringSliceE(v.Get("query.trusted-cidrs"))
-		if err != nil {
-			return cfg, fmt.Errorf("invalid query.trusted-cidrs: %w", err)
-		}
-		cfg.TrustedCIDRs = cidrs
-	}
-
-	if v.IsSet("query.max-limit") {
-		limit, err := cast.ToUint64E(v.Get("query.max-limit"))
-		if err != nil {
-			return cfg, fmt.Errorf("invalid query.max-limit: %w", err)
-		}
-		cfg.MaxLimit = limit
-	}
-
-	if v.IsSet("query.max-offset") {
-		offset, err := cast.ToUint64E(v.Get("query.max-offset"))
-		if err != nil {
-			return cfg, fmt.Errorf("invalid query.max-offset: %w", err)
-		}
-		cfg.MaxOffset = offset
-	}
-
-	if v.IsSet("query.max-iterations") {
-		iterations, err := cast.ToUint64E(v.Get("query.max-iterations"))
-		if err != nil {
-			return cfg, fmt.Errorf("invalid query.max-iterations: %w", err)
-		}
-		cfg.MaxIterations = iterations
-	}
-
-	return cfg, nil
 }
 
 // ValidateQueryConfig checks trusted CIDR entries for unsafe patterns.

@@ -571,11 +571,6 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
 	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
 
-	queryCfg, err := ParseQueryConfig(v)
-	if err != nil {
-		return Config{}, err
-	}
-
 	cfg := Config{
 		BaseConfig: BaseConfig{
 			MinGasPrices:       v.GetString("minimum-gas-prices"),
@@ -671,7 +666,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			StreamImport:      v.GetBool("genesis.stream-import"),
 			GenesisStreamFile: v.GetString("genesis.genesis-stream-file"),
 		},
-		Query: queryCfg,
+		Query: DefaultQueryConfig(),
 	}
 
 	return cfg, nil
