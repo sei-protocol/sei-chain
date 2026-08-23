@@ -85,13 +85,10 @@
 // tag, an unexported field carrying a tag, two fields declaring one path, a struct that declares no
 // key, a struct that contains itself, and two keys that collapse onto one environment variable.
 //
-// Two more become possible once a key can sit at the top of a file, and neither could happen while
-// every key carried its section's name. Two sections declaring one key have one default rendered over
-// the other, and which one depends on the order the sections are walked. And a key at the top of the
-// file that is also a section's name cannot be written at all, because a file holding both a value for
-// that name and a table under it is not valid TOML, so one of the two is unreachable and nothing says
-// which. Both are refused in either registration order, since registration order is not something an
-// operator can see.
+// One more becomes possible once a key can sit at the top of a file, and it could not happen while every
+// key carried its section's name: two sections declaring one key, where one default renders over the
+// other and which one depends on the order the sections are walked. The environment check refuses it,
+// because two identical keys answer to one variable.
 //
 // Refusing the environment for a key is itself refused when it carries no reason. An operator told
 // their variable does nothing has to be told why, and a refusal with nothing to print is worse than
@@ -108,6 +105,11 @@
 //   - Not a file format. Nothing here reads or writes a configuration file.
 //   - Not a validator. A section may state rules about its own values; this package invents none.
 //   - Not wired. No section is registered by this package and no reader is migrated onto it.
+//   - Not a guard against a key and a table sharing one name. A key at the top of the file that is also
+//     a section's name cannot be written at all, because no file holds both a value for that name and a
+//     table under it, so one of the two settings is unreachable and nothing says which. One section
+//     declares keys at the top of the file today and none of its names is a section's, so the collision
+//     has no instance; a second such section is where it becomes reachable.
 //
 // # Adding a Section
 //

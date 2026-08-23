@@ -52,61 +52,11 @@ func TestARootSectionDeclaresKeysWithNoPrefix(t *testing.T) {
 	}
 }
 
-// TestARootKeyAndASectionCannotShareAName holds a limit of the file format, not a matter of taste.
-//
-// TOML cannot express a value for pruning and a table under pruning in one file, so one of the two is
-// unwritable and which one an operator lost would depend on where in the file they wrote it. Registration
-// order is not something an operator can see, so the refusal cannot depend on it either.
-func TestARootKeyAndASectionCannotShareAName(t *testing.T) {
-	nested := func() (string, any, func(registry.Mode) any) {
-		return "pruning", &struct {
-				Mode string `mapstructure:"mode"`
-			}{}, func(registry.Mode) any {
-				return struct {
-					Mode string `mapstructure:"mode"`
-				}{Mode: "nothing"}
-			}
-	}
-	root := func() (string, any, func(registry.Mode) any) {
-		return "base", &struct {
-				Pruning string `mapstructure:"pruning"`
-			}{}, func(registry.Mode) any {
-				return struct {
-					Pruning string `mapstructure:"pruning"`
-				}{Pruning: "nothing"}
-			}
-	}
-
-	t.Run("the section registers first", func(t *testing.T) {
-		registry.Reset()
-		registry.RegisterSection(nested())
-		registry.RegisterRootKeys(root())
-		if _, ok := registry.Lookup("base"); ok {
-			t.Error("the root section registered a key that is also a section name. A file cannot hold " +
-				"both, so one of them is unreachable and nothing says which")
-		}
-		if len(registry.Defects()) != 1 {
-			t.Errorf("recorded %d defects, want one naming the collision", len(registry.Defects()))
-		}
-	})
-
-	t.Run("the root key registers first", func(t *testing.T) {
-		registry.Reset()
-		registry.RegisterRootKeys(root())
-		registry.RegisterSection(nested())
-		if _, ok := registry.Lookup("pruning"); ok {
-			t.Error("a section registered under a name a root key already holds")
-		}
-		if len(registry.Defects()) != 1 {
-			t.Errorf("recorded %d defects, want one naming the collision", len(registry.Defects()))
-		}
-	})
-}
-
 // TestTwoSectionsCannotDeclareTheSameKey was impossible while every key carried its section's name.
 //
 // Two prefixes cannot collide. Two root sections can, and the default rendered for such a key would be
-// whichever section the walk reached last.
+// whichever section the walk reached last. Refused by the environment check, which two identical keys
+// reach by answering to one variable, and named as the one key it is rather than as two spellings.
 func TestTwoSectionsCannotDeclareTheSameKey(t *testing.T) {
 	registry.Reset()
 	same := func(name string) {
@@ -130,9 +80,9 @@ func TestTwoSectionsCannotDeclareTheSameKey(t *testing.T) {
 	if len(defects) != 1 {
 		t.Fatalf("recorded %d defects, want one", len(defects))
 	}
-	// Named as one key two sections declare, rather than as two spellings of one variable, which is what
-	// the environment check would have called it.
-	if got := defects[0].Err.Error(); !strings.Contains(got, "and so does") {
+	// Named as one key two sections declare rather than as two spellings of one variable, which is the
+	// reason the same check gives for the collision it was written for.
+	if got := defects[0].Err.Error(); !strings.Contains(got, "is declared by two sections") {
 		t.Errorf("the refusal reads %q, and an identical key is not an environment spelling collision", got)
 	}
 }

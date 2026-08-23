@@ -106,71 +106,12 @@ func record(name, prefix string, prototype any, defaults func(Mode) any) {
 			defects = append(defects, Defect{Section: name, Err: fmt.Errorf("section registered twice")})
 			return
 		}
-		if err := refuseOverlap(name, prefix, keys); err != nil {
-			defects = append(defects, Defect{Section: name, Err: err})
-			return
-		}
 		if err := envNamesAreDistinct(keys); err != nil {
 			defects = append(defects, Defect{Section: name, Err: err})
 			return
 		}
 		sections[name] = Section{Name: name, Prefix: prefix, Keys: keys, Defaults: defaults}
 	}
-}
-
-// refuseOverlap rejects a registration whose keys cannot coexist with what is already registered.
-// Callers hold mu.
-//
-// Two shapes of overlap, and neither could happen while every key carried its section's name. A key two
-// sections both declare has one default rendered over the other, and which one depends on the order the
-// sections are walked. And a root key that is also a section's name cannot be written at all: a file
-// holding both a value for that name and a table under it is not valid TOML, so one of the two is
-// unreachable and nothing says which.
-//
-// The first shape reaches the environment check below as well, which would refuse it for the wrong
-// reason: two spellings of one variable, when the keys are in fact the same key. This names it as itself.
-func refuseOverlap(name, prefix string, keys []string) error {
-	declaredBy := map[string]string{}
-	sectionNamed := map[string]string{}
-	for _, s := range sections {
-		for _, key := range s.Keys {
-			declaredBy[key] = s.Name
-		}
-		if s.Prefix != "" {
-			sectionNamed[s.Prefix] = s.Name
-		}
-	}
-
-	for _, key := range keys {
-		if owner, taken := declaredBy[key]; taken {
-			return fmt.Errorf("%s declares %q and so does %s; one default renders over the other and "+
-				"which one wins depends on the order the sections are walked", name, key, owner)
-		}
-		if prefix != "" {
-			continue
-		}
-		if owner, taken := sectionNamed[key]; taken {
-			return fmt.Errorf("%s declares %q at the root of the file and %s is a section of that name; "+
-				"a file cannot hold both a value for %q and a table under it, so one of them is "+
-				"unreachable", name, key, owner, key)
-		}
-	}
-
-	if prefix == "" {
-		return nil
-	}
-	for _, s := range sections {
-		if s.Prefix != "" {
-			continue
-		}
-		for _, key := range s.Keys {
-			if key == prefix {
-				return fmt.Errorf("%s is a section named %q and %s declares %q at the root of the file; "+
-					"a file cannot hold both a table and a value under that name", name, prefix, s.Name, key)
-			}
-		}
-	}
-	return nil
 }
 
 // envNamesAreDistinct refuses keys that share one environment spelling. Callers hold mu.
@@ -189,7 +130,17 @@ func envNamesAreDistinct(adding []string) error {
 	}
 	for _, key := range adding {
 		env := EnvName(key)
-		if other, taken := spellings[env]; taken {
+		other, taken := spellings[env]
+		switch {
+		case taken && other == key:
+			// Two sections declaring one key, which a prefix made impossible and a key at the root of the
+			// file does not. One section's default renders over the other's and which one depends on the
+			// order the sections are walked, so the value a node runs is decided by nothing an operator
+			// or a reviewer can see. Named as the one key it is, because the spelling reason below is not
+			// the reason here.
+			return fmt.Errorf("%q is declared by two sections; one default renders over the other and "+
+				"which one wins depends on the order the sections are walked", key)
+		case taken:
 			return fmt.Errorf("%q and %q both answer to %s, because a dot and a hyphen are the same "+
 				"character to the environment, so one of them can never be set from it", other, key, env)
 		}
