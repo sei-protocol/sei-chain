@@ -65,6 +65,21 @@ export async function cosmosQuery(): Promise<CosmosQueryClient> {
     return clientPromise;
 }
 
+/**
+ * GET `path` from the chain's LCD (`SEI_REST`, default http://localhost:1317)
+ * and return the parsed JSON. Used for modules cosmjs does not wrap (mint,
+ * params, upgrade, evidence, slashing, authz, auth). `path` must start with `/`.
+ */
+export async function cosmosRest<T = unknown>(path: string): Promise<T> {
+    const base = Endpoints.sei.rest.replace(/\/$/, '');
+    const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+        throw new Error(`cosmosRest GET ${url} -> HTTP ${res.status}: ${await res.text()}`);
+    }
+    return (await res.json()) as T;
+}
+
 const bankClient = cosmosQuery;
 
 /** Operator addresses (seivaloper1…) of the currently bonded validators. */

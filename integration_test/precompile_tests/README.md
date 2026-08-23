@@ -45,7 +45,7 @@ balances, associations, …) over RPC/REST. For every precompile, the spec file 
 ABIs are loaded from the repo's own `precompiles/<name>/abi.json` (the files the
 chain binary embeds), so specs can never drift from the deployed interface.
 
-### Current coverage (phases 1–2, wasm-free)
+### Current coverage (phases 1–3, wasm-free)
 
 | Precompile | Spec |
 |---|---|
@@ -58,12 +58,20 @@ chain binary embeds), so specs can never drift from the deployed interface.
 | oracle (0x…1008) | `precompiles/oracle.spec.ts` (retirement assertion) |
 | pointerview (0x…100A) | `precompiles/pointerview.spec.ts` |
 | pointer (0x…100b) | `precompiles/pointer.spec.ts` (`addNativePointer`; CW methods are wasm-gated) |
+| auth (0x…100D) | `precompiles/auth.spec.ts` |
+| authz (0x…100E) | `precompiles/authz.spec.ts` |
+| evidence (0x…100F) | `precompiles/evidence.spec.ts` |
 | p256 (0x…1011) | `precompiles/p256.spec.ts` |
+| mint (0x…1012) | `precompiles/mint.spec.ts` |
+| params (0x…1013) | `precompiles/params.spec.ts` |
+| slashing (0x…1014) | `precompiles/slashing.spec.ts` |
+| upgrade (0x…1015) | `precompiles/upgrade.spec.ts` |
 
-Planned next: wasm-gated flows (wasmd, pointer `addCW*`, solo CW claims) in a
-separate `wasm/` spec dir behind a live `isWasmEnabled()` check, since wasm
-deployments are blocked on production chains. The ibc precompile is out of
-scope.
+Phase 3 (PLT-372) covers the v6.7 non-wasm precompiles and the post-phase-2
+methods on bank/staking/gov/distribution (query surface + scoped authz).
+Wasm-gated flows (wasmd, pointer `addCW*`, solo CW claims) stay in a later
+`wasm/` spec dir behind a live `isWasmEnabled()` check. The ibc precompile
+and the unregistered feegrant precompile (0x…1010) are out of scope.
 
 Hard-won facts encoded in these specs (read before writing a new one):
 
