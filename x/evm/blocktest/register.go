@@ -14,7 +14,7 @@ func init() {
 	registry.RegisterSection(SectionName, &Config{}, defaults)
 }
 
-// defaults is what this section resolves to for a node that has written nothing.
+// defaults is what the seid init command writes for a node of this kind.
 //
 // The same values for every mode. This section drives a harness against recorded block data, which is
 // not something any kind of node does while serving a chain.

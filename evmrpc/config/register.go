@@ -14,9 +14,13 @@ func init() {
 	registry.RegisterSection(SectionName, &Config{}, defaults)
 }
 
-// defaults is what this section resolves to for a node that has written nothing.
+// defaults is what the seid init command writes for a node of this kind.
 //
-// The two interface toggles answer per kind of node. A full node and an archive node serve queries, which
+// That command applies the same mode rule to this section's own defaults and renders the result, and what
+// it renders is passed through rather than refilled from a mode-blind copy, so a declared value here is the
+// value that reaches the file.
+//
+// The two interface toggles are what the rule changes. A full node and an archive node serve queries, which
 // is what these interfaces are for; a validator and a seed serve none, and leaving them open would put a
 // public request surface on the node that holds a signing key. The rule is read from the registry rather
 // than restated, because the package that owns the node mode imports this one and cannot be imported back.

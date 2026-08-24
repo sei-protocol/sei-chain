@@ -18,7 +18,7 @@ func init() {
 	registry.RegisterSection(SectionName, &Config{}, defaults)
 }
 
-// defaults is what this section resolves to for a node that has written nothing.
+// defaults is what the seid init command writes for a node of this kind.
 //
 // The same values for every mode, and replay off. Turning it on makes a node replay recorded chain data
 // from an endpoint instead of following the chain, and the endpoint is a fixed third-party address, so no

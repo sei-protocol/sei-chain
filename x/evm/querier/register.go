@@ -14,7 +14,7 @@ func init() {
 	registry.RegisterSection(SectionName, &Config{}, defaults)
 }
 
-// defaults is what this section resolves to for a node that has written nothing.
+// defaults is what the seid init command writes for a node of this kind.
 //
 // The same value for every mode. The limit bounds the work a contract can ask the EVM to do inside a
 // query, and every node answers the same queries.
