@@ -454,6 +454,64 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	wg.Wait()
 }
 
+func TestTxMempool_RejectsGasWantedAboveProposalLimit(t *testing.T) {
+	gasWanted := int64(11)
+	client := &application{Application: kvstore.NewApplication(), gasWanted: &gasWanted}
+	constraints := NopTxConstraints()
+	constraints.MaxGasWanted = 10
+	txmp := setup(TestConfig(), proxy.New(client), func() (TxConstraints, error) {
+		return constraints, nil
+	})
+
+	_, err := txmp.CheckTx(t.Context(), types.Tx("sender=key=1"))
+	require.Error(t, err)
+	require.Zero(t, txmp.Size())
+}
+
+func TestTxMempool_ZeroProposalGasLimitDoesNotRejectAtAdmission(t *testing.T) {
+	gasWanted := int64(1)
+	client := &application{Application: kvstore.NewApplication(), gasWanted: &gasWanted}
+	constraints := NopTxConstraints()
+	constraints.MaxGasWanted = 0
+	txmp := setup(TestConfig(), proxy.New(client), func() (TxConstraints, error) {
+		return constraints, nil
+	})
+
+	_, err := txmp.CheckTx(t.Context(), types.Tx("sender=key=1"))
+	require.NoError(t, err)
+	require.Equal(t, 1, txmp.Size())
+	reaped, _ := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(0))}, false)
+	require.Empty(t, reaped)
+}
+
+func TestTxMempool_RecheckRefreshesGasMetadata(t *testing.T) {
+	gasWanted := int64(1)
+	gasEstimated := int64(1)
+	client := &application{
+		Application:  kvstore.NewApplication(),
+		gasWanted:    &gasWanted,
+		gasEstimated: &gasEstimated,
+	}
+	txmp := setup(TestConfig(), proxy.New(client), NopTxConstraintsFetcher)
+	tx := types.Tx("sender=key=1")
+
+	_, err := txmp.CheckTx(t.Context(), tx)
+	require.NoError(t, err)
+	reaped, _ := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(1))}, false)
+	require.Equal(t, types.Txs{tx}, reaped)
+
+	gasWanted = 9
+	gasEstimated = 9
+	txmp.Lock()
+	require.NoError(t, txmp.Update(t.Context(), 1, nil, nil, NopTxConstraints(), true))
+	txmp.Unlock()
+
+	reaped, _ = txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(8))}, false)
+	require.Empty(t, reaped)
+	reaped, _ = txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(9))}, false)
+	require.Equal(t, types.Txs{tx}, reaped)
+}
+
 func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	ctx := t.Context()
 

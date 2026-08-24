@@ -291,6 +291,67 @@ func TestTxStore_Size(t *testing.T) {
 	require.Equal(t, numTxs, txStore.State().total.count)
 }
 
+func TestTxStore_ReapSkipsUnfittableTransaction(t *testing.T) {
+	txStore := newTxStoreForTest()
+	tooLarge := &WrappedTx{
+		hashedTx:     newHashedTx(types.Tx("too-large")),
+		priority:     3,
+		gasWanted:    11,
+		estimatedGas: 11,
+		timestamp:    time.Now(),
+	}
+	firstFit := &WrappedTx{
+		hashedTx:     newHashedTx(types.Tx("first-fit")),
+		priority:     2,
+		gasWanted:    6,
+		estimatedGas: 6,
+		timestamp:    time.Now(),
+	}
+	secondFit := &WrappedTx{
+		hashedTx:     newHashedTx(types.Tx("second-fit")),
+		priority:     1,
+		gasWanted:    4,
+		estimatedGas: 4,
+		timestamp:    time.Now(),
+	}
+	for _, tx := range []*WrappedTx{tooLarge, firstFit, secondFit} {
+		require.NoError(t, txStore.Insert(tx))
+	}
+
+	reaped, _ := txStore.Reap(ReapLimits{
+		MaxGasWanted:    utils.Some(int64(10)),
+		MaxGasEstimated: utils.Some(int64(10)),
+	}, false)
+	require.Equal(t, types.Txs{firstFit.Tx(), secondFit.Tx()}, reaped)
+}
+
+func TestTxStore_ReapDoesNotSkipEVMNonceDependency(t *testing.T) {
+	rng := utils.TestRng()
+	app := newEVMNonceApp()
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
+	blockedAddress := genEvmAddress(rng)
+	selectedAddress := genEvmAddress(rng)
+	app.setBalance(blockedAddress, 1)
+	app.setBalance(selectedAddress, 1)
+
+	blockedHead := makeEvmTxForTest(rng, blockedAddress, 0, 3, 0)
+	blockedHead.gasWanted = 11
+	blockedHead.estimatedGas = 11
+	blockedTail := makeEvmTxForTest(rng, blockedAddress, 1, 2, 0)
+	selected := makeEvmTxForTest(rng, selectedAddress, 0, 1, 0)
+	selected.gasWanted = 5
+	selected.estimatedGas = 5
+	for _, tx := range []*WrappedTx{blockedHead, blockedTail, selected} {
+		require.NoError(t, txStore.Insert(tx))
+	}
+
+	reaped, _ := txStore.Reap(ReapLimits{
+		MaxGasWanted:    utils.Some(int64(10)),
+		MaxGasEstimated: utils.Some(int64(10)),
+	}, false)
+	require.Equal(t, types.Txs{selected.Tx()}, reaped)
+}
+
 func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 	rng := utils.TestRng()
 	app := newEVMNonceApp()
@@ -353,11 +414,11 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 		}
 
 		txStore.Update(updateSpec{
-			Now:           time.Now(),
-			Height:        height + 1,
-			TxResults:     map[types.TxHash]bool{},
-			Constraints:   NopTxConstraints(),
-			NewPriorities: map[types.TxHash]int64{},
+			Now:          time.Now(),
+			Height:       height + 1,
+			TxResults:    map[types.TxHash]bool{},
+			Constraints:  NopTxConstraints(),
+			RecheckedTxs: map[types.TxHash]checkedTxMetadata{},
 		})
 
 		for txHash, wtx := range env.byHash {
@@ -420,9 +481,9 @@ func testTxStoreUpdateExpiresTransactions(t *testing.T, removeExpiredTxsFromQueu
 	env.markReadyTxs()
 
 	updates := []updateSpec{
-		{Now: baseTime.Add(16 * time.Second), Height: 14, TxResults: map[types.TxHash]bool{}, Constraints: NopTxConstraints(), NewPriorities: map[types.TxHash]int64{}},
-		{Now: baseTime.Add(24 * time.Second), Height: 22, TxResults: map[types.TxHash]bool{}, Constraints: NopTxConstraints(), NewPriorities: map[types.TxHash]int64{}},
-		{Now: baseTime.Add(36 * time.Second), Height: 34, TxResults: map[types.TxHash]bool{}, Constraints: NopTxConstraints(), NewPriorities: map[types.TxHash]int64{}},
+		{Now: baseTime.Add(16 * time.Second), Height: 14, TxResults: map[types.TxHash]bool{}, Constraints: NopTxConstraints(), RecheckedTxs: map[types.TxHash]checkedTxMetadata{}},
+		{Now: baseTime.Add(24 * time.Second), Height: 22, TxResults: map[types.TxHash]bool{}, Constraints: NopTxConstraints(), RecheckedTxs: map[types.TxHash]checkedTxMetadata{}},
+		{Now: baseTime.Add(36 * time.Second), Height: 34, TxResults: map[types.TxHash]bool{}, Constraints: NopTxConstraints(), RecheckedTxs: map[types.TxHash]checkedTxMetadata{}},
 	}
 
 	for _, update := range updates {
@@ -565,11 +626,11 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			require.NoError(t, txStore.Insert(pending))
 
 			txStore.Update(updateSpec{
-				Now:           time.Unix(102, 0),
-				Height:        1,
-				TxResults:     map[types.TxHash]bool{},
-				Constraints:   NopTxConstraints(),
-				NewPriorities: map[types.TxHash]int64{},
+				Now:          time.Unix(102, 0),
+				Height:       1,
+				TxResults:    map[types.TxHash]bool{},
+				Constraints:  NopTxConstraints(),
+				RecheckedTxs: map[types.TxHash]checkedTxMetadata{},
 			})
 
 			_, readyPresent := txStore.ByHash(ready.Hash())
@@ -601,11 +662,11 @@ func TestTxStore_NoncePrunedTxsRejectedAsOldNonce(t *testing.T) {
 
 	env.app.setNonce(address, 9)
 	txStore.Update(updateSpec{
-		Now:           time.Now(),
-		Height:        1,
-		TxResults:     map[types.TxHash]bool{},
-		Constraints:   NopTxConstraints(),
-		NewPriorities: map[types.TxHash]int64{},
+		Now:          time.Now(),
+		Height:       1,
+		TxResults:    map[types.TxHash]bool{},
+		Constraints:  NopTxConstraints(),
+		RecheckedTxs: map[types.TxHash]checkedTxMetadata{},
 	})
 
 	_, readyPresent := txStore.ByHash(prunedReady.Hash())
@@ -706,11 +767,11 @@ func TestTxStore_ReplacesReadyThenPendingTxByHigherPriority(t *testing.T) {
 
 	env.app.setBalance(address, 50)
 	env.txStore.Update(updateSpec{
-		Now:           time.Now(),
-		Height:        1,
-		TxResults:     map[types.TxHash]bool{},
-		Constraints:   NopTxConstraints(),
-		NewPriorities: map[types.TxHash]int64{},
+		Now:          time.Now(),
+		Height:       1,
+		TxResults:    map[types.TxHash]bool{},
+		Constraints:  NopTxConstraints(),
+		RecheckedTxs: map[types.TxHash]checkedTxMetadata{},
 	})
 	env.assertState(t)
 

@@ -14,6 +14,7 @@ import (
 func TestTxFilter(t *testing.T) {
 	genDoc := randomGenesisDoc()
 	genDoc.ConsensusParams.Block.MaxBytes = 3000
+	genDoc.ConsensusParams.Block.MaxGasWanted = 1234
 	genDoc.ConsensusParams.Evidence.MaxBytes = 1500
 
 	// Max size of Txs is much smaller than size of block,
@@ -33,6 +34,7 @@ func TestTxFilter(t *testing.T) {
 
 		constraints := sm.TxConstraintsForState(state)
 		require.NoError(t, err)
+		assert.Equal(t, int64(1234), constraints.MaxGasWanted)
 		txSize := types.ComputeProtoSizeForTxs([]types.Tx{tc.tx})
 		if tc.isErr {
 			assert.Greater(t, txSize, constraints.MaxDataBytes, "#%v", i)

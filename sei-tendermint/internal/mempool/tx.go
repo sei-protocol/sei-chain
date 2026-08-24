@@ -66,6 +66,9 @@ func (wtx *WrappedTx) check(c TxConstraints) error {
 	if c.MaxGas >= 0 && wtx.gasWanted > c.MaxGas {
 		return fmt.Errorf("gas wanted exceeds max gas: gas wanted %d is greater than max gas %d", wtx.gasWanted, c.MaxGas)
 	}
+	if c.MaxGasWanted > 0 && wtx.gasWanted > c.MaxGasWanted {
+		return fmt.Errorf("gas wanted exceeds max gas wanted: gas wanted %d is greater than max gas wanted %d", wtx.gasWanted, c.MaxGasWanted)
+	}
 	return nil
 }
 
@@ -550,12 +553,12 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 }
 
 type updateSpec struct {
-	Now           time.Time
-	Height        int64
-	TxResults     map[types.TxHash]bool // true - success, false - failed, missing - not executed
-	Constraints   TxConstraints
-	NewPriorities map[types.TxHash]int64
-	InvalidTxs    map[types.TxHash]bool
+	Now          time.Time
+	Height       int64
+	TxResults    map[types.TxHash]bool // true - success, false - failed, missing - not executed
+	Constraints  TxConstraints
+	RecheckedTxs map[types.TxHash]checkedTxMetadata
+	InvalidTxs   map[types.TxHash]bool
 }
 
 func (s *txStore) Update(spec updateSpec) {
@@ -592,6 +595,11 @@ func (s *txStore) Update(spec updateSpec) {
 			if expired {
 				Global.ExpiredTxsAt().Add(1)
 			}
+			if metadata, ok := spec.RecheckedTxs[wtx.Hash()]; ok {
+				wtx.priority = metadata.priority
+				wtx.gasWanted = metadata.gasWanted
+				wtx.estimatedGas = metadata.estimatedGas
+			}
 			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
 			_, executed := spec.TxResults[wtx.Hash()]
 			remove := invalid || executed || (expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx)))
@@ -606,8 +614,6 @@ func (s *txStore) Update(spec updateSpec) {
 				if el, ok := wtx.readyEl.Get(); ok {
 					s.readyTxs.Remove(el)
 				}
-			} else if newPriority, ok := spec.NewPriorities[wtx.Hash()]; ok {
-				wtx.priority = newPriority
 			}
 		}
 		start := time.Now()
@@ -622,6 +628,14 @@ type ReapLimits struct {
 	MaxBytes        utils.Option[int64] // Max total bytes in proto representation.
 	MaxGasWanted    utils.Option[int64]
 	MaxGasEstimated utils.Option[int64]
+}
+
+// fitsReapCapacity reports whether a transaction fits every remaining proposal budget.
+// The budgets are independent, so a candidate must fit all three to be selectable.
+func (wtx *WrappedTx) fitsReapCapacity(remainingBytes, remainingGasWanted, remainingGasEstimated int64) bool {
+	return wtx.protoSize <= remainingBytes &&
+		wtx.gasWanted <= remainingGasWanted &&
+		wtx.estimatedGas <= remainingGasEstimated
 }
 
 // Reap returns a list of transactions within the provided tx,
@@ -649,18 +663,32 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 	var wtxs []*WrappedTx
 	for inner := range s.inner.Lock() {
 		if uint64(inner.state.Load().ready.count) >= s.config.TxNotifyThreshold { //nolint:gosec // count is non-negative
+			blockedEVMAccounts := map[common.Address]struct{}{}
 			for _, wtx := range inner.inInclusionOrder() {
-				if uint64(len(wtxs)) >= maxTxs || !inner.isReady(wtx) {
+				if uint64(len(wtxs)) >= maxTxs {
 					break
 				}
-				if maxBytes-totalSize < wtx.protoSize {
+				if !inner.isReady(wtx) {
 					break
 				}
-				if maxGasWanted-totalGasWanted < wtx.gasWanted {
-					break
+				evm, isEVM := wtx.evm.Get()
+				// Non-EVM ordering assumes transactions come from different accounts. If that
+				// assumption is violated, skipping sequence N can select N+1 and fail delivery.
+				if isEVM {
+					if _, blocked := blockedEVMAccounts[evm.address]; blocked {
+						continue
+					}
 				}
-				if maxGasEstimated-totalGasEstimated < wtx.estimatedGas {
-					break
+				if !wtx.fitsReapCapacity(
+					maxBytes-totalSize,
+					maxGasWanted-totalGasWanted,
+					maxGasEstimated-totalGasEstimated,
+				) {
+					if isEVM {
+						// A later nonce cannot be selected when this account's current nonce is skipped.
+						blockedEVMAccounts[evm.address] = struct{}{}
+					}
+					continue
 				}
 				// include tx and update totals
 				totalSize += wtx.protoSize
