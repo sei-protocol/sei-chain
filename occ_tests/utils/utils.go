@@ -40,9 +40,8 @@ import (
 
 // ignoreStoreKeys are store keys that are not compared
 var ignoredStoreKeys = map[string]struct{}{
-	"mem_capability": {},
-	"epoch":          {},
-	"deferredcache":  {},
+	"epoch":         {},
+	"deferredcache": {},
 }
 
 type TestMessage struct {

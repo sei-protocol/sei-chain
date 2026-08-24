@@ -23,9 +23,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
 	distrclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/client"
 	distributionkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
@@ -70,7 +67,6 @@ import (
 var ModuleBasics = module.NewBasicManager(
 	auth.AppModuleBasic{},
 	bank.AppModuleBasic{},
-	capability.AppModuleBasic{},
 	staking.AppModuleBasic{},
 	mint.AppModuleBasic{},
 	distribution.AppModuleBasic{},
@@ -203,7 +199,7 @@ func createTestInput(
 		minttypes.StoreKey, distributiontypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey,
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey,
-		capabilitytypes.StoreKey, authzkeeper.StoreKey,
+		authzkeeper.StoreKey,
 		types.StoreKey,
 	)
 	ms := store.NewCommitMultiStore(db)
@@ -213,11 +209,6 @@ func createTestInput(
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
 	for _, v := range tkeys {
 		ms.MountStoreWithDB(v, sdk.StoreTypeTransient, db)
-	}
-
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey)
-	for _, v := range memKeys {
-		ms.MountStoreWithDB(v, sdk.StoreTypeMemory, db)
 	}
 
 	require.NoError(t, ms.LoadLatestVersion())
@@ -245,7 +236,6 @@ func createTestInput(
 		distributiontypes.ModuleName,
 		slashingtypes.ModuleName,
 		ibctransfertypes.ModuleName,
-		capabilitytypes.ModuleName,
 		ibchost.ModuleName,
 		govtypes.ModuleName,
 		types.ModuleName,
@@ -329,21 +319,12 @@ func createTestInput(
 	faucet.Fund(ctx, distrAcc.GetAddress(), sdk.NewCoin("stake", sdk.NewInt(2000000)))
 	accountKeeper.SetModuleAccount(ctx, distrAcc)
 
-	capabilityKeeper := capabilitykeeper.NewKeeper(
-		appCodec,
-		keys[capabilitytypes.StoreKey],
-		memKeys[capabilitytypes.MemStoreKey],
-	)
-	scopedIBCKeeper := capabilityKeeper.ScopeToModule(ibchost.ModuleName)
-	scopedWasmKeeper := capabilityKeeper.ScopeToModule(types.ModuleName)
-
 	ibcKeeper := ibckeeper.NewKeeper(
 		appCodec,
 		keys[ibchost.StoreKey],
 		subspace(ibchost.ModuleName),
 		stakingKeeper,
 		upgradeKeeper,
-		scopedIBCKeeper,
 	)
 
 	router := baseapp.NewRouter()
@@ -372,8 +353,6 @@ func createTestInput(
 		stakingKeeper,
 		distKeeper,
 		ibcKeeper.ChannelKeeper,
-		&ibcKeeper.PortKeeper,
-		scopedWasmKeeper,
 		upgradekeeper.Keeper{},
 		wasmtesting.MockIBCTransferKeeper{},
 		msgRouter,
