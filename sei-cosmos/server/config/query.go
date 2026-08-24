@@ -56,9 +56,14 @@ func ApplyQueryDefaults(cfg QueryConfig) QueryConfig {
 	return cfg
 }
 
-// ValidateQueryConfig checks trusted CIDR entries for unsafe patterns.
+// ValidateQueryConfig checks query configuration for unsafe or inconsistent settings.
 func ValidateQueryConfig(cfg QueryConfig) []string {
 	var warnings []string
+	if !cfg.DisableLimits && cfg.MaxIterations < cfg.MaxOffset+cfg.MaxLimit {
+		warnings = append(warnings, fmt.Sprintf(
+			"query.max-iterations (%d) is below query.max-offset + query.max-limit (%d); requests near the offset ceiling cannot fill a page",
+			cfg.MaxIterations, cfg.MaxOffset+cfg.MaxLimit))
+	}
 	for _, cidr := range cfg.TrustedCIDRs {
 		_, network, err := net.ParseCIDR(cidr)
 		if err != nil {
