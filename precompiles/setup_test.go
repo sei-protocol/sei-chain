@@ -4,11 +4,19 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFeegrantPrecompileIsNotRegistered(t *testing.T) {
+	const feegrantAddress = "0x0000000000000000000000000000000000001010"
+
+	_, exists := precompiles.GetCustomPrecompiles("v6.7", &utils.EmptyKeepers{})[common.HexToAddress(feegrantAddress)]
+	require.False(t, exists)
+}
 
 // TestIsTransactionMatchesABIStateMutability verifies that every precompile
 // executor exposing IsTransaction agrees with its ABI: exactly the non-view

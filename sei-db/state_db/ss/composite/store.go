@@ -34,13 +34,31 @@ var _ types.ContextIteratorStore = (*CompositeStateStore)(nil)
 // CompositeStateStore routes operations between Cosmos_SS and EVM_SS.
 // Both are db_engine.StateStore; the composite itself also implements db_engine.StateStore.
 type CompositeStateStore struct {
+	compositeState
+	closeOnce sync.Once
+	closeErr  error
+}
+
+// compositeState holds everything a reopened store hands to the store the
+// caller already holds. Rollback closes the members, rebuilds them, and adopts
+// the result in one assignment, so state added here travels with it. Anything
+// added to CompositeStateStore itself does not.
+type compositeState struct {
 	cosmosStore    types.StateStore // CosmosStateStore wrapping MVCC DB
 	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
 	snapshotMgr    *snapshotCoordinator
 	config         config.StateStoreConfig
-	closeOnce      sync.Once
-	closeErr       error
+	homeDir        string
+	dbHome         string
+}
+
+// adopt takes over the members of other, which must be a freshly opened store
+// for the same home, and arms Close again for them.
+func (s *CompositeStateStore) adopt(other *CompositeStateStore) {
+	s.compositeState = other.compositeState
+	s.closeOnce = sync.Once{}
+	s.closeErr = nil
 }
 
 // NewCompositeStateStore creates a new composite state store.
@@ -49,9 +67,20 @@ func NewCompositeStateStore(
 	ssConfig config.StateStoreConfig,
 	homeDir string,
 ) (*CompositeStateStore, error) {
-	dbHome := utils.GetStateStorePath(homeDir, ssConfig.Backend)
+	dbHome := stateStoreHome(homeDir, ssConfig.Backend)
 	if ssConfig.DBDirectory != "" {
 		dbHome = ssConfig.DBDirectory
+	}
+	if err := recoverRollbackDirSwap(dbHome); err != nil {
+		return nil, fmt.Errorf("recover state store rollback directory swap: %w", err)
+	}
+	changelogPath := utils.GetChangelogPath(dbHome)
+	// Ahead of the backend, which opens its own handle on this changelog: the
+	// cut rewrites the directory, and a second handle over it would keep writing
+	// to files the cut has replaced.
+	pendingRollbackTarget, hasPendingRollback, err := completePendingRollback(changelogPath, dbHome)
+	if err != nil {
+		return nil, fmt.Errorf("complete pending state store rollback: %w", err)
 	}
 
 	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)
@@ -61,10 +90,12 @@ func NewCompositeStateStore(
 	cosmosStore := cosmos.NewCosmosStateStore(mvccDB)
 	cosmosStore.SetExternalPruning(ssConfig.ExternalPruning)
 
-	cs := &CompositeStateStore{
+	cs := &CompositeStateStore{compositeState: compositeState{
 		cosmosStore: cosmosStore,
 		config:      ssConfig,
-	}
+		homeDir:     homeDir,
+		dbHome:      dbHome,
+	}}
 
 	if ssConfig.EVMSplit {
 		evmDir := ssConfig.EVMDBDirectory
@@ -96,22 +127,36 @@ func NewCompositeStateStore(
 		}
 	}
 
-	changelogPath := utils.GetChangelogPath(dbHome)
 	if err := RecoverCompositeStateStore(changelogPath, cs); err != nil {
 		_ = cs.Close()
 		return nil, fmt.Errorf("failed to recover state store: %w", err)
+	}
+	if hasPendingRollback {
+		// The watermark can sit below the target with every entry replayed: a
+		// block with no changesets writes no changelog entry, so the last entry
+		// at or below the target may name an earlier height.
+		if cs.GetLatestVersion() < pendingRollbackTarget {
+			if err := cs.SetLatestVersion(pendingRollbackTarget); err != nil {
+				_ = cs.Close()
+				return nil, fmt.Errorf("advance state store version marker to pending rollback target %d: %w",
+					pendingRollbackTarget, err)
+			}
+		}
+		if err := clearRollbackTarget(dbHome); err != nil {
+			_ = cs.Close()
+			return nil, fmt.Errorf("clear pending state store rollback marker: %w", err)
+		}
 	}
 
 	cs.validateEVMSSPostRecovery()
 
 	if ssConfig.SnapshotInterval > 0 {
-		cosmosSnapshotRoot := utils.GetStateStoreSnapshotsPath(homeDir)
-		if ssConfig.DBDirectory != "" {
-			cosmosSnapshotRoot = utils.GetStateStoreSnapshotsSiblingPath(dbHome)
-		}
+		// Shared with the rollback, which has to resolve the same root to find
+		// the snapshots this manager writes.
+		cosmosRoot := cosmosSnapshotRoot(homeDir, dbHome, ssConfig)
 		evmStore, hasEVM := cs.evmStore.(*evm.EVMStateStore)
 		var evmSnapshotRoot string
-		roots := []string{cosmosSnapshotRoot}
+		roots := []string{cosmosRoot}
 		if hasEVM {
 			evmSnapshotRoot = utils.GetStateStoreSnapshotsSiblingPath(evmStore.Dir())
 			roots = append(roots, evmSnapshotRoot)
@@ -121,7 +166,7 @@ func NewCompositeStateStore(
 		floor := sssnapshot.NewFloor(sssnapshot.NewestCommonVersion(roots))
 
 		members := make([]snapshotMember, 0, len(roots))
-		if err := cosmosStore.StartSnapshots(cosmosSnapshotRoot, []string{dbHome}, ssConfig, floor); err != nil {
+		if err := cosmosStore.StartSnapshots(cosmosRoot, []string{dbHome}, ssConfig, floor); err != nil {
 			_ = cs.Close()
 			return nil, fmt.Errorf("start Cosmos state store snapshot manager: %w", err)
 		}
@@ -712,7 +757,7 @@ func ReplayWAL(
 		return nil
 	}
 
-	startOffset, err := findReplayStartOffset(streamHandler, firstOffset, lastOffset, fromVersion)
+	startOffset, err := wal.FindFirstOffsetAfterVersion(streamHandler, firstOffset, lastOffset, fromVersion)
 	if err != nil {
 		return fmt.Errorf("failed to find replay start offset: %w", err)
 	}
@@ -734,27 +779,4 @@ func ReplayWAL(
 		}
 		return handler(entry)
 	})
-}
-
-func findReplayStartOffset(streamHandler wal.ChangelogWAL, firstOffset, lastOffset uint64, targetVersion int64) (uint64, error) {
-	lo, hi := firstOffset, lastOffset
-	result := lastOffset + 1
-
-	for lo <= hi {
-		mid := lo + (hi-lo)/2
-		entry, err := streamHandler.ReadAt(mid)
-		if err != nil {
-			return 0, fmt.Errorf("failed to read WAL at offset %d: %w", mid, err)
-		}
-		if entry.Version > targetVersion {
-			result = mid
-			if mid == firstOffset {
-				break
-			}
-			hi = mid - 1
-		} else {
-			lo = mid + 1
-		}
-	}
-	return result, nil
 }

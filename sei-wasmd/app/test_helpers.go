@@ -26,8 +26,6 @@ import (
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
 	distrkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence"
@@ -172,10 +170,6 @@ func SetupWithGenesisValSet(t *testing.T, chainID string, valSet *tmtypes.Valida
 	},
 	)
 	require.NoError(t, err)
-	// This line is necessary due to the capability module which has a map as well as store usages,
-	// and because the initChain runs 3 times (deliver, prepare, process proposal),
-	// we need to make sure to first commit the last one so the proper values are persisted from the
-	// memory map into the store.
 	app.SetProcessProposalStateToCommit()
 
 	// commit genesis changes
@@ -384,7 +378,7 @@ func SignCheckDeliver(
 // ibc testing package causes checkState and deliverState to diverge in block time.
 func SignAndDeliver(
 	t *testing.T, txCfg client.TxConfig, app *bam.BaseApp,
-	ibcKeeper *ibckeeper.Keeper, stakingKeeper stakingkeeper.Keeper, capabilityKeeper *capabilitykeeper.Keeper, distrKeeper *distrkeeper.Keeper, slashingKeeper *slashingkeeper.Keeper, evidenceKeeper *evidencekeeper.Keeper, header tmproto.Header, msgs []sdk.Msg,
+	ibcKeeper *ibckeeper.Keeper, stakingKeeper stakingkeeper.Keeper, distrKeeper *distrkeeper.Keeper, slashingKeeper *slashingkeeper.Keeper, evidenceKeeper *evidencekeeper.Keeper, header tmproto.Header, msgs []sdk.Msg,
 	chainID string, accNums, accSeqs []uint64, expSimPass, expPass bool, priv ...cryptotypes.PrivKey,
 ) (sdk.GasInfo, *sdk.Result, error) {
 	tx, err := seiapp.GenTx(
@@ -401,7 +395,6 @@ func SignAndDeliver(
 
 	// Simulate a sending a transaction and committing a block
 	ctx := app.GetContextForDeliverTx([]byte{}).WithBlockHeader(header)
-	capability.BeginBlocker(ctx, *capabilityKeeper)
 	distribution.BeginBlocker(ctx, []abci.VoteInfo{}, *distrKeeper)
 	slashing.BeginBlocker(ctx, []abci.VoteInfo{}, *slashingKeeper)
 	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, *evidenceKeeper)

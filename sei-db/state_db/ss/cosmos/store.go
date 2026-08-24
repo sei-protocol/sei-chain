@@ -2,12 +2,13 @@ package cosmos
 
 import (
 	"context"
+	"fmt"
 
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/management"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 )
@@ -102,15 +103,15 @@ func (s *CosmosStateStore) Close() error {
 }
 
 func (s *CosmosStateStore) SupportsCheckpoint() bool {
-	return management.SupportsCheckpoint(s.db)
+	return controller.SupportsCheckpoint(s.db)
 }
 
 func (s *CosmosStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
-	management.ScheduleCheckpoint(s.db, destDir, shouldRun, done)
+	controller.ScheduleCheckpoint(s.db, destDir, shouldRun, done)
 }
 
 func (s *CosmosStateStore) SetCheckpointVersion(destDir string, version int64) error {
-	return management.SetCheckpointVersion(s.db, destDir, version)
+	return controller.SetCheckpointVersion(s.db, destDir, version)
 }
 
 func (s *CosmosStateStore) StartSnapshots(
@@ -145,4 +146,22 @@ func (s *CosmosStateStore) WaitForPendingWrites() {
 	if w, ok := s.db.(types.PendingWriteWaiter); ok {
 		w.WaitForPendingWrites()
 	}
+}
+
+func (s *CosmosStateStore) PruneWALBeforeVersion(version int64) error {
+	if p, ok := s.db.(types.SnapshotWALPruner); ok {
+		return p.PruneWALBeforeVersion(version)
+	}
+	return nil
+}
+
+// WALVersionsAfter fails rather than reporting an empty changelog when the
+// engine keeps none: a caller asking what the changelog covers cannot act on
+// "nothing" and "no such thing" as the same answer.
+func (s *CosmosStateStore) WALVersionsAfter(version int64) (oldest int64, next int64, err error) {
+	r, ok := s.db.(types.SnapshotWALReader)
+	if !ok {
+		return 0, 0, fmt.Errorf("%T does not keep a changelog WAL", s.db)
+	}
+	return r.WALVersionsAfter(version)
 }

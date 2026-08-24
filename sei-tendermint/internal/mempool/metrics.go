@@ -1,6 +1,7 @@
 package mempool
 
 import (
+	"context"
 	"math"
 	"strconv"
 
@@ -27,6 +28,7 @@ var (
 	otelMetrics = struct {
 		compactTotal           metric.Int64Counter
 		compactDurationSeconds metric.Float64Histogram
+		pendingNonce           metric.Int64Counter
 	}{
 		compactTotal: utils.OrPanic1(mempoolMeter.Int64Counter(
 			"tendermint_mempool_compact_total",
@@ -38,12 +40,38 @@ var (
 			metric.WithUnit("s"),
 			metric.WithExplicitBucketBoundaries(prometheus.ExponentialBucketsRange(0.001, 30, 14)...),
 		)),
+		pendingNonce: utils.OrPanic1(mempoolMeter.Int64Counter(
+			"tendermint_mempool_pending_nonce",
+			metric.WithDescription("EVM pending nonce events by type (added, expired, rejected, accepted)"),
+			metric.WithUnit("{count}"),
+		)),
 	}
+
+	pendingNonceEventAdded    = metric.WithAttributes(attribute.String("event", "added"))
+	pendingNonceEventExpired  = metric.WithAttributes(attribute.String("event", "expired"))
+	pendingNonceEventRejected = metric.WithAttributes(attribute.String("event", "rejected"))
+	pendingNonceEventAccepted = metric.WithAttributes(attribute.String("event", "accepted"))
 
 	triggerInsertOverflowAttr = metric.WithAttributes(attribute.String("trigger", "insert_overflow"))
 	triggerUpdateAttr         = metric.WithAttributes(attribute.String("trigger", "update"))
 	triggerReapAttr           = metric.WithAttributes(attribute.String("trigger", "reap"))
 )
+
+func recordPendingNonceAdded() {
+	otelMetrics.pendingNonce.Add(context.Background(), 1, pendingNonceEventAdded)
+}
+
+func recordPendingNonceExpired() {
+	otelMetrics.pendingNonce.Add(context.Background(), 1, pendingNonceEventExpired)
+}
+
+func recordPendingNonceRejected() {
+	otelMetrics.pendingNonce.Add(context.Background(), 1, pendingNonceEventRejected)
+}
+
+func recordPendingNonceAccepted() {
+	otelMetrics.pendingNonce.Add(context.Background(), 1, pendingNonceEventAccepted)
+}
 
 //go:generate go run ../../scripts/metricsgen -struct=Metrics
 

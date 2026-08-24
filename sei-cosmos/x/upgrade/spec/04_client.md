@@ -107,8 +107,6 @@ module_versions:
   version: "2"
 - name: evidence
   version: "1"
-- name: feegrant
-  version: "1"
 - name: genutil
   version: "1"
 - name: gov
@@ -265,10 +263,6 @@ Example Output:
       "version": "1"
     },
     {
-      "name": "feegrant",
-      "version": "1"
-    },
-    {
       "name": "genutil",
       "version": "1"
     },
@@ -408,10 +402,6 @@ Example Output:
     },
     {
       "name": "evidence",
-      "version": "1"
-    },
-    {
-      "name": "feegrant",
       "version": "1"
     },
     {

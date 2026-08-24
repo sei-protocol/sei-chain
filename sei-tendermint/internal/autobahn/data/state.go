@@ -39,7 +39,7 @@ type inner struct {
 	blockHashes  map[types.BlockHeaderHash]types.GlobalBlockNumber // blockHashes mirrors blocks (insertBlock / setPersisted)
 
 	// first is the exclusive low end of retained in-memory state: maps keep [first, next*).
-	// Advanced by runPersist(). Durable copies below first live in BlockDB.
+	// Advanced by runPersist(). Durable copies below first live in BlockStore.
 	//
 	// first <= nextAppQC <= nextAppProposal <= nextBlock <= nextQC
 	first           types.GlobalBlockNumber
@@ -178,20 +178,19 @@ func (i *inner) updateNextBlock(m *metrics.Metrics) {
 // State of the chain.
 // Contains blocks in global order and proofs of sequencing: (CommitQC) and execution result (AppQC).
 type State struct {
-	cfg     *Config
-	metrics *metrics.Metrics
-	inner   utils.Watch[*inner]
-	blockDB types.BlockDB
+	cfg        *Config
+	metrics    *metrics.Metrics
+	inner      utils.Watch[*inner]
+	blockStore types.BlockStore
 }
 
-// NewState constructs a data State, replaying persisted state from blockDB.
-// Use memblock.NewBlockDB() for an in-memory store (testing / no persistent dir).
-// The caller owns blockDB and must close it after State.Run returns (nodeImpl
+// NewState constructs a data State, replaying persisted state from blockStore.
+// The caller owns blockStore and must close it after State.Run returns (nodeImpl
 // owns this in production); State never closes it.
-func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
-	inner, err := loadFromBlockDB(cfg, blockDB)
+func NewState(cfg *Config, blockStore types.BlockStore) (*State, error) {
+	inner, err := loadFromBlockStore(cfg, blockStore)
 	if err != nil {
-		return nil, fmt.Errorf("loadFromBlockDB: %w", err)
+		return nil, fmt.Errorf("loadFromBlockStore: %w", err)
 	}
 	m := metrics.Get()
 	m.NextBlock.Receive.Set(utils.Clamp[int64](inner.nextBlock))
@@ -199,19 +198,19 @@ func NewState(cfg *Config, blockDB types.BlockDB) (*State, error) {
 	m.NextBlock.Certify.Set(utils.Clamp[int64](inner.nextAppQC))
 	m.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
 	return &State{
-		cfg:     cfg,
-		metrics: m,
-		inner:   utils.NewWatch(inner),
-		blockDB: blockDB,
+		cfg:        cfg,
+		metrics:    m,
+		inner:      utils.NewWatch(inner),
+		blockStore: blockStore,
 	}, nil
 }
 
-// loadFromBlockDB replays the persisted suffix from blockDB into s.inner.
+// loadFromBlockStore replays the persisted suffix from blockStore into s.inner.
 // Called from NewState before any goroutines are spawned.
-func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
-	suffix, err := blockDB.ReadSuffix()
+func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error) {
+	suffix, err := blockStore.ReadSuffix()
 	if err != nil {
-		return nil, fmt.Errorf("blockDB.ReadSuffix(): %w", err)
+		return nil, fmt.Errorf("blockStore.ReadSuffix(): %w", err)
 	}
 	firstBlock := cfg.Registry.FirstBlock()
 	status := suffix.Status.Or(types.SuffixRange{
@@ -237,7 +236,7 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	}
 	for _, qc := range suffix.CommitQCs {
 		if err := inner.insertQC(cfg.Registry, qc); err != nil {
-			return nil, fmt.Errorf("load QC from BlockDB: %w", err)
+			return nil, fmt.Errorf("load QC from BlockStore: %w", err)
 		}
 	}
 	for _, b := range suffix.Blocks {
@@ -248,10 +247,10 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 			return nil, fmt.Errorf("unknown epoch_index %d", ei)
 		}
 		if err := b.Block.Verify(e.Committee()); err != nil {
-			return nil, fmt.Errorf("verify block %d from BlockDB: %w", b.Number, err)
+			return nil, fmt.Errorf("verify block %d from BlockStore: %w", b.Number, err)
 		}
 		if err := inner.insertBlock(b.Number, b.Block); err != nil {
-			return nil, fmt.Errorf("insert block %d from BlockDB: %w", b.Number, err)
+			return nil, fmt.Errorf("insert block %d from BlockStore: %w", b.Number, err)
 		}
 	}
 	// Advance nextBlock through contiguous loaded blocks. Don't use
@@ -259,12 +258,12 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 	inner.nextBlock = max(inner.first, status.NextBlock)
 	for _, appProposal := range suffix.AppProposals {
 		if err := inner.insertAppProposal(appProposal); err != nil {
-			return nil, fmt.Errorf("load AppProposal from BlockDB: %w", err)
+			return nil, fmt.Errorf("load AppProposal from BlockStore: %w", err)
 		}
 	}
 	for _, appQC := range suffix.AppQCs {
 		if err := inner.insertAppQC(cfg.Registry, appQC); err != nil {
-			return nil, fmt.Errorf("load AppQC from BlockDB: %w", err)
+			return nil, fmt.Errorf("load AppQC from BlockStore: %w", err)
 		}
 	}
 	inner.setAnchor()
@@ -272,7 +271,7 @@ func loadFromBlockDB(cfg *Config, blockDB types.BlockDB) (*inner, error) {
 }
 
 func (s *State) First() types.GlobalBlockNumber {
-	return max(s.blockDB.First(), s.cfg.Registry.FirstBlock())
+	return max(s.blockStore.First(), s.cfg.Registry.FirstBlock())
 }
 
 // Registry returns the epoch registry.
@@ -360,7 +359,7 @@ func (s *State) QC(ctx context.Context, n types.GlobalBlockNumber) (*types.FullC
 		}); err != nil {
 			return nil, err
 		}
-		// [first, nextQC) is retained in RAM; below that use BlockDB.
+		// [first, nextQC) is retained in RAM; below that use BlockStore.
 		if n < inner.first {
 			break
 		}
@@ -428,9 +427,9 @@ func (s *State) NextAppQC() types.GlobalBlockNumber {
 // hashes to the given value, or None if no such block is currently retained.
 // Non-blocking. Serves from RAM whenever the hash is still indexed (contiguous
 // prefix, gap-fills, and executed heights not yet dropped by setPersisted).
-// Falls back to BlockDB only after eviction removes the hash — matching
+// Falls back to BlockStore only after eviction removes the hash — matching
 // Block/TryBlock/QC, which also prefer maps before the store. Gap-fills are
-// not written to BlockDB until nextBlock catches up, so they must be served
+// not written to BlockStore until nextBlock catches up, so they must be served
 // from RAM here; Block/TryBlock continue to hide gaps by number.
 func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
 	for inner := range s.inner.Lock() {
@@ -448,7 +447,7 @@ func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*typ
 
 // Block returns the block with the given global number.
 // Waits until the contiguous prefix reaches n (n < nextBlock), then returns
-// it from memory or BlockDB. Does not expose gaps ahead of nextBlock.
+// it from memory or BlockStore. Does not expose gaps ahead of nextBlock.
 // This function is used for syncing - GlobalBlock can be derived from Block and FullCommitQC,
 // which have to be fetched upfront anyway.
 func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Block, error) {
@@ -458,7 +457,7 @@ func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Bl
 		}); err != nil {
 			return nil, err
 		}
-		// [first, nextBlock) is retained in RAM; below that use BlockDB.
+		// [first, nextBlock) is retained in RAM; below that use BlockStore.
 		if n < inner.first {
 			break
 		}
@@ -470,8 +469,8 @@ func (s *State) Block(ctx context.Context, n types.GlobalBlockNumber) (*types.Bl
 // TryBlock returns the block with the given global number.
 // Returns ErrNotFound if n is not yet in the contiguous prefix (n >= nextBlock),
 // including gap-fills stored above nextBlock — same no-gap contract as Block.
-// Returns ErrPruned if BlockDB no longer has an evicted height.
-// Evicted-but-still-durable heights (n < nextBlock) load from BlockDB.
+// Returns ErrPruned if BlockStore no longer has an evicted height.
+// Evicted-but-still-durable heights (n < nextBlock) load from BlockStore.
 func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 	for inner := range s.inner.Lock() {
 		if n >= inner.nextBlock {
@@ -489,7 +488,7 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 // False when n is already past nextBlock (including heights pruned or
 // evicted from RAM) or an in-memory gap-fill is present. Unlike TryBlock,
 // gap-fills count as satisfied so the fetcher does not keep re-requesting
-// them while a lower contiguous hole is open. Does not consult BlockDB.
+// them while a lower contiguous hole is open. Does not consult BlockStore.
 func (s *State) NeedBlock(n types.GlobalBlockNumber) bool {
 	for inner := range s.inner.Lock() {
 		if n < inner.nextBlock {
@@ -503,7 +502,7 @@ func (s *State) NeedBlock(n types.GlobalBlockNumber) bool {
 
 // assembleGlobalBlock builds a GlobalBlock from a block and its covering QC.
 // Callers must supply non-nil b and fqc for height n. In-memory paths look up
-// maps only for heights still indexed there (including gap-fills); BlockDB
+// maps only for heights still indexed there (including gap-fills); BlockStore
 // fallbacks pass values already loaded from the store.
 func assembleGlobalBlock(n types.GlobalBlockNumber, b *types.Block, fqc *types.FullCommitQC) *types.GlobalBlock {
 	qc := fqc.QC()
@@ -517,8 +516,8 @@ func assembleGlobalBlock(n types.GlobalBlockNumber, b *types.Block, fqc *types.F
 
 // GlobalBlock returns the block with the given global number.
 // Waits until the contiguous prefix reaches n (same no-gap contract as Block).
-// Returns ErrPruned if the block has already been pruned from BlockDB.
-// Falls back to BlockDB when the entry was evicted from memory after persist.
+// Returns ErrPruned if the block has already been pruned from BlockStore.
+// Falls back to BlockStore when the entry was evicted from memory after persist.
 func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*types.GlobalBlock, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -535,9 +534,9 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 }
 
 func (s *State) blockFromDB(n types.GlobalBlockNumber) (*types.Block, error) {
-	opt, err := s.blockDB.ReadBlockByNumber(n)
+	opt, err := s.blockStore.ReadBlockByNumber(n)
 	if err != nil {
-		return nil, fmt.Errorf("blockDB.ReadBlockByNumber(%d): %w", n, err)
+		return nil, fmt.Errorf("blockStore.ReadBlockByNumber(%d): %w", n, err)
 	}
 	b, ok := opt.Get()
 	if !ok {
@@ -549,9 +548,9 @@ func (s *State) blockFromDB(n types.GlobalBlockNumber) (*types.Block, error) {
 }
 
 func (s *State) qcFromDB(n types.GlobalBlockNumber) (*types.FullCommitQC, error) {
-	opt, err := s.blockDB.ReadQCByBlockNumber(n)
+	opt, err := s.blockStore.ReadQCByBlockNumber(n)
 	if err != nil {
-		return nil, fmt.Errorf("blockDB.ReadQCByBlockNumber(%d): %w", n, err)
+		return nil, fmt.Errorf("blockStore.ReadQCByBlockNumber(%d): %w", n, err)
 	}
 	qc, ok := opt.Get()
 	if !ok {
@@ -561,9 +560,9 @@ func (s *State) qcFromDB(n types.GlobalBlockNumber) (*types.FullCommitQC, error)
 }
 
 func (s *State) appQCFromDB(n types.GlobalBlockNumber) (*types.AppQC, error) {
-	opt, err := s.blockDB.ReadAppQCByBlockNumber(n)
+	opt, err := s.blockStore.ReadAppQCByBlockNumber(n)
 	if err != nil {
-		return nil, fmt.Errorf("blockDB.ReadAppQCByBlockNumber(%d): %w", n, err)
+		return nil, fmt.Errorf("blockStore.ReadAppQCByBlockNumber(%d): %w", n, err)
 	}
 	if appQC, ok := opt.Get(); ok {
 		return appQC, nil
@@ -584,9 +583,9 @@ func (s *State) globalBlockFromDB(n types.GlobalBlockNumber) (*types.GlobalBlock
 }
 
 func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
-	opt, err := s.blockDB.ReadBlockByHash(hash)
+	opt, err := s.blockStore.ReadBlockByHash(hash)
 	if err != nil {
-		return utils.None[*types.GlobalBlock](), fmt.Errorf("blockDB.ReadBlockByHash: %w", err)
+		return utils.None[*types.GlobalBlock](), fmt.Errorf("blockStore.ReadBlockByHash: %w", err)
 	}
 	bn, ok := opt.Get()
 	if !ok {
@@ -640,7 +639,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 		ctrl.Updated()
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
-		// TODO(gprusak): this is a temporary measure, until AppHashes are persisted outside of BlockDB.
+		// TODO(gprusak): this is a temporary measure, until AppHashes are persisted outside of BlockStore.
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.persisted.NextAppProposal }); err != nil {
 			return err
 		}
@@ -749,27 +748,27 @@ func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n type
 	panic("unreachable")
 }
 
-// PruneBefore asks BlockDB to drop data before retainFrom. This is independent
+// PruneBefore asks BlockStore to drop data before retainFrom. This is independent
 // of in-memory retention: RAM is cleared only by setPersisted.
-// BlockDB enforces its own never-empty retention and refuses reads below its
+// BlockStore enforces its own never-empty retention and refuses reads below its
 // watermark.
 func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
-	return s.blockDB.PruneBefore(retainFrom)
+	return s.blockStore.PruneBefore(retainFrom)
 }
 
 // runPersist is a background goroutine that persists QCs, blocks,
-// AppProposals, and AppQCs to BlockDB. It waits for in-memory data to advance
+// AppProposals, and AppQCs to BlockStore. It waits for in-memory data to advance
 // past the SuffixRange persistence cursor, then writes each stream in cursor
 // order and flushes once per batch. persisted.NextBlock advances with the
 // block tip to unblock PushAppHash only when data is durable.
 // Errors propagate vertically (kill the component).
 //
-// Cursors seed from BlockDB.Status() when non-zero so PushQC-before-Run heights
+// Cursors seed from BlockStore.Status() when non-zero so PushQC-before-Run heights
 // are not skipped. When a tip is zero, seed from the recovery floor, never bare
 // registry.FirstBlock() — a QC-only store can skipTo past genesis while
 // NextBlock is still zero.
 //
-// Under the BlockDB write contract (QC before covered blocks), NextQC is never
+// Under the BlockStore write contract (QC before covered blocks), NextQC is never
 // behind NextBlock after a successful write. Persistence is driven by the block
 // cursor; a QC is emitted only when n equals GlobalRange.First and that First
 // is still at or past NextQC (enough coverage for each new block, not every
@@ -818,28 +817,28 @@ func (s *State) runPersist(ctx context.Context) error {
 		// Write data in order: QCs,blocks,appProposals,appQCs
 		// to maintain the invariants.
 		for _, qc := range qcs {
-			if err := s.blockDB.WriteQC(qc); err != nil {
+			if err := s.blockStore.WriteQC(qc); err != nil {
 				return fmt.Errorf("write QC %d: %w", qc.QC().Index(), err)
 			}
 		}
 		for _, lb := range blocks {
-			if err := s.blockDB.WriteBlock(lb.n, lb.block); err != nil {
+			if err := s.blockStore.WriteBlock(lb.n, lb.block); err != nil {
 				return fmt.Errorf("write block %d: %w", lb.n, err)
 			}
 		}
 		for _, appProposal := range appProposals {
-			if err := s.blockDB.WriteAppProposal(appProposal); err != nil {
+			if err := s.blockStore.WriteAppProposal(appProposal); err != nil {
 				return fmt.Errorf("write AppProposal %d: %w", appProposal.RoadIndex(), err)
 			}
 		}
 		for _, appQC := range appQCs {
-			if err := s.blockDB.WriteAppQC(appQC); err != nil {
+			if err := s.blockStore.WriteAppQC(appQC); err != nil {
 				return fmt.Errorf("write AppQC %d: %w", appQC.Proposal().RoadIndex(), err)
 			}
 		}
 		// Flush the new data.
-		if err := s.blockDB.Flush(); err != nil {
-			return fmt.Errorf("flush BlockDB: %w", err)
+		if err := s.blockStore.Flush(); err != nil {
+			return fmt.Errorf("flush BlockStore: %w", err)
 		}
 		// Prune the inner state.
 		for inner, ctrl := range s.inner.Lock() {

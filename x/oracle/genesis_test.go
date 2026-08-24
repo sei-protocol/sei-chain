@@ -13,7 +13,7 @@ import (
 )
 
 func TestExportInitGenesis(t *testing.T) {
-	input, _ := setup(t)
+	input := setup(t)
 
 	input.OracleKeeper.SetFeederDelegation(input.Ctx, testutils.ValAddrs[0], testutils.Addrs[1])
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, "denom", sdk.NewDec(123))

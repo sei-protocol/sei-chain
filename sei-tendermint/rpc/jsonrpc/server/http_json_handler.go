@@ -13,8 +13,6 @@ import (
 
 // HTTP + JSON handler
 
-const REQUEST_BATCH_SIZE_LIMIT = 10
-
 // jsonrpc calls grab the given method's function info and runs reflect.Call
 func makeJSONRPCHandler(funcMap map[string]*RPCFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, hreq *http.Request) {
@@ -41,7 +39,7 @@ func makeJSONRPCHandler(funcMap map[string]*RPCFunc) http.HandlerFunc {
 		}
 
 		requests, err := parseRequests(b)
-		if len(requests) > REQUEST_BATCH_SIZE_LIMIT {
+		if len(requests) > rpctypes.RequestBatchSizeLimit {
 			writeRPCResponse(w, rpctypes.RPCRequest{}.MakeErrorf(
 				rpctypes.CodeParseError, "Batch size limit exceeded."))
 			return
