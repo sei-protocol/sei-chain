@@ -211,8 +211,7 @@ func (ctx Context) WithFromAddress(addr sdk.AccAddress) Context {
 	return ctx
 }
 
-// WithFeeGranterAddress returns a copy of the context with an updated fee granter account
-// address.
+// WithFeeGranterAddress returns a copy of the context with an updated fee granter address.
 func (ctx Context) WithFeeGranterAddress(addr sdk.AccAddress) Context {
 	ctx.FeeGranter = addr
 	return ctx

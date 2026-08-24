@@ -78,13 +78,9 @@ func (coin DecCoin) IsLT(other DecCoin) bool {
 	return coin.Amount.LT(other.Amount)
 }
 
-// IsEqual returns true if the two sets of Coins have the same value.
+// IsEqual returns true if both decimal coins have the same denomination and amount.
 func (coin DecCoin) IsEqual(other DecCoin) bool {
-	if coin.Denom != other.Denom {
-		panic(fmt.Sprintf("invalid coin denominations; %s, %s", coin.Denom, other.Denom))
-	}
-
-	return coin.Amount.Equal(other.Amount)
+	return coin.Denom == other.Denom && coin.Amount.Equal(other.Amount)
 }
 
 // Add adds amounts of two decimal coins with same denom.

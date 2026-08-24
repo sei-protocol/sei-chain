@@ -114,14 +114,6 @@
           "Params": "AuthzParams"
         }
       }
-    },
-    {
-      "url": "./tmp-swagger-gen/cosmos/feegrant/v1beta1/query.swagger.json",
-      "operationIds": {
-        "rename": {
-          "Params": "FeegrantParams"
-        }
-      }
     }
   ]
 }

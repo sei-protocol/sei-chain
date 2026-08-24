@@ -19,6 +19,8 @@ COMMIT := $(shell git log -1 --format='%H')
 
 BUILDDIR ?= $(CURDIR)/build
 INVARIANT_CHECK_INTERVAL ?= $(INVARIANT_CHECK_INTERVAL:-0)
+# Pinned here so the lint targets and .github/workflows/golangci.yml cannot drift apart.
+GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0
 export PROJECT_HOME=$(shell git rev-parse --show-toplevel)
 # Parent of the Go module cache. Derived from `go env GOMODCACHE` so that the
 # container/compose mounts (`$(GO_PKG_PATH)/mod`) follow a relocated GOMODCACHE
@@ -171,17 +173,26 @@ go.sum: go.mod
 		@go mod verify
 
 lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run
-	go fmt ./...
+	$(GOLANGCI_LINT) run
+	$(GOLANGCI_LINT) fmt
 	go vet ./...
 	go mod tidy
 	go mod verify
 
+# Report any file gofmt or goimports would rewrite, without rewriting it. This is the
+# form CI gates on; `make lint` runs the same check in write mode.
+#
+# It is a separate invocation from `golangci-lint run` because that command honours
+# run.tests, which is false, so its formatters never see a _test.go file. `fmt` ignores
+# run.tests and therefore covers them.
+fmtcheck:
+	$(GOLANGCI_LINT) fmt --diff
+
 # Run lint on the sei-db package. Much faster than running lint on the entire project.
 # Makes life easier for storage team when iterating on changes inside the sei-db package.
 dblint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run ./sei-db/...
-	go fmt ./sei-db/...
+	$(GOLANGCI_LINT) run ./sei-db/...
+	$(GOLANGCI_LINT) fmt ./sei-db/...
 	go vet ./sei-db/...
 
 build:

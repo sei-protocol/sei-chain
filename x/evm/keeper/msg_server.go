@@ -353,5 +353,5 @@ func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *typ
 }
 
 func (server msgServer) Associate(context.Context, *types.MsgAssociate) (*types.MsgAssociateResponse, error) {
-	return &types.MsgAssociateResponse{}, nil
+	return nil, types.ErrAssociateDeprecated
 }
