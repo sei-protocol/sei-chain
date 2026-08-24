@@ -603,9 +603,10 @@ func (s *txStore) Update(spec updateSpec) {
 			}
 			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
 			_, executed := spec.TxResults[wtx.Hash()]
-			remove := invalid || executed || (expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx)))
+			removedByExpiry := expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx))
+			remove := invalid || executed || removedByExpiry
 			if remove {
-				if expired && wtx.evm.IsPresent() {
+				if removedByExpiry && wtx.evm.IsPresent() {
 					recordPendingNonceExpired()
 				}
 				// KeepInvalidTxsInCache decides whether we invalidate txs removed from mempool for any reason.
