@@ -244,11 +244,60 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	if err != nil {
 		return nil, fmt.Errorf("app.Commit(): %w", err)
 	}
+	// Indexer-backed RPCs (broadcast_tx_commit, /tx) wait on these events.
+	r.publishExecutedBlockEvents(b, proposerAddress, resp)
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
 	return commitResp, nil
+}
+
+// publishExecutedBlockEvents publishes NewBlock, NewBlockHeader, and per-tx
+// events for a committed Autobahn block.
+func (r *gigaRouterCommon) publishExecutedBlockEvents(
+	b *atypes.GlobalBlock,
+	proposer types.Address,
+	resp *abci.ResponseFinalizeBlock,
+) {
+	translated := r.translateGlobalBlock(b)
+	translated.Block.Header.ProposerAddress = proposer
+	block := translated.Block
+	blockID := translated.BlockID
+	if len(resp.TxResults) != len(block.Txs) {
+		panic(fmt.Sprintf("number of TXs (%d) and ABCI TX responses (%d) do not match",
+			len(block.Txs), len(resp.TxResults)))
+	}
+	eventBus := r.cfg.EventBus
+
+	if err := eventBus.PublishEventNewBlock(types.EventDataNewBlock{
+		Block:               block,
+		BlockID:             blockID,
+		ResultFinalizeBlock: *resp,
+	}); err != nil {
+		logger.Error("failed publishing new block", "err", err)
+	}
+
+	if err := eventBus.PublishEventNewBlockHeader(types.EventDataNewBlockHeader{
+		Header:              block.Header,
+		NumTxs:              int64(len(block.Txs)),
+		ResultFinalizeBlock: *resp,
+	}); err != nil {
+		logger.Error("failed publishing new block header", "err", err)
+	}
+
+	for i, tx := range block.Txs {
+		if err := eventBus.PublishEventTx(types.EventDataTx{
+			TxResultV2: abci.TxResultV2{
+				Height: block.Height,
+				Index:  uint32(i), //nolint:gosec // i is bounded by block.Txs length which fits in uint32
+				Tx:     tx,
+				Result: *(resp.TxResults[i]),
+			},
+		}); err != nil {
+			logger.Error("failed publishing event TX", "err", err)
+		}
+	}
 }
 
 // manages lifecycle of evmrpc connections to validators.

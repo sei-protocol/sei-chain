@@ -52,6 +52,10 @@ type GigaRouterCommonConfig struct {
 
 	// Whether validator should proxy txs which do not belong to the local node.
 	EnableEvmProxy bool
+
+	// EventBus receives NewBlock, NewBlockHeader, and per-tx events after
+	// each Autobahn commit.
+	EventBus types.BlockEventPublisher
 }
 
 // GigaValidatorConfig configures a committee-member GigaRouter.

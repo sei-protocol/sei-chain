@@ -18,10 +18,12 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -60,6 +62,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		var apps []*testApp
 		var gigas []*gigaValidatorRouter
 		var allTxs [][]byte
+		var indexSink indexer.EventSink
+		var indexSub eventbus.Subscription
 		for i, cfg := range cfgs {
 			nodeInfo := makeInfo(cfg.nodeKey)
 			nodeInfo.ListenAddr = cfg.addr.String()
@@ -80,6 +84,12 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			blockStore, err := blockstore.New(db)
 			require.NoError(t, err, "blockstore.New[%v]", i)
 			t.Cleanup(func() { _ = blockStore.Close() })
+			bus := startedEventBus(t)
+			if i == 0 {
+				// Setup: node 0 KV indexer (the sink BroadcastTxCommit polls).
+				indexSink = startedTxIndexer(t, bus)
+				indexSub = subscribe(t, bus, "node0-txs", types.EventQueryTx, 1024)
+			}
 			commonCfg := GigaRouterCommonConfig{
 				// Aggressive dialing rate to speed up startup.
 				DialInterval:       100 * time.Millisecond,
@@ -88,6 +98,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				App:                proxyApp,
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
+				EventBus:           bus,
 			}
 			dataState, err := BuildDataState(&commonCfg, blockStore)
 			require.NoError(t, err, "BuildDataState[%v]", i)
@@ -145,6 +156,14 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			for _, tx := range allTxs {
 				require.NoError(t, app.WaitForTx(ctx, tx), "WaitForTx")
 			}
+		}
+		// Validate: every submitted tx is in the KV indexer by hash.
+		waitForN(t, indexSub, len(allTxs))
+		for _, tx := range allTxs {
+			got, err := indexSink.GetTxByHash(types.Tx(tx).Hash().Bytes())
+			require.NoError(t, err, "GetTxByHash")
+			require.NotNil(t, got)
+			require.Equal(t, tx, []byte(got.Tx))
 		}
 		// Nodes should agree on the final state.
 		want := apps[0].Snapshot()

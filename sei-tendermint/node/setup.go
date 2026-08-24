@@ -290,6 +290,7 @@ func buildGigaRouter(
 	validatorKey utils.Option[atypes.SecretKey],
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
+	eventBus types.BlockEventPublisher,
 ) (p2p.GigaRouter, atypes.BlockStore, error) {
 	fc, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
@@ -325,6 +326,7 @@ func buildGigaRouter(
 		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
+		valCfg.EventBus = eventBus
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		blockStore, err := openBlockStore(&valCfg.GigaRouterCommonConfig, fc.BlockDB)
 		if err != nil {
@@ -352,6 +354,7 @@ func buildGigaRouter(
 	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 	// enable/disable decision through as plain config.
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
+	fnCfg.EventBus = eventBus
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	blockStore, err := openBlockStore(fnCfg, fc.BlockDB)
 	if err != nil {
@@ -535,6 +538,7 @@ func createRouter(
 	app utils.Option[*proxy.Proxy],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
+	eventBus types.BlockEventPublisher,
 ) (*p2p.Router, closer, utils.Option[atypes.BlockStore], error) {
 	closer := func() error { return nil }
 	noneDB := utils.None[atypes.BlockStore]()
@@ -596,7 +600,7 @@ func createRouter(
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires app")
 		}
-		giga, blockStore, err := buildGigaRouter(cfg, nodeKey, validatorKey, proxyApp, genDoc)
+		giga, blockStore, err := buildGigaRouter(cfg, nodeKey, validatorKey, proxyApp, genDoc, eventBus)
 		if err != nil {
 			return nil, closer, noneDB, err
 		}

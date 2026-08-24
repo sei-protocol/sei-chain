@@ -78,6 +78,8 @@ func makeSeedNode(
 		return nil, err
 	}
 
+	eventBus := eventbus.NewDefault()
+
 	router, peerCloser, _, err := createRouter(
 		func() *types.NodeInfo { return &nodeInfo },
 		nodeKey,
@@ -86,6 +88,7 @@ func makeSeedNode(
 		utils.None[*proxy.Proxy](),
 		genDoc,
 		dbProvider,
+		eventBus,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {
@@ -107,7 +110,6 @@ func makeSeedNode(
 	if err != nil {
 		return nil, fmt.Errorf("sink.EventSinksFromConfig(): %w", err)
 	}
-	eventBus := eventbus.NewDefault()
 
 	stateStore := sm.NewStore(stateDB)
 

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -14,7 +16,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink/kv"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -29,6 +34,26 @@ func registerEvmProxyForTest(t *testing.T, router *gigaRouterCommon, validator a
 		proxies[validator] = client
 	}
 	return client
+}
+
+func startedEventBus(t *testing.T) *eventbus.EventBus {
+	t.Helper()
+	bus := eventbus.NewDefault()
+	require.NoError(t, bus.Start(t.Context()))
+	t.Cleanup(bus.Wait)
+	return bus
+}
+
+func startedTxIndexer(t *testing.T, bus *eventbus.EventBus) indexer.EventSink {
+	t.Helper()
+	sink := kv.NewEventSink(dbm.NewMemDB(), nil)
+	svc := indexer.NewService(indexer.ServiceArgs{
+		Sinks:    []indexer.EventSink{sink},
+		EventBus: bus,
+	})
+	require.NoError(t, svc.Start(t.Context()))
+	t.Cleanup(svc.Wait)
+	return sink
 }
 
 type fixedHeightApp struct {

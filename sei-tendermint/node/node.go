@@ -292,6 +292,7 @@ func makeNode(
 		utils.Some(proxyApp),
 		genDoc,
 		dbProvider,
+		eventBus,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {
