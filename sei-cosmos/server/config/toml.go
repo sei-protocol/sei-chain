@@ -100,8 +100,11 @@ snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
 # that are not exposed to untrusted callers.
 disable-limits = {{ .Query.DisableLimits }}
 
-# TrustedCIDRs lists caller CIDRs that bypass pagination limits. Typical entries are
-# internal indexer subnets or loopback for local services.
+# TrustedCIDRs lists caller CIDRs that bypass pagination limits. Matching uses the
+# direct TCP peer (HTTP RemoteAddr or gRPC peer address), not forwarded headers.
+# Behind a load balancer or reverse proxy every external client shares the proxy
+# address, so adding the proxy CIDR here bypasses limits for all traffic through
+# that ingress, not just internal indexers.
 trusted-cidrs = [{{ range $i, $cidr := .Query.TrustedCIDRs }}{{if $i}}, {{end}}"{{ $cidr }}"{{ end }}]
 
 # MaxLimit is the maximum page size for untrusted query origins. 0 uses the default.

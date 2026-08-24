@@ -19,6 +19,7 @@ type QueryConfig struct {
 	DisableLimits bool `mapstructure:"disable-limits"`
 
 	// TrustedCIDRs is a CIDR allowlist whose callers receive unlimited pagination.
+	// Matching uses the direct TCP peer, not forwarded client headers.
 	TrustedCIDRs []string `mapstructure:"trusted-cidrs"`
 
 	// MaxLimit is the maximum page size for untrusted query origins.
