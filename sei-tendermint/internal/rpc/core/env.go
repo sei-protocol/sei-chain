@@ -93,6 +93,9 @@ type Environment struct {
 
 	Config config.RPCConfig
 
+	// TxBroadcastDisabled rejects transaction submission while preserving mempool reads.
+	TxBroadcastDisabled bool
+
 	// cache of chunked genesis data.
 	genChunks []string
 }

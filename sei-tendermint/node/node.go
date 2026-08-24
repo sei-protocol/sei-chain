@@ -273,6 +273,8 @@ func makeNode(
 			EventBus:   eventBus,
 			EventLog:   eventLogOpt,
 			Config:     *cfg.RPC,
+
+			TxBroadcastDisabled: opts.freezeHeight > 0,
 		},
 	}
 
@@ -332,8 +334,8 @@ func makeNode(
 	if !gigaEnabled {
 		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, sm.TxConstraintsFetcherFromStore(stateStore))
 		node.mempool = utils.Some(mp)
+		node.rpcEnv.Mempool = utils.Some(mp)
 		if opts.freezeHeight == 0 {
-			node.rpcEnv.Mempool = utils.Some(mp)
 			mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
 			if err != nil {
 				return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
@@ -564,7 +566,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 
 	// TODO: Fetch and provide real options and do proper p2p bootstrapping.
 	// TODO: Use a persistent peer database.
-	n.nodeInfo, err = makeNodeInfo(n.config, n.nodeKey, n.eventSinks, n.genesisDoc, state.Version.Consensus)
+	n.nodeInfo, err = makeNodeInfo(n.config, n.nodeKey, n.eventSinks, n.genesisDoc, state.Version.Consensus, n.freezeHeight == 0)
 	if err != nil {
 		return err
 	}
