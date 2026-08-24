@@ -187,7 +187,7 @@ func gatherNonAccountValues(
 type accountUpdater struct {
 	// pending is the fields this block set, keyed by physical key. Values are parsed when this is
 	// built, so folding a row cannot fail on a malformed change.
-	pending map[string]*vtype.PendingAccountWrite
+	pending map[string]vtype.PendingAccountWrite
 
 	// keys names every account the block touched. Held alongside pending because BatchUpdate needs the
 	// keys as a slice, and building it here means walking the map once rather than once per write.
@@ -237,7 +237,9 @@ func (u *accountUpdater) NewValueFor(key string, priorValue []byte) ([]byte, err
 
 	// Merge copies rather than writing through, so the value handed back does not alias the row the
 	// store still holds for earlier versions.
-	merged := u.pending[key].Merge(stored, u.blockHeight)
+	// Copied out of the map so the pointer-receiver methods have something addressable to work on.
+	pending := u.pending[key]
+	merged := pending.Merge(stored, u.blockHeight)
 	if merged.IsDelete() {
 		return nil, nil
 	}
@@ -556,54 +558,58 @@ func toMiscValues(
 	return result, nil
 }
 
-// Merge account updates down into a single update per account.
+// mergeAccountUpdates folds a block's per-field account changes into one pending write per account,
+// parsing every value as it goes so a malformed change fails here rather than mid-write.
+//
+// The map holds pending writes by value: a block touches thousands of accounts, and a pointer per
+// account was measured as most of this function's cost.
 func mergeAccountUpdates(
 	nonceChanges []classifiedChange,
 	codeHashChanges []classifiedChange,
 	balanceChanges []classifiedChange,
-) (map[string]*vtype.PendingAccountWrite, error) {
+) (map[string]vtype.PendingAccountWrite, error) {
 
-	updates := make(map[string]*vtype.PendingAccountWrite, len(nonceChanges)+len(codeHashChanges))
+	updates := make(map[string]vtype.PendingAccountWrite, len(nonceChanges)+len(codeHashChanges))
 
 	for _, change := range nonceChanges {
-		if change.value == nil {
-			// Deletion is equivalent to setting the nonce to 0
-			updates[change.key] = updates[change.key].SetNonce(0)
-		} else {
-			nonce, err := vtype.ParseNonce(change.value)
+		// Deletion is equivalent to setting the nonce to 0.
+		var nonce uint64
+		if change.value != nil {
+			parsed, err := vtype.ParseNonce(change.value)
 			if err != nil {
 				return nil, fmt.Errorf("invalid nonce value: %w", err)
 			}
-			updates[change.key] = updates[change.key].SetNonce(nonce)
+			nonce = parsed
 		}
+		pending := updates[change.key]
+		pending.SetNonce(nonce)
+		updates[change.key] = pending
 	}
 
 	for _, change := range codeHashChanges {
+		// Deletion is equivalent to setting the code hash to a zero hash.
+		pending := updates[change.key]
 		if change.value == nil {
-			// Deletion is equivalent to setting the code hash to a zero hash
-			var zero vtype.CodeHash
-			updates[change.key] = updates[change.key].SetCodeHash(&zero)
-		} else {
-			codeHash, err := vtype.ParseCodeHash(change.value)
-			if err != nil {
-				return nil, fmt.Errorf("invalid codehash value: %w", err)
-			}
-			updates[change.key] = updates[change.key].SetCodeHash(codeHash)
+			pending.SetCodeHash(nil)
+		} else if _, err := pending.SetCodeHashBytes(change.value); err != nil {
+			return nil, fmt.Errorf("invalid codehash value: %w", err)
 		}
+		updates[change.key] = pending
 	}
 
 	for _, change := range balanceChanges {
+		// Deletion is equivalent to setting the balance to a zero balance.
+		pending := updates[change.key]
 		if change.value == nil {
-			// Deletion is equivalent to setting the balance to a zero balance
-			var zero vtype.Balance
-			updates[change.key] = updates[change.key].SetBalance(&zero)
+			pending.SetBalance(nil)
 		} else {
 			balance, err := vtype.ParseBalance(change.value)
 			if err != nil {
 				return nil, fmt.Errorf("invalid balance value: %w", err)
 			}
-			updates[change.key] = updates[change.key].SetBalance(balance)
+			pending.SetBalance(balance)
 		}
+		updates[change.key] = pending
 	}
 	return updates, nil
 }

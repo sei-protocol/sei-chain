@@ -16,32 +16,32 @@ var (
 	flatkvMeter = otel.Meter(flatkvMeterName)
 
 	otelMetrics = struct {
-		OpenLatency               metric.Float64Histogram
-		ApplyChangesetsLatency    metric.Float64Histogram
-		CommitLatency             metric.Float64Histogram
-		CommitBatchLatency        metric.Float64Histogram
-		AccountUpdateLatency      metric.Float64Histogram
-		NumKVPairs                metric.Int64Counter
-		PendingWrites             metric.Int64Gauge
-		CurrentVersion            metric.Int64Gauge
-		CatchupLatency            metric.Float64Histogram
-		CatchupReplayNumBlocks    metric.Int64Counter
-		SnapshotWriteLatency      metric.Float64Histogram
-		SnapshotPinnedLatency     metric.Float64Histogram
-		SnapshotQueueDepth        metric.Int64Gauge
-		SnapshotPruneLatency      metric.Float64Histogram
-		SnapshotPruneAttempts     metric.Int64Counter
-		CurrentSnapshotHeight     metric.Int64Gauge
-		BlockHashLatency          metric.Float64Histogram
-		HashReadOldValuesLatency  metric.Float64Histogram
-		HashFoldLatency           metric.Float64Histogram
-		CurrentHashedHeight       metric.Int64Gauge
-		HashQueueDepth            metric.Int64Gauge
-		RollbackLatency           metric.Float64Histogram
-		ImportLatency             metric.Float64Histogram
-		ImportKVPairs             metric.Int64Counter
-		ImportWorkerFlushLatency  metric.Float64Histogram
-		FlushLatency              metric.Float64Histogram
+		OpenLatency              metric.Float64Histogram
+		ApplyChangesetsLatency   metric.Float64Histogram
+		CommitLatency            metric.Float64Histogram
+		CommitBatchLatency       metric.Float64Histogram
+		AccountUpdateLatency     metric.Float64Histogram
+		NumKVPairs               metric.Int64Counter
+		PendingWrites            metric.Int64Gauge
+		CurrentVersion           metric.Int64Gauge
+		CatchupLatency           metric.Float64Histogram
+		CatchupReplayNumBlocks   metric.Int64Counter
+		SnapshotWriteLatency     metric.Float64Histogram
+		SnapshotPinnedLatency    metric.Float64Histogram
+		SnapshotQueueDepth       metric.Int64Gauge
+		SnapshotPruneLatency     metric.Float64Histogram
+		SnapshotPruneAttempts    metric.Int64Counter
+		CurrentSnapshotHeight    metric.Int64Gauge
+		BlockHashLatency         metric.Float64Histogram
+		HashReadOldValuesLatency metric.Float64Histogram
+		HashFoldLatency          metric.Float64Histogram
+		CurrentHashedHeight      metric.Int64Gauge
+		HashQueueDepth           metric.Int64Gauge
+		RollbackLatency          metric.Float64Histogram
+		ImportLatency            metric.Float64Histogram
+		ImportKVPairs            metric.Int64Counter
+		ImportWorkerFlushLatency metric.Float64Histogram
+		FlushLatency             metric.Float64Histogram
 	}{
 		OpenLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_open_latency",

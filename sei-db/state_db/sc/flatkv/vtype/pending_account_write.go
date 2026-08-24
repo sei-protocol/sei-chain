@@ -1,16 +1,22 @@
 package vtype
 
+import "fmt"
+
 // PendingAccountWrite tracks field-level changes to an account that have not yet been committed.
 // Each field has a value and a flag indicating whether it has been set. Only set fields are
 // applied when merging into a base AccountData.
 //
 // It is legal to operate on a nil PendingAccountWrite. A nil PendingAccountWrite will always return 0s from getters,
 // and will return a non-nil result when a setter is called.
+// Fields are held by value with a flag rather than as pointers, so accumulating a block's worth of
+// these costs no allocation per account.
 type PendingAccountWrite struct {
-	balance  *Balance
-	nonce    uint64
-	nonceSet bool
-	codeHash *CodeHash
+	balance     Balance
+	balanceSet  bool
+	nonce       uint64
+	nonceSet    bool
+	codeHash    CodeHash
+	codeHashSet bool
 }
 
 // NewPendingAccountWrite creates a new PendingAccountWrite with no fields set.
@@ -20,11 +26,11 @@ func NewPendingAccountWrite() *PendingAccountWrite {
 
 // GetBalance returns the pending balance value, or nil if not set.
 func (p *PendingAccountWrite) GetBalance() *Balance {
-	if p == nil {
+	if p == nil || !p.balanceSet {
 		zero := Balance{}
 		return &zero
 	}
-	return p.balance
+	return &p.balance
 }
 
 // IsBalanceSet reports whether the balance has been set in this pending write.
@@ -32,7 +38,7 @@ func (p *PendingAccountWrite) IsBalanceSet() bool {
 	if p == nil {
 		return false
 	}
-	return p.balance != nil
+	return p.balanceSet
 }
 
 // GetNonce returns the pending nonce value.
@@ -53,11 +59,11 @@ func (p *PendingAccountWrite) IsNonceSet() bool {
 
 // GetCodeHash returns the pending code hash value, or nil if not set.
 func (p *PendingAccountWrite) GetCodeHash() *CodeHash {
-	if p == nil {
+	if p == nil || !p.codeHashSet {
 		zero := CodeHash{}
 		return &zero
 	}
-	return p.codeHash
+	return &p.codeHash
 }
 
 // IsCodeHashSet reports whether the code hash has been set in this pending write.
@@ -65,20 +71,21 @@ func (p *PendingAccountWrite) IsCodeHashSet() bool {
 	if p == nil {
 		return false
 	}
-	return p.codeHash != nil
+	return p.codeHashSet
 }
 
-// SetBalance marks the balance as changed. A nil balance is treated as all zeros.
-// The pointer is stored directly; the caller must not modify the underlying array
-// after calling SetBalance. Returns self.
+// SetBalance marks the balance as changed. A nil balance is treated as all zeros. The value is
+// copied, so the caller may reuse the one it passed. Returns self.
 func (p *PendingAccountWrite) SetBalance(balance *Balance) *PendingAccountWrite {
 	if p == nil {
 		p = NewPendingAccountWrite()
 	}
 	if balance == nil {
-		balance = &Balance{}
+		p.balance = Balance{}
+	} else {
+		p.balance = *balance
 	}
-	p.balance = balance
+	p.balanceSet = true
 	return p
 }
 
@@ -92,18 +99,34 @@ func (p *PendingAccountWrite) SetNonce(nonce uint64) *PendingAccountWrite {
 	return p
 }
 
-// SetCodeHash marks the code hash as changed. A nil code hash is treated as all zeros.
-// The pointer is stored directly; the caller must not modify the underlying array
-// after calling SetCodeHash. Returns self.
+// SetCodeHash marks the code hash as changed. A nil code hash is treated as all zeros. The value is
+// copied, so the caller may reuse the one it passed. Returns self.
 func (p *PendingAccountWrite) SetCodeHash(codeHash *CodeHash) *PendingAccountWrite {
 	if p == nil {
 		p = NewPendingAccountWrite()
 	}
 	if codeHash == nil {
-		codeHash = &CodeHash{}
+		p.codeHash = CodeHash{}
+	} else {
+		p.codeHash = *codeHash
 	}
-	p.codeHash = codeHash
+	p.codeHashSet = true
 	return p
+}
+
+// SetCodeHashBytes marks the code hash as changed, taking it as raw bytes so a caller holding a
+// serialized value does not have to parse it into a CodeHash first. Returns self.
+func (p *PendingAccountWrite) SetCodeHashBytes(codeHash []byte) (*PendingAccountWrite, error) {
+	if len(codeHash) != CodeHashLen {
+		return p, fmt.Errorf("invalid codehash value length: got %d, expected %d",
+			len(codeHash), CodeHashLen)
+	}
+	if p == nil {
+		p = NewPendingAccountWrite()
+	}
+	copy(p.codeHash[:], codeHash)
+	p.codeHashSet = true
+	return p, nil
 }
 
 // Merge applies the pending field changes onto a copy of the base AccountData, updating the
@@ -121,14 +144,14 @@ func (p *PendingAccountWrite) Merge(base *AccountData, blockHeight int64) *Accou
 	result.SetBlockHeight(blockHeight)
 
 	if p != nil {
-		if p.balance != nil {
-			result.SetBalance(p.balance)
+		if p.balanceSet {
+			result.SetBalance(&p.balance)
 		}
 		if p.nonceSet {
 			result.SetNonce(p.nonce)
 		}
-		if p.codeHash != nil {
-			result.SetCodeHash(p.codeHash)
+		if p.codeHashSet {
+			result.SetCodeHash(&p.codeHash)
 		}
 	}
 
