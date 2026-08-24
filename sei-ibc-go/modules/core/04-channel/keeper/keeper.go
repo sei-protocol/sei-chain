@@ -8,6 +8,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	"github.com/sei-protocol/seilog"
 	db "github.com/tendermint/tm-db"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
@@ -19,6 +20,8 @@ import (
 )
 
 var _ porttypes.ICS4Wrapper = Keeper{}
+
+var logger = seilog.NewLogger("ibc-go", "modules", "core", "04-channel", "keeper")
 
 // Keeper defines the IBC channel keeper
 type Keeper struct {
@@ -64,16 +67,6 @@ func (k Keeper) IsInboundEnabled(ctx sdk.Context) bool {
 	var inbound bool
 	k.paramSpace.Get(ctx, KeyInboundEnabled, &inbound)
 	return inbound
-}
-
-// GenerateChannelIdentifier returns the next channel identifier.
-func (k Keeper) GenerateChannelIdentifier(ctx sdk.Context) string {
-	nextChannelSeq := k.GetNextChannelSequence(ctx)
-	channelID := types.FormatChannelIdentifier(nextChannelSeq)
-
-	nextChannelSeq++
-	k.SetNextChannelSequence(ctx, nextChannelSeq)
-	return channelID
 }
 
 // GetChannel returns a channel with a particular identifier binded to a specific port
