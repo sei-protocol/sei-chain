@@ -63,7 +63,7 @@ func (q Keeper) ClientStates(c context.Context, req *types.QueryClientStatesRequ
 	clientStates := types.IdentifiedClientStates{}
 	store := prefix.NewStore(ctx.KVStore(q.storeKey), host.KeyClientStorePrefix)
 
-	pageRes, err := query.FilteredPaginate(ctx, store, req.Pagination, func(key, value []byte, accumulate bool) (bool, error) {
+	pageRes, err := query.FilteredPaginateForContext(ctx, store, req.Pagination, func(key, value []byte, accumulate bool) (bool, error) {
 		keySplit := strings.Split(string(key), "/")
 		if keySplit[len(keySplit)-1] != "clientState" {
 			return false, nil
@@ -159,7 +159,7 @@ func (q Keeper) ConsensusStates(c context.Context, req *types.QueryConsensusStat
 	consensusStates := []types.ConsensusStateWithHeight{}
 	store := prefix.NewStore(ctx.KVStore(q.storeKey), host.FullClientKey(req.ClientId, []byte(fmt.Sprintf("%s/", host.KeyConsensusStatePrefix))))
 
-	pageRes, err := query.FilteredPaginate(ctx, store, req.Pagination, func(key, value []byte, accumulate bool) (bool, error) {
+	pageRes, err := query.FilteredPaginateForContext(ctx, store, req.Pagination, func(key, value []byte, accumulate bool) (bool, error) {
 		// filter any metadata stored under consensus state key
 		if bytes.Contains(key, []byte("/")) {
 			return false, nil
@@ -203,7 +203,7 @@ func (q Keeper) ConsensusStateHeights(c context.Context, req *types.QueryConsens
 	var consensusStateHeights []types.Height
 	store := prefix.NewStore(ctx.KVStore(q.storeKey), host.FullClientKey(req.ClientId, []byte(fmt.Sprintf("%s/", host.KeyConsensusStatePrefix))))
 
-	pageRes, err := query.FilteredPaginate(ctx, store, req.Pagination, func(key, _ []byte, accumulate bool) (bool, error) {
+	pageRes, err := query.FilteredPaginateForContext(ctx, store, req.Pagination, func(key, _ []byte, accumulate bool) (bool, error) {
 		// filter any metadata stored under consensus state key
 		if bytes.Contains(key, []byte("/")) {
 			return false, nil
