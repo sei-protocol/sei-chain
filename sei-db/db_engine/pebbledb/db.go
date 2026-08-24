@@ -52,7 +52,7 @@ func Open(
 		L0CompactionThreshold:       4,
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20, // 64 MB
-		MemTableSize:                64 << 20,
+		MemTableSize:                config.MemTableSize,
 		MemTableStopWritesThreshold: 4,
 		DisableWAL:                  false,
 		// Pebble defaults this to a single compaction, which a sustained write load outruns: L0 gains

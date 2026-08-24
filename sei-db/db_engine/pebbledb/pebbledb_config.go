@@ -38,6 +38,20 @@ type PebbleDBConfig struct {
 	//
 	// Default: a quarter of the machine's cores, at least 4.
 	MaxConcurrentCompactions int `mapstructure:"max-concurrent-compactions"`
+
+	// Size, in bytes, of a memtable for this database.
+	//
+	// Every write is a skiplist insert into the memtable, and the cost of that insert grows with how
+	// many entries the memtable already holds: a deeper structure to descend, over a working set less
+	// likely to be cached. Smaller memtables make writes cheaper and are paid for with more frequent
+	// flushes, and so more L0 files for compaction to absorb.
+	//
+	// Keep this above twice the snapshot engine's TargetBytesPerFlush. Pebble diverts a batch larger
+	// than half a memtable onto its flushable-batch slow path, which hurts read amplification and
+	// compaction shape.
+	//
+	// Default: 16 MB
+	MemTableSize uint64 `mapstructure:"mem-table-size"`
 }
 
 // Default configuration for the PebbleDB database.
@@ -47,6 +61,7 @@ func DefaultConfig() PebbleDBConfig {
 		MetricsScrapeInterval:    10 * time.Second,
 		BlockCacheSize:           int64(512 * unit.MB),
 		MaxConcurrentCompactions: max(4, runtime.NumCPU()/4),
+		MemTableSize:             uint64(16 * unit.MB),
 	}
 }
 
@@ -63,6 +78,9 @@ func (c *PebbleDBConfig) Validate() error {
 	}
 	if c.MaxConcurrentCompactions < 1 {
 		return fmt.Errorf("max concurrent compactions must be at least 1, got %d", c.MaxConcurrentCompactions)
+	}
+	if c.MemTableSize == 0 {
+		return fmt.Errorf("mem table size must be positive")
 	}
 	return nil
 }
