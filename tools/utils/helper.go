@@ -7,7 +7,6 @@ import (
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	authzkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	evidencetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
@@ -25,13 +24,16 @@ import (
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
-const feegrantStoreKeyName = "feegrant"
+const (
+	capabilityStoreKeyName = "capability"
+	feegrantStoreKeyName   = "feegrant"
+)
 
 var ModuleKeys = sdk.NewKVStoreKeys(
 	authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 	govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrantStoreKeyName,
-	evidencetypes.StoreKey, seidbkeys.IBCTransferStoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
+	evidencetypes.StoreKey, seidbkeys.IBCTransferStoreKey, capabilityStoreKeyName, oracletypes.StoreKey,
 	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
 )
 
@@ -39,7 +41,7 @@ var Modules = []string{
 	"authz",
 	"acc",
 	"bank",
-	"capability",
+	capabilityStoreKeyName,
 	"distribution",
 	"epoch",
 	"evidence",

@@ -24,7 +24,7 @@ const (
 	FeegrantStoreKey     = "feegrant"     // retained for historical state access
 	EvidenceStoreKey     = "evidence"     // sei-cosmos/x/evidence/types.StoreKey
 	IBCTransferStoreKey  = "transfer"     // retained for historical state access
-	CapabilityStoreKey   = "capability"   // sei-cosmos/x/capability/types.StoreKey
+	CapabilityStoreKey   = "capability"   // retained for historical state access
 	OracleStoreKey       = "oracle"       // x/oracle/types.StoreKey
 	EVMStoreKey          = "evm"          // x/evm/types.StoreKey
 	WasmStoreKey         = "wasm"         // sei-wasmd/x/wasm/types.StoreKey

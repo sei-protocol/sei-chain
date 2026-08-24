@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
-	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
+	porttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
 	coretypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 )
 
@@ -88,6 +88,11 @@ func (k Keeper) sendTransfer(
 	timeoutTimestamp uint64,
 	memo string,
 ) (uint64, error) {
+	expectedPort := k.GetPort(ctx)
+	if sourcePort != expectedPort {
+		return 0, sdkerrors.Wrapf(porttypes.ErrInvalidPort, "invalid port: %s, expected %s", sourcePort, expectedPort)
+	}
+
 	if !k.GetSendEnabled(ctx) {
 		return 0, types.ErrSendDisabled
 	}
@@ -119,10 +124,6 @@ func (k Keeper) sendTransfer(
 
 	// begin createOutgoingPacket logic
 	// See spec for this logic: https://github.com/cosmos/ibc/tree/master/spec/app/ics-020-fungible-token-transfer#packet-relay
-	channelCap, ok := k.scopedKeeper.GetCapability(ctx, host.ChannelCapabilityPath(sourcePort, sourceChannel))
-	if !ok {
-		return 0, sdkerrors.Wrap(channeltypes.ErrChannelCapabilityNotFound, "module does not own channel capability")
-	}
 
 	// NOTE: denomination and hex hash correctness checked during msg.ValidateBasic
 	fullDenomPath := token.Denom
@@ -198,7 +199,7 @@ func (k Keeper) sendTransfer(
 		timeoutTimestamp,
 	)
 
-	if err := k.ics4Wrapper.SendPacket(ctx, channelCap, packet); err != nil {
+	if err := k.ics4Wrapper.SendPacket(ctx, packet); err != nil {
 		return 0, err
 	}
 

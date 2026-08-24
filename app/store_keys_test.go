@@ -51,3 +51,13 @@ func TestRetiredTransferModuleAccountRemainsMaterialized(t *testing.T) {
 	require.Equal(t, transferModuleName, moduleAccount.GetName())
 	require.ElementsMatch(t, []string{authtypes.Minter, authtypes.Burner}, moduleAccount.GetPermissions())
 }
+
+func TestCapabilityStoreRemainsMounted(t *testing.T) {
+	require.Contains(t, kvStoreKeyNames, keys.CapabilityStoreKey)
+
+	testApp := Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{})
+	store := ctx.KVStore(testApp.GetKey(keys.CapabilityStoreKey))
+	store.Set([]byte("owner"), []byte("retained"))
+	require.Equal(t, []byte("retained"), store.Get([]byte("owner")))
+}

@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	sstest "github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/management"
 )
 
 func TestStorageTestSuite(t *testing.T) {
@@ -63,13 +63,13 @@ func TestVersionedCheckpointPreservesFutureLiveMarker(t *testing.T) {
 
 	dest := filepath.Join(t.TempDir(), "snapshot")
 	done := make(chan error, 1)
-	management.ScheduleCheckpoint(store, dest, nil, func(err error) {
+	controller.ScheduleCheckpoint(store, dest, nil, func(err error) {
 		done <- err
 	})
 	require.NoError(t, <-done)
 	// The caller stamps only the label. Earliest is inherited from the
 	// checkpointed DB because prune advances it before deleting history.
-	require.NoError(t, management.SetCheckpointVersion(store, dest, 5))
+	require.NoError(t, controller.SetCheckpointVersion(store, dest, 5))
 
 	require.Equal(t, int64(10), store.GetLatestVersion())
 	require.Equal(t, int64(4), store.GetEarliestVersion())
@@ -97,10 +97,10 @@ func TestScheduledCheckpointCanBeCanceledAtBarrier(t *testing.T) {
 
 	dest := filepath.Join(t.TempDir(), "snapshot")
 	done := make(chan error, 1)
-	management.ScheduleCheckpoint(store, dest, func() bool { return false }, func(err error) {
+	controller.ScheduleCheckpoint(store, dest, func() bool { return false }, func(err error) {
 		done <- err
 	})
 
-	require.ErrorIs(t, <-done, management.ErrCheckpointCanceled)
+	require.ErrorIs(t, <-done, controller.ErrCheckpointCanceled)
 	require.NoDirExists(t, dest)
 }

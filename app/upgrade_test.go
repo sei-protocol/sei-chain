@@ -38,6 +38,7 @@ func TestV67RemovesRetiredModuleVersions(t *testing.T) {
 	testWrapper.App.RegisterUpgradeHandlers()
 
 	versionMap := testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
+	versionMap["capability"] = 1
 	versionMap["feegrant"] = 1
 	versionMap["transfer"] = 2
 	testWrapper.App.UpgradeKeeper.SetModuleVersionMap(testWrapper.Ctx, versionMap)
@@ -48,6 +49,7 @@ func TestV67RemovesRetiredModuleVersions(t *testing.T) {
 	})
 
 	versionMap = testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
+	require.NotContains(t, versionMap, "capability")
 	require.NotContains(t, versionMap, "feegrant")
 	require.NotContains(t, versionMap, "transfer")
 }

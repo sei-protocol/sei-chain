@@ -3,7 +3,7 @@ package statewal
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 )
 
 // stateWALImpl joins the shared prune cycle as a contiguous store: it holds every block from its
@@ -14,7 +14,7 @@ import (
 //
 // SC and SS must be managed by the same collector, since they replay from this WAL and it is their
 // reported floors that keep the blocks they need.
-var _ gc.PrunableStore = (*stateWALImpl)(nil)
+var _ controller.PrunableStore = (*stateWALImpl)(nil)
 
 func (w *stateWALImpl) Name() string {
 	return "StateWAL"

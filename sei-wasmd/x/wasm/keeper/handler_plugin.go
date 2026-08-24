@@ -9,7 +9,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
-	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -35,7 +34,6 @@ type SDKMessageHandler struct {
 func NewDefaultMessageHandler(
 	router MessageRouter,
 	channelKeeper types.ChannelKeeper,
-	capabilityKeeper types.CapabilityKeeper,
 	bankKeeper types.Burner,
 	unpacker codectypes.AnyUnpacker,
 	customEncoders ...*MessageEncoders,
@@ -46,7 +44,7 @@ func NewDefaultMessageHandler(
 	}
 	return NewMessageHandlerChain(
 		NewSDKMessageHandler(router, encoders),
-		NewIBCRawPacketHandler(channelKeeper, capabilityKeeper),
+		NewIBCRawPacketHandler(channelKeeper),
 		NewBurnCoinMessageHandler(bankKeeper),
 	)
 }
@@ -141,12 +139,11 @@ func (m MessageHandlerChain) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAd
 
 // IBCRawPacketHandler handels IBC.SendPacket messages which are published to an IBC channel.
 type IBCRawPacketHandler struct {
-	channelKeeper    types.ChannelKeeper
-	capabilityKeeper types.CapabilityKeeper
+	channelKeeper types.ChannelKeeper
 }
 
-func NewIBCRawPacketHandler(chk types.ChannelKeeper, cak types.CapabilityKeeper) IBCRawPacketHandler {
-	return IBCRawPacketHandler{channelKeeper: chk, capabilityKeeper: cak}
+func NewIBCRawPacketHandler(chk types.ChannelKeeper) IBCRawPacketHandler {
+	return IBCRawPacketHandler{channelKeeper: chk}
 }
 
 // DispatchMsg publishes a raw IBC packet onto the channel.
@@ -173,10 +170,6 @@ func (h IBCRawPacketHandler) DispatchMsg(ctx sdk.Context, _ sdk.AccAddress, cont
 	if !ok {
 		return nil, nil, sdkerrors.Wrap(channeltypes.ErrInvalidChannel, "not found")
 	}
-	channelCap, ok := h.capabilityKeeper.GetCapability(ctx, host.ChannelCapabilityPath(contractIBCPortID, contractIBCChannelID))
-	if !ok {
-		return nil, nil, sdkerrors.Wrap(channeltypes.ErrChannelCapabilityNotFound, "module does not own channel capability")
-	}
 	packet := channeltypes.NewPacket(
 		msg.IBC.SendPacket.Data,
 		sequence,
@@ -187,7 +180,7 @@ func (h IBCRawPacketHandler) DispatchMsg(ctx sdk.Context, _ sdk.AccAddress, cont
 		ConvertWasmIBCTimeoutHeightToCosmosHeight(msg.IBC.SendPacket.Timeout.Block),
 		msg.IBC.SendPacket.Timeout.Timestamp,
 	)
-	return nil, nil, h.channelKeeper.SendPacket(ctx, channelCap, packet)
+	return nil, nil, h.channelKeeper.SendPacket(ctx, packet)
 }
 
 var _ Messenger = MessageHandlerFunc(nil)

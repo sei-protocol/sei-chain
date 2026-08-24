@@ -76,8 +76,6 @@ type Keeper struct {
 	cdc                   codec.Codec
 	accountKeeper         types.AccountKeeper
 	bank                  CoinTransferrer
-	portKeeper            types.PortKeeper
-	capabilityKeeper      types.CapabilityKeeper
 	paramsKeeper          types.ParamsKeeper
 	upgradeKeeper         types.UpgradeKeeper
 	wasmVM                types.WasmerEngine
@@ -108,8 +106,6 @@ func NewKeeper(
 	stakingKeeper types.StakingKeeper,
 	distKeeper types.DistributionKeeper,
 	channelKeeper types.ChannelKeeper,
-	portKeeper types.PortKeeper,
-	capabilityKeeper types.CapabilityKeeper,
 	upgradeKeeper types.UpgradeKeeper,
 	router MessageRouter,
 	queryRouter GRPCQueryRouter,
@@ -154,10 +150,8 @@ func NewKeeper(
 		rpcWasmVM155:      NewVMWrapper(rpcWasmer155),
 		accountKeeper:     accountKeeper,
 		bank:              NewBankCoinTransferrer(bankKeeper),
-		portKeeper:        portKeeper,
-		capabilityKeeper:  capabilityKeeper,
 		upgradeKeeper:     upgradeKeeper,
-		messenger:         NewDefaultMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, cdc),
+		messenger:         NewDefaultMessageHandler(router, channelKeeper, bankKeeper, cdc),
 		queryGasLimit:     wasmConfig.SmartQueryGasLimit,
 		paramSpace:        paramSpace,
 		gasRegister:       NewDefaultWasmGasRegister(),
@@ -367,12 +361,7 @@ func (k Keeper) instantiate(ctx sdk.Context, codeID uint64, creator, admin sdk.A
 		return nil, nil, sdkerrors.Wrap(types.ErrInstantiateFailed, err.Error())
 	}
 	if report.HasIBCEntryPoints {
-		// register IBC port
-		ibcPort, err := k.ensureIbcPort(ctx, contractAddress)
-		if err != nil {
-			return nil, nil, err
-		}
-		contractInfo.IBCPortID = ibcPort
+		contractInfo.IBCPortID = PortIDForContract(contractAddress)
 	}
 
 	// store contract before dispatch so that contract could be called back
@@ -467,12 +456,7 @@ func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 		// prevent update to non ibc contract
 		return nil, sdkerrors.Wrap(types.ErrMigrationFailed, "requires ibc callbacks")
 	case report.HasIBCEntryPoints && contractInfo.IBCPortID == "":
-		// add ibc port
-		ibcPort, err := k.ensureIbcPort(ctx, contractAddress)
-		if err != nil {
-			return nil, err
-		}
-		contractInfo.IBCPortID = ibcPort
+		contractInfo.IBCPortID = PortIDForContract(contractAddress)
 	}
 
 	env := types.NewEnv(ctx, contractAddress)
