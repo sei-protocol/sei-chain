@@ -29,3 +29,13 @@ func TestFeegrantStoreRemainsMounted(t *testing.T) {
 	store.Set([]byte("allowance"), []byte("retained"))
 	require.Equal(t, []byte("retained"), store.Get([]byte("allowance")))
 }
+
+func TestCapabilityStoreRemainsMounted(t *testing.T) {
+	require.Contains(t, kvStoreKeyNames, keys.CapabilityStoreKey)
+
+	testApp := Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{})
+	store := ctx.KVStore(testApp.GetKey(keys.CapabilityStoreKey))
+	store.Set([]byte("owner"), []byte("retained"))
+	require.Equal(t, []byte("retained"), store.Get([]byte("owner")))
+}
