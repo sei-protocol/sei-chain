@@ -9,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/config/registry"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/spf13/viper"
 )
 
 // whatVariesByNodeKind is every key these sections answer differently depending on the kind of node.
@@ -107,6 +108,8 @@ func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
 	}{
 		{P2PSectionName, &tmcfg.P2PConfig{}, 1},
 		{RPCSectionName, &tmcfg.RPCConfig{}, 0},
+		{ConsensusSectionName, &tmcfg.ConsensusConfig{}, len(removedSettings)},
+		{MempoolSectionName, &tmcfg.MempoolConfig{}, 0},
 	} {
 		registered, ok := registry.Lookup(tc.section)
 		if !ok {
@@ -183,4 +186,135 @@ func hasOpt(opts []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// warningCannotName are the removed settings the reader's own deprecation check does not report.
+//
+// Six are durations or booleans, where a written zero and an unwritten field hold the same value, so the
+// check has nothing to test. The seventh is a pointer the check could name and does not. Recorded so that
+// making the check complete fails here rather than leaving a sentence quietly stale.
+var warningCannotName = map[string]bool{
+	"unsafe-overrides-enabled":              true,
+	"unsafe-propose-timeout-override":       true,
+	"unsafe-propose-timeout-delta-override": true,
+	"unsafe-vote-timeout-override":          true,
+	"unsafe-vote-timeout-delta-override":    true,
+	"unsafe-commit-timeout-override":        true,
+	"unsafe-bypass-commit-timeout-override": true,
+}
+
+// TestTheExcludedConsensusPathsAreTheRemovedOnes ties the exclusion list to the struct's own marking.
+//
+// Each excluded path has to name a field the struct itself marks as deprecated, and no declared path may.
+// The struct is the authority rather than the deprecation warning, because that warning is incomplete: it
+// names eight of these fifteen.
+//
+// Nothing in the binary calls the warning either, so an operator who still has one of these in their file
+// gets no error and no warning and the value is quietly ignored. That is what the exclusion is carrying. It
+// keeps the key out of the new format rather than relying on a diagnostic that never runs.
+func TestTheExcludedConsensusPathsAreTheRemovedOnes(t *testing.T) {
+	registered, ok := registry.Lookup(ConsensusSectionName)
+	if !ok {
+		t.Fatalf("%s is not registered; Defects: %v", ConsensusSectionName, registry.Defects())
+	}
+	marked := deprecatedPaths(reflect.TypeOf(tmcfg.ConsensusConfig{}))
+
+	excluded := map[string]bool{}
+	for _, key := range registered.Excluded {
+		excluded[key] = true
+	}
+	if len(excluded) != len(removedSettings) {
+		t.Errorf("the section excludes %d paths and %d are listed", len(excluded), len(removedSettings))
+	}
+	for _, rel := range removedSettings {
+		key := ConsensusSectionName + "." + rel
+		if !excluded[key] {
+			t.Errorf("%s is listed as removed and the section does not exclude it", key)
+		}
+		if !marked[rel] {
+			t.Errorf("%s is excluded as a removed setting and the struct does not mark its field "+
+				"deprecated, so it is a setting an operator can use and belongs declared", key)
+		}
+		delete(marked, rel)
+	}
+	for rel := range marked {
+		t.Errorf("%s.%s names a field the struct marks deprecated and the section declares it",
+			ConsensusSectionName, rel)
+	}
+
+	for _, key := range registered.Keys {
+		rel := strings.TrimPrefix(key, ConsensusSectionName+".")
+		if err := writtenThenChecked(t, rel); err != nil {
+			t.Errorf("%s is declared and the deprecation warning names it: %v", key, err)
+		}
+	}
+}
+
+// TestTheDeprecationWarningReachesTheRecordedSubset measures the gap in the reader's own check.
+//
+// Eight of the fifteen removed settings make the warning name them and seven cannot, so an operator who
+// wrote one of those seven would get nothing back even from a caller that ran the check. Held so that
+// making the check complete shows up as a failure rather than as a sentence going quietly stale.
+func TestTheDeprecationWarningReachesTheRecordedSubset(t *testing.T) {
+	for _, rel := range removedSettings {
+		err := writtenThenChecked(t, rel)
+		switch {
+		case warningCannotName[rel] && err != nil:
+			t.Errorf("the warning now names %s, so it reaches one more removed setting and the row "+
+				"should go", rel)
+		case !warningCannotName[rel] && err == nil:
+			t.Errorf("the warning no longer names %s, so one more removed setting is now silent", rel)
+		}
+	}
+}
+
+// deprecatedPaths returns the mapstructure names of the fields a struct marks deprecated.
+func deprecatedPaths(t reflect.Type) map[string]bool {
+	out := map[string]bool{}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if !strings.HasPrefix(f.Name, "Deprecated") {
+			continue
+		}
+		if tag, ok := f.Tag.Lookup("mapstructure"); ok {
+			out[strings.Split(tag, ",")[0]] = true
+		}
+	}
+	return out
+}
+
+// writtenThenChecked writes one consensus path into a configuration and returns what the reader's
+// deprecation warning says about it.
+//
+// Written and decoded rather than assigned, because a removed setting is detected by its field being
+// non-nil after a decode, and assigning it directly would skip the step under test.
+func writtenThenChecked(t *testing.T, rel string) error {
+	t.Helper()
+	conf := tmcfg.DefaultConfig()
+	v := viper.New()
+	v.SetConfigType("toml")
+	body := "[consensus]\n" + rel + " = " + probeValueFor(rel) + "\n"
+	if err := v.ReadConfig(strings.NewReader(body)); err != nil {
+		t.Fatalf("compose a file setting %s: %v", rel, err)
+	}
+	if err := v.Unmarshal(conf); err != nil {
+		t.Skipf("%s does not decode from the probe value: %v", rel, err)
+	}
+	return conf.DeprecatedFieldWarning()
+}
+
+// probeValueFor returns a written value of the right shape for a consensus path.
+//
+// Three shapes appear: a duration written as a string, a boolean, and a whole number.
+func probeValueFor(rel string) string {
+	switch {
+	case strings.HasPrefix(rel, "skip-") || strings.HasPrefix(rel, "unsafe-") ||
+		strings.HasPrefix(rel, "double-sign-") || strings.HasSuffix(rel, "-enabled"):
+		return "true"
+	case strings.Contains(rel, "timeout") || strings.Contains(rel, "-delta") ||
+		strings.Contains(rel, "interval") || strings.Contains(rel, "period"):
+		return "\"1s\""
+	default:
+		return "1"
+	}
 }
