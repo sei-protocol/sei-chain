@@ -110,7 +110,10 @@ max-limit = {{ .Query.MaxLimit }}
 # MaxOffset is the maximum offset for untrusted query origins. 0 uses the default.
 max-offset = {{ .Query.MaxOffset }}
 
-# MaxIterations is the maximum store entries a single untrusted query may scan. 0 uses the default.
+# MaxIterations is the maximum store entries a single untrusted query may scan. 0 uses
+# the default. When the budget is exhausted the response is a partial page with next_key;
+# total stays 0 even when the client set count_total, so next_key != nil with total == 0
+# means the total is unknown rather than zero results.
 max-iterations = {{ .Query.MaxIterations }}
 `
 
