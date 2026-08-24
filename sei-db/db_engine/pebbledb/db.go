@@ -22,6 +22,7 @@ type pebbleDB struct {
 	db               *pebble.DB
 	metricsCancel    context.CancelFunc
 	operationMetrics *OperationMetrics
+	commitMetrics    *CommitMetrics
 }
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
@@ -54,6 +55,10 @@ func Open(
 		MemTableSize:                64 << 20,
 		MemTableStopWritesThreshold: 4,
 		DisableWAL:                  false,
+		// Pebble defaults this to a single compaction, which a sustained write load outruns: L0 gains
+		// sublevels faster than one compaction drains them, and every point lookup then pays to search
+		// all of them. See MaxConcurrentCompactions.
+		CompactionConcurrencyRange: func() (lower, upper int) { return 1, config.MaxConcurrentCompactions },
 	}
 
 	// Configure L0 with explicit settings
@@ -93,6 +98,7 @@ func Open(
 		db:               db,
 		metricsCancel:    cancel,
 		operationMetrics: NewOperationMetrics(config.EnableReadWriteMetrics, filepath.Base(config.DataDir)),
+		commitMetrics:    NewCommitMetrics(config.EnableMetrics, filepath.Base(config.DataDir)),
 	}, nil
 }
 

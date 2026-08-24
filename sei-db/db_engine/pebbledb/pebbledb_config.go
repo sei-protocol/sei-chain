@@ -2,6 +2,7 @@ package pebbledb
 
 import (
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
@@ -26,14 +27,26 @@ type PebbleDBConfig struct {
 	//
 	// Default: 512 MB
 	BlockCacheSize int64 `mapstructure:"block-cache-size"`
+
+	// Upper bound on how many compactions pebble may run concurrently.
+	//
+	// Pebble's own default is 1, which cannot keep up with a sustained write load: L0 accumulates
+	// sublevels faster than a single compaction drains them, and every point lookup then pays to
+	// search all of them. This bound also gates pebble's debt-based escalation, which grants extra
+	// compaction slots as compaction debt builds but never exceeds this value, so a bound of 1
+	// disables that mechanism entirely.
+	//
+	// Default: a quarter of the machine's cores, at least 4.
+	MaxConcurrentCompactions int `mapstructure:"max-concurrent-compactions"`
 }
 
 // Default configuration for the PebbleDB database.
 func DefaultConfig() PebbleDBConfig {
 	return PebbleDBConfig{
-		EnableMetrics:         true,
-		MetricsScrapeInterval: 10 * time.Second,
-		BlockCacheSize:        int64(512 * unit.MB),
+		EnableMetrics:            true,
+		MetricsScrapeInterval:    10 * time.Second,
+		BlockCacheSize:           int64(512 * unit.MB),
+		MaxConcurrentCompactions: max(4, runtime.NumCPU()/4),
 	}
 }
 
@@ -47,6 +60,9 @@ func (c *PebbleDBConfig) Validate() error {
 	}
 	if c.BlockCacheSize <= 0 {
 		return fmt.Errorf("block cache size must be positive, got %d", c.BlockCacheSize)
+	}
+	if c.MaxConcurrentCompactions < 1 {
+		return fmt.Errorf("max concurrent compactions must be at least 1, got %d", c.MaxConcurrentCompactions)
 	}
 	return nil
 }

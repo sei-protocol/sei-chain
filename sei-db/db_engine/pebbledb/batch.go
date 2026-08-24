@@ -13,12 +13,17 @@ import (
 type pebbleBatch struct {
 	b                *pebble.Batch
 	operationMetrics *OperationMetrics
+	commitMetrics    *CommitMetrics
 }
 
 var _ types.Batch = (*pebbleBatch)(nil)
 
 func (p *pebbleDB) NewBatch() types.Batch {
-	return &pebbleBatch{b: p.db.NewBatch(), operationMetrics: p.operationMetrics}
+	return &pebbleBatch{
+		b:                p.db.NewBatch(),
+		operationMetrics: p.operationMetrics,
+		commitMetrics:    p.commitMetrics,
+	}
 }
 
 func (pb *pebbleBatch) Set(key, value []byte) error {
@@ -36,6 +41,8 @@ func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
 	pb.operationMetrics.AddWrite(writeCount)
+	// Read after the commit returns, since that is when pebble has finished filling the stats in.
+	pb.commitMetrics.Record(pb.b.CommitStats())
 	return nil
 }
 
