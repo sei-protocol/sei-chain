@@ -10,7 +10,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
@@ -37,18 +36,6 @@ func (s TestSupport) WasmKeeper() wasm.Keeper {
 
 func (s TestSupport) AppCodec() codec.Codec {
 	return s.app.appCodec
-}
-
-func (s TestSupport) ScopedWasmIBCKeeper() capabilitykeeper.ScopedKeeper {
-	return s.app.scopedWasmKeeper
-}
-
-func (s TestSupport) ScopeIBCKeeper() capabilitykeeper.ScopedKeeper {
-	return s.app.scopedIBCKeeper
-}
-
-func (s TestSupport) ScopedTransferKeeper() capabilitykeeper.ScopedKeeper {
-	return s.app.scopedTransferKeeper
 }
 
 func (s TestSupport) StakingKeeper() stakingkeeper.Keeper {

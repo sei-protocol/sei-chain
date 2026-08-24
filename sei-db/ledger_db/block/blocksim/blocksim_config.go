@@ -5,10 +5,17 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
 var _ utils.Config = (*BlocksimConfig)(nil)
+
+// Ceilings on a generated block, mirroring the limits consensus places on a real
+// one so the benchmark cannot be configured to write blocks the chain could never
+// produce.
+const (
+	maxTxsPerBlock      uint64 = 2000
+	maxTxsBytesPerBlock uint64 = maxTxsPerBlock * 1024
+)
 
 // Configuration for the blocksim benchmark.
 type BlocksimConfig struct {
@@ -146,18 +153,36 @@ func DefaultBlocksimConfig() *BlocksimConfig {
 	}
 }
 
+// blockValueBytes is the size of one generated block record: the transaction bytes
+// a real block's payload would carry.
+func (c *BlocksimConfig) blockValueBytes() uint64 {
+	return c.TransactionsPerBlock * c.BytesPerTransaction
+}
+
+// qcValueBytes is the size of one generated QC record: the covered range's end,
+// one signature per committee member, and one block-header digest per covered block.
+func (c *BlocksimConfig) qcValueBytes() uint64 {
+	return qcHeaderSizeBytes + c.CommitteeSize*signatureSizeBytes + c.BlocksPerQc*hashSizeBytes
+}
+
+// maxDrawBytes is the largest single request the generator makes of the CannedRandom
+// buffer, which panics when asked for more bytes than it holds.
+func (c *BlocksimConfig) maxDrawBytes() uint64 {
+	return max(c.blockValueBytes(), c.qcValueBytes()-qcHeaderSizeBytes)
+}
+
 // Validate checks that the configuration is sane and returns an error if not.
 func (c *BlocksimConfig) Validate() error {
 	if c.BytesPerTransaction < 1 {
 		return fmt.Errorf("BytesPerTransaction must be at least 1 (got %d)", c.BytesPerTransaction)
 	}
-	if c.TransactionsPerBlock < 1 || c.TransactionsPerBlock > types.MaxTxsPerBlock {
+	if c.TransactionsPerBlock < 1 || c.TransactionsPerBlock > maxTxsPerBlock {
 		return fmt.Errorf("TransactionsPerBlock must be in [1, %d] (got %d)",
-			types.MaxTxsPerBlock, c.TransactionsPerBlock)
+			maxTxsPerBlock, c.TransactionsPerBlock)
 	}
-	if c.BytesPerTransaction*c.TransactionsPerBlock > types.MaxTxsBytesPerBlock {
+	if c.blockValueBytes() > maxTxsBytesPerBlock {
 		return fmt.Errorf("BytesPerTransaction*TransactionsPerBlock must be at most %d (got %d)",
-			types.MaxTxsBytesPerBlock, c.BytesPerTransaction*c.TransactionsPerBlock)
+			maxTxsBytesPerBlock, c.blockValueBytes())
 	}
 	if c.CommitteeSize < 1 {
 		return fmt.Errorf("CommitteeSize must be at least 1 (got %d)", c.CommitteeSize)
@@ -168,13 +193,9 @@ func (c *BlocksimConfig) Validate() error {
 	if c.StagedBlockQueueSize < 1 {
 		return fmt.Errorf("StagedBlockQueueSize must be at least 1 (got %d)", c.StagedBlockQueueSize)
 	}
-	minBuffer := c.BytesPerTransaction
-	if signatureSizeBytes > minBuffer {
-		minBuffer = signatureSizeBytes
-	}
-	if c.RandomDataBufferSizeBytes < minBuffer {
+	if minBuffer := c.maxDrawBytes(); c.RandomDataBufferSizeBytes < minBuffer {
 		return fmt.Errorf("RandomDataBufferSizeBytes must be at least %d "+
-			"(max of BytesPerTransaction and the fixed signature/hash draws) (got %d)",
+			"(the largest single draw, a whole block value) (got %d)",
 			minBuffer, c.RandomDataBufferSizeBytes)
 	}
 	if c.LittRetentionSeconds < 1 {

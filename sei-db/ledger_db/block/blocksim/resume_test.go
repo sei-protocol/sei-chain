@@ -7,56 +7,58 @@ import (
 	"github.com/stretchr/testify/require"
 
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 )
 
-// TestRecoverResumeState exercises the resume glue end-to-end against a real
-// litt-backed store: generate a couple of batches with the actual generator,
-// persist them, reopen, and assert recoverResumeState recovers the highest
-// block number and the last QC so generation can continue contiguously.
-func TestRecoverResumeState(t *testing.T) {
-	dir := t.TempDir()
+// writeBatches persists n generated batches through the same calls the benchmark's
+// write path uses, and returns the last one.
+func writeBatches(t *testing.T, db blocktypes.BlockDB, gen *BlockGenerator, n int) *generatedBatch {
+	t.Helper()
+	var last *generatedBatch
+	for range n {
+		batch := gen.buildBatch()
+		require.NoError(t, db.PutRecord(blocktypes.KindQC, batch.first, batch.next, batch.qc))
+		for i, value := range batch.blocks {
+			require.NoError(t, db.PutBlock(batch.first+uint64(i), blockHash(batch.first+uint64(i)), value))
+		}
+		last = batch
+	}
+	return last
+}
+
+// newResumeConfig returns a litt-backed config small enough to write a few batches
+// quickly.
+func newResumeConfig(t *testing.T) *BlocksimConfig {
+	t.Helper()
 	cfg := DefaultBlocksimConfig()
 	cfg.Backend = "litt"
-	cfg.DataDir = dir
+	cfg.DataDir = t.TempDir()
 	cfg.BlocksPerQc = 5
 	cfg.TransactionsPerBlock = 1
 	cfg.BytesPerTransaction = 16
+	return cfg
+}
 
-	// Mirror NewBlockSim: build the keygen RNG and the committee, then a CannedRandom
-	// for the generator's data.
-	rng := tmutils.TestRngFromSeed(cfg.Seed)
-	committee, keys := types.GenCommittee(rng, int(cfg.CommitteeSize))                //nolint:gosec // small config value
-	cannedRand := crand.NewCannedRandom(int(cfg.RandomDataBufferSizeBytes), cfg.Seed) //nolint:gosec // bounded by config
-
-	pubKeys := make([]types.PublicKey, len(keys))
-	for i, k := range keys {
-		pubKeys[i] = k.Public()
+// newGenerator builds a generator without launching its background goroutine, so a
+// test can pull batches deterministically.
+func newGenerator(cfg *BlocksimConfig, first uint64) *BlockGenerator {
+	return &BlockGenerator{
+		ctx:    context.Background(),
+		config: cfg,
+		rand:   crand.NewCannedRandom(int(cfg.RandomDataBufferSizeBytes), cfg.Seed), //nolint:gosec // bounded by config
+		next:   first,
 	}
+}
+
+// TestRecoverResumeState exercises the resume glue end-to-end against a real
+// litt-backed store: write a couple of batches, reopen, and assert the newest QC's
+// range and the newest block are recovered so generation continues contiguously.
+func TestRecoverResumeState(t *testing.T) {
+	cfg := newResumeConfig(t)
 
 	db, err := openBlockDB(cfg)
 	require.NoError(t, err)
-
-	// Generate two contiguous batches deterministically, without launching the
-	// background goroutine (struct literal instead of NewBlockGenerator).
-	gen := &BlockGenerator{
-		ctx:       context.Background(),
-		config:    cfg,
-		rand:      cannedRand,
-		committee: committee,
-		pubKeys:   pubKeys,
-		prev:      tmutils.None[*types.CommitQC](),
-	}
-	var last *generatedBatch
-	for i := 0; i < 2; i++ {
-		b := gen.buildBatch()
-		require.NoError(t, db.WriteQC(b.qc))
-		for j, blk := range b.blocks {
-			require.NoError(t, db.WriteBlock(b.first+types.GlobalBlockNumber(j), blk)) //nolint:gosec // small index
-		}
-		last = b
-	}
+	last := writeBatches(t, db, newGenerator(cfg, 0), 2)
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 
@@ -65,23 +67,49 @@ func TestRecoverResumeState(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db2.Close() }()
 
-	prev, highestOpt, err := recoverResumeState(db2)
+	resume, found, err := recoverResumeState(db2)
 	require.NoError(t, err)
-	highest, ok := highestOpt.Get()
-	require.True(t, ok, "recovered highest must be present after a clean write")
-	require.Equal(t, uint64(last.next-1), highest, "recovered highest must be the last persisted block number")
+	require.True(t, found, "a store holding batches must recover a resume point")
+	require.Equal(t, last.first, resume.qcFirst, "recovered QC must be the last persisted QC")
+	require.Equal(t, last.next, resume.qcNext)
+	require.True(t, resume.hasBlocks, "blocks were written, so the tail must report them")
+	require.Equal(t, last.next-1, resume.highestBlock, "recovered highest must be the last persisted block")
+}
 
-	prevQC, ok := prev.Get()
-	require.True(t, ok, "recovered prev QC must be present")
-	require.Equal(t, last.first, prevQC.GlobalRange().First, "recovered QC must be the last persisted QC")
-	require.Equal(t, last.next, prevQC.GlobalRange().Next)
+// TestRecoverResumeStateEmptyStore pins that a fresh store resumes from genesis
+// rather than reporting a bogus tail.
+func TestRecoverResumeStateEmptyStore(t *testing.T) {
+	db, err := openBlockDB(newResumeConfig(t))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
 
-	// Empty-store sanity: a fresh dir recovers nothing.
-	empty, err := openBlockDB(&BlocksimConfig{Backend: "litt", DataDir: t.TempDir(), LittRetentionSeconds: 1})
+	_, found, err := recoverResumeState(db)
 	require.NoError(t, err)
-	defer func() { _ = empty.Close() }()
-	prev0, highest0, err := recoverResumeState(empty)
+	require.False(t, found, "an empty store must recover no resume point")
+}
+
+// TestRecoverResumeStateQCWithoutBlocks covers the crash window: a batch writes its
+// QC before its blocks, so a torn tail can leave a QC covering blocks that were
+// never written. Resume must report the QC's full range and no blocks, which is what
+// tells the caller to backfill it.
+func TestRecoverResumeStateQCWithoutBlocks(t *testing.T) {
+	cfg := newResumeConfig(t)
+
+	db, err := openBlockDB(cfg)
 	require.NoError(t, err)
-	require.False(t, prev0.IsPresent(), "empty store must recover no QC")
-	require.False(t, highest0.IsPresent(), "empty store must recover no highest block")
+	defer func() { _ = db.Close() }()
+
+	gen := newGenerator(cfg, 0)
+	writeBatches(t, db, gen, 1)
+
+	// The QC of the next batch lands, but none of its blocks do.
+	torn := gen.buildBatch()
+	require.NoError(t, db.PutRecord(blocktypes.KindQC, torn.first, torn.next, torn.qc))
+
+	resume, found, err := recoverResumeState(db)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, torn.first, resume.qcFirst, "the torn QC is the newest one")
+	require.Equal(t, torn.next, resume.qcNext)
+	require.False(t, resume.hasBlocks, "none of the torn QC's blocks were written")
 }

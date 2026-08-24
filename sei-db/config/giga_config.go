@@ -5,7 +5,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
-	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
@@ -13,20 +12,20 @@ import (
 // It is intentionally not read from app.toml (no mapstructure tags, no TOML section):
 // callers build it via DefaultGigaStorageConfig. Nested knobs live on the store and
 // collector configs they already own (StateStoreConfig, ReceiptStoreConfig,
-// gc.StorageGarbageCollectorConfig) rather than being redeclared here — in particular
+// StorageGarbageCollectorConfig) rather than being redeclared here — in particular
 // RollbackWindow and LookbackWindow have a single source of truth in
-// gc.DefaultStorageGarbageCollectorConfig, and cover every managed store at once.
+// DefaultStorageGarbageCollectorConfig, and cover every managed store at once.
 type GigaStorageConfig struct {
 	HomePath        string
 	FlatKVConfig    *flatkvConfig.Config
 	SSConfig        StateStoreConfig
 	ReceiptDBConfig ReceiptStoreConfig
 	BlockDBConfig   *littblock.BlockDBConfig
-	PruningConfig   *gc.StorageGarbageCollectorConfig
+	PruningConfig   *StorageGarbageCollectorConfig
 }
 
 // DefaultGigaStorageConfig returns a GigaStorageConfig whose store directories match the
-// layout below, and whose pruning knobs are gc.DefaultStorageGarbageCollectorConfig():
+// layout below, and whose pruning knobs are DefaultStorageGarbageCollectorConfig():
 //
 //	data/state_commit/flatkv
 //	data/state_store/evm/{backend}   (sole SS; no Cosmos SS in Giga)
@@ -63,6 +62,6 @@ func DefaultGigaStorageConfig(homePath string) (GigaStorageConfig, error) {
 		SSConfig:        ssConfig,
 		ReceiptDBConfig: receiptConfig,
 		BlockDBConfig:   blockDBConfig,
-		PruningConfig:   gc.DefaultStorageGarbageCollectorConfig(),
+		PruningConfig:   DefaultStorageGarbageCollectorConfig(),
 	}, nil
 }

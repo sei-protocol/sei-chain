@@ -227,9 +227,17 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
-	walKeepRecent := math.Max(MinWALEntriesToKeep, float64(config.AsyncWriteBuffer+1))
+	walKeepRecent := changelogKeepRecent(config)
+	// Snapshot rollback replays the changelog forward from the oldest retained
+	// snapshot, so count-based pruning must not cut inside that span. The
+	// snapshot manager prunes this changelog by snapshot version after every
+	// retention pass and is what actually holds it down; the count below is the
+	// ceiling for the states that pass does not cover — external snapshot
+	// pruning, and the stretch before enough snapshots exist to prune. Raising
+	// the ceiling is what a rollback window costs on disk: roughly one snapshot
+	// interval of changelog per retained snapshot.
 	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
-		KeepRecent:    uint64(walKeepRecent),
+		KeepRecent:    walKeepRecent,
 		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
 	})
 	if err != nil {
@@ -245,6 +253,118 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 	go database.collectMetricsInBackground(metricsCtx)
 
 	return database, nil
+}
+
+func changelogKeepRecent(cfg config.StateStoreConfig) uint64 {
+	keepRecent := uint64(math.Max(MinWALEntriesToKeep, float64(cfg.AsyncWriteBuffer+1)))
+	return max(keepRecent, snapshotWALKeepRecent(cfg.SnapshotInterval, cfg.SnapshotKeepRecent))
+}
+
+// snapshotWALKeepRecent is the widest changelog span a rollback can ask for:
+// the oldest retained snapshot sits keepRecent+1 intervals below the newest,
+// the newest sits up to one interval below the head, and one interval more
+// covers the window before a retention pass runs. It is 0 when snapshots are
+// off, which leaves the caller's own floor in place.
+func snapshotWALKeepRecent(interval int64, keepRecent int) uint64 {
+	if interval <= 0 {
+		return 0
+	}
+	intervals := uint64(3)
+	if keepRecent > 0 {
+		intervals += uint64(keepRecent)
+	}
+	span := uint64(interval)
+	if span > math.MaxUint64/intervals {
+		return math.MaxUint64
+	}
+	return span * intervals
+}
+
+// PruneWALBeforeVersion drops changelog entries older than the first entry that
+// would be needed to replay forward from version. It is intentionally
+// best-effort at the caller: snapshots are still valid without this, but the WAL
+// would retain more history than rollback can use.
+func (db *Database) PruneWALBeforeVersion(version int64) error {
+	if db.streamHandler == nil || version <= 0 {
+		return nil
+	}
+	firstOffset, err := db.streamHandler.FirstOffset()
+	if err != nil {
+		return fmt.Errorf("read WAL first offset: %w", err)
+	}
+	if firstOffset == 0 {
+		return nil
+	}
+	lastOffset, err := db.streamHandler.LastOffset()
+	if err != nil {
+		return fmt.Errorf("read WAL last offset: %w", err)
+	}
+	if lastOffset == 0 || firstOffset > lastOffset {
+		return nil
+	}
+	// The last entry at or below the snapshot is kept rather than cut. A rollback
+	// replays from the entry after the snapshot, so that entry is not needed to
+	// replay — it is needed to read the log: a first entry above the snapshot
+	// version can be a block that wrote nothing or a prefix that was pruned, and
+	// only a retained entry below it tells a reader which.
+	keepOffset, ok, err := wal.FindLastOffsetAtOrBeforeVersion(db.streamHandler, firstOffset, lastOffset, version)
+	if err != nil {
+		return fmt.Errorf("find WAL prune offset for version %d: %w", version, err)
+	}
+	if !ok || keepOffset <= firstOffset {
+		return nil
+	}
+	// Snapshot anchoring can only widen the recovery log. Count-based retention
+	// also protects Pebble writes that were not durable at a power loss, so a
+	// short snapshot cadence must not cut the changelog below that floor.
+	keepRecent := changelogKeepRecent(db.config)
+	retained := lastOffset - keepOffset + 1
+	if retained < keepRecent {
+		if available := lastOffset - firstOffset + 1; available <= keepRecent {
+			return nil
+		}
+		keepOffset = lastOffset - keepRecent + 1
+	}
+	return db.streamHandler.TruncateBefore(keepOffset)
+}
+
+// WALVersionsAfter reads the changelog through the handle this database already
+// holds. Reads are serialized against the truncations the pruner sends down the
+// same handle, which a second handle over the directory would not be.
+func (db *Database) WALVersionsAfter(version int64) (oldest int64, next int64, err error) {
+	if db.streamHandler == nil {
+		return 0, 0, nil
+	}
+	firstOffset, err := db.streamHandler.FirstOffset()
+	if err != nil {
+		return 0, 0, fmt.Errorf("read WAL first offset: %w", err)
+	}
+	if firstOffset == 0 {
+		return 0, 0, nil
+	}
+	lastOffset, err := db.streamHandler.LastOffset()
+	if err != nil {
+		return 0, 0, fmt.Errorf("read WAL last offset: %w", err)
+	}
+	if lastOffset == 0 || firstOffset > lastOffset {
+		return 0, 0, nil
+	}
+	oldestEntry, err := db.streamHandler.ReadAt(firstOffset)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read WAL at offset %d: %w", firstOffset, err)
+	}
+	nextOffset, err := wal.FindFirstOffsetAfterVersion(db.streamHandler, firstOffset, lastOffset, version)
+	if err != nil {
+		return 0, 0, fmt.Errorf("find WAL entry after version %d: %w", version, err)
+	}
+	if nextOffset > lastOffset {
+		return oldestEntry.Version, 0, nil
+	}
+	nextEntry, err := db.streamHandler.ReadAt(nextOffset)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read WAL at offset %d: %w", nextOffset, err)
+	}
+	return oldestEntry.Version, nextEntry.Version, nil
 }
 
 func (db *Database) Close() error {

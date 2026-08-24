@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,6 +40,92 @@ func TestFlatKVRollbackWithLatticeHash(t *testing.T) {
 		require.NotNil(t, findStoreInfo(rec.infos, "evm_lattice"))
 	}
 
+	require.NoError(t, store.Close())
+}
+
+func TestRollbackToVersionRollsBackStateStore(t *testing.T) {
+	dir := t.TempDir()
+	scCfg := dualWriteConfig()
+	ssCfg := seidbconfig.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	ssCfg.SnapshotEnable = true
+	ssCfg.AsyncWriteBuffer = 100
+	ssCfg.KeepRecent = 100000
+
+	store, storeKeys := newTestRootMultiWithSS(t, dir, scCfg, ssCfg)
+	evmData := newEVMTestData(0x19)
+	for block := 1; block <= 5; block++ {
+		simulateBlock(t, store, storeKeys, block, evmData)
+	}
+
+	require.NoError(t, store.RollbackToVersion(3))
+	require.Equal(t, int64(3), store.LastCommitID().Version)
+	require.NotNil(t, store.ssStore)
+	require.Equal(t, int64(3), store.ssStore.GetLatestVersion())
+
+	value, err := store.ssStore.Get("bank", 100, []byte("supply"))
+	require.NoError(t, err)
+	require.Equal(t, []byte{3, 3}, value)
+	require.NoError(t, store.Close())
+}
+
+// The default node configuration keeps state store snapshots off, so the state
+// store has nothing to restore from. The command still has to rewind the commit
+// store, which is all it did before the state store could roll back at all.
+func TestRollbackToVersionWithoutStateStoreSnapshots(t *testing.T) {
+	dir := t.TempDir()
+	scCfg := dualWriteConfig()
+	ssCfg := seidbconfig.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	ssCfg.AsyncWriteBuffer = 100
+	ssCfg.KeepRecent = 100000
+	require.False(t, ssCfg.SnapshotEnable, "the default configuration takes no state store snapshots")
+
+	store, storeKeys := newTestRootMultiWithSS(t, dir, scCfg, ssCfg)
+	evmData := newEVMTestData(0x1b)
+	for block := 1; block <= 5; block++ {
+		simulateBlock(t, store, storeKeys, block, evmData)
+	}
+
+	require.NoError(t, store.RollbackToVersion(3))
+	require.Equal(t, int64(3), store.LastCommitID().Version)
+	require.Equal(t, int64(5), store.ssStore.GetLatestVersion(),
+		"the state store stays ahead, which the command warns about")
+	require.NoError(t, store.Close())
+}
+
+// nonRollbackableStateStore is a state store with no rollback capability: the
+// embedded interface carries the read and write methods but not Rollback.
+type nonRollbackableStateStore struct {
+	seidbtypes.StateStore
+}
+
+// A state store that cannot roll back must not disable the command. Rollback is
+// the recovery path for a node that cannot make progress, and it rewound the
+// commit store alone before the state store could follow at all.
+func TestRollbackToVersionProceedsWhenStateStoreCannotFollow(t *testing.T) {
+	dir := t.TempDir()
+	scCfg := dualWriteConfig()
+	ssCfg := seidbconfig.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	ssCfg.AsyncWriteBuffer = 100
+	ssCfg.KeepRecent = 100000
+
+	store, storeKeys := newTestRootMultiWithSS(t, dir, scCfg, ssCfg)
+	evmData := newEVMTestData(0x1a)
+	for block := 1; block <= 5; block++ {
+		simulateBlock(t, store, storeKeys, block, evmData)
+	}
+	rollbackable := store.ssStore
+	store.ssStore = nonRollbackableStateStore{rollbackable}
+
+	require.NoError(t, store.RollbackToVersion(3))
+	require.Equal(t, int64(3), store.LastCommitID().Version,
+		"the commit store must still roll back when the state store cannot follow")
+	require.Equal(t, int64(5), store.ssStore.GetLatestVersion(),
+		"the state store stays where it was")
+
+	store.ssStore = rollbackable
 	require.NoError(t, store.Close())
 }
 

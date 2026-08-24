@@ -308,6 +308,7 @@ type Config struct {
 	GRPC        GRPCConfig               `mapstructure:"grpc"`
 	Rosetta     RosettaConfig            `mapstructure:"rosetta"`
 	GRPCWeb     GRPCWebConfig            `mapstructure:"grpc-web"`
+	Query       QueryConfig              `mapstructure:"query"`
 	StateSync   StateSyncConfig          `mapstructure:"state-sync"`
 	StateCommit config.StateCommitConfig `mapstructure:"state-commit"`
 	StateStore  config.StateStoreConfig  `mapstructure:"state-store"`
@@ -398,6 +399,7 @@ func DefaultConfig() *Config {
 			Address:            DefaultGRPCWebAddress,
 			MaxOpenConnections: DefaultGRPCWebMaxOpenConnections,
 		},
+		Query: DefaultQueryConfig(),
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   0,
 			SnapshotKeepRecent: 2,
@@ -569,7 +571,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
 	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
 
-	return Config{
+	cfg := Config{
 		BaseConfig: BaseConfig{
 			MinGasPrices:       v.GetString("minimum-gas-prices"),
 			InterBlockCache:    v.GetBool("inter-block-cache"),
@@ -664,7 +666,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			StreamImport:      v.GetBool("genesis.stream-import"),
 			GenesisStreamFile: v.GetString("genesis.genesis-stream-file"),
 		},
-	}, nil
+		Query: DefaultQueryConfig(),
+	}
+
+	return cfg, nil
 }
 
 // ValidateBasic validates the server configuration.
