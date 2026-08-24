@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/spf13/cast"
 	"github.com/spf13/viper"
 )
 
@@ -64,6 +66,10 @@ type BaseConfig struct {
 	//
 	// Note: Commitment of state will be attempted on the corresponding block.
 	HaltHeight uint64 `mapstructure:"halt-height"`
+
+	// FreezeHeight contains a non-zero block height at which the node stops
+	// before executing the block while continuing to serve RPC.
+	FreezeHeight uint64 `mapstructure:"freeze-height"`
 
 	// HaltTime contains a non-zero minimum block time (in Unix seconds) at which
 	// a node will gracefully halt and shutdown that can be used to assist
@@ -258,6 +264,7 @@ func DefaultConfig() *Config {
 			PruningKeepRecent:  "0",
 			PruningKeepEvery:   "0",
 			PruningInterval:    "0",
+			FreezeHeight:       0,
 			MinRetainBlocks:    0,
 			IndexEvents:        nil,
 			CompactionInterval: 0,
@@ -314,6 +321,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	if !ok {
 		return Config{}, fmt.Errorf("failed to parse global-labels config")
 	}
+	freezeHeight, err := cast.ToUint64E(v.Get("freeze-height"))
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid freeze-height: %w", err)
+	}
 
 	globalLabels := make([][]string, 0, len(globalLabelsRaw))
 	for idx, glr := range globalLabelsRaw {
@@ -347,6 +358,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			PruningKeepRecent:  v.GetString("pruning-keep-recent"),
 			PruningInterval:    v.GetString("pruning-interval"),
 			HaltHeight:         v.GetUint64("halt-height"),
+			FreezeHeight:       freezeHeight,
 			HaltTime:           v.GetUint64("halt-time"),
 			IndexEvents:        v.GetStringSlice("index-events"),
 			MinRetainBlocks:    v.GetUint64("min-retain-blocks"),
@@ -427,7 +439,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	}, nil
 }
 
-// ValidateBasic returns an error if min-gas-prices field is empty in BaseConfig. Otherwise, it returns nil.
+// ValidateBasic validates the server configuration.
 func (c Config) ValidateBasic(tendermintConfig *tmcfg.Config) error {
 	if c.MinGasPrices == "" {
 		return sdkerrors.ErrAppConfig.Wrap("set min gas price in app.toml or flag or env variable")
@@ -436,6 +448,17 @@ func (c Config) ValidateBasic(tendermintConfig *tmcfg.Config) error {
 		return sdkerrors.ErrAppConfig.Wrapf(
 			"cannot enable state sync snapshots with '%s' pruning setting", storetypes.PruningOptionEverything,
 		)
+	}
+	return c.ValidateFreeze()
+}
+
+// ValidateFreeze validates the configuration that controls freeze mode.
+func (c Config) ValidateFreeze() error {
+	if c.FreezeHeight > math.MaxInt64 {
+		return sdkerrors.ErrAppConfig.Wrapf("freeze-height must not exceed %d", int64(math.MaxInt64))
+	}
+	if c.FreezeHeight > 0 && (c.HaltHeight > 0 || c.HaltTime > 0) {
+		return sdkerrors.ErrAppConfig.Wrap("freeze-height cannot be combined with halt-height or halt-time")
 	}
 
 	return nil
