@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -231,8 +232,14 @@ func (env *testEnv) Run(ctx context.Context) error {
 }
 
 func newTestEnv(rng utils.Rng, cfg *Config, app *proxy.Proxy) *testEnv {
-	registry, keys := epoch.GenRegistry(rng, 1)
-	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, memblock.NewBlockDB()))
+	env, _, _ := newTestEnvN(rng, 1, cfg, app)
+	return env
+}
+
+func newTestEnvN(rng utils.Rng, n int, cfg *Config, app *proxy.Proxy) (*testEnv, *epoch.Registry, []types.SecretKey) {
+	registry, keys := epoch.GenRegistry(rng, n)
+	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+	dataState := utils.OrPanic1(data.NewState(&data.Config{Registry: registry}, store))
 	consensusState := utils.OrPanic1(consensus.NewState(&consensus.Config{
 		Key:                keys[0],
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
@@ -246,6 +253,26 @@ func newTestEnv(rng utils.Rng, cfg *Config, app *proxy.Proxy) *testEnv {
 		inner: utils.NewMutex(&testEnvInner{
 			sequenced: map[common.Address][]*txSpec{},
 		}),
+	}, registry, keys
+}
+
+// alignLocalMempool installs a session mempool for unit tests that InsertTx without State.Run.
+func (env *testEnv) alignLocalMempool() {
+	lane := env.consensus.Avail().LocalLane().OrPanic("test local lane")
+	env.state.alignMempool(lane)
+}
+
+// waitUntilProducing waits until runMempool has aligned the session mempool.
+func (env *testEnv) waitUntilProducing(ctx context.Context) error {
+	for {
+		if env.state.mempool.Load().IsPresent() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Millisecond):
+		}
 	}
 }
 
@@ -268,6 +295,7 @@ func TestInsertTx_GasWantedExceeded(t *testing.T) {
 	app := newTestApp()
 	cfg := app.Cfg()
 	env := newTestEnv(rng, cfg, app.Proxy())
+	env.alignLocalMempool()
 	// Tx with gas wanted exceeding block limit
 	addr, nonce := app.NewAccount(rng)
 	tx := env.genTx(rng, addr, nonce)
@@ -286,6 +314,7 @@ func TestInsertTx_GasEstimatedExceeded(t *testing.T) {
 	cfg.MaxGasEstimatedPerBlock = 10000
 	cfg.MaxGasWantedPerBlock = cfg.MaxGasEstimatedPerBlock * 2
 	env := newTestEnv(rng, cfg, app.Proxy())
+	env.alignLocalMempool()
 	// Tx with gas wanted exceeding block limit
 	addr, nonce := app.NewAccount(rng)
 	tx := env.genTx(rng, addr, nonce)
@@ -302,6 +331,7 @@ func TestInsertTx_AppRejectsTx(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
 	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
 	// Construct tx with invalid encoding.
 	tx := utils.GenBytes(rng, 1)
 	_, err := decodeTxSpec(tx)
@@ -318,6 +348,7 @@ func TestMempool_BadNonce(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
 	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
 	// Initialize nonce for random account.
 	addr := common.Address(utils.GenBytes(rng, len(common.Address{})))
 	nonce := uint64(rng.Intn(10000))
@@ -367,6 +398,9 @@ func TestMempool_HappyPath(t *testing.T) {
 	want := utils.NewMutex(map[common.Address][]*txSpec{})
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("env", func() error { return env.Run(ctx) })
+		if err := env.waitUntilProducing(ctx); err != nil {
+			return err
+		}
 		for range 10 {
 			// Independent tasks submitting txs for some account.
 			s.Spawn(func() error {
@@ -444,7 +478,10 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
 	cfg := app.Cfg()
+	// 1ms interval can seal between InsertTx calls; MaxTxsPerBlock=1 makes
+	// single-tx blocks expected so env.Run's "sealed too early" check stays quiet.
 	cfg.BlockInterval = time.Millisecond
+	cfg.MaxTxsPerBlock = 1
 	env := newTestEnv(rng, cfg, app.Proxy())
 	addr, nonce := app.NewAccount(rng)
 
@@ -453,26 +490,47 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 		env.genTx(rng, addr, nonce+1),
 	)
 
-	for _, tx := range txs {
-		_, err := env.state.InsertTx(ctx, tx.encode())
-		require.NoError(t, err)
-		got, ok := env.state.EvmTxByHash(tx.EVMHash)
-		require.True(t, ok)
-		require.Equal(t, tx.encode(), got)
-	}
-
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("env", func() error { return env.Run(ctx) })
-		for m, ctrl := range env.state.mempool.Lock() {
-			if err := ctrl.WaitUntil(ctx, func() bool {
-				for _, tx := range txs {
-					if _, ok := m.evmTxs[tx.EVMHash]; ok {
-						return false
-					}
-				}
-				return true
-			}); err != nil {
+		if err := env.waitUntilProducing(ctx); err != nil {
+			return err
+		}
+		for _, tx := range txs {
+			if _, err := env.state.InsertTx(ctx, tx.encode()); err != nil {
 				return err
+			}
+			got, ok := env.state.EvmTxByHash(tx.EVMHash)
+			if !ok {
+				return fmt.Errorf("EvmTxByHash(%v) missing", tx.EVMHash)
+			}
+			if err := utils.TestDiff(tx.encode(), got); err != nil {
+				return err
+			}
+		}
+		for {
+			mp, ok := env.state.mempool.Load().Get()
+			if !ok {
+				break
+			}
+			done := false
+			for m, ctrl := range mp.inner.Lock() {
+				if err := ctrl.WaitUntil(ctx, func() bool {
+					if m.closed {
+						return true
+					}
+					for _, tx := range txs {
+						if _, ok := m.evmTxs[tx.EVMHash]; ok {
+							return false
+						}
+					}
+					return true
+				}); err != nil {
+					return err
+				}
+				done = true
+			}
+			if done {
+				break
 			}
 		}
 		return nil
@@ -483,4 +541,121 @@ func TestMempool_EvmTxByHash(t *testing.T) {
 		require.False(t, ok)
 	}
 	require.Equal(t, nonce+uint64(len(txs)), app.EvmNonce(addr))
+}
+
+func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	cfg := app.Cfg()
+	cfg.AllowEmptyBlocks = true
+	cfg.BlockInterval = 10 * time.Millisecond
+	env, registry, keys := newTestEnvN(rng, 2, cfg, app.Proxy())
+	a, b := keys[0], keys[1]
+	availState := env.consensus.Avail()
+
+	lane0 := types.LaneID{Validator: a.Public(), Joined: 0}
+	require.Equal(t, lane0, availState.LocalLane().OrPanic("genesis"))
+
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("avail", func() error {
+			return utils.IgnoreCancel(availState.Run(ctx))
+		})
+		s.SpawnBgNamed("producer", func() error {
+			return utils.IgnoreCancel(env.state.Run(ctx))
+		})
+
+		if _, err := availState.Block(ctx, lane0, 0); err != nil {
+			return err
+		}
+
+		addr := common.Address{1}
+		stuck := env.genTx(rng, addr, app.EvmNonce(addr))
+		if _, err := env.state.InsertTx(ctx, stuck.encode()); err != nil {
+			return err
+		}
+
+		epLeave, err := registry.ActivateEpoch(
+			map[types.PublicKey]uint64{b.Public(): 1},
+			types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+		)
+		if err != nil {
+			return err
+		}
+		availState.ApplyEpoch(epLeave)
+		if err := availState.WaitUntilClosed(ctx, lane0); err != nil {
+			return err
+		}
+		for {
+			if !env.state.mempool.Load().IsPresent() {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Millisecond):
+			}
+		}
+
+		if _, err := env.state.TryInsertTx(ctx, env.genTx(rng, addr, app.EvmNonce(addr)).encode()); !errors.Is(err, ErrNotProducing) {
+			return fmt.Errorf("TryInsertTx after leave: got %v, want ErrNotProducing", err)
+		}
+
+		epJoin, err := registry.ActivateEpoch(
+			map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
+			types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+		)
+		if err != nil {
+			return err
+		}
+		availState.ApplyEpoch(epJoin)
+		got, err := availState.WaitForNextLane(ctx, a.Public(), utils.Some(lane0))
+		if err != nil {
+			return err
+		}
+		if _, err = availState.Block(ctx, got, 0); err != nil {
+			return err
+		}
+		_, err = env.state.InsertTx(ctx, env.genTx(rng, addr, app.EvmNonce(addr)).encode())
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// InsertTx waiting for a session must unblock with ErrNotProducing when leave
+// clears LocalLane and clearMempool publishes None (not hang until ctx cancel).
+func TestInsertTx_WaitUnblocksOnLeave(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env, registry, keys := newTestEnvN(rng, 2, app.Cfg(), app.Proxy())
+	b := keys[1]
+	availState := env.consensus.Avail()
+	_, ok := availState.LocalLane().Get()
+	require.True(t, ok)
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := env.state.InsertTx(ctx, env.genTx(rng, common.Address{1}, 0).encode())
+		errCh <- err
+	}()
+
+	// Let InsertTx reach getMempool Wait (mempool still None — producer not running).
+	time.Sleep(20 * time.Millisecond)
+
+	epLeave, err := registry.ActivateEpoch(
+		map[types.PublicKey]uint64{b.Public(): 1},
+		types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+	)
+	require.NoError(t, err)
+	availState.ApplyEpoch(epLeave)
+	env.state.clearMempool()
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, ErrNotProducing)
+	case <-time.After(time.Second):
+		t.Fatal("InsertTx did not unblock after leave")
+	}
 }

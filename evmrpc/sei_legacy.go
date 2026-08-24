@@ -40,46 +40,9 @@ var (
 // seiLegacyGatedMethods is the full set of JSON-RPC methods on the sei namespace that
 // are subject to [evm] enabled_legacy_sei_apis in app.toml.
 var seiLegacyGatedMethods = map[string]struct{}{
-	"sei_associate":                             {},
-	"sei_getBlockByHash":                        {},
-	"sei_getBlockTransactionCountByHash":        {},
-	"sei_getBlockTransactionCountByNumber":      {},
-	"sei_getBlockByHashExcludeTraceFail":        {},
-	"sei_getCosmosTx":                           {},
-	"sei_getEVMAddress":                         {},
-	"sei_getEvmTx":                              {},
-	"sei_getFilterChanges":                      {},
-	"sei_getFilterLogs":                         {},
-	"sei_getLogs":                               {},
-	"sei_getSeiAddress":                         {},
-	"sei_getTransactionByBlockHashAndIndex":     {},
-	"sei_getTransactionByBlockNumberAndIndex":   {},
-	"sei_getTransactionByHash":                  {},
-	"sei_getTransactionCount":                   {},
-	"sei_getTransactionErrorByHash":             {},
-	"sei_getTransactionReceipt":                 {},
-	"sei_getTransactionReceiptExcludeTraceFail": {},
-	"sei_getVMError":                            {},
-	"sei_newBlockFilter":                        {},
-	"sei_newFilter":                             {},
-	"sei_sign":                                  {},
-	"sei_uninstallFilter":                       {},
-}
-
-// SeiLegacyAllExtraMethodNames returns gated sei_* methods other than the usual default trio
-// (sei_getSeiAddress, sei_getEVMAddress, sei_getCosmosTx). Used to compose full test configs.
-func SeiLegacyAllExtraMethodNames() []string {
-	out := make([]string, 0, len(seiLegacyGatedMethods))
-	for m := range seiLegacyGatedMethods {
-		switch strings.ToLower(m) {
-		case "sei_getseiaddress", "sei_getevmaddress", "sei_getcosmostx":
-			continue
-		default:
-			out = append(out, m)
-		}
-	}
-	sort.Strings(out)
-	return out
+	"sei_getCosmosTx":   {},
+	"sei_getEVMAddress": {},
+	"sei_getSeiAddress": {},
 }
 
 // SeiLegacyAllGatedMethodNames returns every gated sei_* method (sorted). Use when tests need full parity.

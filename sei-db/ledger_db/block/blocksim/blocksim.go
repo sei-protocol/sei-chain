@@ -6,18 +6,14 @@ import (
 	"os"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"golang.org/x/time/rate"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 )
-
-// Fixed committee genesis time; the simulator does not depend on wall-clock
-// genesis, and a constant keeps committee construction deterministic.
-var genesisTime = time.Unix(1_700_000_000, 0)
 
 // The benchmark runner for the blocksim benchmark.
 type BlockSim struct {
@@ -26,7 +22,7 @@ type BlockSim struct {
 
 	config *BlocksimConfig
 
-	db        types.BlockDB
+	db        blocktypes.BlockDB
 	generator *BlockGenerator
 	metrics   *BlocksimMetrics
 
@@ -85,12 +81,6 @@ func NewBlockSim(
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
 
 	fmt.Printf("Initializing random number generator.\n")
-	rng := tmutils.TestRngFromSeed(config.Seed)
-
-	committee, keys, err := buildCommittee(rng, int(config.CommitteeSize)) //nolint:gosec // CommitteeSize is a small config value
-	if err != nil {
-		return nil, err
-	}
 
 	// Pre-generate a random buffer once; all block/QC data generation slices into it
 	// (zero-copy) so the generator never runs math/rand on the hot path.
@@ -103,47 +93,36 @@ func NewBlockSim(
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	blockCount, qcCount, err := countExistingState(db)
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to read existing state: %w", err)
-	}
-	fmt.Printf("Loaded %d blocks and %d QCs from existing state.\n", blockCount, qcCount)
-
 	// Recover the persisted tail so generation resumes after existing history
-	// instead of restarting from global block 0 (which would collide with the
-	// on-disk data).
-	prev, highestOpt, err := recoverResumeState(db)
+	// instead of restarting from global block 0, whose records are already stored.
+	resume, found, err := recoverResumeState(db)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to recover resume state: %w", err)
 	}
-	var highest uint64
-	if prevQC, ok := prev.Get(); ok {
-		// A hard crash can leave the QC ahead of its blocks (the BlockDB
-		// guarantees a persisted block is always covered by a persisted QC, never
-		// the reverse). Backfill the missing tail so the store ends exactly at the
-		// last QC's range — the next batch then appends contiguously. Block bytes
-		// are irrelevant here (this is a DB stress test), so the backfill writes
-		// freshly generated blocks under the already-persisted QC.
-		qcRange := prevQC.GlobalRange()
-		lastQCNext := uint64(qcRange.Next)
-		firstMissing := uint64(qcRange.First)
-		if h, ok := highestOpt.Get(); ok {
-			firstMissing = h + 1
+	var highest, resumeAt uint64
+	if found {
+		// A hard crash can leave a QC ahead of its blocks, since a batch writes
+		// its QC first. Backfill the missing tail so the store ends exactly at the
+		// newest QC's range and the next batch appends contiguously. The bytes are
+		// irrelevant to a DB stress test, so the backfill writes fresh values.
+		firstMissing := resume.qcFirst
+		if resume.hasBlocks {
+			firstMissing = resume.highestBlock + 1
 		}
-		for n := firstMissing; n < lastQCNext; n++ {
-			blk := backfillBlock(cannedRand, committee, config)
-			if err := db.WriteBlock(types.GlobalBlockNumber(n), blk); err != nil { //nolint:gosec // n < lastQCNext
+		for n := firstMissing; n < resume.qcNext; n++ {
+			value := cannedRand.Bytes(int(config.blockValueBytes())) //nolint:gosec // bounded by config validation
+			if err := db.PutBlock(n, blockHash(n), value); err != nil {
 				cancel()
 				return nil, fmt.Errorf("failed to backfill block %d: %w", n, err)
 			}
 		}
-		highest = lastQCNext - 1
+		highest = resume.qcNext - 1
+		resumeAt = resume.qcNext
 		fmt.Printf("Resuming from block %d.\n", highest)
 	}
 
-	generator := NewBlockGenerator(ctx, config, cannedRand, committee, keys, prev)
+	generator := NewBlockGenerator(ctx, config, cannedRand, resumeAt)
 
 	consoleUpdatePeriod := time.Duration(config.ConsoleUpdateIntervalSeconds * float64(time.Second))
 
@@ -175,82 +154,61 @@ func NewBlockSim(
 	return b, nil
 }
 
-// countExistingState scans the ledger to count the persisted blocks and QCs,
-// exercising the replay path at startup.
-func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
-	suffix, err := db.ReadSuffix()
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to read suffix ledger data: %w", err)
-	}
-	return len(suffix.Blocks), len(suffix.CommitQCs), nil
+// resumeState is where a reopened store left off: the range covered by its newest
+// QC record, and the newest block record written under that QC.
+type resumeState struct {
+	qcFirst uint64
+	qcNext  uint64
+
+	// highestBlock is the newest block number written under the newest QC, valid
+	// only when hasBlocks is set. A crash can leave a QC with none of its blocks.
+	highestBlock uint64
+	hasBlocks    bool
 }
 
-// recoverResumeState reads the persisted tail so the benchmark resumes appending
-// after existing history rather than restarting from global block 0. It returns
-// the last persisted QC (to seed the generator's chain via BlockGenerator.prev)
-// and the highest persisted block number (None if no blocks are persisted, which
-// the caller must distinguish from block 0). Both come from the write tips the
-// store recovers at open (Status), because a hard crash can leave the QC ahead
-// of its blocks: the newest QC is resolved by a point read at NextQC-1, which
-// cannot race pruning (the newest cohort is never pruned). An empty store yields
-// (None, None, nil), preserving genesis-start behavior.
-func recoverResumeState(
-	db types.BlockDB,
-) (tmutils.Option[*types.CommitQC], tmutils.Option[uint64], error) {
-	prev := tmutils.None[*types.CommitQC]()
-	highest := tmutils.None[uint64]()
+// recoverResumeState finds where generation should resume, reporting false for a
+// store holding no QC record, which includes an empty one.
+//
+// Records are walked newest-first and the walk stops at the first QC, which bounds
+// it to a single batch: a batch writes its QC before any of the blocks it covers,
+// so the first QC met going backwards is the newest one, and every block seen
+// before it belongs to that QC's range.
+func recoverResumeState(db blocktypes.BlockDB) (resumeState, bool, error) {
+	it, err := db.Scan(true)
+	if err != nil {
+		return resumeState{}, false, fmt.Errorf("failed to open resume iterator: %w", err)
+	}
+	defer func() { _ = it.Close() }()
 
-	status, ok := db.Status().Get()
-	if !ok {
-		return prev, highest, nil
-	}
-	if status.NextBlock > status.First {
-		highest = tmutils.Some(uint64(status.NextBlock - 1))
-	}
-	if status.NextQC > 0 {
-		covering, err := db.ReadQCByBlockNumber(status.NextQC - 1)
+	var state resumeState
+	for {
+		ok, err := it.Next()
 		if err != nil {
-			return prev, highest, fmt.Errorf("failed to read newest QC: %w", err)
+			return resumeState{}, false, fmt.Errorf("failed to advance resume iterator: %w", err)
 		}
-		fqc, ok := covering.Get()
 		if !ok {
-			return prev, highest, fmt.Errorf(
-				"store reports QCs through %d but the newest QC is unreadable", status.NextQC)
+			return resumeState{}, false, nil
 		}
-		prev = tmutils.Some(fqc.QC())
+		switch it.Kind() {
+		case blocktypes.KindBlock:
+			if !state.hasBlocks {
+				state.highestBlock = it.Number()
+				state.hasBlocks = true
+			}
+		case blocktypes.KindQC:
+			value, err := it.Value()
+			if err != nil {
+				return resumeState{}, false, fmt.Errorf("failed to read newest QC: %w", err)
+			}
+			next, err := qcRangeEnd(value)
+			if err != nil {
+				return resumeState{}, false, fmt.Errorf("failed to read newest QC range: %w", err)
+			}
+			state.qcFirst = it.Number()
+			state.qcNext = next
+			return state, true, nil
+		}
 	}
-
-	return prev, highest, nil
-}
-
-// buildCommittee creates a round-robin committee of the given size along with
-// the secret keys that sign its QCs, with global numbering starting at 0.
-func buildCommittee(rng tmutils.Rng, size int) (*types.Committee, []types.SecretKey, error) {
-	keys := make([]types.SecretKey, size)
-	replicas := make([]types.PublicKey, size)
-	for i := range keys {
-		keys[i] = types.GenSecretKey(rng)
-		replicas[i] = keys[i].Public()
-	}
-	committee, err := types.NewRoundRobinElection(replicas)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to build committee: %w", err)
-	}
-	return committee, keys, nil
-}
-
-// backfillBlock builds a throwaway block for crash-recovery backfill using canned random
-// data. The block's content and internal header are irrelevant — the store keys blocks by
-// the global number passed to WriteBlock — so this avoids real crypto and math/rand.
-func backfillBlock(rand *crand.CannedRandom, committee *types.Committee, config *BlocksimConfig) *types.Block {
-	txs := make([][]byte, config.TransactionsPerBlock)
-	for i := range txs {
-		txs[i] = rand.Bytes(int(config.BytesPerTransaction)) //nolint:gosec // payload sizes are bounded by config validation
-	}
-	payload := tmutils.OrPanic1(types.PayloadBuilder{CreatedAt: time.Now(), Txs: txs}.Build())
-	payloadHash := tmutils.OrPanic1(types.ParsePayloadHash(rand.Bytes(hashSizeBytes)))
-	parentHash := tmutils.OrPanic1(types.ParseBlockHeaderHash(rand.Bytes(hashSizeBytes)))
-	return types.NewBlockForTesting(committee.Lanes().At(0), 0, parentHash, payload, payloadHash)
 }
 
 // The main loop of the benchmark.
@@ -297,22 +255,20 @@ func (b *BlockSim) maybeThrottle() {
 	}
 }
 
-// handleNextBatch persists one batch: its QC, then all of its blocks. The QC is
-// written first because the BlockDB contract requires a covering QC before any
-// block it covers (WriteBlock rejects an uncovered block). It is deliberately
-// atomic with respect to shutdown — it writes the whole batch and only returns
-// early on a write *error*, never on context cancellation (run observes shutdown
-// solely between batches, and the only mid-batch ctx use, maybeThrottle, merely
-// stops throttling and proceeds with the write). Combined with flushes happening
-// only after the full batch (here, in suspend, and in teardown), a cleanly
-// shut-down store always ends at a complete batch boundary (highest block ==
-// last QC's Next-1), so it resumes with no gap. A hard crash may leave the QC
-// ahead of its blocks (never a block without its QC); resume backfills the gap.
-// Do NOT add a mid-batch ctx abort: it would let a clean shutdown leave a
-// partial batch.
+// handleNextBatch persists one batch: its QC, then all of its blocks. The QC goes
+// first so that a crash truncating the write sequence can only ever leave a QC
+// without its blocks, which resume repairs, and never a block whose QC is
+// missing. It is deliberately atomic with respect to shutdown — it writes the
+// whole batch and only returns early on a write *error*, never on context
+// cancellation (run observes shutdown solely between batches, and the only
+// mid-batch ctx use, maybeThrottle, merely stops throttling and proceeds with the
+// write). Combined with flushes happening only after the full batch (here, in
+// suspend, and in teardown), a cleanly shut-down store always ends at a complete
+// batch boundary, so it resumes with no gap. Do NOT add a mid-batch ctx abort: it
+// would let a clean shutdown leave a partial batch.
 func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 	b.metrics.SetMainThreadPhase("write_qc")
-	if err := b.db.WriteQC(batch.qc); err != nil {
+	if err := b.db.PutRecord(blocktypes.KindQC, batch.first, batch.next, batch.qc); err != nil {
 		fmt.Printf("failed to write QC: %v\n", err)
 		b.cancel()
 		return
@@ -321,19 +277,19 @@ func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 	b.metrics.ReportQCWritten()
 
 	b.metrics.SetMainThreadPhase("write_block")
-	for i, blk := range batch.blocks {
+	for i, value := range batch.blocks {
 		b.maybeThrottle()
-		n := batch.first + types.GlobalBlockNumber(i) //nolint:gosec // batch index is small and non-negative
-		if err := b.db.WriteBlock(n, blk); err != nil {
+		n := batch.first + uint64(i) //nolint:gosec // batch index is small and non-negative
+		if err := b.db.PutBlock(n, blockHash(n), value); err != nil {
 			fmt.Printf("failed to write block %d: %v\n", n, err)
 			b.cancel()
 			return
 		}
-		blockBytes := payloadBytes(blk)
+		blockBytes := int64(len(value))
 		b.totalBlocksWritten++
 		b.totalBytesWritten += blockBytes
-		b.highestBlockHeight = uint64(n)
-		b.metrics.ReportBlockWritten(blockBytes, int64(len(blk.Payload().Txs())))
+		b.highestBlockHeight = n
+		b.metrics.ReportBlockWritten(blockBytes, int64(b.config.TransactionsPerBlock)) //nolint:gosec // bounded by config validation
 	}
 	b.metrics.RecordHighestHeight(b.highestBlockHeight)
 
@@ -348,29 +304,18 @@ func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 		b.metrics.ReportFlush()
 	}
 
-	// Periodic prune.
+	// Periodic prune. The watermark is moved verbatim: choosing a boundary a whole
+	// range of records can be dropped at is the consensus layer's job, and what is
+	// under measurement here is the reclamation the watermark triggers.
 	if b.highestBlockHeight > b.config.UnprunedBlocks &&
 		b.highestBlockHeight-b.lastPrunedAt >= b.config.PruneIntervalBlocks {
 		b.metrics.SetMainThreadPhase("prune")
 		lowestToKeep := b.highestBlockHeight - b.config.UnprunedBlocks
-		if err := b.db.PruneBefore(types.GlobalBlockNumber(lowestToKeep)); err != nil {
-			fmt.Printf("failed to prune: %v\n", err)
-			b.cancel()
-			return
-		}
+		b.db.SetPruneWatermark(lowestToKeep)
 		b.lastPrunedAt = b.highestBlockHeight
 		b.metrics.ReportPrune()
 		b.metrics.RecordLowestHeight(lowestToKeep)
 	}
-}
-
-// payloadBytes returns the total size of a block's payload transactions.
-func payloadBytes(blk *types.Block) int64 {
-	var total int64
-	for _, tx := range blk.Payload().ToBuilder().Txs {
-		total += int64(len(tx))
-	}
-	return total
 }
 
 func (b *BlockSim) suspend() {
@@ -481,8 +426,8 @@ func (b *BlockSim) Resume() {
 	}
 }
 
-// openBlockDB creates a types.BlockDB for the configured backend.
-func openBlockDB(config *BlocksimConfig) (types.BlockDB, error) {
+// openBlockDB creates a BlockDB for the configured backend.
+func openBlockDB(config *BlocksimConfig) (blocktypes.BlockDB, error) {
 	switch config.Backend {
 	case "mem":
 		return memblock.NewBlockDB(), nil

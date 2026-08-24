@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/evidence"
-	"github.com/sei-protocol/sei-chain/precompiles/feegrant"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
@@ -69,7 +68,6 @@ func GetCustomPrecompiles(
 		ecommon.HexToAddress(auth.AuthAddress):               auth.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(authz.AuthzAddress):             authz.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(evidence.EvidenceAddress):       evidence.GetVersioned(latestUpgrade, keepers),
-		ecommon.HexToAddress(feegrant.FeegrantAddress):       feegrant.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(mint.MintAddress):               mint.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(params.ParamsAddress):           params.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(slashing.SlashingAddress):       slashing.GetVersioned(latestUpgrade, keepers),

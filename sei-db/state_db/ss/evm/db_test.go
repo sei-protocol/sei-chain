@@ -31,6 +31,28 @@ func openTestStore(t *testing.T) types.StateStore {
 	return store
 }
 
+// GetEarliestVersion reports the highest sub-DB floor, which is the earliest
+// version every routed sub-DB can serve.
+func TestGetEarliestVersionReportsTheFurthestPrunedSubDB(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig()
+	cfg.SeparateEVMSubDBs = true
+
+	store, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	require.Greater(t, len(store.managedDBs), 1)
+
+	require.Zero(t, store.GetEarliestVersion())
+
+	require.NoError(t, store.subDBs[StoreStorage].SetEarliestVersion(40, false))
+	require.Equal(t, int64(40), store.GetEarliestVersion())
+
+	// Once the pass finishes, the reported floor stays the same.
+	require.NoError(t, store.SetEarliestVersion(40, false))
+	require.Equal(t, int64(40), store.GetEarliestVersion())
+}
+
 func TestEVMStateStoreDefaultUsesUnifiedDB(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig()

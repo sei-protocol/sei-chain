@@ -3,6 +3,7 @@ package rootmulti
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
@@ -133,6 +135,70 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	})
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
+
+	// Once SS reports a higher floor, historical SS queries below it must fail
+	// before a cache store can mix available Cosmos data with unavailable routed
+	// data.
+	require.NoError(t, store.ssStore.SetEarliestVersion(c2.Version, false))
+	_, err = store.CacheMultiStoreWithVersion(c1.Version)
+	require.ErrorContains(t, err, "below earliest available version 2")
+
+	resp = store.Query(context.Background(), abci.RequestQuery{
+		Path:   "/bank/key",
+		Data:   keyBytes,
+		Height: c1.Version,
+		Prove:  false,
+	})
+	require.NotEqualValues(t, 0, resp.Code)
+}
+
+// flush owns the SS snapshot trigger for every block, so a boundary must be
+// scheduled whether or not the block carried changesets. The composite package
+// cannot pin this: its tests call ScheduleSnapshot themselves, so a regression
+// in either branch of flush is invisible there.
+func TestFlushSchedulesSSSnapshotAtABoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		writeAtBlock int64
+	}{
+		{name: "boundary block is populated", writeAtBlock: 2},
+		{name: "boundary block is empty", writeAtBlock: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			scCfg := config.DefaultStateCommitConfig()
+			scCfg.Enable = true
+			scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+			// SS mirrors the SC cadence, so this is what puts the SS boundary at 2.
+			scCfg.MemIAVLConfig.SnapshotInterval = 2
+			scCfg.MemIAVLConfig.SnapshotKeepRecent = 1
+
+			ssCfg := config.DefaultStateStoreConfig()
+			ssCfg.Enable = true
+			ssCfg.SnapshotEnable = true
+
+			store := NewStore(home, scCfg, ssCfg, []string{})
+			defer func() { _ = store.Close() }()
+			require.NotNil(t, store.ssSnapshots, "SS snapshot capability was not resolved")
+
+			key := types.NewKVStoreKey("bank")
+			store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+			require.NoError(t, store.LoadLatestVersion())
+
+			for block := int64(1); block <= 2; block++ {
+				if block == tc.writeAtBlock {
+					store.GetStoreByName("bank").(types.KVStore).Set([]byte("k"), []byte("v"))
+				}
+				require.Equal(t, block, store.Commit(true).Version)
+			}
+
+			root := filepath.Join(home, "data", "state_store", sscomposite.SnapshotsDirName)
+			require.Eventually(t, func() bool {
+				versions, err := sscomposite.ListSnapshotVersions(root)
+				return err == nil && len(versions) == 1 && versions[0] == 2
+			}, 10*time.Second, 20*time.Millisecond, "boundary did not produce an SS snapshot")
+		})
+	}
 }
 
 // TestCacheMultiStoreWithVersion_OnlyUsesSSStores verifies that CacheMultiStoreWithVersion

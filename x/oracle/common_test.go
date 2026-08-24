@@ -7,7 +7,6 @@ import (
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
-	"github.com/sei-protocol/sei-chain/x/oracle"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 )
 
@@ -18,24 +17,22 @@ var (
 	anotherRandomExchangeRate = sdk.NewDecWithPrec(4882, 2) // swap rate
 )
 
-func setupWithSmallVotingPower(t *testing.T) (testutils.TestInput, sdk.Handler) {
+func setupWithSmallVotingPower(t *testing.T) testutils.TestInput {
 	input := testutils.CreateTestInput(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.VotePeriod = 1
 	params.SlashWindow = 100
 	input.OracleKeeper.SetParams(input.Ctx, params)
-	h := oracle.NewHandler(input.OracleKeeper)
-
 	sh := staking.NewHandler(input.StakingKeeper)
 	_, err := sh(input.Ctx, testutils.NewTestMsgCreateValidator(testutils.ValAddrs[0], testutils.ValPubKeys[0], sdk.TokensFromConsensusPower(1, sdk.DefaultPowerReduction)))
 	require.NoError(t, err)
 
 	staking.EndBlocker(input.Ctx, input.StakingKeeper)
 
-	return input, h
+	return input
 }
 
-func setup(t *testing.T) (testutils.TestInput, sdk.Handler) {
+func setup(t *testing.T) testutils.TestInput {
 	input := testutils.CreateTestInput(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.VotePeriod = 1
@@ -45,8 +42,6 @@ func setup(t *testing.T) (testutils.TestInput, sdk.Handler) {
 	stakingParams := input.StakingKeeper.GetParams(input.Ctx)
 	stakingParams.MinCommissionRate = sdk.NewDecWithPrec(0, 2)
 	input.StakingKeeper.SetParams(input.Ctx, stakingParams)
-
-	h := oracle.NewHandler(input.OracleKeeper)
 
 	sh := staking.NewHandler(input.StakingKeeper)
 
@@ -59,17 +54,15 @@ func setup(t *testing.T) (testutils.TestInput, sdk.Handler) {
 	require.NoError(t, err)
 	staking.EndBlocker(input.Ctx, input.StakingKeeper)
 
-	return input, h
+	return input
 }
 
-func setupN(t *testing.T, num int) (testutils.TestInput, sdk.Handler) {
+func setupN(t *testing.T, num int) testutils.TestInput {
 	input := testutils.CreateTestInput(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.VotePeriod = 1
 	params.SlashWindow = 100
 	input.OracleKeeper.SetParams(input.Ctx, params)
-	h := oracle.NewHandler(input.OracleKeeper)
-
 	sh := staking.NewHandler(input.StakingKeeper)
 
 	require.LessOrEqual(t, num, len(testutils.ValAddrs))
@@ -81,5 +74,5 @@ func setupN(t *testing.T, num int) (testutils.TestInput, sdk.Handler) {
 	}
 	staking.EndBlocker(input.Ctx, input.StakingKeeper)
 
-	return input, h
+	return input
 }

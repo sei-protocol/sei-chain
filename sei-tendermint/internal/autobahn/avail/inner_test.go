@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -13,7 +14,8 @@ import (
 )
 
 func newTestDataState(cfg *data.Config) *data.State {
-	return utils.OrPanic1(data.NewState(cfg, memblock.NewBlockDB()))
+	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+	return utils.OrPanic1(data.NewState(cfg, store))
 }
 
 func testSignedBlock(key types.SecretKey, lane types.LaneID, n types.BlockNumber, parent types.BlockHeaderHash, rng utils.Rng) *types.Signed[*types.LaneProposal] {
@@ -42,7 +44,7 @@ func TestNewInnerFreshStart(t *testing.T) {
 func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 
 	var parent types.BlockHeaderHash
 	var bs []persist.LoadedBlock
@@ -74,7 +76,7 @@ func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 func TestNewInnerLoadedBlocksEmptySlice(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 
 	i, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
 		blocks: map[types.LaneID][]persist.LoadedBlock{lane: {}},
@@ -91,7 +93,7 @@ func TestNewInnerLoadedBlocksUnknownLane(t *testing.T) {
 	registry, keys := epoch.GenRegistry(rng, 4)
 
 	unknownKey := types.GenSecretKey(rng)
-	unknownLane := unknownKey.Public()
+	unknownLane := types.LaneID{Validator: unknownKey.Public(), Joined: 0}
 	b := testSignedBlock(unknownKey, unknownLane, 0, types.BlockHeaderHash{}, rng)
 
 	i, err := newInner(newTestDataState(&data.Config{Registry: registry}), &loadedState{
@@ -110,8 +112,8 @@ func TestNewInnerLoadedBlocksUnknownLane(t *testing.T) {
 func TestNewInnerLoadedBlocksMultipleLanes(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane0 := keys[0].Public()
-	lane1 := keys[1].Public()
+	lane0 := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
+	lane1 := registry.LatestEpoch().Committee().Lane(keys[1].Public()).OrPanic("keys[1]")
 
 	var parent0 types.BlockHeaderHash
 	var bs0 []persist.LoadedBlock
@@ -191,7 +193,7 @@ func TestNewInnerLoadedCommitQCsEmpty(t *testing.T) {
 func TestNewInnerLoadedBlocksGapReturnsError(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 
 	var bs []persist.LoadedBlock
 	for _, n := range []types.BlockNumber{3, 4, 6, 7} {
@@ -208,7 +210,7 @@ func TestNewInnerLoadedBlocksGapReturnsError(t *testing.T) {
 func TestNewInnerLoadedBlocksParentHashMismatchReturnsError(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 
 	var parent types.BlockHeaderHash
 	b0 := testSignedBlock(keys[0], lane, 0, parent, rng)
@@ -230,7 +232,7 @@ func TestNewInnerLoadedBlocksParentHashMismatchReturnsError(t *testing.T) {
 func TestNewInnerLoadedBlocksOverCapacityReturnsError(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	lane := keys[0].Public()
+	lane := registry.LatestEpoch().Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
 
 	count := BlocksPerLane + 5
 	var parent types.BlockHeaderHash

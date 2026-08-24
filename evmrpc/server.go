@@ -109,10 +109,7 @@ func NewEVMHTTPServer(
 			TipFn:        func() int64 { return ctxProvider(LatestCtxHeight).BlockHeight() },
 		})
 	}
-	isPanicOrSyntheticTxFunc := debugAPI.isPanicOrSyntheticTx
 	seiLegacyAllowlist := BuildSeiLegacyEnabledSet(config.EnabledLegacySeiApis)
-
-	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, methodTimeout, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
 
 	// DB semaphore aligned with worker count
 	dbReadSemaphore := make(chan struct{}, workerCount)
@@ -127,16 +124,8 @@ func NewEVMHTTPServer(
 			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
-			Namespace: "sei",
-			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex),
-		},
-		{
 			Namespace: "eth",
 			Service:   txAPI,
-		},
-		{
-			Namespace: "sei",
-			Service:   seiTxAPI,
 		},
 		{
 			Namespace: "eth",
@@ -177,24 +166,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "sei",
-			Service: NewFilterAPI(
-				tmClient,
-				k,
-				ctxProvider,
-				txConfigProvider,
-				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog},
-				ConnectionTypeHTTP,
-				"sei",
-				dbReadSemaphore,
-				globalBlockCache,
-				cacheCreationMutex,
-				globalLogSlicePool,
-				watermarks,
-			),
-		},
-		{
-			Namespace: "sei",
-			Service:   NewAssociationAPI(tmClient, k, ctxProvider, txConfigProvider, sendAPI, ConnectionTypeHTTP, watermarks),
+			Service:   NewAssociationAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP, watermarks),
 		},
 		{
 			Namespace: "txpool",

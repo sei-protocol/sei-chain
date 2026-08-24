@@ -90,7 +90,7 @@ func TestProposalVerifyFreshWithBlocks(t *testing.T) {
 	proposerKey := leaderKey(committee, keys, vs.View())
 
 	// Produce a LaneQC for the proposer's lane.
-	lane := proposerKey.Public()
+	lane := committee.Lane(proposerKey.Public()).OrPanic("missing lane")
 	laneQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 
 	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(),
@@ -104,7 +104,7 @@ func TestNewProposalRejectsLaneRangeLongerThanMaxLaneRangeInProposal(t *testing.
 	ep := genFreshEpoch(rng, committee)
 	vs := ViewSpec{Epoch: ep}
 	proposerKey := leaderKey(committee, keys, vs.View())
-	lane := proposerKey.Public()
+	lane := committee.Lane(proposerKey.Public()).OrPanic("missing lane")
 
 	laneQC := makeLaneQC(rng, committee, keys, lane, MaxLaneRangeInProposal, GenBlockHeaderHash(rng))
 	_, err := NewProposal(
@@ -123,7 +123,7 @@ func TestProposalBlockTimestampStrictlyMonotone(t *testing.T) {
 	firstBlock := ep.FirstBlock()
 	vs0 := ViewSpec{Epoch: ep}
 	proposer0 := leaderKey(committee, keys, vs0.View())
-	lane := proposer0.Public()
+	lane := committee.Lane(proposer0.Public()).OrPanic("missing lane")
 
 	firstProposal := utils.OrPanic1(NewProposal(
 		proposer0,
@@ -183,7 +183,7 @@ func TestProposalVerifyRejectsNonMonotoneTimestamp(t *testing.T) {
 		ep := genFreshEpoch(rng, committee)
 		vs0 := ViewSpec{Epoch: ep}
 		proposer0 := leaderKey(committee, keys, vs0.View())
-		lane := proposer0.Public()
+		lane := committee.Lane(proposer0.Public()).OrPanic("missing lane")
 		lQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 
 		fp0a := utils.OrPanic1(NewProposal(
@@ -308,7 +308,7 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 
 	// Keep the non-empty committee tipcut and add a non-committee lane.
 	// LaneRange.Verify rejects X because it's not a committee lane.
-	extraLane := GenSecretKey(rng).Public()
+	extraLane := LaneID{Validator: GenSecretKey(rng).Public(), Joined: GenEpochIndex(rng)}
 	require.False(t, committee.HasLane(extraLane))
 
 	origProposal := fp.Proposal().Msg()
@@ -437,7 +437,7 @@ func TestProposalVerifyRejectsMissingLaneQC(t *testing.T) {
 	vs := ViewSpec{Epoch: ep}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	lane := keys[0].Public()
+	lane := committee.Lane(keys[0].Public()).OrPanic("missing lane")
 	laneQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 
 	// Build a valid proposal with a block, then strip the laneQC.
@@ -459,7 +459,7 @@ func TestProposalVerifyRejectsLaneQCBlockNumberMismatch(t *testing.T) {
 	vs := ViewSpec{Epoch: ep}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	lane := keys[0].Public()
+	lane := committee.Lane(keys[0].Public()).OrPanic("missing lane")
 
 	// Build a valid proposal with a QC certifying block 1 (range [0, 2)).
 	goodQC := makeLaneQC(rng, committee, keys, lane, 1, GenBlockHeaderHash(rng))
@@ -483,7 +483,7 @@ func TestProposalVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 	vs := ViewSpec{Epoch: ep}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	lane := keys[0].Public()
+	lane := committee.Lane(keys[0].Public()).OrPanic("missing lane")
 	block := NewBlock(lane, 0, GenBlockHeaderHash(rng), GenPayload(rng))
 	header := block.Header()
 
@@ -521,7 +521,7 @@ func TestProposalVerifyRejectsLaneRangeLongerThanMaxLaneRangeInProposal(t *testi
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
 	ep := genFreshEpoch(rng, committee)
-	lane := leaderKey(committee, keys, View{}).Public()
+	lane := committee.Lane(leaderKey(committee, keys, View{}).Public()).OrPanic("missing lane")
 	// Bypass NewProposal's check by constructing the proposal directly.
 	oversized := newProposal(
 		View{},
@@ -564,7 +564,7 @@ func TestProposalVerifyRejectsLaneQCHeaderHashMismatch(t *testing.T) {
 	vs := ViewSpec{Epoch: ep}
 	proposerKey := leaderKey(committee, keys, vs.View())
 
-	lane := proposerKey.Public()
+	lane := committee.Lane(proposerKey.Public()).OrPanic("missing lane")
 
 	// Build a valid proposal with a QC for block 0.
 	realQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
@@ -592,7 +592,7 @@ func TestProposalVerifyValidReproposal(t *testing.T) {
 	ep := genFreshEpoch(rng, committee)
 	vs0 := ViewSpec{Epoch: ep}
 	leader0 := leaderKey(committee, keys, vs0.View())
-	lane := committee.Leader(vs0.View())
+	lane := committee.Lane(committee.Leader(vs0.View())).OrPanic("missing lane")
 	laneQC0 := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 	fp0 := utils.OrPanic1(NewProposal(leader0, vs0, time.Now(),
 		map[LaneID]*LaneQC{lane: laneQC0}))
@@ -650,7 +650,7 @@ func TestProposalVerifyRejectsReproposalWithUnnecessaryData(t *testing.T) {
 	// Create a valid reproposal, then tamper it with unnecessary laneQCs.
 	reproposal := utils.OrPanic1(NewProposal(leader1, vs1, time.Now(), oneLaneQCMap(rng, committee, keys, vs1)))
 
-	lane := keys[0].Public()
+	lane := committee.Lane(keys[0].Public()).OrPanic("missing lane")
 	laneQC := makeLaneQC(rng, committee, keys, lane, 0, GenBlockHeaderHash(rng))
 	tamperedFP := &FullProposal{
 		proposal:  reproposal.proposal,

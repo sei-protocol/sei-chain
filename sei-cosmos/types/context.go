@@ -12,6 +12,7 @@ import (
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/ctxkv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/gaskv"
 	stypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
@@ -565,10 +566,10 @@ func (c Context) Value(key interface{}) interface{} {
 func (c Context) KVStore(key StoreKey) KVStore {
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
-			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
+			return gaskv.NewStore(ctxkv.Wrap(c.nextMs.GetKVStore(key), c.ctx), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
 		}
 	}
-	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
+	return gaskv.NewStore(ctxkv.Wrap(c.MultiStore().GetKVStore(key), c.ctx), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
 }
 
 func (c Context) GigaKVStore(key StoreKey) KVStore {
@@ -579,10 +580,10 @@ func (c Context) GigaKVStore(key StoreKey) KVStore {
 func (c Context) TransientStore(key StoreKey) KVStore {
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
-			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
+			return gaskv.NewStore(ctxkv.Wrap(c.nextMs.GetKVStore(key), c.ctx), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
 		}
 	}
-	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
+	return gaskv.NewStore(ctxkv.Wrap(c.MultiStore().GetKVStore(key), c.ctx), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
 }
 
 // CacheContext returns a new Context with the multi-store cached and a new

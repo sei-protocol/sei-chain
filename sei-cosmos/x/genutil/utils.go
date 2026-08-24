@@ -32,14 +32,19 @@ func ExportGenesisFile(genDoc *tmtypes.GenesisDoc, genFile string) error {
 // An error is returned if building or writing the configuration to file fails.
 func ExportGenesisFileWithTime(
 	genFile, chainID string, validators []tmtypes.GenesisValidator,
-	appState json.RawMessage, genTime time.Time,
+	timeoutCommit time.Duration, appState json.RawMessage, genTime time.Time,
 ) error {
+	consensusParams := tmtypes.DefaultConsensusParams()
+	if timeoutCommit != 0 {
+		consensusParams.Timeout.Commit = timeoutCommit
+	}
 
 	genDoc := tmtypes.GenesisDoc{
-		GenesisTime: genTime,
-		ChainID:     chainID,
-		Validators:  validators,
-		AppState:    appState,
+		GenesisTime:     genTime,
+		ChainID:         chainID,
+		Validators:      validators,
+		ConsensusParams: consensusParams,
+		AppState:        appState,
 	}
 
 	if err := genDoc.ValidateAndComplete(); err != nil {

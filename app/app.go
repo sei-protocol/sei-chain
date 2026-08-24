@@ -73,9 +73,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence"
 	evidencekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/keeper"
 	evidencetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
-	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
-	feegrantmodule "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/module"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
 	genutiltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
@@ -106,7 +103,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	appante "github.com/sei-protocol/sei-chain/app/ante"
-	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
@@ -126,9 +122,6 @@ import (
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	ibc "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core"
-	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
-	ibcclientclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/client"
-	ibcclienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	ibcporttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
 	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
@@ -193,8 +186,6 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 		distrclient.ProposalHandler,
 		upgradeclient.ProposalHandler,
 		upgradeclient.CancelProposalHandler,
-		ibcclientclient.UpdateClientProposalHandler,
-		ibcclientclient.UpgradeProposalHandler,
 		mintclient.UpdateMinterHandler,
 		// this line is used by starport scaffolding # stargate/app/govProposalHandler
 	)
@@ -230,7 +221,6 @@ var (
 		gov.NewAppModuleBasic(getGovProposalHandlers()...),
 		params.AppModuleBasic{},
 		slashing.AppModuleBasic{},
-		feegrantmodule.AppModuleBasic{},
 		ibc.AppModuleBasic{},
 		upgrade.AppModuleBasic{},
 		evidence.AppModuleBasic{},
@@ -273,7 +263,7 @@ var (
 	kvStoreKeyNames = []string{
 		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrantModuleName,
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
@@ -309,7 +299,8 @@ var (
 )
 
 const (
-	MinGasEVMTx = 21000
+	MinGasEVMTx        = 21000
+	feegrantModuleName = "feegrant"
 
 	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
 	// notifier buffer. Capacity 1 pairs with the notifier's
@@ -409,7 +400,6 @@ type App struct {
 	IBCKeeper        *ibckeeper.Keeper // IBC Keeper must be a pointer in the app, so we can SetRouter on it correctly
 	EvidenceKeeper   evidencekeeper.Keeper
 	TransferKeeper   ibctransferkeeper.Keeper
-	FeeGrantKeeper   feegrantkeeper.Keeper
 	WasmKeeper       wasm.Keeper
 	OracleKeeper     oraclekeeper.Keeper
 	EvmKeeper        evmkeeper.Keeper
@@ -604,7 +594,6 @@ func New(
 		appCodec, keys[slashingtypes.StoreKey], &stakingKeeper, app.GetSubspace(slashingtypes.ModuleName),
 	)
 
-	app.FeeGrantKeeper = feegrantkeeper.NewKeeper(appCodec, keys[feegrant.StoreKey], app.AccountKeeper)
 	app.UpgradeKeeper = upgradekeeper.NewKeeper(skipUpgradeHeights, keys[upgradetypes.StoreKey], appCodec, homePath, app.BaseApp)
 
 	// register the staking hooks
@@ -847,7 +836,6 @@ func New(
 		AddRoute(paramproposal.RouterKey, params.NewParamChangeProposalHandler(app.ParamsKeeper)).
 		AddRoute(distrtypes.RouterKey, distr.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)).
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
-		AddRoute(ibcclienttypes.RouterKey, ibcclient.NewClientProposalHandler(app.IBCKeeper.ClientKeeper)).
 		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
 		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
 		AddRoute(evmtypes.RouterKey, evm.NewProposalHandler(app.EvmKeeper))
@@ -886,7 +874,6 @@ func New(
 		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper, app.UpgradeKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
-		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
 		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
@@ -924,23 +911,19 @@ func New(
 		EvmKeeper:     &app.EvmKeeper,
 	}
 	app.CheckTxKeepers = legacyabci.CheckTxKeepers{
-		AccountKeeper:  app.AccountKeeper,
-		BankKeeper:     app.BankKeeper,
-		FeeGrantKeeper: &app.FeeGrantKeeper,
-		IBCKeeper:      app.IBCKeeper,
-		OracleKeeper:   app.OracleKeeper,
-		EvmKeeper:      &app.EvmKeeper,
-		ParamsKeeper:   app.ParamsKeeper,
-		UpgradeKeeper:  &app.UpgradeKeeper,
+		AccountKeeper: app.AccountKeeper,
+		BankKeeper:    app.BankKeeper,
+		IBCKeeper:     app.IBCKeeper,
+		EvmKeeper:     &app.EvmKeeper,
+		ParamsKeeper:  app.ParamsKeeper,
+		UpgradeKeeper: &app.UpgradeKeeper,
 	}
 	app.DeliverTxKeepers = legacyabci.DeliverTxKeepers{
-		AccountKeeper:  app.AccountKeeper,
-		BankKeeper:     app.BankKeeper,
-		FeeGrantKeeper: &app.FeeGrantKeeper,
-		OracleKeeper:   app.OracleKeeper,
-		EvmKeeper:      &app.EvmKeeper,
-		ParamsKeeper:   app.ParamsKeeper,
-		UpgradeKeeper:  &app.UpgradeKeeper,
+		AccountKeeper: app.AccountKeeper,
+		BankKeeper:    app.BankKeeper,
+		EvmKeeper:     &app.EvmKeeper,
+		ParamsKeeper:  app.ParamsKeeper,
+		UpgradeKeeper: &app.UpgradeKeeper,
 	}
 
 	app.mm.SetOrderMidBlockers(
@@ -969,7 +952,6 @@ func New(
 		evidencetypes.ModuleName,
 		ibctransfertypes.ModuleName,
 		authz.ModuleName,
-		feegrant.ModuleName,
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
@@ -987,7 +969,6 @@ func New(
 		auth.NewAppModule(appCodec, app.AccountKeeper, authsims.RandomGenesisAccounts),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
-		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
 		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
@@ -1026,7 +1007,6 @@ func New(
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   app.AccountKeeper,
 				BankKeeper:      app.BankKeeper,
-				FeegrantKeeper:  app.FeeGrantKeeper,
 				ParamsKeeper:    app.ParamsKeeper,
 				SignModeHandler: signModeHandler,
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
@@ -1036,7 +1016,6 @@ func New(
 			TXCounterStoreKey: keys[wasm.StoreKey],
 			WasmConfig:        &wasmConfig,
 			WasmKeeper:        &app.WasmKeeper,
-			OracleKeeper:      &app.OracleKeeper,
 			EVMKeeper:         &app.EvmKeeper,
 			UpgradeKeeper:     &app.UpgradeKeeper,
 			TracingInfo:       app.GetBaseApp().TracingInfo,
@@ -1455,37 +1434,12 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		Tx: tx,
 	}, typedTx, sha256.Sum256(tx))
 
-	// Check if transaction is gasless before recording metrics
-	// perf optimization: skip gasless check for obviously non-gasless transaction types
-	shouldCheckGasless := app.couldBeGaslessTransaction(typedTx)
-
-	var skipMetrics bool
-	if shouldCheckGasless {
-		// Only do expensive validation for potentially gasless transactions
-		isGasless, err := antedecorators.IsTxGasless(typedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
-		if err != nil {
-			if isExpectedGaslessMetricsError(err) {
-				// ErrAggregateVoteExist is expected when checking gasless status after tx processing
-				// since oracle votes will now exist in state. We know it was gasless, skip metrics.
-				skipMetrics = true
-			} else {
-				logger.Debug("error checking if tx is gasless for metrics", "err", err)
-				// If we can't determine if it's gasless, record metrics to maintain existing behavior
-			}
-		} else if isGasless {
-			skipMetrics = true // Skip metrics for confirmed gasless transactions
-		}
-	}
-
-	if !skipMetrics {
-		// Record metrics for non-gasless transactions
-		utilmetrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-		utilmetrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
-		appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasUsed,
-			otelmetric.WithAttributes(attribute.String("type", "gas_used")))
-		appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasWanted,
-			otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
-	}
+	utilmetrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
+	utilmetrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
+	appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasUsed,
+		otelmetric.WithAttributes(attribute.String("type", "gas_used")))
+	appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasWanted,
+		otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
 
 	return &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
@@ -1725,42 +1679,17 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
-	for i, r := range batchResult.Results {
+	for _, r := range batchResult.Results {
 		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.OccConcurrent) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OccConcurrent)))
 
-		// Check if transaction is gasless before recording gas metrics
-		var recordGasMetrics = true
-		if i < len(typedTxs) {
-			// perf optimization: skip gasless check for obviously non-gasless transaction types
-			shouldCheckGasless := app.couldBeGaslessTransaction(typedTxs[i])
-			if shouldCheckGasless {
-				// Only do expensive validation for potentially gasless transactions
-				isGasless, err := antedecorators.IsTxGasless(typedTxs[i], ctx, app.OracleKeeper, &app.EvmKeeper)
-				if err != nil {
-					if isExpectedGaslessMetricsError(err) {
-						// ErrAggregateVoteExist is expected when checking gasless status after tx processing
-						// since oracle votes will now exist in state. We know it was gasless, skip metrics.
-						recordGasMetrics = false
-					} else {
-						logger.Debug("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
-						// If we can't determine if it's gasless, record metrics to maintain existing behavior
-					}
-				} else if isGasless {
-					recordGasMetrics = false
-				}
-			}
-		}
-
-		if recordGasMetrics {
-			utilmetrics.IncrGasCounter("gas_used", r.Response.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-			utilmetrics.IncrGasCounter("gas_wanted", r.Response.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
-			appMetrics.txGas.Add(ctx.Context(), r.Response.GasUsed,
-				otelmetric.WithAttributes(attribute.String("type", "gas_used")))
-			appMetrics.txGas.Add(ctx.Context(), r.Response.GasWanted,
-				otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
-		}
+		utilmetrics.IncrGasCounter("gas_used", r.Response.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
+		utilmetrics.IncrGasCounter("gas_wanted", r.Response.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
+		appMetrics.txGas.Add(ctx.Context(), r.Response.GasUsed,
+			otelmetric.WithAttributes(attribute.String("type", "gas_used")))
+		appMetrics.txGas.Add(ctx.Context(), r.Response.GasWanted,
+			otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
 
 		execResults = append(execResults, &abci.ExecTxResult{
 			Code:      r.Response.Code,
@@ -2800,26 +2729,6 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 
 		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
 
-		// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
-		// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
-		// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
-		skipGaslessCheck := evmErr == nil && isEVM
-		if !skipGaslessCheck && app.couldBeGaslessTransaction(decodedTx) {
-			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
-			if err != nil {
-				if strings.Contains(err.Error(), "panic in IsTxGasless") {
-					// Unexpected panic: reject the entire proposal.
-					logger.Error("malicious transaction detected in gasless check", "err", err)
-					return false
-				}
-				// Business-logic errors (e.g. duplicate votes): keep going, tx is treated as non-gasless.
-				logger.Info("transaction failed gasless check but not malicious", "err", err)
-			}
-			if isGasless {
-				continue
-			}
-		}
-
 		// EVM classification failed (e.g. multi-msg containing an EVM message); such a tx won't be
 		// processed and so contributes no gas to the block.
 		if evmErr != nil {
@@ -2874,39 +2783,6 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 		appMetrics.blockGasWantedRatio.Record(ctx.Context(), float64(totalGasWanted)/float64(cp.Block.MaxGasWanted))
 	}
 	return true
-}
-
-// isExpectedGaslessMetricsError reports whether err is the well-known oracle
-// duplicate-vote error that we deliberately tolerate when collecting
-// gasless-tx metrics. errors.Is handles properly-wrapped chains; the substring
-// fallback covers chains that lost sentinel identity via %s/%v wrapping.
-func isExpectedGaslessMetricsError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
-		return true
-	}
-	return strings.Contains(err.Error(), oracletypes.ErrAggregateVoteExist.Error())
-}
-
-// couldBeGaslessTransaction is a fast heuristic that returns true when tx
-// might be gasless and a full IsTxGasless keeper check is therefore worth
-// running. It MUST be a conservative over-approximation: returning false for
-// a tx that is actually gasless would cause its gas to be counted against
-// the block limit, producing incorrect gas accounting (and in the worst case
-// rejecting an otherwise-valid block).
-func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
-	if tx == nil {
-		return false
-	}
-	for _, msg := range tx.GetMsgs() {
-		switch msg.(type) {
-		case *evmtypes.MsgAssociate, *oracletypes.MsgAggregateExchangeRateVote:
-			return true
-		}
-	}
-	return false
 }
 
 func (app *App) GetTxConfig() client.TxConfig {

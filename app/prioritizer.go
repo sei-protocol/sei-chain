@@ -17,7 +17,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 var _ sdk.TxPrioritizer = (*SeiTxPrioritizer)(nil).GetTxPriorityHint
@@ -86,9 +85,9 @@ func (s *SeiTxPrioritizer) getEvmTxPriority(ctx sdk.Context, evmTx *evmtypes.Msg
 			ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)),
 			evmTx.Derived.SenderSeiAddr)
 		if !isAssociated {
-			// Unassociated associate transactions have the second-highest priority.
+			// Unassociated associate transactions have the highest priority.
 			// This is to ensure that associate transactions are processed before
-			// regular transactions, but after oracle transactions.
+			// regular transactions.
 			//
 			// Note that we are not checking if sufficient funds are present here to keep the
 			// priority calculation fast. CheckTx should fully check the transaction.
@@ -152,10 +151,6 @@ func (s *SeiTxPrioritizer) getEvmBaseFee(ctx sdk.Context) *big.Int {
 }
 
 func (s *SeiTxPrioritizer) getCosmosTxPriority(ctx sdk.Context, feeTx sdk.FeeTx) (int64, error) {
-	if isOracleTx(feeTx) {
-		return antedecorators.OraclePriority, nil
-	}
-
 	gas := feeTx.GetGas()
 	if gas <= 0 {
 		return 0, nil
@@ -175,19 +170,4 @@ func (s *SeiTxPrioritizer) getCosmosTxPriority(ctx sdk.Context, feeTx sdk.FeeTx)
 	feeCoins := feeTx.GetFee().NonZeroAmountsOf(denoms)
 	priority := cosmosante.GetTxPriority(feeCoins, igas)
 	return min(antedecorators.MaxPriority, priority), nil
-}
-
-func isOracleTx(tx sdk.FeeTx) bool {
-	if len(tx.GetMsgs()) == 0 {
-		return false
-	}
-	for _, msg := range tx.GetMsgs() {
-		switch msg.(type) {
-		case *oracletypes.MsgAggregateExchangeRateVote:
-			continue
-		default:
-			return false
-		}
-	}
-	return true
 }

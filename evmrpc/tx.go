@@ -30,8 +30,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-var ErrPanicTx = errors.New("transaction is panic tx")
-
 type TransactionAPI struct {
 	tmClient           client.LocalClient
 	keeper             *keeper.Keeper
@@ -40,15 +38,9 @@ type TransactionAPI struct {
 	homeDir            string
 	connectionType     ConnectionType
 	methodTimeout      utils.Option[time.Duration]
-	includeSynthetic   bool
 	watermarks         *WatermarkManager
 	globalBlockCache   BlockCache
 	cacheCreationMutex *sync.Mutex
-}
-
-type SeiTransactionAPI struct {
-	*TransactionAPI
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
 func NewTransactionAPI(
@@ -77,55 +69,20 @@ func NewTransactionAPI(
 	}
 }
 
-func NewSeiTransactionAPI(
-	tmClient client.LocalClient,
-	k *keeper.Keeper,
-	ctxProvider func(int64) sdk.Context,
-	txConfigProvider func(int64) client.TxConfig,
-	homeDir string,
-	connectionType ConnectionType,
-	methodTimeout utils.Option[time.Duration],
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
-	watermarks *WatermarkManager,
-	globalBlockCache BlockCache,
-	cacheCreationMutex *sync.Mutex,
-) *SeiTransactionAPI {
-	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, methodTimeout, watermarks, globalBlockCache, cacheCreationMutex)
-	baseAPI.includeSynthetic = true
-	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
-}
-
-func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]any, returnErr error) {
-	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx, true)
-}
-
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]any, returnErr error) {
-	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic)
+	return getTransactionReceipt(ctx, t, hash)
 }
 
 func getTransactionReceipt(
 	ctx context.Context,
 	t *TransactionAPI,
 	hash common.Hash,
-	excludePanicTxs bool,
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
-	includeSynthetic bool,
 ) (result map[string]any, returnErr error) {
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getTransactionReceipt", t.connectionType, startTime, returnErr, recover())
 	}()
 	sdkctx := t.ctxProvider(LatestCtxHeight)
-
-	if excludePanicTxs {
-		isPanicTx, err := isPanicTx(ctx, hash)
-		if isPanicTx {
-			return nil, ErrPanicTx
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
-		}
-	}
 
 	receipt, err := t.keeper.GetReceipt(sdkctx, hash)
 	if err != nil {
@@ -177,7 +134,7 @@ func getTransactionReceipt(
 			}
 		}
 	}
-	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, includeSynthetic, t.globalBlockCache, t.cacheCreationMutex)
+	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, false, t.globalBlockCache, t.cacheCreationMutex)
 }
 
 func (t *TransactionAPI) GetVMError(ctx context.Context, hash common.Hash) (result string, returnErr error) {
@@ -223,7 +180,7 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 	if block == nil {
 		return nil, nil
 	}
-	return t.getTransactionWithBlock(block, txIndex, t.includeSynthetic)
+	return t.getTransactionWithBlock(block, txIndex)
 }
 
 func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, txIndex hexutil.Uint) (result *export.RPCTransaction, _err error) {
@@ -248,7 +205,7 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	return t.getTransactionWithBlock(block, idx, t.includeSynthetic)
+	return t.getTransactionWithBlock(block, idx)
 }
 
 // TODO(gprusak): for autobahn txs sharding, we might need to proxy this rpc as well,
@@ -373,8 +330,8 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
-func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex uint32, includeSynthetic bool) (*export.RPCTransaction, error) {
-	msgs := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, includeSynthetic, t.cacheCreationMutex, t.globalBlockCache)
+func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex uint32) (*export.RPCTransaction, error) {
+	msgs := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
 	if txIndex >= uint32(len(msgs)) { //nolint:gosec
 		// Ethereum JSON-RPC: eth_getTransactionByBlock*AndIndex returns null when the index has no transaction.
 		return nil, nil
@@ -438,7 +395,7 @@ func (t *TransactionAPI) Sign(ctx context.Context, addr common.Address, data hex
 }
 
 func (t *TransactionAPI) getFilteredMsgs(block *coretypes.ResultBlock) []indexedMsg {
-	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, t.includeSynthetic, t.cacheCreationMutex, t.globalBlockCache)
+	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
 }
 
 func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction {

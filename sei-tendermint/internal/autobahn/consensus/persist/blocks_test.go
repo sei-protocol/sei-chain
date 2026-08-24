@@ -12,9 +12,19 @@ import (
 )
 
 func testSignedProposal(rng utils.Rng, key types.SecretKey, n types.BlockNumber) *types.Signed[*types.LaneProposal] {
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	block := types.NewBlock(lane, n, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	return types.Sign(key, types.NewLaneProposal(block))
+}
+
+func testPersistBlock(t *testing.T, bp *BlockPersister, p *types.Signed[*types.LaneProposal]) {
+	t.Helper()
+	lane := p.Msg().Block().Header().Lane()
+	require.NoError(t, bp.PruneAndPersist(
+		lane,
+		0,
+		[]*types.Signed[*types.LaneProposal]{p},
+	))
 }
 
 // liveBlocks drops blocks the prune anchor has moved past, mirroring the filter loadPersistedState
@@ -29,13 +39,25 @@ func liveBlocks(loaded []LoadedBlock, first types.BlockNumber) []LoadedBlock {
 	return nil
 }
 
-func testPersistBlock(t *testing.T, bp *BlockPersister, p *types.Signed[*types.LaneProposal]) {
-	t.Helper()
-	require.NoError(t, bp.PruneAndPersist(
-		p.Msg().Block().Header().Lane(),
-		0,
-		[]*types.Signed[*types.LaneProposal]{p},
-	))
+func testDeleteBefore(bp *BlockPersister, laneFirsts map[types.LaneID]types.BlockNumber) error {
+	for lanes := range bp.lanes.RLock() {
+		return scope.Parallel(func(ps scope.ParallelScope) error {
+			for lane, first := range laneFirsts {
+				lw, ok := lanes[lane]
+				if !ok {
+					continue
+				}
+				ps.Spawn(func() error {
+					for s := range lw.state.Lock() {
+						return s.truncateForAnchor(lane, first)
+					}
+					panic("unreachable")
+				})
+			}
+			return nil
+		})
+	}
+	panic("unreachable")
 }
 
 func TestNewBlockPersisterEmptyDir(t *testing.T) {
@@ -55,7 +77,7 @@ func TestPersistBlockAndLoad(t *testing.T) {
 	dir := t.TempDir()
 
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
@@ -83,8 +105,8 @@ func TestPersistBlockMultipleLanes(t *testing.T) {
 
 	key1 := types.GenSecretKey(rng)
 	key2 := types.GenSecretKey(rng)
-	lane1 := key1.Public()
-	lane2 := key2.Public()
+	lane1 := types.LaneID{Validator: key1.Public(), Joined: 0}
+	lane2 := types.LaneID{Validator: key2.Public(), Joined: 0}
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
@@ -108,7 +130,7 @@ func TestDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 	dir := t.TempDir()
 
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
@@ -116,7 +138,7 @@ func TestDeleteBeforeRemovesOldKeepsNew(t *testing.T) {
 		testPersistBlock(t, bp, testSignedProposal(rng, key, i))
 	}
 
-	require.NoError(t, bp.PruneAndPersist(lane, 3, nil))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 3}))
 	require.NoError(t, bp.Close())
 
 	_, blocks, err := NewBlockPersister(utils.Some(dir))
@@ -134,9 +156,9 @@ func TestDeleteBeforeAndRestart(t *testing.T) {
 	key1 := types.GenSecretKey(rng)
 	key2 := types.GenSecretKey(rng)
 	key3 := types.GenSecretKey(rng)
-	lane1 := key1.Public()
-	lane2 := key2.Public()
-	lane3 := key3.Public() // never persisted — exercises the "no WAL yet" path
+	lane1 := types.LaneID{Validator: key1.Public(), Joined: 0}
+	lane2 := types.LaneID{Validator: key2.Public(), Joined: 0}
+	lane3 := types.LaneID{Validator: key3.Public(), Joined: 0} // never persisted — exercises the "no WAL yet" path
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
@@ -146,9 +168,7 @@ func TestDeleteBeforeAndRestart(t *testing.T) {
 	}
 
 	// lane1: truncate old blocks, lane2: delete nothing (first=0), lane3: empty (no WAL).
-	require.NoError(t, bp.PruneAndPersist(lane1, 2, nil))
-	require.NoError(t, bp.PruneAndPersist(lane2, 0, nil))
-	require.NoError(t, bp.PruneAndPersist(lane3, 0, nil))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane1: 2, lane2: 0, lane3: 0}))
 	require.NoError(t, bp.Close())
 
 	// Restart — verify varied lane states load correctly.
@@ -182,7 +202,7 @@ func TestNoOpBlockPersister(t *testing.T) {
 
 	rng := utils.TestRng()
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 
 	proposals := make([]*types.Signed[*types.LaneProposal], 5)
 	for i := range proposals {
@@ -191,7 +211,6 @@ func TestNoOpBlockPersister(t *testing.T) {
 
 	require.NoError(t, bp.PruneAndPersist(lane, 0, proposals[:3]))
 	require.NoError(t, bp.PruneAndPersist(lane, 0, proposals[3:]))
-
 	require.NoError(t, bp.Close())
 }
 
@@ -200,7 +219,7 @@ func TestDeleteBeforeThenPersistMore(t *testing.T) {
 	dir := t.TempDir()
 
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
@@ -208,7 +227,7 @@ func TestDeleteBeforeThenPersistMore(t *testing.T) {
 	for i := range types.BlockNumber(5) {
 		testPersistBlock(t, bp, testSignedProposal(rng, key, i))
 	}
-	require.NoError(t, bp.PruneAndPersist(lane, 3, nil))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 3}))
 	testPersistBlock(t, bp, testSignedProposal(rng, key, 5))
 	require.NoError(t, bp.Close())
 
@@ -226,7 +245,7 @@ func TestDeleteBeforePastAllBlocks(t *testing.T) {
 	dir := t.TempDir()
 
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
@@ -235,7 +254,7 @@ func TestDeleteBeforePastAllBlocks(t *testing.T) {
 	}
 
 	// Anchor advanced past everything (nextBlockNum is 3, first=10).
-	require.NoError(t, bp.PruneAndPersist(lane, 10, nil))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 10}))
 
 	// Lane WAL is now empty; new writes starting from 10 should work.
 	testPersistBlock(t, bp, testSignedProposal(rng, key, 10))
@@ -255,7 +274,7 @@ func TestDeleteBeforePastAllRejectsStaleBlock(t *testing.T) {
 	dir := t.TempDir()
 
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
@@ -264,11 +283,11 @@ func TestDeleteBeforePastAllRejectsStaleBlock(t *testing.T) {
 	}
 
 	// Anchor advanced past everything; nextBlockNum re-anchored to 10.
-	require.NoError(t, bp.PruneAndPersist(lane, 10, nil))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 10}))
 
 	// Writing a stale block number (0) should be rejected.
 	stale := testSignedProposal(rng, key, 0)
-	err = bp.PruneAndPersist(lane, 10, []*types.Signed[*types.LaneProposal]{stale})
+	err = bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{stale})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "out of sequence")
 
@@ -282,7 +301,7 @@ func TestTruncateOnEmptyWALAdvancesCursor(t *testing.T) {
 	dir := t.TempDir()
 
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
@@ -291,12 +310,12 @@ func TestTruncateOnEmptyWALAdvancesCursor(t *testing.T) {
 	}
 
 	// First truncation empties the WAL (first=10 > nextBlockNum=3).
-	require.NoError(t, bp.PruneAndPersist(lane, 10, nil))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 10}))
 
 	// Second truncation on the already-empty WAL (first=15).
 	// Before the fix, nextBlockNum would stay at 10 and block 15 would
 	// be rejected as out of sequence.
-	require.NoError(t, bp.PruneAndPersist(lane, 15, nil))
+	require.NoError(t, testDeleteBefore(bp, map[types.LaneID]types.BlockNumber{lane: 15}))
 
 	testPersistBlock(t, bp, testSignedProposal(rng, key, 15))
 	require.NoError(t, bp.Close())
@@ -307,7 +326,7 @@ func TestEmptyLaneWALSurvivesReopen(t *testing.T) {
 	dir := t.TempDir()
 
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 
 	// Simulate a crash after lazy lane directory creation but before any write:
 	// create the lane subdirectory so NewBlockPersister discovers it on open.
@@ -367,7 +386,7 @@ func TestPersistBlockOutOfSequence(t *testing.T) {
 	bp, _, err := NewBlockPersister(utils.Some(dir))
 	require.NoError(t, err)
 
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	testPersistBlock(t, bp, testSignedProposal(rng, key, 0))
 
 	// Gap: skip block 1, try block 2.
@@ -392,7 +411,7 @@ func TestLoadAllDropsBlocksBehindGap(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 
 	// Write straight to a lane WAL, bypassing the contiguity check, to lay down blocks 0 and 2 with
 	// no block 1 between them.
@@ -421,7 +440,7 @@ func TestPersistBlockAutoCreatesLane(t *testing.T) {
 	require.Equal(t, 0, len(entries))
 
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	testPersistBlock(t, bp, testSignedProposal(rng, key, 0))
 
 	entries, _ = os.ReadDir(filepath.Join(dir, blocksDir))
@@ -442,7 +461,7 @@ func TestPersistBlockAutoCreatesLane(t *testing.T) {
 func TestPruneReclaimsSealedFiles(t *testing.T) {
 	rng := utils.TestRng()
 	key := types.GenSecretKey(rng)
-	lane := key.Public()
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
 	dir := t.TempDir()
 
 	const total = 40
@@ -499,7 +518,7 @@ func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 
 	require.NoError(t, scope.Parallel(func(ps scope.ParallelScope) error {
 		for i := range numLanes {
-			lane := keys[i].Public()
+			lane := types.LaneID{Validator: keys[i].Public(), Joined: 0}
 			ps.Spawn(func() error {
 				return bp.PruneAndPersist(lane, 0, proposals[i])
 			})
@@ -513,10 +532,37 @@ func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, numLanes, len(blocks))
 	for i := range numLanes {
-		lane := keys[i].Public()
+		lane := types.LaneID{Validator: keys[i].Public(), Joined: 0}
 		require.Equal(t, blocksPerLane, len(blocks[lane]))
 		for j := range blocksPerLane {
 			require.Equal(t, types.BlockNumber(j), blocks[lane][j].Number)
 		}
 	}
+}
+
+// SyncLanes removes a lane WAL that PruneAndPersist opened for a lane no longer in memory.
+func TestSyncLanesDeletesOpenLane(t *testing.T) {
+	rng := utils.TestRng()
+	dir := t.TempDir()
+	bp, _, err := NewBlockPersister(utils.Some(dir))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = bp.Close() })
+
+	leaver := types.GenSecretKey(rng)
+	lane := types.LaneID{Validator: leaver.Public(), Joined: 0}
+	proposal := types.Sign(leaver, types.NewLaneProposal(
+		types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)),
+	))
+
+	require.NoError(t, bp.PruneAndPersist(lane, 0, []*types.Signed[*types.LaneProposal]{proposal}))
+	lanePath := filepath.Join(dir, blocksDir, laneDir(lane))
+	_, err = os.Stat(lanePath)
+	require.NoError(t, err)
+
+	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
+	_, err = os.Stat(lanePath)
+	require.True(t, os.IsNotExist(err))
+
+	// Idempotent.
+	require.NoError(t, SyncLanes(bp, map[types.LaneID]struct{}{}))
 }

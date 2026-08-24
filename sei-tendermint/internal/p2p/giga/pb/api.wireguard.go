@@ -21,11 +21,11 @@ func (*PingResp) MaxSize() int {
 }
 
 func (*LaneVote) MaxSize() int {
-	return 224
+	return 238
 }
 
 func (*LaneProposal) MaxSize() int {
-	return 2056279
+	return 2056293
 }
 
 func (*AppVote) MaxSize() int {
@@ -33,7 +33,7 @@ func (*AppVote) MaxSize() int {
 }
 
 func (*StreamLaneProposalsReq) MaxSize() int {
-	return 11
+	return 60
 }
 
 func (*StreamCommitQCsReq) MaxSize() int {
@@ -53,7 +53,7 @@ func (*GetBlockReq) MaxSize() int {
 }
 
 func (*GetBlockResp) MaxSize() int {
-	return 2056171
+	return 2056185
 }
 
 func (*StreamFullCommitQCsReq) MaxSize() int {
@@ -92,6 +92,7 @@ func init() {
 	// Register the wireguard.Schema generated for p2p.giga.StreamLaneProposalsReq.
 	runtime.MustRegister[*StreamLaneProposalsReq](runtime.Schema{
 		1: {MaxCount: 1},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*pb.LaneID]())},
 	})
 
 	// Register the wireguard.Schema generated for p2p.giga.StreamCommitQCsReq.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
@@ -57,10 +58,10 @@ func (x *validatorService) RunServer(ctx context.Context, server rpc.Server[API]
 	})
 }
 
-func (x *validatorService) RunClient(ctx context.Context, client rpc.Client[API]) error {
+func (x *validatorService) RunClient(ctx context.Context, client rpc.Client[API], peer types.PublicKey) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.clientConsensus(ctx, client) })
-		s.Spawn(func() error { return x.clientStreamLaneProposals(ctx, client) })
+		s.Spawn(func() error { return x.clientStreamLaneProposals(ctx, client, peer) })
 		s.Spawn(func() error { return x.clientStreamLaneVotes(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamCommitQCs(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamAppVotes(ctx, client) })
@@ -81,7 +82,7 @@ func (x *Service) RunServer(ctx context.Context, server rpc.Server[API], isCommi
 	})
 }
 
-func (x *Service) RunClient(ctx context.Context, client rpc.Client[API], getBlock bool) error {
+func (x *Service) RunClient(ctx context.Context, client rpc.Client[API], peer types.PublicKey, getBlock bool) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return x.clientPing(ctx, client) })
 		s.Spawn(func() error { return x.clientStreamFullCommitQCs(ctx, client) })
@@ -93,7 +94,7 @@ func (x *Service) RunClient(ctx context.Context, client rpc.Client[API], getBloc
 			s.Spawn(func() error { return x.clientGetBlock(ctx, client) })
 		}
 		if c, ok := x.state.Get(); ok {
-			return (&validatorService{c}).RunClient(ctx, client)
+			return (&validatorService{c}).RunClient(ctx, client, peer)
 		}
 		return nil
 	})
