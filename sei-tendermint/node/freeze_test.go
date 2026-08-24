@@ -3,6 +3,9 @@ package node
 import (
 	"math"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 )
 
 func TestValidateFreezeHeight(t *testing.T) {
@@ -37,5 +40,34 @@ func TestWithFreezeHeight(t *testing.T) {
 	const height = uint64(123)
 	if got := resolveOptions(WithFreezeHeight(height)).freezeHeight; got != height {
 		t.Fatalf("freeze height = %d, want %d", got, height)
+	}
+}
+
+func TestFreezeModeDisablesMempoolTraffic(t *testing.T) {
+	cfg, err := config.ResetTestRoot(t.TempDir(), "freeze_mempool_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeService, err := newLocalNodeService(t.Context(), cfg, WithFreezeHeight(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := nodeService.(*nodeImpl)
+	t.Cleanup(func() {
+		_ = node.shutdownOps()
+		_ = node.blockStore.Close()
+		_ = node.stateStore.Close()
+	})
+
+	if !node.mempool.IsPresent() {
+		t.Fatal("internal mempool is unavailable")
+	}
+	if node.rpcEnv.Mempool.IsPresent() {
+		t.Fatal("RPC mempool is available in freeze mode")
+	}
+	for _, nodeService := range node.services {
+		if _, ok := nodeService.(*mempoolreactor.Reactor); ok {
+			t.Fatal("mempool reactor is enabled in freeze mode")
+		}
 	}
 }

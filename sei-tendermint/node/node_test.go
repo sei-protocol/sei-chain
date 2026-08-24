@@ -40,7 +40,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Service, error) {
+func newLocalNodeService(ctx context.Context, cfg *config.Config, nodeOptions ...Option) (service.Service, error) {
 	app := kvstore.NewApplication()
 	app.SetValidators(utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile())).ValidatorUpdates())
 	return New(
@@ -51,6 +51,7 @@ func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Servi
 		nil,
 		nil,
 		types.DefaultConsensusPolicy(),
+		nodeOptions...,
 	)
 }
 

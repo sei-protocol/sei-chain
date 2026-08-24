@@ -332,13 +332,15 @@ func makeNode(
 	if !gigaEnabled {
 		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, sm.TxConstraintsFetcherFromStore(stateStore))
 		node.mempool = utils.Some(mp)
-		node.rpcEnv.Mempool = utils.Some(mp)
-		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
-		if err != nil {
-			return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
+		if opts.freezeHeight == 0 {
+			node.rpcEnv.Mempool = utils.Some(mp)
+			mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
+			if err != nil {
+				return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
+			}
+			mpReactor.MarkReadyToStart()
+			node.services = append(node.services, mpReactor)
 		}
-		mpReactor.MarkReadyToStart()
-		node.services = append(node.services, mpReactor)
 
 		// make block executor for consensus and blockchain reactors to execute blocks
 		blockExec := sm.NewBlockExecutor(
