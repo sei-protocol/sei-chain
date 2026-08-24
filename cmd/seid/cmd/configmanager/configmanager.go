@@ -21,6 +21,13 @@ import (
 
 var logger = seilog.NewLogger("cmd", "seid", "configmanager")
 
+// loggerName is the name the logger above is registered under, and ownReportingFloor is the level its
+// reports are held at.
+const (
+	loggerName        = "cmd/seid/configmanager"
+	ownReportingFloor = slog.LevelInfo
+)
+
 // EnvVar gates which configuration manager seid uses.
 const EnvVar = "SEI_CONFIG_MANAGER"
 
@@ -55,6 +62,27 @@ type SeiConfigManager struct {
 }
 
 // log returns the logger to report through, and never returns nil.
+// keepOwnReportingVisible holds this package's own logger at a level its reports survive.
+//
+// Called after anything that may have set a level, and it is called more than once for that reason: the
+// handler sets one, and a level this manager resolves sets another. Both set every logger in the process, so
+// a floor applied before either is simply overwritten.
+//
+// The handler this manager re-enters sets one level across every logger in the process, from a key an
+// operator writes, and a fleet that runs its nodes quiet sets it above the level these reports use. Every
+// outcome here is a report: what was applied, what moved, what was refused and what had no effect. Silenced,
+// the manager becomes a component that changes what a node runs and says nothing about it, and the file
+// stops being something an operator can reason about from the node itself.
+//
+// So this one logger keeps a floor, and only this one. Raising the level for the rest of the process is
+// still the operator's to choose.
+func keepOwnReportingVisible() {
+	if seilog.SetLevel(loggerName, ownReportingFloor) == 0 {
+		// Nothing to hold, which happens when a caller supplied a logger of its own.
+		return
+	}
+}
+
 func (m SeiConfigManager) log() *slog.Logger {
 	if m.logger != nil {
 		return m.logger
@@ -87,6 +115,7 @@ func (m SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate stri
 
 	out := validateAdvisory(cmd)
 	err := server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
+	keepOwnReportingVisible()
 	reportAdvisory(m.log(), out)
 	if err != nil {
 		return err

@@ -1,8 +1,10 @@
 package configmanager
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 
@@ -61,7 +63,7 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 
 	// Refused before the decode, because a plain number where a length of time belongs decodes cleanly
 	// and means nanoseconds. Nothing after this can tell that apart from a value somebody meant.
-	if bad := refuseBareNumbersForDurations(ctx.Config, values); len(bad) > 0 {
+	if bad := refuseWhatDecodesToSomethingElse(ctx.Config, values); len(bad) > 0 {
 		log.Error("a length of time in this section is written as a plain number, which reads as "+
 			"nanoseconds; none of the section is applied and every one of its keys reads as it always has",
 			"section", name, "written", strings.Join(bad, "; "))
@@ -75,7 +77,7 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 			"section", name, "keys", strings.Join(keys, ","), "err", err)
 		return
 	}
-	before := describe(ctx.Config, keys)
+	before, readErr := describe(ctx.Config, keys)
 
 	if err := source.Unmarshal(candidate); err != nil {
 		log.Error("a written value in this section was refused, so none of the section is applied and "+
@@ -85,7 +87,16 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 	}
 
 	*ctx.Config = *candidate
-	reportWhatMoved(name, keys, before, describe(ctx.Config, keys), log)
+	after, afterErr := describe(ctx.Config, keys)
+	if readErr != nil || afterErr != nil {
+		// Reported rather than compared. Two unreadable sides look identical, so comparing them would
+		// say every value matched, which is a statement about nothing produced by reading nothing.
+		log.Error("this section was applied and what moved cannot be read, so nothing here says which "+
+			"settings now differ from the node's own file", "section", name,
+			"keys", strings.Join(keys, ","), "err", cmp.Or(readErr, afterErr))
+		return
+	}
+	reportWhatMoved(name, keys, before, after, log)
 }
 
 // copyNodeConfig returns a configuration that holds what this one holds and shares nothing with it.
@@ -129,16 +140,7 @@ func reportWhatMoved(name string, keys []string, before, after map[string]string
 		return
 	}
 	log.Info("this section's settings now differ from what the node's own configuration file says",
-		"section", name, "changed", strings.Join(capDelivered(moved), "; "))
-}
-
-// capDelivered bounds a report so one file cannot fill a node's log at boot.
-func capDelivered(lines []string) []string {
-	const most = 20
-	if len(lines) <= most {
-		return lines
-	}
-	return append(lines[:most:most], fmt.Sprintf("and %d more", len(lines)-most))
+		"section", name, "changed", strings.Join(moved, "; "))
 }
 
 // sortedKeys returns a map's keys in a fixed order, so a log line does not vary between runs.
@@ -164,6 +166,12 @@ func sortedSectionNames(bySection map[string]map[string]any) []string {
 // logLevelKey is the one delivered setting the struct is not the end of.
 const logLevelKey = "log-level"
 
+// loggerOwnVariable is the environment variable the logger itself reads when it starts.
+//
+// Not the variable this key answers to in the resolution, which carries the binary's own prefix. Two names
+// for one setting, and the older one is read before any of this runs.
+const loggerOwnVariable = "SEI_LOG_LEVEL"
+
 // applyResolvedLogLevel hands a resolved log level to the logger, which the struct alone does not reach.
 //
 // The boot's handler reads the level off the struct and sets it before any of this runs, so a value that
@@ -177,7 +185,7 @@ const logLevelKey = "log-level"
 //
 // Which value arrives is already decided: the resolution ranks a flag over the environment over the file.
 // A level that cannot be read is reported and skipped, and the node keeps the level it had.
-func applyResolvedLogLevel(resolved registry.Resolved, log *slog.Logger) {
+func applyResolvedLogLevel(resolved registry.Resolved, typed map[string]string, log *slog.Logger) {
 	supplied := false
 	for _, key := range resolved.Overrides {
 		if key == logLevelKey {
@@ -186,6 +194,20 @@ func applyResolvedLogLevel(resolved registry.Resolved, log *slog.Logger) {
 	}
 	if !supplied {
 		return
+	}
+
+	// The logger reads a variable of its own at start-up, under a name that is not the one this key
+	// answers to, and the boot's own handler steps aside when it is set: a flag beats it and a file does
+	// not. Applying here regardless would put the file above it, so an operator who exported a level and
+	// then adopted this file would find the level they exported ignored. A typed flag still wins, which is
+	// the order that was already there.
+	if _, fromFlag := flagValues(typed)[logLevelKey]; !fromFlag {
+		if os.Getenv(loggerOwnVariable) != "" {
+			log.Info("a log level is set in the environment under the logger's own variable, which the "+
+				"node already applied; the level this file supplies is not used",
+				"variable", loggerOwnVariable, "ignored", resolved.Values[logLevelKey])
+			return
+		}
 	}
 	text, isText := resolved.Values[logLevelKey].(string)
 	if !isText {
@@ -200,5 +222,7 @@ func applyResolvedLogLevel(resolved registry.Resolved, log *slog.Logger) {
 		return
 	}
 	seilog.SetDefaultLevel(level, true)
+	// That set every logger in the process, this one included, so the floor goes back on.
+	keepOwnReportingVisible()
 	log.Info("resolved log level applied", "level", text)
 }

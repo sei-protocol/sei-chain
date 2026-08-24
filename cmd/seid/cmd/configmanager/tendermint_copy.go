@@ -116,14 +116,14 @@ func join(path, field string) string {
 // Read through the same tags the decode writes through, so a key names the same field in both directions.
 // Held as text because what a report needs is whether two values differ and what they are, and comparing
 // the shapes a decode produced against the shapes a struct holds would answer a different question.
-func describe(cfg *tmcfg.Config, keys []string) map[string]string {
+func describe(cfg *tmcfg.Config, keys []string) (map[string]string, error) {
 	out := map[string]string{}
 	if cfg == nil {
-		return out
+		return out, fmt.Errorf("no configuration to read")
 	}
 	var nested map[string]any
 	if err := mapstructure.Decode(cfg, &nested); err != nil {
-		return out
+		return out, err
 	}
 	flat := map[string]any{}
 	flatten("", nested, flat)
@@ -132,7 +132,7 @@ func describe(cfg *tmcfg.Config, keys []string) map[string]string {
 			out[key] = fmt.Sprint(v)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // flatten turns a nested map into one keyed by dotted path.
@@ -154,36 +154,113 @@ func flatten(prefix string, in map[string]any, out map[string]any) {
 //
 // Exported for the test that measures the two generators against each other, which lives beside the boot
 // because only a boot produces a generated file.
-func DescribeForTest(cfg *tmcfg.Config, keys []string) map[string]string { return describe(cfg, keys) }
+func DescribeForTest(cfg *tmcfg.Config, keys []string) map[string]string {
+	out, _ := describe(cfg, keys)
+	return out
+}
 
-// refuseBareNumbersForDurations reports the keys written as a plain number where the field is a length of
-// time, with what an operator should have written.
+// refuseWhatDecodesToSomethingElse reports written values the decoder accepts and turns into something the
+// operator did not mean, with what they should have written.
 //
-// The file format has no way to say how long something is, so a length of time is written as text with a
-// unit. A plain number is accepted by the decoder and read as nanoseconds, which is the shortest unit there
-// is: sixty means sixty billionths of a second, the node starts, and the setting is off by a factor of a
-// billion. Nothing later objects, because the value decoded cleanly.
+// Two shapes, and both decode cleanly, which is why nothing later objects.
 //
-// So the delivery refuses it and says what to write instead. This is the one place the check can happen: the
-// resolution sees a number and a key, and only the struct says the key is a length of time.
-func refuseBareNumbersForDurations(cfg *tmcfg.Config, values map[string]any) []string {
-	durations := durationKeys(reflect.TypeOf(*cfg), "")
+// A length of time has no form of its own in the file, so it is written as text with a unit. A plain number
+// is read as nanoseconds, the shortest unit there is, so sixty means sixty billionths of a second. Zero is
+// the exception and is allowed: nanoseconds and seconds are the same at zero, and zero is the documented way
+// to turn several of these settings off.
+//
+// A negative number written where the field cannot hold one wraps to the largest value that field has. So
+// minus one, which is how an operator says "no limit" in most software they have used, becomes a limit of
+// eighteen million million million: the ceiling on connected peers stops bounding anything, and a window
+// measured in seconds becomes six centuries.
+//
+// This is the one place either can be caught. The resolution sees a number and a key; only the struct says
+// what the key is.
+func refuseWhatDecodesToSomethingElse(cfg *tmcfg.Config, values map[string]any) []string {
+	t := reflect.TypeOf(*cfg)
+	durations := durationKeys(t, "")
+	unsigned := unsignedKeys(t, "")
+
 	var bad []string
 	for key, value := range values {
-		if !durations[key] {
+		n, numeric := asNumber(value)
+		if !numeric {
 			continue
 		}
-		switch value.(type) {
-		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
-			bad = append(bad, fmt.Sprintf("%s = %v (write a unit, as \"%vs\")", key, value, value))
+		switch {
+		case durations[key] && n != 0:
+			bad = append(bad, fmt.Sprintf("%s = %v is a length of time, so write a unit, as %q",
+				key, value, fmt.Sprintf("%vs", value)))
+		case unsigned[key] && n < 0:
+			bad = append(bad, fmt.Sprintf("%s = %v cannot be negative, and decodes to the largest value "+
+				"this setting can hold rather than to no limit", key, value))
 		}
 	}
 	sort.Strings(bad)
 	return bad
 }
 
+// asNumber reports whether a written value arrived as a number, and what it was.
+//
+// Held as a float because what the checks above ask is whether it is zero and whether it is negative, and
+// every numeric shape a file, a variable or a flag can carry answers both.
+func asNumber(value any) (float64, bool) {
+	switch v := value.(type) {
+	case int:
+		return float64(v), true
+	case int8:
+		return float64(v), true
+	case int16:
+		return float64(v), true
+	case int32:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case uint:
+		return float64(v), true
+	case uint8:
+		return float64(v), true
+	case uint16:
+		return float64(v), true
+	case uint32:
+		return float64(v), true
+	case uint64:
+		return float64(v), true
+	case float32:
+		return float64(v), true
+	case float64:
+		return v, true
+	}
+	return 0, false
+}
+
+// unsignedKeys returns the dotted keys whose field cannot hold a negative number.
+func unsignedKeys(t reflect.Type, prefix string) map[string]bool {
+	return keysWhoseFieldIs(t, prefix, func(ft reflect.Type) bool {
+		switch ft.Kind() {
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			return true
+		}
+		return false
+	})
+}
+
 // durationKeys returns the dotted keys whose field is a length of time.
+//
+// Matched by conversion rather than by identity, so a named type over the same underlying number is a length
+// of time too.
 func durationKeys(t reflect.Type, prefix string) map[string]bool {
+	durationType := reflect.TypeOf(time.Duration(0))
+	return keysWhoseFieldIs(t, prefix, func(ft reflect.Type) bool {
+		return ft.Kind() == reflect.Int64 && ft.ConvertibleTo(durationType) && ft != reflect.TypeOf(int64(0))
+	})
+}
+
+// keysWhoseFieldIs returns the dotted keys whose field answers a question about its type.
+//
+// One walk for every such question, over the same tag rules the declaration derives keys by, so a key found
+// here is a key that can be written.
+func keysWhoseFieldIs(t reflect.Type, prefix string, is func(reflect.Type) bool) map[string]bool {
 	out := map[string]bool{}
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
@@ -205,17 +282,17 @@ func durationKeys(t reflect.Type, prefix string) map[string]bool {
 			path = prefix + "." + name
 		}
 		if squash {
-			for key := range durationKeys(ft, prefix) {
+			for key := range keysWhoseFieldIs(ft, prefix, is) {
 				out[key] = true
 			}
 			continue
 		}
-		if ft == reflect.TypeOf(time.Duration(0)) {
+		if is(ft) {
 			out[path] = true
 			continue
 		}
 		if ft.Kind() == reflect.Struct {
-			for key := range durationKeys(ft, path) {
+			for key := range keysWhoseFieldIs(ft, path, is) {
 				out[key] = true
 			}
 		}

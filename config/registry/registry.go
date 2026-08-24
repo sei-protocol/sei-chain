@@ -576,6 +576,7 @@ func isLeaf(t reflect.Type) bool {
 // another's declared set.
 func Reset() {
 	mu.Lock()
+	decodedNotLookedUp = map[string]string{}
 	defer mu.Unlock()
 	sections = map[string]Section{}
 	defects = nil

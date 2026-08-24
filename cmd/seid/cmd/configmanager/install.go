@@ -1,6 +1,7 @@
 package configmanager
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -69,12 +70,16 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 			"mode", mode, "err", err)
 		return
 	}
-	reportWhatTheFileDidNotReach(resolved, log)
-
-	// First, because every failure below is a log line and a refusal is reported at a level an operator
+	// First, because every report below is a log line and a refusal is reported at a level an operator
 	// may have raised the threshold above. Doing this after would mean the one setting somebody changes
 	// in order to see a refusal is the setting a refusal suppresses.
-	applyResolvedLogLevel(resolved, log)
+	applyResolvedLogLevel(resolved, typed, log)
+
+	// After the level, so a file that raises it can report its own mistakes. A key nothing declares is the
+	// most common thing an operator gets wrong and the only signal they have for it.
+	reportWhatTheFileDidNotReach(resolved, log)
+
+	reportWhatTheFileSaysTheNodeIs(ctx, mode, log)
 
 	// The sections a reader looks up key by key, and the sections a reader decodes whole. Two deliveries,
 	// because putting a value into the source is no delivery at all for the second kind: their file is
@@ -154,6 +159,53 @@ func reportWhatTheFileDidNotReach(resolved registry.Resolved, log *slog.Logger) 
 			"effect and the file's value applies", "key", key, "variable", registry.EnvName(key),
 			"why", cannot[key])
 	}
+}
+
+// reportWhatTheFileSaysTheNodeIs names a disagreement about what kind of node this is.
+//
+// Two files state that, under different names. sei.toml records it at the top, and every value resolved
+// through this manager is the answer for that kind of node. The node's own configuration file states it
+// again in a key of its own, and that one is what the node runs as.
+//
+// This manager does not declare the second, on purpose: two keys for one fact can be written to disagree,
+// and then a resolution answers for one while the node is the other. Not declaring it means nothing here
+// can change it, which leaves the disagreement possible and unreported. A node whose file says validator
+// while it runs as a full node resolves a validator's values and serves queries, and every report about it
+// reads correctly.
+//
+// So it is compared and reported. Reported rather than corrected, because what kind of node this is gets
+// decided when it is provisioned, and a configuration manager is not the thing that should change it.
+func reportWhatTheFileSaysTheNodeIs(ctx *server.Context, mode string, log *slog.Logger) {
+	if ctx == nil || ctx.Config == nil || ctx.Config.Mode == "" {
+		return
+	}
+	running := ctx.Config.Mode
+	if !modesDisagree(mode, running) {
+		return
+	}
+	log.Error("sei.toml says this is one kind of node and the node's own configuration file says another; "+
+		"every value resolved here is the answer for the first and the node runs as the second",
+		"sei.toml", mode, "running", running)
+}
+
+// modesDisagree reports whether the kind of node sei.toml records and the kind the node runs as are
+// different kinds.
+//
+// One pairing is not a disagreement. The kind that keeps every version of history has no name of its own in
+// the node's own configuration file, so the command that writes that file writes the query-serving name
+// instead, and the difference between them lives in settings the node's own file does not carry.
+func modesDisagree(recorded, running string) bool {
+	if recorded == running {
+		return false
+	}
+	return !(recorded == string(registry.ModeArchive) && running == string(registry.ModeFull))
+}
+
+// OwnReportingEnabledForTest reports whether this package's logger would emit at the level its reports use.
+//
+// Exported for the test that holds the floor, because the thing under test is a level and not a message.
+func OwnReportingEnabledForTest() bool {
+	return logger.Enabled(context.Background(), ownReportingFloor)
 }
 
 // readSeiToml loads the node's sei.toml, reporting the ordinary absence quietly.

@@ -249,6 +249,21 @@ func TestALengthOfTimeWrittenAsAPlainNumberIsRefused(t *testing.T) {
 		}
 	})
 
+	t.Run("zero is applied, because zero is the same in every unit", func(t *testing.T) {
+		// Several of these settings document zero as the way to turn them off, and three declare it as
+		// their value, so an operator writing it is doing the ordinary thing. Refusing it would cost them
+		// every other key in the section.
+		ctx := bootWithNodeFile(t, nodeFileHeader+
+			"\n[rpc]\ntimeout-read-header = 0\nmax-open-connections = 41\n", nil)
+		if got := ctx.Config.RPC.TimeoutReadHeader; got != 0 {
+			t.Errorf("the node runs a read-header timeout of %v with 0 written, want 0", got)
+		}
+		if got := ctx.Config.RPC.MaxOpenConnections; got != 41 {
+			t.Errorf("max-open-connections is %d, so writing a zero length of time cost the section. "+
+				"Zero nanoseconds and zero seconds are the same value, so there is nothing to refuse", got)
+		}
+	})
+
 	t.Run("the same number with a unit is applied", func(t *testing.T) {
 		ctx := bootWithNodeFile(t, nodeFileHeader+"\n[mempool]\nttl-duration = \"60s\"\n", nil)
 		if got := ctx.Config.Mempool.TTLDuration; got != 60*time.Second {
@@ -256,4 +271,49 @@ func TestALengthOfTimeWrittenAsAPlainNumberIsRefused(t *testing.T) {
 				"refuse the written form an operator is being asked for", got)
 		}
 	})
+}
+
+// TestTheReportSurvivesAQuietNode is what a fleet running its nodes quiet needs.
+//
+// One log level covers every logger in the process and an operator writes it. A fleet that sets it above the
+// level these reports use turns this manager into a component that changes what a node runs and says nothing
+// about it, and the report is the only place the node's own file and the running settings can be told apart.
+//
+// The level is what is asserted rather than a message, because a message can be absent for reasons that have
+// nothing to do with whether it would have been printed.
+func TestTheReportSurvivesAQuietNode(t *testing.T) {
+	configtest.Isolate(t)
+
+	ctx := bootWithNodeFile(t, nodeFileHeader+"log-level = \"error\"\n\n[mempool]\nsize = 4321\n", nil)
+	if got := ctx.Config.Mempool.Size; got != 4321 {
+		t.Fatalf("the value was not delivered (%d), so this test cannot show a report being kept", got)
+	}
+	if !configmanager.OwnReportingEnabledForTest() {
+		t.Error("a node whose file sets the level to error delivered a value and this manager's own " +
+			"reporting is switched off. The report is the only signal it has, and the node's own file " +
+			"and its running settings can be told apart nowhere else")
+	}
+}
+
+// TestANegativeNumberWhereTheSettingCannotHoldOneIsRefused covers the habit of writing minus one for
+// "no limit".
+//
+// Most software an operator has used takes minus one that way. Here the field cannot hold a negative number,
+// so the decoder wraps it to the largest value the field has: the ceiling on connected peers stops bounding
+// anything, and a window measured in seconds becomes centuries. The value decodes cleanly, so nothing later
+// objects.
+func TestANegativeNumberWhereTheSettingCannotHoldOneIsRefused(t *testing.T) {
+	configtest.Isolate(t)
+	was := tmcfg.DefaultConfig().P2P.MaxConnections
+
+	ctx := bootWithNodeFile(t, nodeFileHeader+
+		"\n[p2p]\nmax-connections = -1\nsend-rate = 1234567\n", nil)
+
+	if got := ctx.Config.P2P.MaxConnections; got != was {
+		t.Errorf("the node allows %d connected peers after minus one was written, want the %d it had. "+
+			"Minus one wraps to the largest value this setting can hold, which is no bound at all", got, was)
+	}
+	if got := ctx.Config.P2P.SendRate; got == 1234567 {
+		t.Error("the value beside the refused one was applied, so the section was published in part")
+	}
 }

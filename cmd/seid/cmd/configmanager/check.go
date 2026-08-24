@@ -116,7 +116,7 @@ func whatADecodeWouldRefuse(resolved registry.Resolved) []string {
 		values := bySection[name]
 		base := tmcfg.DefaultConfig()
 
-		if bad := refuseBareNumbersForDurations(base, values); len(bad) > 0 {
+		if bad := refuseWhatDecodesToSomethingElse(base, values); len(bad) > 0 {
 			problems = append(problems, fmt.Sprintf("[%s]: %s is a length of time written as a plain "+
 				"number, which reads as nanoseconds", name, strings.Join(bad, "; ")))
 			continue
