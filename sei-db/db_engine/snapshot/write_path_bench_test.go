@@ -43,7 +43,7 @@ func benchEngine(b *testing.B, shardCount uint64) (SnapshotEngine, func()) {
 	config.EstimatedOverheadPerEntry = 256
 	db := newTestDB(nil)
 	pool := threading.NewElasticPool("bench-misc", 8)
-	engine, err := NewSnapshotEngine(config, db, pool, pool)
+	engine, err := NewSnapshotEngine(config, db, pool, pool, pool)
 	if err != nil {
 		b.Fatal(err)
 	}

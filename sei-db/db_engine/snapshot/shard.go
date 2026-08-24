@@ -665,8 +665,11 @@ func (s *shard) GetDiffsForVersions(
 			firstVersion, lastVersion)
 	}
 
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	// A read lock suffices, and it matters: sort jobs for different versions call this concurrently.
+	// Nothing here mutates the shard, and the maps handed back are frozen — only versionDiffs at the
+	// current version is ever written to, so a version stops changing the moment it is no longer current.
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 
 	if firstVersion < s.oldestVersion {
 		return nil, fmt.Errorf("firstVersion (%d) must be greater than or equal to the oldest version (%d)",

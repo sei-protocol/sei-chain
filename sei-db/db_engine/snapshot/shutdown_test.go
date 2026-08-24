@@ -217,7 +217,7 @@ func TestCloseLeavesNoEngineGoroutines(t *testing.T) {
 		cfg.MetricsScrapeIntervalSeconds = 0.001
 		db := newTestDB(map[string][]byte{"seeded": []byte("v")})
 		pool := threading.NewAdHocPool()
-		engine, err := NewSnapshotEngine(cfg, db, pool, pool)
+		engine, err := NewSnapshotEngine(cfg, db, pool, pool, pool)
 		require.NoError(t, err)
 
 		require.NoError(t, engine.Set([]byte("k"), []byte("v")))

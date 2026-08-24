@@ -39,6 +39,9 @@ type snapshotEngine struct {
 	// A pool for miscellaneous operations that are neither computationally intensive nor IO bound.
 	miscPool threading.Pool
 
+	// A pool for ordering each sealed version's writes by key, ahead of the flush that consumes them.
+	sortPool threading.Pool
+
 	// The underlying key-value database.
 	db types.KeyValueDB
 
@@ -142,6 +145,10 @@ type snapshotReferenceCounter struct {
 	// flushedToDisk. Used as a synchronization handle for AwaitFlush waiters; a closed channel is
 	// immediately selectable, so the "already flushed at call time" case requires no special path.
 	flushCompleted chan struct{}
+
+	// Carries this version's writes, ordered by key, from the sort pool to the flush. Buffered, and
+	// written exactly once by the sort job, so neither side waits on the other beyond the handoff.
+	sortedDiff chan sortedDiffResult
 }
 
 // Creates a new SnapshotEngine.
@@ -161,6 +168,13 @@ func NewSnapshotEngine(
 	// readPool results, so sharing one fixed-size pool can deadlock under load. Pass distinct
 	// pools, or an elastic pool.
 	miscPool threading.Pool,
+	// A work pool for ordering each sealed version's writes by key.
+	//
+	// Its queue must be large enough never to fill in practice: Commit submits to it, and backpressure
+	// on commits belongs to MaxUnflushedVersions alone. The count of outstanding jobs is not bounded by
+	// that setting either, because a version held by an outside reservation stops being counted as
+	// unflushed (see scanForFlushEligibilityLocked) while its successors keep being sealed.
+	sortPool threading.Pool,
 ) (SnapshotEngine, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid snapshot engine config: %w", err)
@@ -186,6 +200,7 @@ func NewSnapshotEngine(
 		shardManager: shardManager,
 		readPool:     readPool,
 		miscPool:     miscPool,
+		sortPool:     sortPool,
 		db:           db,
 		versionMap:   make(map[uint64]*snapshotReferenceCounter),
 		// Versions start at 1 (not 0) so a version-1 lookup never underflows.
@@ -493,32 +508,51 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 	// Reset the phase on every exit so error returns don't leave the timer stuck on a phase.
 	defer c.metrics.setSnapshotPhase("")
 
+	snapshot, sealed, err := c.commitLocked()
+	if err != nil {
+		return nil, err
+	}
+
+	// Deliberately after the lock is released. Submitting can block when the sort pool's queue is full,
+	// and the queue drains only as the flush consumes results — which needs versionLock. Blocking here
+	// while holding it would deadlock against the very work that would unblock it.
+	c.sortDiffAtVersion(sealed)
+
+	return snapshot, nil
+}
+
+// commitLocked performs the version bookkeeping and shard seal for a new snapshot, returning the snapshot
+// and the version it sealed. It takes and releases the versionLock.
+func (c *snapshotEngine) commitLocked() (_ Snapshot, sealedVersion uint64, _ error) {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
 	// A bricked engine does no more work. Free to check here: versionLock, which guards fatalErr,
 	// is already held.
 	if c.fatalErr != nil {
-		return nil, fmt.Errorf("cannot create snapshot: %w", c.shutdownErrorLocked())
+		return nil, 0, fmt.Errorf("cannot create snapshot: %w", c.shutdownErrorLocked())
 	}
 
 	c.metrics.setSnapshotPhase("lifecycle_backpressure")
 
 	err := c.lifecycleBackpressureLocked()
 	if err != nil {
-		return nil, fmt.Errorf("cannot create snapshot: %w", err)
+		return nil, 0, fmt.Errorf("cannot create snapshot: %w", err)
 	}
+
+	sealedVersion = c.currentVersion
 
 	currentVersionRefCounter := &snapshotReferenceCounter{
-		version:        c.currentVersion,
+		version:        sealedVersion,
 		referenceCount: 1,
 		flushCompleted: make(chan struct{}),
+		sortedDiff:     make(chan sortedDiffResult, 1),
 	}
 
-	c.versionMap[c.currentVersion] = currentVersionRefCounter
+	c.versionMap[sealedVersion] = currentVersionRefCounter
 
 	snapshot := &snapshotImpl{
-		version:      c.currentVersion,
+		version:      sealedVersion,
 		parentEngine: c,
 	}
 
@@ -527,13 +561,13 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 	c.metrics.setSnapshotPhase("shards_snapshot")
 
 	if err := c.commitShardsLocked(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	c.metrics.setSnapshotPhase("cache_maintenance")
 	c.maintainCachesLocked()
 
-	return snapshot, nil
+	return snapshot, sealedVersion, nil
 }
 
 // maintainCachesLocked runs each shard's once-per-block cache maintenance. The caller must hold the
@@ -1117,34 +1151,6 @@ func (c *snapshotEngine) determineVersionsToRetireLocked() (
 	return firstVersion, lastVersion
 }
 
-// diffEntry is one write from a version's diff. A nil value is a tombstone, matching the convention in
-// the shards' diff maps. The key is a string because that is how the shards hold it; converting to bytes
-// happens once, at the batch.
-type diffEntry struct {
-	key   string
-	value []byte
-}
-
-// collectVersionEntries gathers every shard's writes at one version into a single slice, reusing the
-// backing array of the slice passed in. versionIndex is the offset of the version within the range the
-// diffs were collected for.
-//
-// No deduplication is needed or possible: a key belongs to exactly one shard.
-func collectVersionEntries(
-	reuse []diffEntry,
-	diffsByShard [][]map[string][]byte,
-	versionIndex uint64,
-) []diffEntry {
-
-	entries := reuse[:0]
-	for _, shardDiffs := range diffsByShard {
-		for key, value := range shardDiffs[versionIndex] {
-			entries = append(entries, diffEntry{key: key, value: value})
-		}
-	}
-	return entries
-}
-
 // flushSnapshots collects diffs for [firstVersion, lastVersion) from all shards,
 // writes them to the underlying DB in batches, then drops the versions from the shards.
 func (c *snapshotEngine) flushSnapshots(
@@ -1156,19 +1162,6 @@ func (c *snapshotEngine) flushSnapshots(
 	versionWrites map[uint64][]*proto.KVPair,
 ) error {
 
-	// Collect diffs from all shards. Held per shard rather than merged into one map per version: a key
-	// belongs to exactly one shard, so merging can never combine anything, and the merge cost is a full
-	// copy into a map that grows as it fills.
-	c.metrics.setLifecyclePhase("flush_collect_diffs")
-	diffsByShard := make([][]map[string][]byte, len(c.shards))
-	for i, shard := range c.shards {
-		shardDiffs, err := shard.GetDiffsForVersions(firstVersion, lastVersion)
-		if err != nil {
-			return fmt.Errorf("failed to get diffs for shard: %w", err)
-		}
-		diffsByShard[i] = shardDiffs
-	}
-
 	// Write diffs to the DB in batches, oldest version first.
 	c.metrics.setLifecyclePhase("flush_build_batch")
 	var batch types.Batch
@@ -1178,24 +1171,20 @@ func (c *snapshotEngine) flushSnapshots(
 		}
 	}()
 	versionsInBatch := uint64(0)
-	var entries []diffEntry
 	for version := firstVersion; version < lastVersion; version++ {
 		versionsInBatch++
 		if batch == nil {
 			batch = c.db.NewBatch()
 		}
 
-		entries = collectVersionEntries(entries, diffsByShard, version-firstVersion)
-
-		// Ordered by key so the memtable receives an ascending run. Pebble's skiplist caches the splice
-		// it last inserted at and reuses it when the next key falls inside; a key outside restarts the
-		// descent from the top of the list. Arriving in map order made every insert a full-height
-		// descent.
-		//
-		// Ordered within a version and never across them: pebble resolves two writes to one key by
-		// sequence number, which it assigns in batch order, so a key written in several of a batch's
-		// versions must reach it oldest first.
-		sort.Slice(entries, func(a int, b int) bool { return entries[a].key < entries[b].key })
+		// Each version's writes were gathered and ordered by key on the sort pool when the version was
+		// sealed, so by now this is a handoff rather than a wait. Ordered within a version and never
+		// across them: pebble resolves two writes to one key by sequence number, which it assigns in
+		// batch order, so a key written in several of a batch's versions must reach it oldest first.
+		entries, err := c.awaitSortedDiff(version)
+		if err != nil {
+			return err
+		}
 
 		for _, entry := range entries {
 			if entry.value == nil {

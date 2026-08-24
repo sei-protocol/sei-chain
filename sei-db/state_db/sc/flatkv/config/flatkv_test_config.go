@@ -49,5 +49,6 @@ func DefaultTestConfig(t testing.TB) *Config {
 		ReaderPoolQueueSize:    1024,
 		MiscPoolThreadsPerCore: 4.0,
 		LtHashThreadsPerCore:   1.0,
+		SortThreadsPerCore:     0.25,
 	}
 }

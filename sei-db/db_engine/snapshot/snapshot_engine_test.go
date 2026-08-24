@@ -54,7 +54,7 @@ func TestNewSnapshotEngineRejectsInvalidConfig(t *testing.T) {
 	c.ShardCount = 3 // invalid: not a power of two
 	pool := threading.NewAdHocPool()
 	defer pool.Close()
-	_, err := NewSnapshotEngine(c, newTestDB(nil), pool, pool)
+	_, err := NewSnapshotEngine(c, newTestDB(nil), pool, pool, pool)
 	require.Error(t, err)
 }
 

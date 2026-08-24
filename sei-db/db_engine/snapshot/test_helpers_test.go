@@ -296,7 +296,7 @@ func newTestEngineWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) S
 func newTestEngineWithConfig(t *testing.T, config *SnapshotEngineConfig, db *testDB) SnapshotEngine {
 	t.Helper()
 	pool := threading.NewAdHocPool()
-	engine, err := NewSnapshotEngine(config, db, pool, pool)
+	engine, err := NewSnapshotEngine(config, db, pool, pool, pool)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = engine.Close()
