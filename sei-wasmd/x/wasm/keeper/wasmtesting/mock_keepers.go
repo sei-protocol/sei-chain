@@ -12,7 +12,6 @@ type MockChannelKeeper struct {
 	GetChannelFn          func(ctx sdk.Context, srcPort, srcChan string) (channel channeltypes.Channel, found bool)
 	GetNextSequenceSendFn func(ctx sdk.Context, portID, channelID string) (uint64, bool)
 	SendPacketFn          func(ctx sdk.Context, packet ibcexported.PacketI) error
-	ChanCloseInitFn       func(ctx sdk.Context, portID, channelID string) error
 	GetAllChannelsFn      func(ctx sdk.Context) []channeltypes.IdentifiedChannel
 	IterateChannelsFn     func(ctx sdk.Context, cb func(channeltypes.IdentifiedChannel) bool)
 	SetChannelFn          func(ctx sdk.Context, portID, channelID string, channel channeltypes.Channel)
@@ -44,13 +43,6 @@ func (m *MockChannelKeeper) SendPacket(ctx sdk.Context, packet ibcexported.Packe
 		panic("not supposed to be called!")
 	}
 	return m.SendPacketFn(ctx, packet)
-}
-
-func (m *MockChannelKeeper) ChanCloseInit(ctx sdk.Context, portID, channelID string) error {
-	if m.ChanCloseInitFn == nil {
-		panic("not supposed to be called!")
-	}
-	return m.ChanCloseInitFn(ctx, portID, channelID)
 }
 
 func (m *MockChannelKeeper) IterateChannels(ctx sdk.Context, cb func(channeltypes.IdentifiedChannel) bool) {

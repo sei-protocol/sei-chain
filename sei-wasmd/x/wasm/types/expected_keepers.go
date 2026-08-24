@@ -74,7 +74,6 @@ type ChannelKeeper interface {
 	GetChannel(ctx sdk.Context, srcPort, srcChan string) (channel channeltypes.Channel, found bool)
 	GetNextSequenceSend(ctx sdk.Context, portID, channelID string) (uint64, bool)
 	SendPacket(ctx sdk.Context, packet ibcexported.PacketI) error
-	ChanCloseInit(ctx sdk.Context, portID, channelID string) error
 	GetAllChannels(ctx sdk.Context) (channels []channeltypes.IdentifiedChannel)
 	IterateChannels(ctx sdk.Context, cb func(channeltypes.IdentifiedChannel) bool)
 	SetChannel(ctx sdk.Context, portID, channelID string, channel channeltypes.Channel)
