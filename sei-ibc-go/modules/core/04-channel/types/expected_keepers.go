@@ -2,7 +2,6 @@ package types
 
 import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 
 	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
@@ -70,9 +69,4 @@ type ConnectionKeeper interface {
 		channelID string,
 		nextSequenceRecv uint64,
 	) error
-}
-
-// PortKeeper expected account IBC port keeper
-type PortKeeper interface {
-	Authenticate(ctx sdk.Context, key *capabilitytypes.Capability, portID string) bool
 }

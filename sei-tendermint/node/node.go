@@ -124,13 +124,13 @@ type nodeImpl struct {
 	freezeHeight    uint64
 
 	// network
-	router               *p2p.Router
-	giga                 utils.Option[p2p.GigaRouter]
-	gigaBlockDB          utils.Option[atypes.BlockDB] // owned here; closed after giga.Run (sync.Once)
-	gigaBlockDBCloseOnce sync.Once
-	ServiceRestartCh     utils.Option[chan []string]
-	nodeInfo             types.NodeInfo
-	nodeKey              types.NodeKey // our node privkey
+	router                  *p2p.Router
+	giga                    utils.Option[p2p.GigaRouter]
+	gigaBlockStore          utils.Option[atypes.BlockStore] // owned here; closed after giga.Run (sync.Once)
+	gigaBlockStoreCloseOnce sync.Once
+	ServiceRestartCh        utils.Option[chan []string]
+	nodeInfo                types.NodeInfo
+	nodeKey                 types.NodeKey // our node privkey
 
 	// services
 	eventSinks     []indexer.EventSink
@@ -170,10 +170,10 @@ func makeNode(
 	closers := []closer{convertCancelCloser(cancel)}
 	defer func() {
 		if err != nil {
-			// Close BlockDB on construct failure after it was opened. Must not
+			// Close BlockStore on construct failure after it was opened. Must not
 			// live in shutdownOps (see OnStart comment on SpawnCritical).
 			if node != nil {
-				_ = node.closeGigaBlockDB()
+				_ = node.closeGigaBlockStore()
 			}
 			err = combineCloseError(err, makeCloser(closers))
 		}
@@ -284,7 +284,7 @@ func makeNode(
 	if gigaEnabled {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
-	router, peerCloser, gigaBlockDB, err := createRouter(
+	router, peerCloser, gigaBlockStore, err := createRouter(
 		node.NodeInfo,
 		nodeKey,
 		gigaValidatorKey,
@@ -299,8 +299,8 @@ func makeNode(
 	}
 	node.router = router
 	node.giga = router.Giga()
-	node.gigaBlockDB = gigaBlockDB
-	// BlockDB is NOT closed in OnStop: BaseService runs OnStop before
+	node.gigaBlockStore = gigaBlockStore
+	// BlockStore is NOT closed in OnStop: BaseService runs OnStop before
 	// SpawnCritical (giga.Run) finishes, so closing there would race with
 	// still-running persist/execute. Close paths:
 	//   - makeNode defer on construct failure
@@ -511,8 +511,8 @@ func makeNode(
 // OnStart starts the Node. It implements service.Service.
 func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	// If Start fails before giga is spawned, BaseService does not call OnStop
-	// and never cancels SpawnCritical — so BlockDB would otherwise leak.
-	// When giga has already been spawned, its wrapper closes BlockDB after
+	// and never cancels SpawnCritical — so BlockStore would otherwise leak.
+	// When giga has already been spawned, its wrapper closes BlockStore after
 	// Run observes the service-context cancel issued once OnStart returns.
 	gigaSpawned := false
 	if n.freezeHeight > 0 {
@@ -522,7 +522,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		if err == nil || gigaSpawned {
 			return
 		}
-		_ = n.closeGigaBlockDB()
+		_ = n.closeGigaBlockStore()
 	}()
 
 	// EventBus and IndexerService must be started before the handshake because
@@ -657,7 +657,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	if giga, ok := n.giga.Get(); ok {
 		gigaSpawned = true
 		n.SpawnCritical("giga", func(ctx context.Context) error {
-			defer func() { _ = n.closeGigaBlockDB() }()
+			defer func() { _ = n.closeGigaBlockStore() }()
 			return giga.Run(ctx)
 		})
 	}
@@ -740,15 +740,15 @@ func (n *nodeImpl) OnStop() {
 	}
 }
 
-// closeGigaBlockDB closes the Autobahn BlockDB at most once. Safe to call from
+// closeGigaBlockStore closes the Autobahn BlockStore at most once. Safe to call from
 // makeNode's failure defer, OnStart's pre-giga failure path, and the giga
 // SpawnCritical wrapper.
-func (n *nodeImpl) closeGigaBlockDB() error {
+func (n *nodeImpl) closeGigaBlockStore() error {
 	var err error
-	n.gigaBlockDBCloseOnce.Do(func() {
-		if db, ok := n.gigaBlockDB.Get(); ok {
+	n.gigaBlockStoreCloseOnce.Do(func() {
+		if db, ok := n.gigaBlockStore.Get(); ok {
 			if err = db.Close(); err != nil {
-				logger.Error("failed to close Autobahn BlockDB", "err", err)
+				logger.Error("failed to close Autobahn BlockStore", "err", err)
 			}
 		}
 	})

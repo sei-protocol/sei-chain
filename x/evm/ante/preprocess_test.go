@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
@@ -262,6 +263,7 @@ func TestPreprocessAssociateTx(t *testing.T) {
 		panic("should not be called")
 	})
 	require.Nil(t, err)
+	require.Equal(t, int64(antedecorators.EVMAssociatePriority), ctx.Priority())
 	associated, ok := k.GetEVMAddress(ctx, seiAddr)
 	require.True(t, ok)
 	require.Equal(t, evmAddr, associated)

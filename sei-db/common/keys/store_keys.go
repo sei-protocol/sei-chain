@@ -21,10 +21,10 @@ const (
 	ParamsStoreKey       = "params"       // sei-cosmos/x/params/types.StoreKey
 	IBCStoreKey          = "ibc"          // sei-ibc-go/modules/core/24-host.StoreKey
 	UpgradeStoreKey      = "upgrade"      // sei-cosmos/x/upgrade/types.StoreKey
-	FeegrantStoreKey     = "feegrant"     // sei-cosmos/x/feegrant.StoreKey
+	FeegrantStoreKey     = "feegrant"     // retained for historical state access
 	EvidenceStoreKey     = "evidence"     // sei-cosmos/x/evidence/types.StoreKey
 	IBCTransferStoreKey  = "transfer"     // sei-ibc-go/modules/apps/transfer/types.StoreKey
-	CapabilityStoreKey   = "capability"   // sei-cosmos/x/capability/types.StoreKey
+	CapabilityStoreKey   = "capability"   // retained for historical state access
 	OracleStoreKey       = "oracle"       // x/oracle/types.StoreKey
 	EVMStoreKey          = "evm"          // x/evm/types.StoreKey
 	WasmStoreKey         = "wasm"         // sei-wasmd/x/wasm/types.StoreKey

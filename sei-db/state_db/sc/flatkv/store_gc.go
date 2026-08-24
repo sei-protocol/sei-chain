@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 )
 
 // CommitStore participates in the shared prune cycle as a snapshot store: it restores only at a
@@ -14,7 +14,7 @@ import (
 //
 // The state WAL must be managed by the same collector. This store reports a floor that keeps the WAL
 // it replays from, but never prunes that WAL itself.
-var _ gc.PrunableStore = (*CommitStore)(nil)
+var _ controller.PrunableStore = (*CommitStore)(nil)
 
 func (s *CommitStore) Name() string {
 	return "FlatKV"

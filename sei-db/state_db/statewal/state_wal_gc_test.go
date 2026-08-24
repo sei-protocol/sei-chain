@@ -3,18 +3,19 @@ package statewal
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
+
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // openWALForGC opens a WAL and returns it as the collector sees it, closing it on cleanup.
-func openWALForGC(t *testing.T, cfg *Config) (StateWAL, gc.PrunableStore) {
+func openWALForGC(t *testing.T, cfg *Config) (StateWAL, controller.PrunableStore) {
 	t.Helper()
 	w := openWAL(t, cfg)
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
-	store, ok := w.(gc.PrunableStore)
+	store, ok := w.(controller.PrunableStore)
 	require.True(t, ok, "a state WAL must satisfy gc.PrunableStore")
 	return w, store
 }
@@ -208,7 +209,7 @@ func TestGCPruneHistoryBeforeClose(t *testing.T) {
 	for block := uint64(1); block <= 5; block++ {
 		writeBlock(t, w, block)
 	}
-	require.NoError(t, w.(gc.PrunableStore).PruneHistory(4))
+	require.NoError(t, w.(controller.PrunableStore).PruneHistory(4))
 	require.NoError(t, w.Close())
 
 	w2, store := openWALForGC(t, cfg)
@@ -234,7 +235,7 @@ func TestGCPruneHistoryAfterClose(t *testing.T) {
 	for block := uint64(1); block <= 5; block++ {
 		writeBlock(t, w, block)
 	}
-	store, ok := w.(gc.PrunableStore)
+	store, ok := w.(controller.PrunableStore)
 	require.True(t, ok)
 	require.NoError(t, w.Close())
 

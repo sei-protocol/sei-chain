@@ -88,7 +88,7 @@ func (k BaseKeeper) GetPaginatedTotalSupply(ctx sdk.Context, pagination *query.P
 	ptr := k.intPool.Get()
 	defer k.intPool.Put(ptr)
 
-	pageRes, err := query.Paginate(supplyStore, pagination, func(key, value []byte) error {
+	pageRes, err := query.Paginate(ctx, supplyStore, pagination, func(key, value []byte) error {
 		if err := ptr.Unmarshal(value); err != nil {
 			return fmt.Errorf("unable to convert amount string to Int %v", err)
 		}
@@ -269,6 +269,9 @@ func (k BaseKeeper) UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAdd
 
 	if !amt.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amt.String())
+	}
+	if !k.CanSendTo(ctx, delegatorAddr) {
+		return sdkerrors.ErrInvalidRecipient
 	}
 
 	err := k.SubUnlockedCoins(ctx, moduleAccAddr, amt, true)

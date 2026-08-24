@@ -1,0 +1,17 @@
+- name: Test oracle messages are deprecated
+  inputs:
+    - cmd: printf "12345678\n" | seid keys list --output json | jq ".[] | select (.name==\"node_admin\")" | jq -r .address
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
+      env: ADMIN_VAL_ADDR
+    - cmd: printf "12345678\n" | seid tx oracle set-feeder $ADMIN_ADDR --from $ADMIN_ADDR --chain-id sei --dry-run 2>&1
+      env: SET_FEEDER_ERROR
+    - cmd: printf "12345678\n" | seid tx oracle aggregate-vote 1.5ueth $ADMIN_VAL_ADDR --from $ADMIN_ADDR --chain-id sei --dry-run 2>&1
+      env: VOTE_ERROR
+  verifiers:
+    - type: regex
+      expr: oracle module is deprecated
+      result: SET_FEEDER_ERROR
+    - type: regex
+      expr: oracle module is deprecated
+      result: VOTE_ERROR
