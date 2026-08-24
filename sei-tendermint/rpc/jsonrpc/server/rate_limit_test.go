@@ -9,7 +9,7 @@ import (
 
 func TestRateLimitGate_CheckCatalog_RejectsAfterBurst(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	ip := "203.0.113.50"
 
 	allowed, rejectMethod := gate.CheckCatalog(t.Context(), ip)
@@ -23,7 +23,7 @@ func TestRateLimitGate_CheckCatalog_RejectsAfterBurst(t *testing.T) {
 
 func TestRateLimitGate_CheckURI_InvalidPathReturns400(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 
 	allowed, rejectMethod, err := gate.CheckURI(t.Context(), "203.0.113.1", "/")
 	require.False(t, allowed)
@@ -33,7 +33,7 @@ func TestRateLimitGate_CheckURI_InvalidPathReturns400(t *testing.T) {
 
 func TestRateLimitGate_CheckURI_InvalidPathReturns429WhenBucketExhausted(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	ip := "203.0.113.50"
 
 	allowed, rejectMethod, err := gate.CheckURI(t.Context(), ip, "/status")

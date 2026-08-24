@@ -332,7 +332,6 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 		rateLimitGate = rpcserver.NewRateLimitGate(
 			rateLimitRegistry,
 			conf.RPC.MaxBodyBytes,
-			true,
 		)
 		if conf.RPC.IPRateLimitRPS <= 0 || conf.RPC.IPRateLimitBurst <= 0 {
 			logger.Info(

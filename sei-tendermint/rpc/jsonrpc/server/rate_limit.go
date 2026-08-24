@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"math"
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
@@ -21,71 +20,30 @@ var errInvalidURIMethod = errors.New("invalid URI method")
 // requests. POST JSON-RPC bodies are parsed with MethodParser before full decode;
 // GET URI routes are accounted by path-derived method names.
 type RateLimitGate struct {
-	registry     *ratelimiter.Registry
-	parser       *ratelimiter.MethodParser
-	maxBodyBytes int64
-	enabled      bool
-	plane        string
+	*ratelimiter.Gate
 }
 
 // NewRateLimitGate returns a gate for CometBFT RPC HTTP (plane "cometbft").
 // registry must be non-nil. maxBodyBytes is max-body-bytes from config; non-positive
 // means unlimited and the gate does not apply its own body-size rejection (the outer
 // MaxBytesHandler enforces a positive limit when configured).
-func NewRateLimitGate(registry *ratelimiter.Registry, maxBodyBytes int64, enabled bool) *RateLimitGate {
+func NewRateLimitGate(registry *ratelimiter.Registry, maxBodyBytes int64) *RateLimitGate {
 	if maxBodyBytes <= 0 {
 		maxBodyBytes = 0
 	}
-	if maxBodyBytes == math.MaxInt64 {
-		maxBodyBytes = math.MaxInt64 - 1
-	}
 	return &RateLimitGate{
-		registry:     registry,
-		parser:       ratelimiter.NewMethodParser(maxBodyBytes),
-		maxBodyBytes: maxBodyBytes,
-		enabled:      enabled,
-		plane:        cometbftRateLimitPlane,
+		Gate: ratelimiter.NewGate(registry, cometbftRateLimitPlane, maxBodyBytes),
 	}
-}
-
-// chargeAdmissionRejection consumes one token for a fail-closed rejection that
-// never reaches method parsing (oversize body, read error). Returns true when
-// the bucket is exhausted and the caller should respond with HTTP 429.
-func (g *RateLimitGate) chargeAdmissionRejection(ctx context.Context, ip string) bool {
-	if !g.enabled {
-		return false
-	}
-	return !g.registry.Allow(ctx, ip, g.plane, ratelimiter.MethodInvalid)
 }
 
 // CheckPOST parses body for JSON-RPC method names and applies per-IP rate limits.
-// Parse errors still charge the bucket under ratelimiter.MethodInvalid so
-// malformed bodies can't bypass rate limiting.
 func (g *RateLimitGate) CheckPOST(ctx context.Context, ip string, body io.Reader) (allowed bool, rejectMethod string, err error) {
-	if !g.enabled {
-		return true, "", nil
-	}
-
-	methods, _, parseErr := g.parser.Parse(body)
-	if parseErr != nil {
-		if !g.registry.Allow(ctx, ip, g.plane, ratelimiter.MethodInvalid) {
-			return false, ratelimiter.MethodInvalid, nil
-		}
-		return false, "", parseErr
-	}
-
-	if n := len(methods); n > 0 && !g.registry.AllowN(ctx, ip, g.plane, methods[0], n) {
-		return false, methods[0], nil
-	}
-	return true, "", nil
+	return g.CheckJSONRPC(ctx, ip, body)
 }
 
 // CheckCatalog applies per-IP rate limits for browser catalog probes to /.
 func (g *RateLimitGate) CheckCatalog(ctx context.Context, ip string) (allowed bool, rejectMethod string) {
-	if !g.enabled {
-		return true, ""
-	}
-	if !g.registry.Allow(ctx, ip, g.plane, cometbftMethodCatalog) {
+	if !g.Registry().Allow(ctx, ip, g.Plane(), cometbftMethodCatalog) {
 		return false, cometbftMethodCatalog
 	}
 	return true, ""
@@ -93,17 +51,14 @@ func (g *RateLimitGate) CheckCatalog(ctx context.Context, ip string) (allowed bo
 
 // CheckURI applies per-IP rate limits for REST-style GET/HEAD RPC routes.
 func (g *RateLimitGate) CheckURI(ctx context.Context, ip, path string) (allowed bool, rejectMethod string, err error) {
-	if !g.enabled {
-		return true, "", nil
-	}
 	method := strings.TrimPrefix(path, "/")
 	if method == "" {
-		if !g.registry.Allow(ctx, ip, g.plane, ratelimiter.MethodInvalid) {
+		if !g.Registry().Allow(ctx, ip, g.Plane(), ratelimiter.MethodInvalid) {
 			return false, ratelimiter.MethodInvalid, nil
 		}
 		return false, "", errInvalidURIMethod
 	}
-	if !g.registry.Allow(ctx, ip, g.plane, method) {
+	if !g.Registry().Allow(ctx, ip, g.Plane(), method) {
 		return false, method, nil
 	}
 	return true, "", nil

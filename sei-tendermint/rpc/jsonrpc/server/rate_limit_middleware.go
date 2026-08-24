@@ -18,31 +18,60 @@ type rateLimitMiddleware struct {
 }
 
 // NewRateLimitMiddleware wraps inner with CometBFT RPC HTTP rate-limit admission.
-// When gate is nil or disabled, inner is returned unchanged.
+// When gate is nil, inner is returned unchanged.
 //
 // All HTTP verbs are limited, including OPTIONS; genuine CORS preflights are
 // already terminated by the CORS handler wrapping this middleware.
 func NewRateLimitMiddleware(inner http.Handler, gate *RateLimitGate) http.Handler {
-	if gate == nil || !gate.enabled {
+	if gate == nil {
 		return inner
 	}
 	return &rateLimitMiddleware{inner: inner, gate: gate}
 }
 
 func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ip := m.gate.registry.IPFromHTTPRequest(r)
-	if isCometBFTMethodCatalogRequest(r) {
-		allowed, rejectMethod := m.gate.CheckCatalog(r.Context(), ip)
-		if !allowed {
-			if rejectMethod != "" {
-				logger.Debug("rate limit rejected catalog request", "ip", ip, "method", rejectMethod, "plane", m.gate.plane)
+	ip := m.gate.Registry().IPFromHTTPRequest(r)
+
+	if isCometBFTRootPath(r) {
+		body, err := readRateLimitBoundedBody(r.Body, m.gate.MaxBodyBytes())
+		if err != nil {
+			if isRateLimitRequestBodyTooLarge(err) {
+				m.rejectAdmission(r.Context(), w, ip, body, http.StatusRequestEntityTooLarge, rpctypes.CodeInvalidRequest, "request body too large")
+				return
 			}
-			http.Error(w, "too many requests", http.StatusTooManyRequests)
+			m.rejectAdmission(r.Context(), w, ip, body, http.StatusBadRequest, rpctypes.CodeInvalidRequest, "bad request")
 			return
 		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+
+		if len(body) == 0 {
+			allowed, rejectMethod := m.gate.CheckCatalog(r.Context(), ip)
+			if !allowed {
+				if rejectMethod != "" {
+					logger.Debug("rate limit rejected catalog request", "ip", ip, "method", rejectMethod, "plane", m.gate.Plane())
+				}
+				http.Error(w, "too many requests", http.StatusTooManyRequests)
+				return
+			}
+			m.inner.ServeHTTP(w, r)
+			return
+		}
+
+		allowed, rejectMethod, checkErr := m.gate.CheckPOST(r.Context(), ip, bytes.NewReader(body))
+		if checkErr != nil {
+			writeJSONRPCErrorWithStatus(w, body, http.StatusBadRequest, rpctypes.CodeParseError, "decoding request: %v", checkErr)
+			return
+		}
+		if !allowed {
+			logger.Debug("rate limit rejected JSON-RPC request", "ip", ip, "method", rejectMethod, "plane", m.gate.Plane())
+			writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
+			return
+		}
+
 		m.inner.ServeHTTP(w, r)
 		return
 	}
+
 	if isCometBFTURIRPCRequest(r) {
 		allowed, rejectMethod, checkErr := m.gate.CheckURI(r.Context(), ip, r.URL.Path)
 		if checkErr != nil {
@@ -51,7 +80,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		}
 		if !allowed {
 			if rejectMethod != "" {
-				logger.Debug("rate limit rejected URI request", "ip", ip, "method", rejectMethod, "plane", m.gate.plane)
+				logger.Debug("rate limit rejected URI request", "ip", ip, "method", rejectMethod, "plane", m.gate.Plane())
 			}
 			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
@@ -60,51 +89,20 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	body, err := readRateLimitBoundedBody(r.Body, m.gate.maxBodyBytes)
-	if err != nil {
-		if isRateLimitRequestBodyTooLarge(err) {
-			m.rejectAdmission(r.Context(), w, ip, body, http.StatusRequestEntityTooLarge, rpctypes.CodeInvalidRequest, "request body too large")
-			return
-		}
-		m.rejectAdmission(r.Context(), w, ip, body, http.StatusBadRequest, rpctypes.CodeInvalidRequest, "bad request")
-		return
-	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
-
-	allowed, rejectMethod, checkErr := m.gate.CheckPOST(r.Context(), ip, bytes.NewReader(body))
-	if checkErr != nil {
-		writeJSONRPCErrorWithStatus(w, body, http.StatusBadRequest, rpctypes.CodeParseError, "decoding request: %v", checkErr)
-		return
-	}
-	if !allowed {
-		logger.Debug("rate limit rejected JSON-RPC request", "ip", ip, "method", rejectMethod, "plane", m.gate.plane)
-		writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
-		return
-	}
-
 	m.inner.ServeHTTP(w, r)
 }
 
 func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.ResponseWriter, ip string, body []byte, status int, code rpctypes.ErrorCode, msg string) {
-	if m.gate.chargeAdmissionRejection(ctx, ip) {
+	if m.gate.ChargeAdmissionRejection(ctx, ip) {
 		writeJSONRPCErrorWithStatus(w, body, http.StatusTooManyRequests, rpctypes.CodeInternalError, "too many requests")
 		return
 	}
 	writeJSONRPCErrorWithStatus(w, body, status, code, "%s", msg)
 }
 
-// isCometBFTMethodCatalogRequest reports browser/catalog probes to / with no body.
-// CometBFT's JSON-RPC handler serves the method list page for these requests.
-func isCometBFTMethodCatalogRequest(r *http.Request) bool {
-	if r.URL.Path != "/" && r.URL.Path != "" {
-		return false
-	}
-	switch r.Method {
-	case http.MethodGet, http.MethodHead, http.MethodPost:
-		return r.ContentLength == 0
-	default:
-		return false
-	}
+// isCometBFTRootPath reports requests to the JSON-RPC root (/).
+func isCometBFTRootPath(r *http.Request) bool {
+	return r.URL.Path == "/" || r.URL.Path == ""
 }
 
 // isCometBFTURIRPCRequest reports CometBFT URI RPC routes (/status, /block, etc.).

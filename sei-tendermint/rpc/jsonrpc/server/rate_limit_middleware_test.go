@@ -26,7 +26,7 @@ func mustCometBFTRateLimitRegistry(t *testing.T, rps float64, burst int) *rateli
 
 func TestRateLimitMiddleware_POST_AllowsUnderLimit(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 
 	called := false
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +50,7 @@ func TestRateLimitMiddleware_POST_AllowsUnderLimit(t *testing.T) {
 
 func TestRateLimitMiddleware_POST_RejectsAfterBurst(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -73,7 +73,7 @@ func TestRateLimitMiddleware_POST_RejectsAfterBurst(t *testing.T) {
 
 func TestRateLimitMiddleware_POST_PerIPIsolation(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	h := NewRateLimitMiddleware(inner, gate)
 	body := `{"jsonrpc":"2.0","id":1,"method":"status","params":[]}`
@@ -99,7 +99,7 @@ func TestRateLimitMiddleware_POST_PerIPIsolation(t *testing.T) {
 
 func TestRateLimitMiddleware_POST_BatchCountsAllMethods(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 2)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	h := NewRateLimitMiddleware(inner, gate)
 
@@ -121,7 +121,7 @@ func TestRateLimitMiddleware_POST_BatchCountsAllMethods(t *testing.T) {
 
 func TestRateLimitMiddleware_GET_ExtractsMethodFromPath(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	called := false
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -146,7 +146,7 @@ func TestRateLimitMiddleware_GET_ExtractsMethodFromPath(t *testing.T) {
 
 func TestRateLimitMiddleware_POSTURI_AllowsUnderLimit(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 
 	t.Run("query params", func(t *testing.T) {
 		called := false
@@ -189,7 +189,7 @@ func TestRateLimitMiddleware_POSTURI_AllowsUnderLimit(t *testing.T) {
 
 func TestRateLimitMiddleware_POSTURI_RejectsAfterBurst(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -211,7 +211,7 @@ func TestRateLimitMiddleware_POSTURI_RejectsAfterBurst(t *testing.T) {
 
 func TestRateLimitMiddleware_GET_PerIPIsolation(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	h := NewRateLimitMiddleware(inner, gate)
 
@@ -235,10 +235,8 @@ func TestRateLimitMiddleware_GET_PerIPIsolation(t *testing.T) {
 }
 
 func TestRateLimitMiddleware_DisabledBypassesGate(t *testing.T) {
-	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, false)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	h := NewRateLimitMiddleware(inner, gate)
+	h := NewRateLimitMiddleware(inner, nil)
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"status","params":[]}`
 	for i := 0; i < 3; i++ {
@@ -255,10 +253,10 @@ func TestRateLimitMiddleware_MethodCatalogRateLimited(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost} {
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodDelete} {
 		t.Run(method, func(t *testing.T) {
 			reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-			gate := NewRateLimitGate(reg, 0, true)
+			gate := NewRateLimitGate(reg, 0)
 			h := NewRateLimitMiddleware(inner, gate)
 
 			req1 := httptest.NewRequest(method, "/", nil)
@@ -278,7 +276,7 @@ func TestRateLimitMiddleware_MethodCatalogRateLimited(t *testing.T) {
 
 func TestRateLimitMiddleware_GETRootWithBodyRateLimited(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -302,7 +300,7 @@ func TestRateLimitMiddleware_GETRootWithBodyRateLimited(t *testing.T) {
 
 func TestRateLimitMiddleware_OPTIONSNotExempt(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -329,7 +327,7 @@ func TestRateLimitMiddleware_POST_RejectionEmitsMetric(t *testing.T) {
 	t.Cleanup(func() { otel.SetMeterProvider(prev) })
 
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	h := NewRateLimitMiddleware(inner, gate)
 
@@ -370,7 +368,7 @@ func TestRateLimitMiddleware_POST_RejectionEmitsMetric(t *testing.T) {
 
 func TestRateLimitMiddleware_POST_OversizeBodyReturns413(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
-	gate := NewRateLimitGate(reg, 64, true)
+	gate := NewRateLimitGate(reg, 64)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner should not be called")
 	})
@@ -384,7 +382,7 @@ func TestRateLimitMiddleware_POST_OversizeBodyReturns413(t *testing.T) {
 
 func TestRateLimitMiddleware_POST_UnlimitedBodyWhenMaxBodyBytesZero(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	called := false
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -406,7 +404,7 @@ func TestRateLimitMiddleware_POST_UnlimitedBodyWhenMaxBodyBytesZero(t *testing.T
 
 func TestRateLimitMiddleware_POST_MalformedJSONReturns400(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 100, 10)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner should not be called")
 	})
@@ -424,10 +422,26 @@ func TestRateLimitMiddleware_POST_MalformedJSONReturns400(t *testing.T) {
 
 func TestRateLimitMiddleware_GETRootServesMethodCatalog(t *testing.T) {
 	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
-	gate := NewRateLimitGate(reg, 0, true)
+	gate := NewRateLimitGate(reg, 0)
 	h := NewRateLimitMiddleware(testMux(), gate)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "203.0.113.1:1"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Header().Get("Content-Type"), "text/html")
+	require.Contains(t, rec.Body.String(), "Available RPC endpoints")
+}
+
+func TestRateLimitMiddleware_MethodCatalogEmptyChunkedBody(t *testing.T) {
+	reg := mustCometBFTRateLimitRegistry(t, 0.001, 1)
+	gate := NewRateLimitGate(reg, 0)
+	h := NewRateLimitMiddleware(testMux(), gate)
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("Transfer-Encoding", "chunked")
+	req.ContentLength = -1
 	req.RemoteAddr = "203.0.113.1:1"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

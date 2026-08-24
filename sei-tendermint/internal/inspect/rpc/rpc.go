@@ -81,7 +81,6 @@ func Handler(rpcConfig *config.RPCConfig, routes core.RoutesMap) (http.Handler, 
 		rateLimitGate = server.NewRateLimitGate(
 			rateLimitRegistry,
 			rpcConfig.MaxBodyBytes,
-			true,
 		)
 		if rpcConfig.IPRateLimitRPS <= 0 || rpcConfig.IPRateLimitBurst <= 0 {
 			logger.Info(
