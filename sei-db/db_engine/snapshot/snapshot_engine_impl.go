@@ -317,6 +317,39 @@ func (c *snapshotEngine) BatchSetString(updates []StringKVPair) error {
 	return nil
 }
 
+func (c *snapshotEngine) BatchUpdate(keys []string, updater BatchUpdater) error {
+	// Fanned out the same way as batchGetIntoAtVersion, and for the same reason: a key belongs to one
+	// shard, so the shards touch disjoint elements of both slices and need no lock between them. The
+	// two slices are scratch shared with the shards, not results — priorValues carries what was read
+	// into the update, newValues carries what the updater returned into the write.
+	work := c.partitionIndicesByShard(keys)
+	priorValues := make([][]byte, len(keys))
+	newValues := make([][]byte, len(keys))
+	errs := make([]error, len(c.shards))
+
+	var wg sync.WaitGroup
+	for shardIndex := range work {
+		if len(work[shardIndex]) == 0 {
+			continue
+		}
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			errs[shardIndex] = c.shards[shardIndex].batchUpdateAt(
+				keys, work[shardIndex], updater, c.currentVersion, priorValues, newValues)
+		})
+	}
+	wg.Wait()
+
+	// Any shard error fails the whole call.
+	for _, err := range errs {
+		if err != nil {
+			return fmt.Errorf("failed to batch update in shard: %w", err)
+		}
+	}
+	return nil
+}
+
 func (c *snapshotEngine) BatchGet(keys [][]byte) (map[string][]byte, error) {
 	return c.BatchGetAtVersion(keys, c.currentVersion)
 }

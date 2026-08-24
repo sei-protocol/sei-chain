@@ -569,6 +569,65 @@ func (s *shard) batchSetStringAt(updates []StringKVPair, indices []int) error {
 	return nil
 }
 
+// batchUpdateAt writes a new value for each key named by indices, obtained by handing that key's prior
+// value to updater. Refused on a shard that is out of service, for the reason given on Set.
+//
+// The prior value is resolved with the same two-pass classification batchGetInto uses, and for the same
+// reason: a batch that took the exclusive lock for its whole length would stall every read on this shard.
+// So the exclusive holds here cover only the classification of what the shared pass could not resolve,
+// and the writes themselves. The DB reads and every call into updater happen outside both.
+func (s *shard) batchUpdateAt(
+	keys []string,
+	indices []int,
+	updater BatchUpdater,
+	version uint64,
+	priorValues [][]byte,
+	newValues [][]byte,
+) error {
+	unresolved, hits, err := s.batchGetSharedInto(keys, indices, priorValues, version)
+	if err != nil {
+		return err
+	}
+
+	var pending []pendingRead
+	if len(unresolved) > 0 {
+		pending, err = s.batchGetExclusiveInto(keys, unresolved, priorValues, version, &hits)
+		if err != nil {
+			return err
+		}
+	}
+
+	if hits > 0 {
+		s.metrics.reportCacheHits(hits)
+	}
+
+	if err := s.cache.resolveBatch(pending, priorValues); err != nil {
+		return err
+	}
+
+	// Outside every lock: updater is caller code of unknown cost, and holding the shard exclusively
+	// across it is what the two-pass split above exists to avoid.
+	for _, index := range indices {
+		newValues[index], err = updater.NewValueFor(keys[index], priorValues[index])
+		if err != nil {
+			return fmt.Errorf("new value for key: %w", err)
+		}
+	}
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	// Checked once for the whole batch rather than per key: it cannot change while we hold the lock.
+	if err := s.cache.outOfServiceLocked(); err != nil {
+		return err
+	}
+	for _, index := range indices {
+		// A nil new value is stored as a nil-valued (tombstone) entry at the current version.
+		s.setLockedString(keys[index], newValues[index])
+	}
+	return nil
+}
+
 // Delete deletes the value for the given key.
 func (s *shard) Delete(key []byte) error {
 	return s.Set(key, nil)

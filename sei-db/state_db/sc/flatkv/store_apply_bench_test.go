@@ -118,44 +118,45 @@ func benchClassified(b *testing.B, accounts int, storage int, code int, misc int
 	return classified
 }
 
-// benchReadAccounts returns the accounts the merge folds changes onto, as readAccountsToMerge would
-// have returned them: every account the codehash bucket names, already carrying a prior value, so the
-// merge exercises the path that modifies an existing account rather than the one that starts at zero.
-func benchReadAccounts(b *testing.B, classified classifiedChanges) map[string]*vtype.AccountData {
+// benchPriorValues returns the row each account already holds, as the account store would hand it to
+// an accountUpdater: every account the codehash bucket names already carries a prior value, so the
+// merge exercises the path that folds onto an existing row rather than the one that starts at zero.
+func benchPriorValues(b *testing.B, classified classifiedChanges) map[string][]byte {
 	b.Helper()
-	accounts := touchedAccounts(classified)
-	nonceFor := make(map[string]uint64, len(accounts))
+	prior := make(map[string][]byte, len(classified[keys.EVMKeyCodeHash]))
 	for i, change := range classified[keys.EVMKeyCodeHash] {
-		nonceFor[change.key] = uint64(i)
+		prior[change.key] = vtype.NewAccountData().SetBlockHeight(1).SetNonce(uint64(i)).Serialize()
 	}
-	physKeys := make([]string, 0, len(accounts))
-	stored := make([][]byte, 0, len(accounts))
-	for key := range accounts {
-		physKeys = append(physKeys, key)
-		stored = append(stored, vtype.NewAccountData().SetBlockHeight(1).SetNonce(nonceFor[key]).Serialize())
-	}
-	if err := populateAccounts(accounts, physKeys, stored, 100); err != nil {
-		b.Fatal(err)
-	}
-	return accounts
+	return prior
 }
 
-// benchPrepare runs the value-building half of prepareWrites: the three databases gathered while the
-// account read is in flight, plus the merge of the account changes onto what that read returned.
-func benchPrepare(classified classifiedChanges, accounts map[string]*vtype.AccountData) (preparedWrites, error) {
+// benchPrepare runs the value-building work of an apply: the three databases gathered off the apply
+// thread, plus folding every account change onto the row that account already holds. The fold happens
+// inside the account store's write in production, so prior stands in for what the store supplies.
+func benchPrepare(classified classifiedChanges, prior map[string][]byte) (preparedWrites, error) {
 	out, err := gatherNonAccountValues(classified, 100)
 	if err != nil {
 		return preparedWrites{}, err
 	}
-	if err := mergeAccountValues(
-		accounts,
+	updater, err := newAccountUpdater(
 		classified[keys.EVMKeyNonce],
 		classified[keys.EVMKeyCodeHash],
 		nil,
-	); err != nil {
+		100,
+	)
+	if err != nil {
 		return preparedWrites{}, err
 	}
-	out.accounts = accounts
+	if updater != nil {
+		for _, key := range updater.keys {
+			value, err := updater.NewValueFor(key, prior[key])
+			if err != nil {
+				return preparedWrites{}, err
+			}
+			sink(value == nil, value)
+		}
+	}
+	out.accounts = updater
 	return out, nil
 }
 
@@ -207,11 +208,11 @@ func benchWarmStore(b *testing.B, pairs []*proto.KVPair) *CommitStore {
 	return s
 }
 
-// BenchmarkReadAccountsToMerge covers the apply_change_sets_read_accounts phase: the batch read of
-// every account a block's nonce and codehash changes touch, with every key already in cache. Sizes
-// span one block's worth of account writes at the 2000-transaction consensus cap and at the doubled
-// block the rf-perf scenario drives.
-func BenchmarkReadAccountsToMerge(b *testing.B) {
+// BenchmarkAccountUpdate covers what replaced the apply_change_sets_read_accounts phase: folding a
+// block's account changes onto the rows they modify, inside the account store's write, with every key
+// already in cache. Sizes span one block's worth of account writes at the 2000-transaction consensus
+// cap and at the doubled block the rf-perf scenario drives.
+func BenchmarkAccountUpdate(b *testing.B) {
 	for _, accounts := range []int{2000, 8000} {
 		b.Run(fmt.Sprintf("accounts=%d", accounts), func(b *testing.B) {
 			pairs := benchAccountPairs(accounts)
@@ -222,12 +223,20 @@ func BenchmarkReadAccountsToMerge(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for b.Loop() {
-				old, err := s.readAccountsToMerge(classified, 100)
+				updater, err := newAccountUpdater(
+					classified[keys.EVMKeyNonce],
+					classified[keys.EVMKeyCodeHash],
+					nil,
+					100,
+				)
 				if err != nil {
 					b.Fatal(err)
 				}
-				if len(old) != accounts {
-					b.Fatalf("read %d accounts, want %d", len(old), accounts)
+				if len(updater.keys) != accounts {
+					b.Fatalf("updating %d accounts, want %d", len(updater.keys), accounts)
+				}
+				if err := s.accountStore.BatchUpdate(updater.keys, updater); err != nil {
+					b.Fatal(err)
 				}
 			}
 		})
@@ -251,11 +260,11 @@ func BenchmarkGatherValues(b *testing.B) {
 	}
 	for _, tc := range cases {
 		classified := benchClassified(b, tc.accounts, tc.storage, tc.code, tc.misc, tc.codeLen)
-		accounts := benchReadAccounts(b, classified)
+		prior := benchPriorValues(b, classified)
 		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := benchPrepare(classified, accounts); err != nil {
+				if _, err := benchPrepare(classified, prior); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -279,11 +288,11 @@ func BenchmarkGatherAndSerialize(b *testing.B) {
 	}
 	for _, tc := range cases {
 		classified := benchClassified(b, tc.accounts, tc.storage, tc.code, tc.misc, tc.codeLen)
-		accounts := benchReadAccounts(b, classified)
+		prior := benchPriorValues(b, classified)
 		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				prepared, err := benchPrepare(classified, accounts)
+				prepared, err := benchPrepare(classified, prior)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -295,9 +304,6 @@ func BenchmarkGatherAndSerialize(b *testing.B) {
 
 // benchSerializeAll performs the same per-value work serializeAndPut does, minus the store write.
 func benchSerializeAll(prepared preparedWrites) {
-	for _, value := range prepared.accounts {
-		sink(value.IsDelete(), value.Serialize())
-	}
 	for _, value := range prepared.storage {
 		sink(value.IsDelete(), value.Serialize())
 	}

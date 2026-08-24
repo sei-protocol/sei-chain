@@ -6,13 +6,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-// mergeAccountValuesReference is the implementation mergeAccountValues replaced: build a
+// mergeAccountValuesReference is the implementation accountUpdater replaced: build a
 // PendingAccountWrite per account, then merge each one onto the account's prior value. Kept here as
 // the reference the differential test below compares against.
+//
+// Reports the bytes that would reach the store, nil where the merged account is a deletion, since that
+// is what the production path hands over.
 func mergeAccountValuesReference(
 	t *testing.T,
 	nonceChanges []classifiedChange,
@@ -20,21 +22,27 @@ func mergeAccountValuesReference(
 	balanceChanges []classifiedChange,
 	oldValues map[string]*vtype.AccountData,
 	blockHeight int64,
-) map[string]*vtype.AccountData {
+) map[string][]byte {
 	t.Helper()
 	pendingWrites, err := mergeAccountUpdates(nonceChanges, codeHashChanges, balanceChanges)
 	require.NoError(t, err)
 
-	result := make(map[string]*vtype.AccountData, len(pendingWrites))
+	result := make(map[string][]byte, len(pendingWrites))
 	for addrStr, pendingWrite := range pendingWrites {
-		result[addrStr] = pendingWrite.Merge(oldValues[addrStr], blockHeight)
+		merged := pendingWrite.Merge(oldValues[addrStr], blockHeight)
+		if merged.IsDelete() {
+			result[addrStr] = nil
+			continue
+		}
+		result[addrStr] = merged.Serialize()
 	}
 	return result
 }
 
-// mergeOnto runs the production merge the way ApplyChangeSets does: the accounts the changes name are
-// read out of the store first, then the changes are folded onto them. oldValues stands in for the
-// store, holding the accounts that already exist.
+// mergeOnto runs the production merge the way ApplyChangeSets does: an accountUpdater is built from the
+// changes, then asked for each account's new value. oldValues stands in for the account store, holding
+// the rows that already exist, so a key it does not hold arrives as a nil prior value exactly as the
+// engine would deliver it.
 func mergeOnto(
 	t *testing.T,
 	nonceChanges []classifiedChange,
@@ -42,42 +50,41 @@ func mergeOnto(
 	balanceChanges []classifiedChange,
 	oldValues map[string]*vtype.AccountData,
 	blockHeight int64,
-) (map[string]*vtype.AccountData, error) {
+) (map[string][]byte, error) {
 	t.Helper()
-	var changesByType classifiedChanges
-	changesByType[keys.EVMKeyNonce] = nonceChanges
-	changesByType[keys.EVMKeyCodeHash] = codeHashChanges
-
-	accounts := touchedAccounts(changesByType)
-	physKeys := make([]string, 0, len(accounts))
-	stored := make([][]byte, 0, len(accounts))
-	for key := range accounts {
-		physKeys = append(physKeys, key)
-		if old, ok := oldValues[key]; ok {
-			stored = append(stored, old.Serialize())
-			continue
-		}
-		stored = append(stored, nil)
-	}
-	require.NoError(t, populateAccounts(accounts, physKeys, stored, blockHeight))
-
-	if err := mergeAccountValues(accounts, nonceChanges, codeHashChanges, balanceChanges); err != nil {
+	updater, err := newAccountUpdater(nonceChanges, codeHashChanges, balanceChanges, blockHeight)
+	if err != nil {
 		return nil, err
 	}
-	return accounts, nil
+	if updater == nil {
+		return map[string][]byte{}, nil
+	}
+
+	result := make(map[string][]byte, len(updater.keys))
+	for _, key := range updater.keys {
+		var priorValue []byte
+		if old, ok := oldValues[key]; ok {
+			priorValue = old.Serialize()
+		}
+		value, err := updater.NewValueFor(key, priorValue)
+		if err != nil {
+			return nil, err
+		}
+		result[key] = value
+	}
+	return result, nil
 }
 
-// requireSameAccounts asserts two account maps hold the same keys with byte-identical serialized
-// values. Serialized form is what reaches the store and the lattice hash, so it is the comparison
-// that matters.
-func requireSameAccounts(t *testing.T, want map[string]*vtype.AccountData, got map[string]*vtype.AccountData) {
+// requireSameAccounts asserts two sets of account writes hold the same keys with byte-identical
+// values, a nil value meaning the account is deleted. Serialized form is what reaches the store and
+// the lattice hash, so it is the comparison that matters.
+func requireSameAccounts(t *testing.T, want map[string][]byte, got map[string][]byte) {
 	t.Helper()
 	require.Len(t, got, len(want))
-	for key, wantAccount := range want {
-		gotAccount, ok := got[key]
+	for key, wantValue := range want {
+		gotValue, ok := got[key]
 		require.True(t, ok, "missing account for key %x", key)
-		require.Equal(t, wantAccount.Serialize(), gotAccount.Serialize(),
-			"serialized account differs for key %x", key)
+		require.Equal(t, wantValue, gotValue, "serialized account differs for key %x", key)
 	}
 }
 
@@ -192,7 +199,9 @@ func TestMergeAccountValuesCombinesKindsIntoOneAccount(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 
-	account := got[key]
+	require.NotNil(t, got[key], "an account carrying both fields must not serialize as a deletion")
+	account, err := vtype.DeserializeAccountData(got[key])
+	require.NoError(t, err)
 	require.Equal(t, uint64(9), account.GetNonce())
 	require.Equal(t, codeHash, *account.GetCodeHash())
 	require.Equal(t, int64(123), account.GetBlockHeight())

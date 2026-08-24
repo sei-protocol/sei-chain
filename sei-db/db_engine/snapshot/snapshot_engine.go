@@ -14,6 +14,23 @@ import (
 // was closed normally rather than failed. Detect it with errors.Is.
 var ErrEngineClosed = errors.New("snapshot engine closed")
 
+// BatchUpdater produces the value to write for each of a batch's keys, from the value that key
+// currently holds. One BatchUpdater serves every key in a BatchUpdate call, so an implementation holds
+// the whole batch's pending state and looks each key up as it is asked for.
+type BatchUpdater interface {
+	// NewValueFor returns the value to write for key.
+	//
+	// priorValue is whatever the key holds at the moment of the call, whichever version wrote it —
+	// including an earlier write from the same block, since a caller may write a version in several
+	// batches. It is nil when the key holds nothing, which a caller cannot distinguish from a key
+	// holding a tombstone. Returning nil deletes the key.
+	//
+	// Called concurrently for disjoint keys, one goroutine per shard. It must not retain or mutate
+	// priorValue, which aliases the engine's own copy: older versions and the flush path both still
+	// read it.
+	NewValueFor(key string, priorValue []byte) ([]byte, error)
+}
+
 // StringKVPair is one update in a BatchSetString, carrying its key as a string.
 type StringKVPair struct {
 	// The key to write.
@@ -101,6 +118,18 @@ type SnapshotEngine interface {
 	// keys its internal structures by string, so these are stored directly rather than converted to
 	// []byte here and back to a string on the way in.
 	BatchSetString(updates []StringKVPair) error
+
+	// BatchUpdate writes a value for every key in keys, each produced by handing that key's prior value
+	// to updater. Where BatchSet takes the values, this takes a function of the values already stored.
+	//
+	// It exists for a value that cannot be written without reading it first — a row holding several
+	// fields that a caller writes one field at a time. Resolving the prior value here rather than in a
+	// separate BatchGetStringInto is most of the point: the write already probes for it, so the read
+	// costs nothing for a key the engine still holds in memory.
+	//
+	// keys must not repeat. Two updates to one key in a single call would each be handed the same prior
+	// value, and the one written last would silently win.
+	BatchUpdate(keys []string, updater BatchUpdater) error
 
 	// Commit seals the current version as an immutable, point-in-time Snapshot and advances the
 	// engine to a fresh mutable version. The returned Snapshot is safe to read for as long as the
