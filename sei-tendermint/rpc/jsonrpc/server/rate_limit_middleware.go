@@ -116,7 +116,7 @@ func readRateLimitBoundedBody(body io.ReadCloser, maxBytes int64) ([]byte, error
 	if body == nil {
 		return nil, errors.New("missing request body")
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	if maxBytes <= 0 {
 		return io.ReadAll(body)
