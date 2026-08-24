@@ -4,14 +4,89 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGetCodeHashCachesBalanceForNoCodeAddress(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	db := state.NewDBImpl(ctx, k, false)
+	meter := db.Ctx().GasMeter()
+
+	before := meter.GasConsumed()
+	require.Equal(t, common.Hash{}, db.GetCodeHash(evmAddr))
+	firstReadCost := meter.GasConsumed() - before
+
+	before = meter.GasConsumed()
+	require.Equal(t, common.Hash{}, db.GetCodeHash(evmAddr))
+	secondReadCost := meter.GasConsumed() - before
+
+	require.Less(t, secondReadCost, firstReadCost)
+}
+
+func TestBalanceCacheTracksWritesAndReverts(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	db := state.NewDBImpl(ctx, k, false)
+
+	require.Equal(t, common.Hash{}, db.GetCodeHash(evmAddr))
+	db.AddBalance(evmAddr, uint256.NewInt(1), tracing.BalanceChangeUnspecified)
+	require.Equal(t, ethtypes.EmptyCodeHash, db.GetCodeHash(evmAddr))
+
+	revision := db.Snapshot()
+	db.SubBalance(evmAddr, uint256.NewInt(1), tracing.BalanceChangeUnspecified)
+	require.Equal(t, common.Hash{}, db.GetCodeHash(evmAddr))
+
+	db.RevertToSnapshot(revision)
+	require.Equal(t, ethtypes.EmptyCodeHash, db.GetCodeHash(evmAddr))
+}
+
+func TestBalanceCacheInvalidatedByAccountWrite(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	now := time.Now()
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(now)
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
+	db := state.NewDBImpl(ctx, k, false)
+	k.SetAddressMapping(db.Ctx(), seiAddr, evmAddr)
+
+	coins := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.OneInt()))
+	baseAccount := authtypes.NewBaseAccountWithAddress(seiAddr)
+	vestingAccount := vestingtypes.NewContinuousVestingAccount(baseAccount, coins, now.Unix(), now.Add(time.Hour).Unix(), nil)
+	k.AccountKeeper().SetAccount(db.Ctx(), vestingAccount)
+	require.NoError(t, k.BankKeeper().MintCoins(db.Ctx(), types.ModuleName, coins))
+	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(db.Ctx(), types.ModuleName, seiAddr, coins))
+	require.Zero(t, db.GetBalance(evmAddr).Sign())
+
+	k.AccountKeeper().SetAccount(db.Ctx(), baseAccount)
+	require.Equal(t, uint256.NewInt(1_000_000_000_000), db.GetBalance(evmAddr))
+}
+
+func TestBalanceCacheSharedWithNestedStateDB(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	outer := state.NewDBImpl(ctx, k, false)
+	require.Zero(t, outer.GetBalance(evmAddr).Sign())
+
+	inner := state.NewDBImpl(outer.Ctx(), k, false)
+	inner.AddBalance(evmAddr, uint256.NewInt(1), tracing.BalanceChangeUnspecified)
+	_, err := inner.Finalize()
+	require.NoError(t, err)
+
+	require.Equal(t, uint256.NewInt(1), outer.GetBalance(evmAddr))
+}
 
 func TestAddBalance(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper

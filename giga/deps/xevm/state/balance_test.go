@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/holiman/uint256"
 	testkeeper "github.com/sei-protocol/sei-chain/giga/deps/testutil/keeper"
@@ -12,6 +13,24 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGetCodeHashCachesBalanceForNoCodeAddress(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	db := state.NewDBImpl(ctx, k, false)
+	meter := db.Ctx().GasMeter()
+
+	before := meter.GasConsumed()
+	require.Equal(t, common.Hash{}, db.GetCodeHash(evmAddr))
+	firstReadCost := meter.GasConsumed() - before
+
+	before = meter.GasConsumed()
+	require.Equal(t, common.Hash{}, db.GetCodeHash(evmAddr))
+	secondReadCost := meter.GasConsumed() - before
+
+	require.Less(t, secondReadCost, firstReadCost)
+}
 
 func TestAddBalance(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
