@@ -198,7 +198,7 @@ func modesDisagree(recorded, running string) bool {
 	if recorded == running {
 		return false
 	}
-	return !(recorded == string(registry.ModeArchive) && running == string(registry.ModeFull))
+	return recorded != string(registry.ModeArchive) || running != string(registry.ModeFull)
 }
 
 // OwnReportingEnabledForTest reports whether this package's logger would emit at the level its reports use.
