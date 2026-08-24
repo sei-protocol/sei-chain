@@ -27,8 +27,21 @@ import { readRuntimeState, claimPool, RuntimeState } from '../utils/testUtils';
 
 type DistrCoin = { amount: bigint; decimals: bigint; denom: string };
 
-function expectCoinArray(coins: readonly DistrCoin[], label: string): void {
+/**
+ * Asserts the shape of a decoded DecCoin array. Non-emptiness is required by
+ * default: the per-coin loop never runs on an empty array, which would leave
+ * the whole assertion vacuous. `mayBeEmpty` opts out where emptiness is a
+ * legitimate chain state rather than a defect.
+ */
+function expectCoinArray(
+    coins: readonly DistrCoin[],
+    label: string,
+    { mayBeEmpty = false }: { mayBeEmpty?: boolean } = {},
+): void {
     expect(coins, `${label} is an array`).to.be.an('array');
+    if (!mayBeEmpty) {
+        expect(coins.length, `${label} must not be empty`).to.be.greaterThan(0);
+    }
     for (const coin of coins) {
         expect(coin.denom, `${label} denom`).to.be.a('string').and.not.equal('');
         expect(typeof coin.amount, `${label} amount`).to.equal('bigint');
@@ -233,7 +246,11 @@ describe('distribution precompile (0x1007)', function () {
             expect(viaPrecompile).to.equal(lcd.withdraw_address);
         });
 
-        it('delegationRewards, validatorOutstandingRewards and validatorCommission return coin arrays', async () => {
+        it('delegationRewards, validatorOutstandingRewards and validatorCommission are non-empty', async () => {
+            // All three are non-empty by construction: the fixture delegation
+            // keeps accruing to `validator` every block, the validator's own
+            // rewards are never withdrawn here, and its commission rate cannot
+            // be zero (the devnet's min_commission_rate is 5%).
             const [delegation, outstanding, commission] = await Promise.all([
                 distribution.delegationRewards(delegator.address, validator),
                 distribution.validatorOutstandingRewards(validator),
@@ -265,8 +282,13 @@ describe('distribution precompile (0x1007)', function () {
             }
         });
 
-        it('communityPool returns coins', async () => {
-            expectCoinArray(await distribution.communityPool(), 'communityPool');
+        it('communityPool returns coins, or nothing when community_tax is 0', async () => {
+            // sei-cosmos defaults community_tax to 0 and the devnet does not
+            // override it, so no reward is ever skimmed into the pool and an
+            // empty pool is the correct answer rather than a defect.
+            expectCoinArray(await distribution.communityPool(), 'communityPool', {
+                mayBeEmpty: true,
+            });
         });
     });
 

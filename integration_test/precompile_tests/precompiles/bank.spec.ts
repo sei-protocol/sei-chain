@@ -164,16 +164,30 @@ describe('bank precompile (0x1001)', function () {
             expect(usei!.amount).to.equal(useiBalance);
         });
 
-        it('totalSupply(empty) includes usei consistent with supply', async () => {
+        it('totalSupply pages until it reaches usei, consistent with supply', async () => {
             // Supply can grow between reads (block rewards / mint); bracket the
             // paginated totalSupply read with two supply(usei) reads.
             const before: bigint = await bank.supply('usei');
-            const [coins] = (await bank.totalSupply(new Uint8Array())) as [
-                Array<{ amount: bigint; denom: string }>,
-                Uint8Array,
-            ];
+
+            // totalSupply sends no page limit, so the bank module's default of
+            // 100 applies. Supply is keyed by denom and every factory/… denom
+            // this suite mints sorts before usei, so on a long-lived devnet usei
+            // is not on page one and only walking the pages finds it.
+            let pageKey: Uint8Array = new Uint8Array();
+            let usei: { amount: bigint; denom: string } | undefined;
+            for (let page = 0; page < 50 && usei === undefined; page++) {
+                const [coins, nextKey] = (await bank.totalSupply(pageKey)) as [
+                    Array<{ amount: bigint; denom: string }>,
+                    string,
+                ];
+                expect(coins, 'totalSupply page').to.be.an('array');
+                usei = coins.find(c => c.denom === 'usei');
+                const next = ethers.getBytes(nextKey);
+                if (next.length === 0) break;
+                pageKey = next;
+            }
+
             const after: bigint = await bank.supply('usei');
-            const usei = coins.find(c => c.denom === 'usei');
             expect(usei, 'totalSupply must contain a usei entry').to.not.equal(undefined);
             expect(usei!.amount >= before, `totalSupply ${usei!.amount} >= supply-before ${before}`).to.equal(
                 true,

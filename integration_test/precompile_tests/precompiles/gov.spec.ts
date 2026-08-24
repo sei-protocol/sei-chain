@@ -421,7 +421,10 @@ describe('gov precompile (0x1006)', function () {
     });
 
     describe('dispatch semantics (via PrecompileCaller)', () => {
-        it('all methods are rejected under STATICCALL (gov has no view methods)', async () => {
+        // The executor dispatches its query methods before the readOnly check,
+        // so gov views answer under STATICCALL and only the transaction methods
+        // are refused.
+        it('transaction methods are rejected under STATICCALL (readOnly guard)', async () => {
             const data = govIface.encodeFunctionData('vote', [1n, 1]);
             await expectVmError(
                 caller.getFunction('staticcallTarget').send(PRECOMPILE_ADDRESSES.gov, data, {
@@ -438,16 +441,6 @@ describe('gov precompile (0x1006)', function () {
                     gasLimit: 500_000,
                 }),
                 'cannot delegatecall gov',
-            );
-        });
-
-        it('vote is rejected under STATICCALL', async () => {
-            const data = govIface.encodeFunctionData('vote', [1n, 1]);
-            await expectVmError(
-                caller.getFunction('staticcallTarget').send(PRECOMPILE_ADDRESSES.gov, data, {
-                    gasLimit: 500_000,
-                }),
-                'cannot call gov precompile from staticcall',
             );
         });
 

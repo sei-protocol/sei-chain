@@ -91,12 +91,18 @@ describe('slashing precompile (0x1014)', function () {
         });
 
         it('signingInfos(empty) is non-empty and signingInfo(that cons address) matches', async () => {
-            const listed: ethers.Result = await slashing.signingInfos(EMPTY_PAGE);
+            // indexOffset advances every block for every validator in the last
+            // commit (and missedBlocksCounter can move with it) — pin both reads
+            // to the same height or the equality below races block production.
+            const blockTag = await provider.getBlockNumber();
+            const listed: ethers.Result = await slashing.signingInfos(EMPTY_PAGE, { blockTag });
             expect(listed.signingInfos.length, 'devnet validators must have signing info').to.be.greaterThan(
                 0,
             );
             const first = listed.signingInfos[0];
-            const viaOne: ethers.Result = await slashing.signingInfo(first.validatorAddress);
+            const viaOne: ethers.Result = await slashing.signingInfo(first.validatorAddress, {
+                blockTag,
+            });
             expect(asSigningInfo(viaOne)).to.deep.equal(asSigningInfo(first));
         });
 
