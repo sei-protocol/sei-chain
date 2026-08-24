@@ -19,7 +19,10 @@ type QueryConfig struct {
 	DisableLimits bool `mapstructure:"disable-limits"`
 
 	// TrustedCIDRs is a CIDR allowlist whose callers receive unlimited pagination.
-	// Matching uses the direct TCP peer, not forwarded client headers.
+	// Matching uses the direct TCP peer (Tendermint RPC RemoteAddr or gRPC peer
+	// address), not forwarded headers. It applies only to abci_query on the
+	// Tendermint RPC listener and to queries on grpc.address; REST/LCD on
+	// api.address relays queries in-process without caller origin.
 	TrustedCIDRs []string `mapstructure:"trusted-cidrs"`
 
 	// MaxLimit is the maximum page size for untrusted query origins.
