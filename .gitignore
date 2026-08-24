@@ -4,6 +4,9 @@ release/
 .idea/
 .vscode/
 .cursor/
+**/.codex/
+**/.claude/
+**/.mcp.json
 .DS_Store
 build/
 dist/
