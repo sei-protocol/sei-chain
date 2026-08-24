@@ -228,3 +228,46 @@ func TestTheSectionsThisPackageRegistersAreUsable(t *testing.T) {
 		}
 	}
 }
+
+// TestTheArchiveRetentionDepartsFromWhatTheCommandWrites measures the one deliberate departure.
+//
+// A declared value is what the seid init command writes for a kind of node. This section departs from that
+// in exactly one place: the retention an archive node keeps. The mode rules set it to keep everything, and
+// the command does not write that, because the type it renders declares a state store field of its own and
+// fills it from the mode-blind default, so the rule is applied and then thrown away.
+//
+// PLT-955 records the defect and the decision to correct it in the versioned declaration rather than at the
+// point that loses it. So the departure is intended, and it is held here for two reasons. It fails if the
+// command starts writing the rule, which is the day this departure should be deleted. And it fails if this
+// section stops departing, which would put a retention on the one kind of node whose purpose is keeping
+// what it would prune.
+func TestTheArchiveRetentionDepartsFromWhatTheCommandWrites(t *testing.T) {
+	live := config.DefaultStateStoreConfig()
+
+	// What the command renders for an archive node: the mode rules are applied to the server
+	// configuration, and then the type it renders fills its own state store field from the mode-blind
+	// default, which is what reaches the file.
+	written := live.KeepRecent
+	if written == 0 {
+		t.Fatalf("the mode-blind default retention is already zero, so this departure measures nothing " +
+			"and the comparison below holds for any declaration")
+	}
+
+	resolved, err := registry.Resolve(registry.ModeArchive, registry.Sources{})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	declared := resolved.Values[FlagSSKeepRecent]
+
+	if declared == written {
+		t.Errorf("%s resolves to %v for an archive node, which is what the command writes. Either the "+
+			"command now carries the mode rule, in which case this departure and its note should go, or "+
+			"this section stopped departing and an archive node is declared to prune the history it "+
+			"exists to keep", FlagSSKeepRecent, declared)
+	}
+	if declared != 0 {
+		t.Errorf("%s resolves to %v for an archive node, want zero. The mode rule keeps every version, "+
+			"and departing from the command is only defensible while this states that rule",
+			FlagSSKeepRecent, declared)
+	}
+}

@@ -77,16 +77,24 @@ type stateStoreSchema struct {
 	EVMSplit               bool   `mapstructure:"evm-ss-split"`
 }
 
-// stateStoreDefaults is what this section resolves to for a node that has written nothing.
+// stateStoreDefaults is what the seid init command writes for a node of this kind, with one deliberate
+// departure.
 //
 // Answered per mode, because two of these settings mean something different depending on what kind of node
 // asks. An archive node exists to keep history, so it keeps every version; a validator and a seed serve no
 // queries, so the store is off for them. Both come from the mode rules the binary already states rather
 // than being written again here, so a change to those rules moves this too.
 //
-// This is the one section here whose declared values are not what its reader produces for a file missing
-// the keys, and the divergences are measured rather than described. A test names each one and what a node
-// runs today, so a read that gains a presence check has to account for it.
+// The departure is the retention an archive node keeps. The mode rules set it to keep everything and the
+// command does not write that, because the type it renders declares a state store field of its own and
+// fills it from the mode-blind default, so the rule is applied and then discarded. PLT-955 records that,
+// and records the decision: pin what a node resolves today and correct it here, in the versioned
+// declaration, rather than at the point that loses it. So this states the rule and the command states the
+// value the rule was overwritten by, and the test beside this holds both, because a departure nothing
+// measures is indistinguishable from an oversight.
+//
+// The declared values are also not what this section's reader produces for a file missing the keys, which
+// is a different comparison and measured separately.
 func stateStoreDefaults(mode registry.Mode) any {
 	server := srvconfig.DefaultConfig()
 	params.SetAppConfigByMode(server, params.NodeMode(mode))
