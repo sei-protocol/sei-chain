@@ -23,33 +23,10 @@ func LoadApp(cmd *cobra.Command, height int64) (*app.App, error) {
 	encCfg := app.MakeEncodingConfig()
 	encCfg.Marshaler = codec.NewProtoCodec(encCfg.InterfaceRegistry)
 
-	var seiApp *app.App
-	if height > 0 {
-		seiApp = app.New(
-			nil,
-			nil,
-			false,
-			map[int64]bool{},
-			home,
-			1,
-			true,
-			serverCtx.Config,
-			encCfg,
-			app.GetWasmEnabledProposals(),
-			serverCtx.Viper,
-			app.EmptyWasmOpts,
-			app.EmptyAppOptions,
-		)
-		if err := seiApp.LoadHeight(height); err != nil {
-			return nil, fmt.Errorf("load height %d: %w", height, err)
-		}
-		return seiApp, nil
-	}
-
-	seiApp = app.New(
+	seiApp := app.New(
 		nil,
 		nil,
-		true,
+		false,
 		map[int64]bool{},
 		home,
 		1,
@@ -61,13 +38,16 @@ func LoadApp(cmd *cobra.Command, height int64) (*app.App, error) {
 		app.EmptyWasmOpts,
 		app.EmptyAppOptions,
 	)
+	if height > 0 {
+		if err := seiApp.LoadHeight(height); err != nil {
+			return nil, fmt.Errorf("load height %d: %w", height, err)
+		}
+	}
 	return seiApp, nil
 }
 
-// BindServerFlags wires home and config loading for offline app commands.
+// BindServerFlags wires the home flag for offline app commands. Config loading
+// is handled by the root seid PersistentPreRunE.
 func BindServerFlags(cmd *cobra.Command, defaultHome string) {
 	cmd.PersistentFlags().String(flags.FlagHome, defaultHome, "The application home directory")
-	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		return server.InterceptConfigsPreRunHandler(cmd, "", nil)
-	}
 }
