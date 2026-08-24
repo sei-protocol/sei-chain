@@ -424,7 +424,9 @@ func TestRecoveryBlockGap(t *testing.T) {
 	require.Equal(t, mid, state.NextBlock(), "replay must resume at the first unfilled number")
 }
 
-func TestNewState_SetupInitialEpochsFromCommitQCSpan(t *testing.T) {
+// Replaying a persisted suffix must not conjure committees: only the genesis
+// epochs are available, and a suffix inside them replays without registering more.
+func TestNewState_ReplayRegistersNoEpochs(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
 	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
@@ -446,13 +448,14 @@ func TestNewState_SetupInitialEpochsFromCommitQCSpan(t *testing.T) {
 		}
 	}
 	if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
-		t.Fatal("epoch 2 should not be seeded from a single epoch-0 CommitQC")
+		t.Fatal("replay must not register epoch 2")
 	}
 }
 
 func TestNewState_NextCommitEpochAtBoundaryTip(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep2 := registry.MustFillFromEnd(0, keys)
 	ep1 := registry.MustEpoch(1)
 
 	qc, blocks := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), ep1.FirstBlock())
@@ -461,7 +464,5 @@ func TestNewState_NextCommitEpochAtBoundaryTip(t *testing.T) {
 	writeAppDataToBlockStore(t, rng, db, keys, qc)
 
 	state := newTestState(t, &Config{Registry: registry}, db)
-	ep2, err := registry.EpochAt(epoch.FirstRoad(2))
-	require.NoError(t, err)
 	require.Equal(t, ep2, state.NextCommitEpoch().Load())
 }

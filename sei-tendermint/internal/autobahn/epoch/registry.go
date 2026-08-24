@@ -28,6 +28,16 @@ func LastRoad(idx types.EpochIndex) types.RoadIndex {
 	return FirstRoad(idx+1) - 1
 }
 
+// ClosingEpoch returns the epoch that road ends, if road is that epoch's last
+// road. Otherwise None.
+func ClosingEpoch(road types.RoadIndex) utils.Option[types.EpochIndex] {
+	idx := IndexForRoad(road)
+	if road != LastRoad(idx) {
+		return utils.None[types.EpochIndex]()
+	}
+	return utils.Some(idx)
+}
+
 type registryState struct {
 	m map[types.EpochIndex]*types.Epoch
 	// live is the supported non-zero epoch indices [First, Next). Epoch 0 is
@@ -40,12 +50,19 @@ func (s *registryState) dropped(idx types.EpochIndex) bool {
 	return idx != 0 && idx < s.live.First
 }
 
-// Registry stores activated epochs and placeholders.
+// Registry stores the epochs whose committee is known: genesis epochs 0 and 1,
+// plus epochs registered from execution (AddEpoch).
+//
+// An epoch is never registered speculatively. Consensus reads committees only
+// from here, so a missing epoch parks epoch advance rather than admitting a
+// guessed committee.
 type Registry struct {
 	state utils.Watch[*registryState]
 }
 
 // NewRegistry creates a Registry with genesis epochs 0 and 1 (genesis committee).
+// Both use the genesis committee because C_2 is the first committee derivable
+// from execution: it needs the stake at end(0).
 func NewRegistry(
 	committee *types.Committee,
 	firstBlock types.GlobalBlockNumber,
@@ -61,40 +78,10 @@ func NewRegistry(
 	}, nil
 }
 
-// SetupInitialEpochs registers placeholders covering commitQCs and the next epoch.
-// With no CommitQCs this is a no-op (epochs 0 and 1 are already present).
-func (r *Registry) SetupInitialEpochs(commitQCs utils.Option[types.RoadRange]) {
-	span, ok := commitQCs.Get()
-	if !ok {
-		return
-	}
-	for s, ctrl := range r.state.Lock() {
-		windowFirst := IndexForRoad(span.First)
-		windowLast := IndexForRoad(span.Next - 1)
-		r.ensureAround(s, span.First)
-		for idx := windowFirst; idx <= windowLast; idx++ {
-			r.ensureLocked(s, idx)
-		}
-		r.ensureAround(s, span.Next)
-		// TODO: replace placeholders with execution-derived committee,
-		// FirstTimestamp, and FirstBlock (genesis copies feed ViewSpec).
-		r.ensureLocked(s, windowLast+1)
-		ctrl.Updated()
-	}
-}
-
 // FirstBlock returns the genesis epoch's first global block number.
 func (r *Registry) FirstBlock() types.GlobalBlockNumber {
 	for s := range r.state.Lock() {
 		return s.m[0].FirstBlock()
-	}
-	panic("unreachable")
-}
-
-// GenesisTimestamp returns the genesis epoch timestamp.
-func (r *Registry) GenesisTimestamp() time.Time {
-	for s := range r.state.Lock() {
-		return s.m[0].FirstTimestamp()
 	}
 	panic("unreachable")
 }
@@ -172,62 +159,41 @@ func (r *Registry) ActivateEpoch(
 	panic("unreachable")
 }
 
-// makeEpoch inserts a genesis-committee placeholder at epochIdx.
-// Caller must hold r.state. Epoch 0 is always present; further epochs copy from it.
-func (r *Registry) makeEpoch(s *registryState, epochIdx types.EpochIndex) *types.Epoch {
-	ep0 := s.m[0]
-	firstRoad := FirstRoad(epochIdx)
-	epoch := types.NewEpoch(
-		epochIdx,
-		types.RoadRange{First: firstRoad, Next: FirstRoad(epochIdx + 1)},
-		ep0.FirstTimestamp(),
-		ep0.Committee(),
-		ep0.FirstBlock(),
-	)
-	s.m[epochIdx] = epoch
-	r.extendLive(s, epochIdx)
-	return epoch
+// AddEpoch derives C_{endEpoch+2} from weights (stake at the last block of
+// endEpoch) and registers it. A no-op if that epoch is already registered.
+// endEpoch+1 must already be registered.
+func (r *Registry) AddEpoch(endEpoch types.EpochIndex, weights map[types.PublicKey]uint64) error {
+	target := endEpoch + 2
+	for s, ctrl := range r.state.Lock() {
+		if s.dropped(endEpoch + 1) {
+			return fmt.Errorf("epoch %d: %w", endEpoch+1, types.ErrPruned)
+		}
+		prev, ok := s.m[endEpoch+1]
+		if !ok {
+			return fmt.Errorf("epoch %d not registered", endEpoch+1)
+		}
+		committee, err := prev.Committee().DeriveNext(weights, target)
+		if err != nil {
+			return fmt.Errorf("DeriveNext(%d): %w", target, err)
+		}
+		if s.dropped(target) {
+			return fmt.Errorf("epoch %d: %w", target, types.ErrPruned)
+		}
+		if _, ok := s.m[target]; ok {
+			return nil
+		}
+		roads := types.RoadRange{First: FirstRoad(target), Next: FirstRoad(target + 1)}
+		s.m[target] = types.NewEpoch(target, roads, s.m[0].FirstTimestamp(), committee, s.m[0].FirstBlock())
+		r.extendLive(s, target)
+		ctrl.Updated()
+		return nil
+	}
+	panic("unreachable")
 }
 
 func (r *Registry) extendLive(s *registryState, idx types.EpochIndex) {
 	if idx >= s.live.Next {
 		s.live.Next = idx + 1
-	}
-}
-
-// ensureLocked registers a genesis-committee placeholder for idx if missing.
-// Caller must hold r.state. Pruned indices are not recreated.
-func (r *Registry) ensureLocked(s *registryState, idx types.EpochIndex) {
-	if s.dropped(idx) {
-		return
-	}
-	if _, ok := s.m[idx]; !ok {
-		r.makeEpoch(s, idx)
-	}
-}
-
-// ensureAround registers the epoch containing road and its predecessor.
-// Caller must hold r.state.
-func (r *Registry) ensureAround(s *registryState, road types.RoadIndex) {
-	center := IndexForRoad(road)
-	if center > 0 {
-		r.ensureLocked(s, center-1)
-	}
-	r.ensureLocked(s, center)
-}
-
-// AdvanceIfNeeded registers epoch M+1 when roadIndex is LastRoad(M).
-// M+2 is not seeded: tip may race to LastRoad(M+1) before AppQC, but
-// ConsensusSpec withholds that next RoadIndex until M+1's AppQC boundary fires
-// AdvanceIfNeeded again.
-func (r *Registry) AdvanceIfNeeded(roadIndex types.RoadIndex) {
-	tipEpoch := IndexForRoad(roadIndex)
-	if roadIndex != LastRoad(tipEpoch) {
-		return
-	}
-	for s, ctrl := range r.state.Lock() {
-		r.ensureLocked(s, tipEpoch+1)
-		ctrl.Updated()
 	}
 }
 
@@ -257,7 +223,8 @@ func (r *Registry) Live() types.EpochRange {
 	panic("unreachable")
 }
 
-// WaitForEpoch blocks until epoch i is registered.
+// WaitForEpoch blocks until epoch i is registered. For i > 1 that means waiting
+// on execution of end(i-2).
 func (r *Registry) WaitForEpoch(ctx context.Context, i types.EpochIndex) (*types.Epoch, error) {
 	for inner, ctrl := range r.state.Lock() {
 		for {

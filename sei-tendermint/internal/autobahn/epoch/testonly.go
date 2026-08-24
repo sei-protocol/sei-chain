@@ -22,6 +22,20 @@ func GenRegistry(rng utils.Rng, size int) (*Registry, []types.SecretKey) {
 	return registry, sks
 }
 
+// MustFillFromEnd registers C_{end+2} from genesis weights. Tests that need an
+// epoch above 1 without running execution use this.
+func (r *Registry) MustFillFromEnd(end types.EpochIndex, keys []types.SecretKey) *types.Epoch {
+	genesis := r.MustEpoch(0).Committee()
+	weights := make(map[types.PublicKey]uint64, len(keys))
+	for _, k := range keys {
+		if w := genesis.Weight(k.Public()); w > 0 {
+			weights[k.Public()] = w
+		}
+	}
+	utils.OrPanic(r.AddEpoch(end, weights))
+	return r.MustEpoch(end + 2)
+}
+
 // MustEpoch returns the registered epoch at i. Panics if it is missing.
 func (r *Registry) MustEpoch(i types.EpochIndex) *types.Epoch {
 	ep, err := r.EpochByIndex(i)

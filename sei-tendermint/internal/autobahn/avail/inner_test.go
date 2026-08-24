@@ -235,7 +235,6 @@ func TestAddLane_ReportsNewLaneForEachMembershipPeriod(t *testing.T) {
 func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	registry.AdvanceIfNeeded(epoch.LastRoad(0))
 
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
@@ -274,8 +273,8 @@ func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 func TestPrune_LeavesAppliedToEpochAdvance(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	registry.AdvanceIfNeeded(epoch.LastRoad(1))
-	registry.AdvanceIfNeeded(epoch.LastRoad(2))
+	registry.MustFillFromEnd(0, keys)
+	registry.MustFillFromEnd(1, keys)
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
 	ep2 := registry.MustEpoch(2)

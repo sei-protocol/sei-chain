@@ -381,7 +381,6 @@ func TestNextViewEpoch(t *testing.T) {
 	t.Run("LastRoad tip pairs next epoch", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
-		registry.AdvanceIfNeeded(epoch.LastRoad(0))
 		ep0 := registry.MustEpoch(0)
 		ep1 := registry.MustEpoch(1)
 
@@ -875,7 +874,7 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 				rng := utils.TestRng()
 				f := newSealFixture(t)
 				if tc.missing != registry {
-					f.registry.AdvanceIfNeeded(epoch.LastRoad(f.m))
+					f.registry.MustFillFromEnd(f.m-1, f.keys)
 				}
 
 				prev := tipLink(f.ep, f.keys[0], epoch.LastRoad(f.m)-1)
@@ -905,7 +904,7 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 					require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex())
 					switch tc.missing {
 					case registry:
-						f.registry.AdvanceIfNeeded(epoch.LastRoad(f.m))
+						f.registry.MustFillFromEnd(f.m-1, f.keys)
 					case appQC:
 						setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.Proposal(), types.GenAppHash(rng))))
 					}
@@ -981,8 +980,8 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
 
-			registry.AdvanceIfNeeded(epoch.LastRoad(1))
-			registry.AdvanceIfNeeded(epoch.LastRoad(2))
+			registry.MustFillFromEnd(0, keys)
+			registry.MustFillFromEnd(1, keys)
 			qc := pruneToAnchors(state, anchorWalk(t, registry, keys))
 			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
 
@@ -1009,8 +1008,8 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			state, err := NewState(keys[0], ds, utils.None[string]())
 			require.NoError(t, err)
 
-			registry.AdvanceIfNeeded(epoch.LastRoad(1))
-			registry.AdvanceIfNeeded(epoch.LastRoad(2))
+			registry.MustFillFromEnd(0, keys)
+			registry.MustFillFromEnd(1, keys)
 			anchors := anchorWalk(t, registry, keys)
 			ep0 := registry.MustEpoch(0)
 			qc0 := types.BuildCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil)
@@ -1046,8 +1045,8 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			defer cancel()
 			rng := utils.TestRng()
 			registry, keys := epoch.GenRegistry(rng, 4)
-			registry.AdvanceIfNeeded(epoch.LastRoad(1))
-			registry.AdvanceIfNeeded(epoch.LastRoad(2))
+			registry.MustFillFromEnd(0, keys)
+			registry.MustFillFromEnd(1, keys)
 			ds := newTestDataState(&data.Config{Registry: registry})
 			state, err := NewState(keys[0], ds, utils.None[string]())
 			require.NoError(t, err)
@@ -1124,8 +1123,8 @@ func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceParked(t *testing.
 func TestMarkCommitQCsPersisted_DoesNotRewindPruneTip(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 2)
-	registry.AdvanceIfNeeded(epoch.LastRoad(1))
-	registry.AdvanceIfNeeded(epoch.LastRoad(2))
+	registry.MustFillFromEnd(0, keys)
+	registry.MustFillFromEnd(1, keys)
 	ds := newTestDataState(&data.Config{Registry: registry})
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)

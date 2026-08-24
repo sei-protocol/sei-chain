@@ -19,10 +19,18 @@ const blocksCacheSize = 4000
 // next CommitQC range waiting for execution.
 var ErrOutOfOrder = errors.New("out of order")
 
+// StakeSource reports the bonded weights held by the application.
+type StakeSource interface {
+	// CommitteeWeights returns the weights left by the execution of block n.
+	// Callers must call it while n is the execution tip, since the application
+	// keeps no history to read an earlier block's weights from.
+	CommitteeWeights(n types.GlobalBlockNumber) (map[types.PublicKey]uint64, error)
+}
+
 // Config is the config for the data State.
 type Config struct {
-	// Registry is the authoritative source of committee and stake information.
 	Registry *epoch.Registry
+	Stake    StakeSource
 }
 
 // blockEntry is a (number, block) pair collected in runPersist batches.
@@ -239,19 +247,17 @@ func NewState(cfg *Config, blockStore types.BlockStore) (*State, error) {
 
 // loadFromBlockStore replays the persisted suffix from blockStore into s.inner.
 // Called from NewState before any goroutines are spawned.
+//
+// TODO: committees above epoch 1 are held only in memory, so replay of a suffix
+// from such an epoch fails with an unknown epoch_index rather than restoring.
+// Restart past epoch 1 needs registered committees persisted; failing here is
+// deliberate, since the alternative is verifying recovered QCs against a guessed
+// committee.
 func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error) {
 	suffix, err := blockStore.ReadSuffix()
 	if err != nil {
 		return nil, fmt.Errorf("blockStore.ReadSuffix(): %w", err)
 	}
-	var commitSpan utils.Option[types.RoadRange]
-	if qcs := suffix.CommitQCs; len(qcs) > 0 {
-		commitSpan = utils.Some(types.RoadRange{
-			First: qcs[0].Index(),
-			Next:  qcs[len(qcs)-1].Index() + 1,
-		})
-	}
-	cfg.Registry.SetupInitialEpochs(commitSpan)
 	firstBlock := cfg.Registry.FirstBlock()
 	status := suffix.Status.Or(types.SuffixRange{
 		First:           firstBlock,
@@ -301,8 +307,6 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		if err := inner.insertAppProposal(appProposal); err != nil {
 			return nil, fmt.Errorf("load AppProposal from BlockStore: %w", err)
 		}
-		// Match PushAppHash: do not rely only on SetupInitialEpochs for NextCommitEpoch.
-		cfg.Registry.AdvanceIfNeeded(appProposal.RoadIndex())
 		inner.publishNextCommitEpoch(cfg.Registry)
 	}
 	for _, appQC := range suffix.AppQCs {
@@ -638,9 +642,10 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 	return utils.Some(assembleGlobalBlock(bn.Number, bn.Block, qc)), nil
 }
 
-// PushAppHash marks blocks up to n as executed and advances the epoch
-// registry when n closes a CommitQC at an epoch boundary.
+// PushAppHash marks blocks up to n as executed. Closing LastRoad(E) registers
+// C_{E+2} from the stake that execution left.
 func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash) error {
+	var endEpoch utils.Option[types.EpochIndex]
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextBlock }); err != nil {
 			return err
@@ -674,18 +679,21 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.nextAppProposal += 1
 		}
 		s.metrics.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
-		// Seed cursor: at LastRoad(N) register N+1 so runEpochAdvance can advance
-		// it once seal and the prune/execution leashes are met. N+2 is not needed —
-		// ConsensusSpec withholds the RoadIndex after LastRoad(N+1) until this fires
-		// again.
-		s.cfg.Registry.AdvanceIfNeeded(p.Index())
-		// Idle boundary: no further CommitQC will republish after registration.
-		inner.publishNextCommitEpoch(s.cfg.Registry)
+		endEpoch = epoch.ClosingEpoch(p.Index())
 		ctrl.Updated()
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
 		// TODO(gprusak): this is a temporary measure, until AppHashes are persisted outside of BlockStore.
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.persisted.NextAppProposal }); err != nil {
+			return err
+		}
+	}
+	if e, ok := endEpoch.Get(); ok {
+		weights, err := s.cfg.Stake.CommitteeWeights(n)
+		if err != nil {
+			return fmt.Errorf("StakeSource.CommitteeWeights(%d): %w", n, err)
+		}
+		if err := s.cfg.Registry.AddEpoch(e, weights); err != nil {
 			return err
 		}
 	}

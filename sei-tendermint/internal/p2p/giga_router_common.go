@@ -82,7 +82,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
-	ds, err := data.NewState(&data.Config{Registry: registry}, blockStore)
+	ds, err := data.NewState(&data.Config{Registry: registry, Stake: appEpochStake{app: cfg.App}}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}

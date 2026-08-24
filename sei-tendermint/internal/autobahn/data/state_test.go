@@ -142,6 +142,7 @@ func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
+	ep2 := registry.MustFillFromEnd(0, keys)
 	ep1 := registry.MustEpoch(1)
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 
@@ -150,19 +151,11 @@ func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "mid-epoch next road is still in epoch 1")
 	grMid := qcMid.QC().GlobalRange()
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, grMid.First, grMid.Next))
-	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "mid-epoch AppHash must not seed epoch 2")
+	require.Equal(t, ep1, state.NextCommitEpoch().Load())
 
 	qcLast, blocksLast := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), grMid.Next)
 	require.NoError(t, state.PushQC(ctx, qcLast, blocksLast))
-	_, err := registry.EpochAt(epoch.FirstRoad(2))
-	require.Error(t, err, "epoch 2 must stay unregistered until the boundary AppProposal lands")
-	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "unregistered next epoch: previous publish stands")
-
-	grLast := qcLast.QC().GlobalRange()
-	require.NoError(t, pushAppHashesRunning(ctx, state, rng, grLast.First, grLast.Next))
-	ep2, err := registry.EpochAt(epoch.FirstRoad(2))
-	require.NoError(t, err)
-	require.Equal(t, ep2, state.NextCommitEpoch().Load())
+	require.Equal(t, ep2, state.NextCommitEpoch().Load(), "next road is in epoch 2, already filled from end(0)")
 }
 
 func TestState(t *testing.T) {
@@ -471,6 +464,79 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 		}
 		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-2, types.GenAppHash(rng)); err != nil {
 			return fmt.Errorf("PushAppHash(qc2): %w", err)
+		}
+		return nil
+	}))
+}
+
+// Mid-epoch execution does not register C_{E+2}; only LastRoad(E) does.
+func TestPushAppHash_MidEpochDoesNotRegister(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return err
+		}
+		if err := state.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
+			return err
+		}
+		if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
+			return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Proposal().Index())
+		}
+		return nil
+	}))
+}
+
+// staticStake is a stake source whose weights are set after the registry is
+// built, once the generated committee keys are known.
+type staticStake map[types.PublicKey]uint64
+
+func (s *staticStake) CommitteeWeights(types.GlobalBlockNumber) (map[types.PublicKey]uint64, error) {
+	return maps.Clone(*s), nil
+}
+
+func TestCommitteeFill_OnPushAppHash(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	stake := &staticStake{}
+	registry, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	*stake = staticStake{keeper: 9}
+	state := newTestState(t, &Config{Registry: registry, Stake: stake}, newTestBlockStore(t, t.TempDir()))
+	ep := registry.MustEpoch(0)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		proposal := types.ProposalAt(ep, types.View{Index: epoch.LastRoad(0), Number: 0}, ep.FirstBlock())
+		block := types.NewBlock(ep.Committee().Lanes().At(0), 0, types.BlockHeaderHash{}, &types.Payload{})
+		votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
+		for _, k := range keys {
+			votes = append(votes, types.Sign(k, types.NewCommitVote(proposal)))
+		}
+		qc := types.NewFullCommitQC(types.NewCommitQC(votes), []*types.BlockHeader{block.Header()})
+		if err := state.PushQC(ctx, qc, []*types.Block{block}); err != nil {
+			return err
+		}
+		n := qc.QC().GlobalRange().Next - 1
+		appHash := types.GenAppHash(rng)
+		if err := state.PushAppHash(ctx, n, appHash); err != nil {
+			return err
+		}
+		filled, err := registry.EpochAt(epoch.FirstRoad(2))
+		if err != nil {
+			return fmt.Errorf("epoch 2 after PushAppHash: %w", err)
+		}
+		if filled.EpochIndex() != 2 {
+			return fmt.Errorf("EpochIndex = %d, want 2", filled.EpochIndex())
+		}
+		if got := filled.Committee().Weight(keeper); got != 9 {
+			return fmt.Errorf("Weight = %d, want 9", got)
+		}
+		if filled.Committee().Lanes().Len() != 1 {
+			return fmt.Errorf("lanes = %d, want 1", filled.Committee().Lanes().Len())
 		}
 		return nil
 	}))
