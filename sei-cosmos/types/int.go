@@ -163,9 +163,9 @@ func (i Int) ToDec() Dec {
 // CanConvertToDec reports whether i fits in a whole-number Dec (i × 10^Precision).
 func (i Int) CanConvertToDec() bool {
 	if i.i == nil {
-		return true
+		return false
 	}
-	scaled := new(big.Int).Mul(new(big.Int).Set(i.BigInt()), precisionMultiplier(0))
+	scaled := new(big.Int).Mul(i.BigInt(), precisionMultiplier(0))
 	return scaled.BitLen() <= maxDecBitLen
 }
 

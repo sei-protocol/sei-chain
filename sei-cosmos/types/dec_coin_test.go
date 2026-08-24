@@ -20,15 +20,25 @@ func TestNewDecCoinConversionRange(t *testing.T) {
 	require.Panics(t, func() { sdk.NewDecCoin("stake", maxInt()) }, "NewDecCoin must reject max Int")
 	require.Panics(t, func() { sdk.NewDecCoinFromCoin(sdk.NewCoin("stake", maxInt())) }, "NewDecCoinFromCoin must reject max Int")
 
+	require.False(t, sdk.Int{}.CanConvertToDec())
 	require.False(t, maxInt().CanConvertToDec())
 	_, err := sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", maxInt()))
 	require.Error(t, err)
 
-	valid := sdk.NewIntFromBigInt(new(big.Int).Lsh(big.NewInt(1), 200))
-	require.True(t, valid.CanConvertToDec())
-	decCoins, err := sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", valid))
+	// Largest Int whose whole-coin Dec stays within maxDecBitLen (315):
+	// floor((2^315 - 1) / 10^18).
+	ten18 := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+	maxScaled := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 315), big.NewInt(1))
+	maxConvertible := sdk.NewIntFromBigInt(new(big.Int).Quo(maxScaled, ten18))
+	require.True(t, maxConvertible.CanConvertToDec())
+	decCoins, err := sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", maxConvertible))
 	require.NoError(t, err)
-	require.Equal(t, valid.ToDec(), decCoins[0].Amount)
+	require.Equal(t, maxConvertible.ToDec(), decCoins[0].Amount)
+
+	oneAbove := maxConvertible.Add(sdk.OneInt())
+	require.False(t, oneAbove.CanConvertToDec())
+	_, err = sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", oneAbove))
+	require.Error(t, err)
 }
 
 type decCoinTestSuite struct {

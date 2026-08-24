@@ -127,14 +127,15 @@ func (k Keeper) WithdrawValidatorCommission(ctx sdk.Context, valAddr sdk.ValAddr
 	}
 
 	commission, remainder := accumCommission.Commission.TruncateDecimal()
-	k.SetValidatorAccumulatedCommission(ctx, valAddr, types.ValidatorAccumulatedCommission{Commission: remainder}) // leave remainder to withdraw later
-
-	// update outstanding
-	outstanding := k.GetValidatorOutstandingRewards(ctx, valAddr).Rewards
 	commissionDec, err := sdk.NewDecCoinsFromCoins(commission...)
 	if err != nil {
 		return nil, err
 	}
+
+	k.SetValidatorAccumulatedCommission(ctx, valAddr, types.ValidatorAccumulatedCommission{Commission: remainder}) // leave remainder to withdraw later
+
+	// update outstanding
+	outstanding := k.GetValidatorOutstandingRewards(ctx, valAddr).Rewards
 	k.SetValidatorOutstandingRewards(ctx, valAddr, types.ValidatorOutstandingRewards{Rewards: outstanding.Sub(commissionDec)})
 
 	if !commission.IsZero() {
