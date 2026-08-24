@@ -52,16 +52,27 @@ type PebbleDBConfig struct {
 	//
 	// Default: 16 MB
 	MemTableSize uint64 `mapstructure:"mem-table-size"`
+
+	// How many memtables may exist before writes block waiting for one to be flushed.
+	//
+	// Multiplied by MemTableSize this is the memory a database's memtables may occupy, and it is the
+	// slack that lets a burst of writes proceed while earlier memtables are still being flushed. Set it
+	// too low and writers stall on flush latency rather than on any real limit, which is charged to the
+	// memtable_write_stall phase of pebble_commit_phase_duration.
+	//
+	// Default: 16, which with the default MemTableSize allows 256 MB.
+	MemTableStopWritesThreshold int `mapstructure:"mem-table-stop-writes-threshold"`
 }
 
 // Default configuration for the PebbleDB database.
 func DefaultConfig() PebbleDBConfig {
 	return PebbleDBConfig{
-		EnableMetrics:            true,
-		MetricsScrapeInterval:    10 * time.Second,
-		BlockCacheSize:           int64(512 * unit.MB),
-		MaxConcurrentCompactions: max(4, runtime.NumCPU()/4),
-		MemTableSize:             uint64(16 * unit.MB),
+		EnableMetrics:               true,
+		MetricsScrapeInterval:       10 * time.Second,
+		BlockCacheSize:              int64(512 * unit.MB),
+		MaxConcurrentCompactions:    max(4, runtime.NumCPU()/4),
+		MemTableSize:                uint64(16 * unit.MB),
+		MemTableStopWritesThreshold: 16,
 	}
 }
 
@@ -81,6 +92,10 @@ func (c *PebbleDBConfig) Validate() error {
 	}
 	if c.MemTableSize == 0 {
 		return fmt.Errorf("mem table size must be positive")
+	}
+	if c.MemTableStopWritesThreshold < 2 {
+		return fmt.Errorf("mem table stop writes threshold must be at least 2, got %d",
+			c.MemTableStopWritesThreshold)
 	}
 	return nil
 }

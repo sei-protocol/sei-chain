@@ -53,7 +53,7 @@ func Open(
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20, // 64 MB
 		MemTableSize:                config.MemTableSize,
-		MemTableStopWritesThreshold: 4,
+		MemTableStopWritesThreshold: config.MemTableStopWritesThreshold,
 		DisableWAL:                  false,
 		// Pebble defaults this to a single compaction, which a sustained write load outruns: L0 gains
 		// sublevels faster than one compaction drains them, and every point lookup then pays to search
