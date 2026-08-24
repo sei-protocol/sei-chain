@@ -42,6 +42,32 @@ var whatVariesByNodeKind = map[string]map[registry.Mode]string{
 		registry.ModeFull:      "false",
 		registry.ModeArchive:   "false",
 	},
+	"tx-index.indexer": {
+		registry.ModeValidator: "[null]",
+		registry.ModeSeed:      "[null]",
+		registry.ModeFull:      "[kv]",
+		registry.ModeArchive:   "[kv]",
+	},
+}
+
+// declaredSections are the sections this package registers, so a test walks the set rather than a list that
+// has to be extended alongside it.
+func declaredSections() []string {
+	return []string{
+		P2PSectionName, RPCSectionName, ConsensusSectionName, MempoolSectionName,
+		StateSyncSectionName, TxIndexSectionName, InstrumentationSectionName,
+		PrivValidatorSectionName, SelfRemediationSectionName,
+	}
+}
+
+// ours reports whether a key belongs to a section this package registers.
+func ours(key string) bool {
+	for _, name := range declaredSections() {
+		if strings.HasPrefix(key, name+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // TestWhatVariesByNodeKindIsTheRecordedSet measures the mode rules through the declared values.
@@ -61,7 +87,7 @@ func TestWhatVariesByNodeKindIsTheRecordedSet(t *testing.T) {
 
 	var measured []string
 	for key := range byMode[registry.ModeValidator] {
-		if !strings.HasPrefix(key, P2PSectionName+".") && !strings.HasPrefix(key, RPCSectionName+".") {
+		if !ours(key) {
 			continue
 		}
 		seen := map[string]bool{}
@@ -110,6 +136,11 @@ func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
 		{RPCSectionName, &tmcfg.RPCConfig{}, 0},
 		{ConsensusSectionName, &tmcfg.ConsensusConfig{}, len(removedSettings)},
 		{MempoolSectionName, &tmcfg.MempoolConfig{}, 0},
+		{StateSyncSectionName, &tmcfg.StateSyncConfig{}, 1},
+		{TxIndexSectionName, &tmcfg.TxIndexConfig{}, 0},
+		{InstrumentationSectionName, &tmcfg.InstrumentationConfig{}, 0},
+		{PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{}, 0},
+		{SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{}, 0},
 	} {
 		registered, ok := registry.Lookup(tc.section)
 		if !ok {
@@ -316,5 +347,45 @@ func probeValueFor(rel string) string {
 		return "\"1s\""
 	default:
 		return "1"
+	}
+}
+
+// TestTheStateSyncExclusionIsThePathWithNoDefault names why that section leaves one path out.
+//
+// The servers to fetch a snapshot from are the operator's own peers, so there is no value to inherit. An
+// empty list is not a default an operator can start from, and an address written here would name a host
+// this binary cannot know about. If the node ever ships one, this fails and the key should be declared.
+func TestTheStateSyncExclusionIsThePathWithNoDefault(t *testing.T) {
+	registered, ok := registry.Lookup(StateSyncSectionName)
+	if !ok {
+		t.Fatalf("%s is not registered; Defects: %v", StateSyncSectionName, registry.Defects())
+	}
+	if want := []string{StateSyncSectionName + ".rpc-servers"}; !reflect.DeepEqual(registered.Excluded, want) {
+		t.Fatalf("excluded is %v, want %v", registered.Excluded, want)
+	}
+	if got := tmcfg.DefaultStateSyncConfig().RPCServers; len(got) != 0 {
+		t.Errorf("the node now defaults the snapshot servers to %v, so it states a value and the key "+
+			"belongs declared rather than excluded", got)
+	}
+}
+
+// TestEverySectionThisPackageRegistersIsUsable is the check no single section here can make.
+//
+// A registration the registry cannot use is recorded rather than panicked, so a section that failed to
+// register is absent rather than loud, and two of the refusals depend on what else has registered. Nothing
+// is enumerated beyond the section names this package owns, so adding one is covered by adding it there.
+func TestEverySectionThisPackageRegistersIsUsable(t *testing.T) {
+	for _, name := range declaredSections() {
+		registered, ok := registry.Lookup(name)
+		if !ok {
+			t.Errorf("%s is not registered; Defects: %v", name, registry.Defects())
+			continue
+		}
+		if len(registered.Keys) == 0 {
+			t.Errorf("%s registered and declares no key", name)
+		}
+	}
+	for _, d := range registry.Defects() {
+		t.Errorf("the registry refused %s: %v", d.Section, d.Err)
 	}
 }

@@ -12,6 +12,12 @@ const (
 	RPCSectionName       = "rpc"
 	ConsensusSectionName = "consensus"
 	MempoolSectionName   = "mempool"
+
+	StateSyncSectionName       = "statesync"
+	TxIndexSectionName         = "tx-index"
+	InstrumentationSectionName = "instrumentation"
+	PrivValidatorSectionName   = "priv-validator"
+	SelfRemediationSectionName = "self-remediation"
 )
 
 // removedSettings are the consensus paths this section does not declare.
@@ -58,6 +64,14 @@ func init() {
 	registry.RegisterSectionExcluding(ConsensusSectionName, &tmcfg.ConsensusConfig{}, consensusDefaults,
 		removedSettings...)
 	registry.RegisterSection(MempoolSectionName, &tmcfg.MempoolConfig{}, mempoolDefaults)
+	registry.RegisterSectionExcluding(StateSyncSectionName, &tmcfg.StateSyncConfig{}, stateSyncDefaults,
+		"rpc-servers")
+	registry.RegisterSection(TxIndexSectionName, &tmcfg.TxIndexConfig{}, txIndexDefaults)
+	registry.RegisterSection(InstrumentationSectionName, &tmcfg.InstrumentationConfig{},
+		instrumentationDefaults)
+	registry.RegisterSection(PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{}, privValidatorDefaults)
+	registry.RegisterSection(SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{},
+		selfRemediationDefaults)
 }
 
 // forMode is the configuration the seid init command writes for a kind of node.
@@ -106,3 +120,40 @@ func consensusDefaults(mode registry.Mode) any { return *forMode(mode).Consensus
 // The same values for every mode. What a node holds before a transaction is decided is a limit on its own
 // memory and bandwidth, and nothing in the binary makes one follow from what kind of node is asking.
 func mempoolDefaults(mode registry.Mode) any { return *forMode(mode).Mempool }
+
+// The one path the state sync section does not declare.
+//
+// The list of servers to fetch a snapshot from has no default and cannot have one: the addresses are the
+// operator's own peers. An empty list is not a value they can inherit, and any address written here would
+// name a host this binary does not know exists.
+
+// stateSyncDefaults is what a generated file carries for the state sync section.
+//
+// The same values for every mode. Whether a node starts from a snapshot is a decision about how it is being
+// brought up rather than about what it will be, and every kind of node can be brought up either way.
+func stateSyncDefaults(mode registry.Mode) any { return *forMode(mode).StateSync }
+
+// txIndexDefaults is what a generated file carries for the transaction index section.
+//
+// Answered per mode, for the indexer alone. A node that serves queries indexes transactions so it can
+// answer them, and a validator and a seed serve none, so they index nothing and keep the write.
+func txIndexDefaults(mode registry.Mode) any { return *forMode(mode).TxIndex }
+
+// instrumentationDefaults is what a generated file carries for the instrumentation section.
+//
+// The same values for every mode. What a node measures about itself is a decision about how it is operated,
+// and an operator who collects metrics collects them from every kind of node they run.
+func instrumentationDefaults(mode registry.Mode) any { return *forMode(mode).Instrumentation }
+
+// privValidatorDefaults is what a generated file carries for the signing key section.
+//
+// The same values for every mode. These are paths and an address for reaching a signer, and a node that
+// does not sign simply does not use them, so varying them by kind would state a difference the binary does
+// not make.
+func privValidatorDefaults(mode registry.Mode) any { return *forMode(mode).PrivValidator }
+
+// selfRemediationDefaults is what a generated file carries for the self remediation section.
+//
+// The same values for every mode. These are the thresholds at which a node restarts itself, and each one
+// describes a node that has stopped making progress, which is the same condition whatever the node is for.
+func selfRemediationDefaults(mode registry.Mode) any { return *forMode(mode).SelfRemediation }
