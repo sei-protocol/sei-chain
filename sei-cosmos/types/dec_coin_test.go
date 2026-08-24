@@ -1,6 +1,7 @@
 package types_test
 
 import (
+	"math/big"
 	"strings"
 	"testing"
 
@@ -18,7 +19,16 @@ import (
 func TestNewDecCoinConversionRange(t *testing.T) {
 	require.Panics(t, func() { sdk.NewDecCoin("stake", maxInt()) }, "NewDecCoin must reject max Int")
 	require.Panics(t, func() { sdk.NewDecCoinFromCoin(sdk.NewCoin("stake", maxInt())) }, "NewDecCoinFromCoin must reject max Int")
-	require.Panics(t, func() { sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", maxInt())) }, "NewDecCoinsFromCoins must reject max Int")
+
+	require.False(t, maxInt().CanConvertToDec())
+	_, err := sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", maxInt()))
+	require.Error(t, err)
+
+	valid := sdk.NewIntFromBigInt(new(big.Int).Lsh(big.NewInt(1), 200))
+	require.True(t, valid.CanConvertToDec())
+	decCoins, err := sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", valid))
+	require.NoError(t, err)
+	require.Equal(t, valid.ToDec(), decCoins[0].Amount)
 }
 
 type decCoinTestSuite struct {
@@ -293,7 +303,7 @@ func (s *decCoinTestSuite) TestSubDecCoins() {
 		msg        string
 	}{
 		{
-			sdk.NewDecCoinsFromCoins(sdk.NewCoin("mytoken", sdk.NewInt(10)), sdk.NewCoin("btc", sdk.NewInt(20)), sdk.NewCoin("eth", sdk.NewInt(30))),
+			sdk.NewDecCoins(sdk.NewDecCoin("mytoken", sdk.NewInt(10)), sdk.NewDecCoin("btc", sdk.NewInt(20)), sdk.NewDecCoin("eth", sdk.NewInt(30))),
 			true,
 			"sorted coins should have passed",
 		},
@@ -309,7 +319,8 @@ func (s *decCoinTestSuite) TestSubDecCoins() {
 		},
 	}
 
-	decCoins := sdk.NewDecCoinsFromCoins(sdk.NewCoin("btc", sdk.NewInt(10)), sdk.NewCoin("eth", sdk.NewInt(15)), sdk.NewCoin("mytoken", sdk.NewInt(5)))
+	decCoins, err := sdk.NewDecCoinsFromCoins(sdk.NewCoin("btc", sdk.NewInt(10)), sdk.NewCoin("eth", sdk.NewInt(15)), sdk.NewCoin("mytoken", sdk.NewInt(5)))
+	s.Require().NoError(err)
 
 	for _, tc := range tests {
 		tc := tc
