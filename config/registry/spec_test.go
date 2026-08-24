@@ -1541,3 +1541,48 @@ func contains(keys []string, want string) bool {
 	}
 	return false
 }
+
+// TestADeclaredInterfaceFieldIsRefusedAndAnExcludedOneIsNot holds the one property a rehearsed decode
+// rests on.
+//
+// What a decoder writes into an interface depends on what the field already holds, so two structs of the
+// same type can accept and refuse the same written value. A caller that decodes into a copy first to learn
+// whether the real decode will succeed gets an answer about the copy, and the two differ exactly where
+// their existing values do.
+//
+// Both directions matter. A section that declares such a field is refused, because nothing downstream can
+// reason about it. A section that excludes it registers, because a path nobody can write has no decode to
+// reason about, and the fields that carry this shape in practice are settings a reader has removed.
+func TestADeclaredInterfaceFieldIsRefusedAndAnExcludedOneIsNot(t *testing.T) {
+	type holdsAny struct {
+		Kept    string `mapstructure:"kept"`
+		Removed *any   `mapstructure:"removed"`
+	}
+
+	registry.RegisterSection("interface_declared", &holdsAny{}, func(registry.Mode) any {
+		return holdsAny{Kept: "a"}
+	})
+	if _, ok := registry.Lookup("interface_declared"); ok {
+		t.Error("a section declaring a field that holds an interface registered")
+	}
+	var named bool
+	for _, d := range registry.Defects() {
+		if d.Section == "interface_declared" && strings.Contains(d.Err.Error(), "holding an interface") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("no defect says the field holds an interface; Defects: %v", registry.Defects())
+	}
+
+	registry.RegisterSectionExcluding("interface_excluded", &holdsAny{}, func(registry.Mode) any {
+		return holdsAny{Kept: "a"}
+	}, "removed")
+	registered, ok := registry.Lookup("interface_excluded")
+	if !ok {
+		t.Fatalf("excluding the field did not make the section usable; Defects: %v", registry.Defects())
+	}
+	if want := []string{"interface_excluded.kept"}; !reflect.DeepEqual(registered.Keys, want) {
+		t.Errorf("declares %v, want %v", registered.Keys, want)
+	}
+}

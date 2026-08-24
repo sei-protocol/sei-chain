@@ -85,7 +85,7 @@ var removedSettings = []string{
 // a key here is a key that reader resolves rather than a second spelling of it.
 func init() {
 	registry.RegisterSectionExcluding(P2PSectionName, &tmcfg.P2PConfig{}, p2pDefaults,
-		filledFromTheCommandLine, "max-outbound-connections")
+		notDeclaredBy(P2PSectionName, filledFromTheCommandLine, "max-outbound-connections")...)
 	registry.RegisterSectionExcluding(RPCSectionName, &tmcfg.RPCConfig{}, rpcDefaults,
 		filledFromTheCommandLine)
 	registry.RegisterSectionExcluding(ConsensusSectionName, &tmcfg.ConsensusConfig{}, consensusDefaults,
@@ -93,7 +93,7 @@ func init() {
 	registry.RegisterSectionExcluding(MempoolSectionName, &tmcfg.MempoolConfig{}, mempoolDefaults,
 		filledFromTheCommandLine)
 	registry.RegisterSectionExcluding(StateSyncSectionName, &tmcfg.StateSyncConfig{}, stateSyncDefaults,
-		"rpc-servers")
+		notDeclaredBy(StateSyncSectionName, "rpc-servers")...)
 	registry.RegisterSection(TxIndexSectionName, &tmcfg.TxIndexConfig{}, txIndexDefaults)
 	registry.RegisterSection(InstrumentationSectionName, &tmcfg.InstrumentationConfig{},
 		instrumentationDefaults)
@@ -102,7 +102,39 @@ func init() {
 	registry.RegisterSection(SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{},
 		selfRemediationDefaults)
 	registry.RegisterRootKeysExcluding(RootSectionName, &nodeRootSchema{}, rootDefaults,
-		notWritableInThisFile...)
+		notDeclaredBy(RootSectionName, append(notWritableInThisFile, noLongerHasAnyEffect...)...)...)
+
+	// Each of these reaches its reader by a decode rather than a lookup, so the boot delivers them a
+	// second way. Declared in the same loop that names them, so a section registered above and forgotten
+	// here would be a section this package does not list at all.
+	for _, name := range declaredSectionNames() {
+		registry.DeclareDecodedNotLookedUp(name,
+			"decoded into the node's own configuration struct by the boot's handler, which reads that "+
+				"file once; nothing looks these keys up afterwards")
+	}
+}
+
+// declaredSectionNames are the sections this package registers.
+//
+// One list, read by the registration that marks them all as decoded and by the test that holds the two
+// against each other, so a section can not be registered without being delivered.
+func declaredSectionNames() []string {
+	return []string{
+		P2PSectionName, RPCSectionName, ConsensusSectionName, MempoolSectionName, StateSyncSectionName,
+		TxIndexSectionName, InstrumentationSectionName, PrivValidatorSectionName,
+		SelfRemediationSectionName, RootSectionName,
+	}
+}
+
+// notDeclaredBy gathers every path one section leaves out, from the reasons that apply to it.
+//
+// Gathered rather than written out per registration, because a path left out for a reason that covers
+// several sections is easy to add to one and forget in the others.
+func notDeclaredBy(section string, also ...string) []string {
+	out := append([]string{}, also...)
+	out = append(out, writtenBySomethingOutsideTheBinary[section]...)
+	out = append(out, forTestsOnly[section]...)
+	return out
 }
 
 // forMode is the configuration the seid init command writes for a kind of node.
@@ -128,6 +160,39 @@ func forMode(mode registry.Mode) *tmcfg.Config {
 // write over a running node's, and a node that cannot find its data directory, its genesis file or its
 // signing key does not start.
 const filledFromTheCommandLine = "home"
+
+// writtenBySomethingOutsideTheBinary are paths a node's own file receives from elsewhere at boot.
+//
+// The rule that keeps these out is not that the binary fills them in, which is what the root directory
+// does. It is that something else does, and this file cannot see it. The cluster's node controller resolves
+// a peer set from live discovery and patches the addresses in; a node computes a trust height and hash from
+// the chain tip each time it starts; a moniker is stamped per instance. A value declared here would be
+// decoded over whichever of those already ran, and the file it came from would keep saying otherwise.
+//
+// The moniker has a second reason on its own. Its default is the host name of whatever machine resolved it,
+// so no two machines agree on what this key declares.
+var writtenBySomethingOutsideTheBinary = map[string][]string{
+	P2PSectionName:       {"external-address", "persistent-peers"},
+	StateSyncSectionName: {"trust-height", "trust-hash"},
+	RootSectionName:      {"moniker"},
+}
+
+// noLongerHasAnyEffect are paths a reader keeps and ignores.
+//
+// The out-of-process application interface was removed, and the flag that carries this key is marked
+// deprecated where it is declared, saying the flag is ignored. A declared key whose only effect is nothing
+// is a setting an operator can spend an afternoon on.
+var noLongerHasAnyEffect = []string{"abci"}
+
+// forTestsOnly are paths that exist to make a node misbehave.
+//
+// One makes every dial fail and one runs the node against a stub application. Neither has a use on a real
+// network, and both are reachable from a file an operator edits by hand, on a node whose request surface
+// faces the outside.
+var forTestsOnly = map[string][]string{
+	P2PSectionName:  {"test-dial-fail"},
+	RootSectionName: {"mock-app"},
+}
 
 // The other path the peer-to-peer section does not declare.
 //

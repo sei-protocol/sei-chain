@@ -19,6 +19,10 @@ import (
 	// absent from what this installs and absent silently, since an undeclared key is left to whatever
 	// answered it before.
 	_ "github.com/sei-protocol/sei-chain/config/cosmosbase"
+
+	// The sections whose keys belong to the node's own configuration file, which nothing else imports
+	// either. These are the sections the delivery beside this one decodes rather than installs.
+	_ "github.com/sei-protocol/sei-chain/config/tendermintbase"
 )
 
 // seiTomlName is the file this manager reads.
@@ -67,7 +71,17 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	}
 	reportWhatTheFileDidNotReach(resolved, log)
 
-	supplied := onlyWhatASourceSupplied(resolved)
+	// First, because every failure below is a log line and a refusal is reported at a level an operator
+	// may have raised the threshold above. Doing this after would mean the one setting somebody changes
+	// in order to see a refusal is the setting a refusal suppresses.
+	applyResolvedLogLevel(resolved, log)
+
+	// The sections a reader looks up key by key, and the sections a reader decodes whole. Two deliveries,
+	// because putting a value into the source is no delivery at all for the second kind: their file is
+	// read into a struct before this runs and nothing consults the source for them afterwards.
+	deliverDecodedSections(ctx, resolved, log)
+
+	supplied := onlyWhatALookupSourceSupplied(resolved)
 	if len(supplied.Values) == 0 {
 		log.Info("sei.toml supplies no declared value; every key reads as it always has", "mode", mode)
 		return
@@ -82,7 +96,8 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 		"installed", strings.Join(report.Installed, ","))
 }
 
-// onlyWhatASourceSupplied narrows a resolution to the keys something other than the defaults answered.
+// onlyWhatALookupSourceSupplied narrows a resolution to the keys something other than the defaults
+// answered, for the sections whose readers look a key up rather than decoding one.
 //
 // This is the whole difference between moving a setting and replacing a file. A resolution answers for
 // every declared key, so installing all of it would write a default over whatever an operator's app.toml
@@ -92,9 +107,26 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 //
 // It also means a declared default never reaches a running node, which is what lets a default state what
 // the provisioning command writes rather than having to state what each node already runs.
-func onlyWhatASourceSupplied(resolved registry.Resolved) registry.Resolved {
+func onlyWhatALookupSourceSupplied(resolved registry.Resolved) registry.Resolved {
+	decoded := registry.DecodedSections()
+	owning := map[string]bool{}
+	for _, section := range registry.Sections() {
+		if _, ok := decoded[section.Name]; !ok {
+			continue
+		}
+		for _, key := range section.Keys {
+			owning[key] = true
+		}
+	}
+
 	out := registry.Resolved{Values: make(map[string]any, len(resolved.Overrides))}
 	for _, key := range resolved.Overrides {
+		// A key both deliveries carried would be installed into the source as well as decoded, and the
+		// install refuses a key its own contract does not cover, which would take the whole install down
+		// and with it every key of every other section.
+		if owning[key] {
+			continue
+		}
 		out.Values[key] = resolved.Values[key]
 	}
 	return out

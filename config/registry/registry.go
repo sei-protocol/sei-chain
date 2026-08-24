@@ -130,10 +130,13 @@ func RegisterRootKeysExcluding(name string, prototype any, defaults func(Mode) a
 
 // record is the one path both registrations take.
 func record(name, prefix string, prototype any, defaults func(Mode) any, excluding []string) {
-	keys, err := deriveKeys(name, prefix, prototype)
-	var excluded []string
+	found, err := deriveKeys(name, prefix, prototype)
+	keys, excluded := found.keys, []string(nil)
 	if err == nil {
 		keys, excluded, err = withoutExcluded(prefix, keys, excluding)
+	}
+	if err == nil {
+		err = refuseDeclaredInterfaces(keys, found.interfaces)
 	}
 
 	mu.Lock()
@@ -156,6 +159,37 @@ func record(name, prefix string, prototype any, defaults func(Mode) any, excludi
 			Name: name, Prefix: prefix, Keys: keys, Excluded: excluded, Defaults: defaults,
 		}
 	}
+}
+
+// refuseDeclaredInterfaces refuses a declared path whose field holds an interface.
+//
+// What a decoder writes into an interface depends on what the field already holds rather than on the
+// field's type, so two structs of one type can accept and refuse the same written value. A caller that
+// rehearses a decode into a copy to learn whether the real one will succeed gets an answer about the copy,
+// and the two differ exactly where their existing values do.
+//
+// Checked against the declared paths and not the struct's fields, because a section may exclude such a
+// field. An excluded path is not declared, and how a path nobody can write decodes is not a property worth
+// refusing.
+func refuseDeclaredInterfaces(keys, interfaces []string) error {
+	if len(interfaces) == 0 {
+		return nil
+	}
+	declared := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		declared[key] = true
+	}
+	var bad []string
+	for _, key := range interfaces {
+		if declared[key] {
+			bad = append(bad, key)
+		}
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("%v name fields holding an interface, so what a written value decodes to "+
+			"depends on what the field already holds and not on the field's type", bad)
+	}
+	return nil
 }
 
 // withoutExcluded splits derived paths into the ones a section declares and the ones it does not.
@@ -282,49 +316,63 @@ func Keys() []string {
 // outside state-commit.flatkv.*. Ninety-two operator-facing keys reach their field only through a
 // spelling the tags do not produce, and a silent fallback is what made that invisible. Refusing to
 // guess is what keeps the tag authoritative.
-func deriveKeys(name, prefix string, prototype any) ([]string, error) {
+func deriveKeys(name, prefix string, prototype any) (derived, error) {
 	if name == "" {
-		return nil, fmt.Errorf("section name is empty")
+		return derived{}, fmt.Errorf("section name is empty")
 	}
 	if name != strings.ToLower(name) {
-		return nil, fmt.Errorf("section name %q is not lower case; configuration sources "+
+		return derived{}, fmt.Errorf("section name %q is not lower case; configuration sources "+
 			"enumerate lower-cased, so a key under it would never match a written one", name)
 	}
 	if bad, found := unaddressableChar(name); found {
-		return nil, fmt.Errorf("section name %q carries %q, and a section is one segment. A dotted name "+
+		return derived{}, fmt.Errorf("section name %q carries %q, and a section is one segment. A dotted name "+
 			"declares keys inside another section's subtree, where the two sections' defaults land in "+
 			"one map and whichever renders last silently wins; a space cannot be written in an "+
 			"environment variable name at all", name, bad)
 	}
 	if prototype == nil {
-		return nil, fmt.Errorf("no struct")
+		return derived{}, fmt.Errorf("no struct")
 	}
 	t := reflect.TypeOf(prototype)
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("%s is not a struct", t.Kind())
+		return derived{}, fmt.Errorf("%s is not a struct", t.Kind())
 	}
 
-	var keys []string
-	if err := walk(t, prefix, &keys, map[reflect.Type]bool{}); err != nil {
-		return nil, err
+	var found derived
+	if err := walk(t, prefix, &found, map[reflect.Type]bool{}); err != nil {
+		return derived{}, err
 	}
+	keys := found.keys
 	if len(keys) == 0 {
-		return nil, fmt.Errorf("declares no keys")
+		return derived{}, fmt.Errorf("declares no keys")
 	}
 	sort.Strings(keys)
+	sort.Strings(found.interfaces)
 	// A path two fields both produce leaves one of them unreachable, and which one is not
 	// observable: the value walk writes them into one map. That is the unaddressable-key failure
 	// this package exists to refuse, so it cannot be allowed to arrive through the package itself.
 	for i := 1; i < len(keys); i++ {
 		if keys[i] == keys[i-1] {
-			return nil, fmt.Errorf("two fields both declare %q, so one of them is unreachable and "+
+			return derived{}, fmt.Errorf("two fields both declare %q, so one of them is unreachable and "+
 				"which one is not observable", keys[i])
 		}
 	}
-	return keys, nil
+	found.keys = keys
+	return found, nil
+}
+
+// derived is what one walk of a section's type collects.
+//
+// Two lists rather than one, because a path whose field holds an interface is not refused where it is
+// found. A section may exclude it, and an excluded path is not declared, so nothing about how it decodes
+// matters. The refusal belongs after the exclusions are known.
+type derived struct {
+	keys []string
+	// interfaces are paths whose field holds an interface, sorted with the keys they appear among.
+	interfaces []string
 }
 
 // walk appends the dotted keys a struct declares under prefix.
@@ -332,7 +380,7 @@ func deriveKeys(name, prefix string, prototype any) ([]string, error) {
 // open carries the struct types on the current path, so a self-referential one is refused rather than
 // recursed into. A stack overflow cannot be recovered into a Defect, so this is the one refusal that
 // has to happen before the recursion rather than after it.
-func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]bool) error {
+func walk(t reflect.Type, prefix string, found *derived, open map[reflect.Type]bool) error {
 	if open[t] {
 		return fmt.Errorf("%s is %s, which contains itself; a key space derived from it has no end",
 			prefix, t)
@@ -373,7 +421,7 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 			if ft.Kind() != reflect.Struct {
 				return fmt.Errorf("%s.%s is squashed but is a %s, not a struct", prefix, f.Name, ft.Kind())
 			}
-			if err := walkSubtree(ft, prefix, join(prefix, f.Name), keys, open); err != nil {
+			if err := walkSubtree(ft, prefix, join(prefix, f.Name), found, open); err != nil {
 				return err
 			}
 			continue
@@ -381,12 +429,17 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 
 		path := join(prefix, tag)
 		if ft.Kind() == reflect.Struct && !isLeaf(ft) {
-			if err := walkSubtree(ft, path, join(prefix, f.Name), keys, open); err != nil {
+			if err := walkSubtree(ft, path, join(prefix, f.Name), found, open); err != nil {
 				return err
 			}
 			continue
 		}
-		*keys = append(*keys, path)
+		found.keys = append(found.keys, path)
+		// Recorded rather than refused. An excluded path is not declared, so how it decodes never
+		// matters; record decides, once the exclusions are known.
+		if ft.Kind() == reflect.Interface {
+			found.interfaces = append(found.interfaces, path)
+		}
 	}
 	return nil
 }
@@ -404,12 +457,12 @@ func join(prefix, segment string) string {
 // A struct configuration cannot reach is a setting an operator writes into nothing. A defined type
 // over a leaf, an empty struct, and a struct whose every field is unexported all arrive here having
 // contributed nothing, and both walks agree about it, so no later check can see the loss.
-func walkSubtree(t reflect.Type, path, field string, keys *[]string, open map[reflect.Type]bool) error {
-	before := len(*keys)
-	if err := walk(t, path, keys, open); err != nil {
+func walkSubtree(t reflect.Type, path, field string, found *derived, open map[reflect.Type]bool) error {
+	before := len(found.keys)
+	if err := walk(t, path, found, open); err != nil {
 		return err
 	}
-	if len(*keys) == before {
+	if len(found.keys) == before {
 		return fmt.Errorf("%s is a %s that declares no key, so configuration cannot reach it", field, t)
 	}
 	return nil
